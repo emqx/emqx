@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_config).
 
+-feature(maybe_expr, enable).
+
 -include("emqx_schema_registry.hrl").
 
 %% API
@@ -162,10 +164,60 @@ post_config_update(
     _Old,
     _AppEnvs
 ) ->
+    do_upsert_external_registry(Name, NewConfig),
+    ok;
+post_config_update([?CONF_KEY_ROOT], _Cmd, NewConf, OldConf, _AppEnvs) ->
+    Context0 = #{},
+    maybe
+        {ok, Context1} ?= handle_import_schemas(Context0, NewConf, OldConf),
+        {ok, _Context2} ?= handle_import_external_registries(Context1, NewConf, OldConf)
+    end;
+post_config_update(_Path, _Cmd, NewConf, _OldConf, _AppEnvs) ->
+    {ok, NewConf}.
+
+%%------------------------------------------------------------------------------
+%% `emqx_config_backup' API
+%%------------------------------------------------------------------------------
+
+import_config(#{?CONF_KEY_ROOT_BIN := RawConf0}) ->
+    Result = emqx_conf:update(
+        [?CONF_KEY_ROOT],
+        RawConf0,
+        #{override_to => cluster, rawconf_with_defaults => true}
+    ),
+    case Result of
+        {error, Reason} ->
+            {error, #{root_key => ?CONF_KEY_ROOT, reason => Reason}};
+        {ok, Res} ->
+            ChangedPaths = emqx_utils_maps:deep_get(
+                [post_config_update, ?MODULE, changed_paths],
+                Res,
+                []
+            ),
+            {ok, #{root_key => ?CONF_KEY_ROOT, changed => ChangedPaths}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => ?CONF_KEY_ROOT, changed => []}}.
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+add_external_registry(Name, Config) ->
+    ok = emqx_schema_registry_external:add(Name, Config),
+    ok.
+
+remove_external_registry(Name) ->
+    ok = emqx_schema_registry_external:remove(Name),
+    ok.
+
+%% receives parsed config with atom keys
+do_upsert_external_registry(Name, NewConfig) ->
     remove_external_registry(Name),
     add_external_registry(Name, NewConfig),
-    ok;
-post_config_update(?CONF_KEY_PATH, _Cmd, NewConf = #{schemas := NewSchemas}, OldConf, _AppEnvs) ->
+    ok.
+
+handle_import_schemas(Context0, #{schemas := NewSchemas}, OldConf) ->
     OldSchemas = maps:get(schemas, OldConf, #{}),
     #{
         added := Added,
@@ -187,40 +239,46 @@ post_config_update(?CONF_KEY_PATH, _Cmd, NewConf = #{schemas := NewSchemas}, Old
     ]),
     case emqx_schema_registry:build_serdes(SchemasToBuild) of
         ok ->
-            {ok, NewConf};
+            ChangedPaths = [
+                [?CONF_KEY_ROOT, schemas, N]
+             || {N, _} <- SchemasToBuild
+            ],
+            Context = maps:update_with(
+                changed_paths,
+                fun(Ps) -> ChangedPaths ++ Ps end,
+                ChangedPaths,
+                Context0
+            ),
+            {ok, Context};
         {error, Reason, SerdesToRollback} ->
             lists:foreach(fun emqx_schema_registry:ensure_serde_absent/1, SerdesToRollback),
             {error, Reason}
-    end;
-post_config_update(_Path, _Cmd, NewConf, _OldConf, _AppEnvs) ->
-    {ok, NewConf}.
+    end.
 
-%%------------------------------------------------------------------------------
-%% `emqx_config_backup' API
-%%------------------------------------------------------------------------------
-
-import_config(#{<<"schema_registry">> := #{<<"schemas">> := Schemas} = SchemaRegConf}) ->
-    OldSchemas = emqx:get_raw_config([?CONF_KEY_ROOT, schemas], #{}),
-    SchemaRegConf1 = SchemaRegConf#{<<"schemas">> => maps:merge(OldSchemas, Schemas)},
-    case emqx_conf:update(?CONF_KEY_PATH, SchemaRegConf1, #{override_to => cluster}) of
-        {ok, #{raw_config := #{<<"schemas">> := NewRawSchemas}}} ->
-            Changed = maps:get(changed, emqx_utils_maps:diff_maps(NewRawSchemas, OldSchemas)),
-            ChangedPaths = [[?CONF_KEY_ROOT, schemas, Name] || Name <- maps:keys(Changed)],
-            {ok, #{root_key => ?CONF_KEY_ROOT, changed => ChangedPaths}};
-        Error ->
-            {error, #{root_key => ?CONF_KEY_ROOT, reason => Error}}
-    end;
-import_config(_RawConf) ->
-    {ok, #{root_key => ?CONF_KEY_ROOT, changed => []}}.
-
-%%------------------------------------------------------------------------------
-%% Internal fns
-%%------------------------------------------------------------------------------
-
-add_external_registry(Name, Config) ->
-    ok = emqx_schema_registry_external:add(Name, Config),
-    ok.
-
-remove_external_registry(Name) ->
-    ok = emqx_schema_registry_external:remove(Name),
-    ok.
+handle_import_external_registries(Context0, NewConf, OldConf) ->
+    New = maps:get(external, NewConf, #{}),
+    Old = maps:get(external, OldConf, #{}),
+    #{
+        added := Added,
+        changed := Changed0,
+        removed := Removed
+    } = emqx_utils_maps:diff_maps(New, Old),
+    Changed = maps:map(fun(_N, {_Old, New0}) -> New0 end, Changed0),
+    RemovedNames = maps:keys(Removed),
+    RegistriesToUpsert = maps:to_list(maps:merge(Changed, Added)),
+    lists:foreach(fun remove_external_registry/1, RemovedNames),
+    lists:foreach(
+        fun({Name, Cfg}) -> do_upsert_external_registry(Name, Cfg) end,
+        RegistriesToUpsert
+    ),
+    ChangedPaths = [
+        [?CONF_KEY_ROOT, external, N]
+     || {N, _} <- RegistriesToUpsert
+    ],
+    Context = maps:update_with(
+        changed_paths,
+        fun(Ps) -> ChangedPaths ++ Ps end,
+        ChangedPaths,
+        Context0
+    ),
+    {ok, Context}.
