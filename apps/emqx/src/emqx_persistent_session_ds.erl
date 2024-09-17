@@ -190,6 +190,7 @@
 %% state.
 -type subscription() :: #{
     id := subscription_id(),
+    mode => emqx_persistent_session_ds_subs:subscription_mode(),
     start_time := emqx_ds:time(),
     current_state := emqx_persistent_session_ds_subs:subscription_state_id(),
     subopts := map()

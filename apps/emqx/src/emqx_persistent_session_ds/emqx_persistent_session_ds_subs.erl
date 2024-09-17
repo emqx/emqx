@@ -41,7 +41,12 @@
     cold_get_subscription/2
 ]).
 
--export_type([subscription_state_id/0, subscription/0, subscription_state/0]).
+-export_type([
+    subscription_state_id/0,
+    subscription/0,
+    subscription_state/0,
+    subscription_mode/0
+]).
 
 -include("session_internals.hrl").
 -include("emqx_mqtt.hrl").
