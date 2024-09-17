@@ -240,7 +240,7 @@ t_persistent_topics(_Config) ->
     ClientPersistent1 = client(SessionId1, PersistentOpts),
     ClientPersistent2 = client(SessionId2, PersistentOpts),
     _ = [
-        ?assertMatch({ok, _, _}, emqtt:subscribe(Client, Topic))
+        ?assertMatch({ok, _, _}, emqtt:subscribe(Client, Topic, qos1))
      || {Client, Topics} <- [
             {Client1, [<<"t/client/mem">>, <<"t/+">>]},
             {Client2, [<<"t/client/mem">>, <<"t/+">>]},
@@ -251,8 +251,8 @@ t_persistent_topics(_Config) ->
     ],
     Matched = request_json(get, ["topics"]),
     ?assertMatch(
-        #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 8},
-        maps:get(<<"meta">>, Matched)
+        #{<<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 8}},
+        Matched
     ),
     %% Get back both topics for both persistent and in-memory subscriptions.
     Expected = [

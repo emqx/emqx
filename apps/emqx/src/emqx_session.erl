@@ -154,6 +154,8 @@
     max_awaiting_rel := non_neg_integer() | infinity,
     %% Upgrade QoS?
     upgrade_qos := boolean(),
+    %% Does Upgrade QoS enabled anywhere?
+    upgrade_qos_any := boolean(),
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
     retry_interval := timeout(),
     %% Awaiting PUBREL Timeout (Unit: millisecond)
@@ -294,12 +296,24 @@ get_session_conf(_ClientInfo = #{zone := Zone}) ->
         max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
         max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
         upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
+        upgrade_qos_any => any_mqtt_conf(upgrade_qos),
         retry_interval => get_mqtt_conf(Zone, retry_interval),
         await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout)
     }.
 
 get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
+
+any_mqtt_conf(KeyFlag) ->
+    emqx_config:get([mqtt, KeyFlag]) orelse any_mqtt_zone_conf(KeyFlag).
+
+any_mqtt_zone_conf(KeyFlag) ->
+    Zones = emqx_config:get([zones]),
+    maps:fold(
+        fun(_Zone, Conf, Acc) -> Acc orelse maps:get(KeyFlag, Conf, false) end,
+        false,
+        Zones
+    ).
 
 %%--------------------------------------------------------------------
 %% Existing sessions

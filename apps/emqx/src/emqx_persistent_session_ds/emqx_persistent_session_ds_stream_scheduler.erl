@@ -410,7 +410,7 @@ renew_streams(S0, SchedS0) ->
     %% TODO
     %% Move discovery of proper streams
     %% out of the scheduler for complete symmetry?
-    fold_proper_subscriptions(
+    fold_persistent_subscriptions(
         fun
             (
                 Key,
@@ -431,6 +431,7 @@ renew_streams(S0, SchedS0) ->
                     Streams
                 );
             (_Key, _DeletedSubscription, Acc) ->
+                %% TODO: Unreachable?
                 Acc
         end,
         {S3, SchedS0},
@@ -807,12 +808,5 @@ is_track_acked(?QOS_1, Committed, #srs{first_seqno_qos1 = First, last_seqno_qos1
 is_track_acked(?QOS_2, Committed, #srs{first_seqno_qos2 = First, last_seqno_qos2 = Last}) ->
     First =:= Last orelse Committed >= Last.
 
-fold_proper_subscriptions(Fun, Acc, S) ->
-    emqx_persistent_session_ds_state:fold_subscriptions(
-        fun
-            (#share{}, _Sub, Acc0) -> Acc0;
-            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
-        end,
-        Acc,
-        S
-    ).
+fold_persistent_subscriptions(Fun, Acc, S) ->
+    emqx_persistent_session_ds_subs:fold(Fun, Acc, S, [regular, persistent]).

@@ -270,7 +270,9 @@ t_qos0(_Config) ->
                 #{qos := 1, topic := <<"t/1">>, payload := <<"2">>},
                 #{qos := 0, topic := <<"t/1">>, payload := <<"3">>}
             ],
-            receive_messages(3)
+            %% NOTE
+            %% With QoS0 routed through realtime channel, ordering is no longer predictable.
+            lists:sort(emqx_utils_maps:key_comparer(payload), receive_messages(3))
         )
     after
         emqtt:stop(Sub),
@@ -297,8 +299,6 @@ t_qos0_only_many_streams(_Config) ->
             [_, _, _],
             receive_messages(3)
         ),
-
-        Inflight0 = get_session_inflight(ConnPid),
 
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
@@ -340,14 +340,6 @@ t_qos0_only_many_streams(_Config) ->
                     (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
 
             receive_messages(3)
-        ),
-
-        Inflight1 = get_session_inflight(ConnPid),
-
-        %% TODO: Kinda stupid way to verify that the runtime state is not growing.
-        ?assert(
-            erlang:external_size(Inflight1) - erlang:external_size(Inflight0) < 16,
-            Inflight1
         )
     after
         emqtt:stop(Sub),

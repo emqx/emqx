@@ -474,15 +474,19 @@ unsubscribe(
     end;
 unsubscribe(
     TopicFilter,
-    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
+    Session0 = #{stream_scheduler_s := SchedS0}
 ) ->
-    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
+    case emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, Session0) of
+        {ok, S1, #{mode := {persistent, _}, id := SubId, subopts := SubOpts}} ->
             {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 SubId, S1, SchedS0
             ),
             S = emqx_persistent_session_ds_state:commit(S2),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
+            {ok, Session, SubOpts};
+        {ok, S1, #{mode := realtime, subopts := SubOpts}} ->
+            S = emqx_persistent_session_ds_state:commit(S1),
+            Session = Session0#{s := S},
             {ok, Session, SubOpts};
         Error = {error, _} ->
             Error
@@ -643,10 +647,13 @@ pubcomp(_ClientInfo, PacketId, Session0) ->
 deliver(ClientInfo, Delivers, Session0) ->
     %% Durable sessions still have to handle some transient messages.
     %% For example, retainer sends messages to the session directly.
-    Session = lists:foldl(
-        fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
+    Session1 = lists:foldl(
+        fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end,
+        Session0,
+        Delivers
     ),
-    {ok, [], pull_now(Session)}.
+    {Publishes, Session} = drain_buffer(Session1),
+    {ok, Publishes, Session}.
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -755,7 +762,8 @@ bump_last_alive(S0) ->
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
-replay(ClientInfo, [], Session0 = #{s := S0}) ->
+replay(ClientInfo, [], Session0 = #{id := SessionId, s := S0}) ->
+    ok = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S0),
     Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S0),
     Session = replay_streams(Session0#{replay := Streams}, ClientInfo),
     {ok, [], Session}.
