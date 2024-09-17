@@ -7,7 +7,11 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([
+    start_link/0,
+    on_enable/0,
+    on_disable/0
+]).
 
 %% supervisor behaviour callbacks
 -export([init/1]).
@@ -19,6 +23,36 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+on_enable() ->
+    ok = emqx_ds_shared_sub_leader_store:open(),
+    ensure_started(emqx_ds_shared_sub_registry:child_spec()).
+
+on_disable() ->
+    ok = ensure_stopped(emqx_ds_shared_sub_registry:child_spec()),
+    emqx_ds_shared_sub_leader_store:close().
+
+%%------------------------------------------------------------------------------
+
+ensure_started(ChildSpec) ->
+    case supervisor:start_child(?MODULE, ChildSpec) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _}} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
+
+ensure_stopped(#{id := ChildId}) ->
+    case supervisor:terminate_child(?MODULE, ChildId) of
+        ok ->
+            supervisor:delete_child(?MODULE, ChildId);
+        {error, not_found} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
+
 %%------------------------------------------------------------------------------
 %% supervisor behaviour callbacks
 %%------------------------------------------------------------------------------
@@ -29,7 +63,4 @@ init([]) ->
         intensity => 10,
         period => 10
     },
-    ChildSpecs = [
-        emqx_ds_shared_sub_registry:child_spec()
-    ],
-    {ok, {SupFlags, ChildSpecs}}.
+    {ok, {SupFlags, []}}.

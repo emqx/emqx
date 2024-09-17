@@ -127,7 +127,7 @@ fields("server_configs") ->
                     desc => ?DESC("clean_start")
                 }
             )},
-        {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"300s">>})},
+        {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"160s">>})},
         {retry_interval,
             mk_duration(
                 "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "
