@@ -2,7 +2,7 @@
 
 This application implements an extended authentication for EMQX Enterprise edition.
 
-Client-info (of type `cinfo`) authentication is a light-weight authentication mechanism which checks client properties and attributes against user defined rules.
+Client-info (of type `cinfo`) authentication is a lightweight authentication mechanism which checks client properties and attributes against user defined rules.
 The rules make use of the Variform expression to define match conditions, and the authentication result when match is found.
 For example, to quickly fencing off clients without a username, the match condition can be `str_eq(username, '')` associated with a attributes result `deny`.
 
