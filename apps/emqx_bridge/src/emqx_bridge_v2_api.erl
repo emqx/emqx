@@ -796,10 +796,10 @@ handle_list(ConfRootKey) ->
     end.
 
 handle_create(ConfRootKey, Type, Name, Conf0) ->
-    case emqx_bridge_v2:lookup(ConfRootKey, Type, Name) of
-        {ok, _} ->
+    case emqx_bridge_v2:is_exist(ConfRootKey, Type, Name) of
+        true ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
-        {error, not_found} ->
+        false ->
             Conf = filter_out_request_body(Conf0),
             create_bridge(ConfRootKey, Type, Name, Conf)
     end.
@@ -808,12 +808,12 @@ handle_update(ConfRootKey, Id, Conf0) ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
-            {ok, _} ->
+        case emqx_bridge_v2:is_exists(ConfRootKey, BridgeType, BridgeName) of
+            true ->
                 RawConf = emqx:get_raw_config([ConfRootKey, BridgeType, BridgeName], #{}),
                 Conf = emqx_utils:deobfuscate(Conf1, RawConf),
                 update_bridge(ConfRootKey, BridgeType, BridgeName, Conf);
-            {error, not_found} ->
+            false ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     ).
@@ -821,8 +821,8 @@ handle_update(ConfRootKey, Id, Conf0) ->
 handle_delete(ConfRootKey, Id, QueryStringOpts) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
-            {ok, _} ->
+        case emqx_bridge_v2:is_exist(ConfRootKey, BridgeType, BridgeName) of
+            true ->
                 AlsoDeleteActions =
                     case maps:get(<<"also_delete_dep_actions">>, QueryStringOpts, <<"false">>) of
                         <<"true">> -> true;
@@ -851,7 +851,7 @@ handle_delete(ConfRootKey, Id, QueryStringOpts) ->
                     {error, Reason} ->
                         ?INTERNAL_ERROR(Reason)
                 end;
-            {error, not_found} ->
+            false ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     ).
@@ -943,8 +943,8 @@ handle_probe(ConfRootKey, Request) ->
 
 %%% API helpers
 maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeName} = Params) ->
-    case emqx_bridge_v2:lookup(ActionType, BridgeName) of
-        {ok, #{raw_config := RawConf}} ->
+    case emqx_bridge_v2:lookup_raw_conf(ActionType, BridgeName) of
+        {ok, RawConf} ->
             %% TODO check if RawConf obtained above is compatible with the commented out code below
             %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
             emqx_utils:deobfuscate(Params, RawConf);

@@ -44,6 +44,8 @@
     list/1,
     lookup/2,
     lookup/3,
+    lookup_raw_conf/3,
+    is_exist/3,
     create/3,
     create/4,
     %% The remove/2 function is only for internal use as it may create
@@ -239,6 +241,17 @@ lookup_action(Type, Name) ->
 
 lookup_source(Type, Name) ->
     lookup(?ROOT_KEY_SOURCES, Type, Name).
+
+is_exist(ConfRootName, Type, Name) ->
+    {error, not_found} =/= lookup_raw_conf(ConfRootName, Type, Name).
+
+lookup_raw_conf(ConfRootName, Type, Name) ->
+    case emqx:get_raw_config([ConfRootName, Type, Name], not_found) of
+        not_found ->
+            {error, not_found};
+        #{<<"connector">> := _} = RawConf ->
+            {ok, RawConf}
+    end.
 
 -spec lookup(root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
     {ok, bridge_v2_info()} | {error, not_found}.
