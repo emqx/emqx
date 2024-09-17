@@ -808,7 +808,7 @@ handle_update(ConfRootKey, Id, Conf0) ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:is_exists(ConfRootKey, BridgeType, BridgeName) of
+        case emqx_bridge_v2:is_exist(ConfRootKey, BridgeType, BridgeName) of
             true ->
                 RawConf = emqx:get_raw_config([ConfRootKey, BridgeType, BridgeName], #{}),
                 Conf = emqx_utils:deobfuscate(Conf1, RawConf),
@@ -920,7 +920,7 @@ handle_probe(ConfRootKey, Request) ->
     RequestMeta = #{module => ?MODULE, method => post, path => Path},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := Type} = Params}} ->
-            Params1 = maybe_deobfuscate_bridge_probe(Params),
+            Params1 = maybe_deobfuscate_bridge_probe(ConfRootKey, Params),
             Params2 = maps:remove(<<"type">>, Params1),
             case emqx_bridge_v2:create_dry_run(ConfRootKey, Type, Params2) of
                 ok ->
@@ -942,8 +942,10 @@ handle_probe(ConfRootKey, Request) ->
     end.
 
 %%% API helpers
-maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeName} = Params) ->
-    case emqx_bridge_v2:lookup_raw_conf(ActionType, BridgeName) of
+maybe_deobfuscate_bridge_probe(
+    ConfRootKey, #{<<"type">> := ActionType, <<"name">> := BridgeName} = Params
+) ->
+    case emqx_bridge_v2:lookup_raw_conf(ConfRootKey, ActionType, BridgeName) of
         {ok, RawConf} ->
             %% TODO check if RawConf obtained above is compatible with the commented out code below
             %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
@@ -952,7 +954,7 @@ maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeN
             %% A bridge may be probed before it's created, so not finding it here is fine
             Params
     end;
-maybe_deobfuscate_bridge_probe(Params) ->
+maybe_deobfuscate_bridge_probe(_ConfRootKey, Params) ->
     Params.
 
 is_ok(ok) ->

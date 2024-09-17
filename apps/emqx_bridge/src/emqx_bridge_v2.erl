@@ -58,7 +58,7 @@
     check_deps_and_remove/3,
     check_deps_and_remove/4
 ]).
--export([lookup_action/2, lookup_source/2]).
+-export([is_action_exist/2, is_source_exist/2]).
 
 %% Operations
 
@@ -236,11 +236,11 @@ unload_bridges(ConfRooKey) ->
 lookup(Type, Name) ->
     lookup(?ROOT_KEY_ACTIONS, Type, Name).
 
-lookup_action(Type, Name) ->
-    lookup(?ROOT_KEY_ACTIONS, Type, Name).
+is_action_exist(Type, Name) ->
+    is_exist(?ROOT_KEY_ACTIONS, Type, Name).
 
-lookup_source(Type, Name) ->
-    lookup(?ROOT_KEY_SOURCES, Type, Name).
+is_source_exist(Type, Name) ->
+    is_exist(?ROOT_KEY_SOURCES, Type, Name).
 
 is_exist(ConfRootName, Type, Name) ->
     {error, not_found} =/= lookup_raw_conf(ConfRootName, Type, Name).
