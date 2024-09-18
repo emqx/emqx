@@ -173,7 +173,7 @@ jobs:
     needs:
       - prepare
       - compile
-    runs-on: ubuntu-22.04'
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     steps:
       - name: Create PR in emqx/emqx-i18n
         env:
@@ -186,7 +186,7 @@ jobs:
     needs:
       - prepare
       - compile
-    runs-on: ubuntu-22.04
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     steps:
       - name: Create PR in emqx/emqx-docs
         env:
@@ -195,8 +195,10 @@ jobs:
           gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
 
   run_emqx_app_tests:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - init
+      - prepare
       - compile
     uses: ./.github/workflows/run_emqx_app_tests.yaml
     with:
