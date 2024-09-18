@@ -670,8 +670,9 @@ query(BridgeType, BridgeName, Message, QueryOpts0) ->
             Config = combine_connector_and_bridge_v2_config(BridgeType, BridgeName, Config0),
             do_query_with_enabled_config(BridgeType, BridgeName, Message, QueryOpts0, Config);
         #{enable := false} ->
-            {error, bridge_stopped};
-        _Error ->
+            {error, bridge_disabled};
+        {error, bridge_not_found} ->
+            %% race
             {error, bridge_not_found}
     end.
 
@@ -725,9 +726,10 @@ health_check(ConfRootKey, BridgeType, BridgeName) ->
                 ConnectorId, id_with_root_name(ConfRootKey, BridgeType, BridgeName, ConnectorName)
             );
         #{enable := false} ->
-            {error, bridge_stopped};
-        Error ->
-            Error
+            {error, bridge_disabled};
+        {error, bridge_not_found} ->
+            %% race
+            {error, bridge_not_found}
     end.
 
 -spec create_dry_run(bridge_v2_type(), Config :: map()) -> ok | {error, term()}.

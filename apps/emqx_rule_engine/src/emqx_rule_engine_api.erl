@@ -62,7 +62,8 @@ end).
     end
 ).
 
--define(METRICS(
+%% Metrics map value
+-define(METRICS_VAL(
     MATCH,
     PASS,
     FAIL,
@@ -73,6 +74,7 @@ end).
     O_FAIL_OOS,
     O_FAIL_UNKNOWN,
     O_SUCC,
+    O_DISCARDED,
     RATE,
     RATE_MAX,
     RATE_5
@@ -88,13 +90,17 @@ end).
         'actions.failed.out_of_service' => O_FAIL_OOS,
         'actions.failed.unknown' => O_FAIL_UNKNOWN,
         'actions.success' => O_SUCC,
+        'actions.discarded' => O_DISCARDED,
         'matched.rate' => RATE,
         'matched.rate.max' => RATE_MAX,
         'matched.rate.last5m' => RATE_5
     }
 ).
 
--define(metrics(
+-define(METRICS_VAL_ZERO, ?METRICS_VAL(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)).
+
+%% Metrics map match pattern
+-define(METRICS_PAT(
     MATCH,
     PASS,
     FAIL,
@@ -105,6 +111,7 @@ end).
     O_FAIL_OOS,
     O_FAIL_UNKNOWN,
     O_SUCC,
+    O_DISCARDED,
     RATE,
     RATE_MAX,
     RATE_5
@@ -120,6 +127,7 @@ end).
         'actions.failed.out_of_service' := O_FAIL_OOS,
         'actions.failed.unknown' := O_FAIL_UNKNOWN,
         'actions.success' := O_SUCC,
+        'actions.discarded' := O_DISCARDED,
         'matched.rate' := RATE,
         'matched.rate.max' := RATE_MAX,
         'matched.rate.last5m' := RATE_5
@@ -633,7 +641,8 @@ format_metrics(Node, #{
             'actions.failed' := OFailed,
             'actions.failed.out_of_service' := OFailedOOS,
             'actions.failed.unknown' := OFailedUnknown,
-            'actions.success' := OFailedSucc
+            'actions.success' := OSucc,
+            'actions.discarded' := ODiscard
         },
     rate :=
         #{
@@ -642,7 +651,7 @@ format_metrics(Node, #{
         }
 }) ->
     #{
-        metrics => ?METRICS(
+        metrics => ?METRICS_VAL(
             Matched,
             Passed,
             Failed,
@@ -652,7 +661,8 @@ format_metrics(Node, #{
             OFailed,
             OFailedOOS,
             OFailedUnknown,
-            OFailedSucc,
+            OSucc,
+            ODiscard,
             Current,
             Max,
             Last5M
@@ -663,79 +673,49 @@ format_metrics(Node, _Metrics) ->
     %% Empty metrics: can happen when a node joins another and a bridge is not yet
     %% replicated to it, so the counters map is empty.
     #{
-        metrics => ?METRICS(
-            _Matched = 0,
-            _Passed = 0,
-            _Failed = 0,
-            _FailedEx = 0,
-            _FailedNoRes = 0,
-            _OTotal = 0,
-            _OFailed = 0,
-            _OFailedOOS = 0,
-            _OFailedUnknown = 0,
-            _OFailedSucc = 0,
-            _Current = 0,
-            _Max = 0,
-            _Last5M = 0
-        ),
+        metrics => ?METRICS_VAL_ZERO,
         node => Node
     }.
 
 aggregate_metrics(AllMetrics) ->
-    InitMetrics = ?METRICS(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    lists:foldl(
-        fun(
-            #{
-                metrics := ?metrics(
-                    Match1,
-                    Passed1,
-                    Failed1,
-                    FailedEx1,
-                    FailedNoRes1,
-                    OTotal1,
-                    OFailed1,
-                    OFailedOOS1,
-                    OFailedUnknown1,
-                    OFailedSucc1,
-                    Rate1,
-                    RateMax1,
-                    Rate5m1
-                )
-            },
-            ?metrics(
-                Match0,
-                Passed0,
-                Failed0,
-                FailedEx0,
-                FailedNoRes0,
-                OTotal0,
-                OFailed0,
-                OFailedOOS0,
-                OFailedUnknown0,
-                OFailedSucc0,
-                Rate0,
-                RateMax0,
-                Rate5m0
-            )
-        ) ->
-            ?METRICS(
-                Match1 + Match0,
-                Passed1 + Passed0,
-                Failed1 + Failed0,
-                FailedEx1 + FailedEx0,
-                FailedNoRes1 + FailedNoRes0,
-                OTotal1 + OTotal0,
-                OFailed1 + OFailed0,
-                OFailedOOS1 + OFailedOOS0,
-                OFailedUnknown1 + OFailedUnknown0,
-                OFailedSucc1 + OFailedSucc0,
-                Rate1 + Rate0,
-                RateMax1 + RateMax0,
-                Rate5m1 + Rate5m0
-            )
+    InitMetrics = ?METRICS_VAL_ZERO,
+    lists:foldl(fun do_aggregate_metrics/2, InitMetrics, AllMetrics).
+
+do_aggregate_metrics(#{metrics := Mt1}, Mt0) when map_size(Mt1) =:= map_size(Mt0) ->
+    ?METRICS_PAT(A1, B1, C1, D1, E1, F1, G1, H1, I1, J1, K1, L1, M1, N1) = Mt1,
+    ?METRICS_PAT(A0, B0, C0, D0, E0, F0, G0, H0, I0, J0, K0, L0, M0, N0) = Mt0,
+    ?METRICS_VAL(
+        A0 + A1,
+        B0 + B1,
+        C0 + C1,
+        D0 + D1,
+        E0 + E1,
+        F0 + F1,
+        G0 + G1,
+        H0 + H1,
+        I0 + I1,
+        J0 + J1,
+        K0 + K1,
+        L0 + L1,
+        M0 + M1,
+        N0 + N1
+    );
+do_aggregate_metrics(#{metrics := M1}, M0) ->
+    %% this happens during rolling upgrade
+    %% fallback to per-map-key iteration
+    maps:fold(
+        fun(Name, V1, Acc) ->
+            case maps:get(Name, Acc, false) of
+                false ->
+                    %% this is an unknown metric name for this node
+                    %% discard
+                    Acc;
+                V0 ->
+                    Acc#{Name => V0 + V1}
+            end
         end,
-        InitMetrics,
-        AllMetrics
+        M0,
+        M1
     ).
 
 add_metadata(Params) ->

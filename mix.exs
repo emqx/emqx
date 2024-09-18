@@ -186,7 +186,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.5", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.12.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.3", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.4", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.2", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
@@ -210,7 +210,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
-  def common_dep(:ra), do: {:ra, "2.7.3", override: true}
+  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.14.0-emqx-1", override: true}
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.2", override: true}
@@ -275,7 +275,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "3.0.4"}
+  def common_dep(:wolff), do: {:wolff, "4.0.0"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
@@ -397,7 +397,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_cluster_link,
       :emqx_ds_builtin_raft,
       :emqx_auth_kerberos,
-      :emqx_bridge_datalayers
+      :emqx_bridge_datalayers,
+      :emqx_auth_cinfo
     ])
   end
 
