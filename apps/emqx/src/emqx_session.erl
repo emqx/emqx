@@ -240,7 +240,7 @@
 
 -callback stats(t()) -> emqx_types:stats().
 
--callback disconnect(conninfo(), t()) -> {idle | shutdown, t()}.
+-callback disconnect(t(), conninfo()) -> {idle | shutdown, t()}.
 
 -callback terminate(Reason :: term(), t()) -> ok.
 
