@@ -23,6 +23,28 @@
     api_schema/1
 ]).
 
+%% API
+-export([
+    external_registry_type/0,
+    external_registries_type/0
+]).
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+external_registry_type() ->
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"confluent">> => ref(confluent_schema_registry)
+        },
+        <<"confluent">>
+    ).
+
+external_registries_type() ->
+    hoconsc:map(name, external_registry_type()).
+
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
 %%------------------------------------------------------------------------------
@@ -37,6 +59,14 @@ tags() ->
 
 fields(?CONF_KEY_ROOT) ->
     [
+        {external,
+            mk(
+                external_registries_type(),
+                #{
+                    default => #{},
+                    desc => ?DESC("confluent_schema_registry")
+                }
+            )},
         {schemas,
             mk(
                 hoconsc:map(
@@ -64,6 +94,43 @@ fields(json) ->
     [
         {type, mk(json, #{required => true, desc => ?DESC("schema_type_json")})}
         | common_fields(emqx_schema:json_binary())
+    ];
+fields(confluent_schema_registry) ->
+    [
+        {type,
+            mk(confluent, #{default => confluent, desc => ?DESC("schema_registry_external_type")})},
+        {url, mk(binary(), #{required => true, desc => ?DESC("confluent_schema_registry_url")})},
+        {auth,
+            mk(
+                hoconsc:union([none, ref(confluent_schema_registry_auth_basic)]),
+                #{default => none, desc => ?DESC("confluent_schema_registry_auth")}
+            )}
+    ];
+fields(confluent_schema_registry_auth_basic) ->
+    [
+        {mechanism,
+            mk(basic, #{
+                required => true,
+                default => basic,
+                importance => ?IMPORTANCE_HIDDEN,
+                desc => ?DESC("confluent_schema_registry_auth_basic")
+            })},
+        {username,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC("confluent_schema_registry_auth_basic_username")
+            })},
+        {password,
+            emqx_schema_secret:mk(#{
+                required => true,
+                desc => ?DESC("confluent_schema_registry_auth_basic_password")
+            })}
+    ];
+fields("external_registry_api_create_" ++ NameStr) ->
+    Name = list_to_existing_atom(NameStr),
+    [
+        {name, mk(binary(), #{required => true, desc => ?DESC("external_registry_name")})}
+        | fields(Name)
     ];
 fields("get_avro") ->
     [{name, mk(binary(), #{required => true, desc => ?DESC("schema_name")})} | fields(avro)];
@@ -94,6 +161,10 @@ desc(protobuf) ->
     ?DESC("protobuf_type");
 desc(json) ->
     ?DESC("json_type");
+desc(confluent_schema_registry) ->
+    ?DESC("confluent_schema_registry");
+desc(confluent_schema_registry_auth_basic) ->
+    ?DESC("confluent_schema_registry_auth");
 desc(_) ->
     undefined.
 

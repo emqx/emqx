@@ -125,7 +125,6 @@ jobs:
     uses: ./.github/workflows/build_slim_packages.yaml
 
   compile:
-    if: needs.prepare.outputs.release != 'true'
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ needs.init.outputs.BUILDER }}
     needs:

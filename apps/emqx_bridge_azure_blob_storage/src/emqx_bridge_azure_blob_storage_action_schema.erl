@@ -56,7 +56,7 @@ fields(action) ->
 fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(
-            mkunion(mode, #{
+            emqx_schema:mkunion(mode, #{
                 <<"direct">> => ref(direct_parameters),
                 <<"aggregated">> => ref(aggreg_parameters)
             }),
@@ -288,20 +288,6 @@ action_example(put, direct) ->
 
 ref(Name) -> hoconsc:ref(?MODULE, Name).
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-mkunion(Field, Schemas) ->
-    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Arg) end).
-
-scunion(_Field, Schemas, all_union_members) ->
-    maps:values(Schemas);
-scunion(Field, Schemas, {value, Value}) ->
-    Selector = maps:get(emqx_utils_conv:bin(Field), Value, undefined),
-    case Selector == undefined orelse maps:find(emqx_utils_conv:bin(Selector), Schemas) of
-        {ok, Schema} ->
-            [Schema];
-        _Error ->
-            throw(#{field_name => Field, expected => maps:keys(Schemas)})
-    end.
 
 block_size_validator(SizeLimit) ->
     case SizeLimit =< 4_000 * 1024 * 1024 of

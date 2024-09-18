@@ -27,6 +27,8 @@ defmodule Mix.Tasks.Emqx.Eunit do
     |> String.replace_suffix("-test", "")
     |> then(& System.put_env("PROFILE", &1))
 
+    :emqx_common_test_helpers.clear_screen()
+
     args
     |> parse_args!()
     |> discover_tests()

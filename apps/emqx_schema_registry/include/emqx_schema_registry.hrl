@@ -6,6 +6,7 @@
 -define(EMQX_SCHEMA_REGISTRY_HRL, true).
 
 -define(CONF_KEY_ROOT, schema_registry).
+-define(CONF_KEY_ROOT_BIN, <<"schema_registry">>).
 -define(CONF_KEY_PATH, [?CONF_KEY_ROOT]).
 
 %% Note: this has the `_ee_' segment for backwards compatibility.

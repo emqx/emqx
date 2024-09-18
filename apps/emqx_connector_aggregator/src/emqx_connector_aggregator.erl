@@ -415,8 +415,7 @@ handle_delivery_exit(Buffer, {shutdown, {skipped, Reason}}, St = #st{name = Name
     ok = discard_buffer(Buffer),
     St;
 handle_delivery_exit(Buffer, Error, St = #st{name = Name}) ->
-    ?SLOG(error, #{
-        msg => "aggregated_buffer_delivery_failed",
+    ?tp(error, "aggregated_buffer_delivery_failed", #{
         action => Name,
         buffer => {Buffer#buffer.since, Buffer#buffer.seq},
         filename => Buffer#buffer.filename,
