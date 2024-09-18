@@ -74,7 +74,7 @@ t_store(_Config) ->
 
 %% Smoke test of applying batch operations
 t_operations(db_config, _Config) ->
-    #{force_monotonic_timestamps => false}.
+    #{append_only => false}.
 
 t_operations(_Config) ->
     Batch1 = [
