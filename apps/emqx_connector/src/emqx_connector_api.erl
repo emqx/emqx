@@ -318,10 +318,10 @@ schema("/connectors_probe") ->
     }.
 
 '/connectors'(post, #{body := #{<<"type">> := ConnectorType, <<"name">> := ConnectorName} = Conf0}) ->
-    case emqx_connector:lookup(ConnectorType, ConnectorName) of
-        {ok, _} ->
+    case emqx_connector:is_exist(ConnectorType, ConnectorName) of
+        true ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"connector already exists">>);
-        {error, not_found} ->
+        false ->
             Conf = filter_out_request_body(Conf0),
             create_connector(ConnectorType, ConnectorName, Conf)
     end;
@@ -345,20 +345,20 @@ schema("/connectors_probe") ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
-        case emqx_connector:lookup(ConnectorType, ConnectorName) of
-            {ok, _} ->
+        case emqx_connector:is_exist(ConnectorType, ConnectorName) of
+            true ->
                 RawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
                 Conf = emqx_utils:deobfuscate(Conf1, RawConf),
                 update_connector(ConnectorType, ConnectorName, Conf);
-            {error, not_found} ->
+            false ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
         end
     );
 '/connectors/:id'(delete, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_connector:lookup(ConnectorType, ConnectorName) of
-            {ok, _} ->
+        case emqx_connector:is_exist(ConnectorType, ConnectorName) of
+            true ->
                 case emqx_connector:remove(ConnectorType, ConnectorName) of
                     ok ->
                         ?NO_CONTENT;
@@ -372,7 +372,7 @@ schema("/connectors_probe") ->
                     {error, Reason} ->
                         ?INTERNAL_ERROR(Reason)
                 end;
-            {error, not_found} ->
+            false ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
         end
     ).
@@ -406,11 +406,11 @@ schema("/connectors_probe") ->
 maybe_deobfuscate_connector_probe(
     #{<<"type">> := ConnectorType, <<"name">> := ConnectorName} = Params
 ) ->
-    case emqx_connector:lookup(ConnectorType, ConnectorName) of
-        {ok, _} ->
+    case emqx_connector:is_exist(ConnectorType, ConnectorName) of
+        true ->
             RawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
             emqx_utils:deobfuscate(Params, RawConf);
-        _ ->
+        false ->
             %% A connector may be probed before it's created, so not finding it here is fine
             Params
     end;

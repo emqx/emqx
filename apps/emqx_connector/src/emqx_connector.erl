@@ -32,6 +32,7 @@
     get_metrics/2,
     list/0,
     load/0,
+    is_exist/2,
     lookup/1,
     lookup/2,
     remove/2,
@@ -234,6 +235,9 @@ lookup(Type, Name, RawConf) ->
                 raw_config => RawConf
             }}
     end.
+
+is_exist(Type, Name) ->
+    emqx_resource:is_exist(emqx_connector_resource:resource_id(Type, Name)).
 
 get_metrics(Type, Name) ->
     emqx_resource:get_metrics(emqx_connector_resource:resource_id(Type, Name)).

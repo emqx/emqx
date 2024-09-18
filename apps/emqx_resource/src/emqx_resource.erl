@@ -123,6 +123,7 @@
     list_instances_verbose/0,
     %% return the data of the instance
     get_instance/1,
+    is_exist/1,
     get_metrics/1,
     fetch_creation_opts/1,
     %% return all the instances of the same resource type
@@ -456,6 +457,10 @@ set_resource_status_connecting(ResId) ->
     {ok, resource_group(), resource_data()} | {error, Reason :: term()}.
 get_instance(ResId) ->
     emqx_resource_manager:lookup_cached(ResId).
+
+-spec is_exist(resource_id()) -> boolean().
+is_exist(ResId) ->
+    emqx_resource_manager:is_exist(ResId).
 
 -spec get_metrics(resource_id()) ->
     emqx_metrics_worker:metrics().
