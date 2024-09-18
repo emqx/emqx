@@ -56,7 +56,7 @@ openssl rsa -in snowflake_rsa_key.private.pem -pubout -out snowflake_rsa_key.pub
 ```
 
 ### Snowflake SQL Worksheet (+ Create --> SQL Worksheet)
-    
+
 ```sql
 USE ROLE accountadmin;
 
@@ -70,7 +70,7 @@ CREATE OR REPLACE TABLE testdatabase.public.emqx (
 );
 
 CREATE STAGE IF NOT EXISTS testdatabase.public.emqx
-FILE_FORMAT = (TYPE = CSV PARSE_HEADER = TRUE)
+FILE_FORMAT = (TYPE = CSV PARSE_HEADER = TRUE FIELD_OPTIONALLY_ENCLOSED_BY = '"')
 COPY_OPTIONS = (ON_ERROR = CONTINUE PURGE = TRUE);
 
 CREATE PIPE IF NOT EXISTS testdatabase.public.emqx AS
