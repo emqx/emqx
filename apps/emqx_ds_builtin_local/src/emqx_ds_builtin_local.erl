@@ -98,9 +98,9 @@
         storage := emqx_ds_storage_layer:prototype(),
         n_shards := pos_integer(),
         poll_workers_per_shard => pos_integer(),
-        %% Inherited from `emqx_ds:generic_db_opts()`.
-        force_monotonic_timestamps => boolean(),
-        atomic_batches => boolean()
+        %% Equivalent to `append_only' from `emqx_ds:create_db_opts':
+        force_monotonic_timestamps := boolean(),
+        atomic_batches := boolean()
     }.
 
 -type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.
@@ -117,7 +117,10 @@
 %%================================================================================
 
 -spec open_db(emqx_ds:db(), db_opts()) -> ok | {error, _}.
-open_db(DB, CreateOpts) ->
+open_db(DB, CreateOpts0) ->
+    %% Rename `append_only' flag to `force_monotonic_timestamps':
+    {AppendOnly, CreateOpts1} = maps:take(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts1),
     case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;

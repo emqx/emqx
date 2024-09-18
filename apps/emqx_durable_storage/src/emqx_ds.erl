@@ -200,27 +200,59 @@
         sync => boolean()
     }.
 
--type generic_db_opts() ::
+%% This type specifies the backend and some generic options that
+%% affect the semantics of DS operations.
+%%
+%% All backends MUST handle all options listed here; even if it means
+%% throwing an exception that says that certain option is not
+%% supported.
+%%
+%% How to add a new option:
+%%
+%% 1. Create a PR modifying this type and adding a stub implementation
+%% to all backends that throws "option unsupported" error.
+%%
+%% 2. Get everyone fully on-board about the semantics and name of the
+%% new option. Merge the PR.
+%%
+%% 3. Implement business logic reliant on the new option, and its
+%% support in the backends.
+%%
+%% 4. If the new option is not supported by all backends, it's up to
+%% the business logic to choose the right one.
+%%
+%% 5. Default value for the option MUST be set in `emqx_ds:open_db'
+%% function. The backends SHOULD NOT make any assumptions about the
+%% default values for common options.
+-type create_db_opts() ::
     #{
         backend := atom(),
-        %% Force strictly monotonic message timestamps.
-        %% Default: `true'.
-        %% Messages are assigned unique, strictly monotonically increasing timestamps.
-        %% Those timestamps form a total order per each serialization key.
-        %% If `false' then message timestamps are respected; timestamp, topic and
-        %% serialization key uniquely identify a message.
-        force_monotonic_timestamps => boolean(),
+        %% `append_only' option ensures that the backend will take
+        %% measures to avoid overwriting messages, even if their
+        %% fields (topic, timestamp, GUID and client ID, ... or any
+        %% combination of thereof) match. This option is `true' by
+        %% default.
+        %%
+        %% When this flag is `false':
+        %%
+        %% - Messages published by the same client WILL be overwritten
+        %% if thier topic and timestamp match.
+        %%
+        %% - Messages published with the same topic and timestamp by
+        %% different clients MAY be overwritten.
+        %%
+        %% The API consumer must design the topic structure
+        %% accordingly.
+        append_only => boolean(),
         %% Whether the whole batch given to `store_batch' should be processed and
         %% inserted atomically as a unit, in isolation from other batches.
         %% Default: `false'.
         %% The whole batch must be crafted so that it belongs to a single shard (if
         %% applicable to the backend).
         atomic_batches => boolean(),
-        serialize_by => clientid | topic,
+        %% Backend-specific options:
         _ => _
     }.
-
--type create_db_opts() :: generic_db_opts().
 
 -type poll_opts() ::
     #{
@@ -500,7 +532,7 @@ timestamp_us() ->
 
 set_db_defaults(Opts) ->
     Defaults = #{
-        force_monotonic_timestamps => true,
+        append_only => true,
         atomic_batches => false
     },
     maps:merge(Defaults, Opts).

@@ -98,7 +98,7 @@ db_config() ->
 tune_db_config(Config0 = #{backend := Backend}) ->
     Config = Config0#{
         %% We need total control over timestamp assignment.
-        force_monotonic_timestamps => false
+        append_only => false
     },
     case Backend of
         B when B == builtin_raft; B == builtin_local ->
