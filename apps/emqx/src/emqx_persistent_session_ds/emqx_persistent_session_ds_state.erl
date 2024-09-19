@@ -332,7 +332,7 @@
 open_db(Config) ->
     emqx_ds:open_db(?DB, Config#{
         atomic_batches => true,
-        force_monotonic_timestamps => false
+        append_only => false
     }).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
