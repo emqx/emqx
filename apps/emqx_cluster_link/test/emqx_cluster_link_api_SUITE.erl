@@ -181,6 +181,11 @@ get_metrics(SourceOrTargetCluster, Name) ->
     Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name, "metrics"]),
     emqx_mgmt_api_test_util:simple_request(get, Path, _Params = []).
 
+reset_metrics(SourceOrTargetCluster, Name) ->
+    Host = host(SourceOrTargetCluster),
+    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name, "metrics", "reset"]),
+    emqx_mgmt_api_test_util:simple_request(put, Path, _Params = []).
+
 host(source) -> "http://127.0.0.1:18083";
 host(target) -> "http://127.0.0.1:28083".
 
@@ -753,6 +758,34 @@ t_metrics(Config) ->
             }},
             get_metrics(source, SourceName)
         )
+    ),
+
+    %% Reset metrics
+    ?assertMatch({204, _}, reset_metrics(source, SourceName)),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"router">> := #{<<"routes">> := 0},
+                <<"forwarding">> := #{<<"matched">> := 0}
+            },
+            <<"node_metrics">> := [
+                #{
+                    <<"metrics">> :=
+                        #{
+                            <<"router">> := #{<<"routes">> := 0},
+                            <<"forwarding">> := #{<<"matched">> := 0}
+                        }
+                },
+                #{
+                    <<"metrics">> :=
+                        #{
+                            <<"router">> := #{<<"routes">> := 0},
+                            <<"forwarding">> := #{<<"matched">> := 0}
+                        }
+                }
+            ]
+        }},
+        get_metrics(source, SourceName)
     ),
 
     ok.
