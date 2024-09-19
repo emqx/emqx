@@ -331,7 +331,7 @@ plugins(_) ->
             {"plugins describe  Name-Vsn", "Describe an installed plugins"},
             {"plugins install   Name-Vsn",
                 "Install a plugin package placed\n"
-                "in plugin'sinstall_dir"},
+                "in plugin's install_dir"},
             {"plugins uninstall Name-Vsn",
                 "Uninstall a plugin. NOTE: it deletes\n"
                 "all files in install_dir/Name-Vsn"},
