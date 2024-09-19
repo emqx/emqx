@@ -512,7 +512,7 @@ qs2ms(_Tab, {Qs, Fuzzy}) ->
     #{match_spec => gen_match_spec(Qs), fuzzy_fun => fuzzy_filter_fun(Fuzzy)}.
 
 gen_match_spec(Qs) ->
-    MatchHeadInitial = #subscription{sub = {'_', '_'}, opts = #{}, scope = root, _ = '_'},
+    MatchHeadInitial = #subscription{sub = {'_', '_'}, opts = #{}, scope = any, _ = '_'},
     MatchHead = gen_match_spec(Qs, MatchHeadInitial),
     [{MatchHead, [], ['$_']}].
 

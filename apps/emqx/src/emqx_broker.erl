@@ -103,7 +103,7 @@
     end
 ).
 
--type subscope() :: root | qos0.
+-type subscope() :: any | qos0.
 
 -type publish_opts() :: #{
     %% Whether to return a disinguishing value `{blocked, #message{}}' when a hook from
@@ -160,7 +160,7 @@ subscribe(Topic, SubOpts) when ?IS_TOPIC(Topic), is_map(SubOpts) ->
 -spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid(), emqx_types:subopts()) ->
     ok.
 subscribe(Topic, SubId, SubOpts0 = #{}) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId) ->
-    subscribe(Topic, SubId, SubOpts0, root).
+    subscribe(Topic, SubId, SubOpts0, any).
 
 -spec subscribe(
     emqx_types:topic() | emqx_types:share(),
@@ -209,7 +209,7 @@ do_subscribe(Topic, SubPid, SubOpts, Scope) when is_binary(Topic) ->
         Ref when is_reference(Ref) ->
             emqx_router_syncer:wait(Ref)
     end;
-do_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts, Scope = root) ->
+do_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts, Scope = any) ->
     true = ets:insert(?SUBOPTION, #subscription{
         sub = {Topic, SubPid},
         opts = SubOpts,
@@ -701,7 +701,7 @@ do_dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     end;
 do_dispatch({shard, I}, Topic, Msg) ->
     case emqx_broker_helper:get_shard_scope(I) of
-        root ->
+        any ->
             do_dispatch(subscribers({shard, Topic, I}), Topic, Msg);
         qos0 when Msg#message.qos == ?QOS_0 ->
             do_dispatch(subscribers({shard, Topic, I}), Topic, Msg);

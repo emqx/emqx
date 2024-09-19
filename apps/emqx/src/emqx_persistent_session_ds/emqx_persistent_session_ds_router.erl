@@ -54,10 +54,10 @@
 
 %% Subscription scope.
 %% Scopes enable limited form of _selective routing_.
-%%  * `root` scope routes "work" for every message.
+%%  * `any` scope routes "work" for every message.
 %%  * `noqos0` scope routes work only for QoS 1/2 messages.
 %% Mirrors `emqx_broker:subscope()`.
--type subscope() :: root | noqos0.
+-type subscope() :: any | noqos0.
 
 %% 32#NQ0 = 24384
 -define(SCOPE_NOQOS0, 32#NQ0).
@@ -97,7 +97,7 @@ init_tables() ->
         ]}
     ]),
     %% NOTE
-    %% Holds non-wildcard routes with any scopes other than the `root` scope.
+    %% Holds non-wildcard routes with any scopes other than the `any` scope.
     ok = mria:create_table(?PS_ROUTER_EXT_TAB, [
         {type, ordered_set},
         {rlog_shard, ?PS_ROUTER_SHARD},
@@ -112,7 +112,7 @@ init_tables() ->
         ]}
     ]),
     %% NOTE
-    %% Holds wildcard route index with routes of any scopes other than the `root` scope.
+    %% Holds wildcard route index with routes of any scopes other than the `any` scope.
     ok = mria:create_table(?PS_FILTERS_EXT_TAB, [
         {type, ordered_set},
         {rlog_shard, ?PS_ROUTER_SHARD},
@@ -135,7 +135,7 @@ init_tables() ->
 
 -spec add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 add_route(Topic, Dest) ->
-    mria_insert_route(Topic, Dest, root).
+    mria_insert_route(Topic, Dest, any).
 
 -spec add_route(emqx_types:topic(), dest(), subscope()) -> ok | {error, term()}.
 add_route(Topic, Dest, Scope) ->
@@ -143,7 +143,7 @@ add_route(Topic, Dest, Scope) ->
 
 -spec delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 delete_route(Topic, Dest) ->
-    mria_delete_route(Topic, Dest, root).
+    mria_delete_route(Topic, Dest, any).
 
 -spec delete_route(emqx_types:topic(), dest(), subscope()) -> ok | {error, term()}.
 delete_route(Topic, Dest, Scope) ->
@@ -161,10 +161,10 @@ has_any_route(#message{topic = Topic}) ->
 %% filters associated with route destination.
 -spec match_routes(emqx_types:topic()) -> [route()].
 match_routes(Topic) when is_binary(Topic) ->
-    match_routes(Topic, root).
+    match_routes(Topic, any).
 
 -spec match_routes(emqx_types:topic(), subscope()) -> [route()].
-match_routes(Topic, root) when is_binary(Topic) ->
+match_routes(Topic, any) when is_binary(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)];
 match_routes(Topic, Scope) when is_binary(Topic) ->
@@ -226,7 +226,7 @@ stream(MTopic) ->
 
 -spec stream(_MTopic :: '_' | emqx_types:topic(), subscope()) ->
     emqx_utils_stream:stream(emqx_types:route()).
-stream(MTopic, root) ->
+stream(MTopic, any) ->
     emqx_utils_stream:chain(
         stream_tab(?PS_ROUTER_TAB, MTopic),
         stream_tab(?PS_FILTERS_TAB, MTopic)
@@ -268,21 +268,21 @@ mria_delete_route(Topic, Dest, Scope) ->
             mria_route_tab_delete(Topic, Dest, Scope)
     end.
 
-mria_route_tab_insert(Topic, Dest, root) ->
+mria_route_tab_insert(Topic, Dest, any) ->
     Record = #ps_route{topic = Topic, dest = Dest},
     mria:dirty_write(?PS_ROUTER_TAB, Record);
 mria_route_tab_insert(Topic, Dest, Scope) ->
     Record = #ps_route_ext{entry = {Topic, scope_tag(Scope), Dest}},
     mria:dirty_write(?PS_ROUTER_EXT_TAB, Record).
 
-mria_route_tab_delete(Topic, Dest, root) ->
+mria_route_tab_delete(Topic, Dest, any) ->
     Record = #ps_route{topic = Topic, dest = Dest},
     mria:dirty_delete_object(?PS_ROUTER_TAB, Record);
 mria_route_tab_delete(Topic, Dest, Scope) ->
     K = {Topic, scope_tag(Scope), Dest},
     mria:dirty_delete(?PS_ROUTER_EXT_TAB, K).
 
-mria_filter_tab_insert(Words, Dest, root) ->
+mria_filter_tab_insert(Words, Dest, any) ->
     K = emqx_topic_index:make_key(Words, Dest),
     mria:dirty_write(?PS_FILTERS_TAB, #ps_routeidx{entry = K});
 mria_filter_tab_insert(Words, Dest, Scope) ->
@@ -290,7 +290,7 @@ mria_filter_tab_insert(Words, Dest, Scope) ->
     ScopeTag = scope_tag(Scope),
     mria:dirty_write(?PS_FILTERS_EXT_TAB, #ps_routeidx_ext{entry = {ScopeTag, K}}).
 
-mria_filter_tab_delete(Words, Dest, root) ->
+mria_filter_tab_delete(Words, Dest, any) ->
     K = emqx_topic_index:make_key(Words, Dest),
     mria:dirty_delete(?PS_FILTERS_TAB, K);
 mria_filter_tab_delete(Words, Dest, Scope) ->

@@ -358,22 +358,22 @@ set_default_subscription_mode(Sub) ->
     Sub#{mode => {persistent, any}}.
 
 add_route({persistent, any}, SessionId, Topic, _SubOpts) ->
-    add_persistent_route(Topic, SessionId, root);
+    add_persistent_route(Topic, SessionId, any);
 add_route({persistent, noqos0}, SessionId, Topic, SubOpts) ->
     ok = add_realtime_route(SessionId, Topic, SubOpts, qos0),
     add_persistent_route(Topic, SessionId, noqos0);
 add_route(realtime, SessionId, Topic, SubOpts) ->
-    add_realtime_route(SessionId, Topic, SubOpts, root).
+    add_realtime_route(SessionId, Topic, SubOpts, any).
 
 restore_route({persistent, any}, _SessionId, _Topic, _SubOpts) ->
     ok;
 restore_route({persistent, noqos0}, SessionId, Topic, SubOpts) ->
     add_realtime_route(SessionId, Topic, SubOpts, qos0);
 restore_route(realtime, SessionId, Topic, SubOpts) ->
-    add_realtime_route(SessionId, Topic, SubOpts, root).
+    add_realtime_route(SessionId, Topic, SubOpts, any).
 
 delete_route({persistent, any}, SessionId, Topic) ->
-    delete_persistent_route(Topic, SessionId, root);
+    delete_persistent_route(Topic, SessionId, any);
 delete_route({persistent, noqos0}, SessionId, Topic) ->
     ok = delete_realtime_route(SessionId, Topic),
     delete_persistent_route(Topic, SessionId, noqos0);

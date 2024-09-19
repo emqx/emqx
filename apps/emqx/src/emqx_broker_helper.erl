@@ -99,7 +99,7 @@ get_sub_shard(SubPid, Topic, Scope) ->
             Offset + erlang:phash2(SubPid, NShards) + 1
     end.
 
-shards_scope_offset(root) ->
+shards_scope_offset(any) ->
     0;
 shards_scope_offset(qos0) ->
     ?SCOPE_OFFSET_QOS0.
@@ -108,7 +108,7 @@ shards_scope_offset(qos0) ->
 get_shard_scope(ShardIdx) ->
     case ShardIdx div shards_num() of
         0 ->
-            root;
+            any;
         ?SCOPE_OFFSET_QOS0 ->
             qos0
     end.
@@ -119,13 +119,13 @@ shards_num() ->
     persistent_term:get(?PTERM(shards)).
 
 -spec create_seq(emqx_types:topic(), emqx_broker:subscope()) -> emqx_sequence:seqid().
-create_seq(Topic, root) ->
+create_seq(Topic, any) ->
     emqx_sequence:nextval(?SUBSEQ, Topic);
 create_seq(Topic, Scope) ->
     emqx_sequence:nextval(?SUBSEQ, {Topic, Scope}).
 
 -spec reclaim_seq(emqx_types:topic(), emqx_broker:subscope()) -> emqx_sequence:seqid().
-reclaim_seq(Topic, root) ->
+reclaim_seq(Topic, any) ->
     emqx_sequence:reclaim(?SUBSEQ, Topic);
 reclaim_seq(Topic, Scope) ->
     emqx_sequence:reclaim(?SUBSEQ, {Topic, Scope}).
