@@ -199,11 +199,11 @@ has_route(Topic, Dest) ->
 topics() ->
     lists:usort(list_topics() ++ list_scope_topics()).
 
--spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+-spec foldl_routes(fun((route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
     fold_routes(foldl, FoldFun, AccIn).
 
--spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+-spec foldr_routes(fun((route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
     fold_routes(foldr, FoldFun, AccIn).
 
@@ -361,10 +361,19 @@ ets_match_member(Tab, MatchPat) ->
     end.
 
 fold_routes(FunName, FoldFun, AccIn) ->
-    Acc1 = ets:FunName(mk_fold_fun(fun export_route/1, FoldFun), AccIn, ?PS_ROUTER_TAB),
-    Acc2 = ets:FunName(mk_fold_fun(fun export_route_ext/1, FoldFun), Acc1, ?PS_ROUTER_EXT_TAB),
-    Acc3 = ets:FunName(mk_fold_fun(fun export_routeidx/1, FoldFun), Acc2, ?PS_FILTERS_TAB),
-    ets:FunName(mk_fold_fun(fun export_routeidx_ext/1, FoldFun), Acc3, ?PS_FILTERS_EXT_TAB).
+    Acc1 = ets:FunName(FoldFun, AccIn, ?PS_ROUTER_TAB),
+    Acc2 = ets:FunName(mk_fold_fun(fun from_route_ext/1, FoldFun), Acc1, ?PS_ROUTER_EXT_TAB),
+    Acc3 = ets:FunName(mk_fold_fun(fun from_routeidx/1, FoldFun), Acc2, ?PS_FILTERS_TAB),
+    ets:FunName(mk_fold_fun(fun from_routeidx_ext/1, FoldFun), Acc3, ?PS_FILTERS_EXT_TAB).
+
+from_route_ext(#ps_route_ext{entry = {Topic, _Scope, Dest}}) ->
+    #ps_route{topic = Topic, dest = Dest}.
+
+from_routeidx(#ps_routeidx{entry = M}) ->
+    match_to_route(M).
+
+from_routeidx_ext(#ps_routeidx_ext{entry = {_Scope, M}}) ->
+    match_to_route(M).
 
 mk_fold_fun(ExportFun, FoldFun) ->
     fun(Record, Acc) -> FoldFun(ExportFun(Record), Acc) end.
