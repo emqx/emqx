@@ -19,7 +19,7 @@
 
 -module(emqx_resource_buffer_worker).
 
--include("emqx_resource.hrl").
+-include("emqx_resource_runtime.hrl").
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -1205,25 +1205,32 @@ handle_async_worker_down(Data0, Pid) ->
 -spec call_query(force_sync | async_if_possible, _, _, _, _, _) -> _.
 call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
-    case emqx_resource_manager:lookup_cached(extract_connector_id(Id)) of
+    case emqx_resource_cache:get_runtime(Id) of
         %% This seems to be the only place where the `rm_status_stopped' status matters,
         %% to distinguish from the `disconnected' status.
-        {ok, _Group, #{status := ?rm_status_stopped}} ->
+        {ok, #rt{st_err = #{status := ?rm_status_stopped}}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
-        {ok, _Group, #{status := ?status_connecting, error := unhealthy_target}} ->
+        {ok, #rt{st_err = #{status := ?status_connecting, error := unhealthy_target}}} ->
             {error, {unrecoverable_error, unhealthy_target}};
-        {ok, _Group, Resource} ->
-            PrevLoggerProcessMetadata = logger:get_process_metadata(),
-            QueryResult =
-                try
-                    set_rule_id_trace_meta_data(Query),
-                    do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource)
-                after
-                    reset_logger_process_metadata(PrevLoggerProcessMetadata)
-                end,
-            QueryResult;
+        {ok, #rt{st_err = #{status := Status}, stable = Resource, channel_status = ChanSt}} ->
+            IsAlwaysSend = is_always_send(QueryOpts, Resource),
+            case Status =:= ?status_connected orelse IsAlwaysSend of
+                true ->
+                    call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt);
+                false ->
+                    ?RESOURCE_ERROR(not_connected, "resource not connected")
+            end;
         {error, not_found} ->
             ?RESOURCE_ERROR(not_found, "resource not found")
+    end.
+
+call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
+    PrevLoggerProcessMetadata = logger:get_process_metadata(),
+    try
+        set_rule_id_trace_meta_data(Query),
+        do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt)
+    after
+        reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
 
 set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
@@ -1290,29 +1297,23 @@ extract_connector_id(Id) when is_binary(Id) ->
             <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>;
         _ ->
             Id
-    end;
-extract_connector_id(Id) ->
-    Id.
-
-is_channel_id(Id) ->
-    extract_connector_id(Id) =/= Id.
+    end.
 
 %% Check if channel is installed in the connector state.
 %% There is no need to query the conncector if the channel is not
 %% installed as the query will fail anyway.
-pre_query_channel_check({Id, _} = _Request, Channels, QueryOpts) when
-    is_map_key(Id, Channels)
-->
-    ChannelStatus = maps:get(Id, Channels),
-    case emqx_resource_manager:channel_status_is_channel_added(ChannelStatus) of
+pre_query_channel_check(Id, {Id, _} = _Request, ChanSt, QueryOpts) ->
+    case emqx_resource_manager:channel_status_is_channel_added(ChanSt) of
         true ->
             ok;
         false ->
             error_if_channel_is_not_installed(Id, QueryOpts)
     end;
-pre_query_channel_check({Id, _} = _Request, _Channels, QueryOpts) ->
+pre_query_channel_check(Id, {Id, _} = _Request, ?NO_CHANNEL, QueryOpts) ->
+    %% a per-channel requst, but channel was not added or deleted (due to reace)
     error_if_channel_is_not_installed(Id, QueryOpts);
-pre_query_channel_check(_Request, _Channels, _QueryOpts) ->
+pre_query_channel_check(_Id, _Request, _ChanSt, _QueryOpts) ->
+    %% Not a per-channel requst
     ok.
 
 error_if_channel_is_not_installed(Id, QueryOpts) ->
@@ -1321,44 +1322,33 @@ error_if_channel_is_not_installed(Id, QueryOpts) ->
     %% unrecoverable.  It is emqx_resource_manager's responsibility to ensure that the
     %% channel installation is retried.
     IsSimpleQuery = is_simple_query(QueryOpts),
-    case is_channel_id(Id) of
-        true when IsSimpleQuery ->
+    case IsSimpleQuery of
+        true ->
             {error,
                 {unrecoverable_error,
                     iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}};
-        true ->
+        false ->
             {error,
                 {recoverable_error,
-                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}};
-        false ->
-            ok
+                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}}
     end.
 
-do_call_query(QM, Id, Index, Ref, Query, #{query_mode := ReqQM} = QueryOpts, Resource) when
-    ?IS_BYPASS(ReqQM)
-->
+is_always_send(#{query_mode := M}, _) when ?IS_BYPASS(M) ->
     %% The query overrides the query mode of the resource, send even in disconnected state
-    ?tp(simple_query_override, #{query_mode => ReqQM}),
-    #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
-    CallMode = call_mode(QM, CBM),
+    ?tp(simple_query_override, #{query_mode => M}),
     ?tp(simple_query_enter, #{}),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
-do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
-    ?IS_BYPASS(ResQM)
-->
+    true;
+is_always_send(_, #{query_mode := M}) when ?IS_BYPASS(M) ->
     %% The connector supports buffer, send even in disconnected state
-    #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
-    CallMode = call_mode(QM, CBM),
     ?tp(simple_query_enter, #{}),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
-do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{status := connected} = Resource) ->
-    %% when calling from the buffer worker or other simple queries,
-    %% only apply the query fun when it's at connected status
-    #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
+    true;
+is_always_send(_, _) ->
+    false.
+
+do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
+    #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
     CallMode = call_mode(QM, CBM),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
-do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
-    ?RESOURCE_ERROR(not_connected, "resource not connected").
+    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, ChanSt, QueryOpts).
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),
     try
@@ -1395,7 +1385,7 @@ apply_query_fun(
     _Ref,
     ?QUERY(_, Request, _, _, _TraceCtx) = _Query,
     ResSt,
-    Channels,
+    ChanSt,
     QueryOpts
 ) ->
     ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt, call_mode => sync}),
@@ -1403,7 +1393,7 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_query,
             begin
-                case pre_query_channel_check(Request, Channels, QueryOpts) of
+                case pre_query_channel_check(Id, Request, ChanSt, QueryOpts) of
                     ok ->
                         Mod:on_query(extract_connector_id(Id), Request, ResSt);
                     Error ->
@@ -1422,7 +1412,7 @@ apply_query_fun(
     Ref,
     ?QUERY(_, Request, _, _, _TraceCtx) = Query,
     ResSt,
-    Channels,
+    ChanSt,
     QueryOpts
 ) ->
     ?tp(call_query_async, #{
@@ -1447,7 +1437,7 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            case pre_query_channel_check(Request, Channels, QueryOpts) of
+            case pre_query_channel_check(Id, Request, ChanSt, QueryOpts) of
                 ok ->
                     case
                         Mod:on_query_async(
@@ -1476,7 +1466,7 @@ apply_query_fun(
     _Ref,
     [?QUERY(_, FirstRequest, _, _, _) | _] = Batch,
     ResSt,
-    Channels,
+    ChanSt,
     QueryOpts
 ) ->
     ?tp(call_batch_query, #{
@@ -1489,7 +1479,7 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_batch_query,
             begin
-                case pre_query_channel_check(FirstRequest, Channels, QueryOpts) of
+                case pre_query_channel_check(Id, FirstRequest, ChanSt, QueryOpts) of
                     ok ->
                         Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt);
                     Error ->
@@ -1508,7 +1498,7 @@ apply_query_fun(
     Ref,
     [?QUERY(_, FirstRequest, _, _, _) | _] = Batch,
     ResSt,
-    Channels,
+    ChanSt,
     QueryOpts
 ) ->
     ?tp(call_batch_query_async, #{
@@ -1536,7 +1526,7 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            case pre_query_channel_check(FirstRequest, Channels, QueryOpts) of
+            case pre_query_channel_check(Id, FirstRequest, ChanSt, QueryOpts) of
                 ok ->
                     case
                         Mod:on_batch_query_async(

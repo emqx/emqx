@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_RESOURCE_HRL).
+-define(EMQX_RESOURCE_HRL, true).
 %% bridge/connector/action status
 -define(status_connected, connected).
 -define(status_connecting, connecting).
@@ -71,9 +73,9 @@
     query_mode := query_mode(),
     config := resource_config(),
     error := term(),
-    state := resource_state(),
     status := resource_status(),
-    added_channels := term()
+    added_channels := term(),
+    state := resource_state()
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{
@@ -168,3 +170,6 @@
 -define(TAG, "RESOURCE").
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
+-define(RESOURCE_STATE_CACHE, emqx_resource_cache).
+
+-endif.
