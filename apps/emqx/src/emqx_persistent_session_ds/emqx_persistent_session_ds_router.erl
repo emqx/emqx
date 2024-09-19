@@ -117,8 +117,8 @@ init_tables() ->
         {type, ordered_set},
         {rlog_shard, ?PS_ROUTER_SHARD},
         {storage, disc_copies},
-        {record_name, ps_routeidx},
-        {attributes, record_info(fields, ps_routeidx)},
+        {record_name, ps_routeidx_ext},
+        {attributes, record_info(fields, ps_routeidx_ext)},
         {storage_properties, [
             {ets, [
                 {read_concurrency, true},
@@ -168,7 +168,7 @@ match_routes(Topic, root) when is_binary(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)];
 match_routes(Topic, Scope) when is_binary(Topic) ->
-    lookup_scope_route_tab(Topic, Scope) ++
+    lookup_route_ext_tab(Topic, Scope) ++
         [match_to_route(M) || M <- match_scope_filters(Topic, Scope)].
 
 %% @doc Take a topic or filter as input, and return the existing routes with exactly
@@ -177,32 +177,27 @@ match_routes(Topic, Scope) when is_binary(Topic) ->
 lookup_routes(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            lookup_filter_tab(Topic) ++ lookup_scope_filter_tab(Topic, '_');
+            lookup_filter_tab(Topic) ++ lookup_filter_ext_tab(Topic, '_');
         false ->
-            lookup_route_tab(Topic) ++ lookup_scope_route_tab(Topic, '_')
+            lookup_route_tab(Topic) ++ lookup_route_ext_tab(Topic, '_')
     end.
 
 -spec lookup_routes(emqx_types:topic(), subscope()) -> [route()].
 lookup_routes(Topic, Scope) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            lookup_scope_filter_tab(Topic, Scope);
+            lookup_filter_ext_tab(Topic, Scope);
         false ->
-            lookup_scope_route_tab(Topic, Scope)
+            lookup_route_ext_tab(Topic, Scope)
     end.
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            [] =/= lookup_filter_tab(Topic, Dest);
-        false ->
-            [] =/= lookup_route_tab(Topic, Dest)
-    end.
+    lists:any(fun(#ps_route{dest = D}) -> D =:= Dest end, lookup_routes(Topic)).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    list_topics() ++ list_scope_topics().
+    lists:usort(list_topics() ++ list_scope_topics()).
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
@@ -224,9 +219,9 @@ foldr_routes(FoldFun, AccIn) ->
 stream(MTopic) ->
     emqx_utils_stream:chain([
         stream_tab(?PS_ROUTER_TAB, MTopic),
-        stream_tab(?PS_ROUTER_EXT_TAB, MTopic, '_'),
+        stream_ext_tab(?PS_ROUTER_EXT_TAB, MTopic, '_'),
         stream_tab(?PS_FILTERS_TAB, MTopic),
-        stream_tab(?PS_FILTERS_EXT_TAB, MTopic, '_')
+        stream_ext_tab(?PS_FILTERS_EXT_TAB, MTopic, '_')
     ]).
 
 -spec stream(_MTopic :: '_' | emqx_types:topic(), subscope()) ->
@@ -238,8 +233,8 @@ stream(MTopic, root) ->
     );
 stream(MTopic, Scope) ->
     emqx_utils_stream:chain(
-        stream_tab(?PS_ROUTER_EXT_TAB, MTopic, Scope),
-        stream_tab(?PS_FILTERS_EXT_TAB, MTopic, Scope)
+        stream_ext_tab(?PS_ROUTER_EXT_TAB, MTopic, Scope),
+        stream_ext_tab(?PS_FILTERS_EXT_TAB, MTopic, Scope)
     ).
 
 %% @doc Retrieve router stats.
@@ -256,31 +251,6 @@ stats(n_routes) ->
 %%--------------------------------------------------------------------
 %% Internal fns
 %%--------------------------------------------------------------------
-
-%% Make Dialyzer happy
-
-%% Equivalent of `#ps_route{topic = TOPIC, _ = '_'}`:
--define(PS_ROUTE_PAT(TOPIC),
-    erlang:make_tuple(record_info(size, ps_route), '_', [{#ps_route.topic, TOPIC}])
-).
-
-%% Equivalent of `#ps_route{topic = TOPIC, dest = DEST, _ = '_'}`:
--define(PS_ROUTE_PAT(TOPIC, DEST),
-    erlang:make_tuple(record_info(size, ps_route), '_', [
-        {#ps_route.topic, TOPIC},
-        {#ps_route.dest, DEST}
-    ])
-).
-
-%% Equivalent of `#ps_route_ext{entry = ENTRY, _ = '_'}`:
--define(PS_ROUTE_EXT_PAT(ENTRY),
-    erlang:make_tuple(record_info(size, ps_route_ext), '_', [{#ps_route_ext.entry, ENTRY}])
-).
-
-%% Equivalent of `#ps_routeidx{entry = ENTRY, _ = '_'}`:
--define(PS_ROUTEIDX_PAT(ENTRY),
-    erlang:make_tuple(record_info(size, ps_routeidx), '_', [{#ps_routeidx.entry, ENTRY}])
-).
 
 mria_insert_route(Topic, Dest, Scope) ->
     case emqx_trie_search:filter(Topic) of
@@ -318,7 +288,7 @@ mria_filter_tab_insert(Words, Dest, root) ->
 mria_filter_tab_insert(Words, Dest, Scope) ->
     K = emqx_topic_index:make_key(Words, Dest),
     ScopeTag = scope_tag(Scope),
-    mria:dirty_write(?PS_FILTERS_EXT_TAB, #ps_routeidx{entry = {ScopeTag, K}}).
+    mria:dirty_write(?PS_FILTERS_EXT_TAB, #ps_routeidx_ext{entry = {ScopeTag, K}}).
 
 mria_filter_tab_delete(Words, Dest, root) ->
     K = emqx_topic_index:make_key(Words, Dest),
@@ -333,15 +303,15 @@ has_route_match(Topic) ->
         false =/= emqx_topic_index:match(Topic, ?PS_FILTERS_TAB).
 
 has_scope_route_match(Topic, Scope) ->
-    ScopeTag = scope_tag(Scope),
-    MatchPat = ?PS_ROUTE_EXT_PAT({Topic, ScopeTag, '_'}),
+    MatchPat = mk_ext_matchspec(?PS_ROUTER_EXT_TAB, Topic, Scope),
     ets_match_member(?PS_ROUTER_EXT_TAB, MatchPat) orelse
         begin
-            NextF = mk_scope_nextf(?PS_FILTERS_EXT_TAB, ScopeTag),
+            NextF = mk_scope_nextf(?PS_FILTERS_EXT_TAB, Scope),
             false =/= emqx_trie_search:match(Topic, NextF)
         end.
 
-mk_scope_nextf(Tab, ScopeTag) ->
+mk_scope_nextf(Tab, Scope) ->
+    ScopeTag = scope_tag(Scope),
     fun(K) ->
         case ets:next(Tab, {ScopeTag, K}) of
             {ScopeTag, NK} -> NK;
@@ -353,34 +323,26 @@ mk_scope_nextf(Tab, ScopeTag) ->
 lookup_route_tab(Topic) ->
     ets:lookup(?PS_ROUTER_TAB, Topic).
 
-lookup_route_tab(Topic, Dest) ->
-    ets:match_object(?PS_ROUTER_TAB, ?PS_ROUTE_PAT(Topic, Dest)).
-
 lookup_filter_tab(Topic) ->
-    lookup_filter_tab(Topic, '$1').
-
-lookup_filter_tab(Topic, Dest) ->
-    MatchPat = ?PS_ROUTEIDX_PAT(emqx_topic_index:make_key(Topic, Dest)),
-    Contruct = ?PS_ROUTE_PAT(Topic, Dest),
+    MatchPat = mk_matchspec(?PS_FILTERS_TAB, Topic, '$1'),
+    Contruct = #ps_route{topic = Topic, dest = '$1'},
     ets:select(?PS_FILTERS_TAB, [{MatchPat, [], [{Contruct}]}]).
 
-lookup_scope_route_tab(Topic, Scope) ->
-    MatchPat = ?PS_ROUTE_EXT_PAT({Topic, scope_pat(Scope), '$1'}),
-    Contruct = ?PS_ROUTE_PAT(Topic, '$1'),
-    ets:select(?PS_ROUTER_TAB, [{MatchPat, [], [{Contruct}]}]).
+lookup_route_ext_tab(Topic, MScope) ->
+    MatchPat = mk_ext_matchspec(?PS_ROUTER_EXT_TAB, Topic, MScope, '$1'),
+    Contruct = #ps_route{topic = Topic, dest = '$1'},
+    ets:select(?PS_ROUTER_EXT_TAB, [{MatchPat, [], [{Contruct}]}]).
 
-lookup_scope_filter_tab(Topic, Scope) ->
-    %% TODO: Fullscan?
-    MatchPat = ?PS_ROUTEIDX_PAT({scope_pat(Scope), emqx_topic_index:make_key(Topic, '$1')}),
-    Contruct = ?PS_ROUTE_PAT(Topic, '$1'),
-    ets:select(?PS_ROUTER_TAB, [{MatchPat, [], [{Contruct}]}]).
+lookup_filter_ext_tab(Topic, MScope) ->
+    MatchPat = mk_ext_matchspec(?PS_FILTERS_EXT_TAB, Topic, MScope, '$1'),
+    Contruct = #ps_route{topic = Topic, dest = '$1'},
+    ets:select(?PS_FILTERS_EXT_TAB, [{MatchPat, [], [{Contruct}]}]).
 
 match_filters(Topic) ->
     emqx_topic_index:matches(Topic, ?PS_FILTERS_TAB, []).
 
 match_scope_filters(Topic, Scope) ->
-    ScopeTag = scope_tag(Scope),
-    emqx_trie_search:matches(Topic, mk_scope_nextf(?PS_FILTERS_EXT_TAB, ScopeTag), []).
+    emqx_trie_search:matches(Topic, mk_scope_nextf(?PS_FILTERS_EXT_TAB, Scope), []).
 
 scope_pat('_') ->
     '_';
@@ -412,71 +374,80 @@ match_to_route(M) ->
 
 list_topics() ->
     %% NOTE: This code is far from efficient, should be fine as long as it's test-only.
-    RPat = ?PS_ROUTE_PAT('$1'),
+    RPat = mk_matchspec(?PS_ROUTER_TAB, _Topic = '$1'),
     RTopics = ets:select(?PS_ROUTER_TAB, [{RPat, [], ['$1']}]),
-    FPat = ?PS_ROUTEIDX_PAT('$1'),
+    FPat = #ps_routeidx{entry = '$1', _ = '_'},
     FTopics = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?PS_FILTERS_TAB, FPat)],
-    lists:usort(RTopics) ++ FTopics.
+    RTopics ++ FTopics.
 
 list_scope_topics() ->
     %% NOTE: This code is far from efficient, should be fine as long as it's test-only.
-    RPat = ?PS_ROUTEIDX_PAT({'$1', _RScopeTag = '_', _Dest = '_'}),
+    RPat = mk_ext_matchspec(?PS_ROUTER_EXT_TAB, _Topic = '$1', _RScopeTag = '_'),
     RTopics = ets:select(?PS_ROUTER_EXT_TAB, [{RPat, [], ['$1']}]),
-    FPat = ?PS_ROUTEIDX_PAT({_FScopeTag = '_', _K = '$1'}),
+    FPat = #ps_routeidx_ext{entry = {_FScopeTag = '_', '$1'}, _ = '_'},
     FTopics = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?PS_FILTERS_EXT_TAB, FPat)],
-    lists:usort(RTopics ++ FTopics).
+    RTopics ++ FTopics.
 
 %% @doc Create a `emqx_utils_stream:stream(#route{})` out of contents of either of
 %% 4 route tables, optionally filtered by a topic or topic filter. If the latter is
 %% specified, then it doesn't make sense to scan through `?PS_ROUTER_TAB` if it's
 %% a wildcard topic, and vice versa for `?PS_FILTERS_TAB` if it's not, so we optimize
 %% it away by returning an empty stream in those cases.
-stream_tab(Tab = ?PS_ROUTER_TAB, MTopic = '_') ->
-    stream_route_tab(Tab, MTopic);
-stream_tab(Tab = ?PS_FILTERS_TAB, '_') ->
-    mk_tab_stream(Tab, ?PS_ROUTEIDX_PAT('_'), fun export_routeidx/1);
+stream_tab(Tab, MTopic = '_') ->
+    mk_tab_stream(Tab, MTopic);
 stream_tab(Tab, MTopic) ->
     case emqx_topic:wildcard(MTopic) of
         false when Tab == ?PS_ROUTER_TAB ->
-            stream_route_tab(Tab, MTopic);
+            mk_tab_stream(Tab, MTopic);
         true when Tab == ?PS_FILTERS_TAB ->
-            stream_filter_tab(Tab, MTopic);
+            mk_tab_stream(Tab, MTopic);
         _ ->
             emqx_utils_stream:empty()
     end.
 
-stream_route_tab(Tab = ?PS_ROUTER_TAB, MTopic) ->
-    mk_tab_stream(Tab, ?PS_ROUTE_PAT(MTopic), fun export_route/1).
+mk_tab_stream(Tab, MTopic) ->
+    case Tab of
+        ?PS_ROUTER_TAB -> ExportFun = fun export_route/1;
+        ?PS_FILTERS_TAB -> ExportFun = fun export_routeidx/1
+    end,
+    mk_tab_stream(Tab, mk_matchspec(Tab, MTopic), ExportFun).
 
-stream_filter_tab(Tab = ?PS_FILTERS_TAB, MTopic) ->
-    MatchSpec = ?PS_ROUTEIDX_PAT(emqx_trie_search:make_pat(MTopic, '_')),
-    mk_tab_stream(Tab, MatchSpec, fun export_routeidx/1).
-
-stream_tab(Tab = ?PS_ROUTER_EXT_TAB, MTopic = '_', MScope) ->
-    stream_route_tab(Tab, MTopic, MScope);
-stream_tab(Tab = ?PS_FILTERS_EXT_TAB, MTopic = '_', MScope) ->
-    stream_filter_tab(Tab, MTopic, MScope);
-stream_tab(Tab, MTopic, MScope) ->
+stream_ext_tab(Tab, MTopic = '_', MScope) ->
+    mk_ext_tab_stream(Tab, MTopic, MScope);
+stream_ext_tab(Tab, MTopic, MScope) ->
     case emqx_topic:wildcard(MTopic) of
         false when Tab == ?PS_ROUTER_EXT_TAB ->
-            stream_route_tab(Tab, MTopic, MScope);
+            mk_ext_tab_stream(Tab, MTopic, MScope);
         true when Tab == ?PS_FILTERS_EXT_TAB ->
-            stream_filter_tab(Tab, MTopic, MScope);
+            mk_ext_tab_stream(Tab, MTopic, MScope);
         _ ->
             emqx_utils_stream:empty()
     end.
 
-stream_route_tab(Tab = ?PS_ROUTER_EXT_TAB, MTopic, _MScope) ->
-    %% TODO: Only one scope so far, but could be accomodated for multiple scopes.
-    MScopeTag = scope_pat(noqos0),
-    MatchSpec = ?PS_ROUTE_EXT_PAT({MTopic, MScopeTag, '_'}),
-    mk_tab_stream(Tab, MatchSpec, fun export_route_ext/1).
+mk_ext_tab_stream(Tab, MTopic, MScope) ->
+    case Tab of
+        ?PS_ROUTER_EXT_TAB -> ExportFun = fun export_route_ext/1;
+        ?PS_FILTERS_EXT_TAB -> ExportFun = fun export_routeidx_ext/1
+    end,
+    mk_tab_stream(Tab, mk_ext_matchspec(Tab, MTopic, MScope), ExportFun).
 
-stream_filter_tab(Tab = ?PS_FILTERS_EXT_TAB, MTopic, _MScope) ->
+mk_matchspec(Tab, MTopic) ->
+    mk_matchspec(Tab, MTopic, '_').
+
+mk_matchspec(?PS_ROUTER_TAB, MTopic, MDest) ->
+    #ps_route{topic = MTopic, dest = MDest, _ = '_'};
+mk_matchspec(?PS_FILTERS_TAB, MTopic, MDest) ->
+    #ps_routeidx{entry = emqx_trie_search:make_pat(MTopic, MDest), _ = '_'}.
+
+mk_ext_matchspec(Tab, MTopic, MScope) ->
+    mk_ext_matchspec(Tab, MTopic, MScope, '_').
+
+mk_ext_matchspec(?PS_ROUTER_EXT_TAB, MTopic, MScope, MDest) ->
+    #ps_route_ext{entry = {MTopic, scope_pat(MScope), MDest}, _ = '_'};
+mk_ext_matchspec(?PS_FILTERS_EXT_TAB, MTopic, _MScope, MDest) ->
     %% TODO: Only one scope so far, but could be accomodated for multiple scopes.
     MScopeTag = scope_pat(noqos0),
-    MatchSpec = ?PS_ROUTEIDX_PAT({MScopeTag, emqx_trie_search:make_pat(MTopic, '_')}),
-    mk_tab_stream(Tab, MatchSpec, fun export_route_ext/1).
+    #ps_routeidx_ext{entry = {MScopeTag, emqx_trie_search:make_pat(MTopic, MDest)}, _ = '_'}.
 
 mk_tab_stream(Tab, MatchSpec, Mapper) ->
     %% NOTE: Currently relying on the fact that tables are backed by ETSes.
@@ -497,7 +468,7 @@ export_route_ext(#ps_route_ext{entry = {Topic, _Scope, Dest}}) ->
 export_routeidx(#ps_routeidx{entry = M}) ->
     export_match(M).
 
-export_routeidx_ext(#ps_routeidx{entry = {_Scope, M}}) ->
+export_routeidx_ext(#ps_routeidx_ext{entry = {_Scope, M}}) ->
     export_match(M).
 
 export_match(M) ->

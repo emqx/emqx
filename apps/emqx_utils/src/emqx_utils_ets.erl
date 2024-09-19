@@ -31,6 +31,10 @@
 
 -export([delete/1]).
 
+-export_type([pat/0]).
+
+-type pat() :: '_' | '$1' | '$2'.
+
 %% Create an ets table.
 -spec new(atom()) -> ok.
 new(Tab) ->

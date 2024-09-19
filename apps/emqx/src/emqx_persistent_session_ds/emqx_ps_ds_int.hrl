@@ -30,20 +30,33 @@
 ]).
 
 -record(ps_route, {
-    topic :: binary(),
-    dest :: emqx_persistent_session_ds_router:dest() | '_'
+    topic :: binary() | emqx_utils_ets:pat(),
+    dest :: emqx_persistent_session_ds_router:dest() | emqx_utils_ets:pat()
 }).
 
 -record(ps_route_ext, {
-    entry :: {_Topic :: binary(), _Scope, emqx_persistent_session_ds_router:dest()},
-    extra = [] :: nil()
+    entry :: {
+        _Topic :: binary() | emqx_utils_ets:pat(),
+        _Scope :: pos_integer() | emqx_utils_ets:pat(),
+        emqx_persistent_session_ds_router:dest() | emqx_utils_ets:pat()
+    },
+    extra = [] :: nil() | '_'
 }).
 
 -record(ps_routeidx, {
     entry ::
         emqx_topic_index:key(emqx_persistent_session_ds_router:dest())
-        | {_Scope, emqx_topic_index:key(emqx_persistent_session_ds_router:dest())},
-    extra = [] :: nil()
+        | emqx_utils_ets:pat(),
+    extra = [] :: nil() | '_'
+}).
+
+-record(ps_routeidx_ext, {
+    entry ::
+        {
+            _Scope :: pos_integer() | emqx_utils_ets:pat(),
+            emqx_topic_index:key(emqx_persistent_session_ds_router:dest()) | emqx_utils_ets:pat()
+        },
+    extra = [] :: nil() | '_'
 }).
 
 -endif.
