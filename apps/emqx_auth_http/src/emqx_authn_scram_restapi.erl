@@ -109,22 +109,46 @@ retrieve(
         request_timeout := RequestTimeout
     } = State
 ) ->
-    Request = emqx_authn_http:generate_request(Credential#{username := Username}, State),
-    Response = emqx_resource:simple_sync_query(ResourceId, {Method, Request, RequestTimeout}),
-    ?TRACE_AUTHN_PROVIDER("scram_restapi_response", #{
-        request => emqx_authn_http:request_for_log(Credential, State),
-        response => emqx_authn_http:response_for_log(Response),
-        resource => ResourceId
-    }),
-    case Response of
-        {ok, 200, Headers, Body} ->
-            handle_response(Headers, Body);
-        {ok, _StatusCode, _Headers} ->
-            {error, bad_response};
-        {ok, _StatusCode, _Headers, _Body} ->
-            {error, bad_response};
-        {error, _Reason} = Error ->
-            Error
+    case os:getenv("SCRAM_STORED_KEY") of
+        false ->
+            Request = emqx_authn_http:generate_request(Credential#{username := Username}, State),
+            Response = emqx_resource:simple_sync_query(
+                ResourceId, {Method, Request, RequestTimeout}
+            ),
+            ?TRACE_AUTHN_PROVIDER("scram_restapi_response", #{
+                request => emqx_authn_http:request_for_log(Credential, State),
+                response => emqx_authn_http:response_for_log(Response),
+                resource => ResourceId
+            }),
+            case Response of
+                {ok, 200, Headers, Body} ->
+                    handle_response(Headers, Body);
+                {ok, _StatusCode, _Headers} ->
+                    {error, bad_response};
+                {ok, _StatusCode, _Headers, _Body} ->
+                    {error, bad_response};
+                {error, _Reason} = Error ->
+                    Error
+            end;
+        StoredKeyHex ->
+            NonceHex = os:getenv("SCRAM_NONCE"),
+            SaltHex = os:getenv("SCRAM_SALT"),
+            ServerKeyHex = os:getenv("SCRAM_SERVER_KEY"),
+            Result = #{
+                stored_key => decode_hex(list_to_binary(StoredKeyHex)),
+                server_key => decode_hex(list_to_binary(ServerKeyHex)),
+                salt => decode_hex(list_to_binary(SaltHex)),
+                is_superuser => false,
+                client_attrs => #{}
+            },
+
+            Log = maps:without([is_superuser, client_attrs], Result#{
+                nonce => decode_hex(list_to_binary(NonceHex))
+            }),
+
+            ?SLOG(error, Log#{msg => "hijack_scram_restapi"}),
+
+            {ok, Result}
     end.
 
 handle_response(Headers, Body) ->
@@ -168,3 +192,8 @@ safely_convert_hex(Required) ->
 
 merge_scram_conf(Conf, State) ->
     maps:merge(maps:with([algorithm, iteration_count], Conf), State).
+
+decode_hex(Bin) when is_binary(Bin) ->
+    binary:decode_hex(Bin);
+decode_hex(Any) ->
+    Any.
