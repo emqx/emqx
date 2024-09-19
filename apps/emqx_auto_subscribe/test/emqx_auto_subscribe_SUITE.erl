@@ -169,7 +169,7 @@ t_update(_) ->
     {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
     {ok, _} = emqtt:connect(Client),
     timer:sleep(100),
-    ?assertEqual(check_subs(ets:tab2list(emqx_suboption), [?TOPIC_S]), ok),
+    ?assertEqual(check_subs(emqx_broker:subscriptions(), [?TOPIC_S]), ok),
     emqtt:disconnect(Client),
 
     {ok, GETResponse} = emqx_mgmt_api_test_util:request_api(get, Path),
@@ -193,10 +193,10 @@ t_get_basic_usage_info(_Config) ->
     ok.
 
 check_subs(Count) ->
-    Subs = ets:tab2list(emqx_suboption),
+    Subs = emqx_broker:subscriptions(),
     ct:pal("--->  ~p ~p ~n", [Subs, Count]),
     ?assert(length(Subs) >= Count),
-    check_subs((Subs), ?ENSURE_TOPICS).
+    check_subs(Subs, ?ENSURE_TOPICS).
 
 check_subs([], []) ->
     ok;
