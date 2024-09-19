@@ -648,7 +648,8 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
         resource_opts := #{request_ttl := RequestTTL}
     } = ActionConfig,
     PipeParts = lists:map(fun maybe_quote/1, [Database, Schema, Pipe]),
-    PipePath = iolist_to_binary(lists:join($., PipeParts)),
+    PipePath0 = iolist_to_binary(lists:join($., PipeParts)),
+    PipePath = uri_string:quote(PipePath0),
     PipePrefix = iolist_to_binary([
         <<"https://">>,
         Host,
