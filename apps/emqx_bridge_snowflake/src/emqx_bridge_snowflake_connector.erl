@@ -212,7 +212,7 @@ on_start(ConnResId, ConnConfig) ->
                 installed_actions => #{}
             },
             {ok, State};
-        {error, Reason} ->
+        {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.
 
