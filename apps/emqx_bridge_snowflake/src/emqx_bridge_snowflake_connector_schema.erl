@@ -74,16 +74,29 @@ fields(connector_config) ->
                 desc => ?DESC("account"),
                 validator => fun account_id_validator/1
             })},
-        {dsn, mk(binary(), #{required => true, desc => ?DESC("dsn")})}
+        {dsn, mk(binary(), #{required => true, desc => ?DESC("dsn")})},
+        {proxy,
+            mk(
+                hoconsc:union([none, hoconsc:ref(?MODULE, proxy_config)]),
+                #{default => none, desc => ?DESC("proxy_config")}
+            )}
         | Fields
     ] ++
         emqx_connector_schema:resource_opts() ++
-        emqx_connector_schema_lib:ssl_fields().
+        emqx_connector_schema_lib:ssl_fields();
+fields(proxy_config) ->
+    [
+        {host, mk(binary(), #{required => true, desc => ?DESC("proxy_config_host")})},
+        {port,
+            mk(emqx_schema:port_number(), #{required => true, desc => ?DESC("proxy_config_port")})}
+    ].
 
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, resource_opts);
+desc(proxy_config) ->
+    ?DESC("proxy_config");
 desc(_Name) ->
     undefined.
 

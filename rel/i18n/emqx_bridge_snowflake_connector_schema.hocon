@@ -19,4 +19,19 @@ emqx_bridge_snowflake_connector_schema {
   dsn.desc:
   """Data Source Name (DSN) associated with the installed Snowflake ODBC driver."""
 
+  proxy_config.label:
+  """Proxy"""
+  proxy_config.desc:
+  """Proxy configuration.  Only plain HTTP proxies are currently supported (no HTTPS)."""
+
+  proxy_config_host.label:
+  """Proxy Host"""
+  proxy_config_host.desc:
+  """Proxy host address to connect to."""
+
+  proxy_config_port.label:
+  """Proxy Port"""
+  proxy_config_port.desc:
+  """Proxy port to use when connecting."""
+
 }
