@@ -1258,43 +1258,15 @@ validate_utf8(Bin) ->
     end.
 
 %% Is the utf8 string respecting UTF-8 characters defined by MQTT Spec?
-%% i.e. contains invalid UTF-8 char or control char
+%% i.e. does the string contains control characters?
+%% Note: this is under the assumption that the string is already validated by `unicode:characters_to_binary/1`
+%% hence there is no need to validate utf8 byte sequence integrity
 validate_mqtt_utf8_char(<<>>) ->
     true;
-%% ==== 1-Byte UTF-8 invalid: [[U+0000 .. U+001F] && [U+007F]]
-validate_mqtt_utf8_char(<<B1, Bs/binary>>) when
-    B1 >= 16#20, B1 =< 16#7E
+validate_mqtt_utf8_char(<<H/utf8, _Rest/binary>>) when
+    H >= 16#00, H =< 16#1F;
+    H >= 16#7F, H =< 16#9F
 ->
-    validate_mqtt_utf8_char(Bs);
-validate_mqtt_utf8_char(<<B1, _Bs/binary>>) when
-    B1 >= 16#00, B1 =< 16#1F;
-    B1 =:= 16#7F
-->
-    %% [U+0000 .. U+001F] && [U+007F]
     false;
-%% ==== 2-Bytes UTF-8 invalid: [U+0080 .. U+009F]
-validate_mqtt_utf8_char(<<B1, B2, Bs/binary>>) when
-    B1 =:= 16#C2;
-    B2 >= 16#A0, B2 =< 16#BF;
-    B1 > 16#C3, B1 =< 16#DE;
-    B2 >= 16#80, B2 =< 16#BF
-->
-    validate_mqtt_utf8_char(Bs);
-validate_mqtt_utf8_char(<<16#C2, B2, _Bs/binary>>) when
-    B2 >= 16#80, B2 =< 16#9F
-->
-    %% [U+0080 .. U+009F]
-    false;
-%% ==== 3-Bytes UTF-8 invalid: [U+D800 .. U+DFFF]
-validate_mqtt_utf8_char(<<B1, _B2, _B3, Bs/binary>>) when
-    B1 >= 16#E0, B1 =< 16#EE;
-    B1 =:= 16#EF
-->
-    validate_mqtt_utf8_char(Bs);
-validate_mqtt_utf8_char(<<16#ED, _B2, _B3, _Bs/binary>>) ->
-    false;
-%% ==== 4-Bytes UTF-8
-validate_mqtt_utf8_char(<<B1, _B2, _B3, _B4, Bs/binary>>) when
-    B1 =:= 16#0F
-->
-    validate_mqtt_utf8_char(Bs).
+validate_mqtt_utf8_char(<<_H/utf8, Rest/binary>>) ->
+    validate_mqtt_utf8_char(Rest).
