@@ -351,7 +351,7 @@ forget_site(Site) ->
 %% DB API
 %%===============================================================================
 
--spec db_config(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
+-spec db_config(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts() | #{}.
 db_config(DB) ->
     case mnesia:dirty_read(?META_TAB, DB) of
         [#?META_TAB{db_props = Opts}] ->

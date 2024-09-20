@@ -461,7 +461,7 @@ dbs() ->
 
 db_config(DB) ->
     case emqx_ds_replication_layer_meta:db_config(DB) of
-        Config = #{backend := builtin_raft} ->
+        Config = #{backend := _Builtin} ->
             Config;
         _ ->
             undefined
@@ -534,6 +534,6 @@ meta_result_to_binary({error, Err}) ->
     {error, iolist_to_binary(IOList)}.
 
 is_enabled() ->
-    [] =/= dbs().
+    emqx_ds_builtin_raft_sup:which_dbs() =/= {error, inactive}.
 
 -endif.
