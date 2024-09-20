@@ -33,7 +33,8 @@
     open_db/2,
     db_config/1,
     update_db_config/2,
-    drop_db/1
+    drop_db/1,
+    dbs/0
 ]).
 
 %% Site / shard allocation:
@@ -372,6 +373,10 @@ update_db_config(DB, DefaultOpts) ->
 -spec drop_db(emqx_ds:db()) -> ok.
 drop_db(DB) ->
     transaction(fun ?MODULE:drop_db_trans/1, [DB]).
+
+-spec dbs() -> [emqx_ds:db()].
+dbs() ->
+    mnesia:dirty_all_keys(?META_TAB).
 
 %%===============================================================================
 %% Site / shard allocation API
