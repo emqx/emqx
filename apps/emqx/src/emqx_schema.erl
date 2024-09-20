@@ -2255,16 +2255,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             )},
         {"versions", tls_versions_schema(Collection)},
         {"ciphers", ciphers_schema(D(ciphers))},
-        {"user_lookup_fun",
-            sc(
-                typerefl:alias("string", any()),
-                #{
-                    default => <<"emqx_tls_psk:lookup">>,
-                    converter => fun ?MODULE:user_lookup_fun_tr/2,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
-                }
-            )},
         {"secure_renegotiate",
             sc(
                 boolean(),
@@ -2341,6 +2331,16 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                     #{
                         default => Df(handshake_timeout, <<"15s">>),
                         desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
+                    }
+                )},
+            {"user_lookup_fun",
+                sc(
+                    typerefl:alias("string", any()),
+                    #{
+                        default => <<"emqx_tls_psk:lookup">>,
+                        converter => fun ?MODULE:user_lookup_fun_tr/2,
+                        importance => ?IMPORTANCE_HIDDEN,
+                        desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                     }
                 )}
         ] ++
@@ -2458,6 +2458,14 @@ client_ssl_opts_schema(Defaults) ->
                         example => disable,
                         validator => fun emqx_schema:non_empty_string/1,
                         desc => ?DESC(client_ssl_opts_schema_server_name_indication)
+                    }
+                )},
+            {"user_lookup_fun",
+                sc(
+                    string(),
+                    #{
+                        deprecated => {since, "5.8.1"},
+                        importance => ?IMPORTANCE_HIDDEN
                     }
                 )}
         ].

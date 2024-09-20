@@ -42,7 +42,7 @@
         M =:= maps)
 ).
 
--define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
+-define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined orelse X =:= null)).
 
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
@@ -113,7 +113,12 @@ compile(#{form := _} = Compiled) ->
     {ok, Compiled};
 compile(Expression) when is_binary(Expression) ->
     compile(unicode:characters_to_list(Expression));
-compile(Expression) ->
+compile(Expression) when is_list(Expression) ->
+    do_compile(Expression);
+compile(_Expression) ->
+    {error, invalid_expression}.
+
+do_compile(Expression) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
@@ -154,6 +159,8 @@ eval({call, FuncNameStr, Args}, Bindings, Opts) ->
             eval_iif(Args, Bindings, Opts);
         {?BIF_MOD, coalesce} ->
             eval_coalesce(Args, Bindings, Opts);
+        {?BIF_MOD, is_empty} ->
+            eval_is_empty(Args, Bindings, Opts);
         _ ->
             call(Mod, Fun, eval_loop(Args, Bindings, Opts))
     end;
@@ -209,6 +216,10 @@ try_eval(Arg, Bindings, Opts) ->
             <<>>
     end.
 
+eval_is_empty([Arg], Bindings, Opts) ->
+    Val = eval_coalesce_loop([Arg], Bindings, Opts),
+    ?IS_EMPTY(Val).
+
 eval_iif([Cond, If, Else], Bindings, Opts) ->
     CondVal = try_eval(Cond, Bindings, Opts),
     case is_iif_condition_met(CondVal) of
@@ -249,6 +260,7 @@ resolve_func_name(FuncNameStr) ->
                     error:badarg ->
                         throw(#{
                             reason => unknown_variform_function,
+                            module => Mod,
                             function => Fun0
                         })
                 end,
@@ -261,6 +273,7 @@ resolve_func_name(FuncNameStr) ->
                     error:badarg ->
                         throw(#{
                             reason => unknown_variform_function,
+                            module => ?BIF_MOD,
                             function => Fun
                         })
                 end,
@@ -284,6 +297,8 @@ resolve_var_value(VarName, Bindings, _Opts) ->
 assert_func_exported(?BIF_MOD, coalesce, _Arity) ->
     ok;
 assert_func_exported(?BIF_MOD, iif, _Arity) ->
+    ok;
+assert_func_exported(?BIF_MOD, is_empty, _Arity) ->
     ok;
 assert_func_exported(Mod, Fun, Arity) ->
     ok = try_load(Mod),

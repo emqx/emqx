@@ -40,6 +40,7 @@
     unload/0,
     lookup/1,
     lookup/2,
+    is_exist_v1/2,
     get_metrics/2,
     create/3,
     disable_enable/3,
@@ -256,7 +257,8 @@ send_message(BridgeType, BridgeName, ResId, Message, QueryOpts0) ->
             QueryOpts = maps:merge(query_opts(Config), QueryOpts0),
             emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
-            {error, bridge_stopped}
+            %% race
+            {error, bridge_disabled}
     end.
 
 query_opts(Config) ->
@@ -325,6 +327,9 @@ list() ->
 lookup(Id) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
     lookup(Type, Name).
+
+is_exist_v1(Type, Name) ->
+    emqx_resource:is_exist(emqx_bridge_resource:resource_id(Type, Name)).
 
 lookup(Type, Name) ->
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
