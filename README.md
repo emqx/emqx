@@ -78,7 +78,7 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 ## Resources
 
-- [MQTT client programming](https://www.emqx.com/en/blog/tag/mqtt-client-programming)
+- [MQTT client programming](https://www.emqx.com/en/blog/category/mqtt-programming)
 
   A series of blogs to help developers get started quickly with MQTT in PHP, Node.js, Python, Golang, and other programming languages.
 

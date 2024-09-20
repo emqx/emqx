@@ -75,7 +75,7 @@ emqx start
 
 ## Дополнительные ресурсы
 
-- [MQTT client programming](https://www.emqx.com/en/blog/tag/mqtt-client-programming)
+- [MQTT client programming](https://www.emqx.com/en/blog/category/mqtt-programming)
 
   Коллекция блогов, чтобы помочь разработчикам быстро начать работу с MQTT на PHP, Node.js, Python, Golang, и других языках программирования.
 
