@@ -332,6 +332,10 @@ fmt: $(REBAR)
 	@$(SCRIPTS)/erlfmt -w 'bin/nodetool'
 	@mix format
 
+.PHONY: fmt-diff
+fmt-diff:
+	@env ERLFMT_WRITE=true ./scripts/git-hook-pre-commit.sh
+
 .PHONY: clean-test-cluster-config
 clean-test-cluster-config:
 	@rm -f apps/emqx_conf/data/configs/cluster.hocon || true
