@@ -2411,9 +2411,7 @@ ensure_keepalive_timer(
     Val =
         case maps:get(conn_shared_state, ConnInfo, undefined) of
             #{cnts_ref := CntRef} ->
-                fun() ->
-                    emqx_quic_connection:read_cnt(CntRef, control_packet)
-                end;
+                _MFA = {emqx_quic_connection, read_cnt, [CntRef, control_packet]};
             undefined ->
                 emqx_pd:get_counter(recv_pkt)
         end,
