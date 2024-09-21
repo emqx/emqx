@@ -104,7 +104,8 @@
     'actions.success',
     'actions.failed',
     'actions.failed.out_of_service',
-    'actions.failed.unknown'
+    'actions.failed.unknown',
+    'actions.discarded'
 ]).
 
 -define(RATE_METRICS, ['matched']).
@@ -666,17 +667,14 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
     NonExistentBridgeIDs =
         lists:filter(
             fun({Kind, Type, Name}) ->
-                LookupFn =
+                IsExist =
                     case Kind of
-                        action -> fun emqx_bridge_v2:lookup_action/2;
-                        source -> fun emqx_bridge_v2:lookup_source/2;
-                        bridge_v1 -> fun emqx_bridge:lookup/2
+                        action -> fun emqx_bridge_v2:is_action_exist/2;
+                        source -> fun emqx_bridge_v2:is_source_exist/2;
+                        bridge_v1 -> fun emqx_bridge:is_exist_v1/2
                     end,
                 try
-                    case LookupFn(Type, Name) of
-                        {ok, _} -> false;
-                        {error, _} -> true
-                    end
+                    not IsExist(Type, Name)
                 catch
                     _:_ -> true
                 end

@@ -29,7 +29,7 @@
 -define(DATABASE, <<"testdatabase">>).
 -define(SCHEMA, <<"public">>).
 -define(STAGE, <<"teststage0">>).
--define(TABLE, <<"test1">>).
+-define(TABLE, <<"test0">>).
 -define(WAREHOUSE, <<"testwarehouse">>).
 -define(PIPE_USER, <<"snowpipeuser">>).
 

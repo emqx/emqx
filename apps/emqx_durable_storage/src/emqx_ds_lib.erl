@@ -16,6 +16,7 @@
 -module(emqx_ds_lib).
 
 -include("emqx_ds.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% API:
 -export([with_worker/4, send_poll_timeout/2]).
@@ -57,11 +58,11 @@ with_worker(UserData, Mod, Function, Args) ->
 
 -spec send_poll_timeout(reference(), timeout()) -> ok.
 send_poll_timeout(ReplyTo, Timeout) ->
-    _ = spawn_link(
+    _ = spawn(
         fun() ->
             receive
             after Timeout + 10 ->
-                logger:debug("Timeout for poll ~p", [ReplyTo]),
+                ?tp(emqx_ds_poll_timeout_send, #{reply_to => ReplyTo}),
                 ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
             end
         end

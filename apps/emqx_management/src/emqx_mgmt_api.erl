@@ -31,6 +31,8 @@
 -export([
     node_query/6,
     node_query/7,
+    node_query_with_tabs/6,
+    node_query_with_tabs/7,
     cluster_query/5,
     cluster_query/6,
     b2i/1
@@ -207,6 +209,68 @@ do_node_query(
     end.
 
 %%--------------------------------------------------------------------
+%% Node Query with tables
+%%--------------------------------------------------------------------
+
+-spec node_query_with_tabs(
+    node(),
+    [atom()],
+    query_params(),
+    query_schema(),
+    query_to_match_spec_fun(),
+    format_result_fun()
+) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
+node_query_with_tabs(Node, Tabs, QString, QSchema, MsFun, FmtFun) ->
+    node_query_with_tabs(Node, Tabs, QString, QSchema, MsFun, FmtFun, #{}).
+
+-spec node_query_with_tabs(
+    node(),
+    [atom()],
+    query_params(),
+    query_schema(),
+    query_to_match_spec_fun(),
+    format_result_fun(),
+    query_options()
+) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
+node_query_with_tabs(Node, [Tab | Tabs], QString, QSchema, MsFun, FmtFun, Options) ->
+    case parse_pager_params(QString) of
+        false ->
+            {error, page_limit_invalid};
+        Meta ->
+            {_CodCnt, NQString} = parse_qstring(QString, QSchema),
+            ResultAcc = init_query_result(),
+            QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
+            NResultAcc = do_node_query_with_tabs(Node, Tabs, QueryState, ResultAcc),
+            format_query_result(FmtFun, Meta, NResultAcc)
+    end.
+
+%% @private
+do_node_query_with_tabs(
+    Node,
+    Tabs,
+    QueryState,
+    ResultAcc
+) ->
+    case do_query(Node, QueryState) of
+        {error, Error} ->
+            {error, Node, Error};
+        {Rows, NQueryState = #{complete := Complete}} ->
+            case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
+                {enough, NResultAcc} ->
+                    FComplete = Complete andalso Tabs =:= [],
+                    finalize_query(NResultAcc, mark_complete(NQueryState, FComplete));
+                {more, NResultAcc} when not Complete ->
+                    do_node_query_with_tabs(Node, Tabs, NQueryState, NResultAcc);
+                {more, NResultAcc} when Tabs =/= [] ->
+                    [Tab | NTabs] = Tabs,
+                    NQueryState2 = reinit_query_state(Tab, NQueryState),
+                    do_node_query_with_tabs(Node, NTabs, NQueryState2, NResultAcc);
+                {more, NResultAcc} ->
+                    finalize_query(NResultAcc, NQueryState)
+            end
+    end.
+
+%%--------------------------------------------------------------------
 %% Cluster Query
 %%--------------------------------------------------------------------
 -spec cluster_query(
@@ -337,6 +401,25 @@ init_query_state(Tab, QString, MsFun, _Meta = #{page := Page, limit := Limit}, O
         Fun when is_function(Fun) ->
             QueryState#{total => #{}}
     end.
+
+reinit_query_state(Tab, #{qs := QString, msfun := MsFun} = QueryState) ->
+    #{match_spec := Ms, fuzzy_fun := FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
+    _ =
+        case FuzzyFun of
+            undefined ->
+                ok;
+            {NamedFun, Args} ->
+                true = is_list(Args),
+                {type, external} = erlang:fun_info(NamedFun, type)
+        end,
+
+    QueryState2 = reset_query_state(QueryState),
+
+    QueryState2#{
+        table := Tab,
+        match_spec := Ms,
+        fuzzy_fun := FuzzyFun
+    }.
 
 reset_query_state(QueryState) ->
     maps:remove(continuation, mark_complete(QueryState, false)).
@@ -679,12 +762,20 @@ to_type(V, TargetType) ->
             throw(bad_value_type)
     end.
 
-to_type_(V, atom) -> to_atom(V);
-to_type_(V, integer) -> to_integer(V);
-to_type_(V, timestamp) -> to_timestamp(V);
-to_type_(V, ip) -> to_ip(V);
-to_type_(V, ip_port) -> to_ip_port(V);
-to_type_(V, _) -> V.
+to_type_(V, atom) ->
+    to_atom(V);
+to_type_(V, integer) ->
+    to_integer(V);
+to_type_(V, timestamp) ->
+    to_timestamp(V);
+to_type_(V, ip) ->
+    to_ip(V);
+to_type_(V, ip_port) ->
+    to_ip_port(V);
+to_type_(V, Fun) when is_function(Fun, 1) ->
+    Fun(V);
+to_type_(V, _) ->
+    V.
 
 to_atom(A) when is_atom(A) ->
     A;

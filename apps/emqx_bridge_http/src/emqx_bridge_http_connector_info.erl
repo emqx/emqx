@@ -41,7 +41,6 @@ config_schema() ->
         hoconsc:mk(
             hoconsc:map(name, hoconsc:ref(emqx_bridge_http_schema, "config_connector")),
             #{
-                alias => [webhook],
                 desc => <<"HTTP Connector Config">>,
                 required => false
             }

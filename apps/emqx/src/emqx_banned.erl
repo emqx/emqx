@@ -40,6 +40,7 @@
     info/1,
     format/1,
     parse/1,
+    parse_who/1,
     clear/0,
     who/2,
     tables/0
@@ -67,10 +68,6 @@
 
 -define(BANNED_INDIVIDUAL_TAB, ?MODULE).
 -define(BANNED_RULE_TAB, emqx_banned_rules).
-
-%% The default expiration time should be infinite
-%% but for compatibility, a large number (1 years) is used here to represent the 'infinite'
--define(EXPIRATION_TIME, 31536000).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -149,7 +146,7 @@ parse(Params) ->
             By = maps:get(<<"by">>, Params, <<"mgmt_api">>),
             Reason = maps:get(<<"reason">>, Params, <<"">>),
             At = maps:get(<<"at">>, Params, erlang:system_time(second)),
-            Until = maps:get(<<"until">>, Params, At + ?EXPIRATION_TIME),
+            Until = maps:get(<<"until">>, Params, infinity),
             case Until > erlang:system_time(second) of
                 true ->
                     {ok, #banned{
@@ -341,17 +338,24 @@ parse_stream([], Ok, Error) ->
     {ok, Ok}.
 
 normalize_parse_item(#{<<"as">> := As} = Item) ->
-    ParseTime = fun(Name, Input) ->
-        maybe
-            #{Name := Time} ?= Input,
-            {ok, Epoch} ?= emqx_utils_calendar:to_epoch_second(emqx_utils_conv:str(Time)),
-            {ok, Input#{Name := Epoch}}
-        else
-            {error, _} = Error ->
-                Error;
-            NoTime when is_map(NoTime) ->
-                {ok, NoTime}
+    ToSecond = fun(Name, Time, Input) ->
+        case emqx_utils_calendar:to_epoch_second(emqx_utils_conv:str(Time)) of
+            {ok, Epoch} ->
+                {ok, Input#{Name := Epoch}};
+            Error ->
+                Error
         end
+    end,
+
+    ParseTime = fun
+        (<<"at">>, #{<<"at">> := Time} = Input) ->
+            ToSecond(<<"at">>, Time, Input);
+        (<<"until">>, #{<<"until">> := <<"infinity">>} = Input) ->
+            {ok, Input#{<<"until">> := infinity}};
+        (<<"until">>, #{<<"until">> := Time} = Input) ->
+            ToSecond(<<"until">>, Time, Input);
+        (_, Input) ->
+            {ok, Input}
     end,
 
     maybe
@@ -468,6 +472,8 @@ format_who({AsRE, {_RE, REOriginal}}) when AsRE =:= clientid_re orelse AsRE =:= 
 format_who({As, Who}) when As =:= clientid orelse As =:= username ->
     {As, Who}.
 
+to_rfc3339(infinity) ->
+    infinity;
 to_rfc3339(Timestamp) ->
     emqx_utils_calendar:epoch_to_rfc3339(Timestamp, second).
 

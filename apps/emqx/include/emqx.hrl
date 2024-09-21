@@ -103,7 +103,7 @@
     by :: binary(),
     reason :: binary(),
     at :: integer(),
-    until :: integer()
+    until :: integer() | infinity
 }).
 
 %%--------------------------------------------------------------------
