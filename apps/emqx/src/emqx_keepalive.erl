@@ -16,6 +16,8 @@
 
 -module(emqx_keepalive).
 
+-include("types.hrl").
+
 -export([
     init/1,
     init/2,
@@ -36,7 +38,7 @@
     %% the received packets since last keepalive check
     statval :: non_neg_integer(),
     %% stat reader func
-    stat_reader :: mfa() | undefined,
+    stat_reader :: mfargs() | undefined,
     %% The number of idle intervals allowed before disconnecting the client.
     idle_milliseconds = 0 :: non_neg_integer(),
     max_idle_millisecond :: pos_integer()
