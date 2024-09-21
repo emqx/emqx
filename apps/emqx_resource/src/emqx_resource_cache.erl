@@ -17,7 +17,7 @@
 -module(emqx_resource_cache).
 
 %% CRUD APIs
--export([new/0, write/3, is_exist/1, read/1, safe_read/1, erase/1]).
+-export([new/0, write/3, is_exist/1, read/1, erase/1]).
 %% For Config management
 -export([all_ids/0, list_all/0, group_ids/1]).
 %% For health checks etc.
@@ -98,17 +98,8 @@ write(ManagerPid, Group, Data) ->
 %% @doc Read cached pieces and return a externalized map.
 %% NOTE: Do not call this in hot-path.
 %% TODO: move `group' into `resource_data()'.
--spec read(resource_id()) -> {resource_group(), resource_data()}.
+-spec read(resource_id()) -> [{resource_group(), resource_data()}].
 read(ID) ->
-    case safe_read(ID) of
-        [] ->
-            error({not_found, ID});
-        [{G, D}] ->
-            {G, D}
-    end.
-
--spec safe_read(resource_id()) -> [{resource_group(), resource_data()}].
-safe_read(ID) ->
     case ets:lookup(?RESOURCE_STATE_CACHE, ID) of
         [] ->
             [];
@@ -156,7 +147,7 @@ list_all() ->
     IDs = all_ids(),
     lists:foldr(
         fun(ID, Acc) ->
-            case safe_read(ID) of
+            case read(ID) of
                 [] ->
                     Acc;
                 [{_G, Data}] ->

@@ -381,17 +381,16 @@ lookup(ResId) ->
 %% @doc Lookup the group and data of a resource from the cache
 -spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup_cached(ResId) ->
-    try read_cache(ResId) of
-        {Group, Data} ->
-            {ok, Group, Data}
-    catch
-        error:{not_found, _} ->
+    case read_cache(ResId) of
+        [{Group, Data}] ->
+            {ok, Group, Data};
+        [] ->
             {error, not_found}
     end.
 
 %% @doc Check if the resource is cached.
 is_exist(ResId) ->
-    {error, not_found} =/= lookup_cached(ResId).
+    emqx_resource_cache:is_exist(ResId).
 
 %% @doc Get the metrics for the specified resource
 get_metrics(ResId) ->
@@ -732,7 +731,7 @@ handle_event(EventType, EventData, State, Data) ->
     keep_state_and_data.
 
 log_status_consistency(Status, #data{status = Status} = Data0) ->
-    {_Group, Cached} = read_cache(Data0#data.id),
+    [{_Group, Cached}] = read_cache(Data0#data.id),
     Data = data_record_to_external_map(Data0),
     log_cache_consistency(Cached, Data);
 log_status_consistency(Status, Data) ->
