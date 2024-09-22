@@ -55,8 +55,7 @@
 ]).
 
 -export([
-    set_resource_status_connecting/1,
-    make_test_id/0
+    set_resource_status_connecting/1
 ]).
 
 % Server
@@ -231,7 +230,7 @@ create(ResId, Group, ResourceType, Config, Opts) ->
 -spec create_dry_run(resource_module(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
-    ResId = make_test_id(),
+    ResId = ?PROBE_ID_NEW(),
     create_dry_run(ResId, ResourceType, Config).
 
 create_dry_run(ResId, ResourceType, Config) ->
@@ -1006,10 +1005,6 @@ terminate_health_check_workers(Data) ->
         end,
         Pending
     ).
-
-make_test_id() ->
-    RandId = iolist_to_binary(emqx_utils:gen_id(16)),
-    <<?TEST_ID_PREFIX, RandId/binary>>.
 
 handle_add_channel(From, Data, ChannelId, Config) ->
     Channels = Data#data.added_channels,

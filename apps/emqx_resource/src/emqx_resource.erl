@@ -799,11 +799,13 @@ validate_name(Name) ->
     ok.
 
 -spec is_dry_run(resource_id()) -> boolean().
-is_dry_run(ResId) ->
-    case string:find(ResId, ?TEST_ID_PREFIX) of
-        nomatch -> false;
-        TestIdStart -> string:equal(TestIdStart, ResId)
-    end.
+is_dry_run(?PROBE_ID_MATCH(_)) ->
+    %% A probe connector
+    true;
+is_dry_run(ID) ->
+    %% A probe action/source
+    RE = ":" ++ ?PROBE_ID_PREFIX ++ "[a-zA-Z0-9]{8}:",
+    match =:= re:run(ID, RE, [{capture, none}]).
 
 validate_name(<<>>, _Opts) ->
     invalid_data("Name cannot be empty string");

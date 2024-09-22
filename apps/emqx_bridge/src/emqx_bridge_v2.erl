@@ -781,7 +781,7 @@ create_dry_run(ConfRootKey, Type, Conf0) ->
     end.
 
 create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawConf) ->
-    BridgeName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    BridgeName = ?PROBE_ID_NEW(),
     ConnectorType = connector_type(BridgeV2Type),
     OnReadyCallback =
         fun(ConnectorId) ->
@@ -1708,7 +1708,7 @@ get_conf_root_key(_NoMatch) ->
 
 bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
     RawConf = maps:without([<<"name">>], RawConfig0),
-    TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    TmpName = ?PROBE_ID_NEW(),
     PreviousRawConf = undefined,
     try
         #{

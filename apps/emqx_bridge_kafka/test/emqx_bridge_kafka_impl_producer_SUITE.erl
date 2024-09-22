@@ -234,14 +234,6 @@ t_rest_api(Config) ->
     },
     ok = kafka_bridge_rest_api_helper(Cfg).
 
-%% So that we can check if new atoms are created when they are not supposed to be created
-pre_create_atoms() ->
-    [
-        kafka_producer__probe_,
-        probedryrun,
-        kafka__probe_
-    ].
-
 http_get_bridges(UrlPath, Name0) ->
     Name = iolist_to_binary(Name0),
     {ok, _Code, BridgesData} = http_get(UrlPath),
@@ -307,7 +299,6 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertMatch([#{<<"type">> := <<"kafka">>}], http_get_bridges(BridgesParts, BridgeName)),
         %% Probe should work
         %% no extra atoms should be created when probing
-        %% See pre_create_atoms() above
         AtomsBefore = erlang:system_info(atom_count),
         {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
         AtomsAfter = erlang:system_info(atom_count),

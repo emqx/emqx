@@ -159,7 +159,12 @@
 
 %% Keep this test_id_prefix is match "^[A-Za-z0-9]+[A-Za-z0-9-_]*$".
 %% See `hocon_tconf`
--define(TEST_ID_PREFIX, "t_probe_").
+-define(PROBE_ID_PREFIX, "PROBE_").
+-define(PROBE_ID_RAND_BYTES, 8).
+-define(PROBE_ID_NEW(),
+    iolist_to_binary([?PROBE_ID_PREFIX, emqx_utils:rand_id(?PROBE_ID_RAND_BYTES)])
+).
+-define(PROBE_ID_MATCH(Suffix), <<?PROBE_ID_PREFIX, _:?PROBE_ID_RAND_BYTES/binary, Suffix/binary>>).
 -define(RES_METRICS, resource_metrics).
 -define(LOG_LEVEL(_L_),
     case _L_ of
