@@ -31,7 +31,7 @@ fields(durable_queues) ->
                 boolean(),
                 #{
                     required => false,
-                    default => true,
+                    default => false,
                     desc => ?DESC(enable)
                 }
             )},

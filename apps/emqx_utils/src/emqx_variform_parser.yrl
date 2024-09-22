@@ -10,6 +10,7 @@ Terminals
     integer
     float
     string
+    boolean
     '(' ')'
     ',' '[' ']'.
 
@@ -18,8 +19,9 @@ Rootsymbol
 
 %% Grammar Rules
 
-%% Root expression: function call or variable
+%% Root expression: function call or variable or a boolean
 expr -> call_or_var : '$1'.
+expr -> boolean: element(3, '$1').
 
 %% Function call or variable
 call_or_var -> identifier '(' ')' : {call, element(3, '$1'), []}.
@@ -33,7 +35,7 @@ array -> '[' args ']' : {array, '$2'}.
 args -> arg : ['$1'].
 args -> args ',' arg : '$1' ++ ['$3'].
 
-%% Arguments can be expressions, arrays, numbers, or strings
+%% Arguments can be expressions, arrays, numbers, strings or booleans
 arg -> expr : '$1'.
 arg -> array : '$1'.
 arg -> integer: {integer, element(3, '$1')}.

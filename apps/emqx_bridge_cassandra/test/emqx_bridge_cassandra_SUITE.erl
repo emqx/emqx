@@ -644,16 +644,19 @@ t_missing_data(Config) ->
     %% emqx_bridge_cassandra_connector will send missed data as a `null` atom
     %% to ecql driver
     ?check_trace(
+        #{timetrap => 10_000},
         begin
             {_, {ok, _}} =
                 ?wait_async_action(
                     send_message(Config, #{}),
                     #{?snk_kind := handle_async_reply, result := {error, {8704, _}}},
-                    30_000
+                    5_000
                 ),
+            ?block_until(#{?snk_kind := cassandra_connector_query_return}),
             ok
         end,
         fun(Trace0) ->
+            ct:pal("trace:\n  ~p", [Trace0]),
             %% 1. ecql driver will return `ok` first in async query
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
             ?assertMatch([#{result := {ok, _Pid}}], Trace),

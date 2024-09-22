@@ -40,6 +40,9 @@ start(Name, Mod, Options) ->
         {ok, _} ->
             ?SLOG(info, #{msg => "start_ecpool_ok", pool_name => Name}, #{tag => ?TAG}),
             ok;
+        {error, already_present} ->
+            stop(Name),
+            start(Name, Mod, Options);
         {error, {already_started, _Pid}} ->
             stop(Name),
             start(Name, Mod, Options);

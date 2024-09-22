@@ -20,7 +20,7 @@
 
 -include("types.hrl").
 
--export([spec/1, spec/2]).
+-export([spec/1, spec/2, spec/3]).
 
 -export([
     start_link/0,
@@ -39,10 +39,14 @@ spec(Args) ->
 
 -spec spec(any(), list()) -> supervisor:child_spec().
 spec(ChildId, Args) ->
+    spec(ChildId, transient, Args).
+
+-spec spec(any(), transient | permanent | temporary, list()) -> supervisor:child_spec().
+spec(ChildId, Restart, Args) ->
     #{
         id => ChildId,
         start => {?MODULE, start_link, Args},
-        restart => transient,
+        restart => Restart,
         shutdown => infinity,
         type => supervisor,
         modules => [?MODULE]

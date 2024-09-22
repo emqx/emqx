@@ -126,62 +126,148 @@ t_compose_connector_url_and_action_path(Config) ->
 %% Checks that we can successfully update a connector containing sensitive headers and
 %% they won't be clobbered by the update.
 t_update_with_sensitive_data(Config) ->
-    ?check_trace(
-        begin
-            ConnectorCfg0 = make_connector_config(Config),
-            AuthHeader = <<"Bearer some_token">>,
-            ConnectorCfg1 = emqx_utils_maps:deep_merge(
-                ConnectorCfg0,
-                #{<<"headers">> => #{<<"authorization">> => AuthHeader}}
-            ),
-            ActionCfg = make_action_config(Config),
-            CreateConfig = [
-                {bridge_kind, action},
-                {action_type, ?BRIDGE_TYPE},
-                {action_name, ?BRIDGE_NAME},
-                {action_config, ActionCfg},
-                {connector_type, ?BRIDGE_TYPE},
-                {connector_name, ?CONNECTOR_NAME},
-                {connector_config, ConnectorCfg1}
-            ],
-            {ok, {{_, 201, _}, _, #{<<"headers">> := #{<<"authorization">> := Obfuscated}}}} =
-                emqx_bridge_v2_testlib:create_connector_api(CreateConfig),
-            {ok, _} =
-                emqx_bridge_v2_testlib:create_kind_api(CreateConfig),
-            BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
-            {ok, _} = emqx_bridge_v2_testlib:create_rule_api(
-                #{
-                    sql => <<"select * from \"t/http\" ">>,
-                    actions => [BridgeId]
+    ConnectorCfg0 = make_connector_config(Config),
+    AuthHeader = <<"Bearer some_token">>,
+    ConnectorCfg1 = emqx_utils_maps:deep_merge(
+        ConnectorCfg0,
+        #{
+            <<"headers">> => #{
+                <<"authorization">> => AuthHeader,
+                <<"x-test-header">> => <<"from-connector">>
+            }
+        }
+    ),
+    ActionCfg = make_action_config(Config, #{<<"x-test-header">> => <<"from-action">>}),
+    CreateConfig = [
+        {bridge_kind, action},
+        {action_type, ?BRIDGE_TYPE},
+        {action_name, ?BRIDGE_NAME},
+        {action_config, ActionCfg},
+        {connector_type, ?BRIDGE_TYPE},
+        {connector_name, ?CONNECTOR_NAME},
+        {connector_config, ConnectorCfg1}
+    ],
+    {ok, {{_, 201, _}, _, #{<<"headers">> := #{<<"authorization">> := Obfuscated}}}} =
+        emqx_bridge_v2_testlib:create_connector_api(CreateConfig),
+    {ok, _} =
+        emqx_bridge_v2_testlib:create_kind_api(CreateConfig),
+    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_api(
+        #{
+            sql => <<"select * from \"t/http\" ">>,
+            actions => [BridgeId]
+        }
+    ),
+    emqx:publish(emqx_message:make(<<"t/http">>, <<"1">>)),
+    ?assertReceive(
+        {http,
+            #{
+                <<"authorization">> := AuthHeader,
+                <<"x-test-header">> := <<"from-action">>
+            },
+            _}
+    ),
+
+    %% Now update the connector and see if the header stays deobfuscated.  We send the old
+    %% auth header as an obfuscated value to simulate the behavior of the frontend.
+    ConnectorCfg2 = emqx_utils_maps:deep_merge(
+        ConnectorCfg1,
+        #{
+            <<"headers">> => #{
+                <<"authorization">> => Obfuscated,
+                <<"x-test-header">> => <<"from-connector-new">>,
+                <<"x-test-header-2">> => <<"from-connector-new">>,
+                <<"other_header">> => <<"new">>
+            }
+        }
+    ),
+    {ok, _} = emqx_bridge_v2_testlib:update_connector_api(
+        ?CONNECTOR_NAME,
+        ?BRIDGE_TYPE,
+        ConnectorCfg2
+    ),
+
+    emqx:publish(emqx_message:make(<<"t/http">>, <<"2">>)),
+    %% Should not be obfuscated.
+    ?assertReceive(
+        {http,
+            #{
+                <<"authorization">> := AuthHeader,
+                <<"x-test-header">> := <<"from-action">>,
+                <<"x-test-header-2">> := <<"from-connector-new">>
+            },
+            _},
+        2_000
+    ),
+    ok.
+
+t_disable_action_counters(Config) ->
+    ConnectorCfg = make_connector_config(Config),
+    ActionCfg = make_action_config(Config),
+    CreateConfig = [
+        {bridge_kind, action},
+        {action_type, ?BRIDGE_TYPE},
+        {action_name, ?BRIDGE_NAME},
+        {action_config, ActionCfg},
+        {connector_type, ?BRIDGE_TYPE},
+        {connector_name, ?CONNECTOR_NAME},
+        {connector_config, ConnectorCfg}
+    ],
+    {ok, {{_, 201, _}, _, _}} =
+        emqx_bridge_v2_testlib:create_connector_api(CreateConfig),
+    {ok, _} =
+        emqx_bridge_v2_testlib:create_kind_api(CreateConfig),
+    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    {ok, Rule} = emqx_bridge_v2_testlib:create_rule_api(
+        #{
+            sql => <<"select * from \"t/http\" ">>,
+            actions => [BridgeId]
+        }
+    ),
+    {{_, 201, _}, _, #{<<"id">> := RuleId}} = Rule,
+    emqx:publish(emqx_message:make(<<"t/http">>, <<"1">>)),
+    ?assertReceive({http_server, received, _}, 2_000),
+
+    ?retry(
+        _Interval = 500,
+        _NAttempts = 20,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'matched' := 1,
+                    'actions.failed' := 0,
+                    'actions.failed.unknown' := 0,
+                    'actions.success' := 1,
+                    'actions.total' := 1,
+                    'actions.discarded' := 0
                 }
-            ),
-            emqx:publish(emqx_message:make(<<"t/http">>, <<"1">>)),
-            ?assertReceive({http, #{<<"authorization">> := AuthHeader}, _}),
+            },
+            emqx_metrics_worker:get_metrics(rule_metrics, RuleId)
+        )
+    ),
 
-            %% Now update the connector and see if the header stays deobfuscated.  We send the old
-            %% auth header as an obfuscated value to simulate the behavior of the frontend.
-            ConnectorCfg2 = emqx_utils_maps:deep_merge(
-                ConnectorCfg1,
-                #{
-                    <<"headers">> => #{
-                        <<"authorization">> => Obfuscated,
-                        <<"other_header">> => <<"new">>
-                    }
+    %% disable the action
+    {ok, {{_, 200, _}, _, _}} =
+        emqx_bridge_v2_testlib:update_bridge_api(CreateConfig, #{<<"enable">> => false}),
+
+    %% this will trigger a discard
+    emqx:publish(emqx_message:make(<<"t/http">>, <<"2">>)),
+    ?retry(
+        _Interval = 500,
+        _NAttempts = 20,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'matched' := 2,
+                    'actions.failed' := 0,
+                    'actions.failed.unknown' := 0,
+                    'actions.success' := 1,
+                    'actions.total' := 2,
+                    'actions.discarded' := 1
                 }
-            ),
-            {ok, _} = emqx_bridge_v2_testlib:update_connector_api(
-                ?CONNECTOR_NAME,
-                ?BRIDGE_TYPE,
-                ConnectorCfg2
-            ),
-
-            emqx:publish(emqx_message:make(<<"t/http">>, <<"2">>)),
-            %% Should not be obfuscated.
-            ?assertReceive({http, #{<<"authorization">> := AuthHeader}, _}, 2_000),
-
-            ok
-        end,
-        []
+            },
+            emqx_metrics_worker:get_metrics(rule_metrics, RuleId)
+        )
     ),
 
     ok.
@@ -204,6 +290,9 @@ make_connector_config(Config) ->
     }.
 
 make_action_config(Config) ->
+    make_action_config(Config, _Headers = #{}).
+
+make_action_config(Config, Headers) ->
     Path = ?config(path, Config),
     #{
         <<"enable">> => true,
@@ -211,7 +300,7 @@ make_action_config(Config) ->
         <<"parameters">> => #{
             <<"path">> => Path,
             <<"method">> => <<"post">>,
-            <<"headers">> => #{},
+            <<"headers">> => Headers,
             <<"body">> => <<"${.}">>
         },
         <<"resource_opts">> => #{

@@ -229,6 +229,8 @@ bridge_v2_config(ConnectorName, KafkaTopic) ->
             },
             <<"compression">> => <<"no_compression">>,
             <<"kafka_header_value_encode_mode">> => <<"none">>,
+            <<"max_linger_time">> => <<"0ms">>,
+            <<"max_linger_bytes">> => <<"10MB">>,
             <<"max_batch_bytes">> => <<"896KB">>,
             <<"max_inflight">> => 10,
             <<"message">> => #{
@@ -857,7 +859,7 @@ t_invalid_partition_count_metrics(Config) ->
             %% Simulate `invalid_partition_count'
             emqx_common_test_helpers:with_mock(
                 wolff,
-                send2,
+                cast2,
                 fun(_Producers, _Topic, _Msgs, _AckCallback) ->
                     throw(#{
                         cause => invalid_partition_count,
