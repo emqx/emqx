@@ -175,6 +175,6 @@
 -define(TAG, "RESOURCE").
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
--define(RESOURCE_STATE_CACHE, emqx_resource_cache).
+-define(RESOURCE_CACHE, emqx_resource_cache).
 
 -endif.

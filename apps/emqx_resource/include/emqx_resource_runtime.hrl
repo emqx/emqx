@@ -28,7 +28,7 @@
 }.
 
 %% the relatively stable part to be cached in persistent_term for each connector
--type stable() :: #{
+-type cb() :: #{
     mod := module(),
     callback_mode := callback_mode(),
     query_mode := query_mode(),
@@ -38,7 +38,7 @@
 %% the rutime context to be used for each channel
 -record(rt, {
     st_err :: st_err(),
-    stable :: stable(),
+    cb :: cb(),
     channel_status :: ?NO_CHANNEL | channel_status()
 }).
 
