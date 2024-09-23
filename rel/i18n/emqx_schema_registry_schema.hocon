@@ -68,4 +68,39 @@ schema_type_json.desc:
 schema_type_json.label:
 """JSON Schema"""
 
+confluent_schema_registry.label:
+"""Confluent Schema Registry"""
+confluent_schema_registry.desc:
+"""Confluent External Schema Registry configuration."""
+
+schema_registry_external_type.label:
+"""External Schema Registry Type"""
+schema_registry_external_type.desc:
+"""External Schema Registry Type"""
+
+confluent_schema_registry_url.label:
+"""Registry URL"""
+confluent_schema_registry_url.desc:
+"""URL endpoint for external registry."""
+
+confluent_schema_registry_auth.label:
+"""Authentication"""
+confluent_schema_registry_auth.desc:
+"""Authentication options for accessing external registry."""
+
+confluent_schema_registry_auth_basic.label:
+"""Basic Auth"""
+confluent_schema_registry_auth_basic.desc:
+"""Use basic authentication method for accessing external registry."""
+
+confluent_schema_registry_auth_basic_username.label:
+"""Username"""
+confluent_schema_registry_auth_basic_username.desc:
+"""Username for basic authentication method."""
+
+confluent_schema_registry_auth_basic_password.label:
+"""Password"""
+confluent_schema_registry_auth_basic_password.desc:
+"""Password for basic authentication method."""
+
 }

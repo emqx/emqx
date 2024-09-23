@@ -66,7 +66,7 @@ fields(action) ->
 fields(?ACTION) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
-            mkunion(
+            emqx_schema:mkunion(
                 mode,
                 #{
                     <<"direct">> => ?R_REF(s3_direct_upload_parameters),
@@ -121,7 +121,7 @@ fields(s3_aggregated_upload_parameters) ->
                 )},
             {container,
                 hoconsc:mk(
-                    mkunion(type, #{
+                    emqx_schema:mkunion(type, #{
                         <<"csv">> => ?REF(s3_aggregated_container_csv)
                     }),
                     #{
@@ -195,29 +195,6 @@ fields(s3_upload_resource_opts) ->
         {batch_size, #{default => ?DEFAULT_AGGREG_BATCH_SIZE}},
         {batch_time, #{default => ?DEFAULT_AGGREG_BATCH_TIME}}
     ]).
-
-mkunion(Field, Schemas) ->
-    mkunion(Field, Schemas, none).
-
-mkunion(Field, Schemas, Default) ->
-    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Default, Arg) end).
-
-scunion(_Field, Schemas, _Default, all_union_members) ->
-    maps:values(Schemas);
-scunion(Field, Schemas, Default, {value, Value}) ->
-    Selector =
-        case maps:get(emqx_utils_conv:bin(Field), Value, undefined) of
-            undefined ->
-                Default;
-            X ->
-                emqx_utils_conv:bin(X)
-        end,
-    case maps:find(Selector, Schemas) of
-        {ok, Schema} ->
-            [Schema];
-        _Error ->
-            throw(#{field_name => Field, expected => maps:keys(Schemas)})
-    end.
 
 desc(s3) ->
     ?DESC(s3_upload);

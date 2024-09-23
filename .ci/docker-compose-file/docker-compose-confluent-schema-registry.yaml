@@ -1,0 +1,32 @@
+version: '3.9'
+
+## depends on kafka; see `./docker-file-compose-kafka.yaml`.
+services:
+  confluent_schema_registry: &cpsr
+    image: public.ecr.aws/ews-network/confluentinc/cp-schema-registry:7.5.1
+    container_name: confluent_schema_registry
+    restart: always
+    depends_on:
+      zookeeper:
+        condition: service_started
+      kafka_1:
+        condition: service_started
+    networks:
+      emqx_bridge:
+    environment: &cpsr-env
+      SCHEMA_REGISTRY_DEBUG: true
+      SCHEMA_REGISTRY_HOST_NAME: confluent_schema_registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka-1.emqx.net:9092"
+  confluent_schema_registry_basicauth:
+    <<: *cpsr
+    container_name: confluent_schema_registry_basicauth
+    environment:
+      <<: *cpsr-env
+      SCHEMA_REGISTRY_HOST_NAME: confluent_schema_registry_basicauth
+      SCHEMA_REGISTRY_AUTHENTICATION_METHOD: BASIC
+      SCHEMA_REGISTRY_AUTHENTICATION_ROLES: user
+      SCHEMA_REGISTRY_AUTHENTICATION_REALM: SchemaRegistry-Props
+      SCHEMA_REGISTRY_OPTS: -Djava.security.auth.login.config=/etc/schema-registry/jaas.conf
+    volumes:
+      - ./confluent-schema-registry/jaas.conf:/etc/schema-registry/jaas.conf
+      - ./confluent-schema-registry/password-file:/etc/schema-registry/password-file
