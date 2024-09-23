@@ -589,14 +589,15 @@ fields("node") ->
             )},
         {"role",
             sc(
-                hoconsc:enum([core] ++ emqx_schema_hooks:injection_point('node.role')),
+                hoconsc:enum(node_role_symbols()),
                 #{
                     mapping => "mria.node_role",
                     default => core,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIGH,
                     aliases => [db_role],
-                    desc => ?DESC(db_role)
+                    desc => ?DESC(db_role),
+                    validator => fun validate_node_role/1
                 }
             )},
         {"rpc_module",
@@ -1573,3 +1574,17 @@ is_ip_addr(Host, Type) ->
 
 address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
 address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.
+
+node_role_symbols() ->
+    [core] ++ emqx_schema_hooks:injection_point('node.role').
+
+validate_node_role(Role) ->
+    Allowed = node_role_symbols(),
+    case lists:member(Role, Allowed) of
+        true ->
+            ok;
+        false when Role =:= replicant ->
+            throw("Node role 'replicant' is only allowed in Enterprise edition since 5.8.0");
+        false ->
+            throw("Invalid node role: " ++ atom_to_list(Role))
+    end.
