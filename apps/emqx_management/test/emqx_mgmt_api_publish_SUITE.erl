@@ -25,10 +25,22 @@
 -define(TOPIC1, <<"api_topic1">>).
 -define(TOPIC2, <<"api_topic2">>).
 
-all() ->
-    emqx_common_test_helpers:all(?MODULE).
+-define(OFFLINE_TOPIC, <<"offline_api_topic">>).
 
-init_per_suite(Config) ->
+all() ->
+    [
+        {group, with_ds},
+        {group, without_ds}
+    ].
+
+groups() ->
+    Tcs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {with_ds, Tcs},
+        {without_ds, Tcs}
+    ].
+
+init_per_group(without_ds, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -37,9 +49,26 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    [{apps, Apps} | Config];
+init_per_group(with_ds, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_durable_storage,
+            {emqx,
+                "durable_sessions {enable = true}"
+                "\ndurable_sessions {\n"
+                "  enable = true\n"
+                "  heartbeat_interval = 100ms\n"
+                "  session_gc_interval = 2s\n"
+                "}\n"},
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_, Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(Case, Config) ->
@@ -343,6 +372,40 @@ t_publish_bulk_dispatch_failure(Config) when is_list(Config) ->
         ],
         decode_json(ResponseBody)
     ).
+
+t_publish_offline_api({init, Config}) ->
+    {ok, Client} = emqtt:start_link(
+        #{
+            username => <<"api_username">>,
+            clientid => <<"api_clientid">>,
+            proto_ver => v5,
+            clean_start => false,
+            properties => #{'Session-Expiry-Interval' => 60}
+        }
+    ),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, [0]} = emqtt:subscribe(Client, ?OFFLINE_TOPIC),
+    _ = emqtt:stop(Client),
+    Config;
+t_publish_offline_api({'end', _Config}) ->
+    ok;
+t_publish_offline_api(_) ->
+    Payload = <<"hello">>,
+    Path = emqx_mgmt_api_test_util:api_path(["publish"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    UserProperties = #{<<"foo">> => <<"bar">>},
+    Properties =
+        #{
+            <<"payload_format_indicator">> => 0,
+            <<"message_expiry_interval">> => 1000,
+            <<"correlation_data">> => <<"some_correlation_id">>,
+            <<"user_properties">> => UserProperties,
+            <<"content_type">> => <<"application/json">>
+        },
+    Body = #{topic => ?OFFLINE_TOPIC, payload => Payload, properties => Properties},
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
+    ResponseMap = decode_json(Response),
+    ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap))).
 
 receive_assert(Topic, Qos, Payload) ->
     receive
