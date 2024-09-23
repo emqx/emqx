@@ -227,12 +227,13 @@ fields("cluster") ->
             )},
         {"quic_lb_mode",
             sc(
-                integer(),
+                hoconsc:union([integer(), string()]),
                 #{
                     mapping => "quicer.lb_mode",
                     default => 0,
                     'readOnly' => true,
-                    desc => ?DESC(cluster_quic_lb_mode)
+                    desc => ?DESC(cluster_quic_lb_mode),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"static",
