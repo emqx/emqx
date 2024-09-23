@@ -358,20 +358,28 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 
 -spec route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
-route([], #delivery{message = Msg}, _PersistRes = []) ->
+route(Routes, Delivery, Acc = []) ->
+    route(Routes, Delivery, Acc, 0);
+route(Routes, Delivery, Acc = [persisted]) ->
+    route(Routes, Delivery, Acc, 1).
+
+route([Route | Rest], Delivery, Acc, N) ->
+    Res = do_route(Route, Delivery),
+    route(Rest, Delivery, [Res | Acc], N + n_deliveries(Res));
+route([], #delivery{message = Msg}, Acc, 0) ->
+    %% NOTE: Message was neither delivered to subscribers nor persisted.
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
-    [];
-route([], _Delivery, PersistRes = [_ | _]) ->
-    PersistRes;
-route(Routes, Delivery, PersistRes) ->
-    lists:foldl(
-        fun(Route, Acc) ->
-            [do_route(Route, Delivery) | Acc]
-        end,
-        PersistRes,
-        Routes
-    ).
+    Acc;
+route([], _Delivery, Acc, _N) ->
+    Acc.
+
+n_deliveries({_Dest, _Topic, DeliverRes}) ->
+    case DeliverRes of
+        ok -> 1;
+        {ok, M} -> M;
+        {error, _} -> 0
+    end.
 
 do_route({To, Node}, Delivery) when Node =:= node() ->
     {Node, To, dispatch(To, Delivery)};
@@ -682,8 +690,7 @@ do_dispatch(Topic, #delivery{message = Msg}) ->
     DispN = do_dispatch(subscribers(Topic), Topic, Msg),
     case DispN of
         0 ->
-            ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
-            ok = inc_dropped_cnt(Msg),
+            %% NOTE: Forwarding node is responsible for `message.dropped` accounting.
             {error, no_subscribers};
         _ ->
             {ok, DispN}
