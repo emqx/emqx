@@ -88,6 +88,10 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 
+%% @doc Assign subscription shard to a subscription with given topic and scope.
+%% Subscriptions with `any` scope are assigned shards 0..N-1, subscriptions with
+%% `qos0` scope are assigned shards N..N*2-1, etc., where N is the number of
+%% shards statically configured during the `init/1`.
 -spec get_sub_shard(pid(), emqx_types:topic(), emqx_broker:subscope()) -> non_neg_integer().
 get_sub_shard(SubPid, Topic, Scope) ->
     NShards = shards_num(),
@@ -104,6 +108,8 @@ shards_scope_offset(any) ->
 shards_scope_offset(qos0) ->
     ?SCOPE_OFFSET_QOS0.
 
+%% @doc Find out which scope this subscription has given its shard number.
+%% According to the rules outlined in the `get_sub_shard/3` docstring.
 -spec get_shard_scope(_Offset :: non_neg_integer()) -> emqx_broker:subscope().
 get_shard_scope(ShardIdx) ->
     case ShardIdx div shards_num() of
@@ -175,6 +181,9 @@ init([]) ->
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
     %% Shards: CPU * 32
+    %% NOTE
+    %% If this needs to be made configurable, take into account that this number
+    %% also affects non-any-scope shard assignment.
     ok = persistent_term:put(?PTERM(shards), emqx_vm:schedulers() * 32),
     %% SubSeq: Topic -> SeqId
     ok = emqx_sequence:create(?SUBSEQ),

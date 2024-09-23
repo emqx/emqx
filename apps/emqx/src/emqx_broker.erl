@@ -103,6 +103,15 @@
     end
 ).
 
+%% Subscription scope.
+%% When incoming message matches the subscription topic filter, scope can additionally
+%% narrow down message delivery.
+%% * Scope `any` means a subscription with this scope is interested in all messages.
+%% * Scope `qos0` means a subscription needs _only_ QoS 0 messages.
+%%   This is currently employed by durable sessions to route QoS 0 messages through
+%%   the realtime channel to avoid storing them in the durable storage.
+%% Currently, this affects only the dispatching phase, but not the routing phase.
+%% Messages are routed between nodes regardless of which subscription scopes nodes have.
 -type subscope() :: any | qos0.
 
 -type publish_opts() :: #{
@@ -195,6 +204,7 @@ with_subid(SubId, SubOpts) ->
 do_subscribe(Topic, SubPid, SubOpts, Scope) when is_binary(Topic) ->
     %% FIXME: subscribe shard bug
     %% https://emqx.atlassian.net/browse/EMQX-10214
+    %% NOTE: Subscription scope is encoded in the shard index.
     I = emqx_broker_helper:get_sub_shard(SubPid, Topic, Scope),
     true = ets:insert(?SUBOPTION, #subscription{
         sub = {Topic, SubPid},
@@ -707,6 +717,7 @@ do_dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
             0
     end;
 do_dispatch({shard, I}, Topic, Msg) ->
+    %% NOTE: Subscription scope is encoded in the shard index.
     case emqx_broker_helper:get_shard_scope(I) of
         any ->
             do_dispatch(subscribers({shard, Topic, I}), Topic, Msg);
