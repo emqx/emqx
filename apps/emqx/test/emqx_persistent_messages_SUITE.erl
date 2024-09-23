@@ -19,6 +19,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -261,19 +262,22 @@ t_qos0(_Config) ->
         Messages = [
             {<<"t/1">>, <<"1">>, 0},
             {<<"t/1">>, <<"2">>, 1},
-            {<<"t/1">>, <<"3">>, 0}
+            {<<"t/1">>, <<"3">>, 0},
+            {<<"t/1">>, <<"4">>, 1}
         ],
         [emqtt:publish(Pub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
         ?assertMatch(
             [
                 #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
+                #{qos := 0, topic := <<"t/1">>, payload := <<"3">>},
                 #{qos := 1, topic := <<"t/1">>, payload := <<"2">>},
-                #{qos := 0, topic := <<"t/1">>, payload := <<"3">>}
+                #{qos := 1, topic := <<"t/1">>, payload := <<"4">>}
             ],
             %% NOTE
-            %% With QoS0 routed through realtime channel, ordering is no longer predictable.
-            lists:sort(emqx_utils_maps:key_comparer(payload), receive_messages(3))
-        )
+            %% With QoS0 routed through realtime channel, ordering is preserved per-QoS.
+            group_by(qos, receive_messages(4))
+        ),
+        ?assertNotReceive(_)
     after
         emqtt:stop(Sub),
         emqtt:stop(Pub)
@@ -283,7 +287,6 @@ t_qos0_only_many_streams(_Config) ->
     ClientId = <<?MODULE_STRING "_sub">>,
     Sub = connect(ClientId, true, 30),
     Pub = connect(<<?MODULE_STRING "_pub">>, true, 0),
-    [ConnPid] = emqx_cm:lookup_channels(ClientId),
     try
         {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, [{qos, 1}]),
 
@@ -576,6 +579,10 @@ receive_messages(Count, Msgs, Timeout) ->
     after Timeout ->
         Msgs
     end.
+
+group_by(K, Maps) ->
+    Values = lists:usort([maps:get(K, M) || M <- Maps]),
+    [M || V <- Values, M <- Maps, map_get(K, M) =:= V].
 
 publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).
