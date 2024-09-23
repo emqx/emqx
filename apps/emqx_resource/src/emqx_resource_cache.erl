@@ -40,7 +40,7 @@
     extra = []
 }).
 
--type chan_key() :: {ConnectorId :: binary(), ChannelID :: binary()}.
+-type chan_key() :: {connector_resource_id(), channel_id()}.
 
 -record(channel, {
     id :: chan_key(),

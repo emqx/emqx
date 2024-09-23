@@ -28,7 +28,7 @@
 -type resource_type() :: atom().
 -type resource_module() :: module().
 -type resource_id() :: binary().
--type channel_id() :: binary().
+-type channel_id() :: action_resource_id() | source_resource_id().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().

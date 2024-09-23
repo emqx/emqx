@@ -34,7 +34,7 @@ init([]) ->
         id => emqx_resource_cache_cleaner,
         start => {emqx_resource_cache_cleaner, start_link, []},
         restart => permanent,
-        shutdown => infinity,
+        shutdown => 5_000,
         type => worker,
         modules => [emqx_resource_cache_cleaner]
     },

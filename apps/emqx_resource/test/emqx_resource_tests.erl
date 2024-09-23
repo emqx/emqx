@@ -26,12 +26,12 @@ is_dry_run_test_() ->
         ?_assert(emqx_resource:is_dry_run(bin([?PROBE_ID_NEW(), "_abc"]))),
         ?_assert(
             emqx_resource:is_dry_run(
-                bin(["acton:typeA:", ?PROBE_ID_NEW(), ":connector:typeB:dryrun"])
+                bin(["action:typeA:", ?PROBE_ID_NEW(), ":connector:typeB:dryrun"])
             )
         ),
         ?_assertNot(
             emqx_resource:is_dry_run(
-                bin(["acton:type1:dryrun:connector:typeb:dryrun"])
+                bin(["action:type1:dryrun:connector:typeb:dryrun"])
             )
         )
     ].

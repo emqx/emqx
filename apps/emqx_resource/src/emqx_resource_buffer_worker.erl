@@ -1302,36 +1302,31 @@ extract_connector_id(Id) when is_binary(Id) ->
 %% Check if channel is installed in the connector state.
 %% There is no need to query the conncector if the channel is not
 %% installed as the query will fail anyway.
-pre_query_channel_check(Id, {Id, _} = _Request, ChanSt, QueryOpts) ->
+pre_query_channel_check(Id, {Id, _} = _Request, ChanSt, IsSimpleQuery) ->
     case emqx_resource_manager:channel_status_is_channel_added(ChanSt) of
         true ->
             ok;
         false ->
-            error_if_channel_is_not_installed(Id, QueryOpts)
+            error_if_channel_is_not_installed(Id, IsSimpleQuery)
     end;
-pre_query_channel_check(Id, {Id, _} = _Request, ?NO_CHANNEL, QueryOpts) ->
-    %% a per-channel requst, but channel was not added or deleted (due to reace)
-    error_if_channel_is_not_installed(Id, QueryOpts);
-pre_query_channel_check(_Id, _Request, _ChanSt, _QueryOpts) ->
-    %% Not a per-channel requst
+pre_query_channel_check(_Id, _Request, _ChanSt, _IsSimpleQuery) ->
+    %% Not a per-channel request
     ok.
 
-error_if_channel_is_not_installed(Id, QueryOpts) ->
+error_if_channel_is_not_installed(Id, IsSimpleQuery) ->
     %% Fail with a recoverable error if the channel is not installed and there are buffer
     %% workers involved so that the operation can be retried.  Otherwise, this is
     %% unrecoverable.  It is emqx_resource_manager's responsibility to ensure that the
     %% channel installation is retried.
-    IsSimpleQuery = is_simple_query(QueryOpts),
-    case IsSimpleQuery of
-        true ->
-            {error,
-                {unrecoverable_error,
-                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}};
-        false ->
-            {error,
-                {recoverable_error,
-                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}}
-    end.
+    Msg = iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id])),
+    ErrorType =
+        case IsSimpleQuery of
+            true ->
+                unrecoverable_error;
+            false ->
+                recoverable_error
+        end,
+    {error, {ErrorType, Msg}}.
 
 is_always_send(#{query_mode := M}, _) when ?IS_BYPASS(M) ->
     %% The query overrides the query mode of the resource, send even in disconnected state
@@ -1393,7 +1388,7 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_query,
             begin
-                case pre_query_channel_check(Id, Request, ChanSt, QueryOpts) of
+                case pre_query_channel_check(Id, Request, ChanSt, is_simple_query(QueryOpts)) of
                     ok ->
                         Mod:on_query(extract_connector_id(Id), Request, ResSt);
                     Error ->
@@ -1437,7 +1432,7 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            case pre_query_channel_check(Id, Request, ChanSt, QueryOpts) of
+            case pre_query_channel_check(Id, Request, ChanSt, IsSimpleQuery) of
                 ok ->
                     case
                         Mod:on_query_async(
@@ -1479,7 +1474,9 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_batch_query,
             begin
-                case pre_query_channel_check(Id, FirstRequest, ChanSt, QueryOpts) of
+                case
+                    pre_query_channel_check(Id, FirstRequest, ChanSt, is_simple_query(QueryOpts))
+                of
                     ok ->
                         Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt);
                     Error ->
@@ -1526,7 +1523,7 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            case pre_query_channel_check(Id, FirstRequest, ChanSt, QueryOpts) of
+            case pre_query_channel_check(Id, FirstRequest, ChanSt, IsSimpleQuery) of
                 ok ->
                     case
                         Mod:on_batch_query_async(
