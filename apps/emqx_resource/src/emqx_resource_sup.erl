@@ -27,8 +27,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    ok = emqx_resource_cache:new(),
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     Metrics = emqx_metrics_worker:child_spec(?RES_METRICS),
+    CacheCleaner = #{
+        id => emqx_resource_cache_cleaner,
+        start => {emqx_resource_cache_cleaner, start_link, []},
+        restart => permanent,
+        shutdown => 5_000,
+        type => worker,
+        modules => [emqx_resource_cache_cleaner]
+    },
     ResourceManager =
         #{
             id => emqx_resource_manager_sup,
@@ -45,4 +54,4 @@ init([]) ->
         shutdown => infinity,
         type => supervisor
     },
-    {ok, {SupFlags, [Metrics, ResourceManager, WorkerSup]}}.
+    {ok, {SupFlags, [Metrics, CacheCleaner, ResourceManager, WorkerSup]}}.
