@@ -29,6 +29,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(CACHE, ?RESOURCE_CACHE).
+-define(NO_CB, no_state).
 
 -record(connector, {
     id :: binary(),
@@ -36,7 +37,7 @@
     manager_pid :: pid(),
     st_err :: st_err(),
     config :: term(),
-    cb :: term(),
+    cb = ?NO_CB :: term(),
     extra = []
 }).
 
@@ -94,7 +95,7 @@ write(ManagerPid, Group, Data) ->
                     %% save callback state in ets for dryrun
                     Cb;
                 false ->
-                    undefined
+                    ?NO_CB
             end,
         extra = []
     },
@@ -137,7 +138,7 @@ read_manager_pid(ID) ->
 -spec read_mod(resource_id()) -> not_found | {ok, module()}.
 read_mod(ID) ->
     case get_cb(ID) of
-        undefined ->
+        ?NO_CB ->
             not_found;
         #{mod := Mod} ->
             {ok, Mod}
@@ -145,9 +146,9 @@ read_mod(ID) ->
 
 get_cb(ID) ->
     case get_cb_pt(ID) of
-        undefined ->
+        ?NO_CB ->
             %% maybe it's a dryrun connector
-            ets:lookup_element(?CACHE, ID, #connector.cb, undefined);
+            ets:lookup_element(?CACHE, ID, #connector.cb, ?NO_CB);
         InPt ->
             InPt
     end.
@@ -218,12 +219,7 @@ get_channel_status(ChanKey) ->
     ets:lookup_element(?CACHE, ChanKey, #channel.status, ?NO_CHANNEL).
 
 get_cb_pt(ID) ->
-    try
-        persistent_term:get(?CB_PT_KEY(ID))
-    catch
-        error:badarg ->
-            undefined
-    end.
+    persistent_term:get(?CB_PT_KEY(ID), ?NO_CB).
 
 to_channel_record({ID0, #{status := Status, error := Error}}) ->
     ID = split_channel_id(ID0),
@@ -285,7 +281,7 @@ make_resource_data(ID, Connector, Channels) ->
     } = Connector,
     Cb =
         case Cb0 of
-            undefined ->
+            ?NO_CB ->
                 get_cb_pt(ID);
             X ->
                 X
