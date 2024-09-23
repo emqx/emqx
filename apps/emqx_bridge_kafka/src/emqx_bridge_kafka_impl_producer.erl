@@ -532,11 +532,11 @@ do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout) ->
             {error, timeout}
     end;
 do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
-    %% * Must be a batch because wolff:cast2 are batch APIs
+    %% * Must be a batch because wolff send and cast are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
     %%   for counters and gauges.
     Batch = [KafkaMessage],
-    {_Partition, Pid} = wolff:cast2(
+    {_Partition, Pid} = wolff:send2(
         Producers, KafkaTopic, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}
     ),
     %% This Pid is returned, but not monitored by caller
