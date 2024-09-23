@@ -16,10 +16,12 @@
 
 -module(emqx_mgmt_api_banned).
 
+-feature(maybe_expr, enable).
+
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
-
+-include_lib("stdlib/include/ms_transform.hrl").
 -include("emqx_mgmt.hrl").
 
 -behaviour(minirest_api).
@@ -32,7 +34,7 @@
     namespace/0
 ]).
 
--export([format/1]).
+-export([qs2ms/2, run_fuzzy_filter/2, format/1]).
 
 -export([
     banned/2,
@@ -44,6 +46,16 @@
 -define(BANNED_TYPES, [clientid, username, peerhost, clientid_re, username_re, peerhost_net]).
 
 -define(FORMAT_FUN, {?MODULE, format}).
+
+-define(BANNED_QSCHEMA, [
+    {<<"username">>, binary},
+    {<<"clientid">>, binary},
+    {<<"peerhost">>, binary},
+    {<<"like_clientid">>, binary},
+    {<<"like_username">>, binary},
+    {<<"like_peerhost">>, binary},
+    {<<"like_peerhost_net">>, binary}
+]).
 
 namespace() ->
     undefined.
@@ -60,15 +72,16 @@ schema("/banned") ->
         get => #{
             description => ?DESC(list_banned_api),
             tags => ?TAGS,
-            parameters => [
-                hoconsc:ref(emqx_dashboard_swagger, page),
-                hoconsc:ref(emqx_dashboard_swagger, limit)
-            ],
+            parameters => fields(get_banned_parameters),
             responses => #{
                 200 => [
                     {data, hoconsc:mk(hoconsc:array(hoconsc:ref(ban)), #{})},
                     {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
-                ]
+                ],
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'],
+                    ?DESC(create_banned_api_response400)
+                )
             }
         },
         post => #{
@@ -123,6 +136,56 @@ schema("/banned/:as/:who") ->
         }
     }.
 
+fields(get_banned_parameters) ->
+    [
+        hoconsc:ref(emqx_dashboard_swagger, page),
+        hoconsc:ref(emqx_dashboard_swagger, limit),
+        {clientid,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_clientid)
+            })},
+        {username,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_username)
+            })},
+        {peerhost,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_peerhost),
+                example => <<"127.0.0.1">>
+            })},
+        {like_clientid,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_like_clientid)
+            })},
+        {like_username,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_like_username)
+            })},
+        {like_peerhost,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_like_peerhost),
+                example => <<"127.0.0.1">>
+            })},
+        {like_peerhost_net,
+            hoconsc:mk(binary(), #{
+                in => query,
+                required => false,
+                desc => ?DESC(filter_like_peerhost_net),
+                example => <<"192.1.0.0/16">>
+            })}
+    ];
 fields(ban) ->
     [
         {as,
@@ -156,21 +219,25 @@ fields(ban) ->
                 example => <<"2021-10-25T21:48:47+08:00">>
             })},
         {until,
-            hoconsc:mk(emqx_utils_calendar:epoch_second(), #{
+            hoconsc:mk(hoconsc:union([infinity, emqx_utils_calendar:epoch_second()]), #{
                 desc => ?DESC(until),
                 required => false,
+                default => infinity,
                 example => <<"2021-10-25T21:53:47+08:00">>
             })}
     ].
 
 banned(get, #{query_string := Params}) ->
-    Response = emqx_mgmt_api:paginate(emqx_banned:tables(), Params, ?FORMAT_FUN),
-    {200, Response};
+    case list_banned(Params) of
+        {200, _Response} = Resp ->
+            Resp;
+        {error, Reason} ->
+            {400, 'BAD_REQUEST', format_error(Reason)}
+    end;
 banned(post, #{body := Body}) ->
     case emqx_banned:parse(Body) of
         {error, Reason} ->
-            ErrorReason = io_lib:format("~p", [Reason]),
-            {400, 'BAD_REQUEST', list_to_binary(ErrorReason)};
+            {400, 'BAD_REQUEST', format_error(Reason)};
         {ok, Ban} ->
             case emqx_banned:create(Ban) of
                 {ok, Banned} ->
@@ -195,5 +262,118 @@ delete_banned(delete, #{bindings := Params}) ->
             {204}
     end.
 
+list_banned(Params) ->
+    {_Cnt, {QS, FuzzyQS}} = emqx_mgmt_api:parse_qstring(Params, ?BANNED_QSCHEMA),
+    list_banned(QS, FuzzyQS, Params).
+
+%% Filters are logically mutually exclusive, two filters always get the zero set,
+%% unless they are of the same type and one is exact and the other is fuzzy,
+%% this case is meaningless, so only one filter is allowed in a query.
+list_banned([], [], Params) ->
+    Response = emqx_mgmt_api:paginate(emqx_banned:tables(), Params, ?FORMAT_FUN),
+    {200, Response};
+list_banned([{As, '=:=', Who}], [], Params) ->
+    maybe
+        Key = {As, _Who1} ?= emqx_banned:parse_who(#{<<"as">> => As, <<"who">> => Who}),
+        Result = emqx_banned:look_up(Key),
+        MetaIn = emqx_mgmt_api:parse_pager_params(Params),
+        {200, #{
+            meta => MetaIn#{hasnext => false, count => erlang:length(Result)},
+            data => lists:map(fun format/1, Result)
+        }}
+    end;
+list_banned([], [_Who], Params) ->
+    {200,
+        emqx_mgmt_api:node_query_with_tabs(
+            node(),
+            emqx_banned:tables(),
+            Params,
+            ?BANNED_QSCHEMA,
+            fun ?MODULE:qs2ms/2,
+            fun ?MODULE:format/1
+        )};
+list_banned(_QS, _FuzzyQS, _Params) ->
+    {error, <<"too_many_filters">>}.
+
+qs2ms(_Tab, {_QS, FuzzyQS}) ->
+    #{
+        match_spec => ms_from_qstring(FuzzyQS),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQS)
+    }.
+
+ms_from_qstring([{username, like, _UserName}]) ->
+    ets:fun2ms(fun(#banned{who = {Type, _}} = Banned) when
+        Type =:= username; Type =:= username_re
+    ->
+        Banned
+    end);
+ms_from_qstring([{clientid, like, _ClientId}]) ->
+    ets:fun2ms(fun(#banned{who = {Type, _}} = Banned) when
+        Type =:= clientid; Type =:= clientid_re
+    ->
+        Banned
+    end);
+ms_from_qstring([{peerhost, like, _Peerhost}]) ->
+    ets:fun2ms(fun(#banned{who = {peerhost, _}} = Banned) ->
+        Banned
+    end);
+ms_from_qstring([{peerhost_net, like, _PeerhostNet}]) ->
+    ets:fun2ms(fun(#banned{who = {peerhost_net, _}} = Banned) ->
+        Banned
+    end);
+ms_from_qstring(_) ->
+    [].
+
+%% Fuzzy username funcs
+fuzzy_filter_fun([]) ->
+    undefined;
+fuzzy_filter_fun(Fuzzy) ->
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
+
+run_fuzzy_filter(_, []) ->
+    true;
+run_fuzzy_filter(
+    #banned{who = {DataType, DataValue}},
+    [{TargetType, like, TargetValue}]
+) ->
+    Validator = get_fuzzy_validator(DataType, TargetType),
+    Validator(DataValue, TargetValue);
+run_fuzzy_filter(_, []) ->
+    false.
+
+get_fuzzy_validator(username, username) ->
+    fun binary_fuzzy_validator/2;
+get_fuzzy_validator(username_re, username) ->
+    fun binary_fuzzy_validator/2;
+get_fuzzy_validator(clientid, clientid) ->
+    fun binary_fuzzy_validator/2;
+get_fuzzy_validator(clientid_re, clientid) ->
+    fun binary_fuzzy_validator/2;
+get_fuzzy_validator(peerhost, peerhost) ->
+    fun(Peerhost, Target) ->
+        Peerhost1 = inet:ntoa(Peerhost),
+        binary_fuzzy_validator(Peerhost1, Target)
+    end;
+get_fuzzy_validator(peerhost_net, peerhost_net) ->
+    fun(CIDR, Target) ->
+        CIDRBinary = erlang:list_to_binary(esockd_cidr:to_string(CIDR)),
+        binary_fuzzy_validator(CIDRBinary, Target)
+    end;
+get_fuzzy_validator(_, _) ->
+    fun(_, _) ->
+        false
+    end.
+
+binary_fuzzy_validator({_RE, Data}, Target) ->
+    re:run(Data, Target) =/= nomatch;
+binary_fuzzy_validator(Data, Target) ->
+    re:run(Data, Target) =/= nomatch.
+
 format(Banned) ->
     emqx_banned:format(Banned).
+
+format_error(Error) when is_binary(Error) ->
+    Error;
+format_error(Reason) ->
+    ErrorReason = io_lib:format("~p", [Reason]),
+    erlang:iolist_to_binary(ErrorReason).

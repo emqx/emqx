@@ -70,7 +70,6 @@ start_elector(ShareTopic, StartTime) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_ds_shared_sub_leader_store:open(),
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,

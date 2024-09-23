@@ -1,5 +1,6 @@
 Definitions.
 %% Define regular expressions for tokens
+BOOLEAN     = true|false
 IDENTIFIER  = [a-zA-Z][-a-zA-Z0-9_.]*
 SQ_STRING   = \'[^\']*\'
 DQ_STRING   = \"[^\"]*\"
@@ -14,6 +15,7 @@ WHITESPACE  = [\s\t\n]+
 
 Rules.
 {WHITESPACE} : skip_token.
+{BOOLEAN}    : {token, {boolean, TokenLine, list_to_atom(TokenChars)}}.
 {IDENTIFIER} : {token, {identifier, TokenLine, TokenChars}}.
 {SQ_STRING}  : {token, {string, TokenLine, unquote(TokenChars, $')}}.
 {DQ_STRING}  : {token, {string, TokenLine, unquote(TokenChars, $")}}.

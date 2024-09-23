@@ -225,6 +225,7 @@ collect_di(K = emqx_rule_actions_success, Data) -> counter_metrics(?MG(K, Data))
 collect_di(K = emqx_rule_actions_failed, Data) -> counter_metrics(?MG(K, Data));
 collect_di(K = emqx_rule_actions_failed_out_of_service, Data) -> counter_metrics(?MG(K, Data));
 collect_di(K = emqx_rule_actions_failed_unknown, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_actions_discarded, Data) -> counter_metrics(?MG(K, Data));
 %%====================
 %% Action Metric
 collect_di(K = emqx_action_enable, Data) -> gauge_metrics(?MG(K, Data));
@@ -379,7 +380,8 @@ rule_metric_meta() ->
         {emqx_rule_actions_success, counter},
         {emqx_rule_actions_failed, counter},
         {emqx_rule_actions_failed_out_of_service, counter},
-        {emqx_rule_actions_failed_unknown, counter}
+        {emqx_rule_actions_failed_unknown, counter},
+        {emqx_rule_actions_discarded, counter}
     ].
 
 rule_metric(names) ->
@@ -420,7 +422,8 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
         emqx_rule_actions_success => ?MG('actions.success', Counters),
         emqx_rule_actions_failed => ?MG('actions.failed', Counters),
         emqx_rule_actions_failed_out_of_service => ?MG('actions.failed.out_of_service', Counters),
-        emqx_rule_actions_failed_unknown => ?MG('actions.failed.unknown', Counters)
+        emqx_rule_actions_failed_unknown => ?MG('actions.failed.unknown', Counters),
+        emqx_rule_actions_discarded => ?MG('actions.discarded', Counters)
     }.
 
 %%====================

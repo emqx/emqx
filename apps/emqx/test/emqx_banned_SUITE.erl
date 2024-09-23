@@ -293,6 +293,19 @@ t_error_bootstrap_file(_) ->
     ?assertMatch(Keys, [element(2, Data) || Data <- get_banned_list()]),
     ok.
 
+t_until_expiry(_) ->
+    Who = #{<<"as">> => clientid, <<"who">> => <<"t_until_expiry">>},
+
+    {ok, Banned} = emqx_banned:parse(Who),
+    {ok, _} = emqx_banned:create(Banned),
+
+    [Data] = emqx_banned:look_up(Who),
+    ?assertEqual(Banned, Data),
+    ?assertMatch(#{until := infinity}, emqx_banned:format(Data)),
+
+    emqx_banned:clear(),
+    ok.
+
 receive_messages(Count) ->
     receive_messages(Count, []).
 receive_messages(0, Msgs) ->

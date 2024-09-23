@@ -42,7 +42,9 @@ init_per_suite(Config) ->
                 }
             }},
             emqx,
-            emqx_ds_shared_sub
+            {emqx_ds_shared_sub, #{
+                config => "durable_queues { enable = true }"
+            }}
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),

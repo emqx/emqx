@@ -47,6 +47,7 @@
     list_all/0,
     list_group/1,
     lookup_cached/1,
+    is_exist/1,
     get_metrics/1,
     reset_metrics/1,
     channel_status_is_channel_added/1,
@@ -386,6 +387,10 @@ lookup_cached(ResId) ->
         error:badarg ->
             {error, not_found}
     end.
+
+%% @doc Check if the resource is cached.
+is_exist(ResId) ->
+    {error, not_found} =/= lookup_cached(ResId).
 
 %% @doc Get the metrics for the specified resource
 get_metrics(ResId) ->
@@ -1246,8 +1251,7 @@ continue_resource_health_check_not_connected(NewStatus, Data0) ->
 
 handle_manual_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
     {keep_state_and_data, [
-        {reply, From,
-            maps:remove(config, channel_status({error, resource_disconnected}, undefined))}
+        {reply, From, channel_error_status(resource_disconnected)}
     ]};
 handle_manual_channel_health_check(
     From,
@@ -1281,14 +1285,14 @@ handle_manual_channel_health_check(
     is_map_key(ChannelId, Channels)
 ->
     %% No ongoing health check: reply with current status.
-    {keep_state_and_data, [{reply, From, maps:remove(config, maps:get(ChannelId, Channels))}]};
+    {keep_state_and_data, [{reply, From, without_channel_config(maps:get(ChannelId, Channels))}]};
 handle_manual_channel_health_check(
     From,
     _Data,
     _ChannelId
 ) ->
     {keep_state_and_data, [
-        {reply, From, maps:remove(config, channel_status({error, channel_not_found}, undefined))}
+        {reply, From, channel_error_status(channel_not_found)}
     ]}.
 
 -spec channels_health_check(resource_status(), data()) -> data().
@@ -1595,7 +1599,7 @@ handle_channel_health_check_worker_down_new_channels_and_status(
 reply_pending_channel_health_check_callers(
     ChannelId, Status0, Data0 = #data{hc_pending_callers = Pending0}
 ) ->
-    Status = maps:remove(config, Status0),
+    Status = without_channel_config(Status0),
     #{channel := CPending0} = Pending0,
     Pending = maps:get(ChannelId, CPending0, []),
     Actions = [{reply, From, Status} || From <- Pending],
@@ -1678,7 +1682,7 @@ maybe_alarm(_Status, false, ResId, Error, _PrevError) ->
             {error, Reason} ->
                 emqx_utils:readable_error_msg(Reason);
             _ ->
-                Error1 = redact_config_from_error_status(Error),
+                Error1 = without_channel_config(Error),
                 emqx_utils:readable_error_msg(Error1)
         end,
     emqx_alarm:safe_activate(
@@ -1688,10 +1692,8 @@ maybe_alarm(_Status, false, ResId, Error, _PrevError) ->
     ),
     ?tp(resource_activate_alarm, #{resource_id => ResId}).
 
-redact_config_from_error_status(#{config := _} = ErrorStatus) ->
-    maps:remove(config, ErrorStatus);
-redact_config_from_error_status(Error) ->
-    Error.
+without_channel_config(Map) ->
+    maps:without([config], Map).
 
 -spec maybe_resume_resource_workers(resource_id(), resource_status()) -> ok.
 maybe_resume_resource_workers(ResId, ?status_connected) ->
@@ -1744,7 +1746,7 @@ maybe_reply(Actions, From, Reply) ->
 data_record_to_external_map(Data) ->
     AddedChannelsWithoutConfigs =
         maps:map(
-            fun(_ChanID, Status) -> maps:remove(config, Status) end,
+            fun(_ChanID, Status) -> without_channel_config(Status) end,
             Data#data.added_channels
         ),
     #{
@@ -1851,10 +1853,13 @@ channel_status({?status_connected, Error}, ChannelConfig) ->
         config => ChannelConfig
     };
 channel_status({error, Reason}, ChannelConfig) ->
+    S = channel_error_status(Reason),
+    S#{config => ChannelConfig}.
+
+channel_error_status(Reason) ->
     #{
         status => ?status_disconnected,
-        error => Reason,
-        config => ChannelConfig
+        error => Reason
     }.
 
 channel_status_is_channel_added(#{
