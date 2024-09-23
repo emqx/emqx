@@ -106,7 +106,7 @@
 
 -type builtin_db_opts() ::
     #{
-        backend := builtin,
+        backend := builtin_raft,
         storage := emqx_ds_storage_layer:prototype(),
         n_shards => pos_integer(),
         n_sites => pos_integer(),

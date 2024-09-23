@@ -33,7 +33,8 @@
     open_db/2,
     db_config/1,
     update_db_config/2,
-    drop_db/1
+    drop_db/1,
+    dbs/0
 ]).
 
 %% Site / shard allocation:
@@ -350,7 +351,7 @@ forget_site(Site) ->
 %% DB API
 %%===============================================================================
 
--spec db_config(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
+-spec db_config(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts() | #{}.
 db_config(DB) ->
     case mnesia:dirty_read(?META_TAB, DB) of
         [#?META_TAB{db_props = Opts}] ->
@@ -372,6 +373,10 @@ update_db_config(DB, DefaultOpts) ->
 -spec drop_db(emqx_ds:db()) -> ok.
 drop_db(DB) ->
     transaction(fun ?MODULE:drop_db_trans/1, [DB]).
+
+-spec dbs() -> [emqx_ds:db()].
+dbs() ->
+    mnesia:dirty_all_keys(?META_TAB).
 
 %%===============================================================================
 %% Site / shard allocation API
