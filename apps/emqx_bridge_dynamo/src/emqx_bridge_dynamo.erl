@@ -200,7 +200,8 @@ fields("config_connector") ->
         end,
         Config,
         [
-            table
+            table,
+            undefined_vars_as_null
         ]
     );
 fields(connector_resource_opts) ->

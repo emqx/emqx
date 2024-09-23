@@ -348,7 +348,7 @@ directly_setup_dynamo() ->
 
 directly_query(Query) ->
     directly_setup_dynamo(),
-    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN).
+    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN, #{}).
 
 directly_get_payload(Key) ->
     case directly_query({get_item, {<<"id">>, Key}}) of

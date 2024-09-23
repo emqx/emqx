@@ -902,9 +902,9 @@ join_to_sql_values_string(List) ->
         [
             case is_list(Item) of
                 true ->
-                    emqx_placeholder:quote_sql(emqx_utils_json:encode(Item));
+                    emqx_placeholder:quote_sql2(emqx_utils_json:encode(Item));
                 false ->
-                    emqx_placeholder:quote_sql(Item)
+                    emqx_placeholder:quote_sql2(Item)
             end
          || Item <- List
         ],
