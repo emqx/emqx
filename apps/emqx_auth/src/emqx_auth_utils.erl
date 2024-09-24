@@ -29,7 +29,8 @@
     render_deep_for_raw/2,
     render_str/2,
     render_urlencoded_str/2,
-    render_sql_params/2
+    render_sql_params/2,
+    render_strict/2
 ]).
 
 %% URL parsing
@@ -215,6 +216,9 @@ render_var(?VAR_PASSWORD, Value) ->
     iolist_to_binary(Value);
 render_var(_Name, Value) ->
     Value.
+
+render_strict(Topic, ClientInfo) ->
+    emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo)).
 
 rename_client_info_vars(ClientInfo) ->
     Renames = [

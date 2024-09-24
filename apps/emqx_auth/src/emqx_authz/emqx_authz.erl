@@ -713,6 +713,8 @@ format_for_api(Source) ->
 
 maybe_write_source_files(Source) ->
     Module = authz_module(type(Source)),
+    %% ensure module loaded
+    _ = catch Module:module_info(module),
     case erlang:function_exported(Module, write_files, 1) of
         true ->
             Module:write_files(Source);
