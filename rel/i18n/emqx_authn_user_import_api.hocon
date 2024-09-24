@@ -10,4 +10,29 @@ listeners_listener_id_authentication_id_import_users_post.desc:
 listeners_listener_id_authentication_id_import_users_post.label:
 """Import users into authenticator in listener"""
 
+import_result_total.desc:
+"""Total number of users contained in the file."""
+import_result_total.label:
+"""Total"""
+
+import_result_succ.desc:
+"""Total number of users successfully imported with new records."""
+import_result_succ.label:
+"""Success"""
+
+import_result_override.desc:
+"""Total number of users successfully imported as overrides."""
+import_result_override.label:
+"""Override"""
+
+import_result_skipped.desc:
+"""Total number of users skipped because imported users are identical to existing users."""
+import_result_skipped.label:
+"""Skipped"""
+
+import_result_failed.desc:
+"""Total number of users whose import failed."""
+import_result_failed.label:
+"""Failed"""
+
 }

@@ -151,6 +151,14 @@ end).
     atom() => term()
 }.
 
+-type import_users_result() :: #{
+    total := non_neg_integer(),
+    success := non_neg_integer(),
+    override := non_neg_integer(),
+    skipped := non_neg_integer(),
+    failed := non_neg_integer()
+}.
+
 -export_type([authenticator/0, config/0, state/0, extra/0, user_info/0]).
 
 %%------------------------------------------------------------------------------
@@ -317,7 +325,7 @@ reorder_authenticator(ChainName, AuthenticatorIDs) ->
     authenticator_id(),
     {plain | hash, prepared_user_list | binary(), binary()}
 ) ->
-    ok | {error, term()}.
+    {ok, import_users_result()} | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
     call({import_users, ChainName, AuthenticatorID, Filename}).
 
