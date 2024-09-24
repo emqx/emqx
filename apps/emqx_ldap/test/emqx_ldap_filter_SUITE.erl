@@ -256,6 +256,14 @@ t_escape(_Config) ->
 t_value_eql_dn(_Config) ->
     ?assertEqual('and'([equalityMatch("a", "dn")]), parse("(&(a=dn))")).
 
+t_member_of(_Config) ->
+    ?assertEqual(
+        'and'([
+            equalityMatch("a", "b"), equalityMatch("memberOf", "CN=GroupName,OU=emqx,DC=WL,DC=com")
+        ]),
+        parse("(&(a=b)(memberOf=CN=GroupName,OU=emqx,DC=WL,DC=com))")
+    ).
+
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------
