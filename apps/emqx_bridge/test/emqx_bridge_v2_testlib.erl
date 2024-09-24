@@ -1285,6 +1285,56 @@ t_aggreg_upload_restart_corrupted(TCConfig, Opts) ->
     ),
     ok.
 
+%% Simulates a sequence of requests from the frontend and checks that secrets are
+%% deobfuscated correctly for a connector.  The sequence is simply:
+%%
+%%   1) Create a connector.
+%%   2) Update the connector with the response config.
+%%
+%% This assumes that the response from (1) is already obfuscated.  That is, this doesn't
+%% check that secret fields are correctly marked as such.
+t_deobfuscate_connector(Config) ->
+    ?check_trace(
+        begin
+            #{
+                connector_type := ConnectorType,
+                connector_name := ConnectorName
+            } = get_common_values(Config),
+            OriginalConnectorConfig = get_value(connector_config, Config),
+            {201, Response} = simplify_result(create_connector_api(Config)),
+            %% Sanity check
+            ?assertEqual(
+                OriginalConnectorConfig,
+                emqx_config:get_raw([<<"connectors">>, bin(ConnectorType), bin(ConnectorName)])
+            ),
+            ConnectorConfig = maps:without(
+                [
+                    <<"name">>,
+                    <<"actions">>,
+                    <<"sources">>,
+                    <<"node_status">>,
+                    <<"status">>,
+                    <<"type">>
+                ],
+                Response
+            ),
+            ?assertMatch(
+                {200, _},
+                simplify_result(
+                    update_connector_api(ConnectorName, ConnectorType, ConnectorConfig)
+                )
+            ),
+            %% Even if the request is accepted, shouldn't clobber secrets
+            ?assertEqual(
+                OriginalConnectorConfig,
+                emqx_config:get_raw([<<"connectors">>, bin(ConnectorType), bin(ConnectorName)])
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 snk_timetrap() ->
     {CTTimetrap, _} = ct:get_timetrap_info(),
     #{timetrap => max(0, CTTimetrap - 1_000)}.
@@ -1302,3 +1352,5 @@ proplist_update(Proplist, K, Fn) ->
     {K, OldV} = lists:keyfind(K, 1, Proplist),
     NewV = Fn(OldV),
     lists:keystore(K, 1, Proplist, {K, NewV}).
+
+bin(X) -> emqx_utils_conv:bin(X).
