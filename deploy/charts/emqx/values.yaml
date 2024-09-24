@@ -159,6 +159,17 @@ service:
   ## Port for dashboard and API over HTTPS
   ##
   # dashboardtls: 18084
+
+  ## Custom Ports
+  ## Expose the ports of additional custom listeners.
+  ## Example:
+  ## customPorts:
+  ##  - name: custom1
+  ##    port: 1884
+  ##    targetPort: 1884
+  ##
+  customPorts: {}
+
   ## Specify the nodePort(s) value for the LoadBalancer and NodePort service types.
   ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport
   ##
@@ -170,6 +181,20 @@ service:
     wss:
     dashboard:
     dashboardtls:
+
+  ## NodePort for customPorts
+  ## Specify the nodePort(s) value for the custoPorts inside LoadBalancer and NodePort service types.
+  ##
+  ## To link the customPorts with the nodePort, use the customPorts name as the key.
+  ## Example:
+  ## customPorts:
+  ##  - name: custom1
+  ## ...
+  ## customNodePorts:
+  ##   custom1: 30000
+  ##
+  customNodePorts: {}
+
   ## Specifies the load balancer implementation this Service belongs to.
   ## Once set, it can not be changed.
   ##

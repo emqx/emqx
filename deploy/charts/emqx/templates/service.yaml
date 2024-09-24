@@ -91,6 +91,23 @@ spec:
     nodePort: null
     {{- end }}
   {{- end }}
+  {{- if not (empty .Values.service.customPorts) }}
+  {{- range $cPort := .Values.service.customPorts }}
+  - name: {{ $cPort.name }}
+    port: {{ $cPort.port }}
+    protocol: TCP
+    {{- if not (empty $cPort.targetPort) }}
+    targetPort: {{ $cPort.targetPort }}
+    {{- else }}
+    targetPort: {{ $cPort.name }}
+    {{- end }}
+    {{- if and (or (eq $.Values.service.type "NodePort") (eq $.Values.service.type "LoadBalancer")) (not (empty (get $.Values.service.customNodePorts  $cPort.name))) }}
+    nodePort: {{ (get $.Values.service.customNodePorts $cPort.name) }}
+    {{- else if eq $.Values.service.type "ClusterIP" }}
+    nodePort: null
+    {{- end }}
+  {{- end }}
+  {{- end }}
   selector:
     app.kubernetes.io/name: {{ include "emqx.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
