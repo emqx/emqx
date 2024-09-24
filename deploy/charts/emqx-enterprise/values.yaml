@@ -129,7 +129,7 @@ emqxConfig:
   EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
   EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
   EMQX_DASHBOARD__DEFAULT_PASSWORD: "public"
-  # Extra environment variables if persistent storage is enabled
+  # Extra environment variables if persistent storage is enabled 
   # EMQX_DURABLE_STORAGE_MESSAGES_N_SHARDS: '2'
   # EMQX_DURABLE_STORAGE_QUEUES_N_SHARDS: '2'
   
