@@ -41,6 +41,7 @@
     ?VAR_CERT_SUBJECT,
     ?VAR_CERT_CN_NAME,
     ?VAR_CERT_PEM,
+    ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
 
