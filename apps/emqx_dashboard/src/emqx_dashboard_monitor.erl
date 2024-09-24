@@ -51,13 +51,15 @@
 
 -define(TAB, ?MODULE).
 
-%% 1 hour = 60 * 60 * 1000 milliseconds
--define(CLEAN_EXPIRED_INTERVAL, 60 * 60 * 1000).
+%% 10m = 10 * 60 * 1000 milliseconds
+-define(CLEAN_EXPIRED_INTERVAL, 600_000).
 %% 7 days = 7 * 24 * 60 * 60 * 1000 milliseconds
 -define(RETENTION_TIME, 7 * 24 * 60 * 60 * 1000).
 
 -record(state, {
-    last
+    last,
+    clean_timer,
+    extra = []
 }).
 
 -record(emqx_monit, {
@@ -167,8 +169,9 @@ start_link() ->
 
 init([]) ->
     sample_timer(),
-    clean_timer(),
-    {ok, #state{last = undefined}}.
+    %% clean immediately
+    self() ! clean_expired,
+    {ok, #state{last = undefined, clean_timer = undefined, extra = []}}.
 
 handle_call(current_rate, _From, State = #state{last = Last}) ->
     NowTime = erlang:system_time(millisecond),
@@ -189,10 +192,11 @@ handle_info({sample, Time}, State = #state{last = Last}) ->
     ?tp(dashboard_monitor_flushed, #{}),
     sample_timer(),
     {noreply, State#state{last = Now}};
-handle_info(clean_expired, State) ->
+handle_info(clean_expired, #state{clean_timer = TrefOld} = State) ->
+    ok = maybe_cancel_timer(TrefOld),
     clean(),
-    clean_timer(),
-    {noreply, State};
+    TrefNew = clean_timer(),
+    {noreply, State#state{clean_timer = TrefNew}};
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
 
@@ -204,6 +208,12 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Internal functions
+
+maybe_cancel_timer(Tref) when is_reference(Tref) ->
+    _ = erlang:cancel_timer(Tref),
+    ok;
+maybe_cancel_timer(_) ->
+    ok.
 
 do_call(Request) ->
     gen_server:call(?MODULE, Request, 5000).
