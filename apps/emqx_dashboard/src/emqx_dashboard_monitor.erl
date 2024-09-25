@@ -323,13 +323,10 @@ adjust_synthetic_cluster_metrics(Metrics0) ->
 
 format({badrpc, Reason}) ->
     {badrpc, Reason};
-format(Data) ->
-    All = maps:fold(fun format/3, [], Data),
-    Compare = fun(#{time_stamp := T1}, #{time_stamp := T2}) -> T1 =< T2 end,
-    lists:sort(Compare, All).
-
-format(TimeStamp, Data, All) ->
-    [Data#{time_stamp => TimeStamp} | All].
+format(Data0) ->
+    Data1 = maps:to_list(Data0),
+    Data = lists:keysort(1, Data1),
+    lists:map(fun({TimeStamp, V}) -> V#{time_stamp => TimeStamp} end, Data).
 
 cal_rate(_Now, undefined) ->
     AllSamples = ?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP),
