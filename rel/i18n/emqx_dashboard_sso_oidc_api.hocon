@@ -1,6 +1,6 @@
 emqx_dashboard_sso_oidc_api {
 
 code_callback.desc:
-"""The callback path for the OIDC authorization server.."""
+"""The callback path for the OIDC authorization server."""
 
 }
