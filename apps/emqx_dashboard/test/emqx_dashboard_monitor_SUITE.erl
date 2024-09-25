@@ -431,10 +431,11 @@ t_persistent_session_stats(Config) ->
             {ok, #{
                 <<"connections">> := 3,
                 <<"disconnected_durable_sessions">> := 0,
-                %% N.B.: we currently don't perform any deduplication between persistent
-                %% and non-persistent routes, so we count `commont/topic' twice and get 8
-                %% instead of 6 here.
-                <<"topics">> := 8,
+                %% NOTE
+                %% We currently don't perform any deduplication between persistent and
+                %% regular routes, so this number could be misleading (especially when
+                %% `updrage_qos` is at play).
+                <<"topics">> := 6,
                 <<"subscriptions">> := 8,
                 <<"subscriptions_ram">> := 4,
                 <<"subscriptions_durable">> := 4
@@ -459,10 +460,10 @@ t_persistent_session_stats(Config) ->
             {ok, #{
                 <<"connections">> := 3,
                 <<"disconnected_durable_sessions">> := 1,
-                %% N.B.: we currently don't perform any deduplication between persistent
-                %% and non-persistent routes, so we count `commont/topic' twice and get 8
-                %% instead of 6 here.
-                <<"topics">> := 8,
+                %% NOTE
+                %% We currently don't acccount persistent routes of disconnected clients
+                %% in this metric. See also comments in `emqx_router_helper`.
+                <<"topics">> := 4,
                 <<"subscriptions">> := 8,
                 <<"subscriptions_ram">> := 4,
                 <<"subscriptions_durable">> := 4
@@ -477,7 +478,7 @@ t_persistent_session_stats(Config) ->
                 <<"time_stamp">> := _,
                 <<"connections">> := 3,
                 <<"disconnected_durable_sessions">> := 1,
-                <<"topics">> := 8,
+                <<"topics">> := 4,
                 <<"subscriptions">> := 8,
                 <<"subscriptions_ram">> := 4,
                 <<"subscriptions_durable">> := 4
@@ -495,10 +496,7 @@ t_persistent_session_stats(Config) ->
             {ok, #{
                 <<"connections">> := 3,
                 <<"disconnected_durable_sessions">> := 2,
-                %% N.B.: we currently don't perform any deduplication between persistent
-                %% and non-persistent routes, so we count `commont/topic' twice and get 8
-                %% instead of 6 here.
-                <<"topics">> := 8,
+                <<"topics">> := 4,
                 <<"subscriptions">> := 8,
                 <<"subscriptions_ram">> := 4,
                 <<"subscriptions_durable">> := 4

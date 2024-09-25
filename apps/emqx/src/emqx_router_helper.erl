@@ -189,14 +189,23 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 stats_fun() ->
+    %% NOTE
+    %% Router may have more than one entry for the same topic, because it essentially
+    %% maps Topic -> Destination (node or shared sub group).
+    RouteCount = emqx_router:stats(n_routes),
     PSRouteCount = persistent_route_count(),
-    NonPSRouteCount = emqx_router:stats(n_routes),
-    emqx_stats:setstat('topics.count', 'topics.max', PSRouteCount + NonPSRouteCount).
+    emqx_stats:setstat('topics.count', 'topics.max', PSRouteCount + RouteCount).
 
 persistent_route_count() ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            emqx_persistent_session_ds_router:stats(n_routes);
+            %% NOTE
+            %% Count only those routes that are not represented in the regular router.
+            %% This is rare, usually when `upgrade_qos` is at play. Yet if there are
+            %% any, they could potentially skew the already ill-defined `topics.count`
+            %% stat, because 1 topic in the persistent router may appear in unbounded
+            %% number of routes, since it maps Topic -> Session ID.
+            emqx_persistent_session_ds_router:stats({n_routes, _Scope = any});
         false ->
             0
     end.
