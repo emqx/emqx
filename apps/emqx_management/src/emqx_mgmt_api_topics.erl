@@ -174,7 +174,9 @@ mk_topic_stream(Spec) ->
 mk_persistent_topic_stream(Spec) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            emqx_persistent_session_ds_router:stream(Spec);
+            %% NOTE
+            %% Expose only those routes that are not represented in the regular router.
+            emqx_persistent_session_ds_router:stream(Spec, _Scope = any);
         false ->
             emqx_utils_stream:empty()
     end.
@@ -185,7 +187,9 @@ eval_count() ->
 eval_persistent_count() ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            emqx_persistent_session_ds_router:stats(n_routes);
+            %% NOTE
+            %% Count only those routes that are not represented in the regular router.
+            emqx_persistent_session_ds_router:stats({n_routes, _Scope = any});
         false ->
             0
     end.
