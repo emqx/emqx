@@ -96,8 +96,7 @@ latest2time(infinity) -> infinity;
 latest2time(Latest) -> erlang:system_time(millisecond) - (Latest * 1000).
 
 %% When the number of samples exceeds 1000, it affects the rendering speed of dashboard UI.
-%% granularity_adapter is an oversampling of the samples.
-%% Use more granular data and reduce data density.
+%% granularity_adapter does the downsampling of the data points
 %%
 %% [
 %%   Data1 = #{time => T1, k1 => 1, k2 => 2},
@@ -111,10 +110,14 @@ latest2time(Latest) -> erlang:system_time(millisecond) - (Latest * 1000).
 %%   ...
 %% ]
 %%
-granularity_adapter(List) when length(List) > 1000 ->
-    granularity_adapter(List, []);
 granularity_adapter(List) ->
-    List.
+    case length(List) > 1000 of
+        true ->
+            NewList = granularity_adapter(List, []),
+            granularity_adapter(NewList);
+        false ->
+            List
+    end.
 
 current_rate(all) ->
     current_rate_cluster();
