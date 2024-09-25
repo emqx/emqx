@@ -23,6 +23,8 @@
     stop/0
 ]).
 
+-define(CURRENT_CTX, '$__current_otel_ctx').
+
 -export([toggle_registered/1]).
 
 %% --------------------------------------------------------------------
@@ -30,8 +32,9 @@
 
 -export([
     trace_client_connect/3,
-    %% trace authentification
     trace_client_disconnect/3,
+    trace_client_authn/3,
+    trace_client_authz/3,
     trace_client_subscribe/3,
     trace_client_unsubscribe/3
 ]).
@@ -140,8 +143,9 @@ trace_client_connect(Packet, Attrs, ProcessFun) ->
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
-    %% put ctx to packet, so it can be further propagated
     _ = otel_ctx:attach(Ctx),
+    CurrentSpanCtx = otel_tracer:current_span_ctx(),
+    io:format("current span ctx: ~p~n", [CurrentSpanCtx]),
     try
         ProcessFun(Packet)
     after
@@ -172,7 +176,6 @@ trace_client_disconnect(Packet, Attrs, ProcessFun) ->
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
-    %% put ctx to packet, so it can be further propagated
     _ = otel_ctx:attach(Ctx),
     try
         ProcessFun(Packet)
@@ -242,6 +245,50 @@ trace_client_unsubscribe(Packet, Attrs, ProcessFun) ->
         _ = ?end_span(),
         clear()
     end.
+
+-spec trace_client_authn(
+    Packet,
+    Attrs,
+    fun((Packet) -> Res)
+) ->
+    Res
+when
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs(),
+    Res :: term().
+trace_client_authn(Packet, _Attrs, ProcessFun) ->
+    ?with_span(
+        ?CLIENT_AUTHN_SPAN_NAME,
+        %% TODO: packet attrs and channel attrs
+        #{
+            attributes => packet_attributes(Packet)
+        },
+        fun(_SpanCtx) ->
+            ProcessFun(Packet)
+        end
+    ).
+
+-spec trace_client_authz(
+    Packet,
+    Attrs,
+    fun((Packet) -> Res)
+) ->
+    Res
+when
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs(),
+    Res :: term().
+trace_client_authz(Packet, _Attrs, ProcessFun) ->
+    ?with_span(
+        ?CLIENT_AUTHZ_SPAN_NAME,
+        %% TODO: packet attrs and channel attrs
+        #{
+            attributes => packet_attributes(Packet)
+        },
+        fun(_SpanCtx) ->
+            ProcessFun(Packet)
+        end
+    ).
 
 %% --------------------------------------------------------------------
 %% Legacy trace API

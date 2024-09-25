@@ -361,6 +361,21 @@ end).
 %% MQTT Packet Match
 %%--------------------------------------------------------------------
 
+-define(PACKET(Type), #mqtt_packet{
+    header = #mqtt_packet_header{type = Type}
+}).
+
+-define(PACKET(Type, Var), #mqtt_packet{
+    header = #mqtt_packet_header{type = Type},
+    variable = Var
+}).
+
+-define(PACKET(Type, Var, Payload), #mqtt_packet{
+    header = #mqtt_packet_header{type = Type},
+    variable = Var,
+    payload = Payload
+}).
+
 -define(CONNECT_PACKET(), #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}}).
 
 -define(CONNECT_PACKET(Var), #mqtt_packet{
@@ -668,8 +683,6 @@ end).
         properties = Properties
     }
 }).
-
--define(PACKET(Type), #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
 
 -define(SHARE, "$share").
 -define(QUEUE, "$queue").

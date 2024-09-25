@@ -158,10 +158,6 @@
 -define(chan_terminating, chan_terminating).
 -define(RAND_CLIENTID_BYTES, 16).
 
--define(trace_connect, '$trace.connect.attrs').
--define(trace_disconnect, '$trace.disconnect.attrs').
--define(trace_subscribe, '$trace.subscribe.attrs').
--define(trace_unsubscribe, '$trace.unsubscribe.attrs').
 -define(trace_publish, '$trace.publish.attrs').
 -define(trace_deliver, '$trace.deliver.attrs').
 
@@ -360,10 +356,10 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
-handle_in(?CONNECT_PACKET() = Packet, Channel) ->
+handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
     emqx_external_trace:trace_client_connect(
         Packet,
-        trace_info(?trace_connect, Channel),
+        init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_connect(PacketWithTrace, Channel) end
     );
 %% TODO: trace CONNECT with AUTH
@@ -425,7 +421,7 @@ handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
             emqx_external_trace:trace_process_publish(
                 Packet,
                 %% More info can be added in future, but for now only clientid is used
-                trace_info(?trace_publish, Channel),
+                init_trace_attrs(Packet, Channel),
                 fun(PacketWithTrace) -> process_publish(PacketWithTrace, Channel) end
             );
         {error, ReasonCode} ->
@@ -510,8 +506,7 @@ handle_in(
 handle_in(?SUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters0) = Packet, Channel) ->
     emqx_external_trace:trace_client_subscribe(
         Packet,
-        %% More info can be added in future, but for now only clientid is used
-        trace_info(?trace_subscribe, Channel),
+        init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_subscribe(PacketWithTrace, Channel) end
     );
 handle_in(
@@ -520,8 +515,7 @@ handle_in(
 ) ->
     emqx_external_trace:trace_client_unsubscribe(
         Packet,
-        %% More info can be added in future, but for now only clientid is used
-        trace_info(?trace_unsubscribe, Channel),
+        init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_unsubscribe(PacketWithTrace, Channel) end
     );
 handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = Keepalive}) ->
@@ -534,8 +528,7 @@ handle_in(
 ) ->
     emqx_external_trace:trace_client_disconnect(
         Packet,
-        %% More info can be added in future, but for now only clientid is used
-        trace_info(?trace_disconnect, Channel),
+        init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_disconnect(PacketWithTrace, Channel) end
     );
 handle_in(?AUTH_PACKET(), Channel) ->
@@ -1033,7 +1026,9 @@ handle_deliver(
     %% we need to update stats here, as the stats_timer is canceled after disconnected
     {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
-    Delivers1 = emqx_external_trace:start_trace_send(Delivers, trace_info(?trace_deliver, Channel)),
+    Delivers1 = emqx_external_trace:start_trace_send(
+        Delivers, init_trace_attrs(?trace_deliver, Channel)
+    ),
     do_handle_deliver(Delivers1, Channel).
 
 do_handle_deliver(
@@ -1633,30 +1628,42 @@ overload_protection(_, #channel{clientinfo = #{zone := Zone}}) ->
 %% And it's designed for indexing the trace events
 %% It is designed to be used to index all related traces
 %% that have __different TraceIDs__(OF COURSE DIFFERENT).
-%% TODO: implement as init trace attrs callback
-
+%% TODO?: implement as init trace attrs callback
 %% More info can be added in future, but for now only clientid is used
-trace_info(?trace_connect, Channel) ->
-    maps:from_list(
-        info(
-            [
-                clientid,
-                peername
-            ],
-            Channel
-        )
-    );
-%% TODO:
-%% For now, only clientid is used
-trace_info(?trace_disconnect, Channel) ->
+
+init_trace_attrs(
+    ?PACKET(?CONNECT, PktVar),
+    _Channel
+) ->
+    %% TODO: more attrs
+    #{
+        clientid => emqx_packet:info(clientid, PktVar),
+        username => emqx_packet:info(username, PktVar)
+    };
+init_trace_attrs(
+    ?PACKET(?DISCONNECT, PktVar),
+    Channel
+) ->
+    #{
+        clientid => info(Channel),
+        reason_code => emqx_packet:info(reason_code, PktVar)
+    };
+init_trace_attrs(
+    ?PACKET(?PUBLISH, _PktVar),
+    Channel
+) ->
     maps:from_list(info([clientid], Channel));
-trace_info(?trace_subscribe, Channel) ->
+init_trace_attrs(
+    ?PACKET(?SUBSCRIBE, _PktVar),
+    Channel
+) ->
     maps:from_list(info([clientid], Channel));
-trace_info(?trace_unsubscribe, Channel) ->
+init_trace_attrs(
+    ?PACKET(?UNSUBSCRIBE, _PktVar),
+    Channel
+) ->
     maps:from_list(info([clientid], Channel));
-trace_info(?trace_publish, Channel) ->
-    maps:from_list(info([clientid], Channel));
-trace_info(?trace_deliver, Channel) ->
+init_trace_attrs(?trace_deliver, Channel) ->
     maps:from_list(info([clientid], Channel)).
 
 %%--------------------------------------------------------------------
@@ -1935,7 +1942,17 @@ maybe_add_cert(Map, #{peercert := PeerCert}) when is_binary(PeerCert) ->
 maybe_add_cert(Map, _) ->
     Map.
 
-authenticate(
+authenticate(?PACKET(?AUTH) = Packet, Channel) ->
+    %% TODO: extended authentication sub-span
+    process_authenticate(Packet, Channel);
+authenticate(Packet, Channel) ->
+    emqx_external_trace:trace_client_authn(
+        Packet,
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> process_authenticate(PacketWithTrace, Channel) end
+    ).
+
+process_authenticate(
     ?CONNECT_PACKET(
         #mqtt_packet_connect{
             proto_ver = ?MQTT_PROTO_V5,
@@ -1957,14 +1974,14 @@ authenticate(
         },
     Credential = maybe_add_cert(Credential0, Channel),
     do_authenticate(Credential, Channel);
-authenticate(
+process_authenticate(
     ?CONNECT_PACKET(#mqtt_packet_connect{password = Password}),
     #channel{clientinfo = ClientInfo} = Channel
 ) ->
     %% Auth with CONNECT packet for MQTT v3
     Credential = maybe_add_cert(ClientInfo#{password => Password}, Channel),
     do_authenticate(Credential, Channel);
-authenticate(
+process_authenticate(
     ?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properties),
     #channel{
         clientinfo = ClientInfo,
@@ -2185,7 +2202,14 @@ authz_action(#message{qos = QoS}) ->
 %%--------------------------------------------------------------------
 %% Check Pub Authorization
 
-check_pub_authz(
+check_pub_authz(Packet, Channel) ->
+    emqx_external_trace:trace_client_authz(
+        Packet,
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> do_check_pub_authz(PacketWithTrace, Channel) end
+    ).
+
+do_check_pub_authz(
     #mqtt_packet{
         variable = #mqtt_packet_publish{topic_name = Topic}
     } = Packet,
@@ -2224,7 +2248,14 @@ check_subscribe(SubPkt, _Channel) ->
 %%--------------------------------------------------------------------
 %% Check Sub Authorization
 
-check_sub_authzs(
+check_sub_authzs(Packet, Channel) ->
+    emqx_external_trace:trace_client_authz(
+        Packet,
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> with_check_sub_authzs(PacketWithTrace, Channel) end
+    ).
+
+with_check_sub_authzs(
     ?SUBSCRIBE_PACKET(PacketId, SubProps, TopicFilters0),
     Channel = #channel{clientinfo = ClientInfo}
 ) ->

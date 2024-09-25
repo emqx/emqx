@@ -76,6 +76,15 @@
 -callback end_trace_send(Packet | [Packet]) -> ok when
     Packet :: emqx_types:packet().
 
+-optional_callbacks(
+    [
+        add_span_attrs/1,
+        add_span_event/2,
+        trace_client_authn/3,
+        trace_client_authz/3
+    ]
+).
+
 %% --------------------------------------------------------------------
 
 -export([
@@ -83,6 +92,11 @@
     trace_client_disconnect/3,
     trace_client_subscribe/3,
     trace_client_unsubscribe/3
+]).
+
+-export([
+    trace_client_authn/3,
+    trace_client_authz/3
 ]).
 
 -export([
@@ -173,6 +187,22 @@ trace_client_subscribe(Packet, InitAttrs, ProcessFun) ->
 trace_client_unsubscribe(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
+%% @doc Start a sub-span for Client AUTHN
+-spec trace_client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+trace_client_authn(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
+%% @doc Start a sub-span for Client AUTHZ
+-spec trace_client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+trace_client_authz(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 %% --------------------------------------------------------------------
@@ -222,10 +252,10 @@ end_trace_send(Packets) ->
 %%--------------------------------------------------------------------
 
 %% TODO:
-%% enrich_trace_attrs/1 and add_trace_event/2
-%% might be optional for providers
+%% 1. Add more checks for the provider module and functions
+%% 2. Add more checks for the trace functions
 is_valid_provider(Module) ->
     lists:all(
         fun({F, A}) -> erlang:function_exported(Module, F, A) end,
-        ?MODULE:behaviour_info(callbacks)
+        ?MODULE:behaviour_info(callbacks) -- ?MODULE:behaviour_info(optional_callbacks)
     ).

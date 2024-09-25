@@ -823,7 +823,7 @@ t_enrich_client(_) ->
     {ok, _ConnPkt, _Chan} = emqx_channel:enrich_client(connpkt(), channel()).
 
 t_auth_connect(_) ->
-    {ok, _, _Chan} = emqx_channel:authenticate(?CONNECT_PACKET(connpkt()), channel()).
+    {ok, _, _Chan} = emqx_channel:process_authenticate(?CONNECT_PACKET(connpkt()), channel()).
 
 t_process_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},

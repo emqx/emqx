@@ -19,7 +19,11 @@
 
 -define(CLIENT_CONNECT_SPAN_NAME, <<"client.connect">>).
 -define(CLIENT_DISCONNECT_SPAN_NAME, <<"client.disconnect">>).
+-define(CLIENT_AUTHN_SPAN_NAME, <<"client.authn">>).
+-define(CLIENT_AUTHZ_SPAN_NAME, <<"client.authz">>).
 -define(CLIENT_SUBSCRIBE_SPAN_NAME, <<"client.subscribe">>).
 -define(CLIENT_UNSUBSCRIBE_SPAN_NAME, <<"client.unsubscribe">>).
+
+%% -define(MSG_SEND_SPAN_NAME, <<"message.send">>).
 
 -endif.
