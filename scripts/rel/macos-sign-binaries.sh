@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # intended to run on MacOS only
-# signs all executable files in a given folder (as $1) with developer certificate
+# signs executables and runtime libraries found in $RELX_TEMP_DIR with developer certificate
 
 # required variables:
 # APPLE_DEVELOPER_IDENTITY: "Developer ID Application: <company name> (<hex id>)"
@@ -12,12 +12,23 @@
 
 set -euo pipefail
 
+if [ "$(uname)" != 'Darwin' ]; then
+    echo 'Not macOS, exiting';
+    exit 0;
+fi
+
+if [ "${APPLE_SIGN_BINARIES:-0}" == 0 ]; then
+n    echo "Signing Apple binaries is disabled, exiting"
+    exit 0
+fi
+
 if [[ "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:-0}" == 0 ]]; then
     echo "Apple developer certificate is not configured, skip signing"
     exit 0
 fi
 
-REL_DIR="${1}"
+pushd "${RELX_TEMP_DIR}"
+
 PKSC12_FILE="$HOME/developer-id-application.p12"
 base64 --decode > "${PKSC12_FILE}" <<<"${APPLE_DEVELOPER_ID_BUNDLE}"
 
@@ -51,13 +62,13 @@ security -v list-keychains -s "${keychain_names[@]}" "${KEYCHAIN}"
 
 # known runtime executables and binaries
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         "${REL_DIR}"/erts-*/bin/{beam.smp,dyn_erl,epmd,erl,erl_call,erl_child_setup,erlexec,escript,heart,inet_gethost,run_erl,to_erl}
+         erts-*/bin/{beam.smp,dyn_erl,epmd,erl,erl_call,erl_child_setup,erlexec,escript,heart,inet_gethost,run_erl,to_erl}
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         "${REL_DIR}"/lib/runtime_tools-*/priv/lib/{dyntrace.so,trace_ip_drv.so,trace_file_drv.so}
+         lib/runtime_tools-*/priv/lib/{dyntrace.so,trace_ip_drv.so,trace_file_drv.so}
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         "${REL_DIR}"/lib/os_mon-*/priv/bin/{cpu_sup,memsup}
+         lib/os_mon-*/priv/bin/{cpu_sup,memsup}
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         "${REL_DIR}"/lib/jq-*/priv/{jq_nif1.so,libjq.1.dylib,libonig.5.dylib,erlang_jq_port}
+         lib/jq-*/priv/{jq_nif1.so,libjq.1.dylib,libonig.5.dylib,erlang_jq_port}
 # other files from runtime and dependencies
 for f in \
         asn1rt_nif.so \
@@ -74,7 +85,9 @@ for f in \
         sasl_auth.so \
         snappyer.so \
         ; do
-    find "${REL_DIR}"/lib/ -name "$f" -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
+    find lib/ -name "$f" -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
 done
+
+popd
 
 cleanup
