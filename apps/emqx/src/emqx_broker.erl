@@ -607,11 +607,12 @@ init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
-handle_call({subscribe, Topic, SubPid, 0}, {From, _Tag}, State) ->
+handle_call({subscribe, Topic, SubPid, I = 0}, {From, _Tag}, State) ->
     Existed = ets:member(?SUBSCRIBER, Topic),
     Result = maybe_add_route(Existed, Topic, From),
     assert_ok_result(Result),
     true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+    ok = inc_subscription_created(I),
     {reply, Result, State};
 handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
     Existed = ets:member(?SUBSCRIBER, {shard, Topic, I}),
@@ -642,6 +643,7 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
                 Recs
         end,
     true = ets:insert(?SUBSCRIBER, Recs1),
+    ok = inc_subscription_created(I),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -655,12 +657,14 @@ handle_cast({subscribed, Topic, shard, _I}, State) ->
 handle_cast({unsubscribed, Topic, shard, _I}, State) ->
     _ = maybe_delete_route(Topic),
     {noreply, State};
-handle_cast({unsubscribed, Topic, SubPid, 0}, State) ->
+handle_cast({unsubscribed, Topic, SubPid, I = 0}, State) ->
     true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
+    ok = inc_unsubscription_deleted(I),
     _ = maybe_delete_route(Topic),
     {noreply, State};
 handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
     true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
+    ok = inc_unsubscription_deleted(I),
     case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
         false ->
             ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}}),
@@ -689,6 +693,20 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%--------------------------------------------------------------------
+
+inc_subscription_created(Shard) ->
+    case emqx_broker_helper:get_shard_scope(Shard) of
+        any -> emqx_metrics:inc('subscription.created');
+        qos0 -> emqx_metrics:inc('subscription.qos0.created')
+    end.
+
+inc_unsubscription_deleted(Shard) ->
+    case emqx_broker_helper:get_shard_scope(Shard) of
+        any -> emqx_metrics:inc('subscription.deleted');
+        qos0 -> emqx_metrics:inc('subscription.qos0.deleted')
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

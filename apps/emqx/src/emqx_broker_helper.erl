@@ -158,20 +158,17 @@ safe_update_stats(Val, Stat, MaxStat) when is_integer(Val) ->
 %% N.B.: subscriptions from durable sessions are not tied to any particular node.
 %% Therefore, do not sum them with node-local subscriptions.
 subscription_count() ->
-    table_size(?SUBSCRIPTION).
+    emqx_metrics:val('subscription.created') - emqx_metrics:val('subscription.deleted').
 
 durable_subscription_count() ->
     emqx_persistent_session_bookkeeper:get_subscription_count().
 
 subscriber_val() ->
-    sum_subscriber(table_size(?SUBSCRIBER), table_size(?SHARED_SUBSCRIBER)).
+    emqx_maybe:define(table_size(?SUBSCRIBER), 0) +
+        emqx_maybe:define(table_size(?SHARED_SUBSCRIBER), 0).
 
-sum_subscriber(undefined, undefined) -> undefined;
-sum_subscriber(undefined, V2) when is_integer(V2) -> V2;
-sum_subscriber(V1, undefined) when is_integer(V1) -> V1;
-sum_subscriber(V1, V2) when is_integer(V1), is_integer(V2) -> V1 + V2.
-
-table_size(Tab) when is_atom(Tab) -> ets:info(Tab, size).
+table_size(Tab) when is_atom(Tab) ->
+    ets:info(Tab, size).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

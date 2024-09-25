@@ -332,7 +332,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
         [],
         Updates
     ),
-    {noreply, start_timer(State#state{updates = Updates1}), hibernate};
+    {noreply, start_timer(State#state{updates = Updates1})};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.

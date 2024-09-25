@@ -203,7 +203,7 @@
         <<"Number of messages dropped due to message expiration on sending">>}
 ]).
 
-%% Client Lifecircle metrics
+%% Client Lifecycle metrics
 -define(CLIENT_METRICS, [
     {counter, 'client.connect', <<"Number of client connections">>},
     {counter, 'client.connack', <<"Number of CONNACK packet sent">>},
@@ -226,6 +226,16 @@
     {counter, 'session.discarded',
         <<"Number of sessions dropped because Clean Session or Clean Start is true">>},
     {counter, 'session.terminated', <<"Number of terminated sessions">>}
+]).
+
+%% Subscription metrics
+-define(SUBSCRIPTION_METRICS, [
+    {counter, 'subscription.created', <<"Number of unique subscriptions created by clients">>},
+    {counter, 'subscription.deleted', <<"Number of unique subscriptions clients terminated">>},
+    {counter, 'subscription.qos0.created',
+        <<"Number of unique QoS0-only subscriptions created by clients">>},
+    {counter, 'subscription.qos0.deleted',
+        <<"Number of unique QoS0-only subscriptions clients terminated">>}
 ]).
 
 %% Statistic metrics for ACL checking
