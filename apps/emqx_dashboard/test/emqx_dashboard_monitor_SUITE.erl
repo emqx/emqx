@@ -168,19 +168,20 @@ t_empty_table(_Config) ->
     end.
 
 t_pmap_nodes(_Config) ->
-    MaxAge = 3 * timer:hours(24),
+    MaxAge = timer:hours(1),
     Now = erlang:system_time(millisecond) - 1,
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
-    NowBase = Now - (Now rem Interval),
-    StartTs = NowBase - MaxAge,
+    StartTs = round_down(Now - MaxAge, Interval),
     DataPoints = 5,
     ok = emqx_dashboard_monitor:clean(0),
     ok = insert_data_points(DataPoints, StartTs, Now),
     Nodes = [node(), node(), node()],
-    Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:sample_nodes(Nodes, StartTs, #{})),
-    #{sent := Total0} = hd(Data),
-    TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, Total0),
-    ?assertEqual(DataPoints * length(Nodes), TotalSent).
+    %% this function calls emqx_utils:pmap to do the job
+    Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs, #{}),
+    Data1 = emqx_dashboard_monitor:fill_gaps(Data0, StartTs),
+    Data = emqx_dashboard_monitor:format(Data1),
+    ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
+    ?assertEqual(DataPoints * length(Nodes), sum_value(Data, sent)).
 
 t_randomize(_Config) ->
     ok = emqx_dashboard_monitor:clean(0),
@@ -208,28 +209,37 @@ t_downsample_1h(_Config) ->
 
 sent_1() -> #{sent => 1}.
 
+round_down(Ts, Interval) ->
+    Ts - (Ts rem Interval).
+
 test_downsample(MaxAge, DataPoints) ->
     Now = erlang:system_time(millisecond) - 1,
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
-    NowBase = Now - (Now rem Interval),
-    StartTs = NowBase - MaxAge,
+    StartTs = round_down(Now - MaxAge, Interval),
     ok = emqx_dashboard_monitor:clean(0),
     %% insert the start mark for deterministic test boundary
     ok = write(StartTs, sent_1()),
     ok = insert_data_points(DataPoints - 1, StartTs, Now),
-    Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:do_sample(all, StartTs)),
+    Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:sample_fill_gap(all, StartTs)),
     ?assertEqual(StartTs, maps:get(time_stamp, hd(Data))),
-    #{sent := Total0} = hd(Data),
-    TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, Total0),
-    ?assertEqual(DataPoints, TotalSent).
+    ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
+    ?assertEqual(DataPoints, sum_value(Data, sent)),
+    ok.
 
-check_sample_intervals(_Interval, _, [], _Index, Total) ->
-    Total;
-check_sample_intervals(Interval, #{time_stamp := T} = Prev, [First | Rest], Index, Total) ->
-    NewTotal = Total + maps:get(sent, Prev, 0),
+sum_value(Data, Key) ->
+    sum_value(Data, Key, 0).
+
+sum_value([], _, V) ->
+    V;
+sum_value([D | Rest], Key, V) ->
+    sum_value(Rest, Key, maps:get(Key, D, 0) + V).
+
+check_sample_intervals(_Interval, _, []) ->
+    ok;
+check_sample_intervals(Interval, #{time_stamp := T}, [First | Rest]) ->
     #{time_stamp := T2} = First,
-    ?assertEqual({Index, T + Interval}, {Index, T2}),
-    check_sample_intervals(Interval, First, Rest, Index + 1, NewTotal).
+    ?assertEqual(T + Interval, T2),
+    check_sample_intervals(Interval, First, Rest).
 
 insert_data_points(0, _TsMin, _TsMax) ->
     ok;
@@ -311,7 +321,19 @@ t_monitor_api(_) ->
     Fun =
         fun(Sampler) ->
             Keys = [binary_to_atom(Key, utf8) || Key <- maps:keys(Sampler)],
-            [?assert(lists:member(SamplerName, Keys)) || SamplerName <- ?SAMPLER_LIST]
+            case Keys =:= [time_stamp] of
+                true ->
+                    %% this is a dummy data point filling the gap
+                    ok;
+                false ->
+                    lists:all(
+                        fun(K) ->
+                            lists:member(K, Keys)
+                        end,
+                        ?SAMPLER_LIST
+                    ) orelse
+                        ct:fail(Keys)
+            end
         end,
     [Fun(Sampler) || Sampler <- Samplers],
     {ok, NodeSamplers} = request(["monitor", "nodes", node()]),

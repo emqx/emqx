@@ -39,8 +39,7 @@
 -export([
     samplers/0,
     samplers/2,
-    current_rate/1,
-    downsample/1
+    current_rate/1
 ]).
 
 %% for rpc
@@ -56,7 +55,9 @@
     lookup/1,
     sample_nodes/3,
     randomize/2,
-    randomize/3
+    randomize/3,
+    sample_fill_gap/2,
+    fill_gaps/2
 ]).
 
 -define(TAB, ?MODULE).
@@ -98,11 +99,11 @@ create_tables() ->
 %% API
 
 samplers() ->
-    format(do_sample(all, infinity)).
+    format(sample_fill_gap(all, 0)).
 
 samplers(NodeOrCluster, Latest) ->
     SinceTime = latest2time(Latest),
-    case format(do_sample(NodeOrCluster, SinceTime)) of
+    case format(sample_fill_gap(NodeOrCluster, SinceTime)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         List when is_list(List) ->
@@ -206,11 +207,11 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 %% Internal functions
 
 %% for testing
-randomize(Count, Data) ->
+randomize(Count, Data) when is_map(Data) ->
     MaxAge = 7 * ?DAYS,
     randomize(Count, Data, MaxAge).
 
-randomize(Count, Data, Age) ->
+randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
     Now = erlang:system_time(millisecond) - 1,
     Interval = sample_interval(Age),
     NowBase = Now - (Now rem Interval),
@@ -251,7 +252,7 @@ do_sample(Node, Time) when Node == node() andalso is_integer(Time) ->
     FromDB = ets:select(?TAB, MS),
     Map = to_ts_data_map(FromDB),
     %% downsample before return RPC calls for less data to merge by the caller nodes
-    downsample(Map);
+    downsample(Time, Map);
 do_sample(Node, Time) when is_integer(Time) ->
     case emqx_dashboard_proto_v1:do_sample(Node, Time) of
         {badrpc, Reason} ->
@@ -283,15 +284,15 @@ concurrently_sample_nodes(Nodes, Time) ->
 merge_samplers(Increment, Base) ->
     maps:fold(fun merge_samplers_loop/3, Base, Increment).
 
-merge_samplers_loop(TS, Increment, Base) ->
+merge_samplers_loop(TS, Increment, Base) when is_map(Increment) ->
     case maps:get(TS, Base, undefined) of
         undefined ->
             Base#{TS => Increment};
-        BaseSample ->
+        BaseSample when is_map(BaseSample) ->
             Base#{TS => merge_sampler_maps(Increment, BaseSample)}
     end.
 
-merge_sampler_maps(M1, M2) ->
+merge_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
     Fun =
         fun
             (Key, Map) when
@@ -406,38 +407,62 @@ sample_interval(Age) when Age =< 3 * ?DAYS ->
 sample_interval(_Age) ->
     10 * ?MINUTES.
 
-downsample(TsDataMap) when map_size(TsDataMap) >= 2 ->
-    [Oldest | _] = TsList = lists:sort(maps:keys(TsDataMap)),
+sample_fill_gap(Node, SinceTs) ->
+    Samples = do_sample(Node, SinceTs),
+    fill_gaps(Samples, SinceTs).
+
+fill_gaps(Samples, SinceTs) ->
+    TsList = lists:sort(maps:keys(Samples)),
+    case length(TsList) >= 2 of
+        true ->
+            do_fill_gaps(hd(TsList), tl(TsList), Samples, SinceTs);
+        false ->
+            Samples
+    end.
+
+do_fill_gaps(FirstTs, TsList, Samples, SinceTs) ->
     Latest = lists:last(TsList),
-    Interval = sample_interval(Latest - Oldest),
-    downsample_loop(TsList, TsDataMap, Interval, #{}, 0);
-downsample(TsDataMap) ->
+    Interval = sample_interval(Latest - SinceTs),
+    StartTs =
+        case round_down(SinceTs, Interval) of
+            T when T =:= 0 orelse T =:= FirstTs ->
+                FirstTs;
+            T ->
+                T
+        end,
+    fill_gaps_loop(StartTs, Interval, Latest, Samples).
+
+fill_gaps_loop(T, _Interval, Latest, Samples) when T >= Latest ->
+    Samples;
+fill_gaps_loop(T, Interval, Latest, Samples) ->
+    Samples1 =
+        case is_map_key(T, Samples) of
+            true ->
+                Samples;
+            false ->
+                Samples#{T => #{}}
+        end,
+    fill_gaps_loop(T + Interval, Interval, Latest, Samples1).
+
+downsample(SinceTs, TsDataMap) when map_size(TsDataMap) >= 2 ->
+    TsList = lists:sort(maps:keys(TsDataMap)),
+    Latest = lists:last(TsList),
+    Interval = sample_interval(Latest - SinceTs),
+    downsample_loop(TsList, TsDataMap, Interval, #{});
+downsample(_Since, TsDataMap) ->
     TsDataMap.
 
 round_down(Ts, Interval) ->
     Ts - (Ts rem Interval).
 
-downsample_loop([], _TsDataMap, _Interval, Res, _LastBucket) ->
+downsample_loop([], _TsDataMap, _Interval, Res) ->
     Res;
-downsample_loop([Ts | Rest], TsDataMap, Interval, Res, LastBucket) ->
+downsample_loop([Ts | Rest], TsDataMap, Interval, Res) ->
     Bucket = round_down(Ts, Interval),
-    Res1 = maybe_inject_missing_data_points(Res, LastBucket, Bucket, Interval),
-    Agg0 = maps:get(Bucket, Res1, #{}),
+    Agg0 = maps:get(Bucket, Res, #{}),
     Inc = maps:get(Ts, TsDataMap),
     Agg = merge_sampler_maps(Inc, Agg0),
-    downsample_loop(Rest, TsDataMap, Interval, Res1#{Bucket => Agg}, Bucket).
-
-maybe_inject_missing_data_points(Res, 0, _Current, _Interval) ->
-    Res;
-maybe_inject_missing_data_points(Res, Last, Current, Interval) ->
-    Next = Last + Interval,
-    case Next >= Current of
-        true ->
-            Res;
-        false ->
-            NewRes = Res#{Next => #{}},
-            maybe_inject_missing_data_points(NewRes, Next, Current, Interval)
-    end.
+    downsample_loop(Rest, TsDataMap, Interval, Res#{Bucket => Agg}).
 
 %% -------------------------------------------------------------------------------------------------
 %% timer
