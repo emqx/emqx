@@ -1,8 +1,8 @@
 Definitions.
 
-Control = [()&|!=~><:*]
+Control = [()&|!=~><:*,]
 White = [\s\t\n\r]+
-StringChars = [^()&|!=~><:*\t\n\r\\]
+StringChars = [^()&|!=~><:*,\t\n\r\\]
 Escape = \\\\|\\{Control}|\\{White}
 String = ({Escape}|{StringChars})+
 
@@ -20,6 +20,7 @@ Rules.
 \* : {token, {asterisk, TokenLine}}.
 \:dn : {token, {dn, TokenLine}}.
 \: : {token, {colon, TokenLine}}.
+, : {token, {comma, TokenLine}}.
 {White} : skip_token.
 {String} : {token, {string, TokenLine, to_string(TokenChars)}}.
 %% Leex will hang if a composite operation is missing a character
