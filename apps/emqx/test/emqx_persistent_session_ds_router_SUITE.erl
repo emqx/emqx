@@ -246,13 +246,6 @@ t_match_routes_scope(_) ->
         lists:sort(match_routes(<<"a/b/c">>, noqos0))
     ).
 
-t_has_route(_) ->
-    add_route(<<"devices/+/messages">>),
-    ?assert(
-        emqx_persistent_session_ds_router:has_route(<<"devices/+/messages">>, ?DEF_DS_SESSION_ID)
-    ),
-    delete_route(<<"devices/+/messages">>).
-
 t_stream(_) ->
     add_route(<<"a/b/1">>),
     add_route(<<"a/+/2">>),

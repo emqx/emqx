@@ -46,9 +46,6 @@
 
 -export([topics/0]).
 
-%% Test-only APIs
--export([has_route/2]).
-
 -type route() :: #ps_route{}.
 -type dest() :: emqx_persistent_session_ds:id() | #share_dest{}.
 
@@ -190,10 +187,6 @@ lookup_routes(Topic, Scope) ->
         false ->
             lookup_route_ext_tab(Topic, Scope)
     end.
-
--spec has_route(emqx_types:topic(), dest()) -> boolean().
-has_route(Topic, Dest) ->
-    lists:any(fun(#ps_route{dest = D}) -> D =:= Dest end, lookup_routes(Topic)).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
