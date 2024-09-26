@@ -512,8 +512,8 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
         {unrecoverable_error,
             {invalid_request, <<"The only query type that supports batching is insert.">>}}
     );
-get_query_tuple([InsertQuery | _]) ->
-    get_query_tuple(InsertQuery).
+get_query_tuple([_InsertQuery | _] = Reqs) ->
+    lists:map(fun get_query_tuple/1, Reqs).
 
 %% for bridge data to sql server
 parse_sql_template(Config) ->
