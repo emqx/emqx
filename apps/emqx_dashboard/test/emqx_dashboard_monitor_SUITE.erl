@@ -158,32 +158,75 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
-t_monitor_samplers_all(_Config) ->
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
-    Size = mnesia:table_info(emqx_dashboard_monitor, size),
-    All = emqx_dashboard_monitor:samplers(all, infinity),
-    All2 = emqx_dashboard_monitor:samplers(),
-    ?assert(erlang:length(All) == Size),
-    ?assert(erlang:length(All2) == Size),
-    ok.
+t_empty_table(_Config) ->
+    sys:suspend(whereis(emqx_dashboard_monitor)),
+    try
+        emqx_dashboard_monitor:clean(0),
+        ?assertEqual({ok, []}, request(["monitor"], "latest=20000"))
+    after
+        sys:resume(whereis(emqx_dashboard_monitor))
+    end.
 
-t_monitor_samplers_latest(_Config) ->
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
-    ?retry(1_000, 10, begin
-        Samplers = emqx_dashboard_monitor:samplers(node(), 2),
-        Latest = emqx_dashboard_monitor:samplers(node(), 1),
-        ?assert(erlang:length(Samplers) == 2, #{samplers => Samplers}),
-        ?assert(erlang:length(Latest) == 1, #{latest => Latest}),
-        ?assert(hd(Latest) == lists:nth(2, Samplers))
-    end),
+t_downsample_7d(_Config) ->
+    MaxAge = 7 * timer:hours(24),
+    test_downsample(MaxAge, 10).
+
+t_downsample_3d(_Config) ->
+    MaxAge = 3 * timer:hours(24),
+    test_downsample(MaxAge, 10).
+
+t_downsample_1d(_Config) ->
+    MaxAge = timer:hours(24),
+    test_downsample(MaxAge, 10).
+
+t_downsample_1h(_Config) ->
+    MaxAge = timer:hours(1),
+    test_downsample(MaxAge, 10).
+
+sent_1() -> #{sent => 1}.
+
+test_downsample(MaxAge, DataPoints) ->
+    Now = erlang:system_time(millisecond) - 1,
+    Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
+    NowBase = Now - (Now rem Interval),
+    StartTs = NowBase - MaxAge,
+    emqx_dashboard_monitor:clean(0),
+    ?assertEqual([], ets:tab2list(emqx_dashboard_monitor)),
+    %% insert the start mark for deterministic test boundary
+    ok = write(StartTs, sent_1()),
+    ok = insert_data_points(DataPoints - 1, StartTs, Now),
+    Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:do_sample(all, StartTs)),
+    ?assertEqual(StartTs, maps:get(time_stamp, hd(Data))),
+    TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, _Total = 1),
+    ?assertEqual(DataPoints, TotalSent).
+
+check_sample_intervals(_Interval, _, [], _Index, Total) ->
+    Total;
+check_sample_intervals(Interval, #{time_stamp := T} = Prev, [First | Rest], Index, Total) ->
+    NewTotal = Total + maps:get(sent, Prev, 0),
+    #{time_stamp := T2} = First,
+    ?assertEqual({Index, T + Interval}, {Index, T2}),
+    check_sample_intervals(Interval, First, Rest, Index + 1, NewTotal).
+
+insert_data_points(0, _TsMin, _TsMax) ->
+    ok;
+insert_data_points(N, TsMin, TsMax) when N > 0 ->
+    Data = sent_1(),
+    FakeTs = TsMin + rand:uniform(TsMax - TsMin),
+    case read(FakeTs) of
+        [] ->
+            ok = write(FakeTs, Data),
+            insert_data_points(N - 1, TsMin, TsMax);
+        _ ->
+            %% clashed, try again
+            insert_data_points(N, TsMin, TsMax)
+    end.
+
+read(Ts) ->
+    emqx_dashboard_monitor:lookup(Ts).
+
+write(Time, Data) ->
+    {atomic, ok} = emqx_dashboard_monitor:store({emqx_monit, Time, Data}),
     ok.
 
 t_monitor_sampler_format(_Config) ->
@@ -233,12 +276,14 @@ t_handle_old_monitor_data(_Config) ->
     ok.
 
 t_monitor_api(_) ->
+    emqx_dashboard_monitor:clean(0),
     {ok, _} =
         snabbkaffe:block_until(
             ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
+            infinity,
+            0
         ),
-    {ok, Samplers} = request(["monitor"], "latest=200"),
+    {ok, Samplers} = request(["monitor"], "latest=20"),
     ?assert(erlang:length(Samplers) >= 2, #{samplers => Samplers}),
     Fun =
         fun(Sampler) ->
