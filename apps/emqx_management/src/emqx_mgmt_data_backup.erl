@@ -746,7 +746,7 @@ import_cluster_hocon(BackupDir, Opts) ->
     end.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
-    _ = SchemaMod:module_info(),
+    ok = emqx_utils:interactive_load(SchemaMod),
     case erlang:function_exported(SchemaMod, upgrade_raw_conf, 1) of
         true ->
             %% TODO make it a schema module behaviour in hocon_schema
