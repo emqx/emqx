@@ -39,7 +39,7 @@
     samplers/0,
     samplers/2,
     current_rate/1,
-    granularity_adapter/1
+    downsample/1
 ]).
 
 -ifdef(TEST).
@@ -51,10 +51,16 @@
 
 -define(TAB, ?MODULE).
 
-%% 10m = 10 * 60 * 1000 milliseconds
--define(CLEAN_EXPIRED_INTERVAL, 600_000).
-%% 7 days = 7 * 24 * 60 * 60 * 1000 milliseconds
--define(RETENTION_TIME, 7 * 24 * 60 * 60 * 1000).
+-define(SECONDS, 1_000).
+-define(ONE_MINUTE, 60 * ?SECONDS).
+-define(MINUTES, ?ONE_MINUTE).
+-define(ONE_HOUR, 60 * ?MINUTES).
+-define(HOURS, ?ONE_HOUR).
+-define(ONE_DAY, 24 * ?HOURS).
+-define(DAYS, ?ONE_DAY).
+
+-define(CLEAN_EXPIRED_INTERVAL, 10 * ?MINUTES).
+-define(RETENTION_TIME, 7 * ?DAYS).
 
 -record(state, {
     last,
@@ -89,35 +95,11 @@ samplers(NodeOrCluster, Latest) ->
         {badrpc, Reason} ->
             {badrpc, Reason};
         List when is_list(List) ->
-            granularity_adapter(List)
+            List
     end.
 
 latest2time(infinity) -> infinity;
 latest2time(Latest) -> erlang:system_time(millisecond) - (Latest * 1000).
-
-%% When the number of samples exceeds 1000, it affects the rendering speed of dashboard UI.
-%% granularity_adapter does the downsampling of the data points
-%%
-%% [
-%%   Data1 = #{time => T1, k1 => 1, k2 => 2},
-%%   Data2 = #{time => T2, k1 => 3, k2 => 4},
-%%   ...
-%% ]
-%% After granularity_adapter, Merge Data1 Data2
-%%
-%% [
-%%   #{time => T2, k1 => 1 + 3, k2 =>  2 + 6},
-%%   ...
-%% ]
-%%
-granularity_adapter(List) ->
-    case length(List) > 1000 of
-        true ->
-            NewList = granularity_adapter(List, []),
-            granularity_adapter(NewList);
-        false ->
-            List
-    end.
 
 current_rate(all) ->
     current_rate_cluster();
@@ -222,10 +204,23 @@ do_call(Request) ->
     gen_server:call(?MODULE, Request, 5000).
 
 do_sample(all, Time) ->
-    do_sample(emqx:running_nodes(), Time, #{});
+    AllNodes = emqx:running_nodes(),
+    case [node()] =:= AllNodes of
+        true ->
+            %% micro-optimization to avoid downsample twice for single node
+            do_sample(node(), Time);
+        false ->
+            %% downsample again after merged all data points from all nodes
+            %% this is necessary because some nodes might be running older version
+            %% which returns ALL data points.
+            downsample(sample_nodes(AllNodes, Time, #{}))
+    end;
 do_sample(Node, Time) when Node == node() ->
     MS = match_spec(Time),
-    internal_format(ets:select(?TAB, MS));
+    FromDB = ets:select(?TAB, MS),
+    Map = to_ts_data_map(FromDB),
+    %% downsample before return RPC calls for less data to merge by the caller nodes
+    downsample(Map);
 do_sample(Node, Time) ->
     case emqx_dashboard_proto_v1:do_sample(Node, Time) of
         {badrpc, Reason} ->
@@ -234,17 +229,17 @@ do_sample(Node, Time) ->
             Res
     end.
 
-do_sample([], _Time, Samples) ->
+sample_nodes([], _Time, Samples) ->
     maps:map(
         fun(_TS, Sample) -> adjust_synthetic_cluster_metrics(Sample) end,
         Samples
     );
-do_sample([Node | Nodes], Time, Res) ->
+sample_nodes([Node | Nodes], Time, Res) ->
     case do_sample(Node, Time) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         Samplers ->
-            do_sample(Nodes, Time, merge_cluster_samplers(Samplers, Res))
+            sample_nodes(Nodes, Time, merge_cluster_samplers(Samplers, Res))
     end.
 
 match_spec(infinity) ->
@@ -253,17 +248,20 @@ match_spec(Time) ->
     [{{'_', '$1', '_'}, [{'>=', '$1', Time}], ['$_']}].
 
 merge_cluster_samplers(NodeSamples, Cluster) ->
-    maps:fold(fun merge_cluster_samplers/3, Cluster, NodeSamples).
+    merge_samplers(NodeSamples, Cluster).
 
-merge_cluster_samplers(TS, NodeSample, Cluster) ->
-    case maps:get(TS, Cluster, undefined) of
+merge_samplers(Increment, Base) ->
+    maps:fold(fun merge_samplers_loop/3, Base, Increment).
+
+merge_samplers_loop(TS, Increment, Base) ->
+    case maps:get(TS, Base, undefined) of
         undefined ->
-            Cluster#{TS => NodeSample};
-        ClusterSample ->
-            Cluster#{TS => merge_cluster_sampler_map(NodeSample, ClusterSample)}
+            Base#{TS => Increment};
+        BaseSample ->
+            Base#{TS => merge_sampler_maps(Increment, BaseSample)}
     end.
 
-merge_cluster_sampler_map(M1, M2) ->
+merge_sampler_maps(M1, M2) ->
     Fun =
         fun
             (Key, Map) when
@@ -272,7 +270,7 @@ merge_cluster_sampler_map(M1, M2) ->
                 Key =:= subscriptions_durable;
                 Key =:= disconnected_durable_sessions
             ->
-                Map#{Key => maps:get(Key, M1, maps:get(Key, M2, 0))};
+                Map#{Key => max(maps:get(Key, M1, 0), maps:get(Key, M2, 0))};
             (Key, Map) ->
                 Map#{Key => maps:get(Key, M1, 0) + maps:get(Key, M2, 0)}
         end,
@@ -360,18 +358,48 @@ cal_rate_(Key, {Now, Last, TDelta, Res}) ->
     RateKey = maps:get(Key, ?DELTA_SAMPLER_RATE_MAP),
     {Now, Last, TDelta, Res#{RateKey => Rate}}.
 
-granularity_adapter([], Res) ->
-    lists:reverse(Res);
-granularity_adapter([Sampler], Res) ->
-    granularity_adapter([], [Sampler | Res]);
-granularity_adapter([Sampler1, Sampler2 | Rest], Res) ->
-    Fun =
-        fun(Key, M) ->
-            Value1 = maps:get(Key, Sampler1),
-            Value2 = maps:get(Key, Sampler2),
-            M#{Key => Value1 + Value2}
-        end,
-    granularity_adapter(Rest, [lists:foldl(Fun, Sampler2, ?DELTA_SAMPLER_LIST) | Res]).
+%% Try to keep the total number of recrods around 1000.
+%% When the oldest data point is
+%% < 1h: sample every 10s: 360 data points
+%% < 1d: sample every 1m: 1440 data points
+%% < 3d: sample every 5m: 864 data points
+%% < 7d: sample every 10m: 1008 data points
+sample_interval(Age) when Age =< ?ONE_HOUR ->
+    10 * ?SECONDS;
+sample_interval(Age) when Age =< ?ONE_DAY ->
+    ?ONE_MINUTE;
+sample_interval(Age) when Age =< 3 * ?DAYS ->
+    5 * ?MINUTES;
+sample_interval(_Age) ->
+    10 * ?MINUTES.
+
+downsample(TsDataMap) when map_size(TsDataMap) >= 2 ->
+    [Oldest | _] = TsList = lists:sort(maps:keys(TsDataMap)),
+    Latest = lists:last(TsList),
+    Interval = sample_interval(Latest - Oldest),
+    downsample_loop(TsList, TsDataMap, Interval, #{}, 0);
+downsample(TsDataMap) ->
+    TsDataMap.
+
+downsample_loop([], _TsDataMap, _Interval, Res, _LastRoundDown) ->
+    Res;
+downsample_loop([Ts | Rest], TsDataMap, Interval, Res, LastRoundDown) ->
+    RoundDown = Ts - (Ts rem Interval),
+    Res1 = maybe_inject_missing_data_points(Res, LastRoundDown, RoundDown, Interval),
+    Agg0 = maps:get(RoundDown, Res1, #{}),
+    Inc = maps:get(Ts, TsDataMap),
+    Agg = merge_sampler_maps(Inc, Agg0),
+    downsample_loop(Rest, TsDataMap, Interval, Res1#{RoundDown => Agg}, RoundDown).
+
+maybe_inject_missing_data_points(Res, 0, _Stop, _Interval) ->
+    Res;
+maybe_inject_missing_data_points(Res, T, Stop, Interval) ->
+    case T + Interval >= Stop of
+        true ->
+            Res;
+        false ->
+            maybe_inject_missing_data_points(Res#{T => #{}}, T + Interval, Stop, Interval)
+    end.
 
 %% -------------------------------------------------------------------------------------------------
 %% timer
@@ -436,15 +464,14 @@ clean() ->
     ),
     ok.
 
-%% To make it easier to do data aggregation
-internal_format(List) when is_list(List) ->
+%% This data structure should not be changed because it's a RPC contract.
+%% Otherwise dashboard may not work during rolling upgrade.
+to_ts_data_map(List) when is_list(List) ->
     Fun =
-        fun(Data, All) ->
-            maps:merge(internal_format(Data), All)
+        fun(#emqx_monit{time = Time, data = Data}, All) ->
+            All#{Time => Data}
         end,
-    lists:foldl(Fun, #{}, List);
-internal_format(#emqx_monit{time = Time, data = Data}) ->
-    #{Time => Data}.
+    lists:foldl(Fun, #{}, List).
 
 getstats(Key) ->
     %% Stats ets maybe not exist when ekka join.
