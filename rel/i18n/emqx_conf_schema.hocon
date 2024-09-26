@@ -72,7 +72,9 @@ cluster_quic_lb_mode.desc:
 """QUIC stack LB Mode
 - 0: disabled (Default)
 - 1: server_ip
-- 2: server_id_fixed"""
+- 2: server_id_fixed
+- N: when N>2 server_id_fixed and server_id is N
+- IfName: when IfName is string, server_id will be set to the first ip on interface IfName, ipv4 only"""
 
 cluster_quic_lb_mode.label:
 """ QUIC stack LB Mode """
