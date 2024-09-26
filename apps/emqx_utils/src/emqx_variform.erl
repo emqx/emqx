@@ -301,7 +301,9 @@ assert_func_exported(?BIF_MOD, iif, _Arity) ->
 assert_func_exported(?BIF_MOD, is_empty, _Arity) ->
     ok;
 assert_func_exported(Mod, Fun, Arity) ->
-    ok = try_load(Mod),
+    %% call emqx_utils:interactive_load to make sure it will work in tests.
+    %% in production, the module has to be pre-loaded by plugin management code
+    ok = emqx_utils:interactive_load(Mod),
     case erlang:function_exported(Mod, Fun, Arity) of
         true ->
             ok;
@@ -312,18 +314,6 @@ assert_func_exported(Mod, Fun, Arity) ->
                 function => Fun,
                 arity => Arity
             })
-    end.
-
-%% best effort to load the module because it might not be loaded as a part of the release modules
-%% e.g. from a plugin.
-%% do not call code server, just try to call a function in the module.
-try_load(Mod) ->
-    try
-        _ = erlang:apply(Mod, module_info, [md5]),
-        ok
-    catch
-        _:_ ->
-            ok
     end.
 
 assert_module_allowed(Mod) when ?IS_ALLOWED_MOD(Mod) ->

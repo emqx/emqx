@@ -761,7 +761,7 @@ merge_to_override_config(RawConf, Opts) ->
 upgrade_conf(Conf) ->
     ConfigLoader = emqx_app:get_config_loader(),
     %% ensure module loaded
-    _ = ConfigLoader:module_info(),
+    ok = emqx_utils:interactive_load(ConfigLoader),
     case erlang:function_exported(ConfigLoader, schema_module, 0) of
         true ->
             try_upgrade_conf(apply(ConfigLoader, schema_module, []), Conf);
@@ -849,7 +849,7 @@ remove_empty_leaf(KeyPath, Handlers) ->
     end.
 
 assert_callback_function(Mod) ->
-    _ = apply(Mod, module_info, []),
+    emqx_utils:interactive_load(Mod),
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
             erlang:function_exported(Mod, post_config_update, 5) orelse
@@ -902,7 +902,7 @@ get_function_arity(_Module, _Callback, []) ->
     false;
 get_function_arity(Module, Callback, [Arity | Opts]) ->
     %% ensure module is loaded
-    Module = Module:module_info(module),
+    ok = emqx_utils:interactive_load(Module),
     case erlang:function_exported(Module, Callback, Arity) of
         true -> Arity;
         false -> get_function_arity(Module, Callback, Opts)

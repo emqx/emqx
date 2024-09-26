@@ -93,7 +93,7 @@ bridge_api_union(Refs) ->
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
     %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_enterprise:module_info(),
+    ok = emqx_utils:interactive_load(emqx_bridge_enterprise),
     case erlang:function_exported(emqx_bridge_enterprise, api_schemas, 1) of
         true -> emqx_bridge_enterprise:api_schemas(Method);
         false -> []
@@ -102,7 +102,7 @@ enterprise_api_schemas(Method) ->
 enterprise_fields_bridges() ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
     %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_enterprise:module_info(),
+    ok = emqx_utils:interactive_load(emqx_bridge_enterprise),
     case erlang:function_exported(emqx_bridge_enterprise, fields, 1) of
         true -> emqx_bridge_enterprise:fields(bridges);
         false -> []
