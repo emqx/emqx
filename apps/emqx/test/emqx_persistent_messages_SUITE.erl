@@ -60,6 +60,13 @@ init_per_testcase(t_message_gc = TestCase, Config) ->
             "\n  durable_storage.messages.n_shards = 3"
     },
     common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
+init_per_testcase(t_mixed_upgrade_qos_subscriptions = TestCase, Config) ->
+    Opts = #{
+        extra_emqx_conf =>
+            "\n  listeners.tcp.default { zone = upgrade }"
+            "\n  zones { upgrade { mqtt.upgrade_qos = true } }"
+    },
+    common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
 init_per_testcase(t_replication_options = TestCase, Config) ->
     Opts = #{
         extra_emqx_conf =>
@@ -348,6 +355,49 @@ t_mixed_qos_subscriptions(_Config) ->
                 #{client_pid := Sub2, qos := 1, topic := <<"t/1">>, payload := <<"1">>}
             ],
             group_by(client_pid, group_by(topic, [M || M = #{qos := Q} <- Received, Q > 0])),
+            Received
+        ),
+        ?assertNotReceive(_)
+    after
+        lists:foreach(fun emqtt:stop/1, [Pub, Sub1, Sub2])
+    end.
+
+t_mixed_upgrade_qos_subscriptions(_Config) ->
+    Pub = connect(<<"mixed_upgrade_qos_subscriptions:pub">>, true, 0),
+    Sub1 = connect(<<"mixed_upgrade_qos_subscriptions:sub1">>, true, 30),
+    Sub2 = connect(<<"mixed_upgrade_qos_subscriptions:sub2">>, true, 30),
+    try
+        {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Sub1, <<"t/#">>, qos2),
+        {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub2, <<"t/+">>, qos1),
+        {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(Sub2, <<"t/+/+">>, qos0),
+        Messages = [
+            {<<"t">>, <<"0">>, 0},
+            {<<"t/1">>, <<"1">>, 2},
+            {<<"t/level/1">>, <<"2">>, 1},
+            {<<"x/2">>, <<"XXX">>, 1},
+            {<<"t/2">>, <<"3">>, 0},
+            {<<"t/level/2">>, <<"4">>, 0},
+            {<<"t">>, <<"5">>, 1}
+        ],
+        [emqtt:publish(Pub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+        Received = receive_messages(10),
+        %% Any QoS messages preserve only per-topic publishing order if `upgrade_qos` is on.
+        ?assertMatch(
+            [
+                %% Sub1
+                #{client_pid := Sub1, qos := 2, topic := <<"t">>, payload := <<"0">>},
+                #{client_pid := Sub1, qos := 2, topic := <<"t">>, payload := <<"5">>},
+                #{client_pid := Sub1, qos := 2, topic := <<"t/1">>, payload := <<"1">>},
+                #{client_pid := Sub1, qos := 2, topic := <<"t/2">>, payload := <<"3">>},
+                #{client_pid := Sub1, qos := 2, topic := <<"t/level/1">>, payload := <<"2">>},
+                #{client_pid := Sub1, qos := 2, topic := <<"t/level/2">>, payload := <<"4">>},
+                %% Sub2
+                #{client_pid := Sub2, qos := 2, topic := <<"t/1">>, payload := <<"1">>},
+                #{client_pid := Sub2, qos := 1, topic := <<"t/2">>, payload := <<"3">>},
+                #{client_pid := Sub2, qos := 1, topic := <<"t/level/1">>, payload := <<"2">>},
+                #{client_pid := Sub2, qos := 0, topic := <<"t/level/2">>, payload := <<"4">>}
+            ],
+            group_by(client_pid, group_by(topic, Received)),
             Received
         ),
         ?assertNotReceive(_)
