@@ -53,11 +53,6 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
-    Cluster = cluster(),
-    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
-    _ = wait_shards_online(Nodes),
-    [{nodes, Nodes} | Config];
 init_per_testcase(t_message_gc = TestCase, Config) ->
     Opts = #{
         extra_emqx_conf =>
@@ -100,10 +95,6 @@ common_init_per_testcase(TestCase, Config, Opts) ->
     ),
     [{apps, Apps} | Config].
 
-end_per_testcase(t_session_subscription_iterators, Config) ->
-    Nodes = ?config(nodes, Config),
-    emqx_common_test_helpers:call_janitor(60_000),
-    ok = emqx_cth_cluster:stop(Nodes);
 end_per_testcase(_TestCase, Config) ->
     Apps = proplists:get_value(apps, Config, []),
     emqx_common_test_helpers:call_janitor(60_000),
@@ -200,59 +191,6 @@ t_messages_persisted_2(_Config) ->
 
     ok.
 
-%% TODO: test quic and ws too
-t_session_subscription_iterators(Config) ->
-    [Node1, _Node2] = ?config(nodes, Config),
-    Port = get_mqtt_port(Node1, tcp),
-    Topic = <<"t/topic">>,
-    SubTopicFilter = <<"t/+">>,
-    AnotherTopic = <<"u/another-topic">>,
-    ClientId = <<"myclientid">>,
-    ?check_trace(
-        begin
-            [
-                Payload1,
-                Payload2,
-                Payload3,
-                Payload4
-            ] = lists:map(
-                fun(N) -> <<"hello", (integer_to_binary(N))/binary>> end,
-                lists:seq(1, 4)
-            ),
-            ct:pal("starting"),
-            Client = connect(#{
-                clientid => ClientId,
-                port => Port,
-                properties => #{'Session-Expiry-Interval' => 300}
-            }),
-            ct:pal("publishing 1"),
-            Message1 = emqx_message:make(Topic, Payload1),
-            publish(Node1, Message1),
-            ct:pal("subscribing 1"),
-            {ok, _, [2]} = emqtt:subscribe(Client, SubTopicFilter, qos2),
-            ct:pal("publishing 2"),
-            Message2 = emqx_message:make(Topic, Payload2),
-            publish(Node1, Message2),
-            % TODO: no incoming publishes at the moment
-            % [_] = receive_messages(1),
-            ct:pal("subscribing 2"),
-            {ok, _, [1]} = emqtt:subscribe(Client, SubTopicFilter, qos1),
-            ct:pal("publishing 3"),
-            Message3 = emqx_message:make(Topic, Payload3),
-            publish(Node1, Message3),
-            % [_] = receive_messages(1),
-            ct:pal("publishing 4"),
-            Message4 = emqx_message:make(AnotherTopic, Payload4),
-            publish(Node1, Message4),
-            emqtt:stop(Client),
-            #{
-                messages => [Message1, Message2, Message3, Message4]
-            }
-        end,
-        []
-    ),
-    ok.
-
 t_qos0(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
     Pub = connect(<<?MODULE_STRING "2">>, true, 0),
@@ -313,15 +251,11 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [
-                #{payload := P1},
-                #{payload := P2},
-                #{payload := P3}
-            ] when
-                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
-                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
-                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
-
-            receive_messages(3)
+                #{topic := <<"t/1">>, payload := <<"baz">>},
+                #{topic := <<"t/2">>, payload := <<"foo">>},
+                #{topic := <<"t/2">>, payload := <<"bar">>}
+            ],
+            group_by(topic, receive_messages(3))
         ),
 
         [
@@ -334,16 +268,13 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [
-                #{payload := P1},
-                #{payload := P2},
-                #{payload := P3}
-            ] when
-                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
-                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
-                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
-
-            receive_messages(3)
-        )
+                #{topic := <<"t/2">>, payload := <<"baz">>},
+                #{topic := <<"t/3">>, payload := <<"foo">>},
+                #{topic := <<"t/3">>, payload := <<"bar">>}
+            ],
+            group_by(topic, receive_messages(3))
+        ),
+        ?assertNotReceive(_)
     after
         emqtt:stop(Sub),
         emqtt:stop(Pub)
@@ -374,6 +305,54 @@ t_publish_as_persistent(_Config) ->
     after
         emqtt:stop(Sub),
         emqtt:stop(Pub)
+    end.
+
+t_mixed_qos_subscriptions(_Config) ->
+    Pub = connect(<<"mixed_qos_subscriptions:pub">>, true, 0),
+    Sub1 = connect(<<"mixed_qos_subscriptions:sub1">>, true, 30),
+    Sub2 = connect(<<"mixed_qos_subscriptions:sub2">>, true, 30),
+    try
+        {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Sub1, <<"t/#">>, qos2),
+        {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub2, <<"t/+">>, qos1),
+        {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(Sub2, <<"t/+/+">>, qos0),
+        Messages = [
+            {<<"t">>, <<"0">>, 0},
+            {<<"t/1">>, <<"1">>, 2},
+            {<<"t/level/1">>, <<"2">>, 1},
+            {<<"x/2">>, <<"XXX">>, 1},
+            {<<"t/2">>, <<"3">>, 0},
+            {<<"t/level/2">>, <<"4">>, 0},
+            {<<"t">>, <<"5">>, 1}
+        ],
+        [emqtt:publish(Pub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+        Received = receive_messages(10),
+        %% QoS 0 messages preserve relative publishing order.
+        ?assertMatch(
+            [
+                #{client_pid := Sub1, qos := 0, topic := <<"t">>, payload := <<"0">>},
+                #{client_pid := Sub1, qos := 0, topic := <<"t/2">>, payload := <<"3">>},
+                #{client_pid := Sub1, qos := 0, topic := <<"t/level/2">>, payload := <<"4">>},
+                #{client_pid := Sub2, qos := 0, topic := <<"t/level/1">>, payload := <<"2">>},
+                #{client_pid := Sub2, qos := 0, topic := <<"t/2">>, payload := <<"3">>},
+                #{client_pid := Sub2, qos := 0, topic := <<"t/level/2">>, payload := <<"4">>}
+            ],
+            group_by(client_pid, [M || M = #{qos := 0} <- Received]),
+            Received
+        ),
+        %% QoS 1/2 messages preserve only per-topic publishing order.
+        ?assertMatch(
+            [
+                #{client_pid := Sub1, qos := 1, topic := <<"t">>, payload := <<"5">>},
+                #{client_pid := Sub1, qos := 2, topic := <<"t/1">>, payload := <<"1">>},
+                #{client_pid := Sub1, qos := 1, topic := <<"t/level/1">>, payload := <<"2">>},
+                #{client_pid := Sub2, qos := 1, topic := <<"t/1">>, payload := <<"1">>}
+            ],
+            group_by(client_pid, group_by(topic, [M || M = #{qos := Q} <- Received, Q > 0])),
+            Received
+        ),
+        ?assertNotReceive(_)
+    after
+        lists:foreach(fun emqtt:stop/1, [Pub, Sub1, Sub2])
     end.
 
 t_publish_empty_topic_levels(_Config) ->
@@ -596,21 +575,6 @@ app_specs(Opts) ->
         emqx_durable_storage,
         {emqx, "durable_sessions {enable = true}" ++ ExtraEMQXConf}
     ].
-
-cluster() ->
-    ExtraConf = "\n durable_storage.messages.n_sites = 2",
-    Spec = #{apps => app_specs(#{extra_emqx_conf => ExtraConf})},
-    [
-        {persistent_messages_SUITE1, Spec},
-        {persistent_messages_SUITE2, Spec}
-    ].
-
-wait_shards_online(Nodes = [Node | _]) ->
-    NShards = erpc:call(Node, emqx_ds_replication_layer_meta, n_shards, [?PERSISTENT_MESSAGE_DB]),
-    ?retry(500, 10, [?assertEqual(NShards, shards_online(N)) || N <- Nodes]).
-
-shards_online(Node) ->
-    length(erpc:call(Node, emqx_ds_builtin_raft_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),

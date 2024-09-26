@@ -18,7 +18,7 @@
 
 -behaviour(emqx_config_handler).
 
--include("emqx.hrl").
+-include("emqx_persistent_message.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([init/0]).
@@ -32,7 +32,12 @@
     persist/1
 ]).
 
--include("emqx_persistent_message.hrl").
+-define(WITH_DURABILITY_ENABLED(DO),
+    case is_persistence_enabled() of
+        true -> DO;
+        false -> {skipped, disabled}
+    end
+).
 
 %%--------------------------------------------------------------------
 
