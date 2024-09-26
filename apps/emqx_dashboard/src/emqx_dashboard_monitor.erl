@@ -47,7 +47,9 @@
 -export([do_sample/2]).
 
 %% For tests
--export([current_rate_cluster/0, sample_interval/1, store/1, format/1, clean/1, lookup/1]).
+-export([
+    current_rate_cluster/0, sample_interval/1, store/1, format/1, clean/1, lookup/1, sample_nodes/3
+]).
 
 -define(TAB, ?MODULE).
 

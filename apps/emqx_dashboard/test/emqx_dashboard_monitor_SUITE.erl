@@ -167,6 +167,21 @@ t_empty_table(_Config) ->
         sys:resume(whereis(emqx_dashboard_monitor))
     end.
 
+t_pmap_nodes(_Config) ->
+    MaxAge = 3 * timer:hours(24),
+    Now = erlang:system_time(millisecond) - 1,
+    Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
+    NowBase = Now - (Now rem Interval),
+    StartTs = NowBase - MaxAge,
+    DataPoints = 5,
+    ok = emqx_dashboard_monitor:clean(0),
+    ok = insert_data_points(DataPoints, StartTs, Now),
+    Nodes = [node(), node(), node()],
+    Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:sample_nodes(Nodes, StartTs, #{})),
+    #{sent := Total0} = hd(Data),
+    TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, Total0),
+    ?assertEqual(DataPoints * length(Nodes), TotalSent).
+
 t_downsample_7d(_Config) ->
     MaxAge = 7 * timer:hours(24),
     test_downsample(MaxAge, 10).
@@ -190,14 +205,14 @@ test_downsample(MaxAge, DataPoints) ->
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
     NowBase = Now - (Now rem Interval),
     StartTs = NowBase - MaxAge,
-    emqx_dashboard_monitor:clean(0),
-    ?assertEqual([], ets:tab2list(emqx_dashboard_monitor)),
+    ok = emqx_dashboard_monitor:clean(0),
     %% insert the start mark for deterministic test boundary
     ok = write(StartTs, sent_1()),
     ok = insert_data_points(DataPoints - 1, StartTs, Now),
     Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:do_sample(all, StartTs)),
     ?assertEqual(StartTs, maps:get(time_stamp, hd(Data))),
-    TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, _Total = 1),
+    #{sent := Total0} = hd(Data),
+    TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, Total0),
     ?assertEqual(DataPoints, TotalSent).
 
 check_sample_intervals(_Interval, _, [], _Index, Total) ->
