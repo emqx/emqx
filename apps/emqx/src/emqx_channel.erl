@@ -158,7 +158,6 @@
 -define(chan_terminating, chan_terminating).
 -define(RAND_CLIENTID_BYTES, 16).
 
--define(trace_publish, '$trace.publish.attrs').
 -define(trace_deliver, '$trace.deliver.attrs').
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
@@ -1207,6 +1206,10 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
+    ?ext_trace_add_event('client.connect.connack', #{result => connack_in_queue}),
+    do_return_connack(AckPacket, Channel).
+
+do_return_connack(AckPacket, Channel) ->
     Replies = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
     case maybe_resume_session(Channel) of
         ignore ->
@@ -1633,19 +1636,23 @@ overload_protection(_, #channel{clientinfo = #{zone := Zone}}) ->
 
 init_trace_attrs(
     ?PACKET(?CONNECT, PktVar),
-    _Channel
+    Channel
 ) ->
     %% TODO: more attrs
     #{
         clientid => emqx_packet:info(clientid, PktVar),
-        username => emqx_packet:info(username, PktVar)
+        username => emqx_packet:info(username, PktVar),
+        sockname => info(sockname, Channel),
+        peername => info(peername, Channel)
     };
 init_trace_attrs(
     ?PACKET(?DISCONNECT, PktVar),
     Channel
 ) ->
     #{
-        clientid => info(Channel),
+        clientid => info(clientid, Channel),
+        peername => info(peername, Channel),
+        sockname => info(sockname, Channel),
         reason_code => emqx_packet:info(reason_code, PktVar)
     };
 init_trace_attrs(

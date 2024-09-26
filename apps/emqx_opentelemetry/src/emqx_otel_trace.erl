@@ -23,8 +23,6 @@
     stop/0
 ]).
 
--define(CURRENT_CTX, '$__current_otel_ctx').
-
 -export([toggle_registered/1]).
 
 %% --------------------------------------------------------------------
@@ -67,8 +65,6 @@
 
 -define(TRACE_ALL_KEY, {?MODULE, trace_all}).
 -define(TRACE_ALL, persistent_term:get(?TRACE_ALL_KEY, false)).
-
--define(trace_connect, '$trace.connect.attrs').
 
 %%--------------------------------------------------------------------
 %% config
@@ -133,13 +129,12 @@ when
     Res :: term().
 trace_client_connect(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
-    NAttrs = maps:merge(packet_attributes(Packet), channel_attributes(?trace_connect, Attrs)),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
         ?current_tracer,
         ?CLIENT_CONNECT_SPAN_NAME,
         #{
-            attributes => NAttrs
+            attributes => gen_attrs(Packet, Attrs)
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
@@ -165,14 +160,12 @@ when
     Res :: term().
 trace_client_disconnect(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
-    %% FIXME: channel attributes fields
-    NAttrs = maps:merge(packet_attributes(Packet), channel_attributes(Attrs)),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
         ?current_tracer,
         ?CLIENT_DISCONNECT_SPAN_NAME,
         #{
-            attributes => NAttrs
+            attributes => gen_attrs(Packet, Attrs)
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
@@ -196,13 +189,12 @@ when
     Res :: term().
 trace_client_subscribe(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
-    NAttrs = maps:merge(packet_attributes(Packet), channel_attributes(Attrs)),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
         ?current_tracer,
         ?CLIENT_SUBSCRIBE_SPAN_NAME,
         #{
-            attributes => NAttrs
+            attributes => gen_attrs(Packet, Attrs)
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
@@ -227,13 +219,12 @@ when
     Res :: term().
 trace_client_unsubscribe(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
-    NAttrs = maps:merge(packet_attributes(Packet), channel_attributes(Attrs)),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
         ?current_tracer,
         ?CLIENT_UNSUBSCRIBE_SPAN_NAME,
         #{
-            attributes => NAttrs
+            attributes => gen_attrs(Packet, Attrs)
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
@@ -256,15 +247,16 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_authn(Packet, _Attrs, ProcessFun) ->
+trace_client_authn(Packet, Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHN_SPAN_NAME,
-        %% TODO: packet attrs and channel attrs
         #{
-            attributes => packet_attributes(Packet)
+            attributes => gen_attrs(Packet, Attrs)
         },
         fun(_SpanCtx) ->
             ProcessFun(Packet)
+        %% case ProcessFun(Packet) of
+        %%     xx -> xx,
         end
     ).
 
@@ -281,9 +273,9 @@ when
 trace_client_authz(Packet, _Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHZ_SPAN_NAME,
-        %% TODO: packet attrs and channel attrs
         #{
-            attributes => packet_attributes(Packet)
+            %% TODO: add more attributes
+            attributes => #{}
         },
         fun(_SpanCtx) ->
             ProcessFun(Packet)
@@ -399,7 +391,8 @@ add_span_event(_EventName, ?EXT_TRACE_ATTRS_META(_Meta)) ->
     %% TODO
     %% add_span_event(_EventName, meta_to_attrs(_Meta));
     ok;
-add_span_event(_EventName, _Attrs) ->
+add_span_event(EventName, Attrs) ->
+    true = ?add_event(EventName, Attrs),
     ok.
 
 %%--------------------------------------------------------------------
@@ -444,30 +437,60 @@ msg_attributes(Msg) ->
 %% function_clause for DISCONNECT packet
 %% XXX:
 %% emqx_packet:info/2 as utils
-packet_attributes(?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId})) ->
-    #{'client.client_id' => ClientId};
-packet_attributes(#mqtt_packet{
-    header = #mqtt_packet_header{type = ?DISCONNECT}
-}) ->
-    #{};
+
+%% gen_attrs(Packet, Attrs) ->
+gen_attrs(
+    ?PACKET(?CONNECT, PktVar),
+    #{
+        clientid := ClientId,
+        username := Username
+    } = _InitAttrs
+) ->
+    #{
+        'client.connect.clientid' => ClientId,
+        'client.connect.username' => Username,
+        'client.connect.proto_name' => emqx_packet:info(proto_name, PktVar),
+        'client.connect.proto_ver' => emqx_packet:info(proto_ver, PktVar)
+    };
+gen_attrs(?PACKET(?DISCONNECT, PktVar), InitAttrs) ->
+    #{
+        'client.disconnect.clientid' => maps:get(clientid, InitAttrs, undefined),
+        'client.disconnect.username' => maps:get(username, InitAttrs, undefined),
+        'client.disconnect.peername' => maps:get(peername, InitAttrs, undefined),
+        'client.disconnect.sockname' => maps:get(sockname, InitAttrs, undefined),
+        'client.disconnect.reason_code' => emqx_packet:info(reason_code, PktVar)
+    };
+gen_attrs(
+    ?PACKET(?SUBSCRIBE) = Packet,
+    #{clientid := ClientId} = _Attrs
+) ->
+    #{
+        'client.subscribe.clientid' => ClientId,
+        'client.subscribe.topic_filters' => serialize_topic_filters(Packet)
+    };
+gen_attrs(
+    ?PACKET(?UNSUBSCRIBE) = Packet,
+    #{clientid := ClientId} = _Attrs
+) ->
+    #{
+        'client.unsubscribe.clientid' => ClientId,
+        'client.unsubscribe.topic_filters' => serialize_topic_filters(Packet)
+    }.
+
+serialize_topic_filters(?PACKET(?SUBSCRIBE, PktVar)) ->
+    TFs = [Name || {Name, _SubOpts} <- emqx_packet:info(topic_filters, PktVar)],
+    emqx_utils_json:encode(TFs);
+serialize_topic_filters(?PACKET(?UNSUBSCRIBE, PktVar)) ->
+    emqx_utils_json:encode(emqx_packet:info(topic_filters, PktVar)).
+
 packet_attributes(#mqtt_packet{
     header = #mqtt_packet_header{type = ?PUBLISH},
     variable = PubPacket
 }) ->
-    #{'messaging.destination.name' => emqx_packet:info(topic_name, PubPacket)};
-packet_attributes(#mqtt_packet{
-    header = #mqtt_packet_header{type = Type}
-}) when Type =:= ?SUBSCRIBE orelse Type =:= ?UNSUBSCRIBE ->
-    #{'client.unsubscribe.topic_filters' => <<"TOPIC_FILTER_PH">>}.
+    #{'messaging.destination.name' => emqx_packet:info(topic_name, PubPacket)}.
 
 channel_attributes(ChannelInfo) ->
     #{'messaging.client_id' => maps:get(clientid, ChannelInfo, undefined)}.
-
-channel_attributes(?trace_connect, ChannelInfo) ->
-    #{
-        'client.client_id' => maps:get(clientid, ChannelInfo, undefined),
-        'client.peername' => maps:get(peername, ChannelInfo, undefined)
-    }.
 
 sub_channel_attributes(ChannelInfo) ->
     channel_attributes(ChannelInfo).
@@ -524,6 +547,3 @@ assert_started({error, Reason}) -> {error, Reason}.
 
 set_trace_all(TraceAll) ->
     persistent_term:put({?MODULE, trace_all}, TraceAll).
-
-%%--------------------------------------------------------------------
-%%
