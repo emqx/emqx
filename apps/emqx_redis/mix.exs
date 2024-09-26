@@ -25,7 +25,7 @@ defmodule EMQXRedis.MixProject do
     [
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.4"}
+      {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.5"}
     ]
   end
 end
