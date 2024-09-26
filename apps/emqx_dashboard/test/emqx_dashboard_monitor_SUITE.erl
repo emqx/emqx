@@ -182,6 +182,14 @@ t_pmap_nodes(_Config) ->
     TotalSent = check_sample_intervals(Interval, hd(Data), tl(Data), _Index = 1, Total0),
     ?assertEqual(DataPoints * length(Nodes), TotalSent).
 
+t_randomize(_Config) ->
+    ok = emqx_dashboard_monitor:clean(0),
+    emqx_dashboard_monitor:randomize(1, #{sent => 100}),
+    Since = integer_to_list(7 * timer:hours(24)),
+    {ok, Samplers} = request(["monitor"], "latest=" ++ Since),
+    Count = lists:sum(lists:map(fun(#{<<"sent">> := S}) -> S end, Samplers)),
+    ?assertEqual(100, Count).
+
 t_downsample_7d(_Config) ->
     MaxAge = 7 * timer:hours(24),
     test_downsample(MaxAge, 10).

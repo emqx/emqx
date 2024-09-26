@@ -48,7 +48,15 @@
 
 %% For tests
 -export([
-    current_rate_cluster/0, sample_interval/1, store/1, format/1, clean/1, lookup/1, sample_nodes/3
+    current_rate_cluster/0,
+    sample_interval/1,
+    store/1,
+    format/1,
+    clean/1,
+    lookup/1,
+    sample_nodes/3,
+    randomize/2,
+    randomize/3
 ]).
 
 -define(TAB, ?MODULE).
@@ -196,6 +204,30 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Internal functions
+
+%% for testing
+randomize(Count, Data) ->
+    MaxAge = 7 * ?DAYS,
+    randomize(Count, Data, MaxAge).
+
+randomize(Count, Data, Age) ->
+    Now = erlang:system_time(millisecond) - 1,
+    Interval = sample_interval(Age),
+    NowBase = Now - (Now rem Interval),
+    StartTs = NowBase - Age,
+    lists:foreach(
+        fun(_) ->
+            Ts = StartTs + rand:uniform(Now - StartTs),
+            Record = #emqx_monit{time = Ts, data = Data},
+            case ets:lookup(?TAB, Ts) of
+                [] ->
+                    store(Record);
+                [#emqx_monit{data = D} = R] ->
+                    store(R#emqx_monit{data = merge_sampler_maps(D, Data)})
+            end
+        end,
+        lists:seq(1, Count)
+    ).
 
 maybe_cancel_timer(Tref) when is_reference(Tref) ->
     _ = erlang:cancel_timer(Tref),
