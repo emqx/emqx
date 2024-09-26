@@ -415,15 +415,9 @@ store(MonitData) ->
         mria:transaction(mria:local_content_shard(), fun mnesia:write/3, [?TAB, MonitData, write]).
 
 clean() ->
-    Now = erlang:system_time(millisecond),
-    ExpiredMS = [{{'_', '$1', '_'}, [{'>', {'-', Now, '$1'}, ?RETENTION_TIME}], ['$_']}],
-    Expired = ets:select(?TAB, ExpiredMS),
-    lists:foreach(
-        fun(Data) ->
-            true = ets:delete_object(?TAB, Data)
-        end,
-        Expired
-    ),
+    Deadline = erlang:system_time(millisecond) - ?RETENTION_TIME,
+    ExpiredMS = [{{'_', '$1', '_'}, [{'<', '$1', Deadline}], [true]}],
+    _NExpired = ets:select_delete(?TAB, ExpiredMS),
     ok.
 
 %% To make it easier to do data aggregation
