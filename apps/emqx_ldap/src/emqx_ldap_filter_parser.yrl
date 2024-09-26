@@ -15,7 +15,7 @@ Header "%%--------------------------------------------------------------------
 %%--------------------------------------------------------------------".
 
 Nonterminals
-filter filtercomp filterlist item simple present substring initial any final extensible attr value type dnattrs matchingrule pairedvalue.
+filter filtercomp filterlist item simple present substring initial any final extensible attr value type dnattrs matchingrule dnvalue.
 
 Terminals
 lparen rparen 'and' 'or' 'not' equal approx greaterOrEqual lessOrEqual asterisk colon dn string comma.
@@ -53,7 +53,7 @@ item->
 simple ->
     attr equal value: equal('$1', '$3').
 simple ->
-    attr equal pairedvalue: equal('$1', '$3').
+    attr equal dnvalue: equal('$1', '$3').
 simple ->
     attr approx value: approx('$1', '$3').
 simple ->
@@ -102,10 +102,10 @@ attr ->
 value ->
     string: get_value('$1').
 
-pairedvalue ->
-    string equal string comma pairedvalue: make_paired_value('$1', '$3', '$5').
-pairedvalue ->
-    string equal string: make_paired_value('$1', '$3').
+dnvalue ->
+    string equal string comma dnvalue: make_dn_value('$1', '$3', '$5').
+dnvalue ->
+    string equal string: make_dn_value('$1', '$3').
 
 type ->
     value: {type, '$1'}.
@@ -157,13 +157,13 @@ flatten(List) -> lists:flatten(List).
 get_value({_Token, _Line, Value}) ->
     Value.
 
-make_paired_value(Attr, Value) ->
+make_dn_value(Attr, Value) ->
     Attr1 = get_value(Attr),
     Value1 = get_value(Value),
     Attr1 ++ "=" ++ Value1.
 
-make_paired_value(Attr, Value, Next) ->
-    Prefix = make_paired_value(Attr, Value),
+make_dn_value(Attr, Value, Next) ->
+    Prefix = make_dn_value(Attr, Value),
     Prefix ++ "," ++ Next.
 
 scan_and_parse(Bin) when is_binary(Bin) ->
