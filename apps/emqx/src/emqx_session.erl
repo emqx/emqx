@@ -305,12 +305,14 @@ get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 any_mqtt_conf(KeyFlag) ->
-    emqx_config:get([mqtt, KeyFlag]) orelse any_mqtt_zone_conf(KeyFlag).
+    emqx_config:get([mqtt, KeyFlag]) orelse any_mqtt_zone_conf([mqtt, KeyFlag]).
 
-any_mqtt_zone_conf(KeyFlag) ->
+any_mqtt_zone_conf(KeyPath) ->
     Zones = emqx_config:get([zones]),
     maps:fold(
-        fun(_Zone, Conf, Acc) -> Acc orelse maps:get(KeyFlag, Conf, false) end,
+        fun(_Zone, Conf, Acc) ->
+            Acc orelse emqx_utils_maps:deep_get(KeyPath, Conf, false)
+        end,
         false,
         Zones
     ).
