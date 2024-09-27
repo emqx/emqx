@@ -211,6 +211,7 @@ init(S) ->
     %% Note: these states are NOT used during replay.
     emqx_persistent_session_ds_state:fold_streams(
         fun(Key, Srs, Acc) ->
+            ?tp(sessds_stream_state_trans, #{key => Key, to => '$restore'}),
             case derive_state(Comm1, Comm2, Srs) of
                 r -> to_RU(Key, Srs, Acc);
                 u -> to_U(Key, Srs, Acc);
