@@ -177,7 +177,7 @@ t_pmap_nodes(_Config) ->
     ok = insert_data_points(DataPoints, StartTs, Now),
     Nodes = [node(), node(), node()],
     %% this function calls emqx_utils:pmap to do the job
-    Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs, #{}),
+    Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs),
     Data1 = emqx_dashboard_monitor:fill_gaps(Data0, StartTs),
     Data = emqx_dashboard_monitor:format(Data1),
     ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
