@@ -247,11 +247,11 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_authn(Packet, Attrs, ProcessFun) ->
+trace_client_authn(Packet, _Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHN_SPAN_NAME,
         #{
-            attributes => gen_attrs(Packet, Attrs)
+            %% attributes => gen_attrs(Packet, Attrs)
         },
         fun(_SpanCtx) ->
             ProcessFun(Packet)
@@ -381,7 +381,8 @@ add_span_attrs(?EXT_TRACE_ATTRS_META(_Meta)) ->
     %% TODO
     %% add_span_attrs(meta_to_attrs(Meta));
     ok;
-add_span_attrs(_Attrs) ->
+add_span_attrs(Attrs) ->
+    true = ?set_attributes(Attrs),
     ok.
 
 -spec add_span_event(EventName, Attrs) -> ok when

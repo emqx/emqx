@@ -190,6 +190,10 @@ info(connected_at, #channel{conninfo = ConnInfo}) ->
     maps:get(connected_at, ConnInfo, undefined);
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
+info(is_superuser, #channel{clientinfo = ClientInfo}) ->
+    maps:get(is_superuser, ClientInfo, undefined);
+info(expire_at, #channel{clientinfo = ClientInfo}) ->
+    maps:get(expire_at, ClientInfo, undefined);
 info(zone, #channel{clientinfo = ClientInfo}) ->
     maps:get(zone, ClientInfo);
 info(listener, #channel{clientinfo = ClientInfo}) ->
@@ -571,8 +575,6 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                     %% only store will_msg after successful authn
                     %% fix for: https://github.com/emqx/emqx/issues/8886
                     NChannel3 = NChannel2#channel{will_msg = emqx_packet:will_msg(NConnPkt)},
-                    %% TODO: enrich event attrs
-                    ?ext_trace_add_event('client.connect.authenticate', #{result => success}),
                     post_process_connect(Properties, NChannel3);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
@@ -1956,7 +1958,11 @@ authenticate(Packet, Channel) ->
     emqx_external_trace:trace_client_authn(
         Packet,
         init_trace_attrs(Packet, Channel),
-        fun(PacketWithTrace) -> process_authenticate(PacketWithTrace, Channel) end
+        fun(PacketWithTrace) ->
+            Res = process_authenticate(PacketWithTrace, Channel),
+            ?ext_trace_add_attrs(authn_attrs(Res)),
+            Res
+        end
     ).
 
 process_authenticate(
@@ -2080,6 +2086,21 @@ merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_ma
         }
     ),
     fix_mountpoint(NewClientInfo).
+
+authn_attrs({continue, _Properties, _Channel}) ->
+    %% TODO
+    #{};
+authn_attrs({ok, _Properties, Channel}) ->
+    #{
+        'client.connect.authn.result' => ok,
+        'client.connect.authn.is_superuser' => info(is_superuser, Channel),
+        'client.connect.authn.expire_at' => info(expire_at, Channel)
+    };
+authn_attrs({error, _Reason}) ->
+    #{
+        'client.connect.authn.result' => error,
+        'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
+    }.
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
@@ -2213,7 +2234,11 @@ check_pub_authz(Packet, Channel) ->
     emqx_external_trace:trace_client_authz(
         Packet,
         init_trace_attrs(Packet, Channel),
-        fun(PacketWithTrace) -> do_check_pub_authz(PacketWithTrace, Channel) end
+        fun(PacketWithTrace) ->
+            Res = do_check_pub_authz(PacketWithTrace, Channel),
+            ?ext_trace_add_attrs(pub_authz_attrs(Res)),
+            Res
+        end
     ).
 
 do_check_pub_authz(
@@ -2227,6 +2252,14 @@ do_check_pub_authz(
         allow -> ok;
         deny -> {error, ?RC_NOT_AUTHORIZED}
     end.
+
+pub_authz_attrs(ok) ->
+    #{'client.publish.authz.result' => success};
+pub_authz_attrs({error, RC}) ->
+    #{
+        'client.publish.authz.result' => failure,
+        'client.publish.authz.reason' => emqx_reason_codes:name(RC)
+    }.
 
 %%--------------------------------------------------------------------
 %% Check Pub Caps
@@ -2259,14 +2292,18 @@ check_sub_authzs(Packet, Channel) ->
     emqx_external_trace:trace_client_authz(
         Packet,
         init_trace_attrs(Packet, Channel),
-        fun(PacketWithTrace) -> with_check_sub_authzs(PacketWithTrace, Channel) end
+        fun(PacketWithTrace) ->
+            Res = do_check_sub_authzs(PacketWithTrace, Channel),
+            ?ext_trace_add_attrs(sub_authz_attrs(Res)),
+            Res
+        end
     ).
 
-with_check_sub_authzs(
+do_check_sub_authzs(
     ?SUBSCRIBE_PACKET(PacketId, SubProps, TopicFilters0),
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
-    CheckResult = do_check_sub_authzs(TopicFilters0, ClientInfo),
+    CheckResult = do_check_sub_authzs2(TopicFilters0, ClientInfo),
     HasAuthzDeny = lists:any(
         fun({{_TopicFilter, _SubOpts}, ReasonCode}) ->
             ReasonCode =:= ?RC_NOT_AUTHORIZED
@@ -2281,12 +2318,12 @@ with_check_sub_authzs(
             {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}
     end.
 
-do_check_sub_authzs(TopicFilters, ClientInfo) ->
-    do_check_sub_authzs(ClientInfo, TopicFilters, []).
+do_check_sub_authzs2(TopicFilters, ClientInfo) ->
+    do_check_sub_authzs2(ClientInfo, TopicFilters, []).
 
-do_check_sub_authzs(_ClientInfo, [], Acc) ->
+do_check_sub_authzs2(_ClientInfo, [], Acc) ->
     lists:reverse(Acc);
-do_check_sub_authzs(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) ->
+do_check_sub_authzs2(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) ->
     %% subsclibe authz check only cares the real topic filter when shared-sub
     %% e.g. only check <<"t/#">> for <<"$share/g/t/#">>
     Action = authz_action(TopicFilter),
@@ -2302,10 +2339,28 @@ do_check_sub_authzs(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) -
         %% Not implemented yet:
         %% {allow, RC} -> do_check_sub_authzs(ClientInfo, More, [{TopicFilter, RC} | Acc]);
         allow ->
-            do_check_sub_authzs(ClientInfo, More, [{TopicFilter, ?RC_SUCCESS} | Acc]);
+            do_check_sub_authzs2(ClientInfo, More, [{TopicFilter, ?RC_SUCCESS} | Acc]);
         deny ->
-            do_check_sub_authzs(ClientInfo, More, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+            do_check_sub_authzs2(ClientInfo, More, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
     end.
+
+sub_authz_attrs({error, {disconnect, RC}, _Channel}) ->
+    #{
+        'client.subscribe.authz.results' => denied,
+        'client.subscribe.authz.deny_action' => disconnect,
+        'client.subscribe.authz.reason_code' => emqx_reason_codes:name(RC)
+    };
+sub_authz_attrs({ok, ?SUBSCRIBE_PACKET(_PacketId, _SubProps, CheckResult), _Channel}) ->
+    #{
+        'client.subscribe.authz.deny_action' => ignore,
+        'client.subscribe.authz.result' => result(CheckResult)
+    }.
+
+result(CheckResult) ->
+    emqx_utils_json:encode([
+        #{topic_filter => TopicFilter, reason_code => RC}
+     || {{TopicFilter, _SubOpts}, RC} <- CheckResult
+    ]).
 
 %%--------------------------------------------------------------------
 %% Check Sub Caps
