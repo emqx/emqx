@@ -62,12 +62,16 @@
     id := emqx_persistent_session_ds:subscription_id(),
     %% Mode of the subscription:
     %% * `{persistent, any}`:
-    %%    Messages are sourced from DS,
+    %%    All messages are sourced from DS.
     %% * `{persistent, noqos0}`:
     %%    QoS 1/2 messages are sourced from DS, QoS 0 messages are expected to
-    %%    arrive through the realtime `emqx_broker` channel.
-    %% * `realtime`:
-    %%    All messages are expected to arrive through the realtime channel.
+    %%    arrive through the direct `emqx_broker` channel. Subscriptions with
+    %%    QoS 1/2 usually employ this mode, unless `upgrade_qos` is enabled
+    %%    globally or for any zone.
+    %% * `direct`:
+    %%    All messages are expected to arrive through the direct channel.
+    %%    Subscriptions with QoS 0 usually employ this mode, unless `upgrade_qos`
+    %%    is enabled.
     mode => subscription_mode(),
     %% Reference to the current subscription state:
     current_state := subscription_state_id(),
@@ -75,7 +79,7 @@
     start_time := emqx_ds:time()
 }.
 
--type subscription_mode() :: {persistent, any | noqos0} | realtime.
+-type subscription_mode() :: {persistent, any | noqos0} | direct.
 
 -type subscription_state_id() :: integer().
 
@@ -132,7 +136,7 @@ create_subscription(SessionId, TopicFilter, SubOpts, Props, S0) ->
     Mode = subscription_mode(TopicFilter, SubOpts, Props),
     {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
     {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
-    %% TODO: Unnecessary for realtime mode subscriptions.
+    %% TODO: Unnecessary for direct mode subscriptions.
     SState = #{
         parent_subscription => SubId,
         upgrade_qos => maps:get(upgrade_qos, Props),
@@ -295,7 +299,7 @@ fold(Fun, Acc, S, Opts) ->
         fun
             (#share{}, _Sub, Acc0) when OptRegular ->
                 Acc0;
-            (_TopicFilter, #{mode := realtime}, Acc0) when OptPersistent ->
+            (_TopicFilter, #{mode := direct}, Acc0) when OptPersistent ->
                 Acc0;
             (TopicFilter, Sub, Acc0) ->
                 Fun(TopicFilter, Sub, Acc0)
@@ -345,7 +349,7 @@ subscription_mode(_Topic, #{qos := _QoS}, #{upgrade_qos_any := true}) ->
     %% `noqos0` subscriptions.
     {persistent, any};
 subscription_mode(_Topic, #{qos := ?QOS_0}, #{}) ->
-    realtime;
+    direct;
 subscription_mode(_Topic, #{qos := _QoS}, #{}) ->
     {persistent, noqos0}.
 
@@ -360,25 +364,25 @@ set_default_subscription_mode(Sub) ->
 add_route({persistent, any}, SessionId, Topic, _SubOpts) ->
     add_persistent_route(Topic, SessionId, any);
 add_route({persistent, noqos0}, SessionId, Topic, SubOpts) ->
-    ok = add_realtime_route(SessionId, Topic, SubOpts, qos0),
+    ok = add_direct_route(SessionId, Topic, SubOpts, qos0),
     add_persistent_route(Topic, SessionId, noqos0);
-add_route(realtime, SessionId, Topic, SubOpts) ->
-    add_realtime_route(SessionId, Topic, SubOpts, any).
+add_route(direct, SessionId, Topic, SubOpts) ->
+    add_direct_route(SessionId, Topic, SubOpts, any).
 
 restore_route({persistent, any}, _SessionId, _Topic, _SubOpts) ->
     ok;
 restore_route({persistent, noqos0}, SessionId, Topic, SubOpts) ->
-    add_realtime_route(SessionId, Topic, SubOpts, qos0);
-restore_route(realtime, SessionId, Topic, SubOpts) ->
-    add_realtime_route(SessionId, Topic, SubOpts, any).
+    add_direct_route(SessionId, Topic, SubOpts, qos0);
+restore_route(direct, SessionId, Topic, SubOpts) ->
+    add_direct_route(SessionId, Topic, SubOpts, any).
 
 delete_route({persistent, any}, SessionId, Topic) ->
     delete_persistent_route(Topic, SessionId, any);
 delete_route({persistent, noqos0}, SessionId, Topic) ->
-    ok = delete_realtime_route(SessionId, Topic),
+    ok = delete_direct_route(SessionId, Topic),
     delete_persistent_route(Topic, SessionId, noqos0);
-delete_route(realtime, SessionId, Topic) ->
-    delete_realtime_route(SessionId, Topic).
+delete_route(direct, SessionId, Topic) ->
+    delete_direct_route(SessionId, Topic).
 
 add_persistent_route(Topic, SessionId, Scope) ->
     ok = emqx_persistent_session_ds_router:add_route(Topic, SessionId, Scope),
@@ -390,10 +394,10 @@ delete_persistent_route(Topic, SessionId, Scope) ->
     _ = emqx_external_broker:delete_persistent_route(Topic, SessionId),
     ok.
 
-add_realtime_route(SessionId, Topic, SubOpts, Scope) ->
+add_direct_route(SessionId, Topic, SubOpts, Scope) ->
     emqx_broker:subscribe(Topic, SessionId, SubOpts, Scope).
 
-delete_realtime_route(_SessionId, Topic) ->
+delete_direct_route(_SessionId, Topic) ->
     emqx_broker:unsubscribe(Topic).
 
 now_ms() ->

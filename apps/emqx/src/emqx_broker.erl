@@ -109,7 +109,7 @@
 %% * Scope `any` means a subscription with this scope is interested in all messages.
 %% * Scope `qos0` means a subscription needs _only_ QoS 0 messages.
 %%   This is currently employed by durable sessions to route QoS 0 messages through
-%%   the realtime channel to avoid storing them in the durable storage.
+%%   the direct channel to avoid storing them in the durable storage.
 %% Currently, this affects only the dispatching phase, but not the routing phase.
 %% Messages are routed between nodes regardless of which subscription scopes nodes have.
 -type subscope() :: any | qos0.

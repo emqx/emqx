@@ -485,7 +485,7 @@ unsubscribe(
             S = emqx_persistent_session_ds_state:commit(S2),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
             {ok, Session, SubOpts};
-        {ok, S1, #{mode := realtime, subopts := SubOpts}} ->
+        {ok, S1, #{mode := direct, subopts := SubOpts}} ->
             S = emqx_persistent_session_ds_state:commit(S1),
             Session = Session0#{s := S},
             {ok, Session, SubOpts};

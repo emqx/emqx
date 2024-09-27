@@ -219,7 +219,7 @@ t_qos0(_Config) ->
                 #{qos := 1, topic := <<"t/1">>, payload := <<"4">>}
             ],
             %% NOTE
-            %% With QoS0 routed through realtime channel, ordering is preserved per-QoS.
+            %% With QoS0 routed through the direct channel, ordering is preserved per-QoS.
             group_by(qos, receive_messages(4))
         ),
         ?assertNotReceive(_)
