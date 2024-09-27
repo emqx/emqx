@@ -74,6 +74,7 @@
 -define(CLEAN_EXPIRED_INTERVAL, 10 * ?MINUTES).
 -define(RETENTION_TIME, 7 * ?DAYS).
 -define(MAX_POSSIBLE_SAMPLES, 1440).
+-define(LOG(LEVEL, DATA), ?SLOG(LEVEL, DATA, #{tag => "DASHBOARD"})).
 
 -record(state, {
     last,
@@ -120,8 +121,8 @@ current_rate(Node) when Node == node() ->
     try
         do_call(current_rate)
     catch
-        _E:R ->
-            ?SLOG(warning, #{msg => "dashboard_monitor_error", reason => R}),
+        _E:R:Stacktrace ->
+            ?LOG(warning, #{msg => "dashboard_monitor_error", reason => R, stacktrace => Stacktrace}),
             %% Rate map 0, ensure api will not crash.
             %% When joining cluster, dashboard monitor restart.
             Rate0 = [
@@ -274,7 +275,7 @@ sample_nodes(Nodes, Time) ->
         ResList
     ),
     Failed =/= [] andalso
-        ?SLOG(warning, #{msg => "failed_to_sample_monitor_data", errors => Failed}),
+        ?LOG(warning, #{msg => "failed_to_sample_monitor_data", errors => Failed}),
     lists:foldl(fun(I, B) -> merge_samplers(Time, I, B) end, #{}, Success).
 
 concurrently_sample_nodes(Nodes, Time) ->
