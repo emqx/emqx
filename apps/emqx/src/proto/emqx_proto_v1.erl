@@ -54,7 +54,7 @@ get_stats(Node) ->
 
 -spec get_metrics(node()) -> [{emqx_metrics:metric_name(), non_neg_integer()}] | {badrpc, _}.
 get_metrics(Node) ->
-    rpc:call(Node, emqx_metrics, all, []).
+    rpc:call(Node, emqx_metrics, all, [], timer:seconds(5)).
 
 -spec clean_authz_cache(node(), emqx_types:clientid()) ->
     ok
