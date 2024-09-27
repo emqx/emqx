@@ -363,7 +363,9 @@ handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
     emqx_external_trace:trace_client_connect(
         Packet,
         init_trace_attrs(Packet, Channel),
-        fun(PacketWithTrace) -> process_connect(PacketWithTrace, Channel) end
+        fun(PacketWithTrace) ->
+            process_connect(PacketWithTrace, Channel)
+        end
     );
 %% TODO: trace CONNECT with AUTH
 handle_in(
@@ -1207,8 +1209,9 @@ handle_out(Type, Data, Channel) ->
 %% Return ConnAck
 %%--------------------------------------------------------------------
 
-return_connack(AckPacket, Channel) ->
-    ?ext_trace_add_event('client.connect.connack', #{result => connack_in_queue}),
+return_connack(?CONNACK_PACKET(RC) = AckPacket, Channel) ->
+    ?ext_trace_add_attrs(#{'client.connack.reason_code' => RC}),
+    ?ext_trace_add_event('client.connack', #{reason_code => RC, msg => connack_in_queue}),
     do_return_connack(AckPacket, Channel).
 
 do_return_connack(AckPacket, Channel) ->
