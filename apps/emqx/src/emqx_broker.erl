@@ -508,8 +508,8 @@ subscriber_down(SubPid) ->
     [{{emqx_types:topic() | emqx_types:share(), pid()}, emqx_types:subopts()}].
 subscriptions() ->
     MatchHead = #subscription{sub = '$1', opts = '$2', _ = '_'},
-    Contruct = {{'$1', '$2'}},
-    ets:select(?SUBOPTION, [{MatchHead, [], [Contruct]}]).
+    Construct = {{'$1', '$2'}},
+    ets:select(?SUBOPTION, [{MatchHead, [], [Construct]}]).
 
 -spec subscriptions(pid() | emqx_types:subid()) ->
     [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}].
