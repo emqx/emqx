@@ -429,7 +429,8 @@ sample_interval(_Age) ->
     10 * ?MINUTES.
 
 sample_fill_gap(Node, SinceTs) ->
-    Samples = do_sample(Node, SinceTs),
+    %% make a remote call so it can be mocked for testing
+    Samples = ?MODULE:do_sample(Node, SinceTs),
     fill_gaps(Samples, SinceTs).
 
 fill_gaps({badrpc, _} = BadRpc, _) ->
