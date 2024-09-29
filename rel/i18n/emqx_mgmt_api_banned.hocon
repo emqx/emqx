@@ -74,15 +74,15 @@ filter_peerhost.desc:
 """Query the banned objects with an exact IP address."""
 
 filter_like_clientid.desc:
-"""Fuzzy query banned objects with a client ID."""
+"""Fuzzy query banned objects with a regex expression for client ID."""
 
 filter_like_username.desc:
-"""Fuzzy query banned objects with an username."""
+"""Fuzzy query banned objects with a regex expression for username."""
 
 filter_like_peerhost.desc:
-"""Fuzzy query banned objects with an IP address."""
+"""Fuzzy query banned objects with a regex expression for IP address."""
 
 filter_like_peerhost_net.desc:
-"""Fuzzy query banned objects with a CIDR."""
+"""Fuzzy query banned objects with a regex expression for CIDR."""
 
 }
