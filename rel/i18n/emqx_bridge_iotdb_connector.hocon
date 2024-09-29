@@ -58,4 +58,10 @@ config_zoneId.desc:
 pool_size.desc:
 """Size for the IoTDB Thrift connection pool"""
 
+connect_timeout.desc:
+"""Timeout for connecting to the IoTDB Thrift server"""
+
+recv_timeout.desc:
+"""Timeout for IoTDB Thrift server response"""
+
 }
