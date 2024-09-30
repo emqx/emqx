@@ -91,8 +91,7 @@ end_per_suite(_Config) ->
 init_per_group(general, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, "listeners.quic.test { enable = true, bind = 1883, mountpoint = \"a\"}"},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -221,7 +220,7 @@ t_clients(Config) ->
     }),
     {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link(#{username => Username2, clientid => ClientId2}),
-    {ok, _} = emqtt:connect(C2),
+    {ok, _} = emqtt:quic_connect(C2),
 
     timer:sleep(300),
 
