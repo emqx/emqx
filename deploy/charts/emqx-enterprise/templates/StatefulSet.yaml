@@ -27,8 +27,8 @@ spec:
         accessModes:
           - {{ .Values.persistence.accessMode | quote }}
         resources:
-         requests:
-           storage: {{ .Values.persistence.size | quote }}
+          requests:
+            storage: {{ .Values.persistence.size | quote }}
   {{- end }}
   updateStrategy:
     type: RollingUpdate
@@ -125,13 +125,21 @@ spec:
             containerPort: 4370
           - name: genrpc-manual
             containerPort: 5369
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: EMQX_HOST
+            value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env
-         {{- if .Values.envFromSecret }}
+          {{- if .Values.envFromSecret }}
             - secretRef:
                 name: {{ .Values.envFromSecret }}
-         {{- end }}
+          {{- end }}
           resources:
 {{ toYaml .Values.resources | indent 12 }}
           volumeMounts:
