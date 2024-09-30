@@ -371,9 +371,7 @@ do_get_status(Conn) ->
 %% 'https://learn.microsoft.com/en-us/sql/connect/odbc/
 %%      dsn-connection-string-attribute?source=recommendations&view=sql-server-ver16#encrypt'
 conn_str([], Acc) ->
-    %% we should use this for msodbcsql 18+
-    %% lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
-    lists:join(";", Acc);
+    lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{server, Server} | Opts], Acc) ->

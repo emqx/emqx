@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   sql_server:
     container_name: sqlserver
