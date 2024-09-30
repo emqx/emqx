@@ -342,7 +342,7 @@ t_disable_prepared_statements(Config0) ->
 t_update_with_invalid_prepare(Config) ->
     ConnectorName = ?config(connector_name, Config),
     BridgeName = ?config(bridge_name, Config),
-    ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
+    {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
     %% arrivedx is a bad column name
     BadSQL = <<
         "INSERT INTO mqtt_test(payload, arrivedx) "
