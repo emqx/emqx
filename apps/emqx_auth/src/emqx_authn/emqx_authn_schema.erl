@@ -137,19 +137,16 @@ select_union_member(_Kind, Value, _Mods) ->
     throw(#{reason => "not_a_struct", value => Value}).
 
 mod_select_union_member(Kind, Value, Mod) ->
-    emqx_utils:call_first_defined([
-        {Mod, select_union_member, [Kind, Value]},
-        {Mod, select_union_member, [Value]}
-    ]).
+    Args1 = [Kind, Value],
+    Args2 = [Value],
+    ArgsL = [Args1, Args2],
+    emqx_utils:call_first_defined(Mod, select_union_member, ArgsL).
 
 config_refs(Kind, Mods) ->
     lists:append([mod_refs(Kind, Mod) || Mod <- Mods]).
 
 mod_refs(Kind, Mod) ->
-    emqx_utils:call_first_defined([
-        {Mod, refs, [Kind]},
-        {Mod, refs, []}
-    ]).
+    emqx_utils:call_first_defined(Mod, refs, [[Kind], []]).
 
 root_type() ->
     hoconsc:array(authenticator_type()).

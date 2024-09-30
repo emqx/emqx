@@ -123,6 +123,7 @@
     list_instances_verbose/0,
     %% return the data of the instance
     get_instance/1,
+    is_exist/1,
     get_metrics/1,
     fetch_creation_opts/1,
     %% return all the instances of the same resource type
@@ -457,6 +458,10 @@ set_resource_status_connecting(ResId) ->
 get_instance(ResId) ->
     emqx_resource_manager:lookup_cached(ResId).
 
+-spec is_exist(resource_id()) -> boolean().
+is_exist(ResId) ->
+    emqx_resource_manager:is_exist(ResId).
+
 -spec get_metrics(resource_id()) ->
     emqx_metrics_worker:metrics().
 get_metrics(ResId) ->
@@ -468,14 +473,16 @@ fetch_creation_opts(Opts) ->
 
 -spec list_instances() -> [resource_id()].
 list_instances() ->
-    [Id || #{id := Id} <- list_instances_verbose()].
+    emqx_resource_cache:all_ids().
 
 -spec list_instances_verbose() -> [_ResourceDataWithMetrics :: map()].
 list_instances_verbose() ->
-    [
-        Res#{metrics => get_metrics(ResId)}
-     || #{id := ResId} = Res <- emqx_resource_manager:list_all()
-    ].
+    lists:map(
+        fun(#{id := ResId} = Res) ->
+            Res#{metrics => get_metrics(ResId)}
+        end,
+        emqx_resource_manager:list_all()
+    ).
 
 -spec list_instances_by_type(module()) -> [resource_id()].
 list_instances_by_type(ResourceType) ->
@@ -792,11 +799,13 @@ validate_name(Name) ->
     ok.
 
 -spec is_dry_run(resource_id()) -> boolean().
-is_dry_run(ResId) ->
-    case string:find(ResId, ?TEST_ID_PREFIX) of
-        nomatch -> false;
-        TestIdStart -> string:equal(TestIdStart, ResId)
-    end.
+is_dry_run(?PROBE_ID_MATCH(_)) ->
+    %% A probe connector
+    true;
+is_dry_run(ID) ->
+    %% A probe action/source
+    RE = ":" ++ ?PROBE_ID_PREFIX ++ "[a-zA-Z0-9]{8}:",
+    match =:= re:run(ID, RE, [{capture, none}]).
 
 validate_name(<<>>, _Opts) ->
     invalid_data("Name cannot be empty string");

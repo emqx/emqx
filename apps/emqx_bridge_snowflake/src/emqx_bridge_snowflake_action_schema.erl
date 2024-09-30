@@ -102,6 +102,11 @@ fields(aggreg_parameters) ->
                     importance => ?IMPORTANCE_HIDDEN,
                     required => true
                 }
+            )},
+        {proxy,
+            mk(
+                hoconsc:union([none, ref(proxy_config)]),
+                #{default => none, desc => ?DESC("proxy_config")}
             )}
     ];
 fields(direct_parameters) ->
@@ -129,6 +134,12 @@ fields(aggregation) ->
                 }
             )}
     ];
+fields(proxy_config) ->
+    [
+        {host, mk(binary(), #{required => true, desc => ?DESC("proxy_config_host")})},
+        {port,
+            mk(emqx_schema:port_number(), #{required => true, desc => ?DESC("proxy_config_port")})}
+    ];
 fields(action_resource_opts) ->
     %% NOTE: This action should benefit from generous batching defaults.
     emqx_bridge_v2_schema:action_resource_opts_fields([
@@ -140,7 +151,8 @@ desc(Name) when
     Name =:= ?ACTION_TYPE;
     Name =:= aggreg_parameters;
     Name =:= aggregation;
-    Name =:= parameters
+    Name =:= parameters;
+    Name =:= proxy_config
 ->
     ?DESC(Name);
 desc(action_resource_opts) ->

@@ -371,9 +371,7 @@ do_get_status(Conn) ->
 %% 'https://learn.microsoft.com/en-us/sql/connect/odbc/
 %%      dsn-connection-string-attribute?source=recommendations&view=sql-server-ver16#encrypt'
 conn_str([], Acc) ->
-    %% we should use this for msodbcsql 18+
-    %% lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
-    lists:join(";", Acc);
+    lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{server, Server} | Opts], Acc) ->
@@ -512,8 +510,8 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
         {unrecoverable_error,
             {invalid_request, <<"The only query type that supports batching is insert.">>}}
     );
-get_query_tuple([InsertQuery | _]) ->
-    get_query_tuple(InsertQuery).
+get_query_tuple([_InsertQuery | _] = Reqs) ->
+    lists:map(fun get_query_tuple/1, Reqs).
 
 %% for bridge data to sql server
 parse_sql_template(Config) ->

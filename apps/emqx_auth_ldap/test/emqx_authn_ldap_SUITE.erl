@@ -336,16 +336,21 @@ deprecated_raw_ldap_auth_config() ->
     }.
 
 user_seeds() ->
-    New = fun(Username, Password, Result) ->
+    New4 = fun(Username, Password, Result, Params) ->
         #{
             credentials => #{
                 username => Username,
                 password => Password
             },
-            config_params => #{},
+            config_params => Params,
             result => Result
         }
     end,
+
+    New = fun(Username, Password, Result) ->
+        New4(Username, Password, Result, #{})
+    end,
+
     Valid =
         lists:map(
             fun(Idx) ->
@@ -368,6 +373,27 @@ user_seeds() ->
             <<"mqttuser0009 \\\\test\\\\">>,
             <<"mqttuser0009 \\\\test\\\\">>,
             {ok, #{is_superuser => true}}
+        ),
+        %% not in group
+        New4(
+            <<"mqttuser0002">>,
+            <<"mqttuser0002">>,
+            {error, not_authorized},
+            #{<<"filter">> => <<"(memberOf=cn=test,ou=Groups,dc=emqx,dc=io)">>}
+        ),
+        %% in group
+        New4(
+            <<"mqttuser0003">>,
+            <<"mqttuser0003">>,
+            {ok, #{is_superuser => false}},
+            #{<<"filter">> => <<"(memberOf=cn=test,ou=Groups,dc=emqx,dc=io)">>}
+        ),
+        %% non exists group
+        New4(
+            <<"mqttuser0003">>,
+            <<"mqttuser0003">>,
+            {error, not_authorized},
+            #{<<"filter">> => <<"(memberOf=cn=nonexists,ou=Groups,dc=emqx,dc=io)">>}
         )
         | Valid
     ].

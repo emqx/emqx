@@ -3755,13 +3755,15 @@ t_get_rule_ids_by_action_reference_ingress_bridge(_Config) ->
     matched := 1,
     'actions.total' := 1,
     'actions.failed' := 0,
-    'actions.success' := 1
+    'actions.success' := 1,
+    'actions.discarded' := 0
 }).
 -define(FAIL_METRICS, #{
     matched := 1,
     'actions.total' := 1,
     'actions.failed' := 1,
-    'actions.success' := 0
+    'actions.success' := 0,
+    'actions.discarded' := 0
 }).
 
 t_rule_metrics_sync(_Config) ->

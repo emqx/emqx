@@ -98,6 +98,29 @@ t_client_attrs(_Config) ->
     ),
     ok.
 
+t_cert_common_name(_Config) ->
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = ClientInfo0#{cn => <<"mycn">>},
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, all, all, [\"t/${cert_common_name}/#\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/mycn/1">>)
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/mycn/#">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/othercn/1">>)
+    ),
+    ok.
+
 t_rich_actions(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 

@@ -68,10 +68,11 @@
     format/1,
     format/2,
     format_mfal/2,
-    call_first_defined/1,
+    call_first_defined/3,
     ntoa/1,
     foldl_while/3,
-    is_restricted_str/1
+    is_restricted_str/1,
+    interactive_load/1
 ]).
 
 -export([
@@ -599,21 +600,18 @@ format_mfal(Data, #{with_mfa := true}) ->
 format_mfal(_, _) ->
     undefined.
 
--spec call_first_defined(list({module(), atom(), list()})) -> term() | no_return().
-call_first_defined([{Module, Function, Args} | Rest]) ->
-    try
-        apply(Module, Function, Args)
-    catch
-        error:undef:Stacktrace ->
-            case Stacktrace of
-                [{Module, Function, _, _} | _] ->
-                    call_first_defined(Rest);
-                _ ->
-                    erlang:raise(error, undef, Stacktrace)
-            end
-    end;
-call_first_defined([]) ->
-    error(none_fun_is_defined).
+-spec call_first_defined(module(), atom(), list()) -> term() | no_return().
+call_first_defined(Module, Function, []) ->
+    error({not_exported, Module, Function});
+call_first_defined(Module, Function, [Args | Rest]) ->
+    %% ensure module is loaded
+    ok = interactive_load(Module),
+    case erlang:function_exported(Module, Function, length(Args)) of
+        true ->
+            apply(Module, Function, Args);
+        false ->
+            call_first_defined(Module, Function, Rest)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
@@ -921,6 +919,16 @@ rand_char() ->
 base62(I) when I < 26 -> $A + I;
 base62(I) when I < 52 -> $a + I - 26;
 base62(I) -> $0 + I - 52.
+
+%% In production code, EMQX is always booted in embedded mode.
+%% so making a dynamic call to Module:module_info(module) is cheap.
+%% In interactive mode (test, and emqx config check CLI), the first attempt
+%% to make the dynamic call to Module:module_info(module) will cost,
+%% once loaded, it's cheap for subsequent calls.
+%% NOTE: For non-existing modules, this call is not as effective!
+interactive_load(Module) ->
+    _ = catch apply(Module, module_info, [module]),
+    ok.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

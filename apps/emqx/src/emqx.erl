@@ -217,8 +217,9 @@ update_config(KeyPath, UpdateReq, Opts) ->
 ) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config([RootName | _] = KeyPath, UpdateReq, Opts, ClusterRpcOpts) ->
+    Mod = emqx_config:get_schema_mod(RootName),
     emqx_config_handler:update_config(
-        emqx_config:get_schema_mod(RootName),
+        Mod,
         KeyPath,
         {{update, UpdateReq}, Opts},
         ClusterRpcOpts

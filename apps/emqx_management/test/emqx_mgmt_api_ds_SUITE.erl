@@ -97,11 +97,11 @@ t_get_site(_) ->
     ).
 
 t_get_db(_) ->
-    %% Unknown DBs must result in error 400 (since the DS parameter is an enum):
-    Path400 = api_path(["ds", "storages", "unknown_ds"]),
+    %% Unknown DBs must result in error 404:
+    Path404 = api_path(["ds", "storages", "unknown_ds"]),
     ?assertMatch(
-        {error, {_, 400, _}},
-        request_api(get, Path400)
+        {error, {_, 404, _}},
+        request_api(get, Path404)
     ),
     %% Valid path:
     Path = api_path(["ds", "storages", "messages"]),
@@ -130,11 +130,11 @@ t_get_db(_) ->
     ).
 
 t_get_replicas(_) ->
-    %% Unknown DBs must result in error 400 (since the DS parameter is an enum):
-    Path400 = api_path(["ds", "storages", "unknown_ds", "replicas"]),
+    %% Unknown DBs must result in error 404:
+    Path404 = api_path(["ds", "storages", "unknown_ds", "replicas"]),
     ?assertMatch(
-        {error, {_, 400, _}},
-        request_api(get, Path400)
+        {error, {_, 404, _}},
+        request_api(get, Path404)
     ),
     %% Valid path:
     Path = api_path(["ds", "storages", "messages", "replicas"]),

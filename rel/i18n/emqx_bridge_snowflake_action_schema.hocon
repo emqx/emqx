@@ -88,4 +88,19 @@ emqx_bridge_snowflake_action_schema {
   max_retries.desc:
   """Max retry attempts if there's an error when sending an HTTP request."""
 
+  proxy_config.label:
+  """Proxy"""
+  proxy_config.desc:
+  """Proxy configuration.  Only plain HTTP proxies are currently supported (no HTTPS)."""
+
+  proxy_config_host.label:
+  """Proxy Host"""
+  proxy_config_host.desc:
+  """Proxy host address to connect to."""
+
+  proxy_config_port.label:
+  """Proxy Port"""
+  proxy_config_port.desc:
+  """Proxy port to use when connecting."""
+
 }

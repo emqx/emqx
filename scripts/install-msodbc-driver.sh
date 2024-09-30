@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 
-## this script install msodbcsql17 and unixodbc-dev on ci environment
-## specific to ubuntu 16.04, 18.04, 20.04, 22.04
+# Install the MS SQL Server ODBC driver on a Debian-based system.
+# https://learn.microsoft.com/en-us/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server
+
 set -euo pipefail
 
-# install msodbcsql17
-VERSION=$(lsb_release -rs)
-if ! [[ "16.04 18.04 20.04 22.04" == *"$VERSION"* ]];
-then
-    echo "Ubuntu $VERSION is not currently supported.";
-    exit 1;
+if [ ! -f /etc/debian_version ]; then
+  echo "This script is only intended for Debian-based systems"
+  exit 1
 fi
 
-curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
-curl https://packages.microsoft.com/config/ubuntu/"$VERSION"/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
-## TODO: upgrade builder image
-apt-get update && \
-ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev mssql-tools && \
+apt-get -qq update && apt-get install -yqq curl gpg
+
+# shellcheck disable=SC1091
+. /etc/os-release
+
+# ubuntu
+curl -fsSL https://packages.microsoft.com/keys/microsoft.asc > /etc/apt/trusted.gpg.d/microsoft.asc
+# debian
+curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+curl -fsSL "https://packages.microsoft.com/config/${ID}/${VERSION_ID}/prod.list" > /etc/apt/sources.list.d/mssql-release.list
+
+apt-get -qq update
+ACCEPT_EULA=Y apt-get install -yqq msodbcsql18 unixodbc-dev
 ## and not needed to modify /etc/odbcinst.ini
 ## docker-compose will mount one in .ci/docker-compose-file/odbc
-sed -i 's/ODBC Driver 17 for SQL Server/ms-sql/g' /etc/odbcinst.ini
+sed -i 's/ODBC Driver 18 for SQL Server/ms-sql/g' /etc/odbcinst.ini

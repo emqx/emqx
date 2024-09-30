@@ -1,0 +1,16 @@
+%% -*- mode: erlang -*-
+{application, emqx_auth_cinfo, [
+    {description, "EMQX Client Information Authorization"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_auth_cinfo_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_auth
+    ]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

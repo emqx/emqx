@@ -86,6 +86,8 @@
         ],
         <<"kafka_header_value_encode_mode">> => <<"none">>,
         <<"kafka_headers">> => <<"${pub_props}">>,
+        <<"max_linger_time">> => <<"1ms">>,
+        <<"max_linger_bytes">> => <<"1MB">>,
         <<"max_batch_bytes">> => <<"896KB">>,
         <<"max_inflight">> => 10,
         <<"message">> => #{

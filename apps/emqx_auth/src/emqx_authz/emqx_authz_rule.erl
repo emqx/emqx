@@ -122,7 +122,12 @@
 ]).
 
 -define(IS_PERMISSION(Permission), (Permission =:= allow orelse Permission =:= deny)).
--define(ALLOWED_VARS, [?VAR_USERNAME, ?VAR_CLIENTID, ?VAR_NS_CLIENT_ATTRS]).
+-define(ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_NS_CLIENT_ATTRS
+]).
 
 -spec compile(permission_resolution_precompile(), who_precompile(), action_precompile(), [
     topic_precompile()
@@ -402,7 +407,7 @@ match_topic(Topic, TopicFilter) ->
 
 render_topic(Topic, ClientInfo) ->
     try
-        bin(emqx_template:render_strict(Topic, ClientInfo))
+        bin(emqx_auth_utils:render_strict(Topic, ClientInfo))
     catch
         error:Reason ->
             ?SLOG(debug, #{

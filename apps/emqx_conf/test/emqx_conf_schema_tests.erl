@@ -685,3 +685,32 @@ dns_srv_record_is_ok_test() ->
         Value when is_map(Value),
         hocon_tconf:check_plain(emqx_conf_schema, ConfMap, #{required => false}, [node, cluster])
     ).
+
+invalid_role_test() ->
+    Conf = node_role_conf(dummy),
+    ?assertThrow(
+        {emqx_conf_schema, [#{reason := "Invalid node role: dummy"}]},
+        hocon_tconf:check_plain(emqx_conf_schema, Conf, #{required => false}, [node])
+    ).
+
+unsupported_role_test() ->
+    test_unsupported_role(emqx_release:edition()).
+
+test_unsupported_role(ee) ->
+    %% all roles are supported in ee
+    ok;
+test_unsupported_role(ce) ->
+    %% replicant role is not allowed for ce since 5.8.0
+    Conf = node_role_conf(replicant),
+    ?assertThrow(
+        {emqx_conf_schema, [
+            #{reason := "Node role 'replicant' is only allowed in Enterprise edition since 5.8.0"}
+        ]},
+        hocon_tconf:check_plain(emqx_conf_schema, Conf, #{required => false}, [node])
+    ).
+
+node_role_conf(Role0) ->
+    Role = atom_to_binary(Role0),
+    Hocon = <<"node { role =", Role/binary, ", cookie = \"cookie\", data_dir = \".\" }">>,
+    {ok, ConfMap} = hocon:binary(Hocon, #{format => map}),
+    ConfMap.

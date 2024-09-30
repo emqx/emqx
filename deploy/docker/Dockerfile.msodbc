@@ -1,26 +1,31 @@
+## Extended version of emqx/emqx-enterprise image with MS SQL Server ODBC driver
+
 ## This Dockerfile should not run in GitHub Action or any other automated process.
 ## It should be manually executed by the needs of the user.
 ##
-## Before manaually execute:
-## Please confirm the EMQX-Enterprise version you are using and modify the base layer image tag
-## ```bash
-## $ docker build -f=Dockerfile.msodbc -t emqx-enterprise-with-msodbc:5.0.3-alpha.2 .
-## ```
+## docker build -f deploy/docker/Dockerfile.msodbc \
+##   --build-arg BUILD_FROM=emqx/emqx-enterprise:5.8.0 \
+##   -t emqx/emqx-enterprise:5.8.0-msodbc .
+##
+## or like this
+##
+## DOCKER_BUILD_NOCACHE=true \
+## PKG_VSN=5.8.0 \
+## EMQX_DOCKERFILE=deploy/docker/Dockerfile.msodbc \
+## BUILD_FROM=emqx/emqx-enterprise:5.8.0 \
+## EMQX_IMAGE_TAG=emqx/emqx-enterprise:5.8.0-msodbc \
+## ./build emqx-enterprise docker
 
-ARG VERSION=5.5.0
-FROM emqx/emqx-enterprise:$VERSION
+ARG BUILD_FROM=emqx/emqx-enterprise:5.8.0
+FROM $BUILD_FROM
 
 USER root
 
-RUN apt-get update \
-    && apt-get install -y gnupg2 curl apt-utils \
-    && . /etc/os-release \
-    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
-    && curl "https://packages.microsoft.com/config/debian/$VERSION_ID/prod.list" > /etc/apt/sources.list.d/mssql-release.list \
-    && apt-get update \
-    && ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev \
-    && sed -i 's/ODBC Driver 17 for SQL Server/ms-sql/g' /etc/odbcinst.ini \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+COPY scripts/install-msodbc-driver.sh ./
+
+RUN ./install-msodbc-driver.sh && \
+    rm -f install-msodbc-driver.sh && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 USER emqx

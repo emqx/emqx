@@ -57,6 +57,8 @@ driver_union_selector({value, Value}) ->
     case Value of
         #{<<"driver">> := <<"thrift">>} ->
             [ref(?DRIVER_THRIFT, "config")];
+        #{<<"driver">> := thrift} ->
+            [ref(?DRIVER_THRIFT, "config")];
         _ ->
             [ref(?DRIVER_REST, "config")]
     end.

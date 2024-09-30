@@ -57,9 +57,7 @@ RUN set -eu; \
 
 COPY --from=builder --chown=emqx:emqx /emqx-rel /opt/
 
-RUN set -eu; \
-    find /opt/emqx -name 'swagger*.js.map' -exec rm {} +; \
-    ln -s /opt/emqx/bin/* /usr/local/bin/;
+RUN ln -s /opt/emqx/bin/* /usr/local/bin/
 
 WORKDIR /opt/emqx
 

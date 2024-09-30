@@ -47,6 +47,7 @@
     list_all/0,
     list_group/1,
     lookup_cached/1,
+    is_exist/1,
     get_metrics/1,
     reset_metrics/1,
     channel_status_is_channel_added/1,
@@ -54,8 +55,7 @@
 ]).
 
 -export([
-    set_resource_status_connecting/1,
-    make_test_id/0
+    set_resource_status_connecting/1
 ]).
 
 % Server
@@ -108,6 +108,7 @@
     },
     extra
 }).
+
 -type data() :: #data{}.
 -type channel_status_map() :: #{status := channel_status(), error := term()}.
 
@@ -229,7 +230,7 @@ create(ResId, Group, ResourceType, Config, Opts) ->
 -spec create_dry_run(resource_module(), resource_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
-    ResId = make_test_id(),
+    ResId = ?PROBE_ID_NEW(),
     create_dry_run(ResId, ResourceType, Config).
 
 create_dry_run(ResId, ResourceType, Config) ->
@@ -379,13 +380,16 @@ lookup(ResId) ->
 %% @doc Lookup the group and data of a resource from the cache
 -spec lookup_cached(resource_id()) -> {ok, resource_group(), resource_data()} | {error, not_found}.
 lookup_cached(ResId) ->
-    try read_cache(ResId) of
-        Data = #data{group = Group} ->
-            {ok, Group, data_record_to_external_map(Data)}
-    catch
-        error:badarg ->
+    case read_cache(ResId) of
+        [{Group, Data}] ->
+            {ok, Group, Data};
+        [] ->
             {error, not_found}
     end.
+
+%% @doc Check if the resource is cached.
+is_exist(ResId) ->
+    emqx_resource_cache:is_exist(ResId).
 
 %% @doc Get the metrics for the specified resource
 get_metrics(ResId) ->
@@ -399,16 +403,12 @@ reset_metrics(ResId) ->
 %% @doc Returns the data for all resources
 -spec list_all() -> [resource_data()].
 list_all() ->
-    lists:map(
-        fun data_record_to_external_map/1,
-        gproc:select({local, names}, [{{?NAME('_'), '_', '$1'}, [], ['$1']}])
-    ).
+    emqx_resource_cache:list_all().
 
 %% @doc Returns a list of ids for all the resources in a group
 -spec list_group(resource_group()) -> [resource_id()].
 list_group(Group) ->
-    Guard = {'==', {element, #data.group, '$1'}, Group},
-    gproc:select({local, names}, [{{?NAME('$2'), '_', '$1'}, [Guard], ['$2']}]).
+    emqx_resource_cache:group_ids(Group).
 
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
@@ -514,11 +514,11 @@ force_kill(ResId, MRef0) ->
     end.
 
 try_clean_allocated_resources(ResId) ->
-    case try_read_cache(ResId) of
-        #data{mod = Mod} ->
+    case emqx_resource_cache:read_mod(ResId) of
+        {ok, Mod} ->
             catch emqx_resource:clean_allocated_resources(ResId, Mod),
             ok;
-        _ ->
+        not_found ->
             ok
     end.
 
@@ -553,6 +553,7 @@ init({DataIn, Opts}) ->
         true ->
             %% init the cache so that lookup/1 will always return something
             UpdatedData = update_state(Data#data{status = ?status_connecting}),
+            emqx_resource_cache_cleaner:add(Data#data.id, self()),
             {ok, ?state_connecting, UpdatedData, {next_event, internal, start_resource}};
         false ->
             %% init the cache so that lookup/1 will always return something
@@ -576,7 +577,7 @@ callback_mode() -> [handle_event_function, state_enter].
 
 % Called during testing to force a specific state
 handle_event({call, From}, set_resource_status_connecting, _State, Data) ->
-    UpdatedData = update_state(Data#data{status = ?status_connecting}, Data),
+    UpdatedData = update_state(Data#data{status = ?status_connecting}),
     {next_state, ?state_connecting, UpdatedData, [{reply, From, ok}]};
 % Called when the resource is to be restarted
 handle_event({call, From}, restart, _State, Data) ->
@@ -595,7 +596,7 @@ handle_event({call, From}, stop, ?state_stopped, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, From}, stop, _State, Data) ->
     UpdatedData = stop_resource(Data),
-    {next_state, ?state_stopped, update_state(UpdatedData, Data), [{reply, From, ok}]};
+    {next_state, ?state_stopped, update_state(UpdatedData), [{reply, From, ok}]};
 % Called when a resource is to be stopped and removed.
 handle_event({call, From}, {remove, ClearMetrics}, _State, Data) ->
     handle_remove_event(From, ClearMetrics, Data);
@@ -728,8 +729,10 @@ handle_event(EventType, EventData, State, Data) ->
     ),
     keep_state_and_data.
 
-log_status_consistency(Status, #data{status = Status} = Data) ->
-    log_cache_consistency(read_cache(Data#data.id), remove_runtime_data(Data));
+log_status_consistency(Status, #data{status = Status} = Data0) ->
+    [{_Group, Cached}] = read_cache(Data0#data.id),
+    Data = data_record_to_external_map(Data0),
+    log_cache_consistency(Cached, Data);
 log_status_consistency(Status, Data) ->
     ?tp(warning, "inconsistent_status", #{
         status => Status,
@@ -747,21 +750,14 @@ log_cache_consistency(DataCached, Data) ->
 %%------------------------------------------------------------------------------
 %% internal functions
 %%------------------------------------------------------------------------------
-insert_cache(ResId, Data = #data{}) ->
-    gproc:set_value(?NAME(ResId), Data).
+insert_cache(Group, Data) ->
+    emqx_resource_cache:write(self(), Group, Data).
 
 read_cache(ResId) ->
-    gproc:lookup_value(?NAME(ResId)).
+    emqx_resource_cache:read(ResId).
 
-erase_cache(_Data = #data{id = ResId}) ->
-    gproc:unreg(?NAME(ResId)).
-
-try_read_cache(ResId) ->
-    try
-        read_cache(ResId)
-    catch
-        error:badarg -> not_found
-    end.
+erase_cache(#data{id = ResId}) ->
+    emqx_resource_cache:erase(ResId).
 
 retry_actions(Data) ->
     case maps:get(health_check_interval, Data#data.opts, ?HEALTHCHECK_INTERVAL) of
@@ -798,7 +794,7 @@ start_resource(Data, From) ->
             UpdatedData3 = maybe_update_callback_mode(UpdatedData2),
 
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
-            {next_state, ?state_connecting, update_state(UpdatedData3, Data), Actions};
+            {next_state, ?state_connecting, update_state(UpdatedData3), Actions};
         {error, Reason} = Err ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
             ?SLOG(
@@ -817,7 +813,7 @@ start_resource(Data, From) ->
             %% so that the Reason can be returned when the verification call is made.
             NewData2 = NewData1#data{status = ?status_disconnected, error = Err},
             Actions = maybe_reply(retry_actions(NewData2), From, Err),
-            {next_state, ?state_disconnected, update_state(NewData2, Data), Actions}
+            {next_state, ?state_disconnected, update_state(NewData2), Actions}
     end.
 
 add_channels(Data) ->
@@ -1010,10 +1006,6 @@ terminate_health_check_workers(Data) ->
         Pending
     ).
 
-make_test_id() ->
-    RandId = iolist_to_binary(emqx_utils:gen_id(16)),
-    <<?TEST_ID_PREFIX, RandId/binary>>.
-
 handle_add_channel(From, Data, ChannelId, Config) ->
     Channels = Data#data.added_channels,
     case
@@ -1031,7 +1023,7 @@ handle_add_channel(From, Data, ChannelId, Config) ->
             %% take care of the rest
             NewChannels = maps:put(ChannelId, channel_status_not_added(Config), Channels),
             NewData = Data#data{added_channels = NewChannels},
-            {keep_state, update_state(NewData, Data), [
+            {keep_state, update_state(NewData), [
                 {reply, From, ok}
             ]};
         true ->
@@ -1044,7 +1036,7 @@ handle_not_connected_add_channel(From, ChannelId, ChannelConfig, State, Data) ->
     %% When state is not connected the channel will be added to the channels
     %% map but nothing else will happen.
     NewData = add_or_update_channel_status(Data, ChannelId, ChannelConfig, State),
-    {keep_state, update_state(NewData, Data), [{reply, From, ok}]}.
+    {keep_state, update_state(NewData), [{reply, From, ok}]}.
 
 handle_remove_channel(From, ChannelId, Data) ->
     Channels = Data#data.added_channels,
@@ -1087,7 +1079,7 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
                 state = NewState,
                 added_channels = NewAddedChannelsMap
             },
-            {keep_state, update_state(UpdatedData, Data), [{reply, From, ok}]};
+            {keep_state, update_state(UpdatedData), [{reply, From, ok}]};
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Id),
             ?SLOG(
@@ -1112,7 +1104,7 @@ handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
     NewData = Data#data{added_channels = NewChannels},
     IsDryRun = emqx_resource:is_dry_run(Data#data.id),
     _ = maybe_clear_alarm(IsDryRun, ChannelId),
-    {keep_state, update_state(NewData, Data), [{reply, From, ok}]}.
+    {keep_state, update_state(NewData), [{reply, From, ok}]}.
 
 handle_manual_resource_health_check(From, Data0 = #data{hc_workers = #{resource := HCWorkers}}) when
     map_size(HCWorkers) > 0
@@ -1186,7 +1178,7 @@ continue_with_health_check(#data{} = Data0, CurrentState, HCRes) ->
     Data1 = Data0#data{
         state = NewState, status = NewStatus, error = Err
     },
-    Data = update_state(Data1, Data0),
+    Data = update_state(Data1),
     case CurrentState of
         ?state_connected ->
             continue_resource_health_check_connected(NewStatus, Data);
@@ -1201,7 +1193,7 @@ continue_resource_health_check_connected(NewStatus, Data0) ->
         ?status_connected ->
             {Replies, Data1} = reply_pending_resource_health_check_callers(NewStatus, Data0),
             Data2 = channels_health_check(?status_connected, Data1),
-            Data = update_state(Data2, Data0),
+            Data = update_state(Data2),
             Actions = Replies ++ resource_health_check_actions(Data),
             {keep_state, Data, Actions};
         _ ->
@@ -1246,8 +1238,7 @@ continue_resource_health_check_not_connected(NewStatus, Data0) ->
 
 handle_manual_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
     {keep_state_and_data, [
-        {reply, From,
-            maps:remove(config, channel_status({error, resource_disconnected}, undefined))}
+        {reply, From, channel_error_status(resource_disconnected)}
     ]};
 handle_manual_channel_health_check(
     From,
@@ -1281,14 +1272,14 @@ handle_manual_channel_health_check(
     is_map_key(ChannelId, Channels)
 ->
     %% No ongoing health check: reply with current status.
-    {keep_state_and_data, [{reply, From, maps:remove(config, maps:get(ChannelId, Channels))}]};
+    {keep_state_and_data, [{reply, From, without_channel_config(maps:get(ChannelId, Channels))}]};
 handle_manual_channel_health_check(
     From,
     _Data,
     _ChannelId
 ) ->
     {keep_state_and_data, [
-        {reply, From, maps:remove(config, channel_status({error, channel_not_found}, undefined))}
+        {reply, From, channel_error_status(channel_not_found)}
     ]}.
 
 -spec channels_health_check(resource_status(), data()) -> data().
@@ -1307,7 +1298,7 @@ channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
     Data1 = add_channels_in_list(ChannelsNotAddedWithConfigs, Data0),
     %% Now that we have done the adding, we can get the status of all channels
     Data2 = trigger_health_check_for_added_channels(Data1),
-    update_state(Data2, Data0);
+    update_state(Data2);
 channels_health_check(?status_connecting = _ConnectorStatus, Data0) ->
     %% Whenever the resource is connecting:
     %% 1. Change the status of all added channels to connecting
@@ -1345,7 +1336,7 @@ channels_health_check(?status_connecting = _ConnectorStatus, Data0) ->
         ChannelsWithNewAndPrevErrorStatuses
     ),
     Data1 = Data0#data{added_channels = NewChannels},
-    update_state(Data1, Data0);
+    update_state(Data1);
 channels_health_check(ConnectorStatus, Data0) ->
     %% Whenever the resource is not connected and not connecting:
     %% 1. Remove all added channels
@@ -1389,7 +1380,7 @@ channels_health_check(ConnectorStatus, Data0) ->
         ChannelsWithNewAndOldStatuses
     ),
     Data2 = Data1#data{added_channels = NewChannels},
-    update_state(Data2, Data0).
+    update_state(Data2).
 
 resource_not_connected_channel_error_msg(ResourceStatus, ChannelId, Data1) ->
     ResourceId = Data1#data.id,
@@ -1568,7 +1559,7 @@ handle_channel_health_check_worker_down(Data0, WorkerRef, ExitResult) ->
     ),
     CHCActions = start_channel_health_check_action(ChannelId, NewStatus, PreviousChanStatus, Data),
     Actions = Replies ++ CHCActions,
-    {keep_state, update_state(Data, Data0), Actions}.
+    {keep_state, update_state(Data), Actions}.
 
 handle_channel_health_check_worker_down_new_channels_and_status(
     ChannelId,
@@ -1595,7 +1586,7 @@ handle_channel_health_check_worker_down_new_channels_and_status(
 reply_pending_channel_health_check_callers(
     ChannelId, Status0, Data0 = #data{hc_pending_callers = Pending0}
 ) ->
-    Status = maps:remove(config, Status0),
+    Status = without_channel_config(Status0),
     #{channel := CPending0} = Pending0,
     Pending = maps:get(ChannelId, CPending0, []),
     Actions = [{reply, From, Status} || From <- Pending],
@@ -1631,27 +1622,10 @@ get_config_from_map_or_channel_status(ChannelId, ChannelIdToConfig, ChannelStatu
     end.
 
 -spec update_state(data()) -> data().
-update_state(Data) ->
-    update_state(Data, undefined).
-
--spec update_state(data(), data() | undefined) -> data().
-update_state(DataWas, DataWas) ->
-    DataWas;
-update_state(Data, _DataWas) ->
-    _ = insert_cache(Data#data.id, remove_runtime_data(Data)),
+update_state(#data{group = Group} = Data) ->
+    ToCache = data_record_to_external_map(Data),
+    ok = insert_cache(Group, ToCache),
     Data.
-
-remove_runtime_data(#data{} = Data0) ->
-    Data0#data{
-        hc_workers = #{
-            resource => #{},
-            channel => #{pending => [], ongoing => #{}}
-        },
-        hc_pending_callers = #{
-            resource => [],
-            channel => #{}
-        }
-    }.
 
 health_check_interval(Opts) ->
     maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL).
@@ -1678,7 +1652,7 @@ maybe_alarm(_Status, false, ResId, Error, _PrevError) ->
             {error, Reason} ->
                 emqx_utils:readable_error_msg(Reason);
             _ ->
-                Error1 = redact_config_from_error_status(Error),
+                Error1 = without_channel_config(Error),
                 emqx_utils:readable_error_msg(Error1)
         end,
     emqx_alarm:safe_activate(
@@ -1688,10 +1662,8 @@ maybe_alarm(_Status, false, ResId, Error, _PrevError) ->
     ),
     ?tp(resource_activate_alarm, #{resource_id => ResId}).
 
-redact_config_from_error_status(#{config := _} = ErrorStatus) ->
-    maps:remove(config, ErrorStatus);
-redact_config_from_error_status(Error) ->
-    Error.
+without_channel_config(Map) ->
+    maps:without([config], Map).
 
 -spec maybe_resume_resource_workers(resource_id(), resource_status()) -> ok.
 maybe_resume_resource_workers(ResId, ?status_connected) ->
@@ -1744,7 +1716,7 @@ maybe_reply(Actions, From, Reply) ->
 data_record_to_external_map(Data) ->
     AddedChannelsWithoutConfigs =
         maps:map(
-            fun(_ChanID, Status) -> maps:remove(config, Status) end,
+            fun(_ChanID, Status) -> without_channel_config(Status) end,
             Data#data.added_channels
         ),
     #{
@@ -1766,12 +1738,13 @@ wait_for_ready(ResId, WaitTime) ->
 do_wait_for_ready(_ResId, 0) ->
     timeout;
 do_wait_for_ready(ResId, Retry) ->
-    case try_read_cache(ResId) of
-        #data{status = ?status_connected} ->
+    case emqx_resource_cache:read_status(ResId) of
+        #{status := ?status_connected} ->
             ok;
-        #data{status = ?status_disconnected, error = Err} ->
-            {error, external_error(Err)};
+        #{status := ?status_disconnected, error := Err} ->
+            {error, Err};
         _ ->
+            %% connecting, or not_found
             timer:sleep(?WAIT_FOR_RESOURCE_DELAY),
             do_wait_for_ready(ResId, Retry - 1)
     end.
@@ -1851,19 +1824,20 @@ channel_status({?status_connected, Error}, ChannelConfig) ->
         config => ChannelConfig
     };
 channel_status({error, Reason}, ChannelConfig) ->
+    S = channel_error_status(Reason),
+    S#{config => ChannelConfig}.
+
+channel_error_status(Reason) ->
     #{
         status => ?status_disconnected,
-        error => Reason,
-        config => ChannelConfig
+        error => Reason
     }.
 
-channel_status_is_channel_added(#{
-    status := ?status_connected
-}) ->
+channel_status_is_channel_added(#{status := St}) ->
+    channel_status_is_channel_added(St);
+channel_status_is_channel_added(?status_connected) ->
     true;
-channel_status_is_channel_added(#{
-    status := ?status_connecting
-}) ->
+channel_status_is_channel_added(?status_connecting) ->
     true;
 channel_status_is_channel_added(_Status) ->
     false.

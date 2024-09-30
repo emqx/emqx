@@ -49,7 +49,7 @@ stop(_State) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 ensure_enterprise_schema_loaded() ->
-    _ = emqx_bridge_enterprise:module_info(),
+    emqx_utils:interactive_load(emqx_bridge_enterprise),
     ok.
 -else.
 ensure_enterprise_schema_loaded() ->

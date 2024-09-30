@@ -23,7 +23,8 @@
 -export([
     '/cluster/links'/2,
     '/cluster/links/link/:name'/2,
-    '/cluster/links/link/:name/metrics'/2
+    '/cluster/links/link/:name/metrics'/2,
+    '/cluster/links/link/:name/metrics/reset'/2
 ]).
 
 -define(CONF_PATH, [cluster, links]).
@@ -40,7 +41,8 @@ paths() ->
     [
         "/cluster/links",
         "/cluster/links/link/:name",
-        "/cluster/links/link/:name/metrics"
+        "/cluster/links/link/:name/metrics",
+        "/cluster/links/link/:name/metrics/reset"
     ].
 
 schema("/cluster/links") ->
@@ -133,6 +135,23 @@ schema("/cluster/links/link/:name/metrics") ->
                         )
                     }
             }
+    };
+schema("/cluster/links/link/:name/metrics/reset") ->
+    #{
+        'operationId' => '/cluster/links/link/:name/metrics/reset',
+        put =>
+            #{
+                description => "Reset a cluster link's metrics",
+                tags => ?TAGS,
+                parameters => [param_path_name()],
+                responses =>
+                    #{
+                        204 => <<"Reset">>,
+                        404 => emqx_dashboard_swagger:error_codes(
+                            [?NOT_FOUND], <<"Cluster link not found">>
+                        )
+                    }
+            }
     }.
 
 fields(link_config_response) ->
@@ -194,6 +213,9 @@ fields(node_metrics) ->
 
 '/cluster/links/link/:name/metrics'(get, #{bindings := #{name := Name}}) ->
     with_link(Name, fun() -> handle_metrics(Name) end, not_found()).
+
+'/cluster/links/link/:name/metrics/reset'(put, #{bindings := #{name := Name}}) ->
+    with_link(Name, fun() -> handle_reset_metrics(Name) end, not_found()).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
@@ -350,6 +372,28 @@ format_metrics(Node, RouterMetrics, ResourceMetrics) ->
             }
         }
     }.
+
+handle_reset_metrics(Name) ->
+    Res = emqx_cluster_link_metrics:reset_metrics(Name),
+    ErrorNodes =
+        lists:filtermap(
+            fun
+                ({_Node, {ok, ok}, {ok, ok}}) ->
+                    false;
+                ({Node, _, _}) ->
+                    {true, Node}
+            end,
+            Res
+        ),
+    case ErrorNodes of
+        [] ->
+            ?NO_CONTENT;
+        [_ | _] ->
+            Msg0 = <<"Metrics reset failed on one or more nodes. Please try again.">>,
+            Msg1 = ?ERROR_MSG('INTERNAL_ERROR', Msg0),
+            Msg = Msg1#{nodes => ErrorNodes},
+            {500, Msg}
+    end.
 
 add_status(Name, Link) ->
     NodeRPCResults = emqx_cluster_link_mqtt:get_resource_cluster(Name),

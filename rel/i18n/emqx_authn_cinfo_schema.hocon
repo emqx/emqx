@@ -1,0 +1,49 @@
+emqx_authn_cinfo_schema {
+  cinfo {
+    label: "Client Information Authentication"
+    desc: """~
+      Authenticate clients based on the client information such as username, client ID,
+      client attributes, and data extracted from TLS certificate."""
+  }
+
+  check {
+    label: "Client Information Check"
+    desc: """~
+      A check to perform on the client information.
+      It defines a match-condition and a result to return if the condition is `true`.
+      If all checks are skipped, the default result `ignore` is returned."""
+  }
+
+  checks {
+    label: "Client Information Checks"
+    desc: """~
+      A list of checks to perform on the client information.
+      If all checks are skipped, the default result `ignore` is returned.
+      The `ignore` result means to defer the authentication to the next authenticator in the chain."""
+  }
+
+  is_match {
+    label: "Match Conditions"
+    desc: """~
+      One Variform expression or an array of expressions to evaluate with a set of pre-bound variables derived from the client information.
+      Supported variables:
+      - `username`: the username of the client.
+      - `clientid`: the client ID of the client.
+      - `client_attrs.*`: the client attributes of the client.
+      - `peerhost`: the IP address of the client.
+      - `cert_subject`: the subject of the TLS certificate.
+      - `cert_common_name`: the issuer of the TLS certificate.
+      If the expression(s) all yields the string value `'true'`, then the associated `result` is returned from this authenticator.
+      If any expression yields the other than `'true'`, then the current check is skipped."""
+  }
+
+  result {
+    label: "Result"
+    desc: """~
+      The result to return if the match condition is `true`.
+      Supported results:
+      - `ignore`: defer the authentication to the next authenticator in the chain.
+      - `allow`: allow the client to connect.
+      - `deny`: deny the client to connect."""
+  }
+}

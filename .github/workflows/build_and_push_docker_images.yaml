@@ -192,7 +192,7 @@ jobs:
 
       - name: export docker image
         run: |
-          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
+          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
 
       - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
@@ -208,4 +208,17 @@ jobs:
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: false
         run: |
+          ./build ${PROFILE} docker
+
+      - name: Build and publish docker image with Snowflake ODBC driver
+        if: (inputs.publish || github.repository_owner != 'emqx') && matrix.profile[0] == 'emqx-enterprise'
+        env:
+          DOCKER_PUSH: true
+          DOCKER_BUILD_NOCACHE: false
+          DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          DOCKER_LOAD: false
+          EMQX_DOCKERFILE: deploy/docker/Dockerfile.sfodbc
+        run: |
+          export BUILD_FROM="${_EMQX_DOCKER_IMAGE_TAG}"
+          export EMQX_IMAGE_TAG="${_EMQX_DOCKER_IMAGE_TAG##docker.io/}-sf"
           ./build ${PROFILE} docker

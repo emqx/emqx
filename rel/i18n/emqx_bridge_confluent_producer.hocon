@@ -104,6 +104,17 @@ discovered partitions into account when dispatching messages per <code>partition
 partition_count_refresh_interval.label:
 """Partition Count Refresh Interval"""
 
+max_linger_time.desc:
+"""Maximum duration for a per-partition producer to wait for messages in order to collect a batch to buffer.
+The default value `0` means no wait. For non-memory buffer mode, it's advised to configure at least `5ms` for less IOPS."""
+
+max_linger_time.label: "Max Linger Time"
+
+max_linger_bytes.desc:
+"""Maximum number of bytes for a per-partition producer to wait for messages in order to collect a batch to buffer."""
+
+max_linger_bytes.label: "Max Linger Bytes"
+
 max_batch_bytes.desc:
 """Maximum bytes to collect in a Confluent message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""
 

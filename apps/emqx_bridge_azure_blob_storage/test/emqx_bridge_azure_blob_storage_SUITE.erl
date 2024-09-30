@@ -683,7 +683,7 @@ t_bad_account_key(Config) ->
                 {400, #{
                     <<"message">> := #{
                         <<"kind">> := <<"validation_error">>,
-                        <<"reason">> := <<"bad account key">>
+                        <<"reason">> := <<"bad account key", _/binary>>
                     }
                 }},
                 emqx_bridge_v2_testlib:simplify_result(
@@ -697,7 +697,7 @@ t_bad_account_key(Config) ->
                 {400, #{
                     <<"message">> := #{
                         <<"kind">> := <<"validation_error">>,
-                        <<"reason">> := <<"bad account key">>
+                        <<"reason">> := <<"bad account key", _/binary>>
                     }
                 }},
                 emqx_bridge_v2_testlib:simplify_result(
@@ -729,6 +729,32 @@ t_bad_account_name(Config) ->
             {400, #{<<"message">> := Msg}} = Res0,
             ?assertEqual(match, re:run(Msg, <<"failed_connect">>, [{capture, none}])),
             ?assertEqual(match, re:run(Msg, <<"nxdomain">>, [{capture, none}])),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_deobfuscate_connector(Config) ->
+    emqx_bridge_v2_testlib:?FUNCTION_NAME(Config).
+
+%% Checks that we verify at runtime that the provided account key is a valid base64 string.
+t_create_connector_with_obfuscated_key(Config0) ->
+    ?check_trace(
+        begin
+            RedactedValue = <<"******">>,
+            Config = emqx_bridge_v2_testlib:proplist_update(Config0, connector_config, fun(Old) ->
+                Old#{<<"account_key">> := RedactedValue}
+            end),
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := <<"bad account key", _/binary>>
+                }},
+                emqx_bridge_v2_testlib:simplify_result(
+                    emqx_bridge_v2_testlib:create_connector_api(Config)
+                )
+            ),
             ok
         end,
         []

@@ -282,7 +282,7 @@ create_dry_run(Type0, Conf0) ->
     end.
 
 create_dry_run_bridge_v1(Type, Conf0) ->
-    TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    TmpName = ?PROBE_ID_NEW(),
     TmpPath = emqx_utils:safe_filename(TmpName),
     %% Already type checked, no need to catch errors
     TypeBin = bin(Type),

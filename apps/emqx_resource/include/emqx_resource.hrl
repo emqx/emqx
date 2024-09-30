@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_RESOURCE_HRL).
+-define(EMQX_RESOURCE_HRL, true).
 %% bridge/connector/action status
 -define(status_connected, connected).
 -define(status_connecting, connecting).
@@ -26,7 +28,7 @@
 -type resource_type() :: atom().
 -type resource_module() :: module().
 -type resource_id() :: binary().
--type channel_id() :: binary().
+-type channel_id() :: action_resource_id() | source_resource_id().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().
@@ -71,9 +73,9 @@
     query_mode := query_mode(),
     config := resource_config(),
     error := term(),
-    state := resource_state(),
     status := resource_status(),
-    added_channels := term()
+    added_channels := term(),
+    state := resource_state()
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{
@@ -157,7 +159,12 @@
 
 %% Keep this test_id_prefix is match "^[A-Za-z0-9]+[A-Za-z0-9-_]*$".
 %% See `hocon_tconf`
--define(TEST_ID_PREFIX, "t_probe_").
+-define(PROBE_ID_PREFIX, "PROBE_").
+-define(PROBE_ID_RAND_BYTES, 8).
+-define(PROBE_ID_NEW(),
+    iolist_to_binary([?PROBE_ID_PREFIX, emqx_utils:rand_id(?PROBE_ID_RAND_BYTES)])
+).
+-define(PROBE_ID_MATCH(Suffix), <<?PROBE_ID_PREFIX, _:?PROBE_ID_RAND_BYTES/binary, Suffix/binary>>).
 -define(RES_METRICS, resource_metrics).
 -define(LOG_LEVEL(_L_),
     case _L_ of
@@ -168,3 +175,6 @@
 -define(TAG, "RESOURCE").
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
+-define(RESOURCE_CACHE, emqx_resource_cache).
+
+-endif.
