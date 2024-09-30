@@ -23,6 +23,9 @@
     connector_examples/1
 ]).
 
+%% Internal exports
+-export([validate_account_key/1]).
+
 %% API
 -export([]).
 
@@ -138,16 +141,31 @@ connector_example(put) ->
 %%------------------------------------------------------------------------------
 
 %%------------------------------------------------------------------------------
+%% Internal exports
+%%------------------------------------------------------------------------------
+
+validate_account_key(Val) ->
+    try
+        _ = base64:decode(emqx_secret:unwrap(Val)),
+        ok
+    catch
+        _:_ ->
+            {error, <<"bad account key; must be a valid base64 encoded value">>}
+    end.
+
+%%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 account_key_validator(Val) ->
-    try
-        _ = base64:decode(emqx_secret:unwrap(Val)),
-        ok
-    catch
-        _:_ ->
-            {error, <<"bad account key">>}
+    case emqx_secret:unwrap(Val) of
+        <<"******">> ->
+            %% The frontend sends obfuscated values when updating a connector...  So we
+            %% cannot distinguish an obfuscated value from an user explicitly setting this
+            %% field to this value.
+            ok;
+        Key ->
+            validate_account_key(Key)
     end.

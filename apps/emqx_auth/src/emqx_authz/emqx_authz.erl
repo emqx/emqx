@@ -713,6 +713,7 @@ format_for_api(Source) ->
 
 maybe_write_source_files(Source) ->
     Module = authz_module(type(Source)),
+    ok = emqx_utils:interactive_load(Module),
     case erlang:function_exported(Module, write_files, 1) of
         true ->
             Module:write_files(Source);

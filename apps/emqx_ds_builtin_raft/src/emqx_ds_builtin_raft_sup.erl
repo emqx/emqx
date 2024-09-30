@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_top/0, start_db/2, stop_db/1]).
+-export([start_top/0, start_db/2, stop_db/1, which_dbs/0]).
 -export([set_gvar/3, get_gvar/3, clean_gvars/1]).
 
 %% behavior callbacks:
@@ -62,6 +62,15 @@ stop_db(DB) ->
             clean_gvars(DB);
         undefined ->
             ok
+    end.
+
+-spec which_dbs() -> {ok, [emqx_ds:db()]} | {error, inactive}.
+which_dbs() ->
+    case whereis(?databases) of
+        Pid when is_pid(Pid) ->
+            [DB || {DB, _Child, _, _} <- supervisor:which_children(Pid)];
+        undefined ->
+            {error, inactive}
     end.
 
 %% @doc Set a DB-global variable. Please don't abuse this API.

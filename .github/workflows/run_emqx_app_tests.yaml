@@ -55,7 +55,7 @@ jobs:
           exit 0
         else
           echo 'skip=false' | tee -a $GITHUB_OUTPUT
-          echo 'matrix=[{"type": "eunit_proper_and_static"},{"type": "1_3"},{"type": "2_3"},{"type": "3_3"}]' | tee -a $GITHUB_OUTPUT
+          echo 'matrix=[{"type": "eunit_proper_and_static"},{"type": "1_4"},{"type": "2_4"},{"type": "3_4"},{"type": "4_4"}]' | tee -a $GITHUB_OUTPUT
         fi
 
   run_emqx_app_tests:

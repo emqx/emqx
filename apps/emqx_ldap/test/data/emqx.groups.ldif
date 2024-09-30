@@ -1,0 +1,15 @@
+
+## groups
+dn: ou=Groups,dc=emqx,dc=io
+objectclass: organizationalUnit
+objectclass: top
+ou: Groups
+
+dn: cn=test,ou=Groups,dc=emqx,dc=io
+cn: test
+objectclass: groupOfNames
+objectclass: top
+member: uid=mqttuser0001,ou=testdevice,dc=emqx,dc=io
+member: uid=mqttuser0003,ou=testdevice,dc=emqx,dc=io
+member: uid=mqttuser0005,ou=testdevice,dc=emqx,dc=io
+

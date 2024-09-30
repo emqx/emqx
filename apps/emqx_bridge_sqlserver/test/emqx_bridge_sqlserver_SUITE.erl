@@ -354,7 +354,7 @@ t_simple_query(Config) ->
     ok.
 
 -define(MISSING_TINYINT_ERROR,
-    "[Microsoft][ODBC Driver 17 for SQL Server][SQL Server]"
+    "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
     "Conversion failed when converting the varchar value 'undefined' to data type tinyint. SQLSTATE IS: 22018"
 ).
 
@@ -654,11 +654,7 @@ batch_size(Config) ->
     end.
 
 conn_str([], Acc) ->
-    %% TODO: for msodbc 18+, we need to add "Encrypt=YES;TrustServerCertificate=YES"
-    %% but havn't tested now
-    %% we should use this for msodbcsql 18+
-    %% lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
-    lists:join(";", Acc);
+    lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{host, Host} | Opts], Acc) ->

@@ -43,7 +43,9 @@ start() ->
 init({[], _}) -> {ok, #{}}.
 
 handle_event(sigterm, State) ->
-    ?ULOG("Received terminate signal, shutting down now~n", []),
+    Msg = "received_terminate_signal",
+    ?SLOG(critical, #{msg => Msg}),
+    ?ULOG("~ts ~ts, shutting down now.~n", [emqx_utils_calendar:now_to_rfc3339(), Msg]),
     emqx_machine_terminator:graceful(),
     {ok, State};
 handle_event(Event, State) ->

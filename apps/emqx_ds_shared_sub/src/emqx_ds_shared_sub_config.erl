@@ -24,7 +24,8 @@
 -export([
     load/0,
     unload/0,
-    get/1
+    get/1,
+    enabled/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -45,6 +46,10 @@ get(Name) when is_atom(Name) ->
 get(Name) when is_list(Name) ->
     emqx_config:get([durable_queues | Name]).
 
+-spec enabled() -> boolean().
+enabled() ->
+    emqx_persistent_message:is_persistence_enabled() andalso ?MODULE:get(enable).
+
 %%--------------------------------------------------------------------
 %% emqx_config_handler callbacks
 %%--------------------------------------------------------------------
@@ -62,8 +67,22 @@ pre_config_update([durable_queues | _], NewConfig, _OldConfig) ->
     emqx_config:app_envs()
 ) ->
     ok.
-post_config_update([durable_queues | _], _Req, _NewConfig, _OldConfig, _AppEnvs) ->
-    ok.
+post_config_update([durable_queues | _], _Req, NewConfig, OldConfig, _AppEnvs) ->
+    case config_transition(NewConfig, OldConfig) of
+        enable ->
+            emqx_ds_shared_sub_sup:on_enable();
+        disable ->
+            emqx_ds_shared_sub_sup:on_disable();
+        undefined ->
+            ok
+    end.
+
+config_transition(#{enable := true}, #{enable := false}) ->
+    enable;
+config_transition(#{enable := false}, #{enable := true}) ->
+    disable;
+config_transition(#{enable := E}, #{enable := E}) ->
+    undefined.
 
 %%----------------------------------------------------------------------------------------
 %% Data backup

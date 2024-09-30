@@ -158,32 +158,108 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
-t_monitor_samplers_all(_Config) ->
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
-    Size = mnesia:table_info(emqx_dashboard_monitor, size),
-    All = emqx_dashboard_monitor:samplers(all, infinity),
-    All2 = emqx_dashboard_monitor:samplers(),
-    ?assert(erlang:length(All) == Size),
-    ?assert(erlang:length(All2) == Size),
+t_empty_table(_Config) ->
+    sys:suspend(whereis(emqx_dashboard_monitor)),
+    try
+        emqx_dashboard_monitor:clean(0),
+        ?assertEqual({ok, []}, request(["monitor"], "latest=20000"))
+    after
+        sys:resume(whereis(emqx_dashboard_monitor))
+    end.
+
+t_pmap_nodes(_Config) ->
+    MaxAge = timer:hours(1),
+    Now = erlang:system_time(millisecond) - 1,
+    Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
+    StartTs = round_down(Now - MaxAge, Interval),
+    DataPoints = 5,
+    ok = emqx_dashboard_monitor:clean(0),
+    ok = insert_data_points(DataPoints, StartTs, Now),
+    Nodes = [node(), node(), node()],
+    %% this function calls emqx_utils:pmap to do the job
+    Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs),
+    Data1 = emqx_dashboard_monitor:fill_gaps(Data0, StartTs),
+    Data = emqx_dashboard_monitor:format(Data1),
+    ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
+    ?assertEqual(DataPoints * length(Nodes), sum_value(Data, sent)).
+
+t_randomize(_Config) ->
+    ok = emqx_dashboard_monitor:clean(0),
+    emqx_dashboard_monitor:randomize(1, #{sent => 100}),
+    Since = integer_to_list(7 * timer:hours(24)),
+    {ok, Samplers} = request(["monitor"], "latest=" ++ Since),
+    Count = lists:sum(lists:map(fun(#{<<"sent">> := S}) -> S end, Samplers)),
+    ?assertEqual(100, Count).
+
+t_downsample_7d(_Config) ->
+    MaxAge = 7 * timer:hours(24),
+    test_downsample(MaxAge, 10).
+
+t_downsample_3d(_Config) ->
+    MaxAge = 3 * timer:hours(24),
+    test_downsample(MaxAge, 10).
+
+t_downsample_1d(_Config) ->
+    MaxAge = timer:hours(24),
+    test_downsample(MaxAge, 10).
+
+t_downsample_1h(_Config) ->
+    MaxAge = timer:hours(1),
+    test_downsample(MaxAge, 10).
+
+sent_1() -> #{sent => 1}.
+
+round_down(Ts, Interval) ->
+    Ts - (Ts rem Interval).
+
+test_downsample(MaxAge, DataPoints) ->
+    Now = erlang:system_time(millisecond) - 1,
+    Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
+    StartTs = round_down(Now - MaxAge, Interval),
+    ok = emqx_dashboard_monitor:clean(0),
+    %% insert the start mark for deterministic test boundary
+    ok = write(StartTs, sent_1()),
+    ok = insert_data_points(DataPoints - 1, StartTs, Now),
+    Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:sample_fill_gap(all, StartTs)),
+    ?assertEqual(StartTs, maps:get(time_stamp, hd(Data))),
+    ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
+    ?assertEqual(DataPoints, sum_value(Data, sent)),
     ok.
 
-t_monitor_samplers_latest(_Config) ->
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
-    ?retry(1_000, 10, begin
-        Samplers = emqx_dashboard_monitor:samplers(node(), 2),
-        Latest = emqx_dashboard_monitor:samplers(node(), 1),
-        ?assert(erlang:length(Samplers) == 2, #{samplers => Samplers}),
-        ?assert(erlang:length(Latest) == 1, #{latest => Latest}),
-        ?assert(hd(Latest) == lists:nth(2, Samplers))
-    end),
+sum_value(Data, Key) ->
+    sum_value(Data, Key, 0).
+
+sum_value([], _, V) ->
+    V;
+sum_value([D | Rest], Key, V) ->
+    sum_value(Rest, Key, maps:get(Key, D, 0) + V).
+
+check_sample_intervals(_Interval, _, []) ->
+    ok;
+check_sample_intervals(Interval, #{time_stamp := T}, [First | Rest]) ->
+    #{time_stamp := T2} = First,
+    ?assertEqual(T + Interval, T2),
+    check_sample_intervals(Interval, First, Rest).
+
+insert_data_points(0, _TsMin, _TsMax) ->
+    ok;
+insert_data_points(N, TsMin, TsMax) when N > 0 ->
+    Data = sent_1(),
+    FakeTs = TsMin + rand:uniform(TsMax - TsMin),
+    case read(FakeTs) of
+        [] ->
+            ok = write(FakeTs, Data),
+            insert_data_points(N - 1, TsMin, TsMax);
+        _ ->
+            %% clashed, try again
+            insert_data_points(N, TsMin, TsMax)
+    end.
+
+read(Ts) ->
+    emqx_dashboard_monitor:lookup(Ts).
+
+write(Time, Data) ->
+    {atomic, ok} = emqx_dashboard_monitor:store({emqx_monit, Time, Data}),
     ok.
 
 t_monitor_sampler_format(_Config) ->
@@ -233,17 +309,31 @@ t_handle_old_monitor_data(_Config) ->
     ok.
 
 t_monitor_api(_) ->
+    emqx_dashboard_monitor:clean(0),
     {ok, _} =
         snabbkaffe:block_until(
             ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
+            infinity,
+            0
         ),
-    {ok, Samplers} = request(["monitor"], "latest=200"),
+    {ok, Samplers} = request(["monitor"], "latest=20"),
     ?assert(erlang:length(Samplers) >= 2, #{samplers => Samplers}),
     Fun =
         fun(Sampler) ->
             Keys = [binary_to_atom(Key, utf8) || Key <- maps:keys(Sampler)],
-            [?assert(lists:member(SamplerName, Keys)) || SamplerName <- ?SAMPLER_LIST]
+            case Keys =:= [time_stamp] of
+                true ->
+                    %% this is a dummy data point filling the gap
+                    ok;
+                false ->
+                    lists:all(
+                        fun(K) ->
+                            lists:member(K, Keys)
+                        end,
+                        ?SAMPLER_LIST
+                    ) orelse
+                        ct:fail(Keys)
+            end
         end,
     [Fun(Sampler) || Sampler <- Samplers],
     {ok, NodeSamplers} = request(["monitor", "nodes", node()]),

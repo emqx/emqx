@@ -21,8 +21,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(EXPIRATION_TIME, 31536000).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -185,14 +183,13 @@ t_create(_Config) ->
         at => At
     },
     {ok, ClientIdBannedRes2} = create_banned(ClientIdBanned2),
-    Until2 = emqx_banned:to_rfc3339(Now + ?EXPIRATION_TIME),
     ?assertEqual(
         #{
             <<"as">> => As,
             <<"at">> => At,
             <<"by">> => By,
             <<"reason">> => Reason,
-            <<"until">> => Until2,
+            <<"until">> => <<"infinity">>,
             <<"who">> => ClientId2
         },
         ClientIdBannedRes2
@@ -311,9 +308,81 @@ t_clear(_Config) ->
     ),
     ok.
 
+t_list_with_filters(_) ->
+    setup_list_test_data(),
+
+    %% clientid
+    test_for_list("clientid=c1", [<<"c1">>]),
+    test_for_list("clientid=c3", []),
+
+    %% username
+    test_for_list("username=u1", [<<"u1">>]),
+    test_for_list("username=u3", []),
+
+    %% peerhost
+    test_for_list("peerhost=192.168.1.1", [<<"192.168.1.1">>]),
+    test_for_list("peerhost=192.168.1.3", []),
+
+    %% like clientid
+    test_for_list("like_clientid=c", [<<"c1">>, <<"c2">>, <<"c[0-9]">>]),
+    test_for_list("like_clientid=c3", []),
+
+    %% like username
+    test_for_list("like_username=u", [<<"u1">>, <<"u2">>, <<"u[0-9]">>]),
+    test_for_list("like_username=u3", []),
+
+    %% like peerhost
+    test_for_list("like_peerhost=192.168", [<<"192.168.1.1">>, <<"192.168.1.2">>]),
+    test_for_list("like_peerhost=192.168.1.3", []),
+
+    %% like peerhost_net
+    test_for_list("like_peerhost_net=192.168", [<<"192.168.0.0/16">>]),
+    test_for_list("like_peerhost_net=192.166", []),
+
+    %% list all
+    test_for_list([], [
+        <<"c1">>,
+        <<"c2">>,
+        <<"u1">>,
+        <<"u2">>,
+        <<"192.168.1.1">>,
+        <<"192.168.1.2">>,
+        <<"c[0-9]">>,
+        <<"u[0-9]">>,
+        <<"192.168.0.0/16">>
+    ]),
+
+    %% page query with table join
+    R1 = get_who_from_list("like_clientid=c&page=1&limit=1"),
+    ?assertEqual(1, erlang:length(R1)),
+
+    R2 = get_who_from_list("like_clientid=c&page=2&limit=1"),
+    ?assertEqual(1, erlang:length(R2)),
+
+    R3 = get_who_from_list("like_clientid=c&page=3&limit=1"),
+    ?assertEqual(1, erlang:length(R2)),
+
+    ?assertEqual(
+        lists:sort(R1 ++ R2 ++ R3),
+        lists:sort([<<"c1">>, <<"c2">>, <<"c[0-9]">>])
+    ),
+
+    emqx_banned:clear(),
+    ok.
+
 list_banned() ->
+    list_banned([]).
+
+list_banned(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["banned"]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
+    case
+        emqx_mgmt_api_test_util:request_api(
+            get,
+            Path,
+            Params,
+            emqx_mgmt_api_test_util:auth_header_()
+        )
+    of
         {ok, Apps} -> {ok, emqx_utils_json:decode(Apps, [return_maps])};
         Error -> Error
     end.
@@ -336,3 +405,38 @@ clear_banned() ->
 
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
+
+setup_list_test_data() ->
+    emqx_banned:clear(),
+
+    Data = [
+        {clientid, <<"c1">>},
+        {clientid, <<"c2">>},
+        {username, <<"u1">>},
+        {username, <<"u2">>},
+        {peerhost, <<"192.168.1.1">>},
+        {peerhost, <<"192.168.1.2">>},
+        {clientid_re, <<"c[0-9]">>},
+        {username_re, <<"u[0-9]">>},
+        {peerhost_net, <<"192.168.0.0/16">>}
+    ],
+
+    lists:foreach(
+        fun({As, Who}) ->
+            {ok, Banned} = emqx_banned:parse(#{<<"as">> => As, <<"who">> => Who}),
+            emqx_banned:create(Banned)
+        end,
+        Data
+    ).
+
+test_for_list(Params, Expected) ->
+    Result = list_banned(Params),
+    ?assertMatch({ok, #{<<"data">> := _}}, Result),
+    {ok, #{<<"data">> := Data}} = Result,
+    ?assertEqual(lists:sort(Expected), lists:sort([Who || #{<<"who">> := Who} <- Data])).
+
+get_who_from_list(Params) ->
+    Result = list_banned(Params),
+    ?assertMatch({ok, #{<<"data">> := _}}, Result),
+    {ok, #{<<"data">> := Data}} = Result,
+    [Who || #{<<"who">> := Who} <- Data].

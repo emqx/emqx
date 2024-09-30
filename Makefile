@@ -11,7 +11,7 @@ include env.sh
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.10.0
-export EMQX_EE_DASHBOARD_VERSION ?= e1.8.0
+export EMQX_EE_DASHBOARD_VERSION ?= e1.8.1-beta.5
 
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
@@ -331,6 +331,10 @@ fmt: $(REBAR)
 	@$(SCRIPTS)/erlfmt -w 'elvis.config'
 	@$(SCRIPTS)/erlfmt -w 'bin/nodetool'
 	@mix format
+
+.PHONY: fmt-diff
+fmt-diff:
+	@env ERLFMT_WRITE=true ./scripts/git-hook-pre-commit.sh
 
 .PHONY: clean-test-cluster-config
 clean-test-cluster-config:

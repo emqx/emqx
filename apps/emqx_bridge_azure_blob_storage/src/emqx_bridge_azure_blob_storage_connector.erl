@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_azure_blob_storage_connector).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_resource).
 -behaviour(emqx_connector_aggreg_delivery).
 -behaviour(emqx_template).
@@ -160,17 +162,20 @@ on_start(_ConnResId, ConnConfig) ->
         account_name := AccountName,
         account_key := AccountKey
     } = ConnConfig,
-    Endpoint = maps:get(endpoint, ConnConfig, undefined),
-    {ok, DriverState} = erlazure:new(#{
-        account => AccountName,
-        key => AccountKey,
-        endpoint => Endpoint
-    }),
-    State = #{
-        driver_state => DriverState,
-        installed_actions => #{}
-    },
-    {ok, State}.
+    maybe
+        ok ?= emqx_bridge_azure_blob_storage_connector_schema:validate_account_key(AccountKey),
+        Endpoint = maps:get(endpoint, ConnConfig, undefined),
+        {ok, DriverState} = erlazure:new(#{
+            account => AccountName,
+            key => AccountKey,
+            endpoint => Endpoint
+        }),
+        State = #{
+            driver_state => DriverState,
+            installed_actions => #{}
+        },
+        {ok, State}
+    end.
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(_ConnResId, _ConnState) ->

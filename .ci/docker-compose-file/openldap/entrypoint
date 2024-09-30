@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+
+/usr/local/libexec/slapd -h "ldap:/// ldaps:///" -f /usr/local/etc/openldap/slapd.conf
+
+if [ ! -f ADDED_GROUPS ]; then
+    ldapadd -x -D cn=root,dc=emqx,dc=io -w public -f /usr/local/etc/openldap/schema/emqx.groups.ldif
+    touch ADDED_GROUPS
+fi
+
+PID=$(pgrep -o slapd)
+tail -f --pid="$PID"
+

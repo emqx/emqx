@@ -42,7 +42,7 @@
         M =:= maps)
 ).
 
--define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined)).
+-define(IS_EMPTY(X), (X =:= <<>> orelse X =:= "" orelse X =:= undefined orelse X =:= null)).
 
 %% @doc Render a variform expression with bindings.
 %% A variform expression is a template string which supports variable substitution
@@ -113,7 +113,12 @@ compile(#{form := _} = Compiled) ->
     {ok, Compiled};
 compile(Expression) when is_binary(Expression) ->
     compile(unicode:characters_to_list(Expression));
-compile(Expression) ->
+compile(Expression) when is_list(Expression) ->
+    do_compile(Expression);
+compile(_Expression) ->
+    {error, invalid_expression}.
+
+do_compile(Expression) ->
     case emqx_variform_scan:string(Expression) of
         {ok, Tokens, _Line} ->
             case emqx_variform_parser:parse(Tokens) of
@@ -154,6 +159,8 @@ eval({call, FuncNameStr, Args}, Bindings, Opts) ->
             eval_iif(Args, Bindings, Opts);
         {?BIF_MOD, coalesce} ->
             eval_coalesce(Args, Bindings, Opts);
+        {?BIF_MOD, is_empty} ->
+            eval_is_empty(Args, Bindings, Opts);
         _ ->
             call(Mod, Fun, eval_loop(Args, Bindings, Opts))
     end;
@@ -209,6 +216,10 @@ try_eval(Arg, Bindings, Opts) ->
             <<>>
     end.
 
+eval_is_empty([Arg], Bindings, Opts) ->
+    Val = eval_coalesce_loop([Arg], Bindings, Opts),
+    ?IS_EMPTY(Val).
+
 eval_iif([Cond, If, Else], Bindings, Opts) ->
     CondVal = try_eval(Cond, Bindings, Opts),
     case is_iif_condition_met(CondVal) of
@@ -249,6 +260,7 @@ resolve_func_name(FuncNameStr) ->
                     error:badarg ->
                         throw(#{
                             reason => unknown_variform_function,
+                            module => Mod,
                             function => Fun0
                         })
                 end,
@@ -261,6 +273,7 @@ resolve_func_name(FuncNameStr) ->
                     error:badarg ->
                         throw(#{
                             reason => unknown_variform_function,
+                            module => ?BIF_MOD,
                             function => Fun
                         })
                 end,
@@ -285,8 +298,12 @@ assert_func_exported(?BIF_MOD, coalesce, _Arity) ->
     ok;
 assert_func_exported(?BIF_MOD, iif, _Arity) ->
     ok;
+assert_func_exported(?BIF_MOD, is_empty, _Arity) ->
+    ok;
 assert_func_exported(Mod, Fun, Arity) ->
-    ok = try_load(Mod),
+    %% call emqx_utils:interactive_load to make sure it will work in tests.
+    %% in production, the module has to be pre-loaded by plugin management code
+    ok = emqx_utils:interactive_load(Mod),
     case erlang:function_exported(Mod, Fun, Arity) of
         true ->
             ok;
@@ -297,18 +314,6 @@ assert_func_exported(Mod, Fun, Arity) ->
                 function => Fun,
                 arity => Arity
             })
-    end.
-
-%% best effort to load the module because it might not be loaded as a part of the release modules
-%% e.g. from a plugin.
-%% do not call code server, just try to call a function in the module.
-try_load(Mod) ->
-    try
-        _ = erlang:apply(Mod, module_info, [md5]),
-        ok
-    catch
-        _:_ ->
-            ok
     end.
 
 assert_module_allowed(Mod) when ?IS_ALLOWED_MOD(Mod) ->

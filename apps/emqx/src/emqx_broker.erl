@@ -25,7 +25,7 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--export([start_link/2]).
+-export([start_link/2, create_tabs/0]).
 
 %% PubSub
 -export([
@@ -104,7 +104,6 @@
 
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
-    ok = create_tabs(),
     gen_server:start_link(
         {local, emqx_utils:proc_name(?BROKER, Id)},
         ?MODULE,
