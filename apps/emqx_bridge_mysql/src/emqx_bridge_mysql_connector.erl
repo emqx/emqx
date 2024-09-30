@@ -141,7 +141,7 @@ on_remove_channel(
     _InstanceId, #{channels := Channels, connector_state := ConnectorState} = State, ChannelId
 ) when is_map_key(ChannelId, Channels) ->
     ChannelConfig = maps:get(ChannelId, Channels),
-    emqx_mysql:unprepare_sql(maps:merge(ChannelConfig, ConnectorState)),
+    emqx_mysql:unprepare_sql(ChannelId, maps:merge(ChannelConfig, ConnectorState)),
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
     {ok, NewState};
 on_remove_channel(_InstanceId, State, _ChannelId) ->
