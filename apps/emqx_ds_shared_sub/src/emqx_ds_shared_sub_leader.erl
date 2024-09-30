@@ -13,7 +13,6 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    start_link/1,
     become/2
 ]).
 
@@ -92,20 +91,11 @@
 %% API
 %%--------------------------------------------------------------------
 
-start_link(Options) ->
-    gen_statem:start_link(?MODULE, [Options], []).
-
 become(ShareTopicFilter, Claim) ->
     Data0 = init_data(ShareTopicFilter),
     Data0 =/= false orelse exit(shared_subscription_not_declared),
     Data1 = attach_claim(Claim, Data0),
-    case store_is_dirty(Data1) of
-        true ->
-            Actions = force_claim_renewal(Data1);
-        false ->
-            Actions = init_claim_renewal(Data1)
-    end,
-    gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, Actions).
+    gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, init_claim_renewal(Data1)).
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
@@ -113,11 +103,9 @@ become(ShareTopicFilter, Claim) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#{share_topic_filter := ShareTopicFilter} = _Options]) ->
-    _ = erlang:process_flag(trap_exit, true),
-    Data = init_data(ShareTopicFilter),
-    Data =/= false orelse exit(shared_subscription_not_declared),
-    {ok, ?leader_active, Data}.
+init(_Args) ->
+    %% NOTE: Currently, the only entrypoint is `become/2` that calls `enter_loop/5`.
+    {error, noimpl}.
 
 init_data(#share{topic = Topic} = ShareTopicFilter) ->
     StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
@@ -139,9 +127,6 @@ init_data(#share{topic = Topic} = ShareTopicFilter) ->
 
 attach_claim(Claim, Data) ->
     Data#{leader_claim => Claim}.
-
-force_claim_renewal(_Data = #{}) ->
-    [{{timeout, #renew_leader_claim{}}, 0, #renew_leader_claim{}}].
 
 init_claim_renewal(_Data = #{leader_claim := Claim}) ->
     Interval = emqx_ds_shared_sub_store:heartbeat_interval(Claim),
@@ -1070,9 +1055,6 @@ make_iterator(Stream, TopicFilter, StartTime) ->
     emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime).
 
 %% Leader store
-
-store_is_dirty(#{store := Store}) ->
-    emqx_ds_shared_sub_store:dirty(Store).
 
 store_get_stream(#{store := Store}, ID) ->
     emqx_ds_shared_sub_store:get(stream, ID, Store).
