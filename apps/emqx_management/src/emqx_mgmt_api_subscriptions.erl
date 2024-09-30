@@ -238,14 +238,13 @@ do_subscriptions_query_mem(QString) ->
     end.
 
 do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = QString) ->
-    PageSize = 100,
     Stream0 = emqx_utils_stream:ets(
         %% FIXME
         fun
             (undefined) ->
                 {[], emqx_persistent_session_ds_state:make_subscription_iterator()};
             (It) ->
-                emqx_persistent_session_ds_state:subscription_iterator_next(It, PageSize)
+                emqx_persistent_session_ds_state:subscription_iterator_next(It, _ReadAhead = 20)
         end
     ),
     SubMap = fun enrich_dssub/1,
@@ -264,7 +263,7 @@ do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = 
     Subscriptions = [dssub_to_subscription(S) || S <- DSSubs],
     %% NOTE
     %% We have `emqx_persistent_session_ds_state:total_subscriptions_count/0` but it's
-    %% too expensive for now, because it essentially a full-scan. There is also
+    %% too expensive for now, because it essentially is a full-scan. There is also
     %% `emqx_persistent_session_bookkeeper:get_subscription_count/0` but it lags behind
     %% on the other hand, and that breaks few assumptions. Thus, API clients have to do
     %% w/o `count` here, even when there's no filtering.
