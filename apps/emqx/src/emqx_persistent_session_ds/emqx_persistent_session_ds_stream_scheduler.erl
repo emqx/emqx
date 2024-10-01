@@ -130,7 +130,12 @@
     find_replay_streams/1,
     is_fully_acked/2
 ]).
--export([renew_streams/2, on_unsubscribe/3]).
+
+-export([
+    renew_streams/2,
+    on_unsubscribe/3,
+    on_unsubscribe/4
+]).
 
 %% behavior callbacks:
 -export([]).
@@ -397,9 +402,7 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
 %% with the smallest RankY.
 %%
 %% This way, messages from the same topic/shard are never reordered.
--spec renew_streams(
-    emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds_stream_scheduler:t()
-) ->
+-spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 renew_streams(S0, SchedS0) ->
     S1 = remove_unsubscribed_streams(S0),
@@ -466,11 +469,7 @@ on_unsubscribe(SubId, S0, SchedS0) ->
                 {SubId, _Stream} ->
                     %% This stream belongs to a deleted subscription.
                     %% Mark for deletion:
-                    Srs = Srs0#srs{unsubscribed = true},
-                    {
-                        emqx_persistent_session_ds_state:put_stream(Key, Srs, S1),
-                        to_U(Key, Srs, SchedS1)
-                    };
+                    unsubscribe_stream(Key, Srs0, S1, SchedS1);
                 _ ->
                     {S1, SchedS1}
             end
@@ -478,6 +477,20 @@ on_unsubscribe(SubId, S0, SchedS0) ->
         {S0, SchedS0},
         S0
     ).
+
+on_unsubscribe(SubId, Stream, S, SchedS) ->
+    Key = {SubId, Stream},
+    Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
+    unsubscribe_stream(Key, Srs, S, SchedS).
+
+unsubscribe_stream(Key, Srs0 = #srs{}, S, SchedS) ->
+    Srs = Srs0#srs{unsubscribed = true},
+    {
+        emqx_persistent_session_ds_state:put_stream(Key, Srs, S),
+        to_U(Key, Srs, SchedS)
+    };
+unsubscribe_stream(_Key, undefined, S, SchedS) ->
+    {S, SchedS}.
 
 -spec is_fully_acked(
     emqx_persistent_session_ds:stream_state(), emqx_persistent_session_ds_state:t()
