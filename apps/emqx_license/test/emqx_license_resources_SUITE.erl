@@ -42,7 +42,7 @@ t_connection_count(_Config) ->
                 #{?snk_kind := emqx_license_resources_updated},
                 1000
             ),
-            emqx_license_resources:connection_count()
+            emqx_license_resources:cached_connection_count()
         end,
         fun(ConnCount, Trace) ->
             ?assertEqual(0, ConnCount),
@@ -69,7 +69,7 @@ t_connection_count(_Config) ->
                 #{?snk_kind := emqx_license_resources_updated},
                 1000
             ),
-            emqx_license_resources:connection_count()
+            emqx_license_resources:cached_connection_count()
         end,
         fun(ConnCount, _Trace) ->
             ?assertEqual(15, ConnCount)
