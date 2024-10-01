@@ -631,54 +631,65 @@ format_payload(Payload, Type) ->
     %% too long, truncate to 100B
     format_payload_limit(Type, Payload, ?TRUNCATED_PAYLOAD_SIZE).
 
-format_payload_limit(Type, Payload, Limit) when size(Payload) > Limit ->
-    {Part, TruncatedBytes} = truncate_payload(Type, Limit, Payload),
+format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
+    {Type, Part, TruncatedBytes} = truncate_payload(Type0, Limit, Payload),
     case TruncatedBytes > 0 of
         true ->
             [do_format_payload(Type, Part), "...(", integer_to_list(TruncatedBytes), " bytes)"];
         false ->
             do_format_payload(Type, Payload)
     end;
-format_payload_limit(Type, Payload, _Limit) ->
-    do_format_payload(Type, Payload).
+format_payload_limit(text, Payload, _Limit) ->
+    case is_utf8(Payload) of
+        true ->
+            do_format_payload(text, Payload);
+        false ->
+            do_format_payload(hex, Payload)
+    end;
+format_payload_limit(hex, Payload, _Limit) ->
+    do_format_payload(hex, Payload).
 
 do_format_payload(text, Bytes) ->
-    case is_utf8(Bytes) of
-        true ->
-            Bytes;
-        false ->
-            do_format_payload(hex, Bytes)
-    end;
+    %% utf8 ensured
+    Bytes;
 do_format_payload(hex, Bytes) ->
     ["hex:", binary:encode_hex(Bytes)].
 
-is_utf8(<<>>) ->
-    true;
-is_utf8(<<_/utf8, Rest/binary>>) ->
-    is_utf8(Rest);
-is_utf8(_) ->
-    false.
+is_utf8(Bytes) ->
+    case trim_utf8(size(Bytes), Bytes) of
+        {ok, 0} ->
+            true;
+        _ ->
+            false
+    end.
 
 truncate_payload(hex, Limit, Payload) ->
     <<Part:Limit/binary, Rest/binary>> = Payload,
-    {Part, size(Rest)};
+    {hex, Part, size(Rest)};
 truncate_payload(text, Limit, Payload) ->
-    truncate_utf8(Limit, Payload).
-
-truncate_utf8(Limit, Payload) ->
-    CompleteLen = max(Limit, find_complete_utf8_len(Limit, Payload)),
-    <<Part:CompleteLen/binary, Rest/binary>> = Payload,
-    {Part, size(Rest)}.
+    case find_complete_utf8_len(Limit, Payload) of
+        {ok, Len} ->
+            <<Part:Len/binary, Rest/binary>> = Payload,
+            {text, Part, size(Rest)};
+        error ->
+            <<Part:Limit/binary, Rest/binary>> = Payload,
+            {hex, Part, size(Rest)}
+    end.
 
 find_complete_utf8_len(Limit, Payload) ->
-    TailLen = trim_utf8(Limit, Payload),
-    size(Payload) - TailLen.
+    case trim_utf8(Limit, Payload) of
+        {ok, TailLen} ->
+            {ok, size(Payload) - TailLen};
+        error ->
+            error
+    end.
 
 trim_utf8(Count, <<_/utf8, Rest/binary>> = All) when Count > 0 ->
     trim_utf8(Count - (size(All) - size(Rest)), Rest);
-trim_utf8(_Count, Rest) ->
-    %% either limit =< 0, or there is no valid utf8 char as prefix
-    size(Rest).
+trim_utf8(Count, Bytes) when Count =< 0 ->
+    {ok, size(Bytes)};
+trim_utf8(_Count, _Rest) ->
+    error.
 
 i(true) -> 1;
 i(false) -> 0;
