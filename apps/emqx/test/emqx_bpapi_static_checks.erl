@@ -84,7 +84,9 @@
     % Reason: legacy code. A fun and a QC query are
     % passed in the args, it's futile to try to statically
     % check it
-    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2"
+    "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2,"
+    %% Reason: `emqx_machine' should not depend on `emqx', where the `bpapi' modules live.
+    " emqx_machine_replicant_health_probe:get_core_custom_infos/0"
 ).
 
 %% Only the APIs for the features that haven't reached General
