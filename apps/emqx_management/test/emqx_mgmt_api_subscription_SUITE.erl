@@ -224,7 +224,7 @@ t_subscription_fuzzy_search(Config) ->
         <<"topic/foo/bar">>,
         <<"topic/foo/baz">>
     ],
-    _ = [{ok, _, _} = emqtt:subscribe(Client, T) || T <- Topics],
+    _ = [{ok, _, _} = emqtt:subscribe(Client, T, qos1) || T <- Topics],
 
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     MatchQs = [

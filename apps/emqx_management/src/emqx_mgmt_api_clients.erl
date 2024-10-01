@@ -893,7 +893,7 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
         {Node, Subs} ->
             Formatter =
                 fun(_Sub = {Topic, SubOpts}) ->
-                    emqx_mgmt_api_subscriptions:format(Node, {{Topic, ClientID}, SubOpts})
+                    emqx_mgmt_api_subscriptions:format(Node, {Topic, ClientID}, SubOpts)
                 end,
             {200, lists:map(Formatter, Subs)}
     end.

@@ -19,11 +19,4 @@
 -define(PERSISTENT_MESSAGE_DB, messages).
 -define(PERSISTENCE_ENABLED, emqx_message_persistence_enabled).
 
--define(WITH_DURABILITY_ENABLED(DO),
-    case is_persistence_enabled() of
-        true -> DO;
-        false -> {skipped, disabled}
-    end
-).
-
 -endif.

@@ -154,6 +154,8 @@
     max_awaiting_rel := non_neg_integer() | infinity,
     %% Upgrade QoS?
     upgrade_qos := boolean(),
+    %% Does Upgrade QoS enabled anywhere?
+    upgrade_qos_any := boolean(),
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
     retry_interval := timeout(),
     %% Awaiting PUBREL Timeout (Unit: millisecond)
@@ -251,10 +253,8 @@
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message())) -> t().
 create(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
-    % FIXME error conditions
-    create(
-        hd(choose_impl_candidates(ClientInfo, ConnInfo)), ClientInfo, ConnInfo, MaybeWillMsg, Conf
-    ).
+    [Impl | _] = choose_impl_candidates(ClientInfo, ConnInfo),
+    create(Impl, ClientInfo, ConnInfo, MaybeWillMsg, Conf).
 
 create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     % FIXME error conditions
@@ -296,12 +296,26 @@ get_session_conf(_ClientInfo = #{zone := Zone}) ->
         max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
         max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
         upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
+        upgrade_qos_any => any_mqtt_conf(upgrade_qos),
         retry_interval => get_mqtt_conf(Zone, retry_interval),
         await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout)
     }.
 
 get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
+
+any_mqtt_conf(KeyFlag) ->
+    emqx_config:get([mqtt, KeyFlag]) orelse any_mqtt_zone_conf([mqtt, KeyFlag]).
+
+any_mqtt_zone_conf(KeyPath) ->
+    Zones = emqx_config:get([zones]),
+    maps:fold(
+        fun(_Zone, Conf, Acc) ->
+            Acc orelse emqx_utils_maps:deep_get(KeyPath, Conf, false)
+        end,
+        false,
+        Zones
+    ).
 
 %%--------------------------------------------------------------------
 %% Existing sessions

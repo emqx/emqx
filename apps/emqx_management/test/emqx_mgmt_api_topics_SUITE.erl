@@ -240,7 +240,7 @@ t_persistent_topics(_Config) ->
     ClientPersistent1 = client(SessionId1, PersistentOpts),
     ClientPersistent2 = client(SessionId2, PersistentOpts),
     _ = [
-        ?assertMatch({ok, _, _}, emqtt:subscribe(Client, Topic))
+        ?assertMatch({ok, _, _}, emqtt:subscribe(Client, Topic, qos1))
      || {Client, Topics} <- [
             {Client1, [<<"t/client/mem">>, <<"t/+">>]},
             {Client2, [<<"t/client/mem">>, <<"t/+">>]},
@@ -251,50 +251,35 @@ t_persistent_topics(_Config) ->
     ],
     Matched = request_json(get, ["topics"]),
     ?assertMatch(
-        #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 8},
-        maps:get(<<"meta">>, Matched)
+        #{<<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 4}},
+        Matched
     ),
     %% Get back both topics for both persistent and in-memory subscriptions.
+    Node = atom_to_binary(node()),
     Expected = [
-        #{<<"topic">> => <<"t/+">>, <<"node">> => atom_to_binary(node())},
-        #{<<"topic">> => <<"t/+">>, <<"session">> => SessionId1},
-        #{<<"topic">> => <<"t/+">>, <<"session">> => SessionId2},
-        #{<<"topic">> => <<"t/client/mem">>, <<"node">> => atom_to_binary(node())},
-        #{<<"topic">> => <<"t/client/ps">>, <<"session">> => SessionId1},
-        #{<<"topic">> => <<"t/client/ps">>, <<"session">> => SessionId2},
-        #{<<"topic">> => <<"t/persistent/#">>, <<"session">> => SessionId1},
-        #{<<"topic">> => <<"t/persistent/#">>, <<"session">> => SessionId2}
+        #{<<"topic">> => <<"t/+">>, <<"node">> => Node},
+        #{<<"topic">> => <<"t/client/mem">>, <<"node">> => Node},
+        #{<<"topic">> => <<"t/client/ps">>, <<"node">> => Node},
+        #{<<"topic">> => <<"t/persistent/#">>, <<"node">> => Node}
     ],
     ?assertEqual(
         lists:sort(Expected),
         lists:sort(maps:get(<<"data">>, Matched))
     ),
     %% Are results the same when paginating?
-    #{<<"data">> := Page1} = R1 = request_json(get, ["topics"], [{"page", "1"}, {"limit", "3"}]),
-    #{<<"data">> := Page2} = request_json(get, ["topics"], [{"page", "2"}, {"limit", "3"}]),
-    #{<<"data">> := Page3} = request_json(get, ["topics"], [{"page", "3"}, {"limit", "3"}]),
+    #{<<"data">> := Page1} = R1 = request_json(get, ["topics"], [{"page", "1"}, {"limit", "2"}]),
+    #{<<"data">> := Page2} = request_json(get, ["topics"], [{"page", "2"}, {"limit", "2"}]),
     ?assertEqual(
         lists:sort(Expected),
-        lists:sort(Page1 ++ Page2 ++ Page3)
+        lists:sort(Page1 ++ Page2)
     ),
     %% Count respects persistent sessions.
     ?assertMatch(
         #{
-            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 3, <<"count">> := 8},
-            <<"data">> := [_, _, _]
+            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 2, <<"count">> := 4},
+            <<"data">> := [_, _]
         },
         R1
-    ),
-    %% Filtering by node makes no sense for persistent sessions.
-    ?assertMatch(
-        #{
-            <<"data">> := [
-                #{<<"topic">> := <<"t/client/mem">>, <<"node">> := _},
-                #{<<"topic">> := <<"t/+">>, <<"node">> := _}
-            ],
-            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 2}
-        },
-        request_json(get, ["topics"], [{"node", atom_to_list(node())}])
     ).
 
 %% Utilities

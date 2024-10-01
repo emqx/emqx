@@ -19,14 +19,44 @@
 -define(PS_ROUTER_TAB, emqx_ds_ps_router).
 -define(PS_FILTERS_TAB, emqx_ds_ps_filters).
 
+-define(PS_ROUTER_EXT_TAB, emqx_ds_ps_router_ext).
+-define(PS_FILTERS_EXT_TAB, emqx_ds_ps_filters_ext).
+
+-define(PS_ROUTER_TABS, [
+    ?PS_ROUTER_TAB,
+    ?PS_FILTERS_TAB,
+    ?PS_ROUTER_EXT_TAB,
+    ?PS_FILTERS_EXT_TAB
+]).
+
 -record(ps_route, {
-    topic :: binary(),
-    dest :: emqx_persistent_session_ds_router:dest() | '_'
+    topic :: binary() | emqx_utils_ets:pat(),
+    dest :: emqx_persistent_session_ds_router:dest() | emqx_utils_ets:pat()
+}).
+
+-record(ps_route_ext, {
+    entry :: {
+        _Topic :: binary() | emqx_utils_ets:pat(),
+        _Scope :: pos_integer() | emqx_utils_ets:pat(),
+        emqx_persistent_session_ds_router:dest() | emqx_utils_ets:pat()
+    },
+    extra = [] :: nil() | '_'
 }).
 
 -record(ps_routeidx, {
-    entry :: '$1' | emqx_topic_index:key(emqx_persistent_session_ds_router:dest()),
-    unused = [] :: nil() | '_'
+    entry ::
+        emqx_topic_index:key(emqx_persistent_session_ds_router:dest())
+        | emqx_utils_ets:pat(),
+    extra = [] :: nil() | '_'
+}).
+
+-record(ps_routeidx_ext, {
+    entry ::
+        {
+            _Scope :: pos_integer() | emqx_utils_ets:pat(),
+            emqx_topic_index:key(emqx_persistent_session_ds_router:dest()) | emqx_utils_ets:pat()
+        },
+    extra = [] :: nil() | '_'
 }).
 
 -endif.

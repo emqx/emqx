@@ -363,6 +363,7 @@ init([]) ->
         ?DELIVERY_METRICS,
         ?CLIENT_METRICS,
         ?SESSION_METRICS,
+        ?SUBSCRIPTION_METRICS,
         ?STASTS_ACL_METRICS,
         ?STASTS_AUTHN_METRICS,
         ?OLP_METRICS
@@ -509,6 +510,10 @@ reserved_idx('session.resumed') -> 221;
 reserved_idx('session.takenover') -> 222;
 reserved_idx('session.discarded') -> 223;
 reserved_idx('session.terminated') -> 224;
+reserved_idx('subscription.created') -> 250;
+reserved_idx('subscription.deleted') -> 251;
+reserved_idx('subscription.qos0.created') -> 252;
+reserved_idx('subscription.qos0.deleted') -> 253;
 reserved_idx('authorization.allow') -> 300;
 reserved_idx('authorization.deny') -> 301;
 reserved_idx('authorization.cache_hit') -> 302;

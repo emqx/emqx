@@ -55,8 +55,7 @@ init_per_group(with_ds, Config) ->
         [
             emqx_durable_storage,
             {emqx,
-                "durable_sessions {enable = true}"
-                "\ndurable_sessions {\n"
+                "durable_sessions {\n"
                 "  enable = true\n"
                 "  heartbeat_interval = 100ms\n"
                 "  session_gc_interval = 2s\n"
@@ -384,28 +383,30 @@ t_publish_offline_api({init, Config}) ->
         }
     ),
     {ok, _} = emqtt:connect(Client),
-    {ok, _, [0]} = emqtt:subscribe(Client, ?OFFLINE_TOPIC),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, ?OFFLINE_TOPIC, ?QOS_1),
     _ = emqtt:stop(Client),
     Config;
 t_publish_offline_api({'end', _Config}) ->
     ok;
 t_publish_offline_api(_) ->
-    Payload = <<"hello">>,
     Path = emqx_mgmt_api_test_util:api_path(["publish"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     UserProperties = #{<<"foo">> => <<"bar">>},
-    Properties =
-        #{
-            <<"payload_format_indicator">> => 0,
-            <<"message_expiry_interval">> => 1000,
-            <<"correlation_data">> => <<"some_correlation_id">>,
-            <<"user_properties">> => UserProperties,
-            <<"content_type">> => <<"application/json">>
-        },
-    Body = #{topic => ?OFFLINE_TOPIC, payload => Payload, properties => Properties},
+    Properties = #{
+        <<"payload_format_indicator">> => 0,
+        <<"message_expiry_interval">> => 1000,
+        <<"correlation_data">> => <<"some_correlation_id">>,
+        <<"user_properties">> => UserProperties,
+        <<"content_type">> => <<"application/json">>
+    },
+    Body = #{
+        topic => ?OFFLINE_TOPIC,
+        qos => 1,
+        payload => <<"hello">>,
+        properties => Properties
+    },
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
-    ResponseMap = decode_json(Response),
-    ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap))).
+    ?assertMatch(#{<<"id">> := _}, decode_json(Response)).
 
 receive_assert(Topic, Qos, Payload) ->
     receive

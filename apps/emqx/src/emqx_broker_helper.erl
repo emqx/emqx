@@ -30,9 +30,10 @@
     register_sub/2,
     lookup_subid/1,
     lookup_subpid/1,
-    get_sub_shard/2,
-    create_seq/1,
-    reclaim_seq/1
+    get_sub_shard/3,
+    get_shard_scope/1,
+    create_seq/2,
+    reclaim_seq/2
 ]).
 
 %% Stats fun
@@ -61,6 +62,9 @@
 
 -define(BATCH_SIZE, 100000).
 
+-define(PTERM(K), {?MODULE, K}).
+-define(SCOPE_OFFSET_QOS0, 1).
+
 -spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
@@ -84,25 +88,53 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 
--spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
-get_sub_shard(SubPid, Topic) ->
-    case create_seq(Topic) of
-        Seq when Seq =< ?SHARD -> 0;
-        _ -> erlang:phash2(SubPid, shards_num()) + 1
+%% @doc Assign subscription shard to a subscription with given topic and scope.
+%% Subscriptions with `any` scope are assigned shards 0..N-1, subscriptions with
+%% `qos0` scope are assigned shards N..N*2-1, etc., where N is the number of
+%% shards statically configured during the `init/1`.
+-spec get_sub_shard(pid(), emqx_types:topic(), emqx_broker:subscope()) -> non_neg_integer().
+get_sub_shard(SubPid, Topic, Scope) ->
+    NShards = shards_num(),
+    Offset = shards_scope_offset(Scope) * NShards,
+    case create_seq(Topic, Scope) of
+        Seq when Seq =< ?SHARD ->
+            Offset;
+        _ ->
+            Offset + erlang:phash2(SubPid, NShards) + 1
+    end.
+
+shards_scope_offset(any) ->
+    0;
+shards_scope_offset(qos0) ->
+    ?SCOPE_OFFSET_QOS0.
+
+%% @doc Find out which scope this subscription has given its shard number.
+%% According to the rules outlined in the `get_sub_shard/3` docstring.
+-spec get_shard_scope(_Offset :: non_neg_integer()) -> emqx_broker:subscope().
+get_shard_scope(ShardIdx) ->
+    case ShardIdx div shards_num() of
+        0 ->
+            any;
+        ?SCOPE_OFFSET_QOS0 ->
+            qos0
     end.
 
 -spec shards_num() -> pos_integer().
 shards_num() ->
     %% Dynamic sharding later...
-    ets:lookup_element(?HELPER, shards, 2).
+    persistent_term:get(?PTERM(shards)).
 
--spec create_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-create_seq(Topic) ->
-    emqx_sequence:nextval(?SUBSEQ, Topic).
+-spec create_seq(emqx_types:topic(), emqx_broker:subscope()) -> emqx_sequence:seqid().
+create_seq(Topic, any) ->
+    emqx_sequence:nextval(?SUBSEQ, Topic);
+create_seq(Topic, Scope) ->
+    emqx_sequence:nextval(?SUBSEQ, {Topic, Scope}).
 
--spec reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-reclaim_seq(Topic) ->
-    emqx_sequence:reclaim(?SUBSEQ, Topic).
+-spec reclaim_seq(emqx_types:topic(), emqx_broker:subscope()) -> emqx_sequence:seqid().
+reclaim_seq(Topic, any) ->
+    emqx_sequence:reclaim(?SUBSEQ, Topic);
+reclaim_seq(Topic, Scope) ->
+    emqx_sequence:reclaim(?SUBSEQ, {Topic, Scope}).
 
 %%--------------------------------------------------------------------
 %% Stats fun
@@ -126,20 +158,17 @@ safe_update_stats(Val, Stat, MaxStat) when is_integer(Val) ->
 %% N.B.: subscriptions from durable sessions are not tied to any particular node.
 %% Therefore, do not sum them with node-local subscriptions.
 subscription_count() ->
-    table_size(?SUBSCRIPTION).
+    emqx_metrics:val('subscription.created') - emqx_metrics:val('subscription.deleted').
 
 durable_subscription_count() ->
     emqx_persistent_session_bookkeeper:get_subscription_count().
 
 subscriber_val() ->
-    sum_subscriber(table_size(?SUBSCRIBER), table_size(?SHARED_SUBSCRIBER)).
+    emqx_maybe:define(table_size(?SUBSCRIBER), 0) +
+        emqx_maybe:define(table_size(?SHARED_SUBSCRIBER), 0).
 
-sum_subscriber(undefined, undefined) -> undefined;
-sum_subscriber(undefined, V2) when is_integer(V2) -> V2;
-sum_subscriber(V1, undefined) when is_integer(V1) -> V1;
-sum_subscriber(V1, V2) when is_integer(V1), is_integer(V2) -> V1 + V2.
-
-table_size(Tab) when is_atom(Tab) -> ets:info(Tab, size).
+table_size(Tab) when is_atom(Tab) ->
+    ets:info(Tab, size).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -149,7 +178,10 @@ init([]) ->
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
     %% Shards: CPU * 32
-    true = ets:insert(?HELPER, {shards, emqx_vm:schedulers() * 32}),
+    %% NOTE
+    %% If this needs to be made configurable, take into account that this number
+    %% also affects non-any-scope shard assignment.
+    ok = persistent_term:put(?PTERM(shards), emqx_vm:schedulers() * 32),
     %% SubSeq: Topic -> SeqId
     ok = emqx_sequence:create(?SUBSEQ),
     %% SubId: SubId -> SubPid

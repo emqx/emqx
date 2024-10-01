@@ -23,12 +23,17 @@
 
 -export([
     lookup_value/2,
-    lookup_value/3
+    lookup_value/3,
+    lookup_value/4
 ]).
 
 -export([keyfoldl/3]).
 
 -export([delete/1]).
+
+-export_type([pat/0]).
+
+-type pat() :: '_' | '$1' | '$2'.
 
 %% Create an ets table.
 -spec new(atom()) -> ok.
@@ -49,12 +54,16 @@ new(Tab, Opts) ->
 %% KV lookup
 -spec lookup_value(ets:tab(), term()) -> any().
 lookup_value(Tab, Key) ->
-    lookup_value(Tab, Key, undefined).
+    lookup_value(Tab, Key, 2, undefined).
 
 -spec lookup_value(ets:tab(), term(), any()) -> any().
 lookup_value(Tab, Key, Def) ->
+    lookup_value(Tab, Key, 2, Def).
+
+-spec lookup_value(ets:tab(), term(), _Pos :: pos_integer(), any()) -> any().
+lookup_value(Tab, Key, Pos, Def) ->
     try
-        ets:lookup_element(Tab, Key, 2)
+        ets:lookup_element(Tab, Key, Pos)
     catch
         error:badarg -> Def
     end.

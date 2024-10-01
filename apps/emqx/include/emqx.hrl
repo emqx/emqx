@@ -50,7 +50,7 @@
 %% Message and Delivery
 %%--------------------------------------------------------------------
 
--record(subscription, {topic, subid, subopts}).
+-record(subscription, {sub, opts, shard, scope}).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 

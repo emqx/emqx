@@ -100,10 +100,9 @@ select_routes_by_topics(Topics) ->
     [encode_route(Topic, Topic) || Topic <- Topics, emqx_broker:subscribers(Topic) =/= []].
 
 select_routes_by_wildcards(Wildcards) ->
-    emqx_utils_ets:keyfoldl(
+    emqx_broker:foldl_topics(
         fun(Topic, Acc) -> intersecting_route(Topic, Wildcards) ++ Acc end,
-        [],
-        ?SUBSCRIBER
+        []
     ).
 
 select_shared_sub_routes_by_topics([T | Topics]) ->

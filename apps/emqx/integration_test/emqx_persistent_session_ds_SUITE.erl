@@ -125,10 +125,18 @@ app_specs() ->
     app_specs(_Opts = #{}).
 
 app_specs(Opts) ->
-    DefaultEMQXConf = "durable_sessions {enable = true, renew_streams_interval = 1s}",
+    DefaultEMQXConf = "durable_sessions { enable = true, renew_streams_interval = 1s }",
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
-        {emqx, DefaultEMQXConf ++ ExtraEMQXConf}
+        {emqx, #{
+            config => DefaultEMQXConf ++ ExtraEMQXConf,
+            after_start => fun() ->
+                % NOTE
+                % This one is actually defined on `emqx_conf_schema` level, but used
+                % in `emqx_broker`. Thus we have to resort to this ugly hack.
+                emqx_config:force_put([rpc, mode], async)
+            end
+        }}
     ].
 
 get_mqtt_port(Node, Type) ->
@@ -235,12 +243,6 @@ t_session_subscription_idempotency(Config) ->
                 #{?snk_kind := will_restart_node},
                 _Guard0 = true
             ),
-            ?force_ordering(
-                #{?snk_kind := restarted_node},
-                _NEvents1 = 1,
-                #{?snk_kind := persistent_session_ds_open_iterators, ?snk_span := start},
-                _Guard1 = true
-            ),
 
             spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
 
@@ -248,25 +250,17 @@ t_session_subscription_idempotency(Config) ->
             Client0 = start_client(#{port => Port, clientid => ClientId}),
             {ok, _} = emqtt:connect(Client0),
             ?tp(notice, "subscribing 1", #{}),
-            process_flag(trap_exit, true),
             catch emqtt:subscribe(Client0, SubTopicFilter, qos2),
-            receive
-                {'EXIT', {shutdown, _}} ->
-                    ok
-            after 100 -> ok
-            end,
-            process_flag(trap_exit, false),
+            ?assertProcessExit(Client0, {shutdown, _}),
 
             {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
             ?tp(notice, "starting 2", #{}),
             Client1 = start_client(#{port => Port, clientid => ClientId}),
             {ok, _} = emqtt:connect(Client1),
             ?tp(notice, "subscribing 2", #{}),
-            {ok, _, [2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
+            {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
 
-            ok = emqtt:stop(Client1),
-
-            ok
+            ok = emqtt:stop(Client1)
         end,
         fun(_Trace) ->
             Session = session_open(Node1, ClientId),
@@ -289,18 +283,10 @@ t_session_unsubscription_idempotency(Config) ->
         #{timetrap => 30_000},
         begin
             ?force_ordering(
-                #{
-                    ?snk_kind := persistent_session_ds_subscription_delete
-                },
+                #{?snk_kind := persistent_session_ds_subscription_delete},
                 _NEvents0 = 1,
                 #{?snk_kind := will_restart_node},
                 _Guard0 = true
-            ),
-            ?force_ordering(
-                #{?snk_kind := restarted_node},
-                _NEvents1 = 1,
-                #{?snk_kind := persistent_session_ds_subscription_route_delete, ?snk_span := start},
-                _Guard1 = true
             ),
 
             spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
@@ -311,14 +297,8 @@ t_session_unsubscription_idempotency(Config) ->
             ?tp(notice, "subscribing 1", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, SubTopicFilter, qos2),
             ?tp(notice, "unsubscribing 1", #{}),
-            process_flag(trap_exit, true),
             catch emqtt:unsubscribe(Client0, SubTopicFilter),
-            receive
-                {'EXIT', {shutdown, _}} ->
-                    ok
-            after 100 -> ok
-            end,
-            process_flag(trap_exit, false),
+            ?assertProcessExit(Client0, {shutdown, _}),
 
             {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
             ?tp(notice, "starting 2", #{}),
@@ -327,19 +307,9 @@ t_session_unsubscription_idempotency(Config) ->
             ?tp(notice, "subscribing 2", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
             ?tp(notice, "unsubscribing 2", #{}),
-            {{ok, _, [?RC_SUCCESS]}, {ok, _}} =
-                ?wait_async_action(
-                    emqtt:unsubscribe(Client1, SubTopicFilter),
-                    #{
-                        ?snk_kind := persistent_session_ds_subscription_route_delete,
-                        ?snk_span := {complete, _}
-                    },
-                    15_000
-                ),
+            {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(Client1, SubTopicFilter),
 
-            ok = stop_and_commit(Client1),
-
-            ok
+            ok = stop_and_commit(Client1)
         end,
         fun(_Trace) ->
             Session = session_open(Node1, ClientId),
