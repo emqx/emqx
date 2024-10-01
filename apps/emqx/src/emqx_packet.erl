@@ -54,7 +54,7 @@
     format/2
 ]).
 
--export([format_truncated_payload/3]).
+-export([format_payload/2]).
 
 -define(TYPE_NAMES,
     {'CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL', 'PUBCOMP', 'SUBSCRIBE',
@@ -506,7 +506,7 @@ format_variable(undefined, _, _) ->
 format_variable(Variable, undefined, PayloadEncode) ->
     format_variable(Variable, PayloadEncode);
 format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), ", ", format_payload(Payload, PayloadEncode)].
+    [format_variable(Variable, PayloadEncode), ", ", format_payload_label(Payload, PayloadEncode)].
 
 format_variable(
     #mqtt_packet_connect{
@@ -537,7 +537,7 @@ format_variable(
                     ", Will(Q~p, R~p, Topic=~ts ",
                     [WillQoS, i(WillRetain), WillTopic]
                 ),
-                format_payload(WillPayload, PayloadEncode),
+                format_payload_label(WillPayload, PayloadEncode),
                 ")"
             ];
         false ->
@@ -617,32 +617,84 @@ format_password(undefined) -> "";
 format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
-format_payload(_, hidden) ->
-    "Payload=******";
-format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
-    ["Payload=", unicode:characters_to_list(Payload)];
-format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
-    ["Payload(hex)=", binary:encode_hex(Payload)];
-format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
-    [
-        "Payload=",
-        format_truncated_payload(Part, byte_size(Payload), Type)
-    ].
+format_payload_label(Payload, Type) ->
+    ["Payload=", format_payload(Payload, Type)].
 
-format_truncated_payload(Bin, Size, Type) ->
-    Bin2 =
-        case Type of
-            text -> Bin;
-            hex -> binary:encode_hex(Bin)
-        end,
-    unicode:characters_to_list(
-        [
-            Bin2,
-            "... The ",
-            integer_to_list(Size - ?TRUNCATED_PAYLOAD_SIZE),
-            " bytes of this log are truncated"
-        ]
-    ).
+format_payload(_, hidden) ->
+    "******";
+format_payload(<<>>, _) ->
+    "";
+format_payload(Payload, Type) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
+    %% under the 1KB limit
+    format_payload_limit(Type, Payload, size(Payload));
+format_payload(Payload, Type) ->
+    %% too long, truncate to 100B
+    format_payload_limit(Type, Payload, ?TRUNCATED_PAYLOAD_SIZE).
+
+format_payload_limit(Type, Payload, Limit) when size(Payload) > Limit ->
+    {Part, TruncatedBytes} = truncate_payload(Type, Limit, Payload),
+    case TruncatedBytes > 0 of
+        true ->
+            [do_format_payload(Type, Part), "...(", integer_to_list(TruncatedBytes), " bytes)"];
+        false ->
+            do_format_payload(Type, Payload)
+    end;
+format_payload_limit(Type, Payload, _Limit) ->
+    do_format_payload(Type, Payload).
+
+do_format_payload(text, Bytes) ->
+    try
+        [_ | _] = unicode:characters_to_list(Bytes)
+    catch
+        _:_ ->
+            do_format_payload(hex, Bytes)
+    end;
+do_format_payload(hex, Bytes) ->
+    ["hex:", binary:encode_hex(Bytes)].
+
+truncate_payload(hex, Limit, Payload) ->
+    <<Part:Limit/binary, Rest/binary>> = Payload,
+    {Part, size(Rest)};
+truncate_payload(text, Limit, Payload) ->
+    truncate_utf8(Limit, Payload).
+
+truncate_utf8(Limit, Payload) ->
+    CompleteLen = find_complete_utf8_len(Limit, Payload),
+    <<Part:CompleteLen/binary, Rest/binary>> = Payload,
+    {Part, size(Rest)}.
+
+find_complete_utf8_len(StartLen, Payload) ->
+    %% check ahead 3 bytes, to find the next 1st byte utf8 encoded character
+    CheckAhead = min(size(Payload) - StartLen, 3),
+    find_complete_utf8_len(StartLen, 0, CheckAhead, Payload).
+
+find_complete_utf8_len(Len, Shift, MaxShift, _Payload) when Shift > MaxShift ->
+    %% hopeless case, failed to find a utf8 character boundary
+    Len;
+find_complete_utf8_len(Len, Shift, MaxShift, Payload) ->
+    <<_:(Len + Shift)/binary, NextByte, _/binary>> = Payload,
+    case is_first_utf8(NextByte) of
+        true ->
+            Len + Shift;
+        false ->
+            find_complete_utf8_len(Len, Shift + 1, MaxShift, Payload)
+    end.
+
+-compile({inline, is_first_utf8/1}).
+is_first_utf8(Byte) when Byte band 128 =:= 0 ->
+    %% Start of a 1-byte character (0xxxxxxx).
+    true;
+is_first_utf8(Byte) when Byte band 224 =:= 192 ->
+    %% Start of a 2-byte character (110xxxxx).
+    true;
+is_first_utf8(Byte) when Byte band 240 =:= 224 ->
+    %% Start of a 3-byte character (1110xxxx).
+    true;
+is_first_utf8(Byte) when Byte band 248 =:= 240 ->
+    %% Start of a 4-byte character (11110xxx).
+    true;
+is_first_utf8(_) ->
+    false.
 
 i(true) -> 1;
 i(false) -> 0;
