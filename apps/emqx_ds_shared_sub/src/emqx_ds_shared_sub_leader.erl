@@ -13,12 +13,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    start_link/1,
-    become/3
-]).
-
--export([
-    group_name/1
+    become/2
 ]).
 
 -behaviour(gen_statem).
@@ -63,7 +58,7 @@
     group_id := group_id(),
     topic := emqx_types:topic(),
     %% Implement some stats to assign evenly?
-    store := emqx_ds_shared_sub_leader_store:t(),
+    store := emqx_ds_shared_sub_store:t(),
 
     %%
     %% Ephemeral data, should not be persisted
@@ -96,26 +91,11 @@
 %% API
 %%--------------------------------------------------------------------
 
-start_link(Options) ->
-    gen_statem:start_link(?MODULE, [Options], []).
-
-become(ShareTopicFilter, StartTime, Claim) ->
-    Data0 = init_data(ShareTopicFilter, StartTime),
+become(ShareTopicFilter, Claim) ->
+    Data0 = init_data(ShareTopicFilter),
+    Data0 =/= false orelse exit(shared_subscription_not_declared),
     Data1 = attach_claim(Claim, Data0),
-    case store_is_dirty(Data1) of
-        true ->
-            Actions = force_claim_renewal(Data1);
-        false ->
-            Actions = init_claim_renewal(Data1)
-    end,
-    gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, Actions).
-
-%%--------------------------------------------------------------------
-
-group_name(#share{group = ShareGroup, topic = Topic}) ->
-    %% NOTE: Should not contain `/`s.
-    %% TODO: More observable encoding.
-    iolist_to_binary([ShareGroup, $:, binary:encode_hex(Topic)]).
+    gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, init_claim_renewal(Data1)).
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
@@ -123,40 +103,33 @@ group_name(#share{group = ShareGroup, topic = Topic}) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#{share_topic_filter := ShareTopicFilter} = _Options]) ->
-    _ = erlang:process_flag(trap_exit, true),
-    Data = init_data(ShareTopicFilter, now_ms()),
-    {ok, ?leader_active, Data}.
+init(_Args) ->
+    %% NOTE: Currently, the only entrypoint is `become/2` that calls `enter_loop/5`.
+    {error, noimpl}.
 
-init_data(#share{topic = Topic} = ShareTopicFilter, StartTime) ->
-    Group = group_name(ShareTopicFilter),
-    case emqx_ds_shared_sub_leader_store:open(Group) of
+init_data(#share{topic = Topic} = ShareTopicFilter) ->
+    StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
+    case emqx_ds_shared_sub_store:open(StoreID) of
         Store when Store =/= false ->
-            ?tp(debug, shared_sub_leader_store_open, #{topic => ShareTopicFilter, store => Store}),
-            ok;
+            ?tp(debug, dssub_store_open, #{topic => ShareTopicFilter, store => Store}),
+            #{
+                group_id => ShareTopicFilter,
+                topic => Topic,
+                store => Store,
+                stream_owners => #{},
+                agents => #{}
+            };
         false ->
-            ?tp(debug, shared_sub_leader_store_init, #{topic => ShareTopicFilter}),
-            RankProgress = emqx_ds_shared_sub_leader_rank_progress:init(),
-            Store0 = emqx_ds_shared_sub_leader_store:init(Group),
-            Store1 = emqx_ds_shared_sub_leader_store:set(start_time, StartTime, Store0),
-            Store = emqx_ds_shared_sub_leader_store:set(rank_progress, RankProgress, Store1)
-    end,
-    #{
-        group_id => ShareTopicFilter,
-        topic => Topic,
-        store => Store,
-        stream_owners => #{},
-        agents => #{}
-    }.
+            %% NOTE: No leader store -> no subscription
+            ?tp(warning, dssub_store_notfound, #{topic => ShareTopicFilter}),
+            false
+    end.
 
 attach_claim(Claim, Data) ->
     Data#{leader_claim => Claim}.
 
-force_claim_renewal(_Data = #{}) ->
-    [{{timeout, #renew_leader_claim{}}, 0, #renew_leader_claim{}}].
-
 init_claim_renewal(_Data = #{leader_claim := Claim}) ->
-    Interval = emqx_ds_shared_sub_leader_store:heartbeat_interval(Claim),
+    Interval = emqx_ds_shared_sub_store:heartbeat_interval(Claim),
     [{{timeout, #renew_leader_claim{}}, Interval, #renew_leader_claim{}}].
 
 %%--------------------------------------------------------------------
@@ -196,6 +169,8 @@ handle_event({timeout, #renew_leader_claim{}}, #renew_leader_claim{}, ?leader_ac
         Data1 = #{} ->
             Actions = init_claim_renewal(Data1),
             {keep_state, Data1, Actions};
+        {stop, Reason} ->
+            {stop, {shutdown, Reason}};
         Error ->
             {stop, Error}
     end;
@@ -257,12 +232,12 @@ terminate(
     %% NOTE
     %% Call to `commit_dirty/2` will currently block.
     %% On the other hand, call to `disown_leadership/1` should be non-blocking.
-    Group = group_name(ShareTopicFilter),
-    Result = emqx_ds_shared_sub_leader_store:commit_dirty(Claim, Store),
-    ok = emqx_ds_shared_sub_leader_store:disown_leadership(Group, Claim),
+    StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
+    Result = emqx_ds_shared_sub_store:commit_dirty(Claim, Store),
+    ok = emqx_ds_shared_sub_store:disown_leadership(StoreID, Claim),
     ?tp(shared_sub_leader_store_committed_dirty, #{
         id => ShareTopicFilter,
-        group => Group,
+        store => StoreID,
         claim => Claim,
         result => Result
     }).
@@ -275,20 +250,28 @@ terminate(
 
 renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leader_claim := Claim}) ->
     TS = emqx_message:timestamp_now(),
-    Group = group_name(ShareTopicFilter),
-    case emqx_ds_shared_sub_leader_store:commit_renew(Claim, TS, Store0) of
+    case emqx_ds_shared_sub_store:commit_renew(Claim, TS, Store0) of
         {ok, RenewedClaim, CommittedStore} ->
             ?tp(shared_sub_leader_store_committed, #{
                 id => ShareTopicFilter,
-                group => Group,
+                store => emqx_ds_shared_sub_store:id(CommittedStore),
                 claim => Claim,
                 renewed => RenewedClaim
             }),
             attach_claim(RenewedClaim, Data#{store := CommittedStore});
+        destroyed ->
+            %% NOTE
+            %% Not doing anything under the assumption that destroys happen long after
+            %% clients are gone and leaders are dead.
+            ?tp(warning, "Shared subscription leader store destroyed", #{
+                id => ShareTopicFilter,
+                store => emqx_ds_shared_sub_store:id(Store0)
+            }),
+            {stop, shared_subscription_destroyed};
         {error, Class, Reason} = Error ->
             ?tp(warning, "Shared subscription leader store commit failed", #{
                 id => ShareTopicFilter,
-                group => Group,
+                store => emqx_ds_shared_sub_store:id(Store0),
                 claim => Claim,
                 reason => Reason
             }),
@@ -825,7 +808,7 @@ disconnect_agent(Data0, Agent, AgentStreamProgresses, Version) ->
                 version => Version
             }),
             Data1 = update_agent_stream_states(Data0, Agent, AgentStreamProgresses, Version),
-            Data2 = drop_agent(Data1, Agent),
+            Data2 = with_agent(Data1, Agent, fun() -> drop_agent(Data1, Agent) end),
             Data2;
         _ ->
             ?tp(warning, shared_sub_leader_unexpected_disconnect, #{
@@ -932,9 +915,6 @@ agent_transition_to_updating(Agent, #{state := ?waiting_updating} = AgentState0)
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-
-now_ms() ->
-    erlang:system_time(millisecond).
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
@@ -1076,34 +1056,32 @@ make_iterator(Stream, TopicFilter, StartTime) ->
 
 %% Leader store
 
-store_is_dirty(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:dirty(Store).
-
 store_get_stream(#{store := Store}, ID) ->
-    emqx_ds_shared_sub_leader_store:get(stream, ID, Store).
+    emqx_ds_shared_sub_store:get(stream, ID, Store).
 
 store_put_stream(Data = #{store := Store0}, ID, StreamData) ->
-    Store = emqx_ds_shared_sub_leader_store:put(stream, ID, StreamData, Store0),
+    Store = emqx_ds_shared_sub_store:put(stream, ID, StreamData, Store0),
     Data#{store := Store}.
 
 store_delete_stream(Data = #{store := Store0}, ID) ->
-    Store = emqx_ds_shared_sub_leader_store:delete(stream, ID, Store0),
+    Store = emqx_ds_shared_sub_store:delete(stream, ID, Store0),
     Data#{store := Store}.
 
 store_get_rank_progress(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:get(rank_progress, Store).
+    emqx_ds_shared_sub_store:get(rank_progress, Store).
 
 store_put_rank_progress(Data = #{store := Store0}, RankProgress) ->
-    Store = emqx_ds_shared_sub_leader_store:set(rank_progress, RankProgress, Store0),
+    Store = emqx_ds_shared_sub_store:set(rank_progress, RankProgress, Store0),
     Data#{store := Store}.
 
 store_get_start_time(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:get(start_time, Store).
+    Props = emqx_ds_shared_sub_store:get(properties, Store),
+    maps:get(start_time, Props).
 
 store_num_streams(#{store := Store}) ->
-    emqx_ds_shared_sub_leader_store:size(stream, Store).
+    emqx_ds_shared_sub_store:size(stream, Store).
 
 store_setof_streams(#{store := Store}) ->
     Acc0 = sets:new([{version, 2}]),
     FoldFun = fun(Stream, _StreamData, Acc) -> sets:add_element(Stream, Acc) end,
-    emqx_ds_shared_sub_leader_store:fold(stream, FoldFun, Acc0, Store).
+    emqx_ds_shared_sub_store:fold(stream, FoldFun, Acc0, Store).

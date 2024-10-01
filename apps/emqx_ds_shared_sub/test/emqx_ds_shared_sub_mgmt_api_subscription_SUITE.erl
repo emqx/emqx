@@ -42,7 +42,11 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
-init_per_testcase(_TC, Config) ->
+init_per_testcase(TC, Config) ->
+    Group = atom_to_binary(TC),
+    Topic = <<"t/+">>,
+    TS = emqx_message:timestamp_now(),
+    {ok, Queue} = emqx_ds_shared_sub_queue:declare(Group, Topic, TS, _StartTime = 0),
     ClientConfig = #{
         username => ?USERNAME,
         clientid => ?CLIENTID,
@@ -50,22 +54,32 @@ init_per_testcase(_TC, Config) ->
         clean_start => true,
         properties => #{'Session-Expiry-Interval' => 300}
     },
-
     {ok, Client} = emqtt:start_link(ClientConfig),
     {ok, _} = emqtt:connect(Client),
-    [{client_config, ClientConfig}, {client, Client} | Config].
+    [
+        {client_config, ClientConfig},
+        {client, Client},
+        {queue_group, Group},
+        {queue_topic, Topic},
+        {queue, Queue}
+        | Config
+    ].
 
 end_per_testcase(_TC, Config) ->
     Client = proplists:get_value(client, Config),
-    emqtt:disconnect(Client).
+    _ = emqtt:disconnect(Client),
+    Group = proplists:get_value(queue_group, Config),
+    Topic = proplists:get_value(queue_topic, Config),
+    ok = emqx_ds_shared_sub_queue:destroy(Group, Topic).
 
-t_list_with_shared_sub(_Config) ->
-    Client = proplists:get_value(client, _Config),
-    RealTopic = <<"t/+">>,
-    Topic = <<"$share/g1/", RealTopic/binary>>,
+t_list_with_shared_sub(Config) ->
+    Client = proplists:get_value(client, Config),
+    Group = proplists:get_value(queue_group, Config),
+    RealTopic = proplists:get_value(queue_topic, Config),
+    ShareTopic = iolist_to_binary(["$share/", Group, "/", RealTopic]),
 
-    {ok, _, _} = emqtt:subscribe(Client, Topic),
-    {ok, _, _} = emqtt:subscribe(Client, RealTopic),
+    {ok, _, [0]} = emqtt:subscribe(Client, ShareTopic),
+    {ok, _, [0]} = emqtt:subscribe(Client, RealTopic),
 
     QS0 = [
         {"clientid", ?CLIENTID},
@@ -80,21 +94,22 @@ t_list_with_shared_sub(_Config) ->
 
     QS1 = [
         {"clientid", ?CLIENTID},
-        {"share_group", "g1"}
+        {"share_group", Group}
     ],
 
     ?assertMatch(
-        #{<<"data">> := [#{<<"clientid">> := ?CLIENTID, <<"topic">> := <<"$share/g1/t/+">>}]},
+        #{<<"data">> := [#{<<"clientid">> := ?CLIENTID, <<"topic">> := ShareTopic}]},
         request_json(get, QS1, Headers)
     ).
 
 t_list_with_invalid_match_topic(Config) ->
     Client = proplists:get_value(client, Config),
-    RealTopic = <<"t/+">>,
-    Topic = <<"$share/g1/", RealTopic/binary>>,
+    Group = proplists:get_value(queue_group, Config),
+    RealTopic = proplists:get_value(queue_topic, Config),
+    Topic = iolist_to_binary(["$share/", Group, "/", RealTopic]),
 
-    {ok, _, _} = emqtt:subscribe(Client, Topic),
-    {ok, _, _} = emqtt:subscribe(Client, RealTopic),
+    {ok, _, [0]} = emqtt:subscribe(Client, Topic),
+    {ok, _, [0]} = emqtt:subscribe(Client, RealTopic),
 
     QS = [
         {"clientid", ?CLIENTID},
