@@ -96,7 +96,6 @@ record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.
 
 get_connected_client_count() ->
-    %% NOTE: this call is very slow
     Gatewyas = emqx_gateway_utils:find_gateway_definitions(),
     Fun = fun(#{name := Name}, Acc) ->
         Tab = tabname(Name),
