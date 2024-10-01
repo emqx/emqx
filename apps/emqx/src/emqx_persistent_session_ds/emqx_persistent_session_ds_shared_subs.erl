@@ -45,7 +45,6 @@
     on_streams_replay/3,
     on_info/3,
 
-    pre_renew_streams/3,
     renew_streams/3,
     to_map/2
 ]).
@@ -310,18 +309,6 @@ schedule_unsubscribe(
             }),
             SharedSubS0#{scheduled_actions := ScheduledActions1}
     end.
-
-%%--------------------------------------------------------------------
-%% pre_renew_streams
-
--spec pre_renew_streams(
-    emqx_persistent_session_ds_state:t(),
-    emqx_persistent_session_ds_stream_scheduler:t(),
-    t()
-) ->
-    {emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds_stream_scheduler:t(), t()}.
-pre_renew_streams(S, SchedS, SharedS) ->
-    on_streams_replay(S, SchedS, SharedS).
 
 %%--------------------------------------------------------------------
 %% renew_streams
