@@ -808,7 +808,7 @@ disconnect_agent(Data0, Agent, AgentStreamProgresses, Version) ->
                 version => Version
             }),
             Data1 = update_agent_stream_states(Data0, Agent, AgentStreamProgresses, Version),
-            Data2 = drop_agent(Data1, Agent),
+            Data2 = with_agent(Data1, Agent, fun() -> drop_agent(Data1, Agent) end),
             Data2;
         _ ->
             ?tp(warning, shared_sub_leader_unexpected_disconnect, #{
