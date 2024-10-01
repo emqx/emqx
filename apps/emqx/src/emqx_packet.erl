@@ -659,42 +659,19 @@ truncate_payload(text, Limit, Payload) ->
     truncate_utf8(Limit, Payload).
 
 truncate_utf8(Limit, Payload) ->
-    CompleteLen = find_complete_utf8_len(Limit, Payload),
+    CompleteLen = max(Limit, find_complete_utf8_len(Limit, Payload)),
     <<Part:CompleteLen/binary, Rest/binary>> = Payload,
     {Part, size(Rest)}.
 
-find_complete_utf8_len(StartLen, Payload) ->
-    %% check ahead 3 bytes, to find the next 1st byte utf8 encoded character
-    CheckAhead = min(size(Payload) - StartLen, 3),
-    find_complete_utf8_len(StartLen, 0, CheckAhead, Payload).
+find_complete_utf8_len(Limit, Payload) ->
+    TailLen = trim_utf8(Limit, Payload),
+    size(Payload) - TailLen.
 
-find_complete_utf8_len(Len, Shift, MaxShift, _Payload) when Shift > MaxShift ->
-    %% hopeless case, failed to find a utf8 character boundary
-    Len;
-find_complete_utf8_len(Len, Shift, MaxShift, Payload) ->
-    <<_:(Len + Shift)/binary, NextByte, _/binary>> = Payload,
-    case is_first_utf8(NextByte) of
-        true ->
-            Len + Shift;
-        false ->
-            find_complete_utf8_len(Len, Shift + 1, MaxShift, Payload)
-    end.
-
--compile({inline, is_first_utf8/1}).
-is_first_utf8(Byte) when Byte band 128 =:= 0 ->
-    %% Start of a 1-byte character (0xxxxxxx).
-    true;
-is_first_utf8(Byte) when Byte band 224 =:= 192 ->
-    %% Start of a 2-byte character (110xxxxx).
-    true;
-is_first_utf8(Byte) when Byte band 240 =:= 224 ->
-    %% Start of a 3-byte character (1110xxxx).
-    true;
-is_first_utf8(Byte) when Byte band 248 =:= 240 ->
-    %% Start of a 4-byte character (11110xxx).
-    true;
-is_first_utf8(_) ->
-    false.
+trim_utf8(Count, <<_/utf8, Rest/binary>> = All) when Count > 0 ->
+    trim_utf8(Count - (size(All) - size(Rest)), Rest);
+trim_utf8(_Count, Rest) ->
+    %% either limit =< 0, or there is no valid utf8 char as prefix
+    size(Rest).
 
 i(true) -> 1;
 i(false) -> 0;

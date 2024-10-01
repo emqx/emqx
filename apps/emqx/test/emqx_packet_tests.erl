@@ -81,7 +81,7 @@ invalid_utf8_fallback_test() ->
     %% invalidate utf8 byte sequence, so it should fallback to hex
     InvalidUtf8 = 255,
     Payload = iolist_to_binary([
-        Prefix, Last3Bytes, InvalidUtf8, lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE, $b)
+        Prefix, InvalidUtf8, lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE, $b)
     ]),
     Lost = size(Payload) - iolist_size(Prefix),
     Expected = iolist_to_binary([
