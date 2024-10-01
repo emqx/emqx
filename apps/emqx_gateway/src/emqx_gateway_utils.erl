@@ -720,8 +720,8 @@ do_find_gateway_definitions() ->
 read_pt_populate_if_missing(Key, Fn) ->
     case persistent_term:get(Key, no_value) of
         no_value ->
-            Value = {value, Fn()},
-            _ = persistent_term:put(Key, Value),
+            Value = Fn(),
+            _ = persistent_term:put(Key, {value, Value}),
             Value;
         {value, Value} ->
             Value
