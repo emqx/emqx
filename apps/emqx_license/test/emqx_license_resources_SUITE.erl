@@ -42,7 +42,7 @@ t_connection_count(_Config) ->
                 #{?snk_kind := emqx_license_resources_updated},
                 1000
             ),
-            emqx_license_resources:connection_count()
+            emqx_license_resources:cached_connection_count()
         end,
         fun(ConnCount, Trace) ->
             ?assertEqual(0, ConnCount),
@@ -57,8 +57,8 @@ t_connection_count(_Config) ->
     meck:expect(
         emqx_license_proto_v2,
         remote_connection_counts,
-        fun(_Nodes) ->
-            [{ok, 5}, {error, some_error}]
+        fun(Nodes) ->
+            [{ok, 5}, {error, some_error}] ++ meck:passthrough([Nodes])
         end
     ),
 
@@ -69,7 +69,7 @@ t_connection_count(_Config) ->
                 #{?snk_kind := emqx_license_resources_updated},
                 1000
             ),
-            emqx_license_resources:connection_count()
+            emqx_license_resources:cached_connection_count()
         end,
         fun(ConnCount, _Trace) ->
             ?assertEqual(15, ConnCount)
