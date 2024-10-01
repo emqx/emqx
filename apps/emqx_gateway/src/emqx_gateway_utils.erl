@@ -704,12 +704,28 @@ default_subopts() ->
 
 -spec find_gateway_definitions() -> list(gateway_def()).
 find_gateway_definitions() ->
+    read_pt_populate_if_missing(
+        emqx_gateways,
+        fun do_find_gateway_definitions/0
+    ).
+
+do_find_gateway_definitions() ->
     lists:flatmap(
         fun(App) ->
             lists:flatmap(fun gateways/1, find_attrs(App, gateway))
         end,
         ?GATEWAYS
     ).
+
+read_pt_populate_if_missing(Key, Fn) ->
+    case persistent_term:get(Key, no_value) of
+        no_value ->
+            Value = {value, Fn()},
+            _ = persistent_term:put(Key, Value),
+            Value;
+        {value, Value} ->
+            Value
+    end.
 
 -spec find_gateway_definition(atom()) -> {ok, map()} | {error, term()}.
 find_gateway_definition(Name) ->
