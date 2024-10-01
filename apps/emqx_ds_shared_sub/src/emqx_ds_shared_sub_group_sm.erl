@@ -119,24 +119,16 @@ new(#{
     share_topic_filter := ShareTopicFilter,
     send_after := SendAfter
 }) ->
-    ?SLOG(
-        debug,
-        #{
-            msg => group_sm_new,
-            agent => Agent,
-            share_topic_filter => ShareTopicFilter
-        }
-    ),
+    ?tp(debug, group_sm_new, #{
+        agent => Agent,
+        share_topic_filter => ShareTopicFilter
+    }),
     GSM0 = #{
         id => SessionId,
         share_topic_filter => ShareTopicFilter,
         agent => Agent,
         send_after => SendAfter
     },
-    ?tp(debug, group_sm_new, #{
-        agent => Agent,
-        share_topic_filter => ShareTopicFilter
-    }),
     transition(GSM0, ?connecting, #{}).
 
 -spec fetch_stream_events(t()) ->
