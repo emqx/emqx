@@ -643,14 +643,21 @@ format_payload_limit(Type, Payload, _Limit) ->
     do_format_payload(Type, Payload).
 
 do_format_payload(text, Bytes) ->
-    try
-        [_ | _] = unicode:characters_to_list(Bytes)
-    catch
-        _:_ ->
+    case is_utf8(Bytes) of
+        true ->
+            Bytes;
+        false ->
             do_format_payload(hex, Bytes)
     end;
 do_format_payload(hex, Bytes) ->
     ["hex:", binary:encode_hex(Bytes)].
+
+is_utf8(<<>>) ->
+    true;
+is_utf8(<<_/utf8, Rest/binary>>) ->
+    is_utf8(Rest);
+is_utf8(_) ->
+    false.
 
 truncate_payload(hex, Limit, Payload) ->
     <<Part:Limit/binary, Rest/binary>> = Payload,
