@@ -57,8 +57,8 @@ t_connection_count(_Config) ->
     meck:expect(
         emqx_license_proto_v2,
         remote_connection_counts,
-        fun(_Nodes) ->
-            [{ok, 5}, {error, some_error}]
+        fun(Nodes) ->
+            [{ok, 5}, {error, some_error}] ++ meck:passthrough([Nodes])
         end
     ),
 

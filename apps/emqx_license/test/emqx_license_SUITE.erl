@@ -74,20 +74,22 @@ t_check_exceeded(_Config) ->
             "10"
         ]
     ),
-    #{} = emqx_license_checker:update(License),
+    #{} = update(License),
 
-    ok = lists:foreach(
+    Pids = lists:map(
         fun(_) ->
             {ok, C} = emqtt:start_link(),
-            {ok, _} = emqtt:connect(C)
+            {ok, _} = emqtt:connect(C),
+            C
         end,
         lists:seq(1, 12)
     ),
-
+    sync_cache(),
     ?assertEqual(
         {stop, {error, ?RC_QUOTA_EXCEEDED}},
         emqx_license:check(#{}, #{})
-    ).
+    ),
+    ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids).
 
 t_check_ok(_Config) ->
     {_, License} = mk_license(
@@ -103,20 +105,21 @@ t_check_ok(_Config) ->
             "10"
         ]
     ),
-    #{} = emqx_license_checker:update(License),
+    #{} = update(License),
 
-    ok = lists:foreach(
-        fun(_) ->
-            {ok, C} = emqtt:start_link(),
-            {ok, _} = emqtt:connect(C)
+    Pids = lists:map(
+        fun(I) ->
+            {ok, C} = emqtt:start_link([{proto_ver, v5}]),
+            ?assertMatch({I, {ok, _}}, {I, emqtt:connect(C)}),
+            C
         end,
         lists:seq(1, 11)
     ),
-
     ?assertEqual(
         {ok, #{}},
         emqx_license:check(#{}, #{})
-    ).
+    ),
+    ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids).
 
 t_check_expired(_Config) ->
     {_, License} = mk_license(
@@ -135,7 +138,7 @@ t_check_expired(_Config) ->
             "10"
         ]
     ),
-    #{} = emqx_license_checker:update(License),
+    #{} = update(License),
 
     ?assertEqual(
         {stop, {error, ?RC_QUOTA_EXCEEDED}},
@@ -190,3 +193,15 @@ mk_license(Fields) ->
         emqx_license_test_lib:public_key_pem()
     ),
     {EncodedLicense, License}.
+
+update(License) ->
+    Result = emqx_license_checker:update(License),
+    sync_cache(),
+    Result.
+
+sync_cache() ->
+    %% force refresh the cache
+    _ = whereis(emqx_license_resources) ! update_resources,
+    %% force sync with the process
+    _ = sys:get_state(whereis(emqx_license_resources)),
+    ok.
