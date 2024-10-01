@@ -835,3 +835,12 @@ t_duplicate_topic_filters(_Config) ->
         []
     ),
     ok.
+
+%% Verifies that some fields are not required when updating a link, such as:
+%%  - clientid
+t_optional_fields_update(_Config) ->
+    Name = <<"mylink">>,
+    Params0 = maps:without([<<"clientid">>], link_params()),
+    {201, _} = create_link(Name, Params0),
+    ?assertMatch({200, _}, update_link(Name, Params0)),
+    ok.

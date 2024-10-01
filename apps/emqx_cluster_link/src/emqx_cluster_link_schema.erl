@@ -55,7 +55,7 @@ fields("link") ->
         {name, ?HOCON(binary(), #{required => true, desc => ?DESC(link_name)})},
         {server,
             emqx_schema:servers_sc(#{required => true, desc => ?DESC(server)}, ?MQTT_HOST_OPTS)},
-        {clientid, ?HOCON(binary(), #{desc => ?DESC(clientid)})},
+        {clientid, ?HOCON(binary(), #{required => false, desc => ?DESC(clientid)})},
         {username, ?HOCON(binary(), #{required => false, desc => ?DESC(username)})},
         {password, emqx_schema_secret:mk(#{required => false, desc => ?DESC(password)})},
         {ssl, #{
