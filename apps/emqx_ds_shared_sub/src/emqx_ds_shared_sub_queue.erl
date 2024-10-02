@@ -60,9 +60,7 @@ destroy(Group, Topic) ->
 destroy(ID) ->
     %% TODO: There's an obvious lack of transactionality.
     case lookup(ID) of
-        false ->
-            not_found;
-        Queue ->
+        {ok, Queue} ->
             #{topic := Topic} = properties(Queue),
             case emqx_ds_shared_sub_store:destroy(Queue) of
                 ok ->
@@ -70,7 +68,9 @@ destroy(ID) ->
                     ok;
                 Error ->
                     Error
-            end
+            end;
+        false ->
+            not_found
     end.
 
 ensure_route(Topic, QueueID) ->

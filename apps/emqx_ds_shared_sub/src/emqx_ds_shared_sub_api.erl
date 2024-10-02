@@ -135,7 +135,7 @@ schema("/durable_queues/:id") ->
 
 '/durable_queues/:id'(get, Params) ->
     case queue_get(Params) of
-        Queue when Queue =/= false ->
+        {ok, Queue} ->
             {200, encode_queue(Queue)};
         false ->
             ?RESP_NOT_FOUND

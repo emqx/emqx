@@ -314,7 +314,7 @@ init(ID) ->
     %% NOTE: Empty store is impicitly dirty because rootset needs to be persisted.
     mk_store(ID).
 
--spec open(id()) -> t() | false.
+-spec open(id()) -> {ok, t()} | false | emqx_ds:error(_).
 open(ID) ->
     case open_rootset(ID) of
         Rootset = #{} ->
@@ -364,7 +364,7 @@ slurp_store(Rootset, StreamIts0, Retries, RetryTimeout, Acc = #{id := ID}) ->
         %% concerning, because this suggests there were concurrent writes that slipped
         %% past the leadership claim guards, yet we can still make progress.
         SeqNum when SeqNum >= map_get(seqnum, Rootset) ->
-            reset_dirty(maps:merge(Store, Rootset));
+            {ok, reset_dirty(maps:merge(Store, Rootset))};
         _Mismatch when Retries > 0 ->
             ok = timer:sleep(RetryTimeout),
             slurp_store(Rootset, StreamIts, Retries - 1, RetryTimeout, Store);
