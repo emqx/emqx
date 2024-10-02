@@ -112,10 +112,27 @@ open(TopicSubscriptions, Opts) ->
 
 -spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) ->
     ok | {error, emqx_types:reason_code()}.
-can_subscribe(_State, _ShareTopicFilter, _SubOpts) ->
+can_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
     case ?dq_config(enable) of
-        true -> ok;
-        false -> {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
+        true ->
+            %% TODO: Weird to have side effects in function with this name.
+            TS = emqx_message:timestamp_now(),
+            case emqx_ds_shared_sub_queue:declare(Group, Topic, TS, _StartTime = TS) of
+                {ok, _} ->
+                    ok;
+                exists ->
+                    ok;
+                {error, Class, Reason} ->
+                    ?tp(warning, "Shared queue declare failed", #{
+                        group => Group,
+                        topic => Topic,
+                        class => Class,
+                        reason => Reason
+                    }),
+                    {error, ?RC_UNSPECIFIED_ERROR}
+            end;
+        false ->
+            {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
     end.
 
 -spec on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().

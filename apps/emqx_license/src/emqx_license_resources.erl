@@ -13,8 +13,10 @@
 -export([
     start_link/0,
     start_link/1,
+    %% RPC
     local_connection_count/0,
-    connection_count/0
+    %% hot call
+    cached_connection_count/0
 ]).
 
 %% gen_server callbacks
@@ -54,11 +56,6 @@ start_link(CheckInterval) when is_integer(CheckInterval) ->
 local_connection_count() ->
     emqx_cm:get_connected_client_count().
 
--spec connection_count() -> non_neg_integer().
-connection_count() ->
-    local_connection_count() + cached_remote_connection_count() +
-        emqx_gateway_cm_registry:get_connected_client_count().
-
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -93,7 +90,7 @@ connection_quota_early_alarm() ->
     connection_quota_early_alarm(emqx_license_checker:limits()).
 
 connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Max) ->
-    Count = connection_count(),
+    Count = cached_connection_count(),
     Low = emqx_conf:get([license, connection_low_watermark], 0.75),
     High = emqx_conf:get([license, connection_high_watermark], 0.80),
     Count > Max * High andalso
@@ -108,16 +105,16 @@ connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Ma
 connection_quota_early_alarm(_Limits) ->
     ok.
 
-cached_remote_connection_count() ->
-    try ets:lookup(?MODULE, remote_connection_count) of
-        [{remote_connection_count, N}] -> N;
+cached_connection_count() ->
+    try ets:lookup(?MODULE, total_connection_count) of
+        [{total_connection_count, N}] -> N;
         _ -> 0
     catch
         error:badarg -> 0
     end.
 
 update_resources() ->
-    ets:insert(?MODULE, {remote_connection_count, remote_connection_count()}).
+    ets:insert(?MODULE, {total_connection_count, total_connection_count()}).
 
 ensure_timer(#{check_peer_interval := CheckInterval} = State) ->
     _ =
@@ -127,8 +124,8 @@ ensure_timer(#{check_peer_interval := CheckInterval} = State) ->
         end,
     State#{timer => erlang:send_after(CheckInterval, self(), update_resources)}.
 
-remote_connection_count() ->
-    Nodes = mria:running_nodes() -- [node()],
+total_connection_count() ->
+    Nodes = mria:running_nodes(),
     Results = emqx_license_proto_v2:remote_connection_counts(Nodes),
     Counts = [Count || {ok, Count} <- Results],
-    lists:sum(Counts).
+    lists:sum(Counts) + emqx_gateway_cm_registry:get_connected_client_count().

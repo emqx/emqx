@@ -24,11 +24,11 @@ durable_queue_delete.desc:
 durable_queue_delete.label:
 """Delete Durable Queue"""
 
-durable_queues_put.desc:
-"""Create a durable queue."""
+durable_queues_post.desc:
+"""Declare new durable queue."""
 
-durable_queues_put.label:
-"""Create Durable Queue"""
+durable_queues_post.label:
+"""Declare Durable Queue"""
 
 
 }
