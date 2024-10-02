@@ -744,6 +744,7 @@ t_missing_table(Config) ->
                     emqx_resource_manager:health_check(ResourceId)
                 )
             ),
+            ?block_until(#{?snk_kind := oracle_undefined_table}),
             MsgId = erlang:unique_integer(),
             Params = #{
                 topic => ?config(mqtt_topic, Config),

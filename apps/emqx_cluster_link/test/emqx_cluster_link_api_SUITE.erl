@@ -642,8 +642,6 @@ t_metrics(Config) ->
 
     TargetC1 = emqx_cluster_link_SUITE:start_client(<<"tc1">>, TN1),
     TargetC2 = emqx_cluster_link_SUITE:start_client(<<"tc2">>, TN2),
-    {ok, _, _} = emqtt:subscribe(TargetC1, <<"t/tc1">>),
-    {ok, _, _} = emqtt:subscribe(TargetC2, <<"t/tc2">>),
     {_, {ok, _}} =
         ?wait_async_action(
             begin

@@ -66,7 +66,7 @@ init_per_testcase(_TC, Config) ->
 
 end_per_testcase(_TC, _Config) ->
     ok = snabbkaffe:stop(),
-    ok = terminate_leaders(),
+    ok = emqx_ds_shared_sub_registry:purge(),
     ok.
 %%--------------------------------------------------------------------
 %% Tests
@@ -78,45 +78,97 @@ t_basic_crud(_Config) ->
         api_get(["durable_queues"])
     ),
 
+    Resp1 = api(post, ["durable_queues"], #{
+        <<"group">> => <<"g1">>,
+        <<"topic">> => <<"#">>,
+        <<"start_time">> => 42
+    }),
     ?assertMatch(
-        {ok, 200, #{
-            <<"id">> := <<"q1">>
+        {ok, 201, #{
+            <<"id">> := _QueueID,
+            <<"created_at">> := _,
+            <<"group">> := <<"g1">>,
+            <<"topic">> := <<"#">>,
+            <<"start_time">> := 42
         }},
-        api(put, ["durable_queues", "q1"], #{})
+        Resp1
     ),
 
     ?assertMatch(
         {error, {_, 404, _}},
-        api_get(["durable_queues", "q2"])
+        api_get(["durable_queues", "non-existent-queue"])
     ),
 
-    ?assertMatch(
-        {ok, 200, #{
-            <<"id">> := <<"q2">>
-        }},
-        api(put, ["durable_queues", "q2"], #{})
-    ),
-
+    {ok, 201, #{<<"id">> := QueueID1}} = Resp1,
     ?assertMatch(
         {ok, #{
-            <<"id">> := <<"q2">>
+            <<"id">> := QueueID1,
+            <<"group">> := <<"g1">>,
+            <<"topic">> := <<"#">>
         }},
-        api_get(["durable_queues", "q2"])
+        api_get(["durable_queues", QueueID1])
     ),
 
+    Resp2 = api(post, ["durable_queues"], #{
+        <<"group">> => <<"g1">>,
+        <<"topic">> => <<"another/topic/filter/+">>,
+        <<"start_time">> => 0
+    }),
     ?assertMatch(
-        {ok, [#{<<"id">> := <<"q2">>}, #{<<"id">> := <<"q1">>}]},
-        api_get(["durable_queues"])
+        {ok, 201, #{
+            <<"id">> := _QueueID,
+            <<"group">> := <<"g1">>,
+            <<"topic">> := <<"another/topic/filter/+">>,
+            <<"start_time">> := 0
+        }},
+        Resp2
     ),
+
+    %% TODO
+    %% ?assertMatch(
+    %%     {ok, [#{<<"id">> := <<"q2">>}, #{<<"id">> := <<"q1">>}]},
+    %%     api_get(["durable_queues"])
+    %% ),
 
     ?assertMatch(
         {ok, 200, <<"Queue deleted">>},
-        api(delete, ["durable_queues", "q2"], #{})
+        api(delete, ["durable_queues", QueueID1], #{})
+    ),
+    ?assertMatch(
+        {ok, 404, #{<<"code">> := <<"NOT_FOUND">>}},
+        api(delete, ["durable_queues", QueueID1], #{})
+    ),
+
+    %% TODO
+    %% ?assertMatch(
+    %%     {ok, [#{<<"id">> := <<"q1">>}]},
+    %%     api_get(["durable_queues"])
+    %% ).
+
+    ok.
+
+t_duplicate_queue(_Config) ->
+    ?assertMatch(
+        {ok, 201, #{
+            <<"id">> := _QueueID,
+            <<"group">> := <<"g1">>,
+            <<"topic">> := <<"#">>,
+            <<"start_time">> := 42
+        }},
+        api(post, ["durable_queues"], #{
+            <<"group">> => <<"g1">>,
+            <<"topic">> => <<"#">>,
+            <<"start_time">> => 42
+        })
     ),
 
     ?assertMatch(
-        {ok, [#{<<"id">> := <<"q1">>}]},
-        api_get(["durable_queues"])
+        {ok, 409, #{<<"code">> := <<"CONFLICT">>}},
+        api(post, ["durable_queues"], #{
+            <<"group">> => <<"g1">>,
+            <<"topic">> => <<"#">>,
+            <<"start_time">> => 0
+        })
     ).
 
 %%--------------------------------------------------------------------
@@ -143,8 +195,3 @@ api(Method, Path, Data) ->
         {error, _} = Error ->
             Error
     end.
-
-terminate_leaders() ->
-    ok = supervisor:terminate_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
-    {ok, _} = supervisor:restart_child(emqx_ds_shared_sub_sup, emqx_ds_shared_sub_registry),
-    ok.

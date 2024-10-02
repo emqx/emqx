@@ -172,7 +172,7 @@ do_update(NewConf, _PrevConf) ->
     do_update({key, NewKey}, NewConf).
 
 check_max_clients_exceeded(MaxClients) ->
-    emqx_license_resources:connection_count() > MaxClients * 1.1.
+    emqx_license_resources:cached_connection_count() > MaxClients * 1.1.
 
 read_license(#{key := Content}) ->
     emqx_license_parser:parse(Content).

@@ -21,24 +21,22 @@
 
 %% Internal API
 -export([
-    start_link/2
+    start_link/1
 ]).
 
--behaviour(gen_server).
+-behaviour(gen_statem).
 -export([
+    callback_mode/0,
     init/1,
-    handle_continue/2,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2
+    handle_event/4
 ]).
 
 %%--------------------------------------------------------------------
 %% Internal API
 %%--------------------------------------------------------------------
 
-start_link(ShareTopic, StartTime) ->
-    gen_server:start_link(?MODULE, {elect, ShareTopic, StartTime}, []).
+start_link(ShareTopic) ->
+    gen_statem:start_link(?MODULE, {elect, ShareTopic}, []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -50,74 +48,69 @@ start_link(ShareTopic, StartTime) ->
     alive_until :: non_neg_integer()
 }).
 
-init(Elect = {elect, _ShareTopic, _StartTime}) ->
+callback_mode() ->
+    handle_event_function.
+
+init(Elect = {elect, _ShareTopic}) ->
     %% NOTE
     %% Important to have it here, because this process can become
     %% `emqx_ds_shared_sub_leader`, which has `terminate/2` logic.
     _ = erlang:process_flag(trap_exit, true),
-    {ok, #{}, {continue, Elect}}.
+    {ok, electing, undefined, {next_event, internal, Elect}}.
 
-handle_continue({elect, ShareTopic, StartTime}, _State) ->
-    elect(ShareTopic, StartTime).
-
-handle_call(_Request, _From, State) ->
-    {reply, {error, unknown_request}, State}.
-
-handle_cast(_Cast, State) ->
-    {noreply, State}.
-
-handle_info(?agent_connect_leader_match(Agent, AgentMetadata, _ShareTopic), State) ->
+handle_event(internal, {elect, ShareTopic}, electing, _) ->
+    elect(ShareTopic, _TS = emqx_message:timestamp_now());
+handle_event(info, ?agent_connect_leader_match(Agent, Metadata, _ShareTopic), follower, Data) ->
     %% NOTE: Redirecting to the known leader.
-    ok = connect_leader(Agent, AgentMetadata, State),
-    {noreply, State};
-handle_info({timeout, _TRef, invalidate}, State) ->
-    {stop, {shutdown, invalidate}, State}.
+    ok = connect_leader(Agent, Metadata, Data),
+    keep_state_and_data;
+handle_event(state_timeout, invalidate, follower, _Data) ->
+    {stop, {shutdown, invalidate}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 elect(ShareTopic, TS) ->
-    Group = emqx_ds_shared_sub_leader:group_name(ShareTopic),
-    case emqx_ds_shared_sub_leader_store:claim_leadership(Group, _Leader = self(), TS) of
+    StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopic),
+    case emqx_ds_shared_sub_store:claim_leadership(StoreID, _Leader = self(), TS) of
         {ok, LeaderClaim} ->
             %% Become the leader.
             ?tp(debug, shared_sub_elector_becomes_leader, #{
                 id => ShareTopic,
-                group => Group,
+                store => StoreID,
                 leader => LeaderClaim
             }),
-            emqx_ds_shared_sub_leader:become(ShareTopic, TS, LeaderClaim);
+            emqx_ds_shared_sub_leader:become(ShareTopic, LeaderClaim);
         {exists, LeaderClaim} ->
             %% Turn into the follower that redirects connect requests to the leader
             %% while it's considered alive. Note that the leader may in theory decide
             %% to let go of leadership earlier than that.
-            AliveUntil = emqx_ds_shared_sub_leader_store:alive_until(LeaderClaim),
+            AliveUntil = emqx_ds_shared_sub_store:alive_until(LeaderClaim),
             ?tp(debug, shared_sub_elector_becomes_follower, #{
                 id => ShareTopic,
-                group => Group,
+                store => StoreID,
                 leader => LeaderClaim,
                 until => AliveUntil
             }),
             TTL = AliveUntil - TS,
-            _TRef = erlang:start_timer(max(0, TTL), self(), invalidate),
-            St = #follower{
+            Data = #follower{
                 topic = ShareTopic,
-                leader = emqx_ds_shared_sub_leader_store:leader_id(LeaderClaim),
+                leader = emqx_ds_shared_sub_store:leader_id(LeaderClaim),
                 alive_until = AliveUntil
             },
-            {noreply, St};
+            {next_state, follower, Data, {state_timeout, max(0, TTL), invalidate}};
         {error, Class, Reason} = Error ->
             ?tp(warning, "Shared subscription leader election failed", #{
                 id => ShareTopic,
-                group => Group,
+                store => StoreID,
                 error => Error
             }),
             case Class of
                 recoverable -> StopReason = {shutdown, Reason};
                 unrecoverable -> StopReason = Error
             end,
-            {stop, StopReason, ShareTopic}
+            {stop, StopReason}
     end.
 
 connect_leader(Agent, AgentMetadata, #follower{topic = ShareTopic, leader = Pid}) ->
