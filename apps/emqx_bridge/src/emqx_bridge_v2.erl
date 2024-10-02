@@ -1174,10 +1174,14 @@ post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, OldConf
         ok ->
             ok;
         {error, timeout} ->
-            throw(<<
-                "Timed out trying to remove action or source.  Please try again and,"
-                " if the error persists, try disabling the connector before retrying."
-            >>);
+            ErrorContext = #{
+                error => uninstall_timeout,
+                reason => <<
+                    "Timed out trying to remove action or source.  Please try again and,"
+                    " if the error persists, try disabling the connector before retrying."
+                >>
+            },
+            throw(ErrorContext);
         {error, not_found} ->
             %% Should not happen, unless config is inconsistent.
             throw(<<"Referenced connector not found">>)

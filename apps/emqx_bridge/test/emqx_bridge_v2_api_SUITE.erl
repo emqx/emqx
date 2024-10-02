@@ -636,6 +636,24 @@ create_action_api(Name, Type, Params) ->
     ]),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
+update_action_api(Name, Type, Params) ->
+    Res = emqx_bridge_v2_testlib:update_bridge_api([
+        {bridge_kind, action},
+        {action_type, Type},
+        {action_name, Name},
+        {action_config, Params}
+    ]),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+update_source_api(Name, Type, Params) ->
+    Res = emqx_bridge_v2_testlib:update_bridge_api([
+        {bridge_kind, source},
+        {source_type, Type},
+        {source_name, Name},
+        {source_config, Params}
+    ]),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
 list_sources_api() ->
     Res = emqx_bridge_v2_testlib:list_sources_http_api(),
     emqx_mgmt_api_test_util:simplify_result(Res).
@@ -1906,5 +1924,85 @@ t_kind_dependencies(Config) when is_list(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Verifies that we return thrown messages as is to the API.
+t_thrown_messages(matrix) ->
+    [
+        [single, actions],
+        [single, sources]
+    ];
+t_thrown_messages(Config) when is_list(Config) ->
+    meck:expect(?CONNECTOR_IMPL, on_remove_channel, fun(_ConnResId, ConnState, _ActionResid) ->
+        timer:sleep(20_000),
+        {ok, ConnState}
+    end),
+    ?check_trace(
+        begin
+            [_SingleOrCluster, Kind | _] = group_path(Config),
+            ConnectorType = ?SOURCE_CONNECTOR_TYPE,
+            ConnectorName = <<"c">>,
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_connector_api([
+                    {connector_config, source_connector_create_config(#{})},
+                    {connector_name, ConnectorName},
+                    {connector_type, ConnectorType}
+                ]),
+            do_t_thrown_messages(Kind, Config, ConnectorName),
+            meck:expect(?CONNECTOR_IMPL, on_remove_channel, 3, {ok, connector_state}),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+do_t_thrown_messages(actions, _Config, ConnectorName) ->
+    Name = <<"a1">>,
+    %% MQTT
+    Type = ?SOURCE_TYPE,
+    CreateConfig = mqtt_action_create_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    {201, _} = create_action_api(
+        Name,
+        Type,
+        CreateConfig
+    ),
+    UpdateConfig = maps:remove(<<"type">>, CreateConfig),
+    ?assertMatch(
+        {503, #{
+            <<"message">> :=
+                #{<<"reason">> := <<"Timed out trying to remove", _/binary>>}
+        }},
+        update_action_api(
+            Name,
+            Type,
+            UpdateConfig
+        )
+    ),
+    ok;
+do_t_thrown_messages(sources, _Config, ConnectorName) ->
+    Name = <<"s1">>,
+    Type = ?SOURCE_TYPE,
+    CreateConfig = source_create_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    {201, _} = create_source_api(
+        Name,
+        Type,
+        CreateConfig
+    ),
+    UpdateConfig = maps:remove(<<"type">>, CreateConfig),
+    ?assertMatch(
+        {503, #{
+            <<"message">> :=
+                #{<<"reason">> := <<"Timed out trying to remove", _/binary>>}
+        }},
+        update_source_api(
+            Name,
+            Type,
+            UpdateConfig
+        )
     ),
     ok.
