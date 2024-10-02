@@ -109,8 +109,8 @@ init_per_testcase(TestCase, Config) ->
         {connector_type, proplists:get_value(connector_type, Config, ?CONNECTOR_TYPE)},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, proplists:get_value(bridge_type, Config, ?BRIDGE_TYPE)},
-        {bridge_name, Name},
+        {action_type, proplists:get_value(action_type, Config, ?BRIDGE_TYPE)},
+        {action_name, Name},
         {bridge_config, BridgeConfig}
         | NConfig
     ].
@@ -151,17 +151,7 @@ connector_config(Name, Config) ->
             }
         },
     InnerConfigMap = serde_roundtrip(InnerConfigMap0),
-    parse_and_check_connector_config(InnerConfigMap, Name).
-
-parse_and_check_connector_config(InnerConfigMap, Name) ->
-    TypeBin = ?CONNECTOR_TYPE_BIN,
-    RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap}}},
-    #{<<"connectors">> := #{TypeBin := #{Name := Config}}} =
-        hocon_tconf:check_plain(emqx_connector_schema, RawConf, #{
-            required => false, atom_key => false
-        }),
-    ct:pal("parsed config: ~p", [Config]),
-    InnerConfigMap.
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, Name, InnerConfigMap).
 
 default_sql() ->
     <<
@@ -236,7 +226,7 @@ t_start_action_or_source_with_disabled_connector(Config) ->
 
 t_update_with_invalid_prepare(Config) ->
     ConnectorName = ?config(connector_name, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
     %% arrivedx is a bad column name
     BadSQL = bad_sql(),

@@ -186,17 +186,7 @@ connector_config(Name, Config) ->
             }
         },
     InnerConfigMap = serde_roundtrip(InnerConfigMap0),
-    parse_and_check_connector_config(InnerConfigMap, Name).
-
-parse_and_check_connector_config(InnerConfigMap, Name) ->
-    TypeBin = ?CONNECTOR_TYPE_BIN,
-    RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap}}},
-    #{<<"connectors">> := #{TypeBin := #{Name := Config}}} =
-        hocon_tconf:check_plain(emqx_connector_schema, RawConf, #{
-            required => false, atom_key => false
-        }),
-    ct:pal("parsed config: ~p", [Config]),
-    InnerConfigMap.
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, Name, InnerConfigMap).
 
 bridge_config(Name, ConnectorId) ->
     InnerConfigMap0 =
