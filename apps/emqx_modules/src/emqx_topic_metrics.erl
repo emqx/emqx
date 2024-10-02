@@ -468,7 +468,7 @@ counters_size() ->
     length(?TOPIC_METRICS).
 
 number_of_registered_topics() ->
-    proplists:get_value(size, ets:info(?TAB)).
+    ets:info(?TAB, size).
 
 calculate_speed(CurVal, #speed{
     last = Last,
