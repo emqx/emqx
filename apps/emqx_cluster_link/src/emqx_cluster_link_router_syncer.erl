@@ -373,9 +373,7 @@ handle_info(
         #{
             result := Res,
             need_bootstrap := NeedBootstrap
-        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(
-        Payload
-    ),
+        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(Payload),
     St1 = St#st{
         actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfoMap
     },
@@ -401,6 +399,17 @@ handle_info(
             ),
             %% TODO: retry after a timeout?
             {noreply, St1#st{error = Reason, status = disconnected}}
+    end;
+handle_info(
+    {publish, #{payload := Payload, properties := #{'User-Property' := _}} = Msg}, St
+) ->
+    case emqx_cluster_link_mqtt:is_marked_as_command(Msg) of
+        true ->
+            {actor_reset, #{}} = emqx_cluster_link_mqtt:decode_command(Payload),
+            ?tp("clink_router_syncer_reset_requested", #{}),
+            {stop, reset, St};
+        false ->
+            {noreply, St}
     end;
 handle_info({publish, #{}}, St) ->
     {noreply, St};
@@ -569,6 +578,7 @@ process_bootstrapped(
     St = #st{target = TargetCluster, actor = Actor}
 ) ->
     ok = activate_syncer(TargetCluster, Actor),
+    ?tp("clink_router_bootstrapped", #{target_cluster => TargetCluster, actor => Actor}),
     St#st{bootstrapped = true}.
 
 process_bootstrap_batch(Batch, #st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->

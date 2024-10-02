@@ -5,6 +5,7 @@
 -module(emqx_cluster_link_extrouter).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([create_tables/0]).
 
@@ -23,7 +24,9 @@
     actor_apply_operation/3,
     actor_gc/1,
     is_present_incarnation/1,
-    list_actors/1
+    list_actors/1,
+    get_actor_cluster/1,
+    get_actor_name/1
 ]).
 
 %% Internal API
@@ -198,6 +201,14 @@ list_actors(Cluster) ->
     Matches = ets:match(emqx_external_router_actor, Pat),
     [#{actor => Actor, incarnation => Incr} || [Actor, Incr] <- Matches].
 
+-spec get_actor_cluster(state()) -> cluster().
+get_actor_cluster(#state{cluster = Cluster}) ->
+    Cluster.
+
+-spec get_actor_name(state()) -> actor().
+get_actor_name(#state{actor = Actor}) ->
+    Actor.
+
 mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     %% NOTE
     %% We perform this heavy-weight transaction only in the case of a new route
@@ -268,7 +279,8 @@ actor_apply_operation(
     State.
 
 apply_actor_operation(ActorID, Incarnation, Entry, OpName, Lane) ->
-    _ = assert_current_incarnation(ActorID, Incarnation),
+    Context = #{entry => Entry, op => OpName, lane => Lane},
+    _ = assert_current_incarnation(ActorID, Incarnation, Context),
     apply_operation(Entry, OpName, Lane).
 
 apply_operation(Entry, OpName, Lane) ->
@@ -393,13 +405,29 @@ clean_lane(Lane) ->
         ?EXTROUTE_TAB
     ).
 
-assert_current_incarnation(ActorID, Incarnation) ->
+assert_current_incarnation(ActorID, Incarnation, Context) ->
     %% NOTE
     %% Ugly, but should not really happen anyway. This is a safety net for the case
     %% when this process tries to apply some outdated operation for whatever reason
     %% (e.g. heavy CPU starvation). Still, w/o transactions, it's just a best-effort
     %% attempt.
-    [#actor{incarnation = Incarnation}] = mnesia:dirty_read(?EXTROUTE_ACTOR_TAB, ActorID),
+    case mnesia:dirty_read(?EXTROUTE_ACTOR_TAB, ActorID) of
+        [#actor{incarnation = Incarnation}] ->
+            ok;
+        [#actor{incarnation = DifferentIncarnation}] ->
+            error(Context#{
+                error => assert_current_incarnation,
+                reason => different_incarnation,
+                current_incarnation => DifferentIncarnation,
+                expected_incarnation => Incarnation
+            });
+        [] ->
+            error(Context#{
+                error => assert_current_incarnation,
+                reason => no_incarnation,
+                expected_incarnation => Incarnation
+            })
+    end,
     ok.
 
 %%

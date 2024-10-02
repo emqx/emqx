@@ -130,7 +130,7 @@ on_message_publish(
 on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
     case emqx_cluster_link_mqtt:decode_forwarded_msg(Payload) of
         #message{} = ForwardedMsg ->
-            {stop, maybe_filter_incomming_msg(ForwardedMsg, ClusterName)};
+            {stop, maybe_filter_incoming_msg(ForwardedMsg, ClusterName)};
         _Err ->
             %% Just ignore it. It must be already logged by the decoder
             {stop, []}
@@ -224,28 +224,51 @@ actor_init_ack(#{actor := Actor}, Res, MsgIn) ->
     RespMsg = emqx_cluster_link_mqtt:actor_init_ack_resp_msg(Actor, Res, MsgIn),
     emqx_broker:publish(RespMsg).
 
+actor_request_reset(undefined) ->
+    ok;
+actor_request_reset(ActorSt) ->
+    Actor = emqx_cluster_link_extrouter:get_actor_name(ActorSt),
+    Cluster = emqx_cluster_link_extrouter:get_actor_cluster(ActorSt),
+    Msg = emqx_cluster_link_mqtt:actor_reset_msg(Cluster, Actor),
+    emqx_broker:publish(Msg).
+
 update_routes(ClusterName, Actor, RouteOps) ->
     ActorSt = get_actor_state(ClusterName, Actor),
-    lists:foreach(
-        fun(RouteOp) ->
-            _ = emqx_cluster_link_extrouter:actor_apply_operation(RouteOp, ActorSt)
-        end,
-        RouteOps
-    ).
+    try
+        lists:foreach(
+            fun(RouteOp) ->
+                _ = emqx_cluster_link_extrouter:actor_apply_operation(RouteOp, ActorSt)
+            end,
+            RouteOps
+        )
+    catch
+        error:#{reason := no_incarnation} ->
+            actor_request_reset(ActorSt),
+            ok
+    end.
 
 actor_heartbeat(ClusterName, Actor) ->
-    case erlang:get(?PD_EXTROUTER_ACTOR_STATE) of
-        undefined ->
-            %% skip, only update when it is initialized
-            %% otherwise will crash the init retires
-            skip;
-        _ ->
-            Env = #{timestamp => erlang:system_time(millisecond)},
-            ActorSt0 = get_actor_state(ClusterName, Actor),
-            ActorSt = emqx_cluster_link_extrouter:actor_apply_operation(heartbeat, ActorSt0, Env),
-            _ = update_actor_state(ActorSt)
-    end,
-    ok.
+    try
+        case erlang:get(?PD_EXTROUTER_ACTOR_STATE) of
+            undefined ->
+                %% skip, only update when it is initialized
+                %% otherwise will crash the init retires
+                skip;
+            _ ->
+                Env = #{timestamp => erlang:system_time(millisecond)},
+                ActorSt0 = get_actor_state(ClusterName, Actor),
+                ActorSt = emqx_cluster_link_extrouter:actor_apply_operation(
+                    heartbeat, ActorSt0, Env
+                ),
+                _ = update_actor_state(ActorSt)
+        end,
+        ok
+    catch
+        error:{nonexistent_actor, _} ->
+            ActorSt1 = get_actor_state(ClusterName, Actor),
+            actor_request_reset(ActorSt1),
+            ok
+    end.
 
 get_actor_state(ClusterName, Actor) ->
     {ClusterName, Actor} = erlang:get(?PD_EXTROUTER_ACTOR),
@@ -264,7 +287,7 @@ update_actor_state(ActorSt) ->
 with_sender_name(#message{extra = Extra} = Msg, ClusterName) when is_map(Extra) ->
     Msg#message{extra = Extra#{link_origin => ClusterName}}.
 
-maybe_filter_incomming_msg(#message{topic = T} = Msg, ClusterName) ->
+maybe_filter_incoming_msg(#message{topic = T} = Msg, ClusterName) ->
     %% Should prevent irrelevant messages from being dispatched in case
     %% the remote routing state lags behind the local config changes.
     #{enable := Enable, topics := Topics} = emqx_cluster_link_config:link(ClusterName),

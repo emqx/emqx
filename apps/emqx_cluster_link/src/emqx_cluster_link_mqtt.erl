@@ -34,12 +34,15 @@
     remove_msg_fwd_resource/1,
     decode_route_op/1,
     decode_forwarded_msg/1,
-    decode_resp/1
+    decode_resp/1,
+    decode_command/1,
+    is_marked_as_command/1
 ]).
 
 -export([
     publish_actor_init_sync/6,
     actor_init_ack_resp_msg/3,
+    actor_reset_msg/2,
     publish_route_sync/4,
     publish_heartbeat/3,
     encode_field/2
@@ -80,6 +83,7 @@
 -define(OP_HEARTBEAT, <<"heartbeat">>).
 -define(OP_ACTOR_INIT, <<"actor_init">>).
 -define(OP_ACTOR_INIT_ACK, <<"actor_init_ack">>).
+-define(OP_ACTOR_RESET, <<"actor_reset">>).
 
 -define(F_ACTOR, 10).
 -define(F_INCARNATION, 11).
@@ -92,6 +96,9 @@
 -define(ROUTE_DELETE, 100).
 
 -define(PUB_TIMEOUT, 10_000).
+
+-define(CMD_PROP_KEY, <<"c">>).
+-define(CMD_PROP_VAL, <<"1">>).
 
 -type cluster_name() :: binary().
 
@@ -375,6 +382,33 @@ actor_init_ack_resp_msg(Actor, InitRes, MsgIn) ->
         #{properties => #{'Correlation-Data' => ReqId}}
     ).
 
+actor_reset_msg(Cluster, Actor) ->
+    Payload = #{
+        ?F_OPERATION => ?OP_ACTOR_RESET,
+        %% FIXME: bump version?
+        ?F_PROTO_VER => ?PROTO_VER,
+        ?F_ACTOR => Actor
+    },
+    emqx_message:make(
+        undefined,
+        ?QOS_1,
+        ?RESP_TOPIC(Cluster, Actor),
+        ?ENCODE(Payload),
+        #{},
+        %% TODO: how else to signal?
+        #{properties => #{'User-Property' => [{?CMD_PROP_KEY, ?CMD_PROP_VAL}]}}
+    ).
+
+is_marked_as_command(#{properties := #{'User-Property' := Props}}) ->
+    case lists:keyfind(?CMD_PROP_KEY, 1, Props) of
+        {?CMD_PROP_KEY, ?CMD_PROP_VAL} ->
+            true;
+        _ ->
+            false
+    end;
+is_marked_as_command(_) ->
+    false.
+
 with_res_and_bootstrap(Payload, {ok, ActorState}) ->
     Payload#{
         ?F_RESULT => ok,
@@ -408,6 +442,9 @@ decode_route_op(Payload) ->
 
 decode_resp(Payload) ->
     decode_resp1(?DECODE(Payload)).
+
+decode_command(Payload) ->
+    decode_command1(?DECODE(Payload)).
 
 decode_route_op1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT,
@@ -448,6 +485,13 @@ decode_resp1(#{
     {actor_init_ack, #{
         actor => Actor, result => InitResult, proto_ver => ProtoVer, need_bootstrap => NeedBootstrap
     }}.
+
+decode_command1(#{
+    ?F_OPERATION := ?OP_ACTOR_RESET,
+    ?F_ACTOR := Actor,
+    ?F_PROTO_VER := ProtoVer
+}) ->
+    {actor_reset, #{actor => Actor, proto_ver => ProtoVer}}.
 
 decode_forwarded_msg(Payload) ->
     case ?DECODE(Payload) of
