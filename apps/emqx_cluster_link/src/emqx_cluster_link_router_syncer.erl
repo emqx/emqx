@@ -483,15 +483,19 @@ handle_connect_error(Reason, St) ->
     _ = maybe_alarm(Reason, St),
     St#st{reconnect_timer = TRef, error = Reason, status = disconnected}.
 
-handle_client_down(Reason, St = #st{target = TargetCluster, actor = Actor}) ->
+handle_client_down(
+    Reason,
+    St = #st{target = TargetCluster, actor = Actor, bootstrapped = Bootstrapped}
+) ->
     ?SLOG(error, #{
         msg => "cluster_link_connection_failed",
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor
     }),
-    %% TODO: syncer may be already down due to one_for_all strategy
-    ok = suspend_syncer(TargetCluster, Actor),
+    %% NOTE: There's no syncer yet if bootstrap haven't finished.
+    %% TODO: Syncer may be already down due to one_for_all strategy.
+    _ = Bootstrapped andalso suspend_syncer(TargetCluster, Actor),
     _ = maybe_alarm(Reason, St),
     NSt = cancel_heartbeat(St),
     process_connect(NSt#st{client = undefined, error = Reason, status = connecting}).
