@@ -12,6 +12,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(ON(NODE, DO), erpc:call(NODE, fun() -> DO end)).
+
 %%
 
 all() ->
@@ -83,8 +85,8 @@ mk_target_cluster(BaseName, Config) ->
         "\n     topics = [\"#\"]"
         "\n   }"
         "\n ]}",
-    TargetApps1 = [{emqx_conf, combine([conf_log(), TargetConf])}],
-    TargetApps2 = [{emqx_conf, combine([conf_log(), conf_mqtt_listener(31883), TargetConf])}],
+    TargetApps1 = [{emqx_conf, combine([conf_log(), conf_mqtt_listener(31883), TargetConf])}],
+    TargetApps2 = [{emqx_conf, combine([conf_log(), TargetConf])}],
     emqx_cth_cluster:mk_nodespecs(
         [
             {mk_nodename(BaseName, t1), #{apps => TargetApps1, base_port => 20100}},
@@ -201,22 +203,29 @@ t_target_extrouting_gc(Config) ->
     TargetC2 = start_client_unlink("t_target_extrouting_gc2", TargetNode2),
     IsShared = ?config(is_shared_sub, Config),
 
-    {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
-    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
+    TopicFilter1 = <<"t/+">>,
+    TopicFilter2 = <<"t/#">>,
+    {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, TopicFilter1), qos1),
+    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, TopicFilter2), qos1),
     {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
     {ok, _} = emqtt:publish(SourceC1, <<"t/1">>, <<"HELLO1">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/2/ext">>, <<"HELLO2">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/3/ext">>, <<"HELLO3">>, qos1),
     Pubs1 = [M || {publish, M} <- ?drainMailbox(1_000)],
+    %% We switch off `TargetNode2' first.  Since `TargetNode1' is the sole endpoint
+    %% configured in Target Cluster, the link will keep working (i.e., CL MQTT ecpool
+    %% workers will stay connected).  If we turned `TargetNode1' first, then all ecpool
+    %% workers would die and stay dead (since currently we don't set `auto_reconnect' for
+    %% the pool).
     {ok, _} = ?wait_async_action(
-        emqx_cth_cluster:stop_node(TargetNode1),
+        emqx_cth_cluster:stop_node(TargetNode2),
         #{?snk_kind := clink_extrouter_actor_cleaned, cluster := <<"cl.target">>}
     ),
     {ok, _} = emqtt:publish(SourceC1, <<"t/4/ext">>, <<"HELLO4">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/5">>, <<"HELLO5">>, qos1),
     Pubs2 = [M || {publish, M} <- ?drainMailbox(1_000)],
     {ok, _} = ?wait_async_action(
-        emqx_cth_cluster:stop_node(TargetNode2),
+        emqx_cth_cluster:stop_node(TargetNode1),
         #{?snk_kind := clink_extrouter_actor_cleaned, cluster := <<"cl.target">>}
     ),
     ok = emqtt:stop(SourceC1),
@@ -236,6 +245,9 @@ t_target_extrouting_gc(Config) ->
             #{topic := <<"t/1">>, payload := <<"HELLO1">>, client_pid := _C2},
             #{topic := <<"t/2/ext">>, payload := <<"HELLO2">>},
             #{topic := <<"t/3/ext">>, payload := <<"HELLO3">>},
+            %% We expect only `HELLO5' and not `HELLO4' to be here because the former was
+            %% published while only `TargetNode1' was alive, and this node held only the
+            %% `t/+' subscription at that time.
             #{topic := <<"t/5">>, payload := <<"HELLO5">>}
         ],
         lists:sort(emqx_utils_maps:key_comparer(topic), Pubs1 ++ Pubs2)
@@ -252,6 +264,52 @@ t_target_extrouting_gc(Config) ->
         ?of_kind(clink_message_forwarded, Trace),
         Trace
     ).
+
+%% Checks that, if an exception occurs while handling a route op message, we disconnect
+%% the upstream agent client so it restarts.
+t_disconnect_on_errors('init', Config) ->
+    SourceNodes = emqx_cth_cluster:start(mk_source_cluster(?FUNCTION_NAME, Config)),
+    [TargetNodeSpec | _] = mk_target_cluster(?FUNCTION_NAME, Config),
+    TargetNodes = emqx_cth_cluster:start([TargetNodeSpec]),
+    _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
+    ok = snabbkaffe:start_trace(),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
+t_disconnect_on_errors('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+t_disconnect_on_errors(Config) ->
+    ct:timetrap({seconds, 20}),
+    [SN1 | _] = nodes_source(Config),
+    [TargetNode] = nodes_target(Config),
+    SC1 = start_client("t_disconnect_on_errors", SN1),
+    ok = ?ON(SN1, meck:new(emqx_cluster_link, [passthrough, no_link, no_history])),
+    ?assertMatch(
+        {_, {ok, _}},
+        ?wait_async_action(
+            begin
+                ok = ?ON(
+                    TargetNode,
+                    meck:expect(
+                        emqx_cluster_link,
+                        do_handle_route_op_msg,
+                        fun(_Msg) ->
+                            meck:exception(error, {unexpected, error})
+                        end
+                    )
+                ),
+                emqtt:subscribe(SC1, <<"t/u/v">>, 1)
+            end,
+            #{?snk_kind := "cluster_link_connection_failed"}
+        )
+    ),
+    _ = ?ON(TargetNode, meck:unload()),
+    ok = emqtt:stop(SC1),
+    ok.
 
 %%
 

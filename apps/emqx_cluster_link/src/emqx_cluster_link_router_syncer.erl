@@ -494,8 +494,7 @@ handle_connect_error(Reason, St) ->
     ensure_reconnect_timer(St#st{error = Reason, status = disconnected}).
 
 handle_client_down(Reason, St = #st{target = TargetCluster, actor = Actor}) ->
-    ?SLOG(error, #{
-        msg => "cluster_link_connection_failed",
+    ?tp(error, "cluster_link_connection_failed", #{
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor
