@@ -18,7 +18,7 @@
 %% %CopyrightEnd%
 
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,6 +39,12 @@
 
 %%----------------------------------------------------------------------
 %% Purpose: Simple default CRL cache
+%%
+%% The cache is an opaque term created by ssl_pkix_db:create/1.
+%% It is essentially an ETS table, created as ssl_otp_crl_cache
+%% not not named.
+%% The cache key is named `Path` in ssl_manager module, but we override
+%% it to the full URL binary format.
 %%----------------------------------------------------------------------
 
 -module(emqx_ssl_crl_cache).
@@ -142,8 +148,9 @@ delete({der, CRLs}) ->
     ssl_manager:delete_crls({?NO_DIST_POINT, CRLs});
 delete(URI) ->
     case uri_string:normalize(URI, [return_map]) of
-        #{scheme := "http", path := Path} ->
-            ssl_manager:delete_crls(string:trim(Path, leading, "/"));
+        #{scheme := "http", path := _} ->
+            Key = cache_key(URI),
+            ssl_manager:delete_crls(Key);
         _ ->
             {error, {only_http_distribution_points_supported, URI}}
     end.
@@ -153,8 +160,9 @@ delete(URI) ->
 %%--------------------------------------------------------------------
 do_insert(URI, CRLs) ->
     case uri_string:normalize(URI, [return_map]) of
-        #{scheme := "http", path := Path} ->
-            ssl_manager:insert_crls(string:trim(Path, leading, "/"), CRLs);
+        #{scheme := "http", path := _} ->
+            Key = cache_key(URI),
+            ssl_manager:insert_crls(Key, CRLs);
         _ ->
             {error, {only_http_distribution_points_supported, URI}}
     end.
@@ -218,8 +226,7 @@ http_get(URL, Rest, CRLDbInfo, Timeout) ->
 cache_lookup(_, undefined) ->
     [];
 cache_lookup(URL, {{Cache, _}, _}) ->
-    #{path := Path} = uri_string:normalize(URL, [return_map]),
-    case ssl_pkix_db:lookup(string:trim(Path, leading, "/"), Cache) of
+    case ssl_pkix_db:lookup(cache_key(URL), Cache) of
         undefined ->
             [];
         [CRLs] ->
@@ -235,3 +242,6 @@ handle_http(URI, Rest, {_, [{http, Timeout}]} = CRLDbInfo) ->
     CRLs;
 handle_http(_, Rest, CRLDbInfo) ->
     get_crls(Rest, CRLDbInfo).
+
+cache_key(URL) ->
+    iolist_to_binary(URL).
