@@ -464,7 +464,8 @@ t_manual_refresh(Config) ->
     ?assertEqual([], ets:tab2list(Ref)),
     emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
-    URL = <<"http://localhost/crl.pem">>,
+    URL = "http://localhost/crl.pem",
+    URLBin = iolist_to_binary(URL),
     ok = snabbkaffe:start_trace(),
     ?wait_async_action(
         ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
@@ -472,7 +473,7 @@ t_manual_refresh(Config) ->
         5_000
     ),
     ok = snabbkaffe:stop(),
-    ?assertEqual([{URL, [CRLDer]}], ets:tab2list(Ref)),
+    ?assertEqual([{URLBin, [CRLDer]}], ets:tab2list(Ref)),
     emqx_config_handler:stop(),
     ok.
 
@@ -575,14 +576,15 @@ t_unknown_messages(_Config) ->
 t_evict(_Config) ->
     emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
-    URL = <<"http://localhost/crl.pem">>,
+    URL = "http://localhost/crl.pem",
+    URLBin = iolist_to_binary(URL),
     ?wait_async_action(
         ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
         #{?snk_kind := crl_cache_insert},
         5_000
     ),
     Ref = get_crl_cache_table(),
-    ?assertMatch([{URL, _}], ets:tab2list(Ref)),
+    ?assertMatch([{URLBin, _}], ets:tab2list(Ref)),
     {ok, {ok, _}} = ?wait_async_action(
         emqx_crl_cache:evict(URL),
         #{?snk_kind := crl_cache_evict}
