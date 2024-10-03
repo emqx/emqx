@@ -88,7 +88,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
     catch
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
+            ok = metrics_inc_exception(RuleID),
             trace_rule_sql(
                 "SELECT_clause_exception",
                 #{
@@ -98,7 +98,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {match_conditions_error, Error} ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
+            ok = metrics_inc_exception(RuleID),
             trace_rule_sql(
                 "WHERE_clause_exception",
                 #{
@@ -108,7 +108,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {select_and_collect_error, Error} ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
+            ok = metrics_inc_exception(RuleID),
             trace_rule_sql(
                 "FOREACH_clause_exception",
                 #{
@@ -118,7 +118,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {match_incase_error, Error} ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
+            ok = metrics_inc_exception(RuleID),
             trace_rule_sql(
                 "INCASE_clause_exception",
                 #{
@@ -128,7 +128,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         Class:Error:StkTrace ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'failed.exception'),
+            ok = metrics_inc_exception(RuleID),
             trace_rule_sql(
                 "apply_rule_failed",
                 #{
@@ -186,7 +186,7 @@ do_apply_rule(
             case FinalCollection of
                 [] ->
                     trace_rule_sql("SQL_yielded_no_result"),
-                    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result');
+                    ok = metrics_inc_no_result(RuleId);
                 _ ->
                     trace_rule_sql(
                         "SQL_yielded_result", #{result => FinalCollection}, debug
@@ -197,7 +197,7 @@ do_apply_rule(
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- FinalCollection]};
         false ->
             trace_rule_sql("SQL_yielded_no_result"),
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
+            ok = metrics_inc_no_result(RuleId),
             {error, nomatch}
     end;
 do_apply_rule(
@@ -218,7 +218,7 @@ do_apply_rule(
             {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
         false ->
             trace_rule_sql("SQL_yielded_no_result"),
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
+            ok = metrics_inc_no_result(RuleId),
             {error, nomatch}
     end.
 
@@ -924,3 +924,11 @@ trace_rule_sql(Message, Extra, Level) ->
         Message,
         Extra
     ).
+
+metrics_inc_no_result(RuleId) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
+
+metrics_inc_exception(RuleId) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.exception'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
