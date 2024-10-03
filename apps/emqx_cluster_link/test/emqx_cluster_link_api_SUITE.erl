@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -60,7 +61,8 @@ groups() ->
 cluster_test_cases() ->
     [
         t_status,
-        t_metrics
+        t_metrics,
+        t_disable_reenable
     ].
 
 init_per_suite(Config) ->
@@ -201,6 +203,55 @@ link_params(Overrides) ->
         <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>]
     },
     emqx_utils_maps:deep_merge(Default, Overrides).
+
+remove_api_virtual_fields(Response) ->
+    maps:without([<<"name">>, <<"node_status">>, <<"status">>], Response).
+
+%% Node
+disable_and_force_gc(TargetOrSource, Name, Params, TCConfig, Opts) ->
+    NExpectedDeletions = maps:get(expected_num_route_deletions, Opts),
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "cluster_link_extrouter_route_deleted"}),
+        NExpectedDeletions,
+        infinity
+    ),
+    Nodes =
+        case TargetOrSource of
+            target -> ?config(source_nodes, TCConfig);
+            source -> ?config(target_nodes, TCConfig)
+        end,
+    {200, _} = update_link(TargetOrSource, Name, Params#{<<"enable">> := false}),
+    %% Note that only when the GC runs and collects the stopped actor it'll actually
+    %% remove the routes
+    NowMS = erlang:system_time(millisecond),
+    TTL = emqx_cluster_link_config:actor_ttl(),
+    ct:pal("gc"),
+    Timestamp = NowMS + TTL * 3,
+    lists:foreach(fun(N) -> ok = do_actor_gc(N, Timestamp) end, Nodes),
+    {ok, _} = snabbkaffe:receive_events(SRef),
+    ct:pal("gc done"),
+    ok.
+
+do_actor_gc(Node, Timestamp) ->
+    %% 2 Actors: one for normal routes, one for PS routes
+    case ?ON(Node, emqx_cluster_link_extrouter:actor_gc(#{timestamp => Timestamp})) of
+        1 ->
+            do_actor_gc(Node, Timestamp);
+        0 ->
+            ok
+    end.
+
+wait_for_routes([Node | Nodes], ExpectedTopics) ->
+    Topics = ?ON(Node, emqx_cluster_link_extrouter:topics()),
+    case lists:sort(ExpectedTopics) == lists:sort(Topics) of
+        true ->
+            wait_for_routes(Nodes, ExpectedTopics);
+        false ->
+            timer:sleep(100),
+            wait_for_routes([Node | Nodes], ExpectedTopics)
+    end;
+wait_for_routes([], _ExpectedTopics) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -704,25 +755,10 @@ t_metrics(Config) ->
     %% Disabling the link should remove the routes.
     ct:pal("disabling"),
     {200, TargetLink0} = get_link(target, TargetName),
-    TargetLink1 = maps:without([<<"status">>, <<"node_status">>], TargetLink0),
-    TargetLink2 = TargetLink1#{<<"enable">> := false},
-    {_, {ok, _}} =
-        ?wait_async_action(
-            begin
-                {200, _} = update_link(target, TargetName, TargetLink2),
-                %% Note that only when the GC runs and collects the stopped actor it'll actually
-                %% remove the routes
-                NowMS = erlang:system_time(millisecond),
-                TTL = emqx_cluster_link_config:actor_ttl(),
-                ct:pal("gc"),
-                %% 2 Actors: one for normal routes, one for PS routes
-                1 = ?ON(SN1, emqx_cluster_link_extrouter:actor_gc(#{timestamp => NowMS + TTL * 3})),
-                1 = ?ON(SN1, emqx_cluster_link_extrouter:actor_gc(#{timestamp => NowMS + TTL * 3})),
-                ct:pal("gc done"),
-                ok
-            end,
-            #{?snk_kind := "cluster_link_extrouter_route_deleted"}
-        ),
+    TargetLink1 = remove_api_virtual_fields(TargetLink0),
+    ok = disable_and_force_gc(target, TargetName, TargetLink1, Config, #{
+        expected_num_route_deletions => 1
+    }),
 
     ?retry(
         300,
@@ -737,11 +773,11 @@ t_metrics(Config) ->
     ),
 
     %% Enabling again
-    TargetLink3 = TargetLink2#{<<"enable">> := true},
+    TargetLink2 = TargetLink1#{<<"enable">> := true},
     {_, {ok, _}} =
         ?wait_async_action(
             begin
-                {200, _} = update_link(target, TargetName, TargetLink3)
+                {200, _} = update_link(target, TargetName, TargetLink2)
             end,
             #{?snk_kind := "cluster_link_extrouter_route_added"}
         ),
@@ -799,7 +835,7 @@ t_update_password(_Config) ->
             {201, Response1} = create_link(Name, Params1),
             [#{name := Name, password := WrappedPassword0}] = emqx_config:get([cluster, links]),
             ?assertEqual(Password, emqx_secret:unwrap(WrappedPassword0)),
-            Params2A = maps:without([<<"name">>, <<"node_status">>, <<"status">>], Response1),
+            Params2A = remove_api_virtual_fields(Response1),
             Params2 = Params2A#{<<"pool_size">> := 2},
             ?assertEqual(?REDACTED, maps:get(<<"password">>, Params2)),
             ?assertMatch({200, _}, update_link(Name, Params2)),
@@ -841,4 +877,64 @@ t_optional_fields_update(_Config) ->
     Params0 = maps:without([<<"clientid">>], link_params()),
     {201, _} = create_link(Name, Params0),
     ?assertMatch({200, _}, update_link(Name, Params0)),
+    ok.
+
+%% Verifies that, if we disable a link and then re-enable it, it should keep working.
+t_disable_reenable(Config) ->
+    ct:timetrap({seconds, 20}),
+    [SN1, _SN2] = SourceNodes = ?config(source_nodes, Config),
+    [TN1, TN2] = ?config(target_nodes, Config),
+    SourceName = <<"cl.target">>,
+    SourceC1 = emqx_cluster_link_SUITE:start_client(<<"sc1">>, SN1),
+    TargetC1 = emqx_cluster_link_SUITE:start_client(<<"tc1">>, TN1),
+    TargetC2 = emqx_cluster_link_SUITE:start_client(<<"tc2">>, TN2),
+    Topic1 = <<"t/tc1">>,
+    Topic2 = <<"t/tc2">>,
+    {ok, _, _} = emqtt:subscribe(TargetC1, Topic1),
+    {ok, _, _} = emqtt:subscribe(TargetC2, Topic2),
+    %% fixme: use snabbkaffe subscription
+    ?block_until(#{?snk_kind := clink_route_sync_complete}),
+    {ok, _} = emqtt:publish(SourceC1, Topic1, <<"1">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(SourceC1, Topic2, <<"2">>, [{qos, 1}]),
+    %% Sanity check: link is working, initially.
+    ?assertReceive({publish, #{topic := Topic1, payload := <<"1">>}}),
+    ?assertReceive({publish, #{topic := Topic2, payload := <<"2">>}}),
+
+    %% Now we just disable and re-enable it in the link in the source cluster.
+    {200, #{<<"enable">> := true} = SourceLink0} = get_link(source, SourceName),
+    SourceLink1 = remove_api_virtual_fields(SourceLink0),
+    %% We force GC to simulate that we left the link disable for enough time that the GC
+    %% kicks in.
+    ?assertMatch(
+        {200, #{<<"enable">> := false}},
+        update_link(source, SourceName, SourceLink1#{<<"enable">> := false})
+    ),
+    %% In the original issue, GC deleted the state of target cluster's agent in source
+    %% cluster.  After the fix, there's no longer GC, so we ignore timeouts here.
+    _ = ?block_until(
+        #{?snk_kind := "clink_extrouter_gc_ran", result := NumDeleted} when
+            NumDeleted > 0,
+        emqx_cluster_link_config:actor_ttl() + 1_000
+    ),
+    ?assertMatch(
+        {200, #{<<"enable">> := true}},
+        update_link(source, SourceName, SourceLink1)
+    ),
+
+    Topic3 = <<"t/tc3">>,
+    Topic4 = <<"t/tc4">>,
+    {ok, _, _} = emqtt:subscribe(TargetC1, Topic3),
+    {ok, _, _} = emqtt:subscribe(TargetC2, Topic4),
+    ct:pal("waiting for routes to be synced..."),
+    ExpectedTopics = [Topic1, Topic2, Topic3, Topic4],
+    wait_for_routes(SourceNodes, ExpectedTopics),
+
+    {ok, _} = emqtt:publish(SourceC1, Topic1, <<"3">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(SourceC1, Topic2, <<"4">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(SourceC1, Topic3, <<"5">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(SourceC1, Topic4, <<"6">>, [{qos, 1}]),
+    ?assertReceive({publish, #{topic := Topic1, payload := <<"3">>}}),
+    ?assertReceive({publish, #{topic := Topic2, payload := <<"4">>}}),
+    ?assertReceive({publish, #{topic := Topic3, payload := <<"5">>}}),
+    ?assertReceive({publish, #{topic := Topic4, payload := <<"6">>}}),
     ok.
