@@ -514,35 +514,38 @@ t_persistent_sessions5(Config) ->
             %% Disconnect persistent sessions
             lists:foreach(fun stop_and_commit/1, [C1, C2]),
 
+            %% the order of the durable session list is not stable
+            %% se we make sure one request is to list all in-mem,
+            %% and then the next is to list all durable.
             P3 =
                 ?retry(200, 10, begin
-                    P3_ = list_request(#{limit => 3, page => 1}, Config),
+                    P3a = list_request(#{limit => 2, page => 1}, Config),
                     ?assertMatch(
                         {ok,
                             {?HTTP200, _, #{
-                                <<"data">> := [_, _, _],
+                                <<"data">> := [_, _],
                                 <<"meta">> := #{
                                     <<"count">> := 4
                                 }
                             }}},
-                        P3_
+                        P3a
                     ),
-                    P3_
+                    P3a
                 end),
             P4 =
                 ?retry(200, 10, begin
-                    P4_ = list_request(#{limit => 3, page => 2}, Config),
+                    P4a = list_request(#{limit => 2, page => 2}, Config),
                     ?assertMatch(
                         {ok,
                             {?HTTP200, _, #{
-                                <<"data">> := [_],
+                                <<"data">> := [_, _],
                                 <<"meta">> := #{
                                     <<"count">> := 4
                                 }
                             }}},
-                        P4_
+                        P4a
                     ),
-                    P4_
+                    P4a
                 end),
             {ok, {_, _, #{<<"data">> := R3}}} = P3,
             {ok, {_, _, #{<<"data">> := R4}}} = P4,
