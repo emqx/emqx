@@ -98,6 +98,7 @@
     get_callback_mode/1,
     get_resource_type/1,
     get_callback_mode/2,
+    get_query_opts/2,
     %% start the instance
     call_start/3,
     %% verify if the resource is working normally
@@ -163,7 +164,8 @@
     on_get_channels/1,
     query_mode/1,
     on_format_query_result/1,
-    callback_mode/1
+    callback_mode/1,
+    query_opts/1
 ]).
 
 %% when calling emqx_resource:start/1
@@ -214,6 +216,8 @@
     | {error, term()}.
 
 -callback query_mode(Config :: term()) -> query_mode().
+
+-callback query_opts(Config :: term()) -> #{timeout => timeout()}.
 
 %% This callback handles the installation of a specified channel.
 %%
@@ -514,6 +518,15 @@ get_callback_mode(Mod, State) ->
             Mod:callback_mode(State);
         _ ->
             undefined
+    end.
+
+-spec get_query_opts(module(), map()) -> #{timeout => timeout()}.
+get_query_opts(Mod, ActionOrSourceConfig) ->
+    case erlang:function_exported(Mod, query_opts, 1) of
+        true ->
+            Mod:query_opts(ActionOrSourceConfig);
+        false ->
+            emqx_bridge:query_opts(ActionOrSourceConfig)
     end.
 
 -spec call_start(resource_id(), module(), resource_config()) ->
