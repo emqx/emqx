@@ -515,7 +515,7 @@ t_persistent_sessions5(Config) ->
             lists:foreach(fun stop_and_commit/1, [C1, C2]),
 
             %% the order of the durable session list is not stable
-            %% se we make sure one request is to list all in-mem,
+            %% so we make sure one request is to list all in-mem,
             %% and then the next is to list all durable.
             P3 =
                 ?retry(200, 10, begin

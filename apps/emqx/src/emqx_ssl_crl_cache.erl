@@ -40,11 +40,24 @@
 %%----------------------------------------------------------------------
 %% Purpose: Simple default CRL cache
 %%
-%% The cache is an opaque term created by ssl_pkix_db:create/1.
-%% It is essentially an ETS table, created as ssl_otp_crl_cache
-%% not not named.
-%% The cache key is named `Path` in ssl_manager module, but we override
-%% it to the full URL binary format.
+%% The cache is a part of an opaque term named DB created by `ssl_manager'
+%% from calling `ssl_pkix_db:create/1'.
+%%
+%% Insert and delete operations are abstracted by `ssl_manager'.
+%% Read operation is done by passing-through the DB term to
+%% `ssl_pkix_db:lookup/2'.
+%%
+%% The CRL cache in the DB term is essentially an ETS table.
+%% The table is created as `ssl_otp_crl_cache', but not
+%% a named table. You can find the table reference from `ets:i()'.
+%%
+%% The cache key in the original OTP implementation was the path part of the
+%% CRL distribution point URL. e.g. if the URL is `http://foo.bar.com/crl.pem'
+%% the cache key would be `"crl.pem"'.
+%% There is however no type spec for the APIs, nor there is any check
+%% on the format, making it possible to use the full URL binary
+%% string as key instead --- which can avoid cache key clash when
+%% different DPs share the same path.
 %%----------------------------------------------------------------------
 
 -module(emqx_ssl_crl_cache).
