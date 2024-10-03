@@ -373,9 +373,7 @@ handle_info(
         #{
             result := Res,
             need_bootstrap := NeedBootstrap
-        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(
-        Payload
-    ),
+        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(Payload),
     St1 = St#st{
         actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfoMap
     },
@@ -402,8 +400,6 @@ handle_info(
             %% TODO: retry after a timeout?
             {noreply, St1#st{error = Reason, status = disconnected}}
     end;
-handle_info({publish, #{}}, St) ->
-    {noreply, St};
 handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
 handle_info({timeout, TRef, actor_reinit}, St = #st{actor_init_timer = TRef}) ->
