@@ -151,7 +151,7 @@ current_rate_cluster() ->
         end,
         L0
     ),
-    Failed =/= [] orelse
+    Failed =/= [] andalso
         ?LOG(badrpc_log_level(L1), #{msg => "failed_to_sample_current_rate", errors => Failed}),
     Fun = fun({ok, Result}, Cluster) -> merge_cluster_rate(Result, Cluster) end,
     Metrics = lists:foldl(Fun, #{}, L1),
