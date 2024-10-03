@@ -150,9 +150,15 @@ is_sensitive_header("proxy-authorization") ->
 is_sensitive_header(_Any) ->
     false.
 
-redact_v(V) when is_binary(V) -> <<?REDACT_VAL>>;
-%% The HOCON schema system may generate sensitive values with this format
+redact_v(V) when is_binary(V) ->
+    case emqx_placeholder:preproc_tmpl(V) of
+        [{var, _}] ->
+            V;
+        _ ->
+            <<?REDACT_VAL>>
+    end;
 redact_v([{str, Bin}]) when is_binary(Bin) ->
+    %% The HOCON schema system may generate sensitive values with this format
     [{str, <<?REDACT_VAL>>}];
 redact_v(_V) ->
     ?REDACT_VAL.
