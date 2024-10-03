@@ -124,11 +124,11 @@ t_basic_crud(_Config) ->
         Resp2
     ),
 
-    %% TODO
-    %% ?assertMatch(
-    %%     {ok, [#{<<"id">> := <<"q2">>}, #{<<"id">> := <<"q1">>}]},
-    %%     api_get(["durable_queues"])
-    %% ),
+    {ok, 201, #{<<"id">> := QueueID2}} = Resp2,
+    ?assertMatch(
+        {ok, [#{<<"id">> := QueueID1}, #{<<"id">> := QueueID2}]},
+        api_get(["durable_queues"])
+    ),
 
     ?assertMatch(
         {ok, 200, <<"Queue deleted">>},
@@ -139,13 +139,10 @@ t_basic_crud(_Config) ->
         api(delete, ["durable_queues", QueueID1], #{})
     ),
 
-    %% TODO
-    %% ?assertMatch(
-    %%     {ok, [#{<<"id">> := <<"q1">>}]},
-    %%     api_get(["durable_queues"])
-    %% ).
-
-    ok.
+    ?assertMatch(
+        {ok, [#{<<"id">> := QueueID2}]},
+        api_get(["durable_queues"])
+    ).
 
 t_duplicate_queue(_Config) ->
     ?assertMatch(

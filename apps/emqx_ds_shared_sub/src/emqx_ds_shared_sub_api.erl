@@ -122,7 +122,7 @@ schema("/durable_queues/:id") ->
     }.
 
 '/durable_queues'(get, _Params) ->
-    {200, queue_list()};
+    {200, [encode_props(ID, Props) || {ID, Props} <- queue_list()]};
 '/durable_queues'(post, #{body := Params}) ->
     case queue_declare(Params) of
         {ok, Queue} ->
@@ -153,8 +153,7 @@ schema("/durable_queues/:id") ->
     end.
 
 queue_list() ->
-    %% TODO
-    [].
+    emqx_ds_shared_sub_queue:list().
 
 queue_get(#{bindings := #{id := ID}}) ->
     emqx_ds_shared_sub_queue:lookup(ID).
@@ -174,6 +173,9 @@ encode_queue(Queue) ->
         #{id => emqx_ds_shared_sub_queue:id(Queue)},
         emqx_ds_shared_sub_queue:properties(Queue)
     ).
+
+encode_props(ID, Props) ->
+    maps:merge(#{id => ID}, Props).
 
 %%--------------------------------------------------------------------
 %% Schemas

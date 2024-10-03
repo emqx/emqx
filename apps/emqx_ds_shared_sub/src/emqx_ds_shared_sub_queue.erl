@@ -10,7 +10,8 @@
     exists/2,
     declare/4,
     destroy/1,
-    destroy/2
+    destroy/2,
+    list/0
 ]).
 
 -export([
@@ -73,6 +74,9 @@ destroy(ID) ->
             not_found
     end.
 
+list() ->
+    consume_select(emqx_ds_shared_sub_store:select(properties)).
+
 ensure_route(Topic, QueueID) ->
     _ = emqx_persistent_session_ds_router:do_add_route(Topic, QueueID),
     _ = emqx_external_broker:add_persistent_route(Topic, QueueID),
@@ -86,6 +90,16 @@ ensure_delete_route(Topic, QueueID) ->
     _ = emqx_external_broker:delete_persistent_route(Topic, QueueID),
     _ = emqx_persistent_session_ds_router:do_delete_route(Topic, QueueID),
     ok.
+
+%%
+
+consume_select(It0) ->
+    case emqx_ds_shared_sub_store:iter_next(It0, _ChunkSize = 100) of
+        {Records, end_of_iterator} ->
+            Records;
+        {Records, It} ->
+            Records ++ consume_select(It)
+    end.
 
 %%
 
