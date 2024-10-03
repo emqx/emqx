@@ -115,24 +115,19 @@ tune_db_config(Config0 = #{backend := Backend}) ->
     },
     case Backend of
         B when B == builtin_raft; B == builtin_local ->
-            tune_db_storage_layout(Config);
+            Storage =
+                {emqx_ds_storage_bitfield_lts, #{
+                    %% Should be enough, topic structure is pretty simple.
+                    topic_index_bytes => 4,
+                    bits_per_wildcard_level => 64,
+                    %% Enables single-epoch storage.
+                    epoch_bits => 64,
+                    lts_threshold_spec => {simple, {inf, 0, inf, 0}}
+                }},
+            Config#{storage => Storage};
         _ ->
             Config
     end.
-
-tune_db_storage_layout(Config = #{storage := {Layout, Opts0}}) when
-    Layout == emqx_ds_storage_skipstream_lts;
-    Layout == emqx_ds_storage_bitfield_lts
-->
-    Opts = Opts0#{
-        %% Since these layouts impose somewhat strict requirements on message
-        %% timestamp uniqueness, we need to additionally ensure that LTS always
-        %% keeps different groups under separate indices.
-        lts_threshold_spec => {simple, {inf, inf, inf, 0}}
-    },
-    Config#{storage := {Layout, Opts}};
-tune_db_storage_layout(Config = #{storage := _}) ->
-    Config.
 
 %%
 
