@@ -320,7 +320,7 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
             do_verify(JWT, More, VerifyClaims)
     catch
         _:Reason ->
-            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwk => JWK, jwt => JWT, reason => Reason}),
+            ?TRACE_AUTHN_PROVIDER("jwt_verify_error", #{jwt => JWT, reason => Reason}),
             do_verify(JWT, More, VerifyClaims)
     end.
 
