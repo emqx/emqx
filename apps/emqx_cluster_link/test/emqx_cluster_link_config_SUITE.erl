@@ -12,7 +12,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(BASE_CLINK_MQTT_PORT, 11883).
+-define(BASE_CLINK_MQTT_PORT, 1883).
 -define(BASE_CLUSTER_NODE_PORT, 10000).
 
 all() ->
