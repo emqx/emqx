@@ -93,6 +93,8 @@
 
 -define(PUB_TIMEOUT, 10_000).
 
+-define(AUTO_RECONNECT_INTERVAL_S, 2).
+
 -type cluster_name() :: binary().
 
 -spec resource_id(cluster_name()) -> resource_id().
@@ -173,6 +175,7 @@ on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
         {name, PoolName},
         {pool_size, PoolSize},
         {pool_type, hash},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
         {client_opts, emqtt_client_opts(?MSG_CLIENTID_SUFFIX, ClusterConf)}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, pool_name, PoolName),

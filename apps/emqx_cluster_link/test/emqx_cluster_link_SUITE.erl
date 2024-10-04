@@ -214,9 +214,8 @@ t_target_extrouting_gc(Config) ->
     Pubs1 = [M || {publish, M} <- ?drainMailbox(1_000)],
     %% We switch off `TargetNode2' first.  Since `TargetNode1' is the sole endpoint
     %% configured in Target Cluster, the link will keep working (i.e., CL MQTT ecpool
-    %% workers will stay connected).  If we turned `TargetNode1' first, then all ecpool
-    %% workers would die and stay dead (since currently we don't set `auto_reconnect' for
-    %% the pool).
+    %% workers will stay connected).  If we turned `TargetNode1' first, then the link
+    %% would stay down and stop replicating messages.
     {ok, _} = ?wait_async_action(
         emqx_cth_cluster:stop_node(TargetNode2),
         #{?snk_kind := clink_extrouter_actor_cleaned, cluster := <<"cl.target">>}
