@@ -333,7 +333,11 @@ t_config_update_ds('init', Config) ->
 t_config_update_ds('end', Config) ->
     ok = snabbkaffe:stop(),
     ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
-    ok = emqx_cth_cluster:stop(?config(cluster_b, Config)).
+    ok = emqx_cth_cluster:stop(?config(cluster_b, Config)),
+    %% @NOTE: Clean work_dir for this TC to avoid running out of disk space
+    %% causing other test run flaky. Uncomment it if you need to preserve the
+    %% work_dir for troubleshooting
+    emqx_cth_suite:clean_work_dir(?config(work_dir, Config)).
 
 t_config_update_ds(Config) ->
     %% @NOTE: for troubleshooting this TC,
