@@ -5,6 +5,7 @@
 -module(emqx_cluster_link_extrouter_gc).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([start_link/0]).
 
@@ -56,6 +57,7 @@ handle_cast(Cast, State) ->
 
 handle_info({timeout, TRef, _GC}, St = #st{gc_timer = TRef}) ->
     Result = run_gc_exclusive(),
+    ?tp("clink_extrouter_gc_ran", #{result => Result}),
     Timeout = choose_timeout(Result),
     {noreply, schedule_gc(Timeout, St#st{gc_timer = undefined})};
 handle_info(Info, St) ->
