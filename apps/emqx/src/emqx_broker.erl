@@ -55,6 +55,11 @@
     subscribed/2
 ]).
 
+%% Folds
+-export([
+    foldl_topics/2
+]).
+
 -export([
     get_subopts/2,
     set_subopts/2
@@ -120,6 +125,7 @@ create_tabs() ->
     TabOpts = [public, {read_concurrency, true}, {write_concurrency, true}],
 
     %% SubOption: {TopicFilter, SubPid} -> SubOption
+    %% NOTE: `foldl_topics/2` relies on it being ordered.
     ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
     %% Subscription: SubPid -> TopicFilter1, TopicFilter2, TopicFilter3, ...
@@ -517,6 +523,18 @@ set_subopts(SubPid, Topic, NewOpts) ->
         [] ->
             false
     end.
+
+-spec foldl_topics(fun((emqx_types:topic() | emqx_types:share(), Acc) -> Acc), Acc) ->
+    Acc.
+foldl_topics(FoldFun, Acc) ->
+    First = ets:first(?SUBOPTION),
+    foldl_topics(FoldFun, Acc, First).
+
+foldl_topics(FoldFun, Acc, {Topic, _SubPid}) ->
+    Next = ets:next(?SUBOPTION, {Topic, _GreaterThanAnyPid = []}),
+    foldl_topics(FoldFun, FoldFun(Topic, Acc), Next);
+foldl_topics(_FoldFun, Acc, '$end_of_table') ->
+    Acc.
 
 -spec topics() -> [emqx_types:topic() | emqx_types:share()].
 topics() ->
