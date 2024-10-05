@@ -355,7 +355,7 @@ fields(socket_opts) ->
         {tcp_keepalive,
             mk(string(), #{
                 default => <<"none">>,
-                desc => ?DESC(socket_tcp_keepalive),
+                desc => ?DESC(emqx_schema, socket_tcp_keepalive),
                 validator => fun emqx_schema:validate_tcp_keepalive/1
             })}
     ];
