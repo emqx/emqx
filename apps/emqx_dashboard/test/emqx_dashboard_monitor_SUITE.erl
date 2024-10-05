@@ -183,6 +183,39 @@ t_pmap_nodes(_Config) ->
     ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
     ?assertEqual(DataPoints * length(Nodes), sum_value(Data, sent)).
 
+t_inplace_downsample(_Config) ->
+    ok = emqx_dashboard_monitor:clean(0),
+    %% -20s to ensure the oldest data point will not expire during the test
+    SinceT = 7 * timer:hours(24) - timer:seconds(20),
+    Total = 10000,
+    emqx_dashboard_monitor:randomize(Total, #{sent => 1}, SinceT),
+    %% assert original data (before downsample)
+    All0 = emqx_dashboard_monitor:all_data(),
+    AllSent0 = lists:map(fun({_, #{sent := S}}) -> S end, All0),
+    ?assertEqual(Total, lists:sum(AllSent0)),
+    emqx_dashboard_monitor ! clean_expired,
+    %% ensure downsample happened
+    ok = gen_server:call(emqx_dashboard_monitor, dummy, infinity),
+    All = emqx_dashboard_monitor:all_data(),
+    AllSent = lists:map(fun({_, #{sent := S}}) -> S end, All),
+    ?assertEqual(Total, lists:sum(AllSent)),
+    %% check timestamps are not random after downsample
+    ExpectedIntervals = [timer:minutes(10), timer:minutes(5), timer:minutes(1), timer:seconds(10)],
+    ok = check_intervals(ExpectedIntervals, All),
+    ok.
+
+check_intervals(_, []) ->
+    ok;
+check_intervals([], All) ->
+    throw({bad_intervals, All});
+check_intervals([Interval | Rest], [{Ts, _} | RestData] = All) ->
+    case (Ts rem Interval) =:= 0 of
+        true ->
+            check_intervals([Interval | Rest], RestData);
+        false ->
+            check_intervals(Rest, All)
+    end.
+
 t_randomize(_Config) ->
     ok = emqx_dashboard_monitor:clean(0),
     emqx_dashboard_monitor:randomize(1, #{sent => 100}),

@@ -57,7 +57,8 @@
     randomize/2,
     randomize/3,
     sample_fill_gap/2,
-    fill_gaps/2
+    fill_gaps/2,
+    all_data/0
 ]).
 
 -define(TAB, ?MODULE).
@@ -208,9 +209,12 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal functions
 
-inplace_downsample() ->
+all_data() ->
     Fn = fun(#emqx_monit{time = Time, data = Data}, Acc) -> [{Time, Data} | Acc] end,
-    All = lists:keysort(1, ets:foldl(Fn, [], ?TAB)),
+    lists:keysort(1, ets:foldl(Fn, [], ?TAB)).
+
+inplace_downsample() ->
+    All = all_data(),
     Now = erlang:system_time(millisecond),
     Compacted = compact(Now, All, []),
     {Deletes, Writes} = compare(All, Compacted, [], []),
@@ -254,7 +258,7 @@ compact(_Now, [], Acc) ->
     lists:reverse(Acc);
 compact(Now, [{Time, Data} | Rest], Acc) ->
     Interval = sample_interval(Now - Time),
-    Bucket = Time - (Time rem Interval),
+    Bucket = round_down(Time, Interval),
     NewAcc = merge_to_bucket(Bucket, Data, Acc),
     compact(Now, Rest, NewAcc).
 
@@ -271,12 +275,10 @@ randomize(Count, Data) when is_map(Data) ->
 
 randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
     Now = erlang:system_time(millisecond) - 1,
-    Interval = sample_interval(Age),
-    NowBase = Now - (Now rem Interval),
-    StartTs = NowBase - Age,
+    StartTs = Now - Age,
     lists:foreach(
         fun(_) ->
-            Ts = StartTs + rand:uniform(Now - StartTs),
+            Ts = round_down(StartTs + rand:uniform(Age), timer:seconds(10)),
             Record = #emqx_monit{time = Ts, data = Data},
             case ets:lookup(?TAB, Ts) of
                 [] ->
