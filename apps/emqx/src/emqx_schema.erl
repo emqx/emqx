@@ -101,7 +101,9 @@
     ensure_unicode_path/2,
     validate_server_ssl_opts/1,
     validate_tcp_keepalive/1,
-    parse_tcp_keepalive/1
+    parse_tcp_keepalive/1,
+    tcp_keepalive_opts/1,
+    tcp_keepalive_opts/4
 ]).
 
 -export([qos/0]).
@@ -2821,6 +2823,40 @@ validate_keepalive_multiplier(Multiplier) when
     ok;
 validate_keepalive_multiplier(_Multiplier) ->
     {error, #{reason => keepalive_multiplier_out_of_range, min => 1, max => 65535}}.
+
+%% @doc Translate TCP keea-alive string config value into raw TCP options.
+-spec tcp_keepalive_opts(string() | binary()) ->
+    [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}].
+tcp_keepalive_opts(None) when None =:= "none"; None =:= <<"none">> ->
+    [];
+tcp_keepalive_opts(KeepAlive) ->
+    {Idle, Interval, Probes} = parse_tcp_keepalive(KeepAlive),
+    case tcp_keepalive_opts(os:type(), Idle, Interval, Probes) of
+        {ok, Opts} ->
+            Opts;
+        {error, {unsupported_os, _OS}} ->
+            []
+    end.
+
+-spec tcp_keepalive_opts(term(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
+    {ok, [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}]}
+    | {error, {unsupported_os, term()}}.
+tcp_keepalive_opts({unix, linux}, Idle, Interval, Probes) ->
+    {ok, [
+        {keepalive, true},
+        {raw, 6, 4, <<Idle:32/native>>},
+        {raw, 6, 5, <<Interval:32/native>>},
+        {raw, 6, 6, <<Probes:32/native>>}
+    ]};
+tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
+    {ok, [
+        {keepalive, true},
+        {raw, 6, 16#10, <<Idle:32/native>>},
+        {raw, 6, 16#101, <<Interval:32/native>>},
+        {raw, 6, 16#102, <<Probes:32/native>>}
+    ]};
+tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
+    {error, {unsupported_os, OS}}.
 
 validate_tcp_keepalive(Value) ->
     case unicode:characters_to_binary(Value) of
