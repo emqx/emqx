@@ -602,8 +602,20 @@ clean() ->
 
 clean(Retention) ->
     Now = erlang:system_time(millisecond),
-    MS = ets:fun2ms(fun(#emqx_monit{time = T}) -> Now - T > Retention end),
-    _ = ets:select_delete(?TAB, MS),
+    MS = ets:fun2ms(fun(#emqx_monit{time = T}) when Now - T > Retention -> T end),
+    TsList = ets:select(?TAB, MS),
+    {atomic, ok} =
+        mria:transaction(
+            mria:local_content_shard(),
+            fun() ->
+                lists:foreach(
+                    fun(T) ->
+                        mnesia:delete(?TAB, T, write)
+                    end,
+                    TsList
+                )
+            end
+        ),
     ok.
 
 %% This data structure should not be changed because it's a RPC contract.
