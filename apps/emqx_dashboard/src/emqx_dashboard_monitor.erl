@@ -193,6 +193,7 @@ handle_info({sample, Time}, State = #state{last = Last}) ->
 handle_info(clean_expired, #state{clean_timer = TrefOld} = State) ->
     ok = maybe_cancel_timer(TrefOld),
     clean(),
+    inplace_downsample(),
     TrefNew = clean_timer(),
     {noreply, State#state{clean_timer = TrefNew}};
 handle_info(_Info, State = #state{}) ->
@@ -206,6 +207,62 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Internal functions
+
+inplace_downsample() ->
+    Fn = fun(#emqx_monit{time = Time, data = Data}, Acc) -> [{Time, Data} | Acc] end,
+    All = lists:keysort(1, ets:foldl(Fn, [], ?TAB)),
+    Now = erlang:system_time(millisecond),
+    Compacted = compact(Now, All, []),
+    {Deletes, Writes} = compare(All, Compacted, [], []),
+    {atomic, ok} = mria:transaction(
+        mria:local_content_shard(),
+        fun() ->
+            lists:foreach(
+                fun(T) ->
+                    mnesia:delete(?TAB, T, write)
+                end,
+                Deletes
+            ),
+            lists:foreach(
+                fun({T, D}) ->
+                    mnesia:write(?TAB, #emqx_monit{time = T, data = D}, write)
+                end,
+                Writes
+            )
+        end
+    ),
+    ok.
+
+compare(Remain, [], Deletes, Writes) ->
+    %% all compacted buckets have been processed, remaining datapoints should all be deleted
+    RemainTsList = lists:map(fun({T, _Data}) -> T end, Remain),
+    {Deletes ++ RemainTsList, Writes};
+compare([{T, Data} | All], [{T, Data} | Compacted], Deletes, Writes) ->
+    %% no change, do nothing
+    compare(All, Compacted, Deletes, Writes);
+compare([{T, _} | All], [{T, Data} | Compacted], Deletes, Writes) ->
+    %% this timetamp has been compacted away, but overwrite it with new data
+    compare(All, Compacted, Deletes, [{T, Data} | Writes]);
+compare([{T0, _} | All], [{T1, _} | _] = Compacted, Deletes, Writes) when T0 < T1 ->
+    %% this timstamp has been compacted away, delete it
+    compare(All, Compacted, [T0 | Deletes], Writes);
+compare([{T0, _} | _] = All, [{T1, Data1} | Compacted], Deletes, Writes) when T0 > T1 ->
+    %% compare with the next compacted bucket timestamp
+    compare(All, Compacted, Deletes, [{T1, Data1} | Writes]).
+
+compact(_Now, [], Acc) ->
+    lists:reverse(Acc);
+compact(Now, [{Time, Data} | Rest], Acc) ->
+    Interval = sample_interval(Now - Time),
+    Bucket = Time - (Time rem Interval),
+    NewAcc = merge_to_bucket(Bucket, Data, Acc),
+    compact(Now, Rest, NewAcc).
+
+merge_to_bucket(Bucket, Data, [{Bucket, Data0} | Acc]) ->
+    NewData = merge_sampler_maps(Data, Data0),
+    [{Bucket, NewData} | Acc];
+merge_to_bucket(Bucket, Data, Acc) ->
+    [{Bucket, Data} | Acc].
 
 %% for testing
 randomize(Count, Data) when is_map(Data) ->
@@ -416,7 +473,6 @@ cal_rate_(Key, {Now, Last, TDelta, Res}) ->
 %% < 3d: sample every 5m: 864 data points
 %% < 7d: sample every 10m: 1008 data points
 sample_interval(Age) when Age =< 60 * ?SECONDS ->
-    %% so far this can happen only during tests
     ?ONE_SECOND;
 sample_interval(Age) when Age =< ?ONE_HOUR ->
     10 * ?SECONDS;
