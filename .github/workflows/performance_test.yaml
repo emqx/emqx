@@ -137,7 +137,7 @@ jobs:
         done
         ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-2.*'
         echo "Waiting for publishers to connect"
-        conns=$(jq -r '.live_connections "$TMPDIR/monitor_current.json")
+        conns=$(jq -r '.live_connections' "$TMPDIR/monitor_current.json")
         while [ $conns -lt 20000 ]; do
           curl -s -u perftest:perftest "$EMQX_API_URL/api/v5/monitor_current" > "$TMPDIR/monitor_current.json"
           conns=$(jq -r '.live_connections' "$TMPDIR/monitor_current.json")
