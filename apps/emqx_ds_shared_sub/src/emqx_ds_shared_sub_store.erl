@@ -51,7 +51,9 @@
 
 -export([
     select/1,
-    iter_next/2
+    select/2,
+    select_next/2,
+    select_preserve/1
 ]).
 
 %% Messing with IDs
@@ -301,6 +303,7 @@ mk_leader_topic(ID) ->
 
 -type properties() :: #{
     %% TODO: Efficient encoding.
+    group => emqx_types:group(),
     topic => emqx_types:topic(),
     start_time => emqx_message:timestamp(),
     created_at => emqx_message:timestamp()
@@ -310,9 +313,6 @@ mk_leader_topic(ID) ->
     progress => emqx_persistent_session_ds_shared_subs:progress(),
     rank => emqx_ds:stream_rank()
 }.
-
--type iter_select() ::
-    {emqx_ds:topic_filter(), emqx_ds:iterator(), [emqx_ds:stream()]} | nil().
 
 -spec init(id()) -> t().
 init(ID) ->
@@ -707,20 +707,36 @@ mk_store_payload(?STORE_SK(_SpaceName, ID), Value) ->
 mk_store_payload(_VarName, Value) ->
     Value.
 
--spec select(var_name()) -> iter_select().
+%%
+
+-record(select, {tf, start, it, streams}).
+
+-type select() :: #select{}.
+
+-spec select(var_name()) -> select().
 select(VarName) ->
+    select_jump(select_new(VarName)).
+
+-spec select(var_name(), _Cursor) -> select().
+select(VarName, Cursor) ->
+    select_restore(Cursor, select_new(VarName)).
+
+select_new(VarName) ->
     TopicFilter = mk_store_varname_wildcard(VarName),
-    Streams = [S || {_Rank, S} <- emqx_ds:get_streams(?DS_DB, TopicFilter, _StartTime = 0)],
-    iter_jump(TopicFilter, Streams).
+    StartTime = 0,
+    RankedStreams = emqx_ds:get_streams(?DS_DB, TopicFilter, StartTime),
+    Streams = [S || {_Rank, S} <- lists:sort(RankedStreams)],
+    #select{tf = TopicFilter, start = StartTime, streams = Streams}.
 
-iter_jump(TopicFilter, [Stream | Rest]) ->
-    {TopicFilter, ds_make_iterator(Stream, TopicFilter, _StartTime = 0), Rest};
-iter_jump(_TopicFilter, []) ->
-    [].
+select_jump(It = #select{tf = TopicFilter, start = StartTime, streams = [Stream | Rest]}) ->
+    DSIt = ds_make_iterator(Stream, TopicFilter, StartTime),
+    It#select{it = DSIt, streams = Rest};
+select_jump(It = #select{streams = []}) ->
+    It#select{it = undefined}.
 
--spec iter_next(iter_select(), _N) -> {[{id(), _Var}], iter_select() | end_of_iterator}.
-iter_next(ItSelect, N) ->
-    iter_fold(
+-spec select_next(select(), _N) -> {[{id(), _Var}], select() | end_of_iterator}.
+select_next(ItSelect, N) ->
+    select_fold(
         ItSelect,
         N,
         fun(Message, Acc) ->
@@ -729,21 +745,38 @@ iter_next(ItSelect, N) ->
         []
     ).
 
-iter_fold({TopicFilter, It0, Streams}, N, Fun, Acc0) ->
-    case emqx_ds:next(?DS_DB, It0, N) of
-        {ok, It, Messages} ->
+select_fold(#select{it = undefined}, _, _Fun, Acc) ->
+    {Acc, end_of_iterator};
+select_fold(It = #select{it = DSIt0}, N, Fun, Acc0) ->
+    case emqx_ds:next(?DS_DB, DSIt0, N) of
+        {ok, DSIt, Messages} ->
             Acc = lists:foldl(fun({_Key, Msg}, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
             case length(Messages) of
                 N ->
-                    {Acc, {TopicFilter, It, Streams}};
+                    {Acc, It#select{it = DSIt}};
                 NLess when NLess < N ->
-                    iter_fold(iter_jump(TopicFilter, Streams), N - NLess, Fun, Acc)
+                    select_fold(select_jump(It), N - NLess, Fun, Acc)
             end;
         {ok, end_of_stream} ->
-            iter_fold(iter_jump(TopicFilter, Streams), N, Fun, Acc0)
-    end;
-iter_fold([], _N, _Fun, Acc) ->
-    {Acc, end_of_iterator}.
+            select_fold(select_jump(It), N, Fun, Acc0)
+    end.
+
+-spec select_preserve(select()) -> _Cursor.
+select_preserve(#select{it = It, streams = Streams}) ->
+    case Streams of
+        [StreamNext | _Rest] ->
+            %% Preserve only the subsequent stream.
+            [It | StreamNext];
+        [] ->
+            %% Iterating over last stream, preserve only iterator.
+            [It]
+    end.
+
+select_restore([It], Select) ->
+    Select#select{it = It, streams = []};
+select_restore([It | StreamNext], Select = #select{streams = Streams}) ->
+    StreamsRest = lists:dropwhile(fun(S) -> S =/= StreamNext end, Streams),
+    Select#select{it = It, streams = StreamsRest}.
 
 mk_store_root_topic(ID) ->
     emqx_topic:join([?STORE_TOPIC_PREFIX, ID]).

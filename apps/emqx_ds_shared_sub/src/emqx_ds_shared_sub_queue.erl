@@ -11,7 +11,7 @@
     declare/4,
     destroy/1,
     destroy/2,
-    list/0
+    list/2
 ]).
 
 -export([
@@ -74,8 +74,13 @@ destroy(ID) ->
             not_found
     end.
 
-list() ->
-    consume_select(emqx_ds_shared_sub_store:select(properties)).
+list(undefined, Limit) ->
+    list(select_properties(), Limit);
+list(Cursor, Limit) when is_binary(Cursor) ->
+    list(select_properties(Cursor), Limit);
+list(Select, Limit) ->
+    {Records, SelectNext} = emqx_ds_shared_sub_store:select_next(Select, Limit),
+    {Records, preserve_cursor(SelectNext)}.
 
 ensure_route(Topic, QueueID) ->
     _ = emqx_persistent_session_ds_router:do_add_route(Topic, QueueID),
@@ -93,13 +98,32 @@ ensure_delete_route(Topic, QueueID) ->
 
 %%
 
-consume_select(It0) ->
-    case emqx_ds_shared_sub_store:iter_next(It0, _ChunkSize = 100) of
-        {Records, end_of_iterator} ->
-            Records;
-        {Records, It} ->
-            Records ++ consume_select(It)
+select_properties() ->
+    emqx_ds_shared_sub_store:select(properties).
+
+select_properties(Cursor) ->
+    try
+        emqx_ds_shared_sub_store:select(properties, decode_cursor(Cursor))
+    catch
+        error:_ ->
+            throw("Invalid cursor")
     end.
+
+preserve_cursor(end_of_iterator) ->
+    undefined;
+preserve_cursor(Select) ->
+    case emqx_ds_shared_sub_store:select_next(Select, 1) of
+        {[], end_of_iterator} ->
+            undefined;
+        {[_], _} ->
+            encode_cursor(emqx_ds_shared_sub_store:select_preserve(Select))
+    end.
+
+encode_cursor(Cursor) ->
+    emqx_base62:encode(term_to_binary(Cursor)).
+
+decode_cursor(Cursor) ->
+    binary_to_term(emqx_base62:decode(Cursor), [safe]).
 
 %%
 
