@@ -62,9 +62,7 @@
 
 -define(DELTA_SAMPLER_LIST, [
     received,
-    %, received_bytes
     sent,
-    %, sent_bytes
     validation_succeeded,
     validation_failed,
     transformation_succeeded,
@@ -86,9 +84,6 @@
 
 -define(DELTA_SAMPLER_RATE_MAP, #{
     received => received_msg_rate,
-    %% In 5.0.0, temporarily comment it to suppress bytes rate
-    %received_bytes  => received_bytes_rate,
-    %sent_bytes      => sent_bytes_rate,
     sent => sent_msg_rate,
     validation_succeeded => validation_succeeded_rate,
     validation_failed => validation_failed_rate,

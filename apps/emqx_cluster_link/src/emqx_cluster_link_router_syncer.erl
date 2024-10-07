@@ -373,9 +373,7 @@ handle_info(
         #{
             result := Res,
             need_bootstrap := NeedBootstrap
-        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(
-        Payload
-    ),
+        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(Payload),
     St1 = St#st{
         actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfoMap
     },
@@ -402,8 +400,6 @@ handle_info(
             St2 = ensure_reconnect_timer(St1#st{error = Reason, status = disconnected}),
             {noreply, St2}
     end;
-handle_info({publish, #{}}, St) ->
-    {noreply, St};
 handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
 handle_info({timeout, TRef, actor_reinit}, St = #st{actor_init_timer = TRef}) ->
@@ -493,14 +489,19 @@ handle_connect_error(Reason, St) ->
     _ = maybe_alarm(Reason, St),
     ensure_reconnect_timer(St#st{error = Reason, status = disconnected}).
 
-handle_client_down(Reason, St = #st{target = TargetCluster, actor = Actor}) ->
-    ?tp(error, "cluster_link_connection_failed", #{
+handle_client_down(
+    Reason,
+    St = #st{target = TargetCluster, actor = Actor, bootstrapped = Bootstrapped}
+) ->
+    ?SLOG(error, #{
+        msg => "cluster_link_connection_failed",
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor
     }),
-    %% TODO: syncer may be already down due to one_for_all strategy
-    ok = suspend_syncer(TargetCluster, Actor),
+    %% NOTE: There's no syncer yet if bootstrap haven't finished.
+    %% TODO: Syncer may be already down due to one_for_all strategy.
+    _ = Bootstrapped andalso suspend_syncer(TargetCluster, Actor),
     _ = maybe_alarm(Reason, St),
     NSt = cancel_heartbeat(St),
     process_connect(NSt#st{client = undefined, error = Reason, status = connecting}).

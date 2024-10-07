@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_bridge_v2_pgsql_SUITE).
+-module(emqx_bridge_v2_mysql_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -21,10 +21,10 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(BRIDGE_TYPE, pgsql).
--define(BRIDGE_TYPE_BIN, <<"pgsql">>).
--define(CONNECTOR_TYPE, pgsql).
--define(CONNECTOR_TYPE_BIN, <<"pgsql">>).
+-define(BRIDGE_TYPE, mysql).
+-define(BRIDGE_TYPE_BIN, <<"mysql">>).
+-define(CONNECTOR_TYPE, mysql).
+-define(CONNECTOR_TYPE_BIN, <<"mysql">>).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 -import(emqx_utils_conv, [bin/1]).
@@ -34,23 +34,12 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    All0 = emqx_common_test_helpers:all(?MODULE),
-    All = All0 -- matrix_cases(),
-    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
-    Groups ++ All.
-
-matrix_cases() ->
-    [
-        t_disable_prepared_statements
-    ].
-
-groups() ->
-    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    PostgresHost = os:getenv("PGSQL_TCP_HOST", "toxiproxy"),
-    PostgresPort = list_to_integer(os:getenv("PGSQL_TCP_PORT", "5432")),
-    case emqx_common_test_helpers:is_tcp_server_available(PostgresHost, PostgresPort) of
+    MysqlHost = os:getenv("MYSQL_TCP_HOST", "toxiproxy"),
+    MysqlPort = list_to_integer(os:getenv("MYSQL_TCP_PORT", "3306")),
+    case emqx_common_test_helpers:is_tcp_server_available(MysqlHost, MysqlPort) of
         true ->
             Apps = emqx_cth_suite:start(
                 [
@@ -58,7 +47,7 @@ init_per_suite(Config) ->
                     emqx_conf,
                     emqx_connector,
                     emqx_bridge,
-                    emqx_bridge_pgsql,
+                    emqx_bridge_mysql,
                     emqx_rule_engine,
                     emqx_management,
                     emqx_mgmt_api_test_util:emqx_dashboard()
@@ -67,21 +56,21 @@ init_per_suite(Config) ->
             ),
             NConfig = [
                 {apps, Apps},
-                {pgsql_host, PostgresHost},
-                {pgsql_port, PostgresPort},
+                {mysql_host, MysqlHost},
+                {mysql_port, MysqlPort},
                 {enable_tls, false},
-                {postgres_host, PostgresHost},
-                {postgres_port, PostgresPort}
+                {mysql_host, MysqlHost},
+                {mysql_port, MysqlPort}
                 | Config
             ],
-            emqx_bridge_pgsql_SUITE:connect_and_create_table(NConfig),
+            emqx_bridge_mysql_SUITE:connect_and_drop_table(NConfig),
             NConfig;
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
-                    throw(no_postgres);
+                    throw(no_mysql);
                 _ ->
-                    {skip, no_postgres}
+                    {skip, no_mysql}
             end
     end.
 
@@ -90,33 +79,8 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
-init_per_group(Group, Config) when
-    Group =:= postgres;
-    Group =:= timescale;
-    Group =:= matrix
-->
-    [
-        {bridge_type, group_to_type(Group)},
-        {connector_type, group_to_type(Group)}
-        | Config
-    ];
-init_per_group(batch_enabled, Config) ->
-    [
-        {batch_size, 10},
-        {batch_time, <<"10ms">>}
-        | Config
-    ];
-init_per_group(batch_disabled, Config) ->
-    [
-        {batch_size, 1},
-        {batch_time, <<"0ms">>}
-        | Config
-    ];
 init_per_group(_Group, Config) ->
     Config.
-
-group_to_type(postgres) -> pgsql;
-group_to_type(Group) -> Group.
 
 end_per_group(_Group, _Config) ->
     ok.
@@ -132,11 +96,12 @@ init_per_testcase(TestCase, Config) ->
     Passfile = filename:join(?config(priv_dir, Config), "passfile"),
     ok = file:write_file(Passfile, Password),
     NConfig = [
-        {postgres_username, Username},
-        {postgres_password, Password},
-        {postgres_passfile, Passfile}
+        {mysql_username, Username},
+        {mysql_password, Password},
+        {mysql_passfile, Passfile}
         | Config
     ],
+    emqx_bridge_mysql_SUITE:connect_and_create_table(NConfig),
     ConnectorConfig = connector_config(Name, NConfig),
     BridgeConfig = bridge_config(Name, Name),
     ok = snabbkaffe:start_trace(),
@@ -144,8 +109,8 @@ init_per_testcase(TestCase, Config) ->
         {connector_type, proplists:get_value(connector_type, Config, ?CONNECTOR_TYPE)},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, proplists:get_value(bridge_type, Config, ?BRIDGE_TYPE)},
-        {bridge_name, Name},
+        {action_type, proplists:get_value(action_type, Config, ?BRIDGE_TYPE)},
+        {action_name, Name},
         {bridge_config, BridgeConfig}
         | NConfig
     ].
@@ -155,7 +120,7 @@ end_per_testcase(_Testcase, Config) ->
         true ->
             ok;
         false ->
-            emqx_bridge_pgsql_SUITE:connect_and_clear_table(Config),
+            emqx_bridge_mysql_SUITE:connect_and_drop_table(Config),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
             emqx_common_test_helpers:call_janitor(60_000),
             ok = snabbkaffe:stop(),
@@ -167,15 +132,15 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 
 connector_config(Name, Config) ->
-    PostgresHost = ?config(postgres_host, Config),
-    PostgresPort = ?config(postgres_port, Config),
-    Username = ?config(postgres_username, Config),
-    PassFile = ?config(postgres_passfile, Config),
+    MysqlHost = ?config(mysql_host, Config),
+    MysqlPort = ?config(mysql_port, Config),
+    Username = ?config(mysql_username, Config),
+    PassFile = ?config(mysql_passfile, Config),
     InnerConfigMap0 =
         #{
             <<"enable">> => true,
             <<"database">> => <<"mqtt">>,
-            <<"server">> => iolist_to_binary([PostgresHost, ":", integer_to_binary(PostgresPort)]),
+            <<"server">> => iolist_to_binary([MysqlHost, ":", integer_to_binary(MysqlPort)]),
             <<"pool_size">> => 8,
             <<"username">> => Username,
             <<"password">> => iolist_to_binary(["file://", PassFile]),
@@ -188,14 +153,26 @@ connector_config(Name, Config) ->
     InnerConfigMap = serde_roundtrip(InnerConfigMap0),
     emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, Name, InnerConfigMap).
 
+default_sql() ->
+    <<
+        "INSERT INTO mqtt_test(payload, arrived) "
+        "VALUES (${payload.value}, FROM_UNIXTIME(${timestamp}/1000))"
+    >>.
+
+bad_sql() ->
+    <<
+        "INSERT INTO mqtt_test(payload, arrivedx) "
+        "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
+    >>.
+
 bridge_config(Name, ConnectorId) ->
     InnerConfigMap0 =
         #{
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> =>
-                #{<<"sql">> => emqx_bridge_pgsql_SUITE:default_sql()},
-            <<"local_topic">> => <<"t/postgres">>,
+                #{<<"sql">> => default_sql()},
+            <<"local_topic">> => <<"t/mysql">>,
             <<"resource_opts">> => #{
                 <<"batch_size">> => 1,
                 <<"batch_time">> => <<"0ms">>,
@@ -207,7 +184,6 @@ bridge_config(Name, ConnectorId) ->
                 <<"metrics_flush_interval">> => <<"1s">>,
                 <<"query_mode">> => <<"sync">>,
                 <<"request_ttl">> => <<"45s">>,
-                <<"resume_interval">> => <<"15s">>,
                 <<"worker_pool_size">> => <<"1">>
             }
         },
@@ -236,10 +212,6 @@ make_message() ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_start_stop(Config) ->
-    emqx_bridge_v2_testlib:t_start_stop(Config, postgres_stopped),
-    ok.
-
 t_create_via_http(Config) ->
     emqx_bridge_v2_testlib:t_create_via_http(Config),
     ok.
@@ -248,102 +220,22 @@ t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
     ok.
 
-t_sync_query(Config) ->
-    ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config,
-        fun make_message/0,
-        fun(Res) -> ?assertMatch({ok, _}, Res) end,
-        postgres_bridge_connector_on_query_return
-    ),
-    ok.
-
 t_start_action_or_source_with_disabled_connector(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
     ok.
 
-t_disable_prepared_statements(matrix) ->
-    [
-        [postgres, batch_disabled],
-        [postgres, batch_enabled],
-        [timescale, batch_disabled],
-        [timescale, batch_enabled],
-        [matrix, batch_disabled],
-        [matrix, batch_enabled]
-    ];
-t_disable_prepared_statements(Config0) ->
-    BatchSize = ?config(batch_size, Config0),
-    BatchTime = ?config(batch_time, Config0),
-    ConnectorConfig0 = ?config(connector_config, Config0),
-    ConnectorConfig = maps:merge(ConnectorConfig0, #{<<"disable_prepared_statements">> => true}),
-    BridgeConfig0 = ?config(bridge_config, Config0),
-    BridgeConfig = emqx_utils_maps:deep_merge(
-        BridgeConfig0,
-        #{
-            <<"resource_opts">> => #{
-                <<"batch_size">> => BatchSize,
-                <<"batch_time">> => BatchTime,
-                <<"query_mode">> => <<"async">>
-            }
-        }
-    ),
-    Config1 = lists:keyreplace(connector_config, 1, Config0, {connector_config, ConnectorConfig}),
-    Config = lists:keyreplace(bridge_config, 1, Config1, {bridge_config, BridgeConfig}),
-    ?check_trace(
-        #{timetrap => 5_000},
-        begin
-            ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
-            RuleTopic = <<"t/postgres">>,
-            Type = ?config(bridge_type, Config),
-            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, Config),
-            ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
-            ?retry(
-                _Sleep = 1_000,
-                _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-            ),
-            {ok, C} = emqtt:start_link(),
-            {ok, _} = emqtt:connect(C),
-            lists:foreach(
-                fun(N) ->
-                    emqtt:publish(C, RuleTopic, integer_to_binary(N))
-                end,
-                lists:seq(1, BatchSize)
-            ),
-            case BatchSize > 1 of
-                true ->
-                    ?block_until(#{
-                        ?snk_kind := "postgres_success_batch_result",
-                        row_count := BatchSize
-                    }),
-                    ok;
-                false ->
-                    ok
-            end,
-            ok
-        end,
-        []
-    ),
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    ok = emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    ok = emqx_bridge_v2_testlib:t_create_via_http(Config),
-    ok.
-
 t_update_with_invalid_prepare(Config) ->
     ConnectorName = ?config(connector_name, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
     %% arrivedx is a bad column name
-    BadSQL = <<
-        "INSERT INTO mqtt_test(payload, arrivedx) "
-        "VALUES (${payload}, TO_TIMESTAMP((${timestamp} :: bigint)/1000))"
-    >>,
+    BadSQL = bad_sql(),
     Override = #{<<"parameters">> => #{<<"sql">> => BadSQL}},
     {ok, {{_, 200, "OK"}, _Headers1, Body1}} =
         emqx_bridge_v2_testlib:update_bridge_api(Config, Override),
     ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
     Error1 = maps:get(<<"error">>, Body1),
-    case re:run(Error1, <<"undefined_column">>, [{capture, none}]) of
+    case re:run(Error1, <<"Unknown column">>, [{capture, none}]) of
         match ->
             ok;
         nomatch ->
@@ -353,7 +245,7 @@ t_update_with_invalid_prepare(Config) ->
             })
     end,
     %% assert that although there was an error returned, the invliad SQL is actually put
-    C1 = [{action_name, BridgeName}, {action_type, pgsql} | Config],
+    C1 = [{action_name, BridgeName}, {action_type, mysql} | Config],
     {ok, {{_, 200, "OK"}, _, Action}} = emqx_bridge_v2_testlib:get_action_api(C1),
     #{<<"parameters">> := #{<<"sql">> := FetchedSQL}} = Action,
     ?assertEqual(FetchedSQL, BadSQL),
@@ -364,15 +256,15 @@ t_update_with_invalid_prepare(Config) ->
     %% the error should be gone now, and status should be 'connected'
     ?assertMatch(#{<<"error">> := <<>>, <<"status">> := <<"connected">>}, Body2),
     %% finally check if ecpool worker should have exactly one of reconnect callback
-    ConnectorResId = <<"connector:pgsql:", ConnectorName/binary>>,
+    ConnectorResId = <<"connector:mysql:", ConnectorName/binary>>,
     Workers = ecpool:workers(ConnectorResId),
     [_ | _] = WorkerPids = lists:map(fun({_, Pid}) -> Pid end, Workers),
     lists:foreach(
         fun(Pid) ->
-            [{emqx_postgresql, prepare_sql_to_conn, Args}] =
+            [{emqx_mysql, prepare_sql_to_conn, Args}] =
                 ecpool_worker:get_reconnect_callbacks(Pid),
-            Sig = emqx_postgresql:get_reconnect_callback_signature(Args),
-            BridgeResId = <<"action:pgsql:", BridgeName/binary, $:, ConnectorResId/binary>>,
+            Sig = emqx_mysql:get_reconnect_callback_signature(Args),
+            BridgeResId = <<"action:mysql:", BridgeName/binary, $:, ConnectorResId/binary>>,
             ?assertEqual(BridgeResId, Sig)
         end,
         WorkerPids

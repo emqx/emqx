@@ -13,6 +13,7 @@
     resource_type/0,
     callback_mode/0,
     query_mode/1,
+    query_opts/1,
     on_start/2,
     on_add_channel/4,
     on_remove_channel/3,
@@ -64,6 +65,11 @@ query_mode(#{resource_opts := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
 query_mode(_Config) ->
     simple_async_internal_buffer.
+
+query_opts(#{resource_opts := #{query_mode := sync}, parameters := #{sync_timeout := Timeout}}) ->
+    #{timeout => Timeout};
+query_opts(_) ->
+    #{}.
 
 -spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->
