@@ -12,7 +12,7 @@ jobs:
     steps:
     - name: Cache Jmeter
       id: cache-jmeter
-      uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+      uses: actions/cache@2cdf405574d6ef1f33a1d12acccd3ae82f47b3f2 # v4.1.0
       with:
         path: /tmp/apache-jmeter.tgz
         key: apache-jmeter-5.4.3.tgz
