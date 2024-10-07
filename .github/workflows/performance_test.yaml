@@ -126,7 +126,7 @@ jobs:
         fi
 
         EMQX_API_URL=$(terraform output -raw emqx_dashboard_url)
-        ansible loadgen -m command -a 'systemctl start loadgen' --limit 'loadgen-emqtt_bench-1.*'
+        ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-1.*'
         # wait until all subscribers are connected
         subs=0
         while [ $subs -lt 10000 ]; do
@@ -134,7 +134,7 @@ jobs:
           subs=$(jq -r '.subscriptions "$TMPDIR/monitor_current.json")
           sleep 1
         done
-        ansible loadgen -m command -a 'systemctl start loadgen' --limit 'loadgen-emqtt_bench-2.*'
+        ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-2.*'
         # wait until all publishers are up
         conns=$(jq -r '.live_connections "$TMPDIR/monitor_current.json")
         while [ $conns -lt 20000 ]; do
