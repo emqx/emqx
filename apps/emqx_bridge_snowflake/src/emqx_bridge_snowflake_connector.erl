@@ -15,6 +15,7 @@
 -include_lib("emqx/include/emqx_trace.hrl").
 -include("emqx_bridge_snowflake.hrl").
 -include_lib("emqx_connector_aggregator/include/emqx_connector_aggregator.hrl").
+-include_lib("emqx_connector_jwt/include/emqx_connector_jwt_tables.hrl").
 
 -elvis([{elvis_style, macro_module_names, disable}]).
 
@@ -798,6 +799,7 @@ destroy_action(ActionResId, ActionState) ->
             ok
     end,
     ok = ehttpc_sup:stop_pool(ActionResId),
+    ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
     ok.
 
 run_aggregated_action(Batch, #{aggreg_id := AggregId}) ->
