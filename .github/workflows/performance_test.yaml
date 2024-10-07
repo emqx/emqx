@@ -35,9 +35,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-      SLACK_CHANNEL_ID: ${{ secrets.SLACK_PERFTEST_CHANNEL_ID }}
 
     steps:
     - name: Configure AWS Credentials
@@ -69,22 +66,6 @@ jobs:
       run: |
         version=${{ github.event.inputs.emqx_version }}
         wget https://www.emqx.com/en/downloads/enterprise/${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb
-
-    - name: Create helper script to send messages to Slack
-      run: |
-        cat <<EOF > slack.sh
-        #!/bin/bash
-
-        set -euo pipefail
-
-        jq -n --argjson attachments "\$(<attachments.json)" \
-          '{"channel": "$SLACK_CHANNEL_ID", "text": "EMQX performance test `\($scenario)` (<\($url)|Workflow Run>)", "attachments": \$attachments}' > /tmp/slack-payload.json
-        curl -s -X POST \
-          -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-          -H "Content-type: application/json; charset=UTF-8" \
-          --data @/tmp/slack-payload.json "https://slack.com/api/chat.postMessage"
-        EOF
-        chmod +x slack.sh
 
     - name: Create infrastructure
       id: infra
@@ -120,7 +101,6 @@ jobs:
       run: |
         jq '. += [{"color": "#ff0000", "fields": [{"title": "Infrastructure creation failed", "short": false}]}]' \
           attachments.json 1<> attachments.json
-        ./slack.sh
 
     - name: Run benchmark
       if: success()
@@ -188,7 +168,7 @@ jobs:
         || [ $(echo "$SENT_MSG_RATE < $SENT_MSG_RATE_BASELINE * (1 - $ALLOWED_DEVIATION_MSG_RATE)" | bc -l) -eq 1 ]; then
           success=1
           jq --arg received_msg_rate "$RECEIVED_MSG_RATE" --arg sent_msg_rate "$SENT_MSG_RATE" \
-            '. += [{"color": "#ff0000", "fields": [{"title": "Message rate was too low", "short": false, "value": "Received message rate: \($received_msg_rate)\nSent message rate: \($sent_msg_rate)}]}]' \
+            '. += [{"color": "#ff0000", "fields": [{"title": "Message rate was too low", "short": false, "value": "Received message rate: \($received_msg_rate)\nSent message rate: \($sent_msg_rate)"}]}]' \
             attachments.json 1<> attachments.json
         fi
 
@@ -198,12 +178,21 @@ jobs:
           jq --arg dropped "$MESSAGES_DROPPED" '. += [{"color": "#ff0000", "fields": [{"title": "Too many dropped messages", "short": false, "value": "Dropped: \($dropped)"}]}]' \
             attachments.json 1<> attachments.json
         fi
+        jq -n --argjson attachments "\$(<attachments.json)" '{"attachments": \$attachments}' > slack-payload.json
 
-        if [ $success != 0 ]; then
-          ./slack.sh
-          exit 1
-        fi
+        exit $success
 
+    - name: Post to Slack
+      if: failure()
+      uses: slackapi/slack-github-action@v1.27.0
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      with:
+        channel-id: ${{ secrets.SLACK_PERFTEST_CHANNEL_ID }}
+        slack-message: "EMQX performance test ${{ matrix.scenario }} failed. <${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}|Workflow Run>"
+        payload-file-path: slack-payload.json
+        payload-file-path-parsed: false
+    
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: failure()
       with:
