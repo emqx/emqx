@@ -77,32 +77,14 @@ jobs:
 
         set -euo pipefail
 
-        MESSAGE_TS=\${MESSAGE_TS:-''}
-
-        if [ -z "\${MESSAGE_TS}" ]; then
-          method='chat.postMessage'
-          jq -n --argjson attachments "\$(<attachments.json)" \
-            '{"channel": "$SLACK_CHANNEL_ID", "attachments": \$attachments}' > /tmp/slack-payload.json
-        else
-          method='chat.update'
-          jq -n --argjson attachments "\$(<attachments.json)" \
-                --arg ts "\$MESSAGE_TS" \
-            '{"channel": "$SLACK_CHANNEL_ID", "attachments": \$attachments, "ts": \$ts}' > /tmp/slack-payload.json
-        fi
-
+        jq -n --argjson attachments "\$(<attachments.json)" \
+          '{"channel": "$SLACK_CHANNEL_ID", "text": "EMQX performance test `\($scenario)` (<\($url)|Workflow Run>)", "attachments": \$attachments}' > /tmp/slack-payload.json
         curl -s -X POST \
           -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
           -H "Content-type: application/json; charset=UTF-8" \
-          --data @/tmp/slack-payload.json "https://slack.com/api/\$method" > /tmp/slack-response.json
+          --data @/tmp/slack-payload.json "https://slack.com/api/chat.postMessage"
         EOF
         chmod +x slack.sh
-
-        job_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs/$GITHUB_JOB"
-        jq -n --arg url "$job_url" --arg scenario "${{ matrix.scenario }}" \
-          '[{"color": "#dbab09", "pretext": "Starting EMQX performance test \($scenario) (<\($url)|Workflow Run>)", "fields": [{"title": "Creating infrastructure", "short": false}]}]' > attachments.json
-
-        ./slack.sh
-        echo "MESSAGE_TS=$(jq -r '.ts' /tmp/slack-response.json)" >> "$GITHUB_ENV"
 
     - name: Create infrastructure
       id: infra
@@ -147,10 +129,6 @@ jobs:
       run: |
         success=0
 
-        jq '. += [{"color": "36a64f", "fields": [{"title": "Infrastructure created OK", "short": false}]}]' \
-          attachments.json 1<> attachments.json
-        ./slack.sh
-
         export TMPDIR=$(mktemp -d)
         echo "TMPDIR=$TMPDIR" >> $GITHUB_ENV
 
@@ -164,25 +142,12 @@ jobs:
           success=1
           jq --arg mem1 "$MEM_CORE_1" --arg mem2 "$MEM_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "Initial RAM usage is too high", "short": false, "value": "Core 1: \($mem1)%\nCore 2: \($mem2)%"}]}]' \
             attachments.json 1<> attachments.json
-        else
-          jq '. += [{"color": "#36a64f", "fields": [{"title": "Initial RAM usage is OK", "short": false}]}]' \
-            attachments.json 1<> attachments.json
         fi
-
-        ./slack.sh
 
         ansible loadgen -m command -a 'systemctl start loadgen' --become
 
-        jq '. += [{"color": "#dbab09", "fields": [{"title": "Started load generators", "short": false}]}]' \
-          attachments.json 1<> attachments.json
-        ./slack.sh
-
         sleep $DURATION
         PERIOD="${DURATION}s" scripts/summary.sh >> $GITHUB_STEP_SUMMARY
-
-        jq '. += [{"color": "#dbab09", "fields": [{"title": "Test completed, cleaning up", "short": false}]}]' \
-          attachments.json 1<> attachments.json
-        ./slack.sh
 
         echo "success=$success" >> $GITHUB_OUTPUT
 
@@ -196,16 +161,12 @@ jobs:
       run: |
         success=${{ steps.benchmark.outputs.success }}
 
-        jq '. += [{"color": "#dbab09", "fields": [{"title": "Analyzing results", "short": false}]}]' \
-          attachments.json 1<> attachments.json
-        ./slack.sh
-
-        CPU_CORE_1=$(jq -r '.[] | select(.host == "emqx-core-1") | .mem' $TMPDIR/cpu.json)
-        CPU_CORE_2=$(jq -r '.[] | select(.host == "emqx-core-2") | .mem' $TMPDIR/cpu.json)
+        CPU_CORE_1=$(jq -r '.[] | select(.host == "emqx-core-1") | .cpu' $TMPDIR/cpu.json)
+        CPU_CORE_2=$(jq -r '.[] | select(.host == "emqx-core-2") | .cpu' $TMPDIR/cpu.json)
 
         if [ $(echo "$CPU_CORE_1 > $CPU_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ] \
         || [ $(echo "$CPU_CORE_2 > $CPU_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ]; then
-          success=2
+          success=1
           jq --arg cpu1 "$CPU_CORE_1" --arg cpu2 "$CPU_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "CPU utilization was too high", "short": false, "value": "Core 1: \($cpu1)%\nCore 2: \($cpu2)%"}]}]' \
             attachments.json 1<> attachments.json
         fi
@@ -215,42 +176,33 @@ jobs:
 
         if [ $(echo "$MEM_CORE_1 > $RAM_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ] \
         || [ $(echo "$MEM_CORE_2 > $RAM_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ]; then
-          success=3
+          success=1
           jq --arg mem1 "$MEM_CORE_1" --arg mem2 "$MEM_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "RAM usage was too high", "short": false, "value": "Core 1: \($mem1)%\nCore 2: \($mem2)%"}]}]' \
             attachments.json 1<> attachments.json
         fi
 
-        MESSAGES_RECEIVED=$(jq -r '.messages_received' $TMPDIR/emqx_exporter_metrics.json)
-        MESSAGES_SENT=$(jq -r '.messages_sent' $TMPDIR/emqx_exporter_metrics.json)
-        MESSAGES_ACKED=$(jq -r '.messages_acked' $TMPDIR/emqx_exporter_metrics.json)
-        MESSAGES_PUBLISH=$(jq -r '.messages_publish' $TMPDIR/emqx_exporter_metrics.json)
-        MESSAGES_DELIVERED=$(jq -r '.messages_delivered' $TMPDIR/emqx_exporter_metrics.json)
-        MESSAGES_DROPPED=$(jq -r '.messages_dropped' $TMPDIR/emqx_exporter_metrics.json)
+        RECEIVED_MSG_RATE=$(jq -r '.received_msg_rate' $TMPDIR/monitor_current.json)
+        SENT_MSG_RATE=$(jq -r '.sent_msg_rate' $TMPDIR/monitor_current.json)
 
-        if [ $(echo "$MESSAGES_RECEIVED < $MESSAGES_RECEIVED_BASELINE * (1 - $ALLOWED_DEVIATION_MESSAGES)" | bc -l) -eq 1 ] \
-        || [ $(echo "$MESSAGES_SENT < $MESSAGES_SENT_BASELINE * (1 - $ALLOWED_DEVIATION_MESSAGES)" | bc -l) -eq 1 ] \
-        || [ $(echo "$MESSAGES_ACKED < $MESSAGES_ACKED_BASELINE * (1 - $ALLOWED_DEVIATION_MESSAGES)" | bc -l) -eq 1 ] \
-        || [ $(echo "$MESSAGES_PUBLISH < $MESSAGES_PUBLISH_BASELINE * (1 - $ALLOWED_DEVIATION_MESSAGES)" | bc -l) -eq 1 ] \
-        || [ $(echo "$MESSAGES_DELIVERED < $MESSAGES_DELIVERED_BASELINE * (1 - $ALLOWED_DEVIATION_MESSAGES)" | bc -l) -eq 1 ] \
-        || [ $(echo "$MESSAGES_DROPPED > $MESSAGES_DROPPED_BASELINE * (1 + $ALLOWED_DEVIATION_MESSAGES)" | bc -l) -eq 1 ]; then
-          success=4
-          jq --arg received "$MESSAGES_RECEIVED" --arg sent "$MESSAGES_SENT" --arg acked "$MESSAGES_ACKED" \
-            --arg publish "$MESSAGES_PUBLISH" --arg delivered "$MESSAGES_DELIVERED" --arg dropped "$MESSAGES_DROPPED" \
-            '. += [{"color": "#ff0000", "fields": [{"title": "Messages were not processed correctly", "short": false, "value": "Received: \($received)\nSent: \($sent)\nAcked: \($acked)\nPublish: \($publish)\nDelivered: \($delivered)\nDropped: \($dropped)"}]}]' \
+        if [ $(echo "$RECEIVED_MSG_RATE < $RECEIVED_MSG_RATE_BASELINE * (1 - $ALLOWED_DEVIATION_MSG_RATE)" | bc -l) -eq 1 ] \
+        || [ $(echo "$SENT_MSG_RATE < $SENT_MSG_RATE_BASELINE * (1 - $ALLOWED_DEVIATION_MSG_RATE)" | bc -l) -eq 1 ]; then
+          success=1
+          jq --arg received_msg_rate "$RECEIVED_MSG_RATE" --arg sent_msg_rate "$SENT_MSG_RATE" \
+            '. += [{"color": "#ff0000", "fields": [{"title": "Message rate was too low", "short": false, "value": "Received message rate: \($received_msg_rate)\nSent message rate: \($sent_msg_rate)}]}]' \
             attachments.json 1<> attachments.json
         fi
 
-        ./slack.sh
+        MESSAGES_DROPPED=$(jq -r '.messages_dropped' $TMPDIR/emqx_exporter_metrics.json)
+        if [ $(echo "$MESSAGES_DROPPED > 100" | bc) -eq 1 ]; then
+          success=1
+          jq --arg dropped "$MESSAGES_DROPPED" '. += [{"color": "#ff0000", "fields": [{"title": "Too many dropped messages", "short": false, "value": "Dropped: \($dropped)"}]}]' \
+            attachments.json 1<> attachments.json
+        fi
 
         if [ $success != 0 ]; then
-          jq '. += [{"color": "#ff0000", "fields": [{"title": "Test failed", "short": false}]}]' \
-            attachments.json 1<> attachments.json
           ./slack.sh
           exit 1
         fi
-        jq '. += [{"color": "36a64f", "fields": [{"title": "Test OK", "short": false}]}]' \
-          attachments.json 1<> attachments.json
-        ./slack.sh
 
     - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       if: failure()
