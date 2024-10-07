@@ -99,8 +99,8 @@ jobs:
     - name: Report failure
       if: failure()
       run: |
-        jq '. += [{"color": "#ff0000", "fields": [{"title": "Infrastructure creation failed", "short": false}]}]' \
-          attachments.json 1<> attachments.json
+        jq -n '[{"color": "#ff0000", "fields": [{"title": "Infrastructure creation failed", "short": false}]}]' > attachments.json
+        jq -n --argjson attachments "$(<attachments.json)" '{"attachments": $attachments}' > slack-payload.json
 
     - name: Run benchmark
       if: success()
@@ -111,6 +111,7 @@ jobs:
 
         export TMPDIR=$(mktemp -d)
         echo "TMPDIR=$TMPDIR" >> $GITHUB_ENV
+        echo '[]' > attachments.json
 
         PERIOD=1m scripts/summary.sh
 
@@ -178,7 +179,8 @@ jobs:
           jq --arg dropped "$MESSAGES_DROPPED" '. += [{"color": "#ff0000", "fields": [{"title": "Too many dropped messages", "short": false, "value": "Dropped: \($dropped)"}]}]' \
             attachments.json 1<> attachments.json
         fi
-        jq -n --argjson attachments "\$(<attachments.json)" '{"attachments": \$attachments}' > slack-payload.json
+
+        jq -n --argjson attachments "$(<attachments.json)" '{"attachments": $attachments}' > slack-payload.json
 
         exit $success
 
