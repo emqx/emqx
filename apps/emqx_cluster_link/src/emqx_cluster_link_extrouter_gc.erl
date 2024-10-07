@@ -9,7 +9,7 @@
 
 -export([start_link/0]).
 
--export([run/0]).
+-export([run/0, force/1]).
 
 -behaviour(gen_server).
 -export([
@@ -34,6 +34,14 @@ start_link() ->
 
 run() ->
     gen_server:call(?SERVER, run).
+
+force(Timestamp) ->
+    case emqx_cluster_link_extrouter:actor_gc(#{timestamp => Timestamp}) of
+        1 ->
+            force(Timestamp);
+        0 ->
+            ok
+    end.
 
 %%
 

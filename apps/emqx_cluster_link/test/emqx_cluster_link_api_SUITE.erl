@@ -234,12 +234,7 @@ disable_and_force_gc(TargetOrSource, Name, Params, TCConfig, Opts) ->
 
 do_actor_gc(Node, Timestamp) ->
     %% 2 Actors: one for normal routes, one for PS routes
-    case ?ON(Node, emqx_cluster_link_extrouter:actor_gc(#{timestamp => Timestamp})) of
-        1 ->
-            do_actor_gc(Node, Timestamp);
-        0 ->
-            ok
-    end.
+    ?ON(Node, emqx_cluster_link_extrouter_gc:force(Timestamp)).
 
 wait_for_routes([Node | Nodes], ExpectedTopics) ->
     Topics = ?ON(Node, emqx_cluster_link_extrouter:topics()),
