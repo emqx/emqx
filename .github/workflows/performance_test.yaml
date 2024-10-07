@@ -128,7 +128,7 @@ jobs:
 
         EMQX_API_URL=$(terraform output -raw emqx_dashboard_url)
         ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-1.*'
-        # wait until all subscribers are connected
+        echo "Waiting for subscribers to connect"
         subs=0
         while [ $subs -lt 10000 ]; do
           curl -s -u perftest:perftest "$EMQX_API_URL/api/v5/monitor_current" > "$TMPDIR/monitor_current.json"
@@ -136,14 +136,14 @@ jobs:
           sleep 1
         done
         ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-2.*'
-        # wait until all publishers are up
+        echo "Waiting for publishers to connect"
         conns=$(jq -r '.live_connections "$TMPDIR/monitor_current.json")
         while [ $conns -lt 20000 ]; do
           curl -s -u perftest:perftest "$EMQX_API_URL/api/v5/monitor_current" > "$TMPDIR/monitor_current.json"
-          conns=$(jq -r '.live_connections "$TMPDIR/monitor_current.json")
+          conns=$(jq -r '.live_connections' "$TMPDIR/monitor_current.json")
           sleep 1
         done
-
+        echo "All clients connected, sleep for $DURATION seconds"
         sleep $DURATION
         PERIOD="${DURATION}s" scripts/summary.sh | tee -a $GITHUB_STEP_SUMMARY
 
