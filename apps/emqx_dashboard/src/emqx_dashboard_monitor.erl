@@ -237,6 +237,8 @@ inplace_downsample() ->
     ),
     ok.
 
+%% compare the original data points with the compacted data points
+%% return the timestamps to be deleted and the new data points to be written
 compare(Remain, [], Deletes, Writes) ->
     %% all compacted buckets have been processed, remaining datapoints should all be deleted
     RemainTsList = lists:map(fun({T, _Data}) -> T end, Remain),
@@ -254,6 +256,7 @@ compare([{T0, _} | _] = All, [{T1, Data1} | Compacted], Deletes, Writes) when T0
     %% compare with the next compacted bucket timestamp
     compare(All, Compacted, Deletes, [{T1, Data1} | Writes]).
 
+%% compact the data points to a smaller set of buckets
 compact(_Now, [], Acc) ->
     lists:reverse(Acc);
 compact(Now, [{Time, Data} | Rest], Acc) ->

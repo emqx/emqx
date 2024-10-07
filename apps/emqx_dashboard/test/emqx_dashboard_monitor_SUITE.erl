@@ -196,13 +196,22 @@ t_inplace_downsample(_Config) ->
     emqx_dashboard_monitor ! clean_expired,
     %% ensure downsample happened
     ok = gen_server:call(emqx_dashboard_monitor, dummy, infinity),
-    All = emqx_dashboard_monitor:all_data(),
+    All1 = emqx_dashboard_monitor:all_data(),
+    All = drop_dummy_data_points(All1),
     AllSent = lists:map(fun({_, #{sent := S}}) -> S end, All),
     ?assertEqual(Total, lists:sum(AllSent)),
     %% check timestamps are not random after downsample
     ExpectedIntervals = [timer:minutes(10), timer:minutes(5), timer:minutes(1), timer:seconds(10)],
     ok = check_intervals(ExpectedIntervals, All),
     ok.
+
+%% there might be some data points added while downsample is running
+%% because the sampling interval during test is 1s, so they do not perfectly
+%% match the expected intervals
+%% this function is to dorp those dummy data points
+drop_dummy_data_points(All) ->
+    IsZeroValues = fun(Map) -> lists:all(fun(Value) -> Value =:= 0 end, maps:values(Map)) end,
+    lists:filter(fun({_, Map}) -> not IsZeroValues(Map) end, All).
 
 check_intervals(_, []) ->
     ok;
