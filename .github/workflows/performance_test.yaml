@@ -76,6 +76,7 @@ jobs:
 
         echo "${{ secrets.EMQX_ENTERPRISE_LICENSE }}" > emqx5.lic
         cat ${{ matrix.scenario }}.env >> "$GITHUB_ENV"
+        echo '{}' > slack-payload.json
 
         terraform init
         set +e
