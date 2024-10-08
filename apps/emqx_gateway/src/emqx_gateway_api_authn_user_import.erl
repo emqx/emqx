@@ -67,28 +67,12 @@ import_users(post, #{
     bindings := #{name := Name0},
     body := Body
 }) ->
-    with_authn(Name0, fun(
-        _GwName,
-        #{
-            id := AuthId,
-            chain_name := ChainName
-        }
-    ) ->
-        case maps:get(<<"filename">>, Body, undefined) of
-            undefined ->
-                emqx_authn_api:serialize_error({missing_parameter, filename});
-            File ->
-                [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
-                case
-                    emqx_authn_chains:import_users(
-                        ChainName, AuthId, {hash, FileName, FileData}
-                    )
-                of
-                    ok -> {204};
-                    {error, Reason} -> emqx_authn_api:serialize_error(Reason)
-                end
+    with_authn(
+        Name0,
+        fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
+            do_import_users(ChainName, AuthId, Body)
         end
-    end).
+    ).
 
 import_listener_users(post, #{
     bindings := #{name := Name0, id := Id},
@@ -98,22 +82,21 @@ import_listener_users(post, #{
         Name0,
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            case maps:get(<<"filename">>, Body, undefined) of
-                undefined ->
-                    emqx_authn_api:serialize_error({missing_parameter, filename});
-                File ->
-                    [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
-                    case
-                        emqx_authn_chains:import_users(
-                            ChainName, AuthId, {hash, FileName, FileData}
-                        )
-                    of
-                        ok -> {204};
-                        {error, Reason} -> emqx_authn_api:serialize_error(Reason)
-                    end
-            end
+            do_import_users(ChainName, AuthId, Body)
         end
     ).
+
+do_import_users(ChainName, AuthId, HttpBody) ->
+    case maps:get(<<"filename">>, HttpBody, undefined) of
+        undefined ->
+            emqx_authn_api:serialize_error({missing_parameter, filename});
+        File ->
+            [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
+            case emqx_authn_chains:import_users(ChainName, AuthId, {hash, FileName, FileData}) of
+                {ok, Result} -> {200, Result};
+                {error, Reason} -> emqx_authn_api:serialize_error(Reason)
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -130,7 +113,7 @@ schema("/gateways/:name/authentication/import_users") ->
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
-                    ?STANDARD_RESP(#{204 => <<"Imported">>})
+                    ?STANDARD_RESP(#{200 => emqx_authn_user_import_api:import_result_schema()})
             }
     };
 schema("/gateways/:name/listeners/:id/authentication/import_users") ->
@@ -145,7 +128,7 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
                     params_listener_id_in_path(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
-                    ?STANDARD_RESP(#{204 => <<"Imported">>})
+                    ?STANDARD_RESP(#{200 => emqx_authn_user_import_api:import_result_schema()})
             }
     }.
 

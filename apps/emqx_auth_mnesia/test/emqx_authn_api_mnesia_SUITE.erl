@@ -330,22 +330,28 @@ test_authenticator_import_users(PathPrefix) ->
     CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
 
     {ok, JSONData} = file:read_file(JSONFileName),
-    {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
+    {ok, 200, Result1} = multipart_formdata_request(ImportUri, [], [
         {filename, "user-credentials.json", JSONData}
     ]),
+    ?assertMatch(
+        #{<<"total">> := 2, <<"success">> := 2}, emqx_utils_json:decode(Result1, [return_maps])
+    ),
 
     {ok, CSVData} = file:read_file(CSVFileName),
-    {ok, 204, _} = multipart_formdata_request(ImportUri, [], [
+    {ok, 200, Result2} = multipart_formdata_request(ImportUri, [], [
         {filename, "user-credentials.csv", CSVData}
     ]),
+    ?assertMatch(
+        #{<<"total">> := 2, <<"success">> := 2}, emqx_utils_json:decode(Result2, [return_maps])
+    ),
 
     %% test application/json
-    {ok, 204, _} = request(post, ImportUri ++ "?type=hash", emqx_utils_json:decode(JSONData)),
+    {ok, 200, _} = request(post, ImportUri ++ "?type=hash", emqx_utils_json:decode(JSONData)),
     {ok, JSONData1} = file:read_file(filename:join([Dir, <<"data/user-credentials-plain.json">>])),
-    {ok, 204, _} = request(post, ImportUri ++ "?type=plain", emqx_utils_json:decode(JSONData1)),
+    {ok, 200, _} = request(post, ImportUri ++ "?type=plain", emqx_utils_json:decode(JSONData1)),
 
     %% test application/json; charset=utf-8
-    {ok, 204, _} = request_with_charset(post, ImportUri ++ "?type=plain", JSONData1),
+    {ok, 200, _} = request_with_charset(post, ImportUri ++ "?type=plain", JSONData1),
     ok.
 
 %%------------------------------------------------------------------------------
