@@ -1481,11 +1481,11 @@ update_seqno(
                 case Track of
                     puback ->
                         emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
-                            ?QOS_1, SeqNo, SchedS0
+                            ?QOS_1, SeqNo, S, SchedS0
                         );
                     pubcomp ->
                         emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
-                            ?QOS_2, SeqNo, SchedS0
+                            ?QOS_2, SeqNo, S, SchedS0
                         );
                     _ ->
                         SchedS0
