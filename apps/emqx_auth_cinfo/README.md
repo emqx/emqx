@@ -4,7 +4,7 @@ This application implements an extended authentication for EMQX Enterprise editi
 
 Client-info (of type `cinfo`) authentication is a lightweight authentication mechanism which checks client properties and attributes against user defined rules.
 The rules make use of the Variform expression to define match conditions, and the authentication result when match is found.
-For example, to quickly fencing off clients without a username, the match condition can be `str_eq(username, '')` associated with a attributes result `deny`.
+For example, to quickly fencing off clients without a username, the match condition can be `is_empty_val(username)` associated with a attributes result `deny`.
 
 The new authenticator config look is like below.
 
@@ -21,7 +21,7 @@ authentication = [
       # deny clients with empty username and client ID starts with 'v1-'
       {
         # when is_match is an array, it yields 'true' if all individual checks yield 'true'
-        is_match = ["str_eq(username, '')", "str_eq(nth(1,tokens(clientid,'-')), 'v1')"]
+        is_match = ["is_empty_val(username)", "str_eq(nth(1,tokens(clientid,'-')), 'v1')"]
         result = deny
       }
       # if all checks are exhausted without an 'allow' or a 'deny' result, continue to the next authentication

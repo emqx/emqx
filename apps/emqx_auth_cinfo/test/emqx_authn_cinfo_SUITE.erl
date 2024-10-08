@@ -42,7 +42,7 @@ t_username_equal_clientid(_) ->
     Checks =
         [
             #{
-                is_match => <<"str_eq(username, '')">>,
+                is_match => <<"is_empty_val(username)">>,
                 result => deny
             },
             #{
@@ -105,7 +105,7 @@ t_multiple_is_match_expressions(_) ->
             %% use AND to connect multiple is_match expressions
             %% this one means username is not empty, and clientid is 'super'
             is_match => [
-                <<"str_neq('', username)">>, <<"str_eq(clientid, 'super')">>
+                <<"not(is_empty_val(username))">>, <<"str_eq(clientid, 'super')">>
             ],
             result => allow
         }
