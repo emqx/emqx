@@ -153,6 +153,41 @@ t_cert_fields_as_alias(_) ->
         end
     ).
 
+t_peerhost_matches_username(_) ->
+    Checks = [
+        #{
+            is_match => [
+                <<"str_eq(peerhost, username)">>
+            ],
+            result => allow
+        },
+        #{
+            is_match => <<"true">>,
+            result => deny
+        }
+    ],
+    IPStr1 = "127.0.0.1",
+    IPStr2 = "::1",
+    {ok, IPTuple1} = inet:parse_address(IPStr1, inet),
+    {ok, IPTuple2} = inet:parse_address(IPStr2, inet6),
+    with_checks(
+        Checks,
+        fun(State) ->
+            ?assertMatch(
+                {ok, #{}},
+                emqx_authn_cinfo:authenticate(
+                    #{username => list_to_binary(IPStr1), peerhost => IPTuple1}, State
+                )
+            ),
+            ?assertMatch(
+                {ok, #{}},
+                emqx_authn_cinfo:authenticate(
+                    #{username => list_to_binary(IPStr2), peerhost => IPTuple2}, State
+                )
+            )
+        end
+    ).
+
 config(Checks) ->
     #{
         mechanism => cinfo,
