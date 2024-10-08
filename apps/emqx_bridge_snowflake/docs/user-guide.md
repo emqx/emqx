@@ -115,3 +115,24 @@ SELECT
 FROM
   "t/#"
 ```
+
+## Debugging invalid JWT failures
+
+In case the following error appears in the logs:
+
+```
+JWT token is invalid. [eaa17004-5830-4b84-b357-2a981d28606f]
+```
+
+Copy the UUID in that message (`eaa17004-5830-4b84-b357-2a981d28606f` in this example) and on a Snowflake worksheet with an user that has admin privileges on the account (at least `MONITOR` on account):
+
+```sql
+select SYSTEM$GET_LOGIN_FAILURE_DETAILS('eaa17004-5830-4b84-b357-2a981d28606f');
+```
+
+Which can output more hints on why the JWT is considered invalid by Snowflake:
+
+Ex:
+```json
+{"clientIP":"xxx","clientType":"OTHER","clientVersion":"","username":null,"errorCode":"JWT_TOKEN_INVALID_ISSUE_TIME","timestamp":1728418411}
+```

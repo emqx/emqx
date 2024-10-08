@@ -31,6 +31,7 @@
 -define(STAGE, <<"teststage0">>).
 -define(TABLE, <<"test0">>).
 -define(WAREHOUSE, <<"testwarehouse">>).
+-define(PIPE, <<"testpipe0">>).
 -define(PIPE_USER, <<"snowpipeuser">>).
 
 -define(CONF_COLUMN_ORDER, ?CONF_COLUMN_ORDER([])).
@@ -294,7 +295,7 @@ aggregated_action_config(Overrides0) ->
                     <<"private_key">> => private_key(),
                     <<"database">> => ?DATABASE,
                     <<"schema">> => ?SCHEMA,
-                    <<"pipe">> => <<"testpipe0">>,
+                    <<"pipe">> => ?PIPE,
                     <<"stage">> => ?STAGE,
                     <<"pipe_user">> => ?PIPE_USER,
                     <<"connect_timeout">> => <<"5s">>,
@@ -1135,6 +1136,20 @@ t_wrong_snowpipe_user(init, #{mock := true} = Config) ->
         Headers = [],
         Body = emqx_utils_json:encode(InsertReportResponse),
         {ok, 401, Headers, Body}
+    end),
+    meck:expect(Mod, do_get_login_failure_details, fun(_Connpid, _RequestId) ->
+        Details = #{
+            <<"clientIP">> => <<"127.0.0.1">>,
+            <<"clientType">> => <<"OTHER">>,
+            <<"clientVersion">> => <<"">>,
+            <<"errorCode">> => <<"JWT_TOKEN_INVALID_ISSUE_TIME">>,
+            <<"timestamp">> => 1728418411,
+            <<"username">> => null
+        },
+        Col = binary_to_list(emqx_utils_json:encode(Details)),
+        {selected, ["SYSTEM$GET_LOGIN_FAILURE_DETAILS('92D86B2E-D652-4D2D-9780-A6ED28B38356')"], [
+            {Col}
+        ]}
     end),
     maps:to_list(Config);
 t_wrong_snowpipe_user(init, #{} = Config) ->
