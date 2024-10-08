@@ -260,9 +260,7 @@ handle_leader_update_streams(
         id => Id,
         version_old => VersionOld,
         version_new => VersionNew,
-        stream_progresses => emqx_persistent_session_ds_shared_subs:format_stream_progresses(
-            StreamProgresses
-        )
+        stream_progresses => StreamProgresses
     }),
     {AddEvents, Streams1} = lists:foldl(
         fun(#{stream := Stream, progress := Progress}, {AddEventAcc, StreamsAcc}) ->
@@ -299,9 +297,7 @@ handle_leader_update_streams(
     StreamLeaseEvents = AddEvents ++ RevokeEvents,
     ?tp(debug, shared_sub_group_sm_leader_update_streams, #{
         id => Id,
-        stream_lease_events => emqx_persistent_session_ds_shared_subs:format_lease_events(
-            StreamLeaseEvents
-        )
+        stream_lease_events => StreamLeaseEvents
     }),
     transition(
         GSM,

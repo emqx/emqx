@@ -956,19 +956,19 @@ list_clients(QString) ->
             {200, Response}
     end.
 
-list_clients_v2(get, #{query_string := QString0}) ->
+list_clients_v2(get, #{query_string := QString}) ->
     Nodes = emqx:running_nodes(),
-    case maps:get(<<"cursor">>, QString0, none) of
-        none ->
-            Cursor = initial_ets_cursor(Nodes),
-            do_list_clients_v2(Nodes, Cursor, QString0);
-        CursorBin when is_binary(CursorBin) ->
+    case QString of
+        #{<<"cursor">> := CursorBin} ->
             case parse_cursor(CursorBin, Nodes) of
                 {ok, Cursor} ->
-                    do_list_clients_v2(Nodes, Cursor, QString0);
+                    do_list_clients_v2(Nodes, Cursor, QString);
                 {error, bad_cursor} ->
                     ?BAD_REQUEST(<<"bad cursor">>)
-            end
+            end;
+        #{} ->
+            Cursor = initial_ets_cursor(Nodes),
+            do_list_clients_v2(Nodes, Cursor, QString)
     end.
 
 do_list_clients_v2(Nodes, Cursor, QString0) ->

@@ -49,6 +49,13 @@
     delete/3
 ]).
 
+-export([
+    select/1,
+    select/2,
+    select_next/2,
+    select_preserve/1
+]).
+
 %% Messing with IDs
 -export([
     mk_id/1,
@@ -110,24 +117,19 @@ tune_db_config(Config0 = #{backend := Backend}) ->
     },
     case Backend of
         B when B == builtin_raft; B == builtin_local ->
-            tune_db_storage_layout(Config);
+            Storage =
+                {emqx_ds_storage_bitfield_lts, #{
+                    %% Should be enough, topic structure is pretty simple.
+                    topic_index_bytes => 4,
+                    bits_per_wildcard_level => 64,
+                    %% Enables single-epoch storage.
+                    epoch_bits => 64,
+                    lts_threshold_spec => {simple, {inf, 0, inf, 0}}
+                }},
+            Config#{storage => Storage};
         _ ->
             Config
     end.
-
-tune_db_storage_layout(Config = #{storage := {Layout, Opts0}}) when
-    Layout == emqx_ds_storage_skipstream_lts;
-    Layout == emqx_ds_storage_bitfield_lts
-->
-    Opts = Opts0#{
-        %% Since these layouts impose somewhat strict requirements on message
-        %% timestamp uniqueness, we need to additionally ensure that LTS always
-        %% keeps different groups under separate indices.
-        lts_threshold_spec => {simple, {inf, inf, inf, 0}}
-    },
-    Config#{storage := {Layout, Opts}};
-tune_db_storage_layout(Config = #{storage := _}) ->
-    Config.
 
 %%
 
@@ -286,12 +288,7 @@ mk_leader_topic(ID) ->
     %% General.
     id := id(),
     %% Spaces and variables: most up-to-date in-memory state.
-    properties := #{
-        %% TODO: Efficient encoding.
-        topic => emqx_types:topic(),
-        start_time => emqx_message:timestamp(),
-        created_at => emqx_message:timestamp()
-    },
+    properties := properties(),
     stream := #{emqx_ds:stream() => stream_state()},
     rank_progress => _RankProgress,
     %% Internal _sequence numbers_ that tracks every change.
@@ -304,6 +301,14 @@ mk_leader_topic(ID) ->
     stage := #{space_key() | var_name() => _Value}
 }.
 
+-type properties() :: #{
+    %% TODO: Efficient encoding.
+    group => emqx_types:group(),
+    topic => emqx_types:topic(),
+    start_time => emqx_message:timestamp(),
+    created_at => emqx_message:timestamp()
+}.
+
 -type stream_state() :: #{
     progress => emqx_persistent_session_ds_shared_subs:progress(),
     rank => emqx_ds:stream_rank()
@@ -314,7 +319,7 @@ init(ID) ->
     %% NOTE: Empty store is impicitly dirty because rootset needs to be persisted.
     mk_store(ID).
 
--spec open(id()) -> t() | false.
+-spec open(id()) -> {ok, t()} | false | emqx_ds:error(_).
 open(ID) ->
     case open_rootset(ID) of
         Rootset = #{} ->
@@ -354,7 +359,9 @@ slurp_store(Rootset, StreamIts0, Retries, RetryTimeout, Acc = #{id := ID}) ->
     TopicFilter = mk_store_wildcard(ID),
     StreamIts1 = ds_refresh_streams(TopicFilter, _StartTime = 0, StreamIts0),
     {StreamIts, Store} = ds_streams_fold(
-        fun(Message, StoreAcc) -> open_message(Message, StoreAcc) end,
+        fun(Message, StoreAcc) ->
+            lists:foldl(fun slurp_record/2, StoreAcc, open_message(Message))
+        end,
         Acc,
         StreamIts1
     ),
@@ -364,13 +371,16 @@ slurp_store(Rootset, StreamIts0, Retries, RetryTimeout, Acc = #{id := ID}) ->
         %% concerning, because this suggests there were concurrent writes that slipped
         %% past the leadership claim guards, yet we can still make progress.
         SeqNum when SeqNum >= map_get(seqnum, Rootset) ->
-            reset_dirty(maps:merge(Store, Rootset));
+            {ok, reset_dirty(maps:merge(Store, Rootset))};
         _Mismatch when Retries > 0 ->
             ok = timer:sleep(RetryTimeout),
             slurp_store(Rootset, StreamIts, Retries - 1, RetryTimeout, Store);
         _Mismatch ->
             {error, unrecoverable, {leader_store_inconsistent, Store, Rootset}}
     end.
+
+slurp_record({_ID, Record, ChangeSeqNum}, Store = #{seqnum := SeqNum}) ->
+    open_record(Record, Store#{seqnum := max(ChangeSeqNum, SeqNum)}).
 
 -spec get(space_name(), _ID, t()) -> _Value.
 get(SpaceName, ID, Store) ->
@@ -614,6 +624,21 @@ mk_store_root_matcher(#{id := ID, committed := Committed}) ->
         timestamp = 0
     }.
 
+mk_read_root_batch(ID) ->
+    %% NOTE
+    %% Construct batch that essentially does nothing but reads rootset in a consistent
+    %% manner.
+    Matcher = #message_matcher{
+        from = ID,
+        topic = mk_store_root_topic(ID),
+        payload = '_',
+        timestamp = 0
+    },
+    #dsbatch{
+        preconditions = [{unless_exists, Matcher}],
+        operations = [{delete, Matcher#message_matcher{payload = <<>>}}]
+    }.
+
 mk_store_operation(ID, SK, ?STORE_TOMBSTONE, SeqMap) ->
     {delete, #message_matcher{
         from = ID,
@@ -644,37 +669,27 @@ open_root_message(#message{payload = Payload, timestamp = 0}) ->
     #{} = binary_to_term(Payload).
 
 open_message(
-    Msg = #message{topic = Topic, payload = Payload, timestamp = SeqNum, headers = Headers}, Store
+    Msg = #message{topic = Topic, payload = Payload, timestamp = SeqNum, headers = Headers}
 ) ->
-    Entry =
-        try
-            ChangeSeqNum = maps:get(?STORE_HEADER_CHANGESEQNUM, Headers),
-            case emqx_topic:tokens(Topic) of
-                [_Prefix, _ID, SpaceTok, _SeqTok] ->
-                    SpaceName = token_to_space(SpaceTok),
-                    ?STORE_PAYLOAD(ID, Value) = binary_to_term(Payload),
-                    %% TODO: Records.
-                    Record = {SpaceName, ID, Value, SeqNum};
-                [_Prefix, _ID, VarTok] ->
-                    VarName = token_to_varname(VarTok),
-                    Value = binary_to_term(Payload),
-                    Record = {VarName, Value}
-            end,
-            {ChangeSeqNum, Record}
-        catch
-            error:_ ->
-                ?tp(warning, "dssub_leader_store_unrecognized_message", #{
-                    store => id(Store),
-                    message => Msg
-                }),
-                unrecognized
+    try
+        case emqx_topic:tokens(Topic) of
+            [_Prefix, SpaceID, SpaceTok, _SeqTok] ->
+                SpaceName = token_to_space(SpaceTok),
+                ?STORE_PAYLOAD(ID, Value) = binary_to_term(Payload),
+                %% TODO: Records.
+                Record = {SpaceName, ID, Value, SeqNum};
+            [_Prefix, SpaceID, VarTok] ->
+                VarName = token_to_varname(VarTok),
+                Value = binary_to_term(Payload),
+                Record = {VarName, Value}
         end,
-    open_entry(Entry, Store).
-
-open_entry({ChangeSeqNum, Record}, Store = #{seqnum := SeqNum}) ->
-    open_record(Record, Store#{seqnum := max(ChangeSeqNum, SeqNum)});
-open_entry(unrecognized, Store) ->
-    Store.
+        ChangeSeqNum = maps:get(?STORE_HEADER_CHANGESEQNUM, Headers),
+        [{SpaceID, Record, ChangeSeqNum}]
+    catch
+        error:_ ->
+            ?tp(warning, "dssub_leader_store_unrecognized_message", #{message => Msg}),
+            []
+    end.
 
 open_record({SpaceName, ID, Value, SeqNum}, Store = #{seqmap := SeqMap}) ->
     Space0 = maps:get(SpaceName, Store),
@@ -692,6 +707,77 @@ mk_store_payload(?STORE_SK(_SpaceName, ID), Value) ->
 mk_store_payload(_VarName, Value) ->
     Value.
 
+%%
+
+-record(select, {tf, start, it, streams}).
+
+-type select() :: #select{}.
+
+-spec select(var_name()) -> select().
+select(VarName) ->
+    select_jump(select_new(VarName)).
+
+-spec select(var_name(), _Cursor) -> select().
+select(VarName, Cursor) ->
+    select_restore(Cursor, select_new(VarName)).
+
+select_new(VarName) ->
+    TopicFilter = mk_store_varname_wildcard(VarName),
+    StartTime = 0,
+    RankedStreams = emqx_ds:get_streams(?DS_DB, TopicFilter, StartTime),
+    Streams = [S || {_Rank, S} <- lists:sort(RankedStreams)],
+    #select{tf = TopicFilter, start = StartTime, streams = Streams}.
+
+select_jump(It = #select{tf = TopicFilter, start = StartTime, streams = [Stream | Rest]}) ->
+    DSIt = ds_make_iterator(Stream, TopicFilter, StartTime),
+    It#select{it = DSIt, streams = Rest};
+select_jump(It = #select{streams = []}) ->
+    It#select{it = undefined}.
+
+-spec select_next(select(), _N) -> {[{id(), _Var}], select() | end_of_iterator}.
+select_next(ItSelect, N) ->
+    select_fold(
+        ItSelect,
+        N,
+        fun(Message, Acc) ->
+            [{ID, Var} || {ID, {_VarName, Var}, _} <- open_message(Message)] ++ Acc
+        end,
+        []
+    ).
+
+select_fold(#select{it = undefined}, _, _Fun, Acc) ->
+    {Acc, end_of_iterator};
+select_fold(It = #select{it = DSIt0}, N, Fun, Acc0) ->
+    case emqx_ds:next(?DS_DB, DSIt0, N) of
+        {ok, DSIt, Messages} ->
+            Acc = lists:foldl(fun({_Key, Msg}, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
+            case length(Messages) of
+                N ->
+                    {Acc, It#select{it = DSIt}};
+                NLess when NLess < N ->
+                    select_fold(select_jump(It), N - NLess, Fun, Acc)
+            end;
+        {ok, end_of_stream} ->
+            select_fold(select_jump(It), N, Fun, Acc0)
+    end.
+
+-spec select_preserve(select()) -> _Cursor.
+select_preserve(#select{it = It, streams = Streams}) ->
+    case Streams of
+        [StreamNext | _Rest] ->
+            %% Preserve only the subsequent stream.
+            [It | StreamNext];
+        [] ->
+            %% Iterating over last stream, preserve only iterator.
+            [It]
+    end.
+
+select_restore([It], Select) ->
+    Select#select{it = It, streams = []};
+select_restore([It | StreamNext], Select = #select{streams = Streams}) ->
+    StreamsRest = lists:dropwhile(fun(S) -> S =/= StreamNext end, Streams),
+    Select#select{it = It, streams = StreamsRest}.
+
 mk_store_root_topic(ID) ->
     emqx_topic:join([?STORE_TOPIC_PREFIX, ID]).
 
@@ -705,20 +791,8 @@ mk_store_topic(ID, VarName, _SeqMap) ->
 mk_store_wildcard(ID) ->
     [?STORE_TOPIC_PREFIX, ID, '+', '#'].
 
-mk_read_root_batch(ID) ->
-    %% NOTE
-    %% Construct batch that essentially does nothing but reads rootset in a consistent
-    %% manner.
-    Matcher = #message_matcher{
-        from = ID,
-        topic = mk_store_root_topic(ID),
-        payload = '_',
-        timestamp = 0
-    },
-    #dsbatch{
-        preconditions = [{unless_exists, Matcher}],
-        operations = [{delete, Matcher#message_matcher{payload = <<>>}}]
-    }.
+mk_store_varname_wildcard(VarName) ->
+    [?STORE_TOPIC_PREFIX, '+', varname_to_token(VarName)].
 
 ds_refresh_streams(TopicFilter, StartTime, StreamIts) ->
     Streams = emqx_ds:get_streams(?DS_DB, TopicFilter, StartTime),
@@ -728,14 +802,17 @@ ds_refresh_streams(TopicFilter, StartTime, StreamIts) ->
                 #{Stream := _It} ->
                     Acc;
                 #{} ->
-                    %% TODO: Gracefully handle `emqx_ds:error(_)`?
-                    {ok, It} = emqx_ds:make_iterator(?DS_DB, Stream, TopicFilter, StartTime),
-                    Acc#{Stream => It}
+                    Acc#{Stream => ds_make_iterator(Stream, TopicFilter, StartTime)}
             end
         end,
         StreamIts,
         Streams
     ).
+
+ds_make_iterator(Stream, TopicFilter, StartTime) ->
+    %% TODO: Gracefully handle `emqx_ds:error(_)`?
+    {ok, It} = emqx_ds:make_iterator(?DS_DB, Stream, TopicFilter, StartTime),
+    It.
 
 ds_streams_fold(Fun, AccIn, StreamItsIn) ->
     maps:fold(

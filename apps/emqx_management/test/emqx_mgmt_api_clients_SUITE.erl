@@ -2198,28 +2198,22 @@ assert_contains_clientids(Results, ExpectedClientIds, Line) ->
     ).
 
 traverse_in_reverse_v2(QueryParams0, Results, Config) ->
-    Cursors0 =
-        lists:map(
-            fun(#{<<"meta">> := Meta}) ->
-                maps:get(<<"cursor">>, Meta, <<"wontbeused">>)
-            end,
-            Results
-        ),
-    Cursors1 = [<<"none">> | lists:droplast(Cursors0)],
+    Cursors = [C || #{<<"meta">> := #{<<"cursor">> := C}} <- lists:droplast(Results)],
+    CursorParams = [#{} | [#{cursor => C} || C <- Cursors]],
     DirectOrderClientIds = [
         ClientId
      || #{<<"data">> := Rows} <- Results,
         #{<<"clientid">> := ClientId} <- Rows
     ],
-    ReverseCursors = lists:reverse(Cursors1),
+    ReverseCursorParams = lists:reverse(CursorParams),
     do_traverse_in_reverse_v2(
-        QueryParams0, Config, ReverseCursors, DirectOrderClientIds, _Acc = []
+        QueryParams0, Config, ReverseCursorParams, DirectOrderClientIds, _Acc = []
     ).
 
-do_traverse_in_reverse_v2(_QueryParams0, _Config, _Cursors = [], DirectOrderClientIds, Acc) ->
+do_traverse_in_reverse_v2(_QueryParams0, _Config, [], DirectOrderClientIds, Acc) ->
     ?assertEqual(DirectOrderClientIds, Acc);
-do_traverse_in_reverse_v2(QueryParams0, Config, [Cursor | Rest], DirectOrderClientIds, Acc) ->
-    QueryParams = QueryParams0#{cursor => Cursor},
+do_traverse_in_reverse_v2(QueryParams0, Config, [CursorParam | Rest], DirectOrderClientIds, Acc) ->
+    QueryParams = maps:merge(QueryParams0, CursorParam),
     Res0 = list_v2_request(QueryParams, Config),
     ?assertMatch({ok, {{_, 200, _}, _, #{<<"data">> := _}}}, Res0),
     {ok, {{_, 200, _}, _, #{<<"data">> := Rows}}} = Res0,
