@@ -23,6 +23,9 @@
 -define(CLIENT_AUTHZ_SPAN_NAME, <<"client.authz">>).
 -define(CLIENT_SUBSCRIBE_SPAN_NAME, <<"client.subscribe">>).
 -define(CLIENT_UNSUBSCRIBE_SPAN_NAME, <<"client.unsubscribe">>).
+-define(MSG_ROUTE_SPAN_NAME, <<"message.route">>).
+-define(MSG_DISPATCH_SPAN_NAME, <<"message.dispatch">>).
+-define(MSG_FORWARD_SPAN_NAME, <<"message.forward">>).
 
 %% -define(MSG_SEND_SPAN_NAME, <<"message.send">>).
 

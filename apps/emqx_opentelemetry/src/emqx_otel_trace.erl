@@ -31,10 +31,13 @@
 -export([
     trace_client_connect/3,
     trace_client_disconnect/3,
+    trace_client_subscribe/3,
+    trace_client_unsubscribe/3,
     trace_client_authn/3,
     trace_client_authz/3,
-    trace_client_subscribe/3,
-    trace_client_unsubscribe/3
+    trace_route/3,
+    trace_dispatch/3,
+    trace_forward/3
 ]).
 
 %% --------------------------------------------------------------------
@@ -282,6 +285,78 @@ trace_client_authz(Packet, _Attrs, ProcessFun) ->
         end
     ).
 
+-spec trace_route(
+    Delivery,
+    Attrs,
+    fun(() -> Res)
+) ->
+    Res
+when
+    Delivery :: emqx_types:delivery(),
+    Attrs :: attrs(),
+    Res :: term().
+trace_route(Delivery, Attrs, Fun) ->
+    case ignore_delivery(Delivery) of
+        true ->
+            Fun(Delivery);
+        false ->
+            ?with_span(
+                ?MSG_ROUTE_SPAN_NAME,
+                #{attributes => Attrs},
+                fun(_SpanCtx) ->
+                    Fun(Delivery)
+                end
+            )
+    end.
+
+-spec trace_dispatch(
+    Delivery,
+    Attrs,
+    fun(() -> Res)
+) ->
+    Res
+when
+    Delivery :: emqx_types:delivery(),
+    Attrs :: attrs(),
+    Res :: term().
+trace_dispatch(Delivery, Attrs, Fun) ->
+    case ignore_delivery(Delivery) of
+        true ->
+            Fun(Delivery);
+        false ->
+            ?with_span(
+                ?MSG_DISPATCH_SPAN_NAME,
+                #{attributes => Attrs},
+                fun(_SpanCtx) ->
+                    Fun(Delivery)
+                end
+            )
+    end.
+
+-spec trace_forward(
+    Delivery,
+    Attrs,
+    fun(() -> Res)
+) ->
+    Res
+when
+    Delivery :: emqx_types:delivery(),
+    Attrs :: attrs(),
+    Res :: term().
+trace_forward(Delivery, Attrs, Fun) ->
+    case ignore_delivery(Delivery) of
+        true ->
+            Fun(Delivery);
+        false ->
+            ?with_span(
+                ?MSG_FORWARD_SPAN_NAME,
+                #{attributes => Attrs},
+                fun(_SpanCtx) ->
+                    Fun(Delivery)
+                end
+            )
+    end.
+
 %% --------------------------------------------------------------------
 %% Legacy trace API
 %% --------------------------------------------------------------------
@@ -422,6 +497,9 @@ should_trace_context(RootCtx) ->
 
 should_trace_packet(Packet) ->
     not is_sys(emqx_packet:info(topic_name, Packet)).
+
+ignore_delivery(#delivery{message = #message{topic = Topic}}) ->
+    is_sys(Topic).
 
 %% TODO: move to emqx_topic module?
 is_sys(<<"$SYS/", _/binary>> = _Topic) -> true;

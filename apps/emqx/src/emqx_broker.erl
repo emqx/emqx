@@ -20,6 +20,7 @@
 
 -include("emqx.hrl").
 -include("emqx_router.hrl").
+-include("emqx_external_trace.hrl").
 
 -include("logger.hrl").
 -include("types.hrl").
@@ -291,7 +292,7 @@ do_publish(#message{topic = Topic} = Msg) ->
     PersistRes = persist_publish(Msg),
     Routes = aggre(emqx_router:match_routes(Topic)),
     Delivery = delivery(Msg),
-    RouteRes = route(Routes, Delivery, PersistRes),
+    RouteRes = route_with_trace(Routes, Delivery, PersistRes),
     do_forward_external(Delivery, RouteRes).
 
 persist_publish(Msg) ->
@@ -339,11 +340,27 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %% Route
 %%--------------------------------------------------------------------
 
+route_with_trace(Routes, Delivery, PersistRes) ->
+    emqx_external_trace:trace_route(
+        Delivery,
+        #{
+            'message.route.msg_from_node' => node(),
+            'message.route.msg_id' => Delivery#delivery.message#message.id
+        },
+        fun(DeliveryWithTrace) ->
+            route(Routes, DeliveryWithTrace, PersistRes)
+        end
+    ).
+
 -spec route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
 route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
+    ?ext_trace_add_attrs(#{
+        'message.route.dropped.node' => node(),
+        'message.route.dropped.reason' => no_subscribers
+    }),
     [];
 route([], _Delivery, PersistRes = [_ | _]) ->
     PersistRes;
@@ -357,10 +374,11 @@ route(Routes, Delivery, PersistRes) ->
     ).
 
 do_route({To, Node}, Delivery) when Node =:= node() ->
-    {Node, To, dispatch(To, Delivery)};
+    {Node, To, dispatch_with_trace(To, Delivery)};
 do_route({To, Node}, Delivery) when is_atom(Node) ->
-    {Node, To, forward(Node, To, Delivery, emqx:get_config([rpc, mode]))};
+    {Node, To, forward_with_trace(Node, To, Delivery, emqx:get_config([rpc, mode]))};
 do_route({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
+    %% TODO: trace shared-sub dispatch
     {share, To, emqx_shared_sub:dispatch(Group, To, Delivery)}.
 
 aggre([]) ->
@@ -383,6 +401,19 @@ aggre([], true, Acc) ->
 
 do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
+
+forward_with_trace(Node, To, Delivery, RpcMode) ->
+    emqx_external_trace:trace_forward(
+        Delivery,
+        #{
+            'message.forward.to_topic' => To,
+            'message.forward.to_node' => Node,
+            'message.forward.mode' => RpcMode
+        },
+        fun(DeliveryWithTrace) ->
+            forward(Node, To, DeliveryWithTrace, RpcMode)
+        end
+    ).
 
 %% @doc Forward message to another node.
 -spec forward(
@@ -409,6 +440,18 @@ forward(Node, To, Delivery, sync) ->
             emqx_metrics:inc('messages.forward'),
             Result
     end.
+
+dispatch_with_trace(Topic, Delivery) ->
+    emqx_external_trace:trace_dispatch(
+        Delivery,
+        #{
+            'message.dispatch.from' => pid_to_binary(Delivery#delivery.sender),
+            'message.dispatch.to_topic' => Topic
+        },
+        fun(DeliveryWithTrace) ->
+            dispatch(Topic, DeliveryWithTrace)
+        end
+    ).
 
 -spec dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
@@ -676,6 +719,9 @@ do_dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->
             SubPid ! {deliver, Topic, Msg},
+            ?ext_trace_add_attrs(#{
+                'message.dispatch.to_subscriber' => pid_to_binary(SubPid)
+            }),
             1;
         false ->
             0
@@ -736,3 +782,8 @@ regular_sync_route(add, Topic) ->
     emqx_router:do_add_route(Topic, node());
 regular_sync_route(delete, Topic) ->
     emqx_router:do_delete_route(Topic, node()).
+
+pid_to_binary(Pid) when is_pid(Pid) ->
+    iolist_to_binary(pid_to_list(Pid));
+pid_to_binary(_) ->
+    <<>>.

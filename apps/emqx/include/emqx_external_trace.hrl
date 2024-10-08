@@ -26,8 +26,8 @@
     {emqx_ext_trace, ?ATTRS_META, Meta}
 ).
 
--define(ext_trace_add_attrs(META),
-    emqx_external_trace:add_span_attrs(META)
+-define(ext_trace_add_attrs(ATTRS_OR_META),
+    emqx_external_trace:add_span_attrs(ATTRS_OR_META)
 ).
 
 -define(ext_trace_add_event(EVENT_NAME, TRACE_ATTRS),

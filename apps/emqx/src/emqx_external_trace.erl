@@ -51,6 +51,21 @@
     InitAttrs :: attrs(),
     Res :: term().
 
+-callback trace_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
+-callback trace_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
+-callback trace_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 
@@ -90,13 +105,13 @@
 -export([
     trace_client_connect/3,
     trace_client_disconnect/3,
-    trace_client_subscribe/3,
-    trace_client_unsubscribe/3
-]).
-
--export([
     trace_client_authn/3,
-    trace_client_authz/3
+    trace_client_authz/3,
+    trace_client_subscribe/3,
+    trace_client_unsubscribe/3,
+    trace_route/3,
+    trace_dispatch/3,
+    trace_forward/3
 ]).
 
 -export([
@@ -115,6 +130,8 @@
 
 -define(PROVIDER, {?MODULE, trace_provider}).
 
+%% TODO:
+%% check both trace_mode and trace_provider
 -define(with_provider(IfRegistered, IfNotRegistered),
     case persistent_term:get(?PROVIDER, undefined) of
         undefined ->
@@ -203,6 +220,27 @@ trace_client_authn(Packet, InitAttrs, ProcessFun) ->
 trace_client_authz(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
+-spec trace_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    Delivery :: emqx_types:delivery(),
+    InitAttrs :: attrs(),
+    Res :: term().
+trace_route(Delivery, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
+
+-spec trace_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    Delivery :: emqx_types:delivery(),
+    InitAttrs :: attrs(),
+    Res :: term().
+trace_dispatch(Delivery, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
+
+-spec trace_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    Delivery :: emqx_types:delivery(),
+    InitAttrs :: attrs(),
+    Res :: term().
+trace_forward(Delivery, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 %% --------------------------------------------------------------------
@@ -226,6 +264,10 @@ add_span_event(EventName, AttrsOrMeta) ->
 %% Legacy trace API
 %%--------------------------------------------------------------------
 
+%% TODO:
+%% split to:
+%% `trace_process_publish/3` for legacy_mode
+%% `trace_client_publish/3` for end_to_end_mode
 %% @doc Trace message processing from publisher
 -spec trace_process_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
