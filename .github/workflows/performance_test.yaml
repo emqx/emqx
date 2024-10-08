@@ -159,6 +159,9 @@ jobs:
       run: |
         success=${{ steps.benchmark.outputs.success }}
 
+        echo "## Test results analysis" >> $GITHUB_STEP_SUMMARY
+        echo '' >> $GITHUB_STEP_SUMMARY
+
         CPU_CORE_1=$(jq -r '.[] | select(.host == "emqx-core-1") | .cpu' $TMPDIR/cpu.json)
         CPU_CORE_2=$(jq -r '.[] | select(.host == "emqx-core-2") | .cpu' $TMPDIR/cpu.json)
 
@@ -167,6 +170,7 @@ jobs:
           success=1
           jq --arg cpu1 "$CPU_CORE_1" --arg cpu2 "$CPU_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "CPU utilization was too high", "short": false, "value": "Core 1: \($cpu1)%\nCore 2: \($cpu2)%"}]}]' \
             attachments.json 1<> attachments.json
+          echo "* CPU utilization was too high: Core 1: $CPU_CORE_1%, Core 2: $CPU_CORE_2%" >> $GITHUB_STEP_SUMMARY
         fi
 
         MEM_CORE_1=$(jq -r '.[] | select(.host == "emqx-core-1") | .mem' $TMPDIR/mem.json)
@@ -177,6 +181,7 @@ jobs:
           success=1
           jq --arg mem1 "$MEM_CORE_1" --arg mem2 "$MEM_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "RAM usage was too high", "short": false, "value": "Core 1: \($mem1)%\nCore 2: \($mem2)%"}]}]' \
             attachments.json 1<> attachments.json
+          echo "* RAM usage was too high: Core 1: $MEM_CORE_1%, Core 2: $MEM_CORE_2%" >> $GITHUB_STEP_SUMMARY
         fi
 
         RECEIVED_MSG_RATE=$(jq -r '.received_msg_rate' $TMPDIR/emqx_metrics.json)
@@ -188,6 +193,7 @@ jobs:
           jq --arg received_msg_rate "$RECEIVED_MSG_RATE" --arg sent_msg_rate "$SENT_MSG_RATE" \
             '. += [{"color": "#ff0000", "fields": [{"title": "Message rate was too low", "short": false, "value": "Received message rate: \($received_msg_rate)\nSent message rate: \($sent_msg_rate)"}]}]' \
             attachments.json 1<> attachments.json
+          echo "* Message rate was too low: Received message rate: $RECEIVED_MSG_RATE, Sent message rate: $SENT_MSG_RATE" >> $GITHUB_STEP_SUMMARY
         fi
 
         MESSAGES_DROPPED=$(jq -r '.messages_dropped' $TMPDIR/emqx_metrics.json)
@@ -195,6 +201,7 @@ jobs:
           success=1
           jq --arg dropped "$MESSAGES_DROPPED" '. += [{"color": "#ff0000", "fields": [{"title": "Too many dropped messages", "short": false, "value": "Dropped: \($dropped)"}]}]' \
             attachments.json 1<> attachments.json
+          echo "* Too many dropped messages: $MESSAGES_DROPPED" >> $GITHUB_STEP_SUMMARY
         fi
 
         jq -n --argjson attachments "$(<attachments.json)" '{"attachments": $attachments}' > slack-payload.json
