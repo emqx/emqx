@@ -428,7 +428,12 @@ enqueue_status_error({upload_failed, Error}, St = #st{errors = QErrors}) ->
     %% TODO
     %% This code feels too specific, errors probably need classification.
     St#st{errors = queue:in(Error, QErrors)};
-enqueue_status_error(_AnotherError, St) ->
+enqueue_status_error(_AnotherError, St = #st{name = Name}) ->
+    ?SLOG(debug, #{
+        msg => "aggregated_buffer_error_not_enqueued",
+        error => _AnotherError,
+        action => Name
+    }),
     St.
 
 handle_take_error(St = #st{errors = QErrors0}) ->

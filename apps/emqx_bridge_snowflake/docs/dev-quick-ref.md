@@ -116,6 +116,45 @@ alter user snowpipeuser set default_role = snowpipe;
 -- not required, but helps gather JWT failure reasons like skewed time
 grant monitor on account to role snowpipe;
 
+
+-- Create a role for the Snowpipe privileges, but missing write permissions to
+-- stage, so health check can happen but staging can't.
+
+CREATE USER IF NOT EXISTS snowpipe_ro_user
+    PASSWORD = 'TestUser99'
+    MUST_CHANGE_PASSWORD = FALSE;
+
+-- Set the RSA public key for 'testuser'
+-- Note: Remove the '-----BEGIN PUBLIC KEY-----' and '-----END PUBLIC KEY-----' lines from your PEM file,
+-- and include the remaining content below, preserving line breaks.
+
+ALTER USER snowpipe_ro_user SET RSA_PUBLIC_KEY = '
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_1>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_2>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_3>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_4>
+';
+
+
+create or replace role snowpipe_ro;
+-- Grant the USAGE privilege on the database and schema that contain the pipe object.
+grant usage on database testdatabase to role snowpipe_ro;
+grant usage on schema testdatabase.public to role snowpipe_ro;
+-- Grant the SELECT privileges on the target table.
+grant  select on testdatabase.public.test0 to role snowpipe_ro;
+-- Grant the READ privilege on the internal stage.
+grant read on stage testdatabase.public.teststage0 to role snowpipe_ro;
+-- Grant the MONITOR privileges on the pipe object.
+grant monitor on pipe testdatabase.public.testpipe0 to role snowpipe_ro;
+-- Grant the role to a user
+grant role snowpipe_ro to user snowpipe_ro_user;
+-- Set the role as the default role for the user
+alter user snowpipe_ro_user set default_role = snowpipe_ro;
+
+---- OPTIONAL
+-- not required, but helps gather JWT failure reasons like skewed time
+grant monitor on account to role snowpipe_ro;
+
 ```
 
 ## Basic helper functions
