@@ -27,7 +27,6 @@
 -define(SQL_DROP_TABLE, "DROP TABLE t_mqtt_msg").
 -define(SQL_DROP_STABLE, "DROP STABLE s_tab").
 -define(SQL_DELETE, "DELETE FROM t_mqtt_msg").
--define(SQL_SELECT, "SELECT payload FROM t_mqtt_msg").
 
 -define(AUTO_CREATE_BRIDGE,
     "insert into ${clientid} USING s_tab TAGS ('${clientid}') values (${timestamp}, '${payload}')"
@@ -77,23 +76,23 @@ groups() ->
         {without_batch, TCs -- MustBatchCases}
     ].
 
+-define(APPS, [
+    emqx,
+    emqx_conf,
+    emqx_bridge_tdengine,
+    emqx_connector,
+    emqx_bridge,
+    emqx_rule_engine,
+    emqx_management
+]).
+
 init_per_suite(Config) ->
     emqx_bridge_v2_testlib:init_per_suite(
-        Config,
-        [
-            emqx,
-            emqx_conf,
-            emqx_bridge_tdengine,
-            emqx_connector,
-            emqx_bridge,
-            emqx_rule_engine,
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ]
+        Config, ?APPS ++ [emqx_mgmt_api_test_util:emqx_dashboard()]
     ).
 
 end_per_suite(Config) ->
-    emqx_bridge_v2_testlib:end_per_suite(Config).
+    emqx_bridge_v2_testlib:end_per_suite([{apps, ?APPS} | Config]).
 
 init_per_group(async, Config) ->
     [{query_mode, async} | Config];
@@ -304,8 +303,11 @@ connect_and_clear_table(Config) ->
     ?WITH_CON({ok, _} = directly_query(Con, ?SQL_DELETE)).
 
 connect_and_get_payload(Config) ->
+    connect_and_get_column(Config, "SELECT payload FROM t_mqtt_msg").
+
+connect_and_get_column(Config, Select) ->
     ?WITH_CON(
-        {ok, #{<<"code">> := 0, <<"data">> := Result}} = directly_query(Con, ?SQL_SELECT)
+        {ok, #{<<"code">> := 0, <<"data">> := Result}} = directly_query(Con, Select)
     ),
     Result.
 
@@ -373,6 +375,41 @@ t_simple_insert(Config) ->
 
     ?assertMatch(
         [[?PAYLOAD], [?PAYLOAD]],
+        connect_and_get_payload(Config)
+    ).
+
+t_simple_insert_undefined(Config) ->
+    connect_and_clear_table(Config),
+
+    MakeMessageFun = fun() ->
+        #{payload => undefined, timestamp => 1668602148000, second_ts => 1668602148010}
+    end,
+
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, fun is_success_check/1, tdengine_connector_query_return
+    ),
+
+    ?assertMatch(
+        %% the old behavior without undefined_vars_as_null
+        [[<<"undefined">>], [<<"undefined">>]],
+        connect_and_get_payload(Config)
+    ).
+
+t_undefined_vars_as_null(Config0) ->
+    Config = patch_bridge_config(Config0, #{
+        <<"parameters">> => #{<<"undefined_vars_as_null">> => true}
+    }),
+    connect_and_clear_table(Config),
+
+    MakeMessageFun = fun() ->
+        #{payload => undefined, timestamp => 1668602148000, second_ts => 1668602148010}
+    end,
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, fun is_success_check/1, tdengine_connector_query_return
+    ),
+
+    ?assertMatch(
+        [[<<"null">>], [<<"null">>]],
         connect_and_get_payload(Config)
     ).
 
@@ -503,3 +540,8 @@ t_auto_create_batch_insert(Config) ->
         end,
         [ClientId1, ClientId2, "test_" ++ ClientId1, "test_" ++ ClientId2]
     ).
+
+patch_bridge_config(Config, Overrides) ->
+    BridgeConfig0 = ?config(bridge_config, Config),
+    BridgeConfig1 = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
+    [{bridge_config, BridgeConfig1} | proplists:delete(bridge_config, Config)].

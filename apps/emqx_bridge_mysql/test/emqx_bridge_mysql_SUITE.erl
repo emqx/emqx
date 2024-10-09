@@ -426,6 +426,33 @@ t_setup_via_config_and_publish(Config) ->
     ),
     ok.
 
+t_undefined_vars_as_null(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{<<"undefined_vars_as_null">> => true})
+    ),
+    SentData = #{payload => undefined, timestamp => 1668602148000},
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config, SentData)),
+                #{?snk_kind := mysql_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                {ok, [<<"payload">>], [[null]]},
+                connect_and_get_payload(Config)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(mysql_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    ok.
+
 t_setup_via_http_api_and_publish(Config) ->
     BridgeType = ?config(mysql_bridge_type, Config),
     Name = ?config(mysql_name, Config),

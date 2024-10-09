@@ -9,6 +9,7 @@
 
 -define(CLICKHOUSE_HOST, "clickhouse").
 -define(CLICKHOUSE_PORT, "8123").
+-include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
@@ -177,9 +178,12 @@ parse_and_check(ConfigString, BridgeType, Name) ->
     RetConfig.
 
 make_bridge(Config) ->
+    make_bridge(Config, #{}).
+
+make_bridge(Config, Overrides) ->
     Type = <<"clickhouse">>,
     Name = atom_to_binary(?MODULE),
-    BridgeConfig = clickhouse_config(Config),
+    BridgeConfig = maps:merge(clickhouse_config(Config), Overrides),
     {ok, _} = emqx_bridge:create(
         Type,
         Name,
@@ -249,6 +253,21 @@ t_send_message_query(Config) ->
     emqx_bridge:send_message(BridgeID, Payload),
     %% Check that the data got to the database
     check_key_in_clickhouse(Key, Config),
+    delete_bridge(),
+    ok.
+
+t_undefined_vars_as_null(Config) ->
+    BridgeID = make_bridge(#{enable_batch => false}, #{<<"undefined_vars_as_null">> => true}),
+    Key = 42,
+    Payload = #{key => Key, data => undefined, timestamp => 10000},
+    %% This will use the SQL template included in the bridge
+    emqx_bridge:send_message(BridgeID, Payload),
+    %% Check that the data got to the database
+    check_key_in_clickhouse(Key, Config),
+    ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
+    SQL = io_lib:format("SELECT data FROM mqtt.mqtt_test WHERE key = ~p", [Key]),
+    {ok, 200, ResultString} = clickhouse:query(ClickhouseConnection, SQL, []),
+    ?assertMatch(<<"null">>, iolist_to_binary(string:trim(ResultString))),
     delete_bridge(),
     ok.
 
