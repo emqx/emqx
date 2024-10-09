@@ -14,6 +14,7 @@
 -export([
     resource_type/0,
     query_mode/1,
+    query_opts/1,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -44,6 +45,11 @@ query_mode(#{parameters := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
 query_mode(_) ->
     simple_async_internal_buffer.
+
+query_opts(#{parameters := #{query_mode := sync, sync_query_timeout := Timeout}}) ->
+    #{timeout => Timeout};
+query_opts(_) ->
+    #{}.
 
 callback_mode() -> async_if_possible.
 
