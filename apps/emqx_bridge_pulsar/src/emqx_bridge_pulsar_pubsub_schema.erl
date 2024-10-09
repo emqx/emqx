@@ -69,9 +69,21 @@ fields(action_resource_opts) ->
         inflight_window,
         max_buffer_bytes
     ],
-    lists:filter(
+    Fields = lists:filter(
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
         emqx_bridge_v2_schema:action_resource_opts_fields()
+    ),
+    Overrides = #{request_ttl => #{deprecated => {since, "5.8.1"}}},
+    lists:map(
+        fun({K, Sc}) ->
+            case maps:find(K, Overrides) of
+                {ok, Override} ->
+                    {K, hocon_schema:override(Sc, Override)};
+                error ->
+                    {K, Sc}
+            end
+        end,
+        Fields
     );
 fields(Field) when
     Field == "get_bridge_v2";

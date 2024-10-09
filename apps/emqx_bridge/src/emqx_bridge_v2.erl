@@ -702,7 +702,7 @@ do_query_with_enabled_config(
     ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
     ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
-        emqx_bridge:query_opts(Config),
+        query_opts(BridgeType, Config),
         QueryOpts0#{
             connector_resource_id => ConnectorResId,
             query_mode => QueryMode
@@ -720,6 +720,11 @@ do_query_with_enabled_config(
     term() | {error, term()}.
 send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
     query(BridgeType, BridgeName, {send_message, Message}, QueryOpts0).
+
+query_opts(ActionOrSourceType, Config) ->
+    ConnectorType = connector_type(ActionOrSourceType),
+    Mod = emqx_connector_resource:connector_to_resource_type(ConnectorType),
+    emqx_resource:get_query_opts(Mod, Config).
 
 -spec health_check(BridgeType :: term(), BridgeName :: term()) ->
     #{status := emqx_resource:resource_status(), error := term()} | {error, Reason :: term()}.

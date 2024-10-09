@@ -1511,7 +1511,7 @@ t_unrecoverable_error(Config) ->
             ),
         fun(Trace) ->
             ?assertMatch(
-                [#{reason := killed}],
+                [#{reason := killed} | _],
                 ?of_kind(gcp_pubsub_request_failed, Trace)
             ),
             ok
