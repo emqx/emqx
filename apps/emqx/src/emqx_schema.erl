@@ -310,7 +310,7 @@ roots(low) ->
             sc(
                 ref("durable_sessions"),
                 #{
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {trace,
