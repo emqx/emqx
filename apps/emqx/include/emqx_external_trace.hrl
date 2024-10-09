@@ -31,11 +31,11 @@
 ).
 
 -define(ext_trace_add_event(EVENT_NAME, TRACE_ATTRS),
-    emqx_external_trace:add_span_event(
-        EVENT_NAME,
-        TRACE_ATTRS
-    )
+    emqx_external_trace:add_span_event(EVENT_NAME, TRACE_ATTRS)
 ).
+
+-define(EXT_TRACE_START, '$ext_trace_start').
+-define(EXT_TRACE_STOP, '$ext_trace_stop').
 
 %% --------------------------------------------------------------------
 %% types

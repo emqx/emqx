@@ -51,6 +51,13 @@
     InitAttrs :: attrs(),
     Res :: term().
 
+%% Message Processing Spans
+%% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DISPATCH -> DELIVER(to Subscribers)
+-callback msg_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
 -callback msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
@@ -61,10 +68,28 @@
     Delivery :: emqx_types:delivery(),
     Res :: term().
 
+%% @doc Trace message forwarding
+%% The span `message.forward` always starts in the publisher process and ends in the subscriber process.
+%% They are logically two unrelated processes. So the SpanCtx always need to be propagated.
 -callback msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
     Res :: term().
+
+-callback msg_handle_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
+-callback msg_deliver(
+    TraceAction,
+    list(Deliver) | Packet | list(Packet),
+    Attrs
+) -> Deliver when
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Deliver :: emqx_types:deliver(),
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs().
 
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
@@ -79,17 +104,8 @@
 %% --------------------------------------------------------------------
 %% Legacy mode callbacks
 
--callback trace_process_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-
--callback start_trace_send(Delivers, Attrs) -> Delivers when
-    Delivers :: [emqx_types:deliver()],
-    Attrs :: attrs().
-
--callback end_trace_send(Packet | [Packet]) -> ok when
-    Packet :: emqx_types:packet().
+%% -callback end_trace_send(Packet | [Packet]) -> ok when
+%%     Packet :: emqx_types:packet().
 
 -optional_callbacks(
     [
@@ -109,9 +125,12 @@
     client_unsubscribe/3,
     client_authn/3,
     client_authz/3,
+    msg_publish/3,
     msg_route/3,
     msg_dispatch/3,
-    msg_forward/3
+    msg_forward/3,
+    msg_handle_forward/3,
+    msg_deliver/3
 ]).
 
 -export([
@@ -122,10 +141,7 @@
 -export([
     provider/0,
     register_provider/1,
-    unregister_provider/1,
-    trace_process_publish/3,
-    start_trace_send/2,
-    end_trace_send/1
+    unregister_provider/1
 ]).
 
 -define(PROVIDER, {?MODULE, trace_provider}).
@@ -220,6 +236,18 @@ client_authn(Packet, InitAttrs, ProcessFun) ->
 client_authz(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
+%% TODO:
+%% split to:
+%% `msg_publish/3` for legacy_mode
+%% `trace_client_publish/3` for end_to_end_mode
+%% @doc Trace message processing from publisher
+-spec msg_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+msg_publish(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
 -spec msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     Delivery :: emqx_types:delivery(),
     InitAttrs :: attrs(),
@@ -241,6 +269,34 @@ msg_dispatch(Delivery, InitAttrs, ProcessFun) ->
 msg_forward(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
+-spec msg_handle_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+msg_handle_forward(Delivery, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
+
+%% TODO:
+%% split to:
+%% `msg_deliver/3` for end_to_end_mode
+%% `start_trace_send/2` and `end_trace_send/1` for legacy_mode
+
+%% @doc Start Trace message delivery to subscriber
+-spec msg_deliver(
+    TraceAction,
+    list(Deliver) | Packet | list(Packet),
+    Attrs
+) -> Deliver when
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Deliver :: emqx_types:deliver(),
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs().
+msg_deliver(TraceAction, DeliverOrPackets, Attrs) ->
+    ?with_provider(
+        ?FUNCTION_NAME(TraceAction, DeliverOrPackets, Attrs),
+        deliver_without_provider(TraceAction, DeliverOrPackets)
+    ).
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 %% --------------------------------------------------------------------
@@ -261,37 +317,13 @@ add_span_event(EventName, AttrsOrMeta) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Legacy trace API
-%%--------------------------------------------------------------------
-
-%% TODO:
-%% split to:
-%% `trace_process_publish/3` for legacy_mode
-%% `trace_client_publish/3` for end_to_end_mode
-%% @doc Trace message processing from publisher
--spec trace_process_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-trace_process_publish(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Start Trace message delivery to subscriber
--spec start_trace_send(Delivers, Attrs) -> Delivers when
-    Delivers :: [emqx_types:deliver()],
-    Attrs :: attrs().
-start_trace_send(Delivers, Attrs) ->
-    ?with_provider(?FUNCTION_NAME(Delivers, Attrs), Delivers).
-
-%% @doc End Trace message delivery
--spec end_trace_send(Packet | [Packet]) -> ok when
-    Packet :: emqx_types:packet().
-end_trace_send(Packets) ->
-    ?with_provider(?FUNCTION_NAME(Packets), ok).
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+deliver_without_provider(?EXT_TRACE_START, DeliverOrPackets) ->
+    DeliverOrPackets;
+deliver_without_provider(?EXT_TRACE_STOP, _Packets) ->
+    ok.
 
 %% TODO:
 %% 1. Add more checks for the provider module and functions

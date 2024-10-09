@@ -27,6 +27,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -847,7 +848,11 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 
 handle_outgoing(Packets, State) ->
     Res = do_handle_outgoing(Packets, State),
-    emqx_external_trace:end_trace_send(Packets),
+    emqx_external_trace:msg_deliver(
+        ?EXT_TRACE_STOP,
+        Packets,
+        _Attrs = #{}
+    ),
     Res.
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->

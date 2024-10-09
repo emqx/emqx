@@ -158,7 +158,7 @@
 -define(chan_terminating, chan_terminating).
 -define(RAND_CLIENTID_BYTES, 16).
 
--define(trace_deliver, '$trace.deliver.attrs').
+-define(msg_deliver, '$trace.deliver.attrs').
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -423,7 +423,7 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of
         ok ->
-            emqx_external_trace:trace_process_publish(
+            emqx_external_trace:msg_publish(
                 Packet,
                 %% More info can be added in future, but for now only clientid is used
                 init_trace_attrs(Packet, Channel),
@@ -1029,8 +1029,10 @@ handle_deliver(
     %% we need to update stats here, as the stats_timer is canceled after disconnected
     {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
-    Delivers1 = emqx_external_trace:start_trace_send(
-        Delivers, init_trace_attrs(?trace_deliver, Channel)
+    Delivers1 = emqx_external_trace:msg_deliver(
+        ?EXT_TRACE_START,
+        Delivers,
+        init_trace_attrs(?msg_deliver, Channel)
     ),
     do_handle_deliver(Delivers1, Channel).
 
@@ -1675,7 +1677,10 @@ init_trace_attrs(
     Channel
 ) ->
     maps:from_list(info([clientid], Channel));
-init_trace_attrs(?trace_deliver, Channel) ->
+init_trace_attrs(
+    ?msg_deliver,
+    Channel
+) ->
     maps:from_list(info([clientid], Channel)).
 
 %%--------------------------------------------------------------------

@@ -35,9 +35,15 @@
     client_unsubscribe/3,
     client_authn/3,
     client_authz/3,
+
+    %% Message Processing Spans
+    %% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DISPATCH -> DELIVER(to Subscribers)
+    msg_publish/3,
     msg_route/3,
     msg_dispatch/3,
-    msg_forward/3
+    msg_forward/3,
+    msg_handle_forward/3,
+    msg_deliver/3
 ]).
 
 %% --------------------------------------------------------------------
@@ -48,26 +54,14 @@
     add_span_event/2
 ]).
 
-%% --------------------------------------------------------------------
-%% Legacy Mode callbacks
-
--export([
-    trace_process_publish/3,
-    start_trace_send/2,
-    end_trace_send/1
-]).
-
 -include("emqx_otel_trace.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 
 -define(EMQX_OTEL_CTX, otel_ctx).
--define(USER_PROPERTY, 'User-Property').
-
--define(TRACE_ALL_KEY, {?MODULE, trace_all}).
--define(TRACE_ALL, persistent_term:get(?TRACE_ALL_KEY, false)).
 
 %%--------------------------------------------------------------------
 %% config
@@ -142,7 +136,6 @@ client_connect(Packet, Attrs, ProcessFun) ->
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     _ = otel_ctx:attach(Ctx),
-    CurrentSpanCtx = otel_tracer:current_span_ctx(),
     try
         ProcessFun(Packet)
     after
@@ -200,7 +193,6 @@ client_subscribe(Packet, Attrs, ProcessFun) ->
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
-    %% put ctx to packet, so it can be further propagated
     _ = otel_ctx:attach(Ctx),
     try
         ProcessFun(Packet)
@@ -230,7 +222,6 @@ client_unsubscribe(Packet, Attrs, ProcessFun) ->
         }
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
-    %% put ctx to packet, so it can be further propagated
     _ = otel_ctx:attach(Ctx),
     try
         ProcessFun(Packet)
@@ -252,11 +243,11 @@ when
 client_authn(Packet, _Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHN_SPAN_NAME,
-        #{
-            %% attributes => gen_attrs(Packet, Attrs)
-        },
+        #{attributes => #{}},
         fun(_SpanCtx) ->
             ProcessFun(Packet)
+        %% TODO: add more attributes about: which authenticator resulted:
+        %% ignore|anonymous|ok|error
         %% case ProcessFun(Packet) of
         %%     xx -> xx,
         end
@@ -275,14 +266,42 @@ when
 client_authz(Packet, _Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHZ_SPAN_NAME,
-        #{
-            %% TODO: add more attributes
-            attributes => #{}
-        },
+        #{attributes => #{}},
         fun(_SpanCtx) ->
             ProcessFun(Packet)
+        %% TODO: add more attributes about: which authorizer resulted:
+        %% allow|deny|cache_hit|cache_miss
+        %% case ProcessFun(Packet) of
+        %%     xx -> xx,
         end
     ).
+
+-spec msg_publish(
+    Packet,
+    Attrs,
+    fun((Packet) -> Res)
+) ->
+    Res
+when
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs(),
+    Res :: term().
+msg_publish(Packet, Attrs, ProcessFun) ->
+    RootCtx = otel_ctx:new(),
+    SpanCtx = otel_tracer:start_span(
+        RootCtx,
+        ?current_tracer,
+        ?MSG_PUBLISH_SPAN_NAME,
+        #{attributes => gen_attrs(Packet, Attrs)}
+    ),
+    Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
+    _ = otel_ctx:attach(Ctx),
+    try
+        ProcessFun(Packet)
+    after
+        _ = ?end_span(),
+        clear()
+    end.
 
 -spec msg_route(
     Delivery,
@@ -301,9 +320,9 @@ msg_route(Delivery, Attrs, Fun) ->
         false ->
             ?with_span(
                 ?MSG_ROUTE_SPAN_NAME,
-                #{attributes => Attrs},
+                #{attributes => gen_attrs(Delivery, Attrs)},
                 fun(_SpanCtx) ->
-                    Fun(Delivery)
+                    Fun(put_ctx(otel_ctx:get_current(), Delivery))
                 end
             )
     end.
@@ -323,11 +342,12 @@ msg_dispatch(Delivery, Attrs, Fun) ->
         true ->
             Fun(Delivery);
         false ->
+            _ = otel_ctx:detach(get_ctx(Delivery)),
             ?with_span(
                 ?MSG_DISPATCH_SPAN_NAME,
                 #{attributes => Attrs},
                 fun(_SpanCtx) ->
-                    Fun(Delivery)
+                    Fun(put_ctx(otel_ctx:get_current(), Delivery))
                 end
             )
     end.
@@ -335,7 +355,7 @@ msg_dispatch(Delivery, Attrs, Fun) ->
 -spec msg_forward(
     Delivery,
     Attrs,
-    fun(() -> Res)
+    fun((_) -> Res)
 ) ->
     Res
 when
@@ -349,9 +369,34 @@ msg_forward(Delivery, Attrs, Fun) ->
         false ->
             ?with_span(
                 ?MSG_FORWARD_SPAN_NAME,
-                #{attributes => Attrs},
+                #{attributes => gen_attrs(Delivery, Attrs)},
                 fun(_SpanCtx) ->
-                    Fun(Delivery)
+                    Fun(put_ctx(otel_ctx:get_current(), Delivery))
+                end
+            )
+    end.
+
+-spec msg_handle_forward(
+    Delivery,
+    Attrs,
+    fun((_) -> Res)
+) ->
+    Res
+when
+    Delivery :: emqx_types:delivery(),
+    Attrs :: attrs(),
+    Res :: term().
+msg_handle_forward(Delivery, Attrs, Fun) ->
+    case ignore_delivery(Delivery) of
+        true ->
+            Fun(Delivery);
+        false ->
+            otel_ctx:attach(get_ctx(Delivery)),
+            ?with_span(
+                ?MSG_HANDLE_FORWARD_SPAN_NAME,
+                #{attributes => gen_attrs(Delivery, Attrs)},
+                fun(_SpanCtx) ->
+                    Fun(put_ctx(otel_ctx:get_current(), Delivery))
                 end
             )
     end.
@@ -360,80 +405,46 @@ msg_forward(Delivery, Attrs, Fun) ->
 %% Legacy trace API
 %% --------------------------------------------------------------------
 
--spec trace_process_publish(
-    Packet,
-    Attrs,
-    fun((Packet) -> Res)
-) ->
-    Res
-when
-    Packet :: emqx_types:packet(),
-    Attrs :: attrs(),
-    Res :: term().
-trace_process_publish(Packet, ChannelInfo, ProcessFun) ->
-    case maybe_init_ctx(Packet) of
-        false ->
-            ProcessFun(Packet);
-        RootCtx ->
-            NAttrs = maps:merge(packet_attributes(Packet), channel_attributes(ChannelInfo)),
-            SpanCtx = otel_tracer:start_span(RootCtx, ?current_tracer, process_message, #{
-                attributes => NAttrs
-            }),
-            Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
-            %% put ctx to packet, so it can be further propagated
-            Packet1 = put_ctx_to_packet(Ctx, Packet),
-            _ = otel_ctx:attach(Ctx),
-            try
-                ProcessFun(Packet1)
-            after
-                _ = ?end_span(),
-                clear()
-            end
-    end.
-
--spec start_trace_send(
-    list(Delivers),
+-spec msg_deliver(
+    TraceAction,
+    list(Deliver) | Packet | list(Packet),
     Attrs
 ) ->
-    list(Delivers)
+    %% Attach Ctx into Delivers (Publisher Process)
+    list(Deliver)
+    %% Detach Ctx from Packets (Subscriber Processes)
+    | ok
 when
-    Delivers :: emqx_types:deliver(),
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Deliver :: emqx_types:deliver(),
+    Packet :: emqx_types:packet(),
     Attrs :: attrs().
-start_trace_send(Delivers, Attrs) ->
+msg_deliver(?EXT_TRACE_START, Delivers, Attrs) ->
     lists:map(
         fun({deliver, Topic, Msg} = Deliver) ->
-            case get_ctx_from_msg(Msg) of
+            case get_ctx(Msg) of
                 Ctx when is_map(Ctx) ->
-                    NAttrs = maps:merge(
-                        msg_attributes(Msg), sub_channel_attributes(Attrs)
-                    ),
-                    StartOpts = #{attributes => NAttrs},
                     SpanCtx = otel_tracer:start_span(
-                        Ctx, ?current_tracer, send_published_message, StartOpts
+                        Ctx,
+                        ?current_tracer,
+                        ?MSG_DELIVER_SPAN_NAME,
+                        #{attributes => gen_attrs(Msg, Attrs)}
                     ),
-                    Msg1 = put_ctx_to_msg(
-                        otel_tracer:set_current_span(Ctx, SpanCtx), Msg
-                    ),
-                    {deliver, Topic, Msg1};
+                    NCtx = otel_tracer:set_current_span(Ctx, SpanCtx),
+                    NMsg = put_ctx(NCtx, Msg),
+                    {deliver, Topic, NMsg};
                 _ ->
                     Deliver
             end
         end,
         Delivers
-    ).
-
--spec end_trace_send(
-    Packet | [Packet]
-) ->
-    ok
-when
-    Packet :: emqx_types:packet().
-end_trace_send(Packets) when
+    );
+msg_deliver(?EXT_TRACE_STOP, Packets, _Attrs) when
     is_list(Packets)
 ->
     lists:foreach(
         fun(Packet) ->
-            case get_ctx_from_packet(Packet) of
+            case get_ctx(Packet) of
                 Ctx when is_map(Ctx) ->
                     otel_span:end_span(otel_tracer:current_span_ctx(Ctx));
                 _ ->
@@ -442,8 +453,8 @@ end_trace_send(Packets) when
         end,
         Packets
     );
-end_trace_send(Packet) ->
-    end_trace_send([Packet]).
+msg_deliver(?EXT_TRACE_STOP, Packet, Attrs) ->
+    msg_deliver(?EXT_TRACE_STOP, [Packet], Attrs).
 
 %%--------------------------------------------------------------------
 %% Span Attributes API
@@ -473,29 +484,6 @@ add_span_event(EventName, Attrs) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-maybe_init_ctx(#mqtt_packet{variable = Packet}) ->
-    case should_trace_packet(Packet) of
-        true ->
-            Ctx = extract_traceparent_from_packet(Packet),
-            should_trace_context(Ctx) andalso Ctx;
-        false ->
-            false
-    end.
-
-extract_traceparent_from_packet(Packet) ->
-    Ctx = otel_ctx:new(),
-    case emqx_packet:info(properties, Packet) of
-        #{?USER_PROPERTY := UserProps} ->
-            otel_propagator_text_map:extract_to(Ctx, UserProps);
-        _ ->
-            Ctx
-    end.
-
-should_trace_context(RootCtx) ->
-    map_size(RootCtx) > 0 orelse ?TRACE_ALL.
-
-should_trace_packet(Packet) ->
-    not is_sys(emqx_packet:info(topic_name, Packet)).
 
 ignore_delivery(#delivery{message = #message{topic = Topic}}) ->
     is_sys(Topic).
@@ -503,12 +491,6 @@ ignore_delivery(#delivery{message = #message{topic = Topic}}) ->
 %% TODO: move to emqx_topic module?
 is_sys(<<"$SYS/", _/binary>> = _Topic) -> true;
 is_sys(_Topic) -> false.
-
-msg_attributes(Msg) ->
-    #{
-        'messaging.destination.name' => emqx_message:topic(Msg),
-        'messaging.client_id' => emqx_message:from(Msg)
-    }.
 
 %% TODO: refactor to use raw `Attrs` or `AttrsMeta`
 %% FIXME:
@@ -553,7 +535,34 @@ gen_attrs(
     #{
         'client.unsubscribe.clientid' => ClientId,
         'client.unsubscribe.topic_filters' => serialize_topic_filters(Packet)
-    }.
+    };
+gen_attrs(
+    ?PACKET(?PUBLISH, PktVar) =
+        #mqtt_packet{
+            header = #mqtt_packet_header{qos = QoS}
+        },
+    Attrs
+) ->
+    #{
+        'message.publish.to_topic' => emqx_packet:info(topic_name, PktVar),
+        %% msgid havn't generated here
+        'message.publish.qos' => QoS,
+        'message.publish.from' => maps:get(clientid, Attrs, undefined)
+    };
+gen_attrs(#message{} = Msg, Attrs) ->
+    #{
+        %% XXX: maybe use `to_topic_filter` as the subscribed
+        'message.deliver.to_topic' => emqx_message:topic(Msg),
+        'message.deliver.from' => emqx_message:from(Msg),
+        %% Use HEX msgid as rule engine style
+        'message.deliver.msgid' => emqx_guid:to_hexstr(emqx_message:id(Msg)),
+        'message.deliver.qos' => emqx_message:qos(Msg),
+        'message.deliver.to' => maps:get(clientid, Attrs, undefined)
+    };
+gen_attrs(#delivery{}, Attrs) ->
+    Attrs;
+gen_attrs(_, Attrs) ->
+    Attrs.
 
 serialize_topic_filters(?PACKET(?SUBSCRIBE, PktVar)) ->
     TFs = [Name || {Name, _SubOpts} <- emqx_packet:info(topic_filters, PktVar)],
@@ -561,43 +570,48 @@ serialize_topic_filters(?PACKET(?SUBSCRIBE, PktVar)) ->
 serialize_topic_filters(?PACKET(?UNSUBSCRIBE, PktVar)) ->
     emqx_utils_json:encode(emqx_packet:info(topic_filters, PktVar)).
 
-packet_attributes(#mqtt_packet{
-    header = #mqtt_packet_header{type = ?PUBLISH},
-    variable = PubPacket
-}) ->
-    #{'messaging.destination.name' => emqx_packet:info(topic_name, PubPacket)}.
-
-channel_attributes(ChannelInfo) ->
-    #{'messaging.client_id' => maps:get(clientid, ChannelInfo, undefined)}.
-
-sub_channel_attributes(ChannelInfo) ->
-    channel_attributes(ChannelInfo).
-
 %% ====================
 %% Trace Context in message
-put_ctx_to_msg(OtelCtx, Msg = #message{extra = Extra}) when is_map(Extra) ->
+put_ctx(
+    OtelCtx,
+    Msg = #message{extra = Extra}
+) when is_map(Extra) ->
     Msg#message{extra = Extra#{?EMQX_OTEL_CTX => OtelCtx}};
 %% extra field has not being used previously and defaulted to an empty list, it's safe to overwrite it
-put_ctx_to_msg(OtelCtx, Msg) when is_record(Msg, message) ->
-    Msg#message{extra = #{?EMQX_OTEL_CTX => OtelCtx}}.
-
-get_ctx_from_msg(#message{extra = Extra}) ->
-    from_extra(Extra).
-
+put_ctx(
+    OtelCtx,
+    Msg
+) when is_record(Msg, message) ->
+    Msg#message{extra = #{?EMQX_OTEL_CTX => OtelCtx}};
+%% ====================
+%% Trace Context in delivery
+put_ctx(OtelCtx, #delivery{message = Msg} = Delivery) ->
+    NMsg = put_ctx(OtelCtx, Msg),
+    Delivery#delivery{message = NMsg};
 %% ====================
 %% Trace Context in packet
-put_ctx_to_packet(
-    OtelCtx, #mqtt_packet{variable = #mqtt_packet_publish{properties = Props} = PubPacket} = Packet
+put_ctx(
+    OtelCtx,
+    #mqtt_packet{variable = #mqtt_packet_publish{properties = Props} = PubPacket} = Packet
 ) ->
     Extra = maps:get(internal_extra, Props, #{}),
     Props1 = Props#{internal_extra => Extra#{?EMQX_OTEL_CTX => OtelCtx}},
-    Packet#mqtt_packet{variable = PubPacket#mqtt_packet_publish{properties = Props1}}.
+    Packet#mqtt_packet{variable = PubPacket#mqtt_packet_publish{properties = Props1}};
+put_ctx(
+    _OtelCtx,
+    Any
+) ->
+    Any.
 
-get_ctx_from_packet(#mqtt_packet{
+get_ctx(#message{extra = Extra}) ->
+    from_extra(Extra);
+get_ctx(#delivery{message = #message{extra = Extra}}) ->
+    from_extra(Extra);
+get_ctx(#mqtt_packet{
     variable = #mqtt_packet_publish{properties = #{internal_extra := Extra}}
 }) ->
     from_extra(Extra);
-get_ctx_from_packet(_) ->
+get_ctx(_) ->
     undefined.
 
 from_extra(#{?EMQX_OTEL_CTX := OtelCtx}) ->
