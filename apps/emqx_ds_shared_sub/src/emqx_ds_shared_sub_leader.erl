@@ -93,7 +93,6 @@
 
 become(ShareTopicFilter, Claim) ->
     Data0 = init_data(ShareTopicFilter),
-    Data0 =/= false orelse exit(shared_subscription_not_declared),
     Data1 = attach_claim(Claim, Data0),
     gen_statem:enter_loop(?MODULE, [], ?leader_active, Data1, init_claim_renewal(Data1)).
 
@@ -110,7 +109,7 @@ init(_Args) ->
 init_data(#share{topic = Topic} = ShareTopicFilter) ->
     StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
     case emqx_ds_shared_sub_store:open(StoreID) of
-        Store when Store =/= false ->
+        {ok, Store} ->
             ?tp(debug, dssub_store_open, #{topic => ShareTopicFilter, store => Store}),
             #{
                 group_id => ShareTopicFilter,
@@ -122,7 +121,7 @@ init_data(#share{topic = Topic} = ShareTopicFilter) ->
         false ->
             %% NOTE: No leader store -> no subscription
             ?tp(warning, dssub_store_notfound, #{topic => ShareTopicFilter}),
-            false
+            exit(shared_subscription_not_declared)
     end.
 
 attach_claim(Claim, Data) ->

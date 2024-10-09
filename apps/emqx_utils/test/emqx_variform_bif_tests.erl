@@ -79,3 +79,24 @@ system_test() ->
     EnvNameBin = erlang:list_to_binary(EnvName),
     os:putenv("EMQXVAR_" ++ EnvName, EnvVal),
     ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)).
+
+empty_val_test_() ->
+    F = fun(X) -> emqx_variform_bif:is_empty_val(X) end,
+    [
+        ?_assert(F(undefined)),
+        ?_assert(F(null)),
+        ?_assert(F(<<>>)),
+        ?_assert(F([])),
+        ?_assertNot(F(true)),
+        ?_assertNot(F(false)),
+        ?_assertNot(F(<<"a">>))
+    ].
+
+bool_not_test_() ->
+    Not = fun(X) -> emqx_variform_bif:'not'(X) end,
+    [
+        ?_assertEqual(<<"false">>, Not(<<"true">>)),
+        ?_assertEqual(<<"true">>, Not(<<"false">>)),
+        ?_assertEqual(true, Not(false)),
+        ?_assertEqual(false, Not(true))
+    ].

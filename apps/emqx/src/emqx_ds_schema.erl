@@ -18,8 +18,11 @@
 -module(emqx_ds_schema).
 
 %% API:
--export([schema/0, storage_schema/1, translate_builtin_raft/1, translate_builtin_local/1]).
+-export([schema/0, db_schema/1, db_schema/2]).
 -export([db_config/1]).
+
+%% Internal exports:
+-export([translate_builtin_raft/1, translate_builtin_local/1]).
 
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
@@ -39,10 +42,10 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -define(DEFAULT_BACKEND, builtin_raft).
--define(BUILTIN_BACKENDS, [ref(builtin_raft), ref(builtin_local)]).
+-define(BUILTIN_BACKENDS, [builtin_raft, builtin_local]).
 -else.
 -define(DEFAULT_BACKEND, builtin_local).
--define(BUILTIN_BACKENDS, [ref(builtin_local)]).
+-define(BUILTIN_BACKENDS, [builtin_local]).
 -endif.
 
 %%================================================================================
@@ -59,32 +62,34 @@ translate_builtin_raft(
         backend := builtin_raft,
         n_shards := NShards,
         n_sites := NSites,
-        replication_factor := ReplFactor,
-        layout := Layout
+        replication_factor := ReplFactor
     }
 ) ->
+    %% NOTE: Undefined if `basic` schema is in use.
+    Layout = maps:get(layout, Backend, undefined),
     #{
         backend => builtin_raft,
         n_shards => NShards,
         n_sites => NSites,
         replication_factor => ReplFactor,
         replication_options => maps:get(replication_options, Backend, #{}),
-        storage => translate_layout(Layout)
+        storage => emqx_maybe:apply(fun translate_layout/1, Layout)
     }.
 
 translate_builtin_local(
-    #{
+    Backend = #{
         backend := builtin_local,
-        n_shards := NShards,
-        layout := Layout,
-        poll_workers_per_shard := NPollers,
-        poll_batch_size := BatchSize
+        n_shards := NShards
     }
 ) ->
+    %% NOTE: Undefined if `basic` schema is in use.
+    Layout = maps:get(layout, Backend, undefined),
+    NPollers = maps:get(poll_workers_per_shard, Backend, undefined),
+    BatchSize = maps:get(poll_batch_size, Backend, undefined),
     #{
         backend => builtin_local,
         n_shards => NShards,
-        storage => translate_layout(Layout),
+        storage => emqx_maybe:apply(fun translate_layout/1, Layout),
         poll_workers_per_shard => NPollers,
         poll_batch_size => BatchSize
     }.
@@ -99,24 +104,35 @@ namespace() ->
 schema() ->
     [
         {messages,
-            storage_schema(#{
+            db_schema(#{
                 importance => ?IMPORTANCE_MEDIUM,
                 desc => ?DESC(messages)
             })}
     ] ++ emqx_schema_hooks:injection_point('durable_storage', []).
 
-storage_schema(ExtraOptions) ->
+db_schema(ExtraOptions) ->
+    db_schema(complete, ExtraOptions).
+
+db_schema(Flavor, ExtraOptions) ->
     Options = #{
         default => #{<<"backend">> => ?DEFAULT_BACKEND}
     },
+    BuiltinBackends = [backend_ref(Backend, Flavor) || Backend <- ?BUILTIN_BACKENDS],
+    CustomBackends = emqx_schema_hooks:injection_point('durable_storage.backends', []),
     sc(
-        hoconsc:union(
-            ?BUILTIN_BACKENDS ++ emqx_schema_hooks:injection_point('durable_storage.backends', [])
-        ),
+        hoconsc:union(BuiltinBackends ++ CustomBackends),
         maps:merge(Options, ExtraOptions)
     ).
 
-fields(builtin_local) ->
+-dialyzer({nowarn_function, backend_ref/2}).
+backend_ref(Backend, complete) ->
+    ref(Backend);
+backend_ref(builtin_local, basic) ->
+    ref(builtin_local_basic);
+backend_ref(builtin_raft, basic) ->
+    ref(builtin_raft_basic).
+
+backend_fields(builtin_local, Flavor) ->
     %% Schema for the builtin_raft backend:
     [
         {backend,
@@ -138,9 +154,9 @@ fields(builtin_local) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-        | common_builtin_fields()
+        | common_builtin_fields(Flavor)
     ];
-fields(builtin_raft) ->
+backend_fields(builtin_raft, Flavor) ->
     %% Schema for the builtin_raft backend:
     [
         {backend,
@@ -189,8 +205,17 @@ fields(builtin_raft) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-        | common_builtin_fields()
-    ];
+        | common_builtin_fields(Flavor)
+    ].
+
+fields(builtin_local) ->
+    backend_fields(builtin_local, complete);
+fields(builtin_raft) ->
+    backend_fields(builtin_raft, complete);
+fields(builtin_local_basic) ->
+    backend_fields(builtin_local, basic);
+fields(builtin_raft_basic) ->
+    backend_fields(builtin_raft, basic);
 fields(builtin_write_buffer) ->
     [
         {max_items,
@@ -301,7 +326,7 @@ fields(layout_builtin_reference) ->
             )}
     ].
 
-common_builtin_fields() ->
+common_builtin_fields(basic) ->
     [
         {data_dir,
             sc(
@@ -329,7 +354,10 @@ common_builtin_fields() ->
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(builtin_write_buffer)
                 }
-            )},
+            )}
+    ];
+common_builtin_fields(layout) ->
+    [
         {layout,
             sc(
                 hoconsc:union(builtin_layouts()),
@@ -341,7 +369,10 @@ common_builtin_fields() ->
                             <<"type">> => wildcard_optimized_v2
                         }
                 }
-            )},
+            )}
+    ];
+common_builtin_fields(polling) ->
+    [
         {poll_workers_per_shard,
             sc(
                 pos_integer(),
@@ -358,7 +389,11 @@ common_builtin_fields() ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ].
+    ];
+common_builtin_fields(complete) ->
+    common_builtin_fields(basic) ++
+        common_builtin_fields(layout) ++
+        common_builtin_fields(polling).
 
 desc(builtin_raft) ->
     ?DESC(builtin_raft);

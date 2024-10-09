@@ -42,7 +42,7 @@ t_username_equal_clientid(_) ->
     Checks =
         [
             #{
-                is_match => <<"str_eq(username, '')">>,
+                is_match => <<"is_empty_val(username)">>,
                 result => deny
             },
             #{
@@ -105,7 +105,7 @@ t_multiple_is_match_expressions(_) ->
             %% use AND to connect multiple is_match expressions
             %% this one means username is not empty, and clientid is 'super'
             is_match => [
-                <<"str_neq('', username)">>, <<"str_eq(clientid, 'super')">>
+                <<"not(is_empty_val(username))">>, <<"str_eq(clientid, 'super')">>
             ],
             result => allow
         }
@@ -149,6 +149,41 @@ t_cert_fields_as_alias(_) ->
             ?assertMatch(
                 {ok, #{}},
                 emqx_authn_cinfo:authenticate(#{cn => <<"CN1">>, clientid => <<"CN1">>}, State)
+            )
+        end
+    ).
+
+t_peerhost_matches_username(_) ->
+    Checks = [
+        #{
+            is_match => [
+                <<"str_eq(peerhost, username)">>
+            ],
+            result => allow
+        },
+        #{
+            is_match => <<"true">>,
+            result => deny
+        }
+    ],
+    IPStr1 = "127.0.0.1",
+    IPStr2 = "::1",
+    {ok, IPTuple1} = inet:parse_address(IPStr1, inet),
+    {ok, IPTuple2} = inet:parse_address(IPStr2, inet6),
+    with_checks(
+        Checks,
+        fun(State) ->
+            ?assertMatch(
+                {ok, #{}},
+                emqx_authn_cinfo:authenticate(
+                    #{username => list_to_binary(IPStr1), peerhost => IPTuple1}, State
+                )
+            ),
+            ?assertMatch(
+                {ok, #{}},
+                emqx_authn_cinfo:authenticate(
+                    #{username => list_to_binary(IPStr2), peerhost => IPTuple2}, State
+                )
             )
         end
     ).

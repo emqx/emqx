@@ -282,16 +282,26 @@ list_banned([{As, '=:=', Who}], [], Params) ->
             data => lists:map(fun format/1, Result)
         }}
     end;
-list_banned([], [_Who], Params) ->
-    {200,
-        emqx_mgmt_api:node_query_with_tabs(
-            node(),
-            emqx_banned:tables(),
-            Params,
-            ?BANNED_QSCHEMA,
-            fun ?MODULE:qs2ms/2,
-            fun ?MODULE:format/1
-        )};
+list_banned([], [{_Type, like, Value}], Params) ->
+    case re:compile(Value) of
+        {ok, _} ->
+            {200,
+                emqx_mgmt_api:node_query_with_tabs(
+                    node(),
+                    emqx_banned:tables(),
+                    Params,
+                    ?BANNED_QSCHEMA,
+                    fun ?MODULE:qs2ms/2,
+                    fun ?MODULE:format/1
+                )};
+        {error, {Reason, Pos}} ->
+            {error, #{
+                message => <<"The filter is not a validation regex expression">>,
+                reason => emqx_utils_conv:bin(Reason),
+                position => Pos,
+                filter => Value
+            }}
+    end;
 list_banned(_QS, _FuzzyQS, _Params) ->
     {error, <<"too_many_filters">>}.
 
@@ -374,6 +384,8 @@ format(Banned) ->
 
 format_error(Error) when is_binary(Error) ->
     Error;
+format_error(Error) when is_map(Error) ->
+    emqx_utils_json:encode(Error);
 format_error(Reason) ->
     ErrorReason = io_lib:format("~p", [Reason]),
     erlang:iolist_to_binary(ErrorReason).

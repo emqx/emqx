@@ -144,8 +144,7 @@
 
 -type subid() :: binary() | atom().
 
-%% '_' for match spec
--type group() :: binary() | '_'.
+-type group() :: binary().
 -type topic() :: binary().
 -type word() :: '' | '+' | '#' | binary().
 -type words() :: list(word()).

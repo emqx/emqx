@@ -53,7 +53,9 @@
     join_to_string/1,
     join_to_string/2,
     unescape/1,
-    any_to_str/1
+    any_to_str/1,
+    is_empty_val/1,
+    'not'/1
 ]).
 
 %% Array functions
@@ -593,6 +595,19 @@ num_lte(A, B) ->
 num_gte(A, B) ->
     R = num_comp(A, B),
     R =:= gt orelse R =:= eq.
+
+%% @doc Return 'true' if the argument is `undefined`, `null` or empty string, or empty array.
+is_empty_val(undefined) -> true;
+is_empty_val(null) -> true;
+is_empty_val(<<>>) -> true;
+is_empty_val([]) -> true;
+is_empty_val(_) -> false.
+
+%% @doc The 'not' operation for boolean values and strings.
+'not'(true) -> false;
+'not'(false) -> true;
+'not'(<<"true">>) -> <<"false">>;
+'not'(<<"false">>) -> <<"true">>.
 
 %%------------------------------------------------------------------------------
 %% System
