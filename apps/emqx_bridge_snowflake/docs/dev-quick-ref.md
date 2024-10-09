@@ -39,6 +39,124 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_rsa_key.pr
 openssl rsa -in snowflake_rsa_key.private.pem -pubout -out snowflake_rsa_key.public.pem
 ```
 
+## SQL setup cheat sheet
+
+```sql
+CREATE USER IF NOT EXISTS testuser
+    PASSWORD = 'TestUser99'
+    MUST_CHANGE_PASSWORD = FALSE;
+
+-- Set the RSA public key for 'testuser'
+-- Note: Remove the '-----BEGIN PUBLIC KEY-----' and '-----END PUBLIC KEY-----' lines from your PEM file,
+-- and include the remaining content below, preserving line breaks.
+
+ALTER USER testuser SET RSA_PUBLIC_KEY = '
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_1>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_2>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_3>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_4>
+';
+
+
+create or replace role testrole;
+
+create warehouse testwarehouse;
+
+CREATE OR REPLACE TABLE testdatabase.public.test0 (
+    clientid STRING,
+    topic STRING,
+    payload BINARY,
+    publish_received_at TIMESTAMP_LTZ
+);
+
+CREATE STAGE IF NOT EXISTS testdatabase.public.teststage0
+FILE_FORMAT = (TYPE = CSV PARSE_HEADER = TRUE FIELD_OPTIONALLY_ENCLOSED_BY = '"')
+COPY_OPTIONS = (ON_ERROR = CONTINUE PURGE = TRUE);
+
+CREATE PIPE IF NOT EXISTS testdatabase.public.testpipe0 AS
+COPY INTO testdatabase.public.test0
+FROM @testdatabase.public.teststage0
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
+
+-- Grant the USAGE privilege on the database and schema that contain the pipe object.
+grant usage on database testdatabase to role testrole;
+grant usage on schema testdatabase.public to role testrole;
+-- Grant the USAGE privilege on the warehouse (only needed for test account)
+grant usage on warehouse testwarehouse to role testrole;
+-- Grant the INSERT, SELECT, TRUNCATE and DELETE privileges on the target table
+-- for cleaning up after tests
+grant insert, select, truncate, delete on testdatabase.public.test0 to role testrole;
+-- Grant the READ and WRITE privilege on the internal stage.
+grant read, write on stage testdatabase.public.teststage0 to role testrole;
+-- Grant the OPERATE and MONITOR privileges on the pipe object.
+grant operate, monitor on pipe testdatabase.public.testpipe0 to role testrole;
+-- Grant the role to a user
+grant role testrole to user testuser;
+-- Set the role as the default role for the user
+alter user testuser set default_role = testrole;
+
+-- Create a role for the Snowpipe privileges.
+create or replace role snowpipe;
+-- Grant the USAGE privilege on the database and schema that contain the pipe object.
+grant usage on database testdatabase to role snowpipe;
+grant usage on schema testdatabase.public to role snowpipe;
+-- Grant the INSERT and SELECT privileges on the target table.
+grant insert, select on testdatabase.public.test0 to role snowpipe;
+-- Grant the READ and WRITE privilege on the internal stage.
+grant read, write on stage testdatabase.public.teststage0 to role snowpipe;
+-- Grant the OPERATE and MONITOR privileges on the pipe object.
+grant operate, monitor on pipe testdatabase.public.testpipe0 to role snowpipe;
+-- Grant the role to a user
+grant role snowpipe to user snowpipeuser;
+-- Set the role as the default role for the user
+alter user snowpipeuser set default_role = snowpipe;
+
+---- OPTIONAL
+-- not required, but helps gather JWT failure reasons like skewed time
+grant monitor on account to role snowpipe;
+
+
+-- Create a role for the Snowpipe privileges, but missing write permissions to
+-- stage, so health check can happen but staging can't.
+
+CREATE USER IF NOT EXISTS snowpipe_ro_user
+    PASSWORD = 'TestUser99'
+    MUST_CHANGE_PASSWORD = FALSE;
+
+-- Set the RSA public key for 'testuser'
+-- Note: Remove the '-----BEGIN PUBLIC KEY-----' and '-----END PUBLIC KEY-----' lines from your PEM file,
+-- and include the remaining content below, preserving line breaks.
+
+ALTER USER snowpipe_ro_user SET RSA_PUBLIC_KEY = '
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_1>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_2>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_3>
+<YOUR_PUBLIC_KEY_CONTENTS_LINE_4>
+';
+
+
+create or replace role snowpipe_ro;
+-- Grant the USAGE privilege on the database and schema that contain the pipe object.
+grant usage on database testdatabase to role snowpipe_ro;
+grant usage on schema testdatabase.public to role snowpipe_ro;
+-- Grant the SELECT privileges on the target table.
+grant  select on testdatabase.public.test0 to role snowpipe_ro;
+-- Grant the READ privilege on the internal stage.
+grant read on stage testdatabase.public.teststage0 to role snowpipe_ro;
+-- Grant the MONITOR privileges on the pipe object.
+grant monitor on pipe testdatabase.public.testpipe0 to role snowpipe_ro;
+-- Grant the role to a user
+grant role snowpipe_ro to user snowpipe_ro_user;
+-- Set the role as the default role for the user
+alter user snowpipe_ro_user set default_role = snowpipe_ro;
+
+---- OPTIONAL
+-- not required, but helps gather JWT failure reasons like skewed time
+grant monitor on account to role snowpipe_ro;
+
+```
+
 ## Basic helper functions
 
 ### Elixir
@@ -60,6 +178,13 @@ dsn = "snowflake"
 query = fn conn, sql -> :odbc.sql_query(conn, sql |> to_charlist()) end
 ```
 
+Or, if you have already set up a connector:
+
+```elixir
+conn_res_id = "connector:snowflake:name"
+query = fn sql -> conn_res_id |> :ecpool.pick_and_do(fn conn -> :odbc.sql_query(conn, sql |> to_charlist()) end, :handover) end
+```
+
 ### Erlang
 
 ```erlang
@@ -72,6 +197,13 @@ Server = lists:flatten([OrgID, "-", Account, ".snowflakecomputing.com"]).
 DSN = "snowflake".
 {ok, Conn} = odbc:connect(["dsn=snowflake;uid=", User, ";pwd=", Pass, ";server=", Server, ";account=", Account], []).
 Query = fun(Conn, Sql) -> odbc:sql_query(Conn, Sql) end.
+```
+
+Or, if you have already set up a connector:
+
+```Erlang
+ConnResId = <<"connector:snowflake:name">>.
+Query = fun(Sql) -> ecpool:pick_and_do(ConnResId, fun(Conn) -> odbc:sql_query(Conn, Sql) end, handover) end.
 ```
 
 ## Initialize Database and user accounts
@@ -148,6 +280,10 @@ query.(conn, "grant operate, monitor on pipe #{fqn_pipe} to role #{snowpipe_role
 query.(conn, "grant role #{snowpipe_role} to user #{snowpipe_user}")
 # Set the role as the default role for the user
 query.(conn, "alter user #{snowpipe_user} set default_role = #{snowpipe_role}")
+
+## OPTIONAL
+# not required, but helps gather JWT failure reasons like skewed time
+query.(conn, "grant monitor on account to role #{snowpipe_role}")
 ```
 
 ### Erlang
@@ -236,4 +372,8 @@ Query(Conn, ["grant role ", SnowpipeRole, " to user ", SnowpipeUser]).
 
 % Set the role as the default role for the user
 Query(Conn, ["alter user ", SnowpipeUser, " set default_role = ", SnowpipeRole]).
+
+%%  OPTIONAL
+% not required, but helps gather JWT failure reasons like skewed time
+Query(Conn, ["grant monitor on account to role ", SnowpipeRole]).
 ```
