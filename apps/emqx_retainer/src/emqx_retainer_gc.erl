@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([start_link/2]).
 
@@ -30,13 +31,23 @@
     handle_info/2
 ]).
 
--export_type([opts/0]).
+-export_type([opts/0, limit/0]).
 
--type opts() :: #{deadline => emqx_retainer:deadline()}.
+-type limit() :: all | non_neg_integer().
+-type opts() :: #{
+    deadline := emqx_retainer:deadline(),
+    limit => limit()
+}.
 
--type backend_state() :: term().
+-callback clear_expired(_BackendState, emqx_retainer:deadline(), limit()) ->
+    {_Complete :: boolean(), _NCleared :: non_neg_integer()}.
 
--callback clear_expired(backend_state(), emqx_retainer:deadline()) -> ok.
+-define(DEFAULT_CLEAR_EXPIRED_LIMIT, 50_000).
+
+-ifdef(TEST).
+-undef(DEFAULT_CLEAR_EXPIRED_LIMIT).
+-define(DEFAULT_CLEAR_EXPIRED_LIMIT, 100).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -68,8 +79,11 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast(clear_expired, State = {Context, Opts}) ->
-    Deadline = maps:get(deadline, Opts),
-    Result = clear_expired(Context, Deadline),
+    Result = {Complete, NCleared} = clear_expired(Context, Opts),
+    ?tp(debug, emqx_retainer_cleared_expired, #{
+        complete => Complete,
+        n_cleared => NCleared
+    }),
     {stop, {shutdown, Result}, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
@@ -79,8 +93,9 @@ handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
--spec clear_expired(emqx_retainer:context(), emqx_retainer:deadline()) -> ok.
-clear_expired(Context, Deadline) ->
+clear_expired(Context, Opts) ->
     Mod = emqx_retainer:backend_module(Context),
     BackendState = emqx_retainer:backend_state(Context),
-    ok = Mod:clear_expired(BackendState, Deadline).
+    Deadline = maps:get(deadline, Opts),
+    Limit = maps:get(limit, Opts, ?DEFAULT_CLEAR_EXPIRED_LIMIT),
+    Mod:clear_expired(BackendState, Deadline, Limit).
