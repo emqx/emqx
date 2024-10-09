@@ -341,7 +341,7 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %%--------------------------------------------------------------------
 
 route_with_trace(Routes, Delivery, PersistRes) ->
-    emqx_external_trace:trace_route(
+    emqx_external_trace:msg_route(
         Delivery,
         #{
             'message.route.msg_from_node' => node(),
@@ -400,7 +400,7 @@ do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
 
 forward_with_trace(Node, To, Delivery, RpcMode) ->
-    emqx_external_trace:trace_forward(
+    emqx_external_trace:msg_forward(
         Delivery,
         #{
             'message.forward.to_topic' => To,
@@ -439,7 +439,7 @@ forward(Node, To, Delivery, sync) ->
     end.
 
 dispatch_with_trace(Topic, Delivery) ->
-    emqx_external_trace:trace_dispatch(
+    emqx_external_trace:msg_dispatch(
         Delivery,
         #{
             'message.dispatch.from' => pid_to_binary(Delivery#delivery.sender),

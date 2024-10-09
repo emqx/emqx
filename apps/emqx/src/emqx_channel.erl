@@ -360,7 +360,7 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
-    emqx_external_trace:trace_client_connect(
+    emqx_external_trace:client_connect(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) ->
@@ -509,7 +509,7 @@ handle_in(
             {ok, Channel}
     end;
 handle_in(?SUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters0) = Packet, Channel) ->
-    emqx_external_trace:trace_client_subscribe(
+    emqx_external_trace:client_subscribe(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_subscribe(PacketWithTrace, Channel) end
@@ -518,7 +518,7 @@ handle_in(
     Packet = ?UNSUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters),
     Channel
 ) ->
-    emqx_external_trace:trace_client_unsubscribe(
+    emqx_external_trace:client_unsubscribe(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_unsubscribe(PacketWithTrace, Channel) end
@@ -531,7 +531,7 @@ handle_in(
     ?DISCONNECT_PACKET() = Packet,
     Channel
 ) ->
-    emqx_external_trace:trace_client_disconnect(
+    emqx_external_trace:client_disconnect(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) -> process_disconnect(PacketWithTrace, Channel) end
@@ -1958,7 +1958,7 @@ authenticate(?PACKET(?AUTH) = Packet, Channel) ->
     %% TODO: extended authentication sub-span
     process_authenticate(Packet, Channel);
 authenticate(Packet, Channel) ->
-    emqx_external_trace:trace_client_authn(
+    emqx_external_trace:client_authn(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) ->
@@ -2234,7 +2234,7 @@ authz_action(#message{qos = QoS}) ->
 %% Check Pub Authorization
 
 check_pub_authz(Packet, Channel) ->
-    emqx_external_trace:trace_client_authz(
+    emqx_external_trace:client_authz(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) ->
@@ -2292,7 +2292,7 @@ check_subscribe(SubPkt, _Channel) ->
 %% Check Sub Authorization
 
 check_sub_authzs(Packet, Channel) ->
-    emqx_external_trace:trace_client_authz(
+    emqx_external_trace:client_authz(
         Packet,
         init_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) ->

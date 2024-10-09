@@ -29,15 +29,15 @@
 %% Rich Trace Mode callbacks
 
 -export([
-    trace_client_connect/3,
-    trace_client_disconnect/3,
-    trace_client_subscribe/3,
-    trace_client_unsubscribe/3,
-    trace_client_authn/3,
-    trace_client_authz/3,
-    trace_route/3,
-    trace_dispatch/3,
-    trace_forward/3
+    client_connect/3,
+    client_disconnect/3,
+    client_subscribe/3,
+    client_unsubscribe/3,
+    client_authn/3,
+    client_authz/3,
+    msg_route/3,
+    msg_dispatch/3,
+    msg_forward/3
 ]).
 
 %% --------------------------------------------------------------------
@@ -120,7 +120,7 @@ stop() ->
 %% Rich mode trace API
 %%--------------------------------------------------------------------
 
--spec trace_client_connect(
+-spec client_connect(
     Packet,
     Attrs,
     fun((Packet) -> Res)
@@ -130,7 +130,7 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_connect(Packet, Attrs, ProcessFun) ->
+client_connect(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
@@ -143,7 +143,6 @@ trace_client_connect(Packet, Attrs, ProcessFun) ->
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     _ = otel_ctx:attach(Ctx),
     CurrentSpanCtx = otel_tracer:current_span_ctx(),
-    io:format("current span ctx: ~p~n", [CurrentSpanCtx]),
     try
         ProcessFun(Packet)
     after
@@ -151,7 +150,7 @@ trace_client_connect(Packet, Attrs, ProcessFun) ->
         clear()
     end.
 
--spec trace_client_disconnect(
+-spec client_disconnect(
     Packet,
     Attrs,
     fun((Packet) -> Res)
@@ -161,7 +160,7 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_disconnect(Packet, Attrs, ProcessFun) ->
+client_disconnect(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
@@ -180,7 +179,7 @@ trace_client_disconnect(Packet, Attrs, ProcessFun) ->
         clear()
     end.
 
--spec trace_client_subscribe(
+-spec client_subscribe(
     Packet,
     Attrs,
     fun((Packet) -> Res)
@@ -190,7 +189,7 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_subscribe(Packet, Attrs, ProcessFun) ->
+client_subscribe(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
@@ -210,7 +209,7 @@ trace_client_subscribe(Packet, Attrs, ProcessFun) ->
         clear()
     end.
 
--spec trace_client_unsubscribe(
+-spec client_unsubscribe(
     Packet,
     Attrs,
     fun((Packet) -> Res)
@@ -220,7 +219,7 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_unsubscribe(Packet, Attrs, ProcessFun) ->
+client_unsubscribe(Packet, Attrs, ProcessFun) ->
     RootCtx = otel_ctx:new(),
     SpanCtx = otel_tracer:start_span(
         RootCtx,
@@ -240,7 +239,7 @@ trace_client_unsubscribe(Packet, Attrs, ProcessFun) ->
         clear()
     end.
 
--spec trace_client_authn(
+-spec client_authn(
     Packet,
     Attrs,
     fun((Packet) -> Res)
@@ -250,7 +249,7 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_authn(Packet, _Attrs, ProcessFun) ->
+client_authn(Packet, _Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHN_SPAN_NAME,
         #{
@@ -263,7 +262,7 @@ trace_client_authn(Packet, _Attrs, ProcessFun) ->
         end
     ).
 
--spec trace_client_authz(
+-spec client_authz(
     Packet,
     Attrs,
     fun((Packet) -> Res)
@@ -273,7 +272,7 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-trace_client_authz(Packet, _Attrs, ProcessFun) ->
+client_authz(Packet, _Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHZ_SPAN_NAME,
         #{
@@ -285,7 +284,7 @@ trace_client_authz(Packet, _Attrs, ProcessFun) ->
         end
     ).
 
--spec trace_route(
+-spec msg_route(
     Delivery,
     Attrs,
     fun(() -> Res)
@@ -295,7 +294,7 @@ when
     Delivery :: emqx_types:delivery(),
     Attrs :: attrs(),
     Res :: term().
-trace_route(Delivery, Attrs, Fun) ->
+msg_route(Delivery, Attrs, Fun) ->
     case ignore_delivery(Delivery) of
         true ->
             Fun(Delivery);
@@ -309,7 +308,7 @@ trace_route(Delivery, Attrs, Fun) ->
             )
     end.
 
--spec trace_dispatch(
+-spec msg_dispatch(
     Delivery,
     Attrs,
     fun(() -> Res)
@@ -319,7 +318,7 @@ when
     Delivery :: emqx_types:delivery(),
     Attrs :: attrs(),
     Res :: term().
-trace_dispatch(Delivery, Attrs, Fun) ->
+msg_dispatch(Delivery, Attrs, Fun) ->
     case ignore_delivery(Delivery) of
         true ->
             Fun(Delivery);
@@ -333,7 +332,7 @@ trace_dispatch(Delivery, Attrs, Fun) ->
             )
     end.
 
--spec trace_forward(
+-spec msg_forward(
     Delivery,
     Attrs,
     fun(() -> Res)
@@ -343,7 +342,7 @@ when
     Delivery :: emqx_types:delivery(),
     Attrs :: attrs(),
     Res :: term().
-trace_forward(Delivery, Attrs, Fun) ->
+msg_forward(Delivery, Attrs, Fun) ->
     case ignore_delivery(Delivery) of
         true ->
             Fun(Delivery);

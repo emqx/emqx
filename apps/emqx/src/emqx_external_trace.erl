@@ -21,47 +21,47 @@
 %% Trace in Rich mode callbacks
 
 %% Client Connect/Disconnect
--callback trace_client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
 
--callback trace_client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
 
--callback trace_client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
 
--callback trace_client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
 
--callback trace_client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
 
--callback trace_client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
 
--callback trace_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+-callback msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
     Res :: term().
 
--callback trace_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+-callback msg_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
     Res :: term().
 
--callback trace_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+-callback msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
     Res :: term().
@@ -95,23 +95,23 @@
     [
         add_span_attrs/1,
         add_span_event/2,
-        trace_client_authn/3,
-        trace_client_authz/3
+        client_authn/3,
+        client_authz/3
     ]
 ).
 
 %% --------------------------------------------------------------------
 
 -export([
-    trace_client_connect/3,
-    trace_client_disconnect/3,
-    trace_client_authn/3,
-    trace_client_authz/3,
-    trace_client_subscribe/3,
-    trace_client_unsubscribe/3,
-    trace_route/3,
-    trace_dispatch/3,
-    trace_forward/3
+    client_connect/3,
+    client_disconnect/3,
+    client_subscribe/3,
+    client_unsubscribe/3,
+    client_authn/3,
+    client_authz/3,
+    msg_route/3,
+    msg_dispatch/3,
+    msg_forward/3
 ]).
 
 -export([
@@ -173,72 +173,72 @@ provider() ->
 %%--------------------------------------------------------------------
 
 %% @doc Start a trace event for Client CONNECT
--spec trace_client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-spec client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_client_connect(Packet, InitAttrs, ProcessFun) ->
+client_connect(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
 %% @doc Start a trace event for Client DISCONNECT
--spec trace_client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-spec client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_client_disconnect(Packet, InitAttrs, ProcessFun) ->
+client_disconnect(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
 %% @doc Start a trace event for Client SUBSCRIBE
--spec trace_client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-spec client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_client_subscribe(Packet, InitAttrs, ProcessFun) ->
+client_subscribe(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
 %% @doc Start a trace event for Client UNSUBSCRIBE
--spec trace_client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-spec client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_client_unsubscribe(Packet, InitAttrs, ProcessFun) ->
+client_unsubscribe(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
 %% @doc Start a sub-span for Client AUTHN
--spec trace_client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-spec client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_client_authn(Packet, InitAttrs, ProcessFun) ->
+client_authn(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
 %% @doc Start a sub-span for Client AUTHZ
--spec trace_client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-spec client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_client_authz(Packet, InitAttrs, ProcessFun) ->
+client_authz(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
--spec trace_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+-spec msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     Delivery :: emqx_types:delivery(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_route(Delivery, InitAttrs, ProcessFun) ->
+msg_route(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
--spec trace_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+-spec msg_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     Delivery :: emqx_types:delivery(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_dispatch(Delivery, InitAttrs, ProcessFun) ->
+msg_dispatch(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
--spec trace_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+-spec msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     Delivery :: emqx_types:delivery(),
     InitAttrs :: attrs(),
     Res :: term().
-trace_forward(Delivery, InitAttrs, ProcessFun) ->
+msg_forward(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
 %% --------------------------------------------------------------------
