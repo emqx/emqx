@@ -621,7 +621,7 @@ process_complete(TransferState0) ->
             Res ->
                 ?tp("snowflake_insert_files_request_failed", #{response => Res}),
                 %% TODO: retry?
-                exit({insert_failed, Res})
+                exit({upload_failed, Res})
         end
     end.
 
@@ -969,9 +969,9 @@ action_status(ConnResId, ActionResId, #{mode := aggregated} = ActionState) ->
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
     ok = check_aggreg_upload_errors(AggregId),
-    ok = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
         true ->
+            ok = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState),
             ?status_connected;
         false ->
             ?status_disconnected
