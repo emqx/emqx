@@ -898,15 +898,16 @@ data(_) ->
 %%--------------------------------------------------------------------
 %% @doc Durable storage command
 
+-if(?EMQX_RELEASE_EDITION == ee).
+
 ds(CMD) ->
-    case emqx_persistent_message:is_persistence_enabled() of
+    case emqx_mgmt_api_ds:is_enabled() of
         true ->
             do_ds(CMD);
         false ->
             emqx_ctl:usage([{"ds", "Durable storage is disabled"}])
     end.
 
--if(?EMQX_RELEASE_EDITION == ee).
 do_ds(["info"]) ->
     emqx_ds_replication_layer_meta:print_status();
 do_ds(["set_replicas", DBStr | SitesStr]) ->
@@ -966,9 +967,12 @@ do_ds(_) ->
         {"ds leave <storage> <site>", "Remove site from the replica set of the storage"},
         {"ds forget <site>", "Forcefully remove a site from the list of known sites"}
     ]).
+
 -else.
-do_ds(_CMD) ->
+
+ds(_CMD) ->
     emqx_ctl:usage([{"ds", "DS CLI is not available in this edition of EMQX"}]).
+
 -endif.
 
 %%--------------------------------------------------------------------

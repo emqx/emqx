@@ -54,11 +54,6 @@
     cold_get_subscription/2
 ]).
 
--export([
-    format_lease_events/1,
-    format_stream_progresses/1
-]).
-
 -define(schedule_subscribe, schedule_subscribe).
 -define(schedule_unsubscribe, schedule_unsubscribe).
 
@@ -239,7 +234,7 @@ schedule_subscribe(
             ?tp(debug, shared_subs_schedule_subscribe_override, #{
                 share_topic_filter => ShareTopicFilter,
                 new_type => {?schedule_subscribe, SubOpts},
-                old_action => format_schedule_action(ScheduledAction)
+                old_action => ScheduledAction
             }),
             SharedSubS0#{scheduled_actions := ScheduledActions1};
         _ ->
@@ -291,7 +286,7 @@ schedule_unsubscribe(
             ?tp(debug, shared_subs_schedule_unsubscribe_override, #{
                 share_topic_filter => ShareTopicFilter,
                 new_type => ?schedule_unsubscribe,
-                old_action => format_schedule_action(ScheduledAction0)
+                old_action => ScheduledAction0
             }),
             SharedSubS0#{scheduled_actions := ScheduledActions1};
         _ ->
@@ -305,7 +300,7 @@ schedule_unsubscribe(
             },
             ?tp(debug, shared_subs_schedule_unsubscribe_new, #{
                 share_topic_filter => ShareTopicFilter,
-                stream_keys => format_stream_keys(StreamKeys)
+                stream_keys => StreamKeys
             }),
             SharedSubS0#{scheduled_actions := ScheduledActions1}
     end.
@@ -324,7 +319,7 @@ renew_streams(S0, SchedS0, #{agent := Agent0} = SharedS0) ->
         emqx_persistent_session_ds_shared_subs_agent:renew_streams(Agent0),
     StreamLeaseEvents =/= [] andalso
         ?tp(debug, shared_subs_new_stream_lease_events, #{
-            stream_lease_events => format_lease_events(StreamLeaseEvents)
+            stream_lease_events => StreamLeaseEvents
         }),
     {S, SchedS} = lists:foldl(
         fun
@@ -491,7 +486,7 @@ run_scheduled_action(
         [] ->
             ?tp(debug, shared_subs_schedule_action_complete, #{
                 share_topic_filter => ShareTopicFilter,
-                progresses => format_stream_progresses(Progresses1),
+                progresses => Progresses1,
                 type => Type
             }),
             %% Regular progress won't se unsubscribed streams, so we need to
@@ -515,7 +510,7 @@ run_scheduled_action(
             Action1 = Action#{stream_keys_to_wait => StreamKeysToWait1, progresses => Progresses1},
             ?tp(debug, shared_subs_schedule_action_continue, #{
                 share_topic_filter => ShareTopicFilter,
-                new_action => format_schedule_action(Action1)
+                new_action => Action1
             }),
             {continue, Action1}
     end.
@@ -725,51 +720,3 @@ is_stream_fully_acked(_, _, #srs{
     true;
 is_stream_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
-
-%%--------------------------------------------------------------------
-%% Formatters
-%%--------------------------------------------------------------------
-
-format_schedule_action(#{
-    type := Type, progresses := Progresses, stream_keys_to_wait := StreamKeysToWait
-}) ->
-    #{
-        type => Type,
-        progresses => format_stream_progresses(Progresses),
-        stream_keys_to_wait => format_stream_keys(StreamKeysToWait)
-    }.
-
-format_stream_progresses(Streams) ->
-    lists:map(
-        fun format_stream_progress/1,
-        Streams
-    ).
-
-format_stream_progress(#{stream := Stream, progress := Progress} = Value) ->
-    Value#{stream => format_opaque(Stream), progress => format_progress(Progress)}.
-
-format_progress(#{iterator := Iterator} = Progress) ->
-    Progress#{iterator => format_opaque(Iterator)}.
-
-format_stream_key(beginning) -> beginning;
-format_stream_key({SubId, Stream}) -> {SubId, format_opaque(Stream)}.
-
-format_stream_keys(StreamKeys) ->
-    lists:map(
-        fun format_stream_key/1,
-        StreamKeys
-    ).
-
-format_lease_events(Events) ->
-    lists:map(
-        fun format_lease_event/1,
-        Events
-    ).
-
-format_lease_event(#{stream := Stream, progress := Progress} = Event) ->
-    Event#{stream => format_opaque(Stream), progress => format_progress(Progress)};
-format_lease_event(#{stream := Stream} = Event) ->
-    Event#{stream => format_opaque(Stream)}.
-
-format_opaque(Opaque) ->
-    erlang:phash2(Opaque).

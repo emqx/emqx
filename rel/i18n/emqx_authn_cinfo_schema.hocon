@@ -28,11 +28,13 @@ emqx_authn_cinfo_schema {
       One Variform expression or an array of expressions to evaluate with a set of pre-bound variables derived from the client information.
       Supported variables:
       - `username`: the username of the client.
+      - `password`: the password of the client.
       - `clientid`: the client ID of the client.
       - `client_attrs.*`: the client attributes of the client.
       - `peerhost`: the IP address of the client.
       - `cert_subject`: the subject of the TLS certificate.
       - `cert_common_name`: the issuer of the TLS certificate.
+      - `zone`: the config zone associated with the listener from which the client is accepted.
       If the expression(s) all yields the string value `'true'`, then the associated `result` is returned from this authenticator.
       If any expression yields the other than `'true'`, then the current check is skipped."""
   }

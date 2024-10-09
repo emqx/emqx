@@ -202,8 +202,8 @@ fields(limit) ->
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
 fields(cursor) ->
     Desc = <<"Opaque value representing the current iteration state.">>,
-    Meta = #{default => none, in => query, desc => Desc},
-    [{cursor, hoconsc:mk(hoconsc:union([none, binary()]), Meta)}];
+    Meta = #{required => false, in => query, desc => Desc},
+    [{cursor, hoconsc:mk(binary(), Meta)}];
 fields(cursor_response) ->
     Desc = <<"Opaque value representing the current iteration state.">>,
     Meta = #{desc => Desc, required => false},

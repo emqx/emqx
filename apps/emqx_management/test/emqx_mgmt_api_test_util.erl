@@ -108,8 +108,8 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, [], Opts) when
 ->
     NewUrl =
         case QueryParams of
-            "" -> Url;
-            _ -> Url ++ "?" ++ QueryParams
+            [] -> Url;
+            _ -> Url ++ "?" ++ build_query_string(QueryParams)
         end,
     do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, Opts);
 request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
@@ -164,6 +164,13 @@ simplify_result(Res) ->
 
 auth_header_() ->
     emqx_common_test_http:default_auth_header().
+
+build_query_string(Query = #{}) ->
+    build_query_string(maps:to_list(Query));
+build_query_string(Query = [{_, _} | _]) ->
+    uri_string:compose_query([{emqx_utils_conv:bin(K), V} || {K, V} <- Query]);
+build_query_string(QueryString) ->
+    unicode:characters_to_list(QueryString).
 
 build_http_header(X) when is_list(X) ->
     X;

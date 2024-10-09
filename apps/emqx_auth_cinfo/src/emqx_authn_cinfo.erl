@@ -67,8 +67,14 @@ authenticate(#{auth_method := _}, _) ->
     %% enhanced authentication is not supported by this provider
     ignore;
 authenticate(Credential0, #{checks := Checks}) ->
-    Credential = add_credential_aliases(Credential0),
+    Credential1 = add_credential_aliases(Credential0),
+    Credential = peerhost_as_string(Credential1),
     check(Checks, Credential).
+
+peerhost_as_string(#{peerhost := Peerhost} = Credential) when is_tuple(Peerhost) ->
+    Credential#{peerhost => iolist_to_binary(inet:ntoa(Peerhost))};
+peerhost_as_string(Credential) ->
+    Credential.
 
 check([], _) ->
     ignore;

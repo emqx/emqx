@@ -37,6 +37,9 @@
     forget/2
 ]).
 
+%% Internal exports:
+-export([is_enabled/0]).
+
 %% behavior callbacks:
 -export([
     namespace/0,

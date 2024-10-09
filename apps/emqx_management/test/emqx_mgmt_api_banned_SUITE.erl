@@ -339,6 +339,10 @@ t_list_with_filters(_) ->
     test_for_list("like_peerhost_net=192.168", [<<"192.168.0.0/16">>]),
     test_for_list("like_peerhost_net=192.166", []),
 
+    %% with control characters
+    test_for_list("like_clientid=" ++ uri_string:quote("c\\d"), [<<"c1">>, <<"c2">>]),
+    ?assertMatch({error, _}, list_banned("like_clientid=???")),
+
     %% list all
     test_for_list([], [
         <<"c1">>,

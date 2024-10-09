@@ -50,10 +50,13 @@ injected_fields() ->
     #{
         'durable_storage' => [
             {queues,
-                emqx_ds_schema:storage_schema(#{
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(durable_queues_storage)
-                })}
+                emqx_ds_schema:db_schema(
+                    basic,
+                    #{
+                        importance => ?IMPORTANCE_HIDDEN,
+                        desc => ?DESC(durable_queues_storage)
+                    }
+                )}
         ]
     }.
 

@@ -40,15 +40,11 @@ format_leader_msg(Msg) ->
 
 format_agent_msg_value(agent_msg_type, Type) ->
     agent_msg_type(Type);
-format_agent_msg_value(agent_msg_stream_states, StreamStates) ->
-    emqx_persistent_session_ds_shared_subs:format_stream_progresses(StreamStates);
 format_agent_msg_value(_, Value) ->
     Value.
 
 format_leader_msg_value(leader_msg_type, Type) ->
     leader_msg_type(Type);
-format_leader_msg_value(leader_msg_streams, Streams) ->
-    emqx_persistent_session_ds_shared_subs:format_lease_events(Streams);
 format_leader_msg_value(_, Value) ->
     Value.
 

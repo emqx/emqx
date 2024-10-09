@@ -494,7 +494,9 @@ update_ms(clientid, X, {{Topic, Pid}, Opts}) ->
 update_ms(topic, X, {{Topic, Pid}, Opts}) when
     is_record(Topic, share)
 ->
-    {{#share{group = '_', topic = X}, Pid}, Opts};
+    %% NOTE: Equivalent to `#share{group = '_', topic = X}`, but dialyzer is happy.
+    Share = setelement(#share.group, #share{group = <<>>, topic = X}, '_'),
+    {{Share, Pid}, Opts};
 update_ms(topic, X, {{Topic, Pid}, Opts}) when
     is_binary(Topic) orelse Topic =:= '_'
 ->
@@ -502,7 +504,8 @@ update_ms(topic, X, {{Topic, Pid}, Opts}) when
 update_ms(share_group, X, {{Topic, Pid}, Opts}) when
     not is_record(Topic, share)
 ->
-    {{#share{group = X, topic = Topic}, Pid}, Opts};
+    Share = #share{group = X, topic = Topic},
+    {{Share, Pid}, Opts};
 update_ms(qos, X, {{Topic, Pid}, Opts}) ->
     {{Topic, Pid}, Opts#{qos => X}}.
 

@@ -10,6 +10,11 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-define(DESC_BAD_REQUEST, <<"Erroneous request">>).
+-define(RESP_BAD_REQUEST(MSG),
+    {400, #{code => <<"BAD_REQUEST">>, message => MSG}}
+).
+
 -define(DESC_NOT_FOUND, <<"Queue not found">>).
 -define(RESP_NOT_FOUND,
     {404, #{code => <<"NOT_FOUND">>, message => ?DESC_NOT_FOUND}}
@@ -71,11 +76,13 @@ schema("/durable_queues") ->
             tags => ?TAGS,
             summary => <<"List declared durable queues">>,
             description => ?DESC("durable_queues_get"),
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, cursor),
+                hoconsc:ref(emqx_dashboard_swagger, limit)
+            ],
             responses => #{
-                200 => emqx_dashboard_swagger:schema_with_example(
-                    durable_queues_get(),
-                    durable_queues_get_example()
-                )
+                200 => resp_list_durable_queues(),
+                400 => error_codes(['BAD_REQUEST'], ?DESC_BAD_REQUEST)
             }
         },
         post => #{
@@ -84,10 +91,7 @@ schema("/durable_queues") ->
             description => ?DESC("durable_queues_post"),
             'requestBody' => durable_queue_post(),
             responses => #{
-                201 => emqx_dashboard_swagger:schema_with_example(
-                    durable_queue_get(),
-                    durable_queue_get_example()
-                ),
+                201 => resp_create_durable_queue(),
                 409 => error_codes(['CONFLICT'], ?DESC_CREATE_CONFICT)
             }
         }
@@ -121,8 +125,23 @@ schema("/durable_queues/:id") ->
         }
     }.
 
-'/durable_queues'(get, _Params) ->
-    {200, queue_list()};
+'/durable_queues'(get, #{query_string := QString}) ->
+    Cursor = maps:get(<<"cursor">>, QString, undefined),
+    Limit = maps:get(<<"limit">>, QString),
+    try queue_list(Cursor, Limit) of
+        {Queues, CursorNext} ->
+            Data = [encode_props(ID, Props) || {ID, Props} <- Queues],
+            case CursorNext of
+                undefined ->
+                    Meta = #{hasnext => false};
+                _Cursor ->
+                    Meta = #{hasnext => true, cursor => CursorNext}
+            end,
+            {200, #{data => Data, meta => Meta}}
+    catch
+        throw:Error ->
+            ?RESP_BAD_REQUEST(emqx_utils:readable_error_msg(Error))
+    end;
 '/durable_queues'(post, #{body := Params}) ->
     case queue_declare(Params) of
         {ok, Queue} ->
@@ -135,7 +154,7 @@ schema("/durable_queues/:id") ->
 
 '/durable_queues/:id'(get, Params) ->
     case queue_get(Params) of
-        Queue when Queue =/= false ->
+        {ok, Queue} ->
             {200, encode_queue(Queue)};
         false ->
             ?RESP_NOT_FOUND
@@ -152,9 +171,8 @@ schema("/durable_queues/:id") ->
             ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
 
-queue_list() ->
-    %% TODO
-    [].
+queue_list(Cursor, Limit) ->
+    emqx_ds_shared_sub_queue:list(Cursor, Limit).
 
 queue_get(#{bindings := #{id := ID}}) ->
     emqx_ds_shared_sub_queue:lookup(ID).
@@ -175,6 +193,9 @@ encode_queue(Queue) ->
         emqx_ds_shared_sub_queue:properties(Queue)
     ).
 
+encode_props(ID, Props) ->
+    maps:merge(#{id => ID}, Props).
+
 %%--------------------------------------------------------------------
 %% Schemas
 %%--------------------------------------------------------------------
@@ -190,26 +211,50 @@ param_queue_id() ->
         })
     }.
 
+resp_list_durable_queues() ->
+    emqx_dashboard_swagger:schema_with_example(
+        ref(resp_list_durable_queues),
+        durable_queues_list_example()
+    ).
+
+resp_create_durable_queue() ->
+    emqx_dashboard_swagger:schema_with_example(
+        durable_queue_post(),
+        durable_queue_get_example()
+    ).
+
 validate_queue_id(Id) ->
     case emqx_topic:words(Id) of
         [Segment] when is_binary(Segment) -> true;
         _ -> {error, <<"Invalid queue id">>}
     end.
 
-durable_queues_get() ->
-    hoconsc:array(ref(durable_queue_get)).
-
 durable_queue_get() ->
-    ref(durable_queue_get).
+    ref(durable_queue).
 
 durable_queue_post() ->
     map().
 
 roots() -> [].
 
-fields(durable_queue_get) ->
+fields(durable_queue) ->
     [
-        {id, mk(binary(), #{})}
+        {id,
+            mk(binary(), #{
+                desc => <<"Identifier assigned at creation time">>
+            })},
+        {created_at,
+            mk(emqx_utils_calendar:epoch_millisecond(), #{
+                desc => <<"Queue creation time">>
+            })},
+        {group, mk(binary(), #{})},
+        {topic, mk(binary(), #{})},
+        {start_time, mk(emqx_utils_calendar:epoch_millisecond(), #{})}
+    ];
+fields(resp_list_durable_queues) ->
+    [
+        {data, hoconsc:mk(hoconsc:array(durable_queue_get()), #{})},
+        {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
     ].
 
 %%--------------------------------------------------------------------
@@ -218,15 +263,29 @@ fields(durable_queue_get) ->
 
 durable_queue_get_example() ->
     #{
-        id => <<"queue1">>
+        id => <<"mygrp:1234EF">>,
+        created_at => <<"2024-01-01T12:34:56.789+02:00">>,
+        group => <<"mygrp">>,
+        topic => <<"t/devices/#">>,
+        start_time => <<"2024-01-01T00:00:00.000+02:00">>
     }.
 
-durable_queues_get_example() ->
-    [
-        #{
-            id => <<"queue1">>
-        },
-        #{
-            id => <<"queue2">>
+durable_queues_list_example() ->
+    #{
+        data => [
+            durable_queue_get_example(),
+            #{
+                id => <<"mygrp:567890AABBCC">>,
+                created_at => <<"2024-02-02T22:33:44.000+02:00">>,
+                group => <<"mygrp">>,
+                topic => <<"t/devices/#">>,
+                start_time => <<"1970-01-01T02:00:00+02:00">>
+            }
+        ],
+        %% TODO: Probably needs to be defined in `emqx_dashboard_swagger`.
+        meta => #{
+            <<"count">> => 2,
+            <<"cursor">> => <<"g2wAAAADYQFhAm0AAAACYzJq">>,
+            <<"hasnext">> => true
         }
-    ].
+    }.
