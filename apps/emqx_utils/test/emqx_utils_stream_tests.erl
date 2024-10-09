@@ -114,6 +114,25 @@ foreach_test() ->
         emqx_utils_stream:consume(emqx_utils_stream:mqueue(100))
     ).
 
+fold_test() ->
+    S = emqx_utils_stream:drop(2, emqx_utils_stream:list([1, 2, 3, 4, 5])),
+    ?assertEqual(
+        3 * 4 * 5,
+        emqx_utils_stream:fold(fun(X, P) -> P * X end, 1, S)
+    ).
+
+fold_n_test() ->
+    S = emqx_utils_stream:repeat(
+        emqx_utils_stream:map(
+            fun(X) -> X * 2 end,
+            emqx_utils_stream:list([1, 2, 3])
+        )
+    ),
+    ?assertMatch(
+        {2 + 4 + 6 + 2 + 4 + 6 + 2, _SRest},
+        emqx_utils_stream:fold(fun(X, Sum) -> Sum + X end, 0, _N = 7, S)
+    ).
+
 chainmap_test() ->
     S = emqx_utils_stream:chainmap(
         fun(N) ->
