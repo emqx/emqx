@@ -242,7 +242,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:rfc3339), do: {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.4.3", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.4", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),

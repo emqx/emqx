@@ -62,7 +62,8 @@ schema("/publish") ->
                 ?PARTIALLY_OK => hoconsc:mk(hoconsc:ref(?MODULE, publish_error)),
                 ?BAD_REQUEST => hoconsc:mk(hoconsc:ref(?MODULE, bad_request)),
                 ?DISPATCH_ERROR => hoconsc:mk(hoconsc:ref(?MODULE, publish_error))
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     };
 schema("/publish/bulk") ->
@@ -82,7 +83,8 @@ schema("/publish/bulk") ->
                 ?DISPATCH_ERROR => hoconsc:mk(
                     hoconsc:array(hoconsc:ref(?MODULE, publish_error)), #{}
                 )
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     }.
 

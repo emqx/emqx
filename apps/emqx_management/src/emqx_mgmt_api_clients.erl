@@ -198,7 +198,8 @@ schema("/clients/kickout/bulk") ->
             ),
             responses => #{
                 204 => <<"Kick out clients successfully">>
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     };
 schema("/clients/:clientid") ->
@@ -288,7 +289,8 @@ schema("/clients/:clientid/subscribe") ->
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     };
 schema("/clients/:clientid/subscribe/bulk") ->
@@ -304,7 +306,8 @@ schema("/clients/:clientid/subscribe/bulk") ->
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     };
 schema("/clients/:clientid/unsubscribe") ->
@@ -320,7 +323,8 @@ schema("/clients/:clientid/unsubscribe") ->
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     };
 schema("/clients/:clientid/unsubscribe/bulk") ->
@@ -336,7 +340,8 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
-            }
+            },
+            log_meta => emqx_dashboard_audit:importance(low)
         }
     };
 schema("/clients/:clientid/keepalive") ->
