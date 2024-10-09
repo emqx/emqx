@@ -17,6 +17,7 @@
 -module(emqx_retainer_mnesia).
 
 -behaviour(emqx_retainer).
+-behaviour(emqx_retainer_gc).
 -behaviour(emqx_db_backup).
 
 -include("emqx_retainer.hrl").
@@ -35,7 +36,7 @@
     page_read/4,
     match_messages/3,
     delete_cursor/2,
-    clear_expired/1,
+    clear_expired/2,
     clean/1,
     size/1
 ]).
@@ -207,20 +208,11 @@ store_retained(State, Msg = #message{topic = Topic}) ->
             ok
     end.
 
-clear_expired(_) ->
-    case mria_rlog:role() of
-        core ->
-            clear_expired();
-        _ ->
-            ok
-    end.
-
-clear_expired() ->
-    NowMs = erlang:system_time(millisecond),
+clear_expired(_State, Deadline) ->
     S0 = ets_stream(?TAB_MESSAGE),
     S1 = emqx_utils_stream:filter(
         fun(#retained_message{expiry_time = ExpiryTime}) ->
-            ExpiryTime =/= 0 andalso ExpiryTime < NowMs
+            ExpiryTime =/= 0 andalso ExpiryTime < Deadline
         end,
         S0
     ),
