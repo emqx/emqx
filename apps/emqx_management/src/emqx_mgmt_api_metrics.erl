@@ -118,7 +118,7 @@ cluster_metrics(Nodes) when is_list(Nodes) ->
             end,
             L1
         ),
-    Failed =/= [] orelse
+    Failed =/= [] andalso
         ?SLOG(
             badrpc_log_level(OK),
             #{msg => "failed_to_fetch_metrics", errors => Failed},
