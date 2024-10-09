@@ -33,7 +33,7 @@
     delete_message/2,
     store_retained/2,
     read_message/2,
-    page_read/4,
+    page_read/5,
     match_messages/3,
     delete_cursor/2,
     clear_expired/2,
@@ -262,15 +262,14 @@ match_messages(_State, _Topic, {S0, BatchNum}) ->
 delete_cursor(_State, _Cursor) ->
     ok.
 
-page_read(_State, Topic, Page, Limit) ->
-    Now = erlang:system_time(millisecond),
+page_read(_State, Topic, Deadline, Page, Limit) ->
     S0 =
         case Topic of
             undefined ->
-                msg_stream(search_stream(undefined, ['#'], Now));
+                msg_stream(search_stream(undefined, ['#'], Deadline));
             _ ->
                 Tokens = topic_to_tokens(Topic),
-                msg_stream(search_stream(Tokens, Now))
+                msg_stream(search_stream(Tokens, Deadline))
         end,
     %% This is very inefficient, but we are limited with inherited API
     S1 = emqx_utils_stream:list(
