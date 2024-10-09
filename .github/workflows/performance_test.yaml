@@ -47,7 +47,7 @@ jobs:
       uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         repository: emqx/tf-emqx-performance-test
-        ref: 20241007-update-ci-test
+        ref: v0.3.2
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@651471c36a6092792c552e8b1bef71e592b462d8 # v3.1.1
       with:
