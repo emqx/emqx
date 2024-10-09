@@ -357,10 +357,7 @@ route_with_trace(Routes, Delivery, PersistRes) ->
 route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
-    ?ext_trace_add_attrs(#{
-        'message.route.dropped.node' => node(),
-        'message.route.dropped.reason' => no_subscribers
-    }),
+    ok = add_route_attrs(Msg),
     [];
 route([], _Delivery, PersistRes = [_ | _]) ->
     PersistRes;
@@ -475,6 +472,19 @@ inc_dropped_cnt(Msg) ->
         false ->
             ok = emqx_metrics:inc('messages.dropped'),
             emqx_metrics:inc('messages.dropped.no_subscribers')
+    end.
+
+-compile({inline, [add_route_attrs/1]}).
+add_route_attrs(Msg) ->
+    case emqx_message:is_sys(Msg) of
+        true ->
+            ok;
+        false ->
+            ?ext_trace_add_attrs(#{
+                'message.route.dropped.node' => node(),
+                'message.route.dropped.reason' => no_subscribers
+            }),
+            ok
     end.
 
 -compile({inline, [subscribers/1]}).
