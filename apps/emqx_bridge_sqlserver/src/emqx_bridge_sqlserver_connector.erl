@@ -44,8 +44,11 @@
     on_format_query_result/1
 ]).
 
-%% callbacks for ecpool
--export([connect/1]).
+%% `ecpool_worker' API
+-export([
+    connect/1,
+    disconnect/1
+]).
 
 %% Internal exports used to execute code with ecpool worker
 -export([do_get_status/1, worker_do_insert/3]).
@@ -213,7 +216,8 @@ on_start(
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {driver, Driver},
         {database, Database},
-        {pool_size, PoolSize}
+        {pool_size, PoolSize},
+        {on_disconnect, {?MODULE, disconnect, []}}
     ],
 
     State = #{
@@ -349,6 +353,10 @@ connect(Options) ->
     ConnectStr = lists:concat(conn_str(Options, [])),
     Opts = proplists:get_value(options, Options, []),
     odbc:connect(ConnectStr, Opts).
+
+-spec disconnect(connection_reference()) -> ok | {error, term()}.
+disconnect(ConnectionPid) ->
+    odbc:disconnect(ConnectionPid).
 
 -spec do_get_status(connection_reference()) -> Result :: boolean().
 do_get_status(Conn) ->
