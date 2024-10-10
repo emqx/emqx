@@ -124,44 +124,33 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 start_gc() ->
-    #{
-        min_last_alive := MinLastAlive,
-        min_last_alive_will_msg := MinLastAliveWillMsg
-    } = gc_context(),
-    gc_loop(
-        MinLastAlive, MinLastAliveWillMsg, emqx_persistent_session_ds_state:make_session_iterator()
-    ).
+    #{min_last_alive := MinLastAlive} = gc_context(),
+    gc_loop(MinLastAlive, emqx_persistent_session_ds_state:make_session_iterator()).
 
 gc_context() ->
     GCInterval = emqx_config:get([durable_sessions, session_gc_interval]),
     BumpInterval = emqx_config:get([durable_sessions, heartbeat_interval]),
-    TimeThreshold = max(GCInterval, BumpInterval) * 3,
-    NowMS = now_ms(),
+    SafetyMargin = BumpInterval * 3,
     #{
-        min_last_alive => NowMS - TimeThreshold,
-        %% For will messages, we don't need to be so strict as session GC (GC interval is
-        %% of the order of ~ 10 minutes by default, bump interval ~ 100 ms), otherwise
-        %% most will be sent very late.
-        min_last_alive_will_msg => NowMS - BumpInterval * 5,
-        time_threshold => TimeThreshold,
+        min_last_alive => now_ms() - SafetyMargin,
         bump_interval => BumpInterval,
         gc_interval => GCInterval
     }.
 
-gc_loop(MinLastAlive, MinLastAliveWillMsg, It0) ->
+gc_loop(MinLastAlive, It0) ->
     GCBatchSize = emqx_config:get([durable_sessions, session_gc_batch_size]),
     case emqx_persistent_session_ds_state:session_iterator_next(It0, GCBatchSize) of
         {[], _It} ->
             ok;
         {Sessions, It} ->
             [
-                do_gc(SessionId, MinLastAliveWillMsg, MinLastAlive, Metadata)
+                do_gc(MinLastAlive, SessionId, Metadata)
              || {SessionId, Metadata} <- Sessions
             ],
-            gc_loop(MinLastAlive, MinLastAliveWillMsg, It)
+            gc_loop(MinLastAlive, It)
     end.
 
-do_gc(SessionId, MinLastAliveWillMsg, MinLastAlive, Metadata) ->
+do_gc(MinLastAlive, SessionId, Metadata) ->
     #{
         ?last_alive_at := LastAliveAt,
         ?expiry_interval := EI,
@@ -171,7 +160,7 @@ do_gc(SessionId, MinLastAliveWillMsg, MinLastAlive, Metadata) ->
     IsExpired = LastAliveAt + EI < MinLastAlive,
     case
         should_send_will_message(
-            MaybeWillMessage, ClientInfo, IsExpired, LastAliveAt, MinLastAliveWillMsg
+            MaybeWillMessage, ClientInfo, IsExpired, LastAliveAt, MinLastAlive
         )
     of
         {true, PreparedMessage} ->
@@ -195,14 +184,12 @@ do_gc(SessionId, MinLastAliveWillMsg, MinLastAlive, Metadata) ->
             ok
     end.
 
-should_send_will_message(
-    undefined = _WillMsg, _ClientInfo, _IsExpired, _LastAliveAt, _MinLastAliveWillMsg
-) ->
+should_send_will_message(undefined, _ClientInfo, _IsExpired, _LastAliveAt, _MinLastAlive) ->
     false;
-should_send_will_message(WillMsg, ClientInfo, IsExpired, LastAliveAt, MinLastAliveWillMsg) ->
+should_send_will_message(WillMsg, ClientInfo, IsExpired, LastAliveAt, MinLastAlive) ->
     WillDelayIntervalS = emqx_channel:will_delay_interval(WillMsg),
     WillDelayInterval = timer:seconds(WillDelayIntervalS),
-    PastWillDelay = LastAliveAt + WillDelayInterval < MinLastAliveWillMsg,
+    PastWillDelay = LastAliveAt + WillDelayInterval < MinLastAlive,
     case PastWillDelay orelse IsExpired of
         true ->
             case emqx_channel:prepare_will_message_for_publishing(ClientInfo, WillMsg) of
@@ -218,11 +205,8 @@ should_send_will_message(WillMsg, ClientInfo, IsExpired, LastAliveAt, MinLastAli
 do_check_session(SessionId) ->
     case emqx_persistent_session_ds_state:print_session(SessionId) of
         #{metadata := Metadata} ->
-            #{
-                min_last_alive := MinLastAlive,
-                min_last_alive_will_msg := MinLastAliveWillMsg
-            } = gc_context(),
-            do_gc(SessionId, MinLastAliveWillMsg, MinLastAlive, Metadata);
+            #{min_last_alive := MinLastAlive} = gc_context(),
+            do_gc(MinLastAlive, SessionId, Metadata);
         _ ->
             ok
     end.
