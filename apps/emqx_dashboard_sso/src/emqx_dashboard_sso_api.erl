@@ -157,6 +157,7 @@ running(get, _Request) ->
     {200, emqx_dashboard_sso_manager:running()}.
 
 login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
+    minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Backend}),
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
@@ -168,6 +169,7 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                         request => emqx_utils:redact(Request)
                     }),
                     Username = maps:get(<<"username">>, Body),
+                    minirest_handler:update_log_meta(#{log_source => Username}),
                     {200, login_meta(Username, Role, Token, Backend)};
                 {redirect, Redirect} ->
                     ?SLOG(info, #{

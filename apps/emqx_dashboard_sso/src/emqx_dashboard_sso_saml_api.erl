@@ -98,14 +98,16 @@ sp_saml_metadata(get, _Req) ->
     end.
 
 sp_saml_callback(post, Req) ->
+    minirest_handler:update_log_meta(#{log_from => saml}),
     case emqx_dashboard_sso_manager:lookup_state(saml) of
         State = #{enable := true} ->
             case (provider(saml)):callback(Req, State) of
-                {redirect, Redirect} ->
+                {redirect, Username, Redirect} ->
                     ?SLOG(info, #{
                         msg => "dashboard_saml_sso_login_successful",
                         redirect => "SAML login successful. Redirecting with LoginMeta."
                     }),
+                    minirest_handler:update_log_meta(#{log_source => Username}),
                     Redirect;
                 {error, Reason} ->
                     ?SLOG(info, #{
