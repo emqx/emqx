@@ -30,7 +30,7 @@
     on_start/2,
     on_stop/2,
     on_query/3,
-    on_batch_query/3,
+    on_batch_query/4,
     on_get_status/2,
     on_format_query_result/1
 ]).
@@ -197,18 +197,20 @@ on_query(
 on_batch_query(
     InstId,
     BatchReq = [{Key, _} | _],
-    #{query_templates := Templates} = State
+    #{query_templates := Templates} = State,
+    ChannelConfig
 ) ->
     case maps:get({Key, batch}, Templates, undefined) of
         undefined ->
             {error, {unrecoverable_error, batch_select_not_implemented}};
         Template ->
-            on_batch_insert(InstId, BatchReq, Template, State)
+            on_batch_insert(InstId, BatchReq, Template, State, ChannelConfig)
     end;
 on_batch_query(
     InstId,
     BatchReq,
-    State
+    State,
+    _
 ) ->
     ?SLOG(error, #{
         msg => "invalid request",
@@ -509,16 +511,20 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
 proc_sql_params(_TypeOrKey, SQLOrData, Params, _State) ->
     {SQLOrData, Params}.
 
-on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State) ->
-    Rows = [render_row(RowTemplate, Msg) || {_, Msg} <- BatchReqs],
+on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State, ChannelConfig) ->
+    Rows = [render_row(RowTemplate, Msg, ChannelConfig) || {_, Msg} <- BatchReqs],
     Query = [InsertPart, <<" values ">> | lists:join($,, Rows)],
     on_sql_query(InstId, query, Query, no_params, default_timeout, State).
 
-render_row(RowTemplate, Data) ->
-    % NOTE
-    % Ignoring errors here, missing variables are set to "'undefined'" due to backward
-    % compatibility requirements.
-    RenderOpts = #{escaping => mysql, undefined => <<"undefined">>},
+render_row(RowTemplate, Data, ChannelConfig) ->
+    RenderOpts =
+        case maps:get(undefined_vars_as_null, ChannelConfig, false) of
+            % NOTE:
+            %  Ignoring errors here, missing variables are set to "'undefined'" due to backward
+            %  compatibility requirements.
+            false -> #{escaping => mysql, undefined => <<"undefined">>};
+            true -> #{escaping => mysql}
+        end,
     {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),
     Row.
 

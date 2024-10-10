@@ -189,6 +189,33 @@ t_setup_via_config_and_publish(Config) ->
     ),
     ok.
 
+t_undefined_vars_as_null(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{<<"undefined_vars_as_null">> => true})
+    ),
+    SentData = maps:put(payload, undefined, sent_data("tmp")),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config, SentData)),
+                #{?snk_kind := sqlserver_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                [{null}],
+                connect_and_get_payload(Config)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    ok.
+
 t_setup_via_http_api_and_publish(Config) ->
     BridgeType = ?config(sqlserver_bridge_type, Config),
     Name = ?config(sqlserver_name, Config),

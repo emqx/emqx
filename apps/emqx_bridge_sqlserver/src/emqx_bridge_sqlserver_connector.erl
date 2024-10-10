@@ -248,9 +248,9 @@ on_add_channel(
     {ok, NewState}.
 
 create_channel_state(
-    #{parameters := Conf} = _ChannelConfig
+    #{parameters := ChannelConf}
 ) ->
-    State = #{sql_templates => parse_sql_template(Conf)},
+    State = #{sql_templates => parse_sql_template(ChannelConf), channel_conf => ChannelConf},
     {ok, State}.
 
 on_remove_channel(
@@ -414,10 +414,10 @@ do_query(
 
     ChannelId = get_channel_id(Query),
     QueryTuple = get_query_tuple(Query),
-    #{sql_templates := Templates} = _ChannelState = maps:get(ChannelId, Channels),
-
+    #{sql_templates := Templates} = ChannelState = maps:get(ChannelId, Channels),
+    ChannelConf = maps:get(channel_conf, ChannelState, #{}),
     %% only insert sql statement for single query and batch query
-    case apply_template(QueryTuple, Templates) of
+    case apply_template(QueryTuple, Templates, ChannelConf) of
         {?ACTION_SEND_MESSAGE, SQL} ->
             emqx_trace:rendered_action_template(ChannelId, #{
                 sql => SQL
@@ -560,36 +560,42 @@ parse_sql_template([], BatchInsertTks) ->
 
 %% single insert
 apply_template(
-    {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query, Templates
+    {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query, Templates, ChannelConf
 ) ->
     %% TODO: fix emqx_placeholder:proc_tmpl/2
     %% it won't add single quotes for string
-    apply_template([Query], Templates);
+    apply_template([Query], Templates, ChannelConf);
 %% batch inserts
 apply_template(
     [{?ACTION_SEND_MESSAGE = Key, _Msg} | _T] = BatchReqs,
-    #{?BATCH_INSERT_TEMP := BatchInsertsTks} = _Templates
+    #{?BATCH_INSERT_TEMP := BatchInsertsTks} = _Templates,
+    ChannelConf
 ) ->
     case maps:get(Key, BatchInsertsTks, undefined) of
         undefined ->
             BatchReqs;
         #{?BATCH_INSERT_PART := BatchInserts, ?BATCH_PARAMS_TOKENS := BatchParamsTks} ->
-            SQL = proc_batch_sql(BatchReqs, BatchInserts, BatchParamsTks),
+            SQL = proc_batch_sql(BatchReqs, BatchInserts, BatchParamsTks, ChannelConf),
             {Key, SQL}
     end;
-apply_template(Query, Templates) ->
+apply_template(Query, Templates, _) ->
     %% TODO: more detail information
     ?SLOG(error, #{msg => "apply_sql_template_failed", query => Query, templates => Templates}),
     {error, failed_to_apply_sql_template}.
 
-proc_batch_sql(BatchReqs, BatchInserts, Tokens) ->
+proc_batch_sql(BatchReqs, BatchInserts, Tokens, ChannelConf) ->
     Values = erlang:iolist_to_binary(
         lists:join($,, [
-            emqx_placeholder:proc_sql_param_str(Tokens, Msg)
+            proc_msg(Tokens, Msg, ChannelConf)
          || {_, Msg} <- BatchReqs
         ])
     ),
     <<BatchInserts/binary, " values ", Values/binary>>.
+
+proc_msg(Tokens, Msg, #{undefined_vars_as_null := true}) ->
+    emqx_placeholder:proc_sql_param_str2(Tokens, Msg);
+proc_msg(Tokens, Msg, _) ->
+    emqx_placeholder:proc_sql_param_str(Tokens, Msg).
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).

@@ -63,7 +63,8 @@ fields(config) ->
                 }
             )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
-        {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
+        {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1},
+        emqx_bridge_v2_schema:undefined_as_null_field()
     ].
 
 %%========================================================================================
@@ -253,7 +254,7 @@ do_query(
                 ecpool:pick_and_do(
                     PoolName,
                     {emqx_bridge_dynamo_connector_client, query, [
-                        Table, QueryTuple, Templates, TraceRenderedCTX
+                        Table, QueryTuple, Templates, TraceRenderedCTX, ChannelState
                     ]},
                     no_handover
                 );

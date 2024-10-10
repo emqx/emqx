@@ -294,8 +294,10 @@ on_stop(InstanceID, _State) ->
 %% channel related emqx_resouce callbacks
 %% -------------------------------------------------------------------
 on_add_channel(_InstId, #{channels := Channs} = OldState, ChannId, ChannConf0) ->
-    #{parameters := ParamConf} = ChannConf0,
-    NewChanns = Channs#{ChannId => #{templates => prepare_sql_templates(ParamConf)}},
+    #{parameters := ChannelConf} = ChannConf0,
+    NewChanns = Channs#{
+        ChannId => #{templates => prepare_sql_templates(ChannelConf), channel_conf => ChannelConf}
+    },
     {ok, OldState#{channels => NewChanns}}.
 
 on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
@@ -387,22 +389,28 @@ on_query(
     }),
     %% Have we got a query or data to fit into an SQL template?
     SimplifiedRequestType = query_type(RequestType),
+    ChannelState = get_channel_state(RequestType, State),
     Templates = get_templates(RequestType, State),
-    SQL = get_sql(SimplifiedRequestType, Templates, DataOrSQL),
+    SQL = get_sql(
+        SimplifiedRequestType, Templates, DataOrSQL, maps:get(channel_conf, ChannelState, #{})
+    ),
     ClickhouseResult = execute_sql_in_clickhouse_server(RequestType, PoolName, SQL),
     transform_and_log_clickhouse_result(ClickhouseResult, ResourceID, SQL).
 
 get_templates(ChannId, State) ->
+    maps:get(templates, get_channel_state(ChannId, State), #{}).
+
+get_channel_state(ChannId, State) ->
     case maps:find(channels, State) of
         {ok, Channels} ->
-            maps:get(templates, maps:get(ChannId, Channels, #{}), #{});
+            maps:get(ChannId, Channels, #{});
         error ->
             #{}
     end.
 
-get_sql(channel_message, #{send_message_template := PreparedSQL}, Data) ->
-    emqx_placeholder:proc_tmpl(PreparedSQL, Data, #{return => full_binary});
-get_sql(_, _, SQL) ->
+get_sql(channel_message, #{send_message_template := PreparedSQL}, Data, ChannelConf) ->
+    proc_nullable_tmpl(PreparedSQL, Data, ChannelConf);
+get_sql(_, _, SQL, _) ->
     SQL.
 
 query_type(sql) ->
@@ -425,8 +433,9 @@ on_batch_query(ResourceID, BatchReq, #{pool_name := PoolName} = State) ->
     {[ChannId | _] = Keys, ObjectsToInsert} = lists:unzip(BatchReq),
     ensure_channel_messages(Keys),
     Templates = get_templates(ChannId, State),
+    ChannelState = get_channel_state(ChannId, State),
     %% Create batch insert SQL statement
-    SQL = objects_to_sql(ObjectsToInsert, Templates),
+    SQL = objects_to_sql(ObjectsToInsert, Templates, maps:get(channel_conf, ChannelState, #{})),
     %% Do the actual query in the database
     ResultFromClickhouse = execute_sql_in_clickhouse_server(ChannId, PoolName, SQL),
     %% Transform the result to a better format
@@ -447,19 +456,25 @@ objects_to_sql(
     #{
         send_message_template := InsertTemplate,
         extend_send_message_template := BulkExtendInsertTemplate
-    }
+    },
+    ChannelConf
 ) ->
     %% Prepare INSERT-statement and the first row after VALUES
-    InsertStatementHead = emqx_placeholder:proc_tmpl(InsertTemplate, FirstObject),
+    InsertStatementHead = proc_nullable_tmpl(InsertTemplate, FirstObject, ChannelConf),
     FormatObjectDataFunction =
         fun(Object) ->
-            emqx_placeholder:proc_tmpl(BulkExtendInsertTemplate, Object)
+            proc_nullable_tmpl(BulkExtendInsertTemplate, Object, ChannelConf)
         end,
     InsertStatementTail = lists:map(FormatObjectDataFunction, RemainingObjects),
     CompleteStatement = erlang:iolist_to_binary([InsertStatementHead, InsertStatementTail]),
     CompleteStatement;
-objects_to_sql(_, _) ->
+objects_to_sql(_, _, _) ->
     erlang:error(<<"Templates for bulk insert missing.">>).
+
+proc_nullable_tmpl(Template, Data, #{undefined_vars_as_null := true}) ->
+    emqx_placeholder:proc_nullable_tmpl(Template, Data);
+proc_nullable_tmpl(Template, Data, _) ->
+    emqx_placeholder:proc_tmpl(Template, Data).
 
 %% -------------------------------------------------------------------
 %% Helper functions that are used by both on_query/3 and on_batch_query/3

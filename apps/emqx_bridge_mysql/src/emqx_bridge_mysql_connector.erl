@@ -130,12 +130,13 @@ on_batch_query(
     Result = emqx_mysql:on_batch_query(
         InstanceId,
         BatchRequest,
-        MergedState1
+        MergedState1,
+        ChannelConfig
     ),
     ?tp(mysql_connector_on_batch_query_return, #{instance_id => InstanceId, result => Result}),
     Result;
 on_batch_query(InstanceId, BatchRequest, _State = #{connector_state := ConnectorState}) ->
-    emqx_mysql:on_batch_query(InstanceId, BatchRequest, ConnectorState).
+    emqx_mysql:on_batch_query(InstanceId, BatchRequest, ConnectorState, #{}).
 
 on_remove_channel(
     _InstanceId, #{channels := Channels, connector_state := ConnectorState} = State, ChannelId
