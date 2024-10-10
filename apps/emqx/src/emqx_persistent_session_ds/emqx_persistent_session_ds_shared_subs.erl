@@ -402,7 +402,7 @@ revoke_stream(ShareTopicFilter, Stream, S0, SchedS0) ->
             %% This should not happen.
             %% Agent should have received unsubscribe callback
             %% and should not have revoked this stream
-            S0;
+            {S0, SchedS0};
         #{id := SubId} ->
             emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(SubId, Stream, S0, SchedS0)
     end.
