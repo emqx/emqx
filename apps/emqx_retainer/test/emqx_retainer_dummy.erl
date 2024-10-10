@@ -20,6 +20,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(emqx_retainer).
+-behaviour(emqx_retainer_gc).
 
 -export([
     create/1,
@@ -28,10 +29,10 @@
     delete_message/2,
     store_retained/2,
     read_message/2,
-    page_read/4,
+    page_read/5,
     match_messages/3,
     delete_cursor/2,
-    clear_expired/1,
+    clear_expired/3,
     clean/1,
     size/1
 ]).
@@ -60,13 +61,13 @@ store_retained(_Context, _Message) -> ok.
 
 read_message(_Context, _Topic) -> {ok, []}.
 
-page_read(_Context, _Topic, _Offset, _Limit) -> {ok, false, []}.
+page_read(_Context, _Topic, _Deadline, _Offset, _Limit) -> {ok, false, []}.
 
 match_messages(_Context, _Topic, _Cursor) -> {ok, [], 0}.
 
 delete_cursor(_Context, _Cursor) -> ok.
 
-clear_expired(_Context) -> ok.
+clear_expired(_Context, _Deadline, _Limit) -> {true, 0}.
 
 clean(_Context) -> ok.
 
