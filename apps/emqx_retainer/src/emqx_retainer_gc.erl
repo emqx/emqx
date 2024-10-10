@@ -36,18 +36,11 @@
 -type limit() :: all | non_neg_integer().
 -type opts() :: #{
     deadline := emqx_retainer:deadline(),
-    limit => limit()
+    limit := limit()
 }.
 
 -callback clear_expired(_BackendState, emqx_retainer:deadline(), limit()) ->
     {_Complete :: boolean(), _NCleared :: non_neg_integer()}.
-
--define(DEFAULT_CLEAR_EXPIRED_LIMIT, 50_000).
-
--ifdef(TEST).
--undef(DEFAULT_CLEAR_EXPIRED_LIMIT).
--define(DEFAULT_CLEAR_EXPIRED_LIMIT, 100).
--endif.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -97,5 +90,5 @@ clear_expired(Context, Opts) ->
     Mod = emqx_retainer:backend_module(Context),
     BackendState = emqx_retainer:backend_state(Context),
     Deadline = maps:get(deadline, Opts),
-    Limit = maps:get(limit, Opts, ?DEFAULT_CLEAR_EXPIRED_LIMIT),
+    Limit = maps:get(limit, Opts),
     Mod:clear_expired(BackendState, Deadline, Limit).

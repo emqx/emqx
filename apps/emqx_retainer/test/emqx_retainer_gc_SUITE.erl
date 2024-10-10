@@ -50,6 +50,7 @@ init_cluster(ExtraConf, Config) ->
         "retainer {"
         "\n enable = true"
         "\n msg_clear_interval = 0s"
+        "\n msg_clear_limit = 100"
         "\n msg_expiry_interval = 3s"
         "\n backend {"
         "\n   type = built_in_database"
@@ -102,7 +103,7 @@ t_limited_gc_runtime(Config) ->
             ok = disable_clear_expired(Config)
         end,
         fun(Trace) ->
-            %% Only one node should have ran GC:
+            %% Since limit is 100, we should observe 3 GC events for 250 messages:
             ?assertMatch(
                 [
                     #{complete := false, n_cleared := 100, ?snk_meta := #{node := N1}},

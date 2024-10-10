@@ -351,7 +351,10 @@ count(Context) ->
 
 -spec start_clear_expired(context()) -> ok.
 start_clear_expired(Context) ->
-    Opts = #{deadline => erlang:system_time(millisecond)},
+    Opts = #{
+        deadline => erlang:system_time(millisecond),
+        limit => emqx_conf:get([retainer, msg_clear_limit], all)
+    },
     _Result = emqx_retainer_sup:start_gc(Context, Opts),
     ok.
 

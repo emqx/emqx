@@ -43,6 +43,9 @@ msg_clear_interval.desc:
 
 If `msg_clear_interval` is set to 0, that is, expired retained messages are not actively checked regularly, EMQX will only check and delete expired retained messages when preparing for delivery."""
 
+msg_clear_limit.desc:
+"""The maximum number of expired messages cleared at once each `msg_clear_interval`. Settings reasonable limit can prevent the clearing process from running for too long and consume too much resources."""
+
 msg_expiry_interval.desc:
 """Expired retained messages will not be delivered again, and a setting of 0 means that retained messages will never expire.
 
