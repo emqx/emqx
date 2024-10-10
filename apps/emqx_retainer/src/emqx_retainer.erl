@@ -42,6 +42,7 @@
     delete/1,
     read_message/1,
     page_read/3,
+    page_read/4,
     post_config_update/5,
     stats_fun/0,
     retained_count/0,
@@ -66,6 +67,7 @@
 ]).
 
 -export_type([
+    deadline/0,
     cursor/0,
     context/0
 ]).
@@ -88,6 +90,7 @@
 
 -type topic() :: emqx_types:topic().
 -type message() :: emqx_types:message().
+-type deadline() :: emqx_utils_calendar:epoch_millisecond().
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
 
@@ -100,12 +103,17 @@
 -callback close(backend_state()) -> ok.
 -callback delete_message(backend_state(), topic()) -> ok.
 -callback store_retained(backend_state(), message()) -> ok.
--callback read_message(backend_state(), topic()) -> {ok, list(message())}.
--callback page_read(backend_state(), emqx_maybe:t(topic()), non_neg_integer(), non_neg_integer()) ->
+-callback page_read(
+    backend_state(),
+    emqx_maybe:t(topic()),
+    deadline(),
+    non_neg_integer(),
+    non_neg_integer()
+) ->
     {ok, has_next(), list(message())}.
+-callback read_message(backend_state(), topic()) -> {ok, list(message())}.
 -callback match_messages(backend_state(), topic(), cursor()) -> {ok, list(message()), cursor()}.
 -callback delete_cursor(backend_state(), cursor()) -> ok.
--callback clear_expired(backend_state()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
 
@@ -199,7 +207,12 @@ read_message(Topic) ->
 -spec page_read(emqx_maybe:t(topic()), non_neg_integer(), non_neg_integer()) ->
     {ok, has_next(), list(message())}.
 page_read(Topic, Page, Limit) ->
-    call({?FUNCTION_NAME, Topic, Page, Limit}).
+    page_read(Topic, erlang:system_time(millisecond), Page, Limit).
+
+-spec page_read(emqx_maybe:t(topic()), deadline(), non_neg_integer(), non_neg_integer()) ->
+    {ok, has_next(), list(message())}.
+page_read(Topic, Deadline, Page, Limit) ->
+    call({?FUNCTION_NAME, Topic, Deadline, Page, Limit}).
 
 -spec enabled() -> boolean().
 enabled() ->
@@ -255,8 +268,8 @@ handle_call({delete, Topic}, _, #{context := Context} = State) ->
     {reply, ok, State};
 handle_call({read_message, Topic}, _, #{context := Context} = State) ->
     {reply, read_message(Context, Topic), State};
-handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) ->
-    {reply, page_read(Context, Topic, Page, Limit), State};
+handle_call({page_read, Topic, Deadline, Page, Limit}, _, #{context := Context} = State) ->
+    {reply, page_read(Context, Topic, Deadline, Page, Limit), State};
 handle_call(retained_count, _From, State = #{context := Context}) ->
     {reply, count(Context), State};
 handle_call(enabled, _From, State = #{enable := Enable}) ->
@@ -274,10 +287,10 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info(clear_expired, #{context := Context} = State) ->
-    ok = clear_expired(Context),
+handle_info({timeout, TRef, clear_expired}, #{context := Context, clear_timer := TRef} = State) ->
+    ok = start_clear_expired(Context),
     Interval = emqx_conf:get([retainer, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
-    {noreply, State#{clear_timer := add_timer(Interval, clear_expired)}, hibernate};
+    {noreply, State#{clear_timer := maybe_start_timer(Interval, clear_expired)}, hibernate};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -308,7 +321,6 @@ new_state() ->
 payload_size_limit() ->
     emqx_conf:get(?MAX_PAYLOAD_SIZE_CONFIG_PATH, ?DEF_MAX_PAYLOAD_SIZE).
 
-%% @private
 dispatch(Context, Topic) ->
     emqx_retainer_dispatcher:dispatch(Context, Topic).
 
@@ -324,12 +336,12 @@ read_message(Context, Topic) ->
     BackendState = backend_state(Context),
     Mod:read_message(BackendState, Topic).
 
--spec page_read(context(), emqx_maybe:t(topic()), non_neg_integer(), non_neg_integer()) ->
+-spec page_read(context(), emqx_maybe:t(topic()), deadline(), non_neg_integer(), non_neg_integer()) ->
     {ok, has_next(), list(message())}.
-page_read(Context, Topic, Page, Limit) ->
+page_read(Context, Topic, Deadline, Page, Limit) ->
     Mod = backend_module(Context),
     BackendState = backend_state(Context),
-    Mod:page_read(BackendState, Topic, Page, Limit).
+    Mod:page_read(BackendState, Topic, Deadline, Page, Limit).
 
 -spec count(context()) -> non_neg_integer().
 count(Context) ->
@@ -337,11 +349,14 @@ count(Context) ->
     BackendState = backend_state(Context),
     Mod:size(BackendState).
 
--spec clear_expired(context()) -> ok.
-clear_expired(Context) ->
-    Mod = backend_module(Context),
-    BackendState = backend_state(Context),
-    ok = Mod:clear_expired(BackendState).
+-spec start_clear_expired(context()) -> ok.
+start_clear_expired(Context) ->
+    Opts = #{
+        deadline => erlang:system_time(millisecond),
+        limit => emqx_conf:get([retainer, msg_clear_limit], all)
+    },
+    _Result = emqx_retainer_sup:start_gc(Context, Opts),
+    ok.
 
 -spec store_retained(context(), message()) -> ok.
 store_retained(Context, #message{topic = Topic, payload = Payload} = Msg) ->
@@ -399,7 +414,7 @@ update_config(
     case SameBackendType andalso ok =:= OldMod:update(Context, NewBackendConfig) of
         true ->
             State#{
-                clear_timer := check_timer(
+                clear_timer := update_timer(
                     ClearTimer,
                     ClearInterval,
                     clear_expired
@@ -421,7 +436,7 @@ enable_retainer(
     State#{
         enable := true,
         context := Context,
-        clear_timer := add_timer(ClearInterval, clear_expired)
+        clear_timer := maybe_start_timer(ClearInterval, clear_expired)
     }.
 
 -spec disable_retainer(state()) -> state().
@@ -442,23 +457,23 @@ disable_retainer(
 stop_timer(undefined) ->
     undefined;
 stop_timer(TimerRef) ->
-    _ = erlang:cancel_timer(TimerRef),
+    _ = emqx_utils:cancel_timer(TimerRef),
     undefined.
 
-add_timer(0, _) ->
+maybe_start_timer(0, _) ->
     undefined;
-add_timer(undefined, _) ->
+maybe_start_timer(undefined, _) ->
     undefined;
-add_timer(Ms, Content) ->
-    erlang:send_after(Ms, self(), Content).
+maybe_start_timer(Ms, Content) ->
+    emqx_utils:start_timer(Ms, self(), Content).
 
-check_timer(undefined, Ms, Context) ->
-    add_timer(Ms, Context);
-check_timer(Timer, 0, _) ->
+update_timer(undefined, Ms, Context) ->
+    maybe_start_timer(Ms, Context);
+update_timer(Timer, 0, _) ->
     stop_timer(Timer);
-check_timer(Timer, undefined, _) ->
+update_timer(Timer, undefined, _) ->
     stop_timer(Timer);
-check_timer(Timer, _, _) ->
+update_timer(Timer, _, _) ->
     Timer.
 
 -spec enabled_backend_config(hocon:config()) -> hocon:config() | no_return().

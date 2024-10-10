@@ -16,7 +16,6 @@
 
 -module(emqx_retainer_mnesia).
 
--behaviour(emqx_retainer).
 -behaviour(emqx_db_backup).
 
 -include("emqx_retainer.hrl").
@@ -24,7 +23,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
-%% emqx_retainer callbacks
+-behaviour(emqx_retainer).
 -export([
     create/1,
     update/2,
@@ -32,12 +31,16 @@
     delete_message/2,
     store_retained/2,
     read_message/2,
-    page_read/4,
+    page_read/5,
     match_messages/3,
     delete_cursor/2,
-    clear_expired/1,
     clean/1,
     size/1
+]).
+
+-behaviour(emqx_retainer_gc).
+-export([
+    clear_expired/3
 ]).
 
 %% Internal exports (RPC)
@@ -207,30 +210,31 @@ store_retained(State, Msg = #message{topic = Topic}) ->
             ok
     end.
 
-clear_expired(_) ->
-    case mria_rlog:role() of
-        core ->
-            clear_expired();
-        _ ->
-            ok
-    end.
-
-clear_expired() ->
-    NowMs = erlang:system_time(millisecond),
+clear_expired(_State, Deadline, Limit) ->
     S0 = ets_stream(?TAB_MESSAGE),
     S1 = emqx_utils_stream:filter(
         fun(#retained_message{expiry_time = ExpiryTime}) ->
-            ExpiryTime =/= 0 andalso ExpiryTime < NowMs
+            ExpiryTime =/= 0 andalso ExpiryTime < Deadline
         end,
         S0
     ),
     DirtyWriteIndices = dirty_indices(write),
-    emqx_utils_stream:foreach(
+    S2 = emqx_utils_stream:map(
         fun(RetainedMsg) ->
             delete_message_with_indices(RetainedMsg, DirtyWriteIndices)
         end,
         S1
-    ).
+    ),
+    CountF = fun(_, N) -> N + 1 end,
+    case Limit of
+        all ->
+            NCleared = emqx_utils_stream:fold(CountF, 0, S2),
+            {_Complete = true, NCleared};
+        Num ->
+            {NCleared, SRest} = emqx_utils_stream:fold(CountF, 0, Num, S2),
+            Complete = SRest == [],
+            {Complete, NCleared}
+    end.
 
 delete_message(_State, Topic) ->
     Tokens = topic_to_tokens(Topic),
@@ -270,15 +274,14 @@ match_messages(_State, _Topic, {S0, BatchNum}) ->
 delete_cursor(_State, _Cursor) ->
     ok.
 
-page_read(_State, Topic, Page, Limit) ->
-    Now = erlang:system_time(millisecond),
+page_read(_State, Topic, Deadline, Page, Limit) ->
     S0 =
         case Topic of
             undefined ->
-                msg_stream(search_stream(undefined, ['#'], Now));
+                msg_stream(search_stream(undefined, ['#'], Deadline));
             _ ->
                 Tokens = topic_to_tokens(Topic),
-                msg_stream(search_stream(Tokens, Now))
+                msg_stream(search_stream(Tokens, Deadline))
         end,
     %% This is very inefficient, but we are limited with inherited API
     S1 = emqx_utils_stream:list(
