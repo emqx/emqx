@@ -16,8 +16,10 @@
 ).
 
 -define(DESC_NOT_FOUND, <<"Queue not found">>).
--define(RESP_NOT_FOUND,
-    {404, #{code => <<"NOT_FOUND">>, message => ?DESC_NOT_FOUND}}
+-define(DESC_DISABLED, <<"Feature is disabled">>).
+-define(RESP_NOT_FOUND, ?RESP_NOT_FOUND(?DESC_NOT_FOUND)).
+-define(RESP_NOT_FOUND(MSG),
+    {404, #{code => <<"NOT_FOUND">>, message => MSG}}
 ).
 
 -define(DESC_CREATE_CONFICT, <<"Queue with given group name and topic filter already exists">>).
@@ -55,13 +57,21 @@
     '/durable_queues/:id'/2
 ]).
 
+%% Internal exports
+-export([
+    check_enabled/2
+]).
+
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 namespace() -> "durable_queues".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        check_schema => true,
+        filter => fun ?MODULE:check_enabled/2
+    }).
 
 paths() ->
     [
@@ -82,7 +92,8 @@ schema("/durable_queues") ->
             ],
             responses => #{
                 200 => resp_list_durable_queues(),
-                400 => error_codes(['BAD_REQUEST'], ?DESC_BAD_REQUEST)
+                400 => error_codes(['BAD_REQUEST'], ?DESC_BAD_REQUEST),
+                404 => error_codes(['NOT_FOUND'], ?DESC_DISABLED)
             }
         },
         post => #{
@@ -92,7 +103,8 @@ schema("/durable_queues") ->
             'requestBody' => durable_queue_post(),
             responses => #{
                 201 => resp_create_durable_queue(),
-                409 => error_codes(['CONFLICT'], ?DESC_CREATE_CONFICT)
+                409 => error_codes(['CONFLICT'], ?DESC_CREATE_CONFICT),
+                404 => error_codes(['NOT_FOUND'], ?DESC_DISABLED)
             }
         }
     };
@@ -124,6 +136,12 @@ schema("/durable_queues/:id") ->
             }
         }
     }.
+
+check_enabled(Request, _ReqMeta) ->
+    case emqx_ds_shared_sub_config:enabled() of
+        true -> {ok, Request};
+        false -> ?RESP_NOT_FOUND(<<"Durable queues are disabled">>)
+    end.
 
 '/durable_queues'(get, #{query_string := QString}) ->
     Cursor = maps:get(<<"cursor">>, QString, undefined),
@@ -233,7 +251,7 @@ durable_queue_get() ->
     ref(durable_queue).
 
 durable_queue_post() ->
-    map().
+    ref(durable_queue_args).
 
 roots() -> [].
 
@@ -246,9 +264,13 @@ fields(durable_queue) ->
         {created_at,
             mk(emqx_utils_calendar:epoch_millisecond(), #{
                 desc => <<"Queue creation time">>
-            })},
-        {group, mk(binary(), #{})},
-        {topic, mk(binary(), #{})},
+            })}
+        | fields(durable_queue_args)
+    ];
+fields(durable_queue_args) ->
+    [
+        {group, mk(binary(), #{required => true})},
+        {topic, mk(binary(), #{required => true})},
         {start_time, mk(emqx_utils_calendar:epoch_millisecond(), #{})}
     ];
 fields(resp_list_durable_queues) ->
