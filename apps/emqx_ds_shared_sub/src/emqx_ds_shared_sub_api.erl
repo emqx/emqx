@@ -251,7 +251,7 @@ durable_queue_get() ->
     ref(durable_queue).
 
 durable_queue_post() ->
-    map().
+    ref(durable_queue_args).
 
 roots() -> [].
 
@@ -264,9 +264,13 @@ fields(durable_queue) ->
         {created_at,
             mk(emqx_utils_calendar:epoch_millisecond(), #{
                 desc => <<"Queue creation time">>
-            })},
-        {group, mk(binary(), #{})},
-        {topic, mk(binary(), #{})},
+            })}
+        | fields(durable_queue_args)
+    ];
+fields(durable_queue_args) ->
+    [
+        {group, mk(binary(), #{required => true})},
+        {topic, mk(binary(), #{required => true})},
         {start_time, mk(emqx_utils_calendar:epoch_millisecond(), #{})}
     ];
 fields(resp_list_durable_queues) ->
