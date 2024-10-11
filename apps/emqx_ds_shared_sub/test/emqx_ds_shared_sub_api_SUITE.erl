@@ -55,11 +55,12 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
-init_per_testcase(_TC, Config) ->
+init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
 
-end_per_testcase(_TC, _Config) ->
+end_per_testcase(TC, Config) ->
+    _ = emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
     ok = snabbkaffe:stop(),
     ok = emqx_ds_shared_sub_registry:purge(),
     ok = destroy_queues(),
@@ -241,6 +242,21 @@ t_duplicate_queue(_Config) ->
             <<"group">> => <<"g1">>,
             <<"topic">> => <<"#">>,
             <<"start_time">> => 0
+        })
+    ).
+
+t_404_when_disable('init', Config) ->
+    {ok, _} = emqx_conf:update([durable_queues], #{<<"enable">> => false}, #{}),
+    Config;
+t_404_when_disable('end', _Config) ->
+    {ok, _} = emqx_conf:update([durable_queues], #{<<"enable">> => true}, #{}).
+
+t_404_when_disable(_Config) ->
+    ?assertMatch(
+        {ok, 404, #{}},
+        api(post, ["durable_queues"], #{
+            <<"group">> => <<"disabled">>,
+            <<"topic">> => <<"#">>
         })
     ).
 
