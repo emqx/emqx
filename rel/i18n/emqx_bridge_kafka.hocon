@@ -38,18 +38,6 @@ socket_receive_buffer.desc:
 socket_receive_buffer.label:
 """Socket Receive Buffer Size"""
 
-socket_tcp_keepalive.desc:
-"""Enable TCP keepalive.
-The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
- - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
- - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
- - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
-For example "240,30,5" means: TCP keepalive probes are sent after the connection is idle for 240 seconds, and the probes are sent every 30 seconds until a response is received, if it misses 5 consecutive responses, the connection should be closed.
-Default: 'none'"""
-
-socket_tcp_keepalive.label:
-"""TCP keepalive options"""
-
 desc_name.desc:
 """Action name, used as a human-readable identifier."""
 

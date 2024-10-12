@@ -64,6 +64,7 @@
     diff_lists/3,
     merge_lists/3,
     flattermap/2,
+    tcp_keepalive_opts/1,
     tcp_keepalive_opts/4,
     format/1,
     format/2,
@@ -547,6 +548,19 @@ safe_to_existing_atom(Atom, _Encoding) when is_atom(Atom) ->
     {ok, Atom};
 safe_to_existing_atom(_Any, _Encoding) ->
     {error, invalid_type}.
+
+-spec tcp_keepalive_opts(string() | binary()) ->
+    [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}].
+tcp_keepalive_opts(None) when None =:= "none"; None =:= <<"none">> ->
+    [];
+tcp_keepalive_opts(KeepAlive) ->
+    {Idle, Interval, Probes} = emqx_schema:parse_tcp_keepalive(KeepAlive),
+    case tcp_keepalive_opts(os:type(), Idle, Interval, Probes) of
+        {ok, Opts} ->
+            Opts;
+        {error, {unsupported_os, _OS}} ->
+            []
+    end.
 
 -spec tcp_keepalive_opts(term(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
     {ok, [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}]}
