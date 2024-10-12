@@ -179,7 +179,8 @@ new_stream(
         Stream,
         Conn,
         SOpts1,
-        Props
+        Props,
+        [{hibernate_after, 1000}]
     ),
     case quicer:handoff_stream(Stream, NewStreamOwner, {PS, Serialize, Channel}) of
         ok ->
