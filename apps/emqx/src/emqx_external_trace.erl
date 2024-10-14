@@ -53,7 +53,27 @@
 
 %% Message Processing Spans
 %% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DISPATCH -> DELIVER(to Subscribers)
--callback msg_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+-callback client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_puback(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_pubrec(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_pubrel(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_pubcomp(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
@@ -82,14 +102,24 @@
     Res :: term().
 
 -callback msg_deliver(
-    TraceAction,
     list(Deliver) | Packet | list(Packet),
     Attrs
 ) -> Deliver when
-    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
     Deliver :: emqx_types:deliver(),
     Packet :: emqx_types:packet(),
     Attrs :: attrs().
+
+-callback outgoing(
+    TraceAction,
+    Packet,
+    Attrs
+) ->
+    Res
+when
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs(),
+    Res :: term().
 
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
@@ -125,12 +155,21 @@
     client_unsubscribe/3,
     client_authn/3,
     client_authz/3,
-    msg_publish/3,
+    client_publish/3,
+    client_puback/3,
+    client_pubrec/3,
+    client_pubrel/3,
+    client_pubcomp/3,
     msg_route/3,
     msg_dispatch/3,
     msg_forward/3,
     msg_handle_forward/3,
-    msg_deliver/3
+    msg_deliver/2,
+
+    %% Start Span when Reply PACKETs generated
+    %% as when `emqx_channel:handle_out/3` called.
+    %% Stop when `emqx_channel:handle_outgoing/3` returned
+    outgoing/3
 ]).
 
 -export([
@@ -238,14 +277,52 @@ client_authz(Packet, InitAttrs, ProcessFun) ->
 
 %% TODO:
 %% split to:
-%% `msg_publish/3` for legacy_mode
+%% `client_publish/3` for legacy_mode
 %% `trace_client_publish/3` for end_to_end_mode
-%% @doc Trace message processing from publisher
--spec msg_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+
+%% @doc Trace message PUBLISH (QoS=0, QoS=1, QoS=2)
+%% Client(Publisher) -> Broker: PUBLISH
+-spec client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
     Res :: term().
-msg_publish(Packet, InitAttrs, ProcessFun) ->
+client_publish(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
+%% @doc Trace message PUBACK (QoS=1)
+%% Client(Subscriber) -> Broker: PUBACK
+-spec client_puback(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+client_puback(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
+%% @doc Trace message PUBREC (QoS=2)
+%% Client(Subscriber) -> Broker: PUBREC
+-spec client_pubrec(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+client_pubrec(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
+%% @doc Trace message PUBREL (QoS=2)
+%% Client(Publisher) -> Broker: PUBREL
+-spec client_pubrel(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+client_pubrel(Packet, InitAttrs, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
+
+%% @doc Trace message PUBCOMP (QoS=2)
+%% Client(Subscriber) -> Broker: PUBCOMP
+-spec client_pubcomp(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+client_pubcomp(Packet, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
 
 -spec msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
@@ -262,6 +339,11 @@ msg_route(Delivery, InitAttrs, ProcessFun) ->
 msg_dispatch(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
+%% @doc Trace message forwarding
+%% `Span' is the smallest unit in tracing and `CANNOT' be propagated across nodes.
+%%  Divide the message forwarding process into two spans: `message.forward` and `message.handle_forward`.
+%% The span `message.forward` starts on the publisher process and ends on the same one.
+%% Broker(Publisher) -> Broker(Subscriber): FORWARD on Broker(Publisher)
 -spec msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     Delivery :: emqx_types:delivery(),
     InitAttrs :: attrs(),
@@ -269,6 +351,9 @@ msg_dispatch(Delivery, InitAttrs, ProcessFun) ->
 msg_forward(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
+%% @doc Trace message forward handling
+%% The span `message.handle_forward` starts on the RPC process and ends on the same one.
+%% Broker(Publisher) -> Broker(Subscriber): HANDLE FORWARD on Broker(Subscriber)
 -spec msg_handle_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
@@ -283,18 +368,33 @@ msg_handle_forward(Delivery, InitAttrs, ProcessFun) ->
 
 %% @doc Start Trace message delivery to subscriber
 -spec msg_deliver(
-    TraceAction,
     list(Deliver) | Packet | list(Packet),
     Attrs
 ) -> Deliver when
-    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
     Deliver :: emqx_types:deliver(),
     Packet :: emqx_types:packet(),
     Attrs :: attrs().
-msg_deliver(TraceAction, DeliverOrPackets, Attrs) ->
+msg_deliver(DeliverOrPackets, Attrs) ->
     ?with_provider(
-        ?FUNCTION_NAME(TraceAction, DeliverOrPackets, Attrs),
-        deliver_without_provider(TraceAction, DeliverOrPackets)
+        ?FUNCTION_NAME(DeliverOrPackets, Attrs),
+        DeliverOrPackets
+    ).
+
+-spec outgoing(
+    TraceAction,
+    Packet,
+    Attrs
+) ->
+    Res
+when
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs(),
+    Res :: term().
+outgoing(TraceAction, Packet, Attrs) ->
+    ?with_provider(
+        ?FUNCTION_NAME(TraceAction, Packet, Attrs),
+        res_without_provider(TraceAction, Packet)
     ).
 
 %% --------------------------------------------------------------------
@@ -320,9 +420,9 @@ add_span_event(EventName, AttrsOrMeta) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-deliver_without_provider(?EXT_TRACE_START, DeliverOrPackets) ->
-    DeliverOrPackets;
-deliver_without_provider(?EXT_TRACE_STOP, _Packets) ->
+res_without_provider(?EXT_TRACE_START, Any) ->
+    Any;
+res_without_provider(?EXT_TRACE_STOP, _Packets) ->
     ok.
 
 %% TODO:

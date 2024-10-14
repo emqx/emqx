@@ -158,7 +158,8 @@
 -define(chan_terminating, chan_terminating).
 -define(RAND_CLIENTID_BYTES, 16).
 
--define(msg_deliver, '$trace.deliver.attrs').
+-define(DELIVER_TRACE_ATTRS, '$deliver_trace_attrs').
+-define(OUTGOING_TRACE_ATTRS, '$outgoing_trace_attrs').
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
@@ -423,7 +424,7 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of
         ok ->
-            emqx_external_trace:msg_publish(
+            emqx_external_trace:client_publish(
                 Packet,
                 %% More info can be added in future, but for now only clientid is used
                 init_trace_attrs(Packet, Channel),
@@ -433,81 +434,45 @@ handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
             handle_out(disconnect, ReasonCode, Channel)
     end;
 handle_in(
-    ?PUBACK_PACKET(PacketId, _ReasonCode, Properties),
-    Channel =
-        #channel{clientinfo = ClientInfo, session = Session}
+    ?PACKET(?PUBACK) = Packet,
+    Channel
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, Session) of
-        {ok, Msg, [], NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
-            {ok, Channel#channel{session = NSession}};
-        {ok, Msg, Publishes, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
-        {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.puback.inuse'),
-            {ok, Channel};
-        {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.puback.missed'),
-            {ok, Channel}
-    end;
+    emqx_external_trace:client_puback(
+        Packet,
+        %% More info can be added in future, but for now only clientid is used
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> process_puback(PacketWithTrace, Channel) end
+    );
 handle_in(
-    %% TODO: Why discard the Reason Code?
-    ?PUBREC_PACKET(PacketId, _ReasonCode, Properties),
-    Channel =
-        #channel{clientinfo = ClientInfo, session = Session}
+    ?PACKET(?PUBREC) = Packet,
+    Channel
 ) ->
-    case emqx_session:pubrec(ClientInfo, PacketId, Session) of
-        {ok, Msg, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
-            NChannel = Channel#channel{session = NSession},
-            handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
-        {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrec.inuse'),
-            handle_out(pubrel, {PacketId, RC}, Channel);
-        {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrec.missed'),
-            handle_out(pubrel, {PacketId, RC}, Channel)
-    end;
+    emqx_external_trace:client_pubrec(
+        Packet,
+        %% More info can be added in future, but for now only clientid is used
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> process_pubrec(PacketWithTrace, Channel) end
+    );
 handle_in(
-    ?PUBREL_PACKET(PacketId, _ReasonCode),
-    Channel = #channel{
-        clientinfo = ClientInfo,
-        session = Session
-    }
+    ?PACKET(?PUBREL) = Packet,
+    Channel
 ) ->
-    case emqx_session:pubrel(ClientInfo, PacketId, Session) of
-        {ok, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
-        {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrel.missed'),
-            handle_out(pubcomp, {PacketId, RC}, Channel)
-    end;
+    emqx_external_trace:client_pubrel(
+        Packet,
+        %% More info can be added in future, but for now only clientid is used
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> process_pubrel(PacketWithTrace, Channel) end
+    );
 handle_in(
-    ?PUBCOMP_PACKET(PacketId, _ReasonCode),
-    Channel = #channel{
-        clientinfo = ClientInfo, session = Session
-    }
+    ?PACKET(?PUBCOMP) = Packet,
+    Channel
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, Session) of
-        {ok, [], NSession} ->
-            {ok, Channel#channel{session = NSession}};
-        {ok, Publishes, NSession} ->
-            handle_out(publish, Publishes, Channel#channel{session = NSession});
-        {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = emqx_metrics:inc('packets.pubcomp.inuse'),
-            {ok, Channel};
-        {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubcomp.missed'),
-            {ok, Channel}
-    end;
+    emqx_external_trace:client_pubcomp(
+        Packet,
+        %% More info can be added in future, but for now only clientid is used
+        init_trace_attrs(Packet, Channel),
+        fun(PacketWithTrace) -> process_pubcomp(PacketWithTrace, Channel) end
+    );
 handle_in(?SUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters0) = Packet, Channel) ->
     emqx_external_trace:client_subscribe(
         Packet,
@@ -791,6 +756,108 @@ puback_reason_code(PacketId, Msg, [_ | _] = PubRes) ->
 puback_reason_code(_PacketId, _Msg, disconnect) ->
     disconnect.
 
+%%--------------------------------------------------------------------
+%% Process PUBACK
+%%--------------------------------------------------------------------
+
+process_puback(
+    ?PUBACK_PACKET(PacketId, _ReasonCode, Properties),
+    Channel =
+        #channel{clientinfo = ClientInfo, session = Session}
+) ->
+    case emqx_session:puback(ClientInfo, PacketId, Session) of
+        {ok, Msg, [], NSession} ->
+            ok = after_message_acked(ClientInfo, Msg, Properties),
+            {ok, Channel#channel{session = NSession}};
+        {ok, Msg, Publishes, NSession} ->
+            ok = after_message_acked(ClientInfo, Msg, Properties),
+            handle_out(publish, Publishes, Channel#channel{session = NSession});
+        {error, ?RC_PROTOCOL_ERROR} ->
+            handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
+        {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
+            ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
+            ok = emqx_metrics:inc('packets.puback.inuse'),
+            {ok, Channel};
+        {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
+            ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
+            ok = emqx_metrics:inc('packets.puback.missed'),
+            {ok, Channel}
+    end.
+
+%%--------------------------------------------------------------------
+%% Process PUBREC
+%%--------------------------------------------------------------------
+
+process_pubrec(
+    %% TODO: Why discard the Reason Code?
+    ?PUBREC_PACKET(PacketId, _ReasonCode, Properties),
+    Channel =
+        #channel{clientinfo = ClientInfo, session = Session}
+) ->
+    case emqx_session:pubrec(ClientInfo, PacketId, Session) of
+        {ok, Msg, NSession} ->
+            ok = after_message_acked(ClientInfo, Msg, Properties),
+            NChannel = Channel#channel{session = NSession},
+            handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
+        {error, RC = ?RC_PROTOCOL_ERROR} ->
+            handle_out(disconnect, RC, Channel);
+        {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
+            ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
+            ok = emqx_metrics:inc('packets.pubrec.inuse'),
+            handle_out(pubrel, {PacketId, RC}, Channel);
+        {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
+            ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
+            ok = emqx_metrics:inc('packets.pubrec.missed'),
+            handle_out(pubrel, {PacketId, RC}, Channel)
+    end.
+
+%%--------------------------------------------------------------------
+%% Process PUBREL
+%%--------------------------------------------------------------------
+
+process_pubrel(
+    ?PUBREL_PACKET(PacketId, _ReasonCode),
+    Channel = #channel{
+        clientinfo = ClientInfo,
+        session = Session
+    }
+) ->
+    case emqx_session:pubrel(ClientInfo, PacketId, Session) of
+        {ok, NSession} ->
+            NChannel = Channel#channel{session = NSession},
+            handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
+        {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
+            ?SLOG(warning, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
+            ok = emqx_metrics:inc('packets.pubrel.missed'),
+            handle_out(pubcomp, {PacketId, RC}, Channel)
+    end.
+
+%%--------------------------------------------------------------------
+%% Process PUBCOMP
+%%--------------------------------------------------------------------
+
+process_pubcomp(
+    ?PUBCOMP_PACKET(PacketId, _ReasonCode),
+    Channel = #channel{
+        clientinfo = ClientInfo, session = Session
+    }
+) ->
+    case emqx_session:pubcomp(ClientInfo, PacketId, Session) of
+        {ok, [], NSession} ->
+            {ok, Channel#channel{session = NSession}};
+        {ok, Publishes, NSession} ->
+            handle_out(publish, Publishes, Channel#channel{session = NSession});
+        {error, ?RC_PROTOCOL_ERROR} ->
+            handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
+        {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
+            ok = emqx_metrics:inc('packets.pubcomp.inuse'),
+            {ok, Channel};
+        {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
+            ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
+            ok = emqx_metrics:inc('packets.pubcomp.missed'),
+            {ok, Channel}
+    end.
+
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(ClientInfo, Msg, PubAckProps) ->
     ok = emqx_metrics:inc('messages.acked'),
@@ -1030,9 +1097,8 @@ handle_deliver(
     {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
     Delivers1 = emqx_external_trace:msg_deliver(
-        ?EXT_TRACE_START,
         Delivers,
-        init_trace_attrs(?msg_deliver, Channel)
+        init_trace_attrs(?DELIVER_TRACE_ATTRS, Channel)
     ),
     do_handle_deliver(Delivers1, Channel).
 
@@ -1175,13 +1241,33 @@ handle_out(publish, Publishes, Channel) ->
     {Packets, NChannel} = do_deliver(Publishes, Channel),
     {ok, ?REPLY_OUTGOING(Packets), NChannel};
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBACK_PACKET(PacketId, ReasonCode), Channel};
+    {ok,
+        start_outgoing_trace(
+            ?PUBACK_PACKET(PacketId, ReasonCode),
+            init_trace_attrs(?OUTGOING_TRACE_ATTRS, Channel)
+        ),
+        Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBREC_PACKET(PacketId, ReasonCode), Channel};
+    {ok,
+        start_outgoing_trace(
+            ?PUBREC_PACKET(PacketId, ReasonCode),
+            init_trace_attrs(?OUTGOING_TRACE_ATTRS, Channel)
+        ),
+        Channel};
 handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBREL_PACKET(PacketId, ReasonCode), Channel};
+    {ok,
+        start_outgoing_trace(
+            ?PUBREL_PACKET(PacketId, ReasonCode),
+            init_trace_attrs(?OUTGOING_TRACE_ATTRS, Channel)
+        ),
+        Channel};
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), Channel};
+    {ok,
+        start_outgoing_trace(
+            ?PUBCOMP_PACKET(PacketId, ReasonCode),
+            init_trace_attrs(?OUTGOING_TRACE_ATTRS, Channel)
+        ),
+        Channel};
 handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
     return_sub_unsub_ack(?SUBACK_PACKET(PacketId, ReasonCodes), Channel);
 handle_out(suback, {PacketId, ReasonCodes}, Channel) ->
@@ -1668,6 +1754,11 @@ init_trace_attrs(
 ) ->
     maps:from_list(info([clientid], Channel));
 init_trace_attrs(
+    ?PACKET(?PUBACK, _PktVar),
+    Channel
+) ->
+    maps:from_list(info([clientid], Channel));
+init_trace_attrs(
     ?PACKET(?SUBSCRIBE, _PktVar),
     Channel
 ) ->
@@ -1678,10 +1769,17 @@ init_trace_attrs(
 ) ->
     maps:from_list(info([clientid], Channel));
 init_trace_attrs(
-    ?msg_deliver,
+    ?DELIVER_TRACE_ATTRS,
     Channel
 ) ->
-    maps:from_list(info([clientid], Channel)).
+    maps:from_list(info([clientid], Channel));
+init_trace_attrs(
+    ?OUTGOING_TRACE_ATTRS,
+    Channel
+) ->
+    maps:from_list(info([clientid, username], Channel));
+init_trace_attrs(_, _) ->
+    #{}.
 
 %%--------------------------------------------------------------------
 %% Enrich MQTT Connect Info
@@ -3032,6 +3130,9 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
+
+start_outgoing_trace(Packet, Attrs) ->
+    emqx_external_trace:outgoing(?EXT_TRACE_START, Packet, Attrs).
 
 %%--------------------------------------------------------------------
 %% For CT tests

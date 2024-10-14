@@ -24,13 +24,21 @@
 -define(CLIENT_SUBSCRIBE_SPAN_NAME, <<"client.subscribe">>).
 -define(CLIENT_UNSUBSCRIBE_SPAN_NAME, <<"client.unsubscribe">>).
 
--define(MSG_PUBLISH_SPAN_NAME, <<"message.publish">>).
+-define(EMQX_PUBACK_SPAN_NAME, <<"emqx.puback">>).
+-define(EMQX_PUBREC_SPAN_NAME, <<"emqx.pubrec">>).
+-define(EMQX_PUBREL_SPAN_NAME, <<"emqx.pubrel">>).
+-define(EMQX_PUBCOMP_SPAN_NAME, <<"emqx.pubcomp">>).
+
+-define(CLIENT_PUBLISH_SPAN_NAME, <<"client.publish">>).
+-define(CLIENT_PUBACK_SPAN_NAME, <<"client.puback">>).
+-define(CLIENT_PUBREC_SPAN_NAME, <<"client.pubrec">>).
+-define(CLIENT_PUBREL_SPAN_NAME, <<"client.pubrel">>).
+-define(CLIENT_PUBCOMP_SPAN_NAME, <<"client.pubcomp">>).
+
 -define(MSG_ROUTE_SPAN_NAME, <<"message.route">>).
 -define(MSG_DISPATCH_SPAN_NAME, <<"message.dispatch">>).
 -define(MSG_FORWARD_SPAN_NAME, <<"message.forward">>).
 -define(MSG_HANDLE_FORWARD_SPAN_NAME, <<"message.handle_forward">>).
 -define(MSG_DELIVER_SPAN_NAME, <<"message.deliver">>).
-
-%% -define(MSG_SEND_SPAN_NAME, <<"message.send">>).
 
 -endif.
