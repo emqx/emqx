@@ -1,0 +1,367 @@
+{select_role, [
+    <<"select distinct r.role_id, r.role_name, r.role_key, ",
+      "r.role_sort, r.data_scope, r.menu_check_strictly, ",
+      "r.dept_check_strictly, r.status, r.del_flag, r.create_time, ",
+      "r.remark from sys_role r left join sys_user_role ur on ur.role_id = r.role_id ",
+      "left join sys_user u on u.user_id = ur.user_id ",
+      "left join sys_dept d on u.dept_id = d.dept_id where 1 = 1 ">>
+]}.
+
+
+{select_role_list, [
+    {dao, select_role},
+    <<" and r.del_flag = '0'">>,
+    {
+        require,
+        [{notin, <<"roleId">>, [undefined, 0]}],
+        [
+            <<" AND r.role_id = ">>,
+            {key, integer, <<"roleId">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleName">>, [undefined, <<>>]}],
+        [
+            <<" AND r.role_name like concat('%', ">>,
+            {key, str, <<"roleName">>},
+            <<", '%') ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND r.status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleKey">>, [undefined, <<>>]}],
+        [
+            <<" AND r.role_key like concat('%', ">>,
+            {key, str, <<"roleKey">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(r.create_time,'%y%m%d') >= date_format(">>,
+            {key, str, <<"beginTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(r.create_time,'%y%m%d') <= date_format(">>,
+            {key, str, <<"endTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {key, sql, <<"dataScope">>},
+    <<" order by r.role_sort">>
+]}.
+
+{select_role_permission_by_user_id, [
+    {dao, select_role},
+    <<"and r.del_flag = '0' and ur.user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+{select_role_all, [
+    {dao, select_role_list}
+]}.
+
+{select_role_list_by_user_id, [
+    <<"select r.role_id from sys_role r ",
+      "left join sys_user_role ur on ur.role_id = r.role_id ",
+      "left join sys_user u on u.user_id = ur.user_id "
+      "where u.user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+{select_role_by_id, [
+    {dao, select_role},
+    <<"and r.role_id = ">>,
+    {key, integer, <<"roleId">>}
+]}.
+
+
+{select_roles_by_user_name, [
+    {dao, select_role},
+    <<"and r.del_flag = '0' and u.user_name = ">>,
+    {key, str, <<"userName">>}
+]}.
+
+{check_role_name_unique, [
+    {dao, select_role},
+    <<"and r.role_name= ">>,
+    {key, str, <<"roleName">>},
+    <<" limit 1">>
+]}.
+{check_role_key_unique, [
+    {dao, select_role},
+    <<"and r.role_key=">>,
+    {key, str, <<"roleKey">>},
+    <<" limit 1">>
+]}.
+
+{insert_role, [
+    <<"insert into sys_role(">>,
+    {
+        require,
+        [{notin, <<"roleId">>, [undefined, 0]}],
+        [
+            <<"role_id,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleName">>, [undefined, <<>>]}],
+        [
+            <<"role_name,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleKey">>, [undefined, <<>>]}],
+        [
+            <<"role_key,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleSort">>, [undefined, <<>>]}],
+        [
+            <<"role_sort,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [
+            <<"dataScope,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuCheckStrictly">>, [undefined, <<>>]}],
+        [
+            <<"menu_check_strictly,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptCheckStrictly">>, [undefined, <<>>]}],
+        [
+            <<"dept_check_strictly,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>, null]}],
+        [
+            <<"remark,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by,">>
+        ]
+    },
+    <<"create_time) values(">>,
+    {
+        require,
+        [{notin, <<"roleId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"roleId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleName">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"roleName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleKey">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"roleKey">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleSort">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"roleSort">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"dataScope">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuCheckStrictly">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"menuCheckStrictly">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptCheckStrictly">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"deptCheckStrictly">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>, null]}],
+        [
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<", ">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+{update_role, [
+    <<"update sys_role set">>,
+    {
+        require,
+        [{notin, <<"roleName">>, [undefined, <<>>]}],
+        [
+            <<" role_name = ">>,
+            {key, str, <<"roleName">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleKey">>, [undefined, <<>>]}],
+        [
+            <<" role_key = ">>,
+            {key, str, <<"roleKey">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"roleSort">>, [undefined, <<>>]}],
+        [
+            <<" role_sort = ">>,
+            {key, integer, <<"roleSort">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [
+            <<" data_scope = ">>,
+            {key, str, <<"dataScope">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuCheckStrictly">>, [undefined, <<>>]}],
+        [
+            <<" menu_check_strictly = ">>,
+            {key, integer, <<"menuCheckStrictly">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptCheckStrictly">>, [undefined, <<>>]}],
+        [
+            <<" dept_check_strictly = ">>,
+            {key, integer, <<"deptCheckStrictly">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" status = ">>,
+            {key, str, <<"status">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, null, <<>>]}],
+        [
+            <<" remark = ">>,
+            {key, str, <<"remark">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<" update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<",">>
+        ]
+    },
+    <<" update_time = sysdate() where role_id = ">>,
+    {key, integer, <<"roleId">>}
+]}.
+
+{delete_role_by_id, [
+    <<"update sys_role set del_flag = '2' where role_id = ">>,
+    {key, integer, <<"roleId">>}
+]}.
+
+{delete_role_by_ids, [
+    <<"update sys_role set del_flag = '2' where role_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"roleIds">>}},
+    <<")">>
+]}.
+

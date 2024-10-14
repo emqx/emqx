@@ -1,0 +1,88 @@
+{insert_logininfor, [
+    <<"insert into sys_logininfor (user_name, status, ipaddr, os, msg, login_time, user_agent)">>,
+    <<"values (">>,
+    {key, str, <<"userName">>},
+    <<",">>,
+    {key, str, <<"status">>},
+    <<",">>,
+    {key, str, <<"ipaddr">>},
+    <<",">>,
+    {key, str, <<"os">>},
+    <<",">>,
+    {key, str, <<"msg">>},
+    <<",">>,
+    {key, str, <<"loginTime">>},
+    <<",">>,
+    {key, str, <<"userAgent">>},
+    <<")">>
+]}.
+
+
+{select_login_infor_list, [
+    <<"select * from sys_logininfor where 1 = 1 ">>,
+    {
+        require,
+        [{notin, <<"ipaddr">>, [undefined, <<>>]}],
+        [
+            <<" AND ipaddr like concat('%', ">>,
+            {key, str, <<"ipaddr">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, <<>>]}],
+        [
+            <<" AND user_name like concat('%', ">>,
+            {key, str, <<"userName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(login_time,'%y%m%d') >= date_format(">>,
+            {key, str, <<"beginTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(login_time,'%y%m%d') >= date_format(">>,
+            {key, str, <<"endTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginDateTime">>, [undefined, <<>>]}],
+        [
+            <<" and login_time >= ">>,
+            {key, str, <<"beginDateTime">>}
+        ]
+    },
+    <<" order by info_id desc">>
+]}.
+
+
+{delete_logininfor_by_ids, [
+    <<"delete from sys_logininfor where info_id in (">>,
+    {foreach, <<",">>, {key, integer, <<"infoIds">>}},
+    <<")">>
+]}.
+
+
+{clean_logininfor, [
+    <<"truncate table sys_logininfor">>
+]}.

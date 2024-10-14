@@ -1,0 +1,50 @@
+{
+  "userId": {
+    "title":"用户ID"
+  },
+  "deptId": {
+    "title":"所属部门id"
+  },
+  "userName": {
+    "title":"用户名"
+  },
+  "nickName": {
+    "title":"昵称"
+  },
+  "userType": {
+    "title":"用户类型"
+  },
+  "email": {
+    "title":"邮箱"
+  },
+  "phonenumber": {
+    "title":"手机号"
+  },
+  "sex": {
+    "title":"用户性别"
+  },
+  "avatar": {
+    "title":"用户头像"
+  },
+  "status": {
+    "title":"用户状态"
+  },
+  "delFlag": {
+    "title":"删除状态"
+  },
+  "createBy": {
+    "title":"创建者"
+  },
+  "createTime": {
+    "title":"创建时间"
+  },
+  "updateBy": {
+    "title":"更新者"
+  },
+  "updateTime": {
+    "title":"更新时间"
+  },
+  "remark": {
+    "title":"备注"
+  }
+}

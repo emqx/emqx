@@ -1,0 +1,380 @@
+{select_dept, [
+    <<"select d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, ",
+      "d.phone, d.email, d.status, d.del_flag, d.create_by, d.create_time from sys_dept d where 1 = 1">>
+]}.
+
+
+{select_dept_list, [
+    {dao, select_dept},
+    <<" and d.del_flag = '0'">>,
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            <<" AND dept_id = ">>,
+            {key, integer, <<"deptId">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, 0]}],
+        [
+            <<" AND parent_id = ">>,
+            {key, integer, <<"parentId">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptName">>, [undefined, <<>>]}],
+        [
+            <<" AND dept_name like concat('%', ">>,
+            {key, str, <<"deptName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [
+            {key, sql, <<"dataScope">>}
+        ]
+    },
+    <<" order by d.parent_id, d.order_num">>
+]}.
+
+{select_dept_list_by_role_id, [
+    <<"select d.dept_id from sys_dept d left join sys_role_dept rd on ",
+      "d.dept_id = rd.dept_id where rd.role_id = ">>,
+    {key, integer, <<"roleId">>},
+    {
+        require,
+        [{notin, <<"deptCheckStrictly">>, [undefined]}],
+        [
+            <<" and d.dept_id not in (select d.parent_id from sys_dept d inner join ",
+              "sys_role_dept rd on d.dept_id = rd.dept_id and rd.role_id = ">>,
+            {key, integer, <<"roleId">>},
+            <<")">>
+        ]
+    },
+    <<" order by d.parent_id, d.order_num">>
+]}.
+
+
+{select_dept_by_id, [
+    {dao, select_dept},
+    <<" and dept_id = ">>,
+    {key, integer, <<"deptId">>}
+]}.
+
+{check_dept_exist_user, [
+    <<"select count(1) from sys_user where dept_id = ">>,
+    {key, integer, <<"deptId">>},
+    <<" and del_flag = '0'">>
+]}.
+
+{has_child_by_dept_id, [
+    <<"select count(1) from sys_dept where del_flag = '0' and parent_id = ">>,
+    {key, integer, <<"deptId">>},
+    <<" limit 1">>
+]}.
+
+
+{select_children_dept_by_id, [
+    <<"select * from sys_dept where find_in_set(">>,
+    {key, integer, <<"deptId">>},
+    <<", ancestors)">>
+]}.
+
+{select_normal_children_dept_by_id, [
+    <<"select count(*) from sys_dept where status = 0 and del_flag = '0' and find_in_set(">>,
+    {key, integer, <<"deptId">>},
+    <<", ancestors)">>
+]}.
+
+
+{check_dept_name_unique, [
+    {dao, select_dept},
+    <<" and dept_name=">>,
+    {key, str, <<"deptName">>},
+    <<" and parent_id = ">>,
+    {key, integer, <<"parentId">>},
+    <<" limit 1">>
+]}.
+
+
+{insert_dept, [
+    <<"insert into sys_dept(">>,
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            <<"dept_id, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, 0]}],
+        [
+            <<"parent_id, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptName">>, [undefined, <<>>]}],
+        [
+            <<"dept_name, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"ancestors">>, [undefined, <<>>]}],
+        [
+            <<"ancestors, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderNum">>, [undefined]}],
+        [
+            <<"order_num, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"leader">>, [undefined, <<>>]}],
+        [
+            <<"leader, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phone">>, [undefined, <<>>]}],
+        [
+            <<"phone, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"email">>, [undefined, <<>>]}],
+        [
+            <<"email, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            <<"status, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by, ">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"deptId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"parentId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptName">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"deptName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"ancestors">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"ancestors">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderNum">>, [undefined]}],
+        [
+            {key, integer, <<"orderNum">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"leader">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"leader">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phone">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"phone">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"email">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"email">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<", ">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+
+{update_dept, [
+    <<"update sys_dept set ">>,
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, 0]}],
+        [
+            <<"parent_id = ">>,
+            {key, integer, <<"parentId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptName">>, [undefined, <<>>]}],
+        [
+            <<"dept_name = ">>,
+            {key, str, <<"deptName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"ancestors">>, [undefined, <<>>]}],
+        [
+            <<"ancestors = ">>,
+            {key, str, <<"ancestors">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderNum">>, [undefined]}],
+        [
+            <<"order_num = ">>,
+            {key, integer, <<"orderNum">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"leader">>, [undefined]}],
+        [
+            <<"leader = ">>,
+            {key, str, <<"leader">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phone">>, [undefined]}],
+        [
+            <<"phone = ">>,
+            {key, str, <<"phone">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"email">>, [undefined]}],
+        [
+            <<"email = ">>,
+            {key, str, <<"email">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<"update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where dept_id = ">>,
+    {key, integer, <<"deptId">>}
+]}.
+
+%%TODO
+{update_dept_children, [
+    <<"update sys_dept set ancestors ='">>,
+    {foreach, <<" ">>, {key, integer, <<"deptIds">>}},
+    <<"'where dept_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"deptIds">>}},
+    <<")">>
+]}.
+
+
+{update_dept_status_normal, [
+    <<"update sys_dept set status = '0' where dept_id in (">>,
+    {foreach, <<",">>, {key, integer, <<"deptIds">>}},
+    <<")">>
+]}.
+
+{delete_dept_by_id, [
+    <<"update sys_dept set del_flag = '2' where dept_id = ">>,
+    {key, integer, <<"deptId">>}
+]}.
+
+
+
+

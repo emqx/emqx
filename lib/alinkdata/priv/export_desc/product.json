@@ -1,0 +1,53 @@
+{
+  "id": {
+    "title":"产品id"
+  },
+  "name": {
+    "title":"产品名字"
+  },
+  "type": {
+    "title":"检测类型",
+    "valuesDictKey": "iot_product_type"
+  },
+  "nodetype": {
+    "title":"设备类型",
+    "valuesDictKey": "iot_node_type"
+  },
+  "netType": {
+    "title":"网络类型",
+    "valuesDictKey": "iot_net_type"
+  },
+  "protocol": {
+    "title":"连接协议",
+    "valuesDictKey": "iot_protocol_id"
+  },
+  "pk": {
+    "title":"key"
+  },
+  "ps": {
+    "title":"secret"
+  },
+  "autoRegister": {
+    "title":"是否可以自动注册",
+    "valuesDictKey": "iot_auto_register"
+  },
+  "thing": {
+    "title":"物模型"
+  },
+  "status": {
+    "title":"产品状态",
+    "valuesDoc": {
+      "0": "正常",
+      "1": "禁用"
+    }
+  },
+  "createTime": {
+    "title":"创建时间"
+  },
+  "config": {
+    "title":"扩展参数"
+  },
+  "img": {
+    "title":"产品图片"
+  }
+}

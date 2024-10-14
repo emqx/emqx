@@ -1,0 +1,22 @@
+{delete_role_dept_by_role_id, [
+    <<"delete from sys_role_dept where role_id=">>,
+    {key, integer, <<"roleId">>}
+]}.
+
+{select_count_role_dept_by_dept_id, [
+    <<"select count(1) from sys_role_dept where dept_id=">>,
+    {key, integer, <<"deptId">>}
+]}.
+
+{delete_role_dept, [
+    <<"delete from sys_role_dept where role_id in (">>,
+    {foreach, <<",">>, {key, integer, <<"roleIds">>}},
+    <<")">>
+]}.
+
+
+{batch_role_dept, [
+    <<"insert into sys_role_dept(role_id, dept_id) values">>,
+    {list_map, <<",">>, <<"iterms">>, [<<"(">>, {key, integer, <<"roleId">>}, <<",">>, {key, integer, <<"deptId">>}, <<")">>]},
+    <<"">>
+]}.

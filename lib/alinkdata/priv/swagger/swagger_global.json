@@ -1,0 +1,1192 @@
+{
+  "tags": [
+
+  ],
+  "definitions": {
+    "Cmd": {
+      "type": "object",
+      "properties": {
+        "msgType": {
+          "description": "消息类型",
+          "type": "string"
+        },
+        "name": {
+          "description": "物模型变量",
+          "type": "string"
+        },
+        "value": {
+          "description": "物模型值",
+          "type": "string"
+        }
+      }
+    }
+  },
+  "paths": {
+    "/system/getToken": {
+      "post": {
+        "summary": "应用接入",
+        "security" : [],
+        "description": "应用接入",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "query",
+          "name": "appId",
+          "type": "string",
+          "description": "appId",
+          "required": true
+        },{
+          "in": "query",
+          "name": "appSecret",
+          "type": "string",
+          "description": "appSecret",
+          "required": true
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/importTemplate": {
+      "post": {
+        "security" : [],
+        "summary": "下载模板",
+        "description": "下载模板",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"table",
+            "description":"表名字",
+            "required":true,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/control/device": {
+      "post": {
+        "permission": "system:device:control",
+        "summary": "对设备控制",
+        "description": "对设备控制",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"addr",
+            "description":"设备地址",
+            "required":true,
+            "type":"string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "description": "下发命令",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Cmd"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/device/camera/live": {
+      "get": {
+        "permission": "system:device:get",
+        "summary": "获取摄像头直播地址",
+        "description": "获取摄像头直播地址",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"addr",
+            "description":"设备地址",
+            "required":true,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"type",
+            "description":"摄像头类型",
+            "required":false,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/device/log/list": {
+      "get": {
+        "permission": "system:device:list",
+        "summary": "获取设备日志",
+        "description": "获取设备日志\"",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"pageSize",
+            "description":"page size",
+            "required":false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"pageNum",
+            "description":"page num",
+            "required": false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"orderBy[asc]",
+            "description":"order by asc",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"orderBy[desc]",
+            "description":"order by desc",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"addr",
+            "description":"设备名称",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"time[begin]",
+            "description":"开始时间",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"time[end]",
+            "description":"结束时间",
+            "required": false,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/devByScene/list": {
+      "get": {
+        "permission": "system:device:get",
+        "summary": "根据场景获取设备",
+        "description": "根据场景获取设备",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"pageSize",
+            "description":"page size",
+            "required":false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"pageNum",
+            "description":"page num",
+            "required": false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"orderBy[asc]",
+            "description":"order by asc",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"orderBy[desc]",
+            "description":"order by desc",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"name",
+            "description":"设备名称",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"addr",
+            "description":"设备地址",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"sceneId",
+            "description":"场景id",
+            "required": false,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/metrics/device": {
+      "get": {
+        "permission": "system:metrics:get",
+        "summary": "获取设备统计",
+        "description": "获取设备统计",
+        "tags": [
+          "metrics"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"pageSize",
+            "description":"page size",
+            "required":false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"pageNum",
+            "description":"page num",
+            "required": false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"interval",
+            "description":"统计间隔，单位秒",
+            "required": true,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"type",
+            "description":"增量填diff, 时间段的值填normal",
+            "required": false,
+            "default": "normal",
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"begin",
+            "description":"查询开始时间",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"end",
+            "description":"查询结束时间",
+            "required": false,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/metrics/alarm": {
+      "get": {
+        "permission": "system:metrics:get",
+        "summary": "获取报警统计",
+        "description": "获取报警统计，如果是所有报警则level填all",
+        "tags": [
+          "metrics"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"pageSize",
+            "description":"page size",
+            "required":false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"pageNum",
+            "description":"page num",
+            "required": false,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"interval",
+            "description":"统计间隔，单位秒",
+            "required": true,
+            "type":"integer"
+          },
+          {
+            "in":"query",
+            "name":"level",
+            "description":"报警类型，全部报警则填all",
+            "required": true,
+            "default": "1",
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"type",
+            "description":"增量填diff, 时间段的值填normal",
+            "required": false,
+            "default": "normal",
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"begin",
+            "description":"查询开始时间",
+            "required": false,
+            "type":"string"
+          },
+          {
+            "in":"query",
+            "name":"end",
+            "description":"查询结束时间",
+            "required": false,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/metrics/statsInfo": {
+      "get": {
+        "permission": "system:metrics:get",
+        "summary": "获取实时统计信息",
+        "description": "获取实时统计信息",
+        "tags": [
+          "metrics"
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/user/app/login": {
+      "post": {
+        "summary": "appid登录",
+        "security" : [],
+        "description": "appid登录",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "body",
+          "name": "appId",
+          "type": "string",
+          "description": "appId",
+          "required": false
+        },{
+          "in": "body",
+          "name": "appSecret",
+          "type": "string",
+          "description": "appSecret",
+          "required": false
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/user/mini/phone/bind": {
+      "post": {
+        "summary": "小程序手机号绑定",
+        "security" : [],
+        "description": "小程序手机号绑定",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "body",
+          "name": "code",
+          "type": "string",
+          "description": "获取手机号的code",
+          "required": true
+        },{
+          "in": "body",
+          "name": "wechatMiniId",
+          "type": "string",
+          "description": "小程序的登录id",
+          "required": true
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/user/mini/login": {
+      "post": {
+        "summary": "小程序登录",
+        "security" : [],
+        "description": "小程序登录",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "body",
+          "name": "code",
+          "type": "string",
+          "description": "小程序code",
+          "required": true
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/siteInfo": {
+      "get": {
+        "summary": "获取基本信息",
+        "security" : [],
+        "description": "获取基本信息",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "in":"query",
+            "name":"project",
+            "description":"项目标识",
+            "required": false,
+            "type":"string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/user/phone/code": {
+      "get": {
+        "summary": "获取短信验证码",
+        "security" : [],
+        "description": "获取短信验证码",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "query",
+          "name": "phone",
+          "type": "string",
+          "description": "手机号",
+          "required": true
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/user/phone/login": {
+      "post": {
+        "summary": "短信验证码登录",
+        "security" : [],
+        "description": "短信验证码登录",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "body",
+          "name": "verifyCode",
+          "type": "string",
+          "description": "短信验证码",
+          "required": false
+        },{
+          "in": "body",
+          "name": "phone",
+          "type": "string",
+          "description": "手机号",
+          "required": false
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/user/wechat/login": {
+      "post": {
+        "summary": "微信登录",
+        "security" : [],
+        "description": "微信登录",
+        "tags": [
+          "user"
+        ],
+        "parameters": [{
+          "in": "body",
+          "name": "wechatSession",
+          "type": "string",
+          "description": "微信凭证",
+          "required": true
+        }],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/system/device/history/last": {
+      "get": {
+        "permission": "system:device:query",
+        "summary": "获取设备最新数值",
+        "description": "获取设备最新数值",
+        "tags": [
+          "device"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "addr",
+            "type": "string",
+            "description": "设备addr",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "batch",
+            "type": "string",
+            "description": "是否批量查询 true|false",
+            "required": false,
+            "default": "false"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/authRole": {
+      "get": {
+        "permission": "system:authRole:get",
+        "summary": "查询授权角色",
+        "description": "查询授权角色",
+        "extend": {
+          "table": "user",
+          "action": "authRole"
+        },
+        "tags": [
+          "login"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "type": "integer",
+            "description": "用户id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "put": {
+        "permission": "system:authRole:update",
+        "summary": "保存授权角色",
+        "description": "保存授权角色",
+        "extend": {
+          "table": "user",
+          "action": "authRole"
+        },
+        "tags": [
+          "login"
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/profile/user": {
+      "get": {
+        "permission": "system:profile:get",
+        "summary": "查询个人信息",
+        "description": "查询个人信息",
+        "extend": {
+          "table": "user",
+          "action": "GET"
+        },
+        "tags": [
+          "login"
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "put": {
+        "permission": "system:profile:update",
+        "summary": "修改个人信息",
+        "description": "修改个人信息",
+        "extend": {
+          "table": "user",
+          "action": "UPDATE"
+        },
+        "tags": [
+          "login"
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/table/user/profile/updatePwd": {
+      "put": {
+        "permission": "system:profile:updatepwd",
+        "summary": "修改密码",
+        "description": "修改密码",
+        "extend": {
+          "table": "user",
+          "action": "updatePwd"
+        },
+        "tags": [
+          "login"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "oldPassword",
+            "type": "string",
+            "description": "旧密码",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "newPassword",
+            "type": "string",
+            "description": "新密码",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/table/user/profile/resetPwd": {
+      "put": {
+        "permission": "system:profile:resetPwd",
+        "summary": "用户密码重置",
+        "description": "用户密码重置",
+        "extend": {
+          "table": "user",
+          "action": "resetPwd"
+        },
+        "tags": [
+          "login"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "userId",
+            "type": "string",
+            "description": "用户ID",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "password",
+            "type": "string",
+            "description": "新密码",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,233 @@
+{select_notice, [
+    <<"select notice_id, notice_title, notice_type, cast(notice_content as char) ",
+      "as notice_content, status, create_by, create_time, update_by, update_time, remark ",
+      "from sys_notice where 1 = 1 ">>
+]}.
+
+
+
+{select_notice_by_id, [
+    {dao, select_notice},
+    <<" and notice_id = ">>,
+    {key, integer, <<"noticeId">>}
+]}.
+
+
+{select_notice_list, [
+    {dao, select_notice},
+    {
+        require,
+        [{notin, <<"noticeTitle">>, [undefined, <<>>]}],
+        [
+            <<" AND notice_title like concat('%', ">>,
+            {key, str, <<"noticeTitle">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeType">>, [undefined, <<>>]}],
+        [
+            <<" AND notice_type = ">>,
+            {key, str, <<"noticeType">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<" AND create_by like concat('%', ">>,
+            {key, str, <<"createBy">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(create_time,'%y%m%d') >= date_format(">>,
+            {key, str , <<"beginTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(create_time,'%y%m%d') <= date_format(">>,
+            {key, str , <<"endTime">>},
+            <<",'%y%m%d')">>
+        ]
+    }
+]}.
+
+{insert_notice, [
+    <<"insert into sys_notice (">>,
+    {
+        require,
+        [{notin, <<"noticeTitle">>, [undefined, <<>>]}],
+        [
+            <<"notice_title,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeType">>, [undefined, <<>>]}],
+        [
+            <<"notice_type,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeContent">>, [undefined, <<>>]}],
+        [
+            <<"notice_content,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by,">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"noticeTitle">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"noticeTitle">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeType">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"noticeType">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeContent">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"noticeContent">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"status">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"remark">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<",">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+
+{update_notice, [
+    <<"update sys_notice set ">>,
+    {
+        require,
+        [{notin, <<"noticeTitle">>, [undefined, <<>>]}],
+        [
+            <<"notice_title = ">>,
+            {key, str, <<"noticeTitle">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeType">>, [undefined, <<>>]}],
+        [
+            <<"notice_type = ">>,
+            {key, str, <<"noticeType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"noticeContent">>, [undefined, <<>>]}],
+        [
+            <<"notice_content = ">>,
+            {key, str, <<"noticeContent">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<"update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where notice_id = ">>,
+    {key, integer, <<"noticeId">>}
+]}.
+
+
+
+{delete_notice_by_id, [
+    <<"delete from sys_notice where notice_id = ">>,
+    {key, integer, <<"noticeId">>}
+]}.
+
+
+
+{delete_notice_by_ids, [
+    <<"delete from sys_notice where notice_id in (">>,
+    {foreach, <<",">>, {key, integer, <<"noticeIds">>}},
+    <<")">>
+]}.

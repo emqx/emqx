@@ -1,0 +1,608 @@
+{select_user, [
+    <<"select u.user_id, u.dept_id, u.user_name, u.nick_name, u.email, u.avatar, u.phonenumber, u.password,",
+      "u.sex, u.status, u.del_flag, u.login_ip, u.login_date, u.create_by, u.create_time, u.remark, u.wechat,u.mini,",
+      "d.dept_id, d.parent_id, d.ancestors, d.dept_name, d.order_num, d.leader, d.status as dept_status, ",
+      "r.role_id, r.role_name, r.role_key, r.role_sort, r.data_scope, r.status as role_status ",
+      "from sys_user u ",
+      "left join sys_dept d on u.dept_id = d.dept_id ",
+      "left join sys_user_role ur on u.user_id = ur.user_id ",
+      "left join sys_role r on r.role_id = ur.role_id where 1 = 1 ">>
+]}.
+
+
+
+{select_user_list, [
+    <<"select u.user_id, u.dept_id, u.nick_name, u.user_name, ",
+      "u.email, u.avatar, u.phonenumber, u.sex, u.status, ",
+      "u.del_flag, u.login_ip, u.login_date, u.create_by, ",
+      "u.create_time, u.remark, d.dept_name, d.leader from sys_user u ",
+       "left join sys_dept d on u.dept_id = d.dept_id ",
+       "where u.del_flag = '0' ">>,
+    {
+        require,
+        [{notin, <<"userId">>, [undefined, 0]}],
+        [<<" AND u.user_id = ">>, {key, integer, <<"userId">>}]
+    },
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, <<>>]}],
+        [<<" AND u.user_name = ">>, {key, str, <<"userName">>}]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [<<" AND u.status = ">>, {key, str, <<"status">>}]
+    },
+    {
+        require,
+        [{notin, <<"phonenumber">>, [undefined, <<>>]}],
+        [<<" AND u.phonenumber = ">>, {key, str, <<"phonenumber">>}]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [<<" AND date_format(u.create_time,'%y%m%d') >= date_format(">>, {key, str, <<"beginTime">>}, <<", '%y%m%d') ">>]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [<<" AND date_format(u.create_time,'%y%m%d') <= date_format(">>, {key, str, <<"endTime">>}, <<", '%y%m%d') ">>]
+    },
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            <<"AND (u.dept_id = ">>,
+            {key, integer, <<"deptId">>},
+            <<" OR u.dept_id IN ( SELECT t.dept_id FROM sys_dept t WHERE find_in_set(">>,
+            {key, integer, <<"deptId">>},
+            <<", ancestors) ))">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [{key, sql, <<"dataScope">>}]
+    }
+]}.
+
+
+
+{select_allocated_list, [
+    <<"select distinct u.user_id, u.dept_id, u.user_name, u.nick_name, ",
+      "u.email, u.phonenumber, u.status, u.create_time ",
+   	  "from sys_user u left join sys_dept d on u.dept_id = d.dept_id ",
+   	  "left join sys_user_role ur on u.user_id = ur.user_id ",
+   	  "left join sys_role r on r.role_id = ur.role_id ",
+   	  "where u.del_flag = '0' and r.role_id = ">>,
+   	{key, integer, <<"roleId">>},
+   	<<" ">>,
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, <<>>]}],
+        [
+            <<"AND u.user_name like concat('%', ">>,
+            {key, str, <<"userName">>},
+            <<", '%') ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phonenumber">>, [undefined, <<>>]}],
+        [
+            <<"AND u.phonenumber like concat('%',">>,
+            {key, str, <<"phonenumber">>},
+            <<", '%') ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [{key, sql, <<"dataScope">>}]
+    }
+]}.
+
+
+
+{select_unallocated_list, [
+	 <<"select distinct u.user_id, u.dept_id, u.user_name, u.nick_name,",
+      "u.email, u.phonenumber, u.status, u.create_time ",
+      "from sys_user u ",
+      "left join sys_dept d on u.dept_id = d.dept_id ",
+      "left join sys_user_role ur on u.user_id = ur.user_id ",
+      "left join sys_role r on r.role_id = ur.role_id ",
+      "where u.del_flag = '0' and (r.role_id != ">>,
+    {key, integer, <<"roleId">>},
+   	<<" or r.role_id IS NULL) and u.user_id not in ",
+   	  "(select u.user_id from sys_user u inner join ",
+   	  "sys_user_role ur on u.user_id = ur.user_id ",
+   	  "and ur.role_id = ">>,
+   	{key, integer, <<"roleId">>},
+   	<<")">>,
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, <<>>]}],
+        [
+            <<"AND u.user_name like concat('%', ">>,
+            {key, str, <<"userName">>},
+            <<", '%') ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phonenumber">>, [undefined, <<>>]}],
+        [
+            <<"AND u.phonenumber like concat('%',">>,
+            {key, str, <<"phonenumber">>},
+            <<", '%') ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dataScope">>, [undefined, <<>>]}],
+        [{key, sql, <<"dataScope">>}]
+    }
+]}.
+
+
+{select_user_by_user_name, [
+    {dao, select_user},
+    <<" AND u.user_name = ">>,
+    {key, str, <<"userName">>}
+]}.
+
+{select_user_by_phone, [
+    {dao, select_user},
+    <<" AND u.phonenumber = ">>,
+    {key, str, <<"phonenumber">>}
+]}.
+
+
+{select_user_by_wechat, [
+    {dao, select_user},
+    <<" AND u.wechat = ">>,
+    {key, integer, <<"wechat">>}
+]}.
+
+
+{select_user_by_mini, [
+    {dao, select_user},
+    <<" AND u.mini = ">>,
+    {key, integer, <<"mini">>}
+]}.
+
+
+{select_user_by_id, [
+    {dao, select_user},
+    <<" AND u.user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+
+{check_user_name_unique, [
+    <<"select count(1) from sys_user where user_name = ">>,
+    {key, str, <<"userName">>},
+    <<" limit 1">>
+]}.
+
+
+{check_phone_unique, [
+    <<"select user_id, phonenumber from sys_user where phonenumber = ">>,
+    {key, str, <<"phonenumber">>},
+    <<" limit 1">>
+]}.
+
+
+{check_email_unique, [
+    <<"select user_id, email from sys_user where email = ">>,
+    {key, str, <<"email">>},
+    <<" limit 1">>
+]}.
+
+
+
+{insert_user, [
+    <<"insert into sys_user(">>,
+    {
+        require,
+        [{notin, <<"userId">>, [undefined, 0]}],
+        [
+            <<"user_id,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            <<"dept_id,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, <<>>]}],
+        [
+            <<"user_name,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"nickName">>, [undefined, <<>>]}],
+        [
+            <<"nick_name,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"email">>, [undefined, <<>>]}],
+        [
+            <<"email,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"avatar">>, [undefined, <<>>]}],
+        [
+            <<"avatar,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phonenumber">>, [undefined, <<>>]}],
+        [
+            <<"phonenumber,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"sex">>, [undefined, <<>>]}],
+        [
+            <<"sex,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"password">>, [undefined, <<>>]}],
+        [
+            <<"password,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"wechat">>, [undefined, <<>>]}],
+        [
+            <<"wechat,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"mini">>, [undefined, <<>>]}],
+        [
+            <<"mini,">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"userId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"userId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"deptId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, 0]}],
+        [
+            {key, str, <<"userName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"nickName">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"nickName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"email">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"email">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"avatar">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"avatar">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phonenumber">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"phonenumber">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"sex">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"sex">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"password">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"password">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"wechat">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"wechat">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"mini">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"mini">>},
+            <<", ">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+
+{update_user,[
+    <<"update sys_user set ">>,
+    {
+        require,
+        [{notin, <<"deptId">>, [undefined, 0]}],
+        [
+            <<"dept_id = ">>,
+            {key, integer, <<"deptId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"userName">>, [undefined, <<>>]}],
+        [
+            <<"user_name = ">>,
+            {key, str, <<"userName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"nickName">>, [undefined, <<>>]}],
+        [
+            <<"nick_name = ">>,
+            {key, str, <<"nickName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"email">>, [undefined, <<>>]}],
+        [
+            <<"email = ">>,
+            {key, str, <<"email">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"phonenumber">>, [undefined, <<>>]}],
+        [
+            <<"phonenumber = ">>,
+            {key, str, <<"phonenumber">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"sex">>, [undefined, <<>>]}],
+        [
+            <<"sex = ">>,
+            {key, str, <<"sex">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"avatar">>, [undefined, <<>>]}],
+        [
+            <<"avatar = ">>,
+            {key, str, <<"avatar">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"password">>, [undefined, <<>>]}],
+        [
+            <<"password = ">>,
+            {key, str, <<"password">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"loginIp">>, [undefined, <<>>]}],
+        [
+            <<"login_ip = ">>,
+            {key, str, <<"loginIp">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"loginDate">>, [undefined, <<>>]}],
+        [
+            <<"login_date = ">>,
+            {key, str, <<"loginDate">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<"update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark = ">>,
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"wechat">>, [undefined, <<>>]}],
+        [
+            <<"wechat = ">>,
+            {key, integer, <<"wechat">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"mini">>, [undefined, <<>>]}],
+        [
+            <<"mini = ">>,
+            {key, integer, <<"mini">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+
+
+{update_user_status, [
+    <<"update sys_user set status = ">>,
+    {key, str, <<"status">>},
+    <<" where user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+
+
+{update_user_avatar, [
+    <<"update sys_user set avatar = ">>,
+    {key, str, <<"avatar">>},
+    <<" where user_name = ">>,
+    {key, str, <<"userName">>}
+]}.
+
+
+
+{reset_user_pwd, [
+    <<"update sys_user set password = ">>,
+    {key, str, <<"password">>},
+    <<" where user_name = ">>,
+    {key, str, <<"userName">>}
+]}.
+
+
+
+{delete_user_by_id, [
+    <<"update sys_user set del_flag = '2' where user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+
+{delete_user_by_ids, [
+    <<"update sys_user set del_flag = '2' where user_id in (">>,
+    {foreach, <<", ">>, {key, integer, <<"userIds">>}},
+    <<")">>
+]}.
+
+{describe_user, [
+    <<"describe sys_user">>
+]}.
+
+
+

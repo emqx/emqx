@@ -1,0 +1,224 @@
+{select_dict_type, [
+    <<"select dict_id, dict_name, dict_type, status, create_by, create_time, remark from sys_dict_type where 1 = 1 ">>
+]}.
+
+
+{select_dict_type_list, [
+    {dao, select_dict_type},
+    {
+        require,
+        [{notin, <<"dictName">>, [undefined, <<>>]}],
+        [
+            <<" AND dict_name like concat('%', ">>,
+            {key, str, <<"dictName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            <<" AND dict_type like concat('%', ">>,
+            {key, str, <<"dictType">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(create_time,'%y%m%d') >= date_format(">>,
+            {key, str, <<"beginTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(create_time,'%y%m%d') <= date_format(">>,
+            {key, str, <<"endTime">>},
+            <<",'%y%m%d')">>
+        ]
+    }
+]}.
+
+
+{select_dict_type_all, [
+    {dao, select_dict_type}
+]}.
+
+{select_dict_type_by_id, [
+    {dao, select_dict_type},
+    <<"and dict_id = ">>,
+    {key, integer, <<"dictId">>}
+]}.
+
+{select_dict_type_by_type, [
+    {dao, select_dict_type},
+    <<"and dict_type = ">>,
+    {key, str, <<"dictType">>}
+]}.
+
+
+{check_dict_type_unique, [
+    {dao, select_dict_type},
+    <<"and dict_type = ">>,
+    {key, str, <<"dictType">>},
+    <<" limit 1">>
+]}.
+
+
+{delete_dict_type_by_id, [
+    <<"delete from sys_dict_type where dict_id = ">>,
+    {key, integer, <<"dictId">>}
+]}.
+
+{delete_dict_type_by_ids, [
+    <<"delete from sys_dict_type where dict_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"dictIds">>}},
+    <<")">>
+]}.
+
+{update_dict_type, [
+    <<"update sys_dict_type set ">>,
+    {
+        require,
+        [{notin, <<"dictName">>, [undefined, <<>>]}],
+        [
+            <<"dict_name = ">>,
+            {key, str, <<"dictName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            <<"dict_type = ">>,
+            {key, str, <<"dictType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            <<"status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined]}],
+        [
+            <<"remark = ">>,
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<"update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where dict_id = ">>,
+    {key, integer, <<"dictId">>}
+]}.
+
+
+{insert_dict_type, [
+    <<"insert into sys_dict_type(">>,
+    {
+        require,
+        [{notin, <<"dictName">>, [undefined, <<>>]}],
+        [
+            <<"dict_name,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            <<"dict_type,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            <<"status,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by,">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"dictName">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"dictName">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"dictType">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            {key, str, <<"status">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"remark">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<",">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+

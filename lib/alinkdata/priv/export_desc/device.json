@@ -1,0 +1,49 @@
+{
+  "id": {
+    "title":"设备id"
+  },
+  "addr": {
+    "title":"设备地址"
+  },
+  "name": {
+    "title":"设备名字"
+  },
+  "product": {
+    "title":"所属产品id"
+  },
+  "dk": {
+    "title":"key"
+  },
+  "ds": {
+    "title":"secret"
+  },
+  "status": {
+    "title":"状态"
+  },
+  "lng": {
+    "title":"经度",
+    "precision": 2
+  },
+  "lat": {
+    "title":"纬度",
+    "precision": 2
+  },
+  "config": {
+    "title":"扩展参数"
+  },
+  "location": {
+    "title":"所在位置"
+  },
+  "createTime": {
+    "title":"创建时间"
+  },
+  "country": {
+    "title":"所在国家"
+  },
+  "province": {
+    "title":"所在省份"
+  },
+  "district": {
+    "title":"所在区域"
+  }
+}

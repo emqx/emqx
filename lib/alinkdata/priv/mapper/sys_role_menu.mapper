@@ -1,0 +1,22 @@
+{check_menu_exist_role, [
+    <<"select count(1) from sys_role_menu where menu_id = ">>,
+    {key, integer, <<"menuId">>}
+]}.
+
+
+{delete_role_menu_by_role_id, [
+    <<"delete from sys_role_menu where role_id=">>,
+    {key, integer, <<"roleId">>}
+]}.
+
+{delete_role_menu, [
+    <<"delete from sys_role_menu where role_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"roleIds">>}},
+    <<")">>
+]}.
+
+{batch_role_menu, [
+    <<"insert into sys_role_menu(role_id, menu_id) values">>,
+    {list_map, <<",">>, <<"iterms">>, [<<"(">>, {key, integer, <<"roleId">>}, <<",">>, {key, integer, <<"menuId">>}, <<")">>]},
+    <<"">>
+]}.

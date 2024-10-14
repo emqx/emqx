@@ -1,0 +1,296 @@
+{select_config_all, [
+    <<"select config_id, project, config_name, config_key, config_value, config_type, ",
+      "create_time, update_time, remark from sys_config where 1 = 1">>
+]}.
+
+
+{sql_where_search, [
+    {
+        require,
+        [{notin, <<"configId">>, [undefined]}],
+        [
+            <<" and config_id = ">>,
+            {key, integer , <<"configId">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"project">>, [undefined]}],
+        [
+            <<" and project = ">>,
+            {key, str , <<"project">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configKey">>, [undefined, <<>>]}],
+        [
+            <<" and config_key = ">>,
+            {key, str , <<"configKey">>}
+        ]
+    }
+]}.
+
+
+{select_config, [
+    {dao, select_config_all},
+    {dao, sql_where_search}
+]}.
+
+
+{select_config_list, [
+    {dao, select_config_all},
+    {
+        require,
+        [{notin, <<"configName">>, [undefined, <<>>]}],
+        [
+            <<" AND config_name like concat('%', ">>,
+            {key, str , <<"configName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"owner">>, [undefined, <<>>]}],
+        [
+            <<"owner, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"project">>, [undefined, <<>>]}],
+        [
+            <<" and project = ">>,
+            {key, str , <<"project">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configType">>, [undefined, <<>>]}],
+        [
+            <<" and config_type = ">>,
+            {key, str , <<"configType">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configKey">>, [undefined, <<>>]}],
+        [
+            <<" AND config_key like concat('%', ">>,
+            {key, str , <<"configKey">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(create_time,'%y%m%d') >= date_format(">>,
+            {key, str , <<"beginTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(create_time,'%y%m%d') <= date_format(">>,
+            {key, str , <<"endTime">>},
+            <<",'%y%m%d')">>
+        ]
+    }
+]}.
+
+
+
+{check_config_key_unique, [
+    {dao, select_config_all},
+    <<" and config_key = ">>,
+    {key, str , <<"configKey">>},
+    <<" limit 1">>
+]}.
+
+{insert_config, [
+    <<"insert into sys_config(">>,
+    {
+        require,
+        [{notin, <<"configName">>, [undefined, <<>>]}],
+        [
+            <<"config_name, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"project">>, [undefined, <<>>]}],
+        [
+            <<"project, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configKey">>, [undefined, <<>>]}],
+        [
+            <<"config_key, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configValue">>, [undefined, <<>>]}],
+        [
+            <<"config_value, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configType">>, [undefined, <<>>]}],
+        [
+            <<"config_type, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"owner">>, [undefined, <<>>]}],
+        [
+            <<"owner, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark, ">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"configName">>, [undefined, <<>>]}],
+        [
+            {key, str , <<"configName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"project">>, [undefined, <<>>]}],
+        [
+            {key, str , <<"project">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configKey">>, [undefined, <<>>]}],
+        [
+            {key, str , <<"configKey">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configValue">>, [undefined, <<>>]}],
+        [
+            {key, str , <<"configValue">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configType">>, [undefined, <<>>]}],
+        [
+            {key, str , <<"configType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"owner">>, [undefined, <<>>]}],
+        [
+            {key, integer , <<"owner">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str , <<"remark">>},
+            <<", ">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+
+
+{update_config, [
+    <<"update sys_config set ">>,
+    {
+        require,
+        [{notin, <<"configName">>, [undefined, <<>>]}],
+        [
+            <<"config_name = ">>,
+            {key, str , <<"configName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configKey">>, [undefined, <<>>]}],
+        [
+            <<"config_key = ">>,
+            {key, str , <<"configKey">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configValue">>, [undefined]}],
+        [
+            <<"config_value = ">>,
+            {key, str , <<"configValue">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"configType">>, [undefined, <<>>]}],
+        [
+            <<"config_type = ">>,
+            {key, str , <<"configType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"owner">>, [undefined, <<>>]}],
+        [
+            <<"owner = ">>,
+            {key, integer , <<"owner">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined]}],
+        [
+            <<"remark = ">>,
+            {key, str , <<"remark">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where config_id = ">>,
+    {key, integer , <<"configId">>}
+]}.
+
+
+{delete_config_by_id, [
+    <<"delete from sys_config where config_id = ">>,
+    {key, integer , <<"configId">>}
+]}.
+
+{delete_config_by_ids, [
+    <<"delete from sys_config where config_id in (">>,
+    {foreach, <<",">>, {key, integer, <<"configIds">>}},
+    <<")">>
+]}.

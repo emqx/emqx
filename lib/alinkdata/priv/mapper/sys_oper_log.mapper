@@ -1,0 +1,91 @@
+{select_oper_log, [
+    <<"select * from sys_oper_log where 1 = 1 ">>
+]}.
+
+{insert_oper_log, [
+    <<"insert into sys_oper_log(title, request_method, ",
+      "oper_name, oper_url, oper_ip, ",
+      "oper_time, os, user_agent) values(">>,
+    {key, str, <<"title">>},
+    <<", ">>,
+    {key, str, <<"requestMethod">>},
+    <<", ">>,
+    {key, str, <<"operName">>},
+    <<", ">>,
+    {key, str, <<"operUrl">>},
+    <<", ">>,
+    {key, str, <<"operIp">>},
+    <<", ">>,
+    {key, str, <<"operTime">>},
+    <<", ">>,
+    {key, str, <<"os">>},
+    <<", ">>,
+    {key, str, <<"userAgent">>},
+    <<")">>
+]}.
+
+{select_oper_log_list, [
+    {dao, select_oper_log},
+    {
+        require,
+        [{notin, <<"title">>, [undefined, <<>>]}],
+        [
+            <<" AND title like concat('%', ">>,
+            {key, str, <<"title">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, integer, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"operName">>, [undefined, <<>>]}],
+        [
+            <<" AND oper_name like concat('%', ">>,
+            {key, str, <<"operName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"beginTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(oper_time,'%y%m%d') >= date_format(">>,
+            {key, str, <<"beginTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"endTime">>, [undefined, <<>>]}],
+        [
+            <<" and date_format(oper_time,'%y%m%d') <= date_format(">>,
+            {key, str, <<"endTime">>},
+            <<",'%y%m%d')">>
+        ]
+    },
+    <<"order by oper_id desc">>
+]}.
+
+
+{delete_oper_log_by_ids, [
+    <<"delete from sys_oper_log where oper_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"operIds">>}},
+    <<")">>
+]}.
+
+
+{select_oper_log_by_id, [
+    {dao, select_oper_log},
+    <<" and oper_id = ">>,
+    {key, integer, <<"operId">>}
+]}.
+{clean_oper_log, [
+    <<"truncate table sys_oper_log">>
+]}.

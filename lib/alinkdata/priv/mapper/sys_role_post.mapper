@@ -1,0 +1,262 @@
+{select_post, [
+    <<"select post_id, post_code, post_name, post_sort, status, create_by, create_time, remark from sys_post where 1 = 1 ">>
+]}.
+
+{select_post_list, [
+    {dao, select_post},
+    {
+        require,
+        [{notin, <<"postCode">>, [undefined, <<>>]}],
+        [
+            <<" AND post_code like concat('%', ">>,
+            {key, integer, <<"postCode">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postName">>, [undefined, <<>>]}],
+        [
+            <<" AND post_name like concat('%', ">>,
+            {key, str, <<"postName">>},
+            <<", '%')">>
+        ]
+    }
+]}.
+
+
+{select_post_all, [
+    {dao, select_post}
+]}.
+
+{select_post_by_id, [
+    {dao, select_post},
+    <<" and post_id = ">>,
+    {key, integer, <<"postId">>}
+]}.
+
+{select_post_list_by_user_id, [
+    <<"select p.post_id from sys_post p ",
+      "left join sys_user_post up on up.post_id = p.post_id ",
+      "left join sys_user u on u.user_id = up.user_id ",
+      "where u.user_id = ">>,
+      {key, integer, <<"userId">>}
+]}.
+
+{select_posts_by_user_name, [
+    <<"select p.post_id, p.post_name, p.post_code ">>,
+    <<"from sys_post p ">>,
+    <<"left join sys_user_post up on up.post_id = p.post_id ">>,
+    <<"left join sys_user u on u.user_id = up.user_id ">>,
+    <<"where u.user_name = ">>,
+    {key, str, <<"userName">>}
+]}.
+
+{check_post_name_unique, [
+    {dao, select_post},
+    <<"and post_name= ">>,
+    {key, str, <<"postName">>},
+    <<" limit 1">>
+]}.
+
+
+
+{check_post_code_unique, [
+    {dao, select_post},
+    <<"and post_code= ">>,
+    {key, str, <<"postCode">>},
+    <<" limit 1">>
+]}.
+
+
+{update_post, [
+    <<"update sys_post set ">>,
+    {
+        require,
+        [{notin, <<"postCode">>, [undefined, <<>>]}],
+        [
+            <<" post_code = ">>,
+            {key, str, <<"postCode">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postName">>, [undefined, <<>>]}],
+        [
+            <<" post_name = ">>,
+            {key, str, <<"postName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postSort">>, [undefined, <<>>]}],
+        [
+            <<" post_sort = ">>,
+            {key, integer, <<"postSort">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<" remark = ">>,
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<" update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where post_id = ">>,
+    {key, integer, <<"postId">>}
+]}.
+
+{insert_post, [
+    <<"insert into sys_post(">>,
+    {
+        require,
+        [{notin, <<"postId">>, [undefined, 0]}],
+        [
+            <<"post_id,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postCode">>, [undefined, <<>>]}],
+        [
+            <<"post_code,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postName">>, [undefined, <<>>]}],
+        [
+            <<"post_name,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postSort">>, [undefined, <<>>]}],
+        [
+            <<"post_sort,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by,">>
+        ]
+    },
+    <<"create_time) values(">>,
+    {
+        require,
+        [{notin, <<"postId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"postId">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postCode">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"postCode">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postName">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"postName">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"postSort">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"postSort">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"status">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"remark">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<",">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+
+
+{delete_post_by_id, [
+    <<"delete from sys_post where post_id = ">>,
+    {key, integer, <<"postId">>}
+]}.
+
+{delete_post_by_ids, [
+    <<"delete from sys_post where post_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"postIds">>}},
+    <<")">>
+]}.

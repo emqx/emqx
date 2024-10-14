@@ -1,0 +1,338 @@
+{select_dict_data, [
+    <<"select dict_code, dict_sort, dict_label, dict_value, dict_type, css_class, list_class, ",
+    "is_default, status, create_by, create_time, remark from sys_dict_data where 1 = 1 ">>
+]}.
+
+
+{select_dict_data_list, [
+    {dao, select_dict_data},
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            <<" AND dict_type = ">>,
+            {key, str, <<"dictType">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictLabel">>, [undefined, <<>>]}],
+        [
+            <<" AND dict_label like concat('%', ">>,
+            {key, str, <<"dictLabel">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status = ">>,
+            {key, str, <<"status">>}
+        ]
+    },
+    <<" order by dict_sort asc">>
+]}.
+
+{select_dict_data_by_type, [
+    {dao, select_dict_data},
+    <<" AND status = '0' and dict_type = ">>,
+    {key, str, <<"dictType">>},
+    <<" order by dict_sort asc">>
+]}.
+
+
+{select_dict_label, [
+    <<"select dict_label from sys_dict_data ">>,
+    <<"where dict_type = ">>,
+    {key, str, <<"dictType">>},
+    <<" and dict_value = ">>,
+    {key, str, <<"dictValue">>}
+]}.
+
+
+
+{select_dict_data_by_id, [
+    {dao, select_dict_data},
+    <<" and dict_code = ">>,
+    {key, integer, <<"dictCode">>}
+]}.
+
+{count_dict_data_by_type, [
+    <<"select count(1) from sys_dict_data where dict_type=">>,
+    {key, str, <<"dictType">>}
+]}.
+
+{delete_dict_data_by_id, [
+    <<"delete from sys_dict_data where dict_code = ">>,
+    {key, integer, <<"dictCode">>}
+]}.
+
+{delete_dict_data_by_ids, [
+    <<"delete from sys_dict_data where dict_code in (">>,
+    {foreach, <<",">>, {key, str, <<"dictCodes">>}},
+    <<")">>
+]}.
+
+{update_dict_data, [
+    <<"update sys_dict_data set ">>,
+    {
+        require,
+        [{notin, <<"dictSort">>, [undefined]}],
+        [
+            <<"dict_sort = ">>,
+            {key, integer, <<"dictSort">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictLabel">>, [undefined, <<>>]}],
+        [
+            <<"dict_label = ">>,
+            {key, str, <<"dictLabel">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictValue">>, [undefined, <<>>]}],
+        [
+            <<"dict_value = ">>,
+            {key, str, <<"dictValue">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            <<"dict_type = ">>,
+            {key, str, <<"dictType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"cssClass">>, [undefined]}],
+        [
+            <<"css_class = ">>,
+            {key, str, <<"cssClass">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"listClass">>, [undefined]}],
+        [
+            <<"list_class = ">>,
+            {key, str, <<"listClass">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isDefault">>, [undefined, <<>>]}],
+        [
+            <<"is_default = ">>,
+            {key, str, <<"isDefault">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            <<"status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined]}],
+        [
+            <<"remark = ">>,
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<"update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    <<"update_time = sysdate() where dict_code = ">>,
+    {key, integer, <<"dictCode">>}
+]}.
+
+
+{update_dict_data_type, [
+    <<"update sys_dict_data set dict_type = ">>,
+    {key, str, <<"newDictType">>},
+    <<" where dict_type = ">>,
+    {key, str, <<"oldDictType">>}
+]}.
+
+
+
+{insert_dict_data, [
+    <<"insert into sys_dict_data(">>,
+    {
+        require,
+        [{notin, <<"dictSort">>, [undefined]}],
+        [
+            <<"dict_sort, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictLabel">>, [undefined, <<>>]}],
+        [
+            <<"dict_label, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictValue">>, [undefined, <<>>]}],
+        [
+            <<"dict_value, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            <<"dict_type, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"cssClass">>, [undefined, <<>>]}],
+        [
+            <<"css_class, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"listClass">>, [undefined, <<>>]}],
+        [
+            <<"list_class, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isDefault">>, [undefined, <<>>]}],
+        [
+            <<"is_default, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            <<"status, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark, ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by, ">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"dictSort">>, [undefined]}],
+        [
+            {key, integer, <<"dictSort">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictLabel">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"dictLabel">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictValue">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"dictValue">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"dictType">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"dictType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"cssClass">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"cssClass">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"listClass">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"listClass">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isDefault">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"isDefault">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<", ">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+

@@ -1,0 +1,37 @@
+{delete_user_role_by_userId, [
+    <<"delete from sys_user_role where user_id=">>,
+    {key, integer, <<"userId">>}
+]}.
+
+{count_user_role_by_role_id, [
+    <<"select count(1) as count from sys_user_role where role_id=">>,
+    {key, integer, <<"roleId">>}
+]}.
+{delete_user_role, [
+    <<"delete from sys_user_role where user_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"userIds">>}},
+    <<")">>
+]}.
+
+
+{batch_user_role, [
+    <<"insert into sys_user_role(user_id, role_id) values">>,
+    {list_map, <<",">>, <<"iterms">>, [<<"(">>, {key, integer, <<"userId">>}, <<",">>, {key, integer, <<"roleId">>}, <<")">>]},
+    <<"">>
+]}.
+
+
+{delete_user_role_info, [
+    <<"delete from sys_user_role where user_id=">>,
+    {key, integer, <<"userId">>},
+    <<" and role_id=">>,
+    {key, integer, <<"roleId">>}
+]}.
+
+{delete_user_role_infos, [
+    <<"delete from sys_user_role where role_id=">>,
+    {key, integer, <<"roleId">>},
+    <<" and user_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"userIds">>}},
+    <<")">>
+]}.

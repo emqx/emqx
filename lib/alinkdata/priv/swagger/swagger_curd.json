@@ -1,0 +1,415 @@
+{
+  "tags": [
+    {
+      "name": "{{tableName}}",
+      "description": "{{tableName}} 操作"
+    }
+  ],
+  "definitions": {
+    "{{tableName}}": {
+      "type": "object",
+      "properties": {
+           {% for field in fields %}
+            "{{ field.name }}": {
+              "type": "{{ field.type }}",
+              "description": "{{ field.desc }}"
+            },
+            {% endfor %}
+            "{{ id }}": {
+              "type": "integer",
+              "description": "{{tableName}} 的 {{ id }}"
+            }
+      }
+    }
+  },
+  "paths": {
+    "/row/{{tableName}}": {
+      "get": {
+        "permission": "system:{{tableName}}:list",
+        "summary": "获取 {{tableName}} 详情",
+        "description": "根据 {{ id }} 获取 {{tableName}} 详情",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "GET"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "{{ id }}",
+            "type": "integer",
+            "description": "{{tableName}} 的 {{ id }}",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回 {{tableName}} 数据",
+            "schema": {
+              "$ref": "#/definitions/{{tableName}}"
+            }
+          },
+          "404": {
+            "description": "object not found",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "put": {
+        "permission": "system:{{tableName}}:edit",
+        "summary": "更新 {{tableName}}",
+        "description": "通过 {{ id }} 更新 {{tableName}}",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "PUT"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "{{ id }}",
+            "type": "integer",
+            "description": "更新 {{tableName}} 的 {{ id }}",
+            "required": true
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "description": "数据更新的内容.",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/{{tableName}}"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "schema": {
+              "type": "object",
+              "properties": {
+              }
+            }
+          },
+          "404": {
+            "description": "object not found",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "delete": {
+        "permission": "system:{{tableName}}:remove",
+        "summary": "删除 {{tableName}}",
+        "description": "通过 {{ id }} 删除 {{tableName}} 记录",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "DELETE"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "{{ id }}",
+            "type": "integer",
+            "description": "删除的 {{ id }}",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a confirmation message"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "object not found",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "post": {
+        "permission": "system:{{tableName}}:add",
+        "summary": "新增 {{tableName}}",
+        "description": "新增一条 {{tableName}} 记录",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "ADD"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "新增的字段",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/{{tableName}}"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Returns success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createdAt": {
+                  "description": "创建时间",
+                  "format": "date-time",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/table/{{tableName}}/list": {
+      "get": {
+        "permission": "system:{{tableName}}:query",
+        "summary": "查询 {{tableName}}",
+        "description": "查询",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "QUERY"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order",
+            "description": "排序方式, 负为降序, eg: score,-name",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "description": "显示多少条记录",
+            "required": false,
+            "default": 10,
+            "type": "integer"
+          },
+          {
+            "in": "query",
+            "name": "pageNum",
+            "description": "第几页",
+            "required": false,
+            "default": 1,
+            "type": "integer"
+          },
+          {
+            "in": "query",
+            "name": "keys",
+            "description": "需要显示的字段",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "in": "query",
+            "name": "where",
+            "description": "过滤条件，eg: {\"id\":{\"$in\":[\"BGS3BFgcZN\"]}}",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "返回 {{tableName}} 记录数",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/{{tableName}}"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/export/{{tableName}}": {
+      "post": {
+        "permission": "system:{{tableName}}:export",
+        "summary": "导出 {{tableName}}",
+        "description": "导出 {{tableName}} 记录",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "EXPORT"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/import/{{tableName}}": {
+      "post": {
+        "permission": "system:{{tableName}}:import",
+        "summary": "导入 {{tableName}}",
+        "description": "导入 {{tableName}} 记录",
+        "extend": {
+          "table": "{{tableName}}",
+          "action": "IMPORT"
+        },
+        "tags": [
+          "{{tableName}}"
+        ],
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Returns success"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "500": {
+            "description": "Server Internal error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

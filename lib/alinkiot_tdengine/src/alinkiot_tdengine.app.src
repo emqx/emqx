@@ -1,0 +1,21 @@
+{application, alinkiot_tdengine,
+ [{description, "TDengine for Erlang"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {alinkiot_tdengine_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    hackney,
+    ecpool,
+    alinkutil,
+    jiffy,
+    cowboy
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {maintainers, []},
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

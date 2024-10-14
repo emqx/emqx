@@ -1,0 +1,27 @@
+
+{delete_user_post_by_userId, [
+    <<"delete from sys_user_post where user_id=">>,
+    {key, integer, <<"userId">>}
+]}.
+
+{count_user_post_by_post_id, [
+    <<"select count(1) from sys_user_post where post_id=">>,
+    {key, integer, <<"postId">>}
+]}.
+
+
+
+{delete_user_post, [
+    <<"delete from sys_user_post where user_id in(">>,
+    {foreach, <<",">>, {key, integer, <<"userIds">>}},
+    <<")">>
+]}.
+
+
+{batch_user_post, [
+    <<"insert into sys_user_post(user_id, post_id) values">>,
+    {list_map, <<",">>, <<"iterms">>, [<<"(">>, {key, integer, <<"userId">>}, <<",">>, {key, integer, <<"postId">>}, <<")">>]},
+    <<"">>
+]}.
+
+

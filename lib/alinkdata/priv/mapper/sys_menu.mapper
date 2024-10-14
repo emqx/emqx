@@ -1,0 +1,549 @@
+{select_menu, [
+    <<"select menu_id, menu_name, parent_id, order_num, path, component, ",
+      "`query`, is_frame, is_cache, menu_type, visible, status, ",
+      "ifnull(perms,'') as perms, icon, create_time from sys_menu where 1 = 1 ">>
+]}.
+
+
+{select_menu_list, [
+    {dao, select_menu},
+    {
+        require,
+        [{notin, <<"menuName">>, [undefined, <<>>]}],
+        [
+            <<" AND menu_name like concat('%', ">>,
+            {key, str, <<"menuName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"visible">>, [undefined, <<>>]}],
+        [
+            <<" AND visible like concat('%', ">>,
+            {key, str, <<"visible">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND status like concat('%', ">>,
+            {key, str, <<"status">>},
+            <<", '%')">>
+        ]
+    },
+    <<" order by parent_id, order_num">>
+]}.
+
+{select_menu_tree_all, [
+    <<"select distinct m.menu_id, m.parent_id, m.menu_name, m.path, ",
+      "m.component, m.`query`, m.visible, m.status, ifnull(m.perms,'') ",
+      "as perms, m.is_frame, m.is_cache, m.menu_type, m.icon, m.order_num, ",
+      "m.create_time from sys_menu m where m.menu_type in ('M', 'C') and ",
+      "m.status = 0 order by m.parent_id, m.order_num">>
+]}.
+
+
+{select_menu_list_by_user_id, [
+    <<"select distinct m.menu_id, m.parent_id, m.menu_name, m.path, m.component, ",
+      "m.`query`, m.visible, m.status, ifnull(m.perms,'') as perms, m.is_frame, ",
+      "m.is_cache, m.menu_type, m.icon, m.order_num, m.create_time from sys_menu m ",
+      "left join sys_role_menu rm on m.menu_id = rm.menu_id ",
+      "left join sys_user_role ur on rm.role_id = ur.role_id ",
+      "left join sys_role ro on ur.role_id = ro.role_id ",
+      "where ur.user_id = ">>,
+    {key, integer, <<"userId">>},
+    {
+        require,
+        [{notin, <<"menuName">>, [undefined, <<>>]}],
+        [
+            <<" AND m.menu_name like concat('%', ">>,
+            {key, str, <<"menuName">>},
+            <<", '%')">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"visible">>, [undefined, <<>>]}],
+        [
+            <<" AND m.visible = ">>,
+            {key, str, <<"visible">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<" AND m.status = ">>,
+            {key,str,  <<"status">>}
+        ]
+    },
+    <<" order by m.parent_id, m.order_num">>
+]}.
+
+
+{select_menu_tree_by_user_id, [
+    <<"select distinct m.menu_id, m.parent_id, m.menu_name, m.path, m.component, m.`query`, ",
+      "m.visible, m.status, ifnull(m.perms,'') as perms, m.is_frame, m.is_cache, m.menu_type, ",
+      "m.icon, m.order_num, m.create_time from sys_menu m left join sys_role_menu rm on ",
+      "m.menu_id = rm.menu_id left join sys_user_role ur on rm.role_id = ur.role_id ",
+      "left join sys_role ro on ur.role_id = ro.role_id ",
+      " left join sys_user u on ur.user_id = u.user_id",
+      " where u.user_id = ">>,
+     {key, integer, <<"userId">>},
+     <<" and m.menu_type in ('M', 'C') and m.status = 0  AND ro.status = 0 ",
+      "order by m.parent_id, m.order_num">>
+]}.
+
+
+{select_menu_list_by_role_id, [
+    <<"select m.menu_id from sys_menu m left join sys_role_menu ",
+    "rm on m.menu_id = rm.menu_id where rm.role_id = ">>,
+    {key, integer, <<"roleId">>},
+    {
+        require,
+        [{notin, <<"menuCheckStrictly">>, [undefined, <<>>]}],
+        [
+            <<" and m.menu_id not in (select m.parent_id from sys_menu m inner join sys_role_menu ",
+              "rm on m.menu_id = rm.menu_id and rm.role_id = ">>,
+            {key, integer, <<"roleId">>},
+            <<") order by m.parent_id, m.order_num">>
+        ]
+    }
+]}.
+
+
+
+{select_menu_perms, [
+    <<"select distinct m.perms from sys_menu m ",
+      "left join sys_role_menu rm on m.menu_id = rm.menu_id ",
+      "left join sys_user_role ur on rm.role_id = ur.role_id">>
+]}.
+
+
+{select_menu_perms_by_user_id, [
+    <<"select distinct m.perms from sys_menu m ",
+      "left join sys_role_menu rm on m.menu_id = rm.menu_id ",
+      "left join sys_user_role ur on rm.role_id = ur.role_id ",
+      "left join sys_role r on r.role_id = ur.role_id "
+      "where m.status = '0' and r.status = '0' and ur.user_id = ">>,
+    {key, integer, <<"userId">>}
+]}.
+
+{select_menu_by_id, [
+    {dao, select_menu},
+    <<" and menu_id = ">>,
+    {key, integer, <<"menuId">>}
+]}.
+
+{has_child_by_menu_id, [
+    <<"select count(1) from sys_menu where parent_id = ">>,
+    {key, integer, <<"menuId">>}
+]}.
+
+
+{check_menu_name_unique, [
+    {dao, select_menu},
+    <<" and menu_name=">>,
+    {key, str, <<"menuName">>},
+    <<" and parent_id = ">>,
+    {key, integer, <<"parentId">>},
+    <<" limit 1">>
+]}.
+
+
+{update_menu, [
+    <<"update sys_menu set ">>,
+    {
+        require,
+        [{notin, <<"menuName">>, [undefined, <<>>]}],
+        [
+            <<"menu_name = ">>,
+            {key, str, <<"menuName">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, <<>>]}],
+        [
+            <<"parent_id = ">>,
+            {key, integer, <<"parentId">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderNum">>, [undefined, <<>>]}],
+        [
+            <<"order_num = ">>,
+            {key, integer, <<"orderNum">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"path">>, [undefined, <<>>]}],
+        [
+            <<"path = ">>,
+            {key, str, <<"path">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"component">>, [undefined, <<>>]}],
+        [
+            <<"component = ">>,
+            {key, str, <<"component">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"query">>, [undefined, <<>>]}],
+        [
+            <<"`query` = ">>,
+            {key, str, <<"query">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isFrame">>, [undefined, <<>>]}],
+        [
+            <<"is_frame = ">>,
+            {key, integer, <<"isFrame">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isCache">>, [undefined, <<>>]}],
+        [
+            <<"is_cache = ">>,
+            {key, integer, <<"isCache">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuType">>, [undefined, <<>>]}],
+        [
+            <<"menu_type = ">>,
+            {key, str, <<"menuType">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"visible">>, [undefined, <<>>]}],
+        [
+            <<"visible = ">>,
+            {key, str, <<"visible">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status = ">>,
+            {key, str, <<"status">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"perms">>, [undefined, <<>>]}],
+        [
+            <<"perms = ">>,
+            {key, str, <<"perms">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"icon">>, [undefined, <<>>]}],
+        [
+            <<"icon = ">>,
+            {key, str, <<"icon">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark = ">>,
+            {key, str, <<"remark">>},
+            <<", ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"updateBy">>, [undefined, <<>>]}],
+        [
+            <<"update_by = ">>,
+            {key, str, <<"updateBy">>},
+            <<", ">>
+        ]
+    },
+    <<" update_time = sysdate() where menu_id = ">>,
+    {key, integer, <<"menuId">>}
+]}.
+
+
+
+{insert_menu, [
+    <<"insert into sys_menu(">>,
+    {
+        require,
+        [{notin, <<"menuId">>, [undefined, 0]}],
+        [
+            <<"menu_id,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, 0]}],
+        [
+            <<"parent_id,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuName">>, [undefined, 0]}],
+        [
+            <<"menu_name,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderNum">>, [undefined, <<>>]}],
+        [
+            <<"order_num,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"path">>, [undefined, <<>>]}],
+        [
+            <<"path,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"component">>, [undefined, <<>>]}],
+        [
+            <<"component,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"query">>, [undefined, <<>>]}],
+        [
+            <<"`query`,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isFrame">>, [undefined, <<>>]}],
+        [
+            <<"is_frame,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isCache">>, [undefined, <<>>]}],
+        [
+            <<"is_cache,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuType">>, [undefined, <<>>]}],
+        [
+            <<"menu_type,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"visible">>, [undefined]}],
+        [
+            <<"visible,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined, <<>>]}],
+        [
+            <<"status,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"perms">>, [undefined, <<>>]}],
+        [
+            <<"perms,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"icon">>, [undefined, <<>>]}],
+        [
+            <<"icon,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            <<"remark,">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            <<"create_by,">>
+        ]
+    },
+    <<"create_time)values(">>,
+    {
+        require,
+        [{notin, <<"menuId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"menuId">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"parentId">>, [undefined, 0]}],
+        [
+            {key, integer, <<"parentId">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuName">>, [undefined]}],
+        [
+            {key, str, <<"menuName">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderNum">>, [undefined]}],
+        [
+            {key, integer, <<"orderNum">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"path">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"path">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"component">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"component">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"query">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"query">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isFrame">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"isFrame">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"isCache">>, [undefined, <<>>]}],
+        [
+            {key, integer, <<"isCache">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"menuType">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"menuType">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"visible">>, [undefined]}],
+        [
+            {key, str, <<"visible">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"status">>, [undefined]}],
+        [
+            {key, str, <<"status">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"perms">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"perms">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"icon">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"icon">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"remark">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"remark">>},
+            <<",">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"createBy">>, [undefined, <<>>]}],
+        [
+            {key, str, <<"createBy">>},
+            <<",">>
+        ]
+    },
+    <<"sysdate())">>
+]}.
+
+{delete_menu_by_id, [
+    <<"delete from sys_menu where menu_id = ">>,
+    {key, integer, <<"menuId">>}
+]}.

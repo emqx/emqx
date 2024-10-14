@@ -1,0 +1,135 @@
+{select_device_children, [
+    <<"select ss.id as sub_dev_id, s.id as id, ss.addr as addr, ss.create_time as create_time, ss.sub_addr as sub_addr, ",
+    "ss.gateway as gateway, s.name as name, s.product as product, s.status as status,",
+    "s.config as config, s.location as location, s.last_online as last_online, s.dk as dk, s.ds as ds, s.project as project",
+    " from ",
+    "sys_sub_device ss left join sys_device s ",
+    "on ss.addr = s.addr where ss.gateway is not NULL and ss.gateway = ">>,
+    {key, str, <<"gateway">>},
+    {
+        require,
+        [{notin, <<"orderBy[desc]">>, [undefined, <<>>]}],
+        [
+            <<" order by ">>,
+            {key, integer, <<"orderBy[desc]">>},
+            <<" desc ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderBy[asc]">>, [undefined, <<>>]}],
+        [
+            <<" order by ">>,
+            {key, integer, <<"orderBy[asc]">>},
+            <<" asc ">>
+        ]
+    }
+]}.
+
+
+
+
+{select_product_type_children, [
+    <<"select * from sys_device where 1 = 1">>,
+    {
+        require,
+        [{notin, <<"productType">>, [undefined, <<>>, null]}],
+        [
+            <<" and product in (select id from sys_product where type = ">>,
+            {key, str, <<"productType">>},
+            <<")">>
+        ]
+    },
+   {
+       require,
+       [{notin, <<"addr">>, [undefined, <<>>, null]}],
+       [
+           <<" and addr = ">>,
+           {key, str, <<"addr">>}
+       ]
+   },
+    {
+        require,
+        [{notin, <<"name">>, [undefined, <<>>, null]}],
+        [
+            <<" and name = ">>,
+            {key, str, <<"name">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderBy[desc]">>, [undefined, <<>>]}],
+        [
+            <<" order by ">>,
+            {key, integer, <<"orderBy[desc]">>},
+            <<" desc ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderBy[asc]">>, [undefined, <<>>]}],
+        [
+            <<" order by ">>,
+            {key, integer, <<"orderBy[asc]">>},
+            <<" asc ">>
+        ]
+    }
+]}.
+
+
+
+{select_scene_device, [
+    <<"select * from sys_device where 1 = 1">>,
+    {
+        require,
+        [{notin, <<"sceneId">>, [undefined, <<>>, null]}],
+        [
+            <<" and id in (select device from sys_scene_device where scene = ">>,
+            {key, integer, <<"sceneId">>},
+            <<")">>
+        ]
+    },
+   {
+       require,
+       [{notin, <<"addr">>, [undefined, <<>>, null]}],
+       [
+           <<" and addr = ">>,
+           {key, str, <<"addr">>}
+       ]
+   },
+    {
+        require,
+        [{notin, <<"name">>, [undefined, <<>>, null]}],
+        [
+            <<" and name = ">>,
+            {key, str, <<"name">>}
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderBy[desc]">>, [undefined, <<>>]}],
+        [
+            <<" order by ">>,
+            {key, integer, <<"orderBy[desc]">>},
+            <<" desc ">>
+        ]
+    },
+    {
+        require,
+        [{notin, <<"orderBy[asc]">>, [undefined, <<>>]}],
+        [
+            <<" order by ">>,
+            {key, integer, <<"orderBy[asc]">>},
+            <<" asc ">>
+        ]
+    }
+]}.
+
+
+{get_same_product_device, [
+    <<"select addr from sys_device where product in (select product from sys_device where addr = ">>,
+    {key, str, <<"addrFirst">>},
+    <<") and addr in (">>,
+    {foreach, <<",">>, {key, str, <<"addrs">>}},
+    <<")">>
+]}.
