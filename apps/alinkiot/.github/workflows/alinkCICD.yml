@@ -1,0 +1,28 @@
+
+name: alinkCICD
+
+on:
+  push:
+    branches:
+    - dev_deploy
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Set output
+      id: vars
+      run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
+    - name: build
+      run: |
+        docker build --no-cache -t uzyiot/alinkiot:${{ steps.vars.outputs.tag }} .
+        docker push uzyiot/alinkiot:${{ steps.vars.outputs.tag }}
+    - name: deploy
+      run: |
+        echo "start deploy uzyiot/alinkiot:${{ steps.vars.outputs.tag }}"
+        ssh -o StrictHostKeyChecking=no root@${{ secrets.ALINKTEST_HOST }} "docker ps -a -q -f name=alinkiot | xargs --no-run-if-empty docker stop | xargs --no-run-if-empty docker rm"
+        ssh -o StrictHostKeyChecking=no root@${{ secrets.ALINKTEST_HOST }} "docker pull uzyiot/alinkiot:${{ steps.vars.outputs.tag }}"
+        ssh -o StrictHostKeyChecking=no root@${{ secrets.ALINKTEST_HOST }} "docker run -it -d -p 1883:1883 -p 8083:8083 -p 18888:18888 -p 6500:6500 -v /data:/data --env TZ=Asia/Shanghai --env ALINK_ETC_DIR=/data/etc/alinkiot/etc --name alinkiot uzyiot/alinkiot:${{ steps.vars.outputs.tag }}"
+

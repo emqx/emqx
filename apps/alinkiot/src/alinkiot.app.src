@@ -1,0 +1,19 @@
+{application, alinkiot,
+ [{description, "alinkiot iot broker"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {alinkiot_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    alinkcore,
+    alinkdata,
+    alinkiot_tdengine,
+    redbug
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.
