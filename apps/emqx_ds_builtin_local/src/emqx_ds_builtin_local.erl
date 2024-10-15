@@ -60,6 +60,10 @@
     make_batch/3
 ]).
 
+-ifdef(TEST).
+-export([test_applications/1, test_db_config/1]).
+-endif.
+
 -export_type([db_opts/0, shard/0, iterator/0, delete_iterator/0]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -520,3 +524,24 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+%%================================================================================
+%% Common test options
+%%================================================================================
+
+-ifdef(TEST).
+
+test_applications(_Config) ->
+    [
+        emqx_durable_storage,
+        emqx_ds_backends
+    ].
+
+test_db_config(_Config) ->
+    #{
+        backend => builtin_local,
+        storage => {emqx_ds_storage_reference, #{}},
+        n_shards => 1
+    }.
+
+-endif.

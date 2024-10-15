@@ -22,7 +22,8 @@ EEDeps =
     ],
 PlatformDeps =
     [
-        {emqx_fdb_ds, {path, "../emqx_fdb_ds"}}
+        {emqx_fdb_ds, {path, "../emqx_fdb_ds"}},
+        {emqx_ds_fdb_backend, {path, "../emqx_ds_fdb_backend"}}
     ],
 case Profile of
   ee ->

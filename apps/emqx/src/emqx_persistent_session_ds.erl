@@ -1115,13 +1115,13 @@ handle_ds_reply(AsyncReply, Session0 = #{s := S0, stream_scheduler_s := SchedS0}
                     S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S3),
                     pull_now(Session#{s := S});
                 {{error, recoverable, Reason}, _Srs, Session} ->
-                    ?SLOG(debug, #{
+                    ?SLOG(info, #{
                         msg => "failed_to_fetch_batch",
                         stream => StreamKey,
                         reason => Reason,
                         class => recoverable
                     }),
-                    Session;
+                    pull_now(Session);
                 {{error, unrecoverable, Reason}, Srs, Session} ->
                     skip_batch(StreamKey, Srs, Session, ClientInfo, Reason)
             end

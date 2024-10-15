@@ -17,7 +17,7 @@ Backends = case Profile of
              ee ->
                [emqx_ds_builtin_local, emqx_ds_builtin_raft];
              platform ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft, emqx_fdb_ds]
+               [emqx_ds_builtin_local, emqx_ds_builtin_raft, emqx_fdb_ds, emqx_ds_fdb_backend]
            end,
 
 io:format(user, "DS backends available for this release (~p): ~0p~n", [Profile, Backends]),
@@ -29,5 +29,5 @@ io:format(user, "DS backends available for this release (~p): ~0p~n", [Profile, 
     {modules, []},
     {registered, []},
     {applications, [kernel, stdlib, emqx_durable_storage | Backends]},
-    {env, []}
+    {env, [{available_backends, Backends}]}
 ]}.

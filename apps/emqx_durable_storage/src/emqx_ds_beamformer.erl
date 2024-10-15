@@ -218,9 +218,6 @@
 -spec poll(node(), return_addr(_ItKey), _Shard, _Iterator, emqx_ds:poll_opts()) ->
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
-    ?tp(emqx_ds_beamformer_poll, #{
-        node => Node, return_addr => ReturnAddr, shard => Shard, it => Iterator, timeout => Timeout
-    }),
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
     #{
         stream := Stream,
@@ -230,8 +227,8 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         message_matcher := MsgMatcher
     } = CBM:unpack_iterator(Shard, Iterator),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
-    logger:debug(#{
-        msg => poll, shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
+    ?tp(beamformer_poll, #{
+        shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
     }),
     %% Try to maximize likelyhood of sending similar iterators to the
     %% same worker:
@@ -322,8 +319,13 @@ handle_call(
     _From,
     S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}
 ) ->
-    NQueued = ets:info(PendingTab, size) + ets:info(WaitingTab, size),
-    case NQueued >= S#s.pending_request_limit of
+    %% FIXME
+    %% this is a potentially costly operation
+    PQLen = ets:info(PendingTab, size),
+    WQLen = ets:info(WaitingTab, size),
+    emqx_ds_builtin_metrics:set_pendingq_len(Metrics, PQLen),
+    emqx_ds_builtin_metrics:set_waitq_len(Metrics, WQLen),
+    case PQLen + WQLen >= S#s.pending_request_limit of
         true ->
             emqx_ds_builtin_metrics:inc_poll_requests_dropped(Metrics, 1),
             Reply = {error, recoverable, too_many_requests},

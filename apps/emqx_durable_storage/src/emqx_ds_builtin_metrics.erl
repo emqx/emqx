@@ -35,6 +35,8 @@
     observe_next_time/2,
 
     observe_sharing/2,
+    set_waitq_len/2,
+    set_pendingq_len/2,
     inc_poll_requests/2,
     inc_poll_requests_fulfilled/2,
     inc_poll_requests_dropped/2,
@@ -97,7 +99,9 @@
     {counter, ?DS_POLL_REQUESTS_FULFILLED},
     {counter, ?DS_POLL_REQUESTS_DROPPED},
     {counter, ?DS_POLL_REQUESTS_EXPIRED},
-    {slide, ?DS_POLL_REQUEST_SHARING}
+    {slide, ?DS_POLL_REQUEST_SHARING},
+    {counter, ?DS_POLL_PENDING_QUEUE_LEN},
+    {counter, ?DS_POLL_WAITING_QUEUE_LEN}
 ]).
 
 -define(SHARD_METRICS, ?BEAMFORMER_METRICS ++ ?BUFFER_METRICS).
@@ -173,6 +177,12 @@ observe_next_time(DB, NextTime) ->
 
 observe_sharing(Id, Sharing) ->
     catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_POLL_REQUEST_SHARING, Sharing).
+
+set_waitq_len(Id, Len) ->
+    emqx_metrics_worker:set(?WORKER, Id, ?DS_POLL_WAITING_QUEUE_LEN, Len).
+
+set_pendingq_len(Id, Len) ->
+    emqx_metrics_worker:set(?WORKER, Id, ?DS_POLL_PENDING_QUEUE_LEN, Len).
 
 inc_poll_requests(Id, NPolls) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_POLL_REQUESTS, NPolls).
