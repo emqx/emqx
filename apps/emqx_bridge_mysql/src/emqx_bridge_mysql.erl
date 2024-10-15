@@ -148,7 +148,8 @@ fields(action_parameters) ->
             mk(
                 emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )}
+            )},
+        emqx_bridge_v2_schema:undefined_as_null_field()
     ];
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++

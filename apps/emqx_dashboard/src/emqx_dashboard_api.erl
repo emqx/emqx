@@ -219,6 +219,7 @@ field(backend) ->
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
+    minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username}),
     case emqx_dashboard_admin:sign_token(Username, Password) of
         {ok, Role, Token} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),

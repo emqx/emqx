@@ -59,7 +59,8 @@
 -export([source_resource_opts_fields/0, source_resource_opts_fields/1]).
 
 -export([
-    api_fields/3
+    api_fields/3,
+    undefined_as_null_field/0
 ]).
 
 -export([
@@ -329,6 +330,16 @@ api_fields("post_source", Type, Fields) ->
     );
 api_fields("put_source", _Type, Fields) ->
     Fields.
+
+undefined_as_null_field() ->
+    {undefined_vars_as_null,
+        ?HOCON(
+            boolean(),
+            #{
+                default => false,
+                desc => ?DESC("undefined_vars_as_null")
+            }
+        )}.
 
 %%======================================================================================
 %% HOCON Schema Callbacks

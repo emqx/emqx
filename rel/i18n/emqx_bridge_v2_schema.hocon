@@ -22,4 +22,12 @@ config_enable.desc:
 config_enable.label:
 """Enable or Disable"""
 
+undefined_vars_as_null.desc:
+"""When writing to databases, treat undefined variables as NULL.
+When this option is enabled, if undefined variables (like ${var}) are used in templates, they will be replaced with "NULL" instead of the string "undefined". If this option is not enabled (default), the string "undefined" might be inserted.
+This option should always be `true` if possible; the default value `false` is only to ensure backward compatibility."""
+
+undefined_vars_as_null.label:
+"""Undefined Vars as Null"""
+
 }

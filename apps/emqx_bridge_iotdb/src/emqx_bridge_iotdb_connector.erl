@@ -576,10 +576,14 @@ on_batch_query_async(
     }),
     {error, not_support}.
 
-%% todo
+%% TODO:
+%% Currently, the batch mode is not really `batch` for the Rest API and Thrift drivers.
+%% 1. For Rest API we need to upgrade from v1 to v2 which has a batch endpoint `insertRecords`,
+%%    and we should take care to ensure this is not a breaking change
+%% 2. For the Thrift, we can use the `tSInsertTabletsReq` or `tSInsertRecordsReq` protocol
 on_batch_query(
     InstId,
-    [{ChannelId, _Message}] = Requests,
+    [{ChannelId, _Message} | _] = Requests,
     #{iotdb_version := IoTDBVsn, channels := Channels} = State
 ) ->
     ?tp(iotdb_bridge_on_batch_query, #{instance_id => InstId}),

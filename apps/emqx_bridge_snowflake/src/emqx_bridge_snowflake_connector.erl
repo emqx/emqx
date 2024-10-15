@@ -42,7 +42,8 @@
     connect/1,
     disconnect/1,
     do_health_check_connector/1,
-    do_stage_file/6
+    do_stage_file/6,
+    do_get_login_failure_details/2
 ]).
 
 %% `emqx_connector_aggreg_delivery' API
@@ -267,7 +268,8 @@ on_remove_channel(
     destroy_action(ActionResId, ActionState),
     ConnState = ConnState0#{installed_actions := InstalledActions},
     {ok, ConnState};
-on_remove_channel(_ConnResId, ConnState, _ActionResId) ->
+on_remove_channel(_ConnResId, ConnState, ActionResId) ->
+    ensure_common_action_destroyed(ActionResId),
     {ok, ConnState}.
 
 -spec on_get_channels(connector_resource_id()) ->
@@ -282,12 +284,12 @@ on_get_channels(ConnResId) ->
 ) ->
     ?status_connected | ?status_disconnected.
 on_get_channel_status(
-    _ConnResId,
+    ConnResId,
     ActionResId,
     _ConnState = #{installed_actions := InstalledActions}
 ) when is_map_key(ActionResId, InstalledActions) ->
     ActionState = maps:get(ActionResId, InstalledActions),
-    action_status(ActionResId, ActionState);
+    action_status(ConnResId, ActionResId, ActionState);
 on_get_channel_status(_ConnResId, _ActionResId, _ConnState) ->
     ?status_disconnected.
 
@@ -619,7 +621,7 @@ process_complete(TransferState0) ->
             Res ->
                 ?tp("snowflake_insert_files_request_failed", #{response => Res}),
                 %% TODO: retry?
-                exit({insert_failed, Res})
+                exit({upload_failed, Res})
         end
     end.
 
@@ -636,7 +638,7 @@ create_action(
 ) ->
     maybe
         {ok, ActionState0} ?= start_http_pool(ActionResId, ActionConfig, ConnState),
-        _ = check_snowpipe_user_permission(ActionResId, ActionState0),
+        _ = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState0),
         start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0)
     end.
 
@@ -798,6 +800,10 @@ destroy_action(ActionResId, ActionState) ->
         _ ->
             ok
     end,
+    ok = ensure_common_action_destroyed(ActionResId),
+    ok.
+
+ensure_common_action_destroyed(ActionResId) ->
     ok = ehttpc_sup:stop_pool(ActionResId),
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
     ok.
@@ -907,13 +913,19 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
     JWTToken = emqx_connector_jwt:ensure_jwt(JWTConfig),
     AuthnHeader = [<<"BEARER ">>, JWTToken],
     Headers = http_headers(AuthnHeader),
+    QString = insert_report_query_string(Opts),
     InsertReportPath =
-        case Opts of
-            #{begin_mark := BeginMark} when is_binary(BeginMark) ->
-                <<InsertReportPath0/binary, "?beginMark=", BeginMark/binary>>;
+        case QString of
+            <<>> ->
+                InsertReportPath0;
             _ ->
-                InsertReportPath0
+                <<InsertReportPath0/binary, "?", QString/binary>>
         end,
+    ?SLOG(debug, #{
+        msg => "snowflake_insert_report_request",
+        path => InsertReportPath,
+        pool => HTTPPool
+    }),
     Req = {InsertReportPath, Headers},
     Response = ?MODULE:do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries),
     case Response of
@@ -923,6 +935,13 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
         _ ->
             {error, Response}
     end.
+
+insert_report_query_string(Opts0) ->
+    Opts1 = maps:with([begin_mark, request_id], Opts0),
+    Opts2 = maps:filter(fun(_K, V) -> is_binary(V) end, Opts1),
+    Opts3 = emqx_utils_maps:rename(begin_mark, <<"beginMark">>, Opts2),
+    Opts = emqx_utils_maps:rename(request_id, <<"requestId">>, Opts3),
+    emqx_utils_conv:bin(uri_string:compose_query(maps:to_list(Opts))).
 
 %% Internal export only for mocking
 do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries) ->
@@ -941,7 +960,7 @@ row_to_map(Row0, Headers) ->
     Row = lists:zip(Headers, Row2),
     maps:from_list(Row).
 
-action_status(ActionResId, #{mode := aggregated} = ActionState) ->
+action_status(ConnResId, ActionResId, #{mode := aggregated} = ActionState) ->
     #{
         aggreg_id := AggregId,
         http := #{connect_timeout := ConnectTimeout}
@@ -950,9 +969,9 @@ action_status(ActionResId, #{mode := aggregated} = ActionState) ->
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
     ok = check_aggreg_upload_errors(AggregId),
-    ok = check_snowpipe_user_permission(ActionResId, ActionState),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
         true ->
+            ok = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState),
             ?status_connected;
         false ->
             ?status_disconnected
@@ -1027,9 +1046,10 @@ check_aggreg_upload_errors(AggregId) ->
             ok
     end.
 
-check_snowpipe_user_permission(HTTPPool, ActionState) ->
+check_snowpipe_user_permission(HTTPPool, ODBCPool, ActionState) ->
     #{http := HTTPClientConfig} = ActionState,
-    Opts = #{},
+    RequestId = list_to_binary(uuid:uuid_to_string(uuid:get_v4())),
+    Opts = #{request_id => RequestId},
     case insert_report_request(HTTPPool, Opts, HTTPClientConfig) of
         {ok, _} ->
             ok;
@@ -1039,7 +1059,10 @@ check_snowpipe_user_permission(HTTPPool, ActionState) ->
                     {ok, JSON} -> JSON;
                     {error, _} -> Body0
                 end,
-            ?SLOG(debug, #{
+            FailureDetails = try_get_jwt_failure_details(ODBCPool, HTTPPool, Body),
+            ?SLOG(warning, FailureDetails#{
+                pool => HTTPPool,
+                request_id => RequestId,
                 msg => "snowflake_check_snowpipe_user_permission_error",
                 body => Body
             }),
@@ -1067,6 +1090,85 @@ check_snowpipe_user_permission(HTTPPool, ActionState) ->
             %% Not marking it as unhealthy because it could be spurious
             throw(Msg)
     end.
+
+try_get_jwt_failure_details(ODBCPool, ActionResId, RespBody) ->
+    maybe
+        #{<<"message">> := Msg} ?= RespBody,
+        {ok, RequestId} ?= get_jwt_error_request_id(Msg),
+        {selected, [_ColHeader], [{Val}]} ?= get_login_failure_details(ODBCPool, RequestId),
+        true ?= is_list(Val) orelse {error, {not_string, Val}},
+        {ok, Data} ?= emqx_utils_json:safe_decode(Val, [return_maps]),
+        #{failure_details => Data}
+    else
+        Err ->
+            ?SLOG(debug, #{
+                msg => "snowflake_action_get_jwt_failure_details_err",
+                action_res_id => ActionResId,
+                reason => Err
+            }),
+            %% When role doesn't have MONITOR on account, the command returns:
+            %% SQL compilation error:\nUnknown function SYSTEM$GET_LOGIN_FAILURE_DETAILS
+            %% SQLSTATE IS: 42601
+            Hint = <<
+                "To get more details about the login failure, log into your",
+                " Snowflake account with an admin role that has the MONITOR privilege",
+                " on the account, and check the output of",
+                " SYSTEM$GET_LOGIN_FAILURE_DETAILS on logged request id."
+            >>,
+            #{failure_details => undefined, hint => Hint}
+    end.
+
+%% Even if we provide a request id for the HTTP call, snowflake decides to use its own
+%% request id when returning JWT errors...
+get_jwt_error_request_id(Msg) when is_binary(Msg) ->
+    %% ece3379e-6715-4d48-adeb-d5507d05e3e2
+    HexChar = <<"[0-9a-fA-F]">>,
+    UUIDRE = iolist_to_binary([
+        HexChar,
+        <<"{8}-">>,
+        HexChar,
+        <<"{4}-">>,
+        HexChar,
+        <<"{4}-">>,
+        HexChar,
+        <<"{4}-">>,
+        HexChar,
+        <<"{12}">>
+    ]),
+    RE = <<"\\[(", UUIDRE/binary, ")\\]">>,
+    case re:run(Msg, RE, [{capture, all_but_first, binary}]) of
+        {match, [UUID]} ->
+            {ok, UUID};
+        _ ->
+            {error, <<"couldn't obtain jwt request id from error message">>}
+    end;
+get_jwt_error_request_id(_) ->
+    {error, <<"couldn't obtain jwt request id from error message">>}.
+
+get_login_failure_details(ODBCPool, RequestId) ->
+    try
+        ecpool:pick_and_do(
+            ODBCPool,
+            fun(ConnPid) ->
+                ?MODULE:do_get_login_failure_details(ConnPid, RequestId)
+            end,
+            %% Must be executed by the ecpool worker, which owns the ODBC connection.
+            handover
+        )
+    catch
+        K:E:Stacktrace ->
+            {error, #{kind => K, reason => E, stacktrace => Stacktrace}}
+    end.
+
+do_get_login_failure_details(ConnPid, RequestId) ->
+    SQL0 = iolist_to_binary([
+        <<"select SYSTEM$GET_LOGIN_FAILURE_DETAILS('">>,
+        RequestId,
+        <<"')">>
+    ]),
+    SQL = binary_to_list(SQL0),
+    Timeout = 5_000,
+    odbc:sql_query(ConnPid, SQL, Timeout).
 
 %%------------------------------------------------------------------------------
 %% Tests

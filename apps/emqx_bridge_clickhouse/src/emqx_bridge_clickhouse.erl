@@ -129,6 +129,7 @@ fields(clickhouse_action) ->
 fields(action_parameters) ->
     [
         sql_field(),
+        emqx_bridge_v2_schema:undefined_as_null_field(),
         batch_value_separator_field()
     ];
 fields(connector_resource_opts) ->

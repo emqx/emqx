@@ -105,6 +105,15 @@ jobs:
       builder_vsn: ${{ needs.init.outputs.BUILDER_VSN }}
     secrets: inherit
 
+  performance_test:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - init
+      - prepare
+      - build_packages
+    uses: ./.github/workflows/performance_test.yaml
+    secrets: inherit
+
   build_and_push_docker_images:
     if: needs.prepare.outputs.release == 'true'
     needs:

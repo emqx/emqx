@@ -19,30 +19,47 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
 %% API
--export([log/2]).
+-export([log/2, log_fun/0, importance/1]).
 
-%% filter high frequency events
--define(HIGH_FREQUENCY_REQUESTS, [
-    <<"/publish">>,
-    <<"/clients/:clientid/subscribe">>,
-    <<"/clients/:clientid/unsubscribe">>,
-    <<"/publish/bulk">>,
-    <<"/clients/:clientid/unsubscribe/bulk">>,
-    <<"/clients/:clientid/subscribe/bulk">>,
-    <<"/clients/kickout/bulk">>
-]).
+%% In the previous versions,
+%% this module used the request method to determine whether the request should be logged,
+%% but here are some exceptions:
+%% 1. the OIDC callback uses the `GET` method, but it is important
+%% 2. some endpoints (called frequency requests) use the `POST` method,
+%%    but most of the time we do not want to log them
+%% So an auxiliary `importance` metadata was introduced.
+%%
+%% The strategy is:
+%% 1. Use `high` to mark an important `GET` method
+%% 2. Use `low` to mark the frequency methods
+%% 3. `medium` is the default importance and is set automatically
 
-log(#{code := Code, method := Method} = Meta, Req) ->
+-define(AUDIT_IMPORTANCE_HIGH, 100).
+-define(AUDIT_IMPORTANCE_MEDIUM, 60).
+-define(AUDIT_IMPORTANCE_LOW, 30).
+
+-define(CODE_METHOD_NOT_ALLOWED, 405).
+
+log_fun() ->
+    {emqx_dashboard_audit, log, #{importance => medium}}.
+
+importance(Level) when
+    Level =:= high;
+    Level =:= medium;
+    Level =:= low
+->
+    #{importance => Level}.
+
+log(#{code := Code, method := Method, importance := Importance} = Meta, Req) ->
     %% Keep level/2 and log_meta/1 inside of this ?AUDIT macro
-    ?AUDIT(level(Method, Code), log_meta(Meta, Req)).
+    ImportanceNum = importance_to_num(Code, Importance),
+    ?AUDIT(level(ImportanceNum, Method, Code), log_meta(ImportanceNum, Meta, Req)).
 
-log_meta(Meta, Req) ->
-    #{operation_id := OperationId, method := Method} = Meta,
-    case
-        Method =:= get orelse
-            (lists:member(OperationId, ?HIGH_FREQUENCY_REQUESTS) andalso
-                ignore_high_frequency_request())
-    of
+log_meta(Importance, #{method := get} = _Meta, _Req) when Importance =< ?AUDIT_IMPORTANCE_MEDIUM ->
+    undefined;
+log_meta(Importance, Meta, Req) ->
+    #{method := Method} = Meta,
+    case (Importance =< ?AUDIT_IMPORTANCE_LOW) andalso ignore_high_frequency_request() of
         true ->
             undefined;
         false ->
@@ -72,18 +89,20 @@ from(#{auth_type := jwt_token}) ->
     dashboard;
 from(#{auth_type := api_key}) ->
     rest_api;
-from(#{operation_id := <<"/login">>}) ->
-    dashboard;
+from(#{log_from := From}) ->
+    From;
 from(#{code := Code} = Meta) when Code =:= 401 orelse Code =:= 403 ->
     case maps:find(failure, Meta) of
         {ok, #{code := 'BAD_API_KEY_OR_SECRET'}} -> rest_api;
         {ok, #{code := 'UNAUTHORIZED_ROLE', message := ?API_KEY_NOT_ALLOW_MSG}} -> rest_api;
         %% 'TOKEN_TIME_OUT' 'BAD_TOKEN' is dashboard code.
         _ -> dashboard
-    end.
+    end;
+from(_) ->
+    unknown.
 
 source(#{source := Source}) -> Source;
-source(#{operation_id := <<"/login">>, body := #{<<"username">> := Username}}) -> Username;
+source(#{log_source := Source}) -> Source;
 source(_Meta) -> <<"">>.
 
 source_ip(Req) ->
@@ -106,15 +125,31 @@ operation_type(Meta) ->
 http_request(Meta) ->
     maps:with([method, headers, bindings, body], Meta).
 
+operation_result(302, _) -> success;
 operation_result(Code, _) when Code >= 300 -> failure;
 operation_result(_, #{failure := _}) -> failure;
 operation_result(_, _) -> success.
 
-level(get, _Code) -> debug;
-level(_, Code) when Code >= 200 andalso Code < 300 -> info;
-level(_, Code) when Code >= 300 andalso Code < 400 -> warning;
-level(_, Code) when Code >= 400 andalso Code < 500 -> error;
-level(_, _) -> critical.
+%%
+level(?AUDIT_IMPORTANCE_HIGH, _, _) -> warning;
+level(_, get, _Code) -> debug;
+level(_, _, Code) when Code >= 200 andalso Code < 300 -> info;
+level(_, _, Code) when Code >= 300 andalso Code < 400 -> warning;
+level(_, _, Code) when Code >= 400 andalso Code < 500 -> error;
+level(_, _, _) -> critical.
 
 ignore_high_frequency_request() ->
     emqx_conf:get([log, audit, ignore_high_frequency_request], true).
+
+%% This is a special case.
+%% An illegal request (e.g. A `GET` request to a `POST`-only endpoint) does not have metadata,
+%% its `importance` is the default value,
+%% so we have to manually increase the `importance` to record this request.
+importance_to_num(?CODE_METHOD_NOT_ALLOWED, _) ->
+    ?AUDIT_IMPORTANCE_HIGH;
+importance_to_num(_, high) ->
+    ?AUDIT_IMPORTANCE_HIGH;
+importance_to_num(_, medium) ->
+    ?AUDIT_IMPORTANCE_MEDIUM;
+importance_to_num(_, low) ->
+    ?AUDIT_IMPORTANCE_LOW.
