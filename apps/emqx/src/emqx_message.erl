@@ -366,7 +366,7 @@ filter_pub_props(Props) ->
     ).
 
 maybe_put_extra(Extra, Props) when map_size(Extra) > 0 ->
-    Props#{internal_extra => Extra};
+    Props#{?MQTT_INTERNAL_EXTRA => Extra};
 maybe_put_extra(_Extra, Props) ->
     Props.
 

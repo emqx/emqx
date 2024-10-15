@@ -594,8 +594,8 @@ put_ctx(
     OtelCtx,
     #mqtt_packet{variable = #mqtt_packet_publish{properties = Props} = PubPacket} = Packet
 ) ->
-    Extra = maps:get(internal_extra, Props, #{}),
-    Props1 = Props#{internal_extra => Extra#{?EMQX_OTEL_CTX => OtelCtx}},
+    Extra = maps:get(?MQTT_INTERNAL_EXTRA, Props, #{}),
+    Props1 = Props#{?MQTT_INTERNAL_EXTRA => Extra#{?EMQX_OTEL_CTX => OtelCtx}},
     Packet#mqtt_packet{variable = PubPacket#mqtt_packet_publish{properties = Props1}};
 put_ctx(
     _OtelCtx,
@@ -608,7 +608,7 @@ get_ctx(#message{extra = Extra}) ->
 get_ctx(#delivery{message = #message{extra = Extra}}) ->
     from_extra(Extra);
 get_ctx(#mqtt_packet{
-    variable = #mqtt_packet_publish{properties = #{internal_extra := Extra}}
+    variable = #mqtt_packet_publish{properties = #{?MQTT_INTERNAL_EXTRA := Extra}}
 }) ->
     from_extra(Extra);
 get_ctx(_) ->

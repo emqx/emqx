@@ -453,7 +453,7 @@ to_message(
 ) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     {Extra, Props1} =
-        case maps:take(internal_extra, Props) of
+        case maps:take(?MQTT_INTERNAL_EXTRA, Props) of
             error -> {#{}, Props};
             ExtraProps -> ExtraProps
         end,
