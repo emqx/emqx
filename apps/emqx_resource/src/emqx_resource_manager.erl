@@ -90,15 +90,13 @@
     hc_workers = #{
         resource => #{},
         channel => #{
-            ongoing => #{},
-            pending => []
+            ongoing => #{}
         }
     } :: #{
-        resource := #{{pid(), reference()} => true},
+        resource := #{pid() => true},
         channel := #{
-            {pid(), reference()} => channel_id(),
-            ongoing := #{channel_id() => channel_status_map()},
-            pending := [channel_id()]
+            pid() => channel_id(),
+            ongoing := #{channel_id() => channel_status_map()}
         }
     },
     %% Callers waiting on health check
@@ -662,10 +660,11 @@ handle_event(
 %%--------------------------
 %% State: DISCONNECTED
 %%--------------------------
-handle_event(enter, _OldState, ?state_disconnected = State, Data) ->
-    ok = log_status_consistency(State, Data),
+handle_event(enter, _OldState, ?state_disconnected = State, Data0) ->
+    ok = log_status_consistency(State, Data0),
     ?tp(resource_disconnected_enter, #{}),
-    {keep_state_and_data, retry_actions(Data)};
+    Data = handle_abort_all_channel_health_checks(Data0),
+    {keep_state, Data, retry_actions(Data)};
 handle_event(state_timeout, auto_retry, ?state_disconnected, Data) ->
     ?tp(resource_auto_reconnect, #{}),
     start_resource(Data, undefined);
@@ -792,7 +791,6 @@ start_resource(Data, From) ->
             %% Perform an initial health_check immediately before transitioning into a connected state
             UpdatedData2 = add_channels(UpdatedData1),
             UpdatedData3 = maybe_update_callback_mode(UpdatedData2),
-
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
             {next_state, ?state_connecting, update_state(UpdatedData3), Actions};
         {error, Reason} = Err ->
@@ -869,8 +867,7 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
             NewData = Data#data{
                 state = NewState,
                 added_channels = NewAddedChannelsMap
-            },
-            add_channels_in_list(Rest, NewData);
+            };
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
             ?SLOG(
@@ -883,7 +880,6 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
                 },
                 #{tag => tag(Group, Type)}
             ),
-            AddedChannelsMap = Data#data.added_channels,
             NewAddedChannelsMap = maps:put(
                 ChannelID,
                 channel_status(Error, ChannelConfig),
@@ -893,9 +889,9 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
                 added_channels = NewAddedChannelsMap
             },
             %% Raise an alarm since the channel could not be added
-            _ = maybe_alarm(?status_disconnected, IsDryRun, ChannelID, Error, no_prev_error),
-            add_channels_in_list(Rest, NewData)
-    end.
+            _ = maybe_alarm(?status_disconnected, IsDryRun, ChannelID, Error, no_prev_error)
+    end,
+    add_channels_in_list(Rest, NewData).
 
 maybe_stop_resource(#data{status = Status} = Data) when Status =/= ?rm_status_stopped ->
     stop_resource(Data);
@@ -951,8 +947,7 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
             NewData = Data#data{
                 state = NewState,
                 added_channels = NewAddedChannelsMap
-            },
-            remove_channels_in_list(Rest, NewData, KeepInChannelMap);
+            };
         {error, Reason} ->
             ?SLOG(
                 log_level(IsDryRun),
@@ -968,9 +963,9 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
             ),
             NewData = Data#data{
                 added_channels = NewAddedChannelsMap
-            },
-            remove_channels_in_list(Rest, NewData, KeepInChannelMap)
-    end.
+            }
+    end,
+    remove_channels_in_list(Rest, NewData, KeepInChannelMap).
 
 safe_call_remove_channel(_ResId, _Mod, undefined = State, _ChannelID) ->
     {ok, State};
@@ -1293,8 +1288,7 @@ channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
         not channel_status_is_channel_added(Status)
     ],
     %% Attempt to add channels that are not added
-    ChannelsNotAddedWithConfigs =
-        get_config_for_channels(Data0, ChannelsNotAdded),
+    ChannelsNotAddedWithConfigs = get_config_for_channels(Data0, ChannelsNotAdded),
     Data1 = add_channels_in_list(ChannelsNotAddedWithConfigs, Data0),
     %% Now that we have done the adding, we can get the status of all channels
     Data2 = trigger_health_check_for_added_channels(Data1),
@@ -1428,12 +1422,7 @@ get_channel_health_check_interval(ChannelId, NewChanStatus, PreviousChanStatus, 
 -spec trigger_health_check_for_added_channels(data()) -> data().
 trigger_health_check_for_added_channels(Data0 = #data{hc_workers = HCWorkers0}) ->
     #{
-        channel :=
-            #{
-                %% TODO: rm pending
-                %% pending := CPending0,
-                ongoing := Ongoing0
-            }
+        channel := #{ongoing := Ongoing0}
     } = HCWorkers0,
     NewOngoing = maps:filter(
         fun(ChannelId, OldStatus) ->
@@ -1526,15 +1515,15 @@ worker_channel_health_check(Data, ChannelId) ->
     exit({ok, channel_status(RawStatus, ChannelConfig)}).
 
 -spec handle_channel_health_check_worker_down(
-    data(), {pid(), reference()}, {ok, channel_status_map()}
+    data(), pid(), {ok, channel_status_map()}
 ) ->
     gen_statem:event_handler_result(state(), data()).
-handle_channel_health_check_worker_down(Data0, WorkerRef, ExitResult) ->
+handle_channel_health_check_worker_down(Data0, Pid, ExitResult) ->
     #data{
         hc_workers = HCWorkers0 = #{channel := CHCWorkers0},
         added_channels = AddedChannels0
     } = Data0,
-    {ChannelId, CHCWorkers1} = maps:take(WorkerRef, CHCWorkers0),
+    {ChannelId, CHCWorkers1} = maps:take(Pid, CHCWorkers0),
     %% The channel might have got removed while the health check was going on
     CurrentStatus = maps:get(ChannelId, AddedChannels0, channel_not_added),
     {AddedChannels, NewStatus} =
@@ -1863,3 +1852,42 @@ log_level(false) -> warning.
 tag(Group, Type) ->
     Str = emqx_utils_conv:str(Group) ++ "/" ++ emqx_utils_conv:str(Type),
     string:uppercase(Str).
+
+%% When a resource enters a `?status_disconnected' state, late channel health check
+%% replies are useless and could corrup state.
+-spec handle_abort_all_channel_health_checks(data()) -> data().
+handle_abort_all_channel_health_checks(Data0) ->
+    #data{
+        hc_workers = #{channel := CHCWorkers} = HCWorkers0,
+        hc_pending_callers = #{channel := CPending} = Pending0
+    } = Data0,
+    lists:foreach(
+        fun(From) ->
+            gen_statem:reply(From, {error, resource_disconnected})
+        end,
+        lists:flatten(maps:values(CPending))
+    ),
+    maps:foreach(
+        fun
+            (Pid, _ChannelId) when is_pid(Pid) ->
+                abort_channel_health_check(Pid);
+            (_, _) ->
+                ok
+        end,
+        CHCWorkers
+    ),
+    HCWorkers = HCWorkers0#{channel := #{ongoing => #{}}},
+    Pending = Pending0#{channel := #{}},
+    Data0#data{
+        hc_workers = HCWorkers,
+        hc_pending_callers = Pending
+    }.
+
+abort_channel_health_check(Pid) ->
+    %% We're already linked to the worker pids due to `spawn_link'.
+    exit(Pid, kill),
+    %% Clean the exit signal so it doesn't contaminate state handling.
+    receive
+        {'EXIT', Pid, _} ->
+            ok
+    end.
