@@ -348,12 +348,15 @@ directly_setup_dynamo() ->
 
 directly_query(Query) ->
     directly_setup_dynamo(),
-    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN).
+    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE_BIN, #{}).
 
 directly_get_payload(Key) ->
+    directly_get_field(Key, <<"payload">>).
+
+directly_get_field(Key, Field) ->
     case directly_query({get_item, {<<"id">>, Key}}) of
         {ok, Values} ->
-            proplists:get_value(<<"payload">>, Values, {error, {invalid_item, Values}});
+            proplists:get_value(Field, Values, {error, {invalid_item, Values}});
         Error ->
             Error
     end.
@@ -370,7 +373,7 @@ t_setup_via_config_and_publish(Config) ->
         create_bridge(Config)
     ),
     MsgId = emqx_utils:gen_id(),
-    SentData = #{clientid => <<"clientid">>, id => MsgId, payload => ?PAYLOAD},
+    SentData = #{clientid => <<"clientid">>, id => MsgId, payload => ?PAYLOAD, foo => undefined},
     ?check_trace(
         begin
             ?wait_async_action(
@@ -382,6 +385,43 @@ t_setup_via_config_and_publish(Config) ->
             ),
             ?assertMatch(
                 ?PAYLOAD,
+                directly_get_payload(MsgId)
+            ),
+            ?assertMatch(
+                %% the old behavior without undefined_vars_as_null
+                <<"undefined">>,
+                directly_get_field(MsgId, <<"foo">>)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(dynamo_connector_query_return, Trace0),
+            ?assertMatch([#{result := {ok, _}}], Trace),
+            ok
+        end
+    ),
+    ok.
+
+t_undefined_vars_as_null(Config) ->
+    ?assertNotEqual(undefined, get(aws_config)),
+    create_table(Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{<<"undefined_vars_as_null">> => true})
+    ),
+    MsgId = emqx_utils:gen_id(),
+    SentData = #{clientid => <<"clientid">>, id => MsgId, payload => undefined},
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertMatch(
+                    {ok, _}, send_message(Config, SentData)
+                ),
+                #{?snk_kind := dynamo_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                undefined,
                 directly_get_payload(MsgId)
             ),
             ok

@@ -274,7 +274,7 @@ listener_name(Protocol) ->
 
 audit_log_fun() ->
     case emqx_release:edition() of
-        ee -> fun emqx_dashboard_audit:log/2;
+        ee -> emqx_dashboard_audit:log_fun();
         ce -> undefined
     end.
 

@@ -67,7 +67,8 @@ schema("/sso/oidc/callback") ->
                 401 => response_schema(401),
                 404 => response_schema(404)
             },
-            security => []
+            security => [],
+            log_meta => emqx_dashboard_audit:importance(high)
         }
     }.
 
@@ -75,6 +76,7 @@ schema("/sso/oidc/callback") ->
 %% API
 %%--------------------------------------------------------------------
 code_callback(get, #{query_string := QS}) ->
+    minirest_handler:update_log_meta(#{log_from => oidc}),
     case ensure_sso_state(QS) of
         {ok, Target} ->
             ?SLOG(info, #{
@@ -185,6 +187,7 @@ retrieve_userinfo(
                 user_info => UserInfo
             }),
             Username = emqx_placeholder:proc_tmpl(NameTks, UserInfo),
+            minirest_handler:update_log_meta(#{log_source => Username}),
             ensure_user_exists(Cfg, Username);
         {error, _Reason} = Error ->
             Error

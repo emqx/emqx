@@ -240,7 +240,7 @@ gen_redirect_response(DashboardAddr, Username) ->
     case ensure_user_exists(Username) of
         {ok, Role, Token} ->
             Target = login_redirect_target(DashboardAddr, Username, Role, Token),
-            {redirect, {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY}};
+            {redirect, Username, {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY}};
         {error, Reason} ->
             {error, Reason}
     end.

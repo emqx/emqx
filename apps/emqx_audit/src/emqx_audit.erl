@@ -50,7 +50,24 @@ to_audit(#{from := cli, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
         http_method = <<"">>,
         http_request = <<"">>
     };
-to_audit(#{from := From} = Log) when From =:= dashboard orelse From =:= rest_api ->
+to_audit(#{from := erlang_console, function := F, args := Args}) ->
+    #?AUDIT{
+        from = erlang_console,
+        source = <<"">>,
+        source_ip = <<"">>,
+        %% operation info
+        operation_id = <<"">>,
+        operation_type = <<"">>,
+        operation_result = <<"">>,
+        failure = <<"">>,
+        %% request detail
+        http_status_code = <<"">>,
+        http_method = <<"">>,
+        http_request = <<"">>,
+        duration_ms = 0,
+        args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
+    };
+to_audit(#{from := From} = Log) when is_atom(From) ->
     #{
         source := Source,
         source_ip := SourceIp,
@@ -79,23 +96,6 @@ to_audit(#{from := From} = Log) when From =:= dashboard orelse From =:= rest_api
         http_request = Request,
         duration_ms = DurationMs,
         args = <<"">>
-    };
-to_audit(#{from := erlang_console, function := F, args := Args}) ->
-    #?AUDIT{
-        from = erlang_console,
-        source = <<"">>,
-        source_ip = <<"">>,
-        %% operation info
-        operation_id = <<"">>,
-        operation_type = <<"">>,
-        operation_result = <<"">>,
-        failure = <<"">>,
-        %% request detail
-        http_status_code = <<"">>,
-        http_method = <<"">>,
-        http_request = <<"">>,
-        duration_ms = 0,
-        args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
     }.
 
 log(_Level, undefined, _Handler) ->
