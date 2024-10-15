@@ -6,26 +6,36 @@
 
 -behaviour(supervisor).
 
--export([start_link/0, start_child/2, stop_child/1]).
+-export([start_link/0]).
 
 -export([init/1]).
-
--define(CHILD(I, Args, Restart), {I, {I, start_link, Args}, Restart, 5000, worker, [I]}).
--define(CHILD(I), ?CHILD(I, [], permanent)).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_child(Mod, Args) ->
-    supervisor:start_child(?MODULE, ?CHILD(Mod, Args, transient)).
-
-stop_child(Mod) ->
-    _ = supervisor:terminate_child(?MODULE, Mod),
-    _ = supervisor:delete_child(?MODULE, Mod),
-    ok.
-
 init([]) ->
     {ok,
-        {{one_for_one, 5, 100}, [
-            ?CHILD(emqx_dashboard_sso_manager)
+        {{one_for_one, 10, 100}, [
+            sup_spec(emqx_dashboard_sso_oidc_sup),
+            child_spec(emqx_dashboard_sso_manager, permanent)
         ]}}.
+
+sup_spec(Mod) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [Mod]
+    }.
+
+child_spec(Mod, Restart) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => Restart,
+        shutdown => 15000,
+        type => worker,
+        modules => [Mod]
+    }.
