@@ -105,7 +105,11 @@ write_records_limited(Name, Buffer = #buffer{max_records = MaxRecords}, Records)
 write_records(Name, Buffer = #buffer{fd = Writer, max_records = MaxRecords}, Records, NumWritten) ->
     case emqx_connector_aggreg_buffer:write(Records, Writer) of
         ok ->
-            ?tp(connector_aggreg_records_written, #{action => Name, records => Records}),
+            ?tp(connector_aggreg_records_written, #{
+                action => Name,
+                records => Records,
+                buffer => Buffer
+            }),
             case is_number(NumWritten) andalso NumWritten >= MaxRecords of
                 true ->
                     rotate_buffer_async(Name, Buffer);
@@ -227,12 +231,19 @@ terminate(_Reason, #st{name = Name}) ->
 %%
 
 handle_next_buffer(Timestamp, St = #st{buffer = #buffer{until = Until}}) when Timestamp < Until ->
+    ?tp(connector_aggreg_handle_next_buffer_too_soon, #{
+        timestamp => Timestamp, buffer => St#st.buffer
+    }),
     St;
 handle_next_buffer(Timestamp, St0 = #st{buffer = Buffer = #buffer{since = PrevSince}}) ->
+    ?tp(connector_aggreg_handle_next_buffer, #{timestamp => Timestamp, buffer => Buffer}),
     BufferClosed = close_buffer(Buffer),
     St = enqueue_closed_buffer(BufferClosed, St0),
     handle_next_buffer(Timestamp, PrevSince, St);
 handle_next_buffer(Timestamp, St = #st{buffer = undefined}) ->
+    ?tp(connector_aggreg_handle_next_buffer_undefined, #{
+        timestamp => Timestamp, buffer => St#st.buffer
+    }),
     handle_next_buffer(Timestamp, Timestamp, St).
 
 handle_next_buffer(Timestamp, PrevSince, St0) ->
@@ -245,12 +256,14 @@ handle_rotate_buffer(
     FD,
     St0 = #st{buffer = Buffer = #buffer{since = Since, seq = Seq, fd = FD}}
 ) ->
+    ?tp(connector_aggreg_rotate_buffer, #{fd => FD, buffer => Buffer}),
     BufferClosed = close_buffer(Buffer),
     NextBuffer = allocate_buffer(Since, Seq + 1, St0),
     St = enqueue_closed_buffer(BufferClosed, St0#st{buffer = NextBuffer}),
     _ = announce_current_buffer(St),
     St;
 handle_rotate_buffer(_ClosedFD, St) ->
+    ?tp(connector_aggreg_rotate_buffer_nop, #{fd => _ClosedFD, buffer => St#st.buffer}),
     St.
 
 enqueue_closed_buffer(Buffer, St = #st{queued = undefined}) ->
@@ -277,7 +290,7 @@ allocate_buffer(Since, Seq, St = #st{name = Name}) ->
     {ok, FD} = file:open(Filename, [write, binary]),
     Writer = emqx_connector_aggreg_buffer:new_writer(FD, _Meta = []),
     _ = add_counter(Counter),
-    ?tp(connector_aggreg_buffer_allocated, #{action => Name, filename => Filename}),
+    ?tp(connector_aggreg_buffer_allocated, #{action => Name, filename => Filename, buffer => Buffer}),
     Buffer#buffer{fd = Writer}.
 
 recover_buffer(Buffer = #buffer{filename = Filename, cnt_records = Counter}) ->
@@ -352,10 +365,12 @@ handle_close_buffer(
     Timestamp,
     St0 = #st{buffer = Buffer = #buffer{until = Until}}
 ) when Timestamp >= Until ->
+    ?tp(connector_aggreg_close_buffer, #{timestamp => Timestamp, buffer => Buffer}),
     St = St0#st{buffer = undefined},
     _ = announce_current_buffer(St),
     enqueue_delivery(close_buffer(Buffer), St);
 handle_close_buffer(_Timestamp, St = #st{buffer = undefined}) ->
+    ?tp(connector_aggreg_close_buffer_nop, #{timestamp => _Timestamp, buffer => undefined}),
     St.
 
 close_buffer(Buffer = #buffer{fd = FD}) ->
@@ -398,16 +413,14 @@ enqueue_delivery(Buffer, St = #st{name = Name, deliveries = Ds}) ->
 handle_delivery_exit(Buffer, Normal, St = #st{name = Name}) when
     Normal == normal; Normal == noproc
 ->
-    ?SLOG(debug, #{
-        msg => "aggregated_buffer_delivery_completed",
+    ?tp(debug, "aggregated_buffer_delivery_completed", #{
         action => Name,
         buffer => Buffer#buffer.filename
     }),
     ok = discard_buffer(Buffer),
     St;
 handle_delivery_exit(Buffer, {shutdown, {skipped, Reason}}, St = #st{name = Name}) ->
-    ?SLOG(info, #{
-        msg => "aggregated_buffer_delivery_skipped",
+    ?tp(info, "aggregated_buffer_delivery_skipped", #{
         action => Name,
         buffer => {Buffer#buffer.since, Buffer#buffer.seq},
         reason => Reason
