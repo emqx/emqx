@@ -78,6 +78,10 @@
     ]
 ).
 
+-ifdef(TEST).
+-export([test_applications/1, test_db_config/1]).
+-endif.
+
 -export_type([
     shard_id/0,
     builtin_db_opts/0,
@@ -1205,3 +1209,23 @@ clientid_size(ClientID) when is_binary(ClientID) ->
     byte_size(ClientID);
 clientid_size(ClientID) ->
     erlang:external_size(ClientID).
+
+-ifdef(TEST).
+
+test_db_config(_Config) ->
+    #{
+        backend => builtin_raft,
+        storage => {emqx_ds_storage_reference, #{}},
+        n_shards => 1,
+        n_sites => 1,
+        replication_factor => 3,
+        replication_options => #{}
+    }.
+
+test_applications(_Config) ->
+    [
+        emqx_durable_storage,
+        emqx_ds_backends
+    ].
+
+-endif.

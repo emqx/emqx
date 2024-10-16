@@ -33,6 +33,7 @@
     inc/4,
     observe/4,
     get/3,
+    set/4,
     get_gauge/3,
     set_gauge/5,
     shift_gauge/5,
@@ -241,6 +242,11 @@ inc(Name, Id, Metric) ->
 -spec inc(handler_name(), metric_id(), metric_name(), integer()) -> ok.
 inc(Name, Id, Metric, Val) ->
     counters:add(get_ref(Name, Id), idx_metric(Name, Id, counter, Metric), Val).
+
+%% Set value of counter explicitly, so it can behave as a gauge.
+-spec set(handler_name(), metric_id(), metric_name(), integer()) -> ok.
+set(Name, Id, Metric, Val) ->
+    counters:put(get_ref(Name, Id), idx_metric(Name, Id, counter, Metric), Val).
 
 %% Add a sample to the slide.
 %%

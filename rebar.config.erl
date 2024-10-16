@@ -130,6 +130,7 @@ is_community_umbrella_app("apps/emqx_cluster_link") -> false;
 is_community_umbrella_app("apps/emqx_ds_builtin_raft") -> false;
 is_community_umbrella_app("apps/emqx_auth_kerberos") -> false;
 is_community_umbrella_app("apps/emqx_auth_cinfo") -> false;
+is_community_umbrella_app("apps/emqx_ds_fdb_backend") -> false;
 is_community_umbrella_app(_) -> true.
 
 %% BUILD_WITHOUT_JQ
@@ -447,7 +448,20 @@ relx_apps(ReleaseType, Edition) ->
             [{App, load} || App <- BusinessApps, not lists:member(App, ExcludedApps)]),
     Apps.
 
-excluded_apps(_RelType) ->
+excluded_apps(standard) ->
+    OptionalApps = [
+        {quicer, is_quicer_supported()},
+        {jq, is_jq_supported()},
+        {observer, is_app(observer)},
+        {mnesia_rocksdb, is_rocksdb_supported()},
+        {emqx_fdb_ds, false},
+        {emqx_ds_fdb_backend, false},
+        {emqx_fdb_cli, false},
+        {emqx_fdb_management, false},
+        {emqx_event_history, false}
+    ],
+    [App || {App, false} <- OptionalApps];
+excluded_apps(platform) ->
     OptionalApps = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
