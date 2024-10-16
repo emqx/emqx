@@ -207,7 +207,12 @@ t_target_extrouting_gc(Config) ->
     TopicFilter2 = <<"t/#">>,
     {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, TopicFilter1), qos1),
     {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, TopicFilter2), qos1),
-    {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
+    {ok, _} = ?block_until(#{
+        ?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TargetNode1}
+    }),
+    {ok, _} = ?block_until(#{
+        ?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TargetNode2}
+    }),
     {ok, _} = emqtt:publish(SourceC1, <<"t/1">>, <<"HELLO1">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/2/ext">>, <<"HELLO2">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/3/ext">>, <<"HELLO3">>, qos1),
