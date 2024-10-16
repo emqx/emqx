@@ -186,6 +186,32 @@ t_sys_intersect(_) ->
     false = intersection(<<"$SYS/broker">>, <<"+/+">>),
     false = intersection(<<"$SYS/broker">>, <<"#">>).
 
+t_union(_) ->
+    Union = fun(Topics) -> lists:sort(emqx_topic:union(Topics)) end,
+    ?assertEqual([], Union([])),
+    ?assertEqual([<<"t/1/2/+">>], Union([<<"t/1/2/+">>])),
+    ?assertEqual([<<"t/1/2/#">>], Union([<<"t/1/2/+">>, <<"t/1/2/#">>])),
+    ?assertEqual([<<"t/+/1/#">>, <<"t/1/+/#">>], Union([<<"t/+/1/#">>, <<"t/1/+/#">>])),
+    ?assertEqual(
+        [<<"g/1">>, <<"t/+/+/#">>, <<"t/1">>],
+        Union([<<"t/1">>, <<"t/1">>, <<"t/2/+">>, <<"t/+/+/#">>, <<"t/+/+">>, <<"g/1">>])
+    ),
+    ?assertEqual(
+        [<<"#">>],
+        Union([<<"t/1">>, <<"t/1">>, <<"t/2/+">>, <<"t/+/+/#">>, <<"#">>, <<"g/1">>])
+    ).
+
+t_union_sys(_) ->
+    Union = fun(Topics) -> lists:sort(emqx_topic:union(Topics)) end,
+    ?assertEqual(
+        [<<"$SYS/cluster">>, <<"+/#">>],
+        Union([<<"+/#">>, <<"t/1/2/#">>, <<"$SYS/cluster">>])
+    ),
+    ?assertEqual(
+        [<<"$SYS/+">>, <<"$SYS/cluster/#">>, <<"+/#">>],
+        Union([<<"+/#">>, <<"t/1/2">>, <<"$SYS/cluster">>, <<"$SYS/cluster/#">>, <<"$SYS/+">>])
+    ).
+
 t_validate(_) ->
     true = validate(<<"a/+/#">>),
     true = validate(<<"a/b/c/d">>),
