@@ -23,6 +23,7 @@
 -behaviour(gen_server).
 -export([
     init/1,
+    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -190,10 +191,10 @@ init(St0 = #st{name = Name}) ->
 
 handle_call({next_buffer, Timestamp}, _From, St0) ->
     St = #st{buffer = Buffer} = handle_next_buffer(Timestamp, St0),
-    {reply, Buffer, St, 0};
+    {reply, Buffer, St, {continue, enqueue_delivery}};
 handle_call({rotate_buffer, FD}, _From, St0) ->
     St = #st{buffer = Buffer} = handle_rotate_buffer(FD, St0),
-    {reply, Buffer, St, 0};
+    {reply, Buffer, St, {continue, enqueue_delivery}};
 handle_call(take_error, _From, St0) ->
     {MaybeError, St} = handle_take_error(St0),
     {reply, MaybeError, St}.
@@ -202,12 +203,13 @@ handle_cast({close_buffer, Timestamp}, St) ->
     {noreply, handle_close_buffer(Timestamp, St)};
 handle_cast({rotate_buffer, FD}, St0) ->
     St = handle_rotate_buffer(FD, St0),
-    {noreply, St, 0};
+    {noreply, St, {continue, enqueue_delivery}};
 handle_cast(_Cast, St) ->
     {noreply, St}.
 
-handle_info(timeout, St) ->
-    {noreply, handle_queued_buffer(St)};
+handle_continue(enqueue_delivery, St0) ->
+    {noreply, handle_queued_buffer(St0)}.
+
 handle_info({'DOWN', MRef, _, Pid, Reason}, St0 = #st{name = Name, deliveries = Ds0}) ->
     case maps:take(MRef, Ds0) of
         {Buffer, Ds} ->
