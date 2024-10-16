@@ -101,7 +101,7 @@
 resource_id(ClusterName) ->
     ?MSG_RES_ID(ClusterName).
 
--spec ensure_msg_fwd_resource(map()) ->
+-spec ensure_msg_fwd_resource(emqx_cluster_link_schema:link()) ->
     {ok, emqx_resource:resource_data() | already_started} | {error, Reason :: term()}.
 ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf) ->
     ResOpts1 = ResOpts#{
