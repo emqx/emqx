@@ -284,6 +284,8 @@ print(Json) ->
 
 print_hocon(Hocon) when is_map(Hocon) ->
     emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]);
+print_hocon(undefined) ->
+    emqx_ctl:print("No value~n", []);
 print_hocon({error, Error}) ->
     emqx_ctl:warning("~ts~n", [Error]).
 
@@ -811,8 +813,8 @@ print_inconsistent_conf(Keys, Target, Status, AllConfs) ->
         fun(Key) ->
             lists:foreach(
                 fun({Node, OtherConf}) ->
-                    TargetV = maps:get(Key, TargetConf),
-                    PrevV = maps:get(Key, OtherConf),
+                    TargetV = maps:get(Key, TargetConf, undefined),
+                    PrevV = maps:get(Key, OtherConf, undefined),
                     NodeTnxId = get_tnx_id(Node, Status),
                     Options = #{
                         key => Key,
@@ -855,7 +857,7 @@ print_inconsistent_conf(New, Old, Options) ->
         target := {Target, TargetTnxId},
         node := {Node, NodeTnxId}
     } = Options,
-    emqx_ctl:print("~ts(tnx_id=~w)'s ~s is diff from ~ts(tnx_id=~w).~n", [
+    emqx_ctl:print("~ts(tnx_id=~w)'s ~s is different from ~ts(tnx_id=~w).~n", [
         Node, NodeTnxId, Key, Target, TargetTnxId
     ]),
     emqx_ctl:print("~ts:~n", [Node]),
