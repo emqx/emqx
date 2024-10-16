@@ -68,4 +68,7 @@
 %% by a single beam:
 -define(DS_POLL_REQUEST_SHARING, emqx_ds_poll_request_sharing).
 
+-define(DS_POLL_WAITING_QUEUE_LEN, emqx_ds_poll_waitq_len).
+-define(DS_POLL_PENDING_QUEUE_LEN, emqx_ds_poll_pendingq_len).
+
 -endif.

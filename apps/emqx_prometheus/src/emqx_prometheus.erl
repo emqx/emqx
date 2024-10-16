@@ -530,7 +530,9 @@ emqx_collect(K = ?DS_POLL_REQUESTS, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_POLL_REQUESTS_FULFILLED, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_POLL_REQUESTS_DROPPED, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_POLL_REQUESTS_EXPIRED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, [])).
+emqx_collect(K = ?DS_POLL_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_POLL_WAITING_QUEUE_LEN, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_POLL_PENDING_QUEUE_LEN, D) -> gauge_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators
