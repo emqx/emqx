@@ -85,22 +85,34 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
-    match(words(Name), words(Filter));
+    match_words(words(Name), words(Filter));
 match(#share{} = Name, Filter) ->
     match_share(Name, Filter);
 match(Name, #share{} = Filter) ->
     match_share(Name, Filter);
-match([], []) ->
+match(Name, Filter) when is_binary(Name) ->
+    match_words(words(Name), Filter);
+match(Name, Filter) when is_binary(Filter) ->
+    match_words(Name, words(Filter));
+match(Name, Filter) ->
+    match_words(Name, Filter).
+
+match_words([<<$$, _/binary>> | _], [W | _]) when ?IS_WILDCARD(W) ->
+    false;
+match_words(Name, Filter) ->
+    match_tokens(Name, Filter).
+
+match_tokens([], []) ->
     true;
-match([H | T1], [H | T2]) ->
-    match(T1, T2);
-match([_H | T1], ['+' | T2]) ->
-    match(T1, T2);
-match([<<>> | T1], ['' | T2]) ->
-    match(T1, T2);
-match(_, ['#']) ->
+match_tokens([H | T1], [H | T2]) ->
+    match_tokens(T1, T2);
+match_tokens([_H | T1], ['+' | T2]) ->
+    match_tokens(T1, T2);
+match_tokens([<<>> | T1], ['' | T2]) ->
+    match_tokens(T1, T2);
+match_tokens(_, ['#']) ->
     true;
-match(_, _) ->
+match_tokens(_, _) ->
     false.
 
 %% @doc Finds an intersection between two topics, two filters or a topic and a filter.
@@ -307,7 +319,7 @@ tokens(Topic) ->
     binary:split(Topic, <<"/">>, [global]).
 
 %% @doc Split Topic Path to Words
--spec words(topic()) -> words().
+-spec words(topic() | share()) -> words().
 words(#share{topic = Topic}) when is_binary(Topic) ->
     words(Topic);
 words(Topic) when is_binary(Topic) ->
