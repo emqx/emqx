@@ -164,6 +164,13 @@ create_producers_for_bridge_v2(
     ),
     case wolff:ensure_supervised_dynamic_producers(ClientId, WolffProducerConfig) of
         {ok, Producers} ->
+            case TopicType of
+                fixed ->
+                    ok = wolff:add_topic(Producers, MKafkaTopic),
+                    ok;
+                _ ->
+                    ok
+            end,
             ok = emqx_resource:allocate_resource(
                 ConnResId, {?kafka_producers, ActionResId}, Producers
             ),
