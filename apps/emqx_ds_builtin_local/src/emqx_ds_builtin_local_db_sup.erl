@@ -232,7 +232,7 @@ shard_batch_serializer_spec(DB, Shard, Opts) ->
 shard_beamformers_spec(DB, Shard, _Options) ->
     %% TODO: don't hardcode value
     BeamformerOpts = #{
-        n_workers => 5
+        n_workers => 100
     },
     #{
         id => {Shard, beamformers},

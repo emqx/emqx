@@ -74,30 +74,33 @@
 %% '''
 -module(emqx_ds_beamformer).
 
--behaviour(gen_server).
-
 %% API:
 -export([poll/5, shard_event/2]).
-
-%% behavior callbacks:
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
+-export([beams_init/0, beams_add/3, beams_conclude/3, beams_matched_requests/1, split/1]).
+-export([shard_metrics_id/1, enqueue/3, send_out_term/2, cleanup_expired/3]).
+-export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
--export([start_link/4, do_dispatch/1]).
+-export([do_dispatch/1]).
 
 -export_type([
     opts/0,
+    poll_req/0, poll_req/2,
     beam/2, beam/0,
     return_addr/1,
     unpack_iterator_result/1,
     event_topic/0,
-    stream_scan_return/0
+    stream_scan_return/0,
+    iterator_type/0,
+    beam_maker/0
 ]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include("emqx_ds.hrl").
+-include("emqx_ds_beamformer.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -125,30 +128,24 @@
 
 -type return_addr(ItKey) :: {reference(), ItKey}.
 
--record(poll_req, {
-    key,
-    %% Node from which the poll request originates:
-    node,
-    %% Information about the process that created the request:
-    return_addr,
-    %% Iterator:
-    it,
-    %% Callback that filters messages that belong to the request:
-    msg_matcher,
-    opts,
-    deadline
-}).
+-type poll_req_id() :: reference().
 
 -type poll_req(ItKey, Iterator) ::
     #poll_req{
-        key :: {_Stream, event_topic_filter(), emqx_ds:message_key()},
+        req_id :: poll_req_id(),
+        stream :: _Stream,
+        topic_filter :: event_topic_filter(),
+        start_key :: emqx_ds:message_key(),
         node :: node(),
         return_addr :: return_addr(ItKey),
         it :: Iterator,
         msg_matcher :: match_messagef(),
         opts :: emqx_ds:poll_opts(),
-        deadline :: integer()
+        deadline :: integer(),
+        hops :: non_neg_integer()
     }.
+
+-type poll_req() :: poll_req(_, _).
 
 %% Response:
 
@@ -173,39 +170,39 @@
     | {ok, end_of_stream}
     | emqx_ds:error(_).
 
--record(s, {
-    module :: module(),
-    metrics_id,
-    shard,
-    name,
-    pending_queue :: ets:tid(),
-    pending_request_limit :: non_neg_integer(),
-    wait_queue :: ets:tid(),
-    is_spinning = false :: boolean(),
-    batch_size :: non_neg_integer()
+-type iterator_type() :: committed | committed_fresh | future.
+
+%% Beam constructor:
+
+-type per_node_requests() :: #{poll_req_id() => poll_req()}.
+
+-type dispatch_matrix() :: #{{poll_req_id(), non_neg_integer()} => _}.
+
+-type filtered_batch() :: [{non_neg_integer(), {emqx_ds:message_key(), emqx_types:message()}}].
+
+-record(beam_maker, {
+    n = 0 :: non_neg_integer(),
+    reqs = #{} :: #{node() => per_node_requests()},
+    matrix = #{} :: dispatch_matrix(),
+    msgs = [] :: filtered_batch()
 }).
 
--type s() :: #s{}.
-
--record(shard_event, {
-    events :: [{_Stream, event_topic()}]
-}).
-
--define(fulfill_loop, fulfill_loop).
--define(housekeeping_loop, housekeeping_loop).
+-opaque beam_maker() :: #beam_maker{}.
 
 %%================================================================================
 %% Callbacks
 %%================================================================================
 
--type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
+-type match_messagef() :: fun(
+    (emqx_ds:message_key(), emqx_ds:topic(), emqx_types:message()) -> boolean()
+).
 
 -type unpack_iterator_result(Stream) :: #{
     stream := Stream,
     topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
-    timestamp := emqx_ds:time(),
-    message_matcher := match_messagef()
+    message_matcher := match_messagef(),
+    type => iterator_type()
 }.
 
 -callback unpack_iterator(_Shard, _Iterator) ->
@@ -214,8 +211,15 @@
 -callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(Iterator).
 
--callback scan_stream(_Shard, _Stream, _TopicFilter, _StartKey, _BatchSize :: non_neg_integer()) ->
+-callback scan_stream(
+    _Shard, _Stream, event_topic_filter(), emqx_ds:message_key(), _BatchSize :: non_neg_integer()
+) ->
     stream_scan_return().
+
+-callback high_watermark(_Shard, _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
+
+-callback fast_forward(_Shard, Iterator, emqx_ds:key()) ->
+    {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error().
 
 %%================================================================================
 %% API functions
@@ -231,23 +235,23 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
             stream := Stream,
             topic_filter := TF,
             last_seen_key := DSKey,
-            timestamp := Timestamp,
             message_matcher := MsgMatcher
         } ->
             Deadline = erlang:monotonic_time(millisecond) + Timeout,
+            ReqId = make_ref(),
             ?tp(beamformer_poll, #{
-                shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
+                req_id => ReqId,
+                shard => Shard,
+                key => DSKey,
+                timeout => Timeout,
+                deadline => Deadline
             }),
-            %% Try to maximize likelyhood of sending similar iterators to the
-            %% same worker:
-            Token = {Stream, Timestamp div 10_000_000},
-            Worker = gproc_pool:pick_worker(
-                emqx_ds_beamformer_sup:pool(Shard),
-                Token
-            ),
-            %% Make request:
+            %% Make a request:
             Req = #poll_req{
-                key = {Stream, TF, DSKey},
+                req_id = ReqId,
+                stream = Stream,
+                topic_filter = TF,
+                start_key = DSKey,
                 node = Node,
                 return_addr = ReturnAddr,
                 it = Iterator,
@@ -256,17 +260,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 msg_matcher = MsgMatcher
             },
             emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
-            %% Currently we implement backpressure by ignoring transient
-            %% errors (gen_server timeouts, `too_many_requests'), and just
-            %% letting poll requests expire at the higher level. This should
-            %% hold back the caller.
-            try gen_server:call(Worker, Req, Timeout) of
-                ok -> ok;
-                {error, recoverable, too_many_requests} -> ok
-            catch
-                exit:{timeout, _} ->
-                    ok
-            end;
+            emqx_ds_beamformer_rt:enqueue(Shard, Req, Timeout);
         Err = {error, _, _} ->
             Beam = #beam{
                 iterators = [{ReturnAddr, Iterator}],
@@ -295,282 +289,9 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
 %% - `event_topic()': When beamformer receives stream events, it
 %% selects waiting events with matching stream AND
 %% `event_topic_filter'.
--spec shard_event(_Shard, [{_Stream, event_topic()}]) -> ok.
+-spec shard_event(_Shard, [{_Stream, emqx_ds:mduessage_key()}]) -> ok.
 shard_event(Shard, Events) ->
-    Workers = gproc_pool:active_workers(emqx_ds_beamformer_sup:pool(Shard)),
-    lists:foreach(
-        fun({_, Pid}) ->
-            Pid ! #shard_event{events = Events}
-        end,
-        Workers
-    ).
-
-%%================================================================================
-%% behavior callbacks
-%%================================================================================
-
-init([CBM, ShardId, Name, _Opts]) ->
-    process_flag(trap_exit, true),
-    Pool = emqx_ds_beamformer_sup:pool(ShardId),
-    gproc_pool:add_worker(Pool, Name),
-    gproc_pool:connect_worker(Pool, Name),
-    PendingTab = ets:new(pending_polls, [duplicate_bag, private, {keypos, #poll_req.key}]),
-    WaitingTab = emqx_ds_beamformer_waitq:new(),
-    S = #s{
-        module = CBM,
-        shard = ShardId,
-        metrics_id = shard_metrics_id(ShardId),
-        name = Name,
-        pending_queue = PendingTab,
-        wait_queue = WaitingTab,
-        pending_request_limit = cfg_pending_request_limit(),
-        batch_size = cfg_batch_size()
-    },
-    self() ! ?housekeeping_loop,
-    {ok, S}.
-
-handle_call(
-    Req = #poll_req{},
-    _From,
-    S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}
-) ->
-    %% FIXME
-    %% this is a potentially costly operation
-    PQLen = ets:info(PendingTab, size),
-    WQLen = ets:info(WaitingTab, size),
-    emqx_ds_builtin_metrics:set_pendingq_len(Metrics, PQLen),
-    emqx_ds_builtin_metrics:set_waitq_len(Metrics, WQLen),
-    case PQLen + WQLen >= S#s.pending_request_limit of
-        true ->
-            emqx_ds_builtin_metrics:inc_poll_requests_dropped(Metrics, 1),
-            Reply = {error, recoverable, too_many_requests},
-            {reply, Reply, S};
-        false ->
-            ets:insert(S#s.pending_queue, Req),
-            {reply, ok, ensure_fulfill_loop(S)}
-    end;
-handle_call(_Call, _From, S) ->
-    {reply, {error, unknown_call}, S}.
-
-handle_cast(_Cast, S) ->
-    {noreply, S}.
-
-handle_info(#shard_event{events = Events}, S) ->
-    ?tp(debug, emqx_ds_beamformer_event, #{events => Events}),
-    {noreply, maybe_fulfill_waiting(S, Events)};
-handle_info(?fulfill_loop, S0) ->
-    S1 = S0#s{is_spinning = false},
-    S = fulfill_pending(S1),
-    {noreply, S};
-handle_info(?housekeeping_loop, S0) ->
-    %% Reload configuration according from environment variables:
-    S1 = S0#s{
-        batch_size = cfg_batch_size(),
-        pending_request_limit = cfg_pending_request_limit()
-    },
-    S = cleanup(S1),
-    erlang:send_after(cfg_housekeeping_interval(), self(), ?housekeeping_loop),
-    {noreply, S};
-handle_info(_Info, S) ->
-    {noreply, S}.
-
-terminate(_Reason, #s{shard = ShardId, name = Name}) ->
-    Pool = emqx_ds_beamformer_sup:pool(ShardId),
-    gproc_pool:disconnect_worker(Pool, Name),
-    gproc_pool:remove_worker(Pool, Name),
-    ok.
-
-%%================================================================================
-%% Internal exports
-%%================================================================================
-
--spec start_link(module(), _Shard, integer(), opts()) -> {ok, pid()}.
-start_link(Mod, ShardId, Name, Opts) ->
-    gen_server:start_link(?MODULE, [Mod, ShardId, Name, Opts], []).
-
-%% @doc RPC target: split the beam and dispatch replies to local
-%% consumers.
--spec do_dispatch(beam()) -> ok.
-do_dispatch(Beam = #beam{}) ->
-    lists:foreach(
-        fun({{Alias, ItKey}, Result}) ->
-            Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}
-        end,
-        split(Beam)
-    ).
-
-%%================================================================================
-%% Internal functions
-%%================================================================================
-
--spec ensure_fulfill_loop(s()) -> s().
-ensure_fulfill_loop(S = #s{is_spinning = true}) ->
-    S;
-ensure_fulfill_loop(S = #s{is_spinning = false}) ->
-    self() ! ?fulfill_loop,
-    S#s{is_spinning = true}.
-
--spec cleanup(s()) -> s().
-cleanup(S = #s{pending_queue = PendingTab, wait_queue = WaitingTab, metrics_id = Metrics}) ->
-    do_cleanup(Metrics, PendingTab),
-    do_cleanup(Metrics, WaitingTab),
-    S.
-
-do_cleanup(Metrics, Tab) ->
-    Now = erlang:monotonic_time(millisecond),
-    MS = {#poll_req{_ = '_', deadline = '$1'}, [{'<', '$1', Now}], [true]},
-    NDeleted = ets:select_delete(Tab, [MS]),
-    emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeleted).
-
--spec fulfill_pending(s()) -> s().
-fulfill_pending(S = #s{pending_queue = PendingTab}) ->
-    %% debug_pending(S),
-    case find_older_request(PendingTab, 100) of
-        undefined ->
-            S;
-        Req ->
-            ?tp(emqx_ds_beamformer_fulfill_pending, #{req => Req}),
-            %% The function MUST destructively consume all requests
-            %% matching stream and MsgKey to avoid infinite loop:
-            do_fulfill_pending(S, Req),
-            ensure_fulfill_loop(S)
-    end.
-
-do_fulfill_pending(
-    S = #s{
-        shard = Shard,
-        module = CBM,
-        pending_queue = PendingTab,
-        batch_size = BatchSize
-    },
-    #poll_req{key = {Stream, TopicFilter, StartKey}}
-) ->
-    OnMatch = fun(_) -> ok end,
-    %% Here we only group requests with exact match of the topic
-    %% filter:
-    GetF = fun(MsgKey) ->
-        ets:take(PendingTab, {Stream, TopicFilter, MsgKey})
-    end,
-    Result = CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize),
-    form_beams(S, GetF, OnMatch, move_to_waiting(S), StartKey, Result).
-
-maybe_fulfill_waiting(S, []) ->
-    S;
-maybe_fulfill_waiting(
-    S = #s{wait_queue = WaitingTab, module = CBM, shard = Shard, batch_size = BatchSize},
-    [{Stream, UpdatedTopic} | Rest]
-) ->
-    case find_waiting(Stream, UpdatedTopic, WaitingTab) of
-        undefined ->
-            ?tp(emqx_ds_beamformer_fulfill_waiting, #{
-                stream => Stream, topic => UpdatedTopic, candidates => undefined
-            }),
-            maybe_fulfill_waiting(S, Rest);
-        {Candidates, TopicFilter, StartKey} ->
-            ?tp(emqx_ds_beamformer_fulfill_waiting, #{
-                stream => Stream,
-                topic => UpdatedTopic,
-                candidates => Candidates,
-                start_time => StartKey
-            }),
-            GetF = fun(Key) -> maps:get(Key, Candidates, []) end,
-            OnNomatch = fun(_) -> ok end,
-            OnMatch = fun(Reqs) ->
-                lists:foreach(
-                    fun(#poll_req{key = {Str, TF, _}, return_addr = Id}) ->
-                        emqx_ds_beamformer_waitq:delete(Str, TF, Id, WaitingTab)
-                    end,
-                    Reqs
-                )
-            end,
-            Result = CBM:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize),
-            case form_beams(S, GetF, OnMatch, OnNomatch, StartKey, Result) of
-                true -> maybe_fulfill_waiting(S, [{Stream, UpdatedTopic} | Rest]);
-                false -> maybe_fulfill_waiting(S, Rest)
-            end
-    end.
-
-move_to_waiting(#s{wait_queue = WaitingTab}) ->
-    fun(NoMatch) ->
-        lists:foreach(
-            fun(Req = #poll_req{key = {Stream, TopicFilter, _Key}, return_addr = Id}) ->
-                emqx_ds_beamformer_waitq:insert(Stream, TopicFilter, Id, Req, WaitingTab)
-            end,
-            NoMatch
-        )
-    end.
-
-find_waiting(Stream, Topic, Tab) ->
-    case emqx_ds_beamformer_waitq:matches(Stream, Topic, Tab) of
-        [] ->
-            undefined;
-        [Fst | _] = Matches ->
-            %% 1. Find all poll requests that match the topic of the
-            %% event
-            %%
-            %% 2. Find most common topic filter for all these events
-            %%
-            %% 3. Find the smallest DS key
-            lists:foldl(
-                fun(Req, {Acc, AccTopic, AccKey}) ->
-                    ReqKey = ds_key_of_poll(Req),
-                    {
-                        map_pushl(ReqKey, Req, Acc),
-                        common_topic_filter(AccTopic, topic_of_poll(Req)),
-                        min(AccKey, ReqKey)
-                    }
-                end,
-                {#{}, topic_of_poll(Fst), ds_key_of_poll(Fst)},
-                Matches
-            )
-    end.
-
-ds_key_of_poll(#poll_req{key = {_, _, Key}}) -> Key.
-
-topic_of_poll(#poll_req{key = {_, Topic, _}}) -> Topic.
-
-common_topic_filter([], []) ->
-    [];
-common_topic_filter(['#'], _) ->
-    ['#'];
-common_topic_filter(_, ['#']) ->
-    ['#'];
-common_topic_filter(['+' | L1], [_ | L2]) ->
-    ['+' | common_topic_filter(L1, L2)];
-common_topic_filter([_ | L1], ['+' | L2]) ->
-    ['+' | common_topic_filter(L1, L2)];
-common_topic_filter([A | L1], [A | L2]) ->
-    [A | common_topic_filter(L1, L2)].
-
-map_pushl(Key, Elem, Map) ->
-    maps:update_with(Key, fun(L) -> [Elem | L] end, [Elem], Map).
-
-%% It's always worth trying to fulfill the oldest requests first,
-%% because they have a better chance of producing a batch that
-%% overlaps with other pending requests.
-%%
-%% This function implements a heuristic that tries to find such poll
-%% request. It simply compares the keys (and nothing else) within a
-%% small sample of pending polls, and picks request with the smallest
-%% key as the starting point.
-find_older_request(Tab, SampleSize) ->
-    MS = {'_', [], ['$_']},
-    case ets:select(Tab, [MS], SampleSize) of
-        '$end_of_table' ->
-            undefined;
-        {[Fst | Rest], _Cont} ->
-            %% Find poll request with the minimal key:
-            lists:foldl(
-                fun(E, Acc) ->
-                    case ds_key_of_poll(E) < ds_key_of_poll(Acc) of
-                        true -> E;
-                        false -> Acc
-                    end
-                end,
-                Fst,
-                Rest
-            )
-    end.
+    emqx_ds_beamformer_rt:shard_event(Shard, Events).
 
 %% @doc Split beam into individual batches
 -spec split(beam(ItKey, Iterator)) -> [{ItKey, emqx_ds:next_result(Iterator)}].
@@ -581,196 +302,85 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
-%% This function checks pending requests in the `FromTab' and either
-%% dispatches them as a beam or passes them to `OnNomatch' callback if
-%% there's nothing to dispatch.
--spec form_beams(
-    s(),
-    fun((emqx_ds:message_key()) -> [Req]),
-    fun(([Req]) -> _),
-    fun(([Req]) -> _),
-    emqx_ds:message_key(),
-    stream_scan_return()
-) -> boolean() when Req :: poll_req(_ItKey, _It).
-form_beams(S, GetF, OnMatch, OnNomatch, StartKey, {ok, EndKey, Batch}) ->
-    do_form_beams(S, GetF, OnMatch, OnNomatch, StartKey, EndKey, Batch);
-form_beams(#s{metrics_id = Metrics}, GetF, OnMatch, _OnNomatch, StartKey, Result) ->
-    Pack =
-        case Result of
-            Err = {error, _, _} -> Err;
-            {ok, end_of_stream} -> end_of_stream
-        end,
-    MatchReqs = GetF(StartKey),
-    %% Report metrics:
-    NFulfilled = length(MatchReqs),
-    NFulfilled > 0 andalso
-        begin
-            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
-            emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
-        end,
-    %% Execute callbacks:
-    OnMatch(MatchReqs),
-    %% Split matched requests by destination node:
+-spec send_out_term({ok, end_of_stream} | emqx_ds:error(_), [poll_req()]) -> ok.
+send_out_term(Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
         fun(#poll_req{node = Node}) -> Node end,
         fun(#poll_req{return_addr = RAddr, it = It}) ->
             {RAddr, It}
         end,
-        MatchReqs
+        Reqs
     ),
     %% Pack requests into beams and serve them:
     maps:foreach(
         fun(Node, Its) ->
             Beam = #beam{
-                pack = Pack,
+                pack = Term,
                 iterators = Its
             },
             send_out(Node, Beam)
         end,
         ReqsByNode
-    ),
-    NFulfilled > 0.
+    ).
 
--spec do_form_beams(
-    s(),
-    fun((emqx_ds:message_key()) -> [Req]),
-    fun(([Req]) -> _),
-    fun(([Req]) -> _),
-    emqx_ds:message_key(),
-    emqx_ds:message_key(),
-    [{emqx_ds:message_key(), emqx_types:message()}]
-) -> boolean() when Req :: poll_req(_ItKey, _It).
-do_form_beams(
-    #s{metrics_id = Metrics, module = CBM, shard = Shard},
-    GetF,
-    OnMatch,
-    OnNomatch,
-    StartKey,
-    EndKey,
-    Batch
-) ->
-    %% Find iterators that match the start message of the batch (to
-    %% handle iterators freshly created by `emqx_ds:make_iterator'):
-    Candidates0 = GetF(StartKey),
-    %% Search for iterators where `last_seen_key' is equal to key of
-    %% any message in the batch:
-    Candidates = lists:foldl(
-        fun({Key, _Msg}, Acc) ->
-            GetF(Key) ++ Acc
-        end,
-        Candidates0,
-        Batch
-    ),
-    %% Find what poll requests _actually_ have data in the batch. It's
-    %% important not to send empty batches to the consumers, so they
-    %% don't come back immediately, creating a busy loop:
-    {MatchReqs, NoMatchReqs} = filter_candidates(Candidates, Batch),
-    ?tp(emqx_ds_beamformer_form_beams, #{match => MatchReqs, no_match => NoMatchReqs}),
-    %% Report metrics:
-    NFulfilled = length(MatchReqs),
-    NFulfilled > 0 andalso
-        begin
-            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
-            emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
-        end,
-    %% Execute callbacks:
-    OnMatch(MatchReqs),
-    OnNomatch(NoMatchReqs),
-    %% Split matched requests by destination node:
-    ReqsByNode = maps:groups_from_list(fun(#poll_req{node = Node}) -> Node end, MatchReqs),
-    %% Pack requests into beams and serve them:
-    UpdateIterator = fun(Iterator, NextKey) ->
-        CBM:update_iterator(Shard, Iterator, NextKey)
-    end,
-    maps:foreach(
-        fun(Node, Reqs) ->
-            Beam = pack(UpdateIterator, EndKey, Reqs, Batch),
-            send_out(Node, Beam)
-        end,
-        ReqsByNode
-    ),
-    NFulfilled > 0.
+-spec beams_init() -> beam_maker().
+beams_init() ->
+    #beam_maker{}.
 
--spec pack(
-    fun((Iterator, emqx_ds:message_key()) -> Iterator),
-    emqx_ds:message_key(),
-    [{ItKey, Iterator}],
-    [{emqx_ds:message_key(), emqx_types:message()}]
-) -> beam(ItKey, Iterator).
-pack(UpdateIterator, NextKey, Reqs, Batch) ->
-    Pack = [{Key, mk_mask(Reqs, Elem), Msg} || Elem = {Key, Msg} <- Batch],
-    UpdatedIterators =
-        lists:map(
-            fun(#poll_req{it = It0, return_addr = RAddr}) ->
-                {ok, It} = UpdateIterator(It0, NextKey),
-                {RAddr, It}
-            end,
-            Reqs
-        ),
-    #beam{
-        iterators = UpdatedIterators,
-        pack = Pack
+-spec beams_add(
+    {emqx_ds:message_key(), emqx_types:message()},
+    [poll_req()],
+    beam_maker()
+) -> beam_maker().
+beams_add(_, [], S = #beam_maker{n = N}) ->
+    %% This message was not matched by any poll request, so we don't
+    %% pack it into the beam:
+    S#beam_maker{n = N + 1};
+beams_add(Msg, NewReqs, S = #beam_maker{n = N, reqs = Reqs0, matrix = Matrix0, msgs = Msgs}) ->
+    {Reqs, Matrix} = lists:foldl(
+        fun(Req = #poll_req{node = Node, req_id = Ref}, {Reqs1, Matrix1}) ->
+            Reqs2 = maps:update_with(
+                Node,
+                fun(A) -> A#{Ref => Req} end,
+                #{Ref => Req},
+                Reqs1
+            ),
+            Matrix2 = Matrix1#{{Ref, N} => []},
+            {Reqs2, Matrix2}
+        end,
+        {Reqs0, Matrix0},
+        NewReqs
+    ),
+    S#beam_maker{
+        n = N + 1,
+        reqs = Reqs,
+        matrix = Matrix,
+        msgs = [{N, Msg} | Msgs]
     }.
 
-split([], _Pack, _N, Acc) ->
-    Acc;
-split([{ItKey, It} | Rest], Pack, N, Acc0) ->
-    Msgs = [
-        {MsgKey, Msg}
-     || {MsgKey, Mask, Msg} <- Pack,
-        is_member(N, Mask)
-    ],
-    case Msgs of
-        [] -> logger:warning("Empty batch ~p", [ItKey]);
-        _ -> ok
-    end,
-    Acc = [{ItKey, {ok, It, Msgs}} | Acc0],
-    split(Rest, Pack, N + 1, Acc).
-
--spec is_member(non_neg_integer(), dispatch_mask()) -> boolean().
-is_member(N, Mask) ->
-    <<_:N, Val:1, _/bitstring>> = Mask,
-    Val =:= 1.
-
--spec mk_mask([poll_req(_ItKey, _Iterator)], {emqx_ds:message_key(), emqx_types:message()}) ->
-    dispatch_mask().
-mk_mask(Reqs, Elem) ->
-    mk_mask(Reqs, Elem, <<>>).
-
-mk_mask([], _Elem, Acc) ->
-    Acc;
-mk_mask([#poll_req{msg_matcher = Matcher} | Rest], {Key, Message} = Elem, Acc) ->
-    Val =
-        case Matcher(Key, Message) of
-            true -> 1;
-            false -> 0
+-spec beams_matched_requests(beam_maker()) -> [poll_req()].
+beams_matched_requests(#beam_maker{reqs = Reqs}) ->
+    maps:fold(
+        fun(_Node, NodeReqs, Acc) ->
+            maps:values(NodeReqs) ++ Acc
         end,
-    mk_mask(Rest, Elem, <<Acc/bitstring, Val:1>>).
-
-filter_candidates(Reqs, Messages) ->
-    lists:partition(
-        fun(#poll_req{msg_matcher = Matcher}) ->
-            lists:any(
-                fun({MsgKey, Msg}) -> Matcher(MsgKey, Msg) end,
-                Messages
-            )
-        end,
+        [],
         Reqs
     ).
 
-send_out(Node, Beam) ->
-    ?tp(debug, beamformer_out, #{
-        dest_node => Node,
-        beam => Beam
-    }),
-    %% gen_rpc currently doesn't optimize local casts:
-    case node() of
-        Node ->
-            erlang:spawn(?MODULE, do_dispatch, [Beam]),
-            ok;
-        _ ->
-            emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
-    end.
+-spec beams_conclude(
+    fun((Iterator, emqx_ds:message_key()) -> Iterator),
+    emqx_ds:message_key(),
+    beam_maker()
+) -> ok.
+beams_conclude(UpdateIterator, NextKey, #beam_maker{reqs = Reqs, matrix = Matrix, msgs = Msgs}) ->
+    maps:foreach(
+        fun(Node, NodeReqs) ->
+            Beam = pack(UpdateIterator, NextKey, Matrix, Msgs, NodeReqs),
+            send_out(Node, Beam)
+        end,
+        Reqs
+    ).
 
 shard_metrics_id({DB, Shard}) ->
     emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
@@ -787,23 +397,230 @@ cfg_housekeeping_interval() ->
     application:get_env(emqx_durable_storage, beamformer_housekeeping_interval, 1000).
 
 %%================================================================================
+%% behavior callback wrappers
+%%================================================================================
+
+-spec unpack_iterator(module(), _Shard, _Iterator) ->
+    unpack_iterator_result(_Stream) | emqx_ds:error().
+unpack_iterator(Mod, Shard, It) ->
+    Mod:unpack_iterator(Shard, It).
+
+-spec update_iterator(module(), _Shard, _It, emqx_ds:message_key()) ->
+    emqx_ds:make_iterator_result().
+update_iterator(Mod, Shard, It, Key) ->
+    Mod:update_iterator(Shard, It, Key).
+
+-spec scan_stream(
+    module(), _Shard, _Stream, event_topic_filter(), emqx_ds:message_key(), non_neg_integer()
+) ->
+    stream_scan_return().
+scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
+    Mod:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize).
+
+-spec high_watermark(module(), _Shard, _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
+high_watermark(Mod, Shard, Stream) ->
+    Mod:high_watermark(Shard, Stream).
+
+-spec fast_forward(module(), _Shard, Iterator, emqx_ds:message_key()) ->
+    {ok, Iterator} | {error, unrecoverable, has_data} | emqx_ds:error().
+fast_forward(Mod, Shard, It, Key) ->
+    Mod:fast_forward(Shard, It, Key).
+
+%%================================================================================
+%% Internal exports
+%%================================================================================
+
+enqueue(_, Req = #poll_req{hops = Hops}, _) when Hops > 3 ->
+    %% It seems that the poll request is being bounced between the
+    %% queues. After certain number of such hops we drop it to break
+    %% the infinite loop.
+    %%
+    %% Normally, the poll request is bounced between the queues in the
+    %% following cases:
+    %%
+    %% 1. The request was submitted to the RT queue, but its
+    %% `start_key' is older than the high watermark for the stream. In
+    %% this case RT queue will move it to the catchup queue.
+    %%
+    %% 2. Catchup queue tried to fulfill the poll request, but got an
+    %% empty batch. In this case, it moves the poll request to the RT
+    %% queue.
+    %%
+    %% Normally, the second case should not lead to the first one,
+    %% since catchup queue updates the start key before sending it to
+    %% the RT queue. However, the DS backend MAY misbehave and fail to
+    %% return the end key corresponding to the empty batch equal to
+    %% the high watermark.
+    %%
+    %% This is the probable cause of this warning. To avoid it the
+    %% backend must ensure the following property:
+    %%
+    %% If `scan_stream' callback returns `{ok, EndKey, []}', then
+    %% `EndKey' must be greater or equal to the `high_watermark' for
+    %% the stream at the moment.
+    ?tp(warning, beamformer_enqueue_max_hops, #{req => Req}),
+    ok;
+enqueue(Pool, Req0 = #poll_req{stream = Stream, hops = Hops}, Timeout) ->
+    Req = Req0#poll_req{hops = Hops + 1},
+    %% Currently we implement backpressure by ignoring transient
+    %% errors (gen_server timeouts, `too_many_requests'), and just
+    %% letting poll requests expire at the higher level. This should
+    %% hold back the caller.
+    Worker = gproc_pool:pick_worker(Pool, Stream),
+    case Timeout of
+        0 ->
+            %% Avoid deadlock due to calling self:
+            gen_server:cast(Worker, Req);
+        _ ->
+            try gen_server:call(Worker, Req, Timeout) of
+                ok -> ok;
+                {error, recoverable, too_many_requests} -> ok
+            catch
+                exit:{timeout, _} ->
+                    ok
+            end
+    end.
+
+%% @doc RPC target: split the beam and dispatch replies to local
+%% consumers.
+-spec do_dispatch(beam()) -> ok.
+do_dispatch(Beam = #beam{}) ->
+    lists:foreach(
+        fun({{Alias, ItKey}, Result}) ->
+            Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}
+        end,
+        split(Beam)
+    ).
+
+%% @doc Semi-generic function for cleaning expired poll requests from
+%% an ETS table that is organized as a collection of 2-tuples, where
+%% `#poll_req{}' is the second element:
+%%
+%% `{_Key, #poll_req{...}}'
+cleanup_expired(QueueType, Metrics, Table) ->
+    Now = erlang:monotonic_time(millisecond),
+    maybe_report_expired(QueueType, Table, Now),
+    MS = {{'_', #poll_req{_ = '_', deadline = '$1'}}, [{'<', '$1', Now}], [true]},
+    NDeleted = ets:select_delete(Table, [MS]),
+    emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeleted),
+    ok.
+
+%%================================================================================
+%% Internal functions
+%%================================================================================
+
+%% In TEST profile we want to emit trace events for expired poll
+%% reqests. In prod we just silently drop them.
+-ifndef(TEST).
+maybe_report_expired(_QueueType, _Tabl, _Now) ->
+    ok.
+-else.
+maybe_report_expired(QueueType, Table, Now) ->
+    MS = {{'_', #poll_req{_ = '_', deadline = '$1', req_id = '$2'}}, [{'<', '$1', Now}], ['$2']},
+    [
+        ?tp(beamformer_poll_expired, #{req_id => ReqId, queue => QueueType})
+     || ReqId <- ets:select(Tabl, [MS])
+    ],
+    ok.
+-endif.
+
+-spec pack(
+    fun((Iterator, emqx_ds:message_key()) -> Iterator),
+    emqx_ds:message_key(),
+    dispatch_matrix(),
+    filtered_batch(),
+    per_node_requests()
+) -> beam(_ItKey, _Iterator).
+pack(UpdateIterator, NextKey, Matrix, Msgs, Reqs) ->
+    {Refs, UpdatedIterators} =
+        maps:fold(
+            fun(_, #poll_req{req_id = Ref, it = It0, return_addr = RAddr}, {AccRefs, Acc}) ->
+                ?tp(beamformer_fulfilled, #{req_id => Ref}),
+                {ok, It} = UpdateIterator(It0, NextKey),
+                {[Ref | AccRefs], [{RAddr, It} | Acc]}
+            end,
+            {[], []},
+            Reqs
+        ),
+    Pack = do_pack(lists:reverse(Refs), Matrix, Msgs, []),
+    #beam{
+        iterators = lists:reverse(UpdatedIterators),
+        pack = Pack
+    }.
+
+do_pack(_Refs, _Matrix, [], Acc) ->
+    %% Messages in the `beam_maker' record are reversed, so we don't
+    %% have to reverse them here:
+    Acc;
+do_pack(Refs, Matrix, [{N, {MsgKey, Msg}} | Msgs], Acc) ->
+    %% FIXME: it can include messages that are not needed for the
+    %% node:
+    DispatchMask = lists:foldl(
+        fun(Ref, Bin) ->
+            case Matrix of
+                #{{Ref, N} := _} ->
+                    <<Bin/bitstring, 1:1>>;
+                #{} ->
+                    <<Bin/bitstring, 0:1>>
+            end
+        end,
+        <<>>,
+        Refs
+    ),
+    do_pack(Refs, Matrix, Msgs, [{MsgKey, DispatchMask, Msg} | Acc]).
+
+split([], _Pack, _N, Acc) ->
+    Acc;
+split([{ItKey, It} | Rest], Pack, N, Acc0) ->
+    Msgs = [
+        {MsgKey, Msg}
+     || {MsgKey, Mask, Msg} <- Pack,
+        check_mask(N, Mask)
+    ],
+    case Msgs of
+        [] -> logger:warning("Empty batch ~p", [ItKey]);
+        _ -> ok
+    end,
+    Acc = [{ItKey, {ok, It, Msgs}} | Acc0],
+    split(Rest, Pack, N + 1, Acc).
+
+-spec check_mask(non_neg_integer(), dispatch_mask()) -> boolean().
+check_mask(N, Mask) ->
+    <<_:N, Val:1, _/bitstring>> = Mask,
+    Val =:= 1.
+
+send_out(Node, Beam) ->
+    ?tp(debug, beamformer_out, #{
+        dest_node => Node,
+        beam => Beam
+    }),
+    %% gen_rpc currently doesn't optimize local casts:
+    case node() of
+        Node ->
+            erlang:spawn(?MODULE, do_dispatch, [Beam]),
+            ok;
+        _ ->
+            emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
+    end.
+
+%%================================================================================
 %% Tests
 %%================================================================================
 
 -ifdef(TEST).
 
-is_member_test_() ->
+chec_mask_test_() ->
     [
-        ?_assert(is_member(0, <<1:1>>)),
-        ?_assertNot(is_member(0, <<0:1>>)),
-        ?_assertNot(is_member(5, <<0:10>>)),
+        ?_assert(check_mask(0, <<1:1>>)),
+        ?_assertNot(check_mask(0, <<0:1>>)),
+        ?_assertNot(check_mask(5, <<0:10>>)),
 
-        ?_assert(is_member(0, <<255:8>>)),
-        ?_assert(is_member(7, <<255:8>>)),
+        ?_assert(check_mask(0, <<255:8>>)),
+        ?_assert(check_mask(7, <<255:8>>)),
 
-        ?_assertNot(is_member(7, <<0:8, 1:1, 0:10>>)),
-        ?_assert(is_member(8, <<0:8, 1:1, 0:10>>)),
-        ?_assertNot(is_member(9, <<0:8, 1:1, 0:10>>))
+        ?_assertNot(check_mask(7, <<0:8, 1:1, 0:10>>)),
+        ?_assert(check_mask(8, <<0:8, 1:1, 0:10>>)),
+        ?_assertNot(check_mask(9, <<0:8, 1:1, 0:10>>))
     ].
 
 pack_test_() ->
@@ -813,48 +630,121 @@ pack_test_() ->
     Raddr = raddr,
     NextKey = <<"42">>,
     Req1 = #poll_req{
+        req_id = make_ref(),
         return_addr = Raddr,
-        msg_matcher = fun(_, _) -> true end,
         it = {it1, <<"0">>}
     },
     Req2 = #poll_req{
+        req_id = make_ref(),
         return_addr = Raddr,
-        msg_matcher = fun(_, _) -> false end,
         it = {it2, <<"1">>}
     },
     Req3 = #poll_req{
+        req_id = make_ref(),
         return_addr = Raddr,
-        msg_matcher = fun(_, _) -> true end,
-        it = {it3, <<"2">>}
+        it = {it3, <<"1">>}
     },
     %% Messages:
     M1 = {<<"1">>, #message{id = <<"1">>}},
-    M2 = {NextKey, #message{id = <<"2">>}},
-    Reqs = [Req1, Req2, Req3],
+    M2 = {<<"2">>, #message{id = <<"2">>}},
     [
         ?_assertMatch(
-            #beam{
-                iterators = [],
-                pack = [
-                    {<<"1">>, <<>>, #message{id = <<"1">>}},
-                    {_Next, <<>>, #message{id = <<"2">>}}
-                ]
-            },
-            pack(UpdateIterator, NextKey, [], [M1, M2])
+            [],
+            maps:to_list(
+                pack_test_helper(
+                    UpdateIterator,
+                    NextKey,
+                    [
+                        {M1, []},
+                        {M2, []}
+                    ]
+                )
+            )
         ),
         ?_assertMatch(
-            #beam{
-                iterators = [
-                    {Raddr, {it1, NextKey}}, {Raddr, {it2, NextKey}}, {Raddr, {it3, NextKey}}
-                ],
-                pack = [
-                    {<<"1">>, <<1:1, 0:1, 1:1>>, #message{id = <<"1">>}},
-                    {NextKey, <<1:1, 0:1, 1:1>>, #message{id = <<"2">>}}
-                ]
+            #{
+                undefined :=
+                    #beam{
+                        iterators = [
+                            {Raddr, {it1, NextKey}}, {Raddr, {it2, NextKey}}
+                        ],
+                        pack = [
+                            {<<"1">>, <<1:1, 0:1>>, #message{id = <<"1">>}},
+                            {<<"2">>, <<0:1, 1:1>>, #message{id = <<"2">>}}
+                        ]
+                    }
             },
-            pack(UpdateIterator, NextKey, Reqs, [M1, M2])
+            pack_test_helper(
+                UpdateIterator,
+                NextKey,
+                [
+                    {M1, [Req1]},
+                    {M2, [Req2]}
+                ]
+            )
+        ),
+        ?_assertMatch(
+            #{
+                undefined :=
+                    #beam{
+                        iterators = [
+                            {Raddr, {it1, NextKey}}, {Raddr, {it2, NextKey}}
+                        ],
+                        pack = [
+                            {<<"2">>, <<1:1, 1:1>>, #message{id = <<"2">>}}
+                        ]
+                    }
+            },
+            pack_test_helper(
+                UpdateIterator,
+                NextKey,
+                [
+                    {M1, []},
+                    {M2, [Req1, Req2]}
+                ]
+            )
+        ),
+        ?_assertMatch(
+            #{
+                undefined :=
+                    #beam{
+                        iterators = [
+                            {Raddr, {it1, NextKey}},
+                            {Raddr, {it2, NextKey}},
+                            {RAddr, {it3, NextKey}}
+                        ],
+                        pack = [
+                            {<<"1">>, <<1:1, 0:1, 1:1>>, #message{id = <<"1">>}},
+                            {<<"2">>, <<0:1, 1:1, 0:1>>, #message{id = <<"2">>}}
+                        ]
+                    }
+            },
+            pack_test_helper(
+                UpdateIterator,
+                NextKey,
+                [
+                    {M1, [Req1, Req3]},
+                    {M2, [Req2]}
+                ]
+            )
         )
     ].
+
+pack_test_helper(UpdateIterator, NextKey, L) ->
+    BeamMaker = lists:foldl(
+        fun({Message, Reqs}, Acc) ->
+            beams_add(Message, Reqs, Acc)
+        end,
+        beams_init(),
+        L
+    ),
+    #beam_maker{reqs = Reqs, matrix = Matrix, msgs = Msgs} = BeamMaker,
+    maps:map(
+        fun(Node, NodeReqs) ->
+            pack(UpdateIterator, NextKey, Matrix, Msgs, NodeReqs)
+        end,
+        Reqs
+    ).
 
 split_test_() ->
     M1 = {<<"1">>, #message{id = <<"1">>}},
