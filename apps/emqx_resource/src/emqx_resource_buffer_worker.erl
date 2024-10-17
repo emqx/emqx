@@ -232,7 +232,14 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
                 end
         end
     after
-        _ = unalias(ReplyAlias)
+        _ = unalias(ReplyAlias),
+        receive
+            {ReplyAlias, _Response} ->
+                %% stale response
+                ok
+        after 0 ->
+            ok
+        end
     end.
 
 simple_sync_query_opts() ->
