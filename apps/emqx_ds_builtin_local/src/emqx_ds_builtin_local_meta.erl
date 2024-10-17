@@ -191,7 +191,8 @@ ensure_tables() ->
         {type, set},
         {storage, disc_copies},
         {record_name, ?TS_TAB},
-        {attributes, record_info(fields, ?TS_TAB)}
+        {attributes, record_info(fields, ?TS_TAB)},
+        {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]).
 
 transaction(Fun) ->

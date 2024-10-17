@@ -19,11 +19,19 @@
 -module(emqx_ds_beamformer_waitq).
 
 %% API:
--export([new/0, insert/5, delete/4, matches/3]).
+-export([new/0, insert/5, delete/4, matching_ids/3, lookup_req/3, has_candidates/2, size/1]).
+
+-export_type([t/0]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+%%================================================================================
+%% Type declarations
+%%================================================================================
+
+-type t() :: ets:tid().
 
 %%================================================================================
 %% API functions
@@ -39,9 +47,20 @@ insert(Stream, Filter, ID, Record, Tab) ->
 delete(Stream, Filter, ID, Tab) ->
     ets:delete(Tab, make_key(Stream, Filter, ID)).
 
-matches(Stream, Topic, Tab) ->
-    Ids = emqx_trie_search:matches(Topic, make_nextf(Stream, Tab), []),
-    [Val || Id <- Ids, {_, Val} <- ets:lookup(Tab, {Stream, Id})].
+matching_ids(Stream, Topic, Tab) ->
+    emqx_trie_search:matches(Topic, make_nextf(Stream, Tab), []).
+
+lookup_req(Stream, Id, Tab) ->
+    ets:lookup_element(Tab, {Stream, Id}, 2).
+
+has_candidates(Stream, Tab) ->
+    case ets:next(Tab, {Stream, 0}) of
+        {Stream, _} -> true;
+        _ -> false
+    end.
+
+size(Tab) ->
+    ets:info(Tab, size).
 
 %%================================================================================
 %% Internal functions
@@ -75,6 +94,9 @@ topic_match_test() ->
     insert(s2, [<<"foo">>, <<"bar">>], 5, {val, 5}, Tab),
     insert(s2, [<<"1">>, <<"2">>], 6, {val, 6}, Tab),
 
+    S3 = [1 | {stream, <<207, 9, 108, 69, 242, 143, 34, 122>>}],
+    insert(S3, [<<"foo">>, <<"1">>], 7, {val, 7}, Tab),
+
     ?assertEqual(
         [{val, 1}],
         lists:sort(matches(s1, [<<"foo">>, <<"2">>], Tab))
@@ -102,6 +124,10 @@ topic_match_test() ->
     ?assertEqual(
         [{val, 6}],
         matches(s2, [<<"1">>, <<"2">>], Tab)
+    ),
+    ?assertEqual(
+        [{val, 7}],
+        matches(S3, [<<"foo">>, <<"1">>], Tab)
     ).
 
 -endif.
