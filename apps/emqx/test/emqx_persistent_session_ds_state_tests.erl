@@ -431,7 +431,7 @@ init() ->
     application:set_env(emqx_durable_storage, db_data_dir, Dir),
     Defaults = #{
         backend => builtin_local,
-        force_monotonic_timestamps => false,
+        append_only => false,
         atomic_batches => true,
         storage =>
             {emqx_ds_storage_bitfield_lts, #{

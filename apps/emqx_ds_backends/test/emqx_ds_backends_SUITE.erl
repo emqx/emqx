@@ -366,7 +366,7 @@ t_11_batch_preconditions(Config) ->
         begin
             DBOpts = (opts(Config))#{
                 atomic_batches => true,
-                force_monotonic_timestamps => false
+                append_only => false
             },
             ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
 
@@ -423,7 +423,7 @@ t_12_batch_precondition_conflicts(Config) ->
         begin
             DBOpts = (opts(Config))#{
                 atomic_batches => true,
-                force_monotonic_timestamps => false
+                append_only => false
             },
             ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
 
