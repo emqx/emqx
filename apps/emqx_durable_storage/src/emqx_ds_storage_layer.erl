@@ -39,8 +39,12 @@
     next/4,
 
     generation/1,
-    unpack_iterator/2,
+
+    %% Beamformer
+    unpack_iterator/3,
     scan_stream/6,
+    high_watermark/3,
+    fast_forward/4,
 
     delete_next/5,
 
@@ -364,7 +368,7 @@
     shard_id(),
     generation_data(),
     _CookedBatch
-) -> [_Stream].
+) -> #{_Stream => emqx_ds:message_key()}.
 
 -optional_callbacks([
     handle_event/4,
@@ -634,15 +638,14 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 
 %%    When doing multi-next, we group iterators by stream:
 %% @TODO we need add it to the callback
-unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}, _Now) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
+            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(Shard, GenData, Inner),
             #{
                 stream => ?stream_v2(GenId, InnerStream),
                 topic_filter => TopicFilter,
                 last_seen_key => Key,
-                timestamp => TS,
                 message_matcher => Mod:message_matcher(Shard, GenData, Inner)
             };
         not_found ->
@@ -662,6 +665,28 @@ scan_stream(
             Mod:scan_stream(
                 Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent
             );
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
+    case make_iterator(Shard, Stream, ['#'], Now) of
+        {ok, It} ->
+            #{last_seen_key := LSK} = unpack_iterator(Shard, It, Now),
+            {ok, LSK};
+        Err ->
+            Err
+    end.
+
+fast_forward(Shard, It = #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            case Mod:fast_forward(Shard, GenData, Inner0, Key, Now) of
+                {ok, Inner} ->
+                    {ok, It#{?enc := Inner}};
+                Other ->
+                    Other
+            end;
         not_found ->
             ?ERR_GEN_GONE
     end.
