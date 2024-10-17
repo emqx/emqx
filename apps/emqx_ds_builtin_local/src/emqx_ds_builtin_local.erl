@@ -45,6 +45,8 @@
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
+    high_watermark/2,
+    fast_forward/3,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -418,7 +420,23 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     {ok, ReplyTo}.
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
+    Now = current_timestamp(Shard),
+    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator, Now).
+
+high_watermark(Shard, Stream) ->
+    Now = current_timestamp(Shard),
+    emqx_ds_storage_layer:high_watermark(Shard, Stream, Now).
+
+fast_forward(Shard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
+    Now = current_timestamp(Shard),
+    case emqx_ds_storage_layer:fast_forward(Shard, Inner0, Key, Now) of
+        {ok, end_of_stream} ->
+            {ok, end_of_stream};
+        {ok, Inner} ->
+            {ok, It#{?enc := Inner}};
+        {error, _, _} = Err ->
+            Err
+    end.
 
 scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
     {DB, _} = ShardId,

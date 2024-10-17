@@ -18,7 +18,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/3, pool/1, cbm/1]).
+-export([start_link/3, rt_pool/1, catchup_pool/1, cbm/1]).
 
 %% behavior callbacks:
 -export([init/1]).
@@ -44,8 +44,13 @@
 cbm(DB) ->
     persistent_term:get(?cbm(DB)).
 
-pool(Shard) ->
-    {?MODULE, Shard}.
+%% @doc Pool of realtime beamformers
+rt_pool(Shard) ->
+    {emqx_ds_beamformer_rt, Shard}.
+
+%% @doc Pool of catchup beamformers
+catchup_pool(Shard) ->
+    {emqx_ds_beamformer_catchup, Shard}.
 
 -spec start_link(module(), _Shard, emqx_ds_beamformer:opts()) -> supervisor:startlink_ret().
 start_link(CBM, ShardId, Opts) ->
@@ -81,12 +86,13 @@ init({workers, Module, ShardId, Opts}) ->
     #{n_workers := InitialNWorkers} = Opts,
     Children = [
         #{
-            id => I,
+            id => {Type, I},
             type => worker,
             shutdown => 5000,
-            start => {emqx_ds_beamformer, start_link, [Module, ShardId, I, Opts]}
+            start => {Type, start_link, [Module, ShardId, I, Opts]}
         }
-     || I <- lists:seq(1, InitialNWorkers)
+     || I <- lists:seq(1, InitialNWorkers),
+        Type <- [emqx_ds_beamformer_rt, emqx_ds_beamformer_catchup]
     ],
     SupFlags = #{
         strategy => one_for_one,
@@ -107,13 +113,15 @@ start_workers(Module, ShardId, InitialNWorkers) ->
 -spec init_pool_owner(pid(), _Shard, module()) -> no_return().
 init_pool_owner(Parent, ShardId, Module) ->
     process_flag(trap_exit, true),
-    gproc_pool:new(pool(ShardId), hash, [{auto_size, true}]),
+    gproc_pool:new(catchup_pool(ShardId), hash, [{auto_size, true}]),
+    gproc_pool:new(rt_pool(ShardId), hash, [{auto_size, true}]),
     persistent_term:put(?cbm(ShardId), Module),
     proc_lib:init_ack(Parent, {ok, self()}),
     %% Automatic cleanup:
     receive
         {'EXIT', _Pid, Reason} ->
-            gproc_pool:force_delete(pool(ShardId)),
+            gproc_pool:force_delete(rt_pool(ShardId)),
+            gproc_pool:force_delete(catchup_pool(ShardId)),
             persistent_term:erase(?cbm(ShardId)),
             exit(Reason)
     end.

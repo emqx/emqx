@@ -39,6 +39,7 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
+    fast_forward/5,
 
     batch_events/3
 ]).
@@ -58,6 +59,7 @@
 -endif.
 
 -elvis([{elvis_style, nesting_level, disable}]).
+-elvis([{elvis_style, no_if_expression, disable}]).
 
 %%================================================================================
 %% Type declarations
@@ -344,14 +346,26 @@ message_matcher(_Shard, #s{trie = Trie}, #it{
         end
     end.
 
-unpack_iterator(_Shard, #s{trie = _Trie}, #it{
+unpack_iterator(_Shard, #s{trie = Trie}, #it{
     static_index = StaticIdx, compressed_tf = CTF, ts = TS
 }) ->
     StartKey = mk_key(StaticIdx, 0, <<>>, TS),
-    %% Structure = get_topic_structure(Trie, StaticIdx),
-    {StaticIdx, words(CTF), StartKey, TS}.
+    Structure = get_topic_structure(Trie, StaticIdx),
+    TopicFilter = emqx_ds_lts:decompress_topic(Structure, words(CTF)),
+    {#stream{static_index = StaticIdx}, TopicFilter, StartKey, TS}.
 
-scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+scan_stream(
+    Shard,
+    S = #s{trie = Trie},
+    #stream{static_index = StaticIdx},
+    TopicFilter,
+    LastSeenKey,
+    BatchSize,
+    TMax,
+    IsCurrent
+) ->
+    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+    Varying = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
     LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
     ItSeed = #it{
         static_index = StaticIdx, compressed_tf = emqx_topic:join(Varying), ts = LastSeenTS
@@ -372,6 +386,32 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
             {error, unrecoverable, "Invalid datastream key"};
         TS ->
             {ok, OldIter#it{ts = TS}}
+    end.
+
+fast_forward(
+    ShardId,
+    S,
+    It0 = #it{ts = TS0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
+    DSKey,
+    TMax
+) ->
+    case match_ds_key(It0#it.static_index, DSKey) of
+        false ->
+            {error, unrecoverable, "Invalid datastream key"};
+        FastForwardTo when FastForwardTo > TMax ->
+            {error, recoverble, "Key is too far in the future"};
+        FastForwardTo when FastForwardTo =< TS0 ->
+            %% Already past the key, nothing to do here:
+            {ok, It0};
+        FastForwardTo ->
+            case next(ShardId, S, It0, 1, TMax, true) of
+                {ok, #it{ts = NextTS}, [_]} when NextTS =< FastForwardTo ->
+                    {error, unrecoverable, has_data};
+                {ok, It, _} ->
+                    {ok, It};
+                Err ->
+                    Err
+            end
     end.
 
 next(ShardId = {_DB, Shard}, S, ItSeed, BatchSize, TMax, IsCurrent) ->
@@ -552,6 +592,8 @@ do_delete(CF, Batch, Static, KeyFamily, MsgKey) ->
 init_iterators(S, #it{static_index = Static, compressed_tf = CompressedTF}) ->
     do_init_iterators(S, Static, words(CompressedTF), 1).
 
+do_init_iterators(S, Static, ['#'], WildcardLevel) ->
+    do_init_iterators(S, Static, [], WildcardLevel);
 do_init_iterators(S, Static, ['+' | TopicFilter], WildcardLevel) ->
     %% Ignore wildcard levels in the topic filter because it has no value to index '+'
     do_init_iterators(S, Static, TopicFilter, WildcardLevel + 1);
