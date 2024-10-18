@@ -157,9 +157,9 @@ t_message_forwarding(Config) ->
     [SourceNode1 | _] = nodes_source(Config),
     [TargetNode1, TargetNode2 | _] = nodes_target(Config),
 
-    SourceC1 = start_client("t_message_forwarding", SourceNode1),
-    TargetC1 = start_client("t_message_forwarding1", TargetNode1),
-    TargetC2 = start_client("t_message_forwarding2", TargetNode2),
+    SourceC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding", SourceNode1),
+    TargetC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding1", TargetNode1),
+    TargetC2 = emqx_cluster_link_cth:connect_client("t_message_forwarding2", TargetNode2),
     IsShared = ?config(is_shared_sub, Config),
 
     {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
@@ -198,16 +198,21 @@ t_target_extrouting_gc('end', Config) ->
 t_target_extrouting_gc(Config) ->
     [SourceNode1 | _] = nodes_source(Config),
     [TargetNode1, TargetNode2 | _] = nodes_target(Config),
-    SourceC1 = start_client("t_target_extrouting_gc", SourceNode1),
-    TargetC1 = start_client_unlink("t_target_extrouting_gc1", TargetNode1),
-    TargetC2 = start_client_unlink("t_target_extrouting_gc2", TargetNode2),
+    SourceC1 = emqx_cluster_link_cth:connect_client("t_target_extrouting_gc", SourceNode1),
+    TargetC1 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc1", TargetNode1),
+    TargetC2 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc2", TargetNode2),
     IsShared = ?config(is_shared_sub, Config),
 
     TopicFilter1 = <<"t/+">>,
     TopicFilter2 = <<"t/#">>,
     {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, TopicFilter1), qos1),
     {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, TopicFilter2), qos1),
-    {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
+    {ok, _} = ?block_until(#{
+        ?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TargetNode1}
+    }),
+    {ok, _} = ?block_until(#{
+        ?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TargetNode2}
+    }),
     {ok, _} = emqtt:publish(SourceC1, <<"t/1">>, <<"HELLO1">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/2/ext">>, <<"HELLO2">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/3/ext">>, <<"HELLO3">>, qos1),
@@ -285,7 +290,7 @@ t_disconnect_on_errors(Config) ->
     ct:timetrap({seconds, 20}),
     [SN1 | _] = nodes_source(Config),
     [TargetNode] = nodes_target(Config),
-    SC1 = start_client("t_disconnect_on_errors", SN1),
+    SC1 = emqx_cluster_link_cth:connect_client("t_disconnect_on_errors", SN1),
     ok = ?ON(SN1, meck:new(emqx_cluster_link, [passthrough, no_link, no_history])),
     ?assertMatch(
         {_, {ok, _}},
@@ -316,21 +321,6 @@ maybe_shared_topic(true = _IsShared, Topic) ->
     <<"$share/test-group/", Topic/binary>>;
 maybe_shared_topic(false = _IsShared, Topic) ->
     Topic.
-
-start_client_unlink(ClientId, Node) ->
-    Client = start_client(ClientId, Node),
-    _ = erlang:unlink(Client),
-    Client.
-
-start_client(ClientId, Node) ->
-    Port = tcp_port(Node),
-    {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, Port}]),
-    {ok, _} = emqtt:connect(Client),
-    Client.
-
-tcp_port(Node) ->
-    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
 
 fmt(Fmt, Args) ->
     emqx_utils:format(Fmt, Args).

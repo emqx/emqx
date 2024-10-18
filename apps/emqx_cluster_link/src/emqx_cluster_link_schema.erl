@@ -21,7 +21,21 @@
     desc/1
 ]).
 
--import(emqx_schema, [mk_duration/2]).
+-export_type([link/0]).
+
+-type link() :: #{
+    name := binary(),
+    enable := boolean(),
+    server := binary(),
+    topics := [emqx_types:topic()],
+    clientid => binary(),
+    username => binary(),
+    password => emqx_secret:t(binary()),
+    ssl := #{atom() => _},
+    retry_interval := non_neg_integer(),
+    max_inflight := pos_integer(),
+    atom() => _
+}.
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
@@ -38,7 +52,9 @@ injected_fields() ->
 
 links_schema(Meta) ->
     ?HOCON(?ARRAY(?R_REF("link")), Meta#{
-        default => [], validator => fun links_validator/1, desc => ?DESC("links")
+        default => [],
+        validator => fun validate_unique_names/1,
+        desc => ?DESC("links")
     }).
 
 link_schema() ->
@@ -65,11 +81,17 @@ fields("link") ->
         }},
         {topics,
             ?HOCON(?ARRAY(binary()), #{
-                desc => ?DESC(topics), required => true, validator => fun topics_validator/1
+                desc => ?DESC(topics),
+                required => true,
+                validator => [
+                    fun validate_topics/1,
+                    fun validate_no_special_topics/1,
+                    fun validate_no_redundancy/1
+                ]
             })},
         {pool_size, ?HOCON(pos_integer(), #{default => 8, desc => ?DESC(pool_size)})},
         {retry_interval,
-            mk_duration(
+            emqx_schema:mk_duration(
                 "MQTT Message retry interval. Delay for the link to retry sending the QoS1/QoS2 "
                 "messages in case of ACK not received.",
                 #{default => <<"15s">>}
@@ -117,67 +139,37 @@ is_hidden_res_opt(Field) ->
 
 %% TODO: check that no link name equals local cluster name,
 %% but this may be tricky since the link config is injected into cluster config (emqx_conf_schema).
-links_validator(Links) ->
-    {_, Dups} = lists:foldl(
-        fun(Link, {Acc, DupAcc}) ->
-            Name = link_name(Link),
-            case Acc of
-                #{Name := _} ->
-                    {Acc, [Name | DupAcc]};
-                _ ->
-                    {Acc#{Name => undefined}, DupAcc}
-            end
-        end,
-        {#{}, []},
-        Links
-    ),
-    check_errors(Dups, duplicated_cluster_links, names).
+validate_unique_names(Links) ->
+    Names = [link_name(L) || L <- Links],
+    Dups = Names -- lists:usort(Names),
+    Dups == [] orelse mk_error(duplicated_cluster_links, duplicates, Dups).
 
 link_name(#{name := Name}) -> Name;
 link_name(#{<<"name">> := Name}) -> Name.
 
-topics_validator(Topics) ->
-    Errors0 = lists:foldl(
-        fun(T, ErrAcc) ->
-            try
-                _ = emqx_topic:validate(T),
-                validate_sys_link_topic(T, ErrAcc)
-            catch
-                E:R ->
-                    [{T, {E, R}} | ErrAcc]
-            end
-        end,
-        [],
-        Topics
-    ),
-    Errors = validate_duplicate_topic_filters(Topics),
-    check_errors(Errors0 ++ Errors, invalid_topics, topics).
+validate_topics(Topics) ->
+    Errors = lists:flatmap(fun validate_topic/1, Topics),
+    Errors == [] orelse mk_error(invalid_topics, topics, Errors).
 
-validate_sys_link_topic(T, ErrAcc) ->
-    case emqx_topic:match(T, ?TOPIC_PREFIX_WILDCARD) of
-        true ->
-            [{T, {error, topic_not_allowed}} | ErrAcc];
-        false ->
-            ErrAcc
+validate_topic(Topic) ->
+    try
+        emqx_topic:validate(Topic),
+        []
+    catch
+        error:Reason ->
+            [{Topic, Reason}]
     end.
 
-validate_duplicate_topic_filters(TopicFilters) ->
-    {Duplicated, _} =
-        lists:foldl(
-            fun(T, {Acc, Seen}) ->
-                case sets:is_element(T, Seen) of
-                    true ->
-                        {[{T, duplicate_topic_filter} | Acc], Seen};
-                    false ->
-                        {Acc, sets:add_element(T, Seen)}
-                end
-            end,
-            {[], sets:new([{version, 2}])},
-            TopicFilters
-        ),
-    Duplicated.
+validate_no_special_topics(Topics) ->
+    Errors = lists:flatmap(fun validate_sys_link_topic/1, Topics),
+    Errors == [] orelse mk_error(invalid_topics, topics, Errors).
 
-check_errors([] = _Errors, _Reason, _ValuesField) ->
-    ok;
-check_errors(Errors, Reason, ValuesField) ->
-    {error, #{reason => Reason, ValuesField => Errors}}.
+validate_sys_link_topic(Topic) ->
+    [{Topic, topic_not_allowed} || emqx_topic:match(Topic, ?TOPIC_PREFIX_WILDCARD)].
+
+validate_no_redundancy(Topics) ->
+    Redundant = Topics -- emqx_topic:union(Topics),
+    Redundant == [] orelse mk_error(redundant_topics, topics, Redundant).
+
+mk_error(Reason, Field, Errors) ->
+    {error, #{reason => Reason, Field => Errors}}.

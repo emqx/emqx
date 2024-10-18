@@ -625,7 +625,7 @@ link_metrics_response_example() ->
     }.
 
 with_link(Name, FoundFn, NotFoundFn) ->
-    case emqx_cluster_link_config:link_raw(Name) of
+    case emqx_cluster_link_config:get_link_raw(Name) of
         undefined ->
             NotFoundFn();
         Link0 = #{} when is_function(FoundFn, 1) ->

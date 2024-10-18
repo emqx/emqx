@@ -341,63 +341,19 @@ deliver_to_client([Msg | Rest], Pid, Topic) ->
 deliver_to_client([], _, _) ->
     ok.
 
--define(DELIVER_ALLOWED, true).
--define(DELIVER_NOT_ALLOWED, false).
--define(publisher_client_banned, publisher_client_banned).
--define(msg_topic_not_match, msg_topic_not_match).
+filter_delivery(Messages, _Topic) ->
+    lists:filter(fun check_clientid_banned/1, Messages).
 
-filter_delivery(Messages, Topic) ->
-    FilterFun =
-        fun(Msg) ->
-            Pipe = emqx_utils:pipeline(
-                [
-                    fun check_clientid_banned/2,
-                    fun 'check_prefixed_$_with_wildcard'/2
-                ],
-                {Msg, Topic},
-                ?DELIVER_NOT_ALLOWED
-            ),
-            _ =
-                case Pipe of
-                    {ok, _, ?DELIVER_ALLOWED} ->
-                        true;
-                    {error, _, _} ->
-                        false
-                end
-        end,
-    lists:filter(FilterFun, Messages).
-
-check_clientid_banned({Msg, _Topic} = Input, _) ->
+check_clientid_banned(Msg) ->
     case emqx_banned:check_clientid(Msg#message.from) of
         false ->
-            {ok, Input, ?DELIVER_ALLOWED};
+            true;
         true ->
-            ?tp(
-                debug,
-                ignore_retained_message_due_to_banned,
-                #{
-                    reason => ?publisher_client_banned,
-                    clientid => Msg#message.from
-                }
-            ),
-            {error, ?publisher_client_banned, ?DELIVER_NOT_ALLOWED}
-    end.
-
-%% [MQTT-4.7.2-1]
-'check_prefixed_$_with_wildcard'({Msg, Topic} = Input, _) ->
-    case emqx_topic:match(Msg#message.topic, Topic) of
-        false ->
-            ?tp(
-                ignore_retained_message_due_to_topic_not_match,
-                #{
-                    reason => ?msg_topic_not_match,
-                    msg_topic => Msg#message.topic,
-                    subscribed_topic => Topic
-                }
-            ),
-            {error, ?msg_topic_not_match, ?DELIVER_NOT_ALLOWED};
-        true ->
-            {ok, Input, ?DELIVER_ALLOWED}
+            ?tp(debug, ignore_retained_message_due_to_banned, #{
+                reason => publisher_client_banned,
+                clientid => Msg#message.from
+            }),
+            false
     end.
 
 take(N, List) ->

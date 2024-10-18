@@ -14,9 +14,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(API_PATH, emqx_mgmt_api_test_util:api_path(["cluster", "links"])).
--define(CONF_PATH, [cluster, links]).
-
 -define(CACERT, <<
     "-----BEGIN CERTIFICATE-----\n"
     "MIIDUTCCAjmgAwIBAgIJAPPYCjTmxdt/MA0GCSqGSIb3DQEBCwUAMD8xCzAJBgNV\n"
@@ -48,15 +45,16 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE),
-    OtherTCs = AllTCs -- cluster_test_cases(),
-    [
-        {group, cluster}
-        | OtherTCs
-    ].
+    [{group, cluster}, {group, local}].
 
 groups() ->
-    [{cluster, cluster_test_cases()}].
+    [
+        {cluster, cluster_test_cases()},
+        {local, local_test_cases()}
+    ].
+
+local_test_cases() ->
+    emqx_common_test_helpers:all(?MODULE) -- cluster_test_cases().
 
 cluster_test_cases() ->
     [
@@ -68,6 +66,12 @@ cluster_test_cases() ->
 init_per_suite(Config) ->
     %% This is called by emqx_machine in EMQX release
     emqx_otel_app:configure_otel_deps(),
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(local = _Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -77,14 +81,8 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    Auth = auth_header(),
-    [{suite_apps, Apps}, {auth, Auth} | Config].
-
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)),
-    emqx_config:delete_override_conf_files(),
-    ok.
-
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    [{suite_apps, Apps}, {auth, Auth} | Config];
 init_per_group(cluster = Group, Config) ->
     ok = emqx_cth_suite:stop_apps([emqx_dashboard]),
     SourceClusterSpec = emqx_cluster_link_SUITE:mk_source_cluster(Group, Config),
@@ -105,33 +103,31 @@ init_per_group(cluster = Group, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ]),
+    Auth = ?ON(SN1, emqx_mgmt_api_test_util:auth_header_()),
     [
         {source_nodes, SourceNodes},
-        {target_nodes, TargetNodes}
+        {target_nodes, TargetNodes},
+        {auth, Auth}
         | Config
-    ];
-init_per_group(_Group, Config) ->
-    Config.
+    ].
 
+end_per_group(local, Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config));
 end_per_group(cluster, Config) ->
     SourceNodes = ?config(source_nodes, Config),
     TargetNodes = ?config(target_nodes, Config),
     ok = emqx_cth_cluster:stop(SourceNodes),
-    ok = emqx_cth_cluster:stop(TargetNodes),
-    _ = emqx_cth_suite:start_apps(
-        [emqx_mgmt_api_test_util:emqx_dashboard()],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    ok;
-end_per_group(_Group, _Config) ->
-    ok.
+    ok = emqx_cth_cluster:stop(TargetNodes).
 
-auth_header() ->
-    emqx_mgmt_api_test_util:auth_header_().
-
-init_per_testcase(_TC, Config) ->
-    {ok, _} = emqx_cluster_link_config:update([]),
+init_per_testcase(TC, Config) ->
+    [Group] = [G || {G, TCs} <- groups(), lists:member(TC, TCs)],
     snabbkaffe:start_trace(),
+    init_per_testcase(TC, Group, Config).
+
+init_per_testcase(_TC, local, Config) ->
+    {ok, _} = emqx_cluster_link_config:update([]),
+    Config;
+init_per_testcase(_TC, cluster, Config) ->
     Config.
 
 end_per_testcase(_TC, _Config) ->
@@ -146,47 +142,52 @@ end_per_testcase(_TC, _Config) ->
 api_root() ->
     <<"cluster/links">>.
 
-list() ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root()]),
-    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "").
+api_path(ReqPath) ->
+    emqx_mgmt_api_test_util:api_path([api_root() | ReqPath]).
 
-get_link(Name) ->
-    get_link(source, Name).
+api_path(Host, ReqPath) ->
+    emqx_mgmt_api_test_util:api_path(Host, [api_root() | ReqPath]).
 
-get_link(SourceOrTargetCluster, Name) ->
-    Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name]),
-    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "").
+api_auth(Config) ->
+    ?config(auth, Config).
 
-delete_link(Name) ->
-    Path = emqx_mgmt_api_test_util:api_path([api_root(), "link", Name]),
-    emqx_mgmt_api_test_util:simple_request(delete, Path, _Params = "").
+list(Config) ->
+    Path = api_path([]),
+    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "", api_auth(Config)).
 
-update_link(Name, Params) ->
-    update_link(source, Name, Params).
+get_link(Name, Config) ->
+    get_link(source, Name, Config).
 
-update_link(SourceOrTargetCluster, Name, Params) ->
-    Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name]),
-    emqx_mgmt_api_test_util:simple_request(put, Path, Params).
+get_link(SourceOrTargetCluster, Name, Config) ->
+    Path = api_path(host(SourceOrTargetCluster), ["link", Name]),
+    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = "", api_auth(Config)).
 
-create_link(Name, Params0) ->
+delete_link(Name, Config) ->
+    Path = api_path(["link", Name]),
+    emqx_mgmt_api_test_util:simple_request(delete, Path, _Params = "", api_auth(Config)).
+
+update_link(Name, Params, Config) ->
+    update_link(source, Name, Params, Config).
+
+update_link(SourceOrTargetCluster, Name, Params, Config) ->
+    Path = api_path(host(SourceOrTargetCluster), ["link", Name]),
+    emqx_mgmt_api_test_util:simple_request(put, Path, Params, api_auth(Config)).
+
+create_link(Name, Params0, Config) ->
+    Path = api_path([]),
     Params = Params0#{<<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path([api_root()]),
-    emqx_mgmt_api_test_util:simple_request(post, Path, Params).
+    emqx_mgmt_api_test_util:simple_request(post, Path, Params, api_auth(Config)).
 
-get_metrics(Name) ->
-    get_metrics(source, Name).
+get_metrics(Name, Config) ->
+    get_metrics(source, Name, Config).
 
-get_metrics(SourceOrTargetCluster, Name) ->
-    Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name, "metrics"]),
-    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = []).
+get_metrics(SourceOrTargetCluster, Name, Config) ->
+    Path = api_path(host(SourceOrTargetCluster), ["link", Name, "metrics"]),
+    emqx_mgmt_api_test_util:simple_request(get, Path, _Params = [], api_auth(Config)).
 
-reset_metrics(SourceOrTargetCluster, Name) ->
-    Host = host(SourceOrTargetCluster),
-    Path = emqx_mgmt_api_test_util:api_path(Host, [api_root(), "link", Name, "metrics", "reset"]),
-    emqx_mgmt_api_test_util:simple_request(put, Path, _Params = []).
+reset_metrics(SourceOrTargetCluster, Name, Config) ->
+    Path = api_path(host(SourceOrTargetCluster), ["link", Name, "metrics", "reset"]),
+    emqx_mgmt_api_test_util:simple_request(put, Path, _Params = [], api_auth(Config)).
 
 host(source) -> "http://127.0.0.1:18083";
 host(target) -> "http://127.0.0.1:28083".
@@ -220,7 +221,7 @@ disable_and_force_gc(TargetOrSource, Name, Params, TCConfig, Opts) ->
             target -> ?config(source_nodes, TCConfig);
             source -> ?config(target_nodes, TCConfig)
         end,
-    {200, _} = update_link(TargetOrSource, Name, Params#{<<"enable">> := false}),
+    {200, _} = update_link(TargetOrSource, Name, Params#{<<"enable">> := false}, TCConfig),
     %% Note that only when the GC runs and collects the stopped actor it'll actually
     %% remove the routes
     NowMS = erlang:system_time(millisecond),
@@ -252,8 +253,8 @@ wait_for_routes([], _ExpectedTopics) ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_put_get_valid(_Config) ->
-    ?assertMatch({200, []}, list()),
+t_put_get_valid(Config) ->
+    ?assertMatch({200, []}, list(Config)),
 
     Name1 = <<"emqcl_1">>,
     Link1 = link_params(#{
@@ -265,42 +266,42 @@ t_put_get_valid(_Config) ->
         <<"server">> => <<"emqxcl_2.nohost:41883">>,
         <<"name">> => Name2
     }),
-    ?assertMatch({201, _}, create_link(Name1, Link1)),
-    ?assertMatch({201, _}, create_link(Name2, Link2)),
-    ?assertMatch({200, [_, _]}, list()),
+    ?assertMatch({201, _}, create_link(Name1, Link1, Config)),
+    ?assertMatch({201, _}, create_link(Name2, Link2, Config)),
+    ?assertMatch({200, [_, _]}, list(Config)),
 
     DisabledLink1 = Link1#{<<"enable">> => false},
-    ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, DisabledLink1))),
-    ?assertMatch({200, #{<<"enable">> := false}}, get_link(Name1)),
-    ?assertMatch({200, #{<<"enable">> := true}}, get_link(Name2)),
+    ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, DisabledLink1), Config)),
+    ?assertMatch({200, #{<<"enable">> := false}}, get_link(Name1, Config)),
+    ?assertMatch({200, #{<<"enable">> := true}}, get_link(Name2, Config)),
 
     SSL = #{<<"enable">> => true, <<"cacertfile">> => ?CACERT},
     SSLLink1 = Link1#{<<"ssl">> => SSL},
-    ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, SSLLink1))),
+    ?assertMatch({200, _}, update_link(Name1, maps:remove(<<"name">>, SSLLink1), Config)),
     ?assertMatch(
         {200, #{<<"ssl">> := #{<<"enable">> := true, <<"cacertfile">> := _Path}}},
-        get_link(Name1)
+        get_link(Name1, Config)
     ),
     ok.
 
-t_put_invalid(_Config) ->
+t_put_invalid(Config) ->
     Name = <<"l1">>,
-    {201, _} = create_link(Name, link_params()),
+    {201, _} = create_link(Name, link_params(), Config),
     ?assertMatch(
         {400, _},
-        update_link(Name, maps:remove(<<"server">>, link_params()))
+        update_link(Name, maps:remove(<<"server">>, link_params()), Config)
     ).
 
 %% Tests a sequence of CRUD operations and their expected responses, for common use cases
 %% and configuration states.
-t_crud(_Config) ->
+t_crud(Config) ->
     %% No links initially.
-    ?assertMatch({200, []}, list()),
+    ?assertMatch({200, []}, list(Config)),
     NameA = <<"a">>,
-    ?assertMatch({404, _}, get_link(NameA)),
-    ?assertMatch({404, _}, delete_link(NameA)),
-    ?assertMatch({404, _}, update_link(NameA, link_params())),
-    ?assertMatch({404, _}, get_metrics(NameA)),
+    ?assertMatch({404, _}, get_link(NameA, Config)),
+    ?assertMatch({404, _}, delete_link(NameA, Config)),
+    ?assertMatch({404, _}, update_link(NameA, link_params(), Config)),
+    ?assertMatch({404, _}, get_metrics(NameA, Config)),
 
     Params1 = link_params(),
     ?assertMatch(
@@ -310,9 +311,12 @@ t_crud(_Config) ->
             <<"status">> := _,
             <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
         }},
-        create_link(NameA, Params1)
+        create_link(NameA, Params1, Config)
     ),
-    ?assertMatch({400, #{<<"code">> := <<"ALREADY_EXISTS">>}}, create_link(NameA, Params1)),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"ALREADY_EXISTS">>}},
+        create_link(NameA, Params1, Config)
+    ),
     ?assertMatch(
         {200, [
             #{
@@ -322,7 +326,7 @@ t_crud(_Config) ->
                 <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
             }
         ]},
-        list()
+        list(Config)
     ),
     ?assertMatch(
         {200, #{
@@ -331,9 +335,9 @@ t_crud(_Config) ->
             <<"status">> := _,
             <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
         }},
-        get_link(NameA)
+        get_link(NameA, Config)
     ),
-    ?assertMatch({200, _}, get_metrics(NameA)),
+    ?assertMatch({200, _}, get_metrics(NameA, Config)),
 
     Params2 = Params1#{<<"pool_size">> := 2},
     ?assertMatch(
@@ -343,32 +347,30 @@ t_crud(_Config) ->
             <<"status">> := _,
             <<"node_status">> := [#{<<"node">> := _, <<"status">> := _} | _]
         }},
-        update_link(NameA, Params2)
+        update_link(NameA, Params2, Config)
     ),
 
-    ?assertMatch({204, _}, delete_link(NameA)),
-    ?assertMatch({404, _}, delete_link(NameA)),
-    ?assertMatch({404, _}, get_link(NameA)),
-    ?assertMatch({404, _}, update_link(NameA, Params1)),
-    ?assertMatch({404, _}, get_metrics(NameA)),
-    ?assertMatch({200, []}, list()),
+    ?assertMatch({204, _}, delete_link(NameA, Config)),
+    ?assertMatch({404, _}, delete_link(NameA, Config)),
+    ?assertMatch({404, _}, get_link(NameA, Config)),
+    ?assertMatch({404, _}, update_link(NameA, Params1, Config)),
+    ?assertMatch({404, _}, get_metrics(NameA, Config)),
+    ?assertMatch({200, []}, list(Config)),
 
     ok.
 
-t_create_invalid(_Config) ->
+t_create_invalid(Config) ->
     Params = link_params(),
     EmptyName = <<>>,
-    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message1}} = create_link(
-        EmptyName, Params
-    ),
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message1}} =
+        create_link(EmptyName, Params, Config),
     ?assertMatch(
         #{<<"kind">> := <<"validation_error">>, <<"reason">> := <<"Name cannot be empty string">>},
         Message1
     ),
     LongName = binary:copy(<<$a>>, 256),
-    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message2}} = create_link(
-        LongName, Params
-    ),
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message2}} =
+        create_link(LongName, Params, Config),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
@@ -377,9 +379,8 @@ t_create_invalid(_Config) ->
         Message2
     ),
     BadName = <<"~!@#$%^&*()_+{}:'<>?|">>,
-    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message3}} = create_link(
-        BadName, Params
-    ),
+    {400, #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message3}} =
+        create_link(BadName, Params, Config),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
@@ -412,7 +413,7 @@ t_status(Config) ->
                     ]
                 }
             ]},
-            list()
+            list(Config)
         )
     ),
     ?assertMatch(
@@ -429,7 +430,7 @@ t_status(Config) ->
                 }
             ]
         }},
-        get_link(Name)
+        get_link(Name, Config)
     ),
 
     %% If one of the nodes reports a different status, the cluster is inconsistent.
@@ -465,7 +466,7 @@ t_status(Config) ->
                 ]
             }
         ]},
-        list()
+        list(Config)
     ),
     ?assertMatch(
         {200, #{
@@ -481,7 +482,7 @@ t_status(Config) ->
                 }
             ]
         }},
-        get_link(Name)
+        get_link(Name, Config)
     ),
 
     %% Simulating erpc failures
@@ -512,7 +513,7 @@ t_status(Config) ->
                 ]
             }
         ]},
-        list()
+        list(Config)
     ),
     ?assertMatch(
         {200, #{
@@ -529,7 +530,7 @@ t_status(Config) ->
                 }
             ]
         }},
-        get_link(Name)
+        get_link(Name, Config)
     ),
     %% Simulate another inconsistency
     ?ON(SN1, begin
@@ -552,7 +553,7 @@ t_status(Config) ->
                 }
             ]
         }},
-        get_link(Name)
+        get_link(Name, Config)
     ),
 
     ok.
@@ -627,7 +628,7 @@ t_metrics(Config) ->
                 }
             ]
         }},
-        get_metrics(source, SourceName)
+        get_metrics(source, SourceName, Config)
     ),
     ?assertMatch(
         {200, #{
@@ -643,11 +644,11 @@ t_metrics(Config) ->
                 }
             ]
         }},
-        get_metrics(target, TargetName)
+        get_metrics(target, TargetName, Config)
     ),
 
-    SourceC1 = emqx_cluster_link_SUITE:start_client(<<"sc1">>, SN1),
-    SourceC2 = emqx_cluster_link_SUITE:start_client(<<"sc2">>, SN2),
+    SourceC1 = emqx_cluster_link_cth:connect_client(<<"sc1">>, SN1),
+    SourceC2 = emqx_cluster_link_cth:connect_client(<<"sc2">>, SN2),
     {ok, _, _} = emqtt:subscribe(SourceC1, <<"t/sc1">>),
     {ok, _, _} = emqtt:subscribe(SourceC2, <<"t/sc2">>),
 
@@ -667,7 +668,7 @@ t_metrics(Config) ->
                 }
             ]
         }},
-        get_metrics(source, SourceName)
+        get_metrics(source, SourceName, Config)
     ),
     ?assertMatch(
         {200, #{
@@ -683,11 +684,11 @@ t_metrics(Config) ->
                 }
             ]
         }},
-        get_metrics(target, TargetName)
+        get_metrics(target, TargetName, Config)
     ),
 
-    TargetC1 = emqx_cluster_link_SUITE:start_client(<<"tc1">>, TN1),
-    TargetC2 = emqx_cluster_link_SUITE:start_client(<<"tc2">>, TN2),
+    TargetC1 = emqx_cluster_link_cth:connect_client(<<"tc1">>, TN1),
+    TargetC2 = emqx_cluster_link_cth:connect_client(<<"tc2">>, TN2),
     {_, {ok, _}} =
         ?wait_async_action(
             begin
@@ -711,7 +712,7 @@ t_metrics(Config) ->
                     #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 2}}}
                 ]
             }},
-            get_metrics(source, SourceName)
+            get_metrics(source, SourceName, Config)
         )
     ),
     ?assertMatch(
@@ -719,7 +720,7 @@ t_metrics(Config) ->
             <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
             <<"node_metrics">> := _
         }},
-        get_metrics(target, TargetName)
+        get_metrics(target, TargetName, Config)
     ),
 
     %% Unsubscribe and remove route.
@@ -743,13 +744,13 @@ t_metrics(Config) ->
                     #{<<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}}}
                 ]
             }},
-            get_metrics(source, SourceName)
+            get_metrics(source, SourceName, Config)
         )
     ),
 
     %% Disabling the link should remove the routes.
     ct:pal("disabling"),
-    {200, TargetLink0} = get_link(target, TargetName),
+    {200, TargetLink0} = get_link(target, TargetName, Config),
     TargetLink1 = remove_api_virtual_fields(TargetLink0),
     ok = disable_and_force_gc(target, TargetName, TargetLink1, Config, #{
         expected_num_route_deletions => 1
@@ -763,7 +764,7 @@ t_metrics(Config) ->
                 <<"metrics">> := #{<<"router">> := #{<<"routes">> := 0}},
                 <<"node_metrics">> := _
             }},
-            get_metrics(source, SourceName)
+            get_metrics(source, SourceName, Config)
         )
     ),
 
@@ -772,7 +773,7 @@ t_metrics(Config) ->
     {_, {ok, _}} =
         ?wait_async_action(
             begin
-                {200, _} = update_link(target, TargetName, TargetLink2)
+                {200, _} = update_link(target, TargetName, TargetLink2, Config)
             end,
             #{?snk_kind := "cluster_link_extrouter_route_added"}
         ),
@@ -785,12 +786,12 @@ t_metrics(Config) ->
                 <<"metrics">> := #{<<"router">> := #{<<"routes">> := 1}},
                 <<"node_metrics">> := _
             }},
-            get_metrics(source, SourceName)
+            get_metrics(source, SourceName, Config)
         )
     ),
 
     %% Reset metrics
-    ?assertMatch({204, _}, reset_metrics(source, SourceName)),
+    ?assertMatch({204, _}, reset_metrics(source, SourceName, Config)),
     ?assertMatch(
         {200, #{
             <<"metrics">> := #{
@@ -814,26 +815,29 @@ t_metrics(Config) ->
                 }
             ]
         }},
-        get_metrics(source, SourceName)
+        get_metrics(source, SourceName, Config)
     ),
 
-    ok.
+    ok = lists:foreach(
+        fun emqx_cluster_link_cth:disconnect_client/1,
+        [SourceC1, SourceC2, TargetC1, TargetC2]
+    ).
 
 %% Checks that we can update a link via the API in the same fashion as the frontend does,
 %% by sending secrets as `******', and the secret is not mangled.
-t_update_password(_Config) ->
+t_update_password(Config) ->
     ?check_trace(
         begin
             Name = atom_to_binary(?FUNCTION_NAME),
             Password = <<"my secret password">>,
             Params1 = link_params(#{<<"password">> => Password}),
-            {201, Response1} = create_link(Name, Params1),
+            {201, Response1} = create_link(Name, Params1, Config),
             [#{name := Name, password := WrappedPassword0}] = emqx_config:get([cluster, links]),
             ?assertEqual(Password, emqx_secret:unwrap(WrappedPassword0)),
             Params2A = remove_api_virtual_fields(Response1),
             Params2 = Params2A#{<<"pool_size">> := 2},
             ?assertEqual(?REDACTED, maps:get(<<"password">>, Params2)),
-            ?assertMatch({200, _}, update_link(Name, Params2)),
+            ?assertMatch({200, _}, update_link(Name, Params2, Config)),
             [#{name := Name, password := WrappedPassword}] = emqx_config:get([cluster, links]),
             ?assertEqual(Password, emqx_secret:unwrap(WrappedPassword)),
             ok
@@ -843,7 +847,7 @@ t_update_password(_Config) ->
     ok.
 
 %% Checks that we forbid duplicate topic filters.
-t_duplicate_topic_filters(_Config) ->
+t_duplicate_topic_filters(Config) ->
     ?check_trace(
         begin
             Name = atom_to_binary(?FUNCTION_NAME),
@@ -852,12 +856,12 @@ t_duplicate_topic_filters(_Config) ->
                 {400, #{
                     <<"message">> := #{
                         <<"reason">> := #{
-                            <<"reason">> := <<"invalid_topics">>,
-                            <<"topics">> := #{<<"t">> := <<"duplicate_topic_filter">>}
+                            <<"reason">> := <<"redundant_topics">>,
+                            <<"topics">> := [<<"t">>]
                         }
                     }
                 }},
-                create_link(Name, Params1)
+                create_link(Name, Params1, Config)
             ),
             ok
         end,
@@ -867,11 +871,11 @@ t_duplicate_topic_filters(_Config) ->
 
 %% Verifies that some fields are not required when updating a link, such as:
 %%  - clientid
-t_optional_fields_update(_Config) ->
+t_optional_fields_update(Config) ->
     Name = <<"mylink">>,
     Params0 = maps:without([<<"clientid">>], link_params()),
-    {201, _} = create_link(Name, Params0),
-    ?assertMatch({200, _}, update_link(Name, Params0)),
+    {201, _} = create_link(Name, Params0, Config),
+    ?assertMatch({200, _}, update_link(Name, Params0, Config)),
     ok.
 
 %% Verifies that, if we disable a link and then re-enable it, it should keep working.
@@ -880,15 +884,17 @@ t_disable_reenable(Config) ->
     [SN1, _SN2] = SourceNodes = ?config(source_nodes, Config),
     [TN1, TN2] = ?config(target_nodes, Config),
     SourceName = <<"cl.target">>,
-    SourceC1 = emqx_cluster_link_SUITE:start_client(<<"sc1">>, SN1),
-    TargetC1 = emqx_cluster_link_SUITE:start_client(<<"tc1">>, TN1),
-    TargetC2 = emqx_cluster_link_SUITE:start_client(<<"tc2">>, TN2),
+
+    SourceC1 = emqx_cluster_link_cth:connect_client(<<"sc1">>, SN1),
+    TargetC1 = emqx_cluster_link_cth:connect_client(<<"tc1">>, TN1),
+    TargetC2 = emqx_cluster_link_cth:connect_client(<<"tc2">>, TN2),
     Topic1 = <<"t/tc1">>,
     Topic2 = <<"t/tc2">>,
     {ok, _, _} = emqtt:subscribe(TargetC1, Topic1),
     {ok, _, _} = emqtt:subscribe(TargetC2, Topic2),
     %% fixme: use snabbkaffe subscription
-    ?block_until(#{?snk_kind := clink_route_sync_complete}),
+    ?block_until(#{?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TN1}}),
+    ?block_until(#{?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TN2}}),
     {ok, _} = emqtt:publish(SourceC1, Topic1, <<"1">>, [{qos, 1}]),
     {ok, _} = emqtt:publish(SourceC1, Topic2, <<"2">>, [{qos, 1}]),
     %% Sanity check: link is working, initially.
@@ -896,13 +902,13 @@ t_disable_reenable(Config) ->
     ?assertReceive({publish, #{topic := Topic2, payload := <<"2">>}}),
 
     %% Now we just disable and re-enable it in the link in the source cluster.
-    {200, #{<<"enable">> := true} = SourceLink0} = get_link(source, SourceName),
+    {200, #{<<"enable">> := true} = SourceLink0} = get_link(source, SourceName, Config),
     SourceLink1 = remove_api_virtual_fields(SourceLink0),
     %% We force GC to simulate that we left the link disable for enough time that the GC
     %% kicks in.
     ?assertMatch(
         {200, #{<<"enable">> := false}},
-        update_link(source, SourceName, SourceLink1#{<<"enable">> := false})
+        update_link(source, SourceName, SourceLink1#{<<"enable">> := false}, Config)
     ),
     %% In the original issue, GC deleted the state of target cluster's agent in source
     %% cluster.  After the fix, there's no longer GC, so we ignore timeouts here.
@@ -913,7 +919,7 @@ t_disable_reenable(Config) ->
     ),
     ?assertMatch(
         {200, #{<<"enable">> := true}},
-        update_link(source, SourceName, SourceLink1)
+        update_link(source, SourceName, SourceLink1, Config)
     ),
 
     Topic3 = <<"t/tc3">>,
@@ -932,4 +938,8 @@ t_disable_reenable(Config) ->
     ?assertReceive({publish, #{topic := Topic2, payload := <<"4">>}}),
     ?assertReceive({publish, #{topic := Topic3, payload := <<"5">>}}),
     ?assertReceive({publish, #{topic := Topic4, payload := <<"6">>}}),
-    ok.
+
+    ok = lists:foreach(
+        fun emqx_cluster_link_cth:disconnect_client/1,
+        [SourceC1, TargetC1, TargetC2]
+    ).
