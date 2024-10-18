@@ -116,7 +116,7 @@
         n_sites => pos_integer(),
         replication_factor => pos_integer(),
         replication_options => _TODO :: #{},
-        %% Inherited from `emqx_ds:generic_db_opts()`.
+        %% Equivalent to `append_only' from `emqx_ds:create_db_opts'
         force_monotonic_timestamps => boolean(),
         atomic_batches => boolean()
     }.
@@ -193,7 +193,10 @@ list_shards(DB) ->
     emqx_ds_replication_layer_meta:shards(DB).
 
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
-open_db(DB, CreateOpts) ->
+open_db(DB, CreateOpts0) ->
+    %% Rename `append_only' flag to `force_monotonic_timestamps':
+    {AppendOnly, CreateOpts1} = maps:take(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts1),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
