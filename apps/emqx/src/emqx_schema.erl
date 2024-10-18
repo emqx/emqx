@@ -310,7 +310,7 @@ roots(low) ->
             sc(
                 ref("durable_sessions"),
                 #{
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {trace,
@@ -2144,7 +2144,7 @@ desc("ocsp") ->
 desc("crl_cache") ->
     "Global CRL cache options.";
 desc("durable_sessions") ->
-    "Settings governing durable sessions persistence.";
+    ?DESC(durable_sessions);
 desc(durable_storage) ->
     ?DESC(durable_storage);
 desc("client_attrs_init") ->
