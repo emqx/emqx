@@ -1278,3 +1278,78 @@ t_disallow_disk_mode_for_dynamic_topic(Config) ->
         )
     ),
     ok.
+
+%% In wolff < 2.0.0, replayq filepath was computed differently than current versions,
+%% after dynamic topics were introduced.  This verifies that we migrate older directories
+%% if we detect them when starting the producer.
+t_migrate_old_replayq_dir(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(
+        connector_config, Config, connector_config_toxiproxy(Config)
+    ),
+    ActionName = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"buffer">> => #{
+                        <<"mode">> => <<"disk">>
+                    }
+                }
+            }
+        )
+    ),
+    #{<<"parameters">> := #{<<"topic">> := Topic}} = ActionConfig,
+    ReplayqDir = emqx_bridge_kafka_impl_producer:replayq_dir(Type, ActionName),
+    OldWolffDir = filename:join([ReplayqDir, Topic]),
+    %% simulate partition sub-directories
+    NumPartitions = 3,
+    OldDirs = lists:map(
+        fun(N) ->
+            filename:join([OldWolffDir, integer_to_binary(N)])
+        end,
+        lists:seq(1, NumPartitions)
+    ),
+    lists:foreach(
+        fun(D) ->
+            ok = filelib:ensure_path(D)
+        end,
+        OldDirs
+    ),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+    {ok, {{_, 201, _}, _, #{}}} =
+        emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+    ?check_trace(
+        begin
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            %% Old directories have been moved
+            lists:foreach(
+                fun(D) ->
+                    ?assertNot(filelib:is_dir(D))
+                end,
+                OldDirs
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([#{from := OldWolffDir}], ?of_kind("migrating_old_wolff_dirs", Trace)),
+            ok
+        end
+    ),
+    ok.

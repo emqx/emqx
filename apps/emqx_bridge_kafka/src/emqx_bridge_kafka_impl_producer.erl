@@ -32,6 +32,10 @@
     handle_telemetry_event/4
 ]).
 
+-ifdef(TEST).
+-export([replayq_dir/2]).
+-endif.
+
 -include_lib("emqx/include/logger.hrl").
 
 %% Allocatable resources
@@ -159,9 +163,11 @@ create_producers_for_bridge_v2(
     #{name := BridgeName} = emqx_bridge_v2:parse_id(ActionResId),
     IsDryRun = emqx_resource:is_dry_run(ActionResId),
     ok = check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions),
-    WolffProducerConfig = producers_config(
-        BridgeType, BridgeName, KafkaConfig, IsDryRun, ActionResId
-    ),
+    WolffProducerConfig =
+        #{replayq_dir := ReplayqDir} = producers_config(
+            BridgeType, BridgeName, KafkaConfig, IsDryRun, ActionResId
+        ),
+    maybe_migrate_old_replayq_dir(ReplayqDir, ActionResId, TopicType, MKafkaTopic),
     case wolff:ensure_supervised_dynamic_producers(ClientId, WolffProducerConfig) of
         {ok, Producers} ->
             case TopicType of
@@ -817,6 +823,46 @@ replayq_dir(BridgeType, BridgeName) ->
         atom_to_list(node())
     ]),
     filename:join([emqx:data_dir(), "kafka", DirName]).
+
+%% new (wolff >= 2.0.0):
+%% Dir = filename:join([BaseDir, PathSegment, integer_to_list(Partition)]),
+%% old:
+%% Dir = filename:join([BaseDir, Topic, integer_to_list(Partition)]),
+maybe_migrate_old_replayq_dir(false, _ActionResId, _TopicType, _Topic) ->
+    ok;
+maybe_migrate_old_replayq_dir(ReplayqDir, ActionResId, fixed = _TopicType, Topic) ->
+    OldWolffDir = filename:join([ReplayqDir, Topic]),
+    maybe
+        true ?= filelib:is_dir(OldWolffDir),
+        {ok, Files} ?= file:list_dir_all(OldWolffDir),
+        %% Each partition number has a sub-directory.
+        PartitionDirs = lists:filtermap(
+            fun(File) ->
+                PartitionDir = filename:join([OldWolffDir, File]),
+                IsDir = filelib:is_dir(PartitionDir),
+                case IsDir andalso string:to_integer(File) of
+                    {_Int, Rest} when Rest =:= ""; Rest =:= <<>> ->
+                        {true, PartitionDir};
+                    _ ->
+                        false
+                end
+            end,
+            Files
+        ),
+        [_ | _] ?= PartitionDirs,
+        NewWolffDir = filename:join([ReplayqDir, <<ActionResId/binary, $_, Topic/binary>>]),
+        ?tp(info, "migrating_old_wolff_dirs", #{
+            action_id => ActionResId,
+            from => OldWolffDir,
+            to => NewWolffDir
+        }),
+        ok = file:rename(OldWolffDir, NewWolffDir),
+        ok
+    else
+        _ -> ok
+    end;
+maybe_migrate_old_replayq_dir(_ReplayqDir, _ActionResId, _TopicType, _Topic) ->
+    ok.
 
 %% To avoid losing queued data on disk, we must use the same directory as the old v1
 %% bridges, if any.  Among the Kafka-based bridges that exist since v1, only Kafka changed
