@@ -85,7 +85,14 @@
 %% internal exports:
 -export([start_link/4, do_dispatch/1]).
 
--export_type([opts/0, beam/2, beam/0, return_addr/1, unpack_iterator_result/1]).
+-export_type([
+    opts/0,
+    beam/2, beam/0,
+    return_addr/1,
+    unpack_iterator_result/1,
+    event_topic/0,
+    stream_scan_return/0
+]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").

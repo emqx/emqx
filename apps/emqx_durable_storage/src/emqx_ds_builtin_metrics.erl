@@ -29,6 +29,7 @@
     inc_buffer_bytes/2,
 
     observe_buffer_flush_time/2,
+    observe_buffer_latency/2,
 
     observe_store_batch_time/2,
 
@@ -91,7 +92,8 @@
     {counter, ?DS_BUFFER_BATCHES_FAILED},
     {counter, ?DS_BUFFER_MESSAGES},
     {counter, ?DS_BUFFER_BYTES},
-    {slide, ?DS_BUFFER_FLUSH_TIME}
+    {slide, ?DS_BUFFER_FLUSH_TIME},
+    {slide, ?DS_BUFFER_LATENCY}
 ]).
 
 -define(BEAMFORMER_METRICS, [
@@ -160,10 +162,17 @@ inc_buffer_bytes(Id, NMessages) ->
     catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BYTES, NMessages).
 
 %% @doc Add a sample of elapsed time spent flushing the buffer to the
-%% Raft log (in microseconds)
+%% backend (in microseconds)
 -spec observe_buffer_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
 observe_buffer_flush_time(Id, FlushTime) ->
     catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_FLUSH_TIME, FlushTime).
+
+%% @doc Add a sample of latency induced by the buffer (milliseconds).
+%% Latency is calculated as difference between timestamp of the oldest
+%% message in the flushed batch and current time.
+-spec observe_buffer_latency(shard_metrics_id(), non_neg_integer()) -> ok.
+observe_buffer_latency(Id, FlushTime) ->
+    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_LATENCY, FlushTime).
 
 -spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 observe_store_batch_time({DB, _}, StoreTime) ->
