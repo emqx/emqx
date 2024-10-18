@@ -28,6 +28,9 @@
     on_message_publish/1
 ]).
 
+%% Internal exports
+-export([do_handle_route_op_msg/1]).
+
 -include("emqx_cluster_link.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -109,6 +112,44 @@ forward(Routes, Delivery) ->
 %%--------------------------------------------------------------------
 
 on_message_publish(
+    #message{topic = <<?ROUTE_TOPIC_PREFIX, _/binary>>} = Msg
+) ->
+    case handle_route_op_msg(Msg) of
+        ok ->
+            {stop, []};
+        error ->
+            %% Disconnect so that upstream agent starts anew
+            Headers0 = Msg#message.headers,
+            Headers = Headers0#{
+                allow_publish => false,
+                should_disconnect => true
+            },
+            StopMsg = emqx_message:set_headers(Headers, Msg),
+            {stop, StopMsg}
+    end;
+on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
+    case emqx_cluster_link_mqtt:decode_forwarded_msg(Payload) of
+        #message{} = ForwardedMsg ->
+            {stop, maybe_filter_incoming_msg(ForwardedMsg, ClusterName)};
+        _Err ->
+            %% Just ignore it. It must be already logged by the decoder
+            {stop, []}
+    end;
+on_message_publish(_Msg) ->
+    ok.
+
+put_hook() ->
+    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SYS_MSGS).
+
+delete_hook() ->
+    emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}).
+
+%%--------------------------------------------------------------------
+%% Internal exports
+%%--------------------------------------------------------------------
+
+%% Exported only for mocking in tests
+do_handle_route_op_msg(
     #message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload} = Msg
 ) ->
     case emqx_cluster_link_mqtt:decode_route_op(Payload) of
@@ -126,23 +167,7 @@ on_message_publish(
                 payload => ParsedPayload
             })
     end,
-    {stop, []};
-on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
-    case emqx_cluster_link_mqtt:decode_forwarded_msg(Payload) of
-        #message{} = ForwardedMsg ->
-            {stop, maybe_filter_incomming_msg(ForwardedMsg, ClusterName)};
-        _Err ->
-            %% Just ignore it. It must be already logged by the decoder
-            {stop, []}
-    end;
-on_message_publish(_Msg) ->
     ok.
-
-put_hook() ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_SYS_MSGS).
-
-delete_hook() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -150,6 +175,27 @@ delete_hook() ->
 
 -define(PD_EXTROUTER_ACTOR, '$clink_extrouter_actor').
 -define(PD_EXTROUTER_ACTOR_STATE, '$clink_extrouter_actor_state').
+
+handle_route_op_msg(
+    #message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>} = Msg
+) ->
+    try
+        ?MODULE:do_handle_route_op_msg(Msg)
+    catch
+        K:E:Stacktrace ->
+            MyClusterName = emqx_cluster_link_config:cluster(),
+            ?SLOG(error, #{
+                msg => "cluster_link_routesync_protocol_error",
+                kind => K,
+                reason => E,
+                stacktrace => Stacktrace,
+                %% How this cluster names itself
+                local_name => MyClusterName,
+                %% How the remote cluster names itself
+                received_from => ClusterName
+            }),
+            error
+    end.
 
 maybe_push_route_op(Op, Topic, RouteID) ->
     maybe_push_route_op(Op, Topic, RouteID, push).
@@ -264,7 +310,7 @@ update_actor_state(ActorSt) ->
 with_sender_name(#message{extra = Extra} = Msg, ClusterName) when is_map(Extra) ->
     Msg#message{extra = Extra#{link_origin => ClusterName}}.
 
-maybe_filter_incomming_msg(#message{topic = T} = Msg, ClusterName) ->
+maybe_filter_incoming_msg(#message{topic = T} = Msg, ClusterName) ->
     %% Should prevent irrelevant messages from being dispatched in case
     %% the remote routing state lags behind the local config changes.
     #{enable := Enable, topics := Topics} = emqx_cluster_link_config:link(ClusterName),

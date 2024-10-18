@@ -25,6 +25,7 @@
 -include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -333,11 +334,13 @@ t_client_huge_payload_truncated(_Config) ->
     {ok, _} = emqtt:connect(Client),
     emqtt:ping(Client),
     NormalPayload = iolist_to_binary(lists:duplicate(1024, "x")),
+    Size1 = 1025,
+    TruncatedBytes1 = Size1 - ?TRUNCATED_PAYLOAD_SIZE,
+    HugePayload1 = iolist_to_binary(lists:duplicate(Size1, "y")),
+    Size2 = 1024 * 10,
+    HugePayload2 = iolist_to_binary(lists:duplicate(Size2, "z")),
+    TruncatedBytes2 = Size2 - ?TRUNCATED_PAYLOAD_SIZE,
     ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
-    HugePayload1 = iolist_to_binary(lists:duplicate(1025, "y")),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload1, [{qos, 0}]),
-    HugePayload2 = iolist_to_binary(lists:duplicate(1024 * 10, "y")),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload2, [{qos, 0}]),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, _} = emqx_trace:create([
         {<<"name">>, <<"test_topic">>},
@@ -355,7 +358,6 @@ t_client_huge_payload_truncated(_Config) ->
     ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
     {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
     {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
-    ct:pal("Bin ~p Bin2 ~p Bin3 ~p", [byte_size(Bin), byte_size(Bin2), byte_size(Bin3)]),
     ?assert(erlang:byte_size(Bin) > 1024),
     ?assert(erlang:byte_size(Bin) < erlang:byte_size(Bin2)),
     ?assert(erlang:byte_size(Bin3) > 1024),
@@ -365,11 +367,11 @@ t_client_huge_payload_truncated(_Config) ->
     ?assertEqual(nomatch, binary:match(Bin, [CrashBin])),
     ?assertEqual(nomatch, binary:match(Bin2, [CrashBin])),
     ?assertEqual(nomatch, binary:match(Bin3, [CrashBin])),
-    %% have "this log are truncated" for huge payload
-    TruncatedLog = <<"this log are truncated">>,
-    ?assertNotEqual(nomatch, binary:match(Bin, [TruncatedLog])),
-    ?assertNotEqual(nomatch, binary:match(Bin2, [TruncatedLog])),
-    ?assertNotEqual(nomatch, binary:match(Bin3, [TruncatedLog])),
+    Re = <<"\\.\\.\\.\\([0-9]+\\sbytes\\)">>,
+    ?assertMatch(nomatch, re:run(Bin, Re, [unicode])),
+    ReN = fun(N) -> iolist_to_binary(["\\.\\.\\.\\(", integer_to_list(N), "\\sbytes\\)"]) end,
+    ?assertMatch({match, _}, re:run(Bin2, ReN(TruncatedBytes1), [unicode])),
+    ?assertMatch({match, _}, re:run(Bin3, ReN(TruncatedBytes2), [unicode])),
     ok.
 
 t_get_log_filename(_Config) ->

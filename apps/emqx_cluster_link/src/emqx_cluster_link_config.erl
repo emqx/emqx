@@ -231,7 +231,6 @@ pre_config_update(?LINKS_PATH, NewRawConf, OldRawConf) ->
 post_config_update(?LINKS_PATH, _Req, Old, Old, _AppEnvs) ->
     ok;
 post_config_update(?LINKS_PATH, _Req, New, Old, _AppEnvs) ->
-    ok = toggle_hook_and_broker(enabled_links(New), enabled_links(Old)),
     #{
         removed := Removed,
         added := Added,
@@ -251,18 +250,6 @@ post_config_update(?LINKS_PATH, _Req, New, Old, _AppEnvs) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-toggle_hook_and_broker([_ | _] = _NewEnabledLinks, [] = _OldEnabledLinks) ->
-    ok = emqx_cluster_link:register_external_broker(),
-    ok = emqx_cluster_link:put_hook();
-toggle_hook_and_broker([] = _NewEnabledLinks, _OldLinks) ->
-    _ = emqx_cluster_link:unregister_external_broker(),
-    ok = emqx_cluster_link:delete_hook();
-toggle_hook_and_broker(_, _) ->
-    ok.
-
-enabled_links(LinksConf) ->
-    [L || #{enable := true} = L <- LinksConf].
 
 all_ok(Results) ->
     lists:all(

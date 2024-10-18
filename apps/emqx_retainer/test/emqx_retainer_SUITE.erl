@@ -606,12 +606,12 @@ t_clear_expired(Config) ->
         ),
         timer:sleep(1000),
 
-        {ok, _, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        {ok, _, List} = emqx_retainer:page_read(<<"retained/+">>, _Deadline = 0, 1, 10),
         ?assertEqual(5, erlang:length(List)),
 
         timer:sleep(4500),
 
-        {ok, _, List2} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        {ok, _, List2} = emqx_retainer:page_read(<<"retained/+">>, _Deadline = 0, 1, 10),
         ?assertEqual(0, erlang:length(List2)),
 
         ok = emqtt:disconnect(C1)

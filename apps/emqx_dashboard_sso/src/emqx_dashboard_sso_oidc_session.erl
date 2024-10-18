@@ -46,7 +46,7 @@ start_link(Cfg) ->
 
 start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0}) ->
     case
-        emqx_dashboard_sso_sup:start_child(
+        emqx_dashboard_sso_oidc_sup:start_child(
             oidcc_provider_configuration_worker,
             [
                 #{
@@ -63,12 +63,12 @@ start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0}) ->
             Error;
         _ ->
             SessionExpiry = timer:seconds(SessionExpiry0),
-            emqx_dashboard_sso_sup:start_child(?MODULE, [SessionExpiry])
+            emqx_dashboard_sso_oidc_sup:start_child(?MODULE, [SessionExpiry])
     end.
 
 stop() ->
-    _ = emqx_dashboard_sso_sup:stop_child(oidcc_provider_configuration_worker),
-    _ = emqx_dashboard_sso_sup:stop_child(?MODULE),
+    _ = emqx_dashboard_sso_oidc_sup:stop_child(oidcc_provider_configuration_worker),
+    _ = emqx_dashboard_sso_oidc_sup:stop_child(?MODULE),
     ok.
 
 new(Data) ->

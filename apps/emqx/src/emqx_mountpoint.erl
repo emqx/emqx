@@ -38,6 +38,7 @@
     ?VAR_CLIENTID,
     ?VAR_USERNAME,
     ?VAR_ENDPOINT_NAME,
+    ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
 

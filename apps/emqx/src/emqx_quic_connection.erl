@@ -47,6 +47,12 @@
     handle_info/2
 ]).
 
+%% Connection scope shared counter
+-export([step_cnt/3]).
+-export([read_cnt/2]).
+
+-define(MAX_CNTS, 8).
+
 -export_type([cb_state/0, cb_ret/0]).
 
 -type cb_state() :: #{
@@ -62,6 +68,8 @@
     streams := [{pid(), quicer:stream_handle()}],
     %% New stream opts
     stream_opts := map(),
+    %% Connection Scope Counters, shared by streams for MQTT layer
+    cnts_ref := counters:counters_ref(),
     %% If connection is resumed from session ticket
     is_resumed => boolean(),
     %% mqtt message serializer config
@@ -102,7 +110,7 @@ new_conn(
     #{zone := Zone, conn := undefined, ctrl_pid := undefined} = S
 ) ->
     process_flag(trap_exit, true),
-    ?SLOG(debug, ConnInfo),
+    ?SLOG(debug, ConnInfo#{conn => Conn}),
     case emqx_olp:is_overloaded() andalso is_zone_olp_enabled(Zone) of
         false ->
             %% Start control stream process
@@ -160,7 +168,8 @@ new_stream(
         limiter := Limiter,
         parse_state := PS,
         channel := Channel,
-        serialize := Serialize
+        serialize := Serialize,
+        conn_shared_state := SS
     } = S
 ) ->
     %% Cherry pick options for data streams
@@ -172,7 +181,8 @@ new_stream(
         parse_state => PS,
         channel => Channel,
         serialize => Serialize,
-        quic_event_mask => ?QUICER_STREAM_EVENT_MASK_START_COMPLETE
+        quic_event_mask => ?QUICER_STREAM_EVENT_MASK_START_COMPLETE,
+        conn_shared_state => SS
     },
     {ok, NewStreamOwner} = quicer_stream:start_link(
         emqx_quic_data_stream,
@@ -235,7 +245,7 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
     cb_ret().
 peer_needs_streams(_C, _StreamType, S) ->
     ?SLOG(info, #{
-        msg => "ignore_peer_needs_more_streams", info => maps:with([conn_pid, ctrl_pid], S)
+        msg => "ignore_peer_needs_more_streams", info => maps:with([conn_shared_state, ctrl_pid], S)
     }),
     {ok, S}.
 
@@ -288,6 +298,17 @@ handle_info({'EXIT', Pid, Reason}, #{streams := Streams} = S) ->
             {stop, unknown_pid_down, S}
     end.
 
+-spec step_cnt(counters:counters_ref(), control_packet, integer()) -> ok.
+step_cnt(CounterRef, Name, Incr) when is_atom(Name) ->
+    counters:add(CounterRef, cnt_id(Name), Incr).
+
+-spec read_cnt(counters:counters_ref(), control_packet) -> integer().
+read_cnt(CounterRef, Name) ->
+    counters:get(CounterRef, cnt_id(Name)).
+
+cnt_id(control_packet) ->
+    1.
+
 %%%
 %%%  Internals
 %%%
@@ -302,15 +323,19 @@ is_zone_olp_enabled(Zone) ->
 
 -spec init_cb_state(map()) -> cb_state().
 init_cb_state(#{zone := _Zone} = Map) ->
+    SS = #{
+        cnts_ref => counters:new(?MAX_CNTS, [write_concurrency]),
+        conn_pid => self()
+    },
     Map#{
-        conn_pid => self(),
         ctrl_pid => undefined,
         conn => undefined,
         streams => [],
         parse_state => undefined,
         channel => undefined,
         serialize => undefined,
-        is_resumed => false
+        is_resumed => false,
+        conn_shared_state => SS
     }.
 
 %% BUILD_WITHOUT_QUIC

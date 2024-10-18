@@ -18,7 +18,7 @@
 %% %CopyrightEnd%
 
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,6 +39,25 @@
 
 %%----------------------------------------------------------------------
 %% Purpose: Simple default CRL cache
+%%
+%% The cache is a part of an opaque term named DB created by `ssl_manager'
+%% from calling `ssl_pkix_db:create/1'.
+%%
+%% Insert and delete operations are abstracted by `ssl_manager'.
+%% Read operation is done by passing-through the DB term to
+%% `ssl_pkix_db:lookup/2'.
+%%
+%% The CRL cache in the DB term is essentially an ETS table.
+%% The table is created as `ssl_otp_crl_cache', but not
+%% a named table. You can find the table reference from `ets:i()'.
+%%
+%% The cache key in the original OTP implementation was the path part of the
+%% CRL distribution point URL. e.g. if the URL is `http://foo.bar.com/crl.pem'
+%% the cache key would be `"crl.pem"'.
+%% There is however no type spec for the APIs, nor there is any check
+%% on the format, making it possible to use the full URL binary
+%% string as key instead --- which can avoid cache key clash when
+%% different DPs share the same path.
 %%----------------------------------------------------------------------
 
 -module(emqx_ssl_crl_cache).
@@ -142,8 +161,9 @@ delete({der, CRLs}) ->
     ssl_manager:delete_crls({?NO_DIST_POINT, CRLs});
 delete(URI) ->
     case uri_string:normalize(URI, [return_map]) of
-        #{scheme := "http", path := Path} ->
-            ssl_manager:delete_crls(string:trim(Path, leading, "/"));
+        #{scheme := "http", path := _} ->
+            Key = cache_key(URI),
+            ssl_manager:delete_crls(Key);
         _ ->
             {error, {only_http_distribution_points_supported, URI}}
     end.
@@ -153,8 +173,9 @@ delete(URI) ->
 %%--------------------------------------------------------------------
 do_insert(URI, CRLs) ->
     case uri_string:normalize(URI, [return_map]) of
-        #{scheme := "http", path := Path} ->
-            ssl_manager:insert_crls(string:trim(Path, leading, "/"), CRLs);
+        #{scheme := "http", path := _} ->
+            Key = cache_key(URI),
+            ssl_manager:insert_crls(Key, CRLs);
         _ ->
             {error, {only_http_distribution_points_supported, URI}}
     end.
@@ -218,8 +239,7 @@ http_get(URL, Rest, CRLDbInfo, Timeout) ->
 cache_lookup(_, undefined) ->
     [];
 cache_lookup(URL, {{Cache, _}, _}) ->
-    #{path := Path} = uri_string:normalize(URL, [return_map]),
-    case ssl_pkix_db:lookup(string:trim(Path, leading, "/"), Cache) of
+    case ssl_pkix_db:lookup(cache_key(URL), Cache) of
         undefined ->
             [];
         [CRLs] ->
@@ -235,3 +255,6 @@ handle_http(URI, Rest, {_, [{http, Timeout}]} = CRLDbInfo) ->
     CRLs;
 handle_http(_, Rest, CRLDbInfo) ->
     get_crls(Rest, CRLDbInfo).
+
+cache_key(URL) ->
+    iolist_to_binary(URL).

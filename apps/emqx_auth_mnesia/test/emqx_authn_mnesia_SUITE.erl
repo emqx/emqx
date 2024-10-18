@@ -279,16 +279,16 @@ t_import_users(_) ->
     Config = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(<<"user-credentials.json">>),
             State
         )
     ),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(<<"user-credentials.csv">>),
             State
@@ -372,8 +372,8 @@ t_import_users_plain(_) ->
     Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(plain, <<"user-credentials-plain.json">>),
             State
@@ -388,8 +388,8 @@ t_import_users_plain(_) ->
         )
     ),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(plain, <<"user-credentials-plain.csv">>),
             State
@@ -422,16 +422,16 @@ t_import_users_prepared_list(_) ->
         }
     ],
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             {plain, prepared_user_list, Users1},
             State
         )
     ),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             {hash, prepared_user_list, Users2},
             State
@@ -443,15 +443,15 @@ t_import_users_duplicated_records(_) ->
     Config = Config0#{password_hash_algorithm => #{name => plain, salt_position => disable}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(plain, <<"user-credentials-plain-dup.json">>),
             State
         )
     ),
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(plain, <<"user-credentials-plain-dup.csv">>),
             State
@@ -469,8 +469,8 @@ t_import_users_duplicated_records(_) ->
             <<"is_superuser">> => false
         }
     ],
-    ?assertEqual(
-        ok,
+    ?assertMatch(
+        {ok, _},
         emqx_authn_mnesia:import_users(
             {plain, prepared_user_list, Users1},
             State

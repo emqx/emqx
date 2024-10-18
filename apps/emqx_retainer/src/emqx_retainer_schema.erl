@@ -57,6 +57,13 @@ fields("retainer") ->
                 msg_clear_interval,
                 <<"0s">>
             )},
+        {msg_clear_limit,
+            sc(
+                pos_integer(),
+                msg_clear_limit,
+                50_000,
+                ?IMPORTANCE_HIDDEN
+            )},
         {flow_control,
             sc(
                 ?R_REF(flow_control),

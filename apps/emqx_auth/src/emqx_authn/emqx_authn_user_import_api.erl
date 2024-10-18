@@ -21,6 +21,7 @@
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
@@ -34,7 +35,8 @@
 -export([
     api_spec/0,
     paths/0,
-    schema/1
+    schema/1,
+    import_result_schema/0
 ]).
 
 -export([
@@ -61,7 +63,7 @@ schema("/authentication/:id/import_users") ->
             parameters => [emqx_authn_api:param_auth_id(), param_password_type()],
             'requestBody' => request_body_schema(),
             responses => #{
-                204 => <<"Users imported">>,
+                200 => import_result_schema(),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -81,7 +83,7 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
             ],
             'requestBody' => request_body_schema(),
             responses => #{
-                204 => <<"Users imported">>,
+                200 => import_result_schema(),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
@@ -115,6 +117,15 @@ request_body_schema() ->
         description => <<"Import body">>
     }.
 
+import_result_schema() ->
+    [
+        {total, hoconsc:mk(integer(), #{description => ?DESC(import_result_total)})},
+        {success, hoconsc:mk(integer(), #{description => ?DESC(import_result_success)})},
+        {override, hoconsc:mk(integer(), #{description => ?DESC(import_result_override)})},
+        {skipped, hoconsc:mk(integer(), #{description => ?DESC(import_result_skipped)})},
+        {failed, hoconsc:mk(integer(), #{description => ?DESC(import_result_failed)})}
+    ].
+
 authenticator_import_users(
     post,
     Req = #{
@@ -142,7 +153,7 @@ authenticator_import_users(
                 end
         end,
     case Result of
-        ok -> {204};
+        {ok, Result1} -> {200, Result1};
         {error, Reason} -> emqx_authn_api:serialize_error(Reason)
     end.
 
@@ -165,7 +176,7 @@ listener_authenticator_import_users(
                         ChainName, AuthenticatorID, {PasswordType, FileName, FileData}
                     )
                 of
-                    ok -> {204};
+                    {ok, Result} -> {200, Result};
                     {error, Reason} -> emqx_authn_api:serialize_error(Reason)
                 end
             end

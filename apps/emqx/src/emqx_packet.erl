@@ -54,7 +54,7 @@
     format/2
 ]).
 
--export([format_truncated_payload/3]).
+-export([format_payload/2]).
 
 -define(TYPE_NAMES,
     {'CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL', 'PUBCOMP', 'SUBSCRIBE',
@@ -506,7 +506,7 @@ format_variable(undefined, _, _) ->
 format_variable(Variable, undefined, PayloadEncode) ->
     format_variable(Variable, PayloadEncode);
 format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), ", ", format_payload(Payload, PayloadEncode)].
+    [format_variable(Variable, PayloadEncode), ", ", format_payload_label(Payload, PayloadEncode)].
 
 format_variable(
     #mqtt_packet_connect{
@@ -537,7 +537,7 @@ format_variable(
                     ", Will(Q~p, R~p, Topic=~ts ",
                     [WillQoS, i(WillRetain), WillTopic]
                 ),
-                format_payload(WillPayload, PayloadEncode),
+                format_payload_label(WillPayload, PayloadEncode),
                 ")"
             ];
         false ->
@@ -617,32 +617,79 @@ format_password(undefined) -> "";
 format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
-format_payload(_, hidden) ->
-    "Payload=******";
-format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
-    ["Payload=", unicode:characters_to_list(Payload)];
-format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
-    ["Payload(hex)=", binary:encode_hex(Payload)];
-format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
-    [
-        "Payload=",
-        format_truncated_payload(Part, byte_size(Payload), Type)
-    ].
+format_payload_label(Payload, Type) ->
+    ["Payload=", format_payload(Payload, Type)].
 
-format_truncated_payload(Bin, Size, Type) ->
-    Bin2 =
-        case Type of
-            text -> Bin;
-            hex -> binary:encode_hex(Bin)
-        end,
-    unicode:characters_to_list(
-        [
-            Bin2,
-            "... The ",
-            integer_to_list(Size - ?TRUNCATED_PAYLOAD_SIZE),
-            " bytes of this log are truncated"
-        ]
-    ).
+format_payload(_, hidden) ->
+    "******";
+format_payload(<<>>, _) ->
+    "";
+format_payload(Payload, Type) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
+    %% under the 1KB limit
+    format_payload_limit(Type, Payload, size(Payload));
+format_payload(Payload, Type) ->
+    %% too long, truncate to 100B
+    format_payload_limit(Type, Payload, ?TRUNCATED_PAYLOAD_SIZE).
+
+format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
+    {Type, Part, TruncatedBytes} = truncate_payload(Type0, Limit, Payload),
+    case TruncatedBytes > 0 of
+        true ->
+            [do_format_payload(Type, Part), "...(", integer_to_list(TruncatedBytes), " bytes)"];
+        false ->
+            do_format_payload(Type, Payload)
+    end;
+format_payload_limit(text, Payload, _Limit) ->
+    case is_utf8(Payload) of
+        true ->
+            do_format_payload(text, Payload);
+        false ->
+            do_format_payload(hex, Payload)
+    end;
+format_payload_limit(hex, Payload, _Limit) ->
+    do_format_payload(hex, Payload).
+
+do_format_payload(text, Bytes) ->
+    %% utf8 ensured
+    Bytes;
+do_format_payload(hex, Bytes) ->
+    ["hex:", binary:encode_hex(Bytes)].
+
+is_utf8(Bytes) ->
+    case trim_utf8(size(Bytes), Bytes) of
+        {ok, 0} ->
+            true;
+        _ ->
+            false
+    end.
+
+truncate_payload(hex, Limit, Payload) ->
+    <<Part:Limit/binary, Rest/binary>> = Payload,
+    {hex, Part, size(Rest)};
+truncate_payload(text, Limit, Payload) ->
+    case find_complete_utf8_len(Limit, Payload) of
+        {ok, Len} ->
+            <<Part:Len/binary, Rest/binary>> = Payload,
+            {text, Part, size(Rest)};
+        error ->
+            <<Part:Limit/binary, Rest/binary>> = Payload,
+            {hex, Part, size(Rest)}
+    end.
+
+find_complete_utf8_len(Limit, Payload) ->
+    case trim_utf8(Limit, Payload) of
+        {ok, TailLen} ->
+            {ok, size(Payload) - TailLen};
+        error ->
+            error
+    end.
+
+trim_utf8(Count, <<_/utf8, Rest/binary>> = All) when Count > 0 ->
+    trim_utf8(Count - (size(All) - size(Rest)), Rest);
+trim_utf8(Count, Bytes) when Count =< 0 ->
+    {ok, size(Bytes)};
+trim_utf8(_Count, _Rest) ->
+    error.
 
 i(true) -> 1;
 i(false) -> 0;

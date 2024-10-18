@@ -82,11 +82,11 @@ activate_data(StreamPid, {PS, Serialize, Channel}) ->
     {ok, cb_state()}.
 init_handoff(
     Stream,
-    _StreamOpts,
+    #{conn_shared_state := ConnSharedState} = _StreamOpts,
     Connection,
     #{is_orphan := true, flags := Flags}
 ) ->
-    {ok, init_state(Stream, Connection, Flags)}.
+    {ok, init_state(Stream, Connection, Flags, ConnSharedState)}.
 
 %%
 %% @doc Post handoff data stream
@@ -215,10 +215,17 @@ do_handle_appl_msg(
         {error, E} ->
             {stop, E, S}
     end;
-do_handle_appl_msg({incoming, #mqtt_packet{} = Packet}, #{channel := Channel} = S) when
+do_handle_appl_msg(
+    {incoming, #mqtt_packet{} = Packet},
+    #{
+        channel := Channel,
+        conn_shared_state := #{cnts_ref := SharedCntsRef}
+    } = S
+) when
     Channel =/= undefined
 ->
     ok = inc_incoming_stats(Packet),
+    _ = emqx_quic_connection:step_cnt(SharedCntsRef, control_packet, 1),
     with_channel(handle_in, [Packet], S);
 do_handle_appl_msg({incoming, {frame_error, _} = FE}, #{channel := Channel} = S) when
     Channel =/= undefined
@@ -321,14 +328,15 @@ serialize_packet(Packet, Serialize) ->
 -spec init_state(
     quicer:stream_handle(),
     quicer:connection_handle(),
-    non_neg_integer()
+    non_neg_integer(),
+    map()
 ) ->
     % @TODO
     map().
-init_state(Stream, Connection, OpenFlags) ->
-    init_state(Stream, Connection, OpenFlags, undefined).
+init_state(Stream, Connection, OpenFlags, ConnSharedState) ->
+    init_state(Stream, Connection, OpenFlags, ConnSharedState, undefined).
 
-init_state(Stream, Connection, OpenFlags, PS) ->
+init_state(Stream, Connection, OpenFlags, ConnSharedState, PS) ->
     %% quic stream handle
     #{
         stream => Stream,
@@ -350,7 +358,9 @@ init_state(Stream, Connection, OpenFlags, PS) ->
         %% serialize opts for connection
         serialize => undefined,
         %% Current working queue
-        task_queue => queue:new()
+        task_queue => queue:new(),
+        %% Connection Shared State
+        conn_shared_state => ConnSharedState
     }.
 
 -spec do_handle_call(term(), cb_state()) -> cb_ret().

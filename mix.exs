@@ -152,7 +152,6 @@ defmodule EMQXUmbrella.MixProject do
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
-      common_dep(:rfc3339),
       common_dep(:bcrypt),
       common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
@@ -238,9 +237,6 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:bcrypt),
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true}
 
-  # hex version 0.2.2 used by `jesse` has buggy mix.exs
-  def common_dep(:rfc3339), do: {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true}
-
   def common_dep(:minirest),
     do: {:minirest, github: "emqx/minirest", tag: "1.4.4", override: true}
 
@@ -289,7 +285,7 @@ defmodule EMQXUmbrella.MixProject do
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.9", override: true}
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.8", override: true}
-  def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.0.1"}
+  def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
   def common_dep(:erlavro), do: {:erlavro, github: "emqx/erlavro", tag: "2.10.0", override: true}
 
   ###############################################################################################

@@ -93,6 +93,8 @@
 
 -define(PUB_TIMEOUT, 10_000).
 
+-define(AUTO_RECONNECT_INTERVAL_S, 2).
+
 -type cluster_name() :: binary().
 
 -spec resource_id(cluster_name()) -> resource_id().
@@ -173,6 +175,7 @@ on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
         {name, PoolName},
         {pool_size, PoolSize},
         {pool_type, hash},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
         {client_opts, emqtt_client_opts(?MSG_CLIENTID_SUFFIX, ClusterConf)}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, pool_name, PoolName),
@@ -211,7 +214,7 @@ on_query_async(
     Callback = {fun on_async_result/2, [CallbackIn]},
     #message{topic = Topic, qos = QoS} = FwdMsg,
     %% TODO check message ordering, pick by topic,client pair?
-    ecpool:pick_and_do(
+    Result = ecpool:pick_and_do(
         {PoolName, Topic},
         fun(ConnPid) ->
             %% #delivery{} record has no valuable data for a remote link...
@@ -226,7 +229,10 @@ on_query_async(
             PubResult
         end,
         no_handover
-    ).
+    ),
+    %% This result could be `{error, ecpool_empty}', for example, which should be
+    %% recoverable.  If we didn't handle it here, it would be considered unrecoverable.
+    handle_send_result(Result).
 
 %% copied from emqx_bridge_mqtt_connector
 

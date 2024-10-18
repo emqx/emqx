@@ -142,7 +142,8 @@ groups() ->
         ]},
         {metrics_fail, [], [
             t_rule_metrics_sync_fail,
-            t_rule_metrics_async_fail
+            t_rule_metrics_async_fail,
+            t_failed_rule_metrics
         ]},
         {metrics_fail_simple, [], [
             t_rule_metrics_sync_fail,
@@ -3982,12 +3983,56 @@ t_sqlselect_client_attr(_) ->
     emqx_rule_engine:delete_rule(?TMP_RULEID),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []).
 
+%% Checks that we bump both `failed' and one of its sub-counters when failures occur while
+%% evaluating rule SQL.
+t_failed_rule_metrics(_Config) ->
+    {ok, C} = emqtt:start_link(emqtt_client_config()),
+    emqtt:connect(C),
+    RuleId = atom_to_binary(?FUNCTION_NAME),
+    %% Never matches
+    create_rule(
+        RuleId,
+        <<"select 1 from \"t\" where false">>
+    ),
+    {ok, _} = emqtt:publish(C, <<"t">>, <<"hi">>, [{qos, 2}]),
+    ?assertMatch(
+        #{
+            'matched' := 1,
+            'failed' := 1,
+            'failed.no_result' := 1,
+            'failed.exception' := 0
+        },
+        get_counters(RuleId)
+    ),
+    %% Exception in select clause
+    delete_rule(RuleId),
+    create_rule(
+        RuleId,
+        <<"select map_get(1, 1) from \"t\"">>
+    ),
+    {ok, _} = emqtt:publish(C, <<"t">>, <<"hi">>, [{qos, 2}]),
+    ?assertMatch(
+        #{
+            'matched' := 1,
+            'failed' := 1,
+            'failed.no_result' := 0,
+            'failed.exception' := 1
+        },
+        get_counters(RuleId)
+    ),
+    delete_rule(RuleId),
+    emqtt:stop(C),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal helpers
 %%------------------------------------------------------------------------------
 
 is_ee() ->
     emqx_release:edition() == ee.
+
+get_counters(RuleId) ->
+    emqx_metrics_worker:get_counters(rule_metrics, RuleId).
 
 republish_action(Topic) ->
     republish_action(Topic, <<"${payload}">>).

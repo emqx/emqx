@@ -292,7 +292,8 @@ schema("/actions/:id") ->
             responses => #{
                 200 => actions_get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
-                400 => error_schema('BAD_REQUEST', "Update bridge failed")
+                400 => error_schema('BAD_REQUEST', "Update bridge failed"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         },
         delete => #{
@@ -503,7 +504,8 @@ schema("/sources/:id") ->
             responses => #{
                 200 => sources_get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Source not found"),
-                400 => error_schema('BAD_REQUEST', "Update source failed")
+                400 => error_schema('BAD_REQUEST', "Update source failed"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
             }
         },
         delete => #{
@@ -1446,6 +1448,10 @@ do_create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatus
             PreOrPostConfigUpdate =:= post_config_update
         ->
             ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)));
+        {error, Reason} when is_binary(Reason) ->
+            ?BAD_REQUEST(Reason);
+        {error, #{error := uninstall_timeout} = Reason} ->
+            ?SERVICE_UNAVAILABLE(emqx_utils_api:to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
             ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)))
     end.

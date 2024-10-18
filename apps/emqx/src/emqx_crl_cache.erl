@@ -74,7 +74,7 @@
     %% for future use
     extra = #{} :: map()
 }).
--type url() :: uri_string:uri_string().
+-type url() :: string().
 -type state() :: #state{}.
 
 %%--------------------------------------------------------------------

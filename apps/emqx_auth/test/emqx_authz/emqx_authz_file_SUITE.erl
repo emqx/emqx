@@ -121,6 +121,34 @@ t_cert_common_name(_Config) ->
     ),
     ok.
 
+t_zone(_Config) ->
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = ClientInfo0#{zone => <<"zone1">>},
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, all, all, [\"t/${zone}/#\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/zone1/1">>)
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/zone1/#">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo#{zone => other}, ?AUTHZ_SUBSCRIBE, <<"t/zone1/1">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/otherzone/1">>)
+    ),
+    ok.
+
 t_rich_actions(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 

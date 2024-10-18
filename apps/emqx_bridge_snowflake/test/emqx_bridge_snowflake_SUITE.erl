@@ -44,6 +44,11 @@
     | T
 ]).
 
+-define(tpal(MSG), begin
+    ct:pal(MSG),
+    ?tp(notice, MSG, #{})
+end).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -568,8 +573,10 @@ t_aggreg_upload(Config) ->
                 {<<"C4">>, <<"t/42">>, <<"won't appear in results">>}
             ]),
             ok = publish_messages(Messages1),
+            ?tpal("published first batch"),
             %% Wait until the delivery is completed.
             ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
+            ?tpal("first batch delivered"),
             %% Send a second batch of messages to be staged in a second file
             Messages2 = lists:map(fun mk_message/1, [
                 {<<"C4">>, T4 = <<"sf/a/b/c">>, P4 = <<"{\"hello\":\"world\"}">>},
@@ -578,9 +585,13 @@ t_aggreg_upload(Config) ->
             ]),
             {ok, {ok, _}} =
                 ?wait_async_action(
-                    publish_messages(Messages2),
+                    begin
+                        publish_messages(Messages2),
+                        ?tpal("published second batch")
+                    end,
                     #{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}
                 ),
+            ?tpal("second batch delivered"),
             %% Check the uploaded objects.
             ExpectedNumFiles = 2,
             wait_until_processed(Config, ActionResId, BeginMark, ExpectedNumFiles),
