@@ -3,19 +3,14 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_connector_examples).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
-%% allow atoms like scram_sha_256 and scram_sha_512
-%% i.e. the _256 part does not start with a-z
--elvis([
-    {elvis_style, atom_naming_convention, #{
-        regex => "^([a-z][a-z0-9]*_?)([a-z0-9]*_?)*$",
-        enclosed_atoms => ".*"
-    }}
-]).
+-elvis([{elvis_style, atom_naming_convention, disable}]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
@@ -40,7 +35,9 @@
 -export([
     kafka_connector_config_fields/0,
     kafka_producer_converter/2,
-    producer_strategy_key_validator/1
+    producer_strategy_key_validator/1,
+    producer_buffer_mode_validator/1,
+    producer_parameters_validator/1
 ]).
 
 -define(CONNECTOR_TYPE, kafka_producer).
@@ -721,7 +718,7 @@ parameters_field(ActionOrBridgeV1) ->
             required => true,
             aliases => [Alias],
             desc => ?DESC(producer_kafka_opts),
-            validator => fun producer_strategy_key_validator/1
+            validator => fun producer_parameters_validator/1
         })}.
 
 %% -------------------------------------------------------------------------------------------------
@@ -780,6 +777,26 @@ consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
         false ->
             {error, "Kafka topics must not be repeated in a bridge"}
     end.
+
+producer_parameters_validator(Conf) ->
+    maybe
+        ok ?= producer_strategy_key_validator(Conf),
+        ok ?= producer_buffer_mode_validator(Conf)
+    end.
+
+producer_buffer_mode_validator(#{buffer := _} = Conf) ->
+    producer_buffer_mode_validator(emqx_utils_maps:binary_key_map(Conf));
+producer_buffer_mode_validator(#{<<"buffer">> := #{<<"mode">> := disk}, <<"topic">> := Topic}) ->
+    Template = emqx_template:parse(Topic),
+    case emqx_template:placeholders(Template) of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, <<"disk-mode buffering is disallowed when using dynamic topics">>}
+    end;
+producer_buffer_mode_validator(_) ->
+    %% `buffer' field is not required
+    ok.
 
 producer_strategy_key_validator(
     #{

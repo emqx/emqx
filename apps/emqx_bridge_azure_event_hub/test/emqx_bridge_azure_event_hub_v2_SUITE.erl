@@ -410,3 +410,16 @@ t_dynamic_topics(Config) ->
             ]
         ),
     ok.
+
+t_disallow_disk_mode_for_dynamic_topic(Config) ->
+    ActionConfig = ?config(action_config, Config),
+    ok =
+        emqx_bridge_v2_kafka_producer_SUITE:?FUNCTION_NAME(
+            [
+                {type, ?BRIDGE_TYPE_BIN},
+                {connector_name, ?config(connector_name, Config)},
+                {connector_config, ?config(connector_config, Config)},
+                {action_config, ActionConfig}
+            ]
+        ),
+    ok.
