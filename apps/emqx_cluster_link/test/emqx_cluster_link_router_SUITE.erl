@@ -65,6 +65,33 @@ t_overlapping_filters(_Config) ->
         ?drainMailbox()
     ).
 
+t_overlapping_filters_many(_Config) ->
+    %% Verify that _all_ partially overlapping filters are respected.
+    Link1 = prepare_link(
+        <<"LO1">>,
+        [<<"t/1">>, <<"t/2">>, <<"t/3">>]
+    ),
+    ok = add_route(<<"t/+/#">>, [Link1]),
+    ?assertEqual(
+        [
+            {<<"LO1">>, add, <<"t/3">>, <<"t/+/#">>},
+            {<<"LO1">>, add, <<"t/2">>, <<"t/+/#">>},
+            {<<"LO1">>, add, <<"t/1">>, <<"t/+/#">>}
+        ],
+        ?drainMailbox()
+    ),
+    Link2 = prepare_link(
+        <<"LO2">>,
+        [<<"t/1">>, <<"t/2">>, <<"t/3">>, <<"t/+">>]
+    ),
+    ok = add_route(<<"t/+/#">>, [Link2]),
+    ?assertEqual(
+        [
+            {<<"LO2">>, add, <<"t/+">>, <<"t/+/#">>}
+        ],
+        ?drainMailbox()
+    ).
+
 t_overlapping_filters_subset(_Config) ->
     %% Verify that partially overlapping filters are respected.
     %% But if those filters produce such intersections that one is a subset of another,
