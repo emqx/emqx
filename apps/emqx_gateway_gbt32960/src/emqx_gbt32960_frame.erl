@@ -450,8 +450,16 @@ parse_info(<<?INFO_TYPE_CHARGEABLE_TEMP, Number:?BYTE, Rest/binary>>, Acc) ->
         | Acc
     ]);
 parse_info(Rest, Acc) ->
-    ?SLOG(error, #{msg => "invalid_info_feild", rest => Rest, acc => Acc}),
-    error(invalid_info_feild).
+    ?SLOG(warning, #{msg => "customized_info_type", rest => Rest}),
+    lists:reverse(
+        [
+            #{
+                <<"Type">> => <<"CustomData">>,
+                <<"Data">> => base64:encode(Rest)
+            }
+            | Acc
+        ]
+    ).
 
 parse_drive_motor(<<>>, Acc) ->
     lists:reverse(Acc);
