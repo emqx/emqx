@@ -584,34 +584,30 @@ t_drop_generation_with_used_once_iterator(Config) ->
         emqx_ds_test_helpers:consume_iter(DB, Iter1)
     ).
 
-%% t_drop_generation_update_iterator(Config) ->
-%%     %% This checks the behavior of `emqx_ds:update_iterator' after the generation
-%%     %% underlying the iterator has been dropped.
-
-%%     DB = ?FUNCTION_NAME,
-%%     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-%%     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
-
-%%     TopicFilter = emqx_topic:words(<<"foo/+">>),
-%%     StartTime = 0,
-%%     Msgs0 = [
-%%         message(<<"foo/bar">>, <<"1">>, 0),
-%%         message(<<"foo/baz">>, <<"2">>, 1)
-%%     ],
-%%     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
-
-%%     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-%%     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
-%%     {ok, Iter1, _Batch1} = emqx_ds:next(DB, Iter0, 1),
-%%     {ok, _Iter2, [{Key2, _Msg}]} = emqx_ds:next(DB, Iter1, 1),
-
-%%     ok = emqx_ds:add_generation(DB),
-%%     ok = emqx_ds:drop_generation(DB, GenId0),
-
-%%     ?assertEqual(
-%%         {error, unrecoverable, generation_not_found},
-%%         emqx_ds:update_iterator(DB, Iter1, Key2)
-%%     ).
+%% Validate that polling the iterator from the deleted generation is
+%% handled gracefully:
+t_poll_missing_generation(Config) ->
+    %% Open the DB and push some messages to create a stream:
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    Msgs = [message(<<"foo/bar">>, <<"1">>, 0)],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+    timer:sleep(1_000),
+    %% Create an iterator:
+    TopicFilter = [<<"foo">>, '+'],
+    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, 0),
+    {ok, It} = emqx_ds:make_iterator(DB, Stream, TopicFilter, 0),
+    %% Rotate generations:
+    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    emqx_ds:add_generation(DB),
+    emqx_ds:drop_generation(DB, GenId0),
+    timer:sleep(1_000),
+    [GenId1] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    ?assertNotEqual(GenId0, GenId1),
+    %% Poll iterator:
+    Tag = ?FUNCTION_NAME,
+    {ok, Ref} = emqx_ds:poll(DB, [{Tag, It}], #{timeout => 1_000}),
+    ?assertReceive(#poll_reply{ref = Ref, userdata = Tag, payload = {error, unrecoverable, _}}).
 
 t_make_iterator_stale_stream(Config) ->
     %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying
