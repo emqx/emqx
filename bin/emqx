@@ -596,7 +596,7 @@ get_boot_config() {
     echo -e "$EMQX_BOOT_CONFIGS" | $GREP "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
 }
 
-EPMD_ARGS="-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"
+EPMD_ARGS="${EPMD_ARGS:-"-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"}"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
 TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '120')"
 # this environment variable is required by ekka_dist module

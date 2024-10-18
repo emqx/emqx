@@ -397,8 +397,8 @@ handle_info(
                 clink_handshake_error,
                 #{actor => {St1#st.actor, St1#st.incarnation}, reason => Reason}
             ),
-            %% TODO: retry after a timeout?
-            {noreply, St1#st{error = Reason, status = disconnected}}
+            St2 = ensure_reconnect_timer(St1#st{error = Reason, status = disconnected}),
+            {noreply, St2}
     end;
 handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
@@ -472,6 +472,13 @@ post_actor_init(
     NSt = schedule_heartbeat(St#st{client = ClientPid}),
     process_bootstrap(NSt, NeedBootstrap).
 
+ensure_reconnect_timer(#st{reconnect_timer = undefined} = St) ->
+    TRef = erlang:start_timer(?RECONNECT_TIMEOUT, self(), reconnect),
+    St#st{reconnect_timer = TRef};
+ensure_reconnect_timer(#st{reconnect_timer = TRef} = St) ->
+    _ = erlang:cancel_timer(TRef),
+    ensure_reconnect_timer(St#st{reconnect_timer = undefined}).
+
 handle_connect_error(Reason, St) ->
     ?SLOG(error, #{
         msg => "cluster_link_connection_failed",
@@ -479,16 +486,14 @@ handle_connect_error(Reason, St) ->
         target_cluster => St#st.target,
         actor => St#st.actor
     }),
-    TRef = erlang:start_timer(?RECONNECT_TIMEOUT, self(), reconnect),
     _ = maybe_alarm(Reason, St),
-    St#st{reconnect_timer = TRef, error = Reason, status = disconnected}.
+    ensure_reconnect_timer(St#st{error = Reason, status = disconnected}).
 
 handle_client_down(
     Reason,
     St = #st{target = TargetCluster, actor = Actor, bootstrapped = Bootstrapped}
 ) ->
-    ?SLOG(error, #{
-        msg => "cluster_link_connection_failed",
+    ?tp(error, "cluster_link_connection_failed", #{
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor

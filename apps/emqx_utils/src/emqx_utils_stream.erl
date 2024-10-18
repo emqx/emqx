@@ -39,7 +39,10 @@
     next/1,
     consume/1,
     consume/2,
-    foreach/2
+    foreach/2,
+    fold/3,
+    fold/4,
+    sweep/2
 ]).
 
 %% Streams from ETS tables
@@ -108,6 +111,7 @@ map(F, S) ->
     end.
 
 %% @doc Make a stream by filtering the underlying stream with a predicate function.
+-spec filter(fun((X) -> boolean()), stream(X)) -> stream(X).
 filter(F, S) ->
     FilterNext = fun FilterNext(St) ->
         case next(St) of
@@ -123,16 +127,6 @@ filter(F, S) ->
         end
     end,
     fun() -> FilterNext(S) end.
-
-%% @doc Consumes the stream and applies the given function to each element.
-foreach(F, S) ->
-    case next(S) of
-        [X | Rest] ->
-            F(X),
-            foreach(F, Rest);
-        [] ->
-            ok
-    end.
 
 %% @doc Drops N first elements from the stream
 -spec drop(non_neg_integer(), stream(T)) -> stream(T).
@@ -295,6 +289,54 @@ consume(N, S, Acc) ->
             consume(N - 1, SRest, [X | Acc]);
         [] ->
             lists:reverse(Acc)
+    end.
+
+%% @doc Consumes the stream and applies the given function to each element.
+-spec foreach(fun((X) -> _), stream(X)) -> ok.
+foreach(F, S) ->
+    case next(S) of
+        [X | Rest] ->
+            F(X),
+            foreach(F, Rest);
+        [] ->
+            ok
+    end.
+
+%% @doc Folds the whole stream, accumulating the result of given function applied
+%% to each element.
+-spec fold(fun((X, Acc) -> Acc), Acc, stream(X)) -> Acc.
+fold(F, Acc, S) ->
+    case next(S) of
+        [X | Rest] ->
+            fold(F, F(X, Acc), Rest);
+        [] ->
+            Acc
+    end.
+
+%% @doc Folds the first N element of the stream, accumulating the result of given
+%% function applied to each element. If there's less than N elements in the given
+%% stream, returns `[]` (a.k.a. empty stream) along with the accumulated value.
+-spec fold(fun((X, Acc) -> Acc), Acc, non_neg_integer(), stream(X)) -> {Acc, stream(X)}.
+fold(_, Acc, 0, S) ->
+    {Acc, S};
+fold(F, Acc, N, S) when N > 0 ->
+    case next(S) of
+        [X | Rest] ->
+            fold(F, F(X, Acc), N - 1, Rest);
+        [] ->
+            {Acc, []}
+    end.
+
+%% @doc Same as `consume/2` but discard the consumed values.
+-spec sweep(non_neg_integer(), stream(X)) -> stream(X).
+sweep(0, S) ->
+    S;
+sweep(N, S) when N > 0 ->
+    case next(S) of
+        [_ | Rest] ->
+            sweep(N - 1, Rest);
+        [] ->
+            []
     end.
 
 %%

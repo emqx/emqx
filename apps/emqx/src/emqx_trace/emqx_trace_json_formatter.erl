@@ -185,13 +185,10 @@ format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
 
 format_payload(undefined, _) ->
     "";
-format_payload(_, hidden) ->
-    "******";
-format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
-    unicode:characters_to_list(Payload);
-format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) -> binary:encode_hex(Payload);
-format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
-    emqx_packet:format_truncated_payload(Part, byte_size(Payload), Type).
+format_payload(Payload, Type) when is_binary(Payload) ->
+    emqx_packet:format_payload(Payload, Type);
+format_payload(Payload, _) ->
+    Payload.
 
 format_map_set_to_list(Map) ->
     Items = [

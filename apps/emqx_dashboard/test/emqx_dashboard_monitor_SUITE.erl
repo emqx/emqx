@@ -315,6 +315,25 @@ t_monitor_sampler_format(_Config) ->
     [?assert(lists:member(SamplerName, SamplerKeys)) || SamplerName <- ?SAMPLER_LIST],
     ok.
 
+t_sample_specific_node_but_badrpc(_Config) ->
+    meck:new(emqx_dashboard_monitor, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(
+        emqx_dashboard_monitor,
+        do_sample,
+        fun(_Node, _Time) -> {badrpc, test} end
+    ),
+    ?assertMatch(
+        {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}},
+        request(["monitor", "nodes", "a@b.net"], "latest=1000")
+    ),
+    %% arguably, it should be a 503
+    ?assertMatch(
+        {error, {400, #{<<"code">> := <<"BAD_REQUEST">>}}},
+        request(["monitor", "nodes", atom_to_list(node())], "latest=1000")
+    ),
+    meck:unload(emqx_dashboard_monitor),
+    ok.
+
 t_handle_old_monitor_data(_Config) ->
     Now = erlang:system_time(second),
     FakeOldData = maps:from_list(

@@ -126,6 +126,7 @@
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
     ?VAR_CERT_CN_NAME,
+    ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
 

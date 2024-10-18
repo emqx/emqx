@@ -32,6 +32,10 @@
 -define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT, TRACE_CTX),
     {query, FROM, REQUEST, SENT, EXPIRE_AT, TRACE_CTX}
 ).
+-define(tpal(MSG), begin
+    ct:pal(MSG),
+    ?tp(notice, MSG, #{})
+end).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -3241,6 +3245,109 @@ t_force_stop(_Config) ->
     ),
     ok.
 
+%% https://emqx.atlassian.net/browse/EEC-1101
+t_resource_and_channel_health_check_race(_Config) ->
+    ?check_trace(
+        #{timetrap => 5_000},
+        begin
+            %% 0) Connector and channel are initially healthy and in resource manager
+            %%    state.
+            AgentState0 = #{
+                resource_health_check => connected,
+                channel_health_check => connected
+            },
+            {ok, Agent} = emqx_utils_agent:start_link(AgentState0),
+            ConnName = <<"cname">>,
+            %% Needs to have this form to satifisfy internal, implicit requirements of
+            %% `emqx_resource_cache'.
+            ConnResId = <<"connector:ctype:", ConnName/binary>>,
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100
+                    }
+                ),
+            %% Needs to have this form to satifisfy internal, implicit requirements of
+            %% `emqx_resource_cache'.
+            ChanId = <<"action:atype:aname:", ConnResId/binary>>,
+            ok =
+                emqx_resource_manager:add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{resource_opts => #{health_check_interval => 100}}
+                ),
+            ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
+            ?assertMatch(
+                #{status := connected}, emqx_resource:channel_health_check(ConnResId, ChanId)
+            ),
+
+            %% 1) Connector and channel HCs fire concurrently
+            ?tpal("1) Connector and channel HCs fire concurrently"),
+            Me = self(),
+            _ = emqx_utils_agent:get_and_update(Agent, fun(Old) ->
+                {Old, Old#{
+                    resource_health_check := {ask, Me},
+                    channel_health_check := [{ask, Me}, connected]
+                }}
+            end),
+            receive
+                {waiting_health_check_result, ConnHCAlias1, resource, _ConnResId1} ->
+                    ?tpal("received connector hc request"),
+                    ok
+            end,
+            receive
+                {waiting_health_check_result, ChanHCAlias1, channel, _ConnResId2, _ChanId} ->
+                    ?tpal("received channel hc request"),
+                    ok
+            end,
+            %% 2) Connector HC returns `disconnected'.  This makes manager call
+            %%    `on_remove_channel' for each channel, removing them from the connector
+            %%    state.
+            ?tpal("2) Connector HC returns `disconnected'"),
+            _ = emqx_utils_agent:get_and_update(Agent, fun(Old) ->
+                {Old, Old#{resource_health_check := connected}}
+            end),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    ConnHCAlias1 ! {ConnHCAlias1, disconnected},
+                    #{?snk_kind := resource_disconnected_enter}
+                ),
+            %% 3) Channel HC returns `connected'.
+            ?tpal("3) Channel HC returns `connected'"),
+            ChanHCAlias1 ! {ChanHCAlias1, connected},
+            %% 4) A new connector HC returns `connected'.
+            ?tpal("4) A new connector HC returns `connected'"),
+            ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
+            ?assertMatch(
+                #{status := connected}, emqx_resource:channel_health_check(ConnResId, ChanId)
+            ),
+            %% 5) Should contain action both in connector state and in resource manager's
+            %% `added_channels'.  Original bug: connector state didn't contain the channel
+            %% state, but `added_channels' did.
+            ?assertMatch(
+                [
+                    {?DEFAULT_RESOURCE_GROUP, #{
+                        status := connected,
+                        state := #{channels := #{ChanId := _}},
+                        added_channels := #{ChanId := _}
+                    }}
+                ],
+                emqx_resource_cache:read(ConnResId)
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -3495,7 +3602,9 @@ create(Id, Group, Type, Config) ->
     emqx_resource:create_local(Id, Group, Type, Config, #{}).
 
 create(Id, Group, Type, Config, Opts) ->
-    emqx_resource:create_local(Id, Group, Type, Config, Opts).
+    Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
+    on_exit(fun() -> emqx_resource:remove_local(Id) end),
+    Res.
 
 log_consistency_prop() ->
     {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.

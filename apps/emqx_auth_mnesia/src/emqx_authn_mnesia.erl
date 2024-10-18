@@ -179,23 +179,12 @@ import_users({PasswordType, Filename, FileData}, State, Opts) ->
     try parse_import_users(Filename, FileData, Convertor) of
         {_NewUsersCnt, Users} ->
             case do_import_users(Users, Opts#{filename => Filename}) of
-                ok ->
-                    ok;
+                {ok, Result} ->
+                    {ok, Result};
                 %% Do not log empty user entries.
                 %% The default etc/auth-built-in-db.csv file contains an empty user entry.
                 {error, empty_users} ->
-                    {error, empty_users};
-                {error, Reason} ->
-                    ?SLOG(
-                        warning,
-                        #{
-                            msg => "import_authn_users_failed",
-                            reason => Reason,
-                            type => PasswordType,
-                            filename => Filename
-                        }
-                    ),
-                    {error, Reason}
+                    {error, empty_users}
             end
     catch
         error:Reason:Stk ->
@@ -215,16 +204,19 @@ import_users({PasswordType, Filename, FileData}, State, Opts) ->
 do_import_users([], _Opts) ->
     {error, empty_users};
 do_import_users(Users, Opts) ->
-    trans(
-        fun() ->
-            lists:foreach(
-                fun(User) ->
-                    insert_user(User, Opts)
-                end,
-                Users
-            )
-        end
-    ).
+    Fun = fun() ->
+        lists:foldl(
+            fun(User, Acc) ->
+                Return = insert_user(User, Opts),
+                N = maps:get(Return, Acc, 0),
+                maps:put(Return, N + 1, Acc)
+            end,
+            #{success => 0, skipped => 0, override => 0, failed => 0},
+            Users
+        )
+    end,
+    Res = trans(Fun),
+    {ok, Res#{total => length(Users)}}.
 
 add_user(
     UserInfo,
@@ -241,7 +233,7 @@ do_add_user(
 ) ->
     case mnesia:read(?TAB, DBUserID, write) of
         [] ->
-            insert_user(UserInfoRecord),
+            ok = insert_user(UserInfoRecord),
             {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
         [_] ->
             {error, already_exist}
@@ -281,7 +273,7 @@ do_update_user(
             {error, not_found};
         [#user_info{} = UserInfoRecord] ->
             NUserInfoRecord = update_user_record(UserInfoRecord, FieldsToUpdate),
-            insert_user(NUserInfoRecord),
+            ok = insert_user(NUserInfoRecord),
             {ok, #{user_id => UserID, is_superuser => NUserInfoRecord#user_info.is_superuser}}
     end.
 
@@ -332,6 +324,7 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+-spec insert_user(map(), map()) -> success | skipped | override | failed.
 insert_user(User, Opts) ->
     #{
         <<"user_group">> := UserGroup,
@@ -345,26 +338,28 @@ insert_user(User, Opts) ->
         user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
     case mnesia:read(?TAB, DBUserID, write) of
         [] ->
-            insert_user(UserInfoRecord);
+            ok = insert_user(UserInfoRecord),
+            success;
         [UserInfoRecord] ->
-            ok;
+            skipped;
         [_] ->
-            Msg =
-                case maps:get(override, Opts, false) of
-                    true ->
-                        insert_user(UserInfoRecord),
-                        "override_an_exists_userid_into_authentication_database_ok";
-                    false ->
-                        "import_an_exists_userid_into_authentication_database_failed"
-                end,
-            ?SLOG(warning, #{
-                msg => Msg,
-                user_id => UserID,
-                group_id => UserGroup,
-                bootstrap_file => maps:get(filename, Opts),
-                suggestion =>
-                    "If you've altered it differently, delete the user_id from the bootstrap file."
-            })
+            LogF = fun(Msg) ->
+                ?SLOG(warning, #{
+                    msg => Msg,
+                    user_id => UserID,
+                    group_id => UserGroup,
+                    bootstrap_file => maps:get(filename, Opts)
+                })
+            end,
+            case maps:get(override, Opts, false) of
+                true ->
+                    ok = insert_user(UserInfoRecord),
+                    LogF("override_an_exists_userid_into_authentication_database_ok"),
+                    override;
+                false ->
+                    LogF("import_an_exists_userid_into_authentication_database_failed"),
+                    failed
+            end
     end.
 
 insert_user(#user_info{} = UserInfoRecord) ->

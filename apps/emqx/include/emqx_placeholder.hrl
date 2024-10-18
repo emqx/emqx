@@ -40,6 +40,7 @@
 -define(VAR_TOPIC, "topic").
 -define(VAR_ENDPOINT_NAME, "endpoint_name").
 -define(VAR_NS_CLIENT_ATTRS, {var_namespace, "client_attrs"}).
+-define(VAR_ZONE, "zone").
 
 -define(PH_PASSWORD, ?PH(?VAR_PASSWORD)).
 -define(PH_CLIENTID, ?PH(?VAR_CLIENTID)).

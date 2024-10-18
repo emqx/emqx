@@ -16,14 +16,28 @@
 
 -module(emqx_retainer_sup).
 
--behaviour(supervisor).
-
 -export([start_link/0]).
 
+-export([start_gc/2]).
+
+-behaviour(supervisor).
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+-spec start_gc(emqx_retainer:context(), emqx_retainer_gc:opts()) ->
+    supervisor:startchild_ret().
+start_gc(Context, Opts) ->
+    ChildSpec = #{
+        id => gc,
+        start => {emqx_retainer_gc, start_link, [Context, Opts]},
+        restart => temporary,
+        type => worker
+    },
+    supervisor:start_child(?MODULE, ChildSpec).
+
+%%
 
 init([]) ->
     PoolSpec = emqx_pool_sup:spec([

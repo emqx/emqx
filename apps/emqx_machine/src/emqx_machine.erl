@@ -241,6 +241,8 @@ mria_lb_custom_info() ->
     get_emqx_vsn().
 
 %% Note: this function is stored in the Mria's application environment
+%% This function is only evaluated by replicant nodes.
+%% Should return `true' if the input node version may be connected to by the current node.
 mria_lb_custom_info_check(undefined) ->
     false;
 mria_lb_custom_info_check(OtherVsn) ->
