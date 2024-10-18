@@ -68,7 +68,8 @@
 -callback buffer_config
     (emqx_ds:db(), _Shard, _State, batch_size | batch_bytes) ->
         {ok, size_limit()} | undefined;
-    (emqx_ds:db(), _Shard, _State, flush_interval) -> pos_integer().
+    (emqx_ds:db(), _Shard, _State, flush_interval) ->
+        {ok, pos_integer()} | undefined.
 
 -optional_callbacks([buffer_config/4]).
 
