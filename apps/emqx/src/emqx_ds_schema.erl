@@ -28,7 +28,6 @@
 -export([fields/1, desc/1, namespace/0]).
 
 -include("emqx_schema.hrl").
--include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
 
@@ -220,11 +219,21 @@ fields(builtin_write_buffer) ->
     [
         {max_items,
             sc(
-                pos_integer(),
+                emqx_ds_buffer:size_limit(),
                 #{
                     default => 1000,
                     mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_write_buffer_max_items)
+                }
+            )},
+        {max_bytes,
+            sc(
+                emqx_ds_buffer:size_limit(),
+                #{
+                    default => infinity,
+                    mapping => "emqx_durable_storage.egress_batch_bytes",
+                    importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(builtin_write_buffer_max_items)
                 }
             )},

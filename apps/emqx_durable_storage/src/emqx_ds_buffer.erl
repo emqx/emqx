@@ -35,10 +35,14 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type size_limit() :: pos_integer() | infinity.
+-reflect_type([size_limit/0]).
 
 -define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
@@ -61,8 +65,10 @@
 -callback shard_of_operation(emqx_ds:db(), emqx_ds:operation(), topic | clientid, _Options) ->
     _Shard.
 
--callback buffer_config(emqx_ds:db(), _Shard, _State, batch_size | batch_bytes | flush_interval) ->
-    {ok, non_neg_integer() | infinity} | undefined.
+-callback buffer_config
+    (emqx_ds:db(), _Shard, _State, batch_size | batch_bytes) ->
+        {ok, size_limit()} | undefined;
+    (emqx_ds:db(), _Shard, _State, flush_interval) -> pos_integer().
 
 -optional_callbacks([buffer_config/4]).
 
