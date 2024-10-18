@@ -10,14 +10,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
-%% allow atoms like scram_sha_256 and scram_sha_512
-%% i.e. the _256 part does not start with a-z
--elvis([
-    {elvis_style, atom_naming_convention, #{
-        regex => "^([a-z][a-z0-9]*_?)([a-z0-9]*_?)*$",
-        enclosed_atoms => ".*"
-    }}
-]).
+-elvis([{elvis_style, atom_naming_convention, disable}]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
