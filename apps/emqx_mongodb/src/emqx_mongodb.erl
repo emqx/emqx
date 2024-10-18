@@ -133,7 +133,8 @@ fields(topology) ->
                 pos_integer(),
                 #{
                     importance => ?IMPORTANCE_HIDDEN,
-                    default => 10
+                    %% In most cases we don't need the topology pool as we use ecpool
+                    default => 1
                 }
             )},
         {max_overflow, fun max_overflow/1},
