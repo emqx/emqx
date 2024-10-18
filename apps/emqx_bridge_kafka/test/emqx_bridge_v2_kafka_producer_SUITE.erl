@@ -1227,3 +1227,54 @@ t_fixed_topic_recovers_in_disk_mode(Config) ->
         []
     ),
     ok.
+
+%% Verifies that we disallow disk mode when the kafka topic is dynamic.
+t_disallow_disk_mode_for_dynamic_topic(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ActionName = <<"dynamic_topic_disk">>,
+    ActionConfig = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ?assertMatch(
+        #{},
+        emqx_bridge_v2_testlib:parse_and_check(
+            action,
+            Type,
+            ActionName,
+            emqx_utils_maps:deep_merge(
+                ActionConfig,
+                #{
+                    <<"parameters">> => #{
+                        <<"topic">> => <<"dynamic-${.payload.n}">>,
+                        <<"buffer">> => #{
+                            <<"mode">> => <<"hybrid">>
+                        }
+                    }
+                }
+            )
+        )
+    ),
+    ?assertThrow(
+        {_SchemaMod, [
+            #{
+                reason := <<"disk-mode buffering is disallowed when using dynamic topics">>,
+                kind := validation_error
+            }
+        ]},
+        emqx_bridge_v2_testlib:parse_and_check(
+            action,
+            Type,
+            ActionName,
+            emqx_utils_maps:deep_merge(
+                ActionConfig,
+                #{
+                    <<"parameters">> => #{
+                        <<"topic">> => <<"dynamic-${.payload.n}">>,
+                        <<"buffer">> => #{
+                            <<"mode">> => <<"disk">>
+                        }
+                    }
+                }
+            )
+        )
+    ),
+    ok.
