@@ -421,7 +421,7 @@ t_subscription_state_change(Config) ->
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    %% Helper function that waits for the session GC:
+    %% Helper function that waits for the internal session GC:
     WaitGC = fun() ->
         ?block_until(
             #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}, 5_000, 0
@@ -466,8 +466,8 @@ t_subscription_state_change(Config) ->
             ),
             %% Now ack the packet and publish some more to trigger SRS
             %% update. This should, in effect, release the reference
-            %% to the old subscription state, and let GC will delete
-            %% old subscription state:
+            %% to the old subscription state, and let GC delete old
+            %% subscription state:
             ok = emqtt:puback(Sub, PI1),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_2),
             %% QoS of subscription has been updated:
