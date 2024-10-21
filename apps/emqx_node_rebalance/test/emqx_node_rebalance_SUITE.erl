@@ -73,6 +73,8 @@ t_rebalance(Config) ->
     Opts = #{
         conn_evict_rate => 10,
         sess_evict_rate => 10,
+        conn_evict_rpc_timeout => 1000,
+        sess_evict_rpc_timeout => 1000,
         evict_interval => 10,
         abs_conn_threshold => 50,
         abs_sess_threshold => 50,
@@ -123,6 +125,8 @@ t_rebalance_node_crash(Config) ->
     Opts = #{
         conn_evict_rate => 10,
         sess_evict_rate => 10,
+        conn_evict_rpc_timeout => 1000,
+        sess_evict_rpc_timeout => 1000,
         evict_interval => 10,
         abs_conn_threshold => 50,
         abs_sess_threshold => 50,
@@ -159,6 +163,8 @@ t_no_need_to_rebalance(Config) ->
     Opts = #{
         conn_evict_rate => 10,
         sess_evict_rate => 10,
+        conn_evict_rpc_timeout => 1000,
+        sess_evict_rpc_timeout => 1000,
         evict_interval => 10,
         abs_conn_threshold => 50,
         abs_sess_threshold => 50,
@@ -247,6 +253,8 @@ t_before_health_check_over(Config) ->
     Opts = #{
         conn_evict_rate => 1,
         sess_evict_rate => 1,
+        conn_evict_rpc_timeout => 1000,
+        sess_evict_rpc_timeout => 1000,
         evict_interval => 1000,
         abs_conn_threshold => 1,
         abs_sess_threshold => 1,

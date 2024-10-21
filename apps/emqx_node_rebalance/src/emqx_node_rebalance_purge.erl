@@ -234,8 +234,8 @@ deinit(Data) ->
         ],
     maps:without(Keys, Data).
 
-multicall(Nodes, F, A) ->
-    case apply(emqx_node_rebalance_proto_v3, F, [Nodes | A]) of
+wrap_multicall(Result, Nodes) ->
+    case Result of
         {Results, []} ->
             case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
                 {_OkResults, []} ->
@@ -255,17 +255,25 @@ is_ok(_) -> false.
 
 enable_purge() ->
     Nodes = emqx:running_nodes(),
-    _ = multicall(Nodes, enable_rebalance_agent, [self(), ?ENABLE_KIND]),
+    _ = wrap_multicall(
+        emqx_node_rebalance_proto_v4:enable_rebalance_agent(Nodes, self(), ?ENABLE_KIND), Nodes
+    ),
     ok.
 
 disable_purge() ->
     Nodes = emqx:running_nodes(),
-    _ = multicall(Nodes, disable_rebalance_agent, [self(), ?ENABLE_KIND]),
+    _ = wrap_multicall(
+        emqx_node_rebalance_proto_v4:disable_rebalance_agent(Nodes, self(), ?ENABLE_KIND), Nodes
+    ),
     ok.
 
 purge_sessions(PurgeRate) ->
     Nodes = emqx:running_nodes(),
-    _ = multicall(Nodes, purge_sessions, [PurgeRate]),
+    %% Currently, purge is not configurable, so we use the inherited infinity value as the timeout.
+    Timeout = infinity,
+    _ = wrap_multicall(
+        emqx_node_rebalance_proto_v4:purge_sessions(Nodes, PurgeRate, Timeout), Nodes
+    ),
     ok.
 
 purge_durable_sessions(PurgeRate) ->
