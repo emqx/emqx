@@ -266,6 +266,7 @@ init({Id, Index, Opts}) ->
     QueueOpts = replayq_opts(Id, Index, Opts),
     Queue = replayq:open(QueueOpts),
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Queue)),
+    emqx_resource_metrics:queuing_bytes_set(Id, Index, queue_bytes(Queue)),
     emqx_resource_metrics:inflight_set(Id, Index, 0),
     InflightWinSize = maps:get(inflight_window, Opts, ?DEFAULT_INFLIGHT),
     InflightTID = inflight_new(InflightWinSize),
@@ -368,6 +369,7 @@ terminate(_Reason, #{id := Id, index := Index, queue := Q}) ->
     %% since we want volatile queues, this will be 0 after
     %% termination.
     emqx_resource_metrics:queuing_set(Id, Index, 0),
+    emqx_resource_metrics:queuing_bytes_set(Id, Index, 0),
     gproc_pool:disconnect_worker(Id, {Id, Index}),
     ok.
 
@@ -1200,6 +1202,7 @@ log_expired_message_count(_Data = #{id := Id, index := Index, counters := Counte
 -spec set_gauges(data()) -> ok.
 set_gauges(_Data = #{id := Id, index := Index, queue := Q, inflight_tid := InflightTID}) ->
     emqx_resource_metrics:queuing_set(Id, Index, queue_count(Q)),
+    emqx_resource_metrics:queuing_bytes_set(Id, Index, queue_bytes(Q)),
     emqx_resource_metrics:inflight_set(Id, Index, inflight_num_msgs(InflightTID)),
     ok.
 
@@ -2109,6 +2112,9 @@ assert_ok_result(R) ->
 
 queue_count(Q) ->
     replayq:count(Q).
+
+queue_bytes(Q) ->
+    replayq:bytes(Q).
 
 disk_queue_dir(Id, Index) ->
     QDir0 = binary_to_list(Id) ++ ":" ++ integer_to_list(Index),
