@@ -51,6 +51,7 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_session_subscription_idempotency;
     TestCase =:= t_session_unsubscription_idempotency;
+    TestCase =:= t_subscription_state_change;
     TestCase =:= t_storage_generations
 ->
     Cluster = cluster(#{n => 1}),
@@ -93,6 +94,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_session_subscription_idempotency;
     TestCase =:= t_session_unsubscription_idempotency;
+    TestCase =:= t_subscription_state_change;
     TestCase =:= t_session_gc
 ->
     Nodes = ?config(nodes, Config),
@@ -398,9 +400,7 @@ t_session_unsubscription_idempotency(Config) ->
                     15_000
                 ),
 
-            ok = stop_and_commit(Client1),
-
-            ok
+            ok = stop_and_commit(Client1)
         end,
         fun(_Trace) ->
             Session = session_open(Node1, ClientId),
@@ -412,6 +412,76 @@ t_session_unsubscription_idempotency(Config) ->
         end
     ),
     ok.
+
+%% This testcase verifies that the session handles update of the
+%% subscription settings by the client correctly.
+t_subscription_state_change(Config) ->
+    [Node1Spec | _] = ?config(node_specs, Config),
+    [Node1] = ?config(nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    TopicFilter = <<"t/+">>,
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    %% Helper function that waits for the session GC:
+    WaitGC = fun() ->
+        ?block_until(
+            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}, 5_000, 0
+        ),
+        timer:sleep(10)
+    end,
+    %% Helper function that gets runtime state of the session:
+    GetS = fun() ->
+        maps:get(s, erpc:call(Node1, emqx_persistent_session_ds, print_session, [ClientId]))
+    end,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Init:
+            Sub = start_client(#{port => Port, clientid => ClientId, auto_ack => never}),
+            {ok, _} = emqtt:connect(Sub),
+            Pub = start_client(#{port => Port, clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            %% Subscribe to the topic using QoS1 initially:
+            {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_1),
+            #{subscriptions := Subs1} = GetS(),
+            #{TopicFilter := #{current_state := SSID1}} = Subs1,
+            %% Fill the storage with some data to create the streams:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_2),
+            [#{packet_id := PI1, qos := ?QOS_1}] = emqx_common_test_helpers:wait_publishes(
+                1, 5_000
+            ),
+            %% Upgrade subscription to QoS2 and wait for the session GC
+            %% to happen. At which point the session should keep 2
+            %% subscription states, one being marked as obsolete:
+            {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_2),
+            WaitGC(),
+            #{subscriptions := Subs2, subscription_states := SStates2} = GetS(),
+            #{TopicFilter := #{current_state := SSID2}} = Subs2,
+            ?assertNotEqual(SSID1, SSID2),
+            ?assertMatch(
+                #{
+                    SSID1 := #{subopts := #{qos := ?QOS_1}, superseded_by := SSID2},
+                    SSID2 := #{subopts := #{qos := ?QOS_2}}
+                },
+                SStates2
+            ),
+            %% Now ack the packet and publish some more to trigger SRS
+            %% update. This should, in effect, release the reference
+            %% to the old subscription state, and let GC will delete
+            %% old subscription state:
+            ok = emqtt:puback(Sub, PI1),
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_2),
+            %% QoS of subscription has been updated:
+            [#{packet_id := PI2, qos := ?QOS_2}] = emqx_common_test_helpers:wait_publishes(
+                1, 5_000
+            ),
+            WaitGC(),
+            #{subscriptions := Subs3, subscription_states := SStates3, streams := Streams3} = GetS(),
+            ?assertEqual(Subs3, Subs2),
+            %% Old substate was deleted:
+            ?assertMatch([{SSID2, _}], maps:to_list(SStates3), Streams3)
+        end,
+        []
+    ).
 
 t_session_discard_persistent_to_non_persistent(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
