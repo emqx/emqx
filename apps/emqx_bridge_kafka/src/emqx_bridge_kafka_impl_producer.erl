@@ -170,12 +170,22 @@ create_producers_for_bridge_v2(
     maybe_migrate_old_replayq_dir(ReplayqDir, ActionResId, TopicType, MKafkaTopic),
     case wolff:ensure_supervised_dynamic_producers(ClientId, WolffProducerConfig) of
         {ok, Producers} ->
-            case TopicType of
-                fixed ->
-                    ok = wolff:add_topic(Producers, MKafkaTopic),
+            case add_fixed_topic(TopicType, MKafkaTopic, Producers) of
+                ok ->
                     ok;
-                _ ->
-                    ok
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "kafka_producer_failed_to_add_fixed_topic",
+                        instance_id => ConnResId,
+                        kafka_client_id => ClientId,
+                        kafka_topic => MKafkaTopic,
+                        reason => Reason
+                    }),
+                    wolff:stop_and_delete_supervised_producers(Producers),
+                    throw(
+                        "Failed to start producers. Please check the logs for errors and check"
+                        " the configuration parameters."
+                    )
             end,
             ok = emqx_resource:allocate_resource(
                 ConnResId, {?kafka_producers, ActionResId}, Producers
@@ -833,6 +843,24 @@ maybe_migrate_old_replayq_dir(false, _ActionResId, _TopicType, _Topic) ->
 maybe_migrate_old_replayq_dir(ReplayqDir, ActionResId, fixed = _TopicType, Topic) ->
     OldWolffDir = filename:join([ReplayqDir, Topic]),
     maybe
+        true ?= is_old_replayq_dir(OldWolffDir),
+        NewWolffDir = filename:join([ReplayqDir, <<ActionResId/binary, $_, Topic/binary>>]),
+        ?tp(info, "migrating_old_wolff_dirs", #{
+            action_id => ActionResId,
+            from => OldWolffDir,
+            to => NewWolffDir
+        }),
+        ok = file:rename(OldWolffDir, NewWolffDir),
+        ok
+    else
+        _ -> ok
+    end;
+maybe_migrate_old_replayq_dir(_ReplayqDir, _ActionResId, _TopicType, _Topic) ->
+    ok.
+
+%% new (wolff >= 2.0.0):
+is_old_replayq_dir(OldWolffDir) ->
+    maybe
         true ?= filelib:is_dir(OldWolffDir),
         {ok, Files} ?= file:list_dir_all(OldWolffDir),
         %% Each partition number has a sub-directory.
@@ -850,18 +878,14 @@ maybe_migrate_old_replayq_dir(ReplayqDir, ActionResId, fixed = _TopicType, Topic
             Files
         ),
         [_ | _] ?= PartitionDirs,
-        NewWolffDir = filename:join([ReplayqDir, <<ActionResId/binary, $_, Topic/binary>>]),
-        ?tp(info, "migrating_old_wolff_dirs", #{
-            action_id => ActionResId,
-            from => OldWolffDir,
-            to => NewWolffDir
-        }),
-        ok = file:rename(OldWolffDir, NewWolffDir),
-        ok
+        true
     else
-        _ -> ok
-    end;
-maybe_migrate_old_replayq_dir(_ReplayqDir, _ActionResId, _TopicType, _Topic) ->
+        _ -> false
+    end.
+
+add_fixed_topic(fixed, Topic, Producers) ->
+    wolff:add_topic(Producers, Topic);
+add_fixed_topic(_TopicType, _TopicTemplate, _Producers) ->
     ok.
 
 %% To avoid losing queued data on disk, we must use the same directory as the old v1
