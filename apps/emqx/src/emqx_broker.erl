@@ -340,14 +340,19 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %% Route
 %%--------------------------------------------------------------------
 
-route(Routes, Delivery, PersistRes) ->
+route(Routes, Delivery = #delivery{message = Msg}, PersistRes) ->
+    TraceRouteAttrs = #{
+        'route.from' => node(),
+        'route.matched_result' => emqx_utils_json:encode([
+            #{node => Node, route => TF}
+         || {TF, Node} <- Routes
+        ])
+    },
     emqx_external_trace:msg_route(
         Delivery,
-        #{
-            'message.route.msg_from_node' => node(),
-            'message.route.msgid' => emqx_guid:to_hexstr(emqx_message:id(Delivery#delivery.message))
-        },
+        TraceRouteAttrs,
         fun(DeliveryWithTrace) ->
+            add_route_attrs(Msg),
             do_route(Routes, DeliveryWithTrace, PersistRes)
         end
     ).
@@ -357,7 +362,10 @@ route(Routes, Delivery, PersistRes) ->
 do_route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
-    ok = add_route_attrs(Msg),
+    ?ext_trace_add_attrs(#{
+        'route.dropped.node' => node(),
+        'route.dropped.reason' => no_subscribers
+    }),
     [];
 do_route([], _Delivery, PersistRes = [_ | _]) ->
     PersistRes;
@@ -399,17 +407,15 @@ aggre([], true, Acc) ->
 do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
 
-forward(Node, To, Delivery, RpcMode) ->
+forward(Node, To, Delivery = #delivery{message = Msg}, RpcMode) ->
+    ForwardAttrs = #{
+        'forward.from' => node(),
+        'forward.to' => Node
+    },
+    MsgAttrs = emqx_external_trace:msg_attrs(Msg),
     emqx_external_trace:msg_forward(
         Delivery,
-        #{
-            'message.forward.to_topic' => To,
-            'message.forward.mode' => RpcMode,
-            'message.forward.node.from' => node(),
-            'message.forward.node.to' => Node
-            %% TODO:
-            %% 'message.forward.sender' => pid_to_clientid(Delivery#delivery.sender)
-        },
+        maps:merge(ForwardAttrs, MsgAttrs),
         fun(DeliveryWithTrace) ->
             do_forward(Node, To, DeliveryWithTrace, RpcMode)
         end
@@ -444,22 +450,19 @@ do_forward(Node, To, Delivery, sync) ->
 %% Handle message forwarding form remote nodes by
 %% `emqx_broker_proto_v1:forward/3` or
 %% `emqx_broker_proto_v1:forward_async/3`
-dispatch(Topic, Delivery) ->
+dispatch(Topic, Delivery = #delivery{message = Msg}) ->
     emqx_external_trace:msg_handle_forward(
         Delivery,
-        #{},
+        emqx_external_trace:msg_attrs(Msg),
         fun(DeliveryWithTrace) ->
             dispatch_local(Topic, DeliveryWithTrace)
         end
     ).
 
-dispatch_local(Topic, Delivery) ->
+dispatch_local(Topic, Delivery = #delivery{message = Msg}) ->
     emqx_external_trace:msg_dispatch(
         Delivery,
-        #{
-            'message.dispatch.from' => pid_to_binary(Delivery#delivery.sender),
-            'message.dispatch.to_topic' => Topic
-        },
+        emqx_external_trace:msg_attrs(Msg),
         fun(DeliveryWithTrace) ->
             do_dispatch(Topic, DeliveryWithTrace)
         end
@@ -491,14 +494,12 @@ inc_dropped_cnt(Msg) ->
 
 -compile({inline, [add_route_attrs/1]}).
 add_route_attrs(Msg) ->
+    %% TODO? : maybe a switch for sys messages
     case emqx_message:is_sys(Msg) of
         true ->
             ok;
         false ->
-            ?ext_trace_add_attrs(#{
-                'message.route.dropped.node' => node(),
-                'message.route.dropped.reason' => no_subscribers
-            }),
+            ?ext_trace_add_attrs(emqx_external_trace:msg_attrs(Msg)),
             ok
     end.
 
@@ -745,7 +746,8 @@ do_dispatch2(SubPid, Topic, Msg) when is_pid(SubPid) ->
         true ->
             SubPid ! {deliver, Topic, Msg},
             ?ext_trace_add_attrs(#{
-                'message.dispatch.to_subscriber' => pid_to_binary(SubPid)
+                'dispatch.to_clientid' => maps:get(subid, get_subopts(SubPid, Topic), undefined),
+                'dispatch.to_topic' => Topic
             }),
             1;
         false ->
@@ -807,8 +809,3 @@ regular_sync_route(add, Topic) ->
     emqx_router:do_add_route(Topic, node());
 regular_sync_route(delete, Topic) ->
     emqx_router:do_delete_route(Topic, node()).
-
-pid_to_binary(Pid) when is_pid(Pid) ->
-    iolist_to_binary(pid_to_list(Pid));
-pid_to_binary(_) ->
-    <<>>.

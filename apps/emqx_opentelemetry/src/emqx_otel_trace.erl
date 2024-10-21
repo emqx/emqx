@@ -139,9 +139,7 @@ client_connect(Packet, Attrs, ProcessFun) ->
         RootCtx,
         ?current_tracer,
         ?CLIENT_CONNECT_SPAN_NAME,
-        #{
-            attributes => gen_attrs(Packet, Attrs)
-        }
+        #{attributes => Attrs}
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     _ = otel_ctx:attach(Ctx),
@@ -168,9 +166,7 @@ client_disconnect(Packet, Attrs, ProcessFun) ->
         RootCtx,
         ?current_tracer,
         ?CLIENT_DISCONNECT_SPAN_NAME,
-        #{
-            attributes => gen_attrs(Packet, Attrs)
-        }
+        #{attributes => Attrs}
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     _ = otel_ctx:attach(Ctx),
@@ -197,9 +193,7 @@ client_subscribe(Packet, Attrs, ProcessFun) ->
         RootCtx,
         ?current_tracer,
         ?CLIENT_SUBSCRIBE_SPAN_NAME,
-        #{
-            attributes => gen_attrs(Packet, Attrs)
-        }
+        #{attributes => Attrs}
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     _ = otel_ctx:attach(Ctx),
@@ -226,9 +220,7 @@ client_unsubscribe(Packet, Attrs, ProcessFun) ->
         RootCtx,
         ?current_tracer,
         ?CLIENT_UNSUBSCRIBE_SPAN_NAME,
-        #{
-            attributes => gen_attrs(Packet, Attrs)
-        }
+        #{attributes => Attrs}
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     _ = otel_ctx:attach(Ctx),
@@ -249,16 +241,12 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-client_authn(Packet, _Attrs, ProcessFun) ->
+client_authn(Packet, Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHN_SPAN_NAME,
-        #{attributes => #{}},
+        #{attributes => Attrs},
         fun(_SpanCtx) ->
             ProcessFun(Packet)
-        %% TODO: add more attributes about: which authenticator resulted:
-        %% ignore|anonymous|ok|error
-        %% case ProcessFun(Packet) of
-        %%     xx -> xx,
         end
     ).
 
@@ -272,10 +260,10 @@ when
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
     Res :: term().
-client_authz(Packet, _Attrs, ProcessFun) ->
+client_authz(Packet, Attrs, ProcessFun) ->
     ?with_span(
         ?CLIENT_AUTHZ_SPAN_NAME,
-        #{attributes => #{}},
+        #{attributes => Attrs},
         fun(_SpanCtx) ->
             ProcessFun(Packet)
         %% TODO: add more attributes about: which authorizer resulted:
@@ -302,7 +290,7 @@ client_publish(Packet, Attrs, ProcessFun) ->
         RootCtx,
         ?current_tracer,
         ?CLIENT_PUBLISH_SPAN_NAME,
-        #{attributes => gen_attrs(Packet, Attrs)}
+        #{attributes => Attrs}
     ),
     Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
     %% Otel attach for next spans (client_authz, msg_route... etc )
@@ -406,7 +394,7 @@ msg_route(Delivery, Attrs, Fun) ->
         false ->
             ?with_span(
                 ?MSG_ROUTE_SPAN_NAME,
-                #{attributes => gen_attrs(Delivery, Attrs)},
+                #{attributes => Attrs},
                 fun(_SpanCtx) ->
                     Fun(put_ctx(otel_ctx:get_current(), Delivery))
                 end
@@ -455,7 +443,7 @@ msg_forward(Delivery, Attrs, Fun) ->
         false ->
             ?with_span(
                 ?MSG_FORWARD_SPAN_NAME,
-                #{attributes => gen_attrs(Delivery, Attrs)},
+                #{attributes => Attrs},
                 fun(_SpanCtx) ->
                     Fun(put_ctx(otel_ctx:get_current(), Delivery))
                 end
@@ -480,7 +468,7 @@ msg_handle_forward(Delivery, Attrs, Fun) ->
             otel_ctx:attach(get_ctx(Delivery)),
             ?with_span(
                 ?MSG_HANDLE_FORWARD_SPAN_NAME,
-                #{attributes => gen_attrs(Delivery, Attrs)},
+                #{attributes => Attrs},
                 fun(_SpanCtx) ->
                     Fun(put_ctx(otel_ctx:get_current(), Delivery))
                 end
@@ -509,7 +497,7 @@ msg_deliver(Delivers, Attrs) ->
                         Ctx,
                         ?current_tracer,
                         ?MSG_DELIVER_SPAN_NAME,
-                        #{attributes => gen_attrs(Msg, Attrs)}
+                        #{attributes => maps:merge(Attrs, emqx_external_trace:msg_attrs(Msg))}
                     ),
                     NCtx = otel_tracer:set_current_span(Ctx, SpanCtx),
                     NMsg = put_ctx(NCtx, Msg),
@@ -566,7 +554,7 @@ start_outgoing_trace(Packet, Attrs, ParentCtx) ->
         ParentCtx,
         ?current_tracer,
         outgoing_span_name(Packet),
-        #{attributes => gen_attrs(Packet, Attrs)}
+        #{attributes => Attrs}
     ),
     NCtx = otel_tracer:set_current_span(ParentCtx, SpanCtx),
     _NPacketWithCtx = put_ctx(NCtx, Packet).
@@ -646,18 +634,19 @@ start_pending_trace(PendingType, PacketId, ParentCtx) ->
     _ = attach_internal_ctx(PendingCtxKey, NCtx),
     ok.
 
-client_incoming(?PACKET(PendingType, PktVar) = Packet, _Attrs, ProcessFun) ->
+client_incoming(?PACKET(PendingType, PktVar) = Packet, Attrs, ProcessFun) ->
     try
         ProcessFun(Packet)
     after
         end_pending_client_packet(
-            internal_extra_key(PendingType, PktVar)
+            internal_extra_key(PendingType, PktVar), Attrs
         )
     end.
 
-end_pending_client_packet(PendingCtxKey) ->
+end_pending_client_packet(PendingCtxKey, Attrs) ->
     case detach_internal_ctx(PendingCtxKey) of
         Ctx when is_map(Ctx) ->
+            ok = add_span_attrs(Attrs, Ctx),
             _ = end_span(Ctx),
             earse_internal_ctx(PendingCtxKey),
             ok;
@@ -752,6 +741,12 @@ add_span_attrs(Attrs) ->
     true = ?set_attributes(Attrs),
     ok.
 
+add_span_attrs(Attrs, Ctx) ->
+    CurrentSpanCtx = otel_tracer:current_span_ctx(Ctx),
+    otel_span:set_attributes(CurrentSpanCtx, Attrs),
+    ok.
+
+%% TODO: remove me
 -spec add_span_event(EventName, Attrs) -> ok when
     EventName :: event_name(),
     Attrs :: attrs() | attrs_meta().
@@ -777,96 +772,6 @@ ignore_delivery(#delivery{message = #message{topic = Topic}}) ->
 %% TODO: move to emqx_topic module?
 is_sys(<<"$SYS/", _/binary>> = _Topic) -> true;
 is_sys(_Topic) -> false.
-
-%% TODO: refactor to use raw `Attrs` or `AttrsMeta`
-%% FIXME:
-%% function_clause for DISCONNECT packet
-%% XXX:
-%% emqx_packet:info/2 as utils
-
-%% gen_attrs(Packet, Attrs) ->
-gen_attrs(
-    ?PACKET(?CONNECT, PktVar),
-    #{
-        clientid := ClientId,
-        username := Username
-    } = _InitAttrs
-) ->
-    #{
-        'client.connect.clientid' => ClientId,
-        'client.connect.username' => Username,
-        'client.connect.proto_name' => emqx_packet:info(proto_name, PktVar),
-        'client.connect.proto_ver' => emqx_packet:info(proto_ver, PktVar)
-    };
-gen_attrs(?PACKET(?DISCONNECT, PktVar), InitAttrs) ->
-    #{
-        'client.disconnect.clientid' => maps:get(clientid, InitAttrs, undefined),
-        'client.disconnect.username' => maps:get(username, InitAttrs, undefined),
-        'client.disconnect.peername' => maps:get(peername, InitAttrs, undefined),
-        'client.disconnect.sockname' => maps:get(sockname, InitAttrs, undefined),
-        'client.disconnect.reason_code' => emqx_packet:info(reason_code, PktVar)
-    };
-gen_attrs(
-    ?PACKET(?SUBSCRIBE) = Packet,
-    #{clientid := ClientId} = _Attrs
-) ->
-    #{
-        'client.subscribe.clientid' => ClientId,
-        'client.subscribe.topic_filters' => serialize_topic_filters(Packet)
-    };
-gen_attrs(
-    ?PACKET(?UNSUBSCRIBE) = Packet,
-    #{clientid := ClientId} = _Attrs
-) ->
-    #{
-        'client.unsubscribe.clientid' => ClientId,
-        'client.unsubscribe.topic_filters' => serialize_topic_filters(Packet)
-    };
-gen_attrs(
-    ?PACKET(?PUBLISH, PktVar) =
-        #mqtt_packet{
-            header = #mqtt_packet_header{qos = QoS}
-        },
-    Attrs
-) ->
-    #{
-        'message.publish.to_topic' => emqx_packet:info(topic_name, PktVar),
-        %% msgid havn't generated here
-        'message.publish.qos' => QoS,
-        'message.publish.from' => maps:get(clientid, Attrs, undefined)
-    };
-gen_attrs(?PACKET(?PUBACK, PktVar), Attrs) ->
-    #{
-        'emqx.puback.reason_code' => emqx_packet:info(reason_code, PktVar),
-        'emqx.puback.to_clientid' => maps:get(clientid, Attrs, undefined),
-        'emqx.puback.to_username' => maps:get(username, Attrs, undefined)
-    };
-gen_attrs(#message{} = Msg, Attrs) ->
-    #{
-        %% XXX: maybe use `to_topic_filter` as the subscribed
-        'message.deliver.to_topic' => emqx_message:topic(Msg),
-        'message.deliver.from' => emqx_message:from(Msg),
-        %% Use HEX msgid as rule engine style
-        'message.deliver.msgid' => emqx_guid:to_hexstr(emqx_message:id(Msg)),
-        'message.deliver.qos' => emqx_message:qos(Msg),
-        'message.deliver.to' => maps:get(clientid, Attrs, undefined)
-    };
-gen_attrs(#delivery{}, Attrs) ->
-    Attrs;
-gen_attrs(_, Attrs) when is_map(Attrs) ->
-    Attrs;
-gen_attrs(_, InvalidAttrs) ->
-    ?SLOG(warning, #{
-        msg => "invalid_attributes",
-        attrs => InvalidAttrs
-    }),
-    #{}.
-
-serialize_topic_filters(?PACKET(?SUBSCRIBE, PktVar)) ->
-    TFs = [Name || {Name, _SubOpts} <- emqx_packet:info(topic_filters, PktVar)],
-    emqx_utils_json:encode(TFs);
-serialize_topic_filters(?PACKET(?UNSUBSCRIBE, PktVar)) ->
-    emqx_utils_json:encode(emqx_packet:info(topic_filters, PktVar)).
 
 %% ====================
 %% Trace Context in message

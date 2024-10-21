@@ -16,6 +16,7 @@
 -module(emqx_external_trace).
 
 -include("emqx_external_trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% --------------------------------------------------------------------
 %% Trace in Rich mode callbacks
@@ -174,7 +175,8 @@ when
 
 -export([
     add_span_attrs/1,
-    add_span_event/2
+    add_span_event/2,
+    msg_attrs/1
 ]).
 
 -export([
@@ -193,6 +195,15 @@ when
             IfNotRegistered;
         Provider ->
             Provider:IfRegistered
+    end
+).
+
+-define(with_provider_attrs(IfRegistered),
+    case persistent_term:get(?PROVIDER, undefined) of
+        undefined ->
+            #{};
+        _Provider ->
+            IfRegistered
     end
 ).
 
@@ -415,6 +426,19 @@ add_span_attrs(AttrsOrMeta) ->
 add_span_event(EventName, AttrsOrMeta) ->
     _ = catch ?with_provider(?FUNCTION_NAME(EventName, AttrsOrMeta), ok),
     ok.
+
+msg_attrs(Msg = #message{}) ->
+    ?with_provider_attrs(#{
+        'message.msgid' => emqx_guid:to_hexstr(Msg#message.id),
+        'message.qos' => Msg#message.qos,
+        'message.from' => Msg#message.from,
+        'message.topic' => Msg#message.topic,
+        'message.retain' => maps:get(retain, Msg#message.flags, false),
+        'message.pub_props' => emqx_utils_json:encode(
+            maps:get(properties, Msg#message.headers, #{})
+        ),
+        'message.payload_size' => size(Msg#message.payload)
+    }).
 
 %%--------------------------------------------------------------------
 %% Internal functions
