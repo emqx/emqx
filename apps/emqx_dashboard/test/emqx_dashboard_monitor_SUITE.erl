@@ -180,8 +180,9 @@ t_inplace_downsample(_Config) ->
     clean_data(),
     %% -20s to ensure the oldest data point will not expire during the test
     SinceT = 7 * timer:hours(24) - timer:seconds(20),
-    Total = 10000,
-    emqx_dashboard_monitor:randomize(Total, #{sent => 1}, SinceT),
+    Total = 10_000,
+    ConnectionGauge = 3,
+    emqx_dashboard_monitor:randomize(Total, #{sent => 1, connections => ConnectionGauge}, SinceT),
     %% assert original data (before downsample)
     All0 = emqx_dashboard_monitor:all_data(),
     AllSent0 = lists:map(fun({_, #{sent := S}}) -> S end, All0),
@@ -194,6 +195,10 @@ t_inplace_downsample(_Config) ->
     %% check timestamps are not random after downsample
     ExpectedIntervals = [timer:minutes(10), timer:minutes(5), timer:minutes(1), timer:seconds(10)],
     ok = check_intervals(ExpectedIntervals, All),
+    %% Gauges, such as `connections', are not summed.
+    AllConnections = lists:map(fun({_Ts, #{connections := C}}) -> C end, All),
+    DistinctConnections = lists:usort(AllConnections),
+    ?assertEqual([ConnectionGauge], DistinctConnections),
     ok.
 
 %% there might be some data points added while downsample is running
