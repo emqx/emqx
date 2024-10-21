@@ -767,9 +767,11 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     end;
 
 handle_info({sock_error, Reason}, State) ->
-    case Reason =/= closed andalso Reason =/= einval of
-        true -> ?LOG(warning, "socket_error: ~p", [Reason]);
-        false -> ok
+    case Reason of
+        closed -> ok;
+        einval -> ok;
+        {tls_alert, _} -> ok;
+        _ -> ?LOG(warning, #{msg => "socket_error", reason => Reason})
     end,
     handle_info({sock_closed, Reason}, close_socket(State));
 
