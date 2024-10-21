@@ -156,13 +156,9 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 t_empty_table(_Config) ->
-    sys:suspend(whereis(emqx_dashboard_monitor)),
-    try
-        emqx_dashboard_monitor:clean(0),
-        ?assertEqual({ok, []}, request(["monitor"], "latest=20000"))
-    after
-        sys:resume(whereis(emqx_dashboard_monitor))
-    end.
+    pause_monitor_process(),
+    clean_data(),
+    ?assertEqual({ok, []}, request(["monitor"], "latest=20000")).
 
 t_pmap_nodes(_Config) ->
     MaxAge = timer:hours(1),
@@ -170,8 +166,8 @@ t_pmap_nodes(_Config) ->
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
     StartTs = round_down(Now - MaxAge, Interval),
     DataPoints = 5,
-    ok = emqx_dashboard_monitor:clean(0),
-    LastVal = insert_data_points(DataPoints, StartTs, Now),
+    clean_data(),
+    LastVal = insert_data_points(DataPoints, fun sent_n/1, StartTs, Now),
     Nodes = [node(), node(), node()],
     %% this function calls emqx_utils:pmap to do the job
     Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs),
@@ -181,7 +177,7 @@ t_pmap_nodes(_Config) ->
     ?assertEqual(LastVal * length(Nodes), maps:get(sent, lists:last(Data))).
 
 t_inplace_downsample(_Config) ->
-    ok = emqx_dashboard_monitor:clean(0),
+    clean_data(),
     %% -20s to ensure the oldest data point will not expire during the test
     SinceT = 7 * timer:hours(24) - timer:seconds(20),
     Total = 10000,
@@ -221,7 +217,7 @@ check_intervals([Interval | Rest], [{Ts, _} | RestData] = All) ->
     end.
 
 t_randomize(_Config) ->
-    ok = emqx_dashboard_monitor:clean(0),
+    clean_data(),
     emqx_dashboard_monitor:randomize(1, #{sent => 100}),
     Since = integer_to_list(7 * timer:hours(24)),
     {ok, Samplers} = request(["monitor"], "latest=" ++ Since),
@@ -244,24 +240,52 @@ t_downsample_1h(_Config) ->
     MaxAge = timer:hours(1),
     test_downsample(MaxAge, 10).
 
+%% Since the monitor process is running, and tests like `t_downsample_*' expect some
+%% degree of determinism, we need to pause that process to avoid having it insert a rogue
+%% point amidst the "carefully crafted" dataset.
+pause_monitor_process() ->
+    ok = sys:suspend(emqx_dashboard_monitor),
+    on_exit(fun() -> ok = sys:resume(emqx_dashboard_monitor) end),
+    ok.
+
 sent_n(N) -> #{sent => N}.
 sent_1() -> sent_n(1).
+
+%% a gauge
+connections_n(N) -> #{connections => N}.
+connections_1() -> connections_n(1).
 
 round_down(Ts, Interval) ->
     Ts - (Ts rem Interval).
 
 test_downsample(MaxAge, DataPoints) ->
+    ok = pause_monitor_process(),
     Now = erlang:system_time(millisecond) - 1,
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
     StartTs = round_down(Now - MaxAge, Interval),
-    ok = emqx_dashboard_monitor:clean(0),
+    clean_data(),
     %% insert the start mark for deterministic test boundary
-    ok = write(StartTs, sent_1()),
-    LastVal = insert_data_points(DataPoints - 1, StartTs, Now),
+    ok = write(StartTs, connections_1()),
+    TsMax = round_down(Now, Interval),
+    LastVal = insert_data_points(DataPoints - 1, fun connections_n/1, StartTs, TsMax),
+    AllData = emqx_dashboard_monitor:all_data(),
     Data = emqx_dashboard_monitor:format(emqx_dashboard_monitor:sample_fill_gap(all, StartTs)),
-    ?assertEqual(StartTs, maps:get(time_stamp, hd(Data))),
+    ?assertEqual(StartTs, maps:get(time_stamp, hd(Data)), #{
+        expected_one_of => StartTs,
+        start_ts => StartTs,
+        interval => Interval,
+        data => Data,
+        all_data => AllData,
+        now => Now
+    }),
     ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
-    ?assertEqual(LastVal, maps:get(sent, lists:last(Data))),
+    ?assertEqual(LastVal, maps:get(connections, lists:last(Data)), #{
+        data => Data,
+        interval => Interval,
+        start_ts => StartTs,
+        all_data => AllData,
+        now => Now
+    }),
     ok.
 
 sum_value(Data, Key) ->
@@ -276,18 +300,36 @@ check_sample_intervals(_Interval, _, []) ->
     ok;
 check_sample_intervals(Interval, #{time_stamp := T}, [First | Rest]) ->
     #{time_stamp := T2} = First,
-    ?assertEqual(T + Interval, T2),
+    ?assertEqual(T + Interval, T2, #{
+        t => T,
+        interval => Interval,
+        diff => T + Interval - T2,
+        rest => Rest
+    }),
     check_sample_intervals(Interval, First, Rest).
 
-insert_data_points(N, TsMin, TsMax) ->
-    insert_data_points(N, {_LastTs = 0, _LastVal = 0}, N, TsMin, TsMax).
+insert_data_points(N, MkPointFn, TsMin, TsMax) ->
+    insert_data_points(N, MkPointFn, {_LastTs = 0, _LastVal = 0}, N, TsMin, TsMax).
 
-insert_data_points(0, {_LastTs, LastVal}, _InitialN, _TsMin, _TsMax) ->
+insert_data_points(0, _MkPointFn, {_LastTs, LastVal}, _InitialN, _TsMin, _TsMax) ->
     LastVal;
-insert_data_points(N, {LastTs, LastVal}, InitialN, TsMin, TsMax) when N > 0 ->
-    Val = InitialN - N + 1,
-    Data = sent_n(Val),
-    FakeTs = TsMin + rand:uniform(TsMax - TsMin),
+insert_data_points(N, MkPointFn, {LastTs, LastVal}, InitialN, TsMin, TsMax) when N > 0 ->
+    %% assert
+    true = TsMax - TsMin > 1,
+    %% + 2 because we don't want to insert 1.  It's used as a special "beginning-of-test"
+    %% marker.
+    Val = InitialN - N + 2,
+    Data = MkPointFn(Val),
+    FakeTs =
+        case N of
+            1 ->
+                %% Last point should be `TsMax', otherwise the resulting
+                %% `sample_interval' for this dataset might be different from the one
+                %% expected in the test case.
+                TsMax;
+            _ ->
+                TsMin + rand:uniform(TsMax - TsMin - 1)
+        end,
     case read(FakeTs) of
         [] ->
             ok = write(FakeTs, Data),
@@ -296,10 +338,13 @@ insert_data_points(N, {LastTs, LastVal}, InitialN, TsMin, TsMax) when N > 0 ->
                     true -> {FakeTs, Val};
                     false -> {LastTs, LastVal}
                 end,
-            insert_data_points(N - 1, {NewLastTs, NewLastVal}, InitialN, TsMin, TsMax);
+            insert_data_points(N - 1, MkPointFn, {NewLastTs, NewLastVal}, InitialN, TsMin, TsMax);
+        _ when N =:= 1 ->
+            %% clashed, but trying again won't help because `FakeTs = TsMax'.  shouldn't happen.
+            ct:fail("failed to generate data set: last timestamp is taken!");
         _ ->
             %% clashed, try again
-            insert_data_points(N, {LastTs, LastVal}, InitialN, TsMin, TsMax)
+            insert_data_points(N, MkPointFn, {LastTs, LastVal}, InitialN, TsMin, TsMax)
     end.
 
 read(Ts) ->
@@ -375,7 +420,7 @@ t_handle_old_monitor_data(_Config) ->
     ok.
 
 t_monitor_api(_) ->
-    emqx_dashboard_monitor:clean(0),
+    clean_data(),
     {ok, _} =
         snabbkaffe:block_until(
             ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
@@ -908,3 +953,6 @@ cluster_node_appspec(Enable, Port0) ->
             ])
         )
     ].
+
+clean_data() ->
+    ok = emqx_dashboard_monitor:clean(-1).

@@ -263,9 +263,9 @@ compact(Now, [{Time, Data} | Rest], Acc) ->
     NewAcc = merge_to_bucket(Bucket, Data, Acc),
     compact(Now, Rest, NewAcc).
 
-%% Assumes input data is sorted chronologically.
-merge_to_bucket(Bucket, Data, [{Bucket, _Data0} | Acc]) ->
-    [{Bucket, Data} | Acc];
+merge_to_bucket(Bucket, Data, [{Bucket, Data0} | Acc]) ->
+    NewData = merge_sampler_maps(Data, Data0),
+    [{Bucket, NewData} | Acc];
 merge_to_bucket(Bucket, Data, Acc) ->
     [{Bucket, Data} | Acc].
 
@@ -285,7 +285,7 @@ randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
                 [] ->
                     store(Record);
                 [#emqx_monit{data = D} = R] ->
-                    store(R#emqx_monit{data = merge_sampler_cluster_maps(D, Data)})
+                    store(R#emqx_monit{data = merge_sampler_maps(D, Data)})
             end
         end,
         lists:seq(1, Count)
@@ -322,7 +322,7 @@ do_sample_local(Time) ->
     FromDB = ets:select(?TAB, MS),
     Map = to_ts_data_map(FromDB),
     %% downsample before return RPC calls for less data to merge by the caller nodes
-    downsample(Time, Map).
+    downsample_local(Time, Map).
 
 %% log error level when there is no success (unlikely to happen), and warning otherwise
 badrpc_log_level([]) -> error;
@@ -339,7 +339,7 @@ sample_nodes(Nodes, Time) ->
     ),
     Failed =/= [] andalso
         ?LOG(badrpc_log_level(Success), #{msg => "failed_to_sample_monitor_data", errors => Failed}),
-    lists:foldl(fun(I, B) -> merge_samplers_cluster(Time, I, B) end, #{}, Success).
+    lists:foldl(fun(I, B) -> merge_samplers(Time, I, B) end, #{}, Success).
 
 concurrently_sample_nodes(Nodes, Time) ->
     %% emqx_dashboard_proto_v1:do_sample has a timeout (5s),
@@ -347,7 +347,7 @@ concurrently_sample_nodes(Nodes, Time) ->
     %% to avoid having to introduce a new bpapi proto version
     emqx_utils:pmap(fun(Node) -> do_sample(Node, Time) end, Nodes, infinity).
 
-merge_samplers_cluster(SinceTime, Increment0, Base) ->
+merge_samplers(SinceTime, Increment0, Base) ->
     Increment =
         case map_size(Increment0) > ?MAX_POSSIBLE_SAMPLES of
             true ->
@@ -356,18 +356,22 @@ merge_samplers_cluster(SinceTime, Increment0, Base) ->
             false ->
                 Increment0
         end,
-    maps:fold(fun merge_samplers_cluster_loop/3, Base, Increment).
+    maps:fold(fun merge_samplers_loop/3, Base, Increment).
 
-merge_samplers_cluster_loop(TS, Increment, Base) when is_map(Increment) ->
+merge_samplers_loop(TS, Increment, Base) when is_map(Increment) ->
     case maps:get(TS, Base, undefined) of
         undefined ->
             Base#{TS => Increment};
         BaseSample when is_map(BaseSample) ->
-            Base#{TS => merge_sampler_cluster_maps(Increment, BaseSample)}
+            Base#{TS => merge_sampler_maps(Increment, BaseSample)}
     end.
 
-merge_sampler_cluster_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
+merge_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
     Fun = fun(Key, Acc) -> merge_values(Key, M1, Acc) end,
+    lists:foldl(Fun, M2, ?SAMPLER_LIST).
+
+merge_local_sampler_maps(M1, M2, Gauges) when is_map(M1) andalso is_map(M2) ->
+    Fun = fun(Key, Acc) -> merge_local_values(Key, M1, Acc, Gauges) end,
     lists:foldl(Fun, M2, ?SAMPLER_LIST).
 
 %% topics, subscriptions_durable and disconnected_durable_sessions are cluster synced
@@ -378,6 +382,15 @@ merge_values(subscriptions_durable, M1, M2) ->
 merge_values(disconnected_durable_sessions, M1, M2) ->
     max_values(disconnected_durable_sessions, M1, M2);
 merge_values(Key, M1, M2) ->
+    sum_values(Key, M1, M2).
+
+merge_local_values(Key, M1, M2, Gauges) when
+    is_map_key(Key, Gauges) andalso
+        (is_map_key(Key, M1) orelse is_map_key(Key, M2))
+->
+    %% First argument is assumed to be from a newer timestamp, so we keep the latest.
+    M2#{Key => maps:get(Key, M1, maps:get(Key, M2, 0))};
+merge_local_values(Key, M1, M2, _Gauges) ->
     sum_values(Key, M1, M2).
 
 max_values(Key, M1, M2) when is_map_key(Key, M1) orelse is_map_key(Key, M2) ->
@@ -497,7 +510,7 @@ sample_fill_gap(Node, SinceTs) ->
 fill_gaps({badrpc, _} = BadRpc, _) ->
     BadRpc;
 fill_gaps(Samples, SinceTs) when is_map(Samples) ->
-    TsList = lists:sort(maps:keys(Samples)),
+    TsList = ts_list(Samples),
     case length(TsList) >= 2 of
         true ->
             do_fill_gaps(hd(TsList), tl(TsList), Samples, SinceTs);
@@ -534,11 +547,20 @@ downsample(SinceTs, TsDataMap) when map_size(TsDataMap) >= 2 ->
     Latest = lists:max(TsList),
     Interval = sample_interval(Latest - SinceTs),
     downsample_loop(TsList, TsDataMap, Interval, #{});
-downsample(_SinceTs, TsDataMap) ->
+downsample(_Since, TsDataMap) ->
+    TsDataMap.
+
+downsample_local(SinceTs, TsDataMap) when map_size(TsDataMap) >= 2 ->
+    TsList = ts_list(TsDataMap),
+    Latest = lists:max(TsList),
+    Interval = sample_interval(Latest - SinceTs),
+    Gauges = maps:from_keys(?GAUGE_SAMPLER_LIST, true),
+    downsample_local_loop(TsList, Gauges, TsDataMap, Interval, #{});
+downsample_local(_Since, TsDataMap) ->
     TsDataMap.
 
 ts_list(TsDataMap) ->
-    maps:keys(TsDataMap).
+    lists:sort(maps:keys(TsDataMap)).
 
 round_down(Ts, Interval) ->
     Ts - (Ts rem Interval).
@@ -547,8 +569,19 @@ downsample_loop([], _TsDataMap, _Interval, Res) ->
     Res;
 downsample_loop([Ts | Rest], TsDataMap, Interval, Res) ->
     Bucket = round_down(Ts, Interval),
-    Latest = maps:get(Ts, TsDataMap),
-    downsample_loop(Rest, TsDataMap, Interval, Res#{Bucket => Latest}).
+    Agg0 = maps:get(Bucket, Res, #{}),
+    Inc = maps:get(Ts, TsDataMap),
+    Agg = merge_sampler_maps(Inc, Agg0),
+    downsample_loop(Rest, TsDataMap, Interval, Res#{Bucket => Agg}).
+
+downsample_local_loop([], _Gauges, _TsDataMap, _Interval, Res) ->
+    Res;
+downsample_local_loop([Ts | Rest], Gauges, TsDataMap, Interval, Res) ->
+    Bucket = round_down(Ts, Interval),
+    Agg0 = maps:get(Bucket, Res, #{}),
+    Inc = maps:get(Ts, TsDataMap),
+    Agg = merge_local_sampler_maps(Inc, Agg0, Gauges),
+    downsample_local_loop(Rest, Gauges, TsDataMap, Interval, Res#{Bucket => Agg}).
 
 %% -------------------------------------------------------------------------------------------------
 %% timer
