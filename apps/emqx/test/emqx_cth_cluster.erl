@@ -109,6 +109,7 @@ start(Nodes, ClusterOpts) ->
     start(NodeSpecs).
 
 start(NodeSpecs) ->
+    emqx_common_test_helpers:clear_screen(),
     perform(start, NodeSpecs).
 
 perform(Act, NodeSpecs) ->
