@@ -137,7 +137,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
+      {:recon, github: "ferd/recon", tag: "2.5.6", override: true},
       common_dep(:jsx),
       # in conflict by erlavro and rocketmq
       common_dep(:jsone),
@@ -224,7 +224,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
-  def common_dep(:observer_cli), do: {:observer_cli, "1.7.5"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.8.0"}
 
   def common_dep(:jose),
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
