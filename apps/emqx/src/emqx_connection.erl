@@ -139,7 +139,7 @@
 -type state() :: #state{}.
 -type pending_req() :: #pending_req{}.
 
--define(ACTIVE_N, 100).
+-define(ACTIVE_N, 10).
 
 -define(INFO_KEYS, [
     socktype,

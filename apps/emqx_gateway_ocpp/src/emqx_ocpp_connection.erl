@@ -108,8 +108,6 @@
 
 -type ws_cmd() :: {active, boolean()} | close.
 
--define(ACTIVE_N, 100).
-
 -define(INFO_KEYS, [
     socktype,
     peername,

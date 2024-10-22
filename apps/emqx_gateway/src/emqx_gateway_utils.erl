@@ -85,7 +85,7 @@
 
 -import(emqx_listeners, [esockd_access_rules/1]).
 
--define(ACTIVE_N, 100).
+-define(ACTIVE_N, 10).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024 * 1024}).
 -define(DEFAULT_OOM_POLICY, #{
