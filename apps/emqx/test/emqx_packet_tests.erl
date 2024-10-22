@@ -19,53 +19,52 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
+-define(HEX(P), {bin(P), hex}).
+-define(HIDDEN(P), {bin(P), hidden}).
+-define(TEXT(P), {bin(P), text}).
+
 format_payload_test_() ->
-    Hidden = fun(Payload) -> emqx_packet:format_payload(Payload, hidden) end,
-    Hex = fun(Payload) -> bin(emqx_packet:format_payload(Payload, hex)) end,
+    Hidden = format_payload(hidden),
+    Hex = format_payload(hex),
     [
-        {"hidden", fun() -> ?assertEqual("******", Hidden(<<>>)) end},
-        {"hex empty", fun() -> ?assertEqual(<<"">>, Hex(<<"">>)) end},
-        {"hex short", fun() -> ?assertEqual(<<"hex:303030">>, Hex(<<"000">>)) end},
+        {"hidden", fun() -> ?assertEqual(?HIDDEN("******"), Hidden(<<>>)) end},
+        {"hex empty", fun() -> ?assertEqual(?HEX(<<"">>), Hex(<<"">>)) end},
+        {"hex short", fun() -> ?assertEqual(?HEX(<<"303030">>), Hex(<<"000">>)) end},
         {"hex at limit", fun() ->
             Payload = bin(lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE, 0)),
-            Expected = bin(
-                [
-                    "hex:",
-                    binary:encode_hex(bin(lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE, 0)))
-                ]
-            ),
-            ?assertEqual(Expected, Hex(Payload))
+            Expected = binary:encode_hex(bin(lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE, 0))),
+            ?assertEqual(?HEX(Expected), Hex(Payload))
         end},
         {"hex long", fun() ->
             Payload = bin(lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE + 2, 0)),
             Prefix = binary:encode_hex(bin(lists:duplicate(?TRUNCATED_PAYLOAD_SIZE, 0))),
             Lost = size(Payload) - ?TRUNCATED_PAYLOAD_SIZE,
-            Expected = bin(["hex:", Prefix, "...(", integer_to_list(Lost), " bytes)"]),
-            ?assertEqual(Expected, Hex(Payload))
+            Expected = [Prefix, "...(", integer_to_list(Lost), " bytes)"],
+            ?assertEqual(?HEX(Expected), Hex(Payload))
         end}
     ].
 
 format_payload_utf8_test_() ->
-    Fmt = fun(P) -> bin(emqx_packet:format_payload(P, text)) end,
+    Fmt = format_payload(text),
     [
-        {"empty", fun() -> ?assertEqual(<<"">>, Fmt(<<>>)) end},
-        {"short ascii", fun() -> ?assertEqual(<<"abc">>, Fmt(<<"abc">>)) end},
-        {"short unicode", fun() -> ?assertEqual(<<"日志"/utf8>>, Fmt(<<"日志"/utf8>>)) end},
+        {"empty", fun() -> ?assertEqual(?TEXT(<<"">>), Fmt(<<>>)) end},
+        {"short ascii", fun() -> ?assertEqual(?TEXT(<<"abc">>), Fmt(<<"abc">>)) end},
+        {"short unicode", fun() -> ?assertEqual(?TEXT(<<"日志"/utf8>>), Fmt(<<"日志"/utf8>>)) end},
         {"unicode at limit", fun() ->
             Payload = bin(lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE div 2, <<"¢"/utf8>>)),
-            Expected = bin(["", Payload]),
-            ?assertEqual(Expected, Fmt(Payload))
+            Expected = ["", Payload],
+            ?assertEqual(?TEXT(Expected), Fmt(Payload))
         end}
     ].
 
 format_payload_utf8_cutoff_test_() ->
-    Fmt = fun(P) -> bin(emqx_packet:format_payload(P, text)) end,
+    Fmt = format_payload(text),
     Check = fun(MultiBytesChar) ->
         Prefix = [lists:duplicate(?TRUNCATED_PAYLOAD_SIZE - 1, $a), MultiBytesChar],
         Payload = bin([Prefix, MultiBytesChar, lists:duplicate(?MAX_PAYLOAD_FORMAT_SIZE, $b)]),
         Lost = size(Payload) - iolist_size(Prefix),
-        Expected = bin([Prefix, "...(", integer_to_list(Lost), " bytes)"]),
-        ?assertEqual(Expected, Fmt(Payload))
+        Expected = [Prefix, "...(", integer_to_list(Lost), " bytes)"],
+        ?assertEqual(?TEXT(Expected), Fmt(Payload))
     end,
     [
         {"utf8 1B", fun() -> Check(<<"x"/utf8>>) end},
@@ -75,8 +74,9 @@ format_payload_utf8_cutoff_test_() ->
     ].
 
 invalid_utf8_fallback_test() ->
+    Fmt = format_payload(text),
     %% trucate after the first byte of a utf8 encoded unicode character
-    <<FirstByte:8, Last3Bytes/binary>> = <<"𐍈"/utf8>>,
+    <<FirstByte:8, _Last3Bytes/binary>> = <<"𐍈"/utf8>>,
     Prefix = iolist_to_binary([lists:duplicate(?TRUNCATED_PAYLOAD_SIZE - 1, $a), FirstByte]),
     %% invalidate utf8 byte sequence, so it should fallback to hex
     InvalidUtf8 = 255,
@@ -85,10 +85,16 @@ invalid_utf8_fallback_test() ->
     ]),
     Lost = size(Payload) - iolist_size(Prefix),
     Expected = iolist_to_binary([
-        "hex:", binary:encode_hex(Prefix), "...(", integer_to_list(Lost), " bytes)"
+        binary:encode_hex(Prefix), "...(", integer_to_list(Lost), " bytes)"
     ]),
-    ?assertEqual(Expected, bin(emqx_packet:format_payload(Payload, text))),
+    ?assertEqual(?HEX(Expected), Fmt(Payload)),
     ok.
+
+format_payload(Encode) ->
+    fun(Payload) ->
+        {Payload1, Encode1} = emqx_packet:format_payload(Payload, Encode),
+        {bin(Payload1), Encode1}
+    end.
 
 bin(X) ->
     unicode:characters_to_binary(X).
