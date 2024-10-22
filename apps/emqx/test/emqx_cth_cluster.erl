@@ -109,26 +109,30 @@ start(Nodes, ClusterOpts) ->
     start(NodeSpecs).
 
 start(NodeSpecs) ->
-    emqx_common_test_helpers:clear_screen(),
-    ct:pal("(Re)starting nodes:\n  ~p", [NodeSpecs]),
+    perform(start, NodeSpecs).
+
+perform(Act, NodeSpecs) ->
+    ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS),
     % 2. Start applications needed to enable clustering
     % Generally, this causes some applications to restart, but we deliberately don't
     % start them yet.
-    ShouldAppearInRunningNodes = lists:map(fun run_node_phase_cluster/1, NodeSpecs),
-    IsClustered = lists:member(true, ShouldAppearInRunningNodes),
+    case Act of
+        start ->
+            ShouldAppearInRunningNodes = [run_node_phase_cluster(Act, NS) || NS <- NodeSpecs],
+            WaitClustered = lists:member(true, ShouldAppearInRunningNodes);
+        restart ->
+            Timeout = ?TIMEOUT_APPS_START_MS,
+            _ = emqx_utils:pmap(fun(NS) -> run_node_phase_cluster(Act, NS) end, NodeSpecs, Timeout),
+            WaitClustered = false
+    end,
     % 3. Start applications after cluster is formed
     % Cluster-joins are complete, so they shouldn't restart in the background anymore.
     _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
     Nodes = [Node || #{name := Node} <- NodeSpecs],
     %% 4. Wait for the nodes to cluster
-    case IsClustered of
-        true ->
-            ok = wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS);
-        false ->
-            ok
-    end,
+    _Ok = WaitClustered andalso wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS),
     Nodes.
 
 %% Wait until all nodes see all nodes as mria running nodes
@@ -167,7 +171,7 @@ restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
     ok = stop(Nodes),
-    start([Spec#{boot_type => restart} || Spec <- NodeSpecs]);
+    perform(restart, NodeSpecs);
 restart(NodeSpec = #{}) ->
     restart([NodeSpec]).
 
@@ -402,10 +406,10 @@ node_init(#{name := Node, work_dir := WorkDir}) ->
     ok.
 
 %% Returns 'true' if this node should appear in running nodes list.
-run_node_phase_cluster(Spec = #{name := Node}) ->
+run_node_phase_cluster(Act, Spec = #{name := Node}) ->
     ok = load_apps(Node, Spec),
-    ok = start_apps_clustering(Node, Spec),
-    maybe_join_cluster(Node, Spec).
+    ok = start_apps_clustering(Act, Node, Spec),
+    maybe_join_cluster(Act, Node, Spec).
 
 run_node_phase_apps(Spec = #{name := Node}) ->
     ok = start_apps(Node, Spec),
@@ -414,8 +418,8 @@ run_node_phase_apps(Spec = #{name := Node}) ->
 load_apps(Node, #{apps := Apps}) ->
     erpc:call(Node, emqx_cth_suite, load_apps, [Apps]).
 
-start_apps_clustering(Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = suite_opts(Spec),
+start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
+    SuiteOpts = (suite_opts(Spec))#{boot_type => Act},
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
     _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
@@ -426,17 +430,17 @@ start_apps(Node, #{apps := Apps} = Spec) ->
     _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
     ok.
 
-suite_opts(Spec) ->
-    maps:with([work_dir, boot_type], Spec).
+suite_opts(#{work_dir := WorkDir}) ->
+    #{work_dir => WorkDir}.
 
 %% Returns 'true' if this node should appear in the cluster.
-maybe_join_cluster(_Node, #{boot_type := restart}) ->
+maybe_join_cluster(restart, _Node, #{}) ->
     %% when restart, the node should already be in the cluster
     %% hence no need to (re)join
     true;
-maybe_join_cluster(_Node, #{role := replicant}) ->
+maybe_join_cluster(_Act, _Node, #{role := replicant}) ->
     true;
-maybe_join_cluster(Node, Spec) ->
+maybe_join_cluster(start, Node, Spec) ->
     case get_cluster_seeds(Spec) of
         [JoinTo | _] ->
             ok = join_cluster(Node, JoinTo),
