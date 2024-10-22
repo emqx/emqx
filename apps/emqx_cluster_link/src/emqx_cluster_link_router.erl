@@ -53,7 +53,7 @@ compute_intersections(_Topic, [], Acc) ->
 unionify(Filter, Union) ->
     %% NOTE: See also `emqx_topic:union/1` implementation.
     %% Drop filters completely covered by `Filter`.
-    Disjoint = [F || F <- Union, not emqx_topic:subset(F, Filter)],
+    Disjoint = [F || F <- Union, not emqx_topic:is_subset(F, Filter)],
     %% Drop `Filter` if completely covered by another filter.
-    Head = [Filter || not lists:any(fun(F) -> emqx_topic:subset(Filter, F) end, Disjoint)],
+    Head = [Filter || not lists:any(fun(F) -> emqx_topic:is_subset(Filter, F) end, Disjoint)],
     Head ++ Disjoint.

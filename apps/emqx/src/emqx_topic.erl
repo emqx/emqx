@@ -35,7 +35,7 @@
     parse/1,
     parse/2,
     intersection/2,
-    subset/2,
+    is_subset/2,
     union/1
 ]).
 
@@ -169,12 +169,12 @@ wildcard_intersection(W, W) -> W;
 wildcard_intersection(_, _) -> '+'.
 
 %% @doc Finds out if topic / topic filter T1 is a subset of topic / topic filter T2.
--spec subset(topic() | words(), topic() | words()) -> boolean().
-subset(T1, T1) ->
+-spec is_subset(topic() | words(), topic() | words()) -> boolean().
+is_subset(T1, T1) ->
     true;
-subset(T1, T2) when is_binary(T1) ->
+is_subset(T1, T2) when is_binary(T1) ->
     intersection(T1, T2) =:= T1;
-subset(T1, T2) ->
+is_subset(T1, T2) ->
     intersection(T1, T2) =:= join(T1).
 
 %% @doc Compute the smallest set of topics / topic filters that contain (have as a
@@ -184,9 +184,9 @@ subset(T1, T2) ->
 -spec union(_Set :: [topic() | words()]) -> [topic() | words()].
 union([Filter | Filters]) ->
     %% Drop filters completely covered by `Filter`.
-    Disjoint = [F || F <- Filters, not subset(F, Filter)],
+    Disjoint = [F || F <- Filters, not is_subset(F, Filter)],
     %% Drop `Filter` if completely covered by another filter.
-    Head = [Filter || not lists:any(fun(F) -> subset(Filter, F) end, Disjoint)],
+    Head = [Filter || not lists:any(fun(F) -> is_subset(Filter, F) end, Disjoint)],
     Head ++ union(Disjoint);
 union([]) ->
     [].
