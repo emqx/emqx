@@ -141,9 +141,9 @@ donor_rebalance(Status, Node) ->
             {state, maps:get(state, Status)},
             {coordinator_node, maps:get(coordinator_node, Status)},
             {connection_eviction_rate, maps:get(conn_evict_rate, Opts)},
-            {connection_eviction_rpc_timeout, ms_to_sec(maps:get(conn_evict_rpc_timeout, Opts))},
+            {connection_eviction_rpc_timeout, maps:get(conn_evict_rpc_timeout, Opts)},
             {session_eviction_rate, maps:get(sess_evict_rate, Opts)},
-            {session_eviction_rpc_timeout, ms_to_sec(maps:get(sess_evict_rpc_timeout, Opts))},
+            {session_eviction_rpc_timeout, maps:get(sess_evict_rpc_timeout, Opts)},
             {recipients, maps:get(recipients, Status)},
             {stats, CurrentStats}
         ] ++
@@ -164,9 +164,9 @@ coordinator_rebalance(Status) ->
             {state, maps:get(state, Status)},
             {coordinator_node, maps:get(coordinator_node, Status)},
             {connection_eviction_rate, maps:get(conn_evict_rate, Opts)},
-            {connection_eviction_rpc_timeout, ms_to_sec(maps:get(conn_evict_rpc_timeout, Opts))},
+            {connection_eviction_rpc_timeout, maps:get(conn_evict_rpc_timeout, Opts)},
             {session_eviction_rate, maps:get(sess_evict_rate, Opts)},
-            {session_eviction_rpc_timeout, ms_to_sec(maps:get(sess_evict_rpc_timeout, Opts))},
+            {session_eviction_rpc_timeout, maps:get(sess_evict_rpc_timeout, Opts)},
             {recipients, maps:get(recipients, Status)},
             {donors, maps:get(donors, Status)}
         ] ++
@@ -291,6 +291,3 @@ purge_status() ->
 
 rebalance_status() ->
     {node(), emqx_node_rebalance:status()}.
-
-ms_to_sec(Ms) ->
-    erlang:convert_time_unit(Ms, millisecond, second).

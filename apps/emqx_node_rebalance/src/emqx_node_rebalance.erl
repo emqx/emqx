@@ -423,9 +423,9 @@ wrap_multicall(MulticallResult, Nodes) ->
                     [{Node, ok_result(Result)} || {Node, Result} <- OkResults];
                 {_, BadResults} ->
                     ?tp(warning, emqx_node_rebalance_bad_nodes, #{
-                        bad_nodes => BadResults
+                        bad_results => BadResults
                     }),
-                    error({bad_nodes, BadResults})
+                    error({bad_results, BadResults})
             end;
         {_, [_BadNode | _] = BadNodes} ->
             ?tp(warning, emqx_node_rebalance_bad_nodes, #{

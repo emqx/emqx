@@ -38,7 +38,7 @@
 -define(TIMEOUT, 15000).
 
 introduced_in() ->
-    "5.4.0".
+    "5.9.0".
 
 -spec available_nodes([node()]) -> emqx_rpc:multicall_result(node()).
 available_nodes(Nodes) ->

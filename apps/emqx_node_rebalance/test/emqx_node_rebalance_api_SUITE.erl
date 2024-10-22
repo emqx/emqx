@@ -426,9 +426,9 @@ t_start_stop_rebalance(Config) ->
                         <<"node">> := DonorNodeBin,
                         <<"coordinator_node">> := _,
                         <<"connection_eviction_rate">> := 10,
-                        <<"connection_eviction_rpc_timeout">> := 15,
+                        <<"connection_eviction_rpc_timeout">> := 15000,
                         <<"session_eviction_rate">> := 20,
-                        <<"session_eviction_rpc_timeout">> := 15,
+                        <<"session_eviction_rpc_timeout">> := 15000,
                         <<"donors">> := [DonorNodeBin],
                         <<"recipients">> := [RecipientNodeBin]
                     }
@@ -446,9 +446,9 @@ t_start_stop_rebalance(Config) ->
                     node := DonorNodeBin,
                     coordinator_node := _,
                     connection_eviction_rate := 10,
-                    connection_eviction_rpc_timeout := 15,
+                    connection_eviction_rpc_timeout := 15000,
                     session_eviction_rate := 20,
-                    session_eviction_rpc_timeout := 15,
+                    session_eviction_rpc_timeout := 15000,
                     donors := [DonorNodeBin],
                     recipients := [RecipientNodeBin]
                 }

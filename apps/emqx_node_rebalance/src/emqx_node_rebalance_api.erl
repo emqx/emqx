@@ -632,7 +632,7 @@ fields(local_status_enabled) ->
             )},
         {connection_eviction_rpc_timeout,
             mk(
-                emqx_schema:timeout_duration_s(),
+                emqx_schema:timeout_duration_ms(),
                 #{
                     desc => ?DESC(local_status_connection_eviction_rpc_timeout),
                     required => false
