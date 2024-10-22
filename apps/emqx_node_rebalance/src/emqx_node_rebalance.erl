@@ -49,7 +49,9 @@
 
 -type start_opts() :: #{
     conn_evict_rate => pos_integer(),
+    conn_evict_rpc_timeout => pos_integer(),
     sess_evict_rate => pos_integer(),
+    sess_evict_rpc_timeout => pos_integer(),
     wait_health_check => number(),
     wait_takeover => number(),
     abs_conn_threshold => pos_integer(),
@@ -83,7 +85,7 @@ start_link() ->
 
 -spec available_nodes(list(node())) -> list(node()).
 available_nodes(Nodes) when is_list(Nodes) ->
-    {Available, _} = emqx_node_rebalance_proto_v2:available_nodes(Nodes),
+    {Available, _} = emqx_node_rebalance_proto_v4:available_nodes(Nodes),
     lists:filter(fun is_atom/1, Available).
 
 %%--------------------------------------------------------------------
@@ -107,14 +109,13 @@ handle_event(
 ) ->
     case enable_rebalance(Data#{opts => Opts}) of
         {ok, NewData} ->
-            ?SLOG(warning, #{msg => "node_rebalance_enabled", opts => Opts}),
+            ?tp(warning, node_rebalance_enabled, #{opts => Opts}),
             {next_state, wait_health_check, NewData, [
                 {state_timeout, seconds(WaitHealthCheck), evict_conns},
                 {reply, From, ok}
             ]};
         {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "node_rebalance_enable_failed",
+            ?tp(warning, node_rebalance_enable_failed, #{
                 reason => Reason
             }),
             {keep_state_and_data, [{reply, From, {error, Reason}}]}
@@ -126,7 +127,7 @@ handle_event({call, From}, stop, disabled, #{}) ->
     {keep_state_and_data, [{reply, From, {error, not_started}}]};
 handle_event({call, From}, stop, _State, Data) ->
     ok = disable_rebalance(Data),
-    ?SLOG(warning, #{msg => "node_rebalance_stopped"}),
+    ?tp(warning, node_rebalance_stopped, #{}),
     {next_state, disabled, deinit(Data), [{reply, From, ok}]};
 %% status
 handle_event({call, From}, status, disabled, #{}) ->
@@ -147,11 +148,17 @@ handle_event(
     wait_health_check,
     #{donors := DonorNodes} = Data
 ) ->
-    ?SLOG(warning, #{msg => "node_rebalance_wait_health_check_over"}),
-    _ = multicall(DonorNodes, enable_rebalance_agent, [
-        self(), ?ENABLE_KIND, #{allow_connections => false}
-    ]),
-    ?tp(debug, node_rebalance_enable_started_prohibiting, #{}),
+    ?tp(warning, node_rebalance_wait_health_check_over, #{}),
+    _ = wrap_multicall(
+        emqx_node_rebalance_proto_v4:enable_rebalance_agent(
+            DonorNodes,
+            self(),
+            ?ENABLE_KIND,
+            #{allow_connections => false}
+        ),
+        DonorNodes
+    ),
+    ?tp(warning, node_rebalance_enable_started_prohibiting, #{}),
     {next_state, evicting_conns, Data, [{state_timeout, 0, evict_conns}]};
 handle_event(
     state_timeout,
@@ -166,7 +173,7 @@ handle_event(
 ) ->
     case evict_conns(Data) of
         ok ->
-            ?SLOG(warning, #{msg => "node_rebalance_evict_conns_over"}),
+            ?tp(warning, node_rebalance_evict_conns_over, #{}),
             {next_state, wait_takeover, Data, [
                 {state_timeout, seconds(WaitTakeover), evict_sessions}
             ]};
@@ -179,7 +186,7 @@ handle_event(
     wait_takeover,
     Data
 ) ->
-    ?SLOG(warning, #{msg => "node_rebalance_wait_takeover_over"}),
+    ?tp(warning, node_rebalance_wait_takeover_over, #{}),
     {next_state, evicting_sessions, Data, [{state_timeout, 0, evict_sessions}]};
 handle_event(
     state_timeout,
@@ -189,22 +196,21 @@ handle_event(
 ) ->
     case evict_sessions(Data) of
         ok ->
-            ?tp(debug, emqx_node_rebalance_evict_sess_over, #{}),
-            ?SLOG(warning, #{msg => "node_rebalance_evict_sessions_over"}),
+            ?tp(warning, emqx_node_rebalance_evict_sess_over, #{}),
             ok = disable_rebalance(Data),
-            ?SLOG(warning, #{msg => "node_rebalance_finished_successfully"}),
+            ?tp(warning, node_rebalance_finished_successfully, #{}),
             {next_state, disabled, deinit(Data)};
         {continue, NewData} ->
             {keep_state, NewData, [{state_timeout, EvictInterval, evict_sessions}]}
     end;
 handle_event({call, From}, Msg, _State, _Data) ->
-    ?SLOG(warning, #{msg => "node_rebalance_unknown_call", call => Msg}),
+    ?tp(warning, node_rebalance_unknown_call, #{call => Msg}),
     {keep_state_and_data, [{reply, From, ignored}]};
 handle_event(info, Msg, _State, _Data) ->
-    ?SLOG(warning, #{msg => "node_rebalance_unknown_info", info => Msg}),
+    ?tp(warning, node_rebalance_unknown_info, #{info => Msg}),
     keep_state_and_data;
 handle_event(cast, Msg, _State, _Data) ->
-    ?SLOG(warning, #{msg => "node_rebalance_unknown_cast", cast => Msg}),
+    ?tp(warning, node_rebalance_unknown_cast, #{cast => Msg}),
     keep_state_and_data.
 
 code_change(_Vsn, State, Data, _Extra) ->
@@ -216,8 +222,14 @@ code_change(_Vsn, State, Data, _Extra) ->
 
 enable_rebalance(#{opts := Opts} = Data) ->
     Nodes = maps:get(nodes, Opts),
-    ConnCounts = multicall(Nodes, connection_counts, []),
-    SessCounts = multicall(Nodes, session_counts, []),
+    ConnCounts = wrap_multicall(
+        emqx_node_rebalance_proto_v4:connection_counts(Nodes),
+        Nodes
+    ),
+    SessCounts = wrap_multicall(
+        emqx_node_rebalance_proto_v4:session_counts(Nodes),
+        Nodes
+    ),
     {_, Counts} = lists:unzip(ConnCounts),
     Avg = avg(Counts),
     {DonorCounts, RecipientCounts} = lists:partition(
@@ -226,8 +238,7 @@ enable_rebalance(#{opts := Opts} = Data) ->
         end,
         ConnCounts
     ),
-    ?SLOG(warning, #{
-        msg => "node_rebalance_enabling",
+    ?tp(warning, node_rebalance_enabling, #{
         conn_counts => ConnCounts,
         donor_counts => DonorCounts,
         recipient_counts => RecipientCounts
@@ -238,9 +249,15 @@ enable_rebalance(#{opts := Opts} = Data) ->
         false ->
             {error, nothing_to_balance};
         true ->
-            _ = multicall(DonorNodes, enable_rebalance_agent, [
-                self(), ?ENABLE_KIND, #{allow_connections => true}
-            ]),
+            _ = wrap_multicall(
+                emqx_node_rebalance_proto_v4:enable_rebalance_agent(
+                    DonorNodes,
+                    self(),
+                    ?ENABLE_KIND,
+                    #{allow_connections => true}
+                ),
+                DonorNodes
+            ),
             {ok, Data#{
                 donors => DonorNodes,
                 recipients => RecipientNodes,
@@ -250,15 +267,23 @@ enable_rebalance(#{opts := Opts} = Data) ->
     end.
 
 disable_rebalance(#{donors := DonorNodes}) ->
-    _ = multicall(DonorNodes, disable_rebalance_agent, [self(), ?ENABLE_KIND]),
+    _ = wrap_multicall(
+        emqx_node_rebalance_proto_v4:disable_rebalance_agent(DonorNodes, self(), ?ENABLE_KIND),
+        DonorNodes
+    ),
     ok.
 
 evict_conns(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opts} = Data) ->
-    DonorNodeCounts = multicall(DonorNodes, connection_counts, []),
+    DonorNodeCounts = wrap_multicall(
+        emqx_node_rebalance_proto_v4:connection_counts(DonorNodes),
+        DonorNodes
+    ),
     {_, DonorCounts} = lists:unzip(DonorNodeCounts),
-    RecipientNodeCounts = multicall(RecipientNodes, connection_counts, []),
+    RecipientNodeCounts = wrap_multicall(
+        emqx_node_rebalance_proto_v4:connection_counts(RecipientNodes),
+        RecipientNodes
+    ),
     {_, RecipientCounts} = lists:unzip(RecipientNodeCounts),
-
     DonorAvg = avg(DonorCounts),
     RecipientAvg = avg(RecipientCounts),
     Thresholds = thresholds(conn, Opts),
@@ -273,25 +298,36 @@ evict_conns(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opts} 
             ok;
         false ->
             ConnEvictRate = maps:get(conn_evict_rate, Opts),
+            ConnEvictRPCTimeout = maps:get(conn_evict_rpc_timeout, Opts),
             NodesToEvict = nodes_to_evict(RecipientAvg, DonorNodeCounts),
-            ?SLOG(warning, #{
+            ?tp(warning, node_rebalance_evict_conns, #{
                 donor_conn_avg => DonorAvg,
                 recipient_conn_avg => RecipientAvg,
                 thresholds => Thresholds,
-                msg => "node_rebalance_evict_conns",
                 nodes => NodesToEvict,
-                counts => ConnEvictRate
+                counts => ConnEvictRate,
+                rpc_timeout => ConnEvictRPCTimeout
             }),
-            _ = multicall(NodesToEvict, evict_connections, [ConnEvictRate]),
+            _ = wrap_multicall(
+                emqx_node_rebalance_proto_v4:evict_connections(
+                    NodesToEvict, ConnEvictRate, ConnEvictRPCTimeout
+                ),
+                NodesToEvict
+            ),
             {continue, NewData}
     end.
 
 evict_sessions(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opts} = Data) ->
-    DonorNodeCounts = multicall(DonorNodes, disconnected_session_counts, []),
+    DonorNodeCounts = wrap_multicall(
+        emqx_node_rebalance_proto_v4:disconnected_session_counts(DonorNodes),
+        DonorNodes
+    ),
     {_, DonorCounts} = lists:unzip(DonorNodeCounts),
-    RecipientNodeCounts = multicall(RecipientNodes, disconnected_session_counts, []),
+    RecipientNodeCounts = wrap_multicall(
+        emqx_node_rebalance_proto_v4:disconnected_session_counts(RecipientNodes),
+        RecipientNodes
+    ),
     {_, RecipientCounts} = lists:unzip(RecipientNodeCounts),
-
     DonorAvg = avg(DonorCounts),
     RecipientAvg = avg(RecipientCounts),
     Thresholds = thresholds(sess, Opts),
@@ -306,19 +342,21 @@ evict_sessions(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opt
             ok;
         false ->
             SessEvictRate = maps:get(sess_evict_rate, Opts),
+            SessEvictRPCTimeout = maps:get(sess_evict_rpc_timeout, Opts),
             NodesToEvict = nodes_to_evict(RecipientAvg, DonorNodeCounts),
-            ?SLOG(warning, #{
+            ?tp(warning, node_rebalance_evict_sessions, #{
                 donor_sess_avg => DonorAvg,
                 recipient_sess_avg => RecipientAvg,
                 thresholds => Thresholds,
-                msg => "node_rebalance_evict_sessions",
                 nodes => NodesToEvict,
-                counts => SessEvictRate
+                counts => SessEvictRate,
+                rpc_timeout => SessEvictRPCTimeout
             }),
-            _ = multicall(
-                NodesToEvict,
-                evict_sessions,
-                [SessEvictRate, RecipientNodes, disconnected]
+            _ = wrap_multicall(
+                emqx_node_rebalance_proto_v4:evict_sessions(
+                    NodesToEvict, SessEvictRate, RecipientNodes, disconnected, SessEvictRPCTimeout
+                ),
+                NodesToEvict
             ),
             {continue, NewData}
     end.
@@ -377,16 +415,22 @@ get_stats(_State, Data) -> Data.
 avg(List) when length(List) >= 1 ->
     lists:sum(List) / length(List).
 
-multicall(Nodes, F, A) ->
-    case apply(emqx_node_rebalance_proto_v3, F, [Nodes | A]) of
+wrap_multicall(MulticallResult, Nodes) ->
+    case MulticallResult of
         {Results, []} ->
             case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
                 {OkResults, []} ->
                     [{Node, ok_result(Result)} || {Node, Result} <- OkResults];
                 {_, BadResults} ->
-                    error({bad_nodes, BadResults})
+                    ?tp(warning, emqx_node_rebalance_bad_nodes, #{
+                        bad_results => BadResults
+                    }),
+                    error({bad_results, BadResults})
             end;
         {_, [_BadNode | _] = BadNodes} ->
+            ?tp(warning, emqx_node_rebalance_bad_nodes, #{
+                bad_nodes => BadNodes
+            }),
             error({bad_nodes, BadNodes})
     end.
 
@@ -409,10 +453,12 @@ disconnected_session_count() ->
 default_opts() ->
     #{
         conn_evict_rate => ?DEFAULT_CONN_EVICT_RATE,
+        conn_evict_rpc_timeout => ?DEFAULT_CONN_EVICT_RPC_TIMEOUT,
         abs_conn_threshold => ?DEFAULT_ABS_CONN_THRESHOLD,
         rel_conn_threshold => ?DEFAULT_REL_CONN_THRESHOLD,
 
         sess_evict_rate => ?DEFAULT_SESS_EVICT_RATE,
+        sess_evict_rpc_timeout => ?DEFAULT_SESS_EVICT_RPC_TIMEOUT,
         abs_sess_threshold => ?DEFAULT_ABS_SESS_THRESHOLD,
         rel_sess_threshold => ?DEFAULT_REL_SESS_THRESHOLD,
 

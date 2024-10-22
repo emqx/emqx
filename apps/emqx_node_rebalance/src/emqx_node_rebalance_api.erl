@@ -439,11 +439,27 @@ fields(rebalance_start) ->
                     required => false
                 }
             )},
+        {conn_evict_rpc_timeout,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    desc => ?DESC(conn_evict_rpc_timeout),
+                    required => false
+                }
+            )},
         {sess_evict_rate,
             mk(
                 pos_integer(),
                 #{
                     desc => ?DESC(sess_evict_rate),
+                    required => false
+                }
+            )},
+        {sess_evict_rpc_timeout,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    desc => ?DESC(sess_evict_rpc_timeout),
                     required => false
                 }
             )},
@@ -614,11 +630,27 @@ fields(local_status_enabled) ->
                     required => false
                 }
             )},
+        {connection_eviction_rpc_timeout,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    desc => ?DESC(local_status_connection_eviction_rpc_timeout),
+                    required => false
+                }
+            )},
         {session_eviction_rate,
             mk(
                 pos_integer(),
                 #{
                     desc => ?DESC(local_status_session_eviction_rate),
+                    required => false
+                }
+            )},
+        {session_eviction_rpc_timeout,
+            mk(
+                emqx_schema:timeout_duration_s(),
+                #{
+                    desc => ?DESC(local_status_session_eviction_rpc_timeout),
                     required => false
                 }
             )},

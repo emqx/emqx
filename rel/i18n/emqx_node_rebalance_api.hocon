@@ -156,11 +156,23 @@ local_status_connection_eviction_rate.desc:
 local_status_connection_eviction_rate.label:
 """Connection eviction rate"""
 
+local_status_connection_eviction_rpc_timeout.desc:
+"""The timeout for connection eviction RPC, in seconds"""
+
+local_status_connection_eviction_rpc_timeout.label:
+"""Connection eviction RPC timeout"""
+
 local_status_session_eviction_rate.desc:
 """The rate of evicting sessions, in sessions per second"""
 
 local_status_session_eviction_rate.label:
 """Session eviction rate"""
+
+local_status_session_eviction_rpc_timeout.desc:
+"""The timeout for session eviction RPC, in seconds"""
+
+local_status_session_eviction_rpc_timeout.label:
+"""Session eviction RPC timeout"""
 
 local_status_purge_rate.desc:
 """The rate of purging sessions, in sessions per second"""
