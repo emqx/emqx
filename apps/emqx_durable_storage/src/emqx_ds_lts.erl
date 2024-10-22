@@ -557,14 +557,24 @@ trie_next_(Trie, State, Token) ->
 %% erlfmt-ignore
 -spec emanating(trie(), state(), edge()) -> [{edge(), state()}].
 emanating(#trie{trie = Tab}, State, ?PLUS) ->
-    ets:select(
-        Tab,
-        ets:fun2ms(
-            fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
-                {Edge, Next}
-            end
-        )
-    );
+    case State of
+        ?PREFIX ->
+            MS = ets:fun2ms(
+                fun(#trans{key = {?PREFIX, Edge}, next = Next}) when
+                    %% Exclude topics starting with `$':
+                    is_binary(Edge) andalso binary_part(Edge, 0, 1) =/= <<"$">>; is_atom(Edge)
+                ->
+                    {Edge, Next}
+                end
+            );
+        _ ->
+            MS = ets:fun2ms(
+                fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
+                    {Edge, Next}
+                end
+            )
+    end,
+    ets:select(Tab, MS);
 emanating(#trie{trie = Tab}, State, ?EOT) ->
     case ets:lookup(Tab, {State, ?EOT}) of
         [#trans{next = Next}] -> [{?EOT, Next}];
