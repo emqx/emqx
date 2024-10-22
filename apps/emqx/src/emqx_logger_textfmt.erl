@@ -190,18 +190,19 @@ try_encode_meta(Report, Config) ->
     ).
 
 try_encode_meta(payload, #{payload := Payload} = Report, #{payload_encode := Encode}) ->
-    Report#{payload := encode_payload(Payload, Encode)};
+    {Payload1, Encode1} = format_payload(Payload, Encode),
+    Report#{payload => Payload1, payload_encode => Encode1};
 try_encode_meta(packet, #{packet := Packet} = Report, #{payload_encode := Encode}) when
     is_tuple(Packet)
 ->
-    Report#{packet := emqx_packet:format(Packet, Encode)};
+    Report#{packet := try_format_unicode(emqx_packet:format(Packet, Encode))};
 try_encode_meta(_, Report, _Config) ->
     Report.
 
-encode_payload(Payload, text) ->
-    Payload;
-encode_payload(_Payload, hidden) ->
-    "******";
-encode_payload(Payload, hex) ->
-    Bin = emqx_utils_conv:bin(Payload),
-    binary:encode_hex(Bin).
+format_payload(undefined, Type) ->
+    {"", Type};
+format_payload(Payload, Type) when is_binary(Payload) ->
+    {Payload1, Type1} = emqx_packet:format_payload(Payload, Type),
+    {try_format_unicode(Payload1), Type1};
+format_payload(Payload, Type) ->
+    {Payload, Type}.

@@ -65,6 +65,7 @@
 -type publish() :: #mqtt_packet_publish{}.
 -type subscribe() :: #mqtt_packet_subscribe{}.
 -type unsubscribe() :: #mqtt_packet_unsubscribe{}.
+-type payload_encode() :: hex | text | hidden.
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Type and Flags.
@@ -481,7 +482,7 @@ will_msg(#mqtt_packet_connect{
     }.
 
 %% @doc Format packet
--spec format(emqx_types:packet(), hex | text | hidden) -> iolist().
+-spec format(emqx_types:packet(), payload_encode()) -> iolist().
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadEncode) ->
     HeaderIO = format_header(Header),
     case format_variable(Variable, Payload, PayloadEncode) of
@@ -618,12 +619,14 @@ format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
 format_payload_label(Payload, Type) ->
-    ["Payload=", format_payload(Payload, Type)].
+    {FPayload, Type1} = format_payload(Payload, Type),
+    [io_lib:format("Payload(~s)=", [Type1]), FPayload].
 
+-spec format_payload(binary(), payload_encode()) -> {iolist(), payload_encode()}.
 format_payload(_, hidden) ->
-    "******";
-format_payload(<<>>, _) ->
-    "";
+    {"******", hidden};
+format_payload(<<>>, Type) ->
+    {"", Type};
 format_payload(Payload, Type) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
     %% under the 1KB limit
     format_payload_limit(Type, Payload, size(Payload));
@@ -635,25 +638,28 @@ format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
     {Type, Part, TruncatedBytes} = truncate_payload(Type0, Limit, Payload),
     case TruncatedBytes > 0 of
         true ->
-            [do_format_payload(Type, Part), "...(", integer_to_list(TruncatedBytes), " bytes)"];
+            {
+                [do_format_payload(Type, Part), "...(", integer_to_list(TruncatedBytes), " bytes)"],
+                Type
+            };
         false ->
-            do_format_payload(Type, Payload)
+            {do_format_payload(Type, Payload), Type}
     end;
 format_payload_limit(text, Payload, _Limit) ->
     case is_utf8(Payload) of
         true ->
-            do_format_payload(text, Payload);
+            {do_format_payload(text, Payload), text};
         false ->
-            do_format_payload(hex, Payload)
+            {do_format_payload(hex, Payload), hex}
     end;
 format_payload_limit(hex, Payload, _Limit) ->
-    do_format_payload(hex, Payload).
+    {do_format_payload(hex, Payload), hex}.
 
 do_format_payload(text, Bytes) ->
     %% utf8 ensured
     Bytes;
 do_format_payload(hex, Bytes) ->
-    ["hex:", binary:encode_hex(Bytes)].
+    binary:encode_hex(Bytes).
 
 is_utf8(Bytes) ->
     case trim_utf8(size(Bytes), Bytes) of

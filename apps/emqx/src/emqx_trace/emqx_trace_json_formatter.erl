@@ -86,7 +86,17 @@ do_maybe_format_msg(Msg, Meta, Config) ->
     emqx_logger_jsonfmt:format_msg(Msg, Meta, Config).
 
 prepare_log_data(LogMap, PEncode) when is_map(LogMap) ->
-    NewKeyValuePairs = [prepare_key_value(K, V, PEncode) || {K, V} <- maps:to_list(LogMap)],
+    NewKeyValuePairs = lists:flatmap(
+        fun({K, V}) ->
+            case prepare_key_value(K, V, PEncode) of
+                KV when is_tuple(KV) ->
+                    [KV];
+                KVs when is_list(KVs) ->
+                    KVs
+            end
+        end,
+        maps:to_list(LogMap)
+    ),
     maps:from_list(NewKeyValuePairs);
 prepare_log_data(V, PEncode) when is_list(V) ->
     [prepare_log_data(Item, PEncode) || Item <- V];
@@ -118,14 +128,14 @@ prepare_key_value(host, {I1, I2, I3, I4, I5, I6, I7, I8} = IP, _PEncode) when
     %% We assume this is an IP address
     {host, unicode:characters_to_binary(inet:ntoa(IP))};
 prepare_key_value(payload = K, V, PEncode) ->
-    NewV =
+    {NewV, PEncode1} =
         try
             format_payload(V, PEncode)
         catch
             _:_ ->
                 V
         end,
-    {K, NewV};
+    [{K, NewV}, {payload_encode, PEncode1}];
 prepare_key_value(<<"payload">>, V, PEncode) ->
     prepare_key_value(payload, V, PEncode);
 prepare_key_value(packet = K, V, PEncode) ->
@@ -183,12 +193,12 @@ prepare_key_value(K, V, PEncode) ->
 format_packet(undefined, _) -> "";
 format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
 
-format_payload(undefined, _) ->
-    "";
+format_payload(undefined, Type) ->
+    {"", Type};
 format_payload(Payload, Type) when is_binary(Payload) ->
     emqx_packet:format_payload(Payload, Type);
-format_payload(Payload, _) ->
-    Payload.
+format_payload(Payload, Type) ->
+    {Payload, Type}.
 
 format_map_set_to_list(Map) ->
     Items = [
