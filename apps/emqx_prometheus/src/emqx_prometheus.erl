@@ -514,6 +514,7 @@ emqx_collect(K = ?DS_BUFFER_BATCHES_FAILED, D) -> counter_metrics(?MG(K, D, []))
 emqx_collect(K = ?DS_BUFFER_MESSAGES, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_BUFFER_BYTES, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_BUFFER_FLUSH_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_BUFFER_LATENCY, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_STORE_BATCH_TIME, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_BUILTIN_NEXT_TIME, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_BITFIELD_LTS_SEEK_COUNTER, D) -> counter_metrics(?MG(K, D, []));

@@ -54,7 +54,13 @@ format_meta_map(Meta, _Encode, []) ->
 format_meta_map(Meta, Encode, [{Name, FormatFun} | Rest]) ->
     case Meta of
         #{Name := Value} ->
-            NewMeta = Meta#{Name => FormatFun(Value, Encode)},
+            NewMeta =
+                case FormatFun(Value, Encode) of
+                    {NewValue, NewMeta0} ->
+                        maps:merge(Meta#{Name => NewValue}, NewMeta0);
+                    NewValue ->
+                        Meta#{Name => NewValue}
+                end,
             format_meta_map(NewMeta, Encode, Rest);
         #{} ->
             format_meta_map(Meta, Encode, Rest)
@@ -96,12 +102,13 @@ format_packet(Packet, Encode) ->
             Packet
     end.
 
-format_payload(undefined, _) ->
-    "";
+format_payload(undefined, Type) ->
+    {"", #{payload_encode => Type}};
 format_payload(Payload, Type) when is_binary(Payload) ->
-    emqx_packet:format_payload(Payload, Type);
-format_payload(Payload, _) ->
-    Payload.
+    {Payload1, Type1} = emqx_packet:format_payload(Payload, Type),
+    {Payload1, #{payload_encode => Type1}};
+format_payload(Payload, Type) ->
+    {Payload, #{payload_encode => Type}}.
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);

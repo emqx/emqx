@@ -10,6 +10,7 @@
         gproc,
         jsx,
         ecpool,
+        replayq,
         emqx,
         telemetry
     ]},

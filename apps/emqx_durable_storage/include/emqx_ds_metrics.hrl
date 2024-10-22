@@ -30,6 +30,8 @@
 -define(DS_BUFFER_BYTES, emqx_ds_buffer_bytes).
 %% Sliding average of flush time (microseconds):
 -define(DS_BUFFER_FLUSH_TIME, emqx_ds_buffer_flush_time).
+%% Sliding average of latency induced by buffering (milliseconds):
+-define(DS_BUFFER_LATENCY, emqx_ds_buffer_latency).
 
 %%%% Storage layer metrics:
 -define(DS_STORE_BATCH_TIME, emqx_ds_store_batch_time).
