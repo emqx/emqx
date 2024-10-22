@@ -56,11 +56,10 @@ init_per_suite(Config) ->
             emqx_bridge,
             emqx_rule_engine,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _} = emqx_common_test_http:create_default_app(),
     emqx_bridge_kafka_impl_producer_SUITE:wait_until_kafka_is_up(),
     [
         {apps, Apps},
@@ -207,6 +206,15 @@ ensure_kafka_topic(KafkaTopic) ->
     case brod:create_topics(Endpoints, TopicConfigs, RequestConfig, ConnConfig) of
         ok -> ok;
         {error, topic_already_exists} -> ok
+    end.
+
+delete_kafka_topic(KafkaTopic) ->
+    Timeout = 1_000,
+    ConnConfig = #{},
+    Endpoints = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    case brod:delete_topics(Endpoints, [KafkaTopic], Timeout, ConnConfig) of
+        ok -> ok;
+        {error, unknown_topic_or_partition} -> ok
     end.
 
 action_config(ConnectorName) ->
@@ -367,6 +375,9 @@ tap_telemetry(HandlerId) ->
     ok.
 
 -define(tapTelemetry(), tap_telemetry(?FUNCTION_NAME)).
+
+simplify_result(Res) ->
+    emqx_bridge_v2_testlib:simplify_result(Res).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1351,5 +1362,83 @@ t_migrate_old_replayq_dir(Config) ->
             ?assertMatch([#{from := OldWolffDir}], ?of_kind("migrating_old_wolff_dirs", Trace)),
             ok
         end
+    ),
+    ok.
+
+%% Checks that we don't report a producer as `?status_disconnected' if it's already
+%% created.
+t_inexistent_topic_after_created(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(
+        connector_config, Config, connector_config_toxiproxy(Config)
+    ),
+    ActionName = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"topic">> => Topic
+                },
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"1s">>
+                }
+            }
+        )
+    ),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+    ?check_trace(
+        #{timetrap => 7_000},
+        begin
+            ensure_kafka_topic(Topic),
+            {201, #{<<"status">> := <<"connected">>}} =
+                simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams)),
+
+            %% Initially connected
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                simplify_result(emqx_bridge_v2_testlib:create_action_api(ActionParams))
+            ),
+
+            %% After deleting the topic and a health check, it becomes connecting.
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    delete_kafka_topic(Topic),
+                    #{?snk_kind := "kafka_producer_action_unknown_topic"}
+                ),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connecting">>}},
+                simplify_result(emqx_bridge_v2_testlib:get_action_api(ActionParams))
+            ),
+
+            %% Recovers after topic is back
+            {ok, {ok, _}} =
+                ?wait_async_action(
+                    ensure_kafka_topic(Topic),
+                    #{?snk_kind := "kafka_producer_action_connected"}
+                ),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                simplify_result(emqx_bridge_v2_testlib:get_action_api(ActionParams))
+            ),
+
+            ok
+        end,
+        []
     ),
     ok.
