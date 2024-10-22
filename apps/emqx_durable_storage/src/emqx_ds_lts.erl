@@ -44,6 +44,7 @@
     options/0,
     level/0,
     static_key/0,
+    varying/0,
     trie/0,
     msg_storage_key/0,
     learned_structure/0,

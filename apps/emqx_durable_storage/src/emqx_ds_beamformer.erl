@@ -85,7 +85,14 @@
 %% internal exports:
 -export([start_link/4, do_dispatch/1]).
 
--export_type([opts/0, beam/2, beam/0, return_addr/1, unpack_iterator_result/1]).
+-export_type([
+    opts/0,
+    beam/2, beam/0,
+    return_addr/1,
+    unpack_iterator_result/1,
+    event_topic/0,
+    stream_scan_return/0
+]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -219,45 +226,53 @@
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
-    #{
-        stream := Stream,
-        topic_filter := TF,
-        last_seen_key := DSKey,
-        timestamp := Timestamp,
-        message_matcher := MsgMatcher
-    } = CBM:unpack_iterator(Shard, Iterator),
-    Deadline = erlang:monotonic_time(millisecond) + Timeout,
-    ?tp(beamformer_poll, #{
-        shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
-    }),
-    %% Try to maximize likelyhood of sending similar iterators to the
-    %% same worker:
-    Token = {Stream, Timestamp div 10_000_000},
-    Worker = gproc_pool:pick_worker(
-        emqx_ds_beamformer_sup:pool(Shard),
-        Token
-    ),
-    %% Make request:
-    Req = #poll_req{
-        key = {Stream, TF, DSKey},
-        node = Node,
-        return_addr = ReturnAddr,
-        it = Iterator,
-        opts = Opts,
-        deadline = Deadline,
-        msg_matcher = MsgMatcher
-    },
-    emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
-    %% Currently we implement backpressure by ignoring transient
-    %% errors (gen_server timeouts, `too_many_requests'), and just
-    %% letting poll requests expire at the higher level. This should
-    %% hold back the caller.
-    try gen_server:call(Worker, Req, Timeout) of
-        ok -> ok;
-        {error, recoverable, too_many_requests} -> ok
-    catch
-        exit:timeout ->
-            ok
+    case CBM:unpack_iterator(Shard, Iterator) of
+        #{
+            stream := Stream,
+            topic_filter := TF,
+            last_seen_key := DSKey,
+            timestamp := Timestamp,
+            message_matcher := MsgMatcher
+        } ->
+            Deadline = erlang:monotonic_time(millisecond) + Timeout,
+            ?tp(beamformer_poll, #{
+                shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
+            }),
+            %% Try to maximize likelyhood of sending similar iterators to the
+            %% same worker:
+            Token = {Stream, Timestamp div 10_000_000},
+            Worker = gproc_pool:pick_worker(
+                emqx_ds_beamformer_sup:pool(Shard),
+                Token
+            ),
+            %% Make request:
+            Req = #poll_req{
+                key = {Stream, TF, DSKey},
+                node = Node,
+                return_addr = ReturnAddr,
+                it = Iterator,
+                opts = Opts,
+                deadline = Deadline,
+                msg_matcher = MsgMatcher
+            },
+            emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
+            %% Currently we implement backpressure by ignoring transient
+            %% errors (gen_server timeouts, `too_many_requests'), and just
+            %% letting poll requests expire at the higher level. This should
+            %% hold back the caller.
+            try gen_server:call(Worker, Req, Timeout) of
+                ok -> ok;
+                {error, recoverable, too_many_requests} -> ok
+            catch
+                exit:timeout ->
+                    ok
+            end;
+        Err = {error, _, _} ->
+            Beam = #beam{
+                iterators = [{ReturnAddr, Iterator}],
+                pack = Err
+            },
+            send_out(Node, Beam)
     end.
 
 %% @doc This internal API notifies the beamformer that new data is
@@ -748,8 +763,14 @@ send_out(Node, Beam) ->
         dest_node => Node,
         beam => Beam
     }),
-    emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam),
-    ok.
+    %% gen_rpc currently doesn't optimize local casts:
+    case node() of
+        Node ->
+            erlang:spawn(?MODULE, do_dispatch, [Beam]),
+            ok;
+        _ ->
+            emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
+    end.
 
 shard_metrics_id({DB, Shard}) ->
     emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).

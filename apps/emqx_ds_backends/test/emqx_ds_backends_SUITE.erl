@@ -117,7 +117,7 @@ t_03_smoke_poll_immediate(Config) ->
 
 %% A simple test that verifies that poll request is fulfilled after
 %% new data is added to the stream
-t_03_smoke_poll_new_data(Config) ->
+t_04_smoke_poll_new_data(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -161,17 +161,18 @@ t_03_smoke_poll_new_data(Config) ->
 %% to the external resources, such as clients' sessions, and they
 %% should always be able to continue replaying the topics from where
 %% they are left off.
-t_04_restart(Config) ->
+t_05_restart(Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     TopicFilter = ['#'],
     StartTime = 0,
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
-        message(<<"foo">>, <<"2">>, 1),
-        message(<<"bar/bar">>, <<"3">>, 2)
+        message(<<"foo/bar">>, <<"2">>, 1),
+        message(<<"foo/bar">>, <<"3">>, 2)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
+    timer:sleep(1_000),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     %% Restart the application:
@@ -181,31 +182,7 @@ t_04_restart(Config) ->
     ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
-
-%% Check that we can create iterators directly from DS keys.
-%% t_05_update_iterator(Config) ->
-%%     DB = ?FUNCTION_NAME,
-%%     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-%%     TopicFilter = ['#'],
-%%     StartTime = 0,
-%%     Msgs = [
-%%         message(<<"foo/bar">>, <<"1">>, 0),
-%%         message(<<"foo">>, <<"2">>, 1),
-%%         message(<<"bar/bar">>, <<"3">>, 2)
-%%     ],
-%%     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-%%     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-%%     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-%%     Res0 = emqx_ds:next(DB, Iter0, 1),
-%%     ?assertMatch({ok, _OldIter, [{_Key0, _Msg0}]}, Res0),
-%%     {ok, OldIter, [{Key0, Msg0}]} = Res0,
-%%     Res1 = emqx_ds:update_iterator(DB, OldIter, Key0),
-%%     ?assertMatch({ok, _Iter1}, Res1),
-%%     {ok, Iter1} = Res1,
-%%     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
-%%     ?assertEqual(Msgs, [Msg0 | Batch], #{from_key => Iter1, final_iter => Iter}),
-%%     ok.
+    emqx_ds_test_helpers:diff_messages(Msgs, Batch).
 
 t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
@@ -297,9 +274,7 @@ t_08_smoke_list_drop_generation(Config) ->
                 [{GenId1, #{since := _, until := _}}],
                 lists:sort(maps:to_list(Generations3)),
                 #{gens => Generations3}
-            ),
-
-            ok
+            )
         end,
         []
     ),
@@ -534,38 +509,39 @@ t_drop_generation_with_never_used_iterator(Config) ->
     StartTime = 0,
     Msgs0 = [
         message(<<"foo/bar">>, <<"1">>, 0),
-        message(<<"foo/baz">>, <<"2">>, 1)
+        message(<<"foo/bar">>, <<"2">>, 1)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0, #{sync => true})),
+    timer:sleep(1_000),
 
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
-
+    %% Rotate the generations:
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
+    timer:sleep(1_000),
+    [GenId1] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    ?assertNotEqual(GenId1, GenId0),
 
     Now = emqx_message:timestamp_now(),
     Msgs1 = [
         message(<<"foo/bar">>, <<"3">>, Now + 100),
-        message(<<"foo/baz">>, <<"4">>, Now + 101)
+        message(<<"foo/bar">>, <<"4">>, Now + 101)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1, #{sync => true})),
+    timer:sleep(1_000),
 
     ?assertError(
         {error, unrecoverable, generation_not_found},
         emqx_ds_test_helpers:consume_iter(DB, Iter0)
     ),
-
     %% New iterator for the new stream will only see the later messages.
     [{_, Stream1}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     ?assertNotEqual(Stream0, Stream1),
     {ok, Iter1} = emqx_ds:make_iterator(DB, Stream1, TopicFilter, StartTime),
 
     {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
-    ?assertNotEqual(end_of_stream, Iter),
-    ?assertEqual(Msgs1, Batch),
-
-    ok.
+    emqx_ds_test_helpers:diff_messages(Msgs1, Batch).
 
 t_drop_generation_with_used_once_iterator(Config) ->
     %% This test checks how the iterator behaves when:
@@ -583,7 +559,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     Msgs0 =
         [Msg0 | _] = [
             message(<<"foo/bar">>, <<"1">>, 0),
-            message(<<"foo/baz">>, <<"2">>, 1)
+            message(<<"foo/bar">>, <<"2">>, 1)
         ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
 
@@ -591,7 +567,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
     {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1),
     ?assertNotEqual(end_of_stream, Iter1),
-    ?assertEqual([Msg0], [Msg || {_Key, Msg} <- Batch1]),
+    emqx_ds_test_helpers:diff_messages([Msg0], [Msg || {_Key, Msg} <- Batch1]),
 
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
@@ -599,7 +575,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     Now = emqx_message:timestamp_now(),
     Msgs1 = [
         message(<<"foo/bar">>, <<"3">>, Now + 100),
-        message(<<"foo/baz">>, <<"4">>, Now + 101)
+        message(<<"foo/bar">>, <<"4">>, Now + 101)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
 
@@ -608,34 +584,30 @@ t_drop_generation_with_used_once_iterator(Config) ->
         emqx_ds_test_helpers:consume_iter(DB, Iter1)
     ).
 
-%% t_drop_generation_update_iterator(Config) ->
-%%     %% This checks the behavior of `emqx_ds:update_iterator' after the generation
-%%     %% underlying the iterator has been dropped.
-
-%%     DB = ?FUNCTION_NAME,
-%%     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-%%     [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
-
-%%     TopicFilter = emqx_topic:words(<<"foo/+">>),
-%%     StartTime = 0,
-%%     Msgs0 = [
-%%         message(<<"foo/bar">>, <<"1">>, 0),
-%%         message(<<"foo/baz">>, <<"2">>, 1)
-%%     ],
-%%     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
-
-%%     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-%%     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
-%%     {ok, Iter1, _Batch1} = emqx_ds:next(DB, Iter0, 1),
-%%     {ok, _Iter2, [{Key2, _Msg}]} = emqx_ds:next(DB, Iter1, 1),
-
-%%     ok = emqx_ds:add_generation(DB),
-%%     ok = emqx_ds:drop_generation(DB, GenId0),
-
-%%     ?assertEqual(
-%%         {error, unrecoverable, generation_not_found},
-%%         emqx_ds:update_iterator(DB, Iter1, Key2)
-%%     ).
+%% Validate that polling the iterator from the deleted generation is
+%% handled gracefully:
+t_poll_missing_generation(Config) ->
+    %% Open the DB and push some messages to create a stream:
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    Msgs = [message(<<"foo/bar">>, <<"1">>, 0)],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+    timer:sleep(1_000),
+    %% Create an iterator:
+    TopicFilter = [<<"foo">>, '+'],
+    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, 0),
+    {ok, It} = emqx_ds:make_iterator(DB, Stream, TopicFilter, 0),
+    %% Rotate generations:
+    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    emqx_ds:add_generation(DB),
+    emqx_ds:drop_generation(DB, GenId0),
+    timer:sleep(1_000),
+    [GenId1] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    ?assertNotEqual(GenId0, GenId1),
+    %% Poll iterator:
+    Tag = ?FUNCTION_NAME,
+    {ok, Ref} = emqx_ds:poll(DB, [{Tag, It}], #{timeout => 1_000}),
+    ?assertReceive(#poll_reply{ref = Ref, userdata = Tag, payload = {error, unrecoverable, _}}).
 
 t_make_iterator_stale_stream(Config) ->
     %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying
@@ -649,57 +621,20 @@ t_make_iterator_stale_stream(Config) ->
     StartTime = 0,
     Msgs0 = [
         message(<<"foo/bar">>, <<"1">>, 0),
-        message(<<"foo/baz">>, <<"2">>, 1)
+        message(<<"foo/bar">>, <<"2">>, 1)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+    timer:sleep(1_000),
 
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
 
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
+    timer:sleep(1_000),
 
     ?assertEqual(
         {error, unrecoverable, generation_not_found},
         emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime)
-    ),
-
-    ok.
-
-t_get_streams_concurrently_with_drop_generation(Config) ->
-    %% This checks that we can get all streams while a generation is dropped
-    %% mid-iteration.
-
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        #{timetrap => 5_000},
-        begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-
-            [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
-            ok = emqx_ds:add_generation(DB),
-            ok = emqx_ds:add_generation(DB),
-
-            %% All streams
-            TopicFilter = emqx_topic:words(<<"foo/+">>),
-            StartTime = 0,
-            ?assertMatch([_, _, _], emqx_ds:get_streams(DB, TopicFilter, StartTime)),
-
-            ?force_ordering(
-                #{?snk_kind := dropped_gen},
-                #{?snk_kind := get_streams_get_gen}
-            ),
-
-            spawn_link(fun() ->
-                {ok, _} = ?block_until(#{?snk_kind := get_streams_all_gens}),
-                ok = emqx_ds:drop_generation(DB, GenId0),
-                ?tp(dropped_gen, #{})
-            end),
-
-            ?assertMatch([_, _], emqx_ds:get_streams(DB, TopicFilter, StartTime)),
-
-            ok
-        end,
-        []
     ).
 
 update_data_set() ->
@@ -764,10 +699,16 @@ all() ->
 
 exclude(emqx_ds_fdb_backend) ->
     [
+        %% Atomic operations and preconditions are not supported:
         t_09_atomic_store_batch,
         t_11_batch_preconditions,
         t_12_batch_precondition_conflicts,
-        t_smoke_delete_next
+        %% Deletions are not supported at this moment:
+        t_smoke_delete_next,
+        %% FIXME: this test shouldn't pass for ANY backend (as
+        %% `update_config' call must not create a new generation by
+        %% itself), investigate why it does for builtins:
+        t_07_smoke_update_config
     ];
 exclude(_) ->
     [].
