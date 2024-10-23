@@ -212,7 +212,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
-  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.14.0-emqx-1", override: true}
+  def common_dep(:ra), do: {:ra, "2.15.0", override: true}
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.3", override: true}
@@ -1201,7 +1201,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.1.0", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.1.6", override: true}
       ],
       else: []
   end

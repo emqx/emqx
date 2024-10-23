@@ -626,10 +626,13 @@ on_get_channel_status(
     } = maps:get(ActionResId, Channels),
     try
         ok = check_topic_and_leader_connections(ActionResId, ClientId, MKafkaTopic, MaxPartitions),
+        ?tp("kafka_producer_action_connected", #{}),
         ?status_connected
     catch
         throw:{unhealthy_target, Msg} ->
-            throw({unhealthy_target, Msg});
+            %% Once a producer is started, we don't want to delete it.  Apparently,
+            %% metadata queries may report false negatives about topic existence.
+            {?status_connecting, Msg};
         K:E ->
             {?status_connecting, {K, E}}
     end.
@@ -753,6 +756,7 @@ check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
             ok;
         {error, unknown_topic_or_partition} ->
             Msg = iolist_to_binary([<<"Unknown topic or partition: ">>, KafkaTopic]),
+            ?tp("kafka_producer_action_unknown_topic", #{}),
             throw({unhealthy_target, Msg});
         {error, Reason} ->
             throw(#{

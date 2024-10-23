@@ -309,6 +309,9 @@ maybe_json_decode(X) ->
 
 simple_request(Method, Path, Params) ->
     AuthHeader = auth_header_(),
+    simple_request(Method, Path, Params, AuthHeader).
+
+simple_request(Method, Path, Params, AuthHeader) ->
     Opts = #{return_all => true},
     case request_api(Method, Path, "", AuthHeader, Params, Opts) of
         {ok, {{_, Status, _}, _Headers, Body0}} ->
