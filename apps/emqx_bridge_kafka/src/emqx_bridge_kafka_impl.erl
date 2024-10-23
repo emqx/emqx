@@ -69,20 +69,8 @@ adjust_socket_buffer(Bytes, Opts) ->
             [{buffer, max(Bytes1, Bytes)} | Acc1]
     end.
 
-tcp_keepalive(None) when None =:= "none"; None =:= <<"none">> ->
-    [];
-tcp_keepalive(KeepAlive) ->
-    {Idle, Interval, Probes} = emqx_schema:parse_tcp_keepalive(KeepAlive),
-    case emqx_utils:tcp_keepalive_opts(os:type(), Idle, Interval, Probes) of
-        {ok, Opts} ->
-            Opts;
-        {error, {unsupported_os, OS}} ->
-            ?SLOG(warning, #{
-                msg => "unsupported_operation_set_tcp_keepalive",
-                os => OS
-            }),
-            []
-    end.
+tcp_keepalive(String) ->
+    emqx_schema:tcp_keepalive_opts(String).
 
 to_bin(A) when is_atom(A) ->
     atom_to_binary(A);

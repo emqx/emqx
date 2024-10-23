@@ -260,7 +260,7 @@ async_set_keepalive(Idle, Interval, Probes) ->
     async_set_keepalive(os:type(), self(), Idle, Interval, Probes).
 
 async_set_keepalive(OS, Pid, Idle, Interval, Probes) ->
-    case emqx_utils:tcp_keepalive_opts(OS, Idle, Interval, Probes) of
+    case emqx_schema:tcp_keepalive_opts(OS, Idle, Interval, Probes) of
         {ok, Options} ->
             async_set_socket_options(Pid, Options);
         {error, {unsupported_os, OS}} ->
