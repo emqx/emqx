@@ -103,11 +103,12 @@
     Res :: term().
 
 -callback msg_deliver(
-    list(Deliver) | Packet | list(Packet),
+    list(Deliver),
     Attrs
-) -> Deliver when
+) ->
+    list(Deliver)
+when
     Deliver :: emqx_types:deliver(),
-    Packet :: emqx_types:packet(),
     Attrs :: attrs().
 
 -callback outgoing(
@@ -379,11 +380,10 @@ msg_handle_forward(Delivery, InitAttrs, ProcessFun) ->
 
 %% @doc Start Trace message delivery to subscriber
 -spec msg_deliver(
-    list(Deliver) | Packet | list(Packet),
+    list(Deliver),
     Attrs
-) -> Deliver when
+) -> list(Deliver) when
     Deliver :: emqx_types:deliver(),
-    Packet :: emqx_types:packet(),
     Attrs :: attrs().
 msg_deliver(DeliverOrPackets, Attrs) ->
     ?with_provider(

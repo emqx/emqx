@@ -380,13 +380,13 @@ client_pubcomp(Packet, Attrs, ProcessFun) ->
 -spec msg_route(
     Delivery,
     Attrs,
-    fun(() -> Res)
+    fun((Delivery) -> Res)
 ) ->
     Res
 when
     Delivery :: emqx_types:delivery(),
     Attrs :: attrs(),
-    Res :: term().
+    Res :: emqx_types:publish_result().
 msg_route(Delivery, Attrs, Fun) ->
     case ignore_delivery(Delivery) of
         true ->
@@ -404,13 +404,13 @@ msg_route(Delivery, Attrs, Fun) ->
 -spec msg_dispatch(
     Delivery,
     Attrs,
-    fun(() -> Res)
+    fun((Delivery) -> Res)
 ) ->
     Res
 when
     Delivery :: emqx_types:delivery(),
     Attrs :: attrs(),
-    Res :: term().
+    Res :: emqx_types:deliver_result().
 msg_dispatch(Delivery, Attrs, Fun) ->
     case ignore_delivery(Delivery) of
         true ->
@@ -465,7 +465,7 @@ msg_handle_forward(Delivery, Attrs, Fun) ->
         true ->
             Fun(Delivery);
         false ->
-            otel_ctx:attach(get_ctx(Delivery)),
+            _ = otel_ctx:attach(get_ctx(Delivery)),
             ?with_span(
                 ?MSG_HANDLE_FORWARD_SPAN_NAME,
                 #{attributes => Attrs},
@@ -479,14 +479,13 @@ msg_handle_forward(Delivery, Attrs, Fun) ->
 %% Span starts in Delivers(Msg) and stops when outgoing(Packets)
 %% Only for `PUBLISH(Qos=0|1|2)`
 -spec msg_deliver(
-    list(Deliver) | Packet | list(Packet),
+    list(Deliver),
     Attrs
 ) ->
     %% Delivers with Ctx Attached
     list(Deliver)
 when
     Deliver :: emqx_types:deliver(),
-    Packet :: emqx_types:packet(),
     Attrs :: attrs().
 msg_deliver(Delivers, Attrs) ->
     lists:map(
