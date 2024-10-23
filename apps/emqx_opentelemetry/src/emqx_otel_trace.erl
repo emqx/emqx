@@ -571,7 +571,7 @@ stop_outgoing_trace(Packet, _Attrs) when is_record(Packet, mqtt_packet) ->
 stop_outgoing_trace(Any, _Attrs) ->
     end_span(get_ctx(Any)).
 
-%% -compile({inline, [end_span/1]}).
+-compile({inline, [end_span/1]}).
 end_span(Ctx) when
     is_map(Ctx)
 ->
@@ -585,15 +585,10 @@ end_span(_) ->
 %% At this time, a new span begins and the span ends after receiving and processing the reply
 %% from Client(might be Publisher or Subscriber).
 
-%% -compile(
-%%     {inline, [
-%%         start_next_packet_trace/1,
-%%         stop_packet_trace/2
-%%     ]}
-%% ).
+-compile({inline, [outgoing_maybe_pending_next/1]}).
+
 %% ====================
 %% Broker -> Client(`Publisher'):
-
 outgoing_maybe_pending_next(?PACKET(?PUBACK)) ->
     %% PUBACK (QoS=1), Ignore
     ok;
@@ -675,13 +670,13 @@ earse_internal_ctx({Type, PktVarOrPacketId}) ->
 earse_internal_ctx(Key) ->
     erlang:erase(Key).
 
-%% -compile(
-%%     {inline, [
-%%         internal_extra_key_tuple/2,
-%%         emqx_outgoing_span_name/1,
-%%         client_incoming_span_name/1
-%%     ]}
-%% ).
+-compile(
+    {inline, [
+        internal_extra_key/2,
+        outgoing_span_name/1,
+        pending_span_name/1
+    ]}
+).
 
 internal_extra_key(Type, PktVar) when is_tuple(PktVar) ->
     internal_extra_key(
