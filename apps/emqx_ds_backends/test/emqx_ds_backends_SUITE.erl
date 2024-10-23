@@ -717,7 +717,7 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [{Backend, TCs -- exclude(Backend)} || Backend <- backends()].
 
-init_per_group(emqx_fdb_ds, Config) ->
+init_per_group(emqx_fdb_ds, _Config) ->
     {skip, fixme};
 init_per_group(emqx_ds_builtin_raft, Config) ->
     %% Raft backend is an odd one, as its main module is named
