@@ -478,11 +478,13 @@ compare_poll_reply({ok, ReferenceIterator, BatchRef}, {ok, ReplyIterator, Batch}
 compare_poll_reply(A, B) ->
     ?defer_assert(?assertEqual(A, B)).
 
+t_atomic_store_batch(db_config, _Config) ->
+    #{atomic_batches => true}.
+
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
-            application:set_env(emqx_durable_storage, egress_batch_size, 1),
             Msgs = [
                 make_message(0, <<"1">>, <<"1">>),
                 make_message(1, <<"2">>, <<"2">>),
@@ -490,17 +492,14 @@ t_atomic_store_batch(_Config) ->
             ],
             ?assertEqual(
                 ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => true,
-                    sync => true
-                })
+                emqx_ds:store_batch(DB, Msgs, #{sync => true})
             ),
             timer:sleep(1000)
         end,
         fun(Trace) ->
-            %% Must contain exactly one flush with all messages.
+            %% TODO: Strictly speaking, atomicity does not imply loss of buffering.
             ?assertMatch(
-                [#{batch := [_, _, _]}],
+                [],
                 ?of_kind(emqx_ds_buffer_flush, Trace)
             ),
             ok
@@ -521,10 +520,7 @@ t_non_atomic_store_batch(_Config) ->
             %% Non-atomic batches may be split.
             ?assertEqual(
                 ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => false,
-                    sync => true
-                })
+                emqx_ds:store_batch(DB, Msgs, #{sync => true})
             ),
             Msgs
         end,
