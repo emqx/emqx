@@ -929,6 +929,13 @@ handle_telemetry_event(
 ) when is_integer(Val) ->
     emqx_resource_metrics:queuing_set(ID, PartitionID, Val);
 handle_telemetry_event(
+    [wolff, queuing_bytes],
+    #{gauge_set := Val},
+    #{bridge_id := ID, partition_id := PartitionID},
+    #{bridge_id := ID}
+) when is_integer(Val) ->
+    emqx_resource_metrics:queuing_bytes_set(ID, PartitionID, Val);
+handle_telemetry_event(
     [wolff, retried],
     #{counter_inc := Val},
     #{bridge_id := ID},
@@ -965,6 +972,7 @@ maybe_install_wolff_telemetry_handlers(TelemetryId) ->
         [
             [wolff, dropped_queue_full],
             [wolff, queuing],
+            [wolff, queuing_bytes],
             [wolff, retried],
             [wolff, inflight]
         ],

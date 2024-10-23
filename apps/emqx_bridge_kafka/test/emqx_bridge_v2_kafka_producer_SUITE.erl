@@ -714,6 +714,8 @@ t_create_connector_while_connection_is_down(Config) ->
                 ),
                 ?assertEqual(PreviousFailed, emqx_resource_metrics:failed_get(ActionId)),
                 ?assertEqual(1, emqx_resource_metrics:queuing_get(ActionId)),
+                QueuingBytes = emqx_resource_metrics:queuing_bytes_get(ActionId),
+                ?assert(QueuingBytes > 0, #{bytes => QueuingBytes}),
                 ?assertEqual(0, emqx_resource_metrics:inflight_get(ActionId)),
                 ?assertEqual(0, emqx_resource_metrics:dropped_get(ActionId)),
                 ?assertEqual(0, emqx_resource_metrics:success_get(ActionId)),
