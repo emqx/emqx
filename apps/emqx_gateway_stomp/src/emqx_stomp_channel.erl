@@ -35,6 +35,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_out/3,
     handle_deliver/2,
     handle_timeout/3,
@@ -670,10 +671,11 @@ handle_in(
 ) ->
     NewVal = emqx_pd:get_counter(recv_pkt),
     NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, NewVal, Heartbeat),
-    {ok, Channel#channel{heartbeat = NewHeartbeat}};
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
+    {ok, Channel#channel{heartbeat = NewHeartbeat}}.
+
+handle_frame_error(Reason, Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);
-handle_in({frame_error, Reason}, Channel = #channel{conn_state = _ConnState}) ->
+handle_frame_error(Reason, Channel = #channel{conn_state = _ConnState}) ->
     ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
     Frame = error_frame(undefined, ErrMsg),
     shutdown(Reason, Frame, Channel).
