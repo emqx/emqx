@@ -118,7 +118,6 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "kinesis_producer_get_status_failed",
-                state => State,
                 reason => Reason
             }),
             ?status_disconnected
@@ -169,7 +168,7 @@ on_get_channel_status(
     #{
         pool_name := PoolName,
         installed_channels := Channels
-    } = State
+    }
 ) ->
     #{stream_name := StreamName} = maps:get(ChannelId, Channels),
     case
@@ -195,8 +194,8 @@ on_get_channel_status(
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "kinesis_producer_get_status_failed",
-                state => State,
-                reason => Reason
+                reason => Reason,
+                stream_name => StreamName
             }),
             ?status_disconnected
     end.
