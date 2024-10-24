@@ -23,7 +23,7 @@ defmodule EMQXBridgeCassandra.MixProject do
 
   def deps() do
     [
-      {:ecql, github: "emqx/ecql", tag: "v0.7.0"},
+      {:ecql, github: "emqx/ecql", tag: "v0.7.1"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

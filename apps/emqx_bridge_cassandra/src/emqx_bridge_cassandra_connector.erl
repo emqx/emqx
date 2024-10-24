@@ -44,7 +44,7 @@
 %% callbacks for query executing
 -export([query/4, prepared_query/4, batch_query/3]).
 
--export([do_get_status/1]).
+-export([do_get_status/1, get_reconnect_callback_signature/1]).
 
 -type state() ::
     #{
@@ -408,6 +408,12 @@ conn_opts([{password, Password} | Opts], Acc) ->
     conn_opts(Opts, [{password, emqx_secret:unwrap(Password)} | Acc]);
 conn_opts([Opt | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]).
+
+%% this callback accepts the arg list provided to
+%% ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]})
+%% so ecpool_worker can de-duplicate the callbacks based on the signature.
+get_reconnect_callback_signature([#{prepare_key := PrepareKey}]) ->
+    PrepareKey.
 
 %%--------------------------------------------------------------------
 %% prepare

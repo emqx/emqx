@@ -190,6 +190,21 @@ update_bridge_api(Config, Overrides) ->
     ct:pal("bridge update result: ~p", [Res]),
     Res.
 
+get_bridge_api(Config) ->
+    BridgeType = ?config(bridge_type, Config),
+    Name = ?config(bridge_name, Config),
+    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, Name),
+    Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    ct:pal("getting bridge (via http)", []),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader) of
+            {ok, Body0} -> {ok, emqx_utils_json:decode(Body0, [return_maps])};
+            Error -> Error
+        end,
+    ct:pal("bridge result: ~p", [Res]),
+    Res.
+
 delete_bridge_http_api_v1(Opts) ->
     #{type := Type, name := Name} = Opts,
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
