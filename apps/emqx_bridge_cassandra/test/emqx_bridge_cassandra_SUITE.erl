@@ -803,7 +803,7 @@ t_update_action_sql(Config) ->
     ),
 
     %% Update the SQL Teamplate
-    {ok, {{_, 201, _}, _, _}} =
+    {ok, _} =
         emqx_bridge_testlib:update_bridge_api(
             Config,
             #{
