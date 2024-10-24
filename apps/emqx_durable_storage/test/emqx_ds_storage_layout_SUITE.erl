@@ -299,25 +299,32 @@ t_replay(Config) ->
     ?assert(check(?SHARD, <<"#">>, 0, Messages)),
     ok.
 
-t_replay_sys(_Config) ->
+t_replay_special_topics(_Config) ->
+    %% Verify that topic matching rules respect [MQTT-4.7.2-1]:
+    %% The Server MUST NOT match Topic Filters starting with a wildcard character (# or +)
+    %% with Topic Names beginning with a $ character.
     {Values1, Values2} = lists:split(5, lists:seq(0, 1000, 100)),
-    STopic1 = <<"$SYS/test/1/2">>,
+    STopic1 = <<"$SPECIAL/test/1/2">>,
     ELTopic = <<"/test/">>,
     Topics1 = [<<"g/test/1">>, <<"g/test/2">>, <<"/test/">>],
     SBatch1 = [make_message(V, STopic1, bin(V)) || V <- Values1],
     Batch1 = [make_message(V, Topic, bin(V)) || Topic <- Topics1, V <- Values1],
     ok = emqx_ds:store_batch(?FUNCTION_NAME, SBatch1 ++ Batch1),
-    ?assert(check(?SHARD, <<"$SYS/test/#">>, 0, SBatch1)),
+    %% Expect special topic messages to show up only in `$SPECIAL/test/#` subscription:
+    ?assert(check(?SHARD, <<"$SPECIAL/test/#">>, 0, SBatch1)),
+    %% ...But not in an otherwise fitting wildcard subscriptions:
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1)),
     check(?SHARD, <<"+/test/+/+">>, 0, []),
-    STopic2 = <<"$SYS/test/3/4">>,
+    %% Publish through a lot of similarly structured topic to let LTS "learn":
+    STopic2 = <<"$SPECIAL/test/3/4">>,
     Topics2 = [emqx_utils:format("~p/test/~p", [I, I]) || I <- lists:seq(1, 40)],
     Batch2 = [make_message(V, Topic, bin(V)) || Topic <- Topics2 ++ [ELTopic], V <- Values2],
     ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch2),
     SBatch2 = [make_message(V, STopic2, bin(V)) || V <- Values2],
     ok = emqx_ds:store_batch(?FUNCTION_NAME, SBatch2),
-    ?assert(check(?SHARD, <<"$SYS/test/#">>, 0, SBatch1 ++ SBatch2)),
-    ?assert(check(?SHARD, <<"$SYS/test/+/4">>, 0, SBatch2)),
+    %% ...Then verify the same things:
+    ?assert(check(?SHARD, <<"$SPECIAL/test/#">>, 0, SBatch1 ++ SBatch2)),
+    ?assert(check(?SHARD, <<"$SPECIAL/test/+/4">>, 0, SBatch2)),
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1 ++ Batch2)),
     check(?SHARD, <<"+/test/+/+">>, 0, SBatch2).
 
