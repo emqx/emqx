@@ -76,13 +76,14 @@
 %% Fixed size binary or integer, depending on the options:
 -type static_key() :: non_neg_integer() | binary().
 
-%% Trie root:
+%% Trie roots:
 -define(PREFIX, prefix).
+-define(PREFIX_SPECIAL, special).
 %% Special prefix root for reverse lookups:
 -define(rlookup, rlookup).
 -define(rlookup(STATIC), {?rlookup, STATIC}).
 
--type state() :: static_key() | ?PREFIX.
+-type state() :: static_key() | ?PREFIX | ?PREFIX_SPECIAL.
 
 -type varying() :: [level() | ?PLUS].
 
@@ -229,6 +230,11 @@ trie_copy_learned_paths(OldTrie, NewTrie) ->
 
 %% @doc Lookup the topic key. Create a new one, if not found.
 -spec topic_key(trie(), threshold_fun(), [level()]) -> msg_storage_key().
+topic_key(Trie, ThresholdFun, [<<"$", _/bytes>> | _] = Tokens) ->
+    %% [MQTT-4.7.2-1]
+    %% Put any topic starting with `$' into a separate root so they won't match
+    %% with `#' / `+/...' subscriptions.
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, [], []);
 topic_key(Trie, ThresholdFun, Tokens) ->
     do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, [], []).
 
@@ -240,6 +246,11 @@ lookup_topic_key(Trie, Tokens) ->
 %% @doc Return list of keys of topics that match a given topic filter
 -spec match_topics(trie(), [level() | '+' | '#']) ->
     [msg_storage_key()].
+match_topics(Trie, [<<"$", _/bytes>> | _] = TopicFilter) ->
+    %% [MQTT-4.7.2-1]
+    %% Any topics starting with `$' should belong to a separate root, match there
+    %% instead.
+    do_match_topics(Trie, ?PREFIX_SPECIAL, [], TopicFilter);
 match_topics(Trie, TopicFilter) ->
     do_match_topics(Trie, ?PREFIX, [], TopicFilter).
 
@@ -557,24 +568,14 @@ trie_next_(Trie, State, Token) ->
 %% erlfmt-ignore
 -spec emanating(trie(), state(), edge()) -> [{edge(), state()}].
 emanating(#trie{trie = Tab}, State, ?PLUS) ->
-    case State of
-        ?PREFIX ->
-            MS = ets:fun2ms(
-                fun(#trans{key = {?PREFIX, Edge}, next = Next}) when
-                    %% Exclude topics starting with `$':
-                    is_binary(Edge) andalso binary_part(Edge, 0, 1) =/= <<"$">>; is_atom(Edge)
-                ->
-                    {Edge, Next}
-                end
-            );
-        _ ->
-            MS = ets:fun2ms(
-                fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
-                    {Edge, Next}
-                end
-            )
-    end,
-    ets:select(Tab, MS);
+    ets:select(
+        Tab,
+        ets:fun2ms(
+            fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
+                {Edge, Next}
+            end
+        )
+    );
 emanating(#trie{trie = Tab}, State, ?EOT) ->
     case ets:lookup(Tab, {State, ?EOT}) of
         [#trans{next = Next}] -> [{?EOT, Next}];
