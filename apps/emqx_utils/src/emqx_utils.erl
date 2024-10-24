@@ -569,7 +569,7 @@ tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
     {error, {unsupported_os, OS}}.
 
 format(Term) ->
-    unicode:characters_to_binary(io_lib:format("~0p", [Term])).
+    unicode:characters_to_binary(io_lib:format("~0tp", [Term])).
 
 format(Fmt, Args) ->
     unicode:characters_to_binary(io_lib:format(Fmt, Args)).
