@@ -95,7 +95,8 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_session_subscription_idempotency;
     TestCase =:= t_session_unsubscription_idempotency;
     TestCase =:= t_subscription_state_change;
-    TestCase =:= t_session_gc
+    TestCase =:= t_session_gc;
+    TestCase =:= t_storage_generations
 ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
