@@ -83,7 +83,7 @@
 -define(rlookup, rlookup).
 -define(rlookup(STATIC), {?rlookup, STATIC}).
 
--type state() :: static_key() | ?PREFIX.
+-type state() :: static_key() | ?PREFIX | ?PREFIX_SPECIAL.
 
 -type varying() :: [level() | ?PLUS].
 
