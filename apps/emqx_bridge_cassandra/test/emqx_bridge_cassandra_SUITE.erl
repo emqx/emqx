@@ -837,7 +837,10 @@ t_update_action_sql(Config) ->
 
     %% Update a wrong SQL Teamplate
     BadSQL =
-        <<"insert into mqtt_msg_test2(topic, qos, payload, bad_col_name) values (${topic}, ${qos}, ${payload}, ${timestamp})">>,
+        <<
+            "insert into mqtt_msg_test2(topic, qos, payload, bad_col_name) "
+            "values (${topic}, ${qos}, ${payload}, ${timestamp})"
+        >>,
     {ok, Body} =
         emqx_bridge_testlib:update_bridge_api(
             Config,
