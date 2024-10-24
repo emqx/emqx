@@ -228,9 +228,8 @@ clear_expired(_State, Deadline, Limit) ->
                         msg = #message{timestamp = Ts}
                     }
                 ) ->
-                    ExpiryTime = Ts + OverrideMS,
                     StoredExpiryTime =/= 0 andalso
-                        ExpiryTime < Deadline
+                        min(Ts + OverrideMS, StoredExpiryTime) < Deadline
                 end
         end,
     S1 = emqx_utils_stream:filter(FilterFn, S0),
