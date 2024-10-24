@@ -123,6 +123,7 @@ basic_connector_values() ->
     #{
         enable => true,
         server => <<"127.0.0.1:8086">>,
+        pool_size => 8,
         ssl => #{enable => false}
     }.
 

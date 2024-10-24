@@ -70,6 +70,7 @@ persistent_session_testcases() ->
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_exact_filters,
+        t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
     ].
 non_persistent_cluster_testcases() ->
@@ -1905,6 +1906,55 @@ t_list_clients_v2_exact_filters(Config) ->
             lists:foreach(fun emqtt:stop/1, [C5, C6]),
 
             ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that regular filters (non fuzzy and not username) work in clients_v2 API.
+t_list_clients_v2_regular_filters(Config) ->
+    [N1, _N2] = ?config(nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    Id = fun(Bin) -> iolist_to_binary([atom_to_binary(?FUNCTION_NAME), <<"-">>, Bin]) end,
+    ?check_trace(
+        begin
+            ConnectedAt = binary_to_list(emqx_utils_calendar:now_to_rfc3339()),
+            ClientId1 = Id(<<"ps1-offline">>),
+            Username1 = Id(<<"u1">>),
+            C1 = connect_client(#{
+                port => Port1,
+                clientid => ClientId1,
+                clean_start => false,
+                username => Username1
+            }),
+            stop_and_commit(C1),
+            %% Let the client goes offline from emqx_cm
+            timer:sleep(100),
+
+            QueryParams1 = [
+                {"limit", "100"},
+                {"gte_connected_at", ConnectedAt}
+            ],
+            Res1 = list_all_v2(QueryParams1, Config),
+            ?assertContainsClientids(Res1, [ClientId1]),
+
+            QueryParams2 = [
+                {"limit", "100"},
+                {"lte_connected_at", ConnectedAt}
+            ],
+            Res2 = list_all_v2(QueryParams2, Config),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [],
+                        <<"meta">> := #{<<"count">> := 0}
+                    }
+                ],
+                Res2
+            ),
+
+            ?tp(warning, destroy_session, #{clientid => ClientId1}),
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId1])
         end,
         []
     ),

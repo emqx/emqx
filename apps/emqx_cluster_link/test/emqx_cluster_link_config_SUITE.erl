@@ -238,7 +238,7 @@ t_config_validations(Config) ->
     },
     DuplicatedLinks = [LinkConfA, LinkConfA#{<<"enable">> => false, <<"pool_size">> => 2}],
     ?assertMatch(
-        {error, #{reason := #{reason := duplicated_cluster_links, names := _}}},
+        {error, #{reason := #{reason := duplicated_cluster_links, duplicates := _}}},
         erpc:call(NodeA, emqx_cluster_link_config, update, [DuplicatedLinks])
     ),
 

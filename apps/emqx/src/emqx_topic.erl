@@ -34,7 +34,9 @@
     systop/1,
     parse/1,
     parse/2,
-    intersection/2
+    intersection/2,
+    is_subset/2,
+    union/1
 ]).
 
 -export([
@@ -83,22 +85,34 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
-    match(words(Name), words(Filter));
+    match_words(words(Name), words(Filter));
 match(#share{} = Name, Filter) ->
     match_share(Name, Filter);
 match(Name, #share{} = Filter) ->
     match_share(Name, Filter);
-match([], []) ->
+match(Name, Filter) when is_binary(Name) ->
+    match_words(words(Name), Filter);
+match(Name, Filter) when is_binary(Filter) ->
+    match_words(Name, words(Filter));
+match(Name, Filter) ->
+    match_words(Name, Filter).
+
+match_words([<<$$, _/binary>> | _], [W | _]) when ?IS_WILDCARD(W) ->
+    false;
+match_words(Name, Filter) ->
+    match_tokens(Name, Filter).
+
+match_tokens([], []) ->
     true;
-match([H | T1], [H | T2]) ->
-    match(T1, T2);
-match([_H | T1], ['+' | T2]) ->
-    match(T1, T2);
-match([<<>> | T1], ['' | T2]) ->
-    match(T1, T2);
-match(_, ['#']) ->
+match_tokens([H | T1], [H | T2]) ->
+    match_tokens(T1, T2);
+match_tokens([_H | T1], ['+' | T2]) ->
+    match_tokens(T1, T2);
+match_tokens([<<>> | T1], ['' | T2]) ->
+    match_tokens(T1, T2);
+match_tokens(_, ['#']) ->
     true;
-match(_, _) ->
+match_tokens(_, _) ->
     false.
 
 %% @doc Finds an intersection between two topics, two filters or a topic and a filter.
@@ -108,10 +122,14 @@ match(_, _) ->
 %% The intersection of two filters is either false or a new topic filter that would match only those topics,
 %% that can be matched by both input filters.
 %% For example, the intersection of "t/global/#" and "t/+/1/+" is "t/global/1/+".
--spec intersection(TopicOrFilter, TopicOrFilter) -> TopicOrFilter | false when
-    TopicOrFilter :: emqx_types:topic().
-intersection(Topic1, Topic2) when is_binary(Topic1), is_binary(Topic2) ->
-    case intersect_start(words(Topic1), words(Topic2)) of
+-spec intersection(TopicOrFilter, TopicOrFilter) -> topic() | false when
+    TopicOrFilter :: topic() | words().
+intersection(Topic1, Topic2) when is_binary(Topic1) ->
+    intersection(words(Topic1), Topic2);
+intersection(Topic1, Topic2) when is_binary(Topic2) ->
+    intersection(Topic1, words(Topic2));
+intersection(Topic1, Topic2) ->
+    case intersect_start(Topic1, Topic2) of
         false -> false;
         Intersection -> join(Intersection)
     end.
@@ -149,6 +167,29 @@ intersect_join(W, Words) -> [W | Words].
 
 wildcard_intersection(W, W) -> W;
 wildcard_intersection(_, _) -> '+'.
+
+%% @doc Finds out if topic / topic filter T1 is a subset of topic / topic filter T2.
+-spec is_subset(topic() | words(), topic() | words()) -> boolean().
+is_subset(T1, T1) ->
+    true;
+is_subset(T1, T2) when is_binary(T1) ->
+    intersection(T1, T2) =:= T1;
+is_subset(T1, T2) ->
+    intersection(T1, T2) =:= join(T1).
+
+%% @doc Compute the smallest set of topics / topic filters that contain (have as a
+%% subset) each given topic / topic filter.
+%% Resulting set is not optimal, i.e. it's still possible to have a pair of topic
+%% filters with non-empty intersection.
+-spec union(_Set :: [topic() | words()]) -> [topic() | words()].
+union([Filter | Filters]) ->
+    %% Drop filters completely covered by `Filter`.
+    Disjoint = [F || F <- Filters, not is_subset(F, Filter)],
+    %% Drop `Filter` if completely covered by another filter.
+    Head = [Filter || not lists:any(fun(F) -> is_subset(Filter, F) end, Disjoint)],
+    Head ++ union(Disjoint);
+union([]) ->
+    [].
 
 -spec match_share(Name, Filter) -> boolean() when
     Name :: share(),
@@ -278,7 +319,7 @@ tokens(Topic) ->
     binary:split(Topic, <<"/">>, [global]).
 
 %% @doc Split Topic Path to Words
--spec words(topic()) -> words().
+-spec words(topic() | share()) -> words().
 words(#share{topic = Topic}) when is_binary(Topic) ->
     words(Topic);
 words(Topic) when is_binary(Topic) ->

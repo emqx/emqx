@@ -24,6 +24,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_API_SUPERUSER, <<"administrator">>).
 -define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
@@ -50,6 +52,8 @@
     "IWxNsPrUP+XsZpBJy/mvOhE5QXo6Y35zDqqj8tI7AGmAWu22jg==\n"
     "-----END CERTIFICATE-----"
 >>).
+-define(GLOBAL_AUTHN_CHAIN, 'mqtt:global').
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 all() ->
     case emqx_cth_suite:skip_if_oss() of
@@ -201,6 +205,46 @@ t_export_ram_retained_messages(_Config) ->
     ),
     ?assertMatch({ok, [#message{payload = Payload}]}, emqx_retainer:read_message(Topic)).
 
+t_export_cloud_subset(Config) ->
+    setup_t_export_cloud_subset_scenario(),
+    {ok, #{filename := BackupFileName}} = emqx_mgmt_data_backup:export_for_cloud(),
+    #{
+        cluster_hocon := RawHocon,
+        mnesia_tables := Tables
+    } = inspect_backup(BackupFileName),
+    {ok, Hocon} = hocon:binary(RawHocon),
+    ?assertEqual(
+        lists:sort([
+            <<"connectors">>,
+            <<"actions">>,
+            <<"sources">>,
+            <<"rule_engine">>,
+            <<"schema_registry">>
+        ]),
+        lists:sort(maps:keys(Hocon))
+    ),
+    ?assertEqual(
+        lists:sort([
+            <<"emqx_authn_mnesia">>,
+            <<"emqx_authn_scram_mnesia">>,
+            <<"emqx_acl">>,
+            <<"emqx_banned">>,
+            <<"emqx_banned_rules">>
+        ]),
+        lists:sort(maps:keys(Tables))
+    ),
+    %% Using a fresh cluster to avoid dirty environment.
+    Nodes = [N1 | _] = cluster(?FUNCTION_NAME, Config),
+    on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    ?ON(
+        N1,
+        ?assertEqual(
+            {ok, #{db_errors => #{}, config_errors => #{}}},
+            emqx_mgmt_data_backup:import(BackupFileName)
+        )
+    ),
+    ok.
+
 t_cluster_hocon_export_import(Config) ->
     RawConfBeforeImport = emqx:get_raw_config([]),
     BootstrapFile = filename:join(?config(data_dir, Config), ?BOOTSTRAP_BACKUP),
@@ -218,7 +262,7 @@ t_cluster_hocon_export_import(Config) ->
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(filename:basename(FileName))),
 
     %% backup data migration test
-    ?assertMatch([_, _, _], ets:tab2list(emqx_app)),
+    ?assertMatch([_, _, _, _], ets:tab2list(emqx_app)),
     ?assertMatch(
         {ok, #{name := <<"key_to_export2">>, role := ?ROLE_API_SUPERUSER}},
         emqx_mgmt_auth:read(<<"key_to_export2">>)
@@ -545,7 +589,165 @@ setup(TC, Config) ->
     [{suite_apps, Started} | Config].
 
 cleanup(Config) ->
+    emqx_common_test_helpers:call_janitor(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
+
+setup_t_export_cloud_subset_scenario() ->
+    ok = emqx_dashboard:stop_listeners(),
+    {ok, _} = emqx_conf:update(
+        [dashboard, listeners, http, bind],
+        18083,
+        #{override_to => cluster}
+    ),
+    ok = emqx_dashboard:start_listeners(),
+    ready = emqx_dashboard_listener:regenerate_minirest_dispatch(),
+    {ok, _} = emqx_license:update_key(<<"default">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"some_admin">>,
+        <<"Adminpass123">>,
+        ?ROLE_SUPERUSER,
+        <<"shouldn't be exported">>
+    ),
+    {ok, _} = emqx_authn_chains:create_authenticator(
+        ?GLOBAL_AUTHN_CHAIN,
+        #{
+            mechanism => password_based,
+            backend => built_in_database,
+            enable => true,
+            user_id_type => username,
+            password_hash_algorithm => #{
+                name => plain,
+                salt_position => suffix
+            }
+        }
+    ),
+    {ok, _} = emqx_authn_chains:add_user(
+        ?GLOBAL_AUTHN_CHAIN,
+        <<"password_based:built_in_database">>,
+        #{
+            user_id => <<"user1">>,
+            password => <<"user1pass">>
+        }
+    ),
+    ok = emqx_authz_mnesia:store_rules(
+        {username, <<"user2">>},
+        [
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>
+            },
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"subscribe">>,
+                <<"topic">> => <<"t/+">>
+            }
+        ]
+    ),
+    ConnectorName1 = <<"source1">>,
+    ConnectorConfig1 = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"pool_size">> => 3,
+        <<"proto_ver">> => <<"v5">>,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"15s">>,
+            <<"start_after_created">> => true,
+            <<"start_timeout">> => <<"5s">>
+        }
+    },
+    {201, _} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api([
+            {connector_type, <<"mqtt">>},
+            {connector_name, ConnectorName1},
+            {connector_config, ConnectorConfig1}
+        ])
+    ),
+    {201, _} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_kind_api([
+            {bridge_kind, source},
+            {source_type, <<"mqtt">>},
+            {source_name, <<"source1">>},
+            {source_config, #{
+                <<"enable">> => true,
+                <<"connector">> => ConnectorName1,
+                <<"parameters">> =>
+                    #{
+                        <<"topic">> => <<"remote/topic">>,
+                        <<"qos">> => 2
+                    },
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"15s">>,
+                    <<"resume_interval">> => <<"15s">>
+                }
+            }}
+        ])
+    ),
+    ConnectorName2 = <<"action1">>,
+    {201, _} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api([
+            {connector_type, <<"mqtt">>},
+            {connector_name, ConnectorName2},
+            {connector_config, ConnectorConfig1}
+        ])
+    ),
+    {201, _} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_kind_api([
+            {bridge_kind, action},
+            {action_type, <<"mqtt">>},
+            {action_name, <<"action1">>},
+            {action_config, #{
+                <<"enable">> => true,
+                <<"connector">> => ConnectorName1,
+                <<"parameters">> =>
+                    #{
+                        <<"topic">> => <<"local/topic">>,
+                        <<"qos">> => 2
+                    },
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"15s">>,
+                    <<"resume_interval">> => <<"15s">>
+                }
+            }}
+        ])
+    ),
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_api(#{
+        sql => <<"select * from '$bridges/mqtt:source1'">>,
+        actions => []
+    }),
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_api(#{
+        sql => <<"select * from 't/action'">>,
+        actions => [<<"mqtt:action1">>]
+    }),
+    {201, _} = emqx_mgmt_api_test_util:simple_request(
+        post,
+        emqx_mgmt_api_test_util:api_path(["cluster", "links"]),
+        #{
+            <<"name">> => <<"clink1">>,
+            <<"clientid">> => <<"linkclientid">>,
+            <<"password">> => <<"my secret password">>,
+            <<"pool_size">> => 1,
+            <<"server">> => <<"emqxcl_2.nohost:31883">>,
+            <<"topics">> => [<<"t/test-topic">>, <<"t/test/#">>]
+        }
+    ),
+    {201, _} = emqx_mgmt_api_test_util:simple_request(
+        post,
+        emqx_mgmt_api_test_util:api_path(["schema_registry"]),
+        #{
+            <<"name">> => <<"schema1">>,
+            <<"type">> => <<"json">>,
+            <<"source">> => emqx_utils_json:encode(#{
+                properties => #{
+                    foo => #{},
+                    bar => #{}
+                },
+                required => [<<"foo">>]
+            })
+        }
+    ),
+    ok.
 
 users(Prefix) ->
     [
@@ -593,16 +795,21 @@ apps_to_start(t_cluster_links) ->
         ee -> apps_to_start() ++ [emqx_cluster_link];
         ce -> []
     end;
+apps_to_start(t_export_cloud_subset) ->
+    case emqx_release:edition() of
+        ee -> apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];
+        ce -> []
+    end;
 apps_to_start(_TC) ->
     apps_to_start().
 
 apps_to_start() ->
     [
         {emqx, #{override_env => [{boot_modules, [broker]}]}},
-        {emqx_conf, #{config => #{dashboard => #{listeners => #{http => #{bind => <<"0">>}}}}}},
+        {emqx_conf, #{config => #{}}},
+        {emqx_license, ""},
         emqx_psk,
         emqx_management,
-        emqx_dashboard,
         emqx_auth,
         emqx_auth_http,
         emqx_auth_jwt,
@@ -620,6 +827,7 @@ apps_to_start() ->
         emqx_bridge_http,
         emqx_bridge,
         emqx_auto_subscribe,
+        emqx_mgmt_api_test_util:emqx_dashboard("dashboard.listeners.http.bind = 0"),
 
         % loaded only
         emqx_gateway_lwm2m,
@@ -628,3 +836,32 @@ apps_to_start() ->
         emqx_gateway_stomp,
         emqx_gateway_mqttsn
     ].
+
+inspect_backup(Filepath) ->
+    {ok, Contents} = erl_tar:extract(Filepath, [compressed, memory]),
+    [{_, Meta}] = filter_matching(Contents, <<"/META.hocon$">>),
+    [{_, ClusterHocon}] = filter_matching(Contents, <<"/cluster.hocon$">>),
+    MnesiaTables0 = filter_matching(Contents, <<"/mnesia/.*$">>),
+    MnesiaTables1 = lists:map(
+        fun({Path, FileContents}) ->
+            {strip_prefix(Path, 2), FileContents}
+        end,
+        MnesiaTables0
+    ),
+    #{
+        meta => Meta,
+        cluster_hocon => ClusterHocon,
+        mnesia_tables => maps:from_list(MnesiaTables1)
+    }.
+
+filter_matching(FileTree, RE) ->
+    lists:filter(
+        fun({Path, _FileContents}) ->
+            match =:= re:run(Path, RE, [{capture, none}])
+        end,
+        FileTree
+    ).
+
+strip_prefix(Path, N) ->
+    Segments = filename:split(Path),
+    iolist_to_binary(filename:join(lists:nthtail(N, Segments))).

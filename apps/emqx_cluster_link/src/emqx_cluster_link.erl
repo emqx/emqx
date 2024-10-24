@@ -59,32 +59,34 @@ unregister_external_broker() ->
 %% There is no need to push Node name as this info can be derived from
 %% agent state on the remote cluster.
 add_route(Topic) ->
-    maybe_push_route_op(add, Topic, Topic).
+    emqx_cluster_link_router:push_update(add, Topic, Topic).
 
 delete_route(Topic) ->
-    maybe_push_route_op(delete, Topic, Topic).
+    emqx_cluster_link_router:push_update(delete, Topic, Topic).
 
 add_shared_route(Topic, Group) ->
-    maybe_push_route_op(add, Topic, ?SHARED_ROUTE_ID(Topic, Group)).
+    RouteID = ?SHARED_ROUTE_ID(Topic, Group),
+    emqx_cluster_link_router:push_update(add, Topic, RouteID).
 
 delete_shared_route(Topic, Group) ->
-    maybe_push_route_op(delete, Topic, ?SHARED_ROUTE_ID(Topic, Group)).
+    RouteID = ?SHARED_ROUTE_ID(Topic, Group),
+    emqx_cluster_link_router:push_update(delete, Topic, RouteID).
 
 add_persistent_route(Topic, ID) ->
-    maybe_push_route_op(add, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
+    RouteID = ?PERSISTENT_ROUTE_ID(Topic, ID),
+    emqx_cluster_link_router:push_update_persistent(add, Topic, RouteID).
 
 delete_persistent_route(Topic, ID) ->
-    maybe_push_route_op(delete, Topic, ?PERSISTENT_ROUTE_ID(Topic, ID), push_persistent_route).
+    RouteID = ?PERSISTENT_ROUTE_ID(Topic, ID),
+    emqx_cluster_link_router:push_update_persistent(delete, Topic, RouteID).
 
 add_persistent_shared_route(Topic, Group, ID) ->
-    maybe_push_route_op(
-        add, Topic, ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID), push_persistent_route
-    ).
+    RouteID = ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID),
+    emqx_cluster_link_router:push_update_persistent(add, Topic, RouteID).
 
 delete_persistent_shared_route(Topic, Group, ID) ->
-    maybe_push_route_op(
-        delete, Topic, ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID), push_persistent_route
-    ).
+    RouteID = ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID),
+    emqx_cluster_link_router:push_update_persistent(delete, Topic, RouteID).
 
 forward(#delivery{message = #message{extra = #{link_origin := _}}}) ->
     %% Do not forward any external messages to other links.
@@ -196,30 +198,6 @@ handle_route_op_msg(
             }),
             error
     end.
-
-maybe_push_route_op(Op, Topic, RouteID) ->
-    maybe_push_route_op(Op, Topic, RouteID, push).
-
-maybe_push_route_op(Op, Topic, RouteID, PushFun) ->
-    lists:foreach(
-        fun(#{name := Cluster, topics := LinkFilters}) ->
-            case topic_intersect_any(Topic, LinkFilters) of
-                false ->
-                    ok;
-                TopicIntersection ->
-                    emqx_cluster_link_router_syncer:PushFun(Cluster, Op, TopicIntersection, RouteID)
-            end
-        end,
-        emqx_cluster_link_config:enabled_links()
-    ).
-
-topic_intersect_any(Topic, [LinkFilter | T]) ->
-    case emqx_topic:intersection(Topic, LinkFilter) of
-        false -> topic_intersect_any(Topic, T);
-        TopicOrFilter -> TopicOrFilter
-    end;
-topic_intersect_any(_Topic, []) ->
-    false.
 
 actor_init(
     ClusterName,

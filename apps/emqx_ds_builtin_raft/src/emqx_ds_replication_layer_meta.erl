@@ -518,6 +518,16 @@ open_db_trans(DB, CreateOpts) ->
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
             CreateOpts;
         [#?META_TAB{db_props = Opts}] ->
+            case maps:merge(CreateOpts, Opts) of
+                Opts ->
+                    ok;
+                UpdatedOpts ->
+                    %% NOTE
+                    %% Preserve any new options not yet present in the DB. This is
+                    %% most likely because `Opts` is outdated, written by earlier
+                    %% EMQX version.
+                    mnesia:write(#?META_TAB{db = DB, db_props = UpdatedOpts})
+            end,
             Opts
     end.
 

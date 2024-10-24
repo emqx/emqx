@@ -61,7 +61,8 @@ unload() ->
 -spec update_key(binary() | string()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_key(Value) when is_binary(Value); is_list(Value) ->
-    Result = exec_config_update({key, Value}),
+    Value1 = emqx_utils_conv:bin(Value),
+    Result = exec_config_update({key, Value1}),
     handle_config_update_result(Result).
 
 update_setting(Setting) when is_map(Setting) ->

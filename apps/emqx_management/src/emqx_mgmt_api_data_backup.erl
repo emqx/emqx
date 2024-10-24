@@ -25,6 +25,7 @@
 
 -export([
     data_export/2,
+    data_export_cloud/2,
     data_import/2,
     data_files/2,
     data_file_by_name/2
@@ -56,6 +57,7 @@ api_spec() ->
 paths() ->
     [
         "/data/export",
+        "/data/export_cloud",
         "/data/import",
         "/data/files",
         "/data/files/:filename"
@@ -67,6 +69,22 @@ schema("/data/export") ->
         post => #{
             tags => ?TAGS,
             desc => <<"Export a data backup file">>,
+            responses => #{
+                200 =>
+                    emqx_dashboard_swagger:schema_with_example(
+                        ?R_REF(backup_file_info),
+                        backup_file_info_example()
+                    )
+            }
+        }
+    };
+schema("/data/export_cloud") ->
+    #{
+        'operationId' => data_export_cloud,
+        post => #{
+            tags => ?TAGS,
+            hidden => true,
+            desc => <<"Export a data backup file with limited scope (cloud edition)">>,
             responses => #{
                 200 =>
                     emqx_dashboard_swagger:schema_with_example(
@@ -197,6 +215,14 @@ fields(data_backup_file) ->
 
 data_export(post, _Request) ->
     case emqx_mgmt_data_backup:export() of
+        {ok, #{filename := FileName} = File} ->
+            {200, File#{filename => filename:basename(FileName)}};
+        Error ->
+            Error
+    end.
+
+data_export_cloud(post, _Request) ->
+    case emqx_mgmt_data_backup:export_for_cloud() of
         {ok, #{filename := FileName} = File} ->
             {200, File#{filename => filename:basename(FileName)}};
         Error ->

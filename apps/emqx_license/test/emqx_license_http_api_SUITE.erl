@@ -232,6 +232,15 @@ t_license_setting(_Config) ->
     ),
     ok.
 
+t_license_setting_updated_from_cli(_Config) ->
+    %% update license from cli
+    LicenseValue = binary_to_list(
+        emqx_license_test_lib:make_license(#{max_connections => "201"})
+    ),
+    _ = emqx_license_cli:license(["update", LicenseValue]),
+    ?assertMatch(#{<<"max_connections">> := 201}, request_dump()),
+    ok.
+
 t_license_setting_bc(_Config) ->
     %% Create a BC license
     Key = emqx_license_test_lib:make_license(#{

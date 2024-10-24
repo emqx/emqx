@@ -18,6 +18,7 @@
 
 -export([
     export/0,
+    export_for_cloud/0,
     export/1,
     import/1,
     import/2,
@@ -117,6 +118,15 @@
 -spec export() -> {ok, backup_file_info()} | {error, _}.
 export() ->
     export(?DEFAULT_OPTS).
+
+-spec export_for_cloud() -> {ok, backup_file_info()} | {error, _}.
+export_for_cloud() ->
+    Default = ?DEFAULT_OPTS,
+    Opts = Default#{
+        raw_conf_transform => fun cloud_export_raw_conf_transform/1,
+        mnesia_table_filter => fun cloud_export_mnesia_table_filter/1
+    },
+    export(Opts).
 
 -spec export(map()) -> {ok, backup_file_info()} | {error, _}.
 export(Opts) ->
@@ -374,17 +384,20 @@ do_export(BackupName, TarDescriptor, Opts) ->
 
 export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
     maybe_print("Exporting cluster configuration...~n", [], Opts),
-    RawConf = emqx_config:read_override_conf(#{override_to => cluster}),
+    RawConf1 = emqx_config:read_override_conf(#{override_to => cluster}),
     maybe_print(
         "Exporting additional files from EMQX data_dir: ~p...~n", [str(emqx:data_dir())], Opts
     ),
-    RawConf1 = read_data_files(RawConf),
-    RawConfBin = bin(hocon_pp:do(RawConf1, #{})),
+    RawConf2 = read_data_files(RawConf1),
+    TransformFn = maps:get(raw_conf_transform, Opts, fun(Raw) -> Raw end),
+    RawConf = TransformFn(RawConf2),
+    RawConfBin = bin(hocon_pp:do(RawConf, #{})),
     NameInArchive = filename:join(BackupBaseName, ?CLUSTER_HOCON_FILENAME),
     ok = ?fmt_tar_err(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
 
 export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
     maybe_print("Exporting built-in database...~n", [], Opts),
+    FilterFn = maps:get(mnesia_table_filter, Opts, fun(_TableName) -> true end),
     lists:foreach(
         fun(Mod) ->
             Tabs = Mod:backup_tables(),
@@ -392,7 +405,7 @@ export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
                 fun(Tab) ->
                     export_mnesia_tab(TarDescriptor, Tab, BackupName, BackupBaseName, Opts)
                 end,
-                Tabs
+                lists:filter(FilterFn, Tabs)
             )
         end,
         tabs_to_backup()
@@ -994,3 +1007,30 @@ apps() ->
             _ -> false
         end
     ].
+
+cloud_export_raw_conf_transform(RawConf) ->
+    maps:with(
+        [
+            <<"connectors">>,
+            <<"actions">>,
+            <<"sources">>,
+            <<"rule_engine">>,
+            <<"schema_registry">>
+        ],
+        RawConf
+    ).
+
+cloud_export_mnesia_table_filter(TableName) ->
+    lists:member(
+        TableName,
+        [
+            %% mnesia builtin authn
+            emqx_authn_mnesia,
+            emqx_authn_scram_mnesia,
+            %% mnesia builtin authz
+            emqx_acl,
+            %% banned
+            emqx_banned,
+            emqx_banned_rules
+        ]
+    ).

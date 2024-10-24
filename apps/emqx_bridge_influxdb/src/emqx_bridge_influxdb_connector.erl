@@ -69,6 +69,8 @@
         (STATUS_CODE < 200 orelse STATUS_CODE >= 300))
 ).
 
+-define(DEFAULT_POOL_SIZE, 8).
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 resource_type() -> influxdb.
@@ -254,6 +256,7 @@ roots() ->
 fields("connector") ->
     [
         server_field(),
+        pool_size_field(),
         parameter_field()
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("connector_influxdb_api_v1") ->
@@ -268,7 +271,8 @@ fields(influxdb_api_v2) ->
 fields(common) ->
     [
         server_field(),
-        precision_field()
+        precision_field(),
+        pool_size_field()
     ] ++ emqx_connector_schema_lib:ssl_fields().
 %% ============ end: schema for old bridge configs ============
 
@@ -292,6 +296,17 @@ precision_field() ->
         mk(enum([ns, us, ms, s]), #{
             required => false, default => ms, desc => ?DESC("precision")
         })}.
+
+pool_size_field() ->
+    {pool_size,
+        mk(
+            integer(),
+            #{
+                required => false,
+                default => ?DEFAULT_POOL_SIZE,
+                desc => ?DESC("pool_size")
+            }
+        )}.
 
 parameter_field() ->
     {parameters,
@@ -444,7 +459,7 @@ client_config(
     [
         {host, str(Host)},
         {port, Port},
-        {pool_size, erlang:system_info(schedulers)},
+        {pool_size, maps:get(pool_size, Config, ?DEFAULT_POOL_SIZE)},
         {pool, InstId}
     ] ++ protocol_config(Config).
 

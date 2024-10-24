@@ -133,6 +133,14 @@ t_import_ee_backup(Config) ->
         ce -> ok
     end.
 
+%% Simple smoke test for cloud export API.
+t_export_cloud(Config) ->
+    Auth = ?config(auth, Config),
+    {ok, RawResp} = export_cloud_backup(?NODE1_PORT, Auth),
+    #{<<"filename">> := Filepath} = emqx_utils_json:decode(RawResp),
+    {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
+    ok.
+
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
@@ -237,6 +245,10 @@ assert_second_call(get, Res) ->
     ?assertMatch({ok, _}, Res);
 assert_second_call(delete, Res) ->
     ?assertMatch({error, {_, 404, _}}, Res).
+
+export_cloud_backup(NodeApiPort, Auth) ->
+    Path = ["data", "export_cloud"],
+    request(post, NodeApiPort, Path, Auth).
 
 export_backup(NodeApiPort, Auth) ->
     Path = ["data", "export"],

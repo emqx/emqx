@@ -32,6 +32,12 @@ The Datalayers default port 8361 is used if `[:Port]` is not specified."""
 server.label:
 """Server Host"""
 
+pool_size.desc:
+"""Size of the connection pool towards the bridge target service."""
+
+pool_size.label:
+"""Connection Pool Size"""
+
 username.desc:
 """Datalayers username."""
 
