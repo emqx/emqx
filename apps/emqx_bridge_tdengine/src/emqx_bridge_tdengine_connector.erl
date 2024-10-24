@@ -214,8 +214,8 @@ on_batch_query(
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
     end;
-on_batch_query(InstanceId, BatchReq, State) ->
-    LogMeta = #{connector => InstanceId, request => BatchReq, state => State},
+on_batch_query(InstanceId, BatchReq, _State) ->
+    LogMeta = #{connector => InstanceId, request => BatchReq},
     ?SLOG(error, LogMeta#{msg => "invalid_request"}),
     {error, {unrecoverable_error, invalid_request}}.
 
