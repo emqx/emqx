@@ -199,11 +199,14 @@ store_retained(State, Msg = #message{topic = Topic}) ->
     Tokens = topic_to_tokens(Topic),
     case is_table_full(State) andalso is_new_topic(Tokens) of
         true ->
-            ?SLOG(error, #{
-                msg => "failed_to_retain_message",
-                topic => Topic,
-                reason => table_is_full
-            });
+            ?SLOG_THROTTLE(
+                error,
+                #{
+                    msg => failed_to_retain_message,
+                    reason => table_is_full
+                },
+                #{topic => Topic}
+            );
         false ->
             do_store_retained(Msg, Tokens, ExpiryTime),
             ?tp(message_retained, #{topic => Topic}),
@@ -212,12 +215,31 @@ store_retained(State, Msg = #message{topic = Topic}) ->
 
 clear_expired(_State, Deadline, Limit) ->
     S0 = ets_stream(?TAB_MESSAGE),
-    S1 = emqx_utils_stream:filter(
-        fun(#retained_message{expiry_time = ExpiryTime}) ->
-            ExpiryTime =/= 0 andalso ExpiryTime < Deadline
+    AllowNeverExpire = emqx_conf:get([retainer, allow_never_expire]),
+    FilterFn =
+        case emqx_conf:get([retainer, msg_expiry_interval_override]) of
+            disabled ->
+                fun(#retained_message{expiry_time = ExpiryTime}) ->
+                    ExpiryTime =/= 0 andalso ExpiryTime < Deadline
+                end;
+            OverrideMS ->
+                fun(
+                    #retained_message{
+                        expiry_time = StoredExpiryTime,
+                        msg = #message{timestamp = Ts}
+                    }
+                ) ->
+                    case StoredExpiryTime of
+                        0 when not AllowNeverExpire ->
+                            Ts + OverrideMS < Deadline;
+                        0 ->
+                            false;
+                        _ ->
+                            min(Ts + OverrideMS, StoredExpiryTime) < Deadline
+                    end
+                end
         end,
-        S0
-    ),
+    S1 = emqx_utils_stream:filter(FilterFn, S0),
     DirtyWriteIndices = dirty_indices(write),
     S2 = emqx_utils_stream:map(
         fun(RetainedMsg) ->

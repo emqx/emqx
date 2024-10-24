@@ -51,6 +51,14 @@ fields("retainer") ->
                 msg_expiry_interval,
                 <<"0s">>
             )},
+        {msg_expiry_interval_override,
+            sc(
+                %% not used in a `receive ... after' block, just timestamp comparison
+                hoconsc:union([disabled, emqx_schema:duration_ms()]),
+                msg_expiry_interval_override,
+                disabled
+            )},
+        {allow_never_expire, sc(boolean(), allow_never_expire, true)},
         {msg_clear_interval,
             sc(
                 emqx_schema:timeout_duration_ms(),
