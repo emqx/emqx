@@ -215,6 +215,7 @@ store_retained(State, Msg = #message{topic = Topic}) ->
 
 clear_expired(_State, Deadline, Limit) ->
     S0 = ets_stream(?TAB_MESSAGE),
+    AllowNeverExpire = emqx_conf:get([retainer, allow_never_expire]),
     FilterFn =
         case emqx_conf:get([retainer, msg_expiry_interval_override]) of
             disabled ->
@@ -228,8 +229,14 @@ clear_expired(_State, Deadline, Limit) ->
                         msg = #message{timestamp = Ts}
                     }
                 ) ->
-                    StoredExpiryTime =/= 0 andalso
-                        min(Ts + OverrideMS, StoredExpiryTime) < Deadline
+                    case StoredExpiryTime of
+                        0 when not AllowNeverExpire ->
+                            Ts + OverrideMS < Deadline;
+                        0 ->
+                            false;
+                        _ ->
+                            min(Ts + OverrideMS, StoredExpiryTime) < Deadline
+                    end
                 end
         end,
     S1 = emqx_utils_stream:filter(FilterFn, S0),

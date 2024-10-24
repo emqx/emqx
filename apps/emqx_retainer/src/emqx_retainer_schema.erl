@@ -58,6 +58,7 @@ fields("retainer") ->
                 msg_expiry_interval_override,
                 disabled
             )},
+        {allow_never_expire, sc(boolean(), allow_never_expire, true)},
         {msg_clear_interval,
             sc(
                 emqx_schema:timeout_duration_ms(),
