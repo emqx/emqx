@@ -128,3 +128,6 @@
 
 ## Disable os_mon's disksup by default
 -os_mon start_disksup false
+
+## Sets unicode as the printable character range when formatting binaries
++pc unicode
