@@ -31,6 +31,8 @@
     inflight_get/1,
     queuing_set/3,
     queuing_get/1,
+    queuing_bytes_set/3,
+    queuing_bytes_get/1,
     dropped_inc/1,
     dropped_inc/2,
     dropped_get/1,
@@ -92,6 +94,7 @@ events() ->
             inflight,
             matched,
             queuing,
+            queuing_bytes,
             received,
             retried_failed,
             retried_success,
@@ -218,6 +221,8 @@ handle_gauge_telemetry_event(Event, ID, WorkerID, Val) ->
             emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'inflight', Val);
         queuing ->
             emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'queuing', Val);
+        queuing_bytes ->
+            emqx_metrics_worker:set_gauge(?RES_METRICS, ID, WorkerID, 'queuing_bytes', Val);
         _ ->
             ok
     end.
@@ -236,6 +241,17 @@ queuing_set(ID, WorkerID, Val) ->
 
 queuing_get(ID) ->
     emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'queuing').
+
+%% @doc Number of bytes currently queued. [Gauge]
+queuing_bytes_set(ID, WorkerID, Val) ->
+    telemetry:execute(
+        [?TELEMETRY_PREFIX, queuing_bytes],
+        #{gauge_set => Val},
+        #{resource_id => ID, worker_id => WorkerID}
+    ).
+
+queuing_bytes_get(ID) ->
+    emqx_metrics_worker:get_gauge(?RES_METRICS, ID, 'queuing_bytes').
 
 %% @doc Count of batches of messages that were sent asynchronously but
 %% ACKs are not yet received. [Gauge]

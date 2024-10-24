@@ -1035,7 +1035,7 @@ force_monotonic_timestamps(DB) ->
     case erlang:get(?pd_ra_force_monotonic) of
         undefined ->
             DBConfig = emqx_ds_replication_layer_meta:db_config(DB),
-            Flag = maps:get(force_monotonic_timestamps, DBConfig),
+            Flag = maps:get(force_monotonic_timestamps, DBConfig, _Default = true),
             erlang:put(?pd_ra_force_monotonic, Flag);
         Flag ->
             ok

@@ -42,6 +42,12 @@ precision.desc:
 precision.label:
 """Time Precision"""
 
+pool_size.desc:
+"""Size of the connection pool towards the bridge target service."""
+
+pool_size.label:
+"""Connection Pool Size"""
+
 protocol.desc:
 """InfluxDB's protocol. HTTP API or HTTP API V2."""
 
