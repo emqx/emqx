@@ -755,5 +755,83 @@ t_insert_null_into_int_column(Config) ->
 
     %% Would return `1853189228' if it encodes `null' as an integer...
     ?assertEqual(null, connect_and_get_payload(Config, "select x from mqtt.mqtt_msg_test2")),
+    ok.
 
+t_update_action_sql(Config) ->
+    BridgeType = ?config(bridge_type, Config),
+    connect_and_create_table(
+        Config,
+        <<
+            "CREATE TABLE mqtt.mqtt_msg_test2 (\n"
+            "  topic text,\n"
+            "  qos int,\n"
+            "  payload text,\n"
+            "  arrived timestamp,\n"
+            "  PRIMARY KEY (topic)\n"
+            ")"
+        >>
+    ),
+    on_exit(fun() -> connect_and_drop_table(Config, "DROP TABLE mqtt.mqtt_msg_test2") end),
+    {ok, {{_, 201, _}, _, _}} =
+        emqx_bridge_testlib:create_bridge_api(
+            Config,
+            #{
+                <<"cql">> => <<
+                    "insert into mqtt_msg_test2(topic, payload, arrived) "
+                    "values (${topic}, ${payload}, ${timestamp})"
+                >>
+            }
+        ),
+    RuleTopic = <<"t/a">>,
+    Opts = #{
+        sql => <<"select * from \"", RuleTopic/binary, "\"">>
+    },
+    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts),
+
+    Payload = <<"{}">>,
+    Msg = emqx_message:make(RuleTopic, Payload),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    ?assertEqual(
+        null,
+        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/a'")
+    ),
+
+    %% Update the SQL Teamplate
+    {ok, {{_, 201, _}, _, _}} =
+        emqx_bridge_testlib:update_bridge_api(
+            Config,
+            #{
+                <<"cql">> => <<
+                    "insert into mqtt_msg_test2(topic, qos, payload, arrived) "
+                    "values (${topic}, ${qos}, ${payload}, ${timestamp})"
+                >>
+            }
+        ),
+
+    RuleTopic1 = <<"t/b">>,
+    Opts1 = #{
+        sql => <<"select * from \"", RuleTopic1/binary, "\"">>
+    },
+    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(
+        BridgeType, RuleTopic1, Config, Opts1
+    ),
+
+    Msg1 = emqx_message:make(RuleTopic1, Payload),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg1),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    ?assertEqual(
+        0,
+        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/a'")
+    ),
     ok.
