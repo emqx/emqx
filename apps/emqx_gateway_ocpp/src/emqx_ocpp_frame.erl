@@ -79,7 +79,7 @@ parse([?OCPP_MSG_TYPE_ID_CALL, Id, Action, Payload], Parser) ->
         ok ->
             {ok, Frame, <<>>, Parser};
         {error, ReasonStr} ->
-            error({validation_faliure, Id, ReasonStr})
+            error({validation_failure, Id, ReasonStr})
     end;
 %% CALLRESULT
 parse([?OCPP_MSG_TYPE_ID_CALLRESULT, Id, Payload], Parser) ->
@@ -93,7 +93,7 @@ parse([?OCPP_MSG_TYPE_ID_CALLRESULT, Id, Payload], Parser) ->
     %%    ok ->
     %%        {ok, Frame, <<>>, Parser};
     %%    {error, ReasonStr} ->
-    %%        error({validation_faliure, Id, ReasonStr})
+    %%        error({validation_failure, Id, ReasonStr})
     %%end;
     {ok, Frame, <<>>, Parser};
 %% CALLERROR

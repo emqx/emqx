@@ -36,6 +36,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_out/3,
     handle_deliver/2,
     handle_timeout/3,
@@ -440,7 +441,7 @@ ensure_keepalive_timer(Interval, Channel) ->
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
--spec handle_in(emqx_types:packet() | {frame_error, any()}, channel()) ->
+-spec handle_in(mqtt_sn_message(), channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
@@ -1017,15 +1018,9 @@ handle_in(
 ) ->
     AckPkt = ?SN_WILLMSGRESP_MSG(?SN_RC_ACCEPTED),
     NWillMsg = update_will_msg(WillMsg, Payload),
-    {ok, {outgoing, AckPkt}, Channel#channel{will_msg = NWillMsg}};
-handle_in(
-    {frame_error, Reason},
-    Channel = #channel{conn_state = _ConnState}
-) ->
-    ?SLOG(error, #{
-        msg => "unexpected_frame_error",
-        reason => Reason
-    }),
+    {ok, {outgoing, AckPkt}, Channel#channel{will_msg = NWillMsg}}.
+
+handle_frame_error(Reason, Channel) ->
     shutdown(Reason, Channel).
 
 after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->

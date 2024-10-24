@@ -32,6 +32,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
     handle_call/3,
@@ -232,6 +233,9 @@ start_idle_checking_timer(Channel) ->
 handle_in(Data, Channel) ->
     Req = #{bytes => Data},
     {ok, dispatch(on_received_bytes, Req, Channel)}.
+
+handle_frame_error(Reason, Channel) ->
+    {shutdown, Reason, Channel}.
 
 -spec handle_deliver(list(emqx_types:deliver()), channel()) ->
     {ok, channel()}
