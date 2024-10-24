@@ -193,6 +193,16 @@ fixed_status_handler(StatusCode, FailureAttempts) ->
         end
     end.
 
+create_connector_api(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config)
+    ).
+
+create_action_api(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -325,5 +335,44 @@ t_backoff_retry(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Checks that we massage the error reason in case `jose_jwk:from_pem/1' raises a
+%% `function_clause' error.  Currently, this can be caused by deleting one line from the
+%% private key PEM in the service account JSON.  Instead of logging `{error,
+%% function_clause}', we transform it to something more soothing to the user's eyes.
+t_jose_jwk_function_clause(Config0) ->
+    ConnConfig0 = ?config(connector_config, Config0),
+    Config1 = proplists:delete(connector_config, Config0),
+    ConnConfig1 = maps:update_with(
+        <<"service_account_json">>,
+        fun(SABin) ->
+            #{<<"private_key">> := PKey0} =
+                SA0 =
+                emqx_utils_json:decode(SABin, [return_maps]),
+            Lines0 = binary:split(PKey0, <<"\n">>),
+            NumLines = length(Lines0),
+            {Lines1, [_ | Lines2]} = lists:split(NumLines div 2, Lines0),
+            Lines = iolist_to_binary(lists:join(<<"\n">>, Lines1 ++ Lines2)),
+            SA = SA0#{<<"private_key">> := Lines},
+            emqx_utils_json:encode(SA)
+        end,
+        ConnConfig0
+    ),
+    Config = [{connector_config, ConnConfig1} | Config1],
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(Config),
+            {201, _} = create_action_api(Config),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := invalid_private_key} | _],
+                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+            ),
+            ok
+        end
     ),
     ok.

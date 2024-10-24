@@ -1080,7 +1080,7 @@ t_truncated_private_key(Config) ->
         fun(Res, Trace) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
-                [#{error := {error, function_clause}}],
+                [#{error := invalid_private_key}],
                 ?of_kind(gcp_pubsub_connector_startup_error, Trace)
             ),
             ok
