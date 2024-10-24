@@ -802,7 +802,7 @@ t_update_action_sql(Config) ->
         connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/a'")
     ),
 
-    %% Update the SQL Teamplate
+    %% Update a correct SQL Teamplate
     {ok, _} =
         emqx_bridge_testlib:update_bridge_api(
             Config,
@@ -832,6 +832,65 @@ t_update_action_sql(Config) ->
 
     ?assertEqual(
         0,
-        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/a'")
+        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/b'")
+    ),
+
+    %% Update a wrong SQL Teamplate
+    BadSQL =
+        <<"insert into mqtt_msg_test2(topic, qos, payload, bad_col_name) values (${topic}, ${qos}, ${payload}, ${timestamp})">>,
+    {ok, Body} =
+        emqx_bridge_testlib:update_bridge_api(
+            Config,
+            #{
+                <<"cql">> => BadSQL
+            }
+        ),
+    ?assertMatch(#{<<"status">> := <<"connecting">>}, Body),
+    Error1 = maps:get(<<"status_reason">>, Body),
+    case re:run(Error1, <<"Undefined column name bad_col_name">>, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            ct:fail(#{
+                expected_pattern => "undefined_column",
+                got => Error1
+            })
+    end,
+    %% assert that although there was an error returned, the invliad SQL is actually put
+    {ok, BridgeResp} = emqx_bridge_testlib:get_bridge_api(Config),
+    #{<<"cql">> := FetchedSQL} = BridgeResp,
+    ?assertEqual(FetchedSQL, BadSQL),
+
+    %% Update again with a correct SQL Teamplate
+    {ok, _} =
+        emqx_bridge_testlib:update_bridge_api(
+            Config,
+            #{
+                <<"cql">> => <<
+                    "insert into mqtt_msg_test2(topic, qos, payload, arrived) "
+                    "values (${topic}, ${qos}, ${payload}, ${timestamp})"
+                >>
+            }
+        ),
+
+    RuleTopic2 = <<"t/c">>,
+    Opts2 = #{
+        sql => <<"select * from \"", RuleTopic2/binary, "\"">>
+    },
+    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(
+        BridgeType, RuleTopic2, Config, Opts2
+    ),
+
+    Msg2 = emqx_message:make(RuleTopic2, Payload),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg2),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    ?assertEqual(
+        0,
+        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/c'")
     ),
     ok.
