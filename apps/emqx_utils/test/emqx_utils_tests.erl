@@ -50,3 +50,30 @@ foldl_while_test_() ->
             )
         )
     ].
+
+to_binary_representation(Bin) when is_binary(Bin) ->
+    Bytes = binary_to_list(Bin),
+    iolist_to_binary([
+        [$<, $<],
+        lists:join($,, [
+            integer_to_binary(B)
+         || B <- Bytes
+        ]),
+        [$>, $>]
+    ]).
+
+readable_error_msg_test_() ->
+    [
+        {"binary in nested structure with non-latin1 characters",
+            ?_assert(begin
+                %% An unexpected error that could occur and be returned via HTTP API.
+                Text = <<"test中文"/utf8>>,
+                Error = {badmatch, #{description => Text}},
+                %% Output shouldn't contain the "exploded" bytes
+                Exploded = to_binary_representation(Text),
+                Formatted = emqx_utils:readable_error_msg(Error),
+                %% Precondition: `+pc unicode' must be set on the VM.
+                ?assertEqual(unicode, io:printable_range()),
+                nomatch =:= re:run(Formatted, Exploded, [{capture, all, binary}])
+            end)}
+    ].
