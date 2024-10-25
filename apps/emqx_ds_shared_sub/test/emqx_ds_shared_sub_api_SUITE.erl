@@ -122,9 +122,17 @@ t_basic_crud(_Config) ->
     ),
 
     {ok, 201, #{<<"id">> := QueueID2}} = Resp2,
+    Resp3 = api_get(["durable_queues"]),
     ?assertMatch(
-        {ok, #{<<"data">> := [#{<<"id">> := QueueID1}, #{<<"id">> := QueueID2}]}},
-        api_get(["durable_queues"])
+        {ok, #{<<"data">> := [#{<<"id">> := _}, #{<<"id">> := _}]}},
+        Resp3
+    ),
+    ?assertMatch(
+        [#{<<"id">> := QueueID1}, #{<<"id">> := QueueID2}],
+        begin
+            {ok, #{<<"data">> := Queues}} = Resp3,
+            lists:sort(emqx_utils_maps:key_comparer(<<"id">>), Queues)
+        end
     ),
 
     ?assertMatch(
