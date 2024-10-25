@@ -70,7 +70,10 @@
         rap => _,
         subid => _,
         _ => _
-    }
+    },
+    %% Optional field that is added when subscription state becomes
+    %% outdated:
+    superseded_by => subscription_state_id()
 }.
 
 %%================================================================================
@@ -122,14 +125,17 @@ on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) 
                 SState ->
                     %% Client resubscribed with the same parameters:
                     {ok, S0};
-                _ ->
+                OldSState ->
                     %% Subsription parameters changed:
                     {SStateId, S1} = emqx_persistent_session_ds_state:new_id(S0),
                     S2 = emqx_persistent_session_ds_state:put_subscription_state(
                         SStateId, SState, S1
                     ),
-                    Sub = Sub0#{current_state => SStateId},
-                    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Sub, S2),
+                    S3 = emqx_persistent_session_ds_state:put_subscription_state(
+                        SStateId0, OldSState#{superseded_by => SStateId}, S2
+                    ),
+                    Sub = Sub0#{current_state := SStateId},
+                    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Sub, S3),
                     {ok, S}
             end
     end.
@@ -190,18 +196,13 @@ gc(S0) ->
         S0
     ),
     AliveSet = emqx_persistent_session_ds_state:fold_streams(
-        fun(_StreamId, SRS = #srs{sub_state_id = SStateId}, Acc) ->
-            case emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S0) of
-                false ->
-                    Acc#{SStateId => true};
-                true ->
-                    Acc
-            end
+        fun(_StreamId, #srs{sub_state_id = SStateId}, Acc) ->
+            Acc#{SStateId => true}
         end,
         AliveSet0,
         S0
     ),
-    %% Delete dangling subscription states:
+    %% Delete subscription states that don't belong to the alive set:
     emqx_persistent_session_ds_state:fold_subscription_states(
         fun(SStateId, _, S) ->
             case maps:is_key(SStateId, AliveSet) of

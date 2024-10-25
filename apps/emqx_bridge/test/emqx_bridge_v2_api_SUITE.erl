@@ -1491,8 +1491,19 @@ t_metrics(Config) ->
 
     ?assertMatch(
         {ok, 200, #{
-            <<"metrics">> := #{<<"matched">> := 0},
-            <<"node_metrics">> := [#{<<"metrics">> := #{<<"matched">> := 0}} | _]
+            <<"metrics">> := #{
+                <<"matched">> := 0,
+                <<"queuing_bytes">> := 0
+            },
+            <<"node_metrics">> := [
+                #{
+                    <<"metrics">> := #{
+                        <<"matched">> := 0,
+                        <<"queuing_bytes">> := 0
+                    }
+                }
+                | _
+            ]
         }},
         request_json(get, uri([?ACTIONS_ROOT, ActionID, "metrics"]), Config)
     ),

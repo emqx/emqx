@@ -1432,8 +1432,10 @@ t_delete_and_re_create_with_same_name(_Config) ->
     ),
     %% pre-condition: we should have just created a new queue
     Queuing0 = emqx_resource_metrics:queuing_get(?ID),
+    QueuingBytes0 = emqx_resource_metrics:queuing_bytes_get(?ID),
     Inflight0 = emqx_resource_metrics:inflight_get(?ID),
     ?assertEqual(0, Queuing0),
+    ?assertEqual(0, QueuingBytes0),
     ?assertEqual(0, Inflight0),
     ?check_trace(
         begin
@@ -1445,7 +1447,8 @@ t_delete_and_re_create_with_same_name(_Config) ->
                 _Timeout = 5_000
             ),
             %% ensure replayq offloads to disk
-            Payload = binary:copy(<<"a">>, 119),
+            NumBytes = 119,
+            Payload = binary:copy(<<"a">>, NumBytes),
             lists:foreach(
                 fun(N) ->
                     spawn_link(fun() ->
@@ -1467,6 +1470,13 @@ t_delete_and_re_create_with_same_name(_Config) ->
                 _Sleep = 300,
                 _Attempts0 = 20,
                 ?assert(emqx_resource_metrics:queuing_get(?ID) > 0)
+            ),
+            ?retry(
+                _Sleep = 300,
+                _Attempts0 = 20,
+                %% `> NumBytes' because replayq reports total usage, not just payload, so
+                %% headers and metadata are included.
+                ?assert(emqx_resource_metrics:queuing_bytes_get(?ID) > NumBytes)
             ),
             ?retry(
                 _Sleep = 300,
@@ -1501,8 +1511,10 @@ t_delete_and_re_create_with_same_name(_Config) ->
 
             %% it shouldn't have anything enqueued, as it's a fresh resource
             Queuing2 = emqx_resource_metrics:queuing_get(?ID),
-            Inflight2 = emqx_resource_metrics:queuing_get(?ID),
+            QueuingBytes2 = emqx_resource_metrics:queuing_bytes_get(?ID),
+            Inflight2 = emqx_resource_metrics:inflight_get(?ID),
             ?assertEqual(0, Queuing2),
+            ?assertEqual(0, QueuingBytes2),
             ?assertEqual(0, Inflight2),
 
             ok

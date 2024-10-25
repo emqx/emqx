@@ -334,7 +334,7 @@ on_start(
                 2
         end,
 
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?THRIFT_HOST_OPTIONS),
+    Addresses = emqx_schema:parse_servers(Server, ?THRIFT_HOST_OPTIONS),
 
     DriverOpts = maps:merge(
         #{
@@ -357,8 +357,7 @@ on_start(
 
     IoTDBOpts = IoTDBOpts0#{
         version => Version,
-        host => Host,
-        port => Port,
+        addresses => Addresses,
         options => DriverOpts1
     },
 

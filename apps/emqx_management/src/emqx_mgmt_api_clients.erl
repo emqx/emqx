@@ -1004,7 +1004,7 @@ do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0
     {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
     NewCursor = next_ds_cursor(Iter),
     Rows1 = check_for_live_and_expired(Rows0),
-    Rows = maybe_run_fuzzy_filter(Rows1, QString0),
+    Rows = run_filters(Rows1, QString0),
     Acc1 = maps:update_with(rows, fun(Rs) -> [{undefined, Rows} | Rs] end, Acc0),
     Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
     case N >= Limit of
@@ -1063,19 +1063,22 @@ parse_qstring(QString) ->
             ?BAD_REQUEST('INVALID_PARAMETER', Message)
     end.
 
-maybe_run_fuzzy_filter(Rows, QString0) ->
+run_filters(Rows, QString0) ->
     {_NClauses, {QString1, FuzzyQString1}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
-    {_QString, FuzzyQString} = adapt_custom_filters(QString1, FuzzyQString1),
+    {QString, FuzzyQString} = adapt_custom_filters(QString1, FuzzyQString1),
     FuzzyFilterFn = fuzzy_filter_fun(FuzzyQString),
-    case FuzzyFilterFn of
-        undefined ->
-            Rows;
-        {Fn, Args} ->
-            lists:filter(
-                fun(E) -> erlang:apply(Fn, [E | Args]) end,
-                Rows
-            )
-    end.
+    lists:filter(
+        fun(Row) ->
+            does_row_match_query(Row, QString) andalso
+                does_row_match_fuzzy_filter(Row, FuzzyFilterFn)
+        end,
+        Rows
+    ).
+
+does_row_match_fuzzy_filter(_Row, undefined) ->
+    true;
+does_row_match_fuzzy_filter(Row, {Fn, Args}) ->
+    erlang:apply(Fn, [Row | Args]).
 
 %% These filters, while they are able to be adapted to efficient ETS match specs, must be
 %% used as fuzzy filters when iterating over offlient persistent clients, which live
@@ -1084,7 +1087,7 @@ adapt_custom_filters(Qs, Fuzzy) ->
     lists:foldl(
         fun
             ({Field, '=:=', X}, {QsAcc, FuzzyAcc}) when
-                Field =:= username
+                Field =:= username orelse Field =:= clientid
             ->
                 Xs = wrap(X),
                 {QsAcc, [{Field, in, Xs} | FuzzyAcc]};
@@ -1710,6 +1713,55 @@ ms(connected_at, X) ->
     #{conninfo => #{connected_at => X}};
 ms(created_at, X) ->
     #{session => #{created_at => X}}.
+
+%%--------------------------------------------------------------------
+%% Filter funcs
+%% These functions are used to filter durable clients. Durable clients are not stored in
+%% ETS tables, so we cannot use matchspecs to filter them. Instead, we filter ready rows,
+%% like fuzzy filters do.
+%%
+%% These functions are used with clients_v2 API.
+
+does_chan_info_match({ip_address, '=:=', IpAddress}, #{conninfo := #{peername := {IpAddress, _}}}) ->
+    true;
+does_chan_info_match({conn_state, '=:=', State}, #{conn_state := State}) ->
+    true;
+does_chan_info_match({clean_start, '=:=', CleanStart}, #{conninfo := #{clean_start := CleanStart}}) ->
+    true;
+does_chan_info_match({proto_ver, '=:=', ProtoVer}, #{conninfo := #{proto_ver := ProtoVer}}) ->
+    true;
+does_chan_info_match({connected_at, '>=', ConnectedAtFrom}, #{
+    conninfo := #{connected_at := ConnectedAt}
+}) when
+    ConnectedAt >= ConnectedAtFrom
+->
+    true;
+does_chan_info_match({connected_at, '=<', ConnectedAtTo}, #{
+    conninfo := #{connected_at := ConnectedAt}
+}) when
+    ConnectedAt =< ConnectedAtTo
+->
+    true;
+does_chan_info_match({created_at, '>=', CreatedAtFrom}, #{session := #{created_at := CreatedAt}}) when
+    CreatedAt >= CreatedAtFrom
+->
+    true;
+does_chan_info_match({created_at, '=<', CreatedAtTo}, #{session := #{created_at := CreatedAt}}) when
+    CreatedAt =< CreatedAtTo
+->
+    true;
+does_chan_info_match(_, _) ->
+    false.
+
+does_row_match_query(
+    {_Id, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
+) ->
+    lists:all(
+        fun(FieldQuery) -> does_chan_info_match(FieldQuery, ChanInfo) end,
+        CompiledQueryString
+    );
+does_row_match_query(_, _) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Match funcs
