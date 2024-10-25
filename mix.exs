@@ -209,7 +209,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
-  def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
+  def common_dep(:telemetry), do: {:telemetry, "1.3.0", override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.14.0-emqx-1", override: true}
