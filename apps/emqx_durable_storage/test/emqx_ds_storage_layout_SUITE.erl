@@ -315,6 +315,8 @@ t_replay_special_topics(_Config) ->
     %% ...But not in an otherwise fitting wildcard subscriptions:
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1)),
     check(?SHARD, <<"+/test/+/+">>, 0, []),
+    %% ...And not in different special roots:
+    check(?SHARD, <<"$SYS/test/#">>, 0, []),
     %% Publish through a lot of similarly structured topic to let LTS "learn":
     STopic2 = <<"$SPECIAL/test/3/4">>,
     Topics2 = [emqx_utils:format("~p/test/~p", [I, I]) || I <- lists:seq(1, 40)],
@@ -326,7 +328,14 @@ t_replay_special_topics(_Config) ->
     ?assert(check(?SHARD, <<"$SPECIAL/test/#">>, 0, SBatch1 ++ SBatch2)),
     ?assert(check(?SHARD, <<"$SPECIAL/test/+/4">>, 0, SBatch2)),
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1 ++ Batch2)),
-    check(?SHARD, <<"+/test/+/+">>, 0, SBatch2).
+    check(?SHARD, <<"+/test/+/+">>, 0, SBatch2),
+    %% Also verify that having a lot of different $-roots does not break things:
+    STopics = [emqx_utils:format("$T~p/test/~p", [I, I]) || I <- lists:seq(1, 40)],
+    SBatch3 = [make_message(V, T, bin(V)) || T <- STopics, V <- Values2],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, SBatch3),
+    ?assert(check(?SHARD, <<"$T1/test/#">>, 0, SBatch3)),
+    ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1 ++ Batch2)),
+    check(?SHARD, <<"$SYS/test/#">>, 0, []).
 
 %% This testcase verifies poll functionality that doesn't involve events:
 t_poll(Config) ->
