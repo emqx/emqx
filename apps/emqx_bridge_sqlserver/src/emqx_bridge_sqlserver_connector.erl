@@ -467,9 +467,9 @@ do_query(
     end.
 
 worker_do_insert(
-    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := ResourceId} = State
+    Conn, SQL, #{resource_opts := ResourceOpts, pool_name := ResourceId}
 ) ->
-    LogMeta = #{connector => ResourceId, state => State},
+    LogMeta = #{connector => ResourceId},
     try
         case execute(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
             {selected, Rows, _} ->
@@ -481,8 +481,8 @@ worker_do_insert(
                 {error, {unrecoverable_error, {invalid_request, ErrStr}}}
         end
     catch
-        _Type:Reason ->
-            ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason}),
+        _Type:Reason:St ->
+            ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason, stacktrace => St}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
     end.
 
