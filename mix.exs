@@ -160,6 +160,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:sasl_auth),
       # avlizer currently uses older :erlavro version
       common_dep(:erlavro),
+      # in conflict by erlavro
+      common_dep(:snappyer),
       common_dep(:crc32cer)
     ]
   end
