@@ -414,6 +414,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID) ->
         parameters := #{
             key_encoding_mode := KeyEncodingMode,
             max_batch_bytes := MaxBatchBytes,
+            max_wait_time := MaxWaitTime,
             max_rejoin_attempts := MaxRejoinAttempts,
             offset_commit_interval_seconds := OffsetCommitInterval,
             offset_reset_policy := OffsetResetPolicy0,
@@ -445,6 +446,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID) ->
     ConsumerConfig = [
         {begin_offset, BeginOffset},
         {max_bytes, MaxBatchBytes},
+        {max_wait_time, MaxWaitTime},
         {offset_reset_policy, OffsetResetPolicy}
     ],
     GroupConfig = [
