@@ -247,6 +247,13 @@ parse_jwt_config(ResourceId, #{
                 ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
                 throw("invalid private key in service account json")
         catch
+            error:function_clause ->
+                %% Function clause error inside `jose_jwk', nothing much to do...
+                %% Possibly `base64:mime_decode_binary/5' while trying to decode an
+                %% invalid private key that would probably not appear under normal
+                %% conditions...
+                ?tp(error, gcp_pubsub_connector_startup_error, #{error => invalid_private_key}),
+                throw("invalid private key in service account json");
             Kind:Reason ->
                 Error = {Kind, Reason},
                 ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
