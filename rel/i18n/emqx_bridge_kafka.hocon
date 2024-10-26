@@ -66,7 +66,7 @@ consumer_max_batch_bytes.desc:
 """Set how many bytes to pull from Kafka in each fetch request.
 Messages are fetched in batches by the consumer, and if the first record batch in the first non-empty
 partition of the fetch is larger than this value, the record batch will still be returned to ensure
-that the consumer can make progress. As such, this is not a absolute maximum. Set `1` for minimal latency."""
+that the consumer can make progress. As such, this is not an absolute maximum. Set `1` for minimal latency."""
 
 consumer_max_batch_bytes.label:
 """Fetch Bytes"""
