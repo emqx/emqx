@@ -32,6 +32,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
     terminate/2
@@ -187,6 +188,9 @@ handle_in(Msg, Channel0) ->
         _ ->
             call_session(handle_response, Msg, Channel)
     end.
+
+handle_frame_error(Reason, Channel) ->
+    {shutdown, Reason, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client

@@ -80,10 +80,11 @@
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
-    dropped_msg_due_to_mqueue_is_full,
-    socket_receive_paused_by_rate_limit,
     data_bridge_buffer_overflow,
+    dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
+    failed_to_retain_message,
+    socket_receive_paused_by_rate_limit,
     unrecoverable_resource_error
 ]).
 

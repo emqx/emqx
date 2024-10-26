@@ -490,7 +490,7 @@ handle_msg(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data}),
+    ?SLOG(debug, #{msg => "received_udp_proxy_data", data => Data}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
@@ -716,7 +716,7 @@ parse_incoming(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "RECV_data", data => Data}),
+    ?SLOG(debug, #{msg => "received_data", data => Data}),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
@@ -726,14 +726,8 @@ parse_incoming(
 
 parse_incoming(<<>>, Packets, State) ->
     {Packets, State};
-parse_incoming(
-    Data,
-    Packets,
-    State = #state{
-        frame_mod = FrameMod,
-        parse_state = ParseState
-    }
-) ->
+parse_incoming(Data, Packets, State) ->
+    #state{frame_mod = FrameMod, parse_state = ParseState} = State,
     try FrameMod:parse(Data, ParseState) of
         {more, NParseState} ->
             {Packets, State#state{parse_state = NParseState}};
@@ -759,34 +753,22 @@ next_incoming_msgs(Packets) ->
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
-
-handle_incoming(
-    Packet,
-    State = #state{
-        channel = Channel,
-        frame_mod = FrameMod,
-        chann_mod = ChannMod
-    }
-) ->
+handle_incoming(Packet, State) ->
+    #state{channel = Channel, frame_mod = FrameMod, chann_mod = ChannMod} = State,
     Ctx = ChannMod:info(ctx, Channel),
     ok = inc_incoming_stats(Ctx, FrameMod, Packet),
-    ?SLOG(debug, #{
-        msg => "RECV_packet",
-        packet => FrameMod:format(Packet)
-    }),
+    do_handle_incoming(Packet, FrameMod, State).
+
+do_handle_incoming({frame_error, Reason}, _FrameMod, State) ->
+    with_channel(handle_frame_error, [Reason], State);
+do_handle_incoming(Packet, FrameMod, State) ->
+    ?SLOG(debug, #{msg => "packet_received", packet => FrameMod:format(Packet)}),
     with_channel(handle_in, [Packet], State).
 
 %%--------------------------------------------------------------------
 %% With Channel
 
-with_channel(
-    Fun,
-    Args,
-    State = #state{
-        chann_mod = ChannMod,
-        channel = Channel
-    }
-) ->
+with_channel(Fun, Args, State = #state{chann_mod = ChannMod, channel = Channel}) ->
     case erlang:apply(ChannMod, Fun, Args ++ [Channel]) of
         ok ->
             {ok, State};
@@ -842,7 +824,7 @@ serialize_and_inc_stats_fun(#state{
         try
             Data = FrameMod:serialize_pkt(Packet, Serialize),
             ?SLOG(debug, #{
-                msg => "SEND_packet",
+                msg => "send_packet",
                 %% XXX: optimize it, less cpu comsuption?
                 packet => FrameMod:format(Packet)
             }),
@@ -880,7 +862,7 @@ send(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "SEND_data", data => IoData}),
+    ?SLOG(debug, #{msg => "send_data", data => IoData}),
     Ctx = ChannMod:info(ctx, Channel),
     Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
@@ -921,7 +903,7 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     end;
 handle_info({sock_error, Reason}, State) ->
     ?SLOG(debug, #{
-        msg => "sock_error",
+        msg => "gateway_sock_error",
         reason => Reason
     }),
     handle_info({sock_closed, Reason}, close_socket(State));

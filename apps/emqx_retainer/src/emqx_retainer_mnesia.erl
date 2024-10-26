@@ -199,11 +199,14 @@ store_retained(State, Msg = #message{topic = Topic}) ->
     Tokens = topic_to_tokens(Topic),
     case is_table_full(State) andalso is_new_topic(Tokens) of
         true ->
-            ?SLOG(error, #{
-                msg => "failed_to_retain_message",
-                topic => Topic,
-                reason => table_is_full
-            });
+            ?SLOG_THROTTLE(
+                error,
+                #{
+                    msg => failed_to_retain_message,
+                    reason => table_is_full
+                },
+                #{topic => Topic}
+            );
         false ->
             do_store_retained(Msg, Tokens, ExpiryTime),
             ?tp(message_retained, #{topic => Topic}),
@@ -212,12 +215,31 @@ store_retained(State, Msg = #message{topic = Topic}) ->
 
 clear_expired(_State, Deadline, Limit) ->
     S0 = ets_stream(?TAB_MESSAGE),
-    S1 = emqx_utils_stream:filter(
-        fun(#retained_message{expiry_time = ExpiryTime}) ->
-            ExpiryTime =/= 0 andalso ExpiryTime < Deadline
+    AllowNeverExpire = emqx_conf:get([retainer, allow_never_expire]),
+    FilterFn =
+        case emqx_conf:get([retainer, msg_expiry_interval_override]) of
+            disabled ->
+                fun(#retained_message{expiry_time = ExpiryTime}) ->
+                    ExpiryTime =/= 0 andalso ExpiryTime < Deadline
+                end;
+            OverrideMS ->
+                fun(
+                    #retained_message{
+                        expiry_time = StoredExpiryTime,
+                        msg = #message{timestamp = Ts}
+                    }
+                ) ->
+                    case StoredExpiryTime of
+                        0 when not AllowNeverExpire ->
+                            Ts + OverrideMS < Deadline;
+                        0 ->
+                            false;
+                        _ ->
+                            min(Ts + OverrideMS, StoredExpiryTime) < Deadline
+                    end
+                end
         end,
-        S0
-    ),
+    S1 = emqx_utils_stream:filter(FilterFn, S0),
     DirtyWriteIndices = dirty_indices(write),
     S2 = emqx_utils_stream:map(
         fun(RetainedMsg) ->
@@ -381,12 +403,24 @@ search_stream(Tokens, Now) ->
 
 search_stream(undefined, Tokens, Now) ->
     Ms = make_message_match_spec(Tokens, Now),
-    emqx_utils_stream:ets(
+    MsgStream = emqx_utils_stream:ets(
         fun
             (undefined) -> ets:select(?TAB_MESSAGE, Ms, 1);
             (Cont) -> ets:select(Cont)
         end
-    );
+    ),
+    case Tokens of
+        %% NOTE: Can not match only with $SPECIAL topics [MQTT-4.7.2-1].
+        [T | _] when T == '+' orelse T == '#' ->
+            emqx_utils_stream:filter(
+                fun(#retained_message{topic = [TopicToken | _]}) ->
+                    emqx_topic:match([TopicToken], [T])
+                end,
+                MsgStream
+            );
+        _ ->
+            MsgStream
+    end;
 search_stream(Index, FilterTokens, Now) ->
     {Ms, IsExactMs} = make_index_match_spec(Index, FilterTokens, Now),
     IndexRecordStream = emqx_utils_stream:ets(
@@ -415,8 +449,11 @@ search_stream(Index, FilterTokens, Now) ->
     ),
     ValidRetainMsgStream.
 
-match(_IsExactMs = true, _TopicTokens, _FilterTokens) -> true;
-match(_IsExactMs = false, TopicTokens, FilterTokens) -> emqx_topic:match(TopicTokens, FilterTokens).
+match(_IsExactMs = true, [TopicToken | _], [FilterToken | _]) ->
+    %% NOTE: Can not match only with $SPECIAL topics [MQTT-4.7.2-1].
+    emqx_topic:match([TopicToken], [FilterToken]);
+match(_IsExactMs = false, TopicTokens, FilterTokens) ->
+    emqx_topic:match(TopicTokens, FilterTokens).
 
 delete_message_by_topic(TopicTokens, Indices) ->
     case mnesia:dirty_read(?TAB_MESSAGE, TopicTokens) of
