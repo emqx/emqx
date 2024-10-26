@@ -54,6 +54,7 @@
     group_id => binary(),
     key_encoding_mode := encoding_mode(),
     max_batch_bytes := emqx_schema:bytesize(),
+    max_wait_time := non_neg_integer(),
     max_rejoin_attempts := non_neg_integer(),
     offset_commit_interval_seconds := pos_integer(),
     offset_reset_policy := offset_reset_policy(),
