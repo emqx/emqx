@@ -186,7 +186,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.12.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.4", override: true}
-  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.2", override: true}
+  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.3", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
   # in conflict by cowboy_swagger and cowboy
@@ -212,7 +212,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
-  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.14.0-emqx-1", override: true}
+  def common_dep(:ra), do: {:ra, "2.15.0", override: true}
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.3", override: true}
@@ -274,7 +274,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.0.2"}
+  def common_dep(:wolff), do: {:wolff, "4.0.3"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
@@ -625,6 +625,7 @@ defmodule EMQXUmbrella.MixProject do
         [
           applications: applications(release_type, edition_type),
           skip_mode_validation_for: [
+            :lc,
             :emqx_mix,
             :emqx_machine,
             :emqx_gateway,
@@ -1201,7 +1202,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.1.0", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.1.6", override: true}
       ],
       else: []
   end

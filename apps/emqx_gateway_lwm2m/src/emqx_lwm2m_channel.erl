@@ -37,6 +37,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
     terminate/2
@@ -178,6 +179,9 @@ send_cmd(Channel, Cmd) ->
 handle_in(Msg, Channle) ->
     NChannel = update_life_timer(Channle),
     call_session(handle_coap_in, Msg, NChannel).
+
+handle_frame_error(Error, Channel) ->
+    {shutdown, Error, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client

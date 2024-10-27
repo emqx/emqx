@@ -893,20 +893,20 @@ collect_metrics(Bridges) ->
     [#{node => Node, metrics => Metrics} || {Node, Metrics} <- Bridges].
 
 aggregate_metrics(AllMetrics) ->
-    InitMetrics = ?EMPTY_METRICS,
+    InitMetrics = ?EMPTY_METRICS_V1,
     lists:foldl(fun aggregate_metrics/2, InitMetrics, AllMetrics).
 
 aggregate_metrics(
     #{
-        metrics := ?metrics(
+        metrics := ?metrics_v1(
             M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
         )
     },
-    ?metrics(
+    ?metrics_v1(
         N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
     )
 ) ->
-    ?METRICS(
+    ?METRICS_V1(
         M1 + N1,
         M2 + N2,
         M3 + N3,
@@ -980,7 +980,7 @@ format_metrics(#{
 }) ->
     Queued = maps:get('queuing', Gauges, 0),
     SentInflight = maps:get('inflight', Gauges, 0),
-    ?METRICS(
+    ?METRICS_V1(
         Dropped,
         DroppedOther,
         DroppedExpired,
@@ -1003,7 +1003,7 @@ format_metrics(_Metrics) ->
     %% Empty metrics: can happen when a node joins another and a
     %% bridge is not yet replicated to it, so the counters map is
     %% empty.
-    ?METRICS(
+    ?METRICS_V1(
         _Dropped = 0,
         _DroppedOther = 0,
         _DroppedExpired = 0,

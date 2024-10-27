@@ -1165,7 +1165,7 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
 
 do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchResult) ->
     #{s := S0, inflight := Inflight0, stream_scheduler_s := SchedS0} = Session,
-    #srs{sub_state_id = SubStateId} = Srs0,
+    {Srs1, SubState} = maybe_update_sub_state_id(IsReplay, Srs0, S0),
     case IsReplay of
         false ->
             %% Normally we assign a new set of sequence
@@ -1182,10 +1182,10 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchR
     end,
     case FetchResult of
         {error, _, _} = Error ->
-            {Error, Srs0, Session};
+            {Error, Srs1, Session};
         {ok, end_of_stream} ->
             %% No new messages; just update the end iterator:
-            Srs = Srs0#srs{
+            Srs = Srs1#srs{
                 first_seqno_qos1 = FirstSeqnoQos1,
                 first_seqno_qos2 = FirstSeqnoQos2,
                 last_seqno_qos1 = FirstSeqnoQos1,
@@ -1199,7 +1199,6 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchR
             ),
             {ok, Srs, Session#{stream_scheduler_s := SchedS}};
         {ok, ItEnd, Messages} ->
-            SubState = emqx_persistent_session_ds_state:get_subscription_state(SubStateId, S0),
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay,
                 Session,
@@ -1210,7 +1209,7 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchR
                 Messages,
                 Inflight0
             ),
-            Srs = Srs0#srs{
+            Srs = Srs1#srs{
                 it_begin = ItBegin,
                 it_end = ItEnd,
                 batch_size = length(Messages),
@@ -1600,6 +1599,31 @@ maybe_set_will_message_timer(#{id := SessionId, s := S}) ->
             ok;
         _ ->
             ok
+    end.
+
+%% If needed, refresh reference to the subscription state in the SRS
+%% and return the updated records:
+-spec maybe_update_sub_state_id(
+    _IsReplay :: boolean(),
+    SRS,
+    emqx_persistent_session_ds_state:t()
+) ->
+    {SRS, emqx_persistent_session_ds_subs:subscription_state()}
+when
+    SRS :: emqx_persistent_session_ds_stream_scheduler:srs().
+maybe_update_sub_state_id(true, SRS = #srs{sub_state_id = SSID}, S) ->
+    %% We use old subscription state during replay to preserve the
+    %% relation between un-acked packet IDs and session sequence
+    %% numbers:
+    SubState = emqx_persistent_session_ds_state:get_subscription_state(SSID, S),
+    {SRS, SubState};
+maybe_update_sub_state_id(false, SRS = #srs{sub_state_id = SSID0}, S) ->
+    case emqx_persistent_session_ds_state:get_subscription_state(SSID0, S) of
+        #{superseded_by := SSID} ->
+            ?tp(sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
+            maybe_update_sub_state_id(false, SRS#srs{sub_state_id = SSID}, S);
+        #{} = SubState ->
+            {SRS, SubState}
     end.
 
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
