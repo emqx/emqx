@@ -41,6 +41,7 @@
     commit/2,
     commit_status_trans/2,
     get_cluster_tnx_id/0,
+    get_current_tnx_id/0,
     get_node_tnx_id/1,
     init_mfa/2,
     force_sync_tnx_id/3,
@@ -485,6 +486,10 @@ get_cluster_tnx_id() ->
         '$end_of_table' -> 0;
         Id -> Id
     end.
+
+get_current_tnx_id() ->
+    {atomic, TxId} = transaction(fun ?MODULE:get_node_tnx_id/1, [node()]),
+    TxId.
 
 get_oldest_mfa_id() ->
     case mnesia:first(?CLUSTER_MFA) of

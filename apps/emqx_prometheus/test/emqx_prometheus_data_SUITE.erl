@@ -641,6 +641,19 @@ assert_json_data__certs(Ms, _) ->
         Ms
     ).
 
+assert_json_data__cluster_rpc(Ms, _Mode) ->
+    lists:foreach(
+        fun(M) ->
+            ?assertMatch(
+                #{
+                    emqx_cluster_rpc_txid := _
+                },
+                M
+            )
+        end,
+        Ms
+    ).
+
 eval_foreach_assert(FunctionName, Ms) ->
     Fun = fun() ->
         ok = lists:foreach(
