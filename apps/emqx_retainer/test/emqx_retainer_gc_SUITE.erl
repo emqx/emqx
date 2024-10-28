@@ -115,8 +115,79 @@ t_limited_gc_runtime(Config) ->
         end
     ).
 
+%% Verifies that, even if a retained message has a long expiry time, if we set a maximum
+%% expiry time override, the latter wins.
+t_expiry_override(Config) ->
+    NumMsgs = 10,
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            %% Longer than override
+            ok = store_retained(NumMsgs, [{expiry_interval_s, 1000}, {start_n, 1} | Config]),
+            %% Shorter than override
+            ok = store_retained(NumMsgs, [{expiry_interval_s, 1}, {start_n, NumMsgs + 1} | Config]),
+            %% Would never expire.
+            ok = store_retained(NumMsgs, [
+                {expiry_interval_s, 0}, {start_n, 2 * NumMsgs + 1} | Config
+            ]),
+
+            ok = set_message_expiry_override(<<"1500ms">>, Config),
+            %% Initially, we don't override messages with infinity expiry time.
+            ok = set_allow_never_expire(true, Config),
+            {ok, {ok, _}} = ?wait_async_action(
+                enable_clear_expired(_Interval = 2_000, Config),
+                #{?snk_kind := emqx_retainer_cleared_expired, n_cleared := N} when
+                    N > 0
+            ),
+            %% Now we override messages with infinity expiry time.
+            {ok, {ok, _}} = ?wait_async_action(
+                begin
+                    ok = set_allow_never_expire(false, Config),
+                    enable_clear_expired(_Interval2 = 500, Config)
+                end,
+                #{?snk_kind := emqx_retainer_cleared_expired}
+            ),
+
+            ok = set_allow_never_expire(true, Config),
+            ok = disable_clear_expired(Config),
+            ok = unset_message_expiry_override(Config),
+            ok
+        end,
+        fun(Trace) ->
+            SubTrace =
+                lists:filter(
+                    fun
+                        (#{?snk_kind := emqx_retainer_cleared_expired, n_cleared := N}) when
+                            N > 0
+                        ->
+                            true;
+                        (_) ->
+                            false
+                    end,
+                    Trace
+                ),
+            %% `NumMsgs * 2' because we have one batch that was already going to expire
+            %% without the override, and one batch that is overridden.
+            ExpectedCleared1 = NumMsgs * 2,
+            %% Second cleared batch contains the messages that would never expire, after
+            %% we set `allow_never_expire = false' so they are affected by GC.
+            ExpectedCleared2 = NumMsgs,
+            ?assertMatch(
+                [
+                    #{complete := true, n_cleared := ExpectedCleared1},
+                    #{complete := true, n_cleared := ExpectedCleared2}
+                ],
+                SubTrace
+            ),
+            ok
+        end
+    ),
+    ok.
+
 store_retained(NMessages, Config) ->
     [N1 | _] = ?config(cluster, Config),
+    StartN = proplists:get_value(start_n, Config, 1),
+    ExpiryInterval = proplists:get_value(expiry_interval_s, Config, 1),
     ?ON(
         N1,
         lists:foreach(
@@ -128,11 +199,11 @@ store_retained(NMessages, Config) ->
                     <<"retained/", Num/binary>>,
                     <<"payload">>,
                     #{retain => true},
-                    #{properties => #{'Message-Expiry-Interval' => 1}}
+                    #{properties => #{'Message-Expiry-Interval' => ExpiryInterval}}
                 ),
                 emqx:publish(Msg)
             end,
-            lists:seq(1, NMessages)
+            lists:seq(StartN, StartN + NMessages - 1)
         )
     ).
 
@@ -144,4 +215,25 @@ enable_clear_expired(Interval, Config) ->
 disable_clear_expired(Config) ->
     [N1 | _] = ?config(cluster, Config),
     {ok, _} = ?ON(N1, emqx_retainer:update_config(#{<<"msg_clear_interval">> => 0})),
+    ok.
+
+set_message_expiry_override(Override, Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    {ok, _} = ?ON(
+        N1, emqx_retainer:update_config(#{<<"msg_expiry_interval_override">> => Override})
+    ),
+    ok.
+
+unset_message_expiry_override(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    {ok, _} = ?ON(
+        N1, emqx_retainer:update_config(#{<<"msg_expiry_interval_override">> => <<"disabled">>})
+    ),
+    ok.
+
+set_allow_never_expire(Bool, Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    {ok, _} = ?ON(
+        N1, emqx_retainer:update_config(#{<<"allow_never_expire">> => Bool})
+    ),
     ok.

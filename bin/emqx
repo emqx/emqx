@@ -374,6 +374,13 @@ maybe_use_portable_dynlibs() {
     BUILD_INFO="$(cat "${REL_DIR}/BUILD_INFO")"
     COMPATIBILITY_INFO="$(compatiblity_info 2>/dev/null || true)"
     if ! (echo -e "$COMPATIBILITY_INFO" | $GREP -q 'CRYPTO_OK'); then
+        if [[ ${RUN_EMQX_UNSAFE:-} != "I_AGREE" ]] ; then
+            logerr "Please ensure libcrypto, libncurses and libatomic1 are properly installed via Opearating System package manager."
+            logerr "You may set environment variable RUN_EMQX_UNSAFE=I_AGREE to workaround this but not recommended from security perspective."
+            logerr "For more information check: https://docs.emqx.com/en/emqx/latest/faq/deployment.html#emqx-failed-to-start-with-log-message-on-load-function-failed-crypto"
+            die "Unsafe operation detected."
+        fi
+
         ## failed to start, might be due to missing libs, try to be portable
         export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$DYNLIBS_DIR}"
         if [ "$LD_LIBRARY_PATH" != "$DYNLIBS_DIR" ]; then

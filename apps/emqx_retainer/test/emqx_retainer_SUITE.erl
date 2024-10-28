@@ -250,68 +250,49 @@ t_wildcard_subscription(Config) ->
     emqtt:publish(C1, <<"/x/y/z">>, <<"">>, [{qos, 0}, {retain, true}]),
     ok = emqtt:disconnect(C1).
 
-'t_wildcard_no_$_prefix'(Config) ->
+'t_wildcard_no_$_prefix'(_Config) ->
     {ok, C0} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C0),
     emqtt:publish(
         C0,
         <<"$test/t/0">>,
         <<"this is a retained message with $ prefix in topic">>,
-        [{qos, 0}, {retain, true}]
+        [{qos, 1}, {retain, true}]
     ),
     emqtt:publish(
         C0,
         <<"$test/test/1">>,
         <<"this is another retained message with $ prefix in topic">>,
-        [{qos, 0}, {retain, true}]
+        [{qos, 1}, {retain, true}]
     ),
 
     emqtt:publish(
         C0,
         <<"t/1">>,
         <<"this is a retained message 1">>,
-        [{qos, 0}, {retain, true}]
+        [{qos, 1}, {retain, true}]
     ),
     emqtt:publish(
         C0,
         <<"t/2">>,
         <<"this is a retained message 2">>,
-        [{qos, 0}, {retain, true}]
+        [{qos, 1}, {retain, true}]
     ),
-    publish(
+    emqtt:publish(
         C0,
         <<"/t/3">>,
         <<"this is a retained message 3">>,
-        [{qos, 0}, {retain, true}],
-        Config
+        [{qos, 1}, {retain, true}]
     ),
-
-    snabbkaffe:start_trace(),
-    SnabbkaffeSubFun = fun(NEvents) ->
-        snabbkaffe:subscribe(
-            ?match_event(#{?snk_kind := ignore_retained_message_due_to_topic_not_match}),
-            NEvents,
-            _Timeout = 10000,
-            0
-        )
-    end,
-    SnabbkaffeReceiveAndAssert = fun(SubRef, NEvents) ->
-        {ok, Trace} = snabbkaffe:receive_events(SubRef),
-        ?assertEqual(
-            NEvents, length(?of_kind(ignore_retained_message_due_to_topic_not_match, Trace))
-        )
-    end,
 
     %%%%%%%%%%
     %% C1 subscribes to `#'
-    {ok, SubRef1} = SnabbkaffeSubFun(2),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"#">>, 0),
     %% Matched 5 msgs but only receive 3 msgs, 2 ignored
     %% (`$test/t/0` and `$test/test/1` with `$` prefix in topic are ignored)
-    SnabbkaffeReceiveAndAssert(SubRef1, 2),
-    Msgs1 = receive_messages(3),
+    Msgs1 = receive_messages(5),
     ?assertMatch(
         %% The order in which messages are received is not always the same as the order in which they are published.
         %% The received order follows the order in which the indexes match.
@@ -323,8 +304,7 @@ t_wildcard_subscription(Config) ->
             #{topic := <<"t/1">>},
             #{topic := <<"t/2">>}
         ],
-        Msgs1,
-        #{msgs => Msgs1}
+        Msgs1
     ),
     ok = emqtt:disconnect(C1),
 
@@ -340,8 +320,7 @@ t_wildcard_subscription(Config) ->
             #{topic := <<"$test/t/0">>},
             #{topic := <<"$test/test/1">>}
         ],
-        Msgs2,
-        #{msgs => Msgs2}
+        Msgs2
     ),
     ok = emqtt:disconnect(C2),
 
@@ -357,31 +336,27 @@ t_wildcard_subscription(Config) ->
             #{topic := <<"t/1">>},
             #{topic := <<"t/2">>}
         ],
-        Msgs3,
-        #{msgs => Msgs3}
+        Msgs3
     ),
     ok = emqtt:disconnect(C3),
 
     %%%%%%%%%%
     %% C4 subscribes to `+/t/#'
-    {ok, SubRef4} = SnabbkaffeSubFun(1),
     {ok, C4} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C4),
     {ok, #{}, [0]} = emqtt:subscribe(C4, <<"+/t/#">>, 0),
     %% Matched 2 msgs but only receive 1 msgs, 1 ignored
     %% (`$test/t/0` with `$` prefix in topic are ignored)
-    SnabbkaffeReceiveAndAssert(SubRef4, 1),
     Msgs4 = receive_messages(1),
     ?assertMatch(
         [
             #{topic := <<"/t/3">>}
         ],
-        Msgs4,
-        #{msgs => Msgs4}
+        Msgs4
     ),
     ok = emqtt:disconnect(C4),
 
-    snabbkaffe:stop(),
+    ?assertNotReceive(_),
 
     ok.
 

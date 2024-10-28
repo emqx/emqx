@@ -65,24 +65,24 @@ clear_banned_api.label:
 """Clear"""
 
 filter_clientid.desc:
-"""Query the banned objects with an exact client ID."""
+"""Query the banning rules with an exact client ID."""
 
 filter_username.desc:
-"""Query the banned objects with an exact username."""
+"""Query the banning rules with an exact username."""
 
 filter_peerhost.desc:
-"""Query the banned objects with an exact IP address."""
+"""Query the banning rules with an exact IP address."""
 
 filter_like_clientid.desc:
-"""Fuzzy query banned objects with a regular expression for client ID."""
+"""Fuzzy query banning rules with a regular expression for client ID."""
 
 filter_like_username.desc:
-"""Fuzzy query banned objects with a regular expression for username."""
+"""Fuzzy query banning rules with a regular expression for username."""
 
 filter_like_peerhost.desc:
-"""Fuzzy query banned objects with a regular expression for IP address."""
+"""Fuzzy query banning rules with a regular expression for IP address."""
 
 filter_like_peerhost_net.desc:
-"""Fuzzy query banned objects with a regular expression for CIDR."""
+"""Fuzzy query banning rules with a regular expression for CIDR."""
 
 }

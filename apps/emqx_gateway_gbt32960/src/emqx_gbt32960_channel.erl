@@ -20,6 +20,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
     terminate/2,
@@ -271,8 +272,11 @@ handle_in(Frame = #frame{cmd = Cmd}, Channel = #channel{inflight = Inflight}) ->
     _ = upstreaming(Frame, NChannel),
     {ok, [{outgoing, Outgoings}], NChannel};
 handle_in(Frame, Channel) ->
-    log(warning, #{msg => "unexpected_frame", frame => Frame}, Channel),
+    log(warning, #{msg => "unexpected_gbt32960_frame", frame => Frame}, Channel),
     {ok, Channel}.
+
+handle_frame_error(Reason, Channel) ->
+    shutdown(Reason, Channel).
 
 %%--------------------------------------------------------------------
 %% Handle out

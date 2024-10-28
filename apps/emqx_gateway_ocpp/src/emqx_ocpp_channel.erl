@@ -41,6 +41,7 @@
     init/2,
     authenticate/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_deliver/2,
     handle_out/3,
     handle_timeout/3,
@@ -436,16 +437,20 @@ handle_in(Frame = #{type := Type}, Channel) when
 ->
     _ = publish(Frame, Channel),
     try_deliver(Channel);
-handle_in({frame_error, {badjson, ReasonStr}}, Channel) ->
+handle_in(Frame, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
+    {ok, Channel}.
+
+handle_frame_error({badjson, ReasonStr}, Channel) ->
     shutdown({frame_error, {badjson, iolist_to_binary(ReasonStr)}}, Channel);
-handle_in({frame_error, {validation_faliure, Id, ReasonStr}}, Channel) ->
+handle_frame_error({validation_failure, Id, ReasonStr}, Channel) ->
     handle_out(
         dnstream,
         ?ERR_FRAME(Id, ?OCPP_ERR_FormationViolation, iolist_to_binary(ReasonStr)),
         Channel
     );
-handle_in(Frame, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_incoming", frame => Frame}),
+handle_frame_error(Reason, Channel) ->
+    ?SLOG(error, #{msg => "ocpp_frame_error", reason => Reason}),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------
