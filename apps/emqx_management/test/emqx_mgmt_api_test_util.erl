@@ -112,7 +112,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, [], Opts) when
             _ -> Url ++ "?" ++ build_query_string(QueryParams)
         end,
     do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, Opts);
-request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
+request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
     (Method =:= post) orelse
         (Method =:= patch) orelse
         (Method =:= put) orelse
@@ -124,9 +124,14 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body, Opts) when
             "" -> Url;
             _ -> Url ++ "?" ++ QueryParams
         end,
+    Body =
+        case Body0 of
+            {raw, B} -> B;
+            _ -> emqx_utils_json:encode(Body0)
+        end,
     do_request_api(
         Method,
-        {NewUrl, build_http_header(AuthOrHeaders), ContentType, emqx_utils_json:encode(Body)},
+        {NewUrl, build_http_header(AuthOrHeaders), ContentType, Body},
         maps:remove('content-type', Opts)
     ).
 

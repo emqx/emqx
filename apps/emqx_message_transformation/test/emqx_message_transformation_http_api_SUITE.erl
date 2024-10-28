@@ -262,7 +262,7 @@ upload_backup(BackupFilePath) ->
 
 export_backup() ->
     Path = emqx_mgmt_api_test_util:api_path(["data", "export"]),
-    Res = request(post, Path, []),
+    Res = request(post, Path, {raw, <<>>}),
     simplify_result(Res).
 
 import_backup(BackupName) ->

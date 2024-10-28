@@ -16,9 +16,12 @@
 
 -module(emqx_mgmt_data_backup).
 
+-feature(maybe_expr, enable).
+
 -export([
     export/0,
-    export_for_cloud/0,
+    all_table_set_names/0,
+    compile_mnesia_table_filter/1,
     export/1,
     import/1,
     import/2,
@@ -111,6 +114,14 @@
 -type import_res() ::
     {ok, #{db_errors => db_error_details(), config_errors => config_error_details()}} | {error, _}.
 
+-type export_opts() :: #{
+    mnesia_table_filter => mnesia_table_filter(),
+    print_fun => fun((io:format(), [term()]) -> ok),
+    raw_conf_transform => fun((raw_config()) -> raw_config())
+}.
+-type raw_config() :: #{binary() => any()}.
+-type mnesia_table_filter() :: fun((atom()) -> boolean()).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -119,16 +130,33 @@
 export() ->
     export(?DEFAULT_OPTS).
 
--spec export_for_cloud() -> {ok, backup_file_info()} | {error, _}.
-export_for_cloud() ->
-    Default = ?DEFAULT_OPTS,
-    Opts = Default#{
-        raw_conf_transform => fun cloud_export_raw_conf_transform/1,
-        mnesia_table_filter => fun cloud_export_mnesia_table_filter/1
-    },
-    export(Opts).
+-spec compile_mnesia_table_filter([binary()]) -> {ok, mnesia_table_filter()} | {error, any()}.
+compile_mnesia_table_filter(TableSets) ->
+    Mapping = table_set_to_module_mapping(),
+    {TableNames, Errors} =
+        lists:foldl(
+            fun(TableSetName, {TableAcc, ErrorAcc}) ->
+                maybe
+                    {ok, Mod} ?= maps:find(TableSetName, Mapping),
+                    Tables = Mod:backup_tables(),
+                    {lists:usort(Tables ++ TableAcc), ErrorAcc}
+                else
+                    error ->
+                        {TableAcc, [TableSetName | ErrorAcc]}
+                end
+            end,
+            {[], []},
+            TableSets
+        ),
+    case Errors of
+        [] ->
+            Filter = fun(Table) -> lists:member(Table, TableNames) end,
+            {ok, Filter};
+        _ ->
+            {error, Errors}
+    end.
 
--spec export(map()) -> {ok, backup_file_info()} | {error, _}.
+-spec export(export_opts()) -> {ok, backup_file_info()} | {error, _}.
 export(Opts) ->
     {BackupName, TarDescriptor} = prepare_new_backup(Opts),
     try
@@ -147,6 +175,27 @@ export(Opts) ->
         catch erl_tar:close(TarDescriptor),
         file:del_dir_r(BackupName)
     end.
+
+-spec all_table_set_names() -> [binary()].
+all_table_set_names() ->
+    Key = {?MODULE, all_table_set_names},
+    case persistent_term:get(Key, undefined) of
+        undefined ->
+            Names = build_all_table_set_names(),
+            persistent_term:put(Key, Names),
+            Names;
+        Names ->
+            Names
+    end.
+
+build_all_table_set_names() ->
+    Mods = modules_with_mnesia_tabs_to_backup(),
+    lists:sort(
+        lists:map(
+            fun emqx_db_backup:table_set_name/1,
+            Mods
+        )
+    ).
 
 -spec import(file:filename_all()) -> import_res().
 import(BackupFileName) ->
@@ -440,13 +489,13 @@ do_export_mnesia_tab(TabName, BackupName) ->
 -ifdef(TEST).
 tabs_to_backup() ->
     %% Allow mocking in tests
-    ?MODULE:mnesia_tabs_to_backup().
+    ?MODULE:modules_with_mnesia_tabs_to_backup().
 -else.
 tabs_to_backup() ->
-    mnesia_tabs_to_backup().
+    modules_with_mnesia_tabs_to_backup().
 -endif.
 
-mnesia_tabs_to_backup() ->
+modules_with_mnesia_tabs_to_backup() ->
     lists:flatten([M || M <- find_behaviours(emqx_db_backup)]).
 
 mnesia_backup_name(Path, TabName) ->
@@ -1008,31 +1057,27 @@ apps() ->
         end
     ].
 
-cloud_export_raw_conf_transform(RawConf) ->
-    maps:with(
-        [
-            <<"connectors">>,
-            <<"actions">>,
-            <<"sources">>,
-            <<"rule_engine">>,
-            <<"schema_registry">>
-        ],
-        RawConf
-    ).
+-spec table_set_to_module_mapping() -> #{binary() => module()}.
+table_set_to_module_mapping() ->
+    Key = {?MODULE, table_set_to_module_mapping},
+    case persistent_term:get(Key, undefined) of
+        undefined ->
+            Mapping = build_table_set_to_module_mapping(),
+            persistent_term:put(Key, Mapping),
+            Mapping;
+        Mapping ->
+            Mapping
+    end.
 
-cloud_export_mnesia_table_filter(TableName) ->
-    lists:member(
-        TableName,
-        [
-            %% mnesia builtin authn
-            emqx_authn_mnesia,
-            emqx_authn_scram_mnesia,
-            %% mnesia builtin authz
-            emqx_acl,
-            %% banned
-            emqx_banned,
-            emqx_banned_rules
-        ]
+build_table_set_to_module_mapping() ->
+    Mods = modules_with_mnesia_tabs_to_backup(),
+    lists:foldl(
+        fun(Mod, Acc) ->
+            Name = emqx_db_backup:table_set_name(Mod),
+            Acc#{Name => Mod}
+        end,
+        #{},
+        Mods
     ).
 
 -ifdef(TEST).
