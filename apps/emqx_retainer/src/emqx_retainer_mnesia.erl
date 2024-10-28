@@ -60,6 +60,7 @@
 
 -export([
     backup_tables/0,
+    table_set_name/0,
     on_backup_table_imported/2
 ]).
 
@@ -89,6 +90,8 @@ topics() ->
 
 backup_tables() ->
     [?TAB_MESSAGE || is_enabled()].
+
+table_set_name() -> <<"builtin_retainer">>.
 
 on_backup_table_imported(?TAB_MESSAGE, Opts) ->
     case is_enabled() of

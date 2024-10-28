@@ -16,11 +16,15 @@
 
 -module(emqx_db_backup).
 
+-export([table_set_name/1]).
+
 -type traverse_break_reason() :: over | migrate.
 
 -type opts() :: #{print_fun => fun((io:format(), [term()]) -> ok)}.
 
 -callback backup_tables() -> [mria:table()].
+
+-callback table_set_name() -> binary().
 
 %% validate the backup
 %% return `ok` to traverse the next item
@@ -39,3 +43,7 @@
 -optional_callbacks([validate_mnesia_backup/1, migrate_mnesia_backup/1, on_backup_table_imported/2]).
 
 -export_type([traverse_break_reason/0]).
+
+-spec table_set_name(module()) -> binary().
+table_set_name(Mod) ->
+    Mod:table_set_name().

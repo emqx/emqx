@@ -55,7 +55,8 @@
 %% Data backup
 -export([
     import_config/1,
-    backup_tables/0
+    backup_tables/0,
+    table_set_name/0
 ]).
 
 -record(psk_entry, {
@@ -95,6 +96,8 @@ create_tables() ->
 %%------------------------------------------------------------------------------
 
 backup_tables() -> [?TAB].
+
+table_set_name() -> <<"psk">>.
 
 %%------------------------------------------------------------------------------
 %% APIs

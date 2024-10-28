@@ -1034,3 +1034,30 @@ cloud_export_mnesia_table_filter(TableName) ->
             emqx_banned_rules
         ]
     ).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+%% Different implementations of `emqx_db_backup' behaviour should have distinct names.
+ensure_no_table_set_name_clash_test() ->
+    UmbrellaApps = emqx_machine_boot:reboot_apps(),
+    lists:foreach(fun(App) -> application:load(App) end, UmbrellaApps),
+    Mods = modules_with_mnesia_tabs_to_backup(),
+    Names = lists:sort(
+        lists:map(
+            fun(Mod) ->
+                try
+                    emqx_db_backup:table_set_name(Mod)
+                catch
+                    error:undef ->
+                        ct:fail("module ~s is missing an implementation of `table_set_name'", [Mod])
+                end
+            end,
+            Mods
+        )
+    ),
+    UniqueNames = lists:usort(Names),
+    Duplicates = Names -- UniqueNames,
+    ?assertEqual([], Duplicates),
+    ok.
+-endif.
