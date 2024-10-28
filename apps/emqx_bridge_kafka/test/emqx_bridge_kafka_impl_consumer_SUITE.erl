@@ -17,7 +17,6 @@
 -define(BRIDGE_TYPE_BIN, <<"kafka_consumer">>).
 -define(CONNECTOR_TYPE_BIN, <<"kafka_consumer">>).
 -define(SOURCE_TYPE_BIN, <<"kafka_consumer">>).
--define(APPS, [emqx_bridge, emqx_resource, emqx_rule_engine, emqx_bridge_kafka]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate

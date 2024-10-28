@@ -20,4 +20,9 @@ emqx_bridge_kafka_consumer_schema {
   group_id.label:
   """Custom Consumer Group Id"""
 
+  max_wait_time.desc:
+  """Maximum amount of time that is waited for the Kafka broker to send a fetch response."""
+  max_wait_time.label:
+  """Max Wait Time"""
+
 }

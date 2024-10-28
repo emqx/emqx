@@ -92,6 +92,14 @@ fields(source_parameters) ->
                     required => false,
                     desc => ?DESC(group_id)
                 }
+            )},
+        {max_wait_time,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"1s">>,
+                    desc => ?DESC("max_wait_time")
+                }
             )}
         | Fields
     ];

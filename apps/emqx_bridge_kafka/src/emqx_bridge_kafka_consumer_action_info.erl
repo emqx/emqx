@@ -36,8 +36,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     {Params1, V1Config4} = maps:take(<<"parameters">>, V1Config3),
     TopLevelCfgKeys = [to_bin(K) || {K, _} <- emqx_bridge_kafka:fields(consumer_opts), K =/= kafka],
     TopLevelCfg = maps:with(TopLevelCfgKeys, Params1),
-    %% `topic' is v2-only
-    Params = maps:without([<<"topic">> | TopLevelCfgKeys], Params1),
+    Params = maps:with(v1_source_parameters(), Params1),
     V1Config5 = emqx_utils_maps:deep_merge(V1Config4, TopLevelCfg),
     V1Config = emqx_utils_maps:update_if_present(
         <<"resource_opts">>,
@@ -63,6 +62,14 @@ bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
 %%------------------------------------------------------------------------------------------
 %% Internal helper functions
 %%------------------------------------------------------------------------------------------
+
+v1_source_parameters() ->
+    [
+        <<"max_batch_bytes">>,
+        <<"max_rejoin_attempts">>,
+        <<"offset_commit_interval_seconds">>,
+        <<"offset_reset_policy">>
+    ].
 
 %% The new schema has a single kafka topic, so we take it from topic mapping when
 %% converting from v1.
