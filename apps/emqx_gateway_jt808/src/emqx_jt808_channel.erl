@@ -21,6 +21,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
     handle_call/3,
@@ -237,8 +238,11 @@ handle_in(Frame = ?MSG(MType), Channel) when
     ?SLOG(debug, #{msg => "recv_frame", frame => Frame, info => "jt808_client_deregister"}),
     do_handle_in(Frame, Channel#channel{conn_state = disconnected});
 handle_in(Frame, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
+    ?SLOG(error, #{msg => "unexpected_lwm2m_frame", frame => Frame}),
     {shutdown, unexpected_frame, Channel}.
+
+handle_frame_error(Reason, Channel) ->
+    {shutdown, Reason, Channel}.
 
 %% @private
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->

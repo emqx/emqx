@@ -1296,6 +1296,7 @@ format_metrics(#{
     }
 }) ->
     Queued = maps:get('queuing', Gauges, 0),
+    QueuedBytes = maps:get('queuing_bytes', Gauges, 0),
     SentInflight = maps:get('inflight', Gauges, 0),
     ?METRICS(
         Dropped,
@@ -1306,6 +1307,7 @@ format_metrics(#{
         DroppedResourceStopped,
         Matched,
         Queued,
+        QueuedBytes,
         Retried,
         LateReply,
         SentFailed,
@@ -1332,6 +1334,7 @@ empty_metrics() ->
         _DroppedResourceStopped = 0,
         _Matched = 0,
         _Queued = 0,
+        _QueuedBytes = 0,
         _Retried = 0,
         _LateReply = 0,
         _SentFailed = 0,
@@ -1365,11 +1368,11 @@ aggregate_metrics(AllMetrics) ->
 aggregate_metrics(
     #{
         metrics := ?metrics(
-            M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+            M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17, M18
         )
     },
     ?metrics(
-        N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+        N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17, N18
     )
 ) ->
     ?METRICS(
@@ -1389,7 +1392,8 @@ aggregate_metrics(
         M14 + N14,
         M15 + N15,
         M16 + N16,
-        M17 + N17
+        M17 + N17,
+        M18 + N18
     ).
 
 fill_defaults(ConfRootKey, Type, RawConf) ->

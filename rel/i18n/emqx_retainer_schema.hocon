@@ -59,4 +59,11 @@ http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038
 
 delivery_rate.desc:
 """The maximum rate of delivering retained messages"""
+
+msg_expiry_interval_override.desc:
+"""If set, this value will take precedence over any `Message-Expiry-Interval` property specified in retained MQTT messages, allowing messages to expire earlier if necessary."""
+
+allow_never_expire.desc:
+"""If true, retained messages set to never expire (i.e., whose `Message-Expiry-Interval = 0`) are not affected by the expiry time override.  This configuration only takes effect when `msg_expiry_interval_override` is set."""
+
 }

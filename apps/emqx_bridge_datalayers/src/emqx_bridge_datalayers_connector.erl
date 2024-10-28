@@ -47,6 +47,8 @@
     default_port => ?DATALAYERS_DEFAULT_PORT
 }).
 
+-define(DEFAULT_POOL_SIZE, 8).
+
 %%--------------------------------------------------------------------
 %% resource callback
 
@@ -143,7 +145,16 @@ roots() ->
 
 fields("connector") ->
     [
-        server_field(),
+        {server, server()},
+        {pool_size,
+            mk(
+                integer(),
+                #{
+                    required => false,
+                    default => ?DEFAULT_POOL_SIZE,
+                    desc => ?DESC("pool_size")
+                }
+            )},
         {parameters,
             mk(
                 hoconsc:union([
@@ -154,9 +165,6 @@ fields("connector") ->
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("datalayers_influxdb_v1_parameters") ->
     datalayers_parameters_fields().
-
-server_field() ->
-    {server, server()}.
 
 precision_field() ->
     {precision,

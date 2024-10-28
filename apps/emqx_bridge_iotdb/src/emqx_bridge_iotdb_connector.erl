@@ -334,7 +334,7 @@ on_start(
                 2
         end,
 
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?THRIFT_HOST_OPTIONS),
+    Addresses = emqx_schema:parse_servers(Server, ?THRIFT_HOST_OPTIONS),
 
     DriverOpts = maps:merge(
         #{
@@ -357,8 +357,7 @@ on_start(
 
     IoTDBOpts = IoTDBOpts0#{
         version => Version,
-        host => Host,
-        port => Port,
+        addresses => Addresses,
         options => DriverOpts1
     },
 
@@ -515,14 +514,13 @@ on_query_async(
     InstanceId,
     Req,
     _ReplyFunAndArgs0,
-    #{driver := thrift} = State
+    #{driver := thrift}
 ) ->
     ?SLOG(error, #{
         msg => "iotdb_bridge_async_query_failed",
         instance_id => InstanceId,
         send_message => Req,
-        reason => ?THRIFT_NOT_SUPPORT_ASYNC_MSG,
-        state => emqx_utils:redact(State)
+        reason => ?THRIFT_NOT_SUPPORT_ASYNC_MSG
     }),
     {error, not_support}.
 
@@ -565,14 +563,13 @@ on_batch_query_async(
     InstanceId,
     Req,
     _ReplyFunAndArgs0,
-    #{driver := thrift} = State
+    #{driver := thrift}
 ) ->
     ?SLOG(error, #{
         msg => "iotdb_bridge_async_query_failed",
         instance_id => InstanceId,
         send_message => Req,
-        reason => ?THRIFT_NOT_SUPPORT_ASYNC_MSG,
-        state => emqx_utils:redact(State)
+        reason => ?THRIFT_NOT_SUPPORT_ASYNC_MSG
     }),
     {error, not_support}.
 
