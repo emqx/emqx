@@ -433,11 +433,12 @@ t_send_message_unhealthy_channel(_) ->
     OnGetStatusFun = wrap_fun(fun() ->
         ets:lookup_element(OnGetStatusResponseETS, status_value, 2)
     end),
+    Name = my_test_bridge,
     Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => OnGetStatusFun},
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), Name, Conf),
     %% Register name for this process
     register(registered_process_name(), self()),
-    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1}),
+    _ = emqx_bridge_v2:send_message(bridge_type(), Name, <<"my_msg">>, #{timeout => 1}),
     receive
         Any ->
             ct:pal("Received message: ~p", [Any]),
@@ -447,6 +448,14 @@ t_send_message_unhealthy_channel(_) ->
     end,
     %% Sending should work again after the channel is healthy
     ets:insert(OnGetStatusResponseETS, {status_value, connected}),
+    ?retry(
+        200,
+        5,
+        ?assertMatch(
+            #{status := connected},
+            emqx_bridge_v2:health_check(bridge_type(), Name)
+        )
+    ),
     _ = emqx_bridge_v2:send_message(
         bridge_type(),
         my_test_bridge,
