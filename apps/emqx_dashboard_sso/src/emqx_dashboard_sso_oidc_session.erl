@@ -72,16 +72,23 @@ stop() ->
     ok.
 
 new(Data) ->
-    State = new_state(),
-    ets:insert(
-        ?TAB,
-        #?TAB{
-            state = State,
-            created_at = ?NOW,
-            data = Data
-        }
-    ),
-    State.
+    case ets:whereis(?TAB) of
+        undefined ->
+            %% The OIDCC may crash for some reason, even if we have some monitor to observe it
+            %% users also may open an OIDC login before the monitor finds it has crashed
+            {error, <<"No valid OIDC provider">>};
+        _ ->
+            State = new_state(),
+            ets:insert(
+                ?TAB,
+                #?TAB{
+                    state = State,
+                    created_at = ?NOW,
+                    data = Data
+                }
+            ),
+            {ok, State}
+    end.
 
 delete(State) ->
     ets:delete(?TAB, State).

@@ -214,25 +214,28 @@ login(
     }),
 
     Data = maps:with([nonce, require_pkce, pkce_verifier], Opts),
-    State = emqx_dashboard_sso_oidc_session:new(Data),
-
-    case
-        oidcc:create_redirect_url(
-            ?PROVIDER_SVR_NAME,
-            ClientId,
-            emqx_secret:unwrap(Secret),
-            Opts#{
-                state => State,
-                client_jwks => ClientJwks,
-                preferred_auth_methods => AuthMethods
-            }
-        )
-    of
-        {ok, [Base, Delimiter, Params]} ->
-            RedirectUri = <<Base/binary, Delimiter/binary, Params/binary>>,
-            Redirect = {302, ?RESPHEADERS#{<<"location">> => RedirectUri}, ?REDIRECT_BODY},
-            {redirect, Redirect};
-        {error, _Reason} = Error ->
+    case emqx_dashboard_sso_oidc_session:new(Data) of
+        {ok, State} ->
+            case
+                oidcc:create_redirect_url(
+                    ?PROVIDER_SVR_NAME,
+                    ClientId,
+                    emqx_secret:unwrap(Secret),
+                    Opts#{
+                        state => State,
+                        client_jwks => ClientJwks,
+                        preferred_auth_methods => AuthMethods
+                    }
+                )
+            of
+                {ok, [Base, Delimiter, Params]} ->
+                    RedirectUri = <<Base/binary, Delimiter/binary, Params/binary>>,
+                    Redirect = {302, ?RESPHEADERS#{<<"location">> => RedirectUri}, ?REDIRECT_BODY},
+                    {redirect, Redirect};
+                {error, _Reason} = Error ->
+                    Error
+            end;
+        Error ->
             Error
     end.
 
