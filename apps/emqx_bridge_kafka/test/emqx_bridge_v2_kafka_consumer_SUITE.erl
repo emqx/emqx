@@ -441,3 +441,28 @@ t_custom_group_id(Config) ->
         []
     ),
     ok.
+
+%% Currently, brod treats a consumer process to a specific topic as a singleton (per
+%% client id / connector), meaning that the first subscriber to a given topic will define
+%% the consumer options for all other consumers, and those options persist even after the
+%% original consumer group is terminated.  We enforce that, if the user wants to consume
+%% multiple times from the same topic, then they must create a different connector.
+t_repeated_topics(Config) ->
+    ?check_trace(
+        begin
+            %% first source is fine
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_bridge_api(Config),
+            %% second source fails to create
+            Name2 = <<"duplicated">>,
+            {201, #{<<"error">> := Error}} =
+                emqx_bridge_v2_testlib:create_source_api([{source_name, Name2} | Config]),
+            ?assertEqual(
+                match,
+                re:run(Error, <<"Topics .* already exist in other sources">>, [{capture, none}])
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.

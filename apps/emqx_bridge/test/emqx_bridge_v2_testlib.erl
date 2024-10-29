@@ -458,6 +458,24 @@ create_action_api(Config, Overrides) ->
     ct:pal("action create (http) result:\n  ~p", [Res]),
     Res.
 
+create_source_api(Config) ->
+    create_source_api(Config, _Overrides = #{}).
+
+create_source_api(Config, Overrides) ->
+    #{
+        kind := source,
+        type := Type,
+        name := Name
+    } = get_common_values(Config),
+    ActionConfig0 = get_value(source_config, Config),
+    ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, Overrides),
+    Params = ActionConfig#{<<"type">> => Type, <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["sources"]),
+    ct:pal("creating source (http):\n  ~p", [Params]),
+    Res = request(post, Path, Params),
+    ct:pal("source create (http) result:\n  ~p", [Res]),
+    simplify_result(Res).
+
 get_action_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
