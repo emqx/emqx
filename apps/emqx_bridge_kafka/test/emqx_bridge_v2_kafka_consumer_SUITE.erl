@@ -209,7 +209,7 @@ source_config(Overrides0) ->
                     <<"max_batch_bytes">> => <<"896KB">>,
                     <<"max_wait_time">> => <<"500ms">>,
                     <<"max_rejoin_attempts">> => <<"5">>,
-                    <<"offset_reset_policy">> => <<"latest">>,
+                    <<"offset_reset_policy">> => <<"earliest">>,
                     <<"topic">> => <<"please override">>,
                     <<"value_encoding_mode">> => <<"none">>
                 },
@@ -218,7 +218,7 @@ source_config(Overrides0) ->
                 <<"resume_interval">> => <<"2s">>
             }
         },
-    maps:merge(CommonConfig, Overrides).
+    emqx_utils_maps:deep_merge(CommonConfig, Overrides).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -280,6 +280,7 @@ t_consume(Config) ->
     ok = emqx_bridge_v2_testlib:t_consume(
         Config,
         #{
+            test_timeout => timer:seconds(20),
             consumer_ready_tracepoint => ?match_n_events(
                 NumPartitions,
                 #{?snk_kind := kafka_consumer_subscriber_init}
