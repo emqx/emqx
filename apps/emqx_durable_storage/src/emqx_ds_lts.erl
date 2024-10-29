@@ -232,8 +232,10 @@ trie_copy_learned_paths(OldTrie, NewTrie) ->
 -spec topic_key(trie(), threshold_fun(), [level()]) -> msg_storage_key().
 topic_key(Trie, ThresholdFun, [<<"$", _/bytes>> | _] = Tokens) ->
     %% [MQTT-4.7.2-1]
-    %% Put any topic starting with `$' into a separate root so they won't match
-    %% with `#' / `+/...' subscriptions.
+    %% Put any topic starting with `$` into a separate _special_ root.
+    %% Using a special root only when the topic and the filter start with $<X>
+    %% prevents special topics from matching with + or # pattern, but not with
+    %% $<X>/+ or $<X>/# pattern. See also `match_topics/2`.
     do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, [], []);
 topic_key(Trie, ThresholdFun, Tokens) ->
     do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, [], []).
@@ -248,8 +250,10 @@ lookup_topic_key(Trie, Tokens) ->
     [msg_storage_key()].
 match_topics(Trie, [<<"$", _/bytes>> | _] = TopicFilter) ->
     %% [MQTT-4.7.2-1]
-    %% Any topics starting with `$' should belong to a separate root, match there
-    %% instead.
+    %% Any topics starting with `$` should belong to a separate _special_ root.
+    %% Using a special root only when the topic and the filter start with $<X>
+    %% prevents special topics from matching with + or # pattern, but not with
+    %% $<X>/+ or $<X>/# pattern.
     do_match_topics(Trie, ?PREFIX_SPECIAL, [], TopicFilter);
 match_topics(Trie, TopicFilter) ->
     do_match_topics(Trie, ?PREFIX, [], TopicFilter).
