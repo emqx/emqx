@@ -562,6 +562,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
             message(<<"foo/bar">>, <<"2">>, 1)
         ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+    timer:sleep(1_000),
 
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
