@@ -391,12 +391,14 @@ parse_incoming(Data, PS) ->
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
             ?SLOG(info, #{
+                msg => "frame_parse_error",
                 reason => Reason,
                 input_bytes => Data
             }),
             {[{frame_error, Reason}], PS};
         error:Reason:Stacktrace ->
             ?SLOG(error, #{
+                msg => "frame_parse_failed",
                 input_bytes => Data,
                 reason => Reason,
                 stacktrace => Stacktrace

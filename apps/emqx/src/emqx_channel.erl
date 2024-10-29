@@ -1021,7 +1021,7 @@ handle_frame_error(
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    ShutdownCount = shutdown_count(frame_error, Reason),
+    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
     case proto_ver(Reason, ConnInfo) of
         ?MQTT_PROTO_V5 ->
             handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
@@ -1037,7 +1037,7 @@ handle_frame_error(
     is_map(Reason) andalso
         (ConnState == idle orelse ConnState == connecting)
 ->
-    ShutdownCount = shutdown_count(frame_error, Reason),
+    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
     ProtoVer = proto_ver(Reason, ConnInfo),
     NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
     case ProtoVer of
@@ -1051,7 +1051,7 @@ handle_frame_error(
     Channel = #channel{conn_state = connecting}
 ) ->
     shutdown(
-        shutdown_count(frame_error, Reason),
+        shutdown_count(frame_error, Reason, Channel),
         ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
         Channel
     );
@@ -2727,6 +2727,11 @@ shutdown(success, Reply, Packet, Channel) ->
     shutdown(normal, Reply, Packet, Channel);
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
+
+shutdown_count(Kind, Reason, #channel{conninfo = ConnInfo}) ->
+    Keys = [clientid, username, sockname, peername, proto_name, proto_ver],
+    ShutdownCntMeta = maps:with(Keys, ConnInfo),
+    maps:merge(shutdown_count(Kind, Reason), ShutdownCntMeta).
 
 %% process exits with {shutdown, #{shutdown_count := Kind}} will trigger
 %% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind
