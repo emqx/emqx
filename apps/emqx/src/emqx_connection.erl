@@ -95,7 +95,7 @@
     sockname :: emqx_types:peername(),
     %% Sock State
     sockstate :: emqx_types:sockstate(),
-    parse_state :: emqx_frame:parse_state(),
+    parse_state :: emqx_frame_parser:options(),
     %% Serialize options
     serialize :: emqx_frame:serialize_opts(),
     %% Channel State
@@ -333,7 +333,7 @@ init_state(
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    ParseState = emqx_frame:initial_parse_state(FrameOpts),
+    ParseState = emqx_frame_parser:init_options(FrameOpts),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
@@ -792,34 +792,30 @@ next_incoming_msgs(Packets, Msgs, State) ->
 
 parse_incoming(<<>>, Packets, State) ->
     {Packets, State};
-parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
-    try emqx_frame:parse(Data, ParseState) of
-        {more, NParseState} ->
-            {Packets, State#state{parse_state = NParseState}};
-        {ok, Packet, Rest, NParseState} ->
-            NState = State#state{parse_state = NParseState},
-            parse_incoming(Rest, [Packet | Packets], NState)
+parse_incoming(Data, [], State = #state{parse_state = ParseState}) ->
+    try emqx_frame_parser:parse(Data, ParseState) of
+        Packet = #mqtt_packet{variable = #mqtt_packet_connect{}} ->
+            NParseState = emqx_frame_parser:update_options(Packet, ParseState),
+            {[Packet], State#state{parse_state = NParseState}};
+        Packet ->
+            {[Packet], State}
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
             ?LOG(info, #{
                 msg => "frame_parse_error",
                 reason => Reason,
-                at_state => emqx_frame:describe_state(ParseState),
-                input_bytes => Data,
-                parsed_packets => Packets
+                input_bytes => Data
             }),
             NState = enrich_state(Reason, State),
-            {[{frame_error, Reason} | Packets], NState};
+            {[{frame_error, Reason}], NState};
         error:Reason:Stacktrace ->
             ?LOG(error, #{
                 msg => "frame_parse_failed",
-                at_state => emqx_frame:describe_state(ParseState),
                 input_bytes => Data,
-                parsed_packets => Packets,
                 reason => Reason,
                 stacktrace => Stacktrace
             }),
-            {[{frame_error, Reason} | Packets], State}
+            {[{frame_error, Reason}], State}
     end.
 
 %%--------------------------------------------------------------------

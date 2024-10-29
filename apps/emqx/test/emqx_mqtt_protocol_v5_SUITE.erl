@@ -163,6 +163,19 @@ t_basic_test(Config) ->
     ?assertEqual(3, length(receive_messages(3))),
     ok = emqtt:disconnect(C).
 
+t_basic_large_packets(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(2, ?TOPICS),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 20), 1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 200), 1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 2000), 1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 20000), 1),
+    ?assertEqual(4, length(receive_messages(4))),
+    ok = emqtt:disconnect(C).
+
 %%--------------------------------------------------------------------
 %% Connection
 %%--------------------------------------------------------------------
