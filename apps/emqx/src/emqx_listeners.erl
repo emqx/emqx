@@ -594,8 +594,9 @@ perform_listener_change(stop, {Type, Name, Conf}) ->
     stop_listener(Type, Name, Conf).
 
 esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
-    Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
+    Zone = zone(Opts0),
     Limiter = limiter(Opts0),
+    Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Opts2 =
         case emqx_limiter_utils:extract_with_type(connection, Limiter) of
             undefined ->
@@ -620,17 +621,23 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
                 }
             ]}
     },
+    PacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
     maps:to_list(
         case Type of
             tcp ->
-                Opts3#{tcp_options => tcp_opts(Opts0)};
+                Opts3#{
+                    tcp_options => tcp_opts(Opts0#{packet_size => PacketSize})
+                };
             ssl ->
                 OptsWithCRL = inject_crl_config(Opts0, OldOpts),
                 OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
                 OptsWithRootFun = inject_root_fun(OptsWithSNI),
                 OptsWithVerifyFun = inject_verify_fun(OptsWithRootFun),
                 SSLOpts = ssl_opts(OptsWithVerifyFun),
-                Opts3#{ssl_options => SSLOpts, tcp_options => tcp_opts(Opts0)}
+                Opts3#{
+                    ssl_options => SSLOpts,
+                    tcp_options => tcp_opts(Opts0#{packet_size => PacketSize})
+                }
         end
     ).
 

@@ -25,7 +25,7 @@
 
 -define(MQTT_SOCKOPTS, [
     binary,
-    {packet, raw},
+    {packet, mqtt},
     {reuseaddr, true},
     {backlog, 512},
     {nodelay, true}
