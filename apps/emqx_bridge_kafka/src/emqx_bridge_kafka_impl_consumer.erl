@@ -54,6 +54,7 @@
     group_id => binary(),
     key_encoding_mode := encoding_mode(),
     max_batch_bytes := emqx_schema:bytesize(),
+    max_wait_time := non_neg_integer(),
     max_rejoin_attempts := non_neg_integer(),
     offset_commit_interval_seconds := pos_integer(),
     offset_reset_policy := offset_reset_policy(),
@@ -414,6 +415,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID) ->
         parameters := #{
             key_encoding_mode := KeyEncodingMode,
             max_batch_bytes := MaxBatchBytes,
+            max_wait_time := MaxWaitTime,
             max_rejoin_attempts := MaxRejoinAttempts,
             offset_commit_interval_seconds := OffsetCommitInterval,
             offset_reset_policy := OffsetResetPolicy0,
@@ -445,6 +447,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID) ->
     ConsumerConfig = [
         {begin_offset, BeginOffset},
         {max_bytes, MaxBatchBytes},
+        {max_wait_time, MaxWaitTime},
         {offset_reset_policy, OffsetResetPolicy}
     ],
     GroupConfig = [

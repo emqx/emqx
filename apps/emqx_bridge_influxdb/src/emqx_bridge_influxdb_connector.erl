@@ -714,8 +714,13 @@ parse_timestamp([TsBin]) ->
         {ok, binary_to_integer(TsBin)}
     catch
         _:_ ->
-            {error, TsBin}
-    end.
+            {error, {non_integer_timestamp, TsBin}}
+    end;
+parse_timestamp(InvalidTs) ->
+    %% The timestamp field must be a single integer or a single placeholder. i.e. the
+    %%   following is not allowed:
+    %%   - weather,location=us-midwest,season=summer temperature=82 ${timestamp}00
+    {error, {unsupported_placeholder_usage_for_timestamp, InvalidTs}}.
 
 continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
     case line_to_point(Data, Item) of

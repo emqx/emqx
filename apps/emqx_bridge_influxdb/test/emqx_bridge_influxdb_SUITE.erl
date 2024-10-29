@@ -915,6 +915,10 @@ t_tag_set_use_literal_value(Config) ->
     ?assertEqual(TsStr, TimeReturned).
 
 t_bad_timestamp(Config) ->
+    test_bad_timestamp(Config, <<"bad_timestamp">>, non_integer_timestamp),
+    test_bad_timestamp(Config, <<"${timestamp}000">>, unsupported_placeholder_usage_for_timestamp).
+
+test_bad_timestamp(Config, Timestamp, ErrTag) ->
     InfluxDBType = ?config(influxdb_type, Config),
     InfluxDBName = ?config(influxdb_name, Config),
     QueryMode = ?config(query_mode, Config),
@@ -929,7 +933,7 @@ t_bad_timestamp(Config) ->
         %% N.B.: this single space characters are relevant
         <<"${topic}", " ", "payload=${payload},", "${clientid}_int_value=${payload.int_key}i,",
             "uint_value=${payload.uint_key}u,"
-            "bool=${payload.bool}", " ", "bad_timestamp">>,
+            "bool=${payload.bool}", " ", Timestamp/binary>>,
     %% append this to override the config
     InfluxDBConfigString1 =
         io_lib:format(
@@ -983,16 +987,16 @@ t_bad_timestamp(Config) ->
                         [
                             #{
                                 error := [
-                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
+                                    {error, {bad_timestamp, {ErrTag, _}}}
                                 ]
                             }
                         ],
                         ?of_kind(influxdb_connector_send_query_error, Trace)
                     );
                 {sync, false} ->
-                    ?assertEqual(
+                    ?assertMatch(
                         {error, [
-                            {error, {bad_timestamp, <<"bad_timestamp">>}}
+                            {error, {bad_timestamp, {ErrTag, _}}}
                         ]},
                         Return
                     );

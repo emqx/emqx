@@ -177,13 +177,18 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
                         request => emqx_utils:redact(Request)
                     }),
                     Redirect;
-                {error, Reason} ->
+                {error, Reason0} ->
+                    Reason = emqx_utils:redact(Reason0),
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_failed",
                         request => emqx_utils:redact(Request),
-                        reason => emqx_utils:redact(Reason)
+                        reason => Reason
                     }),
-                    {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}
+                    {401, #{
+                        code => ?BAD_USERNAME_OR_PWD,
+                        message => <<"Auth failed">>,
+                        reason => Reason
+                    }}
             end
     end.
 
