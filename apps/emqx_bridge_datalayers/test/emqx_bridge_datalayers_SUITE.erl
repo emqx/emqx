@@ -874,7 +874,9 @@ t_bad_timestamp(Config) ->
                         [
                             #{
                                 error := [
-                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
+                                    {error,
+                                        {bad_timestamp,
+                                            {non_integer_timestamp, <<"bad_timestamp">>}}}
                                 ]
                             }
                         ],
@@ -883,7 +885,7 @@ t_bad_timestamp(Config) ->
                 {sync, false} ->
                     ?assertEqual(
                         {error, [
-                            {error, {bad_timestamp, <<"bad_timestamp">>}}
+                            {error, {bad_timestamp, {non_integer_timestamp, <<"bad_timestamp">>}}}
                         ]},
                         Return
                     );
