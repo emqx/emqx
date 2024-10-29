@@ -29,14 +29,10 @@
 
 -define(FILTER_REQ, [cert, host_info, has_sent_resp, pid, path_info, peer, ref, sock, streamid]).
 
--define(TRUNCATE_DEEPTH, 5).
--define(TRUNCATE_BYTE_SIZE, 128).
+-define(CHARS_LIMIT_IN_DB, 1024).
 
 -ifdef(TEST).
 -define(INTERVAL, 100).
-
--export([truncate_map_values/1]).
-
 -else.
 -define(INTERVAL, 10000).
 -endif.
@@ -44,8 +40,8 @@
 to_audit(#{from := cli, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
     #?AUDIT{
         operation_id = <<"">>,
-        operation_type = atom_to_binary(Cmd),
-        args = Args,
+        operation_type = truncate_large_term(Cmd),
+        args = truncate_large_term(Args),
         operation_result = <<"">>,
         failure = <<"">>,
         duration_ms = DurationMs,
@@ -71,7 +67,7 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         http_method = <<"">>,
         http_request = <<"">>,
         duration_ms = 0,
-        args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
+        args = truncate_large_term({F, Args})
     };
 to_audit(#{from := From} = Log) when is_atom(From) ->
     #{
@@ -99,7 +95,7 @@ to_audit(#{from := From} = Log) when is_atom(From) ->
         %% request detail
         http_status_code = StatusCode,
         http_method = Method,
-        http_request = truncate_http_request(Request),
+        http_request = truncate_large_term(Request),
         duration_ms = DurationMs,
         args = <<"">>
     }.
@@ -250,46 +246,5 @@ log_to_file(Level, Meta, #{module := Module} = Handler) ->
             end
     end.
 
-%% the Request structure constructed by emqx_dashboard_audit:http_request/1
-truncate_http_request(Req = #{headers := Headers, body := Body}) ->
-    Req#{headers => truncate_map_values(Headers), body => truncate_map_values(Body)};
-truncate_http_request(Req = #{headers := Headers}) ->
-    Req#{headers => truncate_map_values(Headers)};
-truncate_http_request(Req) ->
-    Req.
-
-truncate_map_values(M) ->
-    truncate_map_values(M, ?TRUNCATE_DEEPTH).
-
-truncate_map_values(_, 0) ->
-    <<"...">>;
-truncate_map_values(M, Deepth) when is_map(M) ->
-    maps:map(fun(_K, V) -> truncate_map_values(V, Deepth - 1) end, M);
-truncate_map_values(V, _) when is_binary(V) ->
-    BinarySize = byte_size(V),
-    case BinarySize - ?TRUNCATE_BYTE_SIZE of
-        ExceedSize when ExceedSize > 0 ->
-            <<
-                V:?TRUNCATE_BYTE_SIZE/bytes,
-                "...(",
-                (integer_to_binary(ExceedSize))/binary,
-                " bytes)"
-            >>;
-        _ ->
-            V
-    end;
-truncate_map_values(V, Deepth) when is_list(V) ->
-    truncate_list_values(V, Deepth);
-truncate_map_values(V, _) ->
-    V.
-
-truncate_list_values([], _) ->
-    [];
-truncate_list_values(L, Deepth) when Deepth > 0 ->
-    case length(L) > Deepth of
-        true ->
-            L1 = lists:sublist(L, Deepth),
-            lists:map(fun(E) -> truncate_map_values(E, Deepth) end, L1) ++ [<<"...">>];
-        false ->
-            lists:map(fun(E) -> truncate_map_values(E, Deepth) end, L)
-    end.
+truncate_large_term(Req) ->
+    unicode:characters_to_binary(io_lib:format("~0p", [Req], [{chars_limit, ?CHARS_LIMIT_IN_DB}])).
