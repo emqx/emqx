@@ -488,8 +488,10 @@ get_cluster_tnx_id() ->
     end.
 
 get_current_tnx_id() ->
-    {atomic, TxId} = transaction(fun ?MODULE:get_node_tnx_id/1, [node()]),
-    TxId.
+    case mnesia:dirty_read(?CLUSTER_COMMIT, node()) of
+        [] -> ?DEFAULT_INIT_TXN_ID;
+        [#cluster_rpc_commit{tnx_id = TnxId}] -> TnxId
+    end.
 
 get_oldest_mfa_id() ->
     case mnesia:first(?CLUSTER_MFA) of
