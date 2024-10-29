@@ -501,7 +501,6 @@ emqx_collect(K = emqx_license_expiry_at, D) -> gauge_metric(?MG(K, D));
 emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D));
 %% Cluster RPC
 emqx_collect(K = emqx_cluster_rpc_txid, D) -> gauge_metrics(?MG(K, D));
-emqx_collect(K = emqx_cluster_rpc_latest_txid, D) -> gauge_metrics(?MG(K, D));
 %% Mria
 %% ========== core
 emqx_collect(K = emqx_mria_last_intercepted_trans, D) -> gauge_metrics(?MG(K, D, []));
