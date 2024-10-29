@@ -207,6 +207,7 @@ source_config(Overrides0) ->
                 #{
                     <<"key_encoding_mode">> => <<"none">>,
                     <<"max_batch_bytes">> => <<"896KB">>,
+                    <<"max_wait_time">> => <<"500ms">>,
                     <<"max_rejoin_attempts">> => <<"5">>,
                     <<"offset_reset_policy">> => <<"latest">>,
                     <<"topic">> => <<"please override">>,
