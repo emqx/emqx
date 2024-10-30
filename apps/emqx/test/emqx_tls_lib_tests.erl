@@ -334,6 +334,19 @@ to_client_opts_test() ->
     ),
     ok.
 
+password_file_test() ->
+    T = integer_to_list(erlang:system_time(microsecond)),
+    TmpFile = filename:join("/tmp", "secret-" ++ T ++ ".txt"),
+    ok = file:write_file(TmpFile, T),
+    ConfigValue = emqx_schema_secret:convert_secret("file://" ++ TmpFile, #{}),
+    Options = #{enable => true, password => ConfigValue},
+    ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+    {password, PasswordResolved} = lists:keyfind(password, 1, ClientOpts),
+    ?assertEqual({password, PasswordResolved}, lists:keyfind(password, 1, ServerOpts)),
+    ?assertEqual(T, PasswordResolved),
+    ok.
+
 to_server_opts_test() ->
     VersionsAll = [tlsv1, 'tlsv1.1', 'tlsv1.2', 'tlsv1.3'],
     Versions13Only = ['tlsv1.3'],
