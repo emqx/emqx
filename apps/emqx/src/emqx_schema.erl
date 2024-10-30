@@ -2243,16 +2243,14 @@ common_ssl_opts_schema(Defaults, Type) ->
                 }
             )},
         {"password",
-            sc(
-                string(),
+            emqx_schema_secret:mk(
                 #{
                     sensitive => true,
                     required => false,
                     example => <<"">>,
                     format => <<"password">>,
                     desc => ?DESC(common_ssl_opts_schema_password),
-                    importance => ?IMPORTANCE_LOW,
-                    converter => fun password_converter/2
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"versions", tls_versions_schema(Collection)},
