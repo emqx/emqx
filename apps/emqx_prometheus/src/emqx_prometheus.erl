@@ -500,7 +500,7 @@ emqx_collect(K = emqx_license_expiry_at, D) -> gauge_metric(?MG(K, D));
 %% Certs
 emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D));
 %% Cluster RPC
-emqx_collect(K = emqx_cluster_rpc_txid, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_conf_sync_txid, D) -> gauge_metrics(?MG(K, D));
 %% Mria
 %% ========== core
 emqx_collect(K = emqx_mria_last_intercepted_trans, D) -> gauge_metrics(?MG(K, D, []));
@@ -1009,7 +1009,7 @@ not_after_epoch(_) ->
 %%========================================
 
 cluster_rpc_meta() ->
-    [{emqx_cluster_rpc_txid, gauge, undefined}].
+    [{emqx_conf_sync_txid, gauge, undefined}].
 
 %%========================================
 %% Mria
@@ -1042,7 +1042,7 @@ cluster_rpc_data(Mode) ->
         end,
     DataFun = fun() -> emqx_cluster_rpc:get_current_tnx_id() end,
     #{
-        emqx_cluster_rpc_txid => [{Labels, catch_all(DataFun)}]
+        emqx_conf_sync_txid => [{Labels, catch_all(DataFun)}]
     }.
 
 mria_data(Mode) ->

@@ -336,7 +336,7 @@ metric_meta(<<"emqx_vm_total_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_used_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_cluster_nodes_running">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_cluster_nodes_stopped">>) -> ?meta(0, 1, 1);
-metric_meta(<<"emqx_cluster_rpc_txid">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_conf_sync_txid">>) -> ?meta(0, 1, 1);
 %% END
 metric_meta(<<"emqx_cert_expiry_at">>) -> ?meta(2, 2, 2);
 metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
@@ -648,7 +648,7 @@ assert_json_data__cluster_rpc(Ms, Mode) when
 ->
     ?assertMatch(
         #{
-            emqx_cluster_rpc_txid := _
+            emqx_conf_sync_txid := _
         },
         Ms
     );
@@ -657,7 +657,7 @@ assert_json_data__cluster_rpc(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
         fun(M) ->
             ?assertMatch(
                 #{
-                    emqx_cluster_rpc_txid := _
+                    emqx_conf_sync_txid := _
                 },
                 M
             )
