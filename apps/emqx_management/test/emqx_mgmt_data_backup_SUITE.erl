@@ -91,7 +91,7 @@ init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
-    meck:expect(TC = emqx_mgmt_data_backup, mnesia_tabs_to_backup, 0, [?MODULE]),
+    meck:expect(TC = emqx_mgmt_data_backup, modules_with_mnesia_tabs_to_backup, 0, [?MODULE]),
     setup(TC, Config);
 init_per_testcase(TC, Config) ->
     setup(TC, Config).
@@ -207,7 +207,36 @@ t_export_ram_retained_messages(_Config) ->
 
 t_export_cloud_subset(Config) ->
     setup_t_export_cloud_subset_scenario(),
-    {ok, #{filename := BackupFileName}} = emqx_mgmt_data_backup:export_for_cloud(),
+    Opts = #{
+        raw_conf_transform => fun(RawConf) ->
+            maps:with(
+                [
+                    <<"connectors">>,
+                    <<"actions">>,
+                    <<"sources">>,
+                    <<"rule_engine">>,
+                    <<"schema_registry">>
+                ],
+                RawConf
+            )
+        end,
+        mnesia_table_filter => fun(TableName) ->
+            lists:member(
+                TableName,
+                [
+                    %% mnesia builtin authn
+                    emqx_authn_mnesia,
+                    emqx_authn_scram_mnesia,
+                    %% mnesia builtin authz
+                    emqx_acl,
+                    %% banned
+                    emqx_banned,
+                    emqx_banned_rules
+                ]
+            )
+        end
+    },
+    {ok, #{filename := BackupFileName}} = emqx_mgmt_data_backup:export(Opts),
     #{
         cluster_hocon := RawHocon,
         mnesia_tables := Tables
@@ -513,7 +542,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
         rpc:call(CoreNode1, emqx_mgmt_data_backup, import, [AbsFilePath])
     ),
 
-    [Tab] = emqx_dashboard_admin:backup_tables(),
+    {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
     AllUsers = lists:sort(mnesia:dirty_all_keys(Tab) ++ UsersBeforeImport),
     [
         ?assertEqual(
@@ -528,7 +557,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
 
 backup_tables() ->
-    [data_backup_test].
+    {<<"mocked_test">>, [data_backup_test]}.
 
 t_mnesia_bad_tab_schema(_Config) ->
     OldAttributes = [id, name, description],

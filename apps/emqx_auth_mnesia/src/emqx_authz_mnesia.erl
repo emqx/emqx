@@ -129,7 +129,7 @@ authorize(
 %% Data backup
 %%--------------------------------------------------------------------
 
-backup_tables() -> [?ACL_TABLE].
+backup_tables() -> {<<"builtin_authz">>, [?ACL_TABLE]}.
 
 %%--------------------------------------------------------------------
 %% Management API
