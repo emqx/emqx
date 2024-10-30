@@ -17,9 +17,11 @@
 
 -export([
     maybe_withdraw_rule_action/3,
+    maybe_withdraw_rule_action/4,
     upgrade_type/1,
     downgrade_type/2,
-    get_conf/2
+    get_conf/2,
+    get_conf/3
 ]).
 
 %% @doc A bridge can be used as a rule action.
@@ -27,7 +29,10 @@
 %% This function is to remove a bridge (action) from all rules
 %% using it if the `rule_actions' is included in `DeleteDeps' list
 maybe_withdraw_rule_action(BridgeType, BridgeName, DeleteDeps) ->
-    BridgeIds = external_ids(BridgeType, BridgeName),
+    maybe_withdraw_rule_action(undefined, BridgeType, BridgeName, DeleteDeps).
+
+maybe_withdraw_rule_action(ConfRootKey, BridgeType, BridgeName, DeleteDeps) ->
+    BridgeIds = external_ids(ConfRootKey, BridgeType, BridgeName),
     DeleteActions = lists:member(rule_actions, DeleteDeps),
     maybe_withdraw_rule_action_loop(BridgeIds, DeleteActions).
 
@@ -71,8 +76,8 @@ downgrade_type(Type, Conf) when is_list(Type) ->
 
 %% A rule might be referencing an old version bridge type name
 %% i.e. 'kafka' instead of 'kafka_producer' so we need to try both
-external_ids(Type, Name) ->
-    case downgrade_type(Type, get_conf(Type, Name)) of
+external_ids(ConfRootKey, Type, Name) ->
+    case downgrade_type(Type, get_conf(ConfRootKey, Type, Name)) of
         Type ->
             [external_id(Type, Name)];
         Type0 ->
@@ -80,10 +85,18 @@ external_ids(Type, Name) ->
     end.
 
 get_conf(BridgeType, BridgeName) ->
+    get_conf(undefined, BridgeType, BridgeName).
+get_conf(ConfRootKey, BridgeType, BridgeName) ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            ConfRootName = emqx_bridge_v2:get_conf_root_key_if_only_one(BridgeType, BridgeName),
-            emqx_conf:get_raw([ConfRootName, BridgeType, BridgeName]);
+            ConfRootKey1 =
+                case ConfRootKey of
+                    undefined ->
+                        emqx_bridge_v2:get_conf_root_key_if_only_one(BridgeType, BridgeName);
+                    _ ->
+                        ConfRootKey
+                end,
+            emqx_conf:get_raw([ConfRootKey1, BridgeType, BridgeName]);
         false ->
             undefined
     end.

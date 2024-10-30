@@ -532,13 +532,15 @@ to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
     Path = fun(Key) -> resolve_cert_path_for_read_strict(maps:get(Key, Opts, undefined)) end,
+    Password = ensure_password(maps:get(password, Opts, undefined)),
     ensure_valid_options(
         maps:to_list(Opts#{
             keyfile => Path(keyfile),
             certfile => Path(certfile),
             cacertfile => Path(cacertfile),
             ciphers => Ciphers,
-            versions => Versions
+            versions => Versions,
+            password => Password
         }),
         Versions
     ).
@@ -576,7 +578,7 @@ to_client_opts(Type, Opts) ->
                     {ciphers, Ciphers},
                     {reuse_sessions, Get(reuse_sessions)},
                     {depth, Get(depth)},
-                    {password, ensure_str(Get(password))},
+                    {password, ensure_password(Get(password))},
                     {secure_renegotiate, Get(secure_renegotiate)}
                 ] ++ hostname_check(Verify),
                 Versions
@@ -708,6 +710,14 @@ ensure_sni(disable) -> disable;
 ensure_sni(undefined) -> undefined;
 ensure_sni(L) when is_list(L) -> L;
 ensure_sni(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
+
+ensure_password(Password) ->
+    case emqx_secret:unwrap(Password) of
+        undefined ->
+            undefined;
+        S ->
+            ensure_str(S)
+    end.
 
 ensure_str(undefined) -> undefined;
 ensure_str(L) when is_list(L) -> L;

@@ -211,13 +211,13 @@ unload() ->
     emqx_conf:remove_handler(config_key_path_leaf()),
     ok.
 
-unload_bridges(ConfRooKey) ->
-    Bridges = emqx:get_config([ConfRooKey], #{}),
+unload_bridges(ConfRootKey) ->
+    Bridges = emqx:get_config([ConfRootKey], #{}),
     _ = emqx_utils:pmap(
         fun({Type, Bridge}) ->
             emqx_utils:pmap(
                 fun({Name, BridgeConf}) ->
-                    uninstall_bridge_v2(ConfRooKey, Type, Name, BridgeConf)
+                    uninstall_bridge_v2(ConfRootKey, Type, Name, BridgeConf)
                 end,
                 maps:to_list(Bridge),
                 infinity
@@ -360,7 +360,7 @@ check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
 
 -spec check_deps_and_remove(root_cfg_key(), bridge_v2_type(), bridge_v2_name(), boolean()) ->
     ok | {error, any()}.
-check_deps_and_remove(ConfRooKey, BridgeType, BridgeName, AlsoDeleteActions) ->
+check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
     AlsoDelete =
         case AlsoDeleteActions of
             true -> [rule_actions];
@@ -368,13 +368,14 @@ check_deps_and_remove(ConfRooKey, BridgeType, BridgeName, AlsoDeleteActions) ->
         end,
     case
         emqx_bridge_lib:maybe_withdraw_rule_action(
+            ConfRootKey,
             BridgeType,
             BridgeName,
             AlsoDelete
         )
     of
         ok ->
-            remove(ConfRooKey, BridgeType, BridgeName);
+            remove(ConfRootKey, BridgeType, BridgeName);
         {error, Reason} ->
             {error, Reason}
     end.
