@@ -733,6 +733,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
             ?LOG(info, #{
+                msg => "frame_parse_error",
                 reason => Reason,
                 at_state => emqx_frame:describe_state(ParseState),
                 input_bytes => Data
@@ -742,6 +743,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             {[{incoming, FrameError} | Packets], NState};
         error:Reason:Stacktrace ->
             ?LOG(error, #{
+                msg => "frame_parse_failed",
                 at_state => emqx_frame:describe_state(ParseState),
                 input_bytes => Data,
                 exception => Reason,
