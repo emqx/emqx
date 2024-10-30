@@ -39,7 +39,7 @@
 -export([authorize/4]).
 -export([post_config_update/5]).
 
--export([backup_tables/0, table_set_name/0, validate_mnesia_backup/1]).
+-export([backup_tables/0, validate_mnesia_backup/1]).
 
 %% Internal exports (RPC)
 -export([
@@ -86,9 +86,7 @@ create_tables() ->
 %% Data backup
 %%--------------------------------------------------------------------
 
-backup_tables() -> [?APP].
-
-table_set_name() -> <<"api_keys">>.
+backup_tables() -> {<<"api_keys">>, [?APP]}.
 
 validate_mnesia_backup({schema, _Tab, CreateList} = Schema) ->
     case emqx_mgmt_data_backup:default_validate_mnesia_backup(Schema) of

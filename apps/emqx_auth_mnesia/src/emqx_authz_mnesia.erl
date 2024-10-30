@@ -68,7 +68,7 @@
     record_count/0
 ]).
 
--export([backup_tables/0, table_set_name/0]).
+-export([backup_tables/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -129,9 +129,7 @@ authorize(
 %% Data backup
 %%--------------------------------------------------------------------
 
-backup_tables() -> [?ACL_TABLE].
-
-table_set_name() -> <<"builtin_authz">>.
+backup_tables() -> {<<"builtin_authz">>, [?ACL_TABLE]}.
 
 %%--------------------------------------------------------------------
 %% Management API

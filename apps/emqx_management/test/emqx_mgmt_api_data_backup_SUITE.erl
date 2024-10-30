@@ -263,7 +263,6 @@ export_cloud_backup(NodeApiPort, Auth) ->
         <<"table_sets">> => [
             <<"banned">>,
             <<"builtin_authn">>,
-            <<"builtin_authn_scram">>,
             <<"builtin_authz">>
         ],
         <<"root_keys">> => [

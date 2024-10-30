@@ -132,15 +132,13 @@ export() ->
 
 -spec compile_mnesia_table_filter([binary()]) -> {ok, mnesia_table_filter()} | {error, any()}.
 compile_mnesia_table_filter(TableSets) ->
-    Mapping = table_set_to_module_mapping(),
+    Mapping = table_set_to_tables_mapping(),
     {TableNames, Errors} =
         lists:foldl(
             fun(TableSetName, {TableAcc, ErrorAcc}) ->
-                maybe
-                    {ok, Mod} ?= maps:find(TableSetName, Mapping),
-                    Tables = Mod:backup_tables(),
-                    {lists:usort(Tables ++ TableAcc), ErrorAcc}
-                else
+                case maps:find(TableSetName, Mapping) of
+                    {ok, Tables} ->
+                        {lists:usort(Tables ++ TableAcc), ErrorAcc};
                     error ->
                         {TableAcc, [TableSetName | ErrorAcc]}
                 end
@@ -190,9 +188,12 @@ all_table_set_names() ->
 
 build_all_table_set_names() ->
     Mods = modules_with_mnesia_tabs_to_backup(),
-    lists:sort(
+    lists:usort(
         lists:map(
-            fun emqx_db_backup:table_set_name/1,
+            fun(Mod) ->
+                {TableSetName, _Tabs} = emqx_db_backup:backup_tables(Mod),
+                TableSetName
+            end,
             Mods
         )
     ).
@@ -449,7 +450,7 @@ export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
     FilterFn = maps:get(mnesia_table_filter, Opts, fun(_TableName) -> true end),
     lists:foreach(
         fun(Mod) ->
-            Tabs = Mod:backup_tables(),
+            {_Name, Tabs} = emqx_db_backup:backup_tables(Mod),
             lists:foreach(
                 fun(Tab) ->
                     export_mnesia_tab(TarDescriptor, Tab, BackupName, BackupBaseName, Opts)
@@ -602,7 +603,7 @@ import_mnesia_tabs(BackupDir, Opts) ->
     filter_errors(
         lists:foldr(
             fun(Mod, Acc) ->
-                Tabs = Mod:backup_tables(),
+                {_Name, Tabs} = emqx_db_backup:backup_tables(Mod),
                 lists:foldr(
                     fun(Tab, InAcc) ->
                         InAcc#{Tab => import_mnesia_tab(BackupDir, Mod, Tab, Opts)}
@@ -1057,52 +1058,30 @@ apps() ->
         end
     ].
 
--spec table_set_to_module_mapping() -> #{binary() => module()}.
-table_set_to_module_mapping() ->
-    Key = {?MODULE, table_set_to_module_mapping},
+-spec table_set_to_tables_mapping() -> #{binary() => module()}.
+table_set_to_tables_mapping() ->
+    Key = {?MODULE, table_set_to_tables_mapping},
     case persistent_term:get(Key, undefined) of
         undefined ->
-            Mapping = build_table_set_to_module_mapping(),
+            Mapping = build_table_set_to_tables_mapping(),
             persistent_term:put(Key, Mapping),
             Mapping;
         Mapping ->
             Mapping
     end.
 
-build_table_set_to_module_mapping() ->
+build_table_set_to_tables_mapping() ->
     Mods = modules_with_mnesia_tabs_to_backup(),
     lists:foldl(
         fun(Mod, Acc) ->
-            Name = emqx_db_backup:table_set_name(Mod),
-            Acc#{Name => Mod}
+            {Name, Tabs} = emqx_db_backup:backup_tables(Mod),
+            maps:update_with(
+                Name,
+                fun(PrevTabs) -> Tabs ++ PrevTabs end,
+                Tabs,
+                Acc
+            )
         end,
         #{},
         Mods
     ).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-%% Different implementations of `emqx_db_backup' behaviour should have distinct names.
-ensure_no_table_set_name_clash_test() ->
-    UmbrellaApps = emqx_machine_boot:reboot_apps(),
-    lists:foreach(fun(App) -> application:load(App) end, UmbrellaApps),
-    Mods = modules_with_mnesia_tabs_to_backup(),
-    Names = lists:sort(
-        lists:map(
-            fun(Mod) ->
-                try
-                    emqx_db_backup:table_set_name(Mod)
-                catch
-                    error:undef ->
-                        ct:fail("module ~s is missing an implementation of `table_set_name'", [Mod])
-                end
-            end,
-            Mods
-        )
-    ),
-    UniqueNames = lists:usort(Names),
-    Duplicates = Names -- UniqueNames,
-    ?assertEqual([], Duplicates),
-    ok.
--endif.

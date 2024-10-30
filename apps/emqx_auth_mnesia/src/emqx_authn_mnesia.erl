@@ -57,7 +57,7 @@
 
 -export([init_tables/0]).
 
--export([backup_tables/0, table_set_name/0]).
+-export([backup_tables/0]).
 
 -type user_group() :: binary().
 -type user_id() :: binary().
@@ -102,9 +102,7 @@ init_tables() ->
 %% Data backup
 %%------------------------------------------------------------------------------
 
-backup_tables() -> [?TAB].
-
-table_set_name() -> <<"builtin_authn">>.
+backup_tables() -> {<<"builtin_authn">>, [?TAB]}.
 
 %%------------------------------------------------------------------------------
 %% APIs

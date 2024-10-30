@@ -55,7 +55,7 @@
 
 -export([role/1]).
 
--export([backup_tables/0, table_set_name/0]).
+-export([backup_tables/0]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -export([add_sso_user/4, lookup_user/2]).
@@ -89,9 +89,7 @@ create_tables() ->
 %% Data backup
 %%--------------------------------------------------------------------
 
-backup_tables() -> [?ADMIN].
-
-table_set_name() -> <<"dashboard_users">>.
+backup_tables() -> {<<"dashboard_users">>, [?ADMIN]}.
 
 %%--------------------------------------------------------------------
 %% bootstrap API

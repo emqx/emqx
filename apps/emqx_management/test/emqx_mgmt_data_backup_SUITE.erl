@@ -542,7 +542,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
         rpc:call(CoreNode1, emqx_mgmt_data_backup, import, [AbsFilePath])
     ),
 
-    [Tab] = emqx_dashboard_admin:backup_tables(),
+    {_Name, [Tab]} = emqx_dashboard_admin:backup_tables(),
     AllUsers = lists:sort(mnesia:dirty_all_keys(Tab) ++ UsersBeforeImport),
     [
         ?assertEqual(
@@ -557,7 +557,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
 
 backup_tables() ->
-    [data_backup_test].
+    {<<"mocked_test">>, [data_backup_test]}.
 
 t_mnesia_bad_tab_schema(_Config) ->
     OldAttributes = [id, name, description],

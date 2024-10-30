@@ -57,7 +57,7 @@
     code_change/3
 ]).
 
--export([backup_tables/0, table_set_name/0]).
+-export([backup_tables/0]).
 
 %% Internal exports (RPC)
 -export([
@@ -94,9 +94,7 @@ create_tables() ->
 %%--------------------------------------------------------------------
 %% Data backup
 %%--------------------------------------------------------------------
-backup_tables() -> tables().
-
-table_set_name() -> <<"banned">>.
+backup_tables() -> {<<"banned">>, tables()}.
 
 -spec tables() -> [atom()].
 tables() -> [?BANNED_RULE_TAB, ?BANNED_INDIVIDUAL_TAB].
