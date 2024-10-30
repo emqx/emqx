@@ -589,65 +589,6 @@ projection_optional_span(Trace) ->
      || #{?snk_kind := K} = Evt <- Trace
     ].
 
-cluster(Config) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    Cluster = emqx_common_test_helpers:emqx_cluster(
-        [core, core],
-        [
-            {apps, [emqx_conf, emqx_rule_engine, emqx_bridge_gcp_pubsub, emqx_bridge]},
-            {listener_ports, []},
-            {priv_data_dir, PrivDataDir},
-            {load_schema, true},
-            {start_autocluster, true},
-            {schema_mod, emqx_enterprise_schema},
-            {env_handler, fun
-                (emqx) ->
-                    application:set_env(emqx, boot_modules, [broker]),
-                    ok;
-                (emqx_conf) ->
-                    ok;
-                (_) ->
-                    ok
-            end}
-        ]
-    ),
-    ct:pal("cluster: ~p", [Cluster]),
-    Cluster.
-
-start_cluster(Cluster) ->
-    Nodes = lists:map(
-        fun({Name, Opts}) ->
-            ct:pal("starting ~p", [Name]),
-            emqx_common_test_helpers:start_peer(Name, Opts)
-        end,
-        Cluster
-    ),
-    NumNodes = length(Nodes),
-    on_exit(fun() ->
-        emqx_utils:pmap(
-            fun(N) ->
-                ct:pal("stopping ~p", [N]),
-                emqx_common_test_helpers:stop_peer(N)
-            end,
-            Nodes
-        )
-    end),
-    {ok, _} = snabbkaffe:block_until(
-        %% -1 because only those that join the first node will emit the event.
-        ?match_n_events(NumNodes - 1, #{?snk_kind := emqx_machine_boot_apps_started}),
-        30_000
-    ),
-    Nodes.
-
-wait_for_cluster_rpc(Node) ->
-    %% need to wait until the config handler is ready after
-    %% restarting during the cluster join.
-    ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
-        true = is_pid(erpc:call(Node, erlang, whereis, [emqx_config_handler]))
-    ).
-
 setup_and_start_listeners(Node, NodeOpts) ->
     erpc:call(
         Node,
@@ -685,6 +626,10 @@ dedup(_X, [Y | Rest]) ->
     [Y | dedup(Y, Rest)];
 dedup(_X, []) ->
     [].
+
+get_mqtt_port(Node) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 %%------------------------------------------------------------------------------
 %% Trace properties
@@ -2278,12 +2223,19 @@ t_cluster_subscription(Config) ->
         }
     ] = ?config(topic_mapping, Config),
     BridgeId = bridge_id(Config),
-    Cluster = [{_N1, Opts1} | _] = cluster(Config),
+    AppSpecs = [emqx_conf, emqx_rule_engine, emqx_bridge_gcp_pubsub, emqx_bridge],
     ?check_trace(
         begin
-            Nodes = [N1, N2] = start_cluster(Cluster),
+            Nodes =
+                [N1, N2] = emqx_cth_cluster:start(
+                    [
+                        {gcp_pubsub_consumer_subscription1, #{apps => AppSpecs}},
+                        {gcp_pubsub_consumer_subscription2, #{apps => AppSpecs}}
+                    ],
+                    #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+                ),
+            on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
             NumNodes = length(Nodes),
-            lists:foreach(fun wait_for_cluster_rpc/1, Nodes),
             erpc:call(N2, fun() -> {ok, _} = create_bridge(Config) end),
             lists:foreach(
                 fun(N) ->
@@ -2303,8 +2255,7 @@ t_cluster_subscription(Config) ->
                 10_000
             ),
 
-            setup_and_start_listeners(N1, Opts1),
-            TCPPort1 = emqx_common_test_helpers:listener_port(Opts1, tcp),
+            TCPPort1 = get_mqtt_port(N1),
             {ok, C1} = emqtt:start_link([{port, TCPPort1}, {proto_ver, v5}]),
             on_exit(fun() -> catch emqtt:stop(C1) end),
             {ok, _} = emqtt:connect(C1),
