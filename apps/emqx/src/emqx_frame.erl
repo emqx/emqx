@@ -714,18 +714,14 @@ parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true) ->
     {validate_utf8(Str), Rest};
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false) ->
     {Str, Rest};
-parse_utf8_string(<<Len:16/big, Rest/binary>>, _) when
-    Len > byte_size(Rest)
-->
+parse_utf8_string(<<Len:16/big, Rest/binary>>, _) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => malformed_utf8_string,
         parsed_length => Len,
         remaining_bytes_length => byte_size(Rest)
     });
-parse_utf8_string(Bin, _) when
-    2 > byte_size(Bin)
-->
-    ?PARSE_ERR(#{reason => malformed_utf8_string_length}).
+parse_utf8_string(Bin, _) when 2 > byte_size(Bin) ->
+    ?PARSE_ERR(#{cause => malformed_utf8_string_length}).
 
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     {Data, Rest};
