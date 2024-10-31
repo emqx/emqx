@@ -538,7 +538,7 @@ parse_sql_template([{Key, H} | T], BatchInsertTks) ->
         select ->
             parse_sql_template(T, BatchInsertTks);
         insert ->
-            case emqx_utils_sql:parse_insert(H) of
+            case emqx_utils_sql:split_insert(H) of
                 {ok, {InsertSQL, Params}} ->
                     parse_sql_template(
                         T,

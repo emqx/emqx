@@ -220,7 +220,7 @@ prepare_sql_bulk_extend_template(Template, Separator) ->
     ExtendParamTemplate = iolist_to_binary([Separator, ValuesTemplate]),
     emqx_placeholder:preproc_tmpl(ExtendParamTemplate).
 
-%% This function is similar to emqx_utils_sql:parse_insert/1 but can
+%% This function is similar to emqx_utils_sql:split_insert/1 but can
 %% also handle Clickhouse's SQL extension for INSERT statments that allows the
 %% user to specify different formats:
 %%
