@@ -16,6 +16,8 @@
 
 -module(emqx_mgmt_api_data_backup).
 
+-feature(maybe_expr, enable).
+
 -behaviour(minirest_api).
 
 -include_lib("emqx/include/logger.hrl").
@@ -25,7 +27,6 @@
 
 -export([
     data_export/2,
-    data_export_cloud/2,
     data_import/2,
     data_files/2,
     data_file_by_name/2
@@ -57,7 +58,6 @@ api_spec() ->
 paths() ->
     [
         "/data/export",
-        "/data/export_cloud",
         "/data/import",
         "/data/files",
         "/data/files/:filename"
@@ -69,28 +69,22 @@ schema("/data/export") ->
         post => #{
             tags => ?TAGS,
             desc => <<"Export a data backup file">>,
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                ?R_REF(export_request_body),
+                export_request_example()
+            ),
             responses => #{
                 200 =>
                     emqx_dashboard_swagger:schema_with_example(
                         ?R_REF(backup_file_info),
                         backup_file_info_example()
-                    )
-            }
-        }
-    };
-schema("/data/export_cloud") ->
-    #{
-        'operationId' => data_export_cloud,
-        post => #{
-            tags => ?TAGS,
-            hidden => true,
-            desc => <<"Export a data backup file with limited scope (cloud edition)">>,
-            responses => #{
-                200 =>
-                    emqx_dashboard_swagger:schema_with_example(
-                        ?R_REF(backup_file_info),
-                        backup_file_info_example()
-                    )
+                    ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST], <<"Invalid table sets: bar, foo">>
+                ),
+                500 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST], <<"Error processing export: ...">>
+                )
             }
         }
     };
@@ -197,6 +191,33 @@ fields(backup_file_info) ->
                 required => true
             })}
     ];
+fields(export_request_body) ->
+    AllTableSetNames = emqx_mgmt_data_backup:all_table_set_names(),
+    TableSetsDesc = iolist_to_binary([
+        [
+            <<"Sets of tables to export. Exports all if omitted.">>,
+            <<" Valid values:\n\n">>
+        ]
+        | lists:map(fun(Name) -> ["- ", Name, $\n] end, AllTableSetNames)
+    ]),
+    [
+        {table_sets,
+            hoconsc:mk(
+                hoconsc:array(binary()),
+                #{
+                    required => false,
+                    desc => TableSetsDesc
+                }
+            )},
+        {root_keys,
+            hoconsc:mk(
+                hoconsc:array(binary()),
+                #{
+                    required => false,
+                    desc => <<"Sets of root configuration keys to export. Exports all if omitted.">>
+                }
+            )}
+    ];
 fields(import_request_body) ->
     [?node_field(false), ?filename_field(true)];
 fields(data_backup_file) ->
@@ -213,20 +234,24 @@ fields(data_backup_file) ->
 %% HTTP API Callbacks
 %%------------------------------------------------------------------------------
 
-data_export(post, _Request) ->
-    case emqx_mgmt_data_backup:export() of
-        {ok, #{filename := FileName} = File} ->
-            {200, File#{filename => filename:basename(FileName)}};
-        Error ->
-            Error
-    end.
-
-data_export_cloud(post, _Request) ->
-    case emqx_mgmt_data_backup:export_for_cloud() of
-        {ok, #{filename := FileName} = File} ->
-            {200, File#{filename => filename:basename(FileName)}};
-        Error ->
-            Error
+data_export(post, #{body := Params}) ->
+    maybe
+        {ok, Opts} ?= parse_export_request(Params),
+        {ok, #{filename := FileName} = File} ?= emqx_mgmt_data_backup:export(Opts),
+        {200, File#{filename => filename:basename(FileName)}}
+    else
+        {error, {bad_table_sets, InvalidSetNames}} ->
+            Msg = iolist_to_binary([
+                <<"Invalid table sets: ">>,
+                lists:join(<<", ">>, InvalidSetNames)
+            ]),
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
+        {error, Reason} ->
+            Msg = iolist_to_binary([
+                <<"Error processing export: ">>,
+                emqx_utils_conv:bin(Reason)
+            ]),
+            {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
 data_import(post, #{body := #{<<"filename">> := FileName} = Body}) ->
@@ -290,6 +315,32 @@ data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string :=
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+parse_export_request(Params) ->
+    Opts0 = #{},
+    Opts1 =
+        maybe
+            {ok, Keys0} ?= maps:find(<<"root_keys">>, Params),
+            Keys = lists:usort(Keys0),
+            Transform = fun(RawConf) ->
+                maps:with(Keys, RawConf)
+            end,
+            Opts0#{raw_conf_transform => Transform}
+        else
+            error -> Opts0
+        end,
+    maybe
+        {ok, TableSetNames0} ?= maps:find(<<"table_sets">>, Params),
+        TableSetNames = lists:usort(TableSetNames0),
+        {ok, Filter} ?= emqx_mgmt_data_backup:compile_mnesia_table_filter(TableSetNames),
+        {ok, Opts1#{mnesia_table_filter => Filter}}
+    else
+        error ->
+            {ok, Opts1};
+        {error, InvalidSetNames0} ->
+            InvalidSetNames = lists:sort(InvalidSetNames0),
+            {error, {bad_table_sets, InvalidSetNames}}
+    end.
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);
@@ -367,6 +418,23 @@ backup_file_info_example() ->
         filename => <<"emqx-export-2023-11-23-19-13-19.043.tar.gz">>,
         node => 'emqx@127.0.0.1',
         size => 22740
+    }.
+
+export_request_example() ->
+    #{
+        table_sets => [
+            <<"banned">>,
+            <<"builtin_authn">>,
+            <<"builtin_authn_scram">>,
+            <<"builtin_authz">>
+        ],
+        root_keys => [
+            <<"connectors">>,
+            <<"actions">>,
+            <<"sources">>,
+            <<"rule_engine">>,
+            <<"schema_registry">>
+        ]
     }.
 
 files_response_example() ->

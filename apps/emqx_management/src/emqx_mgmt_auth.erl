@@ -86,7 +86,7 @@ create_tables() ->
 %% Data backup
 %%--------------------------------------------------------------------
 
-backup_tables() -> [?APP].
+backup_tables() -> {<<"api_keys">>, [?APP]}.
 
 validate_mnesia_backup({schema, _Tab, CreateList} = Schema) ->
     case emqx_mgmt_data_backup:default_validate_mnesia_backup(Schema) of
