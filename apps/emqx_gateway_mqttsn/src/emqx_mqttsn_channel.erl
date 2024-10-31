@@ -776,6 +776,8 @@ handle_in(
                         Publishes,
                         Channel#channel{session = NSession}
                     );
+                {error, ?RC_PROTOCOL_ERROR} ->
+                    handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
                 {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
                     ?SLOG(warning, #{
                         msg => "commit_puback_failed",

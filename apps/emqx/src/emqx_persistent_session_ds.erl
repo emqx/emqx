@@ -1494,6 +1494,8 @@ update_seqno(
                 inflight := Inflight,
                 stream_scheduler_s := SchedS
             }};
+        {error, undefined = _Expected} ->
+            {error, ?RC_PROTOCOL_ERROR};
         {error, Expected} ->
             ?SLOG(warning, #{
                 msg => "out-of-order_commit",

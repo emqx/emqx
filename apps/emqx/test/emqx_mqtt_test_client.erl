@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_mqtt_test_client).
+-module(emqx_mqtt_test_client).
 
 -behaviour(gen_server).
 
@@ -26,7 +26,15 @@
     stop/1
 ]).
 
--export([send/2]).
+-export([send/2, receive_packet/0]).
+-export([
+    connect/1,
+    connect/2,
+    subscribe/4,
+    puback/4,
+    pubrec/4,
+    pubcomp/4
+]).
 
 %% gen_server callbacks
 
@@ -64,6 +72,42 @@ stop(Pid) ->
 
 send(Pid, Packet) ->
     gen_server:call(Pid, {send, Packet}).
+
+connect(Pid) ->
+    connect(Pid, _Properties = #{}).
+
+connect(Pid, Properties) ->
+    Packet = ?CONNECT_PACKET(
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = Properties
+        }
+    ),
+    send(Pid, Packet).
+
+subscribe(Pid, PacketId, Properties, TopicFilters) ->
+    Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
+    send(Pid, Packet).
+
+pubcomp(Pid, PacketId, ReasonCode, Properties) ->
+    Packet = ?PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
+    send(Pid, Packet).
+
+pubrec(Pid, PacketId, ReasonCode, Properties) ->
+    Packet = ?PUBREC_PACKET(PacketId, ReasonCode, Properties),
+    send(Pid, Packet).
+
+puback(Pid, PacketId, ReasonCode, Properties) ->
+    Packet = ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
+    send(Pid, Packet).
+
+receive_packet() ->
+    receive
+        {packet, Packet} ->
+            {ok, Packet}
+    after 1000 ->
+        timeout
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
