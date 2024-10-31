@@ -22,6 +22,7 @@
 %% Session metadata keys:
 -define(created_at, created_at).
 -define(last_alive_at, last_alive_at).
+-define(node_epoch_id, node_epoch_id).
 -define(expiry_interval, expiry_interval).
 %% Unique integer used to create unique identities:
 -define(last_id, last_id).

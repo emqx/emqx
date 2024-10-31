@@ -44,6 +44,7 @@
 ]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
+-export([get_node_epoch_id/1, set_node_epoch_id/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([get_clientinfo/1, set_clientinfo/2]).
 -export([get_will_message/1, set_will_message/2, clear_will_message/1, clear_will_message_now/1]).
@@ -171,6 +172,7 @@
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
+        ?node_epoch_id => emqx_persistent_session_ds_node_heartbeat_worker:epoch_id() | undefined,
         ?expiry_interval => non_neg_integer(),
         ?last_id => integer(),
         ?peername => emqx_types:peername(),
@@ -631,6 +633,15 @@ get_last_alive_at(Rec) ->
 -spec set_last_alive_at(emqx_persistent_session_ds:timestamp(), t()) -> t().
 set_last_alive_at(Val, Rec) ->
     set_meta(?last_alive_at, Val, Rec).
+
+-spec get_node_epoch_id(t()) ->
+    emqx_persistent_session_ds_node_heartbeat_worker:epoch_id() | undefined.
+get_node_epoch_id(Rec) ->
+    get_meta(?node_epoch_id, Rec).
+
+-spec set_node_epoch_id(emqx_persistent_session_ds:timestamp() | undefined, t()) -> t().
+set_node_epoch_id(Val, Rec) ->
+    set_meta(?node_epoch_id, Val, Rec).
 
 -spec get_expiry_interval(t()) -> non_neg_integer() | undefined.
 get_expiry_interval(Rec) ->

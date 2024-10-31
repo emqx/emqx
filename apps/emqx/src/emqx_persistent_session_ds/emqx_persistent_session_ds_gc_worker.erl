@@ -18,8 +18,6 @@
 -behaviour(gen_server).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("stdlib/include/qlc.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 -include("session_internals.hrl").
 
@@ -27,7 +25,8 @@
 -export([
     start_link/0,
     check_session/1,
-    check_session_after/2
+    check_session_after/2,
+    session_last_alive_at/2
 ]).
 
 %% `gen_server' API
@@ -59,6 +58,22 @@ check_session_after(SessionId, Time0) ->
     Time = max(Time0, BumpInterval),
     _ = erlang:send_after(Time, ?MODULE, #check_session{id = SessionId}),
     ok.
+
+-spec session_last_alive_at(
+    pos_integer(), emqx_persistent_session_node_hartbeat_worker:node_epoch_id() | undefined
+) -> pos_integer().
+session_last_alive_at(LastAliveAt, undefined) ->
+    LastAliveAt;
+session_last_alive_at(LastAliveAt, NodeEpochId) ->
+    case emqx_persistent_session_ds_node_heartbeat_worker:get_last_alive_at(NodeEpochId) of
+        undefined ->
+            LastAliveAt;
+        NodeLastAliveAt ->
+            max(
+                LastAliveAt,
+                NodeLastAliveAt + emqx_config:get([durable_sessions, heartbeat_interval])
+            )
+    end.
 
 %%--------------------------------------------------------------------------------
 %% `gen_server' API
@@ -152,11 +167,13 @@ gc_loop(MinLastAlive, It0) ->
 
 do_gc(MinLastAlive, SessionId, Metadata) ->
     #{
-        ?last_alive_at := LastAliveAt,
+        ?last_alive_at := SessionLastAliveAt,
+        ?node_epoch_id := NodeEpochId,
         ?expiry_interval := EI,
         ?will_message := MaybeWillMessage,
         ?clientinfo := ClientInfo
     } = Metadata,
+    LastAliveAt = session_last_alive_at(SessionLastAliveAt, NodeEpochId),
     IsExpired = LastAliveAt + EI < MinLastAlive,
     case
         should_send_will_message(

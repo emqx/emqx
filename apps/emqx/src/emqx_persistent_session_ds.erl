@@ -751,14 +751,6 @@ handle_info(Msg, Session, _ClientInfo) ->
 shared_sub_opts(SessionId) ->
     #{session_id => SessionId}.
 
-bump_last_alive(S0) ->
-    %% Note: we take a pessimistic approach here and assume that the client will be alive
-    %% until the next bump timeout.  With this, we avoid garbage collecting this session
-    %% too early in case the session/connection/node crashes earlier without having time
-    %% to commit the time.
-    EstimatedLastAliveAt = now_ms() + bump_interval(),
-    emqx_persistent_session_ds_state:set_last_alive_at(EstimatedLastAliveAt, S0).
-
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
 replay(ClientInfo, [], Session0 = #{s := S0}) ->
@@ -908,11 +900,16 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, commit(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, Session = #{id := Id}) ->
-    maybe_set_will_message_timer(Session),
-    _ = commit(Session),
+terminate(_Reason, Session = #{s := S0, id := Id}) ->
+    _ = maybe_set_will_message_timer(Session),
+    S = finalize_last_alive_at(S0),
+    _ = commit(Session#{s := S}),
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
+
+finalize_last_alive_at(S0) ->
+    S = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
+    emqx_persistent_session_ds_state:set_node_epoch_id(undefined, S).
 
 %%--------------------------------------------------------------------
 %% Management APIs (dashboard)
@@ -1004,7 +1001,7 @@ session_open(
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
-            LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S0),
+            LastAliveAt = get_last_alive_at(S0),
             case NowMS >= LastAliveAt + EI of
                 true ->
                     session_drop(SessionId, expired),
@@ -1013,7 +1010,7 @@ session_open(
                     ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
-                    S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
+                    S2 = init_last_alive_at(NowMS, S1),
                     S3 = emqx_persistent_session_ds_state:set_peername(
                         maps:get(peername, NewConnInfo), S2
                     ),
@@ -1050,6 +1047,26 @@ session_open(
             false
     end.
 
+init_last_alive_at(S) ->
+    init_last_alive_at(now_ms(), S).
+
+init_last_alive_at(NowMs, S0) ->
+    NodeEpochId = emqx_persistent_session_ds_node_heartbeat_worker:get_node_epoch_id(),
+    S1 = emqx_persistent_session_ds_state:set_node_epoch_id(NodeEpochId, S0),
+    emqx_persistent_session_ds_state:set_last_alive_at(NowMs + bump_interval(), S1).
+
+%% NOTE
+%% Here we ignore the case when:
+%% * the session is terminated abnormally, without running terminate callback,
+%% e.g. when the conection was brutally killed;
+%% * but its node and persistent session subsystem remained alive.
+%%
+%% In this case, the session's lifitime is prolonged till the node termination.
+get_last_alive_at(S) ->
+    LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S),
+    NodeEpochId = emqx_persistent_session_ds_state:get_node_epoch_id(S),
+    emqx_persistent_session_ds_gc_worker:session_last_alive_at(LastAliveAt, NodeEpochId).
+
 -spec session_ensure_new(
     id(),
     emqx_types:clientinfo(),
@@ -1065,7 +1082,7 @@ session_ensure_new(
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
     S1 = emqx_persistent_session_ds_state:set_expiry_interval(expiry_interval(ConnInfo), S0),
-    S2 = bump_last_alive(S1),
+    S2 = init_last_alive_at(S1),
     S3 = emqx_persistent_session_ds_state:set_created_at(Now, S2),
     S4 = lists:foldl(
         fun(Track, Acc) ->
@@ -1097,7 +1114,6 @@ session_ensure_new(
         replay => undefined,
         ?TIMER_PULL => undefined,
         ?TIMER_PUSH => undefined,
-        ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
         ?TIMER_RETRY_REPLAY => undefined,
         ?TIMER_SHARED_SUB => undefined
     }.

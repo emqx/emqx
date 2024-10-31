@@ -53,14 +53,17 @@ do_init(_Opts) ->
         period => 2,
         auto_shutdown => never
     },
-    CoreChildren = [
+    CoreNodeChildren = [
         worker(session_gc_worker, emqx_persistent_session_ds_gc_worker, []),
         worker(message_gc_worker, emqx_persistent_message_ds_gc_worker, [])
     ],
+    AnyNodeChildren = [
+        worker(node_heartbeat, emqx_persistent_session_ds_node_heartbeat_worker, [])
+    ],
     Children =
         case mria_rlog:role() of
-            core -> CoreChildren;
-            replicant -> []
+            core -> CoreNodeChildren ++ AnyNodeChildren;
+            replicant -> AnyNodeChildren
         end,
     {ok, {SupFlags, Children}}.
 
