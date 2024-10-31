@@ -95,9 +95,13 @@ jobs:
             echo "Suites: $SUITES"
             ./rebar3 as standalone_test ct --name 'test@127.0.0.1' -v --readable=true --suite="$SUITES"
         fi
+    - name: compress logs
+      if: failure()
+      run: tar -czf logs.tar.gz apps/emqx/_build/{,standalone_test+}test/logs || true
     - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
       if: failure()
       with:
         name: logs-emqx-app-tests-${{ matrix.type }}
-        path: apps/emqx/_build/test/logs
+        path: logs.tar.gz
+        compression-level: 0
         retention-days: 7
