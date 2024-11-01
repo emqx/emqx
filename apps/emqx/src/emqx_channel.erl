@@ -1301,9 +1301,13 @@ handle_out(Type, Data, Channel) ->
 %% Return ConnAck
 %%--------------------------------------------------------------------
 
-return_connack(?CONNACK_PACKET(RC) = AckPacket, Channel) ->
+return_connack(?CONNACK_PACKET(RC, SessPresent) = AckPacket, Channel) ->
     ?ext_trace_add_attrs(#{'client.connack.reason_code' => RC}),
-    ?ext_trace_add_event('client.connack', #{reason_code => RC, msg => connack_in_queue}),
+    ?ext_trace_add_event('client.connack', #{
+        reason_code => RC,
+        msg => connack_in_queue,
+        session_present => bool(SessPresent)
+    }),
     do_return_connack(AckPacket, Channel).
 
 do_return_connack(AckPacket, Channel) ->
@@ -1325,6 +1329,10 @@ do_return_connack(AckPacket, Channel) ->
             %% messages.
             {ok, Replies ++ Outgoing, NChannel2}
     end.
+
+-compile({inline, [bool/1]}).
+bool(0) -> false;
+bool(1) -> true.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
