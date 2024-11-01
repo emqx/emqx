@@ -35,7 +35,7 @@
 ]).
 
 %% callbacks for ecpool
--export([connect/1, prepare_sql_to_conn/3]).
+-export([connect/1, prepare_sql_to_conn/3, get_reconnect_callback_signature/1]).
 
 %% Internal exports used to execute code with ecpool worker
 -export([
@@ -495,6 +495,12 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) whe
         Error ->
             Error
     end.
+
+%% this callback accepts the arg list provided to
+%% ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]})
+%% so ecpool_worker can de-duplicate the callbacks based on the signature.
+get_reconnect_callback_signature([[{ChannelId, _Template}]]) ->
+    ChannelId.
 
 check_if_table_exists(Conn, SQL, Tokens0) ->
     % Discard nested tokens for checking if table exist. As payload here is defined as
