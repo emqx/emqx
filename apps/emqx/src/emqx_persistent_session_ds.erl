@@ -230,6 +230,7 @@
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight buffer.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
+    new_stream_subs := emqx_persistent_session_ds_subs:new_stream_subs(),
     %% Timers:
     ?TIMER_PULL := timer_state(),
     ?TIMER_PUSH := timer_state(),
@@ -439,9 +440,9 @@ subscribe(
     Session
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session) of
-        {ok, S1} ->
+        {ok, S1, NewStreamSubs} ->
             S = emqx_persistent_session_ds_state:commit(S1),
-            {ok, Session#{s := S}};
+            {ok, Session#{s := S, new_stream_subs := NewStreamSubs}};
         Error = {error, _} ->
             Error
     end.
@@ -474,15 +475,21 @@ unsubscribe(
     end;
 unsubscribe(
     TopicFilter,
-    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
+    Session0 = #{
+        id := SessionId, s := S0, stream_scheduler_s := SchedS0, new_stream_subs := NewStreamSubs0
+    }
 ) ->
-    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
+    case
+        emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0, NewStreamSubs0)
+    of
+        {ok, S1, NewStreamSubs, #{id := SubId, subopts := SubOpts}} ->
             {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 SubId, S1, SchedS0
             ),
             S = emqx_persistent_session_ds_state:commit(S2),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
+            Session = Session0#{
+                s := S, stream_scheduler_s := SchedS, new_stream_subs := NewStreamSubs
+            },
             {ok, Session, SubOpts};
         Error = {error, _} ->
             Error
@@ -973,6 +980,7 @@ session_open(
                     Inflight = emqx_persistent_session_ds_buffer:new(
                         receive_maximum(NewConnInfo)
                     ),
+                    NewStreamSubs = emqx_persistent_session_ds_subs:open(S),
                     SSS = emqx_persistent_session_ds_stream_scheduler:init(S),
                     #{
                         id => SessionId,
@@ -982,6 +990,7 @@ session_open(
                         props => #{},
                         stream_scheduler_s => SSS,
                         replay => undefined,
+                        new_stream_subs => NewStreamSubs,
                         ?TIMER_PULL => undefined,
                         ?TIMER_PUSH => undefined,
                         ?TIMER_GET_STREAMS => undefined,
@@ -1036,6 +1045,7 @@ session_ensure_new(
         shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
         inflight => emqx_persistent_session_ds_buffer:new(receive_maximum(ConnInfo)),
         stream_scheduler_s => emqx_persistent_session_ds_stream_scheduler:init(S),
+        new_stream_subs => #{},
         replay => undefined,
         ?TIMER_PULL => undefined,
         ?TIMER_PUSH => undefined,
