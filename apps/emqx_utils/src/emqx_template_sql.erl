@@ -18,6 +18,7 @@
 
 -export([parse/1]).
 -export([parse/2]).
+-export([has_placeholder/1]).
 -export([render/3]).
 -export([render_strict/3]).
 
@@ -63,6 +64,16 @@ parse(String) ->
     template().
 parse(String, Opts) ->
     emqx_template:parse(String, Opts).
+
+-spec has_placeholder(unicode:chardata()) -> boolean().
+has_placeholder(String) ->
+    lists:any(
+        fun
+            ({var, _, _}) -> true;
+            (_) -> false
+        end,
+        parse(String)
+    ).
 
 %% @doc Render an SQL statement template given a set of bindings.
 %% Interpolation generally follows the SQL syntax, strings are escaped according to the
