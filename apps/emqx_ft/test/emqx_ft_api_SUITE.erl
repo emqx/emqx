@@ -399,7 +399,7 @@ test_configure(Uri, Config) ->
         <<"transport_options">> => #{
             <<"ssl">> => #{
                 <<"enable">> => true,
-                <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                <<"certfile">> => emqx_ft_test_helpers:pem_certfile(),
                 <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
             }
         }

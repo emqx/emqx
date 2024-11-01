@@ -259,7 +259,7 @@ t_persist_ssl_certfiles(Config) ->
                 <<"s3">> => mk_s3_config(#{
                     <<"transport_options">> => #{
                         <<"ssl">> => #{
-                            <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                            <<"certfile">> => emqx_ft_test_helpers:pem_certfile(),
                             <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
                         }
                     }
@@ -300,7 +300,7 @@ t_import(_Config) ->
                 <<"s3">> => mk_s3_config(#{
                     <<"transport_options">> => #{
                         <<"ssl">> => #{
-                            <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                            <<"certfile">> => emqx_ft_test_helpers:pem_certfile(),
                             <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
                         }
                     }
