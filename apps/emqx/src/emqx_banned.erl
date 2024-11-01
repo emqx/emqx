@@ -94,7 +94,7 @@ create_tables() ->
 %%--------------------------------------------------------------------
 %% Data backup
 %%--------------------------------------------------------------------
-backup_tables() -> tables().
+backup_tables() -> {<<"banned">>, tables()}.
 
 -spec tables() -> [atom()].
 tables() -> [?BANNED_RULE_TAB, ?BANNED_INDIVIDUAL_TAB].
