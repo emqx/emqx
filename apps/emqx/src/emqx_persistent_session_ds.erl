@@ -737,6 +737,15 @@ handle_info(
     Session#{s := S, shared_sub_s := SharedSubS};
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
+handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
+    #{new_stream_subs := Subs} = Session,
+    case Subs of
+        #{Ref := TopicFilter} ->
+            renew_streams(TopicFilter, Session);
+        _ ->
+            ?tp(warning, sessds_unexpected_stream_notifiction, #{ref => Ref}),
+            Session
+    end;
 handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
     Session.
@@ -842,6 +851,35 @@ skip_batch(StreamKey, SRS0, Session = #{s := S0}, ClientInfo, Reason) ->
     %% `end_of_stream', and let stream scheduler do the rest:
     S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S0),
     Session#{s := S}.
+
+renew_streams(TopicFilter, Session0) ->
+    ?tp(debug, sessds_renew_streams, #{topic_filter => TopicFilter}),
+    #{s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0} = Session0,
+    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
+        undefined ->
+            ?tp(
+                warning,
+                sessds_new_stream_notification_for_undefined_subscription,
+                #{topic_filter => TopicFilter}
+            ),
+            Session0;
+        Subscription ->
+            %% `gc` and `renew_streams` methods may drop unsubscribed streams.
+            %% Shared subscription handler must have a chance to see unsubscribed streams
+            %% in the fully replayed state.
+            {S1, SchedS1, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+                S0, SchedS0, SharedSubS0
+            ),
+            %% Take an opportunity to remove obsolete stream states:
+            S2 = emqx_persistent_session_ds_subs:gc(S1),
+            %% Renew streams for the topic filter:
+            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(
+                TopicFilter, Subscription, S2, SchedS1
+            ),
+            Session = Session0#{s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS},
+            %% Launch push loop to get data from the new streams:
+            push_now(Session)
+    end.
 
 %%--------------------------------------------------------------------
 
