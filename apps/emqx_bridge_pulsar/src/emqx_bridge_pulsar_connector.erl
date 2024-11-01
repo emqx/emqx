@@ -195,7 +195,7 @@ on_get_status(_ConnResId, State = #{}) ->
                 true -> ?status_connected;
                 false -> ?status_connecting
             catch
-                error:timeout ->
+                exit:{timeout, _} ->
                     ?status_connecting;
                 exit:{noproc, _} ->
                     ?status_connecting

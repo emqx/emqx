@@ -133,12 +133,24 @@ t_import_ee_backup(Config) ->
         ce -> ok
     end.
 
-%% Simple smoke test for cloud export API.
+%% Simple smoke test for cloud export API (export with scoped table set names and root
+%% keys).
 t_export_cloud(Config) ->
     Auth = ?config(auth, Config),
-    {ok, RawResp} = export_cloud_backup(?NODE1_PORT, Auth),
-    #{<<"filename">> := Filepath} = emqx_utils_json:decode(RawResp),
+    Resp = export_cloud_backup(?NODE1_PORT, Auth),
+    {200, #{<<"filename">> := Filepath}} = Resp,
     {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
+    ok.
+
+%% Checks returned error when one or more invalid table set names are given to the export
+%% request.
+t_export_bad_table_sets(Config) ->
+    Auth = ?config(auth, Config),
+    Body = #{<<"table_sets">> => [<<"foo">>, <<"bar">>, <<"foo">>]},
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Invalid table sets: bar, foo">>}},
+        export_backup2(?NODE1_PORT, Auth, Body)
+    ),
     ok.
 
 do_init_per_testcase(TC, Config) ->
@@ -247,12 +259,29 @@ assert_second_call(delete, Res) ->
     ?assertMatch({error, {_, 404, _}}, Res).
 
 export_cloud_backup(NodeApiPort, Auth) ->
-    Path = ["data", "export_cloud"],
-    request(post, NodeApiPort, Path, Auth).
+    Body = #{
+        <<"table_sets">> => [
+            <<"banned">>,
+            <<"builtin_authn">>,
+            <<"builtin_authz">>
+        ],
+        <<"root_keys">> => [
+            <<"connectors">>,
+            <<"actions">>,
+            <<"sources">>,
+            <<"rule_engine">>,
+            <<"schema_registry">>
+        ]
+    },
+    export_backup2(NodeApiPort, Auth, Body).
 
 export_backup(NodeApiPort, Auth) ->
     Path = ["data", "export"],
-    request(post, NodeApiPort, Path, Auth).
+    request(post, NodeApiPort, Path, _Body = #{}, Auth).
+
+export_backup2(NodeApiPort, Auth, Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "export"]),
+    emqx_mgmt_api_test_util:simple_request(post, Path, Body, Auth).
 
 import_backup(NodeApiPort, Auth, BackupName) ->
     import_backup(NodeApiPort, Auth, BackupName, undefined).
@@ -339,7 +368,7 @@ wait_for_auth_replication(ReplNode, Retries) ->
 apps_spec(APIPort, TC) ->
     common_apps_spec() ++
         app_spec_dashboard(APIPort) ++
-        upload_import_apps_spec(TC).
+        test_case_specific_apps_spec(TC).
 
 common_apps_spec() ->
     [
@@ -367,7 +396,7 @@ app_spec_dashboard(APIPort) ->
         }}
     ].
 
-upload_import_apps_spec(TC) when
+test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ee_backup;
     TC =:= t_import_ee_backup;
     TC =:= t_upload_ce_backup;
@@ -382,5 +411,10 @@ upload_import_apps_spec(TC) when
         emqx_modules,
         emqx_bridge
     ];
-upload_import_apps_spec(_TC) ->
+test_case_specific_apps_spec(t_export_cloud) ->
+    [
+        emqx_auth,
+        emqx_auth_mnesia
+    ];
+test_case_specific_apps_spec(_TC) ->
     [].

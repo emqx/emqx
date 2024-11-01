@@ -216,6 +216,7 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, authn_metric_meta(), ?MG(emqx_authn_data, RawData)),
 
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
+    ok = add_collect_family(Callback, cluster_rpc_meta(), ?MG(cluster_rpc, RawData)),
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
     ok = maybe_add_ds_collect_family(Callback, RawData),
     ok = maybe_license_add_collect_family(Callback, RawData),
@@ -258,7 +259,8 @@ collect(<<"json">>) ->
         olp => collect_json_data(?MG(emqx_olp_data, RawData)),
         acl => collect_json_data(?MG(emqx_acl_data, RawData)),
         authn => collect_json_data(?MG(emqx_authn_data, RawData)),
-        certs => collect_cert_json_data(?MG(cert_data, RawData))
+        certs => collect_cert_json_data(?MG(cert_data, RawData)),
+        cluster_rpc => collect_json_data(?MG(cluster_rpc, RawData))
     };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DEFAULT_REGISTRY).
@@ -288,6 +290,7 @@ fetch_from_local_node(Mode) ->
         emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
         emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
         emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode),
+        cluster_rpc => cluster_rpc_data(Mode),
         mria_data => mria_data(Mode)
     }}.
 
@@ -310,6 +313,7 @@ aggre_or_zip_init_acc() ->
         emqx_olp_data => meta_to_init_from(olp_metric_meta()),
         emqx_acl_data => meta_to_init_from(acl_metric_meta()),
         emqx_authn_data => meta_to_init_from(authn_metric_meta()),
+        cluster_rpc => meta_to_init_from(cluster_rpc_meta()),
         mria_data => meta_to_init_from(mria_metric_meta())
     }.
 
@@ -495,6 +499,8 @@ emqx_collect(K = emqx_license_expiry_at, D) -> gauge_metric(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Certs
 emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D));
+%% Cluster RPC
+emqx_collect(K = emqx_conf_sync_txid, D) -> gauge_metrics(?MG(K, D));
 %% Mria
 %% ========== core
 emqx_collect(K = emqx_mria_last_intercepted_trans, D) -> gauge_metrics(?MG(K, D, []));
@@ -999,6 +1005,13 @@ not_after_epoch(_) ->
     0.
 
 %%========================================
+%% Cluster RPC
+%%========================================
+
+cluster_rpc_meta() ->
+    [{emqx_conf_sync_txid, gauge, undefined}].
+
+%%========================================
 %% Mria
 %%========================================
 
@@ -1020,6 +1033,17 @@ mria_metric_meta(replicant) ->
         {emqx_mria_message_queue_len, gauge, message_queue_len},
         {emqx_mria_replayq_len, gauge, replayq_len}
     ].
+
+cluster_rpc_data(Mode) ->
+    Labels =
+        case Mode of
+            ?PROM_DATA_MODE__NODE -> [];
+            _ -> [{node, node(self())}]
+        end,
+    DataFun = fun() -> emqx_cluster_rpc:get_current_tnx_id() end,
+    #{
+        emqx_conf_sync_txid => [{Labels, catch_all(DataFun)}]
+    }.
 
 mria_data(Mode) ->
     case mria_rlog:backend() of

@@ -41,6 +41,7 @@
     commit/2,
     commit_status_trans/2,
     get_cluster_tnx_id/0,
+    get_current_tnx_id/0,
     get_node_tnx_id/1,
     init_mfa/2,
     force_sync_tnx_id/3,
@@ -484,6 +485,12 @@ get_cluster_tnx_id() ->
     case mnesia:last(?CLUSTER_MFA) of
         '$end_of_table' -> 0;
         Id -> Id
+    end.
+
+get_current_tnx_id() ->
+    case mnesia:dirty_read(?CLUSTER_COMMIT, node()) of
+        [] -> ?DEFAULT_INIT_TXN_ID;
+        [#cluster_rpc_commit{tnx_id = TnxId}] -> TnxId
     end.
 
 get_oldest_mfa_id() ->
