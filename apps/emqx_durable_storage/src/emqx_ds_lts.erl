@@ -31,6 +31,8 @@
     info/2,
     info/1,
 
+    updated_topics/2,
+
     threshold_fun/1,
 
     compress_topic/3,
@@ -349,6 +351,18 @@ compress_topic(StaticKey, TopicStructure, TopicFilter) ->
     emqx_ds:topic_filter().
 decompress_topic(TopicStructure, Topic) ->
     decompress_topic(TopicStructure, Topic, []).
+
+-spec updated_topics(trie(), dump()) -> [emqx_ds:topic_filter()].
+updated_topics(#trie{rlookups = true}, Dump) ->
+    lists:filtermap(
+        fun
+            ({{?rlookup, _StaticIdx}, UpdatedTF}) ->
+                {true, UpdatedTF};
+            ({{_StateFrom, _Token}, _StateTo}) ->
+                false
+        end,
+        Dump
+    ).
 
 %%================================================================================
 %% Internal exports
@@ -889,6 +903,61 @@ rlookup_test() ->
     destroy(T),
     ?assertEqual({ok, [<<"2">>, <<"1">>]}, reverse_lookup(T1, S21)),
     ?assertEqual({ok, [<<"2">>, '+', <<"1">>, '+']}, reverse_lookup(T1, S2_1_)).
+
+updated_topics_test() ->
+    %% Trie updates are sent as messages to self:
+    T = trie_create(#{
+        reverse_lookups => true,
+        persist_callback => fun(Key, Val) ->
+            self() ! {?FUNCTION_NAME, Key, Val},
+            ok
+        end
+    }),
+    %% Dump trie updates from the mailbox:
+    Ops = fun F() ->
+        receive
+            {?FUNCTION_NAME, K, V} -> [{K, V} | F()]
+        after 0 -> []
+        end
+    end,
+    Threshold = 2,
+    ThresholdFun = fun
+        (0) -> 1000;
+        (_) -> Threshold
+    end,
+    %% Singleton topics:
+    test_key(T, ThresholdFun, [1]),
+    ?assertMatch(
+        [[<<"1">>]],
+        updated_topics(T, Ops())
+    ),
+    %% Check that events are only sent once:
+    test_key(T, ThresholdFun, [1]),
+    ?assertMatch(
+        [],
+        updated_topics(T, Ops())
+    ),
+    test_key(T, ThresholdFun, [1, 1]),
+    ?assertMatch(
+        [[<<"1">>, <<"1">>]],
+        updated_topics(T, Ops())
+    ),
+    test_key(T, ThresholdFun, [1, 2]),
+    ?assertMatch(
+        [[<<"1">>, <<"2">>]],
+        updated_topics(T, Ops())
+    ),
+    %% Upgrade to wildcard:
+    test_key(T, ThresholdFun, [1, 3]),
+    ?assertMatch(
+        [[<<"1">>, '+']],
+        updated_topics(T, Ops())
+    ),
+    test_key(T, ThresholdFun, [1, 4]),
+    ?assertMatch(
+        [],
+        updated_topics(T, Ops())
+    ).
 
 n_topics_test() ->
     Threshold = 3,
