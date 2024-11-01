@@ -47,7 +47,7 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
-    batch_events/2
+    batch_events/3
 ]).
 
 %% internal exports:
@@ -104,8 +104,9 @@ create(_ShardId, DBHandle, GenId, _Options, _SPrev) ->
     Schema = #schema{},
     {Schema, [{CFName, CFHandle}]}.
 
-open(_Shard, DBHandle, GenId, CFRefs, #schema{}) ->
+open({DB, _}, DBHandle, GenId, CFRefs, #schema{}) ->
     {_, CF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
+    emqx_ds_new_streams:notify_new_stream(DB, ['#']),
     #s{db = DBHandle, cf = CF}.
 
 drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
@@ -248,7 +249,7 @@ message_matcher(_Shard, _S, #it{
         MsgKey > LSK andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
     end.
 
-batch_events(_, Messages) ->
+batch_events(_Shard, _, Messages) ->
     Topics = lists:foldl(
         fun
             ({_TS, #message{topic = Topic}}, Acc) ->

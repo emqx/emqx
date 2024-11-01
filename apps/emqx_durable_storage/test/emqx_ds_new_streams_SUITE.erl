@@ -54,28 +54,31 @@ t_sub_unsub(_) ->
 %% subscribing process dies:
 t_clean_on_down(_) ->
     ?check_trace(
-       #{timetrap => 10_000},
-       begin
-           DB = ?FUNCTION_NAME,
-           {ok, _} = emqx_ds_new_streams:start_link(DB),
-           %% Subscribe to topic updates from a temporary process:
-           Pid = spawn_link(
-             fun() ->
-                     {ok, _} = emqx_ds_new_streams:watch(DB, [<<"1">>]),
-                     {ok, _} = emqx_ds_new_streams:watch(DB, [<<"2">>]),
-                     receive done -> ok end
-             end),
-           %% Check if the subscriptions are present:
-           timer:sleep(100),
-           ?assertMatch([_, _], emqx_ds_new_streams:list_subscriptions(DB)),
-           %% Stop the process and verify that subscriptions were
-           %% automatically deleted:
-           Pid ! done,
-           timer:sleep(100),
-           ?assertMatch([], emqx_ds_new_streams:list_subscriptions(DB))
-       end,
-       fun no_unexpected_events/1
-      ).
+        #{timetrap => 10_000},
+        begin
+            DB = ?FUNCTION_NAME,
+            {ok, _} = emqx_ds_new_streams:start_link(DB),
+            %% Subscribe to topic updates from a temporary process:
+            Pid = spawn_link(
+                fun() ->
+                    {ok, _} = emqx_ds_new_streams:watch(DB, [<<"1">>]),
+                    {ok, _} = emqx_ds_new_streams:watch(DB, [<<"2">>]),
+                    receive
+                        done -> ok
+                    end
+                end
+            ),
+            %% Check if the subscriptions are present:
+            timer:sleep(100),
+            ?assertMatch([_, _], emqx_ds_new_streams:list_subscriptions(DB)),
+            %% Stop the process and verify that subscriptions were
+            %% automatically deleted:
+            Pid ! done,
+            timer:sleep(100),
+            ?assertMatch([], emqx_ds_new_streams:list_subscriptions(DB))
+        end,
+        fun no_unexpected_events/1
+    ).
 
 %% Verify that SUT is capable of forwarding notifications about
 %% changes in a group of topics (denoted by a topic filter) to a set

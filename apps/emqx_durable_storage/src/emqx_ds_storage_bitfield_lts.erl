@@ -44,7 +44,7 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
-    batch_events/2
+    batch_events/3
 ]).
 
 %% internal exports:
@@ -690,7 +690,7 @@ message_matcher(_Shard, #s{}, #{?tag := ?IT, ?last_seen_key := LSK, ?topic_filte
         MsgKey > LSK andalso emqx_topic:match(emqx_topic:tokens(Topic), TF)
     end.
 
-batch_events(_S, _CookedBatch) ->
+batch_events(_Shard, _S, _CookedBatch) ->
     %% FIXME: here we rely on the fact that bitfield_lts layout is
     %% deprecated.
     [].
