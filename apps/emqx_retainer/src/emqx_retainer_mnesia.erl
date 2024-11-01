@@ -88,7 +88,17 @@ topics() ->
 %%--------------------------------------------------------------------
 
 backup_tables() ->
-    [?TAB_MESSAGE || is_enabled()].
+    {<<"builtin_retainer">>, tables_to_backup()}.
+
+tables_to_backup() ->
+    %% `backup_tables' is inspected to construct API docs (available table sets), and such
+    %% docs are built in `emqx_conf:dump_schema', while there's no started node.
+    try
+        [?TAB_MESSAGE || is_enabled()]
+    catch
+        exit:{noproc, _} ->
+            []
+    end.
 
 on_backup_table_imported(?TAB_MESSAGE, Opts) ->
     case is_enabled() of
