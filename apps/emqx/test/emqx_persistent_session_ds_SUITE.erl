@@ -52,7 +52,8 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_session_subscription_idempotency;
     TestCase =:= t_session_unsubscription_idempotency;
     TestCase =:= t_subscription_state_change;
-    TestCase =:= t_storage_generations
+    TestCase =:= t_storage_generations;
+    TestCase =:= t_new_stream_notifications
 ->
     Cluster = cluster(#{n => 1}),
     WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
@@ -100,7 +101,8 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_session_unsubscription_idempotency;
     TestCase =:= t_subscription_state_change;
     TestCase =:= t_session_gc;
-    TestCase =:= t_storage_generations
+    TestCase =:= t_storage_generations;
+    TestCase =:= t_new_stream_notifications
 ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
@@ -427,12 +429,15 @@ t_subscription_state_change(Config) ->
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    %% Helper function that waits for the internal session GC:
+    %% Helper function that forces session to perform stream renewal.
+    %% In the current implementation it also causes garbage collection
+    %% of session states:
     WaitGC = fun() ->
-        ?block_until(
-            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}, 5_000, 0
-        ),
-        timer:sleep(10)
+        ?wait_async_action(
+            emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
+            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}},
+            timer:seconds(10)
+        )
     end,
     %% Helper function that gets runtime state of the session:
     GetS = fun() ->
@@ -452,9 +457,8 @@ t_subscription_state_change(Config) ->
             #{TopicFilter := #{current_state := SSID1}} = Subs1,
             %% Fill the storage with some data to create the streams:
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_2),
-            [#{packet_id := PI1, qos := ?QOS_1}] = emqx_common_test_helpers:wait_publishes(
-                1, 5_000
-            ),
+            [#{packet_id := PI1, qos := ?QOS_1, topic := <<"t/1">>, payload := <<"1">>}] =
+                emqx_common_test_helpers:wait_publishes(1, 5_000),
             %% Upgrade subscription to QoS2 and wait for the session GC
             %% to happen. At which point the session should keep 2
             %% subscription states, one being marked as obsolete:
@@ -470,23 +474,102 @@ t_subscription_state_change(Config) ->
                 },
                 SStates2
             ),
-            %% Now ack the packet and publish some more to trigger SRS
-            %% update. This should, in effect, release the reference
-            %% to the old subscription state, and let GC delete old
-            %% subscription state:
+            %% Now ack the packet and trigger garbage collection. This
+            %% should release the reference to the old subscription
+            %% state, and let GC delete old subscription state:
             ok = emqtt:puback(Sub, PI1),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_2),
-            %% QoS of subscription has been updated:
-            [#{packet_id := PI2, qos := ?QOS_2}] = emqx_common_test_helpers:wait_publishes(
-                1, 5_000
-            ),
+            %% Verify that QoS of subscription has been updated:
+            [#{packet_id := PI2, qos := ?QOS_2, topic := <<"t/1">>, payload := <<"2">>}] =
+                emqx_common_test_helpers:wait_publishes(1, 5_000),
             WaitGC(),
             #{subscriptions := Subs3, subscription_states := SStates3, streams := Streams3} = GetS(),
             ?assertEqual(Subs3, Subs2),
-            %% Old substate was deleted:
-            ?assertMatch([{SSID2, _}], maps:to_list(SStates3), Streams3)
+            %% Verify that the old substate (SSID1) was deleted:
+            ?assertMatch(
+                [{SSID2, _}],
+                maps:to_list(SStates3),
+                #{
+                    streams => Streams3,
+                    ssid1 => SSID1,
+                    ssid2 => SSID2,
+                    sub_states => SStates3
+                }
+            )
         end,
         []
+    ).
+
+%% This testcase verifies the lifetimes of session's subscriptions to
+%% new stream events.
+t_new_stream_notifications(Config) ->
+    [Node1Spec | _] = ?config(node_specs, Config),
+    [Node1] = ?config(nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    TopicFilter1 = <<"foo/+">>,
+    TopicFilter2 = <<"bar">>,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Init:
+            Sub0 = start_client(#{port => Port, clientid => ClientId}),
+            {ok, _} = emqtt:connect(Sub0),
+            %% 1. Sessions should start watching streams when they
+            %% subscribe to the topics:
+            ?wait_async_action(
+                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter1, ?QOS_1),
+                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter1}
+            ),
+            ?wait_async_action(
+                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter2, ?QOS_1),
+                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter2}
+            ),
+            %% 2. Sessions should re-subscribe to the events after
+            %% reconnect:
+            emqtt:disconnect(Sub0),
+            {ok, SNKsub} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := sessds_watch_streams}),
+                2,
+                timer:seconds(10)
+            ),
+            Sub1 = start_client(#{port => Port, clientid => ClientId, clean_start => false}),
+            {ok, _} = emqtt:connect(Sub1),
+            %% Verify that both subscriptions have been renewed:
+            {ok, EventsAfterRestart} = snabbkaffe:receive_events(SNKsub),
+            ?assertMatch(
+                [<<"bar">>, <<"foo/+">>],
+                lists:sort(?projection(topic_filter, EventsAfterRestart))
+            ),
+            %% Verify that stream notifications are handled:
+            ?wait_async_action(
+                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, <<"bar">>),
+                #{?snk_kind := sessds_renew_streams, topic_filter := <<"bar">>}
+            ),
+            ?wait_async_action(
+                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, <<"foo/1">>),
+                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+            ),
+            %% Verify that new stream subscriptions are removed when
+            %% session unsubscribes from a topic:
+            ?wait_async_action(
+                emqtt:unsubscribe(Sub1, TopicFilter2),
+                #{?snk_kind := sessds_unwatch_streams, topic_filter := <<"bar">>}
+            ),
+            %% But the rest of subscriptions are still active:
+            ?wait_async_action(
+                emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
+                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [], ?of_kind(sessds_new_stream_notification_for_undefined_subscription, Trace)
+            ),
+            ?assertMatch(
+                [], ?of_kind(sessds_unexpected_stream_notifiction, Trace)
+            )
+        end
     ).
 
 t_session_discard_persistent_to_non_persistent(_Config) ->

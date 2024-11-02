@@ -89,7 +89,7 @@ open(S) ->
     %% Receive notifications about new streams for the topic filter:
     fold_private_subscriptions(
         fun(TopicFilter, _Sub, Acc) ->
-            Acc#{TopicFilter => watch_streams(TopicFilter)}
+            Acc#{watch_streams(TopicFilter) => TopicFilter}
         end,
         #{},
         S
@@ -144,7 +144,7 @@ on_subscribe(TopicFilter, SubOpts, #{
                     ?tp(persistent_session_ds_subscription_added, #{
                         topic_filter => TopicFilter, session => SessionId
                     }),
-                    {ok, S, NewStreamSubs#{TopicFilter => watch_streams(TopicFilter)}};
+                    {ok, gc(S), NewStreamSubs#{watch_streams(TopicFilter) => TopicFilter}};
                 false ->
                     {error, ?RC_QUOTA_EXCEEDED}
             end;
@@ -153,7 +153,7 @@ on_subscribe(TopicFilter, SubOpts, #{
             case emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0) of
                 SState ->
                     %% Client resubscribed with the same parameters:
-                    {ok, S0, NewStreamSubs};
+                    {ok, gc(S0), NewStreamSubs};
                 OldSState ->
                     %% Subsription parameters changed:
                     {SStateId, S1} = emqx_persistent_session_ds_state:new_id(S0),
@@ -165,7 +165,7 @@ on_subscribe(TopicFilter, SubOpts, #{
                     ),
                     Sub = Sub0#{current_state := SStateId},
                     S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Sub, S3),
-                    {ok, S, NewStreamSubs}
+                    {ok, gc(S), NewStreamSubs}
             end
     end.
 
@@ -194,10 +194,10 @@ on_unsubscribe(SessionId, TopicFilter, S0, NewStreamSubs) ->
             ),
             _ = emqx_external_broker:delete_persistent_route(TopicFilter, SessionId),
             S = emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0),
-            {ok, S, unwatch_streams(TopicFilter, NewStreamSubs), Subscription}
+            {ok, gc(S), unwatch_streams(TopicFilter, NewStreamSubs), Subscription}
     end.
 
--spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds:sesssion()) -> ok.
+-spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
 on_session_drop(SessionId, S0) ->
     _ = fold_private_subscriptions(
         fun(TopicFilter, _Subscription, S) ->
@@ -302,6 +302,7 @@ watch_streams(TopicFilter) ->
     {ok, Ref} = emqx_ds_new_streams:watch(
         ?PERSISTENT_MESSAGE_DB, emqx_topic:words(TopicFilter)
     ),
+    ?tp(debug, sessds_watch_streams, #{topic_filter => TopicFilter, ref => Ref}),
     Ref.
 
 unwatch_streams(TopicFilter, NewStreamSubs) ->
@@ -318,6 +319,7 @@ unwatch_streams(TopicFilter, NewStreamSubs) ->
         NewStreamSubs
     catch
         {found, Ref} ->
-            emqx_ds_new_streams:unwatch(Ref),
+            ?tp(debug, sessds_unwatch_streams, #{topic_filter => TopicFilter, ref => Ref}),
+            emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
             maps:remove(Ref, NewStreamSubs)
     end.
