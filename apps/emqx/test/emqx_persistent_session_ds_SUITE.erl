@@ -55,14 +55,16 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_storage_generations
 ->
     Cluster = cluster(#{n => 1}),
-    ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)},
+    WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
+    ClusterOpts = #{work_dir => WorkDir},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
     Nodes = emqx_cth_cluster:start(NodeSpecs),
     [
         {cluster, Cluster},
         {node_specs, NodeSpecs},
         {cluster_opts, ClusterOpts},
-        {nodes, Nodes}
+        {nodes, Nodes},
+        {work_dir, WorkDir}
         | Config
     ];
 init_per_testcase(t_session_gc = TestCase, Config) ->
@@ -77,7 +79,8 @@ init_per_testcase(t_session_gc = TestCase, Config) ->
             "\n }"
     },
     Cluster = cluster(Opts),
-    ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)},
+    WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
+    ClusterOpts = #{work_dir => WorkDir},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
     Nodes = emqx_cth_cluster:start(Cluster, ClusterOpts),
     [
@@ -85,7 +88,8 @@ init_per_testcase(t_session_gc = TestCase, Config) ->
         {node_specs, NodeSpecs},
         {cluster_opts, ClusterOpts},
         {nodes, Nodes},
-        {gc_interval, timer:seconds(2)}
+        {gc_interval, timer:seconds(2)},
+        {work_dir, WorkDir}
         | Config
     ];
 init_per_testcase(_TestCase, Config) ->
@@ -102,6 +106,7 @@ end_per_testcase(TestCase, Config) when
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
     snabbkaffe:stop(),
+    emqx_cth_suite:clean_work_dir(?config(work_dir, Config)),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
