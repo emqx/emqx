@@ -201,12 +201,14 @@
 -define(TIMER_PUSH, timer_push).
 -define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
+-define(TIMER_SHARED_SUB, timer_shared_sub).
 
 -type timer() ::
     ?TIMER_PULL
     | ?TIMER_PUSH
     | ?TIMER_BUMP_LAST_ALIVE_AT
-    | ?TIMER_RETRY_REPLAY.
+    | ?TIMER_RETRY_REPLAY
+    | ?TIMER_SHARED_SUB.
 
 -type timer_state() :: reference() | undefined.
 
@@ -233,7 +235,8 @@
     ?TIMER_PULL := timer_state(),
     ?TIMER_PUSH := timer_state(),
     ?TIMER_BUMP_LAST_ALIVE_AT := timer_state(),
-    ?TIMER_RETRY_REPLAY := timer_state()
+    ?TIMER_RETRY_REPLAY := timer_state(),
+    ?TIMER_SHARED_SUB := timer_state()
 }.
 
 -define(IS_REPLAY_ONGOING(REPLAY), is_list(REPLAY)).
@@ -426,7 +429,8 @@ subscribe(
 ) ->
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {ok, S, SharedSubS} ->
-            Session = Session0#{s := S, shared_sub_s := SharedSubS},
+            Session1 = Session0#{s := S, shared_sub_s := SharedSubS},
+            Session = maybe_set_shared_sub_timer(Session1),
             {ok, commit(Session)};
         Error = {error, _} ->
             Error
@@ -696,6 +700,21 @@ handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     {ok, [], Session};
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
+handle_timeout(
+    _ClientInfo,
+    ?TIMER_SHARED_SUB,
+    Session0 = #{s := S0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0}
+) ->
+    {S, SchedS, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+        S0, SchedS0, SharedSubS0
+    ),
+    Session = Session0#{
+        s := S,
+        stream_scheduler_s := SchedS,
+        shared_sub_s := SharedSubS,
+        ?TIMER_SHARED_SUB := undefined
+    },
+    {ok, [], maybe_set_shared_sub_timer(renew_streams(all, Session))};
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
@@ -1022,7 +1041,8 @@ session_open(
                             ?TIMER_PULL => undefined,
                             ?TIMER_PUSH => undefined,
                             ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
-                            ?TIMER_RETRY_REPLAY => undefined
+                            ?TIMER_RETRY_REPLAY => undefined,
+                            ?TIMER_SHARED_SUB => undefined
                         }
                     )
             end;
@@ -1078,7 +1098,8 @@ session_ensure_new(
         ?TIMER_PULL => undefined,
         ?TIMER_PUSH => undefined,
         ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
-        ?TIMER_RETRY_REPLAY => undefined
+        ?TIMER_RETRY_REPLAY => undefined,
+        ?TIMER_SHARED_SUB => undefined
     }.
 
 %% @doc Called when a client reconnects with `clean session=true' or
@@ -1412,8 +1433,9 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 %% effects. Add `CBM:init' callback to the session behavior?
 -spec post_init(session()) -> session().
 post_init(Session0) ->
-    Session = renew_streams(all, Session0),
-    set_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session).
+    Session1 = renew_streams(all, Session0),
+    Session = set_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session1),
+    maybe_set_shared_sub_timer(Session).
 
 %% This function triggers sending buffered packets to the client
 %% (provided there is something to send and the number of in-flight
@@ -1680,6 +1702,34 @@ set_timer(Timer, Time, Session) ->
 commit(Session = #{s := S0}) ->
     S = emqx_persistent_session_ds_state:commit(S0),
     Session#{s := S}.
+
+-spec maybe_set_shared_sub_timer(session()) -> session().
+maybe_set_shared_sub_timer(Session = #{s := S}) ->
+    case has_shared_subs(S) of
+        true ->
+            ClientInfo = emqx_persistent_session_ds_state:get_clientinfo(S),
+            Interval = get_config(ClientInfo, [renew_streams_interval]),
+            ensure_timer(?TIMER_SHARED_SUB, Interval, Session);
+        false ->
+            Session
+    end.
+
+%% Check if any of the session's subscriptions are shared:
+has_shared_subs(S) ->
+    try
+        emqx_persistent_session_ds_state:fold_subscriptions(
+            fun(TopicFilter, _Sub, Acc) ->
+                case TopicFilter of
+                    #share{} -> throw(has_shared_subs);
+                    _ -> Acc
+                end
+            end,
+            false,
+            S
+        )
+    catch
+        has_shared_subs -> true
+    end.
 
 %%--------------------------------------------------------------------
 %% Tests
