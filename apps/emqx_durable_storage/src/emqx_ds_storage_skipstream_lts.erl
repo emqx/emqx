@@ -245,7 +245,7 @@ commit_batch(
         ),
         %% Apply LTS ops to the memory cache and notify about the new
         %% streams. Note: in case of `builtin_raft' backend
-        %% notifiction is sent _for every replica_ of the database, to
+        %% notification is sent _for every replica_ of the database, to
         %% account for possible delays in the replication. Event
         %% deduplication logic of `emqx_ds_new_streams' module should
         %% mitigate the performance impact of repeated events.

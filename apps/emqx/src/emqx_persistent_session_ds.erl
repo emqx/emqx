@@ -737,7 +737,7 @@ handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
         #{Ref := TopicFilter} ->
             renew_streams(TopicFilter, Session);
         _ ->
-            ?tp(warning, sessds_unexpected_stream_notifiction, #{ref => Ref}),
+            ?tp(warning, sessds_unexpected_stream_notification, #{ref => Ref}),
             Session
     end;
 handle_info(Msg, Session, _ClientInfo) ->

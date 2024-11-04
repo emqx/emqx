@@ -243,7 +243,6 @@ stop_and_commit(Client) ->
 %% `end_of_stream' and doesn't violate the ordering of messages that
 %% are split into different generations.
 t_storage_generations(Config) ->
-    [Node1Spec | _] = ?config(node_specs, Config),
     [Node1] = ?config(nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
@@ -435,8 +434,7 @@ t_subscription_state_change(Config) ->
     WaitGC = fun() ->
         ?wait_async_action(
             emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}},
-            timer:seconds(10)
+            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}
         )
     end,
     %% Helper function that gets runtime state of the session:
@@ -543,11 +541,11 @@ t_new_stream_notifications(Config) ->
             ),
             %% Verify that stream notifications are handled:
             ?wait_async_action(
-                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, <<"bar">>),
+                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"bar">>]),
                 #{?snk_kind := sessds_renew_streams, topic_filter := <<"bar">>}
             ),
             ?wait_async_action(
-                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, <<"foo/1">>),
+                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"foo">>, <<"1">>]),
                 #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
             ),
             %% Verify that new stream subscriptions are removed when
@@ -567,7 +565,7 @@ t_new_stream_notifications(Config) ->
                 [], ?of_kind(sessds_new_stream_notification_for_undefined_subscription, Trace)
             ),
             ?assertMatch(
-                [], ?of_kind(sessds_unexpected_stream_notifiction, Trace)
+                [], ?of_kind(sessds_unexpected_stream_notification, Trace)
             )
         end
     ).

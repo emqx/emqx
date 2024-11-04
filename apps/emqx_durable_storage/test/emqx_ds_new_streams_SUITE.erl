@@ -93,7 +93,7 @@ t_matching(_) ->
             {ok, Ref1} = emqx_ds_new_streams:watch(DB, [<<"foo">>, <<"1">>]),
             {ok, Ref2} = emqx_ds_new_streams:watch(DB, [<<"foo">>, '+']),
             {ok, Ref3} = emqx_ds_new_streams:watch(DB, [<<"foo">>, '#']),
-            {ok, Ref4} = emqx_ds_new_streams:watch(DB, [<<>>]),
+            {ok, Ref4} = emqx_ds_new_streams:watch(DB, ['']),
             %% Try patterns that aren't matched by any subscription:
             ok = emqx_ds_new_streams:notify_new_stream(DB, [<<"bar">>]),
             ok = emqx_ds_new_streams:notify_new_stream(DB, [<<"bar">>, '+']),
@@ -109,7 +109,7 @@ t_matching(_) ->
             %% This should include empty topic subscriptions as well:
             ok = emqx_ds_new_streams:notify_new_stream(DB, ['#']),
             assertEvents([Ref1, Ref2, Ref3, Ref4]),
-            ok = emqx_ds_new_streams:notify_new_stream(DB, [<<>>]),
+            ok = emqx_ds_new_streams:notify_new_stream(DB, ['']),
             assertEvents([Ref4]),
             %% These patterns should exclude the first subscriber:
             ok = emqx_ds_new_streams:notify_new_stream(DB, [<<"foo">>, <<"2">>]),

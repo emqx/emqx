@@ -88,8 +88,8 @@
 open(S) ->
     %% Receive notifications about new streams for the topic filter:
     fold_private_subscriptions(
-        fun(TopicFilter, _Sub, Acc) ->
-            Acc#{watch_streams(TopicFilter) => TopicFilter}
+        fun(TopicFilterBin, _Sub, Acc) ->
+            Acc#{watch_streams(TopicFilterBin) => TopicFilterBin}
         end,
         #{},
         S
@@ -100,7 +100,7 @@ fold_private_subscriptions(Fun, Acc, S) ->
     emqx_persistent_session_ds_state:fold_subscriptions(
         fun
             (#share{}, _Sub, Acc0) -> Acc0;
-            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
+            (TopicFilterBin, Sub, Acc0) -> Fun(TopicFilterBin, Sub, Acc0)
         end,
         Acc,
         S
@@ -298,11 +298,11 @@ cold_get_subscription(SessionId, Topic) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-watch_streams(TopicFilter) ->
+watch_streams(TopicFilterBin) ->
     {ok, Ref} = emqx_ds_new_streams:watch(
-        ?PERSISTENT_MESSAGE_DB, emqx_topic:words(TopicFilter)
+        ?PERSISTENT_MESSAGE_DB, emqx_topic:words(TopicFilterBin)
     ),
-    ?tp(debug, sessds_watch_streams, #{topic_filter => TopicFilter, ref => Ref}),
+    ?tp(debug, sessds_watch_streams, #{topic_filter => TopicFilterBin, ref => Ref}),
     Ref.
 
 unwatch_streams(TopicFilter, NewStreamSubs) ->

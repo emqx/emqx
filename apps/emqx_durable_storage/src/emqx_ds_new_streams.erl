@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc This module is used for notifying processes about new streams.
-%% It's not a replacement for `emqx_ds:get_streams' function, it's
-%% only meant to optimize its usage.
+%% @doc This module can be used by DS backends for notifying processes
+%% about new streams. It's not a replacement for `emqx_ds:get_streams'
+%% function, it's only meant to optimize its usage.
 %%
 %% `emqx_ds_new_streams' module tries to avoid waking up subscribers
 %% too often. It's done like this:
@@ -277,7 +277,7 @@ handle_watch({Pid, _}, TopicFilter, Data) ->
         {ok, MRef}
     catch
         EC:Err:Stack ->
-            demonitor(MRef),
+            demonitor(MRef, [flush]),
             ?tp(
                 error,
                 ds_new_streams_failed_to_insert,
