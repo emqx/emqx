@@ -144,4 +144,13 @@ t_replvar(_) ->
                 clientid => <<"clientid">>
             }
         )
+    ),
+    ?assertEqual(
+        <<"mount/default">>,
+        replvar(
+            <<"mount/${zone}">>,
+            #{
+                zone => default
+            }
+        )
     ).
