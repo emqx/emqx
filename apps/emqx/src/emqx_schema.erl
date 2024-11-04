@@ -3330,9 +3330,9 @@ is_quic_ssl_opts(Name) ->
         "certfile",
         "keyfile",
         "verify",
-        "password"
+        "password",
+        "hibernate_after"
         %% Followings are planned
-        %% , "hibernate_after"
         %% , "fail_if_no_peer_cert"
         %% , "handshake_timeout"
         %% , "gc_after_handshake"
