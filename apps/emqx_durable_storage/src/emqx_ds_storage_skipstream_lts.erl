@@ -40,7 +40,7 @@
     scan_stream/8,
     message_matcher/3,
 
-    batch_events/2
+    batch_events/3
 ]).
 
 %% internal exports:
@@ -167,7 +167,7 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev) ->
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
 open(
-    _Shard,
+    ShardId,
     DBHandle,
     GenId,
     CFRefs,
@@ -180,7 +180,7 @@ open(
 ) ->
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
-    Trie = restore_trie(TIBytes, DBHandle, TrieCF),
+    Trie = restore_trie(ShardId, TIBytes, DBHandle, TrieCF),
     ThresholdSpec = maps:get(lts_threshold_spec, Schema, ?DEFAULT_LTS_THRESHOLD),
     #s{
         db = DBHandle,
@@ -229,7 +229,7 @@ prepare_batch(
     }}.
 
 commit_batch(
-    _ShardId,
+    ShardId,
     #s{db = DB, trie_cf = TrieCF, data_cf = DataCF, trie = Trie, hash_bytes = HashBytes},
     #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations},
     Options
@@ -243,8 +243,14 @@ commit_batch(
             end,
             LtsOps
         ),
-        %% Apply LTS ops to the memory cache:
+        %% Apply LTS ops to the memory cache and notify about the new
+        %% streams. Note: in case of `builtin_raft' backend
+        %% notification is sent _for every replica_ of the database, to
+        %% account for possible delays in the replication. Event
+        %% deduplication logic of `emqx_ds_new_streams' module should
+        %% mitigate the performance impact of repeated events.
         _ = emqx_ds_lts:trie_update(Trie, LtsOps),
+        notify_new_streams(ShardId, Trie, LtsOps),
         %% Commit payloads:
         lists:foreach(
             fun
@@ -275,7 +281,11 @@ commit_batch(
         rocksdb:release_batch(Batch)
     end.
 
-batch_events(#s{trie = _Trie}, #{?cooked_msg_ops := Payloads}) ->
+batch_events(
+    _Shard,
+    #s{},
+    #{?cooked_msg_ops := Payloads}
+) ->
     EventMap = lists:foldl(
         fun
             (?cooked_msg_op(_Timestamp, _Static, _Varying, ?cooked_delete), Acc) ->
@@ -787,8 +797,10 @@ hash(HashBytes, TopicLevel) ->
 
 %%%%%%%% LTS %%%%%%%%%%
 
--spec restore_trie(pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()) -> emqx_ds_lts:trie().
-restore_trie(StaticIdxBytes, DB, CF) ->
+-spec restore_trie(
+    emqx_ds_storage_layer:shard_id(), pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()
+) -> emqx_ds_lts:trie().
+restore_trie(Shard, StaticIdxBytes, DB, CF) ->
     PersistCallback = fun(Key, Val) ->
         push_lts_persist_op(Key, Val),
         ok
@@ -801,14 +813,24 @@ restore_trie(StaticIdxBytes, DB, CF) ->
             static_key_bytes => StaticIdxBytes,
             reverse_lookups => true
         },
-        emqx_ds_lts:trie_restore(TrieOpts, Dump)
+        Trie = emqx_ds_lts:trie_restore(TrieOpts, Dump),
+        notify_new_streams(Shard, Trie, Dump),
+        Trie
     after
         rocksdb:iterator_close(IT)
     end.
 
+%% Send notifications about new streams:
+notify_new_streams({DB, _Shard}, Trie, Dump) ->
+    [
+        emqx_ds_new_streams:notify_new_stream(DB, TopicFilter)
+     || TopicFilter <- emqx_ds_lts:updated_topics(Trie, Dump)
+    ],
+    ok.
+
 -spec copy_previous_trie(rocksdb:db_handle(), rocksdb:cf_handle(), emqx_ds_lts:trie()) ->
     ok.
-copy_previous_trie(DB, TrieCF, TriePrev) ->
+copy_previous_trie(RocksDB, TrieCF, TriePrev) ->
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(
         fun({Key, Val}) ->
@@ -816,7 +838,7 @@ copy_previous_trie(DB, TrieCF, TriePrev) ->
         end,
         emqx_ds_lts:trie_dump(TriePrev, wildcard)
     ),
-    Result = rocksdb:write_batch(DB, Batch, []),
+    Result = rocksdb:write_batch(RocksDB, Batch, []),
     rocksdb:release_batch(Batch),
     Result.
 
