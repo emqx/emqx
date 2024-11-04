@@ -19,13 +19,16 @@
 
 -include("session_internals.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 %% API
 -export([
     create_tables/0,
     start_link/0,
     get_node_epoch_id/0,
-    get_last_alive_at/1
+    get_last_alive_at/1,
+    inactive_epochs/1,
+    delete_epochs/1
 ]).
 
 %% `gen_server' API
@@ -71,6 +74,29 @@ get_last_alive_at(EpochId) ->
         [] -> undefined;
         [#?node_epoch{last_alive_at = LastAliveAt}] -> LastAliveAt
     end.
+
+-spec inactive_epochs(integer()) -> [epoch_id()].
+inactive_epochs(NowMs) ->
+    DeadLine = NowMs - 2 * heartbeat_interval(),
+    Ms = ets:fun2ms(
+        fun(#?node_epoch{last_alive_at = LastAliveAt, epoch_id = EpochId}) when
+            LastAliveAt < DeadLine
+        ->
+            EpochId
+        end
+    ),
+    mnesia:dirty_select(?tab, Ms).
+
+-spec delete_epochs([epoch_id()]) -> ok.
+delete_epochs(EpochIds) ->
+    mria:async_dirty(?DS_MRIA_SHARD, fun() ->
+        lists:foreach(
+            fun(EpochId) ->
+                mnesia:delete(?tab, EpochId, write)
+            end,
+            EpochIds
+        )
+    end).
 
 %%--------------------------------------------------------------------------------
 %% `gen_server' API
