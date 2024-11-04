@@ -67,7 +67,7 @@ get_node_epoch_id() ->
 
 -spec get_last_alive_at(epoch_id()) -> pos_integer() | undefined.
 get_last_alive_at(EpochId) ->
-    case ets:lookup(?tab, EpochId) of
+    case mnesia:dirty_read(?tab, EpochId) of
         [] -> undefined;
         [#?node_epoch{last_alive_at = LastAliveAt}] -> LastAliveAt
     end.
