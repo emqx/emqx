@@ -1633,10 +1633,15 @@ This inevitably limits the overall throughput of the system.
 session_ds_heartbeat_interval.label:
 """Durable session heartbeat interval"""
 session_ds_heartbeat_interval.desc:
-"""Durable sessions back up their state on disc every heartbeat interval.
+"""The interval at which a node with durable sessions reports its liveness.
 
-Heartbeat interval is also taken into account during garbage collection of expired sessions.
-It is added to the session expiry time as a safety margin when precise time of session termination is not precisely known."""
+In case of abnormal node shutdown, the node's last reported heartbeat time is used to
+determine the disconnection time of its durable sessions."""
+
+session_ds_commit_interval.label:
+"""Durable session commit interval"""
+session_ds_commit_interval.desc:
+"""Durable sessions back up their state on disc every commit interval."""
 
 session_ds_idle_poll_interval.label:
 """Durable session idle poll interval"""

@@ -199,14 +199,14 @@
 
 -define(TIMER_PULL, timer_pull).
 -define(TIMER_PUSH, timer_push).
--define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
+-define(TIMER_COMMIT, timer_commit).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 -define(TIMER_SHARED_SUB, timer_shared_sub).
 
 -type timer() ::
     ?TIMER_PULL
     | ?TIMER_PUSH
-    | ?TIMER_BUMP_LAST_ALIVE_AT
+    | ?TIMER_COMMIT
     | ?TIMER_RETRY_REPLAY
     | ?TIMER_SHARED_SUB.
 
@@ -234,7 +234,7 @@
     %% Timers:
     ?TIMER_PULL := timer_state(),
     ?TIMER_PUSH := timer_state(),
-    ?TIMER_BUMP_LAST_ALIVE_AT := timer_state(),
+    ?TIMER_COMMIT := timer_state(),
     ?TIMER_RETRY_REPLAY := timer_state(),
     ?TIMER_SHARED_SUB := timer_state()
 }.
@@ -686,13 +686,7 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], Session};
-handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
-    S = bump_last_alive(S0),
-    Session = set_timer(
-        ?TIMER_BUMP_LAST_ALIVE_AT,
-        bump_interval(),
-        Session0#{s := S}
-    ),
+handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session0 = #{s := S0}) ->
     {ok, [], commit(Session)};
 handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     Session = commit(Session0),
@@ -1037,7 +1031,7 @@ session_open(
                             new_stream_subs => NewStreamSubs,
                             ?TIMER_PULL => undefined,
                             ?TIMER_PUSH => undefined,
-                            ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
+                            ?TIMER_COMMIT => undefined,
                             ?TIMER_RETRY_REPLAY => undefined,
                             ?TIMER_SHARED_SUB => undefined
                         }
@@ -1114,6 +1108,7 @@ session_ensure_new(
         replay => undefined,
         ?TIMER_PULL => undefined,
         ?TIMER_PUSH => undefined,
+        ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined,
         ?TIMER_SHARED_SUB => undefined
     }.
@@ -1450,7 +1445,7 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 -spec post_init(session()) -> session().
 post_init(Session0) ->
     Session1 = renew_streams(all, Session0),
-    Session = set_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session1),
+    Session = set_timer(?TIMER_COMMIT, 100, Session1),
     maybe_set_shared_sub_timer(Session).
 
 %% This function triggers sending buffered packets to the client
@@ -1481,6 +1476,9 @@ expiry_interval(ConnInfo) ->
 %% regardless of the zone.
 bump_interval() ->
     emqx_config:get([durable_sessions, heartbeat_interval]).
+
+commit_interval() ->
+    emqx_config:get([durable_sessions, commit_interval]).
 
 get_config(#{zone := Zone}, Key) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).

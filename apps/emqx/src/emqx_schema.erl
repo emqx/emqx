@@ -1722,6 +1722,14 @@ fields("durable_sessions") ->
                     desc => ?DESC(session_ds_heartbeat_interval)
                 }
             )},
+        {"commit_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"10000ms">>,
+                    desc => ?DESC(session_ds_commit_interval)
+                }
+            )},
         {"renew_streams_interval",
             sc(
                 timeout_duration(),
