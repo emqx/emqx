@@ -526,7 +526,7 @@ publish(
                 undefined ->
                     Results = emqx_broker:publish(Msg),
                     S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, Ts, S0),
-                    {ok, Results, Session#{s := S}};
+                    {ok, Results, ensure_state_commit_timer(Session#{s := S})};
                 _Ts ->
                     {error, ?RC_PACKET_IDENTIFIER_IN_USE}
             end;
@@ -544,7 +544,7 @@ is_awaiting_full(#{s := S, props := Props}) ->
 -spec expire(emqx_types:clientinfo(), session()) ->
     {ok, [], timeout(), session()} | {ok, [], session()}.
 expire(ClientInfo, Session0 = #{props := Props}) ->
-    Session = #{s := S} = do_expire(ClientInfo, Session0),
+    Session = #{s := S} = ensure_state_commit_timer(do_expire(ClientInfo, Session0)),
     case emqx_persistent_session_ds_state:n_awaiting_rel(S) of
         0 ->
             {ok, [], Session};
@@ -606,7 +606,7 @@ puback(_ClientInfo, PacketId, Session0) ->
 pubrec(PacketId, Session0) ->
     case update_seqno(pubrec, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, Session};
+            {ok, Msg, ensure_state_commit_timer(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -623,7 +623,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND};
         _TS ->
             S = emqx_persistent_session_ds_state:del_awaiting_rel(PacketId, S0),
-            {ok, Session#{s := S}}
+            {ok, ensure_state_commit_timer(Session#{s := S})}
     end.
 
 %%--------------------------------------------------------------------
@@ -681,12 +681,12 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
             Timeout = get_config(ClientInfo, [idle_poll_interval]),
             PollOpts = #{timeout => Timeout},
             SchedS = emqx_persistent_session_ds_stream_scheduler:poll(PollOpts, SchedS0, S),
-            {ok, [], Session1#{stream_scheduler_s := SchedS}}
+            {ok, [], ensure_state_commit_timer(Session1#{stream_scheduler_s := SchedS})}
     end;
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
-    {ok, [], Session};
-handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session0 = #{s := S0}) ->
+    {ok, [], ensure_state_commit_timer(Session)};
+handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
     {ok, [], commit(Session)};
 handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     Session = commit(Session0),
@@ -722,7 +722,7 @@ handle_info(
     ?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}, _ClientInfo
 ) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
-    Session#{s := S, shared_sub_s := SharedSubS};
+    ensure_state_commit_timer(Session#{s := S, shared_sub_s := SharedSubS});
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
 handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
@@ -901,10 +901,6 @@ terminate(_Reason, Session = #{s := S0, id := Id}) ->
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
 
-finalize_last_alive_at(S0) ->
-    S = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
-    emqx_persistent_session_ds_state:set_node_epoch_id(undefined, S).
-
 %%--------------------------------------------------------------------
 %% Management APIs (dashboard)
 %%--------------------------------------------------------------------
@@ -1041,26 +1037,6 @@ session_open(
             false
     end.
 
-init_last_alive_at(S) ->
-    init_last_alive_at(now_ms(), S).
-
-init_last_alive_at(NowMs, S0) ->
-    NodeEpochId = emqx_persistent_session_ds_node_heartbeat_worker:get_node_epoch_id(),
-    S1 = emqx_persistent_session_ds_state:set_node_epoch_id(NodeEpochId, S0),
-    emqx_persistent_session_ds_state:set_last_alive_at(NowMs + bump_interval(), S1).
-
-%% NOTE
-%% Here we ignore the case when:
-%% * the session is terminated abnormally, without running terminate callback,
-%% e.g. when the conection was brutally killed;
-%% * but its node and persistent session subsystem remained alive.
-%%
-%% In this case, the session's lifitime is prolonged till the node termination.
-get_last_alive_at(S) ->
-    LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S),
-    NodeEpochId = emqx_persistent_session_ds_state:get_node_epoch_id(S),
-    emqx_persistent_session_ds_gc_worker:session_last_alive_at(LastAliveAt, NodeEpochId).
-
 -spec session_ensure_new(
     id(),
     emqx_types:clientinfo(),
@@ -1158,8 +1134,9 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-push_now(Session) ->
-    ensure_timer(?TIMER_PUSH, 0, Session).
+push_now(Session0) ->
+    Session1 = ensure_timer(?TIMER_PUSH, 0, Session0),
+    ensure_state_commit_timer(Session1).
 
 handle_ds_reply(AsyncReply, Session0 = #{s := S0, stream_scheduler_s := SchedS0}, ClientInfo) ->
     case emqx_persistent_session_ds_stream_scheduler:on_ds_reply(AsyncReply, S0, SchedS0) of
@@ -1457,8 +1434,9 @@ post_init(Session0) ->
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
 -spec pull_now(session()) -> session().
-pull_now(Session) ->
-    ensure_timer(?TIMER_PULL, 0, Session).
+pull_now(Session0) ->
+    Session1 = ensure_timer(?TIMER_PULL, 0, Session0),
+    ensure_state_commit_timer(Session1).
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->
@@ -1715,7 +1693,7 @@ set_timer(Timer, Time, Session) ->
 
 commit(Session = #{s := S0}) ->
     S = emqx_persistent_session_ds_state:commit(S0),
-    Session#{s := S}.
+    cancel_state_commit_timer(Session#{s := S}).
 
 -spec maybe_set_shared_sub_timer(session()) -> session().
 maybe_set_shared_sub_timer(Session = #{s := S}) ->
@@ -1744,6 +1722,54 @@ has_shared_subs(S) ->
     catch
         has_shared_subs -> true
     end.
+
+%%--------------------------------------------------------------------
+%% Management of state commit timer
+%%--------------------------------------------------------------------
+
+-spec ensure_state_commit_timer(session()) -> session().
+ensure_state_commit_timer(#{s := S, ?TIMER_COMMIT := undefined} = Session) ->
+    case emqx_persistent_session_ds_state:is_dirty(S) of
+        true ->
+            set_timer(?TIMER_COMMIT, commit_interval(), Session);
+        false ->
+            Session
+    end;
+ensure_state_commit_timer(Session) ->
+    Session.
+
+-spec cancel_state_commit_timer(session()) -> session().
+cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->
+    emqx_utils:cancel_timer(TRef),
+    Session#{?TIMER_COMMIT := undefined}.
+
+%%--------------------------------------------------------------------
+%% Management of the heartbeat
+%%--------------------------------------------------------------------
+
+init_last_alive_at(S) ->
+    init_last_alive_at(now_ms(), S).
+
+init_last_alive_at(NowMs, S0) ->
+    NodeEpochId = emqx_persistent_session_ds_node_heartbeat_worker:get_node_epoch_id(),
+    S1 = emqx_persistent_session_ds_state:set_node_epoch_id(NodeEpochId, S0),
+    emqx_persistent_session_ds_state:set_last_alive_at(NowMs + bump_interval(), S1).
+
+finalize_last_alive_at(S0) ->
+    S = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
+    emqx_persistent_session_ds_state:set_node_epoch_id(undefined, S).
+
+%% NOTE
+%% Here we ignore the case when:
+%% * the session is terminated abnormally, without running terminate callback,
+%% e.g. when the conection was brutally killed;
+%% * but its node and persistent session subsystem remained alive.
+%%
+%% In this case, the session's lifitime is prolonged till the node termination.
+get_last_alive_at(S) ->
+    LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S),
+    NodeEpochId = emqx_persistent_session_ds_state:get_node_epoch_id(S),
+    emqx_persistent_session_ds_gc_worker:session_last_alive_at(LastAliveAt, NodeEpochId).
 
 %%--------------------------------------------------------------------
 %% Tests

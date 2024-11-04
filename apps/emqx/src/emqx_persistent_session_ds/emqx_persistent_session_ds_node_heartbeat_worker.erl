@@ -40,6 +40,8 @@
     terminate/2
 ]).
 
+-export_type([epoch_id/0]).
+
 %% call/cast/info records
 -record(update_last_alive_at, {}).
 
@@ -61,7 +63,7 @@
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
-    create_tables(),
+    ok = create_tables(),
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec get_node_epoch_id() -> epoch_id().

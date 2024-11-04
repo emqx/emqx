@@ -42,6 +42,7 @@
 -export([
     open/1, create_new/1, delete/1, commit/1, commit/2, format/1, print_session/1, list_sessions/0
 ]).
+-export([is_dirty/1]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_node_epoch_id/1, set_node_epoch_id/2]).
@@ -618,6 +619,10 @@ create_new(SessionId) ->
 
 %%
 
+-spec is_dirty(t()) -> boolean().
+is_dirty(#{?dirty := Dirty}) ->
+    Dirty.
+
 -spec get_created_at(t()) -> emqx_persistent_session_ds:timestamp() | undefined.
 get_created_at(Rec) ->
     get_meta(?created_at, Rec).
@@ -639,7 +644,9 @@ set_last_alive_at(Val, Rec) ->
 get_node_epoch_id(Rec) ->
     get_meta(?node_epoch_id, Rec).
 
--spec set_node_epoch_id(emqx_persistent_session_ds:timestamp() | undefined, t()) -> t().
+-spec set_node_epoch_id(
+    emqx_persistent_session_ds_node_heartbeat_worker:epoch_id() | undefined, t()
+) -> t().
 set_node_epoch_id(Val, Rec) ->
     set_meta(?node_epoch_id, Val, Rec).
 

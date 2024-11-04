@@ -60,7 +60,7 @@ check_session_after(SessionId, Time0) ->
     ok.
 
 -spec session_last_alive_at(
-    pos_integer(), emqx_persistent_session_node_hartbeat_worker:node_epoch_id() | undefined
+    pos_integer(), emqx_persistent_session_ds_node_heartbeat_worker:epoch_id() | undefined
 ) -> pos_integer().
 session_last_alive_at(LastAliveAt, undefined) ->
     LastAliveAt;
