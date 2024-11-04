@@ -397,8 +397,13 @@ fill_defaults_for_all_roots(SchemaMod, RawConf0) ->
 %% e.g. when testing an app, we need to load its config first
 %% then start emqx_conf application which will load the
 %% possibly empty config again (then filled with defaults).
+-ifdef(TEST).
 is_already_loaded(Name) ->
     ?MODULE:get_raw([Name], #{}) =/= #{}.
+-else.
+is_already_loaded(_) ->
+    false.
+-endif.
 
 %% if a root is not found in the raw conf, fill it with default values.
 seed_default(Schema) ->
