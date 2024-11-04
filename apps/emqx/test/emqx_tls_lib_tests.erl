@@ -86,7 +86,7 @@ cipher_suites_no_duplication_test() ->
     ?assertEqual(length(AllCiphers), length(lists:usort(AllCiphers))).
 
 ssl_files_failure_test_() ->
-    [
+    lists:flatten([
         {"undefined_is_undefined", fun() ->
             ?assertEqual(
                 {ok, undefined},
@@ -114,7 +114,7 @@ ssl_files_failure_test_() ->
                 })
             )
         end},
-        {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1, fun(Context) ->
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
             #{cert := Cert, cacert := Cacert} = Context,
             {"invalid_file_path", fun() ->
                 ?assertMatch(
@@ -131,7 +131,7 @@ ssl_files_failure_test_() ->
                 )
             end}
         end},
-        {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1, fun(Context) ->
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
             #{cert := Cert, cacert := Cacert} = Context,
             {"enoent_key_file", fun() ->
                 NonExistingFile = filename:join(
@@ -147,7 +147,7 @@ ssl_files_failure_test_() ->
                 )
             end}
         end},
-        {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1, fun(Context) ->
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
             #{mk_kit := MkKit} = Context,
             #{key := Key, cert := Cert} =
                 MkKit(#{name => "emptycacert", password => undefined}),
@@ -162,7 +162,7 @@ ssl_files_failure_test_() ->
                 )
             end}
         end},
-        {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1, fun(Context) ->
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
             #{key := Key, cert := Cert, cacert := Cacert, password := Password} = Context,
             {"bad_pem_string", fun() ->
                 %% empty string
@@ -232,8 +232,12 @@ ssl_files_failure_test_() ->
                 end
             end}
         end},
-        {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1, fun do_test_file_validations/1}
-    ].
+        [
+            {setup, setup_ssl_files(#{key_type => KeyType}), fun cleanup_ssl_files/1,
+                fun do_test_file_validations/1}
+         || KeyType <- [ec, rsa]
+        ]
+    ]).
 
 do_test_file_validations(Context) ->
     #{mk_kit := MkKit, password := Password} = Context,
@@ -426,7 +430,7 @@ do_test_file_validations(Context) ->
     ].
 
 ssl_file_replace_test() ->
-    {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1, fun do_test_ssl_file_replace/1}.
+    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun do_test_ssl_file_replace/1}.
 do_test_ssl_file_replace(Context) ->
     #{
         key := Key1,
@@ -465,8 +469,7 @@ do_test_ssl_file_replace(Context) ->
     ok.
 
 ssl_file_deterministic_names_test() ->
-    {setup, fun setup_ssl_files/0, fun cleanup_ssl_files/1,
-        fun do_test_ssl_file_deterministic_names/1}.
+    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun do_test_ssl_file_deterministic_names/1}.
 do_test_ssl_file_deterministic_names(Context) ->
     #{
         key := Key,
@@ -678,17 +681,28 @@ test_name_hash_key() ->
     >>.
 
 setup_ssl_files() ->
+    DefaultOpts = #{key_type => ec},
+    setup_ssl_files(DefaultOpts).
+
+setup_ssl_files(Opts) ->
+    fun() -> do_setup_ssl_files(Opts) end.
+
+do_setup_ssl_files(InOpts) ->
+    DefaultKeyType = maps:get(key_type, InOpts),
     Dir = mktemp_dir(),
     DefaultPassword = <<"foobar">>,
-    emqx_test_tls_certs_helper:gen_ca(Dir, "root"),
+    emqx_test_tls_certs_helper:gen_ca(Dir, "root", InOpts),
     MkKit = fun(Opts) ->
         #{name := Name} = Opts,
         Password = maps:get(password, Opts, DefaultPassword),
+        KeyType = maps:get(key_type, Opts, DefaultKeyType),
         IntermediateName = "intermediate-" ++ Name,
-        emqx_test_tls_certs_helper:gen_host_cert(IntermediateName, "root", Dir),
-        emqx_test_tls_certs_helper:gen_host_cert(Name, IntermediateName, Dir, #{
-            password => Password
+        GenOpts = #{key_type => KeyType, password => Password},
+        %% No password for intermediate key cert
+        emqx_test_tls_certs_helper:gen_host_cert(IntermediateName, "root", Dir, GenOpts#{
+            password => undefined
         }),
+        emqx_test_tls_certs_helper:gen_host_cert(Name, IntermediateName, Dir, GenOpts),
         KeyfilePath = filename:join(Dir, Name ++ ".key"),
         CertfilePath = filename:join(Dir, Name ++ ".pem"),
         CacertfilePath = filename:join(Dir, IntermediateName ++ ".pem"),
