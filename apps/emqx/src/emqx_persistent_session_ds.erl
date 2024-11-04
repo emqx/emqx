@@ -1478,7 +1478,7 @@ bump_interval() ->
     emqx_config:get([durable_sessions, heartbeat_interval]).
 
 commit_interval() ->
-    emqx_config:get([durable_sessions, commit_interval]).
+    bump_interval().
 
 get_config(#{zone := Zone}, Key) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
