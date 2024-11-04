@@ -22,7 +22,15 @@
 
 init(Req0, State) ->
     RedactedReq = emqx_utils:redact(Req0),
-    ?SLOG(warning, #{msg => "unexpected_api_access", request => RedactedReq}),
+    ?SLOG(notice, #{
+        msg => "api_path_not_found",
+        path => cowboy_req:path(RedactedReq),
+        scheme => cowboy_req:scheme(RedactedReq),
+        method => cowboy_req:method(RedactedReq),
+        headers => cowboy_req:headers(RedactedReq),
+        query_string => cowboy_req:qs(RedactedReq),
+        peer => cowboy_req:peer(RedactedReq)
+    }),
     CT = ct(cowboy_req:header(<<"accept">>, Req0, <<"text/html">>)),
     Req = cowboy_req:reply(
         404,
