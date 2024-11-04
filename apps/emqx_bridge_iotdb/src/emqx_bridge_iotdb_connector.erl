@@ -655,6 +655,15 @@ on_add_channel(
     end;
 on_add_channel(
     _InstanceId,
+    #{driver := thrift},
+    _ChannelId,
+    #{
+        resource_opts := #{query_mode := async}
+    }
+) ->
+    {error, <<"Thrift does not support async mode">>};
+on_add_channel(
+    _InstanceId,
     #{driver := thrift, channels := Channels} = OldState,
     ChannelId,
     #{
