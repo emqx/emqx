@@ -30,11 +30,11 @@
 
 -spec notify([node()], emqx_ds:db(), emqx_ds:topic_filter()) -> ok.
 notify(Nodes, DB, TopicFilter) ->
-    erpc:multicast(Nodes, emqx_ds_new_streams, do_notify_new_stream, [DB, TopicFilter]).
+    erpc:multicast(Nodes, emqx_ds_new_streams, local_notify_new_stream, [DB, TopicFilter]).
 
 -spec set_dirty([node()], emqx_ds:db()) -> ok.
 set_dirty(Nodes, DB) ->
-    erpc:multicast(Nodes, emqx_ds_new_streams, do_set_dirty, [DB]).
+    erpc:multicast(Nodes, emqx_ds_new_streams, local_set_dirty, [DB]).
 
 %%================================================================================
 %% behavior callbacks

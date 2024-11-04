@@ -49,8 +49,8 @@
 
 -export_type([watch/0]).
 
-%% RPC targets
--export([do_notify_new_stream/2, do_set_dirty/1]).
+%% Local API and RPC targets
+-export([local_notify_new_stream/2, local_set_dirty/1]).
 
 %% behavior callbacks:
 -export([callback_mode/0, init/1, handle_event/4]).
@@ -127,20 +127,34 @@ watch(DB, TopicFilter) ->
 unwatch(DB, Ref) ->
     gen_statem:call(?via(DB), #unwatch_req{ref = Ref}).
 
-%% @doc Send notification about appearance of new stream(s) that
-%% contain given topic filter
+%% @doc Broadcast notification about appearance of new stream(s) to
+%% all nodes.
 -spec notify_new_stream(emqx_ds:db(), emqx_ds:topic_filter()) -> ok.
 notify_new_stream(DB, TF) ->
     emqx_ds_new_streams_proto_v1:notify([node() | nodes()], DB, TF).
+
+%% @doc Send notification about appearancoe of new streams to local
+%% processes.
+-spec local_notify_new_stream(emqx_ds:db(), emqx_ds:topic_filter()) -> ok.
+local_notify_new_stream(DB, TF) ->
+    gen_statem:cast(?via(DB), #notify_req{topic_filter = TF}).
 
 %% @doc Backend can use this function when it's uncertain that
 %% notifications were delivered or what streams are new. This can
 %% happen, for example, after the backend restarts.
 %%
-%% This function will notify ALL subscribers.
+%% This function will notify ALL subscribers on all nodes.
 -spec set_dirty(emqx_ds:db()) -> ok.
 set_dirty(DB) ->
     emqx_ds_new_streams_proto_v1:set_dirty([node() | nodes()], DB).
+
+%% @doc Used in cases when it's uncertain what streams were seen by
+%% the subscribers, e.g. after restart of the shard. It will
+%% gracefully notify subscribers about changes to _all_ stream on the
+%% local node.
+-spec local_set_dirty(emqx_ds:db()) -> ok.
+local_set_dirty(DB) ->
+    gen_statem:cast(?via(DB), #notify_req{topic_filter = ['#']}).
 
 %%================================================================================
 %% Internal exports
@@ -148,17 +162,6 @@ set_dirty(DB) ->
 
 list_subscriptions(DB) ->
     gen_statem:call(?via(DB), #list_subs_req{}).
-
-%% @doc Used in cases when it's uncertain what streams were seen by
-%% the subscribers, e.g. after restart of the shard. It will
-%% gracefully notify subscribers about changes to _all_ stream.
--spec do_set_dirty(emqx_ds:db()) -> ok.
-do_set_dirty(DB) ->
-    gen_statem:cast(?via(DB), #notify_req{topic_filter = ['#']}).
-
--spec do_notify_new_stream(emqx_ds:db(), emqx_ds:topic_filter()) -> ok.
-do_notify_new_stream(DB, TF) ->
-    gen_statem:cast(?via(DB), #notify_req{topic_filter = TF}).
 
 -spec start_link(emqx_ds:db()) -> {ok, pid()}.
 start_link(DB) ->
