@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_persistent_session_ds_buffer).
+-module(emqx_persistent_session_ds_inflight).
 
 %% API:
 -export([
@@ -49,7 +49,7 @@
     {emqx_persistent_session_ds:seqno() | undefined, emqx_types:message()}
     | {pubrel, emqx_persistent_session_ds:seqno()}.
 
--record(ds_buffer, {
+-record(ds_inflight, {
     receive_maximum :: pos_integer(),
     %% Main queue:
     queue :: queue:queue(payload()),
@@ -64,7 +64,7 @@
     n_qos2 = 0 :: non_neg_integer()
 }).
 
--type t() :: #ds_buffer{}.
+-type t() :: #ds_inflight{}.
 
 %%================================================================================
 %% API functions
@@ -72,7 +72,7 @@
 
 -spec new(non_neg_integer()) -> t().
 new(ReceiveMaximum) when ReceiveMaximum > 0 ->
-    #ds_buffer{
+    #ds_inflight{
         receive_maximum = ReceiveMaximum,
         queue = queue:new(),
         puback_queue = iqueue_new(),
@@ -81,27 +81,27 @@ new(ReceiveMaximum) when ReceiveMaximum > 0 ->
     }.
 
 -spec receive_maximum(t()) -> pos_integer().
-receive_maximum(#ds_buffer{receive_maximum = ReceiveMaximum}) ->
+receive_maximum(#ds_inflight{receive_maximum = ReceiveMaximum}) ->
     ReceiveMaximum.
 
 -spec push(payload(), t()) -> t().
-push(Payload = {pubrel, _SeqNo}, Rec = #ds_buffer{queue = Q}) ->
-    Rec#ds_buffer{queue = queue:in(Payload, Q)};
+push(Payload = {pubrel, _SeqNo}, Rec = #ds_inflight{queue = Q}) ->
+    Rec#ds_inflight{queue = queue:in(Payload, Q)};
 push(Payload = {_, Msg}, Rec) ->
-    #ds_buffer{queue = Q0, n_qos0 = NQos0, n_qos1 = NQos1, n_qos2 = NQos2} = Rec,
+    #ds_inflight{queue = Q0, n_qos0 = NQos0, n_qos1 = NQos1, n_qos2 = NQos2} = Rec,
     Q = queue:in(Payload, Q0),
     case Msg#message.qos of
         ?QOS_0 ->
-            Rec#ds_buffer{queue = Q, n_qos0 = NQos0 + 1};
+            Rec#ds_inflight{queue = Q, n_qos0 = NQos0 + 1};
         ?QOS_1 ->
-            Rec#ds_buffer{queue = Q, n_qos1 = NQos1 + 1};
+            Rec#ds_inflight{queue = Q, n_qos1 = NQos1 + 1};
         ?QOS_2 ->
-            Rec#ds_buffer{queue = Q, n_qos2 = NQos2 + 1}
+            Rec#ds_inflight{queue = Q, n_qos2 = NQos2 + 1}
     end.
 
 -spec pop(t()) -> {payload(), t()} | undefined.
 pop(Rec0) ->
-    #ds_buffer{
+    #ds_inflight{
         receive_maximum = ReceiveMaximum,
         n_inflight = NInflight,
         queue = Q0,
@@ -117,20 +117,20 @@ pop(Rec0) ->
             Rec =
                 case Payload of
                     {pubrel, _} ->
-                        Rec0#ds_buffer{queue = Q};
+                        Rec0#ds_inflight{queue = Q};
                     {SeqNo, #message{qos = Qos}} ->
                         case Qos of
                             ?QOS_0 ->
-                                Rec0#ds_buffer{queue = Q, n_qos0 = NQos0 - 1};
+                                Rec0#ds_inflight{queue = Q, n_qos0 = NQos0 - 1};
                             ?QOS_1 ->
-                                Rec0#ds_buffer{
+                                Rec0#ds_inflight{
                                     queue = Q,
                                     n_qos1 = NQos1 - 1,
                                     n_inflight = NInflight + 1,
                                     puback_queue = ipush(SeqNo, QAck)
                                 };
                             ?QOS_2 ->
-                                Rec0#ds_buffer{
+                                Rec0#ds_inflight{
                                     queue = Q,
                                     n_qos2 = NQos2 - 1,
                                     n_inflight = NInflight + 1,
@@ -145,25 +145,25 @@ pop(Rec0) ->
     end.
 
 -spec n_buffered(?QOS_0..?QOS_2 | all, t()) -> non_neg_integer().
-n_buffered(?QOS_0, #ds_buffer{n_qos0 = NQos0}) ->
+n_buffered(?QOS_0, #ds_inflight{n_qos0 = NQos0}) ->
     NQos0;
-n_buffered(?QOS_1, #ds_buffer{n_qos1 = NQos1}) ->
+n_buffered(?QOS_1, #ds_inflight{n_qos1 = NQos1}) ->
     NQos1;
-n_buffered(?QOS_2, #ds_buffer{n_qos2 = NQos2}) ->
+n_buffered(?QOS_2, #ds_inflight{n_qos2 = NQos2}) ->
     NQos2;
-n_buffered(all, #ds_buffer{n_qos0 = NQos0, n_qos1 = NQos1, n_qos2 = NQos2}) ->
+n_buffered(all, #ds_inflight{n_qos0 = NQos0, n_qos1 = NQos1, n_qos2 = NQos2}) ->
     NQos0 + NQos1 + NQos2.
 
 -spec n_inflight(t()) -> non_neg_integer().
-n_inflight(#ds_buffer{n_inflight = NInflight}) ->
+n_inflight(#ds_inflight{n_inflight = NInflight}) ->
     NInflight.
 
 -spec puback(emqx_persistent_session_ds:seqno(), t()) -> {ok, t()} | {error, Expected} when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-puback(SeqNo, Rec = #ds_buffer{puback_queue = Q0, n_inflight = N}) ->
+puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight = N}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
-            {ok, Rec#ds_buffer{
+            {ok, Rec#ds_inflight{
                 puback_queue = Q,
                 n_inflight = max(0, N - 1)
             }};
@@ -175,10 +175,10 @@ puback(SeqNo, Rec = #ds_buffer{puback_queue = Q0, n_inflight = N}) ->
 
 -spec pubcomp(emqx_persistent_session_ds:seqno(), t()) -> {ok, t()} | {error, Expected} when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-pubcomp(SeqNo, Rec = #ds_buffer{pubcomp_queue = Q0, n_inflight = N}) ->
+pubcomp(SeqNo, Rec = #ds_inflight{pubcomp_queue = Q0, n_inflight = N}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
-            {ok, Rec#ds_buffer{
+            {ok, Rec#ds_inflight{
                 pubcomp_queue = Q,
                 n_inflight = max(0, N - 1)
             }};
@@ -192,10 +192,10 @@ pubcomp(SeqNo, Rec = #ds_buffer{pubcomp_queue = Q0, n_inflight = N}) ->
 %% https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Flow_Control
 -spec pubrec(emqx_persistent_session_ds:seqno(), t()) -> {ok, t()} | {error, Expected} when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-pubrec(SeqNo, Rec = #ds_buffer{pubrec_queue = Q0}) ->
+pubrec(SeqNo, Rec = #ds_inflight{pubrec_queue = Q0}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
-            {ok, Rec#ds_buffer{
+            {ok, Rec#ds_inflight{
                 pubrec_queue = Q
             }};
         {{value, Expected}, _} ->

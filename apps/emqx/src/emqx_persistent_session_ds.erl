@@ -225,7 +225,7 @@
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
     %% Buffer:
-    inflight := emqx_persistent_session_ds_buffer:t(),
+    inflight := emqx_persistent_session_ds_inflight:t(),
     stream_scheduler_s := emqx_persistent_session_ds_stream_scheduler:t(),
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight buffer.
@@ -349,13 +349,13 @@ info(upgrade_qos, #{props := Conf}) ->
 info(inflight, #{inflight := Inflight}) ->
     Inflight;
 info(inflight_cnt, #{inflight := Inflight}) ->
-    emqx_persistent_session_ds_buffer:n_inflight(Inflight);
+    emqx_persistent_session_ds_inflight:n_inflight(Inflight);
 info(inflight_max, #{inflight := Inflight}) ->
-    emqx_persistent_session_ds_buffer:receive_maximum(Inflight);
+    emqx_persistent_session_ds_inflight:receive_maximum(Inflight);
 info(retry_interval, #{props := Conf}) ->
     maps:get(retry_interval, Conf);
 info(mqueue_len, #{inflight := Inflight}) ->
-    emqx_persistent_session_ds_buffer:n_buffered(all, Inflight);
+    emqx_persistent_session_ds_inflight:n_buffered(all, Inflight);
 info(mqueue_dropped, _Session) ->
     0;
 %% info(next_pkt_id, #{s := S}) ->
@@ -673,7 +673,7 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
     Session1 = Session0#{?TIMER_PUSH := undefined},
     #{s := S, stream_scheduler_s := SchedS0, inflight := Inflight, replay := Replay} = Session0,
     BatchSize = get_config(ClientInfo, [batch_size]),
-    IsFull = emqx_persistent_session_ds_buffer:n_buffered(all, Inflight) >= BatchSize,
+    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize,
     case ?IS_REPLAY_ONGOING(Replay) orelse IsFull of
         true ->
             {ok, [], Session1};
@@ -1010,7 +1010,7 @@ session_open(
                     {ok, S, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
                         S6, shared_sub_opts(SessionId)
                     ),
-                    Inflight = emqx_persistent_session_ds_buffer:new(
+                    Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
                     NewStreamSubs = emqx_persistent_session_ds_subs:open(S),
@@ -1078,7 +1078,7 @@ session_ensure_new(
         props => Conf,
         s => S,
         shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
-        inflight => emqx_persistent_session_ds_buffer:new(receive_maximum(ConnInfo)),
+        inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
         stream_scheduler_s => emqx_persistent_session_ds_stream_scheduler:init(S),
         new_stream_subs => #{},
         replay => undefined,
@@ -1318,7 +1318,7 @@ process_batch(
                         %% We ignore QoS 0 messages during replay:
                         Acc;
                     ?QOS_0 ->
-                        emqx_persistent_session_ds_buffer:push({undefined, Msg}, Acc);
+                        emqx_persistent_session_ds_inflight:push({undefined, Msg}, Acc);
                     ?QOS_1 when SeqNoQos1 =< Comm1 ->
                         %% QoS1 message has been acked by the client, ignore:
                         Acc;
@@ -1326,15 +1326,15 @@ process_batch(
                         %% QoS1 message has been sent but not
                         %% acked. Retransmit:
                         Msg1 = emqx_message:set_flag(dup, true, Msg),
-                        emqx_persistent_session_ds_buffer:push({SeqNoQos1, Msg1}, Acc);
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg1}, Acc);
                     ?QOS_1 ->
-                        emqx_persistent_session_ds_buffer:push({SeqNoQos1, Msg}, Acc);
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg}, Acc);
                     ?QOS_2 when SeqNoQos2 =< Comm2 ->
                         %% QoS2 message has been PUBCOMP'ed by the client, ignore:
                         Acc;
                     ?QOS_2 when SeqNoQos2 =< Rec ->
                         %% QoS2 message has been PUBREC'ed by the client, resend PUBREL:
-                        emqx_persistent_session_ds_buffer:push({pubrel, SeqNoQos2}, Acc);
+                        emqx_persistent_session_ds_inflight:push({pubrel, SeqNoQos2}, Acc);
                     ?QOS_2 when SeqNoQos2 =< Dup2 ->
                         %% QoS2 message has been sent, but we haven't received PUBREC.
                         %%
@@ -1342,9 +1342,9 @@ process_batch(
                         %% DUP flag is never set for QoS2 messages? We
                         %% do so for mem sessions, though.
                         Msg1 = emqx_message:set_flag(dup, true, Msg),
-                        emqx_persistent_session_ds_buffer:push({SeqNoQos2, Msg1}, Acc);
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg1}, Acc);
                     ?QOS_2 ->
-                        emqx_persistent_session_ds_buffer:push({SeqNoQos2, Msg}, Acc)
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg}, Acc)
                 end,
                 SeqNoQos1,
                 SeqNoQos2
@@ -1376,13 +1376,13 @@ enqueue_transient(
     case Qos of
         ?QOS_0 ->
             S = S0,
-            Inflight = emqx_persistent_session_ds_buffer:push({undefined, Msg}, Inflight0);
+            Inflight = emqx_persistent_session_ds_inflight:push({undefined, Msg}, Inflight0);
         QoS when QoS =:= ?QOS_1; QoS =:= ?QOS_2 ->
             SeqNo = inc_seqno(
                 QoS, emqx_persistent_session_ds_state:get_seqno(?next(QoS), S0)
             ),
             S = emqx_persistent_session_ds_state:put_seqno(?next(QoS), SeqNo, S0),
-            Inflight = emqx_persistent_session_ds_buffer:push({SeqNo, Msg}, Inflight0)
+            Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
     end,
     Session#{
         inflight := Inflight,
@@ -1398,7 +1398,7 @@ drain_buffer(Session = #{inflight := Inflight0, s := S0}) ->
     {Publishes, Session#{inflight := Inflight, s := S}}.
 
 do_drain_buffer(Inflight0, S0, Acc) ->
-    case emqx_persistent_session_ds_buffer:pop(Inflight0) of
+    case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
             {lists:reverse(Acc), Inflight0, S0};
         {{pubrel, SeqNo}, Inflight} ->
@@ -1515,13 +1515,13 @@ update_seqno(
     case Track of
         puback ->
             SeqNoKey = ?committed(?QOS_1),
-            Result = emqx_persistent_session_ds_buffer:puback(SeqNo, Inflight0);
+            Result = emqx_persistent_session_ds_inflight:puback(SeqNo, Inflight0);
         pubrec ->
             SeqNoKey = ?rec,
-            Result = emqx_persistent_session_ds_buffer:pubrec(SeqNo, Inflight0);
+            Result = emqx_persistent_session_ds_inflight:pubrec(SeqNo, Inflight0);
         pubcomp ->
             SeqNoKey = ?committed(?QOS_2),
-            Result = emqx_persistent_session_ds_buffer:pubcomp(SeqNo, Inflight0)
+            Result = emqx_persistent_session_ds_inflight:pubcomp(SeqNo, Inflight0)
     end,
     case Result of
         {ok, Inflight} ->
