@@ -112,21 +112,21 @@
     | fun((appname(), appspec_opts()) -> R).
 
 -type appspec_opts() :: #{
-    %% 1. Enable loading application config
+    %% 1. Perform anything right before starting the application
+    %% If not defined or set to `false`, this step will be skipped.
+    %% Merging amounts to redefining.
+    before_start => hookfun(_) | false,
+
+    %% 2. Enable loading application config
     %% If not defined or set to `false`, this step will be skipped.
     %% If application is missing a schema module, this step will fail.
     %% Merging amounts to appending, unless `false` is used, then merge result is also `false`.
     config => iodata() | config() | emqx_config:raw_config() | false,
 
-    %% 2. Override the application environment
+    %% 3. Override the application environment
     %% If not defined or set to `false`, this step will be skipped.
     %% Merging amounts to appending, unless `false` is used, then merge result is `[]`.
     override_env => [{atom(), term()}] | false,
-
-    %% 3. Perform anything right before starting the application
-    %% If not defined or set to `false`, this step will be skipped.
-    %% Merging amounts to redefining.
-    before_start => hookfun(_) | false,
 
     %% 4. Starting the application
     %% If not defined or set to `true`, `application:ensure_all_started/1` is used.
@@ -221,9 +221,9 @@ init_spec(Config) when is_list(Config); is_binary(Config) ->
 
 start_appspec(App, StartOpts) ->
     _ = log_appspec(App, StartOpts),
+    _ = maybe_before_start(App, StartOpts),
     _ = maybe_configure_app(App, StartOpts),
     _ = maybe_override_env(App, StartOpts),
-    _ = maybe_before_start(App, StartOpts),
     case maybe_start(App, StartOpts) of
         {ok, Started} ->
             ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
