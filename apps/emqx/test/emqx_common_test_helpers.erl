@@ -664,7 +664,8 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
         idle_timeout => 15000,
         ssl_options => #{
             certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
-            keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem")
+            keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem"),
+            hibernate_after => 30000
         },
         limiter => #{},
         max_connections => 1024000,

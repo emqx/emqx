@@ -108,6 +108,8 @@ lookup([<<?VAR_USERNAME>>], #{username := Username}) when is_binary(Username) ->
     {ok, Username};
 lookup([<<?VAR_ENDPOINT_NAME>>], #{endpoint_name := Name}) when is_binary(Name) ->
     {ok, Name};
+lookup([<<?VAR_ZONE>>], #{zone := Zone}) ->
+    {ok, atom_to_binary(Zone)};
 lookup([<<"client_attrs">>, AttrName], #{client_attrs := Attrs}) when is_map(Attrs) ->
     Original = iolist_to_binary(["${client_attrs.", AttrName, "}"]),
     {ok, maps:get(AttrName, Attrs, Original)};

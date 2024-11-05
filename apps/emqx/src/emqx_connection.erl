@@ -106,6 +106,8 @@
     idle_timeout :: integer() | infinity,
     %% Idle Timer
     idle_timer :: option(reference()),
+    %% Idle Timeout
+    hibernate_after :: integer() | infinity,
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -361,6 +363,7 @@ init_state(
         stats_timer = StatsTimer,
         idle_timeout = IdleTimeout,
         idle_timer = IdleTimer,
+        hibernate_after = maps:get(hibernate_after, Opts, IdleTimeout),
         zone = Zone,
         listener = Listener,
         limiter_buffer = queue:new(),
@@ -410,23 +413,27 @@ exit_on_sock_error(Reason) ->
 recvloop(
     Parent,
     State = #state{
-        idle_timeout = IdleTimeout0,
+        hibernate_after = HibernateAfterMs,
+        channel = Channel,
         zone = Zone
     }
 ) ->
-    IdleTimeout =
-        case IdleTimeout0 of
+    HibernateTimeout =
+        case HibernateAfterMs of
             infinity -> infinity;
-            _ -> IdleTimeout0 + 100
+            _ -> HibernateAfterMs
         end,
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
-    after IdleTimeout ->
+    after HibernateTimeout ->
         case emqx_olp:backoff_hibernation(Zone) of
             true ->
                 recvloop(Parent, State);
             false ->
+                ClientId = emqx_channel:info(clientid, Channel),
+                undefined =/= ClientId andalso
+                    emqx_cm:set_chan_stats(ClientId, stats(State)),
                 hibernate(Parent, cancel_stats_timer(State))
         end
     end.
