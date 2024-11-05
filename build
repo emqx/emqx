@@ -57,6 +57,12 @@ export PKG_VSN
 
 SYSTEM="$(./scripts/get-distro.sh)"
 
+if [[ $SYSTEM == "el7" ]];
+then
+    echo "WARNING: NO SECURITY UPDATES for CentOS 7 QUIC transport"
+    export QUICER_TLS_VER=openssl
+fi
+
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64)
