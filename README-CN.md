@@ -26,6 +26,15 @@ EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 60 多个
 
 使用 EMQX 最简单的方式是在 EMQX Cloud 上创建完全托管的 MQTT 服务。[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud.emqx.com/console/deployments/0?oper=new)，无需绑定信用卡。
 
+#### 使用宝塔面板(适用9.2.0及以上的版本) 部署EMQX
+ 1.安装宝塔面板，前往[宝塔面板官网]( https://www.bt.cn/new/download.html ) ，选择正式版的脚本下载安装。 
+ 
+ 2.安装后登录宝塔面板，在左侧导航栏点击Docker，首先进入会提示安装Docker服务，点击立即安装，按提示完成安装 。
+ 
+ 3.完成安装后在应用商店中找到EMQX，点击安装，配置域名、端口等基本信息即可完成安装。 
+ 
+ 4.安装后在浏览器输入上一步设置的域名即可访问。
+
 #### 使用 Docker 运行 EMQX
 
 ```
