@@ -1953,6 +1953,21 @@ t_list_clients_v2_regular_filters(Config) ->
                 Res2
             ),
 
+            QueryParams3 = [
+                {"limit", "100"},
+                {"conn_state", "connected"}
+            ],
+            Res3 = list_all_v2(QueryParams3, Config),
+            ?assertMatch(
+                [
+                    #{
+                        <<"data">> := [],
+                        <<"meta">> := #{<<"count">> := 0}
+                    }
+                ],
+                Res3
+            ),
+
             ?tp(warning, destroy_session, #{clientid => ClientId1}),
             ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId1])
         end,
