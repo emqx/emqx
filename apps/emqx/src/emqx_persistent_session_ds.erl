@@ -224,7 +224,20 @@
     s := emqx_persistent_session_ds_state:t(),
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
-    %% Buffer:
+    %% Buffer accumulates poll replies received from the DS. Buffered
+    %% messages has not been seen by the client. Therefore, messages
+    %% stored in the buffer and their iterators are entirely
+    %% ephemeral. Session restarts with an empty buffer.
+    buffer := emqx_persistent_session_ds_buffer:t(),
+    %% Inflight represents a sequence of outgoing messages with
+    %% assigned packet IDs. Some of these messages MAY have been seen
+    %% by the client. Therefore, inflight is a persistent structure.
+    %% During startup, session recreates the state of `inflight'.
+    %%
+    %% Once messages from a stream are added to the inflight, this
+    %% stream becomes "blocked", and no further messages from that
+    %% stream can be added to the inflight until the client acks the
+    %% previous messages.
     inflight := emqx_persistent_session_ds_inflight:t(),
     stream_scheduler_s := emqx_persistent_session_ds_stream_scheduler:t(),
     %% In-progress replay:
@@ -1010,6 +1023,7 @@ session_open(
                     {ok, S, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
                         S6, shared_sub_opts(SessionId)
                     ),
+                    Buffer = emqx_persistent_session_ds_buffer:new(buffer_size(NewConnInfo)),
                     Inflight = emqx_persistent_session_ds_inflight:new(
                         receive_maximum(NewConnInfo)
                     ),
@@ -1020,6 +1034,7 @@ session_open(
                             id => SessionId,
                             s => S,
                             shared_sub_s => SharedSubS,
+                            buffer => Buffer,
                             inflight => Inflight,
                             props => #{},
                             stream_scheduler_s => SSS,
@@ -1078,6 +1093,7 @@ session_ensure_new(
         props => Conf,
         s => S,
         shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
+        buffer => emqx_persistent_session_ds_buffer:new(buffer_size(ConnInfo)),
         inflight => emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
         stream_scheduler_s => emqx_persistent_session_ds_stream_scheduler:init(S),
         new_stream_subs => #{},
@@ -1444,6 +1460,11 @@ receive_maximum(ConnInfo) ->
     %% with respect to the zone configuration, but the type spec
     %% indicates that it's optional.
     maps:get(receive_maximum, ConnInfo, 65_535).
+
+-spec buffer_size(conninfo()) -> pos_integer().
+buffer_size(_ConnInfo) ->
+    %% FIXME:
+    10000.
 
 -spec expiry_interval(conninfo()) -> millisecond().
 expiry_interval(ConnInfo) ->
