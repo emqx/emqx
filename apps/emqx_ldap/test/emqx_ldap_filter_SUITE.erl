@@ -264,6 +264,17 @@ t_member_of(_Config) ->
         parse("(&(a=b)(memberOf=CN=GroupName,OU=emqx,DC=WL,DC=com))")
     ).
 
+t_extensible_member_of(_Config) ->
+    ?assertEqual(
+        'and'([
+            equalityMatch("a", "b"),
+            extensibleMatch("CN=GroupName,OU=emqx,DC=WL,DC=com", [
+                {type, "memberOf"}, {matchingRule, "1.2.840.113556.1.4.1941"}
+            ])
+        ]),
+        parse("(&(a=b)(memberOf:1.2.840.113556.1.4.1941:=CN=GroupName,OU=emqx,DC=WL,DC=com))")
+    ).
+
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------
