@@ -339,14 +339,6 @@ default_appspec(emqx, SuiteOpts) ->
         % overwrite everything with a default configuration.
         before_start => fun inhibit_config_loader/2
     };
-default_appspec(emqx_auth, _SuiteOpts) ->
-    #{
-        config => #{
-            % NOTE
-            % Disable default authorization sources (i.e. acl.conf file rules).
-            authorization => #{sources => []}
-        }
-    };
 default_appspec(emqx_conf, SuiteOpts) ->
     Config = #{
         node => #{
@@ -355,7 +347,6 @@ default_appspec(emqx_conf, SuiteOpts) ->
             data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
         }
     },
-    SharedApps = maps:get(emqx_conf_shared_apps, SuiteOpts, [emqx, emqx_auth]),
     % NOTE
     % Since `emqx_conf_schema` manages config for a lot of applications, it's good to include
     % their defaults as well.
@@ -364,7 +355,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
             emqx_utils_maps:deep_merge(Acc, default_config(App, SuiteOpts))
         end,
         Config,
-        SharedApps
+        [emqx]
     ),
     #{
         config => SharedConfig,
