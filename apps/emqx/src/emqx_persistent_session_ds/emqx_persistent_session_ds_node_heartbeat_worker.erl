@@ -91,6 +91,9 @@ inactive_epochs(NowMs) ->
 
 -spec delete_epochs([epoch_id()]) -> ok.
 delete_epochs(EpochIds) ->
+    ?tp(debug, persistent_session_ds_node_heartbeat_delete_epochs, #{
+        epoch_ids => EpochIds
+    }),
     mria:async_dirty(?DS_MRIA_SHARD, fun() ->
         lists:foreach(
             fun(EpochId) ->

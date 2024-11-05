@@ -169,7 +169,7 @@ gc_loop(GCContext, SessionCounts0, It0) ->
                 fun({SessionId, Metadata}, SessionCountsAcc) ->
                     do_gc(GCContext, SessionCountsAcc, SessionId, Metadata)
                 end,
-                GCContext,
+                SessionCounts0,
                 Sessions
             ),
             gc_loop(GCContext, SessionCounts1, It)
@@ -242,7 +242,9 @@ do_check_session(SessionId) ->
     end.
 
 init_epoch_session_counters(NowMs) ->
-    emqx_persistent_session_ds_node_heartbeat_worker:inactive_epochs(NowMs).
+    maps:from_keys(
+        emqx_persistent_session_ds_node_heartbeat_worker:inactive_epochs(NowMs), 0
+    ).
 
 inc_epoch_session_count(SessionCounts, NodeEpochId) when
     is_map_key(NodeEpochId, SessionCounts)
@@ -252,5 +254,8 @@ inc_epoch_session_count(SessionCounts, _NodeEpochId) ->
     SessionCounts.
 
 clenup_inactive_epochs(SessionCounts) ->
+    ?tp(debug, clenup_inactive_epochs, #{
+        session_counts => SessionCounts
+    }),
     EmptyInactiveEpochIds = [NodeEpochId || {NodeEpochId, 0} <- maps:to_list(SessionCounts)],
     ok = emqx_persistent_session_ds_node_heartbeat_worker:delete_epochs(EmptyInactiveEpochIds).

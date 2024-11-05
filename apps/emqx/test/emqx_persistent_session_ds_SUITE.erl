@@ -68,13 +68,17 @@ init_per_testcase(TestCase, Config) when
         {work_dir, WorkDir}
         | Config
     ];
-init_per_testcase(t_session_gc = TestCase, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_session_gc;
+    TestCase =:= t_crashed_node_session_gc;
+    TestCase =:= t_last_alive_at_cleanup
+->
     Opts = #{
         n => 3,
         roles => [core, core, core],
         extra_emqx_conf =>
             "\n durable_sessions {"
-            "\n   heartbeat_interval = 500ms "
+            "\n   heartbeat_interval = 50ms "
             "\n   session_gc_interval = 1s "
             "\n   session_gc_batch_size = 2 "
             "\n }"
@@ -102,7 +106,9 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_subscription_state_change;
     TestCase =:= t_session_gc;
     TestCase =:= t_storage_generations;
-    TestCase =:= t_new_stream_notifications
+    TestCase =:= t_new_stream_notifications;
+    TestCase =:= t_crashed_node_session_gc;
+    TestCase =:= t_last_alive_at_cleanup
 ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
@@ -843,6 +849,95 @@ t_session_gc(Config) ->
             ok
         end,
         [fun check_stream_state_transitions/1]
+    ),
+    ok.
+
+t_crashed_node_session_gc(Config) ->
+    [Node1, Node2 | _] = ?config(nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    ct:pal("Port: ~p", [Port]),
+
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ClientId = <<"session_on_crashed_node">>,
+            Client = start_client(#{
+                clientid => ClientId,
+                port => Port,
+                properties => #{'Session-Expiry-Interval' => 1},
+                clean_start => false,
+                proto_ver => v5
+            }),
+            {ok, _} = emqtt:connect(Client),
+            ct:sleep(1500),
+            emqx_cth_peer:kill(Node1),
+
+            %% Much time has passed since the session last reported its alive time (on start).
+            %% Last alive time was not persisted on connection shutdown since we brutally killed the node.
+            %% However, the session should not be expired,
+            %% because session's last alive time should be bumped by the node's last_alive_at, and
+            %% the node only recently crashed.
+            erpc:call(Node2, emqx_persistent_session_ds_gc_worker, check_session, [ClientId]),
+            %%% Wait for possible async dirty session delete
+            ct:sleep(100),
+            ?assertMatch([_], list_all_sessions(Node2), sessions),
+
+            %% But finally the session has to expire since the connection
+            %% is not re-established.
+            ?assertMatch(
+                {ok, _},
+                ?block_until(
+                    #{
+                        ?snk_kind := ds_session_gc_cleaned,
+                        session_id := ClientId
+                    }
+                )
+            ),
+            %%% Wait for possible async dirty session delete
+            ct:sleep(100),
+            ?assertMatch([], list_all_sessions(Node2), sessions)
+        end,
+        []
+    ),
+    ok.
+
+t_last_alive_at_cleanup(Config) ->
+    [Node1 | _] = ?config(nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    ?check_trace(
+        #{timetrap => 5_000},
+        begin
+            NodeEpochId = erpc:call(
+                Node1,
+                emqx_persistent_session_ds_node_heartbeat_worker,
+                get_node_epoch_id,
+                []
+            ),
+            ClientId = <<"session_on_crashed_node">>,
+            Client = start_client(#{
+                clientid => ClientId,
+                port => Port,
+                properties => #{'Session-Expiry-Interval' => 1},
+                clean_start => false,
+                proto_ver => v5
+            }),
+            {ok, _} = emqtt:connect(Client),
+
+            %% Kill node making its lifetime epoch invalid.
+            emqx_cth_peer:kill(Node1),
+
+            %% Wait till the node's epoch is cleaned up.
+            ?assertMatch(
+                {ok, _},
+                ?block_until(
+                    #{
+                        ?snk_kind := persistent_session_ds_node_heartbeat_delete_epochs,
+                        epoch_ids := [NodeEpochId]
+                    }
+                )
+            )
+        end,
+        []
     ),
     ok.
 
