@@ -92,7 +92,10 @@ mk_target_cluster(BaseName, Config) ->
         "\n     topics = [\"#\"]"
         "\n   }"
         "\n ]}",
-    TargetApps1 = [{emqx_conf, combine([conf_log(), conf_mqtt_listener(31883), TargetConf])}],
+    TargetApps1 = [
+        {emqx_conf, combine([conf_log(), TargetConf])},
+        {emqx, conf_mqtt_listener(31883)}
+    ],
     TargetApps2 = [{emqx_conf, combine([conf_log(), TargetConf])}],
     emqx_cth_cluster:mk_nodespecs(
         [
@@ -341,38 +344,37 @@ t_restart_connection_on_actor_init_timeout('end', _Config) ->
 t_restart_connection_on_actor_init_timeout(Config) ->
     SourceNodesSpec = ?config(source_nodes_spec, Config),
     TargetNodesSpec = ?config(target_nodes_spec, Config),
+    SourceNodes = [SN | _] = emqx_cth_cluster:start(SourceNodesSpec),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(SourceNodes) end),
+
+    %% Simulate a poorly configured node that'll reject the actor init ack
+    %% message, making the initialization time out.
+    ok = ?ON(
+        SN,
+        emqx_authz_test_lib:setup_config(
+            #{
+                <<"type">> => <<"file">>,
+                <<"enable">> => true,
+                <<"rules">> =>
+                    <<
+                        "{deny, all, subscribe, [\"#\"]}.\n"
+                        "{allow, all, publish, [\"$LINK/#\", \"#\"]}."
+                    >>
+            },
+            #{}
+        )
+    ),
+    %% For some reason, it's fruitless to try to set this config in the app specs....
+    {ok, _} = ?ON(
+        SN,
+        emqx_conf:update([authorization, no_match], deny, #{override_to => cluster})
+    ),
+
+    TargetNodes = emqx_cth_cluster:start(TargetNodesSpec),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(TargetNodes) end),
     ?check_trace(
-        #{timetrap => 20_000},
+        #{timetrap => 30_000},
         begin
-            SourceNodes = [SN | _] = emqx_cth_cluster:start(SourceNodesSpec),
-            on_exit(fun() -> ok = emqx_cth_cluster:stop(SourceNodes) end),
-
-            %% Simulate a poorly configured node that'll reject the actor init ack
-            %% message, making the initialization time out.
-            ok = ?ON(
-                SN,
-                emqx_authz_test_lib:setup_config(
-                    #{
-                        <<"type">> => <<"file">>,
-                        <<"enable">> => true,
-                        <<"rules">> =>
-                            <<
-                                "{deny, all, subscribe, [\"#\"]}.\n"
-                                "{allow, all, publish, [\"$LINK/#\", \"#\"]}."
-                            >>
-                    },
-                    #{}
-                )
-            ),
-            %% For some reason, it's fruitless to try to set this config in the app specs....
-            {ok, _} = ?ON(
-                SN,
-                emqx_conf:update([authorization, no_match], deny, #{override_to => cluster})
-            ),
-
-            TargetNodes = emqx_cth_cluster:start(TargetNodesSpec),
-            on_exit(fun() -> ok = emqx_cth_cluster:stop(TargetNodes) end),
-
             ct:pal("starting cluster link"),
             ?wait_async_action(
                 start_cluster_link(SourceNodes ++ TargetNodes, Config),
