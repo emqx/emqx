@@ -48,7 +48,7 @@ connector_action_config_to_bridge_v1_config(ConnectorRawConf, ActionRawConf) ->
     RawConf = emqx_action_info:connector_action_config_to_bridge_v1_config(
         ConnectorRawConf, ActionRawConf
     ),
-    maps:without([<<"clickhouse_type">>], RawConf).
+    maps:without([<<"clickhouse_type">>, <<"undefined_vars_as_null">>], RawConf).
 
 bridge_v1_type_name() -> clickhouse.
 
