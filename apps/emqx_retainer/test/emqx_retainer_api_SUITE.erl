@@ -424,6 +424,23 @@ t_match_and_clean(Config) ->
     {ok, LookupJson2} = request_api(get, API),
     ?assertMatch(#{data := []}, decode_json(LookupJson2)).
 
+%% Checks that we can see `$SYS' messages in the API.
+%% https://emqx.atlassian.net/browse/EMQX-13399
+t_retained_sys_messages(_Config) ->
+    Msg0 = emqx_message:make(emqx_sys, <<"$SYS/brokers">>, atom_to_binary(node())),
+    Msg = emqx_message:set_flags(#{sys => true, retain => true}, Msg0),
+    _ = emqx:publish(Msg),
+    API = api_path(["mqtt", "retainer", "messages"]),
+    {ok, LookupJson} = request_api(get, API, "", auth_header_()),
+    ?assertMatch(
+        #{
+            data := [_ | _],
+            meta := #{count := N}
+        } when N > 0,
+        decode_json(LookupJson)
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
