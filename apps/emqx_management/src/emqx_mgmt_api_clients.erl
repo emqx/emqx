@@ -28,6 +28,8 @@
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx/include/emqx_durable_session_metadata.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -include("emqx_mgmt.hrl").
 
 %% API
@@ -1069,7 +1071,7 @@ run_filters(Rows, QString0) ->
     FuzzyFilterFn = fuzzy_filter_fun(FuzzyQString),
     lists:filter(
         fun(Row) ->
-            does_row_match_query(Row, QString) andalso
+            does_offline_row_match_query(Row, QString) andalso
                 does_row_match_fuzzy_filter(Row, FuzzyFilterFn)
         end,
         Rows
@@ -1722,45 +1724,57 @@ ms(created_at, X) ->
 %%
 %% These functions are used with clients_v2 API.
 
-does_chan_info_match({ip_address, '=:=', IpAddress}, #{conninfo := #{peername := {IpAddress, _}}}) ->
+does_offline_chan_info_match({ip_address, '=:=', IpAddress}, #{
+    conninfo := #{peername := {IpAddress, _}}
+}) ->
     true;
-does_chan_info_match({conn_state, '=:=', State}, #{conn_state := State}) ->
+%% This matchers match only offline clients, because online clients are listed directly from
+%% channel manager's ETS tables. So we succeed here only if offline conn_state is requested.
+does_offline_chan_info_match({conn_state, '=:=', disconnected}, _) ->
     true;
-does_chan_info_match({clean_start, '=:=', CleanStart}, #{conninfo := #{clean_start := CleanStart}}) ->
+does_offline_chan_info_match({conn_state, '=:=', _}, _) ->
+    false;
+does_offline_chan_info_match({clean_start, '=:=', CleanStart}, #{
+    conninfo := #{clean_start := CleanStart}
+}) ->
     true;
-does_chan_info_match({proto_ver, '=:=', ProtoVer}, #{conninfo := #{proto_ver := ProtoVer}}) ->
+does_offline_chan_info_match({proto_ver, '=:=', ProtoVer}, #{conninfo := #{proto_ver := ProtoVer}}) ->
     true;
-does_chan_info_match({connected_at, '>=', ConnectedAtFrom}, #{
+does_offline_chan_info_match({connected_at, '>=', ConnectedAtFrom}, #{
     conninfo := #{connected_at := ConnectedAt}
 }) when
     ConnectedAt >= ConnectedAtFrom
 ->
     true;
-does_chan_info_match({connected_at, '=<', ConnectedAtTo}, #{
+does_offline_chan_info_match({connected_at, '=<', ConnectedAtTo}, #{
     conninfo := #{connected_at := ConnectedAt}
 }) when
     ConnectedAt =< ConnectedAtTo
 ->
     true;
-does_chan_info_match({created_at, '>=', CreatedAtFrom}, #{session := #{created_at := CreatedAt}}) when
+does_offline_chan_info_match({created_at, '>=', CreatedAtFrom}, #{
+    session := #{created_at := CreatedAt}
+}) when
     CreatedAt >= CreatedAtFrom
 ->
     true;
-does_chan_info_match({created_at, '=<', CreatedAtTo}, #{session := #{created_at := CreatedAt}}) when
+does_offline_chan_info_match({created_at, '=<', CreatedAtTo}, #{
+    session := #{created_at := CreatedAt}
+}) when
     CreatedAt =< CreatedAtTo
 ->
     true;
-does_chan_info_match(_, _) ->
+does_offline_chan_info_match(_, _) ->
     false.
 
-does_row_match_query(
+does_offline_row_match_query(
     {_Id, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
 ) ->
     lists:all(
-        fun(FieldQuery) -> does_chan_info_match(FieldQuery, ChanInfo) end,
+        fun(FieldQuery) -> does_offline_chan_info_match(FieldQuery, ChanInfo) end,
         CompiledQueryString
     );
-does_row_match_query(_, _) ->
+does_offline_row_match_query(_, _) ->
     false.
 
 %%--------------------------------------------------------------------
