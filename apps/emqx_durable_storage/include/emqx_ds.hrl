@@ -46,4 +46,8 @@
     payload :: emqx_ds:next_result() | poll_timeout
 }).
 
+-record(new_stream_event, {
+    subref :: reference()
+}).
+
 -endif.

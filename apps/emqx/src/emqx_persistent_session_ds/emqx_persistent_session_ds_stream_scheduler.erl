@@ -138,6 +138,7 @@
 
 -export([
     renew_streams/2,
+    renew_streams/4,
     on_unsubscribe/3,
     on_unsubscribe/4
 ]).
@@ -410,42 +411,44 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
 %% with the smallest RankY.
 %%
 %% This way, messages from the same topic/shard are never reordered.
--spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
+-spec renew_streams(
+    emqx_persistent_session_ds:topic_filter(),
+    emqx_persistent_session_ds_subs:subscription(),
+    emqx_persistent_session_ds_state:t(),
+    t()
+) ->
     {emqx_persistent_session_ds_state:t(), t()}.
-renew_streams(S0, SchedS0) ->
+renew_streams(
+    TopicFilterBin, #{start_time := StartTime, id := SubId, current_state := SStateId}, S0, SchedS0
+) ->
+    TopicFilter = emqx_topic:words(TopicFilterBin),
     S1 = remove_unsubscribed_streams(S0),
     S2 = remove_fully_replayed_streams(S1),
     S3 = update_stream_subscription_state_ids(S2),
-    %% For shared subscriptions, the streams are populated by
-    %% `emqx_persistent_session_ds_shared_subs`.
-    %% TODO
-    %% Move discovery of proper streams
-    %% out of the scheduler for complete symmetry?
-    fold_proper_subscriptions(
-        fun
-            (
-                Key,
-                #{start_time := StartTime, id := SubId, current_state := SStateId},
-                Acc = {S4, _}
-            ) ->
-                TopicFilter = emqx_topic:words(Key),
-                Streams = select_streams(
-                    SubId,
-                    emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
-                    S4
-                ),
-                lists:foldl(
-                    fun(I, Acc1) ->
-                        ensure_iterator(TopicFilter, StartTime, SubId, SStateId, I, Acc1)
-                    end,
-                    Acc,
-                    Streams
-                );
-            (_Key, _DeletedSubscription, Acc) ->
-                Acc
+    Streams = select_streams(
+        SubId,
+        emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
+        S3
+    ),
+    lists:foldl(
+        fun(StreamWithRank, Acc) ->
+            ensure_iterator(TopicFilter, StartTime, SubId, SStateId, StreamWithRank, Acc)
         end,
         {S3, SchedS0},
-        S3
+        Streams
+    ).
+
+-spec renew_streams(emqx_persistent_session_ds_state:t(), t()) ->
+    {emqx_persistent_session_ds_state:t(), t()}.
+renew_streams(S0, SchedS0) ->
+    %% For shared subscriptions, the streams are populated by
+    %% `emqx_persistent_session_ds_shared_subs`.
+    emqx_persistent_session_ds_subs:fold_private_subscriptions(
+        fun(Key, Sub, {S1, SchedS1}) ->
+            renew_streams(Key, Sub, S1, SchedS1)
+        end,
+        {S0, SchedS0},
+        S0
     ).
 
 -spec on_unsubscribe(
@@ -834,13 +837,3 @@ is_track_acked(?QOS_1, Committed, #srs{first_seqno_qos1 = First, last_seqno_qos1
     First =:= Last orelse Committed >= Last;
 is_track_acked(?QOS_2, Committed, #srs{first_seqno_qos2 = First, last_seqno_qos2 = Last}) ->
     First =:= Last orelse Committed >= Last.
-
-fold_proper_subscriptions(Fun, Acc, S) ->
-    emqx_persistent_session_ds_state:fold_subscriptions(
-        fun
-            (#share{}, _Sub, Acc0) -> Acc0;
-            (TopicFilter, Sub, Acc0) -> Fun(TopicFilter, Sub, Acc0)
-        end,
-        Acc,
-        S
-    ).
