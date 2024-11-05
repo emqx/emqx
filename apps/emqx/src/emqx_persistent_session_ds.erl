@@ -199,14 +199,14 @@
 
 -define(TIMER_PULL, timer_pull).
 -define(TIMER_PUSH, timer_push).
--define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
+-define(TIMER_COMMIT, timer_commit).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 -define(TIMER_SHARED_SUB, timer_shared_sub).
 
 -type timer() ::
     ?TIMER_PULL
     | ?TIMER_PUSH
-    | ?TIMER_BUMP_LAST_ALIVE_AT
+    | ?TIMER_COMMIT
     | ?TIMER_RETRY_REPLAY
     | ?TIMER_SHARED_SUB.
 
@@ -234,7 +234,7 @@
     %% Timers:
     ?TIMER_PULL := timer_state(),
     ?TIMER_PUSH := timer_state(),
-    ?TIMER_BUMP_LAST_ALIVE_AT := timer_state(),
+    ?TIMER_COMMIT := timer_state(),
     ?TIMER_RETRY_REPLAY := timer_state(),
     ?TIMER_SHARED_SUB := timer_state()
 }.
@@ -526,7 +526,7 @@ publish(
                 undefined ->
                     Results = emqx_broker:publish(Msg),
                     S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, Ts, S0),
-                    {ok, Results, Session#{s := S}};
+                    {ok, Results, ensure_state_commit_timer(Session#{s := S})};
                 _Ts ->
                     {error, ?RC_PACKET_IDENTIFIER_IN_USE}
             end;
@@ -544,7 +544,7 @@ is_awaiting_full(#{s := S, props := Props}) ->
 -spec expire(emqx_types:clientinfo(), session()) ->
     {ok, [], timeout(), session()} | {ok, [], session()}.
 expire(ClientInfo, Session0 = #{props := Props}) ->
-    Session = #{s := S} = do_expire(ClientInfo, Session0),
+    Session = #{s := S} = ensure_state_commit_timer(do_expire(ClientInfo, Session0)),
     case emqx_persistent_session_ds_state:n_awaiting_rel(S) of
         0 ->
             {ok, [], Session};
@@ -606,7 +606,7 @@ puback(_ClientInfo, PacketId, Session0) ->
 pubrec(PacketId, Session0) ->
     case update_seqno(pubrec, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, Session};
+            {ok, Msg, ensure_state_commit_timer(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -623,7 +623,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND};
         _TS ->
             S = emqx_persistent_session_ds_state:del_awaiting_rel(PacketId, S0),
-            {ok, Session#{s := S}}
+            {ok, ensure_state_commit_timer(Session#{s := S})}
     end.
 
 %%--------------------------------------------------------------------
@@ -681,18 +681,12 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
             Timeout = get_config(ClientInfo, [idle_poll_interval]),
             PollOpts = #{timeout => Timeout},
             SchedS = emqx_persistent_session_ds_stream_scheduler:poll(PollOpts, SchedS0, S),
-            {ok, [], Session1#{stream_scheduler_s := SchedS}}
+            {ok, [], ensure_state_commit_timer(Session1#{stream_scheduler_s := SchedS})}
     end;
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
-    {ok, [], Session};
-handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
-    S = bump_last_alive(S0),
-    Session = set_timer(
-        ?TIMER_BUMP_LAST_ALIVE_AT,
-        bump_interval(),
-        Session0#{s := S}
-    ),
+    {ok, [], ensure_state_commit_timer(Session)};
+handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
     {ok, [], commit(Session)};
 handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     Session = commit(Session0),
@@ -728,7 +722,7 @@ handle_info(
     ?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}, _ClientInfo
 ) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
-    Session#{s := S, shared_sub_s := SharedSubS};
+    ensure_state_commit_timer(Session#{s := S, shared_sub_s := SharedSubS});
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
 handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
@@ -750,14 +744,6 @@ handle_info(Msg, Session, _ClientInfo) ->
 
 shared_sub_opts(SessionId) ->
     #{session_id => SessionId}.
-
-bump_last_alive(S0) ->
-    %% Note: we take a pessimistic approach here and assume that the client will be alive
-    %% until the next bump timeout.  With this, we avoid garbage collecting this session
-    %% too early in case the session/connection/node crashes earlier without having time
-    %% to commit the time.
-    EstimatedLastAliveAt = now_ms() + bump_interval(),
-    emqx_persistent_session_ds_state:set_last_alive_at(EstimatedLastAliveAt, S0).
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
@@ -908,9 +894,10 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, commit(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, Session = #{id := Id}) ->
-    maybe_set_will_message_timer(Session),
-    _ = commit(Session),
+terminate(_Reason, Session = #{s := S0, id := Id}) ->
+    _ = maybe_set_will_message_timer(Session),
+    S = finalize_last_alive_at(S0),
+    _ = commit(Session#{s := S}),
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
 
@@ -1004,7 +991,7 @@ session_open(
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
-            LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S0),
+            LastAliveAt = get_last_alive_at(S0),
             case NowMS >= LastAliveAt + EI of
                 true ->
                     session_drop(SessionId, expired),
@@ -1013,7 +1000,7 @@ session_open(
                     ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
-                    S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
+                    S2 = init_last_alive_at(NowMS, S1),
                     S3 = emqx_persistent_session_ds_state:set_peername(
                         maps:get(peername, NewConnInfo), S2
                     ),
@@ -1040,7 +1027,7 @@ session_open(
                             new_stream_subs => NewStreamSubs,
                             ?TIMER_PULL => undefined,
                             ?TIMER_PUSH => undefined,
-                            ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
+                            ?TIMER_COMMIT => undefined,
                             ?TIMER_RETRY_REPLAY => undefined,
                             ?TIMER_SHARED_SUB => undefined
                         }
@@ -1065,7 +1052,7 @@ session_ensure_new(
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
     S1 = emqx_persistent_session_ds_state:set_expiry_interval(expiry_interval(ConnInfo), S0),
-    S2 = bump_last_alive(S1),
+    S2 = init_last_alive_at(S1),
     S3 = emqx_persistent_session_ds_state:set_created_at(Now, S2),
     S4 = lists:foldl(
         fun(Track, Acc) ->
@@ -1097,7 +1084,7 @@ session_ensure_new(
         replay => undefined,
         ?TIMER_PULL => undefined,
         ?TIMER_PUSH => undefined,
-        ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
+        ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined,
         ?TIMER_SHARED_SUB => undefined
     }.
@@ -1147,8 +1134,9 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-push_now(Session) ->
-    ensure_timer(?TIMER_PUSH, 0, Session).
+push_now(Session0) ->
+    Session1 = ensure_timer(?TIMER_PUSH, 0, Session0),
+    ensure_state_commit_timer(Session1).
 
 handle_ds_reply(AsyncReply, Session0 = #{s := S0, stream_scheduler_s := SchedS0}, ClientInfo) ->
     case emqx_persistent_session_ds_stream_scheduler:on_ds_reply(AsyncReply, S0, SchedS0) of
@@ -1434,7 +1422,7 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 -spec post_init(session()) -> session().
 post_init(Session0) ->
     Session1 = renew_streams(all, Session0),
-    Session = set_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session1),
+    Session = set_timer(?TIMER_COMMIT, 100, Session1),
     maybe_set_shared_sub_timer(Session).
 
 %% This function triggers sending buffered packets to the client
@@ -1446,8 +1434,9 @@ post_init(Session0) ->
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
 -spec pull_now(session()) -> session().
-pull_now(Session) ->
-    ensure_timer(?TIMER_PULL, 0, Session).
+pull_now(Session0) ->
+    Session1 = ensure_timer(?TIMER_PULL, 0, Session0),
+    ensure_state_commit_timer(Session1).
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->
@@ -1465,6 +1454,9 @@ expiry_interval(ConnInfo) ->
 %% regardless of the zone.
 bump_interval() ->
     emqx_config:get([durable_sessions, heartbeat_interval]).
+
+commit_interval() ->
+    bump_interval().
 
 get_config(#{zone := Zone}, Key) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
@@ -1701,7 +1693,7 @@ set_timer(Timer, Time, Session) ->
 
 commit(Session = #{s := S0}) ->
     S = emqx_persistent_session_ds_state:commit(S0),
-    Session#{s := S}.
+    cancel_state_commit_timer(Session#{s := S}).
 
 -spec maybe_set_shared_sub_timer(session()) -> session().
 maybe_set_shared_sub_timer(Session = #{s := S}) ->
@@ -1730,6 +1722,54 @@ has_shared_subs(S) ->
     catch
         has_shared_subs -> true
     end.
+
+%%--------------------------------------------------------------------
+%% Management of state commit timer
+%%--------------------------------------------------------------------
+
+-spec ensure_state_commit_timer(session()) -> session().
+ensure_state_commit_timer(#{s := S, ?TIMER_COMMIT := undefined} = Session) ->
+    case emqx_persistent_session_ds_state:is_dirty(S) of
+        true ->
+            set_timer(?TIMER_COMMIT, commit_interval(), Session);
+        false ->
+            Session
+    end;
+ensure_state_commit_timer(Session) ->
+    Session.
+
+-spec cancel_state_commit_timer(session()) -> session().
+cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->
+    emqx_utils:cancel_timer(TRef),
+    Session#{?TIMER_COMMIT := undefined}.
+
+%%--------------------------------------------------------------------
+%% Management of the heartbeat
+%%--------------------------------------------------------------------
+
+init_last_alive_at(S) ->
+    init_last_alive_at(now_ms(), S).
+
+init_last_alive_at(NowMs, S0) ->
+    NodeEpochId = emqx_persistent_session_ds_node_heartbeat_worker:get_node_epoch_id(),
+    S1 = emqx_persistent_session_ds_state:set_node_epoch_id(NodeEpochId, S0),
+    emqx_persistent_session_ds_state:set_last_alive_at(NowMs + bump_interval(), S1).
+
+finalize_last_alive_at(S0) ->
+    S = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
+    emqx_persistent_session_ds_state:set_node_epoch_id(undefined, S).
+
+%% NOTE
+%% Here we ignore the case when:
+%% * the session is terminated abnormally, without running terminate callback,
+%% e.g. when the conection was brutally killed;
+%% * but its node and persistent session subsystem remained alive.
+%%
+%% In this case, the session's lifitime is prolonged till the node termination.
+get_last_alive_at(S) ->
+    LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S),
+    NodeEpochId = emqx_persistent_session_ds_state:get_node_epoch_id(S),
+    emqx_persistent_session_ds_gc_worker:session_last_alive_at(LastAliveAt, NodeEpochId).
 
 %%--------------------------------------------------------------------
 %% Tests
