@@ -12,6 +12,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(ON(NODE, DO), erpc:call(NODE, fun() -> DO end)).
 
 %%
@@ -63,8 +65,13 @@ mk_source_cluster(BaseName, Config) ->
         "\n     topics = []"
         "\n   }"
         "\n ]}",
-    SourceApps1 = [{emqx_conf, combine([conf_log(), SourceConf])}],
-    SourceApps2 = [{emqx_conf, combine([conf_log(), conf_mqtt_listener(41883), SourceConf])}],
+    ExtraApps = proplists:get_value(extra_apps, Config, []),
+    SourceApps1 = [{emqx_conf, combine([conf_log(), SourceConf])}, emqx | ExtraApps],
+    SourceApps2 = [
+        {emqx_conf, combine([conf_log(), SourceConf])},
+        {emqx, conf_mqtt_listener(41883)}
+        | ExtraApps
+    ],
     emqx_cth_cluster:mk_nodespecs(
         [
             {mk_nodename(BaseName, s1), #{apps => SourceApps1}},
@@ -110,13 +117,13 @@ combine([Entry | Rest]) ->
     lists:foldl(fun emqx_cth_suite:merge_config/2, Entry, Rest).
 
 start_cluster_link(Nodes, Config) ->
-    [{ok, Apps}] = lists:usort(
+    Results = lists:usort(
         erpc:multicall(Nodes, emqx_cth_suite, start_apps, [
             [emqx_cluster_link],
             #{work_dir => emqx_cth_suite:work_dir(Config)}
         ])
     ),
-    Apps.
+    lists:flatmap(fun({ok, Apps}) -> Apps end, Results).
 
 stop_cluster_link(Config) ->
     Apps = ?config(tc_apps, Config),
@@ -313,6 +320,102 @@ t_disconnect_on_errors(Config) ->
     ),
     _ = ?ON(TargetNode, meck:unload()),
     ok = emqtt:stop(SC1),
+    ok.
+
+%% Checks that if a timeout occurs during actor state initialization, we close the
+%% (potentially unhealthy) connection and start anew.
+t_restart_connection_on_actor_init_timeout('init', Config0) ->
+    ExtraApps = [{emqx_auth, "authorization.no_match = deny"}],
+    SourceNodesSpec = mk_source_cluster(?FUNCTION_NAME, [{extra_apps, ExtraApps} | Config0]),
+    TargetNodesSpec = mk_target_cluster(?FUNCTION_NAME, Config0),
+    ok = snabbkaffe:start_trace(),
+    [
+        {source_nodes_spec, SourceNodesSpec},
+        {target_nodes_spec, TargetNodesSpec}
+        | Config0
+    ];
+t_restart_connection_on_actor_init_timeout('end', _Config) ->
+    ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
+t_restart_connection_on_actor_init_timeout(Config) ->
+    SourceNodesSpec = ?config(source_nodes_spec, Config),
+    TargetNodesSpec = ?config(target_nodes_spec, Config),
+    ?check_trace(
+        #{timetrap => 20_000},
+        begin
+            SourceNodes = [SN | _] = emqx_cth_cluster:start(SourceNodesSpec),
+            on_exit(fun() -> ok = emqx_cth_cluster:stop(SourceNodes) end),
+
+            %% Simulate a poorly configured node that'll reject the actor init ack
+            %% message, making the initialization time out.
+            ok = ?ON(
+                SN,
+                emqx_authz_test_lib:setup_config(
+                    #{
+                        <<"type">> => <<"file">>,
+                        <<"enable">> => true,
+                        <<"rules">> =>
+                            <<
+                                "{deny, all, subscribe, [\"#\"]}.\n"
+                                "{allow, all, publish, [\"$LINK/#\", \"#\"]}."
+                            >>
+                    },
+                    #{}
+                )
+            ),
+            %% For some reason, it's fruitless to try to set this config in the app specs....
+            {ok, _} = ?ON(
+                SN,
+                emqx_conf:update([authorization, no_match], deny, #{override_to => cluster})
+            ),
+
+            TargetNodes = emqx_cth_cluster:start(TargetNodesSpec),
+            on_exit(fun() -> ok = emqx_cth_cluster:stop(TargetNodes) end),
+
+            ct:pal("starting cluster link"),
+            ?wait_async_action(
+                start_cluster_link(SourceNodes ++ TargetNodes, Config),
+                #{?snk_kind := "remote_actor_init_timeout"}
+            ),
+
+            %% Fix the authorization config, it should reconnect.
+            ct:pal("fixing config"),
+            ?wait_async_action(
+                begin
+                    ok = ?ON(
+                        SN,
+                        emqx_authz_test_lib:setup_config(
+                            #{
+                                <<"type">> => <<"file">>,
+                                <<"enable">> => true,
+                                <<"rules">> => <<"{allow, all}.">>
+                            },
+                            #{}
+                        )
+                    ),
+                    {ok, _} = ?ON(
+                        SN,
+                        emqx_conf:update([authorization, no_match], allow, #{override_to => cluster})
+                    )
+                end,
+                #{?snk_kind := clink_route_bootstrap_complete}
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := "remote_actor_init_timeout", ?snk_meta := #{node := _N1}},
+                    #{?snk_kind := "clink_stop_link_client", ?snk_meta := #{node := _N2}},
+                    _N1 =:= _N2,
+                    Trace
+                )
+            ),
+            ok
+        end
+    ),
     ok.
 
 %%
