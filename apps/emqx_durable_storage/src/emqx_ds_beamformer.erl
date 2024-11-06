@@ -324,11 +324,11 @@ shard_event(Shard, Events) ->
 
 %% @doc Split beam into individual batches
 -spec split(beam(ItKey, Iterator)) ->
-    [{ItKey, _BatchSize :: non_neg_integer(), emqx_ds:next_result(Iterator)}].
+    [{return_addr(ItKey), _BatchSize :: non_neg_integer(), emqx_ds:next_result(Iterator)}].
 split(#beam{iterators = Its, pack = end_of_stream}) ->
-    [{ItKey, 0, {ok, end_of_stream}} || {ItKey, _Iter} <- Its];
+    [{ReturnAddr, 0, {ok, end_of_stream}} || {ReturnAddr, _Iter} <- Its];
 split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
-    [{ItKey, 0, Err} || {ItKey, _Iter} <- Its];
+    [{ReturnAddr, 0, Err} || {ReturnAddr, _Iter} <- Its];
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
@@ -702,13 +702,13 @@ do_pack(Refs, Matrix, [{N, {MsgKey, Msg}} | Msgs], Acc) ->
 
 split([], _Pack, _N, Acc) ->
     Acc;
-split([{ItKey, It} | Rest], Pack, N, Acc0) ->
+split([{ReturnAddr, It} | Rest], Pack, N, Acc0) ->
     {BatchSize, Batch} = make_nth_reply(N, Pack),
     case BatchSize of
-        0 -> logger:warning("Empty batch ~p", [ItKey]);
+        0 -> logger:warning("Empty batch ~p", [ReturnAddr]);
         _ -> ok
     end,
-    Acc = [{ItKey, BatchSize, {ok, It, Batch}} | Acc0],
+    Acc = [{ReturnAddr, BatchSize, {ok, It, Batch}} | Acc0],
     split(Rest, Pack, N + 1, Acc).
 
 make_nth_reply(N, Pack) ->
