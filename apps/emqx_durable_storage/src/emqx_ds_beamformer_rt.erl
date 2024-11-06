@@ -22,7 +22,7 @@
 -behavior(gen_server).
 
 %% API:
--export([start_link/4, enqueue/3, shard_event/2]).
+-export([start_link/4, pool/1, enqueue/3, shard_event/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -65,6 +65,10 @@ enqueue(Shard, Req, Timeout) ->
     ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => rt}),
     emqx_ds_beamformer:enqueue(emqx_ds_beamformer_sup:rt_pool(Shard), Req, Timeout).
 
+%% @doc Pool of realtime beamformers
+pool(Shard) ->
+    {emqx_ds_beamformer_rt, Shard}.
+
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
     gen_server:start_link(?MODULE, [Mod, ShardId, Name, Opts], []).
@@ -85,9 +89,8 @@ shard_event(Shard, Events) ->
 
 init([CBM, ShardId, Name, _Opts]) ->
     process_flag(trap_exit, true),
-    Pool = emqx_ds_beamformer_sup:rt_pool(ShardId),
-    gproc_pool:add_worker(Pool, Name),
-    gproc_pool:connect_worker(Pool, Name),
+    gproc_pool:add_worker(pool(ShardId), Name),
+    gproc_pool:connect_worker(pool(ShardId), Name),
     S = #s{
         module = CBM,
         shard = ShardId,
@@ -139,7 +142,7 @@ handle_info(_Info, S) ->
     {noreply, S}.
 
 terminate(_Reason, #s{shard = ShardId, name = Name}) ->
-    Pool = emqx_ds_beamformer_sup:rt_pool(ShardId),
+    Pool = pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
     ok.

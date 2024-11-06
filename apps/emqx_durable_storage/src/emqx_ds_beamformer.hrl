@@ -38,4 +38,10 @@
     hops = 0
 }).
 
+%% Global variables for the shard (stored as a persistent term):
+-record(shard_gvars, {
+    cbm :: module(),
+    sub_table :: ets:tid()
+}).
+
 -endif.

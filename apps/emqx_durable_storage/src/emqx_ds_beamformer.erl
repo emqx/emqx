@@ -84,7 +84,7 @@
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
--export([do_dispatch/1, next_seqno/2]).
+-export([start_link/3, do_dispatch/1, next_seqno/2]).
 
 %% Behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -215,7 +215,7 @@
 
 -opaque beam_maker() :: #beam_maker{}.
 
--define(subtid(SHARD), {emqx_ds_beamformer_sub_tab, SHARD}).
+-define(gvars(SHARD), {?MODULE, SHARD}).
 -define(via(SHARD), {via, gproc, {n, l, {?MODULE, SHARD}}}).
 
 %%================================================================================
@@ -258,7 +258,7 @@
 -spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
-    CBM = emqx_ds_beamformer_sup:cbm(Shard),
+    CBM = cbm(Shard),
     case CBM:unpack_iterator(Shard, Iterator) of
         #{
             stream := Stream,
@@ -481,7 +481,7 @@ unsubcribe(Shard, SubId) ->
 %% @doc Ack batches up to sequence number:
 -spec ack_seqno(dbshard(), sub_id(), sub_seqno()) -> ok | {error, subscription_not_found}.
 ack_seqno(Shard, SubId, SeqNo) ->
-    try ets:update_element(?subtid(Shard), SubId, [{#subscription.acked_seqno, SeqNo}]) of
+    try ets:update_element(subtab(Shard), SubId, [{#subscription.acked_seqno, SeqNo}]) of
         true ->
             ok;
         false ->
@@ -496,10 +496,25 @@ ack_seqno(Shard, SubId, SeqNo) ->
 %% gen_server (responsible for subscriptions)
 %%================================================================================
 
+-spec start_link(module(), dbshard(), _Opts) -> {ok, pid()}.
+start_link(CBM, Shard, Opts) ->
+    gen_server:start_link(?via(Shard), ?MODULE, [CBM, Shard, Opts], []).
+
 -record(s, {shard :: dbshard(), tab :: ets:tid()}).
 
-init(Shard) ->
-    SubTab = make_subtab(Shard),
+init([Module, Shard, _Opts]) ->
+    %% This process also takes care of keeping global variables for
+    %% the shard and managing the pools.
+    SubTab = ets:new(subtab, [set, public, {keypos, #subscription.id}]),
+    %% Declare pools for realtime and catchup beamformers (note:
+    %% workers add and remove themselves to the pools dynamically):
+    gproc_pool:new(emqx_ds_beamformer_rt:pool(Shard), hash, [{auto_size, true}]),
+    gproc_pool:new(emqx_ds_beamformer_catchup:pool(Shard), hash, [{auto_size, true}]),
+    %% Initialize gvars:
+    persistent_term:put(?gvars(Shard), #shard_gvars{
+        cbm = Module,
+        sub_table = SubTab
+    }),
     {ok, #s{shard = Shard, tab = SubTab}}.
 
 handle_call(
@@ -533,7 +548,9 @@ handle_info(_Info, S) ->
     {noreply, S}.
 
 terminate(_, #s{shard = Shard}) ->
-    persistent_term:erase(?subtid(Shard)).
+    gproc_pool:force_delete(emqx_ds_beamformer_rt:pool(Shard)),
+    gproc_pool:force_delete(emqx_ds_beamformer_catchup:pool(Shard)),
+    persistent_term:erase(?gvars(Shard)).
 
 %%================================================================================
 %% Internal exports
@@ -745,12 +762,12 @@ send_out(Node, Beam) ->
     end.
 
 subtab(Shard) ->
-    persistent_term:get(?subtid(Shard)).
-
-make_subtab(Shard) ->
-    Tab = ets:new(emqx_ds_beamformer_sub_tab, [set, public, {keypos, #subscription.id}]),
-    persistent_term:put(?subtid(Shard), Tab),
+    #shard_gvars{sub_table = Tab} = persistent_term:get(?gvars(Shard)),
     Tab.
+
+cbm(Shard) ->
+    #shard_gvars{cbm = CBM} = persistent_term:get(?gvars(Shard)),
+    CBM.
 
 %%================================================================================
 %% Tests
