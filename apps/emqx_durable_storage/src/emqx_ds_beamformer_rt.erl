@@ -62,7 +62,7 @@
 
 -spec enqueue(_Shard, emqx_d_beamformer:poll_req(), timeout()) -> ok.
 enqueue(Shard, Req, Timeout) ->
-    ?tp(debug, beamformer_enqueue, #{req_id => Req#poll_req.req_id, queue => rt}),
+    ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => rt}),
     emqx_ds_beamformer:enqueue(emqx_ds_beamformer_sup:rt_pool(Shard), Req, Timeout).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
@@ -100,13 +100,13 @@ init([CBM, ShardId, Name, _Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #poll_req{}, _From, S0) ->
+handle_call(Req = #sub_state{}, _From, S0) ->
     {Reply, S} = do_enqueue(Req, S0),
     {reply, Reply, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
-handle_cast(Req = #poll_req{}, S0) ->
+handle_cast(Req = #sub_state{}, S0) ->
     {_Reply, S} = do_enqueue(Req, S0),
     {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
@@ -153,7 +153,7 @@ terminate(_Reason, #s{shard = ShardId, name = Name}) ->
 %%================================================================================
 
 do_enqueue(
-    Req = #poll_req{stream = Stream, topic_filter = TF, req_id = ReqId, start_key = Key, it = It0},
+    Req = #sub_state{stream = Stream, topic_filter = TF, req_id = ReqId, start_key = Key, it = It0},
     S = #s{shard = Shard, queue = Queue, metrics_id = Metrics, module = CBM}
 ) ->
     case high_watermark(Stream, S) of
@@ -237,7 +237,7 @@ process_batch(Stream, EndKey, [{Key, Msg} | Rest], S = #s{queue = Queue}, Beams0
     Candidates = emqx_ds_beamformer_waitq:matching_ids(Stream, Topic, Queue),
     Matched = lists:filtermap(
         fun(Id) ->
-            #poll_req{msg_matcher = Matcher} =
+            #sub_state{msg_matcher = Matcher} =
                 Req = emqx_ds_beamformer_waitq:lookup_req(Stream, Id, Queue),
             case Matcher(Key, Msg) of
                 true -> {true, Req};
@@ -249,7 +249,7 @@ process_batch(Stream, EndKey, [{Key, Msg} | Rest], S = #s{queue = Queue}, Beams0
     Beams = emqx_ds_beamformer:beams_add({Key, Msg}, Matched, Beams0),
     process_batch(Stream, EndKey, Rest, S, Beams).
 
-fulfilled(#poll_req{stream = Stream, topic_filter = TF, req_id = ID}, #s{queue = Queue}) ->
+fulfilled(#sub_state{stream = Stream, topic_filter = TF, req_id = ID}, #s{queue = Queue}) ->
     emqx_ds_beamformer_waitq:delete(Stream, TF, ID, Queue).
 
 high_watermark(Stream, S = #s{high_watermark = Tab}) ->

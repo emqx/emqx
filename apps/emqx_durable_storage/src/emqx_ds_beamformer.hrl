@@ -17,7 +17,7 @@
 -ifndef(EMQX_DS_BEAMFORMER_HRL).
 -define(EMQX_DS_BEAMFORMER_HRL, true).
 
--record(poll_req, {
+-record(sub_state, {
     req_id,
     stream,
     topic_filter,
