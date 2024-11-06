@@ -405,7 +405,7 @@ is_awaiting_full(#session{
     | {error, emqx_types:reason_code()}.
 puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, #inflight_data{phase = wait_ack, message = #message{qos = 1} = Msg}} ->
+        {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
             {ok, Replies, Session2} = dequeue(ClientInfo, Session1),
@@ -427,7 +427,7 @@ puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     | {error, emqx_types:reason_code()}.
 pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, #inflight_data{phase = wait_ack, message = #message{qos = 2} = Msg} = Data} ->
+        {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_2} = Msg} = Data} ->
             Update = Data#inflight_data{phase = wait_comp},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
             {ok, without_inflight_insert_ts(Msg), Session#session{inflight = Inflight1}};
@@ -464,12 +464,12 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
     | {error, emqx_types:reason_code()}.
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, #inflight_data{phase = wait_comp, message = #message{qos = 2} = Msg}} ->
+        {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
             {ok, Replies, Session2} = dequeue(ClientInfo, Session1),
             {ok, without_inflight_insert_ts(Msg), Replies, Session2};
-        {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= 2 ->
+        {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
             {error, ?RC_PROTOCOL_ERROR};
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
