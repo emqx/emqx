@@ -63,9 +63,9 @@
 %% API functions
 %%================================================================================
 
--spec enqueue(_Shard, emqx_ds_beamformer:poll_req(), timeout()) -> ok.
+-spec enqueue(_Shard, emqx_ds_beamformer:sub_state(), timeout()) -> ok.
 enqueue(Shard, Req, Timeout) ->
-    ?tp(debug, beamformer_enqueue, #{req_id => Req#poll_req.req_id, queue => catchup}),
+    ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => catchup}),
     emqx_ds_beamformer:enqueue(emqx_ds_beamformer_sup:catchup_pool(Shard), Req, Timeout).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
@@ -93,13 +93,13 @@ init([CBM, ShardId, Name, _Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #poll_req{}, _From, S0) ->
+handle_call(Req = #sub_state{}, _From, S0) ->
     {Reply, S} = do_enqueue(Req, S0),
     {reply, Reply, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
-handle_cast(Req = #poll_req{}, S0) ->
+handle_cast(Req = #sub_state{}, S0) ->
     {_Reply, S} = do_enqueue(Req, S0),
     {noreply, S};
 handle_cast(_Cast, S) ->
@@ -192,7 +192,7 @@ do_fulfill(
     fun(([Req]) -> _),
     emqx_ds:message_key(),
     emqx_ds_beamformer:stream_scan_return()
-) -> boolean() when Req :: emqx_ds_beamformer:poll_req().
+) -> boolean() when Req :: emqx_ds_beamformer:sub_state().
 form_beams(S, GetF, OnNomatch, StartKey, {ok, EndKey, Batch}) ->
     do_form_beams(S, GetF, OnNomatch, StartKey, EndKey, Batch);
 form_beams(#s{metrics_id = Metrics}, GetF, _OnNomatch, StartKey, Result) ->
@@ -220,7 +220,7 @@ form_beams(#s{metrics_id = Metrics}, GetF, _OnNomatch, StartKey, Result) ->
     emqx_ds:message_key(),
     emqx_ds:message_key(),
     [{emqx_ds:message_key(), emqx_types:message()}]
-) -> boolean() when Req :: emqx_ds_beamformer:poll_req().
+) -> boolean() when Req :: emqx_ds_beamformer:sub_state().
 do_form_beams(
     #s{metrics_id = Metrics, module = CBM, shard = Shard},
     GetF,
@@ -268,7 +268,7 @@ process_batch(_GetF, [], Candidates, Beams) ->
 process_batch(GetF, [{Key, Msg} | Rest], Candidates0, Beams0) ->
     Candidates = GetF(Key) ++ Candidates0,
     MatchingReqs = lists:filter(
-        fun(#poll_req{msg_matcher = Matcher}) ->
+        fun(#sub_state{msg_matcher = Matcher}) ->
             Matcher(Key, Msg)
         end,
         Candidates
@@ -279,8 +279,8 @@ process_batch(GetF, [{Key, Msg} | Rest], Candidates0, Beams0) ->
 enqueue_nomatch(#s{shard = Shard}) ->
     fun(EndKey, NoMatch) ->
         lists:foreach(
-            fun(Req0 = #poll_req{}) ->
-                Req = Req0#poll_req{start_key = EndKey},
+            fun(Req0 = #sub_state{}) ->
+                Req = Req0#sub_state{start_key = EndKey},
                 emqx_ds_beamformer_rt:enqueue(Shard, Req, 0)
             end,
             NoMatch
@@ -331,7 +331,7 @@ queue_new() ->
     ets:new(old_polls, [duplicate_bag, private, {keypos, 1}]).
 
 queue_push(
-    Queue, Req = #poll_req{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
+    Queue, Req = #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
 ) ->
     ?tp(beamformer_push_replay, #{req_id => Ref}),
     ets:insert(Queue, {{Stream, TF, Key}, Req}).
