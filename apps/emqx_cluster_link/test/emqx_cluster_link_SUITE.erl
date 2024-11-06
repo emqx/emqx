@@ -16,6 +16,8 @@
 
 %%
 
+suite() -> [{timetrap, {minutes, 1}}].
+
 all() ->
     [
         {group, shared_subs},
@@ -104,7 +106,7 @@ conf_mqtt_listener(_) ->
     "".
 
 conf_log() ->
-    "log.file { enable = true, level = debug, path = node.log, supervisor_reports = progress }".
+    "log.file { enable = true, level = info, path = node.log, supervisor_reports = progress }".
 
 combine([Entry | Rest]) ->
     lists:foldl(fun emqx_cth_suite:merge_config/2, Entry, Rest).
