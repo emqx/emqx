@@ -314,8 +314,8 @@ publish_messages(
     Conn,
     RabbitMQ,
     DeliveryMode,
-    Exchange,
-    RoutingKey,
+    Exchange0,
+    RoutingKey0,
     PayloadTmpl,
     Messages,
     WaitForPublishConfirmations,
@@ -328,14 +328,19 @@ publish_messages(
                 headers = [],
                 delivery_mode = DeliveryMode
             },
+
+            Exchange = render_template(Exchange0, Messages),
+            RoutingKey = render_template(RoutingKey0, Messages),
             Method = #'basic.publish'{
                 exchange = Exchange,
                 routing_key = RoutingKey
             },
+
             FormattedMsgs = [
                 format_data(PayloadTmpl, M)
              || {_, M} <- Messages
             ],
+
             emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
                 messages => FormattedMsgs,
                 properties => #{
@@ -389,6 +394,20 @@ format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
 format_data(Tokens, Msg) ->
     emqx_placeholder:proc_tmpl(Tokens, Msg).
+
+%% Dynamic `exchange` and `routing_key` are restricted in batch mode,
+%% we assume these two values ​​are the same in a batch.
+render_template({fixed, Data}, _) ->
+    Data;
+render_template(Template, [Req | _]) ->
+    render_template(Template, Req);
+render_template({dynamic, Template}, {_, Message}) ->
+    try
+        erlang:iolist_to_binary(emqx_template:render_strict(Template, {emqx_jsonish, Message}))
+    catch
+        error:_Errors ->
+            erlang:throw(bad_template)
+    end.
 
 handle_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};
@@ -444,15 +463,28 @@ init_secret() ->
 preproc_parameter(#{config_root := actions, parameters := Parameter}) ->
     #{
         payload_template := PayloadTemplate,
-        delivery_mode := InitialDeliveryMode
+        delivery_mode := InitialDeliveryMode,
+        exchange := Exchange,
+        routing_key := RoutingKey
     } = Parameter,
     Parameter#{
         delivery_mode => delivery_mode(InitialDeliveryMode),
         payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
-        config_root => actions
+        config_root => actions,
+        exchange := preproc_template(Exchange),
+        routing_key := preproc_template(RoutingKey)
     };
 preproc_parameter(#{config_root := sources, parameters := Parameter, hookpoints := Hooks}) ->
     Parameter#{hookpoints => Hooks, config_root => sources}.
+
+preproc_template(Template0) ->
+    Template = emqx_template:parse(Template0),
+    case emqx_template:placeholders(Template) of
+        [] ->
+            {fixed, emqx_utils_conv:bin(Template0)};
+        [_ | _] ->
+            {dynamic, Template}
+    end.
 
 delivery_mode(non_persistent) -> 1;
 delivery_mode(persistent) -> 2.
