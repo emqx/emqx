@@ -74,17 +74,25 @@
 %% '''
 -module(emqx_ds_beamformer).
 
+-behaviour(gen_server).
+
 %% API:
--export([poll/5, shard_event/2]).
+-export([poll/5, subscribe/5, unsubcribe/2, shard_event/2, ack_seqno/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([beams_init/0, beams_add/3, beams_conclude/3, beams_matched_requests/1, split/1]).
 -export([shard_metrics_id/1, enqueue/3, send_out_term/2, cleanup_expired/3]).
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
--export([do_dispatch/1]).
+-export([do_dispatch/1, next_seqno/2]).
+
+%% Behavior callbacks:
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -export_type([
+    dbshard/0,
+    sub_id/0,
+    sub_seqno/0,
     opts/0,
     poll_req/0, poll_req/2,
     beam/2, beam/0,
@@ -110,6 +118,12 @@
 %% Type declarations
 %%================================================================================
 
+-type dbshard() :: {emqx_ds:db(), _Shard}.
+
+-type sub_id() :: reference().
+
+-type sub_seqno() :: non_neg_integer().
+
 %% `event_topic' and `event_topic_filter' types are structurally (but
 %% not semantically) equivalent to their `emqx_ds' counterparts.
 %%
@@ -124,9 +138,18 @@
     n_workers := non_neg_integer()
 }.
 
+-record(subscription, {
+    id :: reference(),
+    client :: pid(),
+    state :: poll_req(),
+    seqno = 0 :: sub_seqno(),
+    acked_seqno = 0 :: sub_seqno(),
+    max_unacked :: pos_integer()
+}).
+
 %% Request:
 
--type return_addr(ItKey) :: {reference(), ItKey}.
+-type return_addr(ItKey) :: {reference(), ItKey} | {pid(), sub_id(), ItKey}.
 
 -type poll_req_id() :: reference().
 
@@ -189,6 +212,9 @@
 
 -opaque beam_maker() :: #beam_maker{}.
 
+-define(subtid(SHARD), {emqx_ds_beamformer_sub_tab, SHARD}).
+-define(via(SHARD), {via, gproc, {n, l, {?MODULE, SHARD}}}).
+
 %%================================================================================
 %% Callbacks
 %%================================================================================
@@ -205,20 +231,20 @@
     type => iterator_type()
 }.
 
--callback unpack_iterator(_Shard, _Iterator) ->
+-callback unpack_iterator(dbshard(), _Iterator) ->
     unpack_iterator_result(_Stream) | emqx_ds:error(_).
 
--callback update_iterator(_Shard, Iterator, emqx_ds:message_key()) ->
+-callback update_iterator(dbshard(), Iterator, emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(Iterator).
 
 -callback scan_stream(
-    _Shard, _Stream, event_topic_filter(), emqx_ds:message_key(), _BatchSize :: non_neg_integer()
+    dbshard(), _Stream, event_topic_filter(), emqx_ds:message_key(), _BatchSize :: non_neg_integer()
 ) ->
     stream_scan_return().
 
--callback high_watermark(_Shard, _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
+-callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
 
--callback fast_forward(_Shard, Iterator, emqx_ds:key()) ->
+-callback fast_forward(dbshard(), Iterator, emqx_ds:key()) ->
     {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error().
 
 %%================================================================================
@@ -226,7 +252,7 @@
 %%================================================================================
 
 %% @doc Submit a poll request
--spec poll(node(), return_addr(_ItKey), _Shard, _Iterator, emqx_ds:poll_opts()) ->
+-spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
     ok.
 poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
@@ -277,7 +303,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
 %%
 %% Types of arguments to this function are dependent on the backend.
 %%
-%% - `_Shard': most DS backends have some notion of shard. Beamformer
+%% - `dbshard()': most DS backends have some notion of shard. Beamformer
 %% uses this fact to partition poll requests, but otherwise it treats
 %% shard as an opaque value.
 %%
@@ -289,7 +315,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
 %% - `event_topic()': When beamformer receives stream events, it
 %% selects waiting events with matching stream AND
 %% `event_topic_filter'.
--spec shard_event(_Shard, [{_Stream, emqx_ds:mduessage_key()}]) -> ok.
+-spec shard_event(dbshard(), [{_Stream, emqx_ds:mduessage_key()}]) -> ok.
 shard_event(Shard, Events) ->
     emqx_ds_beamformer_rt:shard_event(Shard, Events).
 
@@ -400,35 +426,122 @@ cfg_housekeeping_interval() ->
 %% behavior callback wrappers
 %%================================================================================
 
--spec unpack_iterator(module(), _Shard, _Iterator) ->
+-spec unpack_iterator(module(), dbshard(), _Iterator) ->
     unpack_iterator_result(_Stream) | emqx_ds:error().
 unpack_iterator(Mod, Shard, It) ->
     Mod:unpack_iterator(Shard, It).
 
--spec update_iterator(module(), _Shard, _It, emqx_ds:message_key()) ->
+-spec update_iterator(module(), dbshard(), _It, emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result().
 update_iterator(Mod, Shard, It, Key) ->
     Mod:update_iterator(Shard, It, Key).
 
 -spec scan_stream(
-    module(), _Shard, _Stream, event_topic_filter(), emqx_ds:message_key(), non_neg_integer()
+    module(), dbshard(), _Stream, event_topic_filter(), emqx_ds:message_key(), non_neg_integer()
 ) ->
     stream_scan_return().
 scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
     Mod:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize).
 
--spec high_watermark(module(), _Shard, _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
+-spec high_watermark(module(), dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
 high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
--spec fast_forward(module(), _Shard, Iterator, emqx_ds:message_key()) ->
+-spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key()) ->
     {ok, Iterator} | {error, unrecoverable, has_data} | emqx_ds:error().
 fast_forward(Mod, Shard, It, Key) ->
     Mod:fast_forward(Shard, It, Key).
 
 %%================================================================================
+%% Internal subscription management API (RPC target)
+%%================================================================================
+
+-record(sub_req, {
+    client :: pid(),
+    it :: emqx_ds:ds_specific_iterator(),
+    it_key,
+    opts :: emqx_ds:poll_opts()
+}).
+
+-record(unsub_req, {id :: sub_id()}).
+
+-spec subscribe(pid(), dbshard(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:poll_opts()) -> {ok, sub_id(), pid()}.
+subscribe(Client, DBShard, It, ItKey, Opts) ->
+    gen_server:call(?via(DBShard), #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts}).
+
+-spec unsubcribe(dbshard(), sub_id()) -> ok.
+unsubcribe(Shard, SubId) ->
+    gen_server:call(?via(Shard), #unsub_req{id = SubId}).
+
+%% @doc Ack batches up to sequence number:
+-spec ack_seqno(dbshard(), sub_id(), sub_seqno()) -> ok | {error, subscription_not_found}.
+ack_seqno(Shard, SubId, SeqNo) ->
+    case ets:update_element(?subtid(Shard), SubId, [{#subscription.acked_seqno, SeqNo}]) of
+        true ->
+            ok;
+        false ->
+            {error, subscription_not_found}
+    end.
+
+%%================================================================================
+%% gen_server (responsible for subscriptions)
+%%================================================================================
+
+-record(s, {shard :: dbshard(), tab :: ets:tid()}).
+
+init(Shard) ->
+    SubTab = make_subtab(Shard),
+    {ok, #s{shard = Shard, tab = SubTab}}.
+
+handle_call(
+    #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts},
+    _From,
+    S = #s{shard = Shard, tab = Tab}
+) ->
+    MRef = monitor(process, Client),
+    State = poll(node(Client), {Client, MRef, ItKey}, Shard, It, Opts#{timeout => 0}),
+    Sub = #subscription{
+        id = MRef,
+        client = Client,
+        state = State
+    },
+    ets:insert(Tab, Sub),
+    {reply, {ok, MRef, self()}, S};
+handle_call(#unsub_req{id = Id}, _From, S = #s{tab = Tab}) ->
+    demonitor(Id, [flush]),
+    ets:delete(Tab, Id),
+    {reply, ok, S};
+handle_call(_Call, _From, S) ->
+    {reply, {error, unknown_call}, S}.
+
+handle_cast(_Cast, S) ->
+    {noreply, S}.
+
+handle_info({'DOWN', MRef, process, _Pid, _Info}, S = #s{tab = Tab}) ->
+    ets:delete(Tab, MRef),
+    {noreply, S};
+handle_info(_Info, S) ->
+    {noreply, S}.
+
+terminate(_, #s{shard = Shard}) ->
+    persistent_term:erase(?subtid(Shard)).
+
+%%================================================================================
 %% Internal exports
 %%================================================================================
+
+%% Return a list: `[NextSeqNo, AckedSeqNo, MaxUnacked]' that can be
+%% used to decide if client is ready to receive more poll requests.
+-spec next_seqno(dbshard(), sub_id()) -> [sub_seqno() | pos_integer()] | undefined.
+next_seqno(Shard, Id) ->
+    try
+        ets:update_counter(subtab(Shard), Id, [
+            {#subscription.seqno, 1}, {#subscription.acked_seqno, 0}, {#subscription.max_unacked, 0}
+        ])
+    catch
+        exit:badarg ->
+            undefined
+    end.
 
 enqueue(_, Req = #poll_req{hops = Hops}, _) when Hops > 3 ->
     %% It seems that the poll request is being bounced between the
@@ -602,6 +715,14 @@ send_out(Node, Beam) ->
         _ ->
             emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
     end.
+
+subtab(Shard) ->
+    persistent_term:get(?subtid(Shard)).
+
+make_subtab(Shard) ->
+    Tab = ets:new(emqx_ds_beamformer_sub_tab, [set, public, {keypos, #subscription.id}]),
+    persistent_term:put(?subtid(Shard), Tab),
+    Tab.
 
 %%================================================================================
 %% Tests
