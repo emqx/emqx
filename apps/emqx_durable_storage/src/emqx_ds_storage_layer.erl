@@ -330,6 +330,7 @@
 %% Stream event API:
 
 -callback batch_events(
+    shard_id(),
     generation_data(),
     _CookedBatch
 ) -> [_Stream].
@@ -337,7 +338,7 @@
 -optional_callbacks([
     handle_event/4,
     %% FIXME: should be mandatory:
-    batch_events/2
+    batch_events/3
 ]).
 
 %%================================================================================
@@ -460,7 +461,7 @@ dispatch_events(
     Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, DispatchF
 ) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    Events = Mod:batch_events(GenData, CookedBatch),
+    Events = Mod:batch_events(Shard, GenData, CookedBatch),
     DispatchF([{?stream_v2(GenId, InnerStream), Topic} || {InnerStream, Topic} <- Events]).
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->

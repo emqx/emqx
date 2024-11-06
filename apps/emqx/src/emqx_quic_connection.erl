@@ -169,6 +169,7 @@ new_stream(
         parse_state := PS,
         channel := Channel,
         serialize := Serialize,
+        hibernate_after := HibernateAfterMs,
         conn_shared_state := SS
     } = S
 ) ->
@@ -190,7 +191,7 @@ new_stream(
         Conn,
         SOpts1,
         Props,
-        [{hibernate_after, 1000}]
+        [{hibernate_after, HibernateAfterMs}]
     ),
     case quicer:handoff_stream(Stream, NewStreamOwner, {PS, Serialize, Channel}) of
         ok ->

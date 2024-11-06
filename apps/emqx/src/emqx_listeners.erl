@@ -457,11 +457,13 @@ do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
                 peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
                 zone => zone(Opts),
                 listener => {quic, Name},
-                limiter => Limiter
+                limiter => Limiter,
+                hibernate_after => maps:get(hibernate_after, ListenOpts)
             },
             StreamOpts = #{
                 stream_callback => emqx_quic_stream,
-                active => 1
+                active => 1,
+                hibernate_after => maps:get(hibernate_after, ListenOpts)
             },
             quicer:spawn_listener(
                 Id,

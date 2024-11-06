@@ -18,8 +18,6 @@
 -behaviour(gen_server).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("stdlib/include/qlc.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 -include("session_internals.hrl").
 
@@ -27,7 +25,8 @@
 -export([
     start_link/0,
     check_session/1,
-    check_session_after/2
+    check_session_after/2,
+    session_last_alive_at/2
 ]).
 
 %% `gen_server' API
@@ -59,6 +58,22 @@ check_session_after(SessionId, Time0) ->
     Time = max(Time0, BumpInterval),
     _ = erlang:send_after(Time, ?MODULE, #check_session{id = SessionId}),
     ok.
+
+-spec session_last_alive_at(
+    pos_integer(), emqx_persistent_session_ds_node_heartbeat_worker:epoch_id() | undefined
+) -> pos_integer().
+session_last_alive_at(LastAliveAt, undefined) ->
+    LastAliveAt;
+session_last_alive_at(LastAliveAt, NodeEpochId) ->
+    case emqx_persistent_session_ds_node_heartbeat_worker:get_last_alive_at(NodeEpochId) of
+        undefined ->
+            LastAliveAt;
+        NodeLastAliveAt ->
+            max(
+                LastAliveAt,
+                NodeLastAliveAt + emqx_config:get([durable_sessions, heartbeat_interval])
+            )
+    end.
 
 %%--------------------------------------------------------------------------------
 %% `gen_server' API
@@ -102,7 +117,7 @@ try_gc() ->
     CoreNodes = mria_membership:running_core_nodelist(),
     Res = global:trans(
         {?MODULE, self()},
-        fun() -> ?tp_span(debug, ds_session_gc, #{}, start_gc()) end,
+        fun() -> ?tp_span(debug, ds_session_gc, #{}, run_gc()) end,
         CoreNodes,
         %% Note: we set retries to 1 here because, in rare occasions, GC might start at the
         %% same time in more than one node, and each one will abort the other.  By allowing
@@ -123,40 +138,55 @@ try_gc() ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-start_gc() ->
-    #{min_last_alive := MinLastAlive} = gc_context(),
-    gc_loop(MinLastAlive, emqx_persistent_session_ds_state:make_session_iterator()).
+run_gc() ->
+    NowMs = now_ms(),
+    SessionCounts0 = init_epoch_session_counters(NowMs),
+    SessionCounts = gc_loop(
+        gc_context(), SessionCounts0, emqx_persistent_session_ds_state:make_session_iterator()
+    ),
+    ok = clenup_inactive_epochs(SessionCounts).
 
 gc_context() ->
+    gc_context(now_ms()).
+
+gc_context(NowMs) ->
     GCInterval = emqx_config:get([durable_sessions, session_gc_interval]),
     BumpInterval = emqx_config:get([durable_sessions, heartbeat_interval]),
     SafetyMargin = BumpInterval * 3,
     #{
-        min_last_alive => now_ms() - SafetyMargin,
+        min_last_alive => NowMs - SafetyMargin,
         bump_interval => BumpInterval,
         gc_interval => GCInterval
     }.
 
-gc_loop(MinLastAlive, It0) ->
+gc_loop(GCContext, SessionCounts0, It0) ->
     GCBatchSize = emqx_config:get([durable_sessions, session_gc_batch_size]),
     case emqx_persistent_session_ds_state:session_iterator_next(It0, GCBatchSize) of
         {[], _It} ->
-            ok;
+            SessionCounts0;
         {Sessions, It} ->
-            [
-                do_gc(MinLastAlive, SessionId, Metadata)
-             || {SessionId, Metadata} <- Sessions
-            ],
-            gc_loop(MinLastAlive, It)
+            SessionCounts1 = lists:foldl(
+                fun({SessionId, Metadata}, SessionCountsAcc) ->
+                    do_gc(GCContext, SessionCountsAcc, SessionId, Metadata)
+                end,
+                SessionCounts0,
+                Sessions
+            ),
+            gc_loop(GCContext, SessionCounts1, It)
     end.
 
-do_gc(MinLastAlive, SessionId, Metadata) ->
+do_gc(GCContext, SessionId, Metadata) ->
+    do_gc(GCContext, _NoEpochCounters = #{}, SessionId, Metadata).
+
+do_gc(#{min_last_alive := MinLastAlive}, SessionCounts, SessionId, Metadata) ->
     #{
-        ?last_alive_at := LastAliveAt,
+        ?last_alive_at := SessionLastAliveAt,
+        ?node_epoch_id := NodeEpochId,
         ?expiry_interval := EI,
         ?will_message := MaybeWillMessage,
         ?clientinfo := ClientInfo
     } = Metadata,
+    LastAliveAt = session_last_alive_at(SessionLastAliveAt, NodeEpochId),
     IsExpired = LastAliveAt + EI < MinLastAlive,
     case
         should_send_will_message(
@@ -179,9 +209,10 @@ do_gc(MinLastAlive, SessionId, Metadata) ->
                 last_alive_at => LastAliveAt,
                 expiry_interval => EI,
                 min_last_alive => MinLastAlive
-            });
+            }),
+            SessionCounts;
         false ->
-            ok
+            inc_epoch_session_count(SessionCounts, NodeEpochId)
     end.
 
 should_send_will_message(undefined, _ClientInfo, _IsExpired, _LastAliveAt, _MinLastAlive) ->
@@ -205,8 +236,26 @@ should_send_will_message(WillMsg, ClientInfo, IsExpired, LastAliveAt, MinLastAli
 do_check_session(SessionId) ->
     case emqx_persistent_session_ds_state:print_session(SessionId) of
         #{metadata := Metadata} ->
-            #{min_last_alive := MinLastAlive} = gc_context(),
-            do_gc(MinLastAlive, SessionId, Metadata);
+            do_gc(gc_context(), SessionId, Metadata);
         _ ->
             ok
     end.
+
+init_epoch_session_counters(NowMs) ->
+    maps:from_keys(
+        emqx_persistent_session_ds_node_heartbeat_worker:inactive_epochs(NowMs), 0
+    ).
+
+inc_epoch_session_count(SessionCounts, NodeEpochId) when
+    is_map_key(NodeEpochId, SessionCounts)
+->
+    maps:update_with(NodeEpochId, fun(X) -> X + 1 end, 1, SessionCounts);
+inc_epoch_session_count(SessionCounts, _NodeEpochId) ->
+    SessionCounts.
+
+clenup_inactive_epochs(SessionCounts) ->
+    ?tp(debug, clenup_inactive_epochs, #{
+        session_counts => SessionCounts
+    }),
+    EmptyInactiveEpochIds = [NodeEpochId || {NodeEpochId, 0} <- maps:to_list(SessionCounts)],
+    ok = emqx_persistent_session_ds_node_heartbeat_worker:delete_epochs(EmptyInactiveEpochIds).

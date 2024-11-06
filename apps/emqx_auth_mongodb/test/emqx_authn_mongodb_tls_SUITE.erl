@@ -39,6 +39,10 @@ init_per_testcase(_TestCase, Config) ->
     ),
     Config.
 
+end_per_testcase(_TestCase, _Config) ->
+    ok = snabbkaffe:stop(),
+    ok.
+
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
         true ->

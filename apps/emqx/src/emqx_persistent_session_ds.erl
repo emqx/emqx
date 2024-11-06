@@ -199,16 +199,16 @@
 
 -define(TIMER_PULL, timer_pull).
 -define(TIMER_PUSH, timer_push).
--define(TIMER_GET_STREAMS, timer_get_streams).
--define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
+-define(TIMER_COMMIT, timer_commit).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
+-define(TIMER_SHARED_SUB, timer_shared_sub).
 
 -type timer() ::
     ?TIMER_PULL
     | ?TIMER_PUSH
-    | ?TIMER_GET_STREAMS
-    | ?TIMER_BUMP_LAST_ALIVE_AT
-    | ?TIMER_RETRY_REPLAY.
+    | ?TIMER_COMMIT
+    | ?TIMER_RETRY_REPLAY
+    | ?TIMER_SHARED_SUB.
 
 -type timer_state() :: reference() | undefined.
 
@@ -230,12 +230,13 @@
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight buffer.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
+    new_stream_subs := emqx_persistent_session_ds_subs:new_stream_subs(),
     %% Timers:
     ?TIMER_PULL := timer_state(),
     ?TIMER_PUSH := timer_state(),
-    ?TIMER_GET_STREAMS := timer_state(),
-    ?TIMER_BUMP_LAST_ALIVE_AT := timer_state(),
-    ?TIMER_RETRY_REPLAY := timer_state()
+    ?TIMER_COMMIT := timer_state(),
+    ?TIMER_RETRY_REPLAY := timer_state(),
+    ?TIMER_SHARED_SUB := timer_state()
 }.
 
 -define(IS_REPLAY_ONGOING(REPLAY), is_list(REPLAY)).
@@ -279,7 +280,7 @@
 -spec create(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     session().
 create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    ensure_timers(session_ensure_new(ClientID, ClientInfo, ConnInfo, MaybeWillMsg, Conf)).
+    post_init(session_ensure_new(ClientID, ClientInfo, ConnInfo, MaybeWillMsg, Conf)).
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
@@ -295,7 +296,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         Session0 = #{} ->
             Session1 = Session0#{props := Conf},
             Session = do_expire(ClientInfo, Session1),
-            {true, ensure_timers(Session), []};
+            {true, post_init(Session), []};
         false ->
             false
     end.
@@ -424,24 +425,26 @@ print_session(ClientId) ->
 subscribe(
     #share{} = TopicFilter,
     SubOpts,
-    Session
+    Session0
 ) ->
-    case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session) of
-        {ok, S0, SharedSubS} ->
-            S = emqx_persistent_session_ds_state:commit(S0),
-            {ok, Session#{s := S, shared_sub_s := SharedSubS}};
+    case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
+        {ok, S, SharedSubS} ->
+            Session1 = Session0#{s := S, shared_sub_s := SharedSubS},
+            Session = maybe_set_shared_sub_timer(Session1),
+            {ok, commit(Session)};
         Error = {error, _} ->
             Error
     end;
 subscribe(
     TopicFilter,
     SubOpts,
-    Session
+    Session0
 ) ->
-    case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session) of
-        {ok, S1} ->
-            S = emqx_persistent_session_ds_state:commit(S1),
-            {ok, Session#{s := S}};
+    case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
+        {ok, S1, NewStreamSubs} ->
+            Session1 = Session0#{s := S1, new_stream_subs := NewStreamSubs},
+            Session = renew_streams(TopicFilter, Session1),
+            {ok, commit(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -463,27 +466,31 @@ unsubscribe(
         )
     of
         {ok, S1, SharedSubS1, #{id := SubId, subopts := SubOpts}} ->
-            {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 SubId, S1, SchedS0
             ),
-            S = emqx_persistent_session_ds_state:commit(S2),
             Session = Session0#{s := S, shared_sub_s := SharedSubS1, stream_scheduler_s := SchedS},
-            {ok, Session, SubOpts};
+            {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
     end;
 unsubscribe(
     TopicFilter,
-    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
+    Session0 = #{
+        id := SessionId, s := S0, stream_scheduler_s := SchedS0, new_stream_subs := NewStreamSubs0
+    }
 ) ->
-    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
-            {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+    case
+        emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0, NewStreamSubs0)
+    of
+        {ok, S1, NewStreamSubs, #{id := SubId, subopts := SubOpts}} ->
+            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 SubId, S1, SchedS0
             ),
-            S = emqx_persistent_session_ds_state:commit(S2),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, Session, SubOpts};
+            Session = Session0#{
+                s := S, stream_scheduler_s := SchedS, new_stream_subs := NewStreamSubs
+            },
+            {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
     end.
@@ -519,7 +526,7 @@ publish(
                 undefined ->
                     Results = emqx_broker:publish(Msg),
                     S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, Ts, S0),
-                    {ok, Results, Session#{s := S}};
+                    {ok, Results, ensure_state_commit_timer(Session#{s := S})};
                 _Ts ->
                     {error, ?RC_PACKET_IDENTIFIER_IN_USE}
             end;
@@ -537,7 +544,7 @@ is_awaiting_full(#{s := S, props := Props}) ->
 -spec expire(emqx_types:clientinfo(), session()) ->
     {ok, [], timeout(), session()} | {ok, [], session()}.
 expire(ClientInfo, Session0 = #{props := Props}) ->
-    Session = #{s := S} = do_expire(ClientInfo, Session0),
+    Session = #{s := S} = ensure_state_commit_timer(do_expire(ClientInfo, Session0)),
     case emqx_persistent_session_ds_state:n_awaiting_rel(S) of
         0 ->
             {ok, [], Session};
@@ -599,7 +606,7 @@ puback(_ClientInfo, PacketId, Session0) ->
 pubrec(PacketId, Session0) ->
     case update_seqno(pubrec, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, Session};
+            {ok, Msg, ensure_state_commit_timer(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -616,7 +623,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND};
         _TS ->
             S = emqx_persistent_session_ds_state:del_awaiting_rel(PacketId, S0),
-            {ok, Session#{s := S}}
+            {ok, ensure_state_commit_timer(Session#{s := S})}
     end.
 
 %%--------------------------------------------------------------------
@@ -674,46 +681,34 @@ handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
             Timeout = get_config(ClientInfo, [idle_poll_interval]),
             PollOpts = #{timeout => Timeout},
             SchedS = emqx_persistent_session_ds_stream_scheduler:poll(PollOpts, SchedS0, S),
-            {ok, [], Session1#{stream_scheduler_s := SchedS}}
+            {ok, [], ensure_state_commit_timer(Session1#{stream_scheduler_s := SchedS})}
     end;
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
-    {ok, [], Session};
-handle_timeout(
-    ClientInfo,
-    ?TIMER_GET_STREAMS,
-    Session0 = #{s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0}
-) ->
-    ?tp(debug, sessds_renew_streams, #{}),
-    %% `gc` and `renew_streams` methods may drop unsubscribed streams.
-    %% Shared subscription handler must have a chance to see unsubscribed streams
-    %% in the fully replayed state.
-    {S1, SchedS1, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-        S0, SchedS0, SharedSubS0
-    ),
-    S2 = emqx_persistent_session_ds_subs:gc(S1),
-    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(S2, SchedS1),
-    Interval = get_config(ClientInfo, [renew_streams_interval]),
-    Session = set_timer(
-        ?TIMER_GET_STREAMS,
-        Interval,
-        Session0#{s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS}
-    ),
-    {ok, [], push_now(Session)};
-handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
-    S = emqx_persistent_session_ds_state:commit(bump_last_alive(S0)),
-    Session = set_timer(
-        ?TIMER_BUMP_LAST_ALIVE_AT,
-        bump_interval(),
-        Session0#{s := S}
-    ),
-    {ok, [], Session};
-handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session = #{s := S0}) ->
-    S = emqx_persistent_session_ds_state:commit(S0),
+    {ok, [], ensure_state_commit_timer(Session)};
+handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
+    {ok, [], commit(Session)};
+handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
+    Session = commit(Session0),
     From ! Ref,
-    {ok, [], Session#{s := S}};
+    {ok, [], Session};
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
+handle_timeout(
+    _ClientInfo,
+    ?TIMER_SHARED_SUB,
+    Session0 = #{s := S0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0}
+) ->
+    {S, SchedS, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+        S0, SchedS0, SharedSubS0
+    ),
+    Session = Session0#{
+        s := S,
+        stream_scheduler_s := SchedS,
+        shared_sub_s := SharedSubS,
+        ?TIMER_SHARED_SUB := undefined
+    },
+    {ok, [], maybe_set_shared_sub_timer(renew_streams(all, Session))};
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.
@@ -727,9 +722,18 @@ handle_info(
     ?shared_sub_message(Msg), Session = #{s := S0, shared_sub_s := SharedSubS0}, _ClientInfo
 ) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
-    Session#{s := S, shared_sub_s := SharedSubS};
+    ensure_state_commit_timer(Session#{s := S, shared_sub_s := SharedSubS});
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
+handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
+    #{new_stream_subs := Subs} = Session,
+    case Subs of
+        #{Ref := TopicFilter} ->
+            renew_streams(TopicFilter, Session);
+        _ ->
+            ?tp(warning, sessds_unexpected_stream_notification, #{ref => Ref}),
+            Session
+    end;
 handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
     Session.
@@ -740,14 +744,6 @@ handle_info(Msg, Session, _ClientInfo) ->
 
 shared_sub_opts(SessionId) ->
     #{session_id => SessionId}.
-
-bump_last_alive(S0) ->
-    %% Note: we take a pessimistic approach here and assume that the client will be alive
-    %% until the next bump timeout.  With this, we avoid garbage collecting this session
-    %% too early in case the session/connection/node crashes earlier without having time
-    %% to commit the time.
-    EstimatedLastAliveAt = now_ms() + bump_interval(),
-    emqx_persistent_session_ds_state:set_last_alive_at(EstimatedLastAliveAt, S0).
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
@@ -838,6 +834,51 @@ skip_batch(StreamKey, SRS0, Session = #{s := S0}, ClientInfo, Reason) ->
 
 %%--------------------------------------------------------------------
 
+renew_streams(all, Session0) ->
+    ?tp(debug, sessds_renew_streams, #{topic_filter => all}),
+    Session1 = #{s := S0, stream_scheduler_s := SchedS0} = stream_housekeeping(Session0),
+    %% Renew streams for all subscriptions:
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(
+        S0, SchedS0
+    ),
+    Session = Session1#{s := S, stream_scheduler_s := SchedS},
+    %% Launch push loop to get data from the new streams:
+    push_now(Session);
+renew_streams(TopicFilter, Session0 = #{s := S0}) ->
+    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
+        undefined ->
+            ?tp(
+                warning,
+                sessds_new_stream_notification_for_undefined_subscription,
+                #{topic_filter => TopicFilter}
+            ),
+            Session0;
+        Subscription ->
+            ?tp(debug, sessds_renew_streams, #{topic_filter => TopicFilter}),
+            Session1 = #{s := S1, stream_scheduler_s := SchedS0} = stream_housekeeping(Session0),
+            %% Renew streams for the topic-filter:
+            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(
+                TopicFilter, Subscription, S1, SchedS0
+            ),
+            Session = Session1#{s := S, stream_scheduler_s := SchedS},
+            %% Launch push loop to get data from the new streams:
+            push_now(Session)
+    end.
+
+stream_housekeeping(Session) ->
+    #{s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0} = Session,
+    %% `gc' and `renew_streams' methods may drop unsubscribed streams.
+    %% Shared subscription handler must have a chance to see
+    %% unsubscribed streams in the fully replayed state.
+    {S1, SchedS, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+        S0, SchedS0, SharedSubS0
+    ),
+    %% Take the opportunity to remove obsolete stream states:
+    S = emqx_persistent_session_ds_subs:gc(S1),
+    Session#{s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS}.
+
+%%--------------------------------------------------------------------
+
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
 disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo) ->
     S1 = maybe_set_offline_info(S0, Id),
@@ -849,14 +890,14 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
             _ ->
                 S2
         end,
-    {S4, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
-    S = emqx_persistent_session_ds_state:commit(S4),
-    {shutdown, Session#{s := S, shared_sub_s := SharedSubS}}.
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
+    {shutdown, commit(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, Session = #{id := Id, s := S}) ->
-    maybe_set_will_message_timer(Session),
-    _ = emqx_persistent_session_ds_state:commit(S),
+terminate(_Reason, Session = #{s := S0, id := Id}) ->
+    _ = maybe_set_will_message_timer(Session),
+    S = finalize_last_alive_at(S0),
+    _ = commit(Session#{s := S}),
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
 
@@ -950,7 +991,7 @@ session_open(
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
-            LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S0),
+            LastAliveAt = get_last_alive_at(S0),
             case NowMS >= LastAliveAt + EI of
                 true ->
                     session_drop(SessionId, expired),
@@ -959,35 +1000,38 @@ session_open(
                     ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
-                    S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
+                    S2 = init_last_alive_at(NowMS, S1),
                     S3 = emqx_persistent_session_ds_state:set_peername(
                         maps:get(peername, NewConnInfo), S2
                     ),
                     S4 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S3),
                     S5 = set_clientinfo(ClientInfo, S4),
                     S6 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S5),
-                    {ok, S7, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
+                    {ok, S, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
                         S6, shared_sub_opts(SessionId)
                     ),
-                    S = emqx_persistent_session_ds_state:commit(S7),
                     Inflight = emqx_persistent_session_ds_buffer:new(
                         receive_maximum(NewConnInfo)
                     ),
+                    NewStreamSubs = emqx_persistent_session_ds_subs:open(S),
                     SSS = emqx_persistent_session_ds_stream_scheduler:init(S),
-                    #{
-                        id => SessionId,
-                        s => S,
-                        shared_sub_s => SharedSubS,
-                        inflight => Inflight,
-                        props => #{},
-                        stream_scheduler_s => SSS,
-                        replay => undefined,
-                        ?TIMER_PULL => undefined,
-                        ?TIMER_PUSH => undefined,
-                        ?TIMER_GET_STREAMS => undefined,
-                        ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
-                        ?TIMER_RETRY_REPLAY => undefined
-                    }
+                    commit(
+                        #{
+                            id => SessionId,
+                            s => S,
+                            shared_sub_s => SharedSubS,
+                            inflight => Inflight,
+                            props => #{},
+                            stream_scheduler_s => SSS,
+                            replay => undefined,
+                            new_stream_subs => NewStreamSubs,
+                            ?TIMER_PULL => undefined,
+                            ?TIMER_PUSH => undefined,
+                            ?TIMER_COMMIT => undefined,
+                            ?TIMER_RETRY_REPLAY => undefined,
+                            ?TIMER_SHARED_SUB => undefined
+                        }
+                    )
             end;
         undefined ->
             false
@@ -1008,7 +1052,7 @@ session_ensure_new(
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
     S1 = emqx_persistent_session_ds_state:set_expiry_interval(expiry_interval(ConnInfo), S0),
-    S2 = bump_last_alive(S1),
+    S2 = init_last_alive_at(S1),
     S3 = emqx_persistent_session_ds_state:set_created_at(Now, S2),
     S4 = lists:foldl(
         fun(Track, Acc) ->
@@ -1036,12 +1080,13 @@ session_ensure_new(
         shared_sub_s => emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(Id)),
         inflight => emqx_persistent_session_ds_buffer:new(receive_maximum(ConnInfo)),
         stream_scheduler_s => emqx_persistent_session_ds_stream_scheduler:init(S),
+        new_stream_subs => #{},
         replay => undefined,
         ?TIMER_PULL => undefined,
         ?TIMER_PUSH => undefined,
-        ?TIMER_GET_STREAMS => undefined,
-        ?TIMER_BUMP_LAST_ALIVE_AT => undefined,
-        ?TIMER_RETRY_REPLAY => undefined
+        ?TIMER_COMMIT => undefined,
+        ?TIMER_RETRY_REPLAY => undefined,
+        ?TIMER_SHARED_SUB => undefined
     }.
 
 %% @doc Called when a client reconnects with `clean session=true' or
@@ -1089,8 +1134,9 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Normal replay:
 %%--------------------------------------------------------------------
 
-push_now(Session) ->
-    ensure_timer(?TIMER_PUSH, 0, Session).
+push_now(Session0) ->
+    Session1 = ensure_timer(?TIMER_PUSH, 0, Session0),
+    ensure_state_commit_timer(Session1).
 
 handle_ds_reply(AsyncReply, Session0 = #{s := S0, stream_scheduler_s := SchedS0}, ClientInfo) ->
     case emqx_persistent_session_ds_stream_scheduler:on_ds_reply(AsyncReply, S0, SchedS0) of
@@ -1373,10 +1419,11 @@ do_drain_buffer(Inflight0, S0, Acc) ->
 
 %% TODO: find a more reliable way to perform actions that have side
 %% effects. Add `CBM:init' callback to the session behavior?
--spec ensure_timers(session()) -> session().
-ensure_timers(Session0) ->
-    Session1 = set_timer(?TIMER_GET_STREAMS, 100, Session0),
-    set_timer(?TIMER_BUMP_LAST_ALIVE_AT, 100, Session1).
+-spec post_init(session()) -> session().
+post_init(Session0) ->
+    Session1 = renew_streams(all, Session0),
+    Session = set_timer(?TIMER_COMMIT, 100, Session1),
+    maybe_set_shared_sub_timer(Session).
 
 %% This function triggers sending buffered packets to the client
 %% (provided there is something to send and the number of in-flight
@@ -1387,8 +1434,9 @@ ensure_timers(Session0) ->
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
 -spec pull_now(session()) -> session().
-pull_now(Session) ->
-    ensure_timer(?TIMER_PULL, 0, Session).
+pull_now(Session0) ->
+    Session1 = ensure_timer(?TIMER_PULL, 0, Session0),
+    ensure_state_commit_timer(Session1).
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->
@@ -1406,6 +1454,9 @@ expiry_interval(ConnInfo) ->
 %% regardless of the zone.
 bump_interval() ->
     emqx_config:get([durable_sessions, heartbeat_interval]).
+
+commit_interval() ->
+    bump_interval().
 
 get_config(#{zone := Zone}, Key) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
@@ -1639,6 +1690,86 @@ ensure_timer(Timer, Time, Session) ->
 set_timer(Timer, Time, Session) ->
     TRef = emqx_utils:start_timer(Time, {emqx_session, Timer}),
     Session#{Timer := TRef}.
+
+commit(Session = #{s := S0}) ->
+    S = emqx_persistent_session_ds_state:commit(S0),
+    cancel_state_commit_timer(Session#{s := S}).
+
+-spec maybe_set_shared_sub_timer(session()) -> session().
+maybe_set_shared_sub_timer(Session = #{s := S}) ->
+    case has_shared_subs(S) of
+        true ->
+            ClientInfo = emqx_persistent_session_ds_state:get_clientinfo(S),
+            Interval = get_config(ClientInfo, [renew_streams_interval]),
+            ensure_timer(?TIMER_SHARED_SUB, Interval, Session);
+        false ->
+            Session
+    end.
+
+%% Check if any of the session's subscriptions are shared:
+has_shared_subs(S) ->
+    try
+        emqx_persistent_session_ds_state:fold_subscriptions(
+            fun(TopicFilter, _Sub, Acc) ->
+                case TopicFilter of
+                    #share{} -> throw(has_shared_subs);
+                    _ -> Acc
+                end
+            end,
+            false,
+            S
+        )
+    catch
+        has_shared_subs -> true
+    end.
+
+%%--------------------------------------------------------------------
+%% Management of state commit timer
+%%--------------------------------------------------------------------
+
+-spec ensure_state_commit_timer(session()) -> session().
+ensure_state_commit_timer(#{s := S, ?TIMER_COMMIT := undefined} = Session) ->
+    case emqx_persistent_session_ds_state:is_dirty(S) of
+        true ->
+            set_timer(?TIMER_COMMIT, commit_interval(), Session);
+        false ->
+            Session
+    end;
+ensure_state_commit_timer(Session) ->
+    Session.
+
+-spec cancel_state_commit_timer(session()) -> session().
+cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->
+    emqx_utils:cancel_timer(TRef),
+    Session#{?TIMER_COMMIT := undefined}.
+
+%%--------------------------------------------------------------------
+%% Management of the heartbeat
+%%--------------------------------------------------------------------
+
+init_last_alive_at(S) ->
+    init_last_alive_at(now_ms(), S).
+
+init_last_alive_at(NowMs, S0) ->
+    NodeEpochId = emqx_persistent_session_ds_node_heartbeat_worker:get_node_epoch_id(),
+    S1 = emqx_persistent_session_ds_state:set_node_epoch_id(NodeEpochId, S0),
+    emqx_persistent_session_ds_state:set_last_alive_at(NowMs + bump_interval(), S1).
+
+finalize_last_alive_at(S0) ->
+    S = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
+    emqx_persistent_session_ds_state:set_node_epoch_id(undefined, S).
+
+%% NOTE
+%% Here we ignore the case when:
+%% * the session is terminated abnormally, without running terminate callback,
+%% e.g. when the conection was brutally killed;
+%% * but its node and persistent session subsystem remained alive.
+%%
+%% In this case, the session's lifitime is prolonged till the node termination.
+get_last_alive_at(S) ->
+    LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S),
+    NodeEpochId = emqx_persistent_session_ds_state:get_node_epoch_id(S),
+    emqx_persistent_session_ds_gc_worker:session_last_alive_at(LastAliveAt, NodeEpochId).
 
 %%--------------------------------------------------------------------
 %% Tests
