@@ -658,10 +658,10 @@ on_add_channel(
     #{driver := thrift},
     _ChannelId,
     #{
-        resource_opts := #{query_mode := async}
+        resource_opts := #{query_mode := QueryMode, batch_size := BatchSize}
     }
-) ->
-    {error, <<"Thrift does not support async mode">>};
+) when QueryMode =:= async; BatchSize > 1 ->
+    {error, <<"Thrift does not support async or batch mode">>};
 on_add_channel(
     _InstanceId,
     #{driver := thrift, channels := Channels} = OldState,
