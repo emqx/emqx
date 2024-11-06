@@ -1,7 +1,6 @@
 ## MQTT over WebSocket (HTTP) Listener
 
 listeners.ws.my_ws_listener_name {
-    ## Port or Address to listen on, 0 means disable
     bind = "0.0.0.0:8083" # or just a port number, e.g. 8083
     enable_authn = true
     max_connections = infinity
