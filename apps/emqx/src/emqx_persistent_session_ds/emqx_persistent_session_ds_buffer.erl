@@ -31,7 +31,7 @@
 %%================================================================================
 
 %% Buffered poll reply:
--type item() :: #poll_reply{}.
+-type item() :: #async_ds_reply{}.
 
 -type q() :: queue:queue(item()).
 

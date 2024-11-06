@@ -323,11 +323,12 @@ shard_event(Shard, Events) ->
     emqx_ds_beamformer_rt:shard_event(Shard, Events).
 
 %% @doc Split beam into individual batches
--spec split(beam(ItKey, Iterator)) -> [{ItKey, emqx_ds:next_result(Iterator)}].
+-spec split(beam(ItKey, Iterator)) ->
+    [{ItKey, _BatchSize :: non_neg_integer(), emqx_ds:next_result(Iterator)}].
 split(#beam{iterators = Its, pack = end_of_stream}) ->
-    [{ItKey, {ok, end_of_stream}} || {ItKey, _Iter} <- Its];
+    [{ItKey, 0, {ok, end_of_stream}} || {ItKey, _Iter} <- Its];
 split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
-    [{ItKey, Err} || {ItKey, _Iter} <- Its];
+    [{ItKey, 0, Err} || {ItKey, _Iter} <- Its];
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
@@ -607,8 +608,17 @@ enqueue(Pool, Req0 = #sub_state{stream = Stream, hops = Hops}, Timeout) ->
 -spec do_dispatch(beam()) -> ok.
 do_dispatch(Beam = #beam{}) ->
     lists:foreach(
-        fun({{Alias, ItKey}, Result}) ->
-            Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}
+        fun
+            ({{Pid, SubId, ItKey}, BatchSize, Result}) ->
+                Pid !
+                    #async_ds_reply{
+                        ref = SubId, userdata = ItKey, payload = Result, batch_size = BatchSize
+                    };
+            ({{Alias, ItKey}, BatchSize, Result}) ->
+                Alias !
+                    #async_ds_reply{
+                        ref = Alias, userdata = ItKey, payload = Result, batch_size = BatchSize
+                    }
         end,
         split(Beam)
     ).
@@ -693,22 +703,32 @@ do_pack(Refs, Matrix, [{N, {MsgKey, Msg}} | Msgs], Acc) ->
 split([], _Pack, _N, Acc) ->
     Acc;
 split([{ItKey, It} | Rest], Pack, N, Acc0) ->
-    Msgs = [
-        {MsgKey, Msg}
-     || {MsgKey, Mask, Msg} <- Pack,
-        check_mask(N, Mask)
-    ],
-    case Msgs of
-        [] -> logger:warning("Empty batch ~p", [ItKey]);
+    {BatchSize, Batch} = make_nth_reply(N, Pack),
+    case BatchSize of
+        0 -> logger:warning("Empty batch ~p", [ItKey]);
         _ -> ok
     end,
-    Acc = [{ItKey, {ok, It, Msgs}} | Acc0],
+    Acc = [{ItKey, BatchSize, {ok, It, Batch}} | Acc0],
     split(Rest, Pack, N + 1, Acc).
 
--spec check_mask(non_neg_integer(), dispatch_mask()) -> boolean().
+make_nth_reply(N, Pack) ->
+    make_nth_reply(N, Pack, [], 0).
+
+make_nth_reply(_N, [], Acc, Size) ->
+    {Size, lists:reverse(Acc)};
+make_nth_reply(N, [{MsgKey, Mask, Msg} | Pack], Acc, Size) ->
+    case check_mask(N, Mask) of
+        1 ->
+            make_nth_reply(N, Pack, [{MsgKey, Msg} | Acc], Size + 1);
+        0 ->
+            make_nth_reply(N, Pack, Acc, Size)
+    end.
+
+-compile({inline, [check_mask/2]}).
+-spec check_mask(non_neg_integer(), dispatch_mask()) -> 0 | 1.
 check_mask(N, Mask) ->
     <<_:N, Val:1, _/bitstring>> = Mask,
-    Val =:= 1.
+    Val.
 
 send_out(Node, Beam) ->
     ?tp(debug, beamformer_out, #{
@@ -740,16 +760,16 @@ make_subtab(Shard) ->
 
 chec_mask_test_() ->
     [
-        ?_assert(check_mask(0, <<1:1>>)),
-        ?_assertNot(check_mask(0, <<0:1>>)),
-        ?_assertNot(check_mask(5, <<0:10>>)),
+        ?_assertMatch(1, check_mask(0, <<1:1>>)),
+        ?_assertMatch(0, check_mask(0, <<0:1>>)),
+        ?_assertMatch(0, check_mask(5, <<0:10>>)),
 
-        ?_assert(check_mask(0, <<255:8>>)),
-        ?_assert(check_mask(7, <<255:8>>)),
+        ?_assertMatch(1, check_mask(0, <<255:8>>)),
+        ?_assertMatch(1, check_mask(7, <<255:8>>)),
 
-        ?_assertNot(check_mask(7, <<0:8, 1:1, 0:10>>)),
-        ?_assert(check_mask(8, <<0:8, 1:1, 0:10>>)),
-        ?_assertNot(check_mask(9, <<0:8, 1:1, 0:10>>))
+        ?_assertMatch(0, check_mask(7, <<0:8, 1:1, 0:10>>)),
+        ?_assertMatch(1, check_mask(8, <<0:8, 1:1, 0:10>>)),
+        ?_assertMatch(0, check_mask(9, <<0:8, 1:1, 0:10>>))
     ].
 
 pack_test_() ->

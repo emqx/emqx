@@ -286,7 +286,7 @@ poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
     %% Clean ready bucket at once, since we poll all ready streams at once:
     SchedS#s{ready = empty_ready()}.
 
-on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, S, SchedS0 = #s{pending = P0}) ->
+on_ds_reply(#async_ds_reply{ref = Ref, payload = poll_timeout}, S, SchedS0 = #s{pending = P0}) ->
     %% Poll request has timed out. All pending streams that match poll
     %% reference can be moved to R state:
     ?SLOG(debug, #{msg => sess_poll_timeout, ref => Ref}),
@@ -311,7 +311,7 @@ on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, S, SchedS0 = #s{pend
     ),
     {undefined, SchedS};
 on_ds_reply(
-    #poll_reply{ref = Ref, userdata = StreamKey, payload = Payload},
+    #async_ds_reply{ref = Ref, userdata = StreamKey, payload = Payload},
     _S,
     SchedS0 = #s{pending = Pending0}
 ) ->

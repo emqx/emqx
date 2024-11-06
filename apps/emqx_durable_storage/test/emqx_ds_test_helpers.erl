@@ -463,9 +463,9 @@ consume_iter_with(NextFun, It0, Opts) ->
 
 collect_poll_replies(Alias, Timeout) ->
     receive
-        #poll_reply{payload = poll_timeout, ref = Alias} ->
+        #async_ds_reply{payload = poll_timeout, ref = Alias} ->
             [];
-        #poll_reply{userdata = ItRef, payload = Reply, ref = Alias} ->
+        #async_ds_reply{userdata = ItRef, payload = Reply, ref = Alias} ->
             [{ItRef, Reply} | collect_poll_replies(Alias, Timeout)]
     after Timeout ->
         []

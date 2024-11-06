@@ -392,7 +392,7 @@ update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
 next(DB, Iter, N) ->
     {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
     receive
-        #poll_reply{ref = Ref, payload = Data} ->
+        #async_ds_reply{ref = Ref, payload = Data} ->
             Data
     end.
 
@@ -490,7 +490,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 delete_next(DB, Iter, Selector, N) ->
     {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
-        #poll_reply{ref = Ref, payload = Data} -> Data
+        #async_ds_reply{ref = Ref, payload = Data} -> Data
     end.
 
 %%================================================================================

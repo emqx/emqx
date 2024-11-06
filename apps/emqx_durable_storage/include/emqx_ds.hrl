@@ -40,10 +40,12 @@
     filters = #{}
 }).
 
--record(poll_reply, {
+-record(async_ds_reply, {
     ref :: reference(),
     userdata,
-    payload :: emqx_ds:next_result() | poll_timeout
+    payload :: emqx_ds:next_result() | poll_timeout,
+    seqno :: integer() | undefined,
+    batch_size :: non_neg_integer()
 }).
 
 -record(new_stream_event, {

@@ -237,7 +237,7 @@ handle_cast(_Cast, S) ->
 
 handle_info(renew_streams, S) ->
     {noreply, renew_streams(S)};
-handle_info(#poll_reply{ref = Ref, payload = poll_timeout}, S0 = #s{polls = Polls}) ->
+handle_info(#async_ds_reply{ref = Ref, payload = poll_timeout}, S0 = #s{polls = Polls}) ->
     unalias(Ref),
     S = maps:fold(
         fun(Stream, R, S1) ->
@@ -253,7 +253,7 @@ handle_info(#poll_reply{ref = Ref, payload = poll_timeout}, S0 = #s{polls = Poll
     ),
     {noreply, poll(S)};
 handle_info(
-    #poll_reply{ref = Ref, userdata = Stream, payload = Payload},
+    #async_ds_reply{ref = Ref, userdata = Stream, payload = Payload},
     #s{inflight = Inflight, polls = Polls0} = S0
 ) ->
     case maps:take(Stream, Polls0) of

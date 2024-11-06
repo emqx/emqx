@@ -736,7 +736,7 @@ handle_info(
 ) ->
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(S0, SharedSubS0, Msg),
     ensure_state_commit_timer(Session#{s := S, shared_sub_s := SharedSubS});
-handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
+handle_info(AsyncReply = #async_ds_reply{}, Session, ClientInfo) ->
     push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
 handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
     #{new_stream_subs := Subs} = Session,
