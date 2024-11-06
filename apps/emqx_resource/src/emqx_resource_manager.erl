@@ -547,11 +547,11 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
 init({DataIn, Opts}) ->
     process_flag(trap_exit, true),
     Data = DataIn#data{pid = self()},
+    emqx_resource_cache_cleaner:add(Data#data.id, self()),
     case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
         true ->
             %% init the cache so that lookup/1 will always return something
             UpdatedData = update_state(Data#data{status = ?status_connecting}),
-            emqx_resource_cache_cleaner:add(Data#data.id, self()),
             {ok, ?state_connecting, UpdatedData, {next_event, internal, start_resource}};
         false ->
             %% init the cache so that lookup/1 will always return something
