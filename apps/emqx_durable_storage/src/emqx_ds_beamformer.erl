@@ -94,7 +94,7 @@
     sub_id/0,
     sub_seqno/0,
     opts/0,
-    poll_req/0, poll_req/2,
+    sub_state/0, sub_state/2,
     beam/2, beam/0,
     return_addr/1,
     unpack_iterator_result/1,
@@ -141,7 +141,10 @@
 -record(subscription, {
     id :: reference(),
     client :: pid(),
-    state :: poll_req(),
+    %% Subscription state is only stored there when the subscripton is
+    %% falling behind on un-acked batches (and hence removed from all
+    %% queues).
+    state :: sub_state() | undefined,
     seqno = 0 :: sub_seqno(),
     acked_seqno = 0 :: sub_seqno(),
     max_unacked :: pos_integer()
@@ -153,8 +156,8 @@
 
 -type poll_req_id() :: reference().
 
--type poll_req(ItKey, Iterator) ::
-    #poll_req{
+-type sub_state(ItKey, Iterator) ::
+    #sub_state{
         req_id :: poll_req_id(),
         stream :: _Stream,
         topic_filter :: event_topic_filter(),
@@ -168,7 +171,7 @@
         hops :: non_neg_integer()
     }.
 
--type poll_req() :: poll_req(_, _).
+-type sub_state() :: sub_state(_, _).
 
 %% Response:
 
@@ -197,7 +200,7 @@
 
 %% Beam constructor:
 
--type per_node_requests() :: #{poll_req_id() => poll_req()}.
+-type per_node_requests() :: #{poll_req_id() => sub_state()}.
 
 -type dispatch_matrix() :: #{{poll_req_id(), non_neg_integer()} => _}.
 
@@ -273,7 +276,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 deadline => Deadline
             }),
             %% Make a request:
-            Req = #poll_req{
+            Req = #sub_state{
                 req_id = ReqId,
                 stream = Stream,
                 topic_filter = TF,
@@ -315,7 +318,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
 %% - `event_topic()': When beamformer receives stream events, it
 %% selects waiting events with matching stream AND
 %% `event_topic_filter'.
--spec shard_event(dbshard(), [{_Stream, emqx_ds:mduessage_key()}]) -> ok.
+-spec shard_event(dbshard(), [{_Stream, emqx_ds:message_key()}]) -> ok.
 shard_event(Shard, Events) ->
     emqx_ds_beamformer_rt:shard_event(Shard, Events).
 
@@ -328,11 +331,11 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
--spec send_out_term({ok, end_of_stream} | emqx_ds:error(_), [poll_req()]) -> ok.
+-spec send_out_term({ok, end_of_stream} | emqx_ds:error(_), [sub_state()]) -> ok.
 send_out_term(Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
-        fun(#poll_req{node = Node}) -> Node end,
-        fun(#poll_req{return_addr = RAddr, it = It}) ->
+        fun(#sub_state{node = Node}) -> Node end,
+        fun(#sub_state{return_addr = RAddr, it = It}) ->
             {RAddr, It}
         end,
         Reqs
@@ -355,7 +358,7 @@ beams_init() ->
 
 -spec beams_add(
     {emqx_ds:message_key(), emqx_types:message()},
-    [poll_req()],
+    [sub_state()],
     beam_maker()
 ) -> beam_maker().
 beams_add(_, [], S = #beam_maker{n = N}) ->
@@ -364,7 +367,7 @@ beams_add(_, [], S = #beam_maker{n = N}) ->
     S#beam_maker{n = N + 1};
 beams_add(Msg, NewReqs, S = #beam_maker{n = N, reqs = Reqs0, matrix = Matrix0, msgs = Msgs}) ->
     {Reqs, Matrix} = lists:foldl(
-        fun(Req = #poll_req{node = Node, req_id = Ref}, {Reqs1, Matrix1}) ->
+        fun(Req = #sub_state{node = Node, req_id = Ref}, {Reqs1, Matrix1}) ->
             Reqs2 = maps:update_with(
                 Node,
                 fun(A) -> A#{Ref => Req} end,
@@ -384,7 +387,7 @@ beams_add(Msg, NewReqs, S = #beam_maker{n = N, reqs = Reqs0, matrix = Matrix0, m
         msgs = [{N, Msg} | Msgs]
     }.
 
--spec beams_matched_requests(beam_maker()) -> [poll_req()].
+-spec beams_matched_requests(beam_maker()) -> [sub_state()].
 beams_matched_requests(#beam_maker{reqs = Reqs}) ->
     maps:fold(
         fun(_Node, NodeReqs, Acc) ->
@@ -465,7 +468,8 @@ fast_forward(Mod, Shard, It, Key) ->
 
 -record(unsub_req, {id :: sub_id()}).
 
--spec subscribe(pid(), dbshard(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:poll_opts()) -> {ok, sub_id(), pid()}.
+-spec subscribe(pid(), dbshard(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:poll_opts()) ->
+    {ok, sub_id(), pid()}.
 subscribe(Client, DBShard, It, ItKey, Opts) ->
     gen_server:call(?via(DBShard), #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts}).
 
@@ -476,10 +480,14 @@ unsubcribe(Shard, SubId) ->
 %% @doc Ack batches up to sequence number:
 -spec ack_seqno(dbshard(), sub_id(), sub_seqno()) -> ok | {error, subscription_not_found}.
 ack_seqno(Shard, SubId, SeqNo) ->
-    case ets:update_element(?subtid(Shard), SubId, [{#subscription.acked_seqno, SeqNo}]) of
+    try ets:update_element(?subtid(Shard), SubId, [{#subscription.acked_seqno, SeqNo}]) of
         true ->
             ok;
         false ->
+            {error, subscription_not_found}
+    catch
+        error:badarg ->
+            %% This happens when the table is gone:
             {error, subscription_not_found}
     end.
 
@@ -543,7 +551,7 @@ next_seqno(Shard, Id) ->
             undefined
     end.
 
-enqueue(_, Req = #poll_req{hops = Hops}, _) when Hops > 3 ->
+enqueue(_, Req = #sub_state{hops = Hops}, _) when Hops > 3 ->
     %% It seems that the poll request is being bounced between the
     %% queues. After certain number of such hops we drop it to break
     %% the infinite loop.
@@ -573,8 +581,8 @@ enqueue(_, Req = #poll_req{hops = Hops}, _) when Hops > 3 ->
     %% the stream at the moment.
     ?tp(warning, beamformer_enqueue_max_hops, #{req => Req}),
     ok;
-enqueue(Pool, Req0 = #poll_req{stream = Stream, hops = Hops}, Timeout) ->
-    Req = Req0#poll_req{hops = Hops + 1},
+enqueue(Pool, Req0 = #sub_state{stream = Stream, hops = Hops}, Timeout) ->
+    Req = Req0#sub_state{hops = Hops + 1},
     %% Currently we implement backpressure by ignoring transient
     %% errors (gen_server timeouts, `too_many_requests'), and just
     %% letting poll requests expire at the higher level. This should
@@ -613,7 +621,7 @@ do_dispatch(Beam = #beam{}) ->
 cleanup_expired(QueueType, Metrics, Table) ->
     Now = erlang:monotonic_time(millisecond),
     maybe_report_expired(QueueType, Table, Now),
-    MS = {{'_', #poll_req{_ = '_', deadline = '$1'}}, [{'<', '$1', Now}], [true]},
+    MS = {{'_', #sub_state{_ = '_', deadline = '$1'}}, [{'<', '$1', Now}], [true]},
     NDeleted = ets:select_delete(Table, [MS]),
     emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeleted),
     ok.
@@ -629,7 +637,7 @@ maybe_report_expired(_QueueType, _Tabl, _Now) ->
     ok.
 -else.
 maybe_report_expired(QueueType, Table, Now) ->
-    MS = {{'_', #poll_req{_ = '_', deadline = '$1', req_id = '$2'}}, [{'<', '$1', Now}], ['$2']},
+    MS = {{'_', #sub_state{_ = '_', deadline = '$1', req_id = '$2'}}, [{'<', '$1', Now}], ['$2']},
     [
         ?tp(beamformer_poll_expired, #{req_id => ReqId, queue => QueueType})
      || ReqId <- ets:select(Tabl, [MS])
@@ -647,7 +655,7 @@ maybe_report_expired(QueueType, Table, Now) ->
 pack(UpdateIterator, NextKey, Matrix, Msgs, Reqs) ->
     {Refs, UpdatedIterators} =
         maps:fold(
-            fun(_, #poll_req{req_id = Ref, it = It0, return_addr = RAddr}, {AccRefs, Acc}) ->
+            fun(_, #sub_state{req_id = Ref, it = It0, return_addr = RAddr}, {AccRefs, Acc}) ->
                 ?tp(beamformer_fulfilled, #{req_id => Ref}),
                 {ok, It} = UpdateIterator(It0, NextKey),
                 {[Ref | AccRefs], [{RAddr, It} | Acc]}
@@ -750,17 +758,17 @@ pack_test_() ->
     end,
     Raddr = raddr,
     NextKey = <<"42">>,
-    Req1 = #poll_req{
+    Req1 = #sub_state{
         req_id = make_ref(),
         return_addr = Raddr,
         it = {it1, <<"0">>}
     },
-    Req2 = #poll_req{
+    Req2 = #sub_state{
         req_id = make_ref(),
         return_addr = Raddr,
         it = {it2, <<"1">>}
     },
-    Req3 = #poll_req{
+    Req3 = #sub_state{
         req_id = make_ref(),
         return_addr = Raddr,
         it = {it3, <<"1">>}
