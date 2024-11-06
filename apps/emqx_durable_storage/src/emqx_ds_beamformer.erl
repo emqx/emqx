@@ -264,7 +264,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 ok -> ok;
                 {error, recoverable, too_many_requests} -> ok
             catch
-                exit:timeout ->
+                exit:{timeout, _} ->
                     ok
             end;
         Err = {error, _, _} ->

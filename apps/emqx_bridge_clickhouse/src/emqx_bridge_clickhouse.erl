@@ -84,7 +84,7 @@ values(_Method, Type) ->
         enable => true,
         type => Type,
         name => <<"foo">>,
-        server => <<"127.0.0.1:8123">>,
+        url => <<"http://127.0.0.1:8123">>,
         database => <<"mqtt">>,
         pool_size => 8,
         username => <<"default">>,

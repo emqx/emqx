@@ -310,7 +310,7 @@ page_read(_State, Topic, Deadline, Page, Limit) ->
     S0 =
         case Topic of
             undefined ->
-                msg_stream(search_stream(undefined, ['#'], Deadline));
+                msg_stream(all_stream(Deadline));
             _ ->
                 Tokens = topic_to_tokens(Topic),
                 msg_stream(search_stream(Tokens, Deadline))
@@ -411,6 +411,15 @@ search_stream(Tokens, Now) ->
     Index = emqx_retainer_index:select_index(Tokens, Indices),
     search_stream(Index, Tokens, Now).
 
+all_stream(Now) ->
+    Ms = make_message_match_spec(Now),
+    emqx_utils_stream:ets(
+        fun
+            (undefined) -> ets:select(?TAB_MESSAGE, Ms, 1);
+            (Cont) -> ets:select(Cont)
+        end
+    ).
+
 search_stream(undefined, Tokens, Now) ->
     Ms = make_message_match_spec(Tokens, Now),
     MsgStream = emqx_utils_stream:ets(
@@ -503,6 +512,10 @@ read_messages(Topic) ->
                 false -> []
             end
     end.
+
+make_message_match_spec(NowMs) ->
+    MsHd = #retained_message{topic = '_', msg = '_', expiry_time = '$3'},
+    [{MsHd, [{'orelse', {'=:=', '$3', 0}, {'>', '$3', NowMs}}], ['$_']}].
 
 make_message_match_spec(Tokens, NowMs) ->
     Cond = emqx_retainer_index:condition(Tokens),
