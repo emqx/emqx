@@ -463,6 +463,8 @@ handle_in(
         {ok, Msg, Publishes, NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
+        {error, ?RC_PROTOCOL_ERROR} ->
+            handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.puback.inuse'),
@@ -483,6 +485,8 @@ handle_in(
             ok = after_message_acked(ClientInfo, Msg, Properties),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
+        {error, RC = ?RC_PROTOCOL_ERROR} ->
+            handle_out(disconnect, RC, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrec.inuse'),
@@ -519,6 +523,8 @@ handle_in(
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
             handle_out(publish, Publishes, Channel#channel{session = NSession});
+        {error, ?RC_PROTOCOL_ERROR} ->
+            handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ok = emqx_metrics:inc('packets.pubcomp.inuse'),
             {ok, Channel};

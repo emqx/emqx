@@ -56,7 +56,13 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    TCsNonGeneric = [t_choose_impl, t_transient],
+    TCsNonGeneric = [
+        t_choose_impl,
+        t_transient,
+        t_client_replies_pubrec_when_qos1,
+        t_client_replies_pubcomp_when_qos1,
+        t_client_replies_puback_when_qos2
+    ],
     TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
     [
         {persistence_disabled, TCGroups},
@@ -1376,6 +1382,90 @@ t_sys_message_delivery(Config) ->
         [#{topic := SysTopic, qos := 0, retain := false, payload := _Uptime3}],
         receive_messages(1)
     ).
+
+t_client_replies_pubrec_when_qos1(Config) ->
+    Host = "127.0.0.1",
+    Port = ?config(port, Config),
+    {ok, Client} = emqx_mqtt_test_client:start_link(Host, Port),
+    emqx_mqtt_test_client:connect(Client, #{'Session-Expiry-Interval' => 30}),
+    {ok, ?CONNACK_PACKET(?RC_SUCCESS)} = emqx_mqtt_test_client:receive_packet(),
+    Topic = <<"t/1">>,
+    PacketId1 = 1,
+    emqx_mqtt_test_client:subscribe(
+        Client,
+        PacketId1,
+        _Props1 = #{},
+        [{Topic, #{nl => 0, qos => 2, rap => 0, rh => 0}}]
+    ),
+    {ok, ?SUBACK_PACKET(PacketId1, [?RC_GRANTED_QOS_2])} = emqx_mqtt_test_client:receive_packet(),
+    QoS = 1,
+    QoS1Msg = emqx_message:make(<<"sender">>, QoS, Topic, <<"hey">>),
+    emqx:publish(QoS1Msg),
+    {ok, ?PUBLISH_PACKET(QoS, PacketId2)} = emqx_mqtt_test_client:receive_packet(),
+    %% Now, reply this QoS1 message with a PUBREC instead of PUBACK.
+    emqx_mqtt_test_client:pubrec(Client, PacketId2, ?RC_SUCCESS, _Props2 = #{}),
+    %% Should be disconnected due to protocol error
+    ?assertMatch(
+        {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+        emqx_mqtt_test_client:receive_packet()
+    ),
+    ok.
+
+t_client_replies_pubcomp_when_qos1(Config) ->
+    Host = "127.0.0.1",
+    Port = ?config(port, Config),
+    {ok, Client} = emqx_mqtt_test_client:start_link(Host, Port),
+    emqx_mqtt_test_client:connect(Client, #{'Session-Expiry-Interval' => 30}),
+    {ok, ?CONNACK_PACKET(?RC_SUCCESS)} = emqx_mqtt_test_client:receive_packet(),
+    Topic = <<"t/1">>,
+    PacketId1 = 1,
+    emqx_mqtt_test_client:subscribe(
+        Client,
+        PacketId1,
+        _Props1 = #{},
+        [{Topic, #{nl => 0, qos => 2, rap => 0, rh => 0}}]
+    ),
+    {ok, ?SUBACK_PACKET(PacketId1, [?RC_GRANTED_QOS_2])} = emqx_mqtt_test_client:receive_packet(),
+    QoS = 1,
+    QoS1Msg = emqx_message:make(<<"sender">>, QoS, Topic, <<"hey">>),
+    emqx:publish(QoS1Msg),
+    {ok, ?PUBLISH_PACKET(QoS, PacketId2)} = emqx_mqtt_test_client:receive_packet(),
+    %% Now, reply this QoS1 message with a PUBREC instead of PUBACK.
+    emqx_mqtt_test_client:pubcomp(Client, PacketId2, ?RC_SUCCESS, _Props2 = #{}),
+    %% Should be disconnected due to protocol error
+    ?assertMatch(
+        {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+        emqx_mqtt_test_client:receive_packet()
+    ),
+    ok.
+
+t_client_replies_puback_when_qos2(Config) ->
+    Host = "127.0.0.1",
+    Port = ?config(port, Config),
+    {ok, Client} = emqx_mqtt_test_client:start_link(Host, Port),
+    emqx_mqtt_test_client:connect(Client, #{'Session-Expiry-Interval' => 30}),
+    {ok, ?CONNACK_PACKET(?RC_SUCCESS)} = emqx_mqtt_test_client:receive_packet(),
+    Topic = <<"t/1">>,
+    PacketId1 = 1,
+    emqx_mqtt_test_client:subscribe(
+        Client,
+        PacketId1,
+        _Props1 = #{},
+        [{Topic, #{nl => 0, qos => 2, rap => 0, rh => 0}}]
+    ),
+    {ok, ?SUBACK_PACKET(PacketId1, [?RC_GRANTED_QOS_2])} = emqx_mqtt_test_client:receive_packet(),
+    QoS = 2,
+    QoS2Msg = emqx_message:make(<<"sender">>, QoS, Topic, <<"hey">>),
+    emqx:publish(QoS2Msg),
+    {ok, ?PUBLISH_PACKET(QoS, PacketId2)} = emqx_mqtt_test_client:receive_packet(),
+    %% Now, reply this QoS2 message with a PUBACK instead of PUBREC.
+    emqx_mqtt_test_client:puback(Client, PacketId2, ?RC_SUCCESS, _Props2 = #{}),
+    %% Should be disconnected due to protocol error
+    ?assertMatch(
+        {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+        emqx_mqtt_test_client:receive_packet()
+    ),
+    ok.
 
 get_topicwise_order(Msgs) ->
     maps:groups_from_list(fun get_msgpub_topic/1, fun get_msgpub_payload/1, Msgs).
