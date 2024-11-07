@@ -214,15 +214,23 @@ list_all_pubranges(Node) ->
     erpc:call(Node, emqx_persistent_session_ds, list_all_pubranges, []).
 
 session_open(Node, ClientId) ->
-    ClientInfo = #{},
+    ClientInfo = #{clientid => ClientId},
     ConnInfo = #{peername => {undefined, undefined}, proto_name => <<"MQTT">>, proto_ver => 5},
     WillMsg = undefined,
-    erpc:call(
+    Conf = #{
+        max_subscriptions => infinity,
+        max_awaiting_rel => infinity,
+        upgrade_qos => false,
+        retry_interval => 10,
+        await_rel_timeout => infinity
+    },
+    {_, Sess, _} = erpc:call(
         Node,
         emqx_persistent_session_ds,
-        session_open,
-        [ClientId, ClientInfo, ConnInfo, WillMsg]
-    ).
+        open,
+        [ClientInfo, ConnInfo, WillMsg, Conf]
+    ),
+    Sess.
 
 force_last_alive_at(ClientId, Time) ->
     {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
@@ -434,14 +442,11 @@ t_subscription_state_change(Config) ->
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    %% Helper function that forces session to perform stream renewal.
-    %% In the current implementation it also causes garbage collection
-    %% of session states:
+    %% Helper function that forces session to perform garbage
+    %% collection. In the current implementation it happens before
+    %% session state is synced to the DB:
     WaitGC = fun() ->
-        ?wait_async_action(
-            emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}
-        )
+        emqx_persistent_session_ds:sync(ClientId)
     end,
     %% Helper function that gets runtime state of the session:
     GetS = fun() ->
@@ -511,8 +516,6 @@ t_new_stream_notifications(Config) ->
     [Node1] = ?config(nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    TopicFilter1 = <<"foo/+">>,
-    TopicFilter2 = <<"bar">>,
     ?check_trace(
         #{timetrap => 30_000},
         begin
@@ -522,12 +525,12 @@ t_new_stream_notifications(Config) ->
             %% 1. Sessions should start watching streams when they
             %% subscribe to the topics:
             ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter1, ?QOS_1),
-                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter1}
+                {ok, _, _} = emqtt:subscribe(Sub0, <<"foo/+">>, ?QOS_1),
+                #{?snk_kind := sessds_watch_streams, topic_filter := [<<"foo">>, '+']}
             ),
             ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter2, ?QOS_1),
-                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter2}
+                {ok, _, _} = emqtt:subscribe(Sub0, <<"bar">>, ?QOS_1),
+                #{?snk_kind := sessds_watch_streams, topic_filter := [<<"bar">>]}
             ),
             %% 2. Sessions should re-subscribe to the events after
             %% reconnect:
@@ -542,28 +545,28 @@ t_new_stream_notifications(Config) ->
             %% Verify that both subscriptions have been renewed:
             {ok, EventsAfterRestart} = snabbkaffe:receive_events(SNKsub),
             ?assertMatch(
-                [<<"bar">>, <<"foo/+">>],
+                [[<<"bar">>], [<<"foo">>, '+']],
                 lists:sort(?projection(topic_filter, EventsAfterRestart))
             ),
             %% Verify that stream notifications are handled:
             ?wait_async_action(
                 emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"bar">>]),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"bar">>}
+                #{?snk_kind := sessds_renew_streams, topic_filter := [<<"bar">>]}
             ),
             ?wait_async_action(
                 emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"foo">>, <<"1">>]),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+                #{?snk_kind := sessds_renew_streams, topic_filter := [<<"foo">>, '+']}
             ),
             %% Verify that new stream subscriptions are removed when
             %% session unsubscribes from a topic:
             ?wait_async_action(
-                emqtt:unsubscribe(Sub1, TopicFilter2),
-                #{?snk_kind := sessds_unwatch_streams, topic_filter := <<"bar">>}
+                emqtt:unsubscribe(Sub1, <<"bar">>),
+                #{?snk_kind := sessds_unwatch_streams, topic_filter := [<<"bar">>]}
             ),
             %% But the rest of subscriptions are still active:
             ?wait_async_action(
                 emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+                #{?snk_kind := sessds_renew_streams, topic_filter := [<<"foo">>, '+']}
             )
         end,
         fun(Trace) ->
