@@ -18,6 +18,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-export([do_setup_ssl_files/1]).
+
 %% one of the cipher suite from tlsv1.2 and tlsv1.3 each
 -define(TLS_12_CIPHER, "ECDHE-ECDSA-AES256-GCM-SHA384").
 -define(TLS_13_CIPHER, "TLS_AES_256_GCM_SHA384").
@@ -740,8 +742,9 @@ setup_ssl_files(Opts) ->
 
 do_setup_ssl_files(InOpts) ->
     DefaultKeyType = maps:get(key_type, InOpts),
-    Dir = mktemp_dir(),
-    DefaultPassword = <<"foobar">>,
+    BaseTmpDir = maps:get(base_tmp_dir, InOpts, "/tmp"),
+    Dir = mktemp_dir(BaseTmpDir),
+    DefaultPassword = maps:get(password, InOpts, <<"foobar">>),
     emqx_test_tls_certs_helper:gen_ca(Dir, "root", InOpts),
     MkKit = fun(Opts) ->
         #{name := Name} = Opts,
@@ -793,7 +796,10 @@ cleanup_ssl_files(#{temp_dir := Dir}) ->
     file:del_dir_r(Dir).
 
 mktemp_dir() ->
-    Dir = os:cmd("mktemp -dp /tmp emqx_tls_lib_tests.XXXXXXXXXXX"),
+    mktemp_dir(_BaseDir = "/tmp").
+
+mktemp_dir(BaseDir) ->
+    Dir = os:cmd("mktemp -dp " ++ BaseDir ++ " emqx_tls_lib_tests.XXXXXXXXXXX"),
     string:trim(Dir).
 
 mangle(PEM) ->

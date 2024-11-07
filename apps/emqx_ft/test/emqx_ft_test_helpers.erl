@@ -157,38 +157,15 @@ to_bin(Val) ->
 aws_config() ->
     emqx_s3_test_helpers:aws_config(tcp, binary_to_list(?S3_HOST), ?S3_PORT).
 
-pem_certfile() ->
-    <<
-        "-----BEGIN CERTIFICATE-----\n",
-        "MIIDEzCCAfugAwIBAgIBATANBgkqhkiG9w0BAQsFADA/MQswCQYDVQQGEwJDTjER\n",
-        "MA8GA1UECAwIaGFuZ3pob3UxDDAKBgNVBAoMA0VNUTEPMA0GA1UEAwwGUm9vdENB\n",
-        "MB4XDTIwMDUwODA4MDY1N1oXDTMwMDUwNjA4MDY1N1owPzELMAkGA1UEBhMCQ04x\n",
-        "ETAPBgNVBAgMCGhhbmd6aG91MQwwCgYDVQQKDANFTVExDzANBgNVBAMMBkNsaWVu\n",
-        "dDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMy4hoksKcZBDbY680u6\n",
-        "TS25U51nuB1FBcGMlF9B/t057wPOlxF/OcmbxY5MwepS41JDGPgulE1V7fpsXkiW\n",
-        "1LUimYV/tsqBfymIe0mlY7oORahKji7zKQ2UBIVFhdlvQxunlIDnw6F9popUgyHt\n",
-        "dMhtlgZK8oqRwHxO5dbfoukYd6J/r+etS5q26sgVkf3C6dt0Td7B25H9qW+f7oLV\n",
-        "PbcHYCa+i73u9670nrpXsC+Qc7Mygwa2Kq/jwU+ftyLQnOeW07DuzOwsziC/fQZa\n",
-        "nbxR+8U9FNftgRcC3uP/JMKYUqsiRAuaDokARZxVTV5hUElfpO6z6/NItSDvvh3i\n",
-        "eikCAwEAAaMaMBgwCQYDVR0TBAIwADALBgNVHQ8EBAMCBeAwDQYJKoZIhvcNAQEL\n",
-        "BQADggEBABchYxKo0YMma7g1qDswJXsR5s56Czx/I+B41YcpMBMTrRqpUC0nHtLk\n",
-        "M7/tZp592u/tT8gzEnQjZLKBAhFeZaR3aaKyknLqwiPqJIgg0pgsBGITrAK3Pv4z\n",
-        "5/YvAJJKgTe5UdeTz6U4lvNEux/4juZ4pmqH4qSFJTOzQS7LmgSmNIdd072rwXBd\n",
-        "UzcSHzsJgEMb88u/LDLjj1pQ7AtZ4Tta8JZTvcgBFmjB0QUi6fgkHY6oGat/W4kR\n",
-        "jSRUBlMUbM/drr2PVzRc2dwbFIl3X+ZE6n5Sl3ZwRAC/s92JU6CPMRW02muVu6xl\n",
-        "goraNgPISnrbpR6KjxLZkVembXzjNNc=\n",
-        "-----END CERTIFICATE-----\n"
-    >>.
-
-pem_privkey() ->
-    <<
-        "\n"
-        "-----BEGIN EC PRIVATE KEY-----\n"
-        "MHQCAQEEICKTbbathzvD8zvgjL7qRHhW4alS0+j0Loo7WeYX9AxaoAcGBSuBBAAK\n"
-        "oUQDQgAEJBdF7MIdam5T4YF3JkEyaPKdG64TVWCHwr/plC0QzNVJ67efXwxlVGTo\n"
-        "ju0VBj6tOX1y6C0U+85VOM0UU5xqvw==\n"
-        "-----END EC PRIVATE KEY-----\n"
-    >>.
+generate_pki_files(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    KeyType = ec,
+    Opts = #{
+        base_tmp_dir => PrivDir,
+        key_type => KeyType,
+        password => undefined
+    },
+    emqx_tls_lib_tests:do_setup_ssl_files(Opts).
 
 unique_binary_string() ->
     emqx_guid:to_hexstr(emqx_guid:gen()).
