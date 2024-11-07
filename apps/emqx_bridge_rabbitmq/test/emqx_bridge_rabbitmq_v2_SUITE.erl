@@ -163,7 +163,13 @@ t_source(Config) ->
     Topic = <<"tesldkafd">>,
     {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
         #{
-            sql => <<"select * from \"$bridges/rabbitmq:", Name/binary, "\"">>,
+            sql =>
+                <<
+                    "select *, queue as payload.queue, exchange as payload.exchange,"
+                    "routing_key as payload.routing_key from \"$bridges/rabbitmq:",
+                    Name/binary,
+                    "\""
+                >>,
             id => atom_to_binary(?FUNCTION_NAME),
             actions => [
                 #{
@@ -187,7 +193,8 @@ t_source(Config) ->
     {ok, _} = emqtt:connect(C1),
     {ok, #{}, [0]} = emqtt:subscribe(C1, Topic, [{qos, 0}, {rh, 0}]),
     send_test_message_to_rabbitmq(Config),
-    PayloadBin = emqx_utils_json:encode(payload()),
+
+    Received = receive_messages(1),
     ?assertMatch(
         [
             #{
@@ -195,12 +202,21 @@ t_source(Config) ->
                 properties := undefined,
                 topic := Topic,
                 qos := 0,
-                payload := PayloadBin,
+                payload := _,
                 retain := false
             }
         ],
-        receive_messages(1)
+        Received
     ),
+    [#{payload := ReceivedPayload}] = Received,
+    Meta = #{
+        <<"exchange">> => rabbit_mq_exchange(),
+        <<"routing_key">> => rabbit_mq_routing_key(),
+        <<"queue">> => rabbit_mq_queue()
+    },
+    ExpectedPayload = maps:merge(payload(), Meta),
+    ?assertMatch(ExpectedPayload, emqx_utils_json:decode(ReceivedPayload)),
+
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(sources, Name),
     #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
