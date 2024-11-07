@@ -449,7 +449,8 @@ try_validate_pem(_PEM, _Type, _Password) ->
 
 do_validate_certfile(PEM) ->
     maybe
-        {ok, [{'Certificate' = Type, DER, not_encrypted}]} ?= ?catching(public_key:pem_decode(PEM)),
+        {ok, [{'Certificate' = Type, DER, not_encrypted} | _]} ?=
+            ?catching(public_key:pem_decode(PEM)),
         {ok, _} ?= ?catching(public_key:der_decode(Type, DER)),
         ok
     else

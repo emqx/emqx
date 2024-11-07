@@ -270,6 +270,57 @@ do_test_file_validations(Context) ->
                     )
                 )
             end)},
+        {"corrupt certfile (more than one certificate inside file)",
+            ?_test(begin
+                #{cert := Cert, certfile_path := CertfilePath} = MkKit(#{name => "corruptcert"}),
+                MangledCert0 = mangle(Cert),
+                MangledCert = iolist_to_binary([MangledCert0, "\n", MangledCert0]),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_certfile,
+                        which_option := <<"certfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => MangledCert}
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(CertfilePath, MangledCert),
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_certfile,
+                        which_option := <<"certfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => CertfilePath}
+                    )
+                )
+            end)},
+        {"valid certfile (more than one certificate inside file)",
+            ?_test(begin
+                #{cert := Cert0, certfile_path := CertfilePath} = MkKit(#{name => "multicert"}),
+                Cert = iolist_to_binary([Cert0, "\n", Cert0]),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {ok, #{<<"certfile">> := _}},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => Cert}
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(CertfilePath, Cert),
+                ?assertMatch(
+                    {ok, #{<<"certfile">> := _}},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => CertfilePath}
+                    )
+                )
+            end)},
         {"corrupt keyfile (with correct password)",
             ?_test(begin
                 #{key := Key, keyfile_path := KeyfilePath} = MkKit(#{name => "corruptkey"}),
