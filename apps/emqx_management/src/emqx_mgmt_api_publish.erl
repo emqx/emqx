@@ -272,6 +272,8 @@ is_ok_deliver({_NodeOrShare, _MatchedTopic, {error, _}}) -> false.
 %% No preceding payload format indicator to compare against.
 %% Content-Type check should be done at HTTP layer but not here.
 %% 153                Payload format invalid                  400
+publish_result_to_http_reply(#message{topic = <<"$delayed/", _/binary>>} = Message, []) ->
+    {?ALL_IS_WELL, make_publish_response(Message)};
 publish_result_to_http_reply(_Message, []) ->
     %% matched no subscriber
     {?PARTIALLY_OK, make_publish_error_response(?RC_NO_MATCHING_SUBSCRIBERS)};

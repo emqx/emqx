@@ -407,6 +407,27 @@ t_publish_offline_api(_) ->
     ResponseMap = decode_json(Response),
     ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap))).
 
+%% Checks that we return HTTP response status code 200 for delayed messages, even if there
+%% are no subscribers at the time of publishing.
+t_delayed_message_always_200({init, Config}) ->
+    Config;
+t_delayed_message_always_200({'end', _Config}) ->
+    ok;
+t_delayed_message_always_200(Config) when is_list(Config) ->
+    Request = #{
+        <<"topic">> => <<"$delayed/1/t">>,
+        <<"payload">> => <<"delayed">>
+    },
+    ?assertMatch(
+        {200, #{<<"id">> := _}},
+        emqx_mgmt_api_test_util:simple_request(
+            post,
+            emqx_mgmt_api_test_util:api_path(["publish"]),
+            Request
+        )
+    ),
+    ok.
+
 receive_assert(Topic, Qos, Payload) ->
     receive
         {publish, Message} ->
