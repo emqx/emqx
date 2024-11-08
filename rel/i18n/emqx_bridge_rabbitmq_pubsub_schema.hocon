@@ -10,7 +10,6 @@ subscriber_source.desc:
 subscriber_source.label:
 """Source"""
 
-
 action_parameters.desc:
 """The action config defines how this bridge send messages to the remote RabbitMQ broker"""
 action_parameters.label:

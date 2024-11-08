@@ -96,6 +96,7 @@ eval_render(Expr, Bindings, Opts) ->
     end.
 
 %% Force the expression to return binary string (in most cases).
+return_str(X) when ?IS_EMPTY(X) -> <<"">>;
 return_str(Str) when is_binary(Str) -> Str;
 return_str(Num) when is_integer(Num) -> integer_to_binary(Num);
 return_str(Num) when is_float(Num) -> float_to_binary(Num, [{decimals, 10}, compact]);

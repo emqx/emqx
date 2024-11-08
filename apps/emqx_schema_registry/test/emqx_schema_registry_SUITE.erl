@@ -388,58 +388,6 @@ receive_published(Line) ->
         ct:fail("publish not received, line ~b", [Line])
     end.
 
-cluster(Config) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    Cluster = emqx_common_test_helpers:emqx_cluster(
-        [core, core],
-        [
-            {apps, [
-                emqx_conf,
-                emqx_rule_engine,
-                emqx_schema_registry
-            ]},
-            {listener_ports, []},
-            {priv_data_dir, PrivDataDir},
-            {load_schema, true},
-            {start_autocluster, true},
-            {schema_mod, emqx_enterprise_schema},
-            {load_apps, [emqx_machine]},
-            {env_handler, fun
-                (emqx) ->
-                    application:set_env(emqx, boot_modules, [broker]),
-                    ok;
-                (emqx_conf) ->
-                    ok;
-                (_) ->
-                    ok
-            end}
-        ]
-    ),
-    ct:pal("cluster:\n  ~p", [Cluster]),
-    Cluster.
-
-start_cluster(Cluster) ->
-    Nodes = [
-        emqx_common_test_helpers:start_peer(Name, Opts)
-     || {Name, Opts} <- Cluster
-    ],
-    NumNodes = length(Nodes),
-    on_exit(fun() ->
-        emqx_utils:pmap(
-            fun(N) ->
-                ct:pal("stopping ~p", [N]),
-                ok = emqx_common_test_helpers:stop_peer(N)
-            end,
-            Nodes
-        )
-    end),
-    {ok, _} = snabbkaffe:block_until(
-        %% -1 because only those that join the first node will emit the event.
-        ?match_n_events(NumNodes - 1, #{?snk_kind := emqx_machine_boot_apps_started}),
-        30_000
-    ),
-    Nodes.
-
 wait_for_cluster_rpc(Node) ->
     %% need to wait until the config handler is ready after
     %% restarting during the cluster join.
@@ -703,7 +651,15 @@ t_fail_rollback(Config) ->
 
 t_cluster_serde_build(Config) ->
     SerdeType = ?config(serde_type, Config),
-    Cluster = cluster(Config),
+    AppSpecs = [
+        emqx_conf,
+        emqx_rule_engine,
+        emqx_schema_registry
+    ],
+    ClusterSpec = [
+        {cluster_serde_build1, #{apps => AppSpecs}},
+        {cluster_serde_build2, #{apps => AppSpecs}}
+    ],
     SerdeName = my_serde,
     Schema = schema_params(SerdeType),
     #{
@@ -712,9 +668,13 @@ t_cluster_serde_build(Config) ->
     } = test_params_for(SerdeType, encode_decode1),
     ?check_trace(
         begin
-            Nodes = [N1, N2 | _] = start_cluster(Cluster),
+            Nodes =
+                [N1, N2 | _] = emqx_cth_cluster:start(
+                    ClusterSpec,
+                    #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+                ),
+            on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
             NumNodes = length(Nodes),
-            wait_for_cluster_rpc(N2),
             ?assertMatch(
                 ok,
                 erpc:call(N2, emqx_schema_registry, add_schema, [SerdeName, Schema])
