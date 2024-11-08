@@ -3360,6 +3360,83 @@ t_resource_and_channel_health_check_race(_Config) ->
     ),
     ok.
 
+%% Simulates the race condition where a dry run request takes too long, and the HTTP API
+%% request process is then forcefully killed before it has the chance to properly cleanup
+%% and remove the dry run/probe resource.
+t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?force_ordering(
+                #{?snk_kind := connector_demo_on_stop_will_delay},
+                #{?snk_kind := will_kill_request}
+            ),
+
+            %% Simulates a cowboy request process.
+            {ok, StartAgent} = emqx_utils_agent:start_link(not_called),
+            {ok, StopAgent} = emqx_utils_agent:start_link({delay, 1_000}),
+            HowToStop = fun() ->
+                %% Delay only the first time, so test cleanup is faster.
+                Action = emqx_utils_agent:get_and_update(StopAgent, fun
+                    (continue) ->
+                        {continue, continue};
+                    ({delay, _} = Delay) ->
+                        {Delay, continue}
+                end),
+                case Action of
+                    {delay, Delay} ->
+                        ?tp(connector_demo_on_stop_will_delay, #{}),
+                        timer:sleep(Delay),
+                        continue;
+                    continue ->
+                        continue
+                end
+            end,
+            {Pid, MRef} = spawn_monitor(fun() ->
+                Res = dryrun(
+                    ?ID,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        create_error => {delay, 1_000, StartAgent},
+                        stop_error => {ask, HowToStop},
+                        resource_opts => #{
+                            health_check_interval => 100,
+                            start_timeout => 100
+                        }
+                    }
+                ),
+                exit(Res)
+            end),
+            on_exit(fun() -> exit(Pid, kill) end),
+
+            %% Simulates cowboy forcefully killing the request after it takes too long and the caller
+            %% has already closed the connection.
+            spawn_link(fun() ->
+                ?tp(will_kill_request, #{}),
+                exit(Pid, kill)
+            end),
+
+            receive
+                {'DOWN', MRef, process, Pid, Reason} ->
+                    ct:pal("request ~p died: ~p", [Pid, Reason]),
+                    ?assertEqual(killed, Reason),
+                    ok
+            end,
+
+            ?block_until(#{?snk_kind := "resource_cache_cleaner_deleted_child"}),
+
+            %% No children should be lingering
+            ?assertEqual([], supervisor:which_children(emqx_resource_manager_sup)),
+            %% Cache should be clean too
+            ?assertEqual([], emqx_resource:list_instances()),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -3617,6 +3694,11 @@ create(Id, Group, Type, Config, Opts) ->
     Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
     on_exit(fun() -> emqx_resource:remove_local(Id) end),
     Res.
+
+dryrun(Id, Type, Config) ->
+    TestPid = self(),
+    OnReady = fun(ResId) -> TestPid ! {resource_ready, ResId} end,
+    emqx_resource:create_dry_run_local(Id, Type, Config, OnReady).
 
 log_consistency_prop() ->
     {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.

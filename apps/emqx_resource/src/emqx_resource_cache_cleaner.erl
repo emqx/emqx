@@ -16,7 +16,19 @@
 
 -module(emqx_resource_cache_cleaner).
 
--export([start_link/0]).
+-behaviour(gen_server).
+
+-include_lib("snabbkaffe/include/trace.hrl").
+
+%% API
+-export([
+    start_link/0,
+
+    add_cache/2,
+    add_dry_run/2
+]).
+
+%% `gen_server' API
 -export([
     init/1,
     handle_call/3,
@@ -24,44 +36,101 @@
     handle_info/2,
     terminate/2
 ]).
--export([add/2]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
 
 -define(SERVER, ?MODULE).
+
+%% calls/casts/infos
+-record(add_cache, {id :: emqx_resource:resource_id(), pid :: pid()}).
+-record(add_dry_run, {id :: emqx_resource:resource_id(), pid :: pid()}).
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-add(ID, Pid) ->
-    gen_server:call(?SERVER, {add, ID, Pid}, infinity).
+add_cache(ID, Pid) ->
+    gen_server:call(?SERVER, #add_cache{id = ID, pid = Pid}, infinity).
+
+add_dry_run(ID, Pid) ->
+    gen_server:cast(?SERVER, #add_dry_run{id = ID, pid = Pid}).
+
+%%------------------------------------------------------------------------------
+%% `gen_server' API
+%%------------------------------------------------------------------------------
 
 init(_) ->
     process_flag(trap_exit, true),
-    {ok, #{pmon => emqx_pmon:new()}}.
+    State = #{
+        cache_pmon => emqx_pmon:new(),
+        dry_run_pmon => emqx_pmon:new()
+    },
+    {ok, State}.
 
-handle_call({add, ID, Pid}, _From, #{pmon := Pmon} = State) ->
+handle_call(#add_cache{id = ID, pid = Pid}, _From, #{cache_pmon := Pmon} = State) ->
     NewPmon = emqx_pmon:monitor(Pid, ID, Pmon),
-    {reply, ok, State#{pmon => NewPmon}};
+    {reply, ok, State#{cache_pmon := NewPmon}};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(#add_dry_run{id = ID, pid = Pid}, #{dry_run_pmon := Pmon0} = State0) ->
+    Pmon = emqx_pmon:monitor(Pid, ID, Pmon0),
+    State = State0#{dry_run_pmon := Pmon},
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, Pid, _Reason}, #{pmon := Pmon} = State) ->
-    NewPmon =
-        case emqx_pmon:find(Pid, Pmon) of
-            {ok, ID} ->
-                maybe_erase_cache(Pid, ID),
-                emqx_pmon:erase(Pid, Pmon);
-            error ->
-                Pmon
-        end,
-    {noreply, State#{pmon => NewPmon}};
+handle_info({'DOWN', _MRef, process, Pid, _Reason}, State0) ->
+    State = handle_down(Pid, State0),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+handle_down(Pid, State0) ->
+    #{
+        cache_pmon := CachePmon,
+        dry_run_pmon := DryrunPmon
+    } = State0,
+    case emqx_pmon:find(Pid, CachePmon) of
+        {ok, ID} ->
+            handle_down_cache(ID, Pid, State0);
+        error ->
+            case emqx_pmon:find(Pid, DryrunPmon) of
+                {ok, ID} ->
+                    handle_down_dry_run(ID, Pid, State0);
+                error ->
+                    State0
+            end
+    end.
+
+handle_down_cache(ID, Pid, State0) ->
+    #{cache_pmon := Pmon0} = State0,
+    maybe_erase_cache(Pid, ID),
+    Pmon = emqx_pmon:erase(Pid, Pmon0),
+    State0#{cache_pmon := Pmon}.
+
+handle_down_dry_run(ID, Pid, State0) ->
+    #{dry_run_pmon := Pmon0} = State0,
+    %% No need to wait here: since it's a dry run resource, it won't be recreated,
+    %% assuming the ID is random enough.
+    spawn(fun() ->
+        emqx_resource_manager_sup:delete_child(ID),
+        ?tp("resource_cache_cleaner_deleted_child", #{id => ID})
+    end),
+    Pmon = emqx_pmon:erase(Pid, Pmon0),
+    State0#{dry_run_pmon := Pmon}.
 
 maybe_erase_cache(DownManager, ID) ->
     case emqx_resource_cache:read_manager_pid(ID) =:= DownManager of
@@ -69,6 +138,6 @@ maybe_erase_cache(DownManager, ID) ->
             emqx_resource_cache:erase(ID);
         false ->
             %% already erased, or already replaced by another manager due to quick
-            %% retart by supervisor
+            %% restart by supervisor
             ok
     end.
