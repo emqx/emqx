@@ -166,7 +166,7 @@ t_destroy_queue_live_clients('init', Config) ->
 t_destroy_queue_live_clients('end', Config) ->
     destroy_queue(Config).
 
-t_destroy_queue_live_clients(Config) ->
+t_destroy_queue_live_clients(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
