@@ -1486,13 +1486,16 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    connection_expire,
+    connection_auth_expire,
     #channel{conn_state = ConnState} = Channel0
 ) ->
-    Channel1 = clean_timer(connection_expire, Channel0),
+    Channel1 = clean_timer(connection_auth_expire, Channel0),
     case ConnState of
-        disconnected -> {ok, Channel1};
-        _ -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel1)
+        disconnected ->
+            {ok, Channel1};
+        _ ->
+            Channel2 = maybe_publish_will_msg(auth_expired, Channel1),
+            handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel2)
     end;
 handle_timeout(TRef, Msg, Channel) ->
     case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
@@ -2340,16 +2343,16 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
-    schedule_connection_expire(Channel#channel{
+    schedule_connection_auth_expire(Channel#channel{
         conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
     }).
 
-schedule_connection_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
+schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
     Channel;
-schedule_connection_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
+schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
     Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
-    ensure_timer(connection_expire, Interval, Channel).
+    ensure_timer(connection_auth_expire, Interval + 1500, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
@@ -2517,6 +2520,8 @@ session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
         | expired
         %% Connection is terminating because of socket close/error
         | sock_closed
+        %% Connection is terminating because auth expired
+        | auth_expired
         %% Session is terminating, delay willmsg publish is impossible.
         | ?chan_terminating.
 maybe_publish_will_msg(_Reason, Channel = #channel{will_msg = undefined}) ->
@@ -2624,8 +2629,14 @@ maybe_publish_will_msg(
             ?tp(debug, maybe_publish_will_msg_other_publish, #{
                 clientid => ClientId, reason => Reason
             }),
-            Channel = publish_will_msg(Channel0),
-            remove_willmsg(Channel);
+            %% In case of Reason = auth_expired, the very expiration of auth is the reason of disconnection,
+            %% so the will message should won't pass the auth check.
+            %% We want to publish the will message as it would be published at the very moment of auth expiration,
+            %% so we inject the auth expiration time as the current time used for the auth check.
+            Channel1 = maybe_with_injected_now(Reason, Channel0, fun(Channel) ->
+                publish_will_msg(Channel)
+            end),
+            remove_willmsg(Channel1);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),
             ensure_timer(will_message, timer:seconds(I), Channel0)
@@ -2637,6 +2648,13 @@ will_delay_interval(WillMsg) ->
         emqx_message:get_header(properties, WillMsg, #{}),
         0
     ).
+
+maybe_with_injected_now(
+    auth_expired, #channel{clientinfo = #{auth_expire_at := AuthExpiredAt}} = Channel, Fun
+) ->
+    with_now(AuthExpiredAt, Channel, Fun);
+maybe_with_injected_now(_, Channel, Fun) ->
+    Fun(Channel).
 
 publish_will_msg(
     #channel{
@@ -2804,6 +2822,11 @@ is_durable_session(#channel{session = Session}) ->
         _ ->
             false
     end.
+
+with_now(NowMs, #channel{clientinfo = ClientInfo0} = Channel0, Fun) ->
+    ClientInfo1 = ClientInfo0#{now_time => NowMs},
+    #channel{clientinfo = ClientInfo2} = Channel1 = Fun(Channel0#channel{clientinfo = ClientInfo1}),
+    Channel1#channel{clientinfo = maps:without([now_time], ClientInfo2)}.
 
 proto_ver(#{proto_ver := ProtoVer}, _ConnInfo) ->
     ProtoVer;
