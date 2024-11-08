@@ -26,8 +26,10 @@
 -import(proplists, [get_value/2]).
 
 -define(MODULES_CONF, #{
-    <<"dealyed">> => <<"true">>,
-    <<"max_delayed_messages">> => <<"0">>
+    <<"delayed">> => #{
+        <<"enable">> => <<"true">>,
+        <<"max_delayed_messages">> => 0
+    }
 }).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -40,7 +42,7 @@ suite() ->
 
 apps() ->
     [
-        emqx_conf,
+        {emqx_conf, "authorization.sources = []"},
         emqx_connector,
         emqx_retainer,
         emqx_auth,
