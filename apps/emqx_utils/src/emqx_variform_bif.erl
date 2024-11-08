@@ -421,11 +421,9 @@ any_to_str(Data) ->
 %% Random functions
 %%------------------------------------------------------------------------------
 
-%% @doc Make a random string with urlsafe-base64 charset.
+%% @doc Make a random string with urlsafe-base62 charset.
 rand_str(Length) when is_integer(Length) andalso Length > 0 ->
-    RawBytes = erlang:ceil((Length * 3) / 4),
-    RandomData = rand:bytes(RawBytes),
-    urlsafe(binary:part(base64_encode(RandomData), 0, Length));
+    emqx_utils:rand_id(Length);
 rand_str(_) ->
     throw(#{reason => badarg, function => ?FUNCTION_NAME}).
 
@@ -434,12 +432,6 @@ rand_int(N) when is_integer(N) andalso N >= 1 ->
     rand:uniform(N);
 rand_int(N) ->
     throw(#{reason => badarg, function => ?FUNCTION_NAME, expected => "positive integer", got => N}).
-
-%% TODO: call base64:encode(Bin, #{mode => urlsafe, padding => false})
-%% when oldest OTP to support is 26 or newer.
-urlsafe(Str0) ->
-    Str = replace(Str0, <<"+">>, <<"-">>),
-    replace(Str, <<"/">>, <<"_">>).
 
 %%------------------------------------------------------------------------------
 %% Data encoding
