@@ -1779,10 +1779,17 @@ basic_trace_attrs(Channel) ->
     }.
 
 serialize_topic_filters(?PACKET(?SUBSCRIBE, PktVar)) ->
-    TFs = [SubOpts#{topic => Name} || {Name, SubOpts} <- emqx_packet:info(topic_filters, PktVar)],
+    TFs = [
+        SubOpts#{topic => emqx_topic:maybe_format_share(Name)}
+     || {Name, SubOpts} <- emqx_packet:info(topic_filters, PktVar)
+    ],
     emqx_utils_json:encode(TFs);
 serialize_topic_filters(?PACKET(?UNSUBSCRIBE, PktVar)) ->
-    emqx_utils_json:encode(emqx_packet:info(topic_filters, PktVar)).
+    TFs = [
+        emqx_topic:maybe_format_share(Name)
+     || Name <- emqx_packet:info(topic_filters, PktVar)
+    ],
+    emqx_utils_json:encode(TFs).
 
 %%--------------------------------------------------------------------
 %% Enrich MQTT Connect Info
@@ -2469,7 +2476,7 @@ do_check_sub_authzs2(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) 
 
 trace_authz_result_attrs(CheckResult) ->
     emqx_utils_json:encode([
-        #{topic => TopicFilter, reason_code => RC}
+        #{topic => emqx_topic:maybe_format_share(TopicFilter), reason_code => RC}
      || {{TopicFilter, _SubOpts}, RC} <- CheckResult
     ]).
 
