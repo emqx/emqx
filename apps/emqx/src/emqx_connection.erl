@@ -83,14 +83,12 @@
 ).
 
 -record(state, {
+    %% Context
+    ctx :: ctx(),
     %% TCP/TLS Transport
     transport :: esockd:transport(),
     %% TCP/TLS Socket
     socket :: esockd:socket(),
-    %% Peername of the connection
-    peername :: emqx_types:peername(),
-    %% Sockname of the connection
-    sockname :: emqx_types:peername(),
     %% Sock State
     sockstate :: emqx_types:sockstate(),
     parse_state :: emqx_frame:parse_state(),
@@ -102,16 +100,8 @@
     gc_state :: option(emqx_gc:gc_state()),
     %% Stats Timer
     stats_timer :: disabled | option(reference()),
-    %% Idle Timeout
-    idle_timeout :: integer() | infinity,
     %% Idle Timer
     idle_timer :: option(reference()),
-    %% Idle Timeout
-    hibernate_after :: integer() | infinity,
-    %% Zone name
-    zone :: atom(),
-    %% Listener Type and Name
-    listener :: {Type :: atom(), Name :: atom()},
 
     %% Limiter
     limiter :: limiter(),
@@ -120,9 +110,24 @@
     limiter_buffer :: queue:queue(pending_req()),
 
     %% limiter timers
-    limiter_timer :: undefined | reference(),
+    limiter_timer :: undefined | reference()
+}).
 
-    %% QUIC conn shared state
+-record(ctx, {
+    %% Peername of the connection
+    peername :: emqx_types:peername(),
+    %% Sockname of the connection
+    sockname :: emqx_types:peername(),
+    %% Listener Type and Name
+    listener :: {Type :: atom(), Name :: atom()},
+    %% Zone name
+    zone :: atom(),
+    %% Idle Timeout
+    idle_timeout :: integer() | infinity,
+    %% Idle Timeout
+    hibernate_after :: integer() | infinity,
+
+    %% QUIC conn shared context
     quic_conn_ss :: option(map())
 }).
 
@@ -139,6 +144,7 @@
 }).
 
 -type state() :: #state{}.
+-type ctx() :: #ctx{}.
 -type pending_req() :: #pending_req{}.
 
 -define(ACTIVE_N, 10).
@@ -214,9 +220,9 @@ info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(socktype, #state{transport = Transport, socket = Socket}) ->
     Transport:type(Socket);
-info(peername, #state{peername = Peername}) ->
+info(peername, #state{ctx = #ctx{peername = Peername}}) ->
     Peername;
-info(sockname, #state{sockname = Sockname}) ->
+info(sockname, #state{ctx = #ctx{sockname = Sockname}}) ->
     Sockname;
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
@@ -352,8 +358,16 @@ init_state(
     #state{
         transport = Transport,
         socket = Socket,
-        peername = Peername,
-        sockname = Sockname,
+        ctx = #ctx{
+            listener = Listener,
+            zone = Zone,
+            peername = Peername,
+            sockname = Sockname,
+            idle_timeout = IdleTimeout,
+            hibernate_after = maps:get(hibernate_after, Opts, IdleTimeout),
+            %% for quic streams to inherit
+            quic_conn_ss = maps:get(conn_shared_state, Opts, undefined)
+        },
         sockstate = idle,
         limiter = Limiter,
         parse_state = ParseState,
@@ -361,15 +375,9 @@ init_state(
         channel = Channel,
         gc_state = GcState,
         stats_timer = StatsTimer,
-        idle_timeout = IdleTimeout,
         idle_timer = IdleTimer,
-        hibernate_after = maps:get(hibernate_after, Opts, IdleTimeout),
-        zone = Zone,
-        listener = Listener,
         limiter_buffer = queue:new(),
-        limiter_timer = undefined,
-        %% for quic streams to inherit
-        quic_conn_ss = maps:get(conn_shared_state, Opts, undefined)
+        limiter_timer = undefined
     }.
 
 run_loop(
@@ -377,11 +385,11 @@ run_loop(
     State = #state{
         transport = Transport,
         socket = Socket,
-        peername = Peername,
-        channel = Channel
+        channel = Channel,
+        ctx = Ctx
     }
 ) ->
-    emqx_logger:set_metadata_peername(esockd:format(Peername)),
+    emqx_logger:set_metadata_peername(esockd:format(Ctx#ctx.peername)),
     ShutdownPolicy = emqx_config:get_zone_conf(
         emqx_channel:info(zone, Channel),
         [force_shutdown]
@@ -412,22 +420,13 @@ exit_on_sock_error(Reason) ->
 
 recvloop(
     Parent,
-    State = #state{
-        hibernate_after = HibernateAfterMs,
-        channel = Channel,
-        zone = Zone
-    }
+    State = #state{channel = Channel, ctx = Ctx}
 ) ->
-    HibernateTimeout =
-        case HibernateAfterMs of
-            infinity -> infinity;
-            _ -> HibernateAfterMs
-        end,
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
-    after HibernateTimeout ->
-        case emqx_olp:backoff_hibernation(Zone) of
+    after Ctx#ctx.hibernate_after ->
+        case emqx_olp:backoff_hibernation(Ctx#ctx.zone) of
             true ->
                 recvloop(Parent, State);
             false ->
@@ -443,8 +442,8 @@ handle_recv({system, From, Request}, Parent, State) ->
 handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
     %% FIXME: it's not trapping exit, should never receive an EXIT
     terminate(Reason, State);
-handle_recv(Msg, Parent, State = #state{idle_timeout = IdleTimeout}) ->
-    case process_msg([Msg], ensure_stats_timer(IdleTimeout, State)) of
+handle_recv(Msg, Parent, State) ->
+    case process_msg([Msg], ensure_stats_timer(State)) of
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
         {stop, Reason, NewSate} ->
@@ -461,10 +460,11 @@ wakeup_from_hib(Parent, State) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
--compile({inline, [ensure_stats_timer/2]}).
-ensure_stats_timer(Timeout, State = #state{stats_timer = undefined}) ->
-    State#state{stats_timer = start_timer(Timeout, emit_stats)};
-ensure_stats_timer(_Timeout, State) ->
+-compile({inline, [ensure_stats_timer/1]}).
+ensure_stats_timer(State = #state{stats_timer = undefined, ctx = Ctx}) ->
+    TRef = start_timer(Ctx#ctx.idle_timeout, emit_stats),
+    State#state{stats_timer = TRef};
+ensure_stats_timer(State) ->
     State.
 
 -compile({inline, [cancel_stats_timer/1]}).
@@ -584,9 +584,9 @@ handle_msg({Passive, _Sock}, State) when
     handle_info(activate_socket, NState1);
 handle_msg(
     Deliver = {deliver, _Topic, _Msg},
-    #state{listener = {Type, Listener}} = State
+    #state{ctx = Ctx} = State
 ) ->
-    ActiveN = get_active_n(Type, Listener),
+    ActiveN = get_active_n(Ctx),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
 handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
@@ -603,7 +603,7 @@ handle_msg(
         channel = Channel,
         serialize = Serialize,
         parse_state = PS,
-        quic_conn_ss = QSS
+        ctx = #ctx{quic_conn_ss = QSS}
     }
 ) ->
     QSS =/= undefined andalso
@@ -811,17 +811,17 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 
-handle_incoming(Packet, #state{quic_conn_ss = QSS} = State) when is_record(Packet, mqtt_packet) ->
-    QSS =/= undefined andalso
-        emqx_quic_connection:step_cnt(
-            maps:get(cnts_ref, QSS),
-            control_packet,
-            1
-        ),
-    ok = inc_incoming_stats(Packet),
-    with_channel(handle_in, [Packet], State);
-handle_incoming(FrameError, State) ->
-    with_channel(handle_in, [FrameError], State).
+handle_incoming(Incoming, #state{ctx = Ctx} = State) ->
+    ok = inc_incoming_stats(Incoming, Ctx),
+    with_channel(handle_in, [Incoming], State).
+
+-compile({inline, [inc_incoming_stats/2]}).
+inc_incoming_stats(Packet = #mqtt_packet{}, #ctx{quic_conn_ss = QSS}) ->
+    QSS /= undefined andalso
+        emqx_quic_connection:step_cnt(maps:get(cnts_ref, QSS), control_packet, 1),
+    inc_incoming_stats(Packet);
+inc_incoming_stats(_FrameError, _Ctx) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% With Channel
@@ -913,9 +913,9 @@ send(IoData, #state{transport = Transport, socket = Socket} = State) ->
     end.
 
 %% Some bytes sent
-sent(#state{listener = {Type, Listener}} = State) ->
+sent(#state{ctx = Ctx} = State) ->
     %% Run GC and check OOM after certain amount of messages or bytes sent.
-    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Type, Listener) of
+    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Ctx) of
         true ->
             Pubs = emqx_pd:reset_counter(outgoing_pubs),
             Bytes = emqx_pd:reset_counter(outgoing_bytes),
@@ -1099,9 +1099,9 @@ retry_limiter(#state{channel = Channel, limiter = Limiter} = State) ->
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
-run_gc(Pubs, Bytes, State = #state{gc_state = GcSt, zone = Zone}) ->
+run_gc(Pubs, Bytes, State = #state{gc_state = GcSt, ctx = Ctx}) ->
     case
-        ?ENABLED(GcSt) andalso not emqx_olp:backoff_gc(Zone) andalso
+        ?ENABLED(GcSt) andalso not emqx_olp:backoff_gc(Ctx#ctx.zone) andalso
             emqx_gc:run(Pubs, Bytes, GcSt)
     of
         false -> State;
@@ -1146,12 +1146,12 @@ activate_socket(
         transport = Transport,
         sockstate = SockState,
         socket = Socket,
-        listener = {Type, Listener}
+        ctx = Ctx
     } = State
 ) when
     SockState =/= closed
 ->
-    ActiveN = get_active_n(Type, Listener),
+    ActiveN = get_active_n(Ctx),
     case Transport:setopts(Socket, [{active, ActiveN}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error
@@ -1287,6 +1287,10 @@ get_state(Pid) ->
             tl(tuple_to_list(State))
         )
     ).
+
+-compile({inline, [get_active_n/1, get_active_n/2]}).
+get_active_n(#ctx{listener = {Type, Listener}}) ->
+    get_active_n(Type, Listener).
 
 get_active_n(quic, _Listener) ->
     ?ACTIVE_N;
