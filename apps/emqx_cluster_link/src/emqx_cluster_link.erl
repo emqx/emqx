@@ -89,14 +89,20 @@ delete_persistent_shared_route(Topic, Group, ID) ->
     RouteID = ?PERSISTENT_SHARED_ROUTE_ID(Topic, Group, ID),
     emqx_cluster_link_router:push_update_persistent(delete, Topic, RouteID).
 
-forward(#delivery{message = #message{extra = #{link_origin := _}}}) ->
-    %% Do not forward any external messages to other links.
-    %% Only forward locally originated messages to all the relevant links, i.e. no gossip
-    %% message forwarding.
-    [];
-forward(Delivery = #delivery{message = #message{topic = Topic}}) ->
-    Routes = emqx_cluster_link_extrouter:match_routes(Topic),
-    forward(Routes, Delivery).
+forward(Delivery = #delivery{message = #message{topic = Topic, extra = Extra}}) ->
+    case emqx_cluster_link_config:enabled_links() of
+        [] ->
+            %% Nowhere to forward, bail out right away.
+            [];
+        _Enabled when is_map_key(link_origin, Extra) ->
+            %% Do not forward any external messages to other links.
+            %% Only forward locally originated messages to all the relevant links, i.e. no gossip
+            %% message forwarding.
+            [];
+        _Enabled ->
+            Routes = emqx_cluster_link_extrouter:match_routes(Topic),
+            forward(Routes, Delivery)
+    end.
 
 forward([], _Delivery) ->
     [];
