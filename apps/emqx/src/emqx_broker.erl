@@ -379,7 +379,7 @@ do_route(Routes, Delivery, PersistRes) ->
     ).
 
 do_route2({To, Node}, Delivery) when Node =:= node() ->
-    {Node, To, dispatch_local(To, Delivery)};
+    {Node, To, do_dispatch(To, Delivery)};
 do_route2({To, Node}, Delivery) when is_atom(Node) ->
     {Node, To, forward(Node, To, Delivery, emqx:get_config([rpc, mode]))};
 do_route2({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
@@ -455,19 +455,11 @@ dispatch(Topic, Delivery = #delivery{message = Msg}) ->
         Delivery,
         emqx_external_trace:msg_attrs(Msg),
         fun(DeliveryWithTrace) ->
-            dispatch_local(Topic, DeliveryWithTrace)
-        end
-    ).
-
-dispatch_local(Topic, Delivery = #delivery{message = Msg}) ->
-    emqx_external_trace:msg_dispatch(
-        Delivery,
-        emqx_external_trace:msg_attrs(Msg),
-        fun(DeliveryWithTrace) ->
             do_dispatch(Topic, DeliveryWithTrace)
         end
     ).
 
+%% @doc Dispatch message to local subscribers.
 -spec do_dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
 do_dispatch(Topic, Delivery = #delivery{}) when is_binary(Topic) ->

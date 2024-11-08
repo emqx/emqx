@@ -53,7 +53,7 @@
     Res :: term().
 
 %% Message Processing Spans
-%% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DISPATCH -> DELIVER(to Subscribers)
+%% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DELIVER(to Subscribers)
 -callback client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
     InitAttrs :: attrs(),
@@ -80,11 +80,6 @@
     Res :: term().
 
 -callback msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    InitAttrs :: attrs(),
-    Delivery :: emqx_types:delivery(),
-    Res :: term().
-
--callback msg_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
     InitAttrs :: attrs(),
     Delivery :: emqx_types:delivery(),
     Res :: term().
@@ -163,7 +158,6 @@ when
     client_pubrel/3,
     client_pubcomp/3,
     msg_route/3,
-    msg_dispatch/3,
     msg_forward/3,
     msg_handle_forward/3,
     msg_deliver/2,
@@ -342,13 +336,6 @@ client_pubcomp(Packet, InitAttrs, ProcessFun) ->
     InitAttrs :: attrs(),
     Res :: term().
 msg_route(Delivery, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
-
--spec msg_dispatch(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    Delivery :: emqx_types:delivery(),
-    InitAttrs :: attrs(),
-    Res :: term().
-msg_dispatch(Delivery, InitAttrs, ProcessFun) ->
     ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
 
 %% @doc Trace message forwarding

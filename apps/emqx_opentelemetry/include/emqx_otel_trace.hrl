@@ -36,7 +36,6 @@
 -define(CLIENT_PUBCOMP_SPAN_NAME, <<"client.pubcomp">>).
 
 -define(MSG_ROUTE_SPAN_NAME, <<"message.route">>).
--define(MSG_DISPATCH_SPAN_NAME, <<"message.dispatch">>).
 -define(MSG_FORWARD_SPAN_NAME, <<"message.forward">>).
 -define(MSG_HANDLE_FORWARD_SPAN_NAME, <<"message.handle_forward">>).
 -define(MSG_DELIVER_SPAN_NAME, <<"message.deliver">>).
