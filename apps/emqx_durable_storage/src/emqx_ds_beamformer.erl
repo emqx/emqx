@@ -837,7 +837,7 @@ pack_test_() ->
                 iterators = [],
                 pack = [
                     {<<"1">>, <<>>, #message{id = <<"1">>}},
-                    {Next, <<>>, #message{id = <<"2">>}}
+                    {_Next, <<>>, #message{id = <<"2">>}}
                 ]
             },
             pack(UpdateIterator, NextKey, [], [M1, M2])
@@ -857,7 +857,6 @@ pack_test_() ->
     ].
 
 split_test_() ->
-    Always = fun(_It, _Msg) -> true end,
     M1 = {<<"1">>, #message{id = <<"1">>}},
     M2 = {<<"2">>, #message{id = <<"2">>}},
     M3 = {<<"3">>, #message{id = <<"3">>}},

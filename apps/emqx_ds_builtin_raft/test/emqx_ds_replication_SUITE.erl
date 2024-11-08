@@ -916,7 +916,6 @@ t_poll('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
 t_poll(Config) ->
-    DB = ?FUNCTION_NAME,
     Nodes = [N1 | _] = ?config(nodes, Config),
     ?check_trace(
         #{timetrap => 15_000},
