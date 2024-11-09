@@ -61,7 +61,7 @@
 -define(ERROR_DELAY, 200).
 
 -define(RECONNECT_TIMEOUT, 5_000).
--define(ACTOR_REINIT_TIMEOUT, 7000).
+-define(ACTOR_INIT_TIMEOUT, 7000).
 
 -define(CLIENT_SUFFIX, ":routesync:").
 -define(PS_CLIENT_SUFFIX, ":routesync-ps:").
@@ -402,16 +402,16 @@ handle_info(
     end;
 handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
-handle_info({timeout, TRef, actor_reinit}, St = #st{actor_init_timer = TRef}) ->
-    ?SLOG(error, #{
-        msg => "remote_actor_init_timeout",
-        target_cluster => St#st.target,
-        actor => St#st.actor
+handle_info({timeout, TRef, actor_init_timeout}, St0 = #st{actor_init_timer = TRef}) ->
+    ?tp(error, "remote_actor_init_timeout", #{
+        target_cluster => St0#st.target,
+        actor => St0#st.actor
     }),
     Reason = init_timeout,
-    _ = maybe_alarm(Reason, St),
-    {noreply,
-        init_remote_actor(St#st{actor_init_timer = undefined, status = disconnected, error = Reason})};
+    _ = maybe_alarm(Reason, St0),
+    St1 = St0#st{actor_init_timer = undefined, status = disconnected, error = Reason},
+    St = stop_link_client(St1),
+    {noreply, ensure_reconnect_timer(St)};
 handle_info({timeout, TRef, _Heartbeat}, St = #st{heartbeat_timer = TRef}) ->
     {noreply, process_heartbeat(St#st{heartbeat_timer = undefined})};
 %% Stale timeout.
@@ -436,7 +436,7 @@ process_connect(St = #st{target = TargetCluster, actor = Actor, link_conf = Conf
     end.
 
 init_remote_actor(
-    St = #st{target = TargetCluster, client = ClientPid, actor = Actor, incarnation = Incr}
+    St0 = #st{target = TargetCluster, client = ClientPid, actor = Actor, incarnation = Incr}
 ) ->
     ReqId = emqx_utils_conv:bin(emqx_utils:gen_id(16)),
     %% TODO: handle subscribe errors
@@ -447,22 +447,20 @@ init_remote_actor(
         ),
         ClientPid
     ),
-    St1 =
-        case Res of
-            ok ->
-                St#st{status = connecting};
-            {error, Reason} ->
-                ?SLOG(error, #{
-                    msg => "cluster_link_init_failed",
-                    reason => Reason,
-                    target_cluster => TargetCluster,
-                    actor => Actor
-                }),
-                _ = maybe_alarm(Reason, St),
-                St#st{error = Reason, status = disconnected}
-        end,
-    TRef = erlang:start_timer(?ACTOR_REINIT_TIMEOUT, self(), actor_reinit),
-    St1#st{actor_init_req_id = ReqId, actor_init_timer = TRef}.
+    case Res of
+        ok ->
+            TRef = erlang:start_timer(?ACTOR_INIT_TIMEOUT, self(), actor_init_timeout),
+            St0#st{status = connecting, actor_init_req_id = ReqId, actor_init_timer = TRef};
+        {error, Reason} ->
+            ?tp(error, "cluster_link_init_failed", #{
+                reason => Reason,
+                target_cluster => TargetCluster,
+                actor => Actor
+            }),
+            _ = maybe_alarm(Reason, St0),
+            St = stop_link_client(St0#st{error = Reason, status = disconnected}),
+            ensure_reconnect_timer(St)
+    end.
 
 post_actor_init(
     St = #st{client = ClientPid, target = TargetCluster, actor = Actor, incarnation = Incr},
@@ -504,6 +502,12 @@ handle_client_down(
     _ = maybe_alarm(Reason, St),
     NSt = cancel_heartbeat(St),
     process_connect(NSt#st{client = undefined, error = Reason, status = connecting}).
+
+stop_link_client(#st{client = ClientPid} = St0) ->
+    ?tp("clink_stop_link_client", #{}),
+    ok = emqtt:stop(ClientPid),
+    flush_link_signal(ClientPid),
+    St0#st{client = undefined}.
 
 process_bootstrap(St = #st{bootstrapped = false}, _NeedBootstrap) ->
     run_bootstrap(St);

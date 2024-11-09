@@ -94,7 +94,12 @@ t_http_api(_) ->
                     <<"operation_id">> := <<"/configs/global_zone">>,
                     <<"source_ip">> := <<"127.0.0.1">>,
                     <<"source">> := _,
-                    <<"http_request">> := _,
+                    <<"http_request">> := #{
+                        <<"method">> := <<"put">>,
+                        <<"body">> := _,
+                        <<"bindings">> := _,
+                        <<"headers">> := #{<<"authorization">> := <<"******">>}
+                    },
                     <<"http_status_code">> := 200,
                     <<"operation_result">> := <<"success">>,
                     <<"operation_type">> := <<"configs">>
@@ -161,7 +166,7 @@ t_cli(_Config) ->
                 <<"operation_id">> := <<"">>,
                 <<"source_ip">> := <<"">>,
                 <<"operation_type">> := <<"conf">>,
-                <<"args">> := <<"[<<\"show\">>,<<\"log\">>]">>,
+                <<"args">> := [<<"show">>, <<"log">>],
                 <<"node">> := _,
                 <<"source">> := <<"">>,
                 <<"http_request">> := <<"">>
@@ -179,7 +184,7 @@ t_cli(_Config) ->
     {ok, Res1} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "from=cli", AuthHeader),
     #{<<"data">> := Data1} = emqx_utils_json:decode(Res1, [return_maps]),
     ?assertMatch(
-        [ShowLogEntry, #{<<"operation_type">> := <<"emqx">>, <<"args">> := <<"[<<\"start\">>]">>}],
+        [ShowLogEntry, #{<<"operation_type">> := <<"emqx">>, <<"args">> := [<<"start">>]}],
         Data1
     ),
     {ok, Res2} = emqx_mgmt_api_test_util:request_api(

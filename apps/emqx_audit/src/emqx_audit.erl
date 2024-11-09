@@ -40,8 +40,8 @@
 to_audit(#{from := cli, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
     #?AUDIT{
         operation_id = <<"">>,
-        operation_type = truncate_large_term(Cmd),
-        args = truncate_large_term(Args),
+        operation_type = atom_to_binary(Cmd),
+        args = Args,
         operation_result = <<"">>,
         failure = <<"">>,
         duration_ms = DurationMs,
@@ -67,7 +67,7 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         http_method = <<"">>,
         http_request = <<"">>,
         duration_ms = 0,
-        args = truncate_large_term({F, Args})
+        args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
     };
 to_audit(#{from := From} = Log) when is_atom(From) ->
     #{
@@ -95,7 +95,7 @@ to_audit(#{from := From} = Log) when is_atom(From) ->
         %% request detail
         http_status_code = StatusCode,
         http_method = Method,
-        http_request = truncate_large_term(Request),
+        http_request = truncate_http_body(Request),
         duration_ms = DurationMs,
         args = <<"">>
     }.
@@ -245,6 +245,11 @@ log_to_file(Level, Meta, #{module := Module} = Handler) ->
                     )
             end
     end.
+
+truncate_http_body(Req = #{body := Body}) ->
+    Req#{body => truncate_large_term(Body)};
+truncate_http_body(Req) ->
+    Req.
 
 truncate_large_term(Req) ->
     unicode:characters_to_binary(io_lib:format("~0p", [Req], [{chars_limit, ?CHARS_LIMIT_IN_DB}])).

@@ -378,8 +378,9 @@ t_websocket_info_rate_limit(_) ->
     {ok, _} = websocket_info({cast, rate_limit}, st()),
     ok = timer:sleep(1),
     receive
-        {check_gc, Stats} ->
-            ?assertEqual(#{cnt => 0, oct => 0}, Stats)
+        {check_gc, Cnt, Oct} ->
+            ?assertEqual(0, Cnt),
+            ?assertEqual(0, Oct)
     after 0 -> error(expect_check_gc)
     end.
 
