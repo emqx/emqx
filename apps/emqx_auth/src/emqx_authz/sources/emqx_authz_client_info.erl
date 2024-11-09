@@ -107,7 +107,7 @@ destroy(_Source) -> ok.
 %%    ]
 %%
 authorize(#{acl := Acl} = Client, PubSub, Topic, _Source) ->
-    case check(Acl) of
+    case check(Client, Acl) of
         {ok, Rules} when ?IS_V2(Rules) ->
             authorize_v2(Client, PubSub, Topic, Rules);
         {ok, Rules} when ?IS_V1(Rules) ->
@@ -122,18 +122,18 @@ authorize(_Client, _PubSub, _Topic, _Source) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check(#{expire := Expire, rules := Rules}) ->
-    Now = erlang:system_time(second),
+check(Client, #{expire := Expire, rules := Rules}) ->
+    Now = now(Client),
     case Expire of
-        N when is_integer(N) andalso N > Now -> {ok, Rules};
+        N when is_integer(N) andalso N >= Now -> {ok, Rules};
         undefined -> {ok, Rules};
         _ -> {error, {matched, deny}}
     end;
 %% no expire
-check(#{rules := Rules}) ->
+check(_Client, #{rules := Rules}) ->
     {ok, Rules};
 %% no rules — no match
-check(#{}) ->
+check(_Client, #{}) ->
     {error, nomatch}.
 
 authorize_v1(Client, PubSub, Topic, AclRules) ->
@@ -165,3 +165,8 @@ get_topic_filters_v1([Key | Keys], Rules, Default) ->
 
 authorize_v2(Client, PubSub, Topic, Rules) ->
     emqx_authz_rule:matches(Client, PubSub, Topic, Rules).
+
+now(#{now_time := Now}) ->
+    erlang:convert_time_unit(Now, millisecond, second);
+now(_Client) ->
+    erlang:system_time(second).
