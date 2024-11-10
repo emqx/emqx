@@ -344,8 +344,8 @@ route(Routes, Delivery = #delivery{message = Msg}, PersistRes) ->
     TraceRouteAttrs = #{
         'route.from' => node(),
         'route.matched_result' => emqx_utils_json:encode([
-            #{node => Node, route => TF}
-         || {TF, Node} <- Routes
+            route_result({TF, RouteTo})
+         || {TF, RouteTo} <- Routes
         ])
     },
     emqx_external_trace:msg_route(
@@ -356,6 +356,11 @@ route(Routes, Delivery = #delivery{message = Msg}, PersistRes) ->
             do_route(Routes, DeliveryWithTrace, PersistRes)
         end
     ).
+
+route_result({TF, Node}) when is_atom(Node) ->
+    #{node => Node, route => TF};
+route_result({TF, Group}) ->
+    #{group => Group, route => TF}.
 
 -spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
