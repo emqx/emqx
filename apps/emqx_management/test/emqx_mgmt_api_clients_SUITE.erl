@@ -1105,7 +1105,10 @@ t_keepalive(Config) ->
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     %% will reset to max keepalive if keepalive > max keepalive
     #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
-    ?assertMatch({keepalive, _, _, _, _, 65536500}, element(5, element(9, sys:get_state(Pid)))),
+    ?assertMatch(
+        #{max_idle_millisecond := 65536500},
+        emqx_connection:info({channel, keepalive}, sys:get_state(Pid))
+    ),
 
     ?assertMatch(
         {ok, {?HTTP200, _, #{<<"keepalive">> := 11}}},
