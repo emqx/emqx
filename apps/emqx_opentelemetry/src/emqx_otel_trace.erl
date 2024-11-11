@@ -71,6 +71,7 @@
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
 -define(EMQX_OTEL_CTX, otel_ctx).
+-define(EMQX_OTEL_ATTRS, emqx_otel_attrs).
 
 %%--------------------------------------------------------------------
 %% config
@@ -101,7 +102,9 @@ start(#{traces := TracesConf, exporter := ExporterConf}) ->
         {bsp_scheduled_delay_ms, ScheduledDelay},
         {bsp_exporting_timeout_ms, ExportingTimeout},
         {bsp_max_queue_size, MaxQueueSize},
-        {traces_exporter, emqx_otel_config:otel_exporter(ExporterConf)}
+        {traces_exporter, emqx_otel_config:otel_exporter(ExporterConf)},
+        %% TODO: any sampler's options
+        {sampler, {emqx_otel_sampler, #{opt_key => opt_value}}}
     ],
     set_trace_all(TraceAll),
     ok = application:set_env([{opentelemetry, OtelEnv}]),
