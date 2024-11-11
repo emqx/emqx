@@ -21,7 +21,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("opentelemetry/include/otel_sampler.hrl").
-%% -include_lib("opentelemetry_api/include/opentelemetry.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
 -define(EMQX_OTEL_SAMPLER_RULE, emqx_otel_sampler_rule).
 
@@ -48,28 +48,6 @@
 
 %% OpenTelemetry Sampler Callback
 -export([setup/1, description/1, should_sample/7]).
-
--define(QOS1_RESPONSES_SPANS_PUBACK, [
-    ?BROKER_PUBACK_SPAN_NAME,
-    ?CLIENT_PUBACK_SPAN_NAME
-]).
-
-%% First response in QoS2
--define(QOS2_RESPONSES_SPANS_PUBREC, [
-    ?BROKER_PUBREC_SPAN_NAME,
-    ?CLIENT_PUBREC_SPAN_NAME
-]).
-
-%% Rest responses in QoS2
--define(QOS2_RESPONSES_SPANS_PUBREL, [
-    ?BROKER_PUBREL_SPAN_NAME,
-    ?CLIENT_PUBREL_SPAN_NAME
-]).
-
--define(QOS2_RESPONSES_SPANS_PUBCOMP, [
-    ?BROKER_PUBCOMP_SPAN_NAME,
-    ?CLIENT_PUBCOMP_SPAN_NAME
-]).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -162,6 +140,14 @@ setup(Opts) ->
 description(_Opts) ->
     <<"AttributeSampler">>.
 
+should_sample(Ctx, _TraceId, _Links, ?MSG_ROUTE_SPAN_NAME, _SpanKind, _Attributes, _Opts) ->
+    ParentSpanCtx = otel_tracer:current_span_ctx(Ctx),
+    case ParentSpanCtx of
+        #span_ctx{trace_flags = TraceFlags} when ?IS_SAMPLED(TraceFlags) ->
+            {?RECORD_AND_SAMPLE, [], otel_span:tracestate(ParentSpanCtx)};
+        _ ->
+            {?DROP, [], otel_span:tracestate(ParentSpanCtx)}
+    end;
 should_sample(Ctx, _TraceId, _Links, SpanName, _SpanKind, Attributes, _Opts) ->
     ?SLOG(debug, #{
         msg => "call_emqx_otel_sampler_should_sample",
@@ -201,8 +187,6 @@ match_sample(?BROKER_PUBCOMP_SPAN_NAME, Attributes) ->
 match_sample(?CLIENT_PUBCOMP_SPAN_NAME, Attributes) ->
     publish_response_should_sample(?QOS_2) andalso
         match_sample_attrs(Attributes);
-match_sample(?MSG_ROUTE_SPAN_NAME, _) ->
-    true;
 match_sample(_, Attributes) ->
     match_sample_attrs(Attributes).
 
