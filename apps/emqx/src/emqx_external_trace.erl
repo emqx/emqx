@@ -97,7 +97,7 @@
     Delivery :: emqx_types:delivery(),
     Res :: term().
 
--callback msg_deliver(
+-callback broker_publish(
     list(Deliver),
     Attrs
 ) ->
@@ -160,7 +160,7 @@ when
     msg_route/3,
     msg_forward/3,
     msg_handle_forward/3,
-    msg_deliver/2,
+    broker_publish/2,
 
     %% Start Span when Reply PACKETs generated
     %% as when `emqx_channel:handle_out/3` called.
@@ -362,17 +362,17 @@ msg_handle_forward(Delivery, InitAttrs, ProcessFun) ->
 
 %% TODO:
 %% split to:
-%% `msg_deliver/3` for end_to_end_mode
+%% `broker_publish/3` for end_to_end_mode
 %% `start_trace_send/2` and `end_trace_send/1` for legacy_mode
 
 %% @doc Start Trace message delivery to subscriber
--spec msg_deliver(
+-spec broker_publish(
     list(Deliver),
     Attrs
 ) -> list(Deliver) when
     Deliver :: emqx_types:deliver(),
     Attrs :: attrs().
-msg_deliver(DeliverOrPackets, Attrs) ->
+broker_publish(DeliverOrPackets, Attrs) ->
     ?with_provider(
         ?FUNCTION_NAME(DeliverOrPackets, Attrs),
         DeliverOrPackets

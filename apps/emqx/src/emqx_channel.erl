@@ -1100,7 +1100,7 @@ handle_deliver(
     %% we need to update stats here, as the stats_timer is canceled after disconnected
     {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
-    Delivers1 = emqx_external_trace:msg_deliver(
+    Delivers1 = emqx_external_trace:broker_publish(
         Delivers,
         basic_trace_attrs(Channel)
     ),

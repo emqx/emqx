@@ -46,7 +46,8 @@
     msg_route/3,
     msg_forward/3,
     msg_handle_forward/3,
-    msg_deliver/2,
+
+    broker_publish/2,
 
     %% Start Span when `emqx_channel:handle_out/3` called.
     %% Stop when `emqx_channel:handle_outgoing/3` returned
@@ -452,7 +453,7 @@ msg_handle_forward(Delivery, Attrs, Fun) ->
 %% NOTE:
 %% Span starts in Delivers(Msg) and stops when outgoing(Packets)
 %% Only for `PUBLISH(Qos=0|1|2)`
--spec msg_deliver(
+-spec broker_publish(
     list(Deliver),
     Attrs
 ) ->
@@ -461,7 +462,7 @@ msg_handle_forward(Delivery, Attrs, Fun) ->
 when
     Deliver :: emqx_types:deliver(),
     Attrs :: attrs().
-msg_deliver(Delivers, Attrs) ->
+broker_publish(Delivers, Attrs) ->
     lists:map(
         fun({deliver, Topic, Msg} = Deliver) ->
             case get_ctx(Msg) of
@@ -469,7 +470,7 @@ msg_deliver(Delivers, Attrs) ->
                     SpanCtx = otel_tracer:start_span(
                         Ctx,
                         ?current_tracer,
-                        ?MSG_DELIVER_SPAN_NAME,
+                        ?BROKER_PUBLISH_SPAN_NAME,
                         #{attributes => maps:merge(Attrs, emqx_external_trace:msg_attrs(Msg))}
                     ),
                     NCtx = otel_tracer:set_current_span(Ctx, SpanCtx),
@@ -532,7 +533,7 @@ start_outgoing_trace(Packet, Attrs, ParentCtx) ->
     NCtx = otel_tracer:set_current_span(ParentCtx, SpanCtx),
     _NPacketWithCtx = put_ctx(NCtx, Packet).
 
-%% Ctx attached in Delivers in `msg_deliver/2` and
+%% Ctx attached in Delivers in `broker_publish/2` and
 %% transformed to Packet when outgoing
 stop_outgoing_trace(Anys, Attrs) when is_list(Anys) ->
     lists:foreach(fun(Any) -> stop_outgoing_trace(Any, Attrs) end, Anys);
@@ -667,17 +668,17 @@ internal_extra_key(Type, PacketId) ->
 %% Broker -> Client(`Subscriber'):
 outgoing_span_name(?PACKET(?PUBREL)) ->
     %% PUBREL (QoS=2)
-    ?EMQX_PUBREL_SPAN_NAME;
+    ?BROKER_PUBREL_SPAN_NAME;
 %% Broker -> Client(`Publisher'):
 outgoing_span_name(?PACKET(?PUBACK)) ->
     %% PUBACK (QoS=1)
-    ?EMQX_PUBACK_SPAN_NAME;
+    ?BROKER_PUBACK_SPAN_NAME;
 outgoing_span_name(?PACKET(?PUBREC)) ->
     %% PUBREC (QoS=2)
-    ?EMQX_PUBREC_SPAN_NAME;
+    ?BROKER_PUBREC_SPAN_NAME;
 outgoing_span_name(?PACKET(?PUBCOMP)) ->
     %% PUBCOMP (QoS=2)
-    ?EMQX_PUBCOMP_SPAN_NAME.
+    ?BROKER_PUBCOMP_SPAN_NAME.
 
 %% Incoming Packet Span Name
 %% Client(`Publisher') -> Broker:
