@@ -10,7 +10,7 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.10.1-1
+export EMQX_DASHBOARD_VERSION ?= v1.10.2-1
 export EMQX_EE_DASHBOARD_VERSION ?= e1.8.2-1
 
 export EMQX_RELUP ?= true
