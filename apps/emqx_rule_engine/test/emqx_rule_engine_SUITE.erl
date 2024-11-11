@@ -1195,7 +1195,6 @@ delivery_dropped(Client) ->
     {ok, _, _} = emqtt:subscribe(Client, #{}, <<"t1">>, [{nl, true}, {qos, 1}]),
     ct:sleep(50),
     message_publish(Client),
-    ct:pal("--- current emqx hooks: ~p", [ets:tab2list(emqx_hooks)]),
     verify_event('delivery.dropped'),
     ok.
 message_dropped(Client) ->
