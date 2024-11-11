@@ -18,6 +18,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-export([do_setup_ssl_files/1]).
+
 %% one of the cipher suite from tlsv1.2 and tlsv1.3 each
 -define(TLS_12_CIPHER, "ECDHE-ECDSA-AES256-GCM-SHA384").
 -define(TLS_13_CIPHER, "TLS_AES_256_GCM_SHA384").
@@ -86,7 +88,7 @@ cipher_suites_no_duplication_test() ->
     ?assertEqual(length(AllCiphers), length(lists:usort(AllCiphers))).
 
 ssl_files_failure_test_() ->
-    [
+    lists:flatten([
         {"undefined_is_undefined", fun() ->
             ?assertEqual(
                 {ok, undefined},
@@ -114,122 +116,396 @@ ssl_files_failure_test_() ->
                 })
             )
         end},
-        {"invalid_file_path", fun() ->
-            ?assertMatch(
-                {error, #{
-                    pem_check := not_pem,
-                    file_path := not_file_path,
-                    which_option := <<"keyfile">>
-                }},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    keyfile => <<"abc", $\n, "123">>,
-                    certfile => test_key(),
-                    cacertfile => test_key()
-                })
-            )
-        end},
-        {"enoent_key_file", fun() ->
-            NonExistingFile = filename:join(
-                "/tmp", integer_to_list(erlang:system_time(microsecond))
-            ),
-            ?assertMatch(
-                {error, #{pem_check := enoent, file_path := _}},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    <<"keyfile">> => NonExistingFile,
-                    <<"certfile">> => test_key(),
-                    <<"cacertfile">> => test_key()
-                })
-            )
-        end},
-        {"empty_cacertfile", fun() ->
-            ?assertMatch(
-                {ok, _},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    <<"keyfile">> => test_key(),
-                    <<"certfile">> => test_key(),
-                    <<"cacertfile">> => <<"">>
-                })
-            )
-        end},
-        {"bad_pem_string", fun() ->
-            %% empty string
-            ?assertMatch(
-                {error, #{
-                    reason := pem_file_path_or_string_is_required,
-                    which_option := <<"keyfile">>
-                }},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    <<"keyfile">> => <<>>,
-                    <<"certfile">> => test_key(),
-                    <<"cacertfile">> => test_key()
-                })
-            ),
-            %% not valid unicode
-            ?assertMatch(
-                {error, #{
-                    reason := invalid_file_path_or_pem_string, which_option := <<"keyfile">>
-                }},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    <<"keyfile">> => <<255, 255>>,
-                    <<"certfile">> => test_key(),
-                    <<"cacertfile">> => test_key()
-                })
-            ),
-            ?assertMatch(
-                {error, #{
-                    reason := invalid_file_path_or_pem_string,
-                    which_option := <<"ocsp.issuer_pem">>
-                }},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    <<"keyfile">> => test_key(),
-                    <<"certfile">> => test_key(),
-                    <<"cacertfile">> => test_key(),
-                    <<"ocsp">> => #{<<"issuer_pem">> => <<255, 255>>}
-                })
-            ),
-            %% not printable
-            ?assertMatch(
-                {error, #{reason := invalid_file_path_or_pem_string}},
-                emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
-                    <<"keyfile">> => <<33, 22>>,
-                    <<"certfile">> => test_key(),
-                    <<"cacertfile">> => test_key()
-                })
-            ),
-            TmpFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
-            try
-                ok = file:write_file(TmpFile, <<"not a valid pem">>),
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
+            #{cert := Cert, cacert := Cacert} = Context,
+            {"invalid_file_path", fun() ->
                 ?assertMatch(
-                    {error, #{pem_check := not_pem}},
+                    {error, #{
+                        pem_check := not_pem,
+                        file_path := not_file_path,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        keyfile => <<"abc", $\n, "123">>,
+                        certfile => Cert,
+                        cacertfile => Cacert
+                    })
+                )
+            end}
+        end},
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
+            #{cert := Cert, cacert := Cacert} = Context,
+            {"enoent_key_file", fun() ->
+                NonExistingFile = filename:join(
+                    "/tmp", integer_to_list(erlang:system_time(microsecond))
+                ),
+                ?assertMatch(
+                    {error, #{pem_check := enoent, file_path := _}},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => NonExistingFile,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert
+                    })
+                )
+            end}
+        end},
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
+            #{mk_kit := MkKit} = Context,
+            #{key := Key, cert := Cert} =
+                MkKit(#{name => "emptycacert", password => undefined}),
+            {"empty_cacertfile", fun() ->
+                ?assertMatch(
+                    {ok, _},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => Key,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => <<"">>
+                    })
+                )
+            end}
+        end},
+        {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun(Context) ->
+            #{key := Key, cert := Cert, cacert := Cacert, password := Password} = Context,
+            {"bad_pem_string", fun() ->
+                %% empty string
+                ?assertMatch(
+                    {error, #{
+                        reason := pem_file_path_or_string_is_required,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => <<>>,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert
+                    })
+                ),
+                %% not valid unicode
+                ?assertMatch(
+                    {error, #{
+                        reason := invalid_file_path_or_pem_string, which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"keyfile">> => <<255, 255>>,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert
+                    })
+                ),
+                ?assertMatch(
+                    {error, #{
+                        reason := invalid_file_path_or_pem_string,
+                        which_option := <<"ocsp.issuer_pem">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"password">> => Password,
+                        <<"keyfile">> => Key,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert,
+                        <<"ocsp">> => #{<<"issuer_pem">> => <<255, 255>>}
+                    })
+                ),
+                %% not printable
+                ?assertMatch(
+                    {error, #{reason := invalid_file_path_or_pem_string}},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", #{
+                        <<"password">> => Password,
+                        <<"keyfile">> => <<33, 22>>,
+                        <<"certfile">> => Cert,
+                        <<"cacertfile">> => Cacert
+                    })
+                ),
+                TmpFile = filename:join("/tmp", integer_to_list(erlang:system_time(microsecond))),
+                try
+                    ok = file:write_file(TmpFile, <<"not a valid pem">>),
+                    ?assertMatch(
+                        {error, #{pem_check := not_pem}},
+                        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                            "/tmp",
+                            #{
+                                <<"password">> => Password,
+                                <<"cacertfile">> => bin(TmpFile),
+                                <<"keyfile">> => bin(TmpFile),
+                                <<"certfile">> => bin(TmpFile),
+                                <<"ocsp">> => #{<<"issuer_pem">> => bin(TmpFile)}
+                            }
+                        )
+                    )
+                after
+                    file:delete(TmpFile)
+                end
+            end}
+        end},
+        [
+            {setup, setup_ssl_files(#{key_type => KeyType}), fun cleanup_ssl_files/1,
+                fun do_test_file_validations/1}
+         || KeyType <- [ec, rsa]
+        ]
+    ]).
+
+do_test_file_validations(Context) ->
+    #{mk_kit := MkKit, password := Password} = Context,
+    [
+        {"corrupt certfile",
+            ?_test(begin
+                #{cert := Cert, certfile_path := CertfilePath} = MkKit(#{name => "corruptcert"}),
+                MangledCert = mangle(Cert),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_certfile,
+                        which_option := <<"certfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => MangledCert}
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(CertfilePath, MangledCert),
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_certfile,
+                        which_option := <<"certfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => CertfilePath}
+                    )
+                )
+            end)},
+        {"corrupt certfile (more than one certificate inside file)",
+            ?_test(begin
+                #{cert := Cert, certfile_path := CertfilePath} = MkKit(#{name => "corruptcert"}),
+                MangledCert0 = mangle(Cert),
+                MangledCert = iolist_to_binary([MangledCert0, "\n", MangledCert0]),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_certfile,
+                        which_option := <<"certfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => MangledCert}
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(CertfilePath, MangledCert),
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_certfile,
+                        which_option := <<"certfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => CertfilePath}
+                    )
+                )
+            end)},
+        {"valid certfile (more than one certificate inside file)",
+            ?_test(begin
+                #{cert := Cert0, certfile_path := CertfilePath} = MkKit(#{name => "multicert"}),
+                Cert = iolist_to_binary([Cert0, "\n", Cert0]),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {ok, #{<<"certfile">> := _}},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => Cert}
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(CertfilePath, Cert),
+                ?assertMatch(
+                    {ok, #{<<"certfile">> := _}},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"certfile">> => CertfilePath}
+                    )
+                )
+            end)},
+        {"corrupt keyfile (with correct password)",
+            ?_test(begin
+                #{key := Key, keyfile_path := KeyfilePath} = MkKit(#{name => "corruptkey"}),
+                MangledKey = mangle(Key),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
                     emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
                         "/tmp",
                         #{
-                            <<"cacertfile">> => bin(TmpFile),
-                            <<"keyfile">> => bin(TmpFile),
-                            <<"certfile">> => bin(TmpFile),
-                            <<"ocsp">> => #{<<"issuer_pem">> => bin(TmpFile)}
+                            <<"keyfile">> => MangledKey,
+                            <<"password">> => Password
+                        }
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(KeyfilePath, MangledKey),
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{
+                            <<"keyfile">> => KeyfilePath,
+                            <<"password">> => Password
                         }
                     )
                 )
-            after
-                file:delete(TmpFile)
-            end
-        end}
+            end)},
+        {"corrupt keyfile (with incorrect password)",
+            ?_test(begin
+                #{key := Key, keyfile_path := KeyfilePath} = MkKit(#{name => "corruptkey"}),
+                WrongPassword = <<"wrongpass">>,
+                MangledKey = mangle(Key),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{
+                            <<"keyfile">> => MangledKey,
+                            <<"password">> => WrongPassword
+                        }
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(KeyfilePath, MangledKey),
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{
+                            <<"keyfile">> => KeyfilePath,
+                            <<"password">> => WrongPassword
+                        }
+                    )
+                )
+            end)},
+        {"valid encrypted keyfile with incorrect password",
+            ?_test(begin
+                #{key := Key, keyfile_path := KeyfilePath} = MkKit(#{name => "corruptkey"}),
+                WrongPassword = <<"wrongpass">>,
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{
+                            <<"keyfile">> => Key,
+                            <<"password">> => WrongPassword
+                        }
+                    )
+                ),
+                %% Using filepath
+                ?assertMatch(
+                    {error, #{
+                        reason := bad_password_or_invalid_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{
+                            <<"keyfile">> => KeyfilePath,
+                            <<"password">> => WrongPassword
+                        }
+                    )
+                )
+            end)},
+        {"valid encrypted keyfile missing password",
+            ?_test(begin
+                #{key := Key, keyfile_path := KeyfilePath} = MkKit(#{name => "corruptkey"}),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := encryped_keyfile_missing_password,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"keyfile">> => Key}
+                    )
+                ),
+                %% Using filepath
+                ?assertMatch(
+                    {error, #{
+                        reason := encryped_keyfile_missing_password,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"keyfile">> => KeyfilePath}
+                    )
+                )
+            end)},
+        {"corrupt unencrypted keyfile",
+            ?_test(begin
+                #{key := Key, keyfile_path := KeyfilePath} =
+                    MkKit(#{name => "corruptplainkey", password => undefined}),
+                MangledKey = mangle(Key, 0, 10),
+                %% Using PEM contents directly
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"keyfile">> => MangledKey}
+                    )
+                ),
+                %% Using filepath
+                ok = file:write_file(KeyfilePath, MangledKey),
+                ?assertMatch(
+                    {error, #{
+                        reason := failed_to_parse_keyfile,
+                        which_option := <<"keyfile">>
+                    }},
+                    emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(
+                        "/tmp",
+                        #{<<"keyfile">> => KeyfilePath}
+                    )
+                )
+            end)}
     ].
 
 ssl_file_replace_test() ->
-    Key1 = test_key(),
-    Key2 = test_key2(),
+    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun do_test_ssl_file_replace/1}.
+do_test_ssl_file_replace(Context) ->
+    #{
+        key := Key1,
+        cert := Cert1,
+        cacert := Cacert1,
+        mk_kit := MkKit
+    } = Context,
+    #{
+        key := Key2,
+        cert := Cert2,
+        cacert := Cacert2
+    } = MkKit(#{name => "client2"}),
     SSL0 = #{
         <<"keyfile">> => Key1,
-        <<"certfile">> => Key1,
-        <<"cacertfile">> => Key1,
+        <<"certfile">> => Cert1,
+        <<"cacertfile">> => Cacert1,
         <<"ocsp">> => #{<<"issuer_pem">> => Key1}
     },
     SSL1 = #{
         <<"keyfile">> => Key2,
-        <<"certfile">> => Key2,
-        <<"cacertfile">> => Key2,
+        <<"certfile">> => Cert2,
+        <<"cacertfile">> => Cacert2,
         <<"ocsp">> => #{<<"issuer_pem">> => Key2}
     },
     Dir = filename:join(["/tmp", "ssl-test-dir2"]),
@@ -246,9 +522,15 @@ ssl_file_replace_test() ->
     ok.
 
 ssl_file_deterministic_names_test() ->
+    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun do_test_ssl_file_deterministic_names/1}.
+do_test_ssl_file_deterministic_names(Context) ->
+    #{
+        key := Key,
+        cert := Cert
+    } = Context,
     SSL0 = #{
-        <<"keyfile">> => test_key(),
-        <<"certfile">> => test_key()
+        <<"keyfile">> => Key,
+        <<"certfile">> => Cert
     },
     Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
     Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
@@ -373,26 +655,6 @@ to_server_opts_test() ->
 
 bin(X) -> iolist_to_binary(X).
 
-test_key() ->
-    <<
-        "\n"
-        "-----BEGIN EC PRIVATE KEY-----\n"
-        "MHQCAQEEICKTbbathzvD8zvgjL7qRHhW4alS0+j0Loo7WeYX9AxaoAcGBSuBBAAK\n"
-        "oUQDQgAEJBdF7MIdam5T4YF3JkEyaPKdG64TVWCHwr/plC0QzNVJ67efXwxlVGTo\n"
-        "ju0VBj6tOX1y6C0U+85VOM0UU5xqvw==\n"
-        "-----END EC PRIVATE KEY-----\n"
-    >>.
-
-test_key2() ->
-    <<
-        "\n"
-        "-----BEGIN EC PRIVATE KEY-----\n"
-        "MHQCAQEEID9UlIyAlLFw0irkRHX29N+ZGivGtDjlVJvATY3B0TTmoAcGBSuBBAAK\n"
-        "oUQDQgAEUwiarudRNAT25X11js8gE9G+q0GdsT53QJQjRtBO+rTwuCW1vhLzN0Ve\n"
-        "AbToUD4JmV9m/XwcSVH06ZaWqNuC5w==\n"
-        "-----END EC PRIVATE KEY-----\n"
-    >>.
-
 test_name_hash_cacert() ->
     <<
         "-----BEGIN CERTIFICATE-----\n"
@@ -470,3 +732,84 @@ test_name_hash_key() ->
         "RFY7JjluKcVkp/zCDeUxTU3O6sS+v6/3VE11Cob6OYQx3lN5wrZ3\n"
         "-----END RSA PRIVATE KEY-----\n"
     >>.
+
+setup_ssl_files() ->
+    DefaultOpts = #{key_type => ec},
+    setup_ssl_files(DefaultOpts).
+
+setup_ssl_files(Opts) ->
+    fun() -> do_setup_ssl_files(Opts) end.
+
+do_setup_ssl_files(InOpts) ->
+    DefaultKeyType = maps:get(key_type, InOpts),
+    BaseTmpDir = maps:get(base_tmp_dir, InOpts, "/tmp"),
+    Dir = mktemp_dir(BaseTmpDir),
+    DefaultPassword = maps:get(password, InOpts, <<"foobar">>),
+    emqx_test_tls_certs_helper:gen_ca(Dir, "root", InOpts),
+    MkKit = fun(Opts) ->
+        #{name := Name} = Opts,
+        Password = maps:get(password, Opts, DefaultPassword),
+        KeyType = maps:get(key_type, Opts, DefaultKeyType),
+        IntermediateName = "intermediate-" ++ Name,
+        GenOpts = #{key_type => KeyType, password => Password},
+        %% No password for intermediate key cert
+        emqx_test_tls_certs_helper:gen_host_cert(IntermediateName, "root", Dir, GenOpts#{
+            password => undefined
+        }),
+        emqx_test_tls_certs_helper:gen_host_cert(Name, IntermediateName, Dir, GenOpts),
+        KeyfilePath = filename:join(Dir, Name ++ ".key"),
+        CertfilePath = filename:join(Dir, Name ++ ".pem"),
+        CacertfilePath = filename:join(Dir, IntermediateName ++ ".pem"),
+        {ok, Key} = file:read_file(KeyfilePath),
+        {ok, Cert} = file:read_file(CertfilePath),
+        {ok, Cacert} = file:read_file(CacertfilePath),
+        #{
+            key => Key,
+            keyfile_path => KeyfilePath,
+            cert => Cert,
+            certfile_path => CertfilePath,
+            cacert => Cacert,
+            cacertfile_path => CacertfilePath
+        }
+    end,
+    #{
+        key := Key,
+        keyfile_path := KeyfilePath,
+        cert := Cert,
+        certfile_path := CertfilePath,
+        cacert := Cacert,
+        cacertfile_path := CacertfilePath
+    } = MkKit(#{name => "client"}),
+    #{
+        cacertfile_path => CacertfilePath,
+        certfile_path => CertfilePath,
+        keyfile_path => KeyfilePath,
+        key => Key,
+        cert => Cert,
+        cacert => Cacert,
+        password => DefaultPassword,
+        mk_kit => MkKit,
+        temp_dir => Dir
+    }.
+
+cleanup_ssl_files(#{temp_dir := Dir}) ->
+    file:del_dir_r(Dir).
+
+mktemp_dir() ->
+    mktemp_dir(_BaseDir = "/tmp").
+
+mktemp_dir(BaseDir) ->
+    Dir = os:cmd("mktemp -dp " ++ BaseDir ++ " emqx_tls_lib_tests.XXXXXXXXXXX"),
+    string:trim(Dir).
+
+mangle(PEM) ->
+    mangle(PEM, 10, 5).
+
+mangle(PEM, Pos, Len) ->
+    [{Type, DER, CryptoInfo}] = public_key:pem_decode(PEM),
+    CorruptDER = iolist_to_binary([
+        binary:part(DER, 0, Pos),
+        binary:copy(<<255>>, Len),
+        binary:part(DER, Pos + Len, byte_size(DER) - Pos - Len)
+    ]),
+    public_key:pem_encode([{Type, CorruptDER, CryptoInfo}]).
