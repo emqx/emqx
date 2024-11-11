@@ -71,9 +71,10 @@ init_per_testcase(TC, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
-    [{tc_apps, Apps} | Config].
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
-end_per_testcase(_, Config) ->
+end_per_testcase(TC, Config) ->
+    _ = emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 emqx_conf(t_cluster_name) ->
@@ -85,11 +86,13 @@ emqx_conf(_) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_access_failed_if_no_server_running(Config) ->
-    meck:expect(emqx_metrics_worker, inc, fun(_, _, _) -> ok end),
-    meck:expect(emqx_metrics, inc, fun(_) -> ok end),
-    emqx_hooks:add('client.authorize', {emqx_authz, authorize, [[]]}, ?HP_AUTHZ),
+t_access_failed_if_no_server_running('init', Config) ->
+    ok = emqx_hooks:add('client.authorize', {emqx_authz, authorize, [[]]}, ?HP_AUTHZ),
+    Config;
+t_access_failed_if_no_server_running('end', _Config) ->
+    emqx_hooks:del('client.authorize', {emqx_authz, authorize}).
 
+t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
@@ -136,7 +139,6 @@ t_access_failed_if_no_server_running(Config) ->
         emqx_exhook_handler:on_message_publish(Message)
     ),
     emqx_exhook_mgr:enable(<<"default">>),
-    emqx_hooks:del('client.authorize', {emqx_authz, authorize}),
     assert_get_basic_usage_info(Config).
 
 t_lookup(_) ->
@@ -309,9 +311,17 @@ t_cluster_name(_) ->
     ),
     emqx_exhook_mgr:disable(<<"default">>).
 
+t_stop_timeout('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    ok = meck:new(emqx_exhook_demo_svr, [passthrough, no_history]),
+    Config;
+t_stop_timeout('end', _Config) ->
+    %% ensure started for other tests
+    {ok, _} = application:ensure_all_started(emqx_exhook),
+    ok = snabbkaffe:stop(),
+    ok = meck:unload(emqx_exhook_demo_svr).
+
 t_stop_timeout(_) ->
-    snabbkaffe:start_trace(),
-    meck:new(emqx_exhook_demo_svr, [passthrough, no_history]),
     meck:expect(
         emqx_exhook_demo_svr,
         on_provider_unloaded,
@@ -327,21 +337,14 @@ t_stop_timeout(_) ->
     ?block_until(#{?snk_kind := exhook_mgr_terminated}, 20000),
 
     %% all exhook hooked point should be unloaded
-    Mods = lists:flatten(
-        lists:map(
-            fun({hook, _, Cbs}) ->
-                lists:map(fun({callback, {M, _, _}, _, _}) -> M end, Cbs)
-            end,
-            ets:tab2list(emqx_hooks)
-        )
+    Hooks = lists:flatmap(
+        fun emqx_hooks:lookup/1,
+        maps:keys(emqx_hookpoints:registered_hookpoints())
     ),
-    ?assertEqual(false, lists:any(fun(M) -> M == emqx_exhook_handler end, Mods)),
-
-    %% ensure started for other tests
-    {ok, _} = application:ensure_all_started(emqx_exhook),
-
-    snabbkaffe:stop(),
-    meck:unload(emqx_exhook_demo_svr).
+    ?assertEqual(
+        [],
+        [H || H = {callback, {emqx_exhook_handler, _, _}, _, _} <- Hooks]
+    ).
 
 t_ssl_clear(_) ->
     SvrName = <<"ssl_test">>,
@@ -431,31 +434,6 @@ assert_get_basic_usage_info(_Config) ->
 %%--------------------------------------------------------------------
 %% Utils
 %%--------------------------------------------------------------------
-
-meck_print() ->
-    meck:new(emqx_ctl, [passthrough, no_history, no_link]),
-    meck:expect(emqx_ctl, print, fun(_) -> ok end),
-    meck:expect(emqx_ctl, print, fun(_, Args) -> Args end).
-
-unmeck_print() ->
-    meck:unload(emqx_ctl).
-
-loaded_exhook_hookpoints() ->
-    lists:filtermap(
-        fun(E) ->
-            Name = element(2, E),
-            Callbacks = element(3, E),
-            case lists:any(fun is_exhook_callback/1, Callbacks) of
-                true -> {true, Name};
-                _ -> false
-            end
-        end,
-        ets:tab2list(emqx_hooks)
-    ).
-
-is_exhook_callback(Cb) ->
-    Action = element(2, Cb),
-    emqx_exhook_handler == element(1, Action).
 
 list_pem_dir(Name) ->
     Dir = filename:join([emqx:mutable_certs_dir(), "exhook", Name]),
