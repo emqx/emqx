@@ -72,7 +72,7 @@
 ]).
 
 %% Internal callback
--export([wakeup_from_hib/2, recvloop/2, get_state/1]).
+-export([wakeup_from_hib/2, recvloop/2]).
 
 %% Export for CT
 -export([set_field/3]).
@@ -232,6 +232,12 @@ info(limiter, #state{limiter = Limiter}) ->
     Limiter;
 info(limiter_timer, #state{limiter_timer = Timer}) ->
     Timer;
+info(transport, #state{transport = Transport}) ->
+    Transport;
+info(socket, #state{socket = Socket}) ->
+    Socket;
+info(channel, #state{channel = Channel}) ->
+    Channel;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -1271,23 +1277,6 @@ graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = 
     Transport:shutdown(Socket, read_write),
     S#state{sockstate = closed}.
 
-%%--------------------------------------------------------------------
-%% For CT tests
-%%--------------------------------------------------------------------
-
-set_field(Name, Value, State) ->
-    Pos = emqx_utils:index_of(Name, record_info(fields, state)),
-    setelement(Pos + 1, State, Value).
-
-get_state(Pid) ->
-    State = sys:get_state(Pid),
-    maps:from_list(
-        lists:zip(
-            record_info(fields, state),
-            tl(tuple_to_list(State))
-        )
-    ).
-
 -compile({inline, [get_active_n/1, get_active_n/2]}).
 get_active_n(#ctx{listener = {Type, Listener}}) ->
     get_active_n(Type, Listener).
@@ -1296,3 +1285,11 @@ get_active_n(quic, _Listener) ->
     ?ACTIVE_N;
 get_active_n(Type, Listener) ->
     emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).
+
+%%--------------------------------------------------------------------
+%% For CT tests
+%%--------------------------------------------------------------------
+
+set_field(Name, Value, State) ->
+    Pos = emqx_utils:index_of(Name, record_info(fields, state)),
+    setelement(Pos + 1, State, Value).

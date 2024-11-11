@@ -1467,7 +1467,7 @@ try_get_live_session(ClientId) ->
     case emqx_cm:lookup_channels(local, ClientId) of
         [Pid] ->
             try
-                #{channel := ChanState} = emqx_connection:get_state(Pid),
+                ChanState = emqx_connection:info(channel, sys:get_state(Pid)),
                 case emqx_channel:info(impl, ChanState) of
                     ?MODULE ->
                         {Pid, emqx_channel:info(session_state, ChanState)};
