@@ -844,7 +844,13 @@ get_attrs(#mqtt_packet{
     ).
 
 clear() ->
-    otel_ctx:clear().
+    otel_ctx:clear(),
+    case logger:get_process_metadata() of
+        M when is_map(M) ->
+            logger:set_process_metadata(maps:without(otel_span:hex_span_ctx_keys(), M));
+        _ ->
+            ok
+    end.
 
 safe_stop_default_tracer() ->
     try
