@@ -394,7 +394,6 @@ do_route2({To, Node}, Delivery) when Node =:= node() ->
 do_route2({To, Node}, Delivery) when is_atom(Node) ->
     {Node, To, forward(Node, To, Delivery, emqx:get_config([rpc, mode]))};
 do_route2({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
-    %% TODO: trace shared-sub dispatch
     {share, To, emqx_shared_sub:dispatch(Group, To, Delivery)}.
 
 aggre([]) ->
