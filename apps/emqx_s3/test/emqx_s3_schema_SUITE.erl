@@ -27,9 +27,7 @@ t_minimal_config(_Config) ->
             transport_options :=
                 #{
                     connect_timeout := 15000,
-                    enable_pipelining := 100,
                     pool_size := 8,
-                    pool_type := random,
                     ssl := #{enable := false}
                 }
         },
@@ -53,7 +51,6 @@ t_full_config(_Config) ->
             transport_options :=
                 #{
                     connect_timeout := 30000,
-                    enable_pipelining := 200,
                     headers := #{<<"x-amz-acl">> := <<"public-read">>},
                     max_retries := 3,
                     pool_size := 10,
@@ -85,7 +82,6 @@ t_full_config(_Config) ->
             <<"acl">> => <<"public_read">>,
             <<"transport_options">> => #{
                 <<"connect_timeout">> => <<"30s">>,
-                <<"enable_pipelining">> => 200,
                 <<"pool_size">> => 10,
                 <<"pool_type">> => <<"random">>,
                 <<"ssl">> => #{
