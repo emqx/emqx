@@ -23,6 +23,7 @@ t_minimal_config(_Config) ->
             bucket := "bucket",
             host := "s3.us-east-1.endpoint.com",
             port := 443,
+            access_method := path,
             min_part_size := 5242880,
             transport_options :=
                 #{
@@ -47,6 +48,7 @@ t_full_config(_Config) ->
             host := "s3.us-east-1.endpoint.com",
             min_part_size := 10485760,
             port := 443,
+            access_method := vhost,
             secret_access_key := Secret,
             transport_options :=
                 #{
@@ -78,6 +80,7 @@ t_full_config(_Config) ->
             <<"bucket">> => <<"bucket">>,
             <<"host">> => <<"s3.us-east-1.endpoint.com">>,
             <<"port">> => 443,
+            <<"access_method">> => <<"vhost">>,
             <<"min_part_size">> => <<"10mb">>,
             <<"acl">> => <<"public_read">>,
             <<"transport_options">> => #{

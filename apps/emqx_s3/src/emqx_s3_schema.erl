@@ -62,6 +62,14 @@ fields(s3_client) ->
                     required => true
                 }
             )},
+        {access_method,
+            mk(
+                hoconsc:enum([path, vhost]),
+                #{
+                    default => path,
+                    desc => ?DESC("bucket_access_method")
+                }
+            )},
         {transport_options,
             mk(
                 ref(?MODULE, transport_options),
