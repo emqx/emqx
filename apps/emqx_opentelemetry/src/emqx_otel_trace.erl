@@ -95,8 +95,8 @@ start(#{traces := TracesConf, exporter := ExporterConf}) ->
     #{
         max_queue_size := MaxQueueSize,
         exporting_timeout := ExportingTimeout,
-        scheduled_delay := ScheduledDelay,
-        filter := #{trace_all := TraceAll}
+        scheduled_delay := ScheduledDelay
+        %% filter := Filter
     } = TracesConf,
     OtelEnv = [
         {bsp_scheduled_delay_ms, ScheduledDelay},
@@ -106,7 +106,7 @@ start(#{traces := TracesConf, exporter := ExporterConf}) ->
         %% TODO: any sampler's options
         {sampler, {emqx_otel_sampler, #{opt_key => opt_value}}}
     ],
-    set_trace_all(TraceAll),
+    %% set_e2e_trace_sampler
     ok = application:set_env([{opentelemetry, OtelEnv}]),
     Res = assert_started(opentelemetry:start_default_tracer_provider()),
     case Res of
@@ -893,6 +893,3 @@ assert_started({ok, _Pid}) -> ok;
 assert_started({ok, _Pid, _Info}) -> ok;
 assert_started({error, {already_started, _Pid}}) -> ok;
 assert_started({error, Reason}) -> {error, Reason}.
-
-set_trace_all(TraceAll) ->
-    persistent_term:put({?MODULE, trace_all}, TraceAll).

@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_otel_schema).
 
+-include("emqx_otel_trace.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -219,7 +220,17 @@ fields("otel_exporter") ->
 fields("trace_filter") ->
     %% More filters can be implemented in future, e.g. topic, clientid
     [
+        {trace_mode,
+            ?HOCON(
+                ?ENUM([legacy, e2e]),
+                #{
+                    default => legacy,
+                    desc => ?DESC(trace_mode),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
         {trace_all,
+            %% Only takes effect when trace_mode set to `legacy`
             ?HOCON(
                 boolean(),
                 #{
@@ -227,16 +238,113 @@ fields("trace_filter") ->
                     desc => ?DESC(trace_all),
                     importance => ?IMPORTANCE_MEDIUM
                 }
+            )},
+        {e2e_tracing_options,
+            ?HOCON(
+                %% Only takes effect when trace_mode set to `e2e`
+                ?R_REF("e2e_tracing_options"),
+                #{
+                    desc => ?DESC(e2e_tracing_options),
+                    default => #{},
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ];
+fields("e2e_tracing_options") ->
+    [
+        {attribute_meta,
+            ?HOCON(
+                string(),
+                #{
+                    default => emqxcl,
+                    desc => ?DESC(e2e_attribute_meta),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {publish_response_trace_level,
+            ?HOCON(
+                emqx_schema:qos(),
+                #{
+                    default => 0,
+                    desc => ?DESC(publish_response_trace_level),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {samplers,
+            ?HOCON(
+                ?R_REF("e2e_samplers"),
+                #{
+                    desc => ?DESC(e2e_samplers),
+                    default => #{},
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ];
+fields("e2e_samplers") ->
+    [
+        {whitelist_based_sampler,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(whitelist_based_sampler),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {event_based_samplers,
+            ?HOCON(
+                ?ARRAY(?R_REF("event_based_samplers")),
+                #{
+                    default => [],
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ];
+fields("event_based_samplers") ->
+    [
+        {name,
+            ?HOCON(
+                ?ENUM(root_span_names()),
+                #{
+                    required => ture,
+                    desc => ?DESC(event_type),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {ratio,
+            ?HOCON(
+                emqx_schema:percent(),
+                #{
+                    default => <<"10%">>,
+                    desc => ?DESC(ratio),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
             )}
     ].
 
-desc("opentelemetry") -> ?DESC(opentelemetry);
-desc("otel_exporter") -> ?DESC(otel_exporter);
-desc("otel_logs") -> ?DESC(otel_logs);
-desc("otel_metrics") -> ?DESC(otel_metrics);
-desc("otel_traces") -> ?DESC(otel_traces);
-desc("trace_filter") -> ?DESC(trace_filter);
-desc(_) -> undefined.
+desc("opentelemetry") ->
+    ?DESC(opentelemetry);
+desc("otel_exporter") ->
+    ?DESC(otel_exporter);
+desc("otel_logs") ->
+    ?DESC(otel_logs);
+desc("otel_metrics") ->
+    ?DESC(otel_metrics);
+desc("otel_traces") ->
+    ?DESC(otel_traces);
+desc("trace_filter") ->
+    ?DESC(trace_filter);
+desc(_) ->
+    undefined.
+
+root_span_names() ->
+    [
+        ?CLIENT_CONNECT_SPAN_NAME,
+        ?CLIENT_DISCONNECT_SPAN_NAME,
+        ?CLIENT_SUBSCRIBE_SPAN_NAME,
+        ?CLIENT_UNSUBSCRIBE_SPAN_NAME,
+        ?CLIENT_PUBLISH_SPAN_NAME
+    ].
 
 %% Compatibility with the previous schema that defined only metrics fields
 legacy_metrics_converter(OtelConf, _Opts) when is_map(OtelConf) ->

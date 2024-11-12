@@ -19,7 +19,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--define(OPTL, [opentelemetry]).
+-define(OTEL, [opentelemetry]).
 -define(CERTS_PATH, filename:join(["opentelemetry", "exporter"])).
 
 -define(OTEL_EXPORTER, opentelemetry_exporter).
@@ -35,7 +35,7 @@
 update(Config) ->
     case
         emqx_conf:update(
-            ?OPTL,
+            ?OTEL,
             Config,
             #{rawconf_with_defaults => true, override_to => cluster}
         )
@@ -47,21 +47,21 @@ update(Config) ->
     end.
 
 add_handler() ->
-    ok = emqx_config_handler:add_handler(?OPTL, ?MODULE),
+    ok = emqx_config_handler:add_handler(?OTEL, ?MODULE),
     ok.
 
 remove_handler() ->
-    ok = emqx_config_handler:remove_handler(?OPTL),
+    ok = emqx_config_handler:remove_handler(?OTEL),
     ok.
 
-pre_config_update(?OPTL, RawConf, RawConf) ->
+pre_config_update(?OTEL, RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update(?OPTL, NewRawConf, _RawConf) ->
+pre_config_update(?OTEL, NewRawConf, _RawConf) ->
     {ok, convert_certs(NewRawConf)}.
 
-post_config_update(?OPTL, _Req, Old, Old, _AppEnvs) ->
+post_config_update(?OTEL, _Req, Old, Old, _AppEnvs) ->
     ok;
-post_config_update(?OPTL, _Req, New, Old, AppEnvs) ->
+post_config_update(?OTEL, _Req, New, Old, AppEnvs) ->
     application:set_env(AppEnvs),
     MetricsRes = ensure_otel_metrics(New, Old),
     LogsRes = ensure_otel_logs(New, Old),
@@ -74,7 +74,7 @@ post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 add_otel_log_handler() ->
-    ensure_otel_logs(emqx:get_config(?OPTL), #{}).
+    ensure_otel_logs(emqx:get_config(?OTEL), #{}).
 
 remove_otel_log_handler() ->
     remove_handler_if_present(?OTEL_LOG_HANDLER_ID).

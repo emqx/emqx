@@ -49,8 +49,58 @@ trace_filter.label: "Trace Filter"
 
 trace_all.desc:
 """If enabled, all published messages are traced, a new trace ID is generated if it can't be extracted from the message.
-Otherwise, only messages published with trace context are traced. Disabled by default."""
+Otherwise, only messages published with trace context are traced. <br/>
+Disabled by default.<br/>
+Note: this config only takes effect when <code>trace_mode</code> is set to <code>legacy</code>."""
 trace_all.label: "Trace All"
 
+trace_mode.desc:
+"""Opentelemetry tracing mode.<br/>
+- `legacy`: follow the old tracing method, only trace message publishing and delivery.<br/>
+  Span Name will remain compatible with the old version.
+- `e2e`: end-to-end tracing mode. All kinds of client behaviors will be traced:<br/>
+  Connection/Disconnection/Subscription/Unsubscription/Message Publishing/Message delivery.<br/>
+  More control options and sampling functions are controlled by the `e2e_tracing_options` sub-configuration item<br/>"""
+trace_mode.label: "Trace Mode"
+
+e2e_tracing_options.desc: "End-to-end tracing options"
+e2e_tracing_options.label: "End-to-End Tracing Options"
+
+e2e_attribute_meta.desc:
+"""Simple attribute meta value added into Span's Attributes.</br/>
+Typically set a simple and easily recognizable name or use the cluster name to identify different EMQX clusters."""
+e2e_attribute_meta.label: "Attribute Meta Value"
+
+publish_response_trace_level.desc:
+"""Trace level for all message exchanges during the message publishing process.<br/>
+Note: this config only takes effect when <code>sample</code> is set to <code>false</code>.
+- `0`: Only `PUBLISH` packets are sampled for all QoS level (both QoS0, QoS1, QoS2).
+- `1`: In addition to `PUBLISH` packets for all QoS. PUBACK and PUBREC are also sampled.
+   That is, the first response packet in the QoS1 or QoS2 message interaction.
+- `2`: Both `PUBLISH` packets and all response packets `PUBACK`, `PUBREC`, `PUBREL`, `PUBCOMP` will be sampled."""
+publish_response_trace_level.label: "Publish Trace Level"
+
+e2e_samplers.desc: """End-to-end Tracing Samplers."""
+e2e_samplers.label: "Samplers"
+
+whitelist_based_sampler.desc:
+"""Whitelist-based Sampler. All Root Spans matched the whitelist will be sampled."""
+whitelist_based_samplers.label: "Whitelist Based Sampler"
+
+event_based_samplers.desc:
+"""Event-based Samplers. The Spans that not matched the whitelist will be sampled based on the event type and the ratio setting."""
+event_based_samplers.label: "Event Based Samplers"
+
+event_type.desc:
+"""Tracing event type.<br/>
+- `"client.connect"`: Trace client Connect.<br/>
+- `"client.disconnect"`: Trace client Disconnect.<br/>
+- `"client.subscribe"`: Trace client Subscribe.<br/>
+- `"client.unsubscribe"`: Trace client Unsubscribe.<br/>
+- `"client.publish"`: Trace Client publishing messages. The message-delivering to subscribers will also be sampled as a part of the message publishing process."""
+event_type.label: "Event Type"
+
+ratio.desc: "Sampling ratio for the event type."
+ratio.label: "Event based Sampling Ratio"
 
 }
