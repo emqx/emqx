@@ -52,16 +52,16 @@
 ]).
 
 -define(log_agent_msg(ToLeader, Msg),
-    ?tp(debug, shared_sub_proto_msg, #{
+    ?tp(warning, 'agent->leader', #{
         to_leader => ToLeader,
-        msg => emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)
+        proto_msg => emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)
     })
 ).
 
 -define(log_leader_msg(ToAgent, Msg),
-    ?tp(debug, shared_sub_proto_msg, #{
+    ?tp(warning, 'leader->agent', #{
         to_agent => ToAgent,
-        msg => emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)
+        proto_msg => emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)
     })
 ).
 

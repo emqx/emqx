@@ -15,9 +15,7 @@
     on_unsubscribe/3,
     on_stream_progress/2,
     on_info/2,
-    on_disconnect/2,
-
-    renew_streams/1
+    on_disconnect/2
 ]).
 
 -behaviour(emqx_persistent_session_ds_shared_subs_agent).
@@ -44,11 +42,8 @@ on_unsubscribe(Agent, _TopicFilter, _Progresses) ->
 on_disconnect(Agent, _) ->
     Agent.
 
-renew_streams(Agent) ->
-    {[], Agent}.
-
 on_stream_progress(Agent, _StreamProgress) ->
     Agent.
 
 on_info(Agent, _Info) ->
-    Agent.
+    {[], Agent}.

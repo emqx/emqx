@@ -40,6 +40,7 @@
 }.
 
 -type stream_lease_event() :: stream_lease() | stream_revoke().
+-type event() :: stream_lease_event().
 
 -type stream_progress() :: #{
     share_topic_filter := share_topic_filter(),
@@ -53,6 +54,7 @@
     subscription/0,
     session_id/0,
     stream_lease_event/0,
+    event/0,
     opts/0
 ]).
 
@@ -65,9 +67,7 @@
     on_unsubscribe/3,
     on_stream_progress/2,
     on_info/2,
-    on_disconnect/2,
-
-    renew_streams/1
+    on_disconnect/2
 ]).
 
 -export([
@@ -85,9 +85,8 @@
 -callback on_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> t().
 -callback on_unsubscribe(t(), share_topic_filter(), [stream_progress()]) -> t().
 -callback on_disconnect(t(), [stream_progress()]) -> t().
--callback renew_streams(t()) -> {[stream_lease_event()], t()}.
 -callback on_stream_progress(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
--callback on_info(t(), term()) -> t().
+-callback on_info(t(), term()) -> {[event()], t()}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -117,15 +116,11 @@ on_unsubscribe(Agent, ShareTopicFilter, StreamProgresses) ->
 on_disconnect(Agent, StreamProgresses) ->
     ?shared_subs_agent:on_disconnect(Agent, StreamProgresses).
 
--spec renew_streams(t()) -> {[stream_lease_event()], t()}.
-renew_streams(Agent) ->
-    ?shared_subs_agent:renew_streams(Agent).
-
 -spec on_stream_progress(t(), #{share_topic_filter() => [stream_progress()]}) -> t().
 on_stream_progress(Agent, StreamProgress) ->
     ?shared_subs_agent:on_stream_progress(Agent, StreamProgress).
 
--spec on_info(t(), term()) -> t().
+-spec on_info(t(), term()) -> {[event()], t()}.
 on_info(Agent, Info) ->
     ?shared_subs_agent:on_info(Agent, Info).
 

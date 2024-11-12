@@ -354,35 +354,35 @@ on_seqno_release(?QOS_1, SnQ1, S, SchedS0 = #s{bq1 = PrimaryTab0, bq2 = Secondar
     case check_block_status(PrimaryTab0, SecondaryTab, SnQ1, #block.last_seqno_qos2) of
         false ->
             %% This seqno doesn't unlock anything:
-            SchedS0;
+            {[], SchedS0};
         {false, Key, PrimaryTab} ->
             %% It was BQ1:
             Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
-            to_RU(Key, Srs, SchedS0#s{bq1 = PrimaryTab});
+            {[Key], to_RU(Key, Srs, SchedS0#s{bq1 = PrimaryTab})};
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
             ?tp(sessds_stream_state_trans, #{
                 key => Key,
                 to => bq2
             }),
-            SchedS0#s{bq1 = PrimaryTab}
+            {[], SchedS0#s{bq1 = PrimaryTab}}
     end;
 on_seqno_release(?QOS_2, SnQ2, S, SchedS0 = #s{bq2 = PrimaryTab0, bq1 = SecondaryTab}) ->
     case check_block_status(PrimaryTab0, SecondaryTab, SnQ2, #block.last_seqno_qos1) of
         false ->
             %% This seqno doesn't unlock anything:
-            SchedS0;
+            {[], SchedS0};
         {false, Key, PrimaryTab} ->
             %% It was BQ2:
             Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
-            to_RU(Key, Srs, SchedS0#s{bq2 = PrimaryTab});
+            {[Key], to_RU(Key, Srs, SchedS0#s{bq2 = PrimaryTab})};
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
             ?tp(sessds_stream_state_trans, #{
                 key => Key,
                 to => bq1
             }),
-            SchedS0#s{bq2 = PrimaryTab}
+            {[Key], SchedS0#s{bq2 = PrimaryTab}}
     end.
 
 check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
