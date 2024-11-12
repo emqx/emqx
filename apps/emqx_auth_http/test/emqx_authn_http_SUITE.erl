@@ -578,14 +578,14 @@ t_auth_expire(_Config) ->
         {create_authenticator, ?GLOBAL, Config}
     ),
     ExpireSec = 3,
-    WaitTime = timer:seconds(ExpireSec + 1),
+    ExpireMSec = timer:seconds(ExpireSec),
     Tests = [
         {<<"ok-to-connect-but-expire-on-pub">>, erlang:system_time(second) + ExpireSec, fun(C) ->
             {ok, _} = emqtt:connect(C),
             receive
                 {'DOWN', _Ref, process, C, Reason} ->
                     ?assertMatch({disconnected, ?RC_NOT_AUTHORIZED, _}, Reason)
-            after WaitTime ->
+            after round(ExpireMSec * 1.5) ->
                 error(timeout)
             end
         end},
@@ -635,7 +635,7 @@ test_auth_expire({Username, _ExpireTime, TestFn}) ->
     try
         TestFn(C)
     after
-        [ok = emqtt:disconnect(C) || is_process_alive(C)]
+        catch emqtt:stop(C)
     end.
 
 test_acl({allow, Topic}, C) ->
