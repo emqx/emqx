@@ -123,11 +123,11 @@ t_checkout_no_profile(_Config) ->
     ).
 
 t_httpc_pool_start_error(Config) ->
-    %% `ehhtpc_pool`s are lazy so it is difficult to trigger an error
+    %% `hackney_pool`s are lazy so it is difficult to trigger an error
     %% passing some bad connection options.
     %% So we emulate some unknown crash with `meck`.
-    meck:new(ehttpc_pool, [passthrough]),
-    meck:expect(ehttpc_pool, init, fun(_) -> meck:raise(error, badarg) end),
+    meck:new(hackney_pool, [passthrough]),
+    meck:expect(hackney_pool, init, fun(_) -> meck:raise(error, badarg) end),
 
     ?assertMatch(
         {error, _},
@@ -135,11 +135,11 @@ t_httpc_pool_start_error(Config) ->
     ).
 
 t_httpc_pool_update_error(Config) ->
-    %% `ehhtpc_pool`s are lazy so it is difficult to trigger an error
+    %% `hackney_pool`s are lazy so it is difficult to trigger an error
     %% passing some bad connection options.
     %% So we emulate some unknown crash with `meck`.
-    meck:new(ehttpc_pool, [passthrough]),
-    meck:expect(ehttpc_pool, init, fun(_) -> meck:raise(error, badarg) end),
+    meck:new(hackney_pool, [passthrough]),
+    meck:expect(hackney_pool, init, fun(_) -> meck:raise(error, badarg) end),
 
     ProfileBaseConfig = ?config(profile_config, Config),
     NewProfileConfig = emqx_utils_maps:deep_put(
@@ -175,7 +175,7 @@ t_orphaned_pools_cleanup_non_graceful(_Config) ->
 
     %% We stop pool, conf server should not fail when attempting to stop it once more
     [PoolName] = emqx_s3_profile_http_pools:all(ProfileId),
-    ok = ehttpc_pool:stop_pool(PoolName),
+    ok = emqx_s3_client_http:stop_pool(PoolName),
 
     %% We kill conf and wait for it to restart
     %% and create a new pool

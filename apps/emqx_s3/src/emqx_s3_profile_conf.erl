@@ -39,8 +39,7 @@
 
 %% For connectors
 -export([
-    client_config/2,
-    http_config/1
+    client_config/2
 ]).
 
 %% For test purposes
@@ -214,14 +213,13 @@ client_config(ProfileConfig, PoolName) ->
         scheme => scheme(HTTPOpts),
         host => maps:get(host, ProfileConfig),
         port => maps:get(port, ProfileConfig),
+        access_method => maps:get(access_method, ProfileConfig, path),
         url_expire_time => maps:get(url_expire_time, ProfileConfig),
         headers => maps:get(headers, HTTPOpts, #{}),
         access_key_id => maps:get(access_key_id, ProfileConfig, undefined),
         secret_access_key => maps:get(secret_access_key, ProfileConfig, undefined),
-        request_timeout => maps:get(request_timeout, HTTPOpts, undefined),
-        max_retries => maps:get(max_retries, HTTPOpts, undefined),
-        pool_type => maps:get(pool_type, HTTPOpts, random),
-        http_pool => PoolName
+        http_client => emqx_s3_client_http:new(PoolName, ProfileConfig),
+        max_retries => maps:get(max_retries, HTTPOpts, undefined)
     }.
 
 uploader_config(#{max_part_size := MaxPartSize, min_part_size := MinPartSize} = _ProfileConfig) ->
@@ -240,9 +238,8 @@ scheme(#{ssl := #{enable := true}}) -> "https://";
 scheme(_TransportOpts) -> "http://".
 
 start_http_pool(ProfileId, ProfileConfig) ->
-    HttpConfig = http_config(ProfileConfig),
     PoolName = pool_name(ProfileId),
-    case do_start_http_pool(PoolName, HttpConfig) of
+    case emqx_s3_client_http:start_pool(PoolName, ProfileConfig) of
         ok ->
             ok = emqx_s3_profile_http_pools:register(ProfileId, PoolName),
             ok = ?tp(debug, "s3_start_http_pool", #{pool_name => PoolName, profile_id => ProfileId}),
@@ -251,15 +248,19 @@ start_http_pool(ProfileId, ProfileConfig) ->
             Error
     end.
 
-update_http_pool(ProfileId, ProfileConfig, #{pool_name := OldPoolName} = State) ->
-    HttpConfig = http_config(ProfileConfig),
-    OldHttpConfig = old_http_config(State),
+update_http_pool(
+    ProfileId,
+    ProfileConfig,
+    #{pool_name := OldPoolName, profile_config := OldProfileConfig} = State
+) ->
+    HttpConfig = emqx_s3_client_http:pool_config(ProfileConfig),
+    OldHttpConfig = emqx_s3_client_http:pool_config(OldProfileConfig),
     case OldHttpConfig =:= HttpConfig of
         true ->
             {ok, OldPoolName};
         false ->
             PoolName = pool_name(ProfileId),
-            case do_start_http_pool(PoolName, HttpConfig) of
+            case emqx_s3_client_http:start_pool(PoolName, ProfileConfig) of
                 ok ->
                     ok = set_old_pool_outdated(State),
                     ok = emqx_s3_profile_http_pools:register(ProfileId, PoolName),
@@ -278,10 +279,9 @@ pool_name(ProfileId) ->
         <<"-">>,
         integer_to_binary(erlang:unique_integer([positive]))
     ]).
+
 profile_id_to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 profile_id_to_bin(Bin) when is_binary(Bin) -> Bin.
-
-old_http_config(#{profile_config := ProfileConfig}) -> http_config(ProfileConfig).
 
 set_old_pool_outdated(#{
     profile_id := ProfileId, pool_name := PoolName, http_pool_timeout := HttpPoolTimeout
@@ -339,44 +339,6 @@ cleanup_outdated_pools(#{profile_id := ProfileId}) ->
 %% HTTP Pool implementation dependent functions
 %%--------------------------------------------------------------------
 
-http_config(
-    #{
-        host := Host,
-        port := Port,
-        transport_options := #{
-            pool_type := PoolType,
-            pool_size := PoolSize,
-            enable_pipelining := EnablePipelining,
-            connect_timeout := ConnectTimeout
-        } = HTTPOpts
-    }
-) ->
-    {Transport, TransportOpts} =
-        case scheme(HTTPOpts) of
-            "http://" ->
-                {tcp, []};
-            "https://" ->
-                SSLOpts = emqx_tls_lib:to_client_opts(maps:get(ssl, HTTPOpts)),
-                {tls, SSLOpts}
-        end,
-    NTransportOpts = maybe_ipv6_probe(TransportOpts, maps:get(ipv6_probe, HTTPOpts, true)),
-    [
-        {host, Host},
-        {port, Port},
-        {connect_timeout, ConnectTimeout},
-        {keepalive, 30000},
-        {pool_type, PoolType},
-        {pool_size, PoolSize},
-        {transport, Transport},
-        {transport_opts, NTransportOpts},
-        {enable_pipelining, EnablePipelining}
-    ].
-
-maybe_ipv6_probe(TransportOpts, true) ->
-    emqx_utils:ipv6_probe(TransportOpts);
-maybe_ipv6_probe(TransportOpts, false) ->
-    TransportOpts.
-
 http_pool_cleanup_interval(ProfileConfig) ->
     maps:get(
         http_pool_cleanup_interval, ProfileConfig, ?DEAFULT_HTTP_POOL_CLEANUP_INTERVAL
@@ -388,23 +350,6 @@ http_pool_timeout(ProfileConfig) ->
     ).
 
 stop_http_pool(ProfileId, PoolName) ->
-    case ehttpc_sup:stop_pool(PoolName) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "ehttpc_pool_stop_fail", pool_name => PoolName, reason => Reason}),
-            ok
-    end,
+    ok = emqx_s3_client_http:stop_pool(PoolName),
     ok = emqx_s3_profile_http_pools:unregister(ProfileId, PoolName),
     ok = ?tp(debug, "s3_stop_http_pool", #{pool_name => PoolName}).
-
-do_start_http_pool(PoolName, HttpConfig) ->
-    ?SLOG(debug, #{msg => "s3_starting_http_pool", pool_name => PoolName, config => HttpConfig}),
-    case ehttpc_sup:start_pool(PoolName, HttpConfig) of
-        {ok, _} ->
-            ?SLOG(info, #{msg => "s3_start_http_pool_success", pool_name => PoolName}),
-            ok;
-        {error, _} = Error ->
-            ?SLOG(error, #{msg => "s3_start_http_pool_fail", pool_name => PoolName, error => Error}),
-            Error
-    end.
