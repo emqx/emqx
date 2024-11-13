@@ -262,7 +262,7 @@ aws_config(
         s3_host = Host,
         s3_port = Port,
         timeout = emqx_s3_client_http:request_timeout(HttpClient),
-        retry_num = emqx_maybe:define(MaxRetries, ?DEFAULT_MAX_RETRIES)
+        retry_num = emqx_maybe:define(MaxRetries, ?DEFAULT_MAX_RETRIES) + 1
     },
     AWSConfig1 =
         case AccessMethod of
