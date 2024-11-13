@@ -17,27 +17,30 @@
 -ifndef(EMQX_OTEL_TRACE_HRL).
 -define(EMQX_OTEL_TRACE_HRL, true).
 
--define(CLIENT_CONNECT_SPAN_NAME, <<"client.connect">>).
--define(CLIENT_DISCONNECT_SPAN_NAME, <<"client.disconnect">>).
--define(CLIENT_AUTHN_SPAN_NAME, <<"client.authn">>).
--define(CLIENT_AUTHZ_SPAN_NAME, <<"client.authz">>).
--define(CLIENT_SUBSCRIBE_SPAN_NAME, <<"client.subscribe">>).
--define(CLIENT_UNSUBSCRIBE_SPAN_NAME, <<"client.unsubscribe">>).
+%% ====================
+%% Root Spans
+-define(CLIENT_CONNECT_SPAN_NAME, 'client.connect').
+-define(CLIENT_DISCONNECT_SPAN_NAME, 'client.disconnect').
+-define(CLIENT_SUBSCRIBE_SPAN_NAME, 'client.subscribe').
+-define(CLIENT_UNSUBSCRIBE_SPAN_NAME, 'client.unsubscribe').
+-define(CLIENT_PUBLISH_SPAN_NAME, 'client.publish').
 
--define(BROKER_PUBLISH_SPAN_NAME, <<"broker.publish">>).
--define(BROKER_PUBACK_SPAN_NAME, <<"broker.puback">>).
--define(BROKER_PUBREC_SPAN_NAME, <<"broker.pubrec">>).
--define(BROKER_PUBREL_SPAN_NAME, <<"broker.pubrel">>).
--define(BROKER_PUBCOMP_SPAN_NAME, <<"broker.pubcomp">>).
+-define(CLIENT_AUTHN_SPAN_NAME, 'client.authn').
+-define(CLIENT_AUTHZ_SPAN_NAME, 'client.authz').
 
--define(CLIENT_PUBLISH_SPAN_NAME, <<"client.publish">>).
--define(CLIENT_PUBACK_SPAN_NAME, <<"client.puback">>).
--define(CLIENT_PUBREC_SPAN_NAME, <<"client.pubrec">>).
--define(CLIENT_PUBREL_SPAN_NAME, <<"client.pubrel">>).
--define(CLIENT_PUBCOMP_SPAN_NAME, <<"client.pubcomp">>).
+-define(BROKER_PUBLISH_SPAN_NAME, 'broker.publish').
+-define(BROKER_PUBACK_SPAN_NAME, 'broker.puback').
+-define(BROKER_PUBREC_SPAN_NAME, 'broker.pubrec').
+-define(BROKER_PUBREL_SPAN_NAME, 'broker.pubrel').
+-define(BROKER_PUBCOMP_SPAN_NAME, 'broker.pubcomp').
 
--define(MSG_ROUTE_SPAN_NAME, <<"message.route">>).
--define(MSG_FORWARD_SPAN_NAME, <<"message.forward">>).
--define(MSG_HANDLE_FORWARD_SPAN_NAME, <<"message.handle_forward">>).
+-define(CLIENT_PUBACK_SPAN_NAME, 'client.puback').
+-define(CLIENT_PUBREC_SPAN_NAME, 'client.pubrec').
+-define(CLIENT_PUBREL_SPAN_NAME, 'client.pubrel').
+-define(CLIENT_PUBCOMP_SPAN_NAME, 'client.pubcomp').
+
+-define(MSG_ROUTE_SPAN_NAME, 'message.route').
+-define(MSG_FORWARD_SPAN_NAME, 'message.forward').
+-define(MSG_HANDLE_FORWARD_SPAN_NAME, 'message.handle_forward').
 
 -endif.
