@@ -58,8 +58,7 @@
 %% Span enrichments APIs
 
 -export([
-    add_span_attrs/1,
-    add_span_event/2
+    add_span_attrs/1
 ]).
 
 -include("emqx_otel_trace.hrl").
@@ -724,11 +723,7 @@ awaiting_span_name(?PUBCOMP) ->
 %%--------------------------------------------------------------------
 
 -spec add_span_attrs(AttrsOrMeta) -> ok when
-    AttrsOrMeta :: attrs() | attrs_meta().
-add_span_attrs(?EXT_TRACE_ATTRS_META(_Meta)) ->
-    %% TODO
-    %% add_span_attrs(meta_to_attrs(Meta));
-    ok;
+    AttrsOrMeta :: attrs().
 add_span_attrs(Attrs) ->
     true = ?set_attributes(Attrs),
     ok.
@@ -736,22 +731,6 @@ add_span_attrs(Attrs) ->
 add_span_attrs(Attrs, Ctx) ->
     CurrentSpanCtx = otel_tracer:current_span_ctx(Ctx),
     otel_span:set_attributes(CurrentSpanCtx, Attrs),
-    ok.
-
-%% TODO: remove me
--spec add_span_event(EventName, Attrs) -> ok when
-    EventName :: event_name(),
-    Attrs :: attrs() | attrs_meta().
-add_span_event(_EventName, ?EXT_TRACE_ATTRS_META(_Meta)) ->
-    %% TODO
-    %% add_span_event(_EventName, meta_to_attrs(_Meta));
-    ok;
-add_span_event(EventName, Attrs) ->
-    %% TODO
-    %% The otel ctx is in Packet or Delivery
-    %% not in the current process dictionary
-    %% get it by internal_extra_key(Packet)
-    true = ?add_event(EventName, Attrs),
     ok.
 
 %%--------------------------------------------------------------------

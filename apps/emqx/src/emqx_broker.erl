@@ -341,21 +341,17 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %%--------------------------------------------------------------------
 
 route(Routes, Delivery = #delivery{message = Msg}, PersistRes) ->
-    TraceRouteAttrs = #{
-        'route.from' => node(),
-        'route.matched_result' => emqx_utils_json:encode([
-            route_result({TF, RouteTo})
-         || {TF, RouteTo} <- Routes
-        ])
-    },
-    emqx_external_trace:msg_route(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        msg_route,
         Delivery,
-        TraceRouteAttrs,
+        (emqx_external_trace:msg_attrs(Msg))#{
+            'route.from' => node(),
+            'route.matched_result' => emqx_utils_json:encode([
+                route_result({TF, RouteTo})
+             || {TF, RouteTo} <- Routes
+            ])
+        },
         fun(DeliveryWithTrace) ->
-            add_route_attrs(
-                (not emqx_message:is_sys(Msg)) andalso
-                    emqx_external_trace:msg_attrs(Msg)
-            ),
             do_route(Routes, DeliveryWithTrace, PersistRes)
         end
     ).
@@ -370,12 +366,18 @@ route_result({TF, Group}) ->
 do_route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
-    add_route_attrs(
-        (not emqx_message:is_sys(Msg)) andalso
-            #{
-                'route.dropped.node' => node(),
-                'route.dropped.reason' => no_subscribers
-            }
+    ?EXT_TRACE_ADD_ATTRS(
+        begin
+            case Msg of
+                #message{flags = #{sys := true}} ->
+                    #{};
+                _ ->
+                    #{
+                        'route.dropped.node' => node(),
+                        'route.dropped.reason' => no_subscribers
+                    }
+            end
+        end
     ),
     [];
 do_route([], _Delivery, PersistRes = [_ | _]) ->
@@ -418,14 +420,13 @@ do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
 
 forward(Node, To, Delivery = #delivery{message = Msg}, RpcMode) ->
-    ForwardAttrs = #{
-        'forward.from' => node(),
-        'forward.to' => Node
-    },
-    MsgAttrs = emqx_external_trace:msg_attrs(Msg),
-    emqx_external_trace:msg_forward(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        msg_forward,
         Delivery,
-        maps:merge(ForwardAttrs, MsgAttrs),
+        (emqx_external_trace:msg_attrs(Msg))#{
+            'forward.from' => node(),
+            'forward.to' => Node
+        },
         fun(DeliveryWithTrace) ->
             do_forward(Node, To, DeliveryWithTrace, RpcMode)
         end
@@ -461,7 +462,8 @@ do_forward(Node, To, Delivery, sync) ->
 %% `emqx_broker_proto_v1:forward/3` or
 %% `emqx_broker_proto_v1:forward_async/3`
 dispatch(Topic, Delivery = #delivery{message = Msg}) ->
-    emqx_external_trace:msg_handle_forward(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        msg_handle_forward,
         Delivery,
         emqx_external_trace:msg_attrs(Msg),
         fun(DeliveryWithTrace) ->
@@ -493,12 +495,6 @@ inc_dropped_cnt(Msg) ->
             ok = emqx_metrics:inc('messages.dropped'),
             emqx_metrics:inc('messages.dropped.no_subscribers')
     end.
-
--compile({inline, [add_route_attrs/1]}).
-add_route_attrs(false) ->
-    ok;
-add_route_attrs(Attrs) ->
-    ?ext_trace_add_attrs(Attrs).
 
 -compile({inline, [subscribers/1]}).
 -spec subscribers(
@@ -742,10 +738,6 @@ do_dispatch2(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->
             SubPid ! {deliver, Topic, Msg},
-            ?ext_trace_add_attrs(#{
-                'dispatch.to_clientid' => maps:get(subid, get_subopts(SubPid, Topic), undefined),
-                'dispatch.to_topic' => Topic
-            }),
             1;
         false ->
             0

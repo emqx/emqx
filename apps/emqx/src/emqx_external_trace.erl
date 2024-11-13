@@ -97,22 +97,11 @@
     Delivery :: emqx_types:delivery(),
     Res :: term().
 
--callback broker_publish(
-    list(Deliver),
-    Attrs
-) ->
-    list(Deliver)
-when
+-callback broker_publish(list(Deliver), Attrs) -> list(Deliver) when
     Deliver :: emqx_types:deliver(),
     Attrs :: attrs().
 
--callback outgoing(
-    TraceAction,
-    Packet,
-    Attrs
-) ->
-    Res
-when
+-callback outgoing(TraceAction, Packet, Attrs) -> Res when
     TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
     Packet :: emqx_types:packet(),
     Attrs :: attrs(),
@@ -122,55 +111,42 @@ when
 %% Span enrichments APIs
 
 -callback add_span_attrs(Attrs) -> ok when
-    Attrs :: attrs() | attrs_meta().
+    Attrs :: attrs().
 
--callback add_span_event(EventName, Attrs) -> ok when
-    EventName :: event_name(),
-    Attrs :: attrs() | attrs_meta().
-
-%% --------------------------------------------------------------------
-%% Legacy mode callbacks
-
-%% -callback end_trace_send(Packet | [Packet]) -> ok when
-%%     Packet :: emqx_types:packet().
+-callback add_span_attrs(Attrs, Ctx) -> ok when
+    Attrs :: attrs(),
+    Ctx :: otel_ctx:t().
 
 -optional_callbacks(
     [
         add_span_attrs/1,
-        add_span_event/2,
+        add_span_attrs/2,
         client_authn/3,
         client_authz/3
     ]
 ).
 
 %% --------------------------------------------------------------------
+%% Legacy mode callbacks
+
+%% TODO: legacy mode compatible
+%% XXX: not implemented by callback
+%% -callback trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
+%%     Packet :: emqx_types:packet(),
+%%     ChannelInfo :: channel_info(),
+%%     Res :: term().
+
+%% -callback start_trace_send(list(emqx_types:deliver()), channel_info()) ->
+%%     list(emqx_types:deliver()).
+
+%% -callback end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
+%% -export([
+%%     trace_process_publish/3,
+%%     start_trace_send/2,
+%%     end_trace_send/1
+%% ]).
 
 -export([
-    client_connect/3,
-    client_disconnect/3,
-    client_subscribe/3,
-    client_unsubscribe/3,
-    client_authn/3,
-    client_authz/3,
-    client_publish/3,
-    client_puback/3,
-    client_pubrec/3,
-    client_pubrel/3,
-    client_pubcomp/3,
-    msg_route/3,
-    msg_forward/3,
-    msg_handle_forward/3,
-    broker_publish/2,
-
-    %% Start Span when Reply PACKETs generated
-    %% as when `emqx_channel:handle_out/3` called.
-    %% Stop when `emqx_channel:handle_outgoing/3` returned
-    outgoing/3
-]).
-
--export([
-    add_span_attrs/1,
-    add_span_event/2,
     msg_attrs/1
 ]).
 
@@ -179,28 +155,6 @@ when
     register_provider/1,
     unregister_provider/1
 ]).
-
--define(PROVIDER, {?MODULE, trace_provider}).
-
-%% TODO:
-%% check both trace_mode and trace_provider
--define(with_provider(IfRegistered, IfNotRegistered),
-    case persistent_term:get(?PROVIDER, undefined) of
-        undefined ->
-            IfNotRegistered;
-        Provider ->
-            Provider:IfRegistered
-    end
-).
-
--define(with_provider_attrs(IfRegistered),
-    case persistent_term:get(?PROVIDER, undefined) of
-        undefined ->
-            #{};
-        _Provider ->
-            IfRegistered
-    end
-).
 
 %%--------------------------------------------------------------------
 %% provider API
@@ -233,189 +187,11 @@ provider() ->
 %% Trace in Rich mode API
 %%--------------------------------------------------------------------
 
-%% @doc Start a trace event for Client CONNECT
--spec client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_connect(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Start a trace event for Client DISCONNECT
--spec client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_disconnect(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Start a trace event for Client SUBSCRIBE
--spec client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_subscribe(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Start a trace event for Client UNSUBSCRIBE
--spec client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_unsubscribe(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Start a sub-span for Client AUTHN
--spec client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_authn(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Start a sub-span for Client AUTHZ
--spec client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_authz(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% TODO:
-%% split to:
-%% `client_publish/3` for legacy_mode
-%% `trace_client_publish/3` for end_to_end_mode
-
-%% @doc Trace message PUBLISH (QoS=0, QoS=1, QoS=2)
-%% Client(Publisher) -> Broker: PUBLISH
--spec client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_publish(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Trace message PUBACK (QoS=1)
-%% Client(Subscriber) -> Broker: PUBACK
--spec client_puback(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_puback(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Trace message PUBREC (QoS=2)
-%% Client(Subscriber) -> Broker: PUBREC
--spec client_pubrec(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_pubrec(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Trace message PUBREL (QoS=2)
-%% Client(Publisher) -> Broker: PUBREL
--spec client_pubrel(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_pubrel(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
-%% @doc Trace message PUBCOMP (QoS=2)
-%% Client(Subscriber) -> Broker: PUBCOMP
--spec client_pubcomp(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
-client_pubcomp(Packet, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, InitAttrs, ProcessFun), ProcessFun(Packet)).
-
--spec msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    Delivery :: emqx_types:delivery(),
-    InitAttrs :: attrs(),
-    Res :: term().
-msg_route(Delivery, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
-
-%% @doc Trace message forwarding
-%% `Span' is the smallest unit in tracing and `CANNOT' be propagated across nodes.
-%%  Divide the message forwarding process into two spans: `message.forward` and `message.handle_forward`.
-%% The span `message.forward` starts on the publisher process and ends on the same one.
-%% Broker(Publisher) -> Broker(Subscriber): FORWARD on Broker(Publisher)
--spec msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    Delivery :: emqx_types:delivery(),
-    InitAttrs :: attrs(),
-    Res :: term().
-msg_forward(Delivery, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
-
-%% @doc Trace message forward handling
-%% The span `message.handle_forward` starts on the RPC process and ends on the same one.
-%% Broker(Publisher) -> Broker(Subscriber): HANDLE FORWARD on Broker(Subscriber)
--spec msg_handle_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    InitAttrs :: attrs(),
-    Delivery :: emqx_types:delivery(),
-    Res :: term().
-msg_handle_forward(Delivery, InitAttrs, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Delivery, InitAttrs, ProcessFun), ProcessFun(Delivery)).
-
-%% TODO:
-%% split to:
-%% `broker_publish/3` for end_to_end_mode
-%% `start_trace_send/2` and `end_trace_send/1` for legacy_mode
-
-%% @doc Start Trace message delivery to subscriber
--spec broker_publish(
-    list(Deliver),
-    Attrs
-) -> list(Deliver) when
-    Deliver :: emqx_types:deliver(),
-    Attrs :: attrs().
-broker_publish(DeliverOrPackets, Attrs) ->
-    ?with_provider(
-        ?FUNCTION_NAME(DeliverOrPackets, Attrs),
-        DeliverOrPackets
-    ).
-
--spec outgoing(
-    TraceAction,
-    Packet,
-    Attrs
-) ->
-    Res
-when
-    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
-    Packet :: emqx_types:packet(),
-    Attrs :: attrs(),
-    Res :: term().
-outgoing(TraceAction, Packet, Attrs) ->
-    ?with_provider(
-        ?FUNCTION_NAME(TraceAction, Packet, Attrs),
-        res_without_provider(TraceAction, Packet)
-    ).
-
-%% --------------------------------------------------------------------
-%% Span enrichments APIs
-%% --------------------------------------------------------------------
-
-%% @doc Enrich trace attributes
--spec add_span_attrs(AttrsOrMeta) -> ok when
-    AttrsOrMeta :: attrs() | attrs_meta().
-add_span_attrs(AttrsOrMeta) ->
-    _ = catch ?with_provider(?FUNCTION_NAME(AttrsOrMeta), ok),
-    ok.
-
-%% @doc Add trace event
--spec add_span_event(EventName, AttrsOrMeta) -> ok when
-    EventName :: event_name(),
-    AttrsOrMeta :: attrs() | attrs_meta().
-add_span_event(EventName, AttrsOrMeta) ->
-    _ = catch ?with_provider(?FUNCTION_NAME(EventName, AttrsOrMeta), ok),
-    ok.
-
+msg_attrs(_Msg = #message{flags = #{sys := true}}) ->
+    %% Skip system messages
+    #{};
 msg_attrs(Msg = #message{}) ->
-    ?with_provider_attrs(#{
+    #{
         'message.msgid' => emqx_guid:to_hexstr(Msg#message.id),
         'message.qos' => Msg#message.qos,
         'message.from' => Msg#message.from,
@@ -425,16 +201,11 @@ msg_attrs(Msg = #message{}) ->
             maps:get(properties, Msg#message.headers, #{})
         ),
         'message.payload_size' => size(Msg#message.payload)
-    }).
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-res_without_provider(?EXT_TRACE_START, Any) ->
-    Any;
-res_without_provider(?EXT_TRACE_STOP, _Packets) ->
-    ok.
 
 %% TODO:
 %% 1. Add more checks for the provider module and functions

@@ -140,6 +140,7 @@ setup(Opts) ->
 description(_Opts) ->
     <<"AttributeSampler">>.
 
+%% TODO: remote sampled
 should_sample(Ctx, _TraceId, _Links, ?MSG_ROUTE_SPAN_NAME, _SpanKind, _Attributes, _Opts) ->
     ParentSpanCtx = otel_tracer:current_span_ctx(Ctx),
     case ParentSpanCtx of

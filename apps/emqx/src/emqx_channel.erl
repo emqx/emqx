@@ -361,7 +361,8 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
-    emqx_external_trace:client_connect(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_connect,
         Packet,
         connect_trace_attrs(Packet, Channel),
         fun(PacketWithTrace) ->
@@ -424,7 +425,8 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of
         ok ->
-            emqx_external_trace:client_publish(
+            ?EXT_TRACE_WITH_PROCESS_FUN(
+                client_publish,
                 Packet,
                 basic_trace_attrs(Channel),
                 fun(PacketWithTrace) -> process_publish(PacketWithTrace, Channel) end
@@ -436,7 +438,8 @@ handle_in(
     ?PACKET(?PUBACK) = Packet,
     Channel
 ) ->
-    emqx_external_trace:client_puback(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_puback,
         Packet,
         basic_trace_attrs(Channel),
         fun(PacketWithTrace) -> process_puback(PacketWithTrace, Channel) end
@@ -445,7 +448,8 @@ handle_in(
     ?PACKET(?PUBREC) = Packet,
     Channel
 ) ->
-    emqx_external_trace:client_pubrec(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_pubrec,
         Packet,
         basic_trace_attrs(Channel),
         fun(PacketWithTrace) -> process_pubrec(PacketWithTrace, Channel) end
@@ -454,7 +458,8 @@ handle_in(
     ?PACKET(?PUBREL) = Packet,
     Channel
 ) ->
-    emqx_external_trace:client_pubrel(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_pubrel,
         Packet,
         basic_trace_attrs(Channel),
         fun(PacketWithTrace) -> process_pubrel(PacketWithTrace, Channel) end
@@ -463,13 +468,15 @@ handle_in(
     ?PACKET(?PUBCOMP) = Packet,
     Channel
 ) ->
-    emqx_external_trace:client_pubcomp(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_pubcomp,
         Packet,
         basic_trace_attrs(Channel),
         fun(PacketWithTrace) -> process_pubcomp(PacketWithTrace, Channel) end
     );
 handle_in(?SUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters0) = Packet, Channel) ->
-    emqx_external_trace:client_subscribe(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_subscribe,
         Packet,
         (basic_trace_attrs(Channel))#{
             'client.subscribe.topics' => serialize_topic_filters(Packet)
@@ -480,7 +487,8 @@ handle_in(
     Packet = ?UNSUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters),
     Channel
 ) ->
-    emqx_external_trace:client_unsubscribe(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_unsubscribe,
         Packet,
         (basic_trace_attrs(Channel))#{
             'client.unsubscribe.topics' => serialize_topic_filters(Packet)
@@ -495,7 +503,8 @@ handle_in(
     ?PACKET(?DISCONNECT, PktVar) = Packet,
     Channel
 ) ->
-    emqx_external_trace:client_disconnect(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_disconnect,
         Packet,
         (basic_trace_attrs(Channel))#{
             'client.peername' => emqx_utils:ntoa(info(peername, Channel)),
@@ -601,7 +610,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     of
         {ok, NPacket, NChannel} ->
             Msg = packet_to_message(NPacket, NChannel),
-            ?ext_trace_add_attrs(emqx_external_trace:msg_attrs(Msg)),
+            ok = ?EXT_TRACE_ADD_ATTRS(emqx_external_trace:msg_attrs(Msg)),
             do_publish(PacketId, Msg, NChannel);
         {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
             ?SLOG_THROTTLE(
@@ -1100,10 +1109,12 @@ handle_deliver(
     %% we need to update stats here, as the stats_timer is canceled after disconnected
     {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
-    Delivers1 = emqx_external_trace:broker_publish(
-        Delivers,
-        basic_trace_attrs(Channel)
-    ),
+    Delivers1 =
+        ?EXT_TRACE_ANY(
+            broker_publish,
+            Delivers,
+            basic_trace_attrs(Channel)
+        ),
     do_handle_deliver(Delivers1, Channel).
 
 do_handle_deliver(
@@ -1246,28 +1257,36 @@ handle_out(publish, Publishes, Channel) ->
     {ok, ?REPLY_OUTGOING(Packets), NChannel};
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        start_outgoing_trace(
+        ?EXT_TRACE_WITH_ACTION(
+            outgoing,
+            ?EXT_TRACE_START,
             ?PUBACK_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
         Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        start_outgoing_trace(
+        ?EXT_TRACE_WITH_ACTION(
+            outgoing,
+            ?EXT_TRACE_START,
             ?PUBREC_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
         Channel};
 handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        start_outgoing_trace(
+        ?EXT_TRACE_WITH_ACTION(
+            outgoing,
+            ?EXT_TRACE_START,
             ?PUBREL_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
         Channel};
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        start_outgoing_trace(
+        ?EXT_TRACE_WITH_ACTION(
+            outgoing,
+            ?EXT_TRACE_START,
             ?PUBCOMP_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
@@ -1301,13 +1320,8 @@ handle_out(Type, Data, Channel) ->
 %% Return ConnAck
 %%--------------------------------------------------------------------
 
-return_connack(?CONNACK_PACKET(RC, SessPresent) = AckPacket, Channel) ->
-    ?ext_trace_add_attrs(#{'client.connack.reason_code' => RC}),
-    ?ext_trace_add_event('client.connack', #{
-        reason_code => RC,
-        msg => connack_in_queue,
-        session_present => bool(SessPresent)
-    }),
+return_connack(?CONNACK_PACKET(RC, _SessPresent) = AckPacket, Channel) ->
+    ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => RC}),
     do_return_connack(AckPacket, Channel).
 
 do_return_connack(AckPacket, Channel) ->
@@ -1329,10 +1343,6 @@ do_return_connack(AckPacket, Channel) ->
             %% messages.
             {ok, Replies ++ Outgoing, NChannel2}
     end.
-
--compile({inline, [bool/1]}).
-bool(0) -> false;
-bool(1) -> true.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -1923,7 +1933,7 @@ maybe_assign_clientid(_ConnPkt, ClientInfo = #{clientid := ClientId}) when
     {ok, ClientInfo};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
     RandClientId = emqx_utils:rand_id(?RAND_CLIENTID_BYTES),
-    ?ext_trace_add_attrs(#{'client.clientid' => RandClientId}),
+    ?EXT_TRACE_ADD_ATTRS(#{'client.clientid' => RandClientId}),
     {ok, ClientInfo#{clientid => RandClientId}};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
@@ -2074,7 +2084,8 @@ authenticate(?PACKET(?AUTH) = Packet, Channel) ->
     process_authenticate(Packet, Channel);
 authenticate(Packet, Channel) ->
     %% Authenticate by CONNECT Packet
-    emqx_external_trace:client_authn(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_authn,
         Packet,
         #{
             'client.clientid' => info(clientid, Channel),
@@ -2083,7 +2094,7 @@ authenticate(Packet, Channel) ->
         fun(PacketWithTrace) ->
             Res = process_authenticate(PacketWithTrace, Channel),
             %% TODO: which authenticator is used
-            ?ext_trace_add_attrs(authn_attrs(Res)),
+            ?EXT_TRACE_ADD_ATTRS(authn_attrs(Res)),
             Res
         end
     ).
@@ -2354,7 +2365,8 @@ authz_action(#message{qos = QoS}) ->
 %% Check Pub Authorization
 
 check_pub_authz(Packet, Channel) ->
-    emqx_external_trace:client_authz(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_authz,
         Packet,
         (basic_trace_attrs(Channel))#{'authz.action_type' => publish},
         fun(PacketWithTrace) ->
@@ -2371,13 +2383,13 @@ do_check_pub_authz(
     Action = authz_action(Packet),
     case emqx_access_control:authorize(ClientInfo, Action, Topic) of
         allow ->
-            ?ext_trace_add_attrs(#{
+            ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => allow
             }),
             ok;
         deny ->
-            ?ext_trace_add_attrs(#{
+            ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => deny,
                 'authz.reason_code' => ?RC_NOT_AUTHORIZED
@@ -2413,7 +2425,8 @@ check_subscribe(SubPkt, _Channel) ->
 %% Check Sub Authorization
 
 check_sub_authzs(Packet, Channel) ->
-    emqx_external_trace:client_authz(
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_authz,
         Packet,
         (basic_trace_attrs(Channel))#{'authz.action_type' => subscribe},
         fun(PacketWithTrace) ->
@@ -2435,13 +2448,13 @@ do_check_sub_authzs(
     DenyAction = emqx:get_config([authorization, deny_action], ignore),
     case DenyAction =:= disconnect andalso HasAuthzDeny of
         true ->
-            ?ext_trace_add_attrs(#{
+            ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.deny_action' => disconnect,
                 'authz.subscribe.result' => trace_authz_result_attrs(CheckResult)
             }),
             {error, {disconnect, ?RC_NOT_AUTHORIZED}, Channel};
         false ->
-            ?ext_trace_add_attrs(#{
+            ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.deny_action' => ignore,
                 'authz.subscribe.result' => trace_authz_result_attrs(CheckResult)
             }),
@@ -3142,9 +3155,6 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
-
-start_outgoing_trace(Packet, Attrs) ->
-    emqx_external_trace:outgoing(?EXT_TRACE_START, Packet, Attrs).
 
 %%--------------------------------------------------------------------
 %% For CT tests
