@@ -256,7 +256,7 @@ fields("e2e_tracing_options") ->
             ?HOCON(
                 string(),
                 #{
-                    default => emqxcl,
+                    default => <<"emqxcl">>,
                     desc => ?DESC(e2e_attribute_meta),
                     importance => ?IMPORTANCE_MEDIUM
                 }
