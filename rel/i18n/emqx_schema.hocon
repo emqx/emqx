@@ -985,10 +985,18 @@ NOTE: when changing from/to `global` lock, it requires all nodes in the cluster 
   - `global`: updates are protected with a global lock. Recommended for large clusters."""
 
 fields_tcp_opts_nodelay.desc:
-"""The TCP_NODELAY flag for the connections."""
+"""The `TCP_NODELAY` flag for the connections.
+When set to `true`, data is sent immediately, regardless of size."""
 
 fields_tcp_opts_nodelay.label:
-"""TCP_NODELAY"""
+"""No Delay"""
+
+fields_tcp_opts_nolinger.desc:
+"""When enabled, `SO_LINGER` flag is set as `{l_onoff=1, l_linger=0}`, which means the TCP socket to close immediately by sending a reset (RST) packet,
+discarding any unsent data and skipping the graceful close steps, including CLOSE_WAIT, FIN_WAIT, and TIME_WAIT."""
+
+fields_tcp_opts_nolinger.label:
+"""No Linger"""
 
 fields_tcp_opts_keepalive.desc:
 """Enable TCP keepalive for MQTT connections over TCP or SSL.
