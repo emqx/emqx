@@ -333,21 +333,21 @@ on_ds_reply(
     end.
 
 on_enqueue(true, _Key, _Srs, _S, SchedS) ->
-    SchedS;
+    {[], SchedS};
 on_enqueue(false, Key, Srs, S, SchedS) ->
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     case derive_state(Comm1, Comm2, Srs) of
         r ->
-            to_RU(Key, Srs, SchedS);
+            {[Key], to_RU(Key, Srs, SchedS)};
         u ->
-            to_U(Key, Srs, SchedS);
+            {[Key], to_U(Key, Srs, SchedS)};
         bq1 ->
-            to_BQ1(Key, Srs, SchedS);
+            {[], to_BQ1(Key, Srs, SchedS)};
         bq2 ->
-            to_BQ2(Key, Srs, SchedS);
+            {[], to_BQ2(Key, Srs, SchedS)};
         bq12 ->
-            to_BQ12(Key, Srs, SchedS)
+            {[], to_BQ12(Key, Srs, SchedS)}
     end.
 
 on_seqno_release(?QOS_1, SnQ1, S, SchedS0 = #s{bq1 = PrimaryTab0, bq2 = SecondaryTab}) ->
@@ -382,7 +382,7 @@ on_seqno_release(?QOS_2, SnQ2, S, SchedS0 = #s{bq2 = PrimaryTab0, bq1 = Secondar
                 key => Key,
                 to => bq1
             }),
-            {[Key], SchedS0#s{bq2 = PrimaryTab}}
+            {[], SchedS0#s{bq2 = PrimaryTab}}
     end.
 
 check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
@@ -588,8 +588,8 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
 -spec to_U(stream_key(), srs(), t()) -> t().
 to_U(
     Key,
-    #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2},
-    S = #s{ready = R, pending = P, bq1 = BQ1, bq2 = BQ2}
+    #srs{},
+    S = #s{ready = R, pending = P}
 ) ->
     ?tp(sessds_stream_state_trans, #{
         key => Key,
@@ -597,9 +597,9 @@ to_U(
     }),
     S#s{
         ready = del_ready(Key, R),
-        pending = maps:remove(Key, P),
-        bq1 = gb_trees:delete_any(SN1, BQ1),
-        bq2 = gb_trees:delete_any(SN2, BQ2)
+        pending = maps:remove(Key, P)
+        %% We do not remove the stream from the blocked queues.
+        %% It will be removed on seqno release.
     }.
 
 -spec to_S(stream_key(), t()) -> t().

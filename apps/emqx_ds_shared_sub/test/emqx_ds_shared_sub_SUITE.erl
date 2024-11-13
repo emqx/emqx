@@ -14,13 +14,12 @@
 
 all() ->
     [
-        % {group, declare_explicit},
+        {group, declare_explicit},
         {group, declare_implicit}
     ].
 
 groups() ->
-    % TCs = emqx_common_test_helpers:all(?MODULE),
-    TCs = [t_unsubscribe],
+    TCs = emqx_common_test_helpers:all(?MODULE),
     Groups = [declare_explicit, declare_implicit],
     GroupTCs = [{Group, TC} || TC <- TCs, Group <- groups_per_testcase(TC, Groups)],
     lists:foldl(
@@ -170,7 +169,7 @@ t_destroy_queue_live_clients('init', Config) ->
 t_destroy_queue_live_clients('end', Config) ->
     destroy_queue(Config).
 
-t_destroy_queue_live_clients(Config) ->
+t_destroy_queue_live_clients(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),

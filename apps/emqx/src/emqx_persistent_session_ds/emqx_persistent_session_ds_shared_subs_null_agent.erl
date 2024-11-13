@@ -11,10 +11,10 @@
     open/2,
     can_subscribe/3,
 
-    on_subscribe/3,
+    on_subscribe/4,
     on_unsubscribe/3,
     on_stream_progress/2,
-    on_info/2,
+    on_info/3,
     on_disconnect/2
 ]).
 
@@ -33,10 +33,10 @@ open(_Topics, _Opts) ->
 can_subscribe(_Agent, _TopicFilter, _SubOpts) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}.
 
-on_subscribe(Agent, _TopicFilter, _SubOpts) ->
+on_subscribe(Agent, _SubscriptionId, _TopicFilter, _SubOpts) ->
     Agent.
 
-on_unsubscribe(Agent, _TopicFilter, _Progresses) ->
+on_unsubscribe(Agent, _SubscriptionId, _Progresses) ->
     Agent.
 
 on_disconnect(Agent, _) ->
@@ -45,5 +45,5 @@ on_disconnect(Agent, _) ->
 on_stream_progress(Agent, _StreamProgress) ->
     Agent.
 
-on_info(Agent, _Info) ->
+on_info(Agent, _SubscriptionId, _Info) ->
     {[], Agent}.
