@@ -57,9 +57,6 @@
 
 -define(DEFAULT_CALL_TIMEOUT, 5000).
 
--define(DEFAULT_HTTP_POOL_TIMEOUT, 60000).
--define(DEAFULT_HTTP_POOL_CLEANUP_INTERVAL, 60000).
-
 -define(SAFE_CALL_VIA_GPROC(ProfileId, Message, Timeout),
     ?SAFE_CALL_VIA_GPROC(id(ProfileId), Message, Timeout, profile_not_found)
 ).
@@ -115,7 +112,6 @@ init([ProfileId, ProfileConfig]) ->
     ok = cleanup_profile_pools(ProfileId),
     case start_http_pool(ProfileId, ProfileConfig) of
         {ok, PoolName} ->
-            HttpPoolCleanupInterval = http_pool_cleanup_interval(ProfileConfig),
             {ok, #{
                 profile_id => ProfileId,
                 profile_config => ProfileConfig,
@@ -123,15 +119,7 @@ init([ProfileId, ProfileConfig]) ->
                 upload_options => upload_options(ProfileConfig),
                 client_config => client_config(ProfileConfig, PoolName),
                 uploader_config => uploader_config(ProfileConfig),
-                pool_name => PoolName,
-                pool_clients => emqx_s3_profile_http_pool_clients:create_table(),
-                %% We don't expose these options to users currently, but use in tests
-                http_pool_timeout => http_pool_timeout(ProfileConfig),
-                http_pool_cleanup_interval => HttpPoolCleanupInterval,
-
-                outdated_pool_cleanup_tref => erlang:send_after(
-                    HttpPoolCleanupInterval, self(), cleanup_outdated
-                )
+                pool_name => PoolName
             }};
         {error, Reason} ->
             {stop, Reason}
@@ -165,8 +153,6 @@ handle_call(
                 upload_options => upload_options(NewProfileConfig),
                 client_config => client_config(NewProfileConfig, PoolName),
                 uploader_config => uploader_config(NewProfileConfig),
-                http_pool_timeout => http_pool_timeout(NewProfileConfig),
-                http_pool_cleanup_interval => http_pool_cleanup_interval(NewProfileConfig),
                 pool_name => PoolName
             },
             {reply, ok, NewState};
@@ -179,18 +165,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
-    ok = unregister_client(Pid, State),
-    {noreply, State};
-handle_info(cleanup_outdated, #{http_pool_cleanup_interval := HttpPoolCleanupInterval} = State0) ->
-    %% Maybe cleanup asynchoronously
-    ok = cleanup_outdated_pools(State0),
-    State1 = State0#{
-        outdated_pool_cleanup_tref => erlang:send_after(
-            HttpPoolCleanupInterval, self(), cleanup_outdated
-        )
-    },
-    {noreply, State1};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -248,46 +222,19 @@ start_http_pool(ProfileId, ProfileConfig) ->
             Error
     end.
 
-update_http_pool(
-    ProfileId,
-    ProfileConfig,
-    #{pool_name := OldPoolName, profile_config := OldProfileConfig} = State
-) ->
-    HttpConfig = emqx_s3_client_http:pool_config(ProfileConfig),
-    OldHttpConfig = emqx_s3_client_http:pool_config(OldProfileConfig),
-    case OldHttpConfig =:= HttpConfig of
-        true ->
-            {ok, OldPoolName};
-        false ->
-            PoolName = pool_name(ProfileId),
-            case emqx_s3_client_http:start_pool(PoolName, ProfileConfig) of
-                ok ->
-                    ok = set_old_pool_outdated(State),
-                    ok = emqx_s3_profile_http_pools:register(ProfileId, PoolName),
-                    {ok, PoolName};
-                {error, _} = Error ->
-                    Error
-            end
+update_http_pool(_ProfileId, ProfileConfig, #{pool_name := PoolName}) ->
+    case emqx_s3_client_http:update_pool(PoolName, ProfileConfig) of
+        ok ->
+            {ok, PoolName};
+        {error, _} = Error ->
+            Error
     end.
 
 pool_name(ProfileId) ->
-    iolist_to_binary([
-        <<"s3-http-">>,
-        profile_id_to_bin(ProfileId),
-        <<"-">>,
-        integer_to_binary(erlang:system_time(millisecond)),
-        <<"-">>,
-        integer_to_binary(erlang:unique_integer([positive]))
-    ]).
+    iolist_to_binary([<<"s3-http-">>, profile_id_to_bin(ProfileId)]).
 
 profile_id_to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 profile_id_to_bin(Bin) when is_binary(Bin) -> Bin.
-
-set_old_pool_outdated(#{
-    profile_id := ProfileId, pool_name := PoolName, http_pool_timeout := HttpPoolTimeout
-}) ->
-    _ = emqx_s3_profile_http_pools:set_outdated(ProfileId, PoolName, HttpPoolTimeout),
-    ok.
 
 cleanup_profile_pools(ProfileId) ->
     lists:foreach(
@@ -297,57 +244,17 @@ cleanup_profile_pools(ProfileId) ->
         emqx_s3_profile_http_pools:all(ProfileId)
     ).
 
-register_client(Pid, #{profile_id := ProfileId, pool_clients := PoolClients, pool_name := PoolName}) ->
-    MRef = monitor(process, Pid),
-    ok = emqx_s3_profile_http_pool_clients:register(PoolClients, Pid, MRef, PoolName),
+register_client(_Pid, #{profile_id := ProfileId, pool_name := PoolName}) ->
     _ = emqx_s3_profile_http_pools:register_client(ProfileId, PoolName),
     ok.
 
-unregister_client(
-    Pid,
-    #{
-        profile_id := ProfileId, pool_clients := PoolClients, pool_name := PoolName
-    }
-) ->
-    case emqx_s3_profile_http_pool_clients:unregister(PoolClients, Pid) of
-        undefined ->
-            ok;
-        {MRef, PoolName} ->
-            true = erlang:demonitor(MRef, [flush]),
-            _ = emqx_s3_profile_http_pools:unregister_client(ProfileId, PoolName),
-            ok;
-        {MRef, OutdatedPoolName} ->
-            true = erlang:demonitor(MRef, [flush]),
-            ClientNum = emqx_s3_profile_http_pools:unregister_client(ProfileId, OutdatedPoolName),
-            maybe_stop_outdated_pool(ProfileId, OutdatedPoolName, ClientNum)
-    end.
-
-maybe_stop_outdated_pool(ProfileId, OutdatedPoolName, 0) ->
-    ok = stop_http_pool(ProfileId, OutdatedPoolName);
-maybe_stop_outdated_pool(_ProfileId, _OutdatedPoolName, _ClientNum) ->
+unregister_client(_Pid, #{profile_id := ProfileId, pool_name := PoolName}) ->
+    _ = emqx_s3_profile_http_pools:unregister_client(ProfileId, PoolName),
     ok.
-
-cleanup_outdated_pools(#{profile_id := ProfileId}) ->
-    lists:foreach(
-        fun(PoolName) ->
-            ok = stop_http_pool(ProfileId, PoolName)
-        end,
-        emqx_s3_profile_http_pools:outdated(ProfileId)
-    ).
 
 %%--------------------------------------------------------------------
 %% HTTP Pool implementation dependent functions
 %%--------------------------------------------------------------------
-
-http_pool_cleanup_interval(ProfileConfig) ->
-    maps:get(
-        http_pool_cleanup_interval, ProfileConfig, ?DEAFULT_HTTP_POOL_CLEANUP_INTERVAL
-    ).
-
-http_pool_timeout(ProfileConfig) ->
-    maps:get(
-        http_pool_timeout, ProfileConfig, ?DEFAULT_HTTP_POOL_TIMEOUT
-    ).
 
 stop_http_pool(ProfileId, PoolName) ->
     ok = emqx_s3_client_http:stop_pool(PoolName),

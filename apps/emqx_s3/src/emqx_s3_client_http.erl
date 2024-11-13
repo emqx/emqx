@@ -16,8 +16,8 @@
 
 -export([
     start_pool/2,
-    stop_pool/1,
-    pool_config/1
+    update_pool/2,
+    stop_pool/1
 ]).
 
 -export_type([t/0]).
@@ -172,7 +172,6 @@ request_timeout(C) ->
 %%
 
 start_pool(PoolName, ProfileConfig) ->
-    %% FIXME
     PoolConfig = pool_config(ProfileConfig),
     ?SLOG(debug, #{msg => "s3_starting_http_pool", pool_name => PoolName, config => PoolConfig}),
     case hackney_pool:start_pool(PoolName, PoolConfig) of
@@ -183,6 +182,23 @@ start_pool(PoolName, ProfileConfig) ->
             ?SLOG(error, #{msg => "s3_start_http_pool_fail", pool_name => PoolName, error => Error}),
             Error
     end.
+
+update_pool(PoolName, ProfileConfig) ->
+    PoolConfig = pool_config(ProfileConfig),
+    ?SLOG(debug, #{msg => "s3_updating_http_pool", pool_name => PoolName, config => PoolConfig}),
+    lists:foldl(
+        fun
+            (PoolSetting, ok) -> update_pool_setting(PoolName, PoolSetting);
+            (_, Error) -> Error
+        end,
+        ok,
+        PoolConfig
+    ).
+
+update_pool_setting(PoolName, {max_connections, PoolSize}) ->
+    hackney_pool:set_max_connections(PoolName, PoolSize);
+update_pool_setting(PoolName, {timeout, Keepalive}) ->
+    hackney_pool:set_timeout(PoolName, Keepalive).
 
 stop_pool(PoolName) ->
     case hackney_pool:stop_pool(PoolName) of
