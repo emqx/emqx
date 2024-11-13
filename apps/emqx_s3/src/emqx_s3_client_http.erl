@@ -161,11 +161,6 @@ transport_options(#{transport := ssl, ssl := SSLOpts}) ->
 transport_options(#{transport := tcp}) ->
     [].
 
-format_request({PathQuery, Headers, _Body}) ->
-    {PathQuery, Headers, <<"...">>};
-format_request({PathQuery, Headers}) ->
-    {PathQuery, Headers}.
-
 %%
 
 connect_timeout(C) ->

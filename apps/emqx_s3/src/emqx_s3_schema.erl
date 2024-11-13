@@ -242,9 +242,6 @@ translate(Conf, OptionsIn) ->
 props_with(Keys, Proplist) ->
     lists:filter(fun({K, _}) -> lists:member(K, Keys) end, Proplist).
 
-props_without(Keys, Proplist) ->
-    lists:filter(fun({K, _}) -> not lists:member(K, Keys) end, Proplist).
-
 part_size_validator(PartSizeLimit) ->
     case
         PartSizeLimit >= 5 * 1024 * 1024 andalso
