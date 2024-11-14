@@ -986,7 +986,7 @@ fields_tcp_opts_nodelay.label:
 """No Delay"""
 
 fields_tcp_opts_nolinger.desc:
-"""When enabled, `SO_LINGER` flag is set as `{l_onoff=1, l_linger=0}`, which means the TCP socket to close immediately by sending a reset (RST) packet,
+"""When enabled, `SO_LINGER` flag is set as `(onoff=1, linger=0)`, which means the TCP socket is to be closed immediately by sending a TCP-RST packet,
 discarding any unsent data and skipping the graceful close steps, including CLOSE_WAIT, FIN_WAIT, and TIME_WAIT."""
 
 fields_tcp_opts_nolinger.label:
