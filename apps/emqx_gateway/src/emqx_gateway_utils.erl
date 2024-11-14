@@ -533,16 +533,16 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
     maps:to_list(
         case Type of
             tcp ->
-                Opts2#{tcp_options => sock_opts(tcp_options, Opts0)};
+                Opts2#{tcp_options => tcp_opts(Opts0)};
             ssl ->
                 Opts2#{
-                    tcp_options => sock_opts(tcp_options, Opts0),
+                    tcp_options => tcp_opts(Opts0),
                     ssl_options => ssl_opts(ssl_options, Opts0)
                 };
             udp ->
-                Opts2#{udp_options => sock_opts(udp_options, Opts0)};
+                Opts2#{udp_options => udp_opts(Opts0)};
             dtls ->
-                UDPOpts = sock_opts(udp_options, Opts0),
+                UDPOpts = udp_opts(Opts0),
                 DTLSOpts = ssl_opts(dtls_options, Opts0),
                 Opts2#{
                     udp_options => UDPOpts,
@@ -551,11 +551,14 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
         end
     ).
 
-sock_opts(Name, Opts) ->
+tcp_opts(Opts) ->
+    emqx_listeners:tcp_opts(Opts).
+
+udp_opts(Opts) ->
     maps:to_list(
         maps:without(
-            [active_n, keepalive],
-            maps:get(Name, Opts, #{})
+            [active_n],
+            maps:get(udp_options, Opts, #{})
         )
     ).
 
@@ -606,10 +609,10 @@ ranch_opts(Type, ListenOn, Opts) ->
     SocketOpts1 =
         case Type of
             wss ->
-                sock_opts(tcp_options, Opts) ++
+                tcp_opts(Opts) ++
                     proplists:delete(handshake_timeout, ssl_opts(ssl_options, Opts));
             ws ->
-                sock_opts(tcp_options, Opts)
+                tcp_opts(Opts)
         end,
     SocketOpts = ip_port(ListenOn) ++ proplists:delete(reuseaddr, SocketOpts1),
     #{

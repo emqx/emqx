@@ -34,7 +34,8 @@
     max_conns/2,
     id_example/0,
     default_max_conn/0,
-    shutdown_count/2
+    shutdown_count/2,
+    tcp_opts/1
 ]).
 
 -export([
