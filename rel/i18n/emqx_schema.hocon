@@ -262,12 +262,6 @@ already established connections."""
 common_ssl_opts_schema_cacertfile.label:
 """CACertfile"""
 
-common_ssl_opts_schema_cacerts.desc:
-"""When enabled, uses the system trusted CA certificates for establishing to TLS connections."""
-
-common_ssl_opts_schema_cacerts.label:
-"""Use System CA Certificates"""
-
 fields_ws_opts_mqtt_path.desc: """~
     WebSocket's MQTT protocol path. By default, the full URL for the WebSocket client to connect is:
     `ws://{host}:{port}/mqtt`.
