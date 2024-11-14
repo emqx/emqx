@@ -125,7 +125,7 @@ count() ->
 
 topic(Start, Len) ->
     count(),
-    {ok, _HasNext, Messages} = emqx_retainer:page_read(<<"#">>, Start, Len),
+    {ok, _HasNext, Messages} = emqx_retainer:page_read(undefined, Start, Len),
     [?PRINT("~ts~n", [emqx_message:topic(M)]) || M <- Messages],
     ok.
 

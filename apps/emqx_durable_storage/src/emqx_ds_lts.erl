@@ -48,6 +48,7 @@
     static_key/0,
     varying/0,
     trie/0,
+    dump/0,
     msg_storage_key/0,
     learned_structure/0,
     threshold_spec/0,

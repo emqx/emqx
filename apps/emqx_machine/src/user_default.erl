@@ -31,6 +31,10 @@
 -define(RED, <<"\e[31m">>).
 -define(RESET, <<"\e[0m">>).
 
+%% print to default group-leader but not user
+%% so it should work in remote shell
+-define(PRINT(FMT, ARGS), io:format(FMT, ARGS)).
+
 %% API
 -export([lock/0, unlock/0]).
 -export([trace/0, t/0, t/1, t/2, t_msg/0, t_msg/1, t_stop/0]).
@@ -42,26 +46,26 @@ lock() -> emqx_restricted_shell:lock().
 unlock() -> emqx_restricted_shell:unlock().
 
 trace() ->
-    ?ULOG("Trace Usage:~n", []),
-    ?ULOG("  --------------------------------------------------~n", []),
-    ?ULOG("  t(Mod, Func) -> trace a specify function.~n", []),
-    ?ULOG("  t(RTPs) -> trace in Redbug Trace Patterns.~n", []),
-    ?ULOG("       eg1: t(\"emqx_hooks:run\").~n", []),
-    ?ULOG("       eg2: t(\"emqx_hooks:run/2\").~n", []),
-    ?ULOG("       eg3: t(\"emqx_hooks:run/2 -> return\").~n", []),
-    ?ULOG(
+    ?PRINT("Trace Usage:~n", []),
+    ?PRINT("  --------------------------------------------------~n", []),
+    ?PRINT("  t(Mod, Func) -> trace a specify function.~n", []),
+    ?PRINT("  t(RTPs) -> trace in Redbug Trace Patterns.~n", []),
+    ?PRINT("       eg1: t(\"emqx_hooks:run\").~n", []),
+    ?PRINT("       eg2: t(\"emqx_hooks:run/2\").~n", []),
+    ?PRINT("       eg3: t(\"emqx_hooks:run/2 -> return\").~n", []),
+    ?PRINT(
         "       eg4: t(\"emqx_hooks:run('message.dropped',[_, #{node := N}, _])"
         "when N =:= 'emqx@127.0.0.1' -> stack,return\"~n",
         []
     ),
-    ?ULOG("  t() ->   when you forget the RTPs.~n", []),
-    ?ULOG("  --------------------------------------------------~n", []),
-    ?ULOG("  t_msg(PidorRegName) -> trace a pid/registed name's messages.~n", []),
-    ?ULOG("  t_msg([Pid,RegName]) -> trace a list pids's messages.~n", []),
-    ?ULOG("  t_msg() ->  when you forget the pids.~n", []),
-    ?ULOG("  --------------------------------------------------~n", []),
-    ?ULOG("  t_stop() -> stop running trace.~n", []),
-    ?ULOG("  --------------------------------------------------~n", []),
+    ?PRINT("  t() ->   when you forget the RTPs.~n", []),
+    ?PRINT("  --------------------------------------------------~n", []),
+    ?PRINT("  t_msg(PidorRegName) -> trace a pid/registed name's messages.~n", []),
+    ?PRINT("  t_msg([Pid,RegName]) -> trace a list pids's messages.~n", []),
+    ?PRINT("  t_msg() ->  when you forget the pids.~n", []),
+    ?PRINT("  --------------------------------------------------~n", []),
+    ?PRINT("  t_stop() -> stop running trace.~n", []),
+    ?PRINT("  --------------------------------------------------~n", []),
     ok.
 
 t_stop() ->
@@ -82,7 +86,7 @@ t(M, F) ->
     start_trace(RTP, Options, Pids).
 
 t_msg() ->
-    ?ULOG("Tracing on specific pids's send/receive message: ~n", []),
+    ?PRINT("Tracing on specific pids's send/receive message: ~n", []),
     Pids = get_pids(),
     t_msg(Pids).
 
@@ -131,7 +135,7 @@ get_rtp_fun() ->
     end.
 
 get_function() ->
-    ?ULOG("Function(func|func/3|func('_', atom, X) when is_integer(X)) :~n", []),
+    ?PRINT("Function(func|func/3|func('_', atom, X) when is_integer(X)) :~n", []),
     F0 = io:get_line(""),
     string:trim(F0, both, " \n").
 
@@ -196,8 +200,8 @@ parse_pid(NameStr) ->
             throw({not_registered, NameStr})
     end.
 
-warning(Fmt, Args) -> ?ELOG("~s" ++ Fmt ++ ".~s~n", [?RED] ++ Args ++ [?RESET]).
-info(Fmt, Args) -> ?ELOG("~s" ++ Fmt ++ ".~s~n", [?GREEN] ++ Args ++ [?RESET]).
+warning(Fmt, Args) -> ?PRINT("~s" ++ Fmt ++ ".~s~n", [?RED] ++ Args ++ [?RESET]).
+info(Fmt, Args) -> ?PRINT("~s" ++ Fmt ++ ".~s~n", [?GREEN] ++ Args ++ [?RESET]).
 
 ensure_redbug_stop() ->
     case redbug:stop() of

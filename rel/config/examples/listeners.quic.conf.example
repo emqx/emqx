@@ -1,7 +1,6 @@
 ## MQTT over QUIC Listener
 
 listeners.quic.my_quick_listener_name {
-    ## Port or Address to listen on, 0 means disable
     bind = 14567 ## or with an IP, e.g. "127.0.0.1:14567"
 
     ## When publishing or subscribing, prefix all topics with a mountpoint string

@@ -1,6 +1,6 @@
 {application, emqx_message_transformation, [
     {description, "EMQX Message Transformation"},
-    {vsn, "0.1.3"},
+    {vsn, "0.1.4"},
     {registered, [emqx_message_transformation_sup, emqx_message_transformation_registry]},
     {mod, {emqx_message_transformation_app, []}},
     {applications, [

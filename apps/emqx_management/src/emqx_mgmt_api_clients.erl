@@ -1872,7 +1872,13 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
         )
     );
 format_channel_info(undefined, {ClientId, PSInfo0 = #{}}, _Opts) ->
-    format_persistent_session_info(ClientId, PSInfo0).
+    format_persistent_session_info(ClientId, PSInfo0);
+format_channel_info(undefined, {ClientId, undefined = _PSInfo}, _Opts) ->
+    %% Durable session missing its metadata: possibly a race condition, such as the client
+    %% being kicked while the API is enumerating clients.  There's nothing much to do, we
+    %% just return an almost empty map to avoid crashing this function.  The client may
+    %% just retry listing in such cases.
+    #{clientid => ClientId}.
 
 format_persistent_session_info(
     _ClientId,

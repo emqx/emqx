@@ -83,10 +83,12 @@
 
 -type backend_state() :: term().
 
--type context() :: #{
-    module := module(),
-    state := backend_state()
-}.
+-type context() ::
+    #{
+        module := module(),
+        state := backend_state()
+    }
+    | undefined.
 
 -type topic() :: emqx_types:topic().
 -type message() :: emqx_types:message().
@@ -506,8 +508,9 @@ config_backend_module(Config) ->
         #{module := Module} -> Module
     end.
 
--spec backend_module(context()) -> module().
-backend_module(#{module := Module}) -> Module.
+-spec backend_module(context()) -> module() | undefined.
+backend_module(#{module := Module}) -> Module;
+backend_module(undefined) -> undefined.
 
 -spec backend_state(context()) -> backend_state().
 backend_state(#{state := State}) -> State.

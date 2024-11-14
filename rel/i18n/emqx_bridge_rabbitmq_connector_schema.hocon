@@ -56,7 +56,7 @@ auto_reconnect.label:
 """Auto Reconnect"""
 
 exchange.desc:
-"""The name of the RabbitMQ exchange where the messages will be sent."""
+"""The name of the RabbitMQ exchange where the messages will be sent. Supports templates (e.g.: `e-${payload.e}`)."""
 
 exchange.label:
 """Exchange"""
@@ -68,7 +68,7 @@ exchange_type.label:
 """Exchange Type"""
 
 routing_key.desc:
-"""The routing key used to route messages to the correct queue in the RabbitMQ exchange."""
+"""The routing key used to route messages to the correct queue in the RabbitMQ exchange. Supports templates (e.g.: `k-${payload.r}`)."""
 
 routing_key.label:
 """Routing Key"""

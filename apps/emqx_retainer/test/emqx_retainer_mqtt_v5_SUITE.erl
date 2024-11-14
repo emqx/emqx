@@ -26,7 +26,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_retainer_SUITE:app_spec()],
+        [emqx, emqx_conf, emqx_retainer_SUITE:app_spec(enabled)],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
