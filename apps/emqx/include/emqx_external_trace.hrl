@@ -54,7 +54,11 @@
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs),
-    ?with_provider(add_span_attrs(Attrs), ok)
+    case Attrs of
+        NotMap when not is_map(NotMap) -> ok;
+        EmptyMap when is_map(EmptyMap) andalso map_size(EmptyMap) =:= 0 -> ok;
+        _ -> ?with_provider(add_span_attrs(Attrs), ok)
+    end
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs, Ctx),

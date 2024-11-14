@@ -724,8 +724,10 @@ awaiting_span_name(?PUBCOMP) ->
 
 -spec add_span_attrs(AttrsOrMeta) -> ok when
     AttrsOrMeta :: attrs().
+add_span_attrs(EmpytAttr) when map_size(EmpytAttr) =:= 0 ->
+    ok;
 add_span_attrs(Attrs) ->
-    true = ?set_attributes(Attrs),
+    _ = ?set_attributes(Attrs),
     ok.
 
 add_span_attrs(Attrs, Ctx) ->

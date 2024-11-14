@@ -370,7 +370,7 @@ do_route([], #delivery{message = Msg}, _PersistRes = []) ->
         begin
             case Msg of
                 #message{flags = #{sys := true}} ->
-                    #{};
+                    ok;
                 _ ->
                     #{
                         'route.dropped.node' => node(),
