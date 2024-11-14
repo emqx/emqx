@@ -31,7 +31,8 @@ all() ->
         {group, mnesia_without_indices},
         {group, mnesia_with_indices},
         {group, mnesia_reindex},
-        {group, test_disable_then_start}
+        {group, test_disable_then_start},
+        {group, disabled}
     ].
 
 groups() ->
@@ -39,7 +40,8 @@ groups() ->
         {mnesia_without_indices, [sequence], common_tests()},
         {mnesia_with_indices, [sequence], common_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
-        {test_disable_then_start, [sequence], [test_disable_then_start]}
+        {test_disable_then_start, [sequence], [test_disable_then_start]},
+        {disabled, [test_disabled]}
     ].
 
 common_tests() ->
@@ -65,29 +67,27 @@ retainer {
 }
 ">>).
 
+%% erlfmt-ignore
+-define(DISABLED_CONF, <<"
+retainer {
+  enable = false
+}
+">>).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, app_spec()],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{suite_apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)).
-
-init_per_group(mnesia_without_indices, Config) ->
-    [{index, false} | Config];
-init_per_group(mnesia_reindex, Config) ->
-    Config;
-init_per_group(_, Config) ->
-    Config.
+init_per_group(mnesia_without_indices = Group, Config) ->
+    start_apps(Group, [{index, false} | Config]);
+init_per_group(mnesia_reindex = Group, Config) ->
+    start_apps(Group, Config);
+init_per_group(Group, Config) ->
+    start_apps(Group, Config).
 
 end_per_group(_Group, Config) ->
     emqx_retainer_mnesia:populate_index_meta(),
+    stop_apps(Config),
     Config.
 
 init_per_testcase(_TestCase, Config) ->
@@ -107,8 +107,20 @@ end_per_testcase(t_cursor_cleanup, _Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
-app_spec() ->
+app_spec(disabled) ->
+    {emqx_retainer, ?DISABLED_CONF};
+app_spec(_) ->
     {emqx_retainer, ?BASE_CONF}.
+
+start_apps(Group, Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, app_spec(Group)],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
+
+stop_apps(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -767,6 +779,11 @@ test_disable_then_start(_Config) ->
     timer:sleep(100),
     ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok.
+
+test_disabled(_Config) ->
+    ?assertEqual(false, emqx_retainer:enabled()),
+    ?assertEqual(ok, emqx_retainer:clean()),
+    ?assertEqual({ok, false, []}, emqx_retainer:page_read(undefined, 1, 100)).
 
 t_deliver_when_banned(_) ->
     Client1 = <<"c1">>,

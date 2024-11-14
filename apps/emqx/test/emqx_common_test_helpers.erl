@@ -72,8 +72,6 @@
 ]).
 
 -export([
-    emqx_cluster/1,
-    emqx_cluster/2,
     start_ekka/0,
     start_epmd/0,
     start_peer/2,
@@ -685,9 +683,6 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
 %% Clusterisation and multi-node testing
 %%
 
--type cluster_spec() :: [node_spec()].
--type node_spec() :: role() | {role(), shortname()} | {role(), shortname(), node_opts()}.
--type role() :: core | replicant.
 -type shortname() :: atom().
 -type nodename() :: atom().
 -type node_opts() :: #{
@@ -721,58 +716,6 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
     %% - wss: base_port + 4
     listener_ports => [{Type :: tcp | ssl | ws | wss, inet:port_number()}]
 }.
-
--spec emqx_cluster(cluster_spec()) -> [{shortname(), node_opts()}].
-emqx_cluster(Specs) ->
-    emqx_cluster(Specs, #{}).
-
--spec emqx_cluster(cluster_spec(), node_opts()) -> [{shortname(), node_opts()}].
-emqx_cluster(Specs, CommonOpts) when is_list(CommonOpts) ->
-    emqx_cluster(Specs, maps:from_list(CommonOpts));
-emqx_cluster(Specs0, CommonOpts) ->
-    Specs1 = lists:zip(Specs0, lists:seq(1, length(Specs0))),
-    Specs = expand_node_specs(Specs1, CommonOpts),
-    %% Assign grpc ports
-    GenRpcPorts = maps:from_list([
-        {node_name(Name), {tcp, gen_rpc_port(base_port(Num))}}
-     || {{_, Name, _}, Num} <- Specs
-    ]),
-    %% Set the default node of the cluster:
-    CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
-    JoinTo =
-        case CoreNodes of
-            [First | _] -> First;
-            _ -> undefined
-        end,
-    NodeOpts = fun(Number) ->
-        #{
-            base_port => base_port(Number),
-            env => [
-                {mria, core_nodes, CoreNodes},
-                {gen_rpc, client_config_per_node, {internal, GenRpcPorts}}
-            ]
-        }
-    end,
-    RoleOpts = fun
-        (core) ->
-            #{
-                join_to => JoinTo,
-                env => [
-                    {mria, node_role, core}
-                ]
-            };
-        (replicant) ->
-            #{
-                env => [
-                    {mria, node_role, replicant},
-                    {ekka, cluster_discovery, {static, [{seeds, CoreNodes}]}}
-                ]
-            }
-    end,
-    [
-        {Name, merge_opts(merge_opts(NodeOpts(Number), RoleOpts(Role)), Opts)}
-     || {{Role, Name, Opts}, Number} <- Specs
-    ].
 
 %% Lower level starting API
 
@@ -999,25 +942,9 @@ node_name(Name) ->
             list_to_atom(atom_to_list(Name) ++ "@" ++ host())
     end.
 
-gen_node_name(Num) ->
-    list_to_atom("autocluster_node" ++ integer_to_list(Num)).
-
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
     Host.
-
-merge_opts(Opts1, Opts2) ->
-    maps:merge_with(
-        fun
-            (env, Env1, Env2) -> lists:usort(Env2 ++ Env1);
-            (conf, Conf1, Conf2) -> lists:usort(Conf2 ++ Conf1);
-            (apps, Apps1, Apps2) -> lists:usort(Apps2 ++ Apps1);
-            (load_apps, Apps1, Apps2) -> lists:usort(Apps2 ++ Apps1);
-            (_Option, _Old, Value) -> Value
-        end,
-        Opts1,
-        Opts2
-    ).
 
 set_envs(Node, Env) ->
     lists:foreach(
@@ -1040,9 +967,6 @@ is_lib(Path) ->
 
 %% Ports
 
-base_port(Number) ->
-    10000 + Number * 100.
-
 gen_rpc_port(BasePort) ->
     BasePort - 1.
 
@@ -1059,36 +983,6 @@ listener_port(BasePort, ws) ->
     BasePort + 3;
 listener_port(BasePort, wss) ->
     BasePort + 4.
-
-%% Autocluster helpers
-
-expand_node_specs(Specs, CommonOpts) ->
-    lists:map(
-        fun({Spec, Num}) ->
-            {
-                case Spec of
-                    core ->
-                        {core, gen_node_name(Num), CommonOpts};
-                    replicant ->
-                        {replicant, gen_node_name(Num), CommonOpts};
-                    {Role, Name} when is_atom(Name) ->
-                        {Role, Name, CommonOpts};
-                    {Role, Opts} when is_list(Opts) ->
-                        Opts1 = maps:from_list(Opts),
-                        {Role, gen_node_name(Num), merge_opts(CommonOpts, Opts1)};
-                    {Role, Name, Opts} when is_list(Opts) ->
-                        Opts1 = maps:from_list(Opts),
-                        {Role, Name, merge_opts(CommonOpts, Opts1)};
-                    {Role, Opts} ->
-                        {Role, gen_node_name(Num), merge_opts(CommonOpts, Opts)};
-                    {Role, Name, Opts} ->
-                        {Role, Name, merge_opts(CommonOpts, Opts)}
-                end,
-                Num
-            }
-        end,
-        Specs
-    ).
 
 %% Useful when iterating on the tests in a loop, to get rid of all the garbaged printed
 %% before the test itself beings.

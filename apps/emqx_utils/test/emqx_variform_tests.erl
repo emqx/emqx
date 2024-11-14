@@ -26,6 +26,18 @@
 render_test_() ->
     [
         {"direct var reference", fun() -> ?assertEqual({ok, <<"1">>}, render("a", #{a => 1})) end},
+        {"direct var reference missing", fun() ->
+            ?assertMatch({error, #{reason := var_unbound}}, render("a", #{}))
+        end},
+        {"direct var reference undefined", fun() ->
+            ?assertEqual({ok, <<"">>}, render("a", #{a => undefined}))
+        end},
+        {"direct var reference null", fun() ->
+            ?assertEqual({ok, <<"">>}, render("a", #{a => null}))
+        end},
+        {"direct var reference emptry str", fun() ->
+            ?assertEqual({ok, <<"">>}, render("a", #{a => <<>>}))
+        end},
         {"concat strings", fun() ->
             ?assertEqual({ok, <<"a,b">>}, render("concat(['a',',','b'])", #{}))
         end},

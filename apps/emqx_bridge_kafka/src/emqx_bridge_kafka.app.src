@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge_kafka, [
     {description, "EMQX Enterprise Kafka Bridge"},
-    {vsn, "0.5.1"},
+    {vsn, "0.5.2"},
     {registered, [emqx_bridge_kafka_consumer_sup]},
     {applications, [
         kernel,

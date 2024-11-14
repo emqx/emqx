@@ -1,7 +1,6 @@
 ## MQTT over Secured Websocket (HTTPS) Listener
 
 listeners.wss.my_wss_listener_name = {
-    ## Port or Address to listen on, 0 means disable
     bind = 8084 ## or with an IP, e.g. "127.0.0.1:8084"
     enable_authn = true
     max_connections = infinity

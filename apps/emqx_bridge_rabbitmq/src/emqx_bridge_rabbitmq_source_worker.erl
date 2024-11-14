@@ -35,13 +35,13 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(
-    {#'basic.deliver'{delivery_tag = Tag}, #amqp_msg{
+    {#'basic.deliver'{delivery_tag = Tag} = BasicDeliver, #amqp_msg{
         payload = Payload,
         props = PBasic
     }},
     {Channel, InstanceId, Params} = State
 ) ->
-    Message = to_map(PBasic, Payload),
+    Message = to_map(BasicDeliver, PBasic, Params, Payload),
     #{hookpoints := Hooks, no_ack := NoAck} = Params,
     lists:foreach(fun(Hook) -> emqx_hooks:run(Hook, [Message]) end, Hooks),
     (NoAck =:= false) andalso
@@ -53,7 +53,9 @@ handle_info(#'basic.cancel_ok'{}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-to_map(PBasic, Payload) ->
+to_map(BasicDeliver, PBasic, Params, Payload) ->
+    #'basic.deliver'{exchange = Exchange, routing_key = RoutingKey} = BasicDeliver,
+
     #'P_basic'{
         content_type = ContentType,
         content_encoding = ContentEncoding,
@@ -70,6 +72,9 @@ to_map(PBasic, Payload) ->
         app_id = AppId,
         cluster_id = ClusterId
     } = PBasic,
+
+    #{queue := Queue} = Params,
+
     Message = #{
         <<"payload">> => make_payload(Payload),
         <<"content_type">> => ContentType,
@@ -85,7 +90,10 @@ to_map(PBasic, Payload) ->
         <<"type">> => Type,
         <<"user_id">> => UserId,
         <<"app_id">> => AppId,
-        <<"cluster_id">> => ClusterId
+        <<"cluster_id">> => ClusterId,
+        <<"exchange">> => Exchange,
+        <<"routing_key">> => RoutingKey,
+        <<"queue">> => Queue
     },
     maps:filtermap(fun(_K, V) -> V =/= undefined andalso V =/= <<"undefined">> end, Message).
 

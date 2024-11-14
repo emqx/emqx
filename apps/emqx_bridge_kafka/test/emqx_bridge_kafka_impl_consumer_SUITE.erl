@@ -1009,7 +1009,7 @@ setup_group_subscriber_spy_fn() ->
 
 setup_group_subscriber_spy(TestPid) ->
     ok = meck:new(brod_group_subscriber_v2, [
-        passthrough, no_link, no_history, non_strict
+        passthrough, no_link, no_history
     ]),
     ok = meck:expect(
         brod_group_subscriber_v2,
@@ -1035,15 +1035,6 @@ setup_group_subscriber_spy(TestPid) ->
 kill_group_subscriber_spy() ->
     meck:unload(brod_group_subscriber_v2).
 
-wait_for_cluster_rpc(Node) ->
-    %% need to wait until the config handler is ready after
-    %% restarting during the cluster join.
-    ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
-        true = is_pid(erpc:call(Node, erlang, whereis, [emqx_config_handler]))
-    ).
-
 setup_and_start_listeners(Node, NodeOpts) ->
     erpc:call(
         Node,
@@ -1068,39 +1059,25 @@ setup_and_start_listeners(Node, NodeOpts) ->
         end
     ).
 
-cluster(Config) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    ExtraEnvHandlerHook = setup_group_subscriber_spy_fn(),
-    Cluster = emqx_common_test_helpers:emqx_cluster(
-        [core, core],
+cluster(TestCase, Config) ->
+    AppSpecs = [
+        emqx_conf,
+        emqx_rule_engine,
+        {emqx_bridge_kafka, #{after_start => setup_group_subscriber_spy_fn()}},
+        emqx_bridge
+    ],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
         [
-            {apps, [emqx_conf, emqx_rule_engine, emqx_bridge_kafka, emqx_bridge]},
-            {listener_ports, []},
-            {priv_data_dir, PrivDataDir},
-            {load_schema, true},
-            {start_autocluster, true},
-            {schema_mod, emqx_enterprise_schema},
-            {load_apps, [emqx_machine]},
-            {env_handler, fun
-                (emqx) ->
-                    application:set_env(emqx, boot_modules, [broker]),
-                    ExtraEnvHandlerHook(),
-                    ok;
-                (emqx_conf) ->
-                    ok;
-                (_) ->
-                    ok
-            end}
-        ]
+            {node_name(TestCase, 1), #{apps => AppSpecs}},
+            {node_name(TestCase, 2), #{apps => AppSpecs}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
-    ct:pal("cluster: ~p", [Cluster]),
-    Cluster.
+    ct:pal("cluster: ~p", [NodeSpecs]),
+    NodeSpecs.
 
-start_peer(Name, Opts) ->
-    Node = emqx_common_test_helpers:start_peer(Name, Opts),
-    % Make it possible to call `ct:pal` and friends (if running under rebar3)
-    _ = emqx_cth_cluster:share_load_module(Node, cthr),
-    Node.
+node_name(TestCase, N) ->
+    binary_to_atom(iolist_to_binary(io_lib:format("~s_~b", [TestCase, N]))).
 
 start_async_publisher(Config, KafkaTopic) ->
     TId = ets:new(kafka_payloads, [public, ordered_set]),
@@ -1155,6 +1132,10 @@ health_check(Node, Config) ->
         #{status := Status} = emqx_bridge_v2_testlib:health_check_channel(Config),
         {ok, Status}
     end).
+
+get_mqtt_port(Node) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1763,29 +1744,16 @@ t_cluster_group(Config) ->
     KafkaTopic = ?config(kafka_topic, Config),
     KafkaName = ?config(kafka_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, KafkaName),
-    Cluster = cluster(Config),
+    Cluster = cluster(?FUNCTION_NAME, Config),
     ?check_trace(
         begin
-            Nodes =
-                [_N1, N2 | _] = [
-                    start_peer(Name, Opts)
-                 || {Name, Opts} <- Cluster
-                ],
-            on_exit(fun() ->
-                emqx_utils:pmap(
-                    fun(N) ->
-                        ct:pal("stopping ~p", [N]),
-                        ok = emqx_common_test_helpers:stop_peer(N)
-                    end,
-                    Nodes
-                )
-            end),
+            Nodes = [_N1, N2 | _] = emqx_cth_cluster:start(Cluster),
+            on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
             {ok, SRef0} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := kafka_consumer_subscriber_started}),
                 length(Nodes),
                 15_000
             ),
-            wait_for_cluster_rpc(N2),
             erpc:call(N2, fun() -> {ok, _} = create_bridge(Config) end),
             {ok, _} = snabbkaffe:receive_events(SRef0),
             lists:foreach(
@@ -1845,15 +1813,15 @@ t_node_joins_existing_cluster(Config) ->
     KafkaTopic = ?config(kafka_topic, Config),
     KafkaName = ?config(kafka_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, KafkaName),
-    Cluster = cluster(Config),
+    Cluster = cluster(?FUNCTION_NAME, Config),
     ?check_trace(
         begin
-            [{Name1, Opts1}, {Name2, Opts2} | _] = Cluster,
-            ct:pal("starting ~p", [Name1]),
-            N1 = start_peer(Name1, Opts1),
+            [NodeSpec1, NodeSpec2 | _] = Cluster,
+            ct:pal("starting ~p", [NodeSpec1]),
+            [N1] = emqx_cth_cluster:start([NodeSpec1]),
             on_exit(fun() ->
                 ct:pal("stopping ~p", [N1]),
-                ok = emqx_common_test_helpers:stop_peer(N1)
+                ok = emqx_cth_cluster:stop([N1])
             end),
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
@@ -1880,8 +1848,7 @@ t_node_joins_existing_cluster(Config) ->
             ),
 
             %% Now, we start the second node and have it join the cluster.
-            setup_and_start_listeners(N1, Opts1),
-            TCPPort1 = emqx_common_test_helpers:listener_port(Opts1, tcp),
+            TCPPort1 = get_mqtt_port(N1),
             {ok, C1} = emqtt:start_link([{port, TCPPort1}, {proto_ver, v5}]),
             on_exit(fun() -> catch emqtt:stop(C1) end),
             {ok, _} = emqtt:connect(C1),
@@ -1892,14 +1859,13 @@ t_node_joins_existing_cluster(Config) ->
                 1,
                 30_000
             ),
-            ct:pal("starting ~p", [Name2]),
-            N2 = start_peer(Name2, Opts2),
+            ct:pal("starting ~p", [NodeSpec2]),
+            [N2] = emqx_cth_cluster:start([NodeSpec2]),
             on_exit(fun() ->
                 ct:pal("stopping ~p", [N2]),
-                ok = emqx_common_test_helpers:stop_peer(N2)
+                ok = emqx_cth_cluster:stop([N2])
             end),
             Nodes = [N1, N2],
-            wait_for_cluster_rpc(N2),
 
             {ok, _} = snabbkaffe:receive_events(SRef0),
             ?retry(
@@ -1977,39 +1943,15 @@ t_cluster_node_down(Config) ->
     KafkaTopic = ?config(kafka_topic, Config),
     KafkaName = ?config(kafka_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, KafkaName),
-    Cluster = cluster(Config),
+    Cluster = cluster(?FUNCTION_NAME, Config),
     ?check_trace(
         begin
-            {_N2, Opts2} = lists:nth(2, Cluster),
-            NumNodes = length(Cluster),
-            Nodes =
-                [N1, N2 | _] =
-                lists:map(
-                    fun({Name, Opts}) ->
-                        ct:pal("starting ~p", [Name]),
-                        start_peer(Name, Opts)
-                    end,
-                    Cluster
-                ),
-            on_exit(fun() ->
-                emqx_utils:pmap(
-                    fun(N) ->
-                        ct:pal("stopping ~p", [N]),
-                        ok = emqx_common_test_helpers:stop_peer(N)
-                    end,
-                    Nodes
-                )
-            end),
+            Nodes = [N1, N2 | _] = emqx_cth_cluster:start(Cluster),
+            on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
             {ok, SRef0} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := kafka_consumer_subscriber_started}),
                 length(Nodes),
                 15_000
-            ),
-            wait_for_cluster_rpc(N2),
-            {ok, _} = snabbkaffe:block_until(
-                %% -1 because only those that join the first node will emit the event.
-                ?match_n_events(NumNodes - 1, #{?snk_kind := emqx_machine_boot_apps_started}),
-                30_000
             ),
             erpc:call(N2, fun() -> {ok, _} = create_bridge(Config) end),
             {ok, _} = snabbkaffe:receive_events(SRef0),
@@ -2031,8 +1973,7 @@ t_cluster_node_down(Config) ->
 
             %% Now, we stop one of the nodes and watch the group
             %% rebalance.
-            setup_and_start_listeners(N2, Opts2),
-            TCPPort = emqx_common_test_helpers:listener_port(Opts2, tcp),
+            TCPPort = get_mqtt_port(N2),
             {ok, C} = emqtt:start_link([{port, TCPPort}, {proto_ver, v5}]),
             on_exit(fun() -> catch emqtt:stop(C) end),
             {ok, _} = emqtt:connect(C),
@@ -2040,7 +1981,7 @@ t_cluster_node_down(Config) ->
             {TId, Pid} = start_async_publisher(Config, KafkaTopic),
 
             ct:pal("stopping node ~p", [N1]),
-            ok = emqx_common_test_helpers:stop_peer(N1),
+            ok = emqx_cth_cluster:stop([N1]),
 
             %% Give some time for the consumers in remaining node to
             %% rebalance.

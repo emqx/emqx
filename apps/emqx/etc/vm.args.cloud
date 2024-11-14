@@ -119,6 +119,9 @@
 ## See: http://erlang.org/doc/man/erl.html
 -shutdown_time 30000
 
+## Disable the code path caching feature to allow adding dynamic patch path using `-pa`.
+-cache_boot_paths false
+
 ## patches dir
 -pa "{{ platform_data_dir }}/patches"
 
