@@ -1243,7 +1243,12 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchR
             SchedS = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
                 IsReplay, StreamKey, Srs, S0, SchedS0
             ),
-            {ok, Srs, Session#{stream_scheduler_s := SchedS}};
+            %% FIXME: temporary workaround. Schedule stream renewal
+            %% after encountering end of stream. In the future this
+            %% should be done by the scheduler, immediately:
+            Interval = 1,
+            {ok, Srs,
+                ensure_timer(?TIMER_SHARED_SUB, Interval, Session#{stream_scheduler_s := SchedS})};
         {ok, ItEnd, Messages} ->
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay,
