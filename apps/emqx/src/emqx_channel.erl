@@ -422,13 +422,13 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
     ConnState =/= connected andalso ConnState =/= reauthenticating
 ->
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
-handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
+handle_in(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId), Channel) ->
     case emqx_packet:check(Packet) of
         ok ->
             ?EXT_TRACE_WITH_PROCESS_FUN(
                 client_publish,
                 Packet,
-                basic_trace_attrs(Channel),
+                (basic_trace_attrs(Channel))#{'message.topic' => Topic},
                 fun(PacketWithTrace) -> process_publish(PacketWithTrace, Channel) end
             );
         {error, ReasonCode} ->
