@@ -566,6 +566,7 @@ ssl_opts(Name, Opts) ->
     SSLOpts = maps:get(Name, Opts, #{}),
     emqx_utils:run_fold(
         [
+            fun ensure_dtls_protocol/2,
             fun ssl_opts_crl_config/2,
             fun ssl_opts_drop_unsupported/2,
             fun ssl_partial_chain/2,
@@ -575,6 +576,11 @@ ssl_opts(Name, Opts) ->
         SSLOpts,
         Name
     ).
+
+ensure_dtls_protocol(SSLOpts, dtls_options) ->
+    SSLOpts#{protocol => dtls};
+ensure_dtls_protocol(SSLOpts, _) ->
+    SSLOpts.
 
 ssl_opts_crl_config(#{enable_crl_check := true} = SSLOpts, _Name) ->
     HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
