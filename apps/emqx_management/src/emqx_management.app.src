@@ -2,7 +2,7 @@
 {application, emqx_management, [
     {description, "EMQX Management API and CLI"},
     % strict semver, bump manually!
-    {vsn, "5.3.2"},
+    {vsn, "5.3.3"},
     {modules, []},
     {registered, [emqx_management_sup]},
     {applications, [
