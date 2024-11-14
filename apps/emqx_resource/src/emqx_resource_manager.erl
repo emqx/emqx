@@ -399,6 +399,7 @@ get_metrics(ResId) ->
 %% @doc Reset the metrics for the specified resource
 -spec reset_metrics(resource_id()) -> ok.
 reset_metrics(ResId) ->
+    ok = ensure_metrics(ResId),
     emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId).
 
 %% @doc Returns the data for all resources
@@ -788,6 +789,7 @@ handle_remove_event(From, ClearMetrics, Data) ->
 start_resource(Data, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
     #data{id = ResId, mod = Mod, config = Config, group = Group, type = Type} = Data,
+    ok = ensure_metrics(ResId),
     case emqx_resource:call_start(ResId, Mod, Config) of
         {ok, ResourceState} ->
             UpdatedData1 = Data#data{status = ?status_connecting, state = ResourceState},
@@ -1894,3 +1896,11 @@ abort_channel_health_check(Pid) ->
         {'EXIT', Pid, _} ->
             ok
     end.
+
+%% For still unknown reasons (e.g.: `emqx_metrics_worker' process might die?), metrics
+%% might be lost for a running resource, and future attempts to bump them result in
+%% errors.  As mitigation, we ensure such metrics are created here so that restarting
+%% the resource or resetting its metrics can recreate them.
+ensure_metrics(ResId) ->
+    {ok, _} = emqx_resource:ensure_metrics(ResId),
+    ok.
