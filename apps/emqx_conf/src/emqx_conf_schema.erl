@@ -84,6 +84,7 @@
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
     failed_to_retain_message,
+    handle_resource_metrics_failed,
     socket_receive_paused_by_rate_limit,
     unrecoverable_resource_error
 ]).
