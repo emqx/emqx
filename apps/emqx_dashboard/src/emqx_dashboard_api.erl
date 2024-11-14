@@ -104,6 +104,7 @@ schema("/users") ->
         get => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(list_users_api),
+            security => [#{'bearerAuth' => []}],
             responses => #{
                 200 => mk(
                     array(hoconsc:ref(user)),
@@ -114,6 +115,7 @@ schema("/users") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(create_user_api),
+            security => [#{'bearerAuth' => []}],
             'requestBody' => fields([username, password, role, description]),
             responses => #{
                 200 => fields([username, role, description, backend])

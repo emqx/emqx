@@ -48,6 +48,7 @@
     static_key/0,
     varying/0,
     trie/0,
+    dump/0,
     msg_storage_key/0,
     learned_structure/0,
     threshold_spec/0,
@@ -78,13 +79,14 @@
 %% Fixed size binary or integer, depending on the options:
 -type static_key() :: non_neg_integer() | binary().
 
-%% Trie root:
+%% Trie roots:
 -define(PREFIX, prefix).
+-define(PREFIX_SPECIAL, special).
 %% Special prefix root for reverse lookups:
 -define(rlookup, rlookup).
 -define(rlookup(STATIC), {?rlookup, STATIC}).
 
--type state() :: static_key() | ?PREFIX.
+-type state() :: static_key() | ?PREFIX | ?PREFIX_SPECIAL.
 
 -type varying() :: [level() | ?PLUS].
 
@@ -231,6 +233,13 @@ trie_copy_learned_paths(OldTrie, NewTrie) ->
 
 %% @doc Lookup the topic key. Create a new one, if not found.
 -spec topic_key(trie(), threshold_fun(), [level()]) -> msg_storage_key().
+topic_key(Trie, ThresholdFun, [<<"$", _/bytes>> | _] = Tokens) ->
+    %% [MQTT-4.7.2-1]
+    %% Put any topic starting with `$` into a separate _special_ root.
+    %% Using a special root only when the topic and the filter start with $<X>
+    %% prevents special topics from matching with + or # pattern, but not with
+    %% $<X>/+ or $<X>/# pattern. See also `match_topics/2`.
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, [], []);
 topic_key(Trie, ThresholdFun, Tokens) ->
     do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, [], []).
 
@@ -242,6 +251,13 @@ lookup_topic_key(Trie, Tokens) ->
 %% @doc Return list of keys of topics that match a given topic filter
 -spec match_topics(trie(), [level() | '+' | '#']) ->
     [msg_storage_key()].
+match_topics(Trie, [<<"$", _/bytes>> | _] = TopicFilter) ->
+    %% [MQTT-4.7.2-1]
+    %% Any topics starting with `$` should belong to a separate _special_ root.
+    %% Using a special root only when the topic and the filter start with $<X>
+    %% prevents special topics from matching with + or # pattern, but not with
+    %% $<X>/+ or $<X>/# pattern.
+    do_match_topics(Trie, ?PREFIX_SPECIAL, [], TopicFilter);
 match_topics(Trie, TopicFilter) ->
     do_match_topics(Trie, ?PREFIX, [], TopicFilter).
 

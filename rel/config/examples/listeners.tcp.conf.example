@@ -1,7 +1,6 @@
 ## MQTT over TCP Listener
 
 listeners.tcp.my_tcp_listener_name {
-    ## Port or Address to listen on, 0 means disable
     bind = 1883 ## or with an IP e.g. "127.0.0.1:1883"
 
     ## Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx

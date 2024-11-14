@@ -75,7 +75,7 @@ fields(action_parameters) ->
             )},
         {exchange,
             hoconsc:mk(
-                typerefl:binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC(?CONNECTOR_SCHEMA, "exchange")
@@ -83,7 +83,7 @@ fields(action_parameters) ->
             )},
         {routing_key,
             hoconsc:mk(
-                typerefl:binary(),
+                emqx_schema:template(),
                 #{
                     required => true,
                     desc => ?DESC(?CONNECTOR_SCHEMA, "routing_key")

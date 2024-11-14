@@ -795,3 +795,55 @@ t_table_removed(Config) ->
         []
     ),
     ok.
+
+t_update_with_invalid_prepare(Config) ->
+    reset_table(Config),
+
+    {ok, _} = create_bridge_api(Config),
+
+    %% retainx is a bad column name
+    BadSQL =
+        <<"INSERT INTO mqtt_test(topic, msgid, payload, retainx) VALUES (${topic}, ${id}, ${payload}, ${retain})">>,
+
+    Override = #{<<"sql">> => BadSQL},
+    {ok, Body1} =
+        update_bridge_api(Config, Override),
+
+    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
+    Error1 = maps:get(<<"status_reason">>, Body1),
+    case re:run(Error1, <<"unhealthy_target">>, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            ct:fail(#{
+                expected_pattern => "undefined_column",
+                got => Error1
+            })
+    end,
+
+    %% assert that although there was an error returned, the invliad SQL is actually put
+    BridgeName = ?config(oracle_name, Config),
+    C1 = [{action_name, BridgeName}, {action_type, oracle} | Config],
+    {ok, {{_, 200, "OK"}, _, Action}} = emqx_bridge_v2_testlib:get_action_api(C1),
+    #{<<"parameters">> := #{<<"sql">> := FetchedSQL}} = Action,
+    ?assertEqual(FetchedSQL, BadSQL),
+
+    %% update again with the original sql
+    {ok, Body2} = update_bridge_api(Config),
+    %% the error should be gone now, and status should be 'connected'
+    ?assertMatch(#{<<"status">> := <<"connected">>}, Body2),
+    %% finally check if ecpool worker should have exactly one of reconnect callback
+    ConnectorResId = <<"connector:oracle:", BridgeName/binary>>,
+    Workers = ecpool:workers(ConnectorResId),
+    [_ | _] = WorkerPids = lists:map(fun({_, Pid}) -> Pid end, Workers),
+    lists:foreach(
+        fun(Pid) ->
+            [{emqx_oracle, prepare_sql_to_conn, Args}] =
+                ecpool_worker:get_reconnect_callbacks(Pid),
+            Sig = emqx_postgresql:get_reconnect_callback_signature(Args),
+            BridgeResId = <<"action:oracle:", BridgeName/binary, $:, ConnectorResId/binary>>,
+            ?assertEqual(BridgeResId, Sig)
+        end,
+        WorkerPids
+    ),
+    ok.

@@ -10,7 +10,7 @@ dashboard {
     cors = false
 
     listeners.https {
-        ## Port or Address to listen on, 0 means disable
+        # bind = 0 to disable this listener
         bind = "0.0.0.0:18084" ## or just a port number, e.g. 18084
 
         ssl_options {

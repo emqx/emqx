@@ -440,11 +440,9 @@ websocket_handle({Frame, _}, State) ->
 websocket_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
 websocket_info({cast, rate_limit}, State) ->
-    Stats = #{
-        cnt => emqx_pd:reset_counter(incoming_pubs),
-        oct => emqx_pd:reset_counter(incoming_bytes)
-    },
-    return(postpone({check_gc, Stats}, State));
+    Cnt = emqx_pd:reset_counter(incoming_pubs),
+    Oct = emqx_pd:reset_counter(incoming_bytes),
+    return(postpone({check_gc, Cnt, Oct}, State));
 websocket_info({cast, Msg}, State) ->
     handle_info(Msg, State);
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
