@@ -6,6 +6,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -21,9 +22,6 @@
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
-
-suite() ->
-    [{timetrap, {seconds, 60}}].
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -577,6 +575,33 @@ t_new_stream_notifications(Config) ->
                 [], ?of_kind(sessds_unexpected_stream_notification, Trace)
             )
         end
+    ).
+
+t_fuzz(_Config) ->
+    ?run_prop(
+        #{proper => #{timeout => 30_000, numtests => 100, max_size => 100}},
+        ?forall_trace(
+            Cmds,
+            commands(emqx_persistent_session_ds_fuzzer),
+            try
+                %% ok = emqx_persistent_message:init(),
+                {_History, State, Result} = run_commands(emqx_persistent_session_ds_fuzzer, Cmds),
+                %% Kick the client, if present:
+                catch emqx_persistent_session_ds_fuzzer:cleanup(State),
+                ?assertMatch(
+                    ok,
+                    Result,
+                    #{
+                        state => State,
+                        commands => Cmds
+                    }
+                )
+            after
+                %% emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
+                ok
+            end,
+            emqx_persistent_session_ds:trace_specs()
+        )
     ).
 
 t_session_discard_persistent_to_non_persistent(_Config) ->

@@ -140,11 +140,15 @@
     gc/1
 ]).
 
-%% behavior callbacks:
--export([]).
-
 %% internal exports:
 -export([]).
+
+-ifdef(TEST).
+-export([
+    runtime_state_invariants/2,
+    offline_state_invariants/2
+]).
+-endif.
 
 -export_type([t/0, stream_key/0, srs/0]).
 
@@ -153,6 +157,11 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("emqx_mqtt.hrl").
 -include("session_internals.hrl").
+
+-ifdef(TEST).
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-endif.
 
 %%================================================================================
 %% Type declarations
@@ -497,10 +506,18 @@ gc(S) ->
     t()
 ) ->
     ret().
-on_subscribe(TopicFilterBin, Subscription, S0, SchedS0) ->
-    {NewSRSIds, S, SchedS1} = init_for_subscription(TopicFilterBin, Subscription, S0, SchedS0),
-    SchedS = to_RU(NewSRSIds, SchedS1),
-    {NewSRSIds, S, SchedS}.
+on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{subs = Subs}) ->
+    case Subs of
+        #{TopicFilterBin := _} ->
+            %% Already subscribed:
+            {[], S0, SchedS0};
+        _ ->
+            {NewSRSIds, S, SchedS1} = init_for_subscription(
+                TopicFilterBin, Subscription, S0, SchedS0
+            ),
+            SchedS = to_RU(NewSRSIds, SchedS1),
+            {NewSRSIds, S, SchedS}
+    end.
 
 -spec on_unsubscribe(
     emqx_types:topic(),
@@ -641,8 +658,8 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
     t()
 ) ->
     ret().
-renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{subs = Subs0}) ->
-    case find_subscription_by_subid(SubId, maps:iterator(Subs0)) of
+renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{subs = Subscriptions0}) ->
+    case find_subscription_by_subid(SubId, maps:iterator(Subscriptions0)) of
         {TopicFilterBin, SubS0} ->
             case emqx_persistent_session_ds_state:get_subscription(TopicFilterBin, S0) of
                 undefined ->
@@ -655,7 +672,7 @@ renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{subs = Subs0}) ->
                         S0, TopicFilter, Subscription, RankX, Pending0
                     ),
                     SubS = SubS0#subs{pending_streams = Cache#{RankX => Pending}},
-                    SchedS = SchedS0#s{subs = SubS0#{TopicFilterBin := SubS}},
+                    SchedS = SchedS0#s{subs = Subscriptions0#{TopicFilterBin := SubS}},
                     {NewSRSIds, S, SchedS}
             end;
         undefined ->
@@ -718,7 +735,7 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
                     TopicFilter, Subscription, {{RankX, RankY}, Stream}, AccS0
                 ),
                 {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
-            (I, {AccS, AccNewSRSIds, AccPendingStreams}) ->
+            (I, {AccNewSRSIds, AccS, AccPendingStreams}) ->
                 {AccNewSRSIds, AccS, [I | AccPendingStreams]}
         end,
         {[], S0, []},
@@ -1003,3 +1020,79 @@ unwatch_streams(TopicFilterBin, Ref, NewStreamSubs) ->
     }),
     emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
     maps:remove(Ref, NewStreamSubs).
+
+%%--------------------------------------------------------------------------------
+%% Tests
+%%--------------------------------------------------------------------------------
+
+-ifdef(TEST).
+
+-spec runtime_state_invariants(
+    emqx_persistent_session_ds_fuzzer:model_state(), #{s := map(), scheduler_state_s := t()}
+) ->
+    boolean().
+runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
+    invariant_subscription_states(ModelState, SchedS) and
+        invariant_active_streams_y_ranks(S).
+
+-spec offline_state_invariants(
+    emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}
+) ->
+    boolean().
+offline_state_invariants(ModelState, S) ->
+    invariant_active_streams_y_ranks(S).
+
+%% Verify that each active subscription has a state and a
+%% watch:
+invariant_subscription_states(#{subs := Subs}, #s{new_stream_subs = Watches, subs = SubStates}) ->
+    ExpectedTopics = lists:sort(maps:keys(Subs)),
+    ?defer_assert(
+        ?assertEqual(
+            ExpectedTopics,
+            lists:sort(maps:keys(SubStates)),
+            "There's a 1:1 relationship between subscribed streams and scheduler's internal subscription states"
+        )
+    ),
+    ?defer_assert(
+        ?assertEqual(
+            ExpectedTopics,
+            lists:sort(maps:values(Watches)),
+            "There's a 1:1 relationship between subscribed streams and watches"
+        )
+    ),
+    true.
+
+%% Verify that all active streams belong to the same generation:
+invariant_active_streams_y_ranks(#{streams := StreamMap}) ->
+    %% Derive active ranks:
+    ActiveRanks = maps:fold(
+        fun({SubId, _Stream}, #srs{rank_x = X, rank_y = Y, unsubscribed = U, it_end = ItEnd}, Acc) ->
+            case (not U) and (ItEnd =/= end_of_stream) of
+                true ->
+                    %% This is an active stream, add its rank to the list:
+                    map_cons({SubId, X}, Y, Acc);
+                false ->
+                    Acc
+            end
+        end,
+        #{},
+        StreamMap
+    ),
+    %% Verify that only one generation is active at a time:
+    maps:foreach(
+        fun({SubId, X}, Ys) ->
+            Comment = #{
+                msg => "For each subscription and x-rank there should be only one active y-rank",
+                subid => SubId,
+                x => X
+            },
+            ?defer_assert(?assertMatch([_], Ys, Comment))
+        end,
+        ActiveRanks
+    ),
+    true.
+
+map_cons(Key, NewElem, Map) ->
+    maps:update_with(Key, fun(L) -> [NewElem | L] end, [NewElem], Map).
+
+-endif.

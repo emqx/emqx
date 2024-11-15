@@ -135,7 +135,9 @@
 -ifdef(TEST).
 -export([
     open_session_state/4,
-    list_all_sessions/0
+    list_all_sessions/0,
+    state_invariants/2,
+    trace_specs/0
 ]).
 -endif.
 
@@ -1117,6 +1119,8 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
                 it_begin => ItBegin
             }),
             {ignore, undefined, Session};
+        #srs{unsubscribed = true} when not IsReplay ->
+            {intore, undefined, Session};
         Srs ->
             do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs, ItBegin, FetchResult)
     end.
@@ -1832,5 +1836,38 @@ apply_n_times(0, _Fun, A) ->
     A;
 apply_n_times(N, Fun, A) when N > 0 ->
     apply_n_times(N - 1, Fun, Fun(A)).
+
+%% WARNING: this function must be called inside `?check_trace' to
+%% avoid losing invariant violations: some checks may be wrapped in
+%% `?defer_assert()' macro,
+state_invariants(undefined, Sess) ->
+    %% According to the model, the session should not exist. Verify
+    %% that it is the case:
+    case Sess of
+        undefined ->
+            true;
+        _ ->
+            ?tp(
+                error,
+                "sessds_test_unexpected_session_presence",
+                #{sess => Sess}
+            ),
+            false
+    end;
+state_invariants(ModelState, #{'_alive' := {true, _}} = Sess) ->
+    runtime_state_invariants(ModelState, Sess);
+state_invariants(ModelState, #{'_alive' := false} = Sess) ->
+    offline_state_invariants(ModelState, Sess).
+
+trace_specs() ->
+    [].
+
+%% @doc Check invariantss for a living session
+runtime_state_invariants(ModelState, Session) ->
+    emqx_persistent_session_ds_stream_scheduler:runtime_state_invariants(ModelState, Session).
+
+%% @doc Check invariants for a saved session state
+offline_state_invariants(ModelState, #{s := S}) ->
+    emqx_persistent_session_ds_stream_scheduler:offline_state_invariants(ModelState, S).
 
 -endif.
