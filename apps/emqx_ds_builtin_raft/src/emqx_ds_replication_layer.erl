@@ -14,6 +14,7 @@
     open_db/2,
     close_db/1,
     add_generation/1,
+    add_generation/2,
     update_db_config/2,
     list_generations_with_lifetimes/1,
     drop_generation/2,
@@ -212,17 +213,22 @@ close_db(DB) ->
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
+    add_generation(DB, emqx_ds:timestamp_us()).
+
+-spec add_generation(emqx_ds:db(), emqx_ds:time()) -> ok | {error, _}.
+add_generation(DB, Since) ->
     foreach_shard(
         DB,
-        fun(Shard) -> ok = ra_add_generation(DB, Shard) end
+        fun(Shard) -> ok = ra_add_generation(DB, Shard, Since) end
     ).
 
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
     Opts = #{} = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
+    Since = emqx_ds:timestamp_us(),
     foreach_shard(
         DB,
-        fun(Shard) -> ok = ra_update_config(DB, Shard, Opts) end
+        fun(Shard) -> ok = ra_update_config(DB, Shard, Opts, Since) end
     ).
 
 -spec list_generations_with_lifetimes(emqx_ds:db()) ->
@@ -780,18 +786,18 @@ ra_store_batch(DB, Shard, Batch) ->
             {error, recoverable, Reason}
     end.
 
-ra_add_generation(DB, Shard) ->
+ra_add_generation(DB, Shard, Since) ->
     Command = #{
         ?tag => add_generation,
-        ?since => emqx_ds:timestamp_us()
+        ?since => Since
     },
     ra_command(DB, Shard, Command, 10).
 
-ra_update_config(DB, Shard, Opts) ->
+ra_update_config(DB, Shard, Opts, Since) ->
     Command = #{
         ?tag => update_config,
         ?config => Opts,
-        ?since => emqx_ds:timestamp_us()
+        ?since => Since
     },
     ra_command(DB, Shard, Command, 10).
 
@@ -910,10 +916,44 @@ ra_list_generations_with_lifetimes(DB, Shard) ->
 ra_drop_shard(DB, Shard) ->
     ra:delete_cluster(emqx_ds_replication_layer_shard:shard_servers(DB, Shard), ?RA_TIMEOUT).
 
+%% Ra Machine implementation
 %%
+%% This code decides how successfully replicated and committed log entries (e.g.
+%% commands) are applied to the shard storage state. This state is actually comprised
+%% logically of 2 parts:
+%% 1. RocksDB database managed through `emqx_ds_storage_layer`.
+%% 2. Machine state (`ra_state()`) that holds very minimal state needed to ensure
+%%    higher-level semantics, most importantly strictly monotonic quasi-wallclock
+%%    timestamp used to assign unique message timestamps to fulfill "append-only"
+%%    guarantees.
+%%
+%% There are few subtleties in how storage state is persisted and recovered.
+%% When the shard recovers from a shutdown or crash, this is what usually happens:
+%% 1. Shard storage layer starts up the RocksDB database.
+%% 2. Ra recovers the Raft log.
+%% 3. Ra recovers the latest machine snapshot (`ra_state()`), taken at some point
+%%    in time (`RaftIdx`).
+%% 4. Ra applies existing Raft log entries starting from `RaftIdx`.
+%%
+%% While most of the time storage layer state, machine snapshot and log entries are
+%% consistent with each other, there are situations when they are not. Namely:
+%%  * RocksDB decides to flush memtables to disk by itself, which is unexpected but
+%%    possible.
+%%  * Lagging replica accepts a storage snapshot sourced from a RocksDB checkpoint,
+%%    and RocksDB database is always implicitly flushed before checkpointing.
+%% In both of those cases, the Raft log would contain entries that were already
+%% applied from the point of view of the storage layer, and we must anticipate that.
+%%
+%% The process running Ra machine also keeps auxiliary ephemeral state in the process
+%% dictionary, see `?pd_ra_*` macrodefs for details.
 
+%% Index of the last yet unreleased Ra log entry.
 -define(pd_ra_idx_need_release, '$emqx_ds_raft_idx_need_release').
+
+%% Approximate number of bytes occupied by yet unreleased Ra log entries.
 -define(pd_ra_bytes_need_release, '$emqx_ds_raft_bytes_need_release').
+
+%% Cached value of the `append_only` DS DB configuration setting.
 -define(pd_ra_force_monotonic, '$emqx_ds_raft_force_monotonic').
 
 -spec init(_Args :: map()) -> ra_state().
@@ -923,7 +963,7 @@ init(#{db := DB, shard := Shard}) ->
 -spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
     {ra_state(), _Reply, _Effects}.
 apply(
-    RaftMeta,
+    RaftMeta = #{index := RaftIdx},
     Command = #{
         ?tag := ?BATCH,
         ?batch_operations := OperationsIn
@@ -931,32 +971,69 @@ apply(
     #{db_shard := DBShard = {DB, Shard}, latest := Latest0} = State0
 ) ->
     ?tp(ds_ra_apply_batch, #{db => DB, shard => Shard, batch => OperationsIn, latest => Latest0}),
-    Preconditions = maps:get(?batch_preconditions, Command, []),
     {Stats, Latest, Operations} = assign_timestamps(DB, Latest0, OperationsIn),
-    DispatchF = fun(Events) ->
-        emqx_ds_beamformer:shard_event({DB, Shard}, Events)
-    end,
-    %% FIXME
-    case emqx_ds_precondition:verify(emqx_ds_storage_layer, DBShard, Preconditions) of
-        ok ->
-            Result = emqx_ds_storage_layer:store_batch(
-                DBShard, Operations, #{durable => false}, DispatchF
-            ),
+    Preconditions = maps:get(?batch_preconditions, Command, []),
+    Admission =
+        case Preconditions of
+            [] ->
+                %% No preconditions.
+                true;
+            _ ->
+                %% Since preconditions are part of the Ra log, we need to be sure they
+                %% are applied perfectly idempotently, even when Ra log entries are
+                %% replayed on top of a more recent storage state that already had them
+                %% evaluated and applied before.
+                case read_storage_raidx(DBShard) of
+                    {ok, SRI} when RaftIdx > SRI ->
+                        emqx_ds_precondition:verify(emqx_ds_storage_layer, DBShard, Preconditions);
+                    {ok, SRI} when SRI >= RaftIdx ->
+                        %% This batch looks outdated relative to the storage layer state.
+                        false;
+                    {error, _, _} = Error ->
+                        Error
+                end
+        end,
+    case Admission of
+        true ->
+            %% Plain batch, no preconditions.
+            Result = store_batch_nondurable(DBShard, Operations),
             State = State0#{latest := Latest},
             set_ts(DBShard, Latest),
             Effects = try_release_log(Stats, RaftMeta, State);
+        ok ->
+            %% Preconditions succeeded, need to persist `Latest` in the storage layer.
+            UpdateOps = mk_update_storage_raidx(DBShard, Latest, RaftIdx),
+            Result = store_batch_nondurable(DBShard, UpdateOps ++ Operations),
+            State = State0#{latest := Latest},
+            set_ts(DBShard, Latest),
+            Effects = try_release_log(Stats, RaftMeta, State);
+        Result = false ->
+            %% There are preconditions, but the batch looks outdated. Skip the batch.
+            %% This is log replay, reply with `false`, noone expects the reply anyway.
+            State = State0#{latest := Latest},
+            set_ts(DBShard, Latest),
+            Effects = [];
         PreconditionFailed = {precondition_failed, _} ->
+            %% Preconditions failed. Skip the batch.
             Result = {error, unrecoverable, PreconditionFailed},
             State = State0,
             Effects = [];
-        Result ->
+        Result = {error, unrecoverable, Reason} ->
+            ?tp(error, "emqx_ds_replication_apply_batch_failed", #{
+                db => DB,
+                shard => Shard,
+                reason => Reason,
+                details =>
+                    "Unrecoverable error storing committed batch. Replicas may diverge. "
+                    "Consider rebuilding this shard replica from scratch."
+            }),
             State = State0,
             Effects = []
     end,
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta,
+    RaftMeta = #{index := RaftIdx},
     #{?tag := add_generation, ?since := Since},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
@@ -970,13 +1047,15 @@ apply(
     ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
+    UpdateOps = mk_update_storage_raidx(DBShard, Latest, RaftIdx),
+    _Ok = emqx_ds_storage_layer:store_batch(DBShard, UpdateOps, #{durable => false}),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
     Effects = release_log(RaftMeta, State),
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta,
+    RaftMeta = #{index := RaftIdx},
     #{?tag := update_config, ?since := Since, ?config := Opts},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
@@ -991,6 +1070,8 @@ apply(
     ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:update_config(DBShard, Timestamp, Opts),
+    UpdateOps = mk_update_storage_raidx(DBShard, Latest, RaftIdx),
+    _Ok = emqx_ds_storage_layer:store_batch(DBShard, UpdateOps, #{durable => false}),
     State = State0#{latest := Latest},
     Effects = release_log(RaftMeta, State),
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
@@ -1041,6 +1122,59 @@ force_monotonic_timestamps(DB) ->
             ok
     end,
     Flag.
+
+store_batch_nondurable(DBShard = {DB, Shard}, Operations) ->
+    DispatchF = fun(Events) ->
+        emqx_ds_beamformer:shard_event({DB, Shard}, Events)
+    end,
+    emqx_ds_storage_layer:store_batch(DBShard, Operations, #{durable => false}, DispatchF).
+
+%% Latest Raft index tracking
+%%
+%% Latest RaIdx is kept in a special, invisible from outside topic, at the timestamp
+%% matching the start of the latest storage generation. Each update goes to the same
+%% spot in the RocksDB, but this should not be a problem: writes are non-durable and
+%% issued only when preconditions are involved.
+
+-define(DSREPL_TOPIC(ENTRY), <<"$", 0:8, "/", (ENTRY):8>>).
+-define(DSREPL_LATEST, 1).
+
+read_storage_raidx(DBShard) ->
+    {_Id, #{since := Since}} = emqx_ds_storage_layer:find_generation(DBShard, current),
+    Matcher = #message_matcher{
+        from = <<>>,
+        topic = ?DSREPL_TOPIC(?DSREPL_LATEST),
+        timestamp = Since,
+        payload = '_'
+    },
+    case emqx_ds_storage_layer:lookup_message(DBShard, Matcher) of
+        #message{payload = Payload} when byte_size(Payload) =< 8 ->
+            {ok, binary:decode_unsigned(Payload)};
+        not_found ->
+            {ok, 0};
+        #message{payload = Payload} ->
+            {error, unrecoverable, {unexpected, Payload}};
+        {error, unrecoverable, _Reason} = Error ->
+            Error
+    end.
+
+mk_update_storage_raidx(DBShard, Latest, RaIdx) ->
+    case emqx_ds_storage_layer:find_generation(DBShard, Latest) of
+        {_Id, #{since := Since}} ->
+            [
+                {Since, #message{
+                    id = <<>>,
+                    from = <<>>,
+                    topic = ?DSREPL_TOPIC(?DSREPL_LATEST),
+                    timestamp = Since,
+                    payload = binary:encode_unsigned(RaIdx)
+                }}
+            ];
+        not_found ->
+            []
+    end.
+
+%% Log truncation
 
 try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
     %% NOTE

@@ -52,6 +52,7 @@
     add_generation/2,
     list_generations_with_lifetimes/1,
     drop_generation/2,
+    find_generation/2,
 
     %% Snapshotting
     flush/1,
@@ -128,6 +129,12 @@
 -type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
+-type gen_info() :: #{
+    created_at := emqx_ds:time(),
+    since := emqx_ds:time(),
+    until := undefined | emqx_ds:time(),
+    _ => _
+}.
 
 -type batch() :: [
     {emqx_ds:time(), emqx_types:message()}
@@ -684,19 +691,22 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
     end.
 
 -spec list_generations_with_lifetimes(shard_id()) ->
-    #{
-        gen_id() => #{
-            created_at := emqx_ds:time(),
-            since := emqx_ds:time(),
-            until := undefined | emqx_ds:time()
-        }
-    }.
+    #{gen_id() => gen_info()}.
 list_generations_with_lifetimes(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
 -spec drop_generation(shard_id(), gen_id()) -> ok | {error, _}.
 drop_generation(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
+
+-spec find_generation(shard_id(), current | _At :: emqx_ds:time()) ->
+    {gen_id(), gen_info()} | not_found.
+find_generation(ShardId, current) ->
+    GenId = generation_current(ShardId),
+    GenData = #{} = generation_get(ShardId, GenId),
+    {GenId, GenData};
+find_generation(ShardId, AtTime) ->
+    generation_at(ShardId, AtTime).
 
 -spec shard_info(shard_id(), status) -> running | down.
 shard_info(ShardId, status) ->
