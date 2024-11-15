@@ -55,52 +55,54 @@ Note: this config only takes effect when <code>trace_mode</code> is set to <code
 trace_all.label: "Trace All"
 
 trace_mode.desc:
-"""Opentelemetry tracing mode.<br/>
+"""OpenTelemetry tracing mode.<br/>
 - `legacy`: follow the old tracing method, only trace message publishing and delivery.<br/>
   Span Name will remain compatible with the old version.
 - `e2e`: end-to-end tracing mode. All kinds of client behaviors will be traced:<br/>
-  Connection/Disconnection/Subscription/Unsubscription/Message Publishing/Message delivery.<br/>
-  More control options and sampling functions are controlled by the `e2e_tracing_options` sub-configuration item<br/>"""
+  Connect/Disconnect/Subscribe/Unsubscribe/Message Publish/Message Delivery.<br/>
+  More control options and sampling functions are controlled by the `e2e_tracing_options` sub-configuration item"""
 trace_mode.label: "Trace Mode"
 
 e2e_tracing_options.desc: "End-to-end tracing options"
 e2e_tracing_options.label: "End-to-End Tracing Options"
 
-e2e_attribute_meta.desc:
-"""Simple attribute meta value added into Span's Attributes.</br/>
-Typically set a simple and easily recognizable name or use the cluster name to identify different EMQX clusters."""
-e2e_attribute_meta.label: "Attribute Meta Value"
+e2e_attribute_meta_value.desc:
+"""A meta value added into Span's Attribute. The attribute key will be <code>emqx.meta</code></br/>
+Typically, set a simple and easily recognizable name or use the cluster name to identify different EMQX clusters."""
+e2e_attribute_meta_value.label: "Attribute Meta Value"
 
-publish_response_trace_level.desc:
+## TODO: Rename
+mqtt_publish_trace_level.desc:
 """Trace level for all message exchanges during the message publishing process.<br/>
 Note: this config only takes effect when <code>sample</code> is set to <code>false</code>.
-- `0`: Only `PUBLISH` packets are sampled for all QoS level (both QoS0, QoS1, QoS2).
-- `1`: In addition to `PUBLISH` packets for all QoS. PUBACK and PUBREC are also sampled.
+- `basic`: Only `PUBLISH` packets are sampled for all QoS level (both QoS0, QoS1, QoS2).
+- `first_ack`: In addition to `PUBLISH` packets for all QoS. `PUBACK` and `PUBREC` are also sampled.
    That is, the first response packet in the QoS1 or QoS2 message interaction.
-- `2`: Both `PUBLISH` packets and all response packets `PUBACK`, `PUBREC`, `PUBREL`, `PUBCOMP` will be sampled."""
-publish_response_trace_level.label: "Publish Trace Level"
+- `all`: Both `PUBLISH` packets and all response packets `PUBACK`, `PUBREC`, `PUBREL`, `PUBCOMP` will be sampled."""
+mqtt_publish_trace_level.label: "Publish Trace Level"
 
-e2e_samplers.desc: """End-to-end Tracing Samplers."""
-e2e_samplers.label: "Samplers"
+client_connect.desc: """In addition to the given rules, whether to sample Client Connect event."""
+client_connect.label: "Client Connect"
 
-whitelist_based_sampler.desc:
-"""Whitelist-based Sampler. All Root Spans matched the whitelist will be sampled."""
-whitelist_based_samplers.label: "Whitelist Based Sampler"
+client_disconnect.desc: """In addition to the given rules, whether to sample Client Disconnect event."""
+client_disconnect.label: "Client Disconnect"
 
-event_based_samplers.desc:
-"""Event-based Samplers. The Spans that not matched the whitelist will be sampled based on the event type and the ratio setting."""
-event_based_samplers.label: "Event Based Samplers"
+client_subscribe.desc: """In addition to the given rules, whether to sample Client Subscribe event."""
+client_subscribe.label: "Client Subscribe"
 
-event_type.desc:
-"""Tracing event type.<br/>
-- `"client.connect"`: Trace client Connect.<br/>
-- `"client.disconnect"`: Trace client Disconnect.<br/>
-- `"client.subscribe"`: Trace client Subscribe.<br/>
-- `"client.unsubscribe"`: Trace client Unsubscribe.<br/>
-- `"client.publish"`: Trace Client publishing messages. The message-delivering to subscribers will also be sampled as a part of the message publishing process."""
-event_type.label: "Event Type"
+client_unsubscribe.desc: """In addition to the given rules, whether to sample Client Unsubscribe event."""
+client_unsubscribe.label: "Client Unsubscribe"
 
-ratio.desc: "Sampling ratio for the event type."
-ratio.label: "Event based Sampling Ratio"
+client_publish.desc: """In addition to the given rules, whether to sample Client Publish event."""
+client_publish.label: "Client Publish"
+
+clientid_match_rules_max.desc: """Maximum length of the rule list based on clientid matching."""
+clientid_match_rules_max.label: "Client ID Match Rules Max"
+
+topic_match_rules_max.desc: """Maximum length of the rule list based on topic matching."""
+topic_match_rules_max.label: "Topic Match Rules Max"
+
+sample_ratio.desc: "Sampling ratio for the event types."
+sample_ratio.label: "Sampling Ratio"
 
 }

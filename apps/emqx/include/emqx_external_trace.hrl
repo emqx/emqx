@@ -26,16 +26,11 @@
 -define(EMQX_EXTERNAL_MODULE, emqx_external_trace).
 -define(PROVIDER, {?EMQX_EXTERNAL_MODULE, trace_provider}).
 
--if(?EMQX_RELEASE_EDITION == ee).
+-ifndef(EMQX_RELEASE_EDITION).
+-define(EMQX_RELEASE_EDITION, ce).
+-endif.
 
--define(res_without_provider(TraceAction, Any),
-    case TraceAction of
-        ?EXT_TRACE_START ->
-            Any;
-        ?EXT_TRACE_STOP ->
-            ok
-    end
-).
+-if(?EMQX_RELEASE_EDITION == ee).
 
 -define(with_provider(IfRegistered, IfNotRegistered),
     case persistent_term:get(?PROVIDER, undefined) of
@@ -54,21 +49,24 @@
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs),
-    case Attrs of
-        NotMap when not is_map(NotMap) -> ok;
-        EmptyMap when is_map(EmptyMap) andalso map_size(EmptyMap) =:= 0 -> ok;
-        _ -> ?with_provider(add_span_attrs(Attrs), ok)
-    end
+    ?with_provider(add_span_attrs(Attrs), ok)
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs, Ctx),
     ?with_provider(add_span_attrs(Attrs, Ctx), ok)
 ).
 
--define(EXT_TRACE_WITH_ACTION(FuncName, TraceAction, Any, Attrs),
+-define(EXT_TRACE_WITH_ACTION_START(FuncName, Any, Attrs),
     ?with_provider(
-        FuncName(TraceAction, Any, Attrs),
-        ?res_without_provider(TraceAction, Any)
+        FuncName(?EXT_TRACE_START, Any, Attrs),
+        Any
+    )
+).
+
+-define(EXT_TRACE_WITH_ACTION_STOP(FuncName, Any, Attrs),
+    ?with_provider(
+        FuncName(?EXT_TRACE_STOP, Any, Attrs),
+        ok
     )
 ).
 
@@ -79,12 +77,15 @@
     )
 ).
 
+-type event_name() :: opentelemetry:event_name().
+
 -else.
 
 -define(EXT_TRACE_ANY(_FuncName, Any, _Attrs), Any).
 -define(EXT_TRACE_ADD_ATTRS(_Attrs), ok).
 -define(EXT_TRACE_ADD_ATTRS(_Attrs, _Ctx), ok).
--define(EXT_TRACE_WITH_ACTION(_FuncName, _TraceAction, Any, _Attrs), Any).
+-define(EXT_TRACE_WITH_ACTION_START(_FuncName, Any, _Attrs), Any).
+-define(EXT_TRACE_WITH_ACTION_STOP(_FuncName, Any, _Attrs), ok).
 -define(EXT_TRACE_WITH_PROCESS_FUN(_FuncName, Any, _Attrs, ProcessFun), ProcessFun(Any)).
 
 -endif.
@@ -93,7 +94,5 @@
 %% types
 
 -type attrs() :: #{atom() => _}.
-
--type event_name() :: opentelemetry:event_name().
 
 -endif.

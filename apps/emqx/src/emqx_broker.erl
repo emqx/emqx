@@ -108,6 +108,8 @@
     bypass_hook => boolean()
 }.
 
+-elvis([{elvis_style, used_ignored_variable, disable}]).
+
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
     gen_server:start_link(

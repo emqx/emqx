@@ -879,7 +879,10 @@ add_span_attrs(EmpytAttr) when map_size(EmpytAttr) =:= 0 ->
 add_span_attrs(Attrs) ->
     ?with_trace_mode(
         ok,
-        _ = ?set_attributes(Attrs)
+        begin
+            _ = ?set_attributes(Attrs),
+            ok
+        end
     ).
 
 add_span_attrs(Attrs, Ctx) ->

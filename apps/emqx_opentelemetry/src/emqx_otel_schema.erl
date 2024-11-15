@@ -252,75 +252,65 @@ fields("trace_filter") ->
     ];
 fields("e2e_tracing_options") ->
     [
-        {attribute_meta,
+        {attribute_meta_value,
             ?HOCON(
                 string(),
                 #{
                     default => <<"emqxcl">>,
-                    desc => ?DESC(e2e_attribute_meta),
+                    desc => ?DESC(e2e_attribute_meta_value),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {publish_response_trace_level,
+        %% TODO: Rename
+        {mqtt_publish_trace_level,
             ?HOCON(
-                emqx_schema:qos(),
+                ?ENUM([basic, first_ack, all]),
                 #{
-                    default => 0,
+                    default => basic,
                     desc => ?DESC(publish_response_trace_level),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {samplers,
+        {clientid_match_rules_max,
             ?HOCON(
-                ?R_REF("e2e_samplers"),
+                pos_integer(),
                 #{
-                    desc => ?DESC(e2e_samplers),
-                    default => #{},
-                    importance => ?IMPORTANCE_MEDIUM
-                }
-            )}
-    ];
-fields("e2e_samplers") ->
-    [
-        {whitelist_based_sampler,
-            ?HOCON(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(whitelist_based_sampler),
+                    desc => ?DESC(clientid_match_rules_max),
+                    default => 30,
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {event_based_samplers,
+        {topic_match_rules_max,
             ?HOCON(
-                ?ARRAY(?R_REF("event_based_samplers")),
+                pos_integer(),
                 #{
-                    default => [],
-                    importance => ?IMPORTANCE_MEDIUM
-                }
-            )}
-    ];
-fields("event_based_samplers") ->
-    [
-        {name,
-            ?HOCON(
-                ?ENUM(root_span_names()),
-                #{
-                    required => ture,
-                    desc => ?DESC(event_type),
+                    desc => ?DESC(topic_match_rules_max),
+                    default => 30,
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {ratio,
+        {sample_ratio,
             ?HOCON(
                 emqx_schema:percent(),
                 #{
                     default => <<"10%">>,
-                    desc => ?DESC(ratio),
+                    desc => ?DESC(sample_ratio),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )}
-    ].
+    ] ++
+        [
+            {TraceEvent,
+                ?HOCON(
+                    boolean(),
+                    #{
+                        desc => ?DESC(TraceEvent),
+                        default => false,
+                        importance => ?IMPORTANCE_MEDIUM
+                    }
+                )}
+         || TraceEvent <- root_span_names()
+        ].
 
 desc("opentelemetry") ->
     ?DESC(opentelemetry);
@@ -334,16 +324,18 @@ desc("otel_traces") ->
     ?DESC(otel_traces);
 desc("trace_filter") ->
     ?DESC(trace_filter);
+desc("e2e_tracing_options") ->
+    ?DESC(e2e_tracing_options);
 desc(_) ->
     undefined.
 
 root_span_names() ->
     [
-        ?CLIENT_CONNECT_SPAN_NAME,
-        ?CLIENT_DISCONNECT_SPAN_NAME,
-        ?CLIENT_SUBSCRIBE_SPAN_NAME,
-        ?CLIENT_UNSUBSCRIBE_SPAN_NAME,
-        ?CLIENT_PUBLISH_SPAN_NAME
+        client_connect,
+        client_disconnect,
+        client_subscribe,
+        client_unsubscribe,
+        client_publish
     ].
 
 %% Compatibility with the previous schema that defined only metrics fields

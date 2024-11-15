@@ -23,35 +23,24 @@
 -include_lib("opentelemetry/include/otel_sampler.hrl").
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
--define(EMQX_OTEL_SAMPLER_RULE, emqx_otel_sampler_rule).
-
--define(EMQX_OTEL_SAMPLE_CLIENTID, 1).
--define(EMQX_OTEL_SAMPLE_USERNAME, 2).
--define(EMQX_OTEL_SAMPLE_TOPIC_NAME, 3).
--define(EMQX_OTEL_SAMPLE_TOPIC_MATCHING, 4).
-
--record(?EMQX_OTEL_SAMPLER_RULE, {
-    type ::
-        {?EMQX_OTEL_SAMPLE_CLIENTID, binary()}
-        | {?EMQX_OTEL_SAMPLE_USERNAME, binary()}
-        | {?EMQX_OTEL_SAMPLE_TOPIC_NAME, binary()}
-        | {?EMQX_OTEL_SAMPLE_TOPIC_MATCHING, binary()},
-    should_sample :: boolean(),
-    extra :: map()
-}).
+-define(META_KEY, 'emqx.meta').
 
 -export([
     init_tables/0,
-    store_rules/3,
+    store_rule/2,
+    store_rule/3,
     purge_rules/0,
+    purge_rules/1,
     get_rules/1,
-    delete_rules/1
+    get_rule/2,
+    delete_rule/2,
+    record_count/0
 ]).
 
 %% OpenTelemetry Sampler Callback
 -export([setup/1, description/1, should_sample/7]).
 
-%% 2^64 - 1
+%% 2^64 - 1 =:= (2#1 bsl 64 -1)
 -define(MAX_VALUE, 18446744073709551615).
 
 %%--------------------------------------------------------------------
@@ -61,16 +50,16 @@
 -spec create_tables() -> [mria:table()].
 create_tables() ->
     ok = mria:create_table(
-        ?EMQX_OTEL_SAMPLER_RULE,
+        ?EMQX_OTEL_SAMPLER,
         [
             {type, ordered_set},
             {storage, disc_copies},
             {local_content, true},
-            {record_name, ?EMQX_OTEL_SAMPLER_RULE},
-            {attributes, record_info(fields, ?EMQX_OTEL_SAMPLER_RULE)}
+            {record_name, ?EMQX_OTEL_SAMPLER},
+            {attributes, record_info(fields, ?EMQX_OTEL_SAMPLER)}
         ]
     ),
-    [?EMQX_OTEL_SAMPLER_RULE].
+    [?EMQX_OTEL_SAMPLER].
 
 %% Init
 -spec init_tables() -> ok.
@@ -78,68 +67,77 @@ init_tables() ->
     ok = mria:wait_for_tables(create_tables()).
 
 %% @doc Update sample rule
-%% -spec store_rules(who(), rules()) -> ok.
-store_rules({clientid, ClientId}, ShouldSample, Extra) ->
-    Record = #?EMQX_OTEL_SAMPLER_RULE{
+-spec store_rule(clientid | topic, binary()) -> ok.
+store_rule(clientid, ClientId) ->
+    store_rule(clientid, ClientId, #{});
+store_rule(topic, TopicName) ->
+    store_rule(topic, TopicName, #{}).
+
+-spec store_rule(clientid | topic, binary(), map()) -> ok.
+store_rule(clientid, ClientId, Extra) ->
+    Record = #?EMQX_OTEL_SAMPLER{
         type = {?EMQX_OTEL_SAMPLE_CLIENTID, ClientId},
-        should_sample = ShouldSample,
         extra = Extra
     },
     mria:dirty_write(Record);
-store_rules({username, Username}, ShouldSample, Extra) ->
-    Record = #?EMQX_OTEL_SAMPLER_RULE{
-        type = {?EMQX_OTEL_SAMPLE_USERNAME, Username},
-        should_sample = ShouldSample,
-        extra = Extra
-    },
-    mria:dirty_write(Record);
-store_rules({topic_name, TopicName}, ShouldSample, Extra) ->
-    Record = #?EMQX_OTEL_SAMPLER_RULE{
-        type = {?EMQX_OTEL_SAMPLE_TOPIC_NAME, TopicName},
-        should_sample = ShouldSample,
-        extra = Extra
-    },
-    mria:dirty_write(Record);
-store_rules({topic_matching, TopicFilter}, ShouldSample, Extra) ->
-    Record = #?EMQX_OTEL_SAMPLER_RULE{
-        type = {?EMQX_OTEL_SAMPLE_TOPIC_MATCHING, TopicFilter},
-        should_sample = ShouldSample,
+store_rule(topic, TopicName, Extra) ->
+    Record = #?EMQX_OTEL_SAMPLER{
+        type = {?EMQX_OTEL_SAMPLE_TOPIC, TopicName},
         extra = Extra
     },
     mria:dirty_write(Record).
 
 -spec purge_rules() -> ok.
 purge_rules() ->
-    ok = lists:foreach(
-        fun(Key) ->
-            ok = mria:dirty_delete(?EMQX_OTEL_SAMPLER_RULE, Key)
-        end,
-        mnesia:dirty_all_keys(?EMQX_OTEL_SAMPLER_RULE)
-    ).
+    do_purge_rules(purge_func('_')).
 
-get_rules({clientid, ClientId}) ->
-    do_get_rules({?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
-get_rules({username, Username}) ->
-    do_get_rules({?EMQX_OTEL_SAMPLE_USERNAME, Username});
-get_rules({topic_name, TopicName}) ->
-    do_get_rules({?EMQX_OTEL_SAMPLE_TOPIC_NAME, TopicName});
-get_rules({topic_matching, TopicFilter}) ->
-    do_get_rules({?EMQX_OTEL_SAMPLE_TOPIC_MATCHING, TopicFilter}).
+-spec purge_rules(clientid | topic) -> ok.
+purge_rules(clientid) ->
+    do_purge_rules(purge_func(?EMQX_OTEL_SAMPLE_CLIENTID));
+purge_rules(topic) ->
+    do_purge_rules(purge_func(?EMQX_OTEL_SAMPLE_TOPIC)).
 
-do_get_rules(Key) ->
-    case mnesia:dirty_read(?EMQX_OTEL_SAMPLER_RULE, Key) of
-        [#?EMQX_OTEL_SAMPLER_RULE{should_sample = ShouldSample}] -> {ok, ShouldSample};
+do_purge_rules(Func) when is_function(Func) ->
+    ok = lists:foreach(Func, mnesia:dirty_all_keys(?EMQX_OTEL_SAMPLER)).
+
+purge_func(K) ->
+    fun
+        ({I, _} = Key) when I =:= K ->
+            ok = mria:dirty_delete(?EMQX_OTEL_SAMPLER, Key);
+        (_) ->
+            ok
+    end.
+
+get_rules(clientid) ->
+    read_rules(?EMQX_OTEL_SAMPLE_CLIENTID);
+get_rules(topic) ->
+    read_rules(?EMQX_OTEL_SAMPLE_TOPIC).
+
+read_rules(K) ->
+    mnesia:dirty_match_object(#?EMQX_OTEL_SAMPLER{
+        type = {K, '_'},
+        _ = '_'
+    }).
+
+get_rule(clientid, ClientId) ->
+    do_get_rule({?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
+get_rule(topic, Topic) ->
+    do_get_rule({?EMQX_OTEL_SAMPLE_TOPIC, Topic}).
+
+do_get_rule(Key) ->
+    case mnesia:dirty_read(?EMQX_OTEL_SAMPLER, Key) of
+        [#?EMQX_OTEL_SAMPLER{} = R] -> {ok, R};
         [] -> not_found
     end.
 
-delete_rules({clientid, ClientId}) ->
-    mria:dirty_delete(?EMQX_OTEL_SAMPLER_RULE, {?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
-delete_rules({username, Username}) ->
-    mria:dirty_delete(?EMQX_OTEL_SAMPLER_RULE, {?EMQX_OTEL_SAMPLE_USERNAME, Username});
-delete_rules({topic_name, TopicName}) ->
-    mria:dirty_delete(?EMQX_OTEL_SAMPLER_RULE, {?EMQX_OTEL_SAMPLE_TOPIC_NAME, TopicName});
-delete_rules({topic_matching, TopicFilter}) ->
-    mria:dirty_delete(?EMQX_OTEL_SAMPLER_RULE, {?EMQX_OTEL_SAMPLE_TOPIC_MATCHING, TopicFilter}).
+delete_rule(clientid, ClientId) ->
+    mria:dirty_delete(?EMQX_OTEL_SAMPLER, {?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
+delete_rule(topic, Topic) ->
+    mria:dirty_delete(?EMQX_OTEL_SAMPLER, {?EMQX_OTEL_SAMPLE_TOPIC, Topic}).
+
+-spec record_count() -> non_neg_integer().
+record_count() ->
+    mnesia:table_info(?EMQX_OTEL_SAMPLER, size).
 
 %%--------------------------------------------------------------------
 %% OpenTelemetry Sampler Callback
@@ -147,42 +145,46 @@ delete_rules({topic_matching, TopicFilter}) ->
 
 setup(
     #{
-        attribute_meta := MetaValue,
-        samplers :=
-            #{
-                event_based_samplers := EventBasedSamplers,
-                whitelist_based_sampler := WhiteListEnabled
-            },
-        publish_response_trace_level := QoS
-    } = _Opts
+        mqtt_publish_trace_level := Level,
+        sample_ratio := Ratio
+    } = InitOpts
 ) ->
-    EventBasedRatio = lists:foldl(
-        %% Name might not appears
-        fun(#{name := Name, ratio := Ratio}, AccIn) ->
-            case Ratio of
-                R when R =:= +0.0 ->
-                    AccIn#{Name => #{ratio => 0, id_upper => 0}};
-                R when R =:= 1.0 ->
-                    AccIn#{Name => #{ratio => 1, id_upper => ?MAX_VALUE}};
-                R when R >= 0.0 andalso R =< 1.0 ->
-                    IdUpperBound = R * ?MAX_VALUE,
-                    AccIn#{Name => #{ratio => R, id_upper => IdUpperBound}}
-            end
+    IdUpper =
+        case Ratio of
+            R when R =:= +0.0 ->
+                0;
+            R when R =:= 1.0 ->
+                ?MAX_VALUE;
+            R when R >= 0.0 andalso R =< 1.0 ->
+                trunc(R * ?MAX_VALUE)
         end,
-        #{},
-        EventBasedSamplers
-    ),
-    Config = #{
-        event_based_samplers => EventBasedRatio,
-        whitelist_based_sampler => WhiteListEnabled,
-        publish_response_trace_level => QoS,
-        attribute_meta => MetaValue
+
+    Opts = (maps:with(
+        [
+            client_connect,
+            client_disconnect,
+            client_subscribe,
+            client_unsubscribe,
+            client_publish,
+            attribute_meta_value
+        ],
+        InitOpts
+    ))#{
+        response_trace_qos => level_to_qos(Level),
+        id_upper => IdUpper
     },
+
     ?SLOG(debug, #{
         msg => "emqx_otel_sampler_setup",
-        config => Config
+        opts => Opts
     }),
-    Config.
+
+    Opts.
+
+-compile({inline, [level_to_qos/1]}).
+level_to_qos(basic) -> ?QOS_0;
+level_to_qos(first_ack) -> ?QOS_1;
+level_to_qos(all) -> ?QOS_2.
 
 %% TODO: description
 description(_Opts) ->
@@ -197,10 +199,8 @@ should_sample(
     _SpanKind,
     Attributes,
     #{
-        whitelist_based_sampler := WhiteListEnabled,
-        event_based_samplers := EventBasedRatio,
-        attribute_meta := MetaValue
-    } = _Opts
+        attribute_meta_value := MetaValue
+    } = Opts
 ) when
     SpanName =:= ?CLIENT_CONNECT_SPAN_NAME orelse
         SpanName =:= ?CLIENT_DISCONNECT_SPAN_NAME orelse
@@ -209,11 +209,11 @@ should_sample(
         SpanName =:= ?CLIENT_PUBLISH_SPAN_NAME
 ->
     Desicion =
-        decide_by_whitelist(WhiteListEnabled, Attributes) orelse
-            decide_by_traceid_ratio(TraceId, SpanName, EventBasedRatio),
+        decide_by_match_rule(Attributes, Opts) orelse
+            decide_by_traceid_ratio(TraceId, SpanName, Opts),
     {
         decide(Desicion),
-        #{attribute_meta => MetaValue},
+        #{?META_KEY => MetaValue},
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     };
 %% None Root Span, decide by Parent or Publish Response Tracing Level
@@ -224,98 +224,98 @@ should_sample(
     SpanName,
     _SpanKind,
     _Attributes,
-    #{publish_response_trace_level := QoS, attribute_meta := MetaValue} = _Opts
+    #{
+        response_trace_qos := QoS,
+        attribute_meta_value := MetaValue
+    } = _Opts
 ) ->
     Desicion =
         parent_sampled(otel_tracer:current_span_ctx(Ctx)) andalso
             match_by_span_name(SpanName, QoS),
     {
         decide(Desicion),
-        #{attribute_meta => MetaValue},
+        #{?META_KEY => MetaValue},
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     }.
 
 -compile({inline, [match_by_span_name/2]}).
-match_by_span_name(?BROKER_PUBACK_SPAN_NAME, L) -> ?QOS_1 =< L;
-match_by_span_name(?CLIENT_PUBACK_SPAN_NAME, L) -> ?QOS_1 =< L;
-match_by_span_name(?BROKER_PUBREC_SPAN_NAME, L) -> ?QOS_1 =< L;
-match_by_span_name(?CLIENT_PUBREC_SPAN_NAME, L) -> ?QOS_1 =< L;
-match_by_span_name(?BROKER_PUBREL_SPAN_NAME, L) -> ?QOS_2 =< L;
-match_by_span_name(?CLIENT_PUBREL_SPAN_NAME, L) -> ?QOS_2 =< L;
-match_by_span_name(?BROKER_PUBCOMP_SPAN_NAME, L) -> ?QOS_2 =< L;
-match_by_span_name(?CLIENT_PUBCOMP_SPAN_NAME, L) -> ?QOS_2 =< L;
-%% other spans, always sample
+match_by_span_name(?BROKER_PUBACK_SPAN_NAME, TraceQoS) -> ?QOS_1 =< TraceQoS;
+match_by_span_name(?CLIENT_PUBACK_SPAN_NAME, TraceQoS) -> ?QOS_1 =< TraceQoS;
+match_by_span_name(?BROKER_PUBREC_SPAN_NAME, TraceQoS) -> ?QOS_1 =< TraceQoS;
+match_by_span_name(?CLIENT_PUBREC_SPAN_NAME, TraceQoS) -> ?QOS_1 =< TraceQoS;
+match_by_span_name(?BROKER_PUBREL_SPAN_NAME, TraceQoS) -> ?QOS_2 =< TraceQoS;
+match_by_span_name(?CLIENT_PUBREL_SPAN_NAME, TraceQoS) -> ?QOS_2 =< TraceQoS;
+match_by_span_name(?BROKER_PUBCOMP_SPAN_NAME, TraceQoS) -> ?QOS_2 =< TraceQoS;
+match_by_span_name(?CLIENT_PUBCOMP_SPAN_NAME, TraceQoS) -> ?QOS_2 =< TraceQoS;
+%% other sub spans, sample by parent, set mask as true
 match_by_span_name(_, _) -> true.
 
-decide_by_whitelist(true, Attributes) ->
-    sample_by_clientid(Attributes) orelse
-        sample_by_message_from(Attributes) orelse
-        sample_by_username(Attributes) orelse
-        sample_by_topic_name(Attributes) orelse
-        sample_by_topic_filter(Attributes);
-decide_by_whitelist(false, _Attributes) ->
-    false.
+decide_by_match_rule(Attributes, _) ->
+    by_clientid(Attributes) orelse
+        by_message_from(Attributes) orelse
+        %% FIXME: external topic filters for AUTHZ
+        by_topic(Attributes).
 
-decide_by_traceid_ratio(TraceId, SpanName, _EventBasedRatio) ->
-    case _EventBasedRatio of
-        #{SpanName := #{id_upper := IdUpperBound}} ->
+decide_by_traceid_ratio(_, _, #{id_upper := ?MAX_VALUE}) ->
+    true;
+decide_by_traceid_ratio(TraceId, SpanName, #{id_upper := IdUpperBound} = Opts) ->
+    case maps:get(span_name_to_config_key(SpanName), Opts, false) of
+        true ->
             Lower64Bits = TraceId band ?MAX_VALUE,
-            %% XXX: really need abs?
-            erlang:abs(Lower64Bits) =< IdUpperBound;
+            Lower64Bits =< IdUpperBound;
         _ ->
             %% not configured, always dropped.
             false
     end.
 
-sample_by_clientid(#{'client.clientid' := ClientId}) ->
+span_name_to_config_key(?CLIENT_CONNECT_SPAN_NAME) ->
+    client_connect;
+span_name_to_config_key(?CLIENT_DISCONNECT_SPAN_NAME) ->
+    client_disconnect;
+span_name_to_config_key(?CLIENT_SUBSCRIBE_SPAN_NAME) ->
+    client_subscribe;
+span_name_to_config_key(?CLIENT_UNSUBSCRIBE_SPAN_NAME) ->
+    client_unsubscribe;
+span_name_to_config_key(?CLIENT_PUBLISH_SPAN_NAME) ->
+    client_publish.
+
+by_clientid(#{'client.clientid' := ClientId}) ->
     read_should_sample({?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
-sample_by_clientid(_) ->
+by_clientid(_) ->
     false.
 
-sample_by_message_from(#{'message.from' := ClientId}) ->
+by_message_from(#{'message.from' := ClientId}) ->
     read_should_sample({?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
-sample_by_message_from(_) ->
+by_message_from(_) ->
     false.
 
-sample_by_username(#{'client.username' := Username}) ->
-    read_should_sample({?EMQX_OTEL_SAMPLE_USERNAME, Username});
-sample_by_username(_) ->
-    false.
-
-sample_by_topic_name(#{'message.topic' := TopicName}) ->
-    read_should_sample({?EMQX_OTEL_SAMPLE_TOPIC_NAME, TopicName});
-sample_by_topic_name(_) ->
-    false.
-
-sample_by_topic_filter(#{'message.topic' := TopicName}) ->
+-dialyzer({nowarn_function, by_topic/1}).
+by_topic(#{'message.topic' := Topic}) ->
     case
-        mnesia:dirty_match_object(#?EMQX_OTEL_SAMPLER_RULE{
-            type = {?EMQX_OTEL_SAMPLE_TOPIC_MATCHING, '_'},
-            should_sample = '_',
-            extra = '_'
+        mnesia:dirty_match_object(#?EMQX_OTEL_SAMPLER{
+            type = {?EMQX_OTEL_SAMPLE_TOPIC, '_'},
+            _ = '_'
         })
     of
         [] ->
             false;
         Rules ->
             lists:any(
-                fun(Rule) -> match_topic_filter(TopicName, Rule) end, Rules
+                fun(Rule) -> match_topic_filter(Topic, Rule) end, Rules
             )
     end;
-sample_by_topic_filter(_) ->
+by_topic(_) ->
     false.
 
 read_should_sample(Key) ->
-    case mnesia:dirty_read(?EMQX_OTEL_SAMPLER_RULE, Key) of
+    case mnesia:dirty_read(?EMQX_OTEL_SAMPLER, Key) of
         [] -> false;
-        [#?EMQX_OTEL_SAMPLER_RULE{should_sample = ShouldSample}] -> ShouldSample
+        [#?EMQX_OTEL_SAMPLER{}] -> true
     end.
 
-match_topic_filter(TopicName, #?EMQX_OTEL_SAMPLER_RULE{
-    type = {?EMQX_OTEL_SAMPLE_TOPIC_MATCHING, TopicFilter},
-    should_sample = ShouldSample
-}) ->
-    emqx_topic:match(TopicName, TopicFilter) andalso ShouldSample.
+-dialyzer({nowarn_function, match_topic_filter/2}).
+match_topic_filter(AttrTopic, #?EMQX_OTEL_SAMPLER{type = {?EMQX_OTEL_SAMPLE_TOPIC, Topic}}) ->
+    emqx_topic:match(AttrTopic, Topic).
 
 -compile({inline, [parent_sampled/1]}).
 parent_sampled(#span_ctx{trace_flags = TraceFlags}) when

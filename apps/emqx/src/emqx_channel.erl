@@ -1267,36 +1267,32 @@ handle_out(publish, Publishes, Channel) ->
     {ok, ?REPLY_OUTGOING(Packets), NChannel};
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION(
+        ?EXT_TRACE_WITH_ACTION_START(
             outgoing,
-            ?EXT_TRACE_START,
             ?PUBACK_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
         Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION(
+        ?EXT_TRACE_WITH_ACTION_START(
             outgoing,
-            ?EXT_TRACE_START,
             ?PUBREC_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
         Channel};
 handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION(
+        ?EXT_TRACE_WITH_ACTION_START(
             outgoing,
-            ?EXT_TRACE_START,
             ?PUBREL_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),
         Channel};
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION(
+        ?EXT_TRACE_WITH_ACTION_START(
             outgoing,
-            ?EXT_TRACE_START,
             ?PUBCOMP_PACKET(PacketId, ReasonCode),
             basic_trace_attrs(Channel)
         ),

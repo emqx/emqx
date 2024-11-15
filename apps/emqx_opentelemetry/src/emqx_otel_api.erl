@@ -116,6 +116,21 @@ otel_config_example() ->
         },
         traces => #{
             enable => true,
-            filter => #{trace_all => false}
+            filter => #{
+                trace_all => false,
+                trace_mode => legacy,
+                e2e_tracing_options => #{
+                    attribute_meta_value => "emqxcl",
+                    mqtt_publish_trace_level => basic,
+                    clientid_match_rules_max => 30,
+                    topic_match_rules_max => 30,
+                    sample_ratio => "10%",
+                    client_connect => true,
+                    client_disconnect => true,
+                    client_subscribe => true,
+                    client_unsubscribe => true,
+                    client_publish => true
+                }
+            }
         }
     }.

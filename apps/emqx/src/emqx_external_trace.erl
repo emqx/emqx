@@ -18,6 +18,10 @@
 -include("emqx_external_trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
+%% Legacy
+-type channel_info() :: #{atom() => _}.
+-export_type([channel_info/0]).
+
 %% --------------------------------------------------------------------
 %% Trace in Rich mode callbacks
 
@@ -115,7 +119,7 @@
 
 -callback add_span_attrs(Attrs, Ctx) -> ok when
     Attrs :: attrs(),
-    Ctx :: otel_ctx:t().
+    Ctx :: map() | undefined.
 
 -optional_callbacks(
     [

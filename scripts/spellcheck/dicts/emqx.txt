@@ -317,3 +317,5 @@ aliyun
 OID
 PKCE
 Datalayers
+OpenTelemetry
+opentelemetry
