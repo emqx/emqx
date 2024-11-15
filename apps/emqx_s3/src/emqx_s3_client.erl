@@ -317,22 +317,6 @@ mk_request_fun(HttpClient) ->
         emqx_s3_client_http:request(Url, Method, Headers, Body, Timeout, HttpClient)
     end.
 
-%% We need some header conversions to tie the emqx_s3, erlcloud and Hackney APIs together.
-%% The request header flow is:
-%%   UserHeaders --(emqx_s3_client)-> ErlcloudRequestHeaders
-%%   ErlcloudRequestHeaders --(erlcloud_httpc)--(emqx_s3_client_http)-> HackneyHeaders
-%%   HackneyHeaders --(hackney)-> HTTP Request
-%%
-%% The response header flow is:
-%%   HTTP Response --(hackney)-> HackneyHeaders
-%%   HackneyHeaders --(emqx_s3_client_http)--(erlcloud_httpc)-> ErlcloudResponseHeders
-%%   ErlcloudResponseHeders --(emqx_s3_client)-> ...
-%%
-%% UserHeders (emqx_s3 API headers) are maps with string/binary keys.
-%% ErlcloudRequestHeaders are lists of tuples with string keys and iodata values
-%% ErlcloudResponseHeders are lists of tuples with lower case string keys and iodata values.
-%% HackneyHeaders are lists of tuples with binary keys and iodata values.
-
 %% Users provide headers as a map, but erlcloud expects a list of tuples with string keys and values.
 headers_to_erlcloud(UserHeaders) ->
     [{string:to_lower(to_list_string(K)), V} || {K, V} <- maps:to_list(UserHeaders)].
