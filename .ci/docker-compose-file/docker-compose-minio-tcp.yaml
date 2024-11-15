@@ -5,6 +5,8 @@ services:
     hostname: minio
     image: quay.io/minio/minio:${MINIO_TAG}
     command: server --address ":9000" --console-address ":9001" /minio-data
+    environment:
+      MINIO_DOMAIN: "minio.net"
     expose:
       - "9000"
       - "9001"
@@ -18,4 +20,8 @@ services:
       retries: 3
     networks:
       emqx_bridge:
-
+        aliases: 
+          - minio.net
+          - test1.minio.net
+          - test2.minio.net
+          - test3.minio.net

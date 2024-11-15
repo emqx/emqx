@@ -13,6 +13,9 @@
 -define(TOXIPROXY_HOST, "toxiproxy").
 -define(TOXIPROXY_PORT, 8474).
 
+-define(MINIO_HOST, "minio.net").
+-define(MINIO_PORT, 9000).
+
 -define(TCP_HOST, ?TOXIPROXY_HOST).
 -define(TCP_PORT, 19000).
 -define(TLS_HOST, ?TOXIPROXY_HOST).
@@ -38,7 +41,9 @@
 aws_config(tcp) ->
     aws_config(tcp, ?TCP_HOST, ?TCP_PORT);
 aws_config(tls) ->
-    aws_config(tls, ?TLS_HOST, ?TLS_PORT).
+    aws_config(tls, ?TLS_HOST, ?TLS_PORT);
+aws_config({tcp, direct}) ->
+    aws_config(tcp, ?MINIO_HOST, ?MINIO_PORT).
 
 aws_config(tcp, Host, Port) ->
     erlcloud_s3_new(
@@ -88,7 +93,15 @@ base_raw_config(tls) ->
                     <<"verify">> => <<"verify_peer">>
                 }
             }
-    }.
+    };
+base_raw_config({tcp, direct}) ->
+    maps:merge(
+        base_raw_config(tcp),
+        #{
+            <<"host">> => ?MINIO_HOST,
+            <<"port">> => ?MINIO_PORT
+        }
+    ).
 
 base_config(ConnType) ->
     emqx_s3_schema:translate(base_raw_config(ConnType)).
@@ -101,13 +114,13 @@ unique_bucket() ->
     "bucket-" ++ integer_to_list(erlang:system_time(millisecond)) ++ "-" ++
         integer_to_list(erlang:unique_integer([positive])).
 
-with_failure(_ConnType, ehttpc_500, Fun) ->
+with_failure(_ConnType, httpc_500, Fun) ->
     try
-        meck:new(ehttpc, [passthrough, no_history]),
-        meck:expect(ehttpc, request, fun(_, _, _, _, _) -> {ok, 500, []} end),
+        meck:new(hackney, [passthrough, no_history]),
+        meck:expect(hackney, request, fun(_, _, _, _, _) -> {ok, 500, []} end),
         Fun()
     after
-        meck:unload(ehttpc)
+        meck:unload(hackney)
     end;
 with_failure(ConnType, FailureType, Fun) ->
     emqx_common_test_helpers:with_failure(
@@ -117,6 +130,29 @@ with_failure(ConnType, FailureType, Fun) ->
         ?TOXIPROXY_PORT,
         Fun
     ).
+
+%%--------------------------------------------------------------------
+
+recreate_bucket(Bucket, AwsConfig) ->
+    ok = delete_bucket(Bucket, AwsConfig),
+    ok = erlcloud_s3:create_bucket(Bucket, AwsConfig).
+
+delete_bucket(Bucket, AwsConfig) ->
+    try erlcloud_s3:list_objects(Bucket, AwsConfig) of
+        List ->
+            Contents = proplists:get_value(contents, List),
+            ok = lists:foreach(
+                fun(Object) ->
+                    Key = emqx_s3_client:erlcloud_key(proplists:get_value(key, Object)),
+                    _Ok = erlcloud_s3:delete_object(Bucket, Key, AwsConfig)
+                end,
+                Contents
+            ),
+            ok = erlcloud_s3:delete_bucket(Bucket, AwsConfig)
+    catch
+        error:{aws_error, _NotFound} ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

@@ -62,6 +62,14 @@ fields(s3_client) ->
                     required => true
                 }
             )},
+        {access_method,
+            mk(
+                hoconsc:enum([path, vhost]),
+                #{
+                    default => path,
+                    desc => ?DESC("bucket_access_method")
+                }
+            )},
         {transport_options,
             mk(
                 ref(?MODULE, transport_options),
@@ -159,12 +167,43 @@ fields(transport_options) ->
                     desc => ?DESC("ipv6_probe"),
                     required => false
                 }
+            )},
+        {connect_timeout,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"15s">>,
+                    desc => ?DESC(emqx_bridge_http_connector, "connect_timeout")
+                }
+            )},
+        {pool_type,
+            mk(
+                hoconsc:enum([random, hash]),
+                #{
+                    default => random,
+                    desc => ?DESC(emqx_bridge_http_connector, "pool_type"),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {pool_size,
+            mk(
+                pos_integer(),
+                #{
+                    default => 8,
+                    desc => ?DESC(emqx_bridge_http_connector, "pool_size")
+                }
+            )},
+        {enable_pipelining,
+            mk(
+                pos_integer(),
+                #{
+                    default => 0,
+                    desc => ?DESC(emqx_bridge_http_connector, "enable_pipelining"),
+                    deprecated => {since, "5.8.2"}
+                }
             )}
     ] ++
-        props_without(
-            [base_url, max_retries, retry_interval, request],
-            emqx_bridge_http_connector:fields(config)
-        ) ++
+        emqx_connector_schema_lib:ssl_fields() ++
         props_with(
             [headers, max_retries, request_timeout], emqx_bridge_http_connector:fields("request")
         ).
@@ -202,9 +241,6 @@ translate(Conf, OptionsIn) ->
 
 props_with(Keys, Proplist) ->
     lists:filter(fun({K, _}) -> lists:member(K, Keys) end, Proplist).
-
-props_without(Keys, Proplist) ->
-    lists:filter(fun({K, _}) -> not lists:member(K, Keys) end, Proplist).
 
 part_size_validator(PartSizeLimit) ->
     case
