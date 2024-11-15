@@ -993,30 +993,26 @@ apply(
                         Error
                 end
         end,
+    %% Always advance latest timestamp nonetheless, so it won't diverge on replay.
+    State = State0#{latest := Latest},
+    set_ts(DBShard, Latest),
     case Admission of
         true ->
             %% Plain batch, no preconditions.
             Result = store_batch_nondurable(DBShard, Operations),
-            State = State0#{latest := Latest},
-            set_ts(DBShard, Latest),
             Effects = try_release_log(Stats, RaftMeta, State);
         ok ->
             %% Preconditions succeeded, need to persist `Latest` in the storage layer.
-            UpdateOps = mk_update_storage_raidx(DBShard, Latest, RaftIdx),
-            Result = store_batch_nondurable(DBShard, UpdateOps ++ Operations),
-            State = State0#{latest := Latest},
-            set_ts(DBShard, Latest),
+            Result = store_batch_nondurable(DBShard, Operations),
+            Result == ok andalso update_storage_raidx(DBShard, RaftIdx),
             Effects = try_release_log(Stats, RaftMeta, State);
         Result = false ->
             %% There are preconditions, but the batch looks outdated. Skip the batch.
             %% This is log replay, reply with `false`, noone expects the reply anyway.
-            State = State0#{latest := Latest},
-            set_ts(DBShard, Latest),
             Effects = [];
         PreconditionFailed = {precondition_failed, _} ->
             %% Preconditions failed. Skip the batch.
             Result = {error, unrecoverable, PreconditionFailed},
-            State = State0,
             Effects = [];
         Result = {error, unrecoverable, Reason} ->
             ?tp(error, "emqx_ds_replication_apply_batch_failed", #{
@@ -1027,13 +1023,12 @@ apply(
                     "Unrecoverable error storing committed batch. Replicas may diverge. "
                     "Consider rebuilding this shard replica from scratch."
             }),
-            State = State0,
             Effects = []
     end,
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta = #{index := RaftIdx},
+    RaftMeta,
     #{?tag := add_generation, ?since := Since},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
@@ -1047,15 +1042,13 @@ apply(
     ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
-    UpdateOps = mk_update_storage_raidx(DBShard, Latest, RaftIdx),
-    _Ok = emqx_ds_storage_layer:store_batch(DBShard, UpdateOps, #{durable => false}),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
     Effects = release_log(RaftMeta, State),
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta = #{index := RaftIdx},
+    RaftMeta,
     #{?tag := update_config, ?since := Since, ?config := Opts},
     #{db_shard := DBShard, latest := Latest0} = State0
 ) ->
@@ -1070,8 +1063,6 @@ apply(
     ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:update_config(DBShard, Timestamp, Opts),
-    UpdateOps = mk_update_storage_raidx(DBShard, Latest, RaftIdx),
-    _Ok = emqx_ds_storage_layer:store_batch(DBShard, UpdateOps, #{durable => false}),
     State = State0#{latest := Latest},
     Effects = release_log(RaftMeta, State),
     Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
@@ -1131,48 +1122,25 @@ store_batch_nondurable(DBShard = {DB, Shard}, Operations) ->
 
 %% Latest Raft index tracking
 %%
-%% Latest RaIdx is kept in a special, invisible from outside topic, at the timestamp
-%% matching the start of the latest storage generation. Each update goes to the same
-%% spot in the RocksDB, but this should not be a problem: writes are non-durable and
-%% issued only when preconditions are involved.
+%% Latest RaIdx is kept in a global, basically a KV pair in the default column family.
+%% Each update goes to the same spot in the RocksDB, but this should not be a problem:
+%% writes are non-durable and issued only when preconditions are involved.
 
--define(DSREPL_TOPIC(ENTRY), <<"$", 0:8, "/", (ENTRY):8>>).
--define(DSREPL_LATEST, 1).
+-define(DSREPL_RAFTIDX, <<"dsrepl/ri">>).
 
 read_storage_raidx(DBShard) ->
-    {_Id, #{since := Since}} = emqx_ds_storage_layer:find_generation(DBShard, current),
-    Matcher = #message_matcher{
-        from = <<>>,
-        topic = ?DSREPL_TOPIC(?DSREPL_LATEST),
-        timestamp = Since,
-        payload = '_'
-    },
-    case emqx_ds_storage_layer:lookup_message(DBShard, Matcher) of
-        #message{payload = Payload} when byte_size(Payload) =< 8 ->
-            {ok, binary:decode_unsigned(Payload)};
+    case emqx_ds_storage_layer:fetch_global(DBShard, ?DSREPL_RAFTIDX) of
+        {ok, V} when byte_size(V) =< 8 ->
+            {ok, binary:decode_unsigned(V)};
         not_found ->
             {ok, 0};
-        #message{payload = Payload} ->
-            {error, unrecoverable, {unexpected, Payload}};
-        {error, unrecoverable, _Reason} = Error ->
+        Error ->
             Error
     end.
 
-mk_update_storage_raidx(DBShard, Latest, RaIdx) ->
-    case emqx_ds_storage_layer:find_generation(DBShard, Latest) of
-        {_Id, #{since := Since}} ->
-            [
-                {Since, #message{
-                    id = <<>>,
-                    from = <<>>,
-                    topic = ?DSREPL_TOPIC(?DSREPL_LATEST),
-                    timestamp = Since,
-                    payload = binary:encode_unsigned(RaIdx)
-                }}
-            ];
-        not_found ->
-            []
-    end.
+update_storage_raidx(DBShard, RaftIdx) ->
+    KV = #{?DSREPL_RAFTIDX => binary:encode_unsigned(RaftIdx)},
+    ok = emqx_ds_storage_layer:store_global(DBShard, KV, #{durable => false}).
 
 %% Log truncation
 

@@ -54,6 +54,10 @@
     drop_generation/2,
     find_generation/2,
 
+    %% Globals
+    store_global/3,
+    fetch_global/2,
+
     %% Snapshotting
     flush/1,
     take_snapshot/1,
@@ -243,7 +247,9 @@
     %% This data is used to create new generation:
     prototype := prototype(),
     %% Generations:
-    ?GEN_KEY(gen_id()) => GenData
+    ?GEN_KEY(gen_id()) => GenData,
+    %% DB handle (runtime only).
+    db => rocksdb:db_handle()
 }.
 
 %% Shard schema (persistent):
@@ -251,6 +257,8 @@
 
 %% Shard (runtime):
 -type shard() :: shard(generation()).
+
+-define(GLOBAL(K), <<"G/", K/binary>>).
 
 -type options() :: map().
 
@@ -677,6 +685,39 @@ delete_next(
             {ok, end_of_stream}
     end.
 
+-spec store_global(shard_id(), _KVs :: #{binary() => binary()}, batch_store_opts()) ->
+    ok | emqx_ds:error(_).
+store_global(ShardId, KVs, Options) ->
+    #{db := DB} = get_schema_runtime(ShardId),
+    {ok, Batch} = rocksdb:batch(),
+    try
+        ok = maps:foreach(fun(K, V) -> rocksdb:batch_put(Batch, ?GLOBAL(K), V) end, KVs),
+        WriteOpts = [{disable_wal, not maps:get(durable, Options, true)}],
+        Result = rocksdb:write_batch(DB, Batch, WriteOpts),
+        case Result of
+            ok ->
+                ok;
+            {error, {error, Reason}} ->
+                {error, unrecoverable, {rocksdb, Reason}}
+        end
+    after
+        rocksdb:release_batch(Batch)
+    end.
+
+-spec fetch_global(shard_id(), _Key :: binary()) ->
+    {ok, _Value :: binary()} | not_found | emqx_ds:error(_).
+fetch_global(ShardId, K) ->
+    #{db := DB} = get_schema_runtime(ShardId),
+    Result = rocksdb:get(DB, ?GLOBAL(K), _ReadOpts = []),
+    case Result of
+        {ok, _} ->
+            Result;
+        not_found ->
+            Result;
+        {error, Reason} ->
+            {error, unrecoverable, {rocksdb, Reason}}
+    end.
+
 -spec update_config(shard_id(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
     ok | {error, overlaps_existing_generations}.
 update_config(ShardId, Since, Options) ->
@@ -921,7 +962,7 @@ clear_all_checkpoints(ShardId) ->
     shard().
 open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     %% Transform generation schemas to generation runtime data:
-    maps:map(
+    Shard = maps:map(
         fun
             (?GEN_KEY(GenId), GenSchema) ->
                 open_generation(ShardId, DB, CFRefs, GenId, GenSchema);
@@ -929,7 +970,8 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
                 Val
         end,
         ShardSchema
-    ).
+    ),
+    Shard#{db => DB}.
 
 -spec handle_add_generation(server_state(), emqx_ds:time()) ->
     server_state() | {error, overlaps_existing_generations}.
