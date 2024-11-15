@@ -75,11 +75,11 @@ init_per_testcase(TestCase, Config) when
         n => 3,
         roles => [core, core, core],
         extra_emqx_conf =>
-            "\n durable_sessions {"
-            "\n   heartbeat_interval = 50ms "
-            "\n   session_gc_interval = 1s "
-            "\n   session_gc_batch_size = 2 "
-            "\n }"
+            "durable_sessions {           \n"
+            "   heartbeat_interval = 50ms \n"
+            "   session_gc_interval = 1s  \n"
+            "   session_gc_batch_size = 2 \n"
+            "}"
     },
     Cluster = cluster(Opts),
     WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
@@ -145,7 +145,8 @@ app_specs() ->
     app_specs(_Opts = #{}).
 
 app_specs(Opts) ->
-    DefaultEMQXConf = "durable_sessions {enable = true, renew_streams_interval = 1s}",
+    DefaultEMQXConf = "durable_sessions {enable = true, idle_poll_interval = 1s}\n"
+        "durable_storage.messages.local_write_buffer.max_items = 1\n",
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
         {emqx, DefaultEMQXConf ++ ExtraEMQXConf}
@@ -578,13 +579,16 @@ t_new_stream_notifications(Config) ->
     ).
 
 t_fuzz(_Config) ->
+    %% NOTE: we set timeout in the lower level to capture the trace
+    %% and have a better error message.
     ?run_prop(
-        #{proper => #{timeout => 30_000, numtests => 100, max_size => 100}},
+        #{proper => #{timeout => 3_000_000, numtests => 100, max_size => 400}},
         ?forall_trace(
             Cmds,
             commands(emqx_persistent_session_ds_fuzzer),
+            #{timetrap => 30_000},
             try
-                %% ok = emqx_persistent_message:init(),
+                ok = emqx_persistent_message:init(),
                 {_History, State, Result} = run_commands(emqx_persistent_session_ds_fuzzer, Cmds),
                 %% Kick the client, if present:
                 catch emqx_persistent_session_ds_fuzzer:cleanup(State),
@@ -597,7 +601,7 @@ t_fuzz(_Config) ->
                     }
                 )
             after
-                %% emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
+                emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
                 ok
             end,
             emqx_persistent_session_ds:trace_specs()
@@ -1146,3 +1150,7 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
             })
     end,
     check_stream_state_transitions(StreamId, Rest, To).
+
+%%------------------------------------------------------------------------------
+%% Message replay consistency check
+%%------------------------------------------------------------------------------

@@ -69,15 +69,16 @@
     next_state/3
 ]).
 
-%% erlfmt-ignore
 -type config() ::
     #{
+        wait_publishes_time := non_neg_integer(),
         %% List of topics used in the test. They must not overlap.
-        %% Currently wildcards are not supported:
+        %% This list is used for both publishing and subscribing,
+        %% therefore wildcards are not supported.
         topics := [emqx_types:topic()],
         %% Static client configuration (port, etc.)
         client_config := map(),
-        %% List of client IDs for the publishers:
+        %% List of client IDs for the simulated publishers:
         publishers := [emqx_types:clientid()]
     }.
 
@@ -90,7 +91,7 @@
           %% Pid and monitor reference of the session (inside EMQX):
           session_pid := pid() | undefined,
           session_mref := reference() | undefined
-         }.
+         } | undefined.
 
 -type sub_opts() ::
     #{
@@ -107,12 +108,14 @@
 
 -record(s, {
     faketime = 0 :: emqx_ds:time(),
+    %% Set to true after publishing and reset to false after
+    %% consuming:
     has_data = false :: boolean(),
     %% Static configuration for the testcase:
     conf :: config(),
     %% Information about the current incarnation of the client/session:
     connected = false :: boolean(),
-    conninfo :: conninfo() | undefined | _Symbolic,
+    conninfo :: conninfo() | _Symbolic,
     %% Information that carries over between reconnects:
     model_state :: model_state()
 }).
@@ -139,20 +142,28 @@ connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
         end
     ).
 
-%% @doc Proper generator that creates a message with a given
-%% timestamp:
-message(#s{faketime = T, conf = #{publishers := Pubs, topics := Topics}}) ->
+%% @doc Proper generator that creates a message in one of the topics
+%% that the client subscribes.
+message(#s{
+    faketime = T,
+    model_state = #{subs := Subs},
+    conf = #{publishers := Pubs, topics := AllTopics}
+}) ->
+    %% Bias towards topics that the session is subscribed to:
+    Topics =
+        [{Freq, T} || {Freq, L} <- [{5, maps:keys(Subs)}, {1, AllTopics}], T <- L],
     ?LET(
-       {Topic, From, QoS},
-       {oneof(Topics), oneof(Pubs), qos()},
-       #message{
-          id = <<>>,
-          qos = QoS,
-          from = From,
-          topic = Topic,
-          timestamp = T,
-          payload = <<From/binary, " ", (integer_to_binary(T))/binary>>
-         }).
+        {Topic, From, QoS},
+        {frequency(Topics), oneof(Pubs), qos()},
+        #message{
+            id = <<>>,
+            qos = QoS,
+            from = From,
+            topic = Topic,
+            timestamp = T,
+            payload = <<From/binary, " ", (integer_to_binary(T))/binary>>
+        }
+    ).
 
 subscribe_(S = #s{conf = #{topics := Topics}}) ->
     ?LET(
@@ -175,7 +186,7 @@ unsubscribe_(S = #s{conf = #{topics := Topics}}) ->
 %% @doc (Re)connect emqtt client to EMQX. If the client was previously
 %% connected, this function will wait for the takeover.
 connect(#s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid := ClientId}) ->
-    ?tp(notice, sessds_test_connect, #{opts => Opts}),
+    ?tp(notice, sessds_test_connect, #{opts => Opts, pid => self()}),
     {ok, ClientPid} = emqtt:start_link(Opts),
     unlink(ClientPid),
     CMRef = monitor(process, ClientPid),
@@ -217,14 +228,14 @@ unsubscribe(S, Topic) ->
     emqtt:unsubscribe(client_pid(S), Topic).
 
 consume(S) ->
-    ?tp(notice, sessds_test_consume, #{}),
+    ?tp(notice, sessds_test_consume, #{pid => self()}),
     %% Consume and ack all messages we can get:
     receive_ack_loop(S),
-    ?tp(notice, sessds_test_consume_done, #{}).
+    ?tp(notice, sessds_test_consume_done, #{pid => self()}).
 
-receive_ack_loop(S) ->
+receive_ack_loop(S = #s{conf = #{wait_publishes_time := Timeout}, conninfo = #{client_pid := CPID}}) ->
     receive
-        {publish, Msg} ->
+        {publish, Msg = #{client_pid := CPID}} ->
             ?tp(notice, sessds_test_in_publish, Msg),
             #{packet_id := PID, qos := QoS} = Msg,
             %% Ack:
@@ -232,19 +243,25 @@ receive_ack_loop(S) ->
                 ?QOS_0 ->
                     ok;
                 ?QOS_1 ->
-                    ?tp(notice, sessds_out_puback, #{packet_id => PID}),
+                    ?tp(notice, sessds_test_out_puback, #{packet_id => PID}),
                     emqtt:puback(client_pid(S), PID);
                 ?QOS_2 ->
-                    ?tp(notice, sessds_out_pubrec, #{packet_id => PID}),
+                    ?tp(notice, sessds_test_out_pubrec, #{packet_id => PID}),
                     emqtt:pubrec(client_pid(S), PID)
             end,
             receive_ack_loop(S);
-        {pubrel, Msg} ->
-            ?tp(notice, sessds_in_pubrel, Msg),
+        {pubrel, Msg = #{client_pid := CPID}} ->
+            ?tp(notice, sessds_test_in_pubrel, Msg),
             #{packet_id := PID} = Msg,
             emqtt:pubcomp(client_pid(S), PID),
+            receive_ack_loop(S);
+        Other ->
+            %% FIXME: this may include messages from the older
+            %% incarnations of the client. Find a better way to deal
+            %% with them:
+            ?tp(warning, sessds_test_in_garbage, #{message => Other}),
             receive_ack_loop(S)
-    after 100 ->
+    after Timeout ->
         ok
     end.
 
@@ -255,6 +272,7 @@ receive_ack_loop(S) ->
 -spec default_config() -> config().
 default_config() ->
     #{
+        wait_publishes_time => 100,
         topics => [<<"t1">>, <<"t2">>, <<"t3">>, <<"t4">>],
         publishers => [<<"pub1">>, <<"pub2">>, <<"pub3">>],
         client_config => #{
@@ -263,13 +281,12 @@ default_config() ->
             clientid => ?clientid,
             %% These properties are imporant for test logic
             %%   Expiry interval must be large enough to avoid
-            %%   automatic kick:
+            %%   automatic kickout:
             properties => #{'Session-Expiry-Interval' => 1000},
-            %%   In order to test takeover, clients must not
-            %%   auto-reconnect:
+            %%   To test takeover, clients must not auto-reconnect:
             reconnect => false,
-            %%   We want to as many scenarios where session has
-            %%   un-acked messages:
+            %%   We want to cover as many scenarios where session has
+            %%   un-acked messages as possible:
             auto_ack => never
         }
     }.
@@ -287,16 +304,17 @@ cleanup(S = #s{connected = Connected}) ->
 
 command(S = #s{model_state = undefined}) ->
     connect_(S);
-command(S = #s{connected = Conn, has_data = HasData}) ->
+command(S = #s{connected = Conn, has_data = HasData, model_state = #{subs := Subs}}) ->
+    HasSubs = maps:size(Subs) > 0,
     %% Commands that are executed in any state:
     Common = [
         {1, connect_(S)},
-        {5, {call, ?MODULE, add_generation, []}},
-        {50, {call, ?MODULE, publish, [message(S)]}}
+        {1, {call, ?MODULE, add_generation, []}},
+        {10, {call, ?MODULE, publish, [message(S)]}}
     ],
     %% Commands that are executed when client is connected:
     Connected =
-        [{10, {call, ?MODULE, consume, [S]}} || HasData] ++
+        [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
             [
                 {1, {call, ?MODULE, disconnect, [S]}},
                 {5, subscribe_(S)},

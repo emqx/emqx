@@ -253,7 +253,7 @@ ipush(Val, Q = #iqueue{tail = Tl, tail_end = End, queue = IQ0}) when is_number(V
         queue = IQ,
         tail = Val,
         tail_end = Val + 1
-    }.
+     }.
 
 -spec ipop(iqueue()) -> {{value, integer()}, iqueue()} | {empty, iqueue()}.
 ipop(Q = #iqueue{head = Hd, head_end = HdEnd}) when Hd < HdEnd ->

@@ -1119,15 +1119,17 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
                 it_begin => ItBegin
             }),
             {ignore, undefined, Session};
-        #srs{unsubscribed = true} when not IsReplay ->
-            {intore, undefined, Session};
-        Srs ->
-            do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs, ItBegin, FetchResult)
+        Srs0 ->
+            case maybe_update_sub_state_id(IsReplay, Srs0, S) of
+                {Srs, SubState} ->
+                    do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs, SubState, ItBegin, FetchResult);
+                undefined ->
+                    {ignore, undefined, Session}
+            end
     end.
 
-do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchResult) ->
+do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, SubState, ItBegin, FetchResult) ->
     #{s := S0, inflight := Inflight0, stream_scheduler_s := SchedS0} = Session,
-    {Srs1, SubState} = maybe_update_sub_state_id(IsReplay, Srs0, S0),
     case IsReplay of
         false ->
             %% Normally we assign a new set of sequence
@@ -1144,10 +1146,10 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchR
     end,
     case FetchResult of
         {error, _, _} = Error ->
-            {Error, Srs1, Session};
+            {Error, Srs0, Session};
         {ok, end_of_stream} ->
             %% No new messages; just update the end iterator:
-            Srs = Srs1#srs{
+            Srs = Srs0#srs{
                 first_seqno_qos1 = FirstSeqnoQos1,
                 first_seqno_qos2 = FirstSeqnoQos2,
                 last_seqno_qos1 = FirstSeqnoQos1,
@@ -1171,7 +1173,7 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchR
                 Messages,
                 Inflight0
             ),
-            Srs = Srs1#srs{
+            Srs = Srs0#srs{
                 it_begin = ItBegin,
                 it_end = ItEnd,
                 batch_size = length(Messages),
@@ -1606,7 +1608,7 @@ maybe_set_will_message_timer(#{id := SessionId, s := S}) ->
     SRS,
     emqx_persistent_session_ds_state:t()
 ) ->
-    {SRS, emqx_persistent_session_ds_subs:subscription_state()}
+    {SRS, emqx_persistent_session_ds_subs:subscription_state()} | undefined
 when
     SRS :: emqx_persistent_session_ds_stream_scheduler:srs().
 maybe_update_sub_state_id(true, SRS = #srs{sub_state_id = SSID}, S) ->
@@ -1621,7 +1623,10 @@ maybe_update_sub_state_id(false, SRS = #srs{sub_state_id = SSID0}, S) ->
             ?tp(sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
             maybe_update_sub_state_id(false, SRS#srs{sub_state_id = SSID}, S);
         #{} = SubState ->
-            {SRS, SubState}
+            {SRS, SubState};
+        undefined ->
+            %% Client unsubscribed while we were polling:
+            undefined
     end.
 
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
