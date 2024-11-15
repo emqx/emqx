@@ -1791,7 +1791,7 @@ override_clientid(Expression, #{clientid := OrigClientId} = ClientInfo) ->
             ClientInfo;
         {ok, ClientId} ->
             % Must add 'clientid' log meta for trace log filter
-            ?TRACE("MQTT", "clientid_overriden", #{
+            ?TRACE("MQTT", "clientid_overridden", #{
                 clientid => ClientId, original_clientid => OrigClientId
             }),
             ClientInfo#{clientid => ClientId};
