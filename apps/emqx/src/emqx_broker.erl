@@ -340,11 +340,11 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %% Route
 %%--------------------------------------------------------------------
 
-route(Routes, Delivery = #delivery{message = Msg}, PersistRes) ->
+route(Routes, Delivery = #delivery{message = _Msg}, PersistRes) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_route,
         Delivery,
-        (emqx_external_trace:msg_attrs(Msg))#{
+        (emqx_external_trace:msg_attrs(_Msg))#{
             'route.from' => node(),
             'route.matched_result' => emqx_utils_json:encode([
                 route_result({TF, RouteTo})
@@ -356,10 +356,14 @@ route(Routes, Delivery = #delivery{message = Msg}, PersistRes) ->
         end
     ).
 
+-if(?EMQX_RELEASE_EDITION == ee).
 route_result({TF, Node}) when is_atom(Node) ->
     #{node => Node, route => TF};
 route_result({TF, Group}) ->
     #{group => Group, route => TF}.
+
+-else.
+-endif.
 
 -spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
@@ -419,11 +423,11 @@ aggre([], true, Acc) ->
 do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
 
-forward(Node, To, Delivery = #delivery{message = Msg}, RpcMode) ->
+forward(Node, To, Delivery = #delivery{message = _Msg}, RpcMode) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_forward,
         Delivery,
-        (emqx_external_trace:msg_attrs(Msg))#{
+        (emqx_external_trace:msg_attrs(_Msg))#{
             'forward.from' => node(),
             'forward.to' => Node
         },
@@ -461,11 +465,11 @@ do_forward(Node, To, Delivery, sync) ->
 %% Handle message forwarding form remote nodes by
 %% `emqx_broker_proto_v1:forward/3` or
 %% `emqx_broker_proto_v1:forward_async/3`
-dispatch(Topic, Delivery = #delivery{message = Msg}) ->
+dispatch(Topic, Delivery = #delivery{message = _Msg}) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_handle_forward,
         Delivery,
-        emqx_external_trace:msg_attrs(Msg),
+        emqx_external_trace:msg_attrs(_Msg),
         fun(DeliveryWithTrace) ->
             do_dispatch(Topic, DeliveryWithTrace)
         end
