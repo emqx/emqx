@@ -27,7 +27,6 @@
     handle_info/2,
 
     %% API
-    fetch_stream_events/1,
     handle_stream_progress/2,
     handle_disconnect/2
 ]).
@@ -49,13 +48,13 @@
 
 -type stream_lease_event() ::
     #{
-        type => lease,
-        stream => emqx_ds:stream(),
-        progress => progress()
+        type := lease,
+        stream := emqx_ds:stream(),
+        progress := progress()
     }
     | #{
-        type => revoke,
-        stream => emqx_ds:stream()
+        type := revoke,
+        stream := emqx_ds:stream()
     }.
 
 %% GroupSM States
@@ -98,14 +97,14 @@
 -type timer() :: #timer{}.
 
 -type t() :: #{
-    share_topic_filter => emqx_persistent_session_ds:share_topic_filter(),
-    agent => emqx_ds_shared_sub_proto:agent(),
-    send_after => fun((non_neg_integer(), term()) -> reference()),
-    stream_lease_events => list(stream_lease_event()),
+    share_topic_filter := emqx_persistent_session_ds:share_topic_filter(),
+    agent := emqx_ds_shared_sub_proto:agent(),
+    send_after := fun((non_neg_integer(), term()) -> reference()),
+    id := emqx_persistent_session_ds:id(),
 
-    state => state(),
-    state_data => state_data(),
-    state_timers => #{timer_name() => timer()}
+    state := state(),
+    state_data := state_data(),
+    state_timers := #{timer_name() => timer()}
 }.
 
 %%-----------------------------------------------------------------------
@@ -131,23 +130,6 @@ new(#{
     },
     transition(GSM0, ?connecting, #{}).
 
--spec fetch_stream_events(t()) ->
-    {t(), [emqx_ds_shared_sub_agent:external_lease_event()]}.
-fetch_stream_events(
-    #{
-        state := _State,
-        share_topic_filter := ShareTopicFilter,
-        stream_lease_events := Events0
-    } = GSM
-) ->
-    Events1 = lists:map(
-        fun(Event) ->
-            Event#{share_topic_filter => ShareTopicFilter}
-        end,
-        Events0
-    ),
-    {GSM#{stream_lease_events => []}, Events1}.
-
 -spec handle_disconnect(t(), emqx_ds_shared_sub_proto:agent_stream_progress()) -> t().
 handle_disconnect(#{state := ?connecting} = GSM, _StreamProgresses) ->
     transition(GSM, ?disconnected, #{});
@@ -167,6 +149,7 @@ handle_disconnect(
 %%-----------------------------------------------------------------------
 %% Connecting state
 
+%% State enter callback
 handle_connecting(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
     ?tp(debug, group_sm_enter_connecting, #{
         agent => Agent,
@@ -175,6 +158,13 @@ handle_connecting(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GS
     ok = emqx_ds_shared_sub_registry:leader_wanted(Agent, agent_metadata(GSM), ShareTopicFilter),
     ensure_state_timeout(GSM, find_leader_timeout, ?dq_config(session_find_leader_timeout_ms)).
 
+-spec handle_leader_lease_streams(
+    t(),
+    emqx_ds_shared_sub_proto:leader(),
+    list(emqx_ds_shared_sub_proto:agent_stream_progress()),
+    emqx_ds_shared_sub_proto:version()
+) ->
+    t() | {list(stream_lease_event()), t()}.
 handle_leader_lease_streams(
     #{state := ?connecting, share_topic_filter := ShareTopicFilter} = GSM0,
     Leader,
@@ -198,6 +188,7 @@ handle_leader_lease_streams(
 handle_leader_lease_streams(GSM, _Leader, _StreamProgresses, _Version) ->
     GSM.
 
+-spec handle_find_leader_timeout(t()) -> t().
 handle_find_leader_timeout(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM0) ->
     ?tp(warning, group_sm_find_leader_timeout, #{
         agent => Agent,
@@ -212,6 +203,7 @@ handle_find_leader_timeout(#{agent := Agent, share_topic_filter := ShareTopicFil
 %%-----------------------------------------------------------------------
 %% Replaying state
 
+%% State enter callback
 handle_replaying(GSM0) ->
     GSM1 = ensure_state_timeout(
         GSM0, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms)
@@ -221,13 +213,15 @@ handle_replaying(GSM0) ->
     ),
     GSM2.
 
+-spec handle_renew_lease_timeout(t()) -> t().
 handle_renew_lease_timeout(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
     ?tp(warning, renew_lease_timeout, #{agent => Agent, share_topic_filter => ShareTopicFilter}),
-    transition(GSM, ?connecting, #{}).
+    transition_and_revoke_all(GSM, ?connecting, #{}).
 
 %%-----------------------------------------------------------------------
 %% Updating state
 
+%% State enter callback
 handle_updating(GSM0) ->
     GSM1 = ensure_state_timeout(
         GSM0, renew_lease_timeout, ?dq_config(session_renew_lease_timeout_ms)
@@ -240,12 +234,20 @@ handle_updating(GSM0) ->
 %%-----------------------------------------------------------------------
 %% Disconnected state
 
+%% State enter callback
 handle_disconnected(GSM) ->
     GSM.
 
 %%-----------------------------------------------------------------------
 %% Common handlers
 
+-spec handle_leader_update_streams(
+    t(),
+    emqx_ds_shared_sub_proto:version(),
+    emqx_ds_shared_sub_proto:version(),
+    list(emqx_ds_shared_sub_proto:agent_stream_progress())
+) ->
+    t() | {list(stream_lease_event()), t()}.
 handle_leader_update_streams(
     #{
         id := Id,
@@ -295,7 +297,7 @@ handle_leader_update_streams(
         maps:keys(Streams1)
     ),
     StreamLeaseEvents = AddEvents ++ RevokeEvents,
-    ?tp(debug, shared_sub_group_sm_leader_update_streams, #{
+    ?tp(warning, shared_sub_group_sm_leader_update_streams, #{
         id => Id,
         stream_lease_events => StreamLeaseEvents
     }),
@@ -330,8 +332,10 @@ handle_leader_update_streams(GSM, VersionOld, VersionNew, _StreamProgresses) ->
         version_old => VersionOld,
         version_new => VersionNew
     }),
-    transition(GSM, ?connecting, #{}).
+    transition_and_revoke_all(GSM, ?connecting, #{}).
 
+-spec handle_leader_renew_stream_lease(t(), emqx_ds_shared_sub_proto:version()) ->
+    {list(stream_lease_event()), t()}.
 handle_leader_renew_stream_lease(
     #{state := ?replaying, state_data := #{version := Version}} = GSM, Version
 ) ->
@@ -347,6 +351,9 @@ handle_leader_renew_stream_lease(
 handle_leader_renew_stream_lease(GSM, _Version) ->
     GSM.
 
+-spec handle_leader_renew_stream_lease(
+    t(), emqx_ds_shared_sub_proto:version(), emqx_ds_shared_sub_proto:version()
+) -> {list(stream_lease_event()), t()}.
 handle_leader_renew_stream_lease(
     #{state := ?replaying, state_data := #{version := Version}} = GSM, VersionOld, VersionNew
 ) when VersionOld =:= Version orelse VersionNew =:= Version ->
@@ -368,7 +375,7 @@ handle_leader_renew_stream_lease(GSM, VersionOld, VersionNew) ->
         version_old => VersionOld,
         version_new => VersionNew
     }),
-    transition(GSM, ?connecting, #{}).
+    transition_and_revoke_all(GSM, ?connecting, #{}).
 
 -spec handle_stream_progress(t(), list(emqx_ds_shared_sub_proto:agent_stream_progress())) ->
     t().
@@ -412,12 +419,13 @@ handle_stream_progress(
 handle_stream_progress(#{state := ?disconnected} = GSM, _StreamProgresses) ->
     GSM.
 
+-spec handle_leader_invalidate(t()) -> {list(stream_lease_event()), t()}.
 handle_leader_invalidate(#{agent := Agent, share_topic_filter := ShareTopicFilter} = GSM) ->
     ?tp(warning, shared_sub_group_sm_leader_invalidate, #{
         agent => Agent,
         share_topic_filter => ShareTopicFilter
     }),
-    transition(GSM, ?connecting, #{}).
+    transition_and_revoke_all(GSM, ?connecting, #{}).
 
 %%-----------------------------------------------------------------------
 %% Internal API
@@ -431,9 +439,14 @@ handle_state_timeout(GSM, update_stream_state_timeout, _Message) ->
     ?tp(debug, update_stream_state_timeout, #{}),
     handle_stream_progress(GSM, []).
 
+-spec handle_info(t(), term()) -> t().
 handle_info(
-    #{state_timers := Timers} = GSM, #state_timeout{message = Message, name = Name, id = Id} = _Info
+    #{state_timers := Timers} = GSM, #state_timeout{message = Message, name = Name, id = Id} = Info
 ) ->
+    ?tp(debug, shared_sub_group_sm_handle_info, #{
+        info => Info,
+        gsm => GSM
+    }),
     case Timers of
         #{Name := #timer{id = Id}} ->
             handle_state_timeout(GSM, Name, Message);
@@ -441,7 +454,11 @@ handle_info(
             %% Stale timer
             GSM
     end;
-handle_info(GSM, _Info) ->
+handle_info(GSM, Info) ->
+    ?tp(debug, shared_sub_group_sm_handle_info_no_timers, #{
+        info => Info,
+        gsm => GSM
+    }),
     GSM.
 
 %%--------------------------------------------------------------------
@@ -464,10 +481,30 @@ transition(GSM0, NewState, NewStateData, LeaseEvents) ->
     GSM2 = GSM1#{
         state => NewState,
         state_data => NewStateData,
-        state_timers => #{},
-        stream_lease_events => LeaseEvents
+        state_timers => #{}
     },
-    run_enter_callback(GSM2).
+    GSM3 = run_enter_callback(GSM2),
+    case LeaseEvents of
+        [] ->
+            GSM3;
+        _ ->
+            {LeaseEvents, GSM3}
+    end.
+
+transition_and_revoke_all(
+    #{state_data := #{streams := Streams} = StateData} = GSM0, NewState, NewStateData
+) ->
+    StreamLeaseEvents = lists:map(
+        fun(Stream) ->
+            #{
+                type => revoke,
+                stream => Stream
+            }
+        end,
+        maps:keys(Streams)
+    ),
+    GSM1 = GSM0#{state_data => StateData#{streams => #{}}},
+    transition(GSM1, NewState, NewStateData, StreamLeaseEvents).
 
 agent_metadata(#{id := Id} = _GSM) ->
     #{id => Id}.
