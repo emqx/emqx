@@ -118,6 +118,32 @@ make
 _build/emqx/rel/emqx/bin/emqx console
 ```
 
+## Rolling Upgrade Paths Since 5.0
+
+Below is the matrix supported rolling upgrade paths since 5.0.
+
+- Version numbers end with `?` e.g. `6.0?` are future releases.
+- ✅: Supported, or planed to support.
+- ⚠️:  May experience issues, but resolvable.
+- ❌: Not supported.
+- 🔄: Tentative support for future versions.
+
+See release notes for detailed information.
+
+| From\To  | 5.0~5.3  | 5.4  | 5.5  | 5.6  | 5.7  | 5.8  | 5.9?  | 5.10? | 6.0?  |
+|----------|----------|------|------|------|------|------|-------|-------|-------|
+| 5.0~5.3  | ✅       | ✅   | ✅   | ✅   | ✅   | ✅   | 🔄[1] | 🔄[1] | ❌[1] |
+| 5.4      |          | ✅   | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.5      |          |      | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.6      |          |      |      | ✅   | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.7      |          |      |      |      | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.8      |          |      |      |      |      | ✅   | ✅    | ✅    | ✅    |
+| 5.9?     |          |      |      |      |      |      | ✅    | ✅    | ✅    |
+| 5.10?    |          |      |      |      |      |      |       | ✅    | ✅    |
+| 6.0?     |          |      |      |      |      |      |       |       | ✅    |
+
+- [1] Pre-5.4 routing table will be deleted.
+
 ## License
 
 See [LICENSE](./LICENSE).
