@@ -15,9 +15,6 @@
     register_client/2,
     unregister_client/2,
 
-    set_outdated/3,
-
-    outdated/1,
     all/1
 ]).
 
@@ -83,28 +80,6 @@ unregister_client(ProfileId, PoolName) ->
         error:badarg ->
             undefined
     end.
-
--spec set_outdated(emqx_s3:profile_id(), pool_name(), integer()) ->
-    ok.
-set_outdated(ProfileId, PoolName, Timeout) ->
-    Key = key(ProfileId, PoolName),
-    Now = erlang:monotonic_time(millisecond),
-    _ = ets:update_element(?TAB, Key, {#pool.deadline, Now + Timeout}),
-    ok.
-
--spec outdated(emqx_s3:profile_id()) ->
-    [pool_name()].
-outdated(ProfileId) ->
-    Now = erlang:monotonic_time(millisecond),
-    MS = ets:fun2ms(
-        fun(#pool{key = {CurProfileId, CurPoolName}, deadline = CurDeadline}) when
-            CurProfileId =:= ProfileId andalso
-                CurDeadline =/= undefined andalso CurDeadline < Now
-        ->
-            CurPoolName
-        end
-    ),
-    ets:select(?TAB, MS).
 
 -spec all(emqx_s3:profile_id()) ->
     [pool_name()].

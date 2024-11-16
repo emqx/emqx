@@ -6,8 +6,8 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/single-tcp:/usr/local/etc/redis/
-    ports:
-      - "6379:6379"
+    #ports:
+      #- "6379:6379"
     command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:

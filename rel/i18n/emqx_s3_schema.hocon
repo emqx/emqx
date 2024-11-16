@@ -12,6 +12,12 @@ bucket.desc:
 bucket.label:
 """Bucket"""
 
+bucket_access_method.desc:
+"""Method to be used to access the bucket through HTTP API."""
+
+bucket_access_method.label:
+"""Bucket Access Method"""
+
 key.desc:
 """Key of the S3 object."""
 

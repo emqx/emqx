@@ -13,7 +13,10 @@
 -include_lib("emqx/include/asserts.hrl").
 
 all() ->
-    [{group, declare_explicit}, {group, declare_implicit}].
+    [
+        {group, declare_explicit},
+        {group, declare_implicit}
+    ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
@@ -816,7 +819,7 @@ verify_received_pubs(Pubs, NPubs, ClientByBid) ->
     Messages = lists:foldl(
         fun(#{payload := Payload, client_pid := Pid}, Acc) ->
             maps:update_with(
-                binary_to_integer(Payload),
+                Payload,
                 fun(Clients) ->
                     [ClientByBid(Pid) | Clients]
                 end,
@@ -829,14 +832,15 @@ verify_received_pubs(Pubs, NPubs, ClientByBid) ->
     ),
 
     Missing = lists:filter(
-        fun(N) -> not maps:is_key(N, Messages) end,
+        fun(N) -> not maps:is_key(integer_to_binary(N), Messages) end,
         lists:seq(1, NPubs)
     ),
     Duplicate = lists:filtermap(
         fun(N) ->
+            NBin = integer_to_binary(N),
             case Messages of
-                #{N := [_]} -> false;
-                #{N := [_ | _] = Clients} -> {true, {N, Clients}};
+                #{NBin := [_]} -> false;
+                #{NBin := [_ | _] = Clients} -> {true, {N, Clients}};
                 _ -> false
             end
         end,

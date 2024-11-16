@@ -92,8 +92,7 @@ connector_config(Name, _Config) ->
                 <<"connect_timeout">> => <<"500ms">>,
                 <<"request_timeout">> => <<"1s">>,
                 <<"pool_size">> => 4,
-                <<"max_retries">> => 0,
-                <<"enable_pipelining">> => 1
+                <<"max_retries">> => 0
             },
             <<"resource_opts">> => #{
                 <<"health_check_interval">> => <<"5s">>,

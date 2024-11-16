@@ -11,7 +11,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 suite() -> [{timetrap, {minutes, 1}}].
 
@@ -43,79 +44,6 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_regular_outdated_pool_cleanup(Config) ->
-    _ = process_flag(trap_exit, true),
-    Key = emqx_s3_test_helpers:unique_key(),
-    {ok, Pid} = emqx_s3:start_uploader(profile_id(), Key, #{}),
-
-    [OldPool] = emqx_s3_profile_http_pools:all(profile_id()),
-
-    ProfileBaseConfig = ?config(profile_config, Config),
-    ProfileConfig = emqx_utils_maps:deep_put(
-        [transport_options, pool_size], ProfileBaseConfig, 16
-    ),
-    ok = emqx_s3:update_profile(profile_id(), ProfileConfig),
-
-    ?assertEqual(
-        2,
-        length(emqx_s3_profile_http_pools:all(profile_id()))
-    ),
-
-    ?assertWaitEvent(
-        ok = emqx_s3_uploader:abort(Pid),
-        #{?snk_kind := "s3_stop_http_pool", pool_name := OldPool},
-        1000
-    ),
-
-    [NewPool] = emqx_s3_profile_http_pools:all(profile_id()),
-
-    ?assertWaitEvent(
-        ok = emqx_s3:stop_profile(profile_id()),
-        #{?snk_kind := "s3_stop_http_pool", pool_name := NewPool},
-        1000
-    ),
-
-    ?assertEqual(
-        0,
-        length(emqx_s3_profile_http_pools:all(profile_id()))
-    ).
-
-t_timeout_pool_cleanup(Config) ->
-    _ = process_flag(trap_exit, true),
-
-    %% We restart the profile to set `http_pool_timeout` value suitable for test
-    ok = emqx_s3:stop_profile(profile_id()),
-    ProfileBaseConfig = ?config(profile_config, Config),
-    ProfileConfig = ProfileBaseConfig#{
-        http_pool_timeout => 500,
-        http_pool_cleanup_interval => 100
-    },
-    ok = emqx_s3:start_profile(profile_id(), ProfileConfig),
-
-    %% Start uploader
-    Key = emqx_s3_test_helpers:unique_key(),
-    {ok, Pid} = emqx_s3:start_uploader(profile_id(), Key, #{}),
-    ok = emqx_s3_uploader:write(Pid, <<"data">>),
-
-    [OldPool] = emqx_s3_profile_http_pools:all(profile_id()),
-
-    NewProfileConfig = emqx_utils_maps:deep_put(
-        [transport_options, pool_size], ProfileConfig, 16
-    ),
-
-    %% We update profile to create new pool and wait for the old one to be stopped by timeout
-    ?assertWaitEvent(
-        ok = emqx_s3:update_profile(profile_id(), NewProfileConfig),
-        #{?snk_kind := "s3_stop_http_pool", pool_name := OldPool},
-        1000
-    ),
-
-    %% The uploader now has no valid pool and should fail
-    ?assertMatch(
-        {error, _},
-        emqx_s3_uploader:complete(Pid)
-    ).
-
 t_checkout_no_profile(_Config) ->
     ?assertEqual(
         {error, profile_not_found},
@@ -123,11 +51,11 @@ t_checkout_no_profile(_Config) ->
     ).
 
 t_httpc_pool_start_error(Config) ->
-    %% `ehhtpc_pool`s are lazy so it is difficult to trigger an error
+    %% `hackney_pool`s are lazy so it is difficult to trigger an error
     %% passing some bad connection options.
     %% So we emulate some unknown crash with `meck`.
-    meck:new(ehttpc_pool, [passthrough]),
-    meck:expect(ehttpc_pool, init, fun(_) -> meck:raise(error, badarg) end),
+    meck:new(hackney_pool, [passthrough]),
+    meck:expect(hackney_pool, init, fun(_) -> meck:raise(error, badarg) end),
 
     ?assertMatch(
         {error, _},
@@ -135,11 +63,11 @@ t_httpc_pool_start_error(Config) ->
     ).
 
 t_httpc_pool_update_error(Config) ->
-    %% `ehhtpc_pool`s are lazy so it is difficult to trigger an error
+    %% `hackney_pool`s are lazy so it is difficult to trigger an error
     %% passing some bad connection options.
     %% So we emulate some unknown crash with `meck`.
-    meck:new(ehttpc_pool, [passthrough]),
-    meck:expect(ehttpc_pool, init, fun(_) -> meck:raise(error, badarg) end),
+    meck:new(hackney_pool, [passthrough]),
+    meck:expect(hackney_pool, init, fun(_) -> meck:raise(error, badarg) end),
 
     ProfileBaseConfig = ?config(profile_config, Config),
     NewProfileConfig = emqx_utils_maps:deep_put(
@@ -175,7 +103,7 @@ t_orphaned_pools_cleanup_non_graceful(_Config) ->
 
     %% We stop pool, conf server should not fail when attempting to stop it once more
     [PoolName] = emqx_s3_profile_http_pools:all(ProfileId),
-    ok = ehttpc_pool:stop_pool(PoolName),
+    ok = emqx_s3_client_http:stop_pool(PoolName),
 
     %% We kill conf and wait for it to restart
     %% and create a new pool
@@ -230,13 +158,6 @@ t_checkout_client(Config) ->
         [transport_options, pool_size], NewProfileConfig0, 16
     ),
     ok = emqx_s3:update_profile(profile_id(), NewProfileConfig1),
-
-    %% We should have two pools now, because the old one is still in use
-    %% by the spawned process
-    ?assertEqual(
-        2,
-        length(emqx_s3_profile_http_pools:all(ProfileId))
-    ),
 
     %% Ask spawned process to list objects
     Pid ! list_objects,
