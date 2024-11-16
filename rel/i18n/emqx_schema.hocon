@@ -262,12 +262,6 @@ already established connections."""
 common_ssl_opts_schema_cacertfile.label:
 """CACertfile"""
 
-common_ssl_opts_schema_cacerts.desc:
-"""When enabled, uses the system trusted CA certificates for establishing to TLS connections."""
-
-common_ssl_opts_schema_cacerts.label:
-"""Use System CA Certificates"""
-
 fields_ws_opts_mqtt_path.desc: """~
     WebSocket's MQTT protocol path. By default, the full URL for the WebSocket client to connect is:
     `ws://{host}:{port}/mqtt`.
@@ -985,10 +979,18 @@ NOTE: when changing from/to `global` lock, it requires all nodes in the cluster 
   - `global`: updates are protected with a global lock. Recommended for large clusters."""
 
 fields_tcp_opts_nodelay.desc:
-"""The TCP_NODELAY flag for the connections."""
+"""The `TCP_NODELAY` flag for the connections.
+When set to `true`, data is sent immediately, regardless of size."""
 
 fields_tcp_opts_nodelay.label:
-"""TCP_NODELAY"""
+"""No Delay"""
+
+fields_tcp_opts_nolinger.desc:
+"""When enabled, `SO_LINGER` flag is set as `(onoff=1, linger=0)`, which means the TCP socket is to be closed immediately by sending a TCP-RST packet,
+discarding any unsent data and skipping the graceful close steps, including CLOSE_WAIT, FIN_WAIT, and TIME_WAIT."""
+
+fields_tcp_opts_nolinger.label:
+"""No Linger"""
 
 fields_tcp_opts_keepalive.desc:
 """Enable TCP keepalive for MQTT connections over TCP or SSL.
