@@ -848,11 +848,11 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, commit(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, Session = #{s := S0, id := Id}) ->
+terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
     _ = commit(Session#{s := S}),
-    ?tp(debug, sessds_terminate, #{id => Id}),
+    ?tp(debug, sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1888,10 +1888,12 @@ no_warnings(Trace) ->
 
 %% @doc Check invariantss for a living session
 runtime_state_invariants(ModelState, Session) ->
-    emqx_persistent_session_ds_stream_scheduler:runtime_state_invariants(ModelState, Session).
+    emqx_persistent_session_ds_stream_scheduler:runtime_state_invariants(ModelState, Session) and
+        emqx_persistent_session_ds_subs:state_invariants(ModelState, Session).
 
 %% @doc Check invariants for a saved session state
-offline_state_invariants(ModelState, #{s := S}) ->
-    emqx_persistent_session_ds_stream_scheduler:offline_state_invariants(ModelState, S).
+offline_state_invariants(ModelState, Session) ->
+    emqx_persistent_session_ds_stream_scheduler:offline_state_invariants(ModelState, Session) and
+        emqx_persistent_session_ds_subs:state_invariants(ModelState, Session).
 
 -endif.

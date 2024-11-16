@@ -580,29 +580,40 @@ t_new_stream_notifications(Config) ->
     ).
 
 t_fuzz(_Config) ->
-    %% NOTE: we set timeout in the lower level to capture the trace
-    %% and have a better error message.
+    %% snabbkaffe:fix_ct_logging(),
+    %% NOTE: we set timeout at the lower level to capture the trace
+    %% and have a nicer error message.
     ?run_prop(
-        #{proper => #{timeout => 3_000_000, numtests => 100, max_size => 400}},
+        #{proper => #{timeout => 3_000_000, numtests => 100, max_size => 1000, start_size => 100}},
         ?forall_trace(
             Cmds,
-            commands(emqx_persistent_session_ds_fuzzer),
+            proper_statem:commands(emqx_persistent_session_ds_fuzzer),
             #{timetrap => 30_000},
             try
+                %% Initialize DS:
                 ok = emqx_persistent_message:init(),
-                %% Verify that there's no session:
-                {_History, State, Result} = run_commands(emqx_persistent_session_ds_fuzzer, Cmds),
-                %% Kick the client, if present:
-                ok = emqx_persistent_session_ds_fuzzer:cleanup(State),
-                ?WHENFAIL(
-                    ct:pal("*** Commands:~n  ~p~n**** State:~n  ~p~n", [Cmds, State]),
-                    ?assertMatch(ok, Result)
-                )
+                %% Run test:
+                {_History, State, Result} = proper_statem:run_commands(
+                    emqx_persistent_session_ds_fuzzer, Cmds
+                ),
+                %% Kill the processes:
+                emqx_persistent_session_ds_fuzzer:killall(State),
+                Result =:= ok orelse
+                    begin
+                        logger:error("*** Commands:~n  ~p~n", [Cmds]),
+                        logger:error("*** State:~n  ~p~n", [State]),
+                        logger:error("*** Result:~n  ~p~n", [Result]),
+                        error(Result)
+                    end
             after
+                emqx_persistent_session_ds_fuzzer:cleanup(),
                 emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
                 ok
             end,
-            emqx_persistent_session_ds:trace_specs()
+            [
+                fun no_abnormal_session_terminate/1
+                | emqx_persistent_session_ds:trace_specs()
+            ]
         )
     ),
     snabbkaffe:analyze_statistics(),
@@ -1079,6 +1090,21 @@ t_session_gc_will_message(_Config) ->
     ok.
 
 %% Trace specifications:
+
+%% @doc Verify that sessions didn't terminate abnormally:
+no_abnormal_session_terminate(Trace) ->
+    lists:foreach(
+        fun
+            (#{?snk_kind := sessds_terminate} = E) ->
+                case E of
+                    #{reason := takenover} -> ok;
+                    #{reason := {shutdown, tcp_closed}} -> ok
+                end;
+            (_) ->
+                ok
+        end,
+        Trace
+    ).
 
 check_stream_state_transitions(Trace) ->
     %% Check sequence of state transitions for each stream replay

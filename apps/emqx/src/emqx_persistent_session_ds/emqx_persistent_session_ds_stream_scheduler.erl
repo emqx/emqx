@@ -1039,7 +1039,7 @@ runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
     emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}
 ) ->
     boolean().
-offline_state_invariants(ModelState, S) ->
+offline_state_invariants(ModelState, #{s := S}) ->
     invariant_active_streams_y_ranks(S).
 
 %% Verify that each active subscription has a state and a

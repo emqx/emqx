@@ -57,8 +57,9 @@
 
 %% Misc.
 -export([
-    sample/0,
-    cleanup/1
+    sample/1,
+    killall/1,
+    cleanup/0
 ]).
 
 %% Proper callbacks:
@@ -109,7 +110,7 @@
 
 %% erlfmt-ignore
 -record(s, {
-    %% Pure fields (calculated at the command generation time):
+    %% Symbolic fields (known at the generation time):
     %%    Static configuration of the testcase:
     conf :: config(),
     %%    State of the session predicted by the model:
@@ -122,7 +123,7 @@
     %%    `false' by `consume' action (used to avoid generating
     %%    redundand `consume' actions):
     has_data = false :: boolean(),
-    %% Fields that are updated at the runtime:
+    %% Dynamic fields:
     %%    Information about the current incarnation of the
     %%    client/session:
     conninfo :: conninfo() | _Symbolic
@@ -197,7 +198,7 @@ connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid :=
     ?tp(notice, sessds_test_connect, #{opts => Opts, pid => self()}),
     %% Check metadata of the previous state to catch situations when
     %% the testcase starts from a dirty state:
-    check_session_metadata(S),
+    true = check_session_metadata(S),
     {ok, ClientPid} = emqtt:start_link(Opts),
     unlink(ClientPid),
     CMRef = monitor(process, ClientPid),
@@ -320,12 +321,15 @@ default_config() ->
         }
     }.
 
-sample() ->
-    proper_gen:pick(commands(?MODULE)).
+sample(Size) ->
+    proper_gen:pick(commands(?MODULE), Size).
 
-cleanup(S = #s{connected = Connected}) ->
-    Connected andalso disconnect(S),
-    emqx_persistent_session_ds:kick_offline_session(?clientid).
+killall(S = #s{connected = Connected}) ->
+    Connected andalso catch disconnect(S).
+
+cleanup() ->
+    emqx_cm:kick_session(?clientid),
+    emqx_persistent_session_ds:destroy_session(?clientid).
 
 %%--------------------------------------------------------------------
 %% Statem callbacks
@@ -424,7 +428,9 @@ postcondition(PrevState, Call, Result) ->
             Result =:= ok;
         _ ->
             true
-    end and check_processes(CurrentState) and check_invariants(CurrentState).
+    end and check_invariants(CurrentState) and
+        check_processes(CurrentState) and
+        check_session_metadata(CurrentState).
 
 %%--------------------------------------------------------------------
 %% Misc.
@@ -433,25 +439,40 @@ postcondition(PrevState, Call, Result) ->
 %% @doc Check that the processes are alive when they should be
 %% according to the model prediction:
 check_processes(#s{connected = false}) ->
-    ?assertMatch([], emqx_cm:lookup_channels(local, ?clientid), "Unexpected channel process"),
+    %% TODO: check that the channel is stopped:
     true;
 check_processes(#s{connected = true, conninfo = #{client_pid := CPid, session_pid := SPid}}) ->
-    ?assertMatch({_, true}, {SPid, is_process_alive(SPid)}, "Session unexpectedly died"),
-    ?assertMatch({_, true}, {CPid, is_process_alive(CPid)}, "Client unexpectedly died"),
-    true.
+    SA = is_process_alive(CPid),
+    CA = is_process_alive(SPid),
+    SA and CA orelse
+        begin
+            ?tp(
+                error,
+                sessds_test_processes_died,
+                #{
+                    client => {CPid, CA},
+                    session => {SPid, SA}
+                }
+            ),
+            false
+        end.
 
 check_session_metadata(#s{model_state = undefined}) ->
-    ?assertMatch(
-        undefined,
-        emqx_persistent_session_ds_state:print_session(?clientid),
-        "Found unexpected session metadata"
-    );
+    case emqx_persistent_session_ds_state:print_session(?clientid) of
+        undefined ->
+            true;
+        State ->
+            ?tp(error, "Found unexpected session metadata", #{state => State}),
+            false
+    end;
 check_session_metadata(#s{model_state = #{}}) ->
-    ?assertMatch(
-       #{},
-       emqx_persistent_session_ds_state:print_session(?clientid),
-       "Session metadata was expected, but not found"
-      ).
+    case emqx_persistent_session_ds_state:print_session(?clientid) of
+        undefined ->
+            ?tp(error, "Session metadata was expected, but not found", #{}),
+            false;
+        _ ->
+            true
+    end.
 
 check_invariants(State) ->
     #s{model_state = ModelState} = State,

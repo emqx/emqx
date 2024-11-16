@@ -20,7 +20,7 @@ Backends = case Profile of
                [emqx_ds_builtin_local, emqx_ds_builtin_raft, emqx_fdb_ds, emqx_ds_fdb_backend]
            end,
 
-io:format(user, "DS backends available for this release (~p): ~0p~n", [Profile, Backends]),
+io:format(user, "DS backends available in this release (~p): ~0p~n", [Profile, Backends]),
 
 {application, emqx_ds_backends, [
     {description, "A placeholder application that depends on all available DS backends"},
