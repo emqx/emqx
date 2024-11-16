@@ -592,23 +592,27 @@ t_fuzz(_Config) ->
             try
                 %% Initialize DS:
                 ok = emqx_persistent_message:init(),
+                %% FIXME: this should not be needed, but some crap is
+                %% left behind sometimes.
+                emqx_persistent_session_ds_fuzzer:cleanup(),
                 %% Run test:
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
                 ),
-                %% Kill the processes:
-                emqx_persistent_session_ds_fuzzer:killall(State),
+                SessState = emqx_persistent_session_ds_fuzzer:sut_state(),
                 Result =:= ok orelse
                     begin
-                        logger:error("*** Commands:~n  ~p~n", [Cmds]),
-                        logger:error("*** State:~n  ~p~n", [State]),
+                        logger:error("*** Commands:~n~s~n", [
+                            emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                        ]),
+                        logger:error("*** Model state:~n  ~p~n", [State]),
+                        logger:error("*** Session state:~n  ~p~n", [SessState]),
                         logger:error("*** Result:~n  ~p~n", [Result]),
                         error(Result)
                     end
             after
-                emqx_persistent_session_ds_fuzzer:cleanup(),
-                emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
-                ok
+                ok = emqx_persistent_session_ds_fuzzer:cleanup(),
+                ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)
             end,
             [
                 fun no_abnormal_session_terminate/1
@@ -1098,6 +1102,7 @@ no_abnormal_session_terminate(Trace) ->
             (#{?snk_kind := sessds_terminate} = E) ->
                 case E of
                     #{reason := takenover} -> ok;
+                    #{reason := kicked} -> ok;
                     #{reason := {shutdown, tcp_closed}} -> ok
                 end;
             (_) ->

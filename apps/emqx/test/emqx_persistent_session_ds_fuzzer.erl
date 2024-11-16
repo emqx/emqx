@@ -42,6 +42,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_persistent_message.hrl").
 
+-define(client, emqx_persistent_session_ds_fuzzer_client).
 -define(clientid, <<?MODULE_STRING>>).
 
 %% Commands:
@@ -50,16 +51,17 @@
     disconnect/1,
     publish/1,
     add_generation/0,
-    subscribe/3,
-    unsubscribe/2,
+    subscribe/2,
+    unsubscribe/1,
     consume/1
 ]).
 
 %% Misc.
 -export([
     sample/1,
-    killall/1,
-    cleanup/0
+    sut_state/0,
+    cleanup/0,
+    print_cmds/1
 ]).
 
 %% Proper callbacks:
@@ -178,14 +180,14 @@ subscribe_(S = #s{conf = #{topics := Topics}}) ->
     ?LET(
         {Topic, QoS},
         {oneof(Topics), qos()},
-        {call, ?MODULE, subscribe, [S, Topic, QoS]}
+        {call, ?MODULE, subscribe, [Topic, QoS]}
     ).
 
 unsubscribe_(S = #s{conf = #{topics := Topics}}) ->
     ?LET(
         Topic,
         oneof(Topics),
-        {call, ?MODULE, unsubscribe, [S, Topic]}
+        {call, ?MODULE, unsubscribe, [Topic]}
     ).
 
 %%--------------------------------------------------------------------
@@ -205,6 +207,7 @@ connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid :=
     {ok, _} = emqtt:connect(ClientPid),
     %% Wait for takeover (if the client was previously connected):
     Connected andalso wait_client_down(ConnInfo),
+    register(?client, ClientPid),
     [SessionPid] = emqx_cm:lookup_channels(local, ClientId),
     SMRef = monitor(process, SessionPid),
     %% If the client was connected previously, we should ensure
@@ -219,7 +222,7 @@ connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid :=
 %% @doc Shut down emqtt
 disconnect(#s{conninfo = ConnInfo = #{client_pid := C}}) ->
     ?tp(notice, sessds_test_disconnect, #{pid => C}),
-    emqtt:stop(C),
+    emqtt:stop(client_pid()),
     wait_client_down(ConnInfo).
 
 publish(Msg) ->
@@ -231,13 +234,13 @@ add_generation() ->
     ?tp(notice, sessds_test_add_generation, #{}),
     emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB).
 
-subscribe(S, Topic, QoS) ->
+subscribe(Topic, QoS) ->
     ?tp(notice, sessds_test_subscribe, #{topic => Topic, qos => QoS}),
-    emqtt:subscribe(client_pid(S), Topic, QoS).
+    emqtt:subscribe(client_pid(), Topic, QoS).
 
-unsubscribe(S, Topic) ->
+unsubscribe(Topic) ->
     ?tp(notice, sessds_test_unsubscribe, #{topic => Topic}),
-    emqtt:unsubscribe(client_pid(S), Topic).
+    emqtt:unsubscribe(client_pid(), Topic).
 
 consume(S) ->
     %% Consume and ack all messages we can get:
@@ -266,16 +269,16 @@ receive_ack_loop(
                     ok;
                 ?QOS_1 ->
                     ?tp(notice, sessds_test_out_puback, #{packet_id => PID}),
-                    emqtt:puback(client_pid(S), PID);
+                    emqtt:puback(client_pid(), PID);
                 ?QOS_2 ->
                     ?tp(notice, sessds_test_out_pubrec, #{packet_id => PID}),
-                    emqtt:pubrec(client_pid(S), PID)
+                    emqtt:pubrec(client_pid(), PID)
             end,
             receive_ack_loop(S, Result);
         {pubrel, Msg = #{client_pid := CPID}} ->
             ?tp(notice, sessds_test_in_pubrel, Msg),
             #{packet_id := PID} = Msg,
-            emqtt:pubcomp(client_pid(S), PID),
+            emqtt:pubcomp(client_pid(), PID),
             receive_ack_loop(S, Result);
         %% Handle client/session crash:
         {'DOWN', CMRef, process, CPID, Reason} ->
@@ -310,8 +313,9 @@ default_config() ->
             proto => v5,
             clientid => ?clientid,
             %% These properties are imporant for test logic
+            %%
             %%   Expiry interval must be large enough to avoid
-            %%   automatic kickout:
+            %%   automatic session expiration:
             properties => #{'Session-Expiry-Interval' => 1000},
             %%   To test takeover, clients must not auto-reconnect:
             reconnect => false,
@@ -324,12 +328,42 @@ default_config() ->
 sample(Size) ->
     proper_gen:pick(commands(?MODULE), Size).
 
-killall(S = #s{connected = Connected}) ->
-    Connected andalso catch disconnect(S).
-
 cleanup() ->
+    catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
     emqx_persistent_session_ds:destroy_session(?clientid).
+
+sut_state() ->
+    emqx_persistent_session_ds:print_session(?clientid).
+
+%% @doc Pretty-printer for commands
+print_cmds(L) ->
+    lists:map(
+        fun
+            ({set, _, {call, ?MODULE, connect, [_, Opts]}}) ->
+                io_lib:format("  connect(~0p)~n", [Opts]);
+            ({set, _, {call, ?MODULE, publish, [Msg]}}) ->
+                MsgMap = maps:with(
+                    [qos, from, topic, timestamp, payload], emqx_message:to_map(Msg)
+                ),
+                io_lib:format("  publish(~0p)~n", [MsgMap]);
+            ({set, _, {call, ?MODULE, Fun, _}}) when Fun =:= consume; Fun =:= disconnect ->
+                io_lib:format("  ~p(...)~n", [Fun]);
+            %% Generic command pretty-printer:
+            ({set, _, {call, Module, Fun, Args}}) ->
+                ModStr =
+                    case Module of
+                        ?MODULE -> [];
+                        _ -> [atom_to_binary(Module), $:]
+                    end,
+                ArgStr = lists:join(", ", [io_lib:format("~0p", [I]) || I <- Args]),
+                io_lib:format("  ~s~p(~s)~n", [ModStr, Fun, ArgStr]);
+            %% Fallback:
+            (Other) ->
+                io_lib:format("  ~0p~n", [Other])
+        end,
+        L
+    ).
 
 %%--------------------------------------------------------------------
 %% Statem callbacks
@@ -404,13 +438,13 @@ next_state(S, _Ret, {call, ?MODULE, consume, _}) ->
 next_state(S, _Ret, {call, ?MODULE, add_generation, _}) ->
     S;
 %% Subscribe/unsubscribe topics:
-next_state(S = #s{model_state = ModelState}, _Ret, {call, ?MODULE, subscribe, [_S, Topic, QoS]}) ->
+next_state(S = #s{model_state = ModelState}, _Ret, {call, ?MODULE, subscribe, [Topic, QoS]}) ->
     #{subs := Subs0} = ModelState,
     Subs = Subs0#{Topic => #{qos => QoS}},
     S#s{
         model_state = ModelState#{subs => Subs}
     };
-next_state(S = #s{model_state = ModelState}, _Ret, {call, ?MODULE, unsubscribe, [_S, Topic]}) ->
+next_state(S = #s{model_state = ModelState}, _Ret, {call, ?MODULE, unsubscribe, [Topic]}) ->
     #{subs := Subs} = ModelState,
     S#s{
         model_state = ModelState#{subs => maps:remove(Topic, Subs)}
@@ -492,8 +526,5 @@ wait_client_down(#{
     demonitor(CMRef, [flush]),
     ok.
 
-sut_state() ->
-    emqx_persistent_session_ds:print_session(?clientid).
-
-client_pid(#s{connected = true, conninfo = #{client_pid := Pid}}) ->
-    Pid.
+client_pid() ->
+    whereis(?client).
