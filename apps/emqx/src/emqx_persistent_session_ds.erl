@@ -61,6 +61,7 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -ifdef(TEST).
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -707,7 +708,7 @@ handle_timeout(
     },
     {ok, [], maybe_set_shared_sub_timer(Session)};
 handle_timeout(_ClientInfo, Timeout, Session) ->
-    ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
+    ?tp(warning, sessds_unknown_timeout, #{timeout => Timeout}),
     {ok, [], Session}.
 
 %%--------------------------------------------------------------------
@@ -733,7 +734,7 @@ handle_info(
     ),
     push_now(Session#{s := S, stream_scheduler_s := SchedS});
 handle_info(Msg, Session, _ClientInfo) ->
-    ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
+    ?tp(warning, sessds_unknown_message, #{message => Msg}),
     Session.
 
 %%--------------------------------------------------------------------
@@ -788,7 +789,7 @@ replay_batch(StreamKey, Srs0, Session0, ClientInfo) ->
         {ok, Srs, Session} ->
             %% Assert:
             Srs =:= Srs0 orelse
-                ?tp(warning, emqx_persistent_session_ds_replay_inconsistency, #{
+                ?tp(warning, sessds_replay_inconsistency, #{
                     expected => Srs0,
                     got => Srs
                 }),
@@ -851,7 +852,7 @@ terminate(_Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
     _ = commit(Session#{s := S}),
-    ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
+    ?tp(debug, sessds_terminate, #{id => Id}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -952,7 +953,7 @@ open_session_state(
                     session_drop(SessionId, expired),
                     false;
                 false ->
-                    ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
+                    ?tp(sessds_open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established; update the
                     %% existing data:
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
@@ -978,7 +979,7 @@ open_session_state(
 ensure_new_session_state(
     Id, ClientInfo, ConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}, MaybeWillMsg
 ) ->
-    ?tp(debug, persistent_session_ds_ensure_new, #{id => Id}),
+    ?tp(debug, sessds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
     S1 = emqx_persistent_session_ds_state:set_expiry_interval(expiry_interval(ConnInfo), S0),
@@ -1009,7 +1010,7 @@ ensure_new_session_state(
 session_drop(SessionId, Reason) ->
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
-            ?tp(debug, drop_persistent_session, #{client_id => SessionId, reason => Reason}),
+            ?tp(debug, sessds_drop, #{client_id => SessionId, reason => Reason}),
             ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
             ok = emqx_persistent_session_ds_state:delete(SessionId);
         undefined ->
@@ -1122,7 +1123,16 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
         Srs0 ->
             case maybe_update_sub_state_id(IsReplay, Srs0, S) of
                 {Srs, SubState} ->
-                    do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs, SubState, ItBegin, FetchResult);
+                    do_enqueue_batch(
+                        IsReplay,
+                        Session,
+                        ClientInfo,
+                        StreamKey,
+                        Srs,
+                        SubState,
+                        ItBegin,
+                        FetchResult
+                    );
                 undefined ->
                     {ignore, undefined, Session}
             end
@@ -1495,13 +1505,17 @@ update_seqno(
                 stream_scheduler_s := SchedS
             }};
         {error, Expected} ->
-            ?SLOG(warning, #{
-                msg => "out-of-order_commit",
-                track => Track,
-                packet_id => PacketId,
-                seqno => SeqNo,
-                expected => Expected
-            }),
+            ?tp(
+                warning,
+                'sessds_out-of-order_commit',
+                #{
+                    track => Track,
+                    packet_id => PacketId,
+                    packet_seqno => SeqNo,
+                    expected => Expected,
+                    track_seqno => emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S0)
+                }
+            ),
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
 
@@ -1758,7 +1772,7 @@ next_seqno_gen() ->
     ?LET(
         {Epoch, Offset},
         {non_neg_integer(), range(0, ?EPOCH_SIZE)},
-        Epoch bsl ?EPOCH_BITS + Offset
+        (Epoch bsl ?EPOCH_BITS) + Offset
     ).
 
 %%%% Property-based tests:
@@ -1865,7 +1879,12 @@ state_invariants(ModelState, #{'_alive' := false} = Sess) ->
     offline_state_invariants(ModelState, Sess).
 
 trace_specs() ->
-    [].
+    [
+        fun no_warnings/1
+    ].
+
+no_warnings(Trace) ->
+    ?assertMatch([], ?of_kind(["out-of-order_commit"], Trace)).
 
 %% @doc Check invariantss for a living session
 runtime_state_invariants(ModelState, Session) ->

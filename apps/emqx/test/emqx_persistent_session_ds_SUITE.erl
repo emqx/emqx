@@ -145,7 +145,8 @@ app_specs() ->
     app_specs(_Opts = #{}).
 
 app_specs(Opts) ->
-    DefaultEMQXConf = "durable_sessions {enable = true, idle_poll_interval = 1s}\n"
+    DefaultEMQXConf =
+        "durable_sessions {enable = true, idle_poll_interval = 1s}\n"
         "durable_storage.messages.local_write_buffer.max_items = 1\n",
     ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
@@ -589,16 +590,13 @@ t_fuzz(_Config) ->
             #{timetrap => 30_000},
             try
                 ok = emqx_persistent_message:init(),
+                %% Verify that there's no session:
                 {_History, State, Result} = run_commands(emqx_persistent_session_ds_fuzzer, Cmds),
                 %% Kick the client, if present:
-                catch emqx_persistent_session_ds_fuzzer:cleanup(State),
-                ?assertMatch(
-                    ok,
-                    Result,
-                    #{
-                        state => State,
-                        commands => Cmds
-                    }
+                ok = emqx_persistent_session_ds_fuzzer:cleanup(State),
+                ?WHENFAIL(
+                    ct:pal("*** Commands:~n  ~p~n**** State:~n  ~p~n", [Cmds, State]),
+                    ?assertMatch(ok, Result)
                 )
             after
                 emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
@@ -606,7 +604,9 @@ t_fuzz(_Config) ->
             end,
             emqx_persistent_session_ds:trace_specs()
         )
-    ).
+    ),
+    snabbkaffe:analyze_statistics(),
+    snabbkaffe:stop().
 
 t_session_discard_persistent_to_non_persistent(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),

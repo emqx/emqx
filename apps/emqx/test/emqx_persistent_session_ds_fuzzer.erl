@@ -35,6 +35,7 @@
 -behaviour(proper_statem).
 
 -include_lib("proper/include/proper.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_mqtt.hrl").
@@ -106,18 +107,25 @@
     }
     | undefined.
 
+%% erlfmt-ignore
 -record(s, {
-    faketime = 0 :: emqx_ds:time(),
-    %% Set to true after publishing and reset to false after
-    %% consuming:
-    has_data = false :: boolean(),
-    %% Static configuration for the testcase:
+    %% Pure fields (calculated at the command generation time):
+    %%    Static configuration of the testcase:
     conf :: config(),
-    %% Information about the current incarnation of the client/session:
+    %%    State of the session predicted by the model:
+    model_state :: model_state(),
+    %%    Used to assign timestamps to the messages:
+    faketime = 0 :: emqx_ds:time(),
+    %%    %% State of the client connection predicted by the model:
     connected = false :: boolean(),
-    conninfo :: conninfo() | _Symbolic,
-    %% Information that carries over between reconnects:
-    model_state :: model_state()
+    %%    Set to `true' when new messages are published, and reset to
+    %%    `false' by `consume' action (used to avoid generating
+    %%    redundand `consume' actions):
+    has_data = false :: boolean(),
+    %% Fields that are updated at the runtime:
+    %%    Information about the current incarnation of the
+    %%    client/session:
+    conninfo :: conninfo() | _Symbolic
 }).
 
 %%--------------------------------------------------------------------
@@ -185,8 +193,11 @@ unsubscribe_(S = #s{conf = #{topics := Topics}}) ->
 
 %% @doc (Re)connect emqtt client to EMQX. If the client was previously
 %% connected, this function will wait for the takeover.
-connect(#s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid := ClientId}) ->
+connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid := ClientId}) ->
     ?tp(notice, sessds_test_connect, #{opts => Opts, pid => self()}),
+    %% Check metadata of the previous state to catch situations when
+    %% the testcase starts from a dirty state:
+    check_session_metadata(S),
     {ok, ClientPid} = emqtt:start_link(Opts),
     unlink(ClientPid),
     CMRef = monitor(process, ClientPid),
@@ -228,13 +239,23 @@ unsubscribe(S, Topic) ->
     emqtt:unsubscribe(client_pid(S), Topic).
 
 consume(S) ->
-    ?tp(notice, sessds_test_consume, #{pid => self()}),
     %% Consume and ack all messages we can get:
-    receive_ack_loop(S),
-    ?tp(notice, sessds_test_consume_done, #{pid => self()}).
+    ?tp_span(
+        notice,
+        sessds_test_consume,
+        #{},
+        receive_ack_loop(S, ok)
+    ).
 
-receive_ack_loop(S = #s{conf = #{wait_publishes_time := Timeout}, conninfo = #{client_pid := CPID}}) ->
+receive_ack_loop(
+    S = #s{
+        conf = #{wait_publishes_time := Timeout},
+        conninfo = #{client_pid := CPID, client_mref := CMRef, session_mref := SMRef}
+    },
+    Result
+) ->
     receive
+        %% Handle MQTT packets:
         {publish, Msg = #{client_pid := CPID}} ->
             ?tp(notice, sessds_test_in_publish, Msg),
             #{packet_id := PID, qos := QoS} = Msg,
@@ -249,20 +270,28 @@ receive_ack_loop(S = #s{conf = #{wait_publishes_time := Timeout}, conninfo = #{c
                     ?tp(notice, sessds_test_out_pubrec, #{packet_id => PID}),
                     emqtt:pubrec(client_pid(S), PID)
             end,
-            receive_ack_loop(S);
+            receive_ack_loop(S, Result);
         {pubrel, Msg = #{client_pid := CPID}} ->
             ?tp(notice, sessds_test_in_pubrel, Msg),
             #{packet_id := PID} = Msg,
             emqtt:pubcomp(client_pid(S), PID),
-            receive_ack_loop(S);
+            receive_ack_loop(S, Result);
+        %% Handle client/session crash:
+        {'DOWN', CMRef, process, CPID, Reason} ->
+            ?tp(warning, sessds_test_client_crash, #{pid => CPID, reason => Reason}),
+            receive_ack_loop(S, {error, client_crash});
+        {'DOWN', SMRef, process, SessPid, Reason} ->
+            ?tp(warning, sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
+            receive_ack_loop(S, {error, session_crash});
+        %%
         Other ->
             %% FIXME: this may include messages from the older
             %% incarnations of the client. Find a better way to deal
             %% with them:
             ?tp(warning, sessds_test_in_garbage, #{message => Other}),
-            receive_ack_loop(S)
+            receive_ack_loop(S, Result)
     after Timeout ->
-        ok
+        Result
     end.
 
 %%--------------------------------------------------------------------
@@ -310,11 +339,14 @@ command(S = #s{connected = Conn, has_data = HasData, model_state = #{subs := Sub
     Common = [
         {1, connect_(S)},
         {1, {call, ?MODULE, add_generation, []}},
-        {10, {call, ?MODULE, publish, [message(S)]}}
+        %% Publish some messages occasionally even when there are no
+        %% subs:
+        {1, {call, ?MODULE, publish, [message(S)]}}
     ],
     %% Commands that are executed when client is connected:
     Connected =
-        [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
+        [{9, {call, ?MODULE, publish, [message(S)]}} || HasSubs] ++
+            [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
             [
                 {1, {call, ?MODULE, disconnect, [S]}},
                 {5, subscribe_(S)},
@@ -387,32 +419,56 @@ postcondition(PrevState, Call, Result) ->
     CurrentState = next_state(PrevState, Result, Call),
     case Call of
         {call, ?MODULE, connect, _} ->
-            #{session_pid := Pid} = Result,
-            is_process_alive(Pid);
+            check_session_metadata(CurrentState);
+        {call, ?MODULE, consume, _} ->
+            Result =:= ok;
         _ ->
             true
-    end and
-        check_invariants(CurrentState).
+    end and check_processes(CurrentState) and check_invariants(CurrentState).
 
 %%--------------------------------------------------------------------
 %% Misc.
 %%--------------------------------------------------------------------
+
+%% @doc Check that the processes are alive when they should be
+%% according to the model prediction:
+check_processes(#s{connected = false}) ->
+    ?assertMatch([], emqx_cm:lookup_channels(local, ?clientid), "Unexpected channel process"),
+    true;
+check_processes(#s{connected = true, conninfo = #{client_pid := CPid, session_pid := SPid}}) ->
+    ?assertMatch({_, true}, {SPid, is_process_alive(SPid)}, "Session unexpectedly died"),
+    ?assertMatch({_, true}, {CPid, is_process_alive(CPid)}, "Client unexpectedly died"),
+    true.
+
+check_session_metadata(#s{model_state = undefined}) ->
+    ?assertMatch(
+        undefined,
+        emqx_persistent_session_ds_state:print_session(?clientid),
+        "Found unexpected session metadata"
+    );
+check_session_metadata(#s{model_state = #{}}) ->
+    ?assertMatch(
+       #{},
+       emqx_persistent_session_ds_state:print_session(?clientid),
+       "Session metadata was expected, but not found"
+      ).
 
 check_invariants(State) ->
     #s{model_state = ModelState} = State,
     emqx_persistent_session_ds:state_invariants(ModelState, sut_state()).
 
 wait_client_down(#{
-    client_pid := ClientPid, client_mref := CMRef, session_pid := SessionPid
-}) when is_pid(ClientPid) ->
+    client_pid := ClientPid, client_mref := CMRef, session_pid := SessionPid, session_mref := SMRef
+}) ->
+    %% Wait for the session takeover:
     receive
         {'DOWN', SMRef, process, SessionPid, _Reason} ->
             ok
     after 5_000 ->
         error(timeout_waiting_for_takeover)
     end,
+    %% Demonitor client:
     demonitor(CMRef, [flush]),
-    %% TODO: deal with the client:
     ok.
 
 sut_state() ->
