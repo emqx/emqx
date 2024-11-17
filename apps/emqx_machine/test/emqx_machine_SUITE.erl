@@ -36,8 +36,7 @@
     emqx_retainer,
     emqx_exhook,
     emqx_auth,
-    emqx_plugin,
-    emqx_opentelemetry
+    emqx_plugin
 ]).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -69,8 +68,7 @@ app_specs() ->
         emqx_retainer,
         emqx_exhook,
         emqx_auth,
-        emqx_plugins,
-        emqx_opentelemetry
+        emqx_plugins
     ].
 
 init_per_testcase(t_custom_shard_transports, Config) ->
