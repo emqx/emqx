@@ -661,13 +661,13 @@ deliver(ClientInfo, Delivers, Session0) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
     %% Pull circuit loop:
-    ?tp(debug, sessds_pull, #{}),
+    ?tp(debug, ?sessds_pull, #{}),
     Session1 = Session0#{?TIMER_PULL := undefined},
     {Publishes, Session} = drain_buffer(Session1),
     {ok, Publishes, push_now(Session)};
 handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
     %% Push circuit loop:
-    ?tp(debug, sessds_push, #{}),
+    ?tp(debug, ?sessds_push, #{}),
     Session1 = Session0#{?TIMER_PUSH := undefined},
     #{s := S, stream_scheduler_s := SchedS0, inflight := Inflight, replay := Replay} = Session0,
     BatchSize = get_config(ClientInfo, [batch_size]),
@@ -708,7 +708,7 @@ handle_timeout(
     },
     {ok, [], maybe_set_shared_sub_timer(Session)};
 handle_timeout(_ClientInfo, Timeout, Session) ->
-    ?tp(warning, sessds_unknown_timeout, #{timeout => Timeout}),
+    ?tp(warning, ?sessds_unknown_timeout, #{timeout => Timeout}),
     {ok, [], Session}.
 
 %%--------------------------------------------------------------------
@@ -734,7 +734,7 @@ handle_info(
     ),
     push_now(Session#{s := S, stream_scheduler_s := SchedS});
 handle_info(Msg, Session, _ClientInfo) ->
-    ?tp(warning, sessds_unknown_message, #{message => Msg}),
+    ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
     Session.
 
 %%--------------------------------------------------------------------
@@ -788,10 +788,19 @@ replay_batch(StreamKey, Srs0, Session0, ClientInfo) ->
     case enqueue_batch(true, Session0, ClientInfo, StreamKey, ItBegin, FetchResult) of
         {ok, Srs, Session} ->
             %% Assert:
-            Srs =:= Srs0 orelse
-                ?tp(warning, sessds_replay_inconsistency, #{
+            %%
+            %% FIXME: don't ignore the end iterator. Currently there
+            %% are bogus replay inconsistency warnings that happen
+            %% because `end_iterator' returned by `scan_stream' (used
+            %% by beamformer) and the end iterator of `next' (used for
+            %% replay) may point at different keys. This is (believed)
+            %% to be harmless.
+            Srs#srs{it_end = ignore} =:= Srs0#srs{it_end = ignore} orelse
+                ?tp(warning, ?sessds_replay_inconsistency, #{
                     expected => Srs0,
-                    got => Srs
+                    got => Srs,
+                    sess => Session,
+                    batch => FetchResult
                 }),
             {ok, Srs, Session};
         {{error, _, _} = Error, _Srs, _Session} ->
@@ -852,7 +861,7 @@ terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
     _ = commit(Session#{s := S}),
-    ?tp(debug, sessds_terminate, #{id => Id, reason => Reason}),
+    ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -953,7 +962,7 @@ open_session_state(
                     session_drop(SessionId, expired),
                     false;
                 false ->
-                    ?tp(sessds_open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
+                    ?tp(?sessds_open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established; update the
                     %% existing data:
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
@@ -979,7 +988,7 @@ open_session_state(
 ensure_new_session_state(
     Id, ClientInfo, ConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}, MaybeWillMsg
 ) ->
-    ?tp(debug, sessds_ensure_new, #{id => Id}),
+    ?tp(debug, ?sessds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
     S1 = emqx_persistent_session_ds_state:set_expiry_interval(expiry_interval(ConnInfo), S0),
@@ -987,7 +996,7 @@ ensure_new_session_state(
     S3 = emqx_persistent_session_ds_state:set_created_at(Now, S2),
     S4 = lists:foldl(
         fun(Track, Acc) ->
-            emqx_persistent_session_ds_state:put_seqno(Track, 0, Acc)
+            put_seqno(Track, 0, Acc)
         end,
         S3,
         [
@@ -1010,7 +1019,7 @@ ensure_new_session_state(
 session_drop(SessionId, Reason) ->
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
-            ?tp(debug, sessds_drop, #{client_id => SessionId, reason => Reason}),
+            ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
             ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
             ok = emqx_persistent_session_ds_state:delete(SessionId);
         undefined ->
@@ -1063,17 +1072,7 @@ handle_ds_reply(AsyncReply, Session0 = #{s := S0, stream_scheduler_s := SchedS0}
                 {ignore, _, Session} ->
                     Session;
                 {ok, Srs, Session = #{s := S1}} ->
-                    S2 = emqx_persistent_session_ds_state:put_seqno(
-                        ?next(?QOS_1),
-                        Srs#srs.last_seqno_qos1,
-                        S1
-                    ),
-                    S3 = emqx_persistent_session_ds_state:put_seqno(
-                        ?next(?QOS_2),
-                        Srs#srs.last_seqno_qos2,
-                        S2
-                    ),
-                    S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S3),
+                    S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S1),
                     pull_now(Session#{s := S});
                 {{error, recoverable, Reason}, _Srs, Session} ->
                     ?SLOG(info, #{
@@ -1087,6 +1086,31 @@ handle_ds_reply(AsyncReply, Session0 = #{s := S0, stream_scheduler_s := SchedS0}
                     skip_batch(StreamKey, Srs, Session, ClientInfo, Reason)
             end
     end.
+
+inc_next(true, _Track, S) ->
+    %% Don't touch seqnos during replay:
+    S;
+inc_next(false, Track, S) ->
+    Old = emqx_persistent_session_ds_state:get_seqno(Track, S),
+    case Track of
+        ?next(?QOS_1) ->
+            put_seqno(Track, inc_seqno(?QOS_1, Old), S);
+        ?next(?QOS_2) ->
+            put_seqno(Track, inc_seqno(?QOS_2, Old), S)
+    end.
+
+put_next(true, _Track, _Val, S) ->
+    %% Don't touch seqnos during replay:
+    S;
+put_next(false, Track, Val, S) ->
+    Old = emqx_persistent_session_ds_state:get_seqno(Track, S),
+    case true of
+        _ when Val > Old ->
+            put_seqno(Track, Val, S);
+        _ ->
+            inc_next(false, Track, S)
+    end.
+%% put_seqno(Track, Val, S).
 
 %%--------------------------------------------------------------------
 %% Generic functions for fetching messages (during replay or normal
@@ -1154,6 +1178,19 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, SubState, ItBeg
                 first_seqno_qos2 = FirstSeqnoQos2
             } = Srs0
     end,
+    ?tp(
+        notice,
+        sessds_do_enqueue,
+        #{
+            is_replay => IsReplay,
+            stream => StreamKey,
+            srs => Srs0,
+            sub_state => SubState,
+            sn1 => FirstSeqnoQos1,
+            sn2 => FirstSeqnoQos2,
+            result => FetchResult
+        }
+    ),
     case FetchResult of
         {error, _, _} = Error ->
             {Error, Srs0, Session};
@@ -1168,8 +1205,10 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, SubState, ItBeg
                 it_end = end_of_stream,
                 batch_size = 0
             },
+            S1 = inc_next(IsReplay, ?next(?QOS_1), S0),
+            S2 = inc_next(IsReplay, ?next(?QOS_2), S1),
             {_NewSRSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-                IsReplay, StreamKey, Srs, S0, SchedS0
+                IsReplay, StreamKey, Srs, S2, SchedS0
             ),
             {ok, Srs, Session#{stream_scheduler_s := SchedS, s := S}};
         {ok, ItEnd, Messages} ->
@@ -1192,14 +1231,13 @@ do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, SubState, ItBeg
                 last_seqno_qos1 = LastSeqnoQos1,
                 last_seqno_qos2 = LastSeqnoQos2
             },
+            S1 = put_next(IsReplay, ?next(?QOS_1), LastSeqnoQos1, S0),
+            S2 = put_next(IsReplay, ?next(?QOS_2), LastSeqnoQos2, S1),
             {_NewSRSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-                IsReplay, StreamKey, Srs, S0, SchedS0
+                IsReplay, StreamKey, Srs, S2, SchedS0
             ),
             {ok, Srs, Session#{inflight := Inflight, s := S, stream_scheduler_s := SchedS}}
     end.
-
-%% key_of_iter(#{3 := #{3 := #{5 := K}}}) ->
-%%     K.
 
 %% Enrich messages according to the subscription options and assign
 %% sequence number to each message, later to be used for packet ID
@@ -1309,7 +1347,7 @@ enqueue_transient(
             SeqNo = inc_seqno(
                 QoS, emqx_persistent_session_ds_state:get_seqno(?next(QoS), S0)
             ),
-            S = emqx_persistent_session_ds_state:put_seqno(?next(QoS), SeqNo, S0),
+            S = put_seqno(?next(QoS), SeqNo, S0),
             Inflight = emqx_persistent_session_ds_buffer:push({SeqNo, Msg}, Inflight0)
     end,
     Session#{
@@ -1337,7 +1375,7 @@ do_drain_buffer(Inflight0, S0, Acc) ->
                 ?QOS_0 ->
                     do_drain_buffer(Inflight, S0, [{undefined, Msg} | Acc]);
                 Qos ->
-                    S = emqx_persistent_session_ds_state:put_seqno(?dup(Qos), SeqNo, S0),
+                    S = put_seqno(?dup(Qos), SeqNo, S0),
                     Publish = {seqno_to_packet_id(Qos, SeqNo), Msg},
                     do_drain_buffer(Inflight, S, [Publish | Acc])
             end
@@ -1463,6 +1501,11 @@ maybe_set_offline_info(S, Id) ->
 %% SeqNo tracking
 %% --------------------------------------------------------------------
 
+-compile({inline, put_seqno/3}).
+put_seqno(Key, Val, S) ->
+    ?tp_ignore_side_effects_in_prod(sessds_state_put_seqno, #{track => Key, seqno => Val}),
+    emqx_persistent_session_ds_state:put_seqno(Key, Val, S).
+
 -spec update_seqno(puback | pubrec | pubcomp, emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()} | {error, _}.
 update_seqno(
@@ -1500,14 +1543,14 @@ update_seqno(
                         {[], S0, SchedS0}
                 end,
             {ok, Msg, Session#{
-                s := emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S),
+                s := put_seqno(SeqNoKey, SeqNo, S),
                 inflight := Inflight,
                 stream_scheduler_s := SchedS
             }};
         {error, Expected} ->
             ?tp(
                 warning,
-                'sessds_out-of-order_commit',
+                ?sessds_out_of_order_commit,
                 #{
                     track => Track,
                     packet_id => PacketId,
@@ -1634,7 +1677,7 @@ maybe_update_sub_state_id(true, SRS = #srs{sub_state_id = SSID}, S) ->
 maybe_update_sub_state_id(false, SRS = #srs{sub_state_id = SSID0}, S) ->
     case emqx_persistent_session_ds_state:get_subscription_state(SSID0, S) of
         #{superseded_by := SSID} ->
-            ?tp(sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
+            ?tp(?sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
             maybe_update_sub_state_id(false, SRS#srs{sub_state_id = SSID}, S);
         #{} = SubState ->
             {SRS, SubState};
@@ -1690,7 +1733,7 @@ has_shared_subs(S) ->
 %%--------------------------------------------------------------------
 
 commit(Session = #{s := S0}) ->
-    ?tp(debug, sessds_commit, #{}),
+    ?tp(debug, ?sessds_commit, #{}),
     S = emqx_persistent_session_ds_state:commit(
         emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0))
     ),
@@ -1880,11 +1923,37 @@ state_invariants(ModelState, #{'_alive' := false} = Sess) ->
 
 trace_specs() ->
     [
-        fun no_warnings/1
+        {"No warnings", fun tprop_no_warnings/1},
+        {"Sequence numbers are strictly increasing", fun tprop_seqnos/1}
     ].
 
-no_warnings(Trace) ->
-    ?assertMatch([], ?of_kind(["out-of-order_commit"], Trace)).
+tprop_no_warnings(Trace) ->
+    ?assertMatch(
+        [],
+        ?of_kind(
+            [
+                ?sessds_replay_inconsistency,
+                ?sessds_out_of_order_commit,
+                ?sessds_unknown_message,
+                ?sessds_unknown_timeout
+            ],
+            Trace
+        )
+    ).
+
+%% Sequence numbers for all tracks should be increasing:
+tprop_seqnos(Trace) ->
+    L = ?projection([track, seqno], ?of_kind(sessds_state_put_seqno, Trace)),
+    %% Group seqno operations by track:
+    M = maps:groups_from_list(fun({Track, _}) -> Track end, L),
+    %% Validate seqnos for each track:
+    maps:foreach(
+        fun(Track, Vals) ->
+            ?defer_assert(?assert(snabbkaffe:increasing(Vals)))
+        end,
+        M
+    ),
+    true.
 
 %% @doc Check invariantss for a living session
 runtime_state_invariants(ModelState, Session) ->

@@ -36,6 +36,8 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -123,6 +125,14 @@ pop(Rec0) ->
                             ?QOS_0 ->
                                 Rec0#ds_buffer{queue = Q, n_qos0 = NQos0 - 1};
                             ?QOS_1 ->
+                                ?tp(
+                                    notice,
+                                    "Push QoS1 message to inflight",
+                                    #{
+                                        qack => QAck,
+                                        queue => queue:to_list(Q0)
+                                    }
+                                ),
                                 Rec0#ds_buffer{
                                     queue = Q,
                                     n_qos1 = NQos1 - 1,

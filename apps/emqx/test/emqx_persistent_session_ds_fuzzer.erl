@@ -73,6 +73,12 @@
     next_state/3
 ]).
 
+%% Trace properties:
+-export([
+    tprop_packet_id_history/1,
+    tprop_qos12_delivery/1
+]).
+
 -type config() ::
     #{
         wait_publishes_time := non_neg_integer(),
@@ -131,6 +137,24 @@
     conninfo :: conninfo() | _Symbolic
 }).
 
+%%%%% Trace point kinds:
+-define(sessds_test_connect, sessds_test_connect).
+-define(sessds_test_disconnect, sessds_test_disconnect).
+-define(sessds_test_publish, sessds_test_publish).
+-define(sessds_test_add_generation, sessds_test_add_generation).
+-define(sessds_test_subscribe, sessds_test_subscribe).
+-define(sessds_test_unsubscribe, sessds_test_unsubscribe).
+-define(sessds_test_consume, sessds_test_consume).
+
+-define(sessds_test_in_publish, sessds_test_in_publish).
+-define(sessds_test_in_pubrel, sessds_test_in_pubrel).
+-define(sessds_test_out_puback, sessds_test_out_puback).
+-define(sessds_test_out_pubrec, sessds_test_out_pubrec).
+-define(sessds_test_out_pubcomp, sessds_test_out_pubcomp).
+
+-define(sessds_test_client_crash, sessds_test_client_crash).
+-define(sessds_test_session_crash, sessds_test_session_crash).
+
 %%--------------------------------------------------------------------
 %% Proper generators
 %%--------------------------------------------------------------------
@@ -141,11 +165,10 @@ qos() ->
 %% @doc Proper generator for `emqtt:connect' parameters:
 connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
     ?LET(
-        {Clean, ReceiveMaximum},
-        {frequency([{1, true}, {10099, false}]), range(1, 32)},
+        ReceiveMaximum,
+        range(1, 32),
         begin
             DynamicOpts = #{
-                clean_start => Clean,
                 properies => #{'Receive-Maximum' => ReceiveMaximum}
             },
             Opts = emqx_utils_maps:deep_merge(StaticOpts, DynamicOpts),
@@ -153,14 +176,13 @@ connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
         end
     ).
 
-%% @doc Proper generator that creates a message in one of the topics
-%% that the client subscribes.
+%% @doc Proper generator that creates a message in one of the topics.
 message(#s{
     faketime = T,
     model_state = #{subs := Subs},
     conf = #{publishers := Pubs, topics := AllTopics}
 }) ->
-    %% Bias towards topics that the session is subscribed to:
+    %% Create bias towards topics that the session is subscribed to:
     Topics =
         [{Freq, T} || {Freq, L} <- [{5, maps:keys(Subs)}, {1, AllTopics}], T <- L],
     ?LET(
@@ -197,7 +219,7 @@ unsubscribe_(S = #s{conf = #{topics := Topics}}) ->
 %% @doc (Re)connect emqtt client to EMQX. If the client was previously
 %% connected, this function will wait for the takeover.
 connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid := ClientId}) ->
-    ?tp(notice, sessds_test_connect, #{opts => Opts, pid => self()}),
+    ?tp(notice, ?sessds_test_connect, #{opts => Opts, pid => self()}),
     %% Check metadata of the previous state to catch situations when
     %% the testcase starts from a dirty state:
     true = check_session_metadata(S),
@@ -206,12 +228,11 @@ connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid :=
     CMRef = monitor(process, ClientPid),
     {ok, _} = emqtt:connect(ClientPid),
     %% Wait for takeover (if the client was previously connected):
-    Connected andalso wait_client_down(ConnInfo),
+    Connected andalso wait_session_down(ConnInfo),
     register(?client, ClientPid),
     [SessionPid] = emqx_cm:lookup_channels(local, ClientId),
     SMRef = monitor(process, SessionPid),
-    %% If the client was connected previously, we should ensure
-    %% takeover has happened:
+    %% Return `conninfo()':
     #{
         client_pid => ClientPid,
         client_mref => CMRef,
@@ -221,32 +242,32 @@ connect(S = #s{connected = Connected, conninfo = ConnInfo}, Opts = #{clientid :=
 
 %% @doc Shut down emqtt
 disconnect(#s{conninfo = ConnInfo = #{client_pid := C}}) ->
-    ?tp(notice, sessds_test_disconnect, #{pid => C}),
+    ?tp(notice, ?sessds_test_disconnect, #{pid => C}),
     emqtt:stop(client_pid()),
-    wait_client_down(ConnInfo).
+    wait_session_down(ConnInfo).
 
 publish(Msg) ->
-    ?tp(notice, sessds_test_publish, emqx_message:to_map(Msg)),
+    ?tp(notice, ?sessds_test_publish, emqx_message:to_map(Msg)),
     %% We bypass persistent session router for simplicity:
     emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg]).
 
 add_generation() ->
-    ?tp(notice, sessds_test_add_generation, #{}),
+    ?tp(notice, ?sessds_test_add_generation, #{}),
     emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB).
 
 subscribe(Topic, QoS) ->
-    ?tp(notice, sessds_test_subscribe, #{topic => Topic, qos => QoS}),
+    ?tp(notice, ?sessds_test_subscribe, #{topic => Topic, qos => QoS}),
     emqtt:subscribe(client_pid(), Topic, QoS).
 
 unsubscribe(Topic) ->
-    ?tp(notice, sessds_test_unsubscribe, #{topic => Topic}),
+    ?tp(notice, ?sessds_test_unsubscribe, #{topic => Topic}),
     emqtt:unsubscribe(client_pid(), Topic).
 
 consume(S) ->
     %% Consume and ack all messages we can get:
     ?tp_span(
         notice,
-        sessds_test_consume,
+        ?sessds_test_consume,
         #{},
         receive_ack_loop(S, ok)
     ).
@@ -261,31 +282,32 @@ receive_ack_loop(
     receive
         %% Handle MQTT packets:
         {publish, Msg = #{client_pid := CPID}} ->
-            ?tp(notice, sessds_test_in_publish, Msg),
+            ?tp(notice, ?sessds_test_in_publish, Msg),
             #{packet_id := PID, qos := QoS} = Msg,
             %% Ack:
             case QoS of
                 ?QOS_0 ->
                     ok;
                 ?QOS_1 ->
-                    ?tp(notice, sessds_test_out_puback, #{packet_id => PID}),
+                    ?tp(notice, ?sessds_test_out_puback, #{packet_id => PID}),
                     emqtt:puback(client_pid(), PID);
                 ?QOS_2 ->
-                    ?tp(notice, sessds_test_out_pubrec, #{packet_id => PID}),
+                    ?tp(notice, ?sessds_test_out_pubrec, #{packet_id => PID}),
                     emqtt:pubrec(client_pid(), PID)
             end,
             receive_ack_loop(S, Result);
         {pubrel, Msg = #{client_pid := CPID}} ->
-            ?tp(notice, sessds_test_in_pubrel, Msg),
+            ?tp(notice, ?sessds_test_in_pubrel, Msg),
             #{packet_id := PID} = Msg,
             emqtt:pubcomp(client_pid(), PID),
+            ?tp(notice, ?sessds_test_out_pubcomp, #{packet_id => PID}),
             receive_ack_loop(S, Result);
         %% Handle client/session crash:
         {'DOWN', CMRef, process, CPID, Reason} ->
-            ?tp(warning, sessds_test_client_crash, #{pid => CPID, reason => Reason}),
+            ?tp(warning, ?sessds_test_client_crash, #{pid => CPID, reason => Reason}),
             receive_ack_loop(S, {error, client_crash});
         {'DOWN', SMRef, process, SessPid, Reason} ->
-            ?tp(warning, sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
+            ?tp(warning, ?sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
             receive_ack_loop(S, {error, session_crash});
         %%
         Other ->
@@ -317,6 +339,11 @@ default_config() ->
             %%   Expiry interval must be large enough to avoid
             %%   automatic session expiration:
             properties => #{'Session-Expiry-Interval' => 1000},
+            %%   Clean start is not tested here. It's quite trivial to
+            %%   test session cleanup in a regular test, but
+            %%   accounting for session state resets in the tests is
+            %%   not.
+            clean_start => false,
             %%   To test takeover, clients must not auto-reconnect:
             reconnect => false,
             %%   We want to cover as many scenarios where session has
@@ -366,35 +393,162 @@ print_cmds(L) ->
     ).
 
 %%--------------------------------------------------------------------
+%% Trace properties
+%%--------------------------------------------------------------------
+
+%% @doc Verify QoS 1/2 flows for each packet ID.
+%%
+%% TODO: don't use data from emqtt for this, since it manages dups
+%% (?).
+tprop_packet_id_history(Trace) ->
+    put(tprop_n_flows, 0),
+    _ = lists:foldl(fun tprop_packet_id_history/2, #{}, Trace),
+    N = get(tprop_n_flows),
+    io:format(user, "~p: Number of flows: ~p~n", [?FUNCTION_NAME, N]),
+    true.
+
+tprop_packet_id_history(I = #{?snk_kind := Kind}, Acc) ->
+    case Kind of
+        ?sessds_test_in_publish ->
+            put(tprop_n_flows, get(tprop_n_flows) + 1),
+            tprop_pid_publish(I, Acc);
+        %% QoS1:
+        ?sessds_test_out_puback ->
+            #{packet_id := PID} = I,
+            #{PID := {publish, #{qos := ?QOS_1}}} = Acc,
+            maps:remove(PID, Acc);
+        %% QoS2:
+        ?sessds_test_out_pubrec ->
+            #{packet_id := PID} = I,
+            #{PID := {publish, #{qos := ?QOS_2}}} = Acc,
+            Acc#{PID := pubrec};
+        ?sessds_test_in_pubrel ->
+            #{packet_id := PID, dup := DUP} = I,
+            case Acc of
+                #{PID := pubrec} -> ok;
+                #{} when DUP -> ok
+            end,
+            Acc#{PID => pubrel};
+        ?sessds_test_out_pubcomp ->
+            #{packet_id := PID} = I,
+            #{PID := pubrel} = Acc,
+            maps:remove(PID, Acc);
+        _ ->
+            Acc
+    end.
+
+tprop_pid_publish(#{packet_id := undefined, qos := ?QOS_0}, Acc) ->
+    Acc;
+tprop_pid_publish(#{packet_id := PID, qos := QoS, dup := Dup} = I, Acc) ->
+    case Acc of
+        #{PID := {publish, Old}} ->
+            ?assert(Dup, #{
+                msg => "Duplicated message with DUP=false",
+                packet_id => PID,
+                old => Old,
+                msg => I
+            }),
+            compare_msgs(Old, I),
+            Acc#{PID := {publish, I}};
+        #{PID := Old} ->
+            error(#{
+                msg => "Unexpected packet",
+                packet_id => PID,
+                old => Old,
+                msg => I
+            });
+        #{} ->
+            Acc#{PID => {publish, I}}
+    end.
+
+%% @doc This property verifies that every message published to the
+%% topic while the client is subscribed is eventually delivered. Note:
+%% it only verifies the fact of delivery.
+tprop_qos12_delivery(Trace) ->
+    _ = lists:foldl(fun tprop_qos12_delivery/2, {#{}, []}, Trace),
+    true.
+
+tprop_qos12_delivery(#{?snk_kind := Kind} = I, {Subs, Pending}) ->
+    case Kind of
+        ?sessds_test_subscribe ->
+            #{topic := Topic, qos := QoS} = I,
+            case QoS of
+                0 ->
+                    %% This property ignores QoS 0 subscriptions for
+                    %% simplicity. We treat such subscriptions
+                    %% identically to "unsubscribed":
+                    tprop_qos12_delivery_drop_sub(Topic, Subs, Pending);
+                _ ->
+                    {Subs#{Topic => true}, Pending}
+            end;
+        ?sessds_test_unsubscribe ->
+            #{topic := Topic} = I,
+            tprop_qos12_delivery_drop_sub(Topic, Subs, Pending);
+        ?sessds_test_publish ->
+            #{topic := Topic, qos := Qos, payload := Payload} = I,
+            case Qos > 0 andalso maps:is_key(Topic, Subs) of
+                true ->
+                    {Subs, [{Topic, Payload} | Pending]};
+                false ->
+                    {Subs, Pending}
+            end;
+        ?sessds_test_in_publish ->
+            {Subs, tprop_qos12_delivery_consume_msg(I, Pending)};
+        ?sessds_test_consume ->
+            case I of
+                #{?snk_span := {complete, _}} ->
+                    ?assertMatch(
+                        [], Pending, "consume action should complete delivery of all messages"
+                    );
+                #{?snk_span := start} ->
+                    ok
+            end,
+            {Subs, Pending};
+        _ ->
+            {Subs, Pending}
+    end.
+
+tprop_qos12_delivery_drop_sub(Topic, Subs, Pending) ->
+    {
+        maps:remove(Topic, Subs),
+        lists:filter(fun({T, _Payload}) -> T =/= Topic end, Pending)
+    }.
+
+tprop_qos12_delivery_consume_msg(#{topic := Topic, payload := Payload}, Pending) ->
+    Pending -- [{Topic, Payload}].
+
+compare_msgs(Expect, Got) ->
+    Fields = [qos, retain, topic, properties, payload],
+    ?assertEqual(maps:with(Fields, Expect), maps:with(Fields, Got)).
+
+%%--------------------------------------------------------------------
 %% Statem callbacks
 %%--------------------------------------------------------------------
 
+%% erlfmt-ignore
 command(S = #s{model_state = undefined}) ->
     connect_(S);
 command(S = #s{connected = Conn, has_data = HasData, model_state = #{subs := Subs}}) ->
     HasSubs = maps:size(Subs) > 0,
     %% Commands that are executed in any state:
-    Common = [
-        {1, connect_(S)},
-        {1, {call, ?MODULE, add_generation, []}},
-        %% Publish some messages occasionally even when there are no
-        %% subs:
-        {1, {call, ?MODULE, publish, [message(S)]}}
-    ],
+    Common =
+        [{1,  connect_(S)},
+         %{2,  {call, ?MODULE, add_generation, []}},
+         %% Publish some messages occasionally even when there are no
+         %% subs:
+         {1,  {call, ?MODULE, publish, [message(S)]}}
+        ],
     %% Commands that are executed when client is connected:
     Connected =
-        [{9, {call, ?MODULE, publish, [message(S)]}} || HasSubs] ++
-            [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
-            [
-                {1, {call, ?MODULE, disconnect, [S]}},
-                {5, subscribe_(S)},
-                {5, unsubscribe_(S)}
-            ],
+        [{9,  {call, ?MODULE, publish, [message(S)]}} || HasSubs] ++
+        [{10, {call, ?MODULE, consume, [S]}}          || HasData and HasSubs] ++
+        [{1,  {call, ?MODULE, disconnect, [S]}},
+         {5,  subscribe_(S)},
+         {5,  unsubscribe_(S)}
+        ],
     case Conn of
-        true ->
-            frequency(Connected ++ Common);
-        false ->
-            frequency(Common)
+        true  -> frequency(Connected ++ Common);
+        false -> frequency(Common)
     end.
 
 initial_state() ->
@@ -512,7 +666,7 @@ check_invariants(State) ->
     #s{model_state = ModelState} = State,
     emqx_persistent_session_ds:state_invariants(ModelState, sut_state()).
 
-wait_client_down(#{
+wait_session_down(#{
     client_pid := ClientPid, client_mref := CMRef, session_pid := SessionPid, session_mref := SMRef
 }) ->
     %% Wait for the session takeover:

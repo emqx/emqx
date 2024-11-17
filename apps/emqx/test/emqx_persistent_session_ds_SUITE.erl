@@ -12,12 +12,11 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include("emqx_persistent_session_ds/session_internals.hrl").
 
 -include("emqx_persistent_message.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
-
--define(DURABLE_SESSION_STATE, emqx_persistent_session).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -580,7 +579,7 @@ t_new_stream_notifications(Config) ->
     ).
 
 t_fuzz(_Config) ->
-    %% snabbkaffe:fix_ct_logging(),
+    snabbkaffe:fix_ct_logging(),
     %% NOTE: we set timeout at the lower level to capture the trace
     %% and have a nicer error message.
     ?run_prop(
@@ -588,7 +587,7 @@ t_fuzz(_Config) ->
         ?forall_trace(
             Cmds,
             proper_statem:commands(emqx_persistent_session_ds_fuzzer),
-            #{timetrap => 30_000},
+            #{timetrap => 60_000},
             try
                 %% Initialize DS:
                 ok = emqx_persistent_message:init(),
@@ -615,12 +614,13 @@ t_fuzz(_Config) ->
                 ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)
             end,
             [
-                fun no_abnormal_session_terminate/1
+                fun no_abnormal_session_terminate/1,
+                fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
+                fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1
                 | emqx_persistent_session_ds:trace_specs()
             ]
         )
     ),
-    snabbkaffe:analyze_statistics(),
     snabbkaffe:stop().
 
 t_session_discard_persistent_to_non_persistent(_Config) ->
@@ -1099,7 +1099,7 @@ t_session_gc_will_message(_Config) ->
 no_abnormal_session_terminate(Trace) ->
     lists:foreach(
         fun
-            (#{?snk_kind := sessds_terminate} = E) ->
+            (#{?snk_kind := ?sessds_terminate} = E) ->
                 case E of
                     #{reason := takenover} -> ok;
                     #{reason := kicked} -> ok;

@@ -80,4 +80,18 @@
 }).
 -define(shared_sub_message(MSG), #shared_sub_message{message = MSG}).
 
+%%%%% Trace point kinds:
+-define(sessds_pull, sessds_pull).
+-define(sessds_push, sessds_push).
+-define(sessds_unknown_timeout, sessds_unknown_timeout).
+-define(sessds_unknown_message, sessds_unknown_message).
+-define(sessds_replay_inconsistency, sessds_replay_inconsistency).
+-define(sessds_terminate, sessds_terminate).
+-define(sessds_drop, sessds_drop).
+-define(sessds_open_session, sessds_open_session).
+-define(sessds_ensure_new, sessds_ensure_new).
+-define(sessds_out_of_order_commit, 'sessds_out-of-order_commit').
+-define(sessds_update_srs_ssid, sessds_update_srs_ssid).
+-define(sessds_commit, sessds_commit).
+
 -endif.
