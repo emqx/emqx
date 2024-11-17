@@ -1819,6 +1819,13 @@ fields("banned") ->
             )}
     ].
 
+compile_variform_allow_disabled(disabled, _Opts) ->
+    disabled;
+compile_variform_allow_disabled(<<"disabled">>, _Opts) ->
+    disabled;
+compile_variform_allow_disabled(Expression, Opts) ->
+    compile_variform(Expression, Opts).
+
 compile_variform(undefined, _Opts) ->
     undefined;
 compile_variform(Expression, #{make_serializable := true}) ->
@@ -3733,6 +3740,15 @@ mqtt_general() ->
                 #{
                     default => [],
                     desc => ?DESC("client_attrs_init")
+                }
+            )},
+        {"clientid_override",
+            sc(
+                hoconsc:union([disabled, typerefl:alias("string", any())]),
+                #{
+                    default => disabled,
+                    desc => ?DESC("clientid_override"),
+                    converter => fun compile_variform_allow_disabled/2
                 }
             )}
     ].

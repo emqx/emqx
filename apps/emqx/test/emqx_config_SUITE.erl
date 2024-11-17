@@ -456,7 +456,8 @@ zone_global_defaults() ->
                 upgrade_qos => false,
                 use_username_as_clientid => false,
                 wildcard_subscription => true,
-                client_attrs_init => []
+                client_attrs_init => [],
+                clientid_override => disabled
             },
         overload_protection =>
             #{

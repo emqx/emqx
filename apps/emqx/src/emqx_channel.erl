@@ -360,6 +360,8 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun run_conn_hooks/2,
                 fun check_connect/2,
                 fun enrich_client/2,
+                %% set_log_meta should happen after enrich_client
+                %% because client ID assign and override
                 fun set_log_meta/2,
                 fun check_banned/2,
                 fun count_flapping_event/2
@@ -1661,7 +1663,9 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
             %% attr init should happen after clientid and username assign
-            fun maybe_set_client_initial_attrs/2
+            fun maybe_set_client_initial_attrs/2,
+            %% clientid override should happen after client_attrs is initialized
+            fun maybe_override_clientid/2
         ],
         ConnPkt,
         ClientInfo
@@ -1716,11 +1720,16 @@ get_client_attrs_init_config(Zone) ->
     get_mqtt_conf(Zone, client_attrs_init, []).
 
 maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
-    Inits = get_client_attrs_init_config(Zone),
-    UserProperty = get_user_property_as_map(ConnPkt),
-    {ok, initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty})}.
+    case get_client_attrs_init_config(Zone) of
+        [] ->
+            {ok, ClientInfo};
+        Inits ->
+            UserProperty = get_user_property_as_map(ConnPkt),
+            ClientInfo1 = initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty}),
+            {ok, maps:remove(user_property, ClientInfo1)}
+    end.
 
-initialize_client_attrs(Inits, ClientInfo) ->
+initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
     lists:foldl(
         fun(#{expression := Variform, set_as_attr := Name}, Acc) ->
             Attrs = maps:get(client_attrs, Acc, #{}),
@@ -1731,6 +1740,8 @@ initialize_client_attrs(Inits, ClientInfo) ->
                         #{
                             msg => "client_attr_rednered_to_empty_string",
                             set_as_attr => Name
+                        }#{
+                            clientid => ClientId
                         }
                     ),
                     Acc;
@@ -1741,7 +1752,8 @@ initialize_client_attrs(Inits, ClientInfo) ->
                             msg => "client_attr_initialized",
                             set_as_attr => Name,
                             attr_value => Value
-                        }
+                        },
+                        #{clientid => ClientId}
                     ),
                     Acc#{client_attrs => Attrs#{Name => Value}};
                 {error, Reason} ->
@@ -1750,7 +1762,8 @@ initialize_client_attrs(Inits, ClientInfo) ->
                         #{
                             msg => "client_attr_initialization_failed",
                             reason => Reason
-                        }
+                        },
+                        #{clientid => ClientId}
                     ),
                     Acc
             end
@@ -1758,6 +1771,41 @@ initialize_client_attrs(Inits, ClientInfo) ->
         ClientInfo,
         Inits
     ).
+
+maybe_override_clientid(_ConnPkt, #{zone := Zone} = ClientInfo) ->
+    Expression = get_mqtt_conf(Zone, clientid_override, disabled),
+    {ok, override_clientid(Expression, ClientInfo)}.
+
+override_clientid(disabled, ClientInfo) ->
+    ClientInfo;
+override_clientid(Expression, #{clientid := OrigClientId} = ClientInfo) ->
+    case emqx_variform:render(Expression, ClientInfo) of
+        {ok, <<>>} ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "clientid_override_expression_returned_empty_string"
+                },
+                #{clientid => OrigClientId}
+            ),
+            ClientInfo;
+        {ok, ClientId} ->
+            % Must add 'clientid' log meta for trace log filter
+            ?TRACE("MQTT", "clientid_overridden", #{
+                clientid => ClientId, original_clientid => OrigClientId
+            }),
+            ClientInfo#{clientid => ClientId};
+        {error, Reason} ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "clientid_override_expression_failed",
+                    reason => Reason
+                },
+                #{clientid => OrigClientId}
+            ),
+            ClientInfo
+    end.
 
 get_user_property_as_map(#mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}) when
     is_list(UserProperty)
