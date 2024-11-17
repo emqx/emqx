@@ -1054,6 +1054,14 @@ fields("tcp_opts") ->
                     desc => ?DESC(fields_tcp_opts_nodelay)
                 }
             )},
+        {"nolinger",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(fields_tcp_opts_nolinger)
+                }
+            )},
         {"reuseaddr",
             sc(
                 boolean(),

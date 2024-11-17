@@ -181,23 +181,29 @@
 
 -ifdef(TEST).
 
--define(agent(Id, Pid), {Id, Pid}).
+-define(agent(SessionId, SubscriptionId, Pid), {Pid, SubscriptionId, SessionId}).
 
--define(agent_pid(Agent), element(2, Agent)).
+-define(format_agent_msg(Msg), emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)).
 
--define(agent_node(Agent), node(element(2, Agent))).
+-define(format_leader_msg(Msg), emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)).
 
 %% -ifdef(TEST).
 -else.
 
--define(agent(Id, Pid), Pid).
+-define(agent(_SessionId, SubscriptionId, Pid), {Pid, SubscriptionId}).
 
--define(agent_pid(Agent), Agent).
+-define(format_agent_msg(Msg), Msg).
 
--define(agent_node(Agent), node(Agent)).
+-define(format_leader_msg(Msg), Msg).
 
 %% -ifdef(TEST).
 -endif.
+
+-define(agent_pid(Agent), element(1, Agent)).
+
+-define(agent_subscription_id(Agent), element(2, Agent)).
+
+-define(agent_node(Agent), node(element(1, Agent))).
 
 -define(is_local_agent(Agent), (?agent_node(Agent) =:= node())).
 
