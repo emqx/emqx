@@ -533,16 +533,16 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
     maps:to_list(
         case Type of
             tcp ->
-                Opts2#{tcp_options => sock_opts(tcp_options, Opts0)};
+                Opts2#{tcp_options => tcp_opts(Opts0)};
             ssl ->
                 Opts2#{
-                    tcp_options => sock_opts(tcp_options, Opts0),
+                    tcp_options => tcp_opts(Opts0),
                     ssl_options => ssl_opts(ssl_options, Opts0)
                 };
             udp ->
-                Opts2#{udp_options => sock_opts(udp_options, Opts0)};
+                Opts2#{udp_options => udp_opts(Opts0)};
             dtls ->
-                UDPOpts = sock_opts(udp_options, Opts0),
+                UDPOpts = udp_opts(Opts0),
                 DTLSOpts = ssl_opts(dtls_options, Opts0),
                 Opts2#{
                     udp_options => UDPOpts,
@@ -551,11 +551,14 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
         end
     ).
 
-sock_opts(Name, Opts) ->
+tcp_opts(Opts) ->
+    emqx_listeners:tcp_opts(Opts).
+
+udp_opts(Opts) ->
     maps:to_list(
         maps:without(
-            [active_n, keepalive],
-            maps:get(Name, Opts, #{})
+            [active_n],
+            maps:get(udp_options, Opts, #{})
         )
     ).
 
@@ -563,6 +566,7 @@ ssl_opts(Name, Opts) ->
     SSLOpts = maps:get(Name, Opts, #{}),
     emqx_utils:run_fold(
         [
+            fun ensure_dtls_protocol/2,
             fun ssl_opts_crl_config/2,
             fun ssl_opts_drop_unsupported/2,
             fun ssl_partial_chain/2,
@@ -572,6 +576,11 @@ ssl_opts(Name, Opts) ->
         SSLOpts,
         Name
     ).
+
+ensure_dtls_protocol(SSLOpts, dtls_options) ->
+    SSLOpts#{protocol => dtls};
+ensure_dtls_protocol(SSLOpts, _) ->
+    SSLOpts.
 
 ssl_opts_crl_config(#{enable_crl_check := true} = SSLOpts, _Name) ->
     HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
@@ -606,10 +615,10 @@ ranch_opts(Type, ListenOn, Opts) ->
     SocketOpts1 =
         case Type of
             wss ->
-                sock_opts(tcp_options, Opts) ++
+                tcp_opts(Opts) ++
                     proplists:delete(handshake_timeout, ssl_opts(ssl_options, Opts));
             ws ->
-                sock_opts(tcp_options, Opts)
+                tcp_opts(Opts)
         end,
     SocketOpts = ip_port(ListenOn) ++ proplists:delete(reuseaddr, SocketOpts1),
     #{

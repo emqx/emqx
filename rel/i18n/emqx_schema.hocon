@@ -262,12 +262,6 @@ already established connections."""
 common_ssl_opts_schema_cacertfile.label:
 """CACertfile"""
 
-common_ssl_opts_schema_cacerts.desc:
-"""When enabled, uses the system trusted CA certificates for establishing to TLS connections."""
-
-common_ssl_opts_schema_cacerts.label:
-"""Use System CA Certificates"""
-
 fields_ws_opts_mqtt_path.desc: """~
     WebSocket's MQTT protocol path. By default, the full URL for the WebSocket client to connect is:
     `ws://{host}:{port}/mqtt`.
@@ -985,10 +979,18 @@ NOTE: when changing from/to `global` lock, it requires all nodes in the cluster 
   - `global`: updates are protected with a global lock. Recommended for large clusters."""
 
 fields_tcp_opts_nodelay.desc:
-"""The TCP_NODELAY flag for the connections."""
+"""The `TCP_NODELAY` flag for the connections.
+When set to `true`, data is sent immediately, regardless of size."""
 
 fields_tcp_opts_nodelay.label:
-"""TCP_NODELAY"""
+"""No Delay"""
+
+fields_tcp_opts_nolinger.desc:
+"""When enabled, `SO_LINGER` flag is set as `(onoff=1, linger=0)`, which means the TCP socket is to be closed immediately by sending a TCP-RST packet,
+discarding any unsent data and skipping the graceful close steps, including CLOSE_WAIT, FIN_WAIT, and TIME_WAIT."""
+
+fields_tcp_opts_nolinger.label:
+"""No Linger"""
 
 fields_tcp_opts_keepalive.desc:
 """Enable TCP keepalive for MQTT connections over TCP or SSL.
@@ -1711,6 +1713,24 @@ client_attrs_init_set_as_attr {
   desc: """~
     The name of the client attribute extracted from the client data.
     The extracted attribute will be stored in the `client_attrs` property with this name."""
+}
+
+clientid_override {
+  label: "Client ID Override Expression"
+  desc: """~
+    A one line expression to evaluate a set of predefined string functions (like in the rule engine SQL statements).
+    The expression can be a function call with nested calls as its arguments, or direct variable reference.
+    So far, it does not provide user-defined variable binding (like `var a=1`) or user-defined functions.
+    As an example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(username, '.'))`.
+
+    The variables pre-bound variables are:
+    - `cn`: Client's TLS certificate common name.
+    - `dn`: Client's TLS certificate distinguished name (the subject).
+    - `clientid`: The original MQTT Client ID.
+    - `username`: MQTT Client's username.
+    - `client_attrs.{NAME}`: Client attributes initialized by per config `client_attrs_init`.
+
+    You can read more about variform expressions in EMQX docs."""
 }
 
 banned_bootstrap_file.desc:

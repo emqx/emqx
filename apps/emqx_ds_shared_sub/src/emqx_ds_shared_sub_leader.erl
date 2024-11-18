@@ -481,21 +481,25 @@ renew_leases(#{agents := AgentStates} = Data) ->
     Data.
 
 renew_lease(#{group_id := GroupId}, Agent, #{state := ?replaying, version := Version}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, Version);
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(Agent, GroupId, Version);
 renew_lease(#{group_id := GroupId}, Agent, #{state := ?waiting_replaying, version := Version}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, Version);
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(Agent, GroupId, Version);
 renew_lease(#{group_id := GroupId} = Data, Agent, #{
     streams := Streams, state := ?waiting_updating, version := Version, prev_version := PrevVersion
 }) ->
     StreamProgresses = stream_progresses(Data, Streams),
-    ok = emqx_ds_shared_sub_proto:leader_update_streams(
+    ok = emqx_ds_shared_sub_proto:leader_update_streams_v2(
         Agent, GroupId, PrevVersion, Version, StreamProgresses
     ),
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, PrevVersion, Version);
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(
+        Agent, GroupId, PrevVersion, Version
+    );
 renew_lease(#{group_id := GroupId}, Agent, #{
     state := ?updating, version := Version, prev_version := PrevVersion
 }) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, PrevVersion, Version).
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(
+        Agent, GroupId, PrevVersion, Version
+    ).
 
 %%--------------------------------------------------------------------
 %% Drop agents that stopped reporting progress
@@ -509,16 +513,17 @@ drop_timeout_agents(#{agents := Agents} = Data) ->
                     _AgentState},
             DataAcc
         ) ->
-            case
-                (UpdateDeadline < Now) orelse
-                    (is_integer(NoReplayingDeadline) andalso NoReplayingDeadline < Now)
-            of
+            UpdatedDeadlineReached = (UpdateDeadline < Now),
+            NoReplayingDeadlineReached =
+                is_integer(NoReplayingDeadline) andalso NoReplayingDeadline < Now,
+            case UpdatedDeadlineReached or NoReplayingDeadlineReached of
                 true ->
-                    ?SLOG(debug, #{
-                        msg => leader_agent_timeout,
+                    ?tp(warning, shared_sub_leader_agent_timeout, #{
                         now => Now,
                         update_deadline => UpdateDeadline,
                         not_replaying_deadline => NoReplayingDeadline,
+                        update_deadline_reached => UpdatedDeadlineReached,
+                        not_replaying_deadline_reached => NoReplayingDeadlineReached,
                         agent => Agent
                     }),
                     drop_invalidate_agent(DataAcc, Agent);
@@ -847,7 +852,7 @@ agent_transition_to_waiting_updating(
     },
     AgentState2 = renew_no_replaying_deadline(AgentState1),
     StreamProgresses = stream_progresses(Data, Streams),
-    ok = emqx_ds_shared_sub_proto:leader_update_streams(
+    ok = emqx_ds_shared_sub_proto:leader_update_streams_v2(
         Agent, GroupId, Version, NewVersion, StreamProgresses
     ),
     AgentState2.
@@ -860,7 +865,7 @@ agent_transition_to_waiting_replaying(
         old_state => OldState,
         new_state => ?waiting_replaying
     }),
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease(Agent, GroupId, Version),
+    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(Agent, GroupId, Version),
     AgentState1 = AgentState0#{
         state => ?waiting_replaying,
         revoked_streams => []
@@ -878,7 +883,7 @@ agent_transition_to_initial_waiting_replaying(
     Version = 0,
     StreamProgresses = stream_progresses(Data, InitialStreams),
     Leader = this_leader(Data),
-    ok = emqx_ds_shared_sub_proto:leader_lease_streams(
+    ok = emqx_ds_shared_sub_proto:leader_lease_streams_v2(
         Agent, GroupId, Leader, StreamProgresses, Version
     ),
     AgentState = #{
@@ -1046,7 +1051,7 @@ drop_agent(#{agents := Agents} = Data0, Agent) ->
     Data1#{agents => maps:remove(Agent, Agents)}.
 
 invalidate_agent(#{group_id := GroupId}, Agent) ->
-    ok = emqx_ds_shared_sub_proto:leader_invalidate(Agent, GroupId).
+    ok = emqx_ds_shared_sub_proto:leader_invalidate_v2(Agent, GroupId).
 
 drop_invalidate_agent(Data0, Agent) ->
     Data1 = drop_agent(Data0, Agent),

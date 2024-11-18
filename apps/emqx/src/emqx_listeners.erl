@@ -34,7 +34,8 @@
     max_conns/2,
     id_example/0,
     default_max_conn/0,
-    shutdown_count/2
+    shutdown_count/2,
+    tcp_opts/1
 ]).
 
 -export([
@@ -825,12 +826,30 @@ ssl_opts(Opts) ->
     emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
 
 tcp_opts(Opts) ->
-    maps:to_list(
-        maps:without(
-            [active_n, keepalive],
-            maps:get(tcp_options, Opts, #{})
-        )
-    ).
+    TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),
+    lists:flatten(lists:map(fun tcp_opt/1, TcpOpts)).
+
+tcp_opt({active_n, _}) ->
+    %% The `active_n' option is ignored for listener socket.
+    %% For accepted sockets, `active_n' is set by socket owner processes.
+    [];
+tcp_opt({keepalive, _String}) ->
+    %% emqx_schema:tcp_keepalive_opts(String);
+    %% esockd only supports key-value paris, NOT options like [{raw, 6, 4, ...}]
+    %% so we ignore it here but set it in emqx_connection process like `active_n'
+    [];
+tcp_opt({nolinger, Bool}) ->
+    case Bool of
+        true ->
+            {linger, {true, 0}};
+        false ->
+            %% cannot return [] here
+            %% because we need to be able to set {true, 0}
+            %% but also be able to revert it on the fly
+            {linger, {false, 0}}
+    end;
+tcp_opt(Opt) ->
+    Opt.
 
 foreach_listeners(Do) ->
     lists:foreach(

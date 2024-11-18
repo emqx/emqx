@@ -1054,6 +1054,14 @@ fields("tcp_opts") ->
                     desc => ?DESC(fields_tcp_opts_nodelay)
                 }
             )},
+        {"nolinger",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(fields_tcp_opts_nolinger)
+                }
+            )},
         {"reuseaddr",
             sc(
                 boolean(),
@@ -1812,6 +1820,13 @@ fields("banned") ->
                 }
             )}
     ].
+
+compile_variform_allow_disabled(disabled, _Opts) ->
+    disabled;
+compile_variform_allow_disabled(<<"disabled">>, _Opts) ->
+    disabled;
+compile_variform_allow_disabled(Expression, Opts) ->
+    compile_variform(Expression, Opts).
 
 compile_variform(undefined, _Opts) ->
     undefined;
@@ -3761,6 +3776,15 @@ mqtt_general() ->
                 #{
                     default => [],
                     desc => ?DESC("client_attrs_init")
+                }
+            )},
+        {"clientid_override",
+            sc(
+                hoconsc:union([disabled, typerefl:alias("string", any())]),
+                #{
+                    default => disabled,
+                    desc => ?DESC("clientid_override"),
+                    converter => fun compile_variform_allow_disabled/2
                 }
             )}
     ].

@@ -85,7 +85,6 @@
 
 -type state() :: #{
     pool_name := resource_id(),
-    pool_pid => pid(),
     client_config := emqx_s3_client:config(),
     channels := #{channel_id() => channel_state()}
 }.
@@ -112,17 +111,16 @@ on_start(InstId, Config) ->
         client_config => emqx_s3_profile_conf:client_config(S3Config, PoolName),
         channels => #{}
     },
-    HttpConfig = emqx_s3_profile_conf:http_config(Config),
-    _ = ehttpc_sup:stop_pool(PoolName),
-    case ehttpc_sup:start_pool(PoolName, HttpConfig) of
-        {ok, Pid} ->
+    _ = emqx_s3_client_http:stop_pool(PoolName),
+    case emqx_s3_client_http:start_pool(PoolName, S3Config) of
+        ok ->
             ?SLOG(info, #{msg => "s3_connector_start_http_pool_success", pool_name => PoolName}),
-            {ok, State#{pool_pid => Pid}};
+            {ok, State};
         {error, Reason} = Error ->
             ?SLOG(error, #{
                 msg => "s3_connector_start_http_pool_fail",
                 pool_name => PoolName,
-                http_config => HttpConfig,
+                config => S3Config,
                 reason => Reason
             }),
             Error

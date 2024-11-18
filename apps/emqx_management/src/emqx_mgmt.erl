@@ -151,10 +151,7 @@ node_info() ->
         memory_used => erlang:round(Total * UsedRatio),
         process_available => erlang:system_info(process_limit),
         process_used => erlang:system_info(process_count),
-
-        max_fds => proplists:get_value(
-            max_fds, lists:usort(lists:flatten(erlang:system_info(check_io)))
-        ),
+        max_fds => esockd:ulimit(),
         connections => ets:info(?CHAN_TAB, size),
         live_connections => ets:info(?CHAN_LIVE_TAB, size),
         cluster_sessions => ets:info(?CHAN_REG_TAB, size),

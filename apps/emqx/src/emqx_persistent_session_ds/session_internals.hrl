@@ -76,8 +76,13 @@
 %% (Erlang) messages that session should forward to the
 %% shared subscription handler.
 -record(shared_sub_message, {
+    subscription_id :: emqx_persistent_session_ds:subscription_id(),
     message :: term()
 }).
--define(shared_sub_message(MSG), #shared_sub_message{message = MSG}).
+-define(shared_sub_message(SUBSCRIPTION_ID, MSG), #shared_sub_message{
+    subscription_id = SUBSCRIPTION_ID,
+    message = MSG
+}).
+-define(shared_sub_message, #shared_sub_message{}).
 
 -endif.

@@ -106,14 +106,14 @@ schema("/schema_registry/:name") ->
             parameters => [param_path_schema_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_registry_schema:api_schema("put"),
-                post_examples()
+                put_examples()
             ),
             responses =>
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
                             emqx_schema_registry_schema:api_schema("put"),
-                            put_examples()
+                            post_examples()
                         ),
                     404 => error_schema('NOT_FOUND', "Schema not found")
                 }
@@ -157,14 +157,14 @@ schema("/schema_registry_external") ->
             description => ?DESC("external_registry_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 hoconsc:union(fun create_external_registry_union/1),
-                post_examples()
+                create_external_registry_input_examples(post)
             ),
             responses =>
                 #{
                     201 =>
                         emqx_dashboard_swagger:schema_with_examples(
                             emqx_schema_registry_schema:external_registry_type(),
-                            post_examples()
+                            create_external_registry_input_examples(get)
                         ),
                     400 => error_schema('ALREADY_EXISTS', "Schema already exists")
                 }
@@ -182,8 +182,8 @@ schema("/schema_registry_external/registry/:name") ->
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_schema_registry_schema:api_schema("get"),
-                            get_examples()
+                            emqx_schema_registry_schema:external_registry_type(),
+                            create_external_registry_input_examples(put)
                         ),
                     404 => error_schema('NOT_FOUND', "Schema not found")
                 }
@@ -195,14 +195,14 @@ schema("/schema_registry_external/registry/:name") ->
             parameters => [param_path_external_registry_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_registry_schema:external_registry_type(),
-                create_external_registry_input_examples()
+                create_external_registry_input_examples(put)
             ),
             responses =>
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_schema_registry_schema:api_schema("put"),
-                            put_examples()
+                            emqx_schema_registry_schema:external_registry_type(),
+                            create_external_registry_input_examples(put)
                         ),
                     404 => error_schema('NOT_FOUND', "Schema not found")
                 }
@@ -360,23 +360,32 @@ sample_get_schema_response(avro) ->
         description => <<"My Avro Schema">>,
         source => <<
             "{\"type\":\"record\","
+            "\"name\":\"test\","
             "\"fields\":[{\"type\":\"int\",\"name\":\"i\"},"
             "{\"type\":\"string\",\"name\":\"s\"}]}"
         >>
     }.
 
+sample_get_schema_response(avro, put) ->
+    maps:without([name], sample_get_schema_response(avro));
+sample_get_schema_response(avro, _Method) ->
+    sample_get_schema_response(avro).
+
 put_examples() ->
-    post_examples().
+    example_template(put).
 
 post_examples() ->
-    get_examples().
+    example_template(post).
 
 get_examples() ->
+    example_template(get).
+
+example_template(Method) ->
     #{
         <<"avro_schema">> =>
             #{
                 summary => <<"Avro">>,
-                value => sample_get_schema_response(avro)
+                value => sample_get_schema_response(avro, Method)
             }
     }.
 
@@ -386,6 +395,7 @@ sample_list_external_registries_response() ->
 sample_get_external_registry_response(confluent) ->
     #{
         type => <<"confluent">>,
+        name => <<"test">>,
         url => <<"http://confluent_schema_registry:8081">>,
         auth => #{
             mechanism => <<"basic">>,
@@ -394,17 +404,19 @@ sample_get_external_registry_response(confluent) ->
         }
     }.
 
-create_external_registry_input_examples() ->
+sample_get_external_registry_response(confluent, put) ->
+    maps:without([name], sample_get_external_registry_response(confluent));
+sample_get_external_registry_response(confluent, _Method) ->
+    sample_get_external_registry_response(confluent).
+
+create_external_registry_input_examples(Method) ->
     #{
         <<"confluent">> =>
             #{
                 summary => <<"Confluent">>,
-                value => external_registry_confluent_example()
+                value => sample_get_external_registry_response(confluent, Method)
             }
     }.
-
-external_registry_confluent_example() ->
-    #{}.
 
 %%-------------------------------------------------------------------------------------------------
 %% Schemas and hocon types
