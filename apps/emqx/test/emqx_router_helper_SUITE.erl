@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx_router.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -28,41 +27,62 @@
 
 all() ->
     [
-        {group, routing_schema_v1},
-        {group, routing_schema_v2}
+        {group, smoke},
+        {group, cleanup},
+        {group, cluster}
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
+    SmokeTCs = [t_monitor, t_message],
+    CleanupTCs = [t_membership_node_leaving],
+    ClusterTCs = [
+        t_cluster_node_leaving,
+        t_cluster_node_down,
+        t_cluster_node_restart
+    ],
+    SchemaTCs = [
+        {mria_match_delete, [], CleanupTCs},
+        {fallback, [], CleanupTCs}
+    ],
     [
-        {routing_schema_v1, [], [
-            {mria_match_delete, [], TCs},
-            {fallback, [], TCs}
+        {smoke, [], SmokeTCs},
+        {cleanup, [], [
+            {group, routing_schema_v1},
+            {group, routing_schema_v2}
         ]},
-        {routing_schema_v2, [], [
-            {mria_match_delete, [], TCs},
-            {fallback, [], TCs}
-        ]}
+        {cluster, [], ClusterTCs},
+        {routing_schema_v1, [], SchemaTCs},
+        {routing_schema_v2, [], SchemaTCs}
     ].
 
+init_per_group(GroupName, Config) when
+    GroupName == smoke;
+    GroupName == cluster;
+    GroupName == routing_schema_v1;
+    GroupName == routing_schema_v2
+->
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    AppSpecs = [{emqx, mk_config(GroupName)}],
+    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
+    [{group_name, GroupName}, {group_apps, Apps} | Config];
 init_per_group(fallback, Config) ->
     ok = mock_mria_match_delete(),
     Config;
-init_per_group(mria_match_delete, Config) ->
-    Config;
-init_per_group(GroupName, Config) ->
-    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
-    AppSpecs = [{emqx, mk_config(GroupName)}],
-    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
-    [{group_name, GroupName}, {group_apps, Apps} | Config].
+init_per_group(_GroupName, Config) ->
+    Config.
 
+end_per_group(GroupName, Config) when
+    GroupName == smoke;
+    GroupName == cluster;
+    GroupName == routing_schema_v1;
+    GroupName == routing_schema_v2
+->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(fallback, _Config) ->
     unmock_mria_match_delete(),
     ok;
-end_per_group(mria_match_delete, _Config) ->
-    ok;
-end_per_group(_GroupName, Config) ->
-    ok = emqx_cth_suite:stop(?config(group_apps, Config)).
+end_per_group(_GroupName, _Config) ->
+    ok.
 
 mk_config(routing_schema_v1) ->
     #{
@@ -73,7 +93,9 @@ mk_config(routing_schema_v2) ->
     #{
         config => "broker.routing.storage_schema = v2",
         override_env => [{boot_modules, [broker]}]
-    }.
+    };
+mk_config(_) ->
+    #{override_env => [{boot_modules, [broker]}]}.
 
 mock_mria_match_delete() ->
     ok = meck:new(mria, [no_link, passthrough]),
@@ -82,63 +104,99 @@ mock_mria_match_delete() ->
 unmock_mria_match_delete() ->
     ok = meck:unload(mria).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
-    ok.
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
 t_monitor(_) ->
     ok = emqx_router_helper:monitor({undefined, node()}),
-    emqx_router_helper:monitor(undefined).
+    ok = emqx_router_helper:monitor(undefined).
 
-t_mnesia(_) ->
-    ?ROUTER_HELPER ! {mnesia_table_event, {delete, {?ROUTING_NODE, node()}, undefined}},
-    ?ROUTER_HELPER ! {mnesia_table_event, testing},
-    ?ROUTER_HELPER ! {mnesia_table_event, {write, {?ROUTING_NODE, node()}, undefined}},
-    ?ROUTER_HELPER ! {membership, testing},
-    ?ROUTER_HELPER ! {membership, {mnesia, down, node()}},
-    ct:sleep(200).
-
-t_cleanup_membership_mnesia_down(_Config) ->
-    Slave = emqx_cth_cluster:node_name(node2),
-    emqx_router:add_route(<<"a/b/c">>, Slave),
-    emqx_router:add_route(<<"d/e/f">>, node()),
+t_membership_node_leaving(_Config) ->
+    AnotherNode = emqx_cth_cluster:node_name(leaving),
+    ok = emqx_router:add_route(<<"leaving1/b/c">>, AnotherNode),
+    ok = emqx_router:add_route(<<"test/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
-    ?wait_async_action(
-        ?ROUTER_HELPER ! {membership, {mnesia, down, Slave}},
-        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+    {_, {ok, _}} = ?wait_async_action(
+        ?ROUTER_HELPER ! {membership, {node, leaving, AnotherNode}},
+        #{?snk_kind := emqx_router_node_purged, node := AnotherNode},
         1_000
     ),
-    ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
-t_cleanup_membership_node_down(_Config) ->
-    Slave = emqx_cth_cluster:node_name(node3),
-    emqx_router:add_route(<<"a/b/c">>, Slave),
-    emqx_router:add_route(<<"d/e/f">>, node()),
-    ?assertMatch([_, _], emqx_router:topics()),
-    ?wait_async_action(
-        ?ROUTER_HELPER ! {membership, {node, down, Slave}},
-        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
-        1_000
-    ),
-    ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
+t_cluster_node_leaving('init', Config) ->
+    start_join_node(cluster_node_leaving, Config);
+t_cluster_node_leaving('end', Config) ->
+    stop_leave_node(Config).
 
-t_cleanup_monitor_node_down(_Config) ->
-    [Slave] = emqx_cth_cluster:start_bare_nodes([node4]),
-    emqx_router:add_route(<<"a/b/c">>, Slave),
-    emqx_router:add_route(<<"d/e/f">>, node()),
+t_cluster_node_leaving(Config) ->
+    ClusterNode = ?config(cluster_node, Config),
+    ok = emqx_router:add_route(<<"leaving/b/c">>, ClusterNode),
+    ok = emqx_router:add_route(<<"test/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
-    ?wait_async_action(
-        emqx_cth_cluster:stop([Slave]),
-        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
-        1_000
+    {ok, {ok, _}} = ?wait_async_action(
+        erpc:call(ClusterNode, ekka, leave, []),
+        #{?snk_kind := emqx_router_node_purged, node := ClusterNode},
+        3_000
     ),
-    ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+
+t_cluster_node_down('init', Config) ->
+    start_join_node(cluster_node_down, Config);
+t_cluster_node_down('end', Config) ->
+    stop_leave_node(Config).
+
+t_cluster_node_down(Config) ->
+    ClusterNode = ?config(cluster_node, Config),
+    emqx_router:add_route(<<"down/b/#">>, ClusterNode),
+    emqx_router:add_route(<<"test/e/f">>, node()),
+    ?assertMatch([_, _], emqx_router:topics()),
+    ok = emqx_cth_cluster:stop([ClusterNode]),
+    {scheduled, {ok, _}} = ?wait_async_action(
+        %% The same as what would have happened after dead node timeout had passed.
+        emqx_router_helper:purge_force(),
+        #{?snk_kind := emqx_router_node_purged, node := ClusterNode},
+        3_000
+    ),
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+
+t_cluster_node_restart('init', Config) ->
+    start_join_node(cluster_node_restart, Config);
+t_cluster_node_restart('end', Config) ->
+    stop_leave_node(Config).
+
+t_cluster_node_restart(Config) ->
+    ClusterNode = ?config(cluster_node, Config),
+    ClusterSpec = ?config(cluster_node_spec, Config),
+    emqx_router:add_route(<<"restart/b/c">>, ClusterNode),
+    emqx_router:add_route(<<"test/e/f">>, node()),
+    ?assertMatch([_, _], emqx_router:topics()),
+    _ = emqx_cth_cluster:restart(ClusterSpec),
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
 t_message(_) ->
+    Pid = erlang:whereis(?ROUTER_HELPER),
     ?ROUTER_HELPER ! testing,
     gen_server:cast(?ROUTER_HELPER, testing),
-    gen_server:call(?ROUTER_HELPER, testing).
+    gen_server:call(?ROUTER_HELPER, testing),
+    ?assert(erlang:is_process_alive(Pid)),
+    ?assertEqual(Pid, erlang:whereis(?ROUTER_HELPER)).
+
+%%
+
+start_join_node(Name, Config) ->
+    [ClusterSpec] = emqx_cth_cluster:mk_nodespecs(
+        [{Name, #{apps => [emqx], join_to => node()}}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [ClusterNode] = emqx_cth_cluster:start([ClusterSpec]),
+    [{cluster_node, ClusterNode}, {cluster_node_spec, ClusterSpec} | Config].
+
+stop_leave_node(Config) ->
+    ClusterNode = ?config(cluster_node, Config),
+    ekka:force_leave(ClusterNode),
+    emqx_cth_cluster:stop([ClusterNode]).
