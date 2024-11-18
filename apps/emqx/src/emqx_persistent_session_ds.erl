@@ -1949,7 +1949,7 @@ tprop_seqnos(Trace) ->
     %% Validate seqnos for each track:
     maps:foreach(
         fun(Track, Vals) ->
-            ?defer_assert(?assert(snabbkaffe:increasing(Vals)))
+            ?defer_assert(snabbkaffe:increasing(Vals))
         end,
         M
     ),

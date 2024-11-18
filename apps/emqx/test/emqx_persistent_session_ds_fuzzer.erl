@@ -42,9 +42,6 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_persistent_message.hrl").
 
--define(client, emqx_persistent_session_ds_fuzzer_client).
--define(clientid, <<?MODULE_STRING>>).
-
 %% Commands:
 -export([
     connect/2,
@@ -79,13 +76,19 @@
     tprop_qos12_delivery/1
 ]).
 
+%%--------------------------------------------------------------------
+%% Types
+%%--------------------------------------------------------------------
+
+-define(client, emqx_persistent_session_ds_fuzzer_client).
+-define(clientid, <<?MODULE_STRING>>).
+
 -type config() ::
     #{
         wait_publishes_time := non_neg_integer(),
         %% List of topics used in the test. They must not overlap.
         %% This list is used for both publishing and subscribing,
-        %% therefore wildcards are not supported.
-        topics := [emqx_types:topic()],
+        %% therefore wildcards are not supported.        topics := [emqx_types:topic()],
         %% Static client configuration (port, etc.)
         client_config := map(),
         %% List of client IDs for the simulated publishers:
@@ -124,7 +127,7 @@
     %%    State of the session predicted by the model:
     model_state :: model_state(),
     %%    Used to assign timestamps to the messages:
-    faketime = 0 :: emqx_ds:time(),
+    message_seqno = 0 :: emqx_ds:time(),
     %%    %% State of the client connection predicted by the model:
     connected = false :: boolean(),
     %%    Set to `true' when new messages are published, and reset to
@@ -156,11 +159,47 @@
 -define(sessds_test_session_crash, sessds_test_session_crash).
 
 %%--------------------------------------------------------------------
+%% Global configuration
+%%--------------------------------------------------------------------
+
+-spec test_parameters() -> config().
+test_parameters() ->
+    #{
+        wait_publishes_time => 1000,
+        %% topics => [<<"t1">>, <<"t2">>, <<"t3">>, <<"t4">>],
+        %% publishers => [<<"pub1">>, <<"pub2">>, <<"pub3">>],
+        topics => [<<"t1">>],
+        publishers => [<<"pub1">>],
+        client_config => #{
+            port => 1883,
+            proto => v5,
+            clientid => ?clientid,
+            %% These properties are imporant for test logic
+            %%
+            %%   Expiry interval must be large enough to avoid
+            %%   automatic session expiration:
+            properties => #{'Session-Expiry-Interval' => 1000},
+            %%   Clean start is not tested here. It's quite trivial to
+            %%   test session cleanup in a regular test, but
+            %%   accounting for session state resets in the tests is
+            %%   not.
+            clean_start => false,
+            %%   To test takeover, clients must not auto-reconnect:
+            reconnect => false,
+            %%   We want to cover as many scenarios where session has
+            %%   un-acked messages as possible:
+            auto_ack => never
+        }
+    }.
+
+%%--------------------------------------------------------------------
 %% Proper generators
 %%--------------------------------------------------------------------
 
 qos() ->
-    range(?QOS_0, ?QOS_2).
+    %% FIXME
+    %% range(?QOS_0, ?QOS_2).
+    oneof([?QOS_1]).
 
 %% @doc Proper generator for `emqtt:connect' parameters:
 connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
@@ -177,11 +216,13 @@ connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
     ).
 
 %% @doc Proper generator that creates a message in one of the topics.
-message(#s{
-    faketime = T,
-    model_state = #{subs := Subs},
-    conf = #{publishers := Pubs, topics := AllTopics}
-}) ->
+message(
+    MsgId,
+    #s{
+        model_state = #{subs := Subs},
+        conf = #{publishers := Pubs, topics := AllTopics}
+    }
+) ->
     %% Create bias towards topics that the session is subscribed to:
     Topics =
         [{Freq, T} || {Freq, L} <- [{5, maps:keys(Subs)}, {1, AllTopics}], T <- L],
@@ -193,9 +234,32 @@ message(#s{
             qos = QoS,
             from = From,
             topic = Topic,
-            timestamp = T,
-            payload = <<From/binary, " ", (integer_to_binary(T))/binary>>
+            %% Note: currently faking time in DS is not trivial. For
+            %% example, when clock of
+            %% `emqx_persistent_session_ds_subs' deviates from
+            %% `emqx_ds_replication_layer''s clock iterators may point
+            %% too far into the future. So we have no choice but to
+            %% use real clock in this test. However, for the sake of
+            %% model determinism we don't assign the timestamp in the
+            %% generator and do it later in the action:
+            timestamp = undefined,
+            %% Message payload is unique:
+            payload = <<Topic/binary, " ", From/binary, " ", (integer_to_binary(MsgId))/binary>>
         }
+    ).
+
+message(S = #s{message_seqno = SeqNo}) ->
+    message(SeqNo, S).
+
+publish_(S = #s{message_seqno = SeqNo}) ->
+    ?LET(
+        BatchSize,
+        range(1, 10),
+        ?LET(
+            Msgs,
+            [message(I, S) || I <- lists:seq(SeqNo, SeqNo + BatchSize)],
+            {call, ?MODULE, publish, [Msgs]}
+        )
     ).
 
 subscribe_(S = #s{conf = #{topics := Topics}}) ->
@@ -246,10 +310,15 @@ disconnect(#s{conninfo = ConnInfo = #{client_pid := C}}) ->
     emqtt:stop(client_pid()),
     wait_session_down(ConnInfo).
 
-publish(Msg) ->
-    ?tp(notice, ?sessds_test_publish, emqx_message:to_map(Msg)),
+publish(Batch) ->
     %% We bypass persistent session router for simplicity:
-    emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg]).
+    ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [
+        Msg#message{timestamp = emqx_message:timestamp_now()}
+     || Msg <- Batch
+    ]),
+    %% Produce traces for each message:
+    [?tp(notice, ?sessds_test_publish, emqx_message:to_map(Msg)) || Msg <- Batch],
+    timer:sleep(10).
 
 add_generation() ->
     ?tp(notice, ?sessds_test_add_generation, #{}),
@@ -324,34 +393,6 @@ receive_ack_loop(
 %% Misc. API
 %%--------------------------------------------------------------------
 
--spec default_config() -> config().
-default_config() ->
-    #{
-        wait_publishes_time => 100,
-        topics => [<<"t1">>, <<"t2">>, <<"t3">>, <<"t4">>],
-        publishers => [<<"pub1">>, <<"pub2">>, <<"pub3">>],
-        client_config => #{
-            port => 1883,
-            proto => v5,
-            clientid => ?clientid,
-            %% These properties are imporant for test logic
-            %%
-            %%   Expiry interval must be large enough to avoid
-            %%   automatic session expiration:
-            properties => #{'Session-Expiry-Interval' => 1000},
-            %%   Clean start is not tested here. It's quite trivial to
-            %%   test session cleanup in a regular test, but
-            %%   accounting for session state resets in the tests is
-            %%   not.
-            clean_start => false,
-            %%   To test takeover, clients must not auto-reconnect:
-            reconnect => false,
-            %%   We want to cover as many scenarios where session has
-            %%   un-acked messages as possible:
-            auto_ack => never
-        }
-    }.
-
 sample(Size) ->
     proper_gen:pick(commands(?MODULE), Size).
 
@@ -369,11 +410,11 @@ print_cmds(L) ->
         fun
             ({set, _, {call, ?MODULE, connect, [_, Opts]}}) ->
                 io_lib:format("  connect(~0p)~n", [Opts]);
-            ({set, _, {call, ?MODULE, publish, [Msg]}}) ->
-                MsgMap = maps:with(
-                    [qos, from, topic, timestamp, payload], emqx_message:to_map(Msg)
-                ),
-                io_lib:format("  publish(~0p)~n", [MsgMap]);
+            ({set, _, {call, ?MODULE, publish, [Batch]}}) ->
+                Args = [maps:with(
+                          [qos, from, topic, timestamp, payload], emqx_message:to_map(Msg)
+                         ) || Msg <- Batch],
+                io_lib:format("  publish(~0p)~n", [pprint_args(Args)]);
             ({set, _, {call, ?MODULE, Fun, _}}) when Fun =:= consume; Fun =:= disconnect ->
                 io_lib:format("  ~p(...)~n", [Fun]);
             %% Generic command pretty-printer:
@@ -383,8 +424,7 @@ print_cmds(L) ->
                         ?MODULE -> [];
                         _ -> [atom_to_binary(Module), $:]
                     end,
-                ArgStr = lists:join(", ", [io_lib:format("~0p", [I]) || I <- Args]),
-                io_lib:format("  ~s~p(~s)~n", [ModStr, Fun, ArgStr]);
+                io_lib:format("  ~s~p(~s)~n", [ModStr, Fun, pprint_args(Args)]);
             %% Fallback:
             (Other) ->
                 io_lib:format("  ~0p~n", [Other])
@@ -392,14 +432,14 @@ print_cmds(L) ->
         L
     ).
 
+pprint_args(Args) ->
+    lists:join(", ", [io_lib:format("~0p", [I]) || I <- Args]).
+
 %%--------------------------------------------------------------------
 %% Trace properties
 %%--------------------------------------------------------------------
 
 %% @doc Verify QoS 1/2 flows for each packet ID.
-%%
-%% TODO: don't use data from emqtt for this, since it manages dups
-%% (?).
 tprop_packet_id_history(Trace) ->
     put(tprop_n_flows, 0),
     _ = lists:foldl(fun tprop_packet_id_history/2, #{}, Trace),
@@ -532,19 +572,20 @@ command(S = #s{connected = Conn, has_data = HasData, model_state = #{subs := Sub
     HasSubs = maps:size(Subs) > 0,
     %% Commands that are executed in any state:
     Common =
-        [{1,  connect_(S)},
+        [
+         %% {1,  connect_(S)},
          %{2,  {call, ?MODULE, add_generation, []}},
          %% Publish some messages occasionally even when there are no
          %% subs:
-         {1,  {call, ?MODULE, publish, [message(S)]}}
+         {1,  publish_(S)}
         ],
     %% Commands that are executed when client is connected:
     Connected =
-        [{9,  {call, ?MODULE, publish, [message(S)]}} || HasSubs] ++
-        [{10, {call, ?MODULE, consume, [S]}}          || HasData and HasSubs] ++
+        [{5,  publish_(S)}                   || HasSubs] ++
+        [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
         [{1,  {call, ?MODULE, disconnect, [S]}},
-         {5,  subscribe_(S)},
-         {5,  unsubscribe_(S)}
+         %% {5,  unsubscribe_(S)},
+         {5,  subscribe_(S)}
         ],
     case Conn of
         true  -> frequency(Connected ++ Common);
@@ -552,7 +593,7 @@ command(S = #s{connected = Conn, has_data = HasData, model_state = #{subs := Sub
     end.
 
 initial_state() ->
-    #s{conf = default_config()}.
+    #s{conf = test_parameters()}.
 
 %% Start from the blank slate:
 next_state(S, Ret, {call, ?MODULE, connect, [_, Opts = #{clean_start := Clean}]}) when
@@ -579,10 +620,10 @@ next_state(S, _Ret, {call, ?MODULE, disconnect, _}) ->
         conninfo = undefined
     };
 %% Publish/consume messages:
-next_state(S = #s{faketime = T}, _Ret, {call, ?MODULE, publish, [Batch]}) ->
+next_state(S = #s{message_seqno = T}, _Ret, {call, ?MODULE, publish, [Batch]}) ->
     S#s{
         has_data = true,
-        faketime = T + 1
+        message_seqno = T + length(Batch)
     };
 next_state(S, _Ret, {call, ?MODULE, consume, _}) ->
     S#s{

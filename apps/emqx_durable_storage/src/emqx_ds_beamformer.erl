@@ -236,7 +236,11 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
         } ->
             Deadline = erlang:monotonic_time(millisecond) + Timeout,
             ?tp(beamformer_poll, #{
-                shard => Shard, key => DSKey, timeout => Timeout, deadline => Deadline
+                shard => Shard,
+                key => DSKey,
+                timeout => Timeout,
+                deadline => Deadline,
+                it => Iterator
             }),
             %% Try to maximize likelyhood of sending similar iterators to the
             %% same worker:

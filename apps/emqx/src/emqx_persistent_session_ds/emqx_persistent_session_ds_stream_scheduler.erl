@@ -335,6 +335,7 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{subs = Subs}) ->
     case SchedS0#s.new_stream_subs of
         #{Ref := TopicFilterBin} ->
             #{TopicFilterBin := SubS0} = Subs,
+            ?tp(sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
             TopicFilter = emqx_topic:words(TopicFilterBin),
             Subscription =
                 #{start_time := StartTime} = emqx_persistent_session_ds_state:get_subscription(
@@ -632,7 +633,7 @@ init_for_subscription(
 ) ->
     {[stream_key()], emqx_persistent_session_ds_state:t(), subs()}.
 renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
-    ?tp(sessds_renew_streams, #{topic_filter => TopicFilter}),
+    ?tp(sessds_sched_renew_streams, #{topic_filter => TopicFilter}),
     {NewSRSIds, S, Pending} =
         maps:fold(
             fun(RankX, YStreamL, {AccNewSRSIds, AccS0, AccPendingStreams}) ->
@@ -649,6 +650,15 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
             StreamMap
         ),
     SubState = SubState0#subs{pending_streams = Pending},
+    ?tp_ignore_side_effects_in_prod(
+        sessds_sched_new_stream_state,
+        #{
+            topic => TopicFilter,
+            all_streams => StreamMap,
+            new => NewSRSIds,
+            sub_state => SubState
+        }
+    ),
     {NewSRSIds, S, SubState}.
 
 -spec renew_streams_for_x(
@@ -957,6 +967,7 @@ del_ready(K, Ready) ->
 ensure_iterator(TopicFilter, Subscription, {{RankX, RankY}, Stream}, S) ->
     #{id := SubId, start_time := StartTime, current_state := CurrentSubState} = Subscription,
     Key = {SubId, Stream},
+    %% FIXME: debug
     case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
         {ok, Iterator} ->
             NewStreamState = #srs{
