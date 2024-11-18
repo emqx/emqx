@@ -48,6 +48,7 @@
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
+-define(BAD_MFA_TOKEN, 'BAD_MFA_TOKEN').
 -define(WRONG_TOKEN_OR_USERNAME, 'WRONG_TOKEN_OR_USERNAME').
 -define(USER_NOT_FOUND, 'USER_NOT_FOUND').
 -define(ERROR_PWD_NOT_MATCH, 'ERROR_PWD_NOT_MATCH').
@@ -75,11 +76,12 @@ schema("/login") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(login_api),
             summary => <<"Dashboard authentication">>,
-            'requestBody' => fields([username, password]),
+            'requestBody' => fields([username, password, mfa_token]),
             responses => #{
                 200 => fields([
                     role, token, version, license, password_expire_in_seconds
                 ]),
+                403 => emqx_dashboard_swagger:error_codes([?BAD_MFA_TOKEN], ?DESC(bad_mfa_token)),
                 401 => response_schema(401)
             },
             security => []
@@ -193,6 +195,14 @@ field(username_in_path) ->
 field(password) ->
     {password,
         mk(binary(), #{desc => ?DESC(password), 'maxLength' => 100, example => <<"public">>})};
+field(mfa_token) ->
+    {mfa_token,
+        mk(binary(), #{
+            desc => ?DESC(mfa_token),
+            'maxLength' => 9,
+            example => <<"023123">>,
+            required => false
+        })};
 field(description) ->
     {description, mk(binary(), #{desc => ?DESC(user_description), example => <<"administrator">>})};
 field(token) ->
@@ -226,8 +236,9 @@ field(password_expire_in_seconds) ->
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
+    MfaToken = maps:get(<<"mfa_token">>, Params, ?NO_MFA_TOKEN),
     minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username}),
-    case emqx_dashboard_admin:sign_token(Username, Password) of
+    case emqx_dashboard_admin:sign_token(Username, Password, MfaToken) of
         {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
@@ -238,7 +249,13 @@ login(post, #{body := Params}) ->
                 })};
         {error, R} ->
             ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
-            {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+            %% check if this error was created by emqx_dashboard_mfa
+            case emqx_dashboard_mfa:is_mfa_error(R) of
+                true ->
+                    {403, ?BAD_MFA_TOKEN, R};
+                false ->
+                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+            end
     end.
 
 logout(_, #{
