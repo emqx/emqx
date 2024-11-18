@@ -475,12 +475,12 @@ t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
     {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
-        emqx_channel:process_subscribe(TopicFilters, channel()).
+        emqx_channel:post_process_subscribe(TopicFilters, channel()).
 
 t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, #{}, channel()).
+    {[?RC_SUCCESS], _Channel} = emqx_channel:post_process_unsubscribe(TopicFilters, #{}, channel()).
 
 t_quota_qos0(_) ->
     esockd_limiter:start_link(),

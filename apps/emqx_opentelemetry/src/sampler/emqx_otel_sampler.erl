@@ -235,7 +235,7 @@ should_sample(
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     }.
 
-%% -compile({inline, [match_sample/2]}).
+-compile({inline, [match_by_span_name/2]}).
 match_by_span_name(?BROKER_PUBACK_SPAN_NAME, L) -> ?QOS_1 =< L;
 match_by_span_name(?CLIENT_PUBACK_SPAN_NAME, L) -> ?QOS_1 =< L;
 match_by_span_name(?BROKER_PUBREC_SPAN_NAME, L) -> ?QOS_1 =< L;
@@ -317,6 +317,7 @@ match_topic_filter(TopicName, #?EMQX_OTEL_SAMPLER_RULE{
 }) ->
     emqx_topic:match(TopicName, TopicFilter) andalso ShouldSample.
 
+-compile({inline, [parent_sampled/1]}).
 parent_sampled(#span_ctx{trace_flags = TraceFlags}) when
     ?IS_SAMPLED(TraceFlags)
 ->

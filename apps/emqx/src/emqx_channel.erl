@@ -908,7 +908,12 @@ process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilter
             handle_out(disconnect, RC, Channel)
     end.
 
--compile({inline, [post_process_subscribe/2]}).
+-compile(
+    {inline, [
+        post_process_subscribe/2,
+        post_process_subscribe/3
+    ]}
+).
 post_process_subscribe(TopicFilters, Channel) ->
     post_process_subscribe(TopicFilters, Channel, []).
 
@@ -991,7 +996,12 @@ process_unsubscribe(
             handle_out(disconnect, ReasonCode, Channel)
     end.
 
--compile({inline, [post_process_unsubscribe/3]}).
+-compile(
+    {inline, [
+        post_process_unsubscribe/3,
+        post_process_unsubscribe/4
+    ]}
+).
 post_process_unsubscribe(TopicFilters, UnSubProps, Channel) ->
     post_process_unsubscribe(TopicFilters, UnSubProps, Channel, []).
 
@@ -1489,7 +1499,7 @@ handle_call(Req, Channel) ->
 
 handle_info({subscribe, TopicFilters}, Channel) ->
     NTopicFilters = enrich_subscribe(TopicFilters, Channel),
-    {_TopicFiltersWithRC, NChannel} = process_subscribe(NTopicFilters, Channel),
+    {_TopicFiltersWithRC, NChannel} = post_process_subscribe(NTopicFilters, Channel),
     {ok, NChannel};
 handle_info({unsubscribe, TopicFilters}, Channel) ->
     {_RC, NChannel} = post_process_unsubscribe(TopicFilters, #{}, Channel),
