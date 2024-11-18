@@ -107,6 +107,9 @@ end_per_testcase(t_cursor_cleanup, _Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
+app_spec() ->
+    {emqx_retainer, ?BASE_CONF}.
+
 app_spec(disabled) ->
     {emqx_retainer, ?DISABLED_CONF};
 app_spec(_) ->

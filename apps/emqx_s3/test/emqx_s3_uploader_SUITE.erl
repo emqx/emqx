@@ -33,10 +33,13 @@
     )
 ).
 
+-define(VHOST_BUCKET, "test1").
+
 all() ->
     [
         {group, tcp},
-        {group, tls}
+        {group, tls},
+        {group, vhost}
     ].
 
 groups() ->
@@ -49,17 +52,24 @@ groups() ->
             {group, common_cases},
             {group, tls_cases}
         ]},
+        {vhost, [], [
+            {group, happy_cases}
+        ]},
+
         {common_cases, [], [
+            {group, happy_cases},
+            {group, noconn_errors},
+            {group, timeout_errors},
+            {group, http_errors}
+        ]},
+
+        {happy_cases, [], [
             t_happy_path_simple_put,
             t_happy_path_multi,
             t_abort_multi,
             t_abort_simple_put,
             t_signed_url_download,
-            t_signed_nonascii_url_download,
-
-            {group, noconn_errors},
-            {group, timeout_errors},
-            {group, http_errors}
+            t_signed_nonascii_url_download
         ]},
 
         {tcp_cases, [
@@ -97,12 +107,14 @@ end_per_suite(_Config) ->
 
 init_per_group(Group, Config) when Group =:= tcp orelse Group =:= tls ->
     [{conn_type, Group} | Config];
+init_per_group(vhost, Config) ->
+    [{conn_type, {tcp, direct}}, {access_method, vhost} | Config];
 init_per_group(noconn_errors, Config) ->
     [{failure, down} | Config];
 init_per_group(timeout_errors, Config) ->
     [{failure, timeout} | Config];
 init_per_group(http_errors, Config) ->
-    [{failure, ehttpc_500} | Config];
+    [{failure, httpc_500} | Config];
 init_per_group(_ConnType, Config) ->
     Config.
 
@@ -113,15 +125,21 @@ init_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     ConnType = ?config(conn_type, Config),
     TestAwsConfig = emqx_s3_test_helpers:aws_config(ConnType),
-
-    Bucket = emqx_s3_test_helpers:unique_bucket(),
-    ok = erlcloud_s3:create_bucket(Bucket, TestAwsConfig),
-
     ProfileBaseConfig = emqx_s3_test_helpers:base_config(ConnType),
-    ProfileConfig = ProfileBaseConfig#{bucket => Bucket},
+    AccessMethod = proplists:get_value(access_method, Config, path),
+    case AccessMethod of
+        path ->
+            Bucket = emqx_s3_test_helpers:unique_bucket();
+        vhost ->
+            Bucket = ?VHOST_BUCKET
+    end,
+    ProfileConfig = ProfileBaseConfig#{
+        bucket => Bucket,
+        access_method => AccessMethod
+    },
+    ok = emqx_s3_test_helpers:recreate_bucket(Bucket, TestAwsConfig),
     ok = emqx_s3:start_profile(profile_id(), ProfileConfig),
-
-    [{bucket, Bucket}, {test_aws_config, TestAwsConfig}, {profile_config, ProfileConfig} | Config].
+    [{bucket, Bucket}, {profile_config, ProfileConfig}, {test_aws_config, TestAwsConfig} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
@@ -205,7 +223,7 @@ t_signed_url_download(_Config) ->
         emqx_s3_client:uri(Client, Key)
     end),
 
-    HttpOpts = [{ssl, [{verify, verify_none}]}],
+    HttpOpts = [{ssl, [{verify, verify_none}]}, {timeout, 5000}],
     {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, HttpOpts, []),
 
     ?assertEqual(
@@ -223,7 +241,7 @@ t_signed_nonascii_url_download(_Config) ->
         emqx_s3_client:uri(Client, Key)
     end),
 
-    HttpOpts = [{ssl, [{verify, verify_none}]}],
+    HttpOpts = [{ssl, [{verify, verify_none}]}, {timeout, 5000}],
     {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, HttpOpts, []),
 
     ?assertEqual(

@@ -81,7 +81,10 @@ groups() ->
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
-            t_peercert_preserved_before_connected
+            t_peercert_preserved_before_connected,
+            t_clientid_override,
+            t_clientid_override_fail_with_empty_render_result,
+            t_clientid_override_fail_with_expression_exception
         ]}
     ].
 
@@ -99,7 +102,13 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000).
+    %% restore default values
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
+    emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], false),
+    emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
+    emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v3
@@ -444,6 +453,34 @@ t_client_attr_from_user_property(_Config) ->
         emqx_cm:get_chan_info(ClientId)
     ),
     emqtt:disconnect(Client).
+
+t_clientid_override(_) ->
+    emqx_logger:set_log_level(debug),
+    ClientId = <<"original-clientid-0">>,
+    Username = <<"username1">>,
+    Override = <<"username">>,
+    {ok, Rule1} = emqx_variform:compile(Override),
+    emqx_config:put_zone_conf(default, [mqtt, clientid_override], Rule1),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}, {username, Username}]),
+    {ok, _} = emqtt:connect(Client),
+    ?assertMatch(#{clientid := Username}, maps:get(clientinfo, emqx_cm:get_chan_info(Username))),
+    ?assertMatch(undefined, emqx_cm:get_chan_info(ClientId)),
+    emqtt:disconnect(Client).
+
+t_clientid_override_fail_with_empty_render_result(_) ->
+    test_clientid_override_fail(<<"original-clientid-1">>, <<"undefined_var">>).
+
+t_clientid_override_fail_with_expression_exception(_) ->
+    test_clientid_override_fail(<<"original-clientid-2">>, <<"nth(1,undefined_var)">>).
+
+test_clientid_override_fail(ClientId, Expr) ->
+    {ok, Rule1} = emqx_variform:compile(Expr),
+    emqx_config:put_zone_conf(default, [mqtt, clientid_override], Rule1),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
+    {ok, _} = emqtt:connect(Client),
+    ?assertMatch(#{clientid := ClientId}, maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))),
+    emqtt:disconnect(Client).
+
 t_certcn_as_clientid_default_config_tls(_) ->
     tls_certcn_as_clientid(default).
 
@@ -480,7 +517,8 @@ t_peercert_preserved_before_connected(_) ->
     ?assertMatch(
         #{conninfo := ConnInfo} when not is_map_key(peercert, ConnInfo),
         emqx_connection:info(ConnPid)
-    ).
+    ),
+    emqtt:disconnect(Client).
 
 on_hook(ConnInfo, _, 'client.connect' = HP, Pid) ->
     _ = Pid ! {HP, ConnInfo},

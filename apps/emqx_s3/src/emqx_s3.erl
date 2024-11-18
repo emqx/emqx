@@ -39,16 +39,15 @@
 -type transport_options() :: #{
     headers => map(),
     connect_timeout => pos_integer(),
-    enable_pipelining => pos_integer(),
     max_retries => pos_integer(),
     pool_size => pos_integer(),
-    pool_type => atom(),
     ipv6_probe => boolean(),
     ssl => map()
 }.
 
 -type profile_config() :: #{
     bucket := string(),
+    access_method => path | vhost,
     access_key_id => string(),
     secret_access_key => emqx_secret:t(string()),
     host := string(),
