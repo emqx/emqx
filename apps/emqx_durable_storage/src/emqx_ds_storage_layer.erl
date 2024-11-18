@@ -685,6 +685,19 @@ delete_next(
             {ok, end_of_stream}
     end.
 
+%% @doc Persist a bunch of key/value pairs in the storage globally, in the "outside
+%% of specific generation" sense. Once persisted, values can be read back by calling
+%% `fetch_global/2`.
+%%
+%% Adding or dropping generations won't affect persisted key/value pairs, hence the
+%% purpose: keep state that needs to be tied to the shard itself and outlive any
+%% generation.
+%%
+%% This operation is idempotent, previous values associated with existing keys are
+%% overwritten. While atomicity of the operation can be specifically requested through
+%% `atomic` option, it is atomic by default: either all of pairs are persisted, or none
+%% at all. Writes are durable by default, but this is optional, see `batch_store_opts()`
+%% for details.
 -spec store_global(shard_id(), _KVs :: #{binary() => binary()}, batch_store_opts()) ->
     ok | emqx_ds:error(_).
 store_global(ShardId, KVs, Options) ->
@@ -704,6 +717,8 @@ store_global(ShardId, KVs, Options) ->
         rocksdb:release_batch(Batch)
     end.
 
+%% @doc Retrieve a value for a single key from the storage written there previously by
+%% `store_global/3`.
 -spec fetch_global(shard_id(), _Key :: binary()) ->
     {ok, _Value :: binary()} | not_found | emqx_ds:error(_).
 fetch_global(ShardId, K) ->
