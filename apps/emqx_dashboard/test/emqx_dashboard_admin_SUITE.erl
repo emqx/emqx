@@ -212,7 +212,7 @@ t_password_expired(_) ->
     ?assertMatch({ok, #{password_expire_in_seconds := X}} when X =< -86400, SignResult),
     Now = erlang:system_time(second),
     timer:sleep(1000),
-    emqx_dashboard_admin:change_password(Username, Password),
+    emqx_dashboard_admin:change_password_trusted(Username, Password),
     [#?ADMIN{extra = #{password_ts := PwdTS3}}] = emqx_dashboard_admin:lookup_user(Username),
     ?assert(PwdTS3 > PwdTS),
     ?assert(PwdTS3 > Now),

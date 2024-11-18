@@ -33,6 +33,9 @@ login_api.desc:
 login_api.label:
 """Get Dashboard Auth Token."""
 
+bad_mfa_token.desc:
+"""Login failed due to MFA token is not provided or invalid."""
+
 login_failed401.desc:
 """Login failed. Bad username or password"""
 
@@ -57,6 +60,9 @@ old_pwd.desc:
 
 password.desc:
 """Dashboard Password"""
+
+mfa_token.desc:
+"""Multi-factor authenticaion token."""
 
 token.desc:
 """Dashboard Auth Token"""
