@@ -1123,14 +1123,27 @@ enqueue_batch(IsReplay, Session = #{s := S}, ClientInfo, StreamKey, ItBegin, Fet
                 it_begin => ItBegin
             }),
             {ignore, undefined, Session};
-        Srs ->
-            do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs, ItBegin, FetchResult)
+        Srs0 ->
+            case maybe_update_sub_state_id(IsReplay, Srs0, S) of
+                {Srs, SubState} ->
+                    do_enqueue_batch(
+                        IsReplay,
+                        Session,
+                        ClientInfo,
+                        StreamKey,
+                        Srs,
+                        SubState,
+                        ItBegin,
+                        FetchResult
+                    );
+                undefined ->
+                    {ignore, undefined, Session}
+            end
     end.
 
-do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, ItBegin, FetchResult) ->
+do_enqueue_batch(IsReplay, Session, ClientInfo, StreamKey, Srs0, SubState, ItBegin, FetchResult) ->
     #{s := S0, inflight := Inflight0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0} =
         Session,
-    {Srs1, SubState} = maybe_update_sub_state_id(IsReplay, Srs0, S0),
     case IsReplay of
         false ->
             %% Normally we assign a new set of sequence
@@ -1636,7 +1649,7 @@ maybe_set_will_message_timer(#{id := SessionId, s := S}) ->
     SRS,
     emqx_persistent_session_ds_state:t()
 ) ->
-    {SRS, emqx_persistent_session_ds_subs:subscription_state()}
+    {SRS, emqx_persistent_session_ds_subs:subscription_state()} | undefined
 when
     SRS :: emqx_persistent_session_ds_stream_scheduler:srs().
 maybe_update_sub_state_id(true, SRS = #srs{sub_state_id = SSID}, S) ->
@@ -1648,10 +1661,13 @@ maybe_update_sub_state_id(true, SRS = #srs{sub_state_id = SSID}, S) ->
 maybe_update_sub_state_id(false, SRS = #srs{sub_state_id = SSID0}, S) ->
     case emqx_persistent_session_ds_state:get_subscription_state(SSID0, S) of
         #{superseded_by := SSID} ->
-            ?tp(sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
+            ?tp(?sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
             maybe_update_sub_state_id(false, SRS#srs{sub_state_id = SSID}, S);
         #{} = SubState ->
-            {SRS, SubState}
+            {SRS, SubState};
+        undefined ->
+            %% Client unsubscribed while we were polling:
+            undefined
     end.
 
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
