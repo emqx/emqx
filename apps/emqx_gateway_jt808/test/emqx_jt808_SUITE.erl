@@ -359,9 +359,17 @@ t_case00_register(_) ->
     ok = gen_tcp:close(Socket).
 
 t_case01_auth(_) ->
+    emqx_gateway_test_utils:meck_emqx_hook_calls(),
+
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}, {nodelay, true}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
+
     ok = client_auth_procedure(Socket, AuthCode),
+
+    ?assertMatch(
+        ['client.connect' | _],
+        emqx_gateway_test_utils:collect_emqx_hooks_calls()
+    ),
 
     ok = gen_tcp:close(Socket).
 

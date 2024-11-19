@@ -161,8 +161,15 @@ login_first() ->
     {ok, Socket}.
 
 t_case01_login(_Config) ->
+    emqx_gateway_test_utils:meck_emqx_hook_calls(),
     % send VEHICLE LOGIN
     {ok, Socket} = login_first(),
+
+    ?assertMatch(
+        ['client.connect' | _],
+        emqx_gateway_test_utils:collect_emqx_hooks_calls()
+    ),
+
     ok = gen_tcp:close(Socket).
 
 t_case01_login_channel_info(_Config) ->
