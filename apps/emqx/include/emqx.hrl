@@ -112,4 +112,9 @@
 -define(KIND_REPLICATE, replicate).
 -define(KIND_INITIATE, initiate).
 
+%%--------------------------------------------------------------------
+%% Client Attributes
+%%--------------------------------------------------------------------
+-define(CLIENT_ATTR_NAME_TNS, <<"tns">>).
+
 -endif.
