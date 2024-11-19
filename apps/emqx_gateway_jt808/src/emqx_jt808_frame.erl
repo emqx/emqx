@@ -1110,7 +1110,7 @@ remove_tail_zero(Bin) ->
     LastIdx = search_tail_zero_pos(Bin, size(Bin) - 1),
     binary:part(Bin, 0, LastIdx + 1).
 
-search_tail_zero_pos(Bin, 0) ->
+search_tail_zero_pos(_Bin, 0) ->
     0;
 search_tail_zero_pos(Bin, Pos) ->
     case binary:at(Bin, Pos) of
