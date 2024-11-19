@@ -1737,16 +1737,18 @@ set_timer(Timer, Time, Session) ->
     TRef = emqx_utils:start_timer(Time, {emqx_session, Timer}),
     Session#{Timer := TRef}.
 
+%%--------------------------------------------------------------------
+%% Session commit, maintenance and batch jobs
+%%--------------------------------------------------------------------
+
 commit(Session) ->
     commit(Session, _Opts = #{}).
 
 commit(Session = #{s := S0}, Opts) ->
-    S = emqx_persistent_session_ds_state:commit(S0, Opts),
+    ?tp(debug, ?sessds_commit, #{}),
+    S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
+    S = emqx_persistent_session_ds_state:commit(S1, Opts),
     cancel_state_commit_timer(Session#{s := S}).
-
-%%--------------------------------------------------------------------
-%% Management of state commit timer
-%%--------------------------------------------------------------------
 
 -spec ensure_state_commit_timer(session()) -> session().
 ensure_state_commit_timer(#{s := S, ?TIMER_COMMIT := undefined} = Session) ->
