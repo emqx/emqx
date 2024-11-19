@@ -170,8 +170,8 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     % send REGISTER
     %
     Manuf = <<"examp">>,
-    Model = <<"33333333333333333333">>,
-    DevId = <<"1234567">>,
+    Model = <<"33333333333333333", 0, 0, 0>>,
+    DevId = <<"123456", 0>>,
 
     Color = 3,
     Plate = <<"ujvl239">>,
@@ -913,8 +913,8 @@ t_case11_dl_0x8107_query_client_attrib(_Config) ->
     ?LOGT("client receive command from server ~p", [S3]),
 
     UlPacket4 =
-        <<12:?WORD, <<"manu3">>/binary, <<"A1B2C3D4E5F6G7H8I9J0">>:20/binary,
-            <<"dev1234">>:7/binary,
+        <<12:?WORD, <<"manu3">>/binary, <<"A1B2C3D4E5F6G7H8I", 0, 0, 0>>:20/binary,
+            <<"dev123", 0>>:7/binary,
             <<16#33, 16#33, 16#33, 16#33, 16#33, 16#44, 16#44, 16#44, 16#44, 16#44>>:10/binary, 6:8,
             <<"v2.3.7">>:6/binary, 5:8, <<"v1.26">>:5/binary, 101:8, 102:8>>,
     Size4 = size(UlPacket4),
@@ -942,8 +942,8 @@ t_case11_dl_0x8107_query_client_attrib(_Config) ->
             <<"body">> => #{
                 <<"type">> => 12,
                 <<"manufacturer">> => <<"manu3">>,
-                <<"model">> => <<"A1B2C3D4E5F6G7H8I9J0">>,
-                <<"id">> => <<"dev1234">>,
+                <<"model">> => <<"A1B2C3D4E5F6G7H8I">>,
+                <<"id">> => <<"dev123">>,
                 <<"iccid">> => <<"33333333334444444444">>,
                 <<"hardware_version">> => <<"v2.3.7">>,
                 <<"firmware_version">> => <<"v1.26">>,
