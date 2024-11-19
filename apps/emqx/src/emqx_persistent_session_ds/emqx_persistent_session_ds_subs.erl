@@ -39,6 +39,11 @@
     cold_get_subscription/2
 ]).
 
+-ifdef(TEST).
+-export([
+    state_invariants/2
+]).
+-endif.
 
 -export_type([subscription_state_id/0, subscription/0, subscription_state/0]).
 
@@ -285,3 +290,36 @@ cold_get_subscription(SessionId, Topic) ->
 
 now_ms() ->
     erlang:system_time(millisecond).
+
+%%================================================================================
+%% Test
+%%================================================================================
+
+-ifdef(TEST).
+
+-spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) -> boolean().
+state_invariants(#{subs := ModelSubs}, #{s := S}) ->
+    #{subscriptions := Subs, subscription_states := SStates} = S,
+    ?defer_assert(
+        ?assertEqual(
+            lists:sort(maps:keys(ModelSubs)),
+            lists:sort(maps:keys(Subs)),
+            "There should be 1:1 relationship between model and session's subscriptions"
+        )
+    ),
+    %% Verify that QoS of the current subscription state matches the model QoS:
+    maps:foreach(
+        fun(TopicFilter, #{qos := ExpectedQoS}) ->
+            ?defer_assert(
+                begin
+                    #{TopicFilter := #{current_state := SSId}} = Subs,
+                    #{SSId := SubState} = SStates,
+                    #{subopts := #{qos := ExpectedQoS}} = SubState
+                end
+            )
+        end,
+        ModelSubs
+    ),
+    true.
+
+-endif.
