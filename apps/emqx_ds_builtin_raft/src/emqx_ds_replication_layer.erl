@@ -1002,7 +1002,7 @@ apply(
             Result = store_batch_nondurable(DBShard, Operations),
             Effects = try_release_log(Stats, RaftMeta, State);
         ok ->
-            %% Preconditions succeeded, need to persist `Latest` in the storage layer.
+            %% Preconditions succeeded, need to persist `RaftIdx` in the storage layer.
             Result = store_batch_nondurable(DBShard, Operations),
             Result == ok andalso update_storage_raidx(DBShard, RaftIdx),
             Effects = try_release_log(Stats, RaftMeta, State);
@@ -1011,8 +1011,9 @@ apply(
             %% This is log replay, reply with `false`, noone expects the reply anyway.
             Effects = [];
         PreconditionFailed = {precondition_failed, _} ->
-            %% Preconditions failed. Skip the batch.
+            %% Preconditions failed. Skip the batch, persist `RaftIdx` in the storage layer.
             Result = {error, unrecoverable, PreconditionFailed},
+            update_storage_raidx(DBShard, RaftIdx),
             Effects = [];
         Result = {error, unrecoverable, Reason} ->
             ?tp(error, "emqx_ds_replication_apply_batch_failed", #{
