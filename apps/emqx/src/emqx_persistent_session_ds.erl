@@ -61,6 +61,7 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -ifdef(TEST).
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -201,14 +202,12 @@
 -define(TIMER_PUSH, timer_push).
 -define(TIMER_COMMIT, timer_commit).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
--define(TIMER_RENEW_STREAMS, timer_renew_streams).
 
 -type timer() ::
     ?TIMER_PULL
     | ?TIMER_PUSH
     | ?TIMER_COMMIT
-    | ?TIMER_RETRY_REPLAY
-    | ?TIMER_RENEW_STREAMS.
+    | ?TIMER_RETRY_REPLAY.
 
 -type timer_state() :: reference() | undefined.
 
@@ -230,13 +229,11 @@
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight buffer.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
-    new_stream_subs := emqx_persistent_session_ds_subs:new_stream_subs(),
     %% Timers:
     ?TIMER_PULL := timer_state(),
     ?TIMER_PUSH := timer_state(),
     ?TIMER_COMMIT := timer_state(),
-    ?TIMER_RETRY_REPLAY := timer_state(),
-    ?TIMER_RENEW_STREAMS := timer_state()
+    ?TIMER_RETRY_REPLAY := timer_state()
 }.
 
 -define(IS_REPLAY_ONGOING(REPLAY), is_list(REPLAY)).
@@ -659,13 +656,13 @@ deliver(ClientInfo, Delivers, Session0) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
     %% Pull circuit loop:
-    ?tp(debug, sessds_pull, #{}),
+    ?tp(debug, ?sessds_pull, #{}),
     Session1 = Session0#{?TIMER_PULL := undefined},
     {Publishes, Session} = drain_buffer(Session1),
     {ok, Publishes, push_now(Session)};
 handle_timeout(ClientInfo, ?TIMER_PUSH, Session0) ->
     %% Push circuit loop:
-    ?tp(debug, sessds_push, #{}),
+    ?tp(debug, ?sessds_push, #{}),
     Session1 = Session0#{?TIMER_PUSH := undefined},
     #{s := S, stream_scheduler_s := SchedS0, inflight := Inflight, replay := Replay} = Session0,
     BatchSize = get_config(ClientInfo, [batch_size]),
@@ -690,15 +687,8 @@ handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     {ok, [], Session};
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
-handle_timeout(
-    _ClientInfo,
-    ?TIMER_RENEW_STREAMS,
-    Session0
-) ->
-    Session = renew_streams(all, Session0),
-    {ok, [], Session#{?TIMER_RENEW_STREAMS := undefined}};
 handle_timeout(_ClientInfo, Timeout, Session) ->
-    ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
+    ?tp(warning, ?sessds_unknown_timeout, #{timeout => Timeout}),
     {ok, [], Session}.
 
 %%--------------------------------------------------------------------
@@ -842,51 +832,6 @@ skip_batch(StreamKey, SRS0, Session = #{s := S0}, ClientInfo, Reason) ->
 
 %%--------------------------------------------------------------------
 
-renew_streams(all, Session0) ->
-    ?tp(debug, sessds_renew_streams, #{topic_filter => all}),
-    Session1 = #{s := S0, stream_scheduler_s := SchedS0} = stream_housekeeping(Session0),
-    %% Renew streams for all subscriptions:
-    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(
-        S0, SchedS0
-    ),
-    Session = Session1#{s := S, stream_scheduler_s := SchedS},
-    %% Launch push loop to get data from the new streams:
-    push_now(Session);
-renew_streams(TopicFilter, Session0 = #{s := S0}) ->
-    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
-        undefined ->
-            ?tp(
-                warning,
-                sessds_new_stream_notification_for_undefined_subscription,
-                #{topic_filter => TopicFilter}
-            ),
-            Session0;
-        Subscription ->
-            ?tp(debug, sessds_renew_streams, #{topic_filter => TopicFilter}),
-            Session1 = #{s := S1, stream_scheduler_s := SchedS0} = stream_housekeeping(Session0),
-            %% Renew streams for the topic-filter:
-            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:renew_streams(
-                TopicFilter, Subscription, S1, SchedS0
-            ),
-            Session = Session1#{s := S, stream_scheduler_s := SchedS},
-            %% Launch push loop to get data from the new streams:
-            push_now(Session)
-    end.
-
-stream_housekeeping(Session) ->
-    #{s := S0, shared_sub_s := SharedSubS0} = Session,
-    %% `gc' and `renew_streams' methods may drop unsubscribed streams.
-    %% Shared subscription handler must have a chance to see
-    %% unsubscribed streams in the fully replayed state.
-    {S1, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_gc(
-        S0, SharedSubS0
-    ),
-    %% Take the opportunity to remove obsolete stream states:
-    S = emqx_persistent_session_ds_subs:gc(S1),
-    Session#{s := S, shared_sub_s := SharedSubS}.
-
-%%--------------------------------------------------------------------
-
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
 disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo) ->
     S1 = maybe_set_offline_info(S0, Id),
@@ -902,11 +847,11 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
     {shutdown, commit(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, Session = #{s := S0, id := Id}) ->
+terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
     _ = commit(Session#{s := S}),
-    ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
+    ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
 %%--------------------------------------------------------------------
