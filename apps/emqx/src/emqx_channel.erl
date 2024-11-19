@@ -72,8 +72,14 @@
     prepare_will_message_for_publishing/2
 ]).
 
-%% Exports for CT
--export([set_field/3]).
+%% Exports for tests
+-ifdef(TEST).
+-export([
+    dummy/0,
+    set_field/3,
+    set_log_meta/2
+]).
+-endif.
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -export([basic_trace_attrs/1]).
@@ -1992,8 +1998,33 @@ fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
     Username = maps:get(username, ClientInfo, undefined),
-    emqx_logger:set_metadata_clientid(ClientId),
-    emqx_logger:set_metadata_username(Username).
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+    Tns0 = maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined),
+    %% No need to add Tns to log metadata if it's aready a prefix is client ID
+    %% Or if it's the username.
+    Tns =
+        case is_clientid_namespaced(ClientId, Tns0) orelse Username =:= Tns0 of
+            true ->
+                undefined;
+            false ->
+                Tns0
+        end,
+    Meta0 = [{clientid, ClientId}, {username, Username}, {tns, Tns}],
+    %% Drop undefined or <<>>
+    Meta = lists:filter(fun({_, V}) -> V =/= undefined andalso V =/= <<>> end, Meta0),
+    emqx_logger:set_proc_metadata(maps:from_list(Meta)).
+
+%% clientid_override is an expression which is free to set tns as a prefix, suffix or whatsoever,
+%% but as a best-effort log metadata optimization, we only check for prefix
+is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> ->
+    case ClientId of
+        <<Tns:(size(Tns))/binary, _/binary>> ->
+            true;
+        _ ->
+            false
+    end;
+is_clientid_namespaced(_ClientId, _Tns) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Check banned
@@ -3197,6 +3228,10 @@ subscribe_authz_result_attrs(CheckResult) ->
 %% For CT tests
 %%--------------------------------------------------------------------
 
+-ifdef(TEST).
+dummy() -> #channel{}.
+
 set_field(Name, Value, Channel) ->
     Pos = emqx_utils:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
+-endif.
