@@ -8,11 +8,13 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include("emqx_persistent_session_ds/session_internals.hrl").
 
 -include("emqx_persistent_message.hrl").
 
@@ -31,9 +33,6 @@
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
-
-suite() ->
-    [{timetrap, {seconds, 60}}].
 
 all() ->
     [
@@ -224,6 +223,18 @@ cluster(#{n := N} = Opts) ->
         end,
         lists:seq(1, N)
     ).
+
+app_specs() ->
+    app_specs(_Opts = #{}).
+
+app_specs(Opts) ->
+    DefaultEMQXConf =
+        "durable_sessions {enable = true}\n"
+        "durable_storage.messages.local_write_buffer {max_items = 1, flush_interval = 1ms}\n",
+    ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
+    [
+        {emqx, DefaultEMQXConf ++ ExtraEMQXConf}
+    ].
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
@@ -512,14 +523,11 @@ t_subscription_state_change(Config) ->
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    %% Helper function that forces session to perform stream renewal.
-    %% In the current implementation it also causes garbage collection
-    %% of session states:
+    %% Helper function that forces session to perform garbage
+    %% collection. In the current implementation it happens before
+    %% session state is synced to the DB:
     WaitGC = fun() ->
-        ?wait_async_action(
-            emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}
-        )
+        emqx_persistent_session_ds:sync(ClientId)
     end,
     %% Helper function that gets runtime state of the session:
     GetS = fun() ->
@@ -588,8 +596,6 @@ t_new_stream_notifications(Config) ->
     [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    TopicFilter1 = <<"foo/+">>,
-    TopicFilter2 = <<"bar">>,
     ?check_trace(
         #{timetrap => 30_000},
         begin
@@ -599,12 +605,12 @@ t_new_stream_notifications(Config) ->
             %% 1. Sessions should start watching streams when they
             %% subscribe to the topics:
             ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter1, ?QOS_1),
-                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter1}
+                {ok, _, _} = emqtt:subscribe(Sub0, <<"foo/+">>, ?QOS_1),
+                #{?snk_kind := sessds_watch_streams, topic_filter := [<<"foo">>, '+']}
             ),
             ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter2, ?QOS_1),
-                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter2}
+                {ok, _, _} = emqtt:subscribe(Sub0, <<"bar">>, ?QOS_1),
+                #{?snk_kind := sessds_watch_streams, topic_filter := [<<"bar">>]}
             ),
             %% 2. Sessions should re-subscribe to the events after
             %% reconnect:
@@ -619,28 +625,28 @@ t_new_stream_notifications(Config) ->
             %% Verify that both subscriptions have been renewed:
             {ok, EventsAfterRestart} = snabbkaffe:receive_events(SNKsub),
             ?assertMatch(
-                [<<"bar">>, <<"foo/+">>],
+                [[<<"bar">>], [<<"foo">>, '+']],
                 lists:sort(?projection(topic_filter, EventsAfterRestart))
             ),
             %% Verify that stream notifications are handled:
             ?wait_async_action(
                 emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"bar">>]),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"bar">>}
+                #{?snk_kind := sessds_renew_streams, topic_filter := [<<"bar">>]}
             ),
             ?wait_async_action(
                 emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"foo">>, <<"1">>]),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+                #{?snk_kind := sessds_renew_streams, topic_filter := [<<"foo">>, '+']}
             ),
             %% Verify that new stream subscriptions are removed when
             %% session unsubscribes from a topic:
             ?wait_async_action(
-                emqtt:unsubscribe(Sub1, TopicFilter2),
-                #{?snk_kind := sessds_unwatch_streams, topic_filter := <<"bar">>}
+                emqtt:unsubscribe(Sub1, <<"bar">>),
+                #{?snk_kind := sessds_unwatch_streams, topic_filter := [<<"bar">>]}
             ),
             %% But the rest of subscriptions are still active:
             ?wait_async_action(
                 emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+                #{?snk_kind := sessds_renew_streams, topic_filter := [<<"foo">>, '+']}
             )
         end,
         fun(Trace) ->
@@ -652,6 +658,53 @@ t_new_stream_notifications(Config) ->
             )
         end
     ).
+
+t_fuzz(_Config) ->
+    snabbkaffe:fix_ct_logging(),
+    %% NOTE: we set timeout at the lower level to capture the trace
+    %% and have a nicer error message.
+    ?run_prop(
+        #{proper => #{timeout => 3_000_000, numtests => 100, max_size => 1000, start_size => 100}},
+        ?forall_trace(
+            Cmds,
+            proper_statem:commands(emqx_persistent_session_ds_fuzzer),
+            #{timetrap => 60_000},
+            try
+                %% Initialize DS:
+                ok = emqx_persistent_message:init(),
+                %% FIXME: get_streams troubleshooting
+                timer:sleep(1000),
+                %% FIXME: this should not be needed, but some crap is
+                %% left behind sometimes.
+                emqx_persistent_session_ds_fuzzer:cleanup(),
+                %% Run test:
+                {_History, State, Result} = proper_statem:run_commands(
+                    emqx_persistent_session_ds_fuzzer, Cmds
+                ),
+                SessState = emqx_persistent_session_ds_fuzzer:sut_state(),
+                Result =:= ok orelse
+                    begin
+                        logger:error("*** Commands:~n~s~n", [
+                            emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                        ]),
+                        logger:error("*** Model state:~n  ~p~n", [State]),
+                        logger:error("*** Session state:~n  ~p~n", [SessState]),
+                        logger:error("*** Result:~n  ~p~n", [Result]),
+                        error(Result)
+                    end
+            after
+                ok = emqx_persistent_session_ds_fuzzer:cleanup(),
+                ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)
+            end,
+            [
+                fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
+                %% fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1,
+                fun no_abnormal_session_terminate/1
+                | emqx_persistent_session_ds:trace_specs()
+            ]
+        )
+    ),
+    snabbkaffe:stop().
 
 t_session_discard_persistent_to_non_persistent(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -1120,6 +1173,25 @@ t_session_gc_will_message(_Config) ->
     ok.
 
 %% Trace specifications:
+
+%% @doc Verify that sessions didn't terminate abnormally. Note: it's
+%% not part of emqx_persistent_session_ds:trace_props because,
+%% strictly speaking, in the real world session may be terminated for
+%% many reasons.
+no_abnormal_session_terminate(Trace) ->
+    lists:foreach(
+        fun
+            (#{?snk_kind := ?sessds_terminate} = E) ->
+                case E of
+                    #{reason := takenover} -> ok;
+                    #{reason := kicked} -> ok;
+                    #{reason := {shutdown, tcp_closed}} -> ok
+                end;
+            (_) ->
+                ok
+        end,
+        Trace
+    ).
 
 check_stream_state_transitions(Trace) ->
     %% Check sequence of state transitions for each stream replay
