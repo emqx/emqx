@@ -52,6 +52,11 @@
     add_generation/2,
     list_generations_with_lifetimes/1,
     drop_generation/2,
+    find_generation/2,
+
+    %% Globals
+    store_global/3,
+    fetch_global/2,
 
     %% Snapshotting
     flush/1,
@@ -63,7 +68,15 @@
 ]).
 
 %% gen_server
--export([init/1, format_status/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([
+    init/1,
+    format_status/1,
+    handle_continue/2,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2
+]).
 
 %% internal exports:
 -export([db_dir/1, base_dir/0]).
@@ -128,6 +141,12 @@
 -type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
+-type gen_info() :: #{
+    created_at := emqx_ds:time(),
+    since := emqx_ds:time(),
+    until := undefined | emqx_ds:time(),
+    _ => _
+}.
 
 -type batch() :: [
     {emqx_ds:time(), emqx_types:message()}
@@ -228,7 +247,9 @@
     %% This data is used to create new generation:
     prototype := prototype(),
     %% Generations:
-    ?GEN_KEY(gen_id()) => GenData
+    ?GEN_KEY(gen_id()) => GenData,
+    %% DB handle (runtime only).
+    db => rocksdb:db_handle()
 }.
 
 %% Shard schema (persistent):
@@ -236,6 +257,8 @@
 
 %% Shard (runtime):
 -type shard() :: shard(generation()).
+
+-define(GLOBAL(K), <<"G/", K/binary>>).
 
 -type options() :: map().
 
@@ -662,6 +685,54 @@ delete_next(
             {ok, end_of_stream}
     end.
 
+%% @doc Persist a bunch of key/value pairs in the storage globally, in the "outside
+%% of specific generation" sense. Once persisted, values can be read back by calling
+%% `fetch_global/2`.
+%%
+%% Adding or dropping generations won't affect persisted key/value pairs, hence the
+%% purpose: keep state that needs to be tied to the shard itself and outlive any
+%% generation.
+%%
+%% This operation is idempotent, previous values associated with existing keys are
+%% overwritten. While atomicity of the operation can be specifically requested through
+%% `atomic` option, it is atomic by default: either all of pairs are persisted, or none
+%% at all. Writes are durable by default, but this is optional, see `batch_store_opts()`
+%% for details.
+-spec store_global(shard_id(), _KVs :: #{binary() => binary()}, batch_store_opts()) ->
+    ok | emqx_ds:error(_).
+store_global(ShardId, KVs, Options) ->
+    #{db := DB} = get_schema_runtime(ShardId),
+    {ok, Batch} = rocksdb:batch(),
+    try
+        ok = maps:foreach(fun(K, V) -> rocksdb:batch_put(Batch, ?GLOBAL(K), V) end, KVs),
+        WriteOpts = [{disable_wal, not maps:get(durable, Options, true)}],
+        Result = rocksdb:write_batch(DB, Batch, WriteOpts),
+        case Result of
+            ok ->
+                ok;
+            {error, {error, Reason}} ->
+                {error, unrecoverable, {rocksdb, Reason}}
+        end
+    after
+        rocksdb:release_batch(Batch)
+    end.
+
+%% @doc Retrieve a value for a single key from the storage written there previously by
+%% `store_global/3`.
+-spec fetch_global(shard_id(), _Key :: binary()) ->
+    {ok, _Value :: binary()} | not_found | emqx_ds:error(_).
+fetch_global(ShardId, K) ->
+    #{db := DB} = get_schema_runtime(ShardId),
+    Result = rocksdb:get(DB, ?GLOBAL(K), _ReadOpts = []),
+    case Result of
+        {ok, _} ->
+            Result;
+        not_found ->
+            Result;
+        {error, Reason} ->
+            {error, unrecoverable, {rocksdb, Reason}}
+    end.
+
 -spec update_config(shard_id(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
     ok | {error, overlaps_existing_generations}.
 update_config(ShardId, Since, Options) ->
@@ -684,19 +755,22 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
     end.
 
 -spec list_generations_with_lifetimes(shard_id()) ->
-    #{
-        gen_id() => #{
-            created_at := emqx_ds:time(),
-            since := emqx_ds:time(),
-            until := undefined | emqx_ds:time()
-        }
-    }.
+    #{gen_id() => gen_info()}.
 list_generations_with_lifetimes(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
 -spec drop_generation(shard_id(), gen_id()) -> ok | {error, _}.
 drop_generation(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
+
+-spec find_generation(shard_id(), current | _At :: emqx_ds:time()) ->
+    {gen_id(), gen_info()} | not_found.
+find_generation(ShardId, current) ->
+    GenId = generation_current(ShardId),
+    GenData = #{} = generation_get(ShardId, GenId),
+    {GenId, GenData};
+find_generation(ShardId, AtTime) ->
+    generation_at(ShardId, AtTime).
 
 -spec shard_info(shard_id(), status) -> running | down.
 shard_info(ShardId, status) ->
@@ -774,7 +848,53 @@ init({ShardId, Options}) ->
     },
     commit_metadata(S),
     ?tp(debug, ds_storage_init_state, #{shard => ShardId, s => S}),
-    {ok, S}.
+    {ok, S, {continue, clean_orphans}}.
+
+handle_continue(
+    clean_orphans,
+    S = #s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema}
+) ->
+    %% Add / drop generation are not transactional.
+    %% This means that the storage may contain "orphaned" column families, i.e.
+    %% column families that do not belong to a live generation. We need to clean
+    %% them, because an attempt to create existing column family is an error,
+    %% therefore `add_generation/2` is not idempotent. Cleaning seems to be safe:
+    %% either it's unfinished `handle_add_generation/2` meaning CFs are empty, or
+    %% it's unfinished `handle_drop_generation/2` meaning CFs was meant to be
+    %% dropped anyway.
+    CFNames = maps:fold(
+        fun
+            (?GEN_KEY(_), #{cf_names := GenCFNames}, Acc) ->
+                GenCFNames ++ Acc;
+            (_Prop, _, Acc) ->
+                Acc
+        end,
+        [],
+        Schema
+    ),
+    OrphanedCFRefs = lists:foldl(fun proplists:delete/2, CFRefs, CFNames),
+    case OrphanedCFRefs of
+        [] ->
+            {noreply, S};
+        [_ | _] ->
+            lists:foreach(
+                fun({CFName, CFHandle}) ->
+                    Result = rocksdb:drop_column_family(DB, CFHandle),
+                    ?tp(
+                        warning,
+                        ds_storage_layer_dropped_orphaned_column_family,
+                        #{
+                            shard => ShardId,
+                            orphan => CFName,
+                            result => Result,
+                            s => format_state(S)
+                        }
+                    )
+                end,
+                OrphanedCFRefs
+            ),
+            {noreply, S#s{cf_refs = CFRefs -- OrphanedCFRefs}}
+    end.
 
 format_status(Status) ->
     maps:map(
@@ -857,7 +977,7 @@ clear_all_checkpoints(ShardId) ->
     shard().
 open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     %% Transform generation schemas to generation runtime data:
-    maps:map(
+    Shard = maps:map(
         fun
             (?GEN_KEY(GenId), GenSchema) ->
                 open_generation(ShardId, DB, CFRefs, GenId, GenSchema);
@@ -865,7 +985,8 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
                 Val
         end,
         ShardSchema
-    ).
+    ),
+    Shard#{db => DB}.
 
 -spec handle_add_generation(server_state(), emqx_ds:time()) ->
     server_state() | {error, overlaps_existing_generations}.

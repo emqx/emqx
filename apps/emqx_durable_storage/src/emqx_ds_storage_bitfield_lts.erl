@@ -607,11 +607,13 @@ lookup_message(
     S = #s{db = DB, data = CF},
     #message_matcher{topic = Topic, timestamp = Timestamp}
 ) ->
-    {Key, _} = make_key(S, Timestamp, Topic),
-    case rocksdb:get(DB, CF, Key, _ReadOpts = []) of
+    Key = lookup_key(S, Timestamp, Topic),
+    case is_binary(Key) andalso rocksdb:get(DB, CF, Key, _ReadOpts = []) of
         {ok, Blob} ->
             deserialize(Blob);
         not_found ->
+            not_found;
+        false ->
             not_found;
         Error ->
             {error, unrecoverable, {rocksdb, Error}}
@@ -921,21 +923,43 @@ format_key(KeyMapper, Key) ->
 make_key(#s{keymappers = KeyMappers, trie = Trie, threshold_fun = TFun}, Timestamp, Topic) ->
     Tokens = emqx_topic:words(Topic),
     {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
-    VaryingHashes = [hash_topic_level(I) || I <- Varying],
-    KeyMapper = array:get(length(Varying), KeyMappers),
-    KeyBin = make_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes),
+    KeyBin = make_key(KeyMappers, Timestamp, TopicIndex, Varying),
     {KeyBin, Varying}.
 
--spec make_key(emqx_ds_bitmask_keymapper:keymapper(), emqx_ds_lts:static_key(), emqx_ds:time(), [
-    non_neg_integer()
-]) ->
+-spec lookup_key(s(), emqx_ds:time(), emqx_types:topic()) -> binary() | undefined.
+lookup_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, Topic) ->
+    Tokens = emqx_topic:words(Topic),
+    case emqx_ds_lts:lookup_topic_key(Trie, Tokens) of
+        {ok, {TopicIndex, Varying}} ->
+            make_key(KeyMappers, Timestamp, TopicIndex, Varying);
+        undefined ->
+            undefined
+    end.
+
+-spec make_key(
+    array:array(emqx_ds_bitmask_keymapper:keymapper()),
+    emqx_ds:time(),
+    emqx_ds_lts:static_key(),
+    [emqx_ds_lts:varying()]
+) ->
     binary().
-make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
+make_key(KeyMappers, Timestamp, TopicIndex, Varying) ->
+    VaryingHashes = [hash_topic_level(I) || I <- Varying],
+    KeyMapper = array:get(length(Varying), KeyMappers),
+    map_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes).
+
+-spec map_key(
+    emqx_ds_bitmask_keymapper:keymapper(),
+    emqx_ds_lts:static_key(),
+    emqx_ds:time(),
+    [non_neg_integer()]
+) ->
+    binary().
+map_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
+    Vector = [TopicIndex, Timestamp | Varying],
     emqx_ds_bitmask_keymapper:key_to_bitstring(
         KeyMapper,
-        emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, [
-            TopicIndex, Timestamp | Varying
-        ])
+        emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, Vector)
     ).
 
 hash_topic_level('') ->

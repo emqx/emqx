@@ -414,7 +414,7 @@ lookup_message(
                 not_found ->
                     not_found;
                 {error, Reason} ->
-                    {error, unrecoverable, Reason}
+                    {error, unrecoverable, {rocksdb, Reason}}
             end;
         undefined ->
             not_found
