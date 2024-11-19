@@ -47,7 +47,7 @@
 }).
 
 -record(new_stream_event, {
-    subref :: reference()
+    subref :: emqx_ds_new_streams:watch()
 }).
 
 -endif.
