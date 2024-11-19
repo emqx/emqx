@@ -434,12 +434,14 @@ subscribe(
 subscribe(
     TopicFilter,
     SubOpts,
-    Session0
+    Session0 = #{stream_scheduler_s := SchedS0}
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {ok, S1, NewStreamSubs} ->
-            Session1 = Session0#{s := S1, new_stream_subs := NewStreamSubs},
-            Session = renew_streams(TopicFilter, Session1),
+        {ok, S1, Subscription} ->
+            {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
+                TopicFilter, Subscription, S1, SchedS0
+            ),
+            Session = Session0#{s := S, stream_scheduler_s := SchedS},
             {ok, commit(Session)};
         Error = {error, _} ->
             Error
@@ -469,20 +471,14 @@ unsubscribe(
     end;
 unsubscribe(
     TopicFilter,
-    Session0 = #{
-        id := SessionId, s := S0, stream_scheduler_s := SchedS0, new_stream_subs := NewStreamSubs0
-    }
+    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
 ) ->
-    case
-        emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0, NewStreamSubs0)
-    of
-        {ok, S1, NewStreamSubs, #{id := SubId, subopts := SubOpts}} ->
+    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
+        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
             {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                SubId, S1, SchedS0
+                TopicFilter, SubId, S1, SchedS0
             ),
-            Session = Session0#{
-                s := S, stream_scheduler_s := SchedS, new_stream_subs := NewStreamSubs
-            },
+            Session = Session0#{s := S, stream_scheduler_s := SchedS},
             {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
@@ -710,17 +706,18 @@ handle_info(
     push_now_if(NeedPush, Session);
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     push_now(handle_ds_reply(AsyncReply, Session, ClientInfo));
-handle_info(#new_stream_event{subref = Ref}, Session, _ClientInfo) ->
-    #{new_stream_subs := Subs} = Session,
-    case Subs of
-        #{Ref := TopicFilter} ->
-            renew_streams(TopicFilter, Session);
-        _ ->
-            ?tp(warning, sessds_unexpected_stream_notification, #{ref => Ref}),
-            Session
-    end;
+handle_info(
+    #new_stream_event{subref = Ref},
+    Session = #{s := S0, stream_scheduler_s := SchedS0},
+    _ClientInfo
+) ->
+    %% Handle DS notification about new streams:
+    {_NewStreams, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_new_stream_event(
+        Ref, S0, SchedS0
+    ),
+    push_now(Session#{s := S, stream_scheduler_s := SchedS});
 handle_info(Msg, Session, _ClientInfo) ->
-    ?SLOG(warning, #{msg => emqx_session_ds_unknown_message, message => Msg}),
+    ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
     Session.
 
 %%--------------------------------------------------------------------
@@ -737,9 +734,9 @@ replay(ClientInfo, [], Session0 = #{s := S0}) ->
     Session = replay_streams(Session0#{replay := Streams}, ClientInfo),
     {ok, [], Session}.
 
-replay_streams(Session0 = #{replay := [{StreamKey, Srs0} | Rest]}, ClientInfo) ->
-    case replay_batch(StreamKey, Srs0, Session0, ClientInfo) of
-        {ok, _Srs, Session} ->
+replay_streams(Session0 = #{replay := [{StreamKey, SRS0} | Rest]}, ClientInfo) ->
+    case replay_batch(StreamKey, SRS0, Session0, ClientInfo) of
+        {ok, _SRS, Session} ->
             replay_streams(Session#{replay := Rest}, ClientInfo);
         {error, recoverable, Reason} ->
             RetryTimeout = ?TIMEOUT_RETRY_REPLAY,
@@ -752,7 +749,7 @@ replay_streams(Session0 = #{replay := [{StreamKey, Srs0} | Rest]}, ClientInfo) -
             }),
             set_timer(?TIMER_RETRY_REPLAY, RetryTimeout, Session0);
         {error, unrecoverable, Reason} ->
-            Session1 = skip_batch(StreamKey, Srs0, Session0, ClientInfo, Reason),
+            Session1 = skip_batch(StreamKey, SRS0, Session0, ClientInfo, Reason),
             replay_streams(Session1#{replay := Rest}, ClientInfo)
     end;
 replay_streams(Session = #{replay := []}, _ClientInfo) ->
@@ -1009,7 +1006,7 @@ ensure_new_session_state(
 session_drop(SessionId, Reason) ->
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
-            ?tp(debug, drop_persistent_session, #{client_id => SessionId, reason => Reason}),
+            ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
             ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
             ok = emqx_persistent_session_ds_state:delete(SessionId);
         undefined ->
