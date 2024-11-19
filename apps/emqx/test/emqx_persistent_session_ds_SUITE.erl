@@ -285,15 +285,23 @@ list_all_pubranges(Node) ->
     erpc:call(Node, emqx_persistent_session_ds, list_all_pubranges, []).
 
 session_open(Node, ClientId) ->
-    ClientInfo = #{},
+    ClientInfo = #{clientid => ClientId},
     ConnInfo = #{peername => {undefined, undefined}, proto_name => <<"MQTT">>, proto_ver => 5},
     WillMsg = undefined,
-    erpc:call(
+    Conf = #{
+        max_subscriptions => infinity,
+        max_awaiting_rel => infinity,
+        upgrade_qos => false,
+        retry_interval => 10,
+        await_rel_timeout => infinity
+    },
+    {_, Sess, _} = erpc:call(
         Node,
         emqx_persistent_session_ds,
-        session_open,
-        [ClientId, ClientInfo, ConnInfo, WillMsg]
-    ).
+        open,
+        [ClientInfo, ConnInfo, WillMsg, Conf]
+    ),
+    Sess.
 
 force_last_alive_at(ClientId, Time) ->
     {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
