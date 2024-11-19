@@ -784,10 +784,23 @@ replay_batch(StreamKey, Srs0, Session0, ClientInfo) ->
     case enqueue_batch(true, Session0, ClientInfo, StreamKey, ItBegin, FetchResult) of
         {ok, Srs, Session} ->
             %% Assert:
-            Srs =:= Srs0 orelse
-                ?tp(warning, emqx_persistent_session_ds_replay_inconsistency, #{
+            %%
+            %% FIXME: don't ignore the end iterator. Currently there
+            %% are bogus replay inconsistency warnings that happen
+            %% because `end_iterator' returned by `scan_stream' (a
+            %% call used by beamformer) and the end iterator of `next'
+            %% (a call used during replay) may point at different
+            %% keys. Namely, `scan_stream' returns key at the tip of
+            %% the combined batch, and `next' returns key at the tip
+            %% of the normal batch. This is (believed to be) harmless.
+            %% Using `end_of_stream' as a replacement token to satisfy
+            %% Dialyzer.
+            Srs#srs{it_end = end_of_stream} =:= Srs0#srs{it_end = end_of_stream} orelse
+                ?tp(warning, ?sessds_replay_inconsistency, #{
                     expected => Srs0,
-                    got => Srs
+                    got => Srs,
+                    sess => Session,
+                    batch => FetchResult
                 }),
             {ok, Srs, Session};
         {{error, _, _} = Error, _Srs, _Session} ->
