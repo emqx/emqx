@@ -258,7 +258,7 @@ init(S0) ->
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
     SchedS = emqx_persistent_session_ds_state:fold_streams(
         fun(Key, Srs, Acc) ->
-            ?tp(sessds_stream_state_trans, #{key => Key, to => '$restore'}),
+            ?tp(?sessds_stream_state_trans, #{key => Key, to => '$restore'}),
             case derive_state(Comm1, Comm2, Srs) of
                 r -> to_RU(Key, Srs, Acc);
                 u -> to_U(Key, Srs, Acc);
@@ -335,7 +335,7 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{subs = Subs}) ->
     case SchedS0#s.new_stream_subs of
         #{Ref := TopicFilterBin} ->
             #{TopicFilterBin := SubS0} = Subs,
-            ?tp(sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
+            ?tp(?sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
             TopicFilter = emqx_topic:words(TopicFilterBin),
             Subscription =
                 #{start_time := StartTime} = emqx_persistent_session_ds_state:get_subscription(
@@ -349,7 +349,7 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{subs = Subs}) ->
             SchedS = to_RU(NewSRSIds, SchedS1),
             {NewSRSIds, S, SchedS};
         _ ->
-            ?tp(warning, sessds_unexpected_stream_notification, #{ref => Ref}),
+            ?tp(warning, ?sessds_unexpected_stream_notification, #{ref => Ref}),
             {[], S0, SchedS0}
     end.
 
@@ -386,7 +386,7 @@ on_ds_reply(
 ) ->
     case maps:take(StreamKey, Pending0) of
         {#pending_poll{ref = Ref, it_begin = ItBegin}, Pending} ->
-            ?tp(debug, sess_poll_reply, #{ref => Ref, stream_key => StreamKey}),
+            ?tp(debug, ?sessds_poll_reply, #{ref => Ref, stream_key => StreamKey}),
             SchedS = SchedS0#s{pending = Pending},
             {{StreamKey, ItBegin, Payload}, to_S(StreamKey, SchedS)};
         _ ->
@@ -442,7 +442,7 @@ on_seqno_release(?QOS_1, SnQ1, S, SchedS0 = #s{bq1 = PrimaryTab0, bq2 = Secondar
             unblock_stream(Key, Srs, S, SchedS0#s{bq1 = PrimaryTab});
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
-            ?tp(sessds_stream_state_trans, #{
+            ?tp(?sessds_stream_state_trans, #{
                 key => Key,
                 to => bq2
             }),
@@ -459,7 +459,7 @@ on_seqno_release(?QOS_2, SnQ2, S, SchedS0 = #s{bq2 = PrimaryTab0, bq1 = Secondar
             unblock_stream(Key, Srs, S, SchedS0#s{bq2 = PrimaryTab});
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
-            ?tp(sessds_stream_state_trans, #{
+            ?tp(?sessds_stream_state_trans, #{
                 key => Key,
                 to => bq1
             }),
@@ -655,7 +655,7 @@ init_for_subscription(
 ) ->
     {[stream_key()], emqx_persistent_session_ds_state:t(), subs()}.
 renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
-    ?tp(sessds_sched_renew_streams, #{topic_filter => TopicFilter}),
+    ?tp(?sessds_sched_renew_streams, #{topic_filter => TopicFilter}),
     {NewSRSIds, S, Pending} =
         maps:fold(
             fun(RankX, YStreamL, {AccNewSRSIds, AccS0, AccPendingStreams}) ->
@@ -672,8 +672,9 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
             StreamMap
         ),
     SubState = SubState0#subs{pending_streams = Pending},
-    ?tp_ignore_side_effects_in_prod(
-        sessds_sched_new_stream_state,
+    ?tp(
+        debug,
+        ?sessds_sched_renew_streams_result,
         #{
             topic => TopicFilter,
             all_streams => StreamMap,
@@ -872,7 +873,7 @@ derive_state(Comm1, Comm2, SRS) ->
 to_RU(L, SchedS = #s{ready = R}) ->
     lists:foreach(
         fun(Key) ->
-            ?tp(sessds_stream_state_trans, #{
+            ?tp(?sessds_stream_state_trans, #{
                 key => Key,
                 to => r
             })
@@ -890,7 +891,7 @@ to_RU(_Key, #srs{it_end = end_of_stream}, S) ->
 to_RU(Key, Srs = #srs{unsubscribed = true}, S) ->
     to_U(Key, Srs, S);
 to_RU(Key, _Srs, S = #s{ready = R}) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => r
     }),
@@ -898,7 +899,7 @@ to_RU(Key, _Srs, S = #s{ready = R}) ->
 
 -spec to_P(stream_key(), pending(), t()) -> t().
 to_P(Key, Pending, S = #s{pending = P}) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => p
     }),
@@ -906,7 +907,7 @@ to_P(Key, Pending, S = #s{pending = P}) ->
 
 -spec to_BQ1(stream_key(), srs(), t()) -> t().
 to_BQ1(Key, SRS, S = #s{bq1 = BQ1}) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => bq1
     }),
@@ -915,7 +916,7 @@ to_BQ1(Key, SRS, S = #s{bq1 = BQ1}) ->
 
 -spec to_BQ2(stream_key(), srs(), t()) -> t().
 to_BQ2(Key, SRS, S = #s{bq2 = BQ2}) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => bq1
     }),
@@ -924,7 +925,7 @@ to_BQ2(Key, SRS, S = #s{bq2 = BQ2}) ->
 
 -spec to_BQ12(stream_key(), srs(), t()) -> t().
 to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => bq12
     }),
@@ -937,7 +938,7 @@ to_U(
     #srs{},
     S = #s{ready = R, pending = P}
 ) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => u
     }),
@@ -950,7 +951,7 @@ to_U(
 
 -spec to_S(stream_key(), t()) -> t().
 to_S(Key, S) ->
-    ?tp(sessds_stream_state_trans, #{
+    ?tp(?sessds_stream_state_trans, #{
         key => Key,
         to => s
     }),
@@ -1044,12 +1045,12 @@ is_track_acked(?QOS_2, Committed, #srs{first_seqno_qos2 = First, last_seqno_qos2
     First =:= Last orelse Committed >= Last.
 
 watch_streams(TopicFilter) ->
-    ?tp(sessds_watch_streams, #{topic_filter => TopicFilter}),
+    ?tp(?sessds_sched_watch_streams, #{topic_filter => TopicFilter}),
     {ok, Ref} = emqx_ds_new_streams:watch(?PERSISTENT_MESSAGE_DB, TopicFilter),
     Ref.
 
 unwatch_streams(TopicFilterBin, Ref, NewStreamSubs) ->
-    ?tp(debug, sessds_unwatch_streams, #{
+    ?tp(debug, ?sessds_sched_unwatch_streams, #{
         topic_filter => emqx_topic:words(TopicFilterBin), ref => Ref
     }),
     emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
