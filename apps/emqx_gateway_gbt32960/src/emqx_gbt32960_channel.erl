@@ -219,8 +219,9 @@ handle_in(
     case
         emqx_utils:pipeline(
             [
-                fun enrich_clientinfo/2,
                 fun enrich_conninfo/2,
+                fun run_conn_hooks/2,
+                fun enrich_clientinfo/2,
                 fun set_log_meta/2,
                 %% TODO: How to implement the banned in the gateway instance?
                 %, fun check_banned/2
@@ -567,6 +568,19 @@ enrich_conninfo(
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
+run_conn_hooks(
+    Packet,
+    Channel = #channel{
+        ctx = Ctx,
+        conninfo = ConnInfo
+    }
+) ->
+    ConnProps = #{},
+    case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
+        Error = {error, _Reason} -> Error;
+        _NConnProps -> {ok, Packet, Channel}
+    end.
+
 set_log_meta(_Packet, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
     ok.
@@ -691,6 +705,10 @@ ensure_disconnected(
 run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run(Name, Args).
+
+run_hooks(Ctx, Name, Args, Acc) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run_fold(Name, Args, Acc).
 
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.

@@ -239,6 +239,8 @@ case01_register(Config) ->
     MsgId = 12,
     SubTopic = list_to_binary("lwm2m/" ++ Epn ++ "/dn/#"),
 
+    emqx_gateway_test_utils:meck_emqx_hook_calls(),
+
     test_send_coap_request(
         UdpSock,
         post,
@@ -251,7 +253,13 @@ case01_register(Config) ->
         MsgId
     ),
 
-    %% checkpoint 1 - response
+    %% checkpoint 1 - called client.connect hook
+    ?assertMatch(
+        ['client.connect' | _],
+        emqx_gateway_test_utils:collect_emqx_hooks_calls()
+    ),
+
+    %% checkpoint 2 - response
     #coap_message{type = Type, method = Method, id = RspId, options = Opts} =
         test_recv_coap_response(UdpSock),
     ack = Type,
@@ -260,7 +268,7 @@ case01_register(Config) ->
     Location = maps:get(location_path, Opts),
     ?assertNotEqual(undefined, Location),
 
-    %% checkpoint 2 - verify subscribed topics
+    %% checkpoint 3 - verify subscribed topics
     timer:sleep(100),
     ?LOGT("all topics: ~p", [test_mqtt_broker:get_subscrbied_topics()]),
     true = lists:member(SubTopic, test_mqtt_broker:get_subscrbied_topics()),
