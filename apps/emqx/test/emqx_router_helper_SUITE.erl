@@ -168,13 +168,14 @@ t_cluster_node_down(Config) ->
     emqx_router:add_route(<<"down/b/#">>, ClusterNode),
     emqx_router:add_route(<<"test/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
-    ok = emqx_cth_cluster:stop([ClusterNode]),
-    {scheduled, {ok, _}} = ?wait_async_action(
-        %% The same as what would have happened after dead node timeout had passed.
-        emqx_router_helper:purge_force(),
-        #{?snk_kind := emqx_router_node_purged, node := ClusterNode},
-        3_000
+    {ok, SRef} = snabbkaffe:subscribe(
+        %% Should be purged after ~2 reconciliations.
+        ?match_event(#{?snk_kind := emqx_router_node_purged, node := ClusterNode}),
+        1,
+        10_000
     ),
+    ok = emqx_cth_cluster:stop([ClusterNode]),
+    {ok, _Event} = snabbkaffe:receive_events(SRef),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
 t_cluster_node_restart('init', Config) ->

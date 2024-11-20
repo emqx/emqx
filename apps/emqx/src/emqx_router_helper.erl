@@ -64,6 +64,15 @@
 %% This is a fallback, left node is expected to be purged right away.
 -define(PURGE_LEFT_TIMEOUT, 15_000).
 
+-ifdef(TEST).
+-undef(RECONCILE_INTERVAL).
+-undef(PURGE_DEAD_TIMEOUT).
+-undef(PURGE_LEFT_TIMEOUT).
+-define(RECONCILE_INTERVAL, {2_000, '±', 500}).
+-define(PURGE_DEAD_TIMEOUT, 3_000).
+-define(PURGE_LEFT_TIMEOUT, 1_000).
+-endif.
+
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
