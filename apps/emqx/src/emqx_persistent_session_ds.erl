@@ -1539,7 +1539,7 @@ update_seqno(
         {ok, Inflight} ->
             %% TODO: we pass a bogus message into the hook:
             Msg = emqx_message:make(SessionId, <<>>, <<>>),
-            {ReadyStreams, S, SchedS} =
+            {ReadyStreams, S1, SchedS} =
                 case Track of
                     puback ->
                         emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
@@ -1552,9 +1552,9 @@ update_seqno(
                     _ ->
                         {[], S0, SchedS0}
                 end,
-            S1 = emqx_persistent_session_ds_state:put_seqno(SeqNoKey, SeqNo, S0),
+            S2 = put_seqno(SeqNoKey, SeqNo, S1),
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S1, SharedSubS0, ReadyStreams
+                S2, SharedSubS0, ReadyStreams
             ),
             {ok, Msg, Session#{
                 s := put_seqno(SeqNoKey, SeqNo, S),
