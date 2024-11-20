@@ -581,7 +581,15 @@ t_fuzz(_Config) ->
     %% NOTE: we set timeout at the lower level to capture the trace
     %% and have a nicer error message.
     ?run_prop(
-        #{proper => #{timeout => 3_000_000, numtests => 100, max_size => 1000, start_size => 100}},
+        #{
+            proper => #{
+                timeout => 3_000_000,
+                numtests => 100,
+                max_size => 1000,
+                start_size => 100,
+                max_shrinks => 0
+            }
+        },
         ?forall_trace(
             Cmds,
             proper_statem:commands(emqx_persistent_session_ds_fuzzer),
@@ -615,7 +623,7 @@ t_fuzz(_Config) ->
             end,
             [
                 fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
-                %% fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1,
+                fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1,
                 fun no_abnormal_session_terminate/1
                 | emqx_persistent_session_ds:trace_specs()
             ]
