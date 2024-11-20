@@ -336,20 +336,25 @@ choose_timeout(Baseline) ->
 
 %%
 
+-spec am_core() -> boolean().
 am_core() ->
     mria_config:whoami() =/= replicant.
 
+-spec cores() -> [node()].
 cores() ->
     %% Include stopped nodes as well.
     mria_membership:nodelist().
 
+-spec pick_responsible(_Task) -> node().
 pick_responsible(Task) ->
     %% Pick a responsible core node.
     %% We expect the same node to be picked as responsible across the cluster (unless
     %% the cluster is highly turbulent).
     Nodes = lists:sort(mria_membership:running_core_nodelist()),
-    N = length(Nodes),
-    N > 0 andalso lists:nth(1 + erlang:phash2(Task, N), Nodes).
+    case length(Nodes) of
+        0 -> node();
+        N -> lists:nth(1 + erlang:phash2(Task, N), Nodes)
+    end.
 
 %%
 
