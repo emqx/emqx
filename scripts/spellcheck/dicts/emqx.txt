@@ -319,3 +319,7 @@ PKCE
 Datalayers
 OpenTelemetry
 opentelemetry
+puback
+pubrec
+pubrel
+pubcomp

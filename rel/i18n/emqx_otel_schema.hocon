@@ -71,29 +71,32 @@ e2e_attribute_meta_value.desc:
 Typically, set a simple and easily recognizable name or use the cluster name to identify different EMQX clusters."""
 e2e_attribute_meta_value.label: "Attribute Meta Value"
 
-## TODO: Rename
-mqtt_publish_trace_level.desc:
+msg_trace_level.desc:
 """Trace level for all message exchanges during the message publishing process.<br/>
-Note: this config only takes effect when <code>sample</code> is set to <code>false</code>.
-- `basic`: Only `PUBLISH` packets are sampled for all QoS level (both QoS0, QoS1, QoS2).
-- `first_ack`: In addition to `PUBLISH` packets for all QoS. `PUBACK` and `PUBREC` are also sampled.
-   That is, the first response packet in the QoS1 or QoS2 message interaction.
-- `all`: Both `PUBLISH` packets and all response packets `PUBACK`, `PUBREC`, `PUBREL`, `PUBCOMP` will be sampled."""
-mqtt_publish_trace_level.label: "Publish Trace Level"
+Note: This is effective for all message traces. It is transparent to whitelist sampling or ratio sampling.</br>
+- `0`: Basic events during message publish will be recorded as Spans.</br>
+  Includes 'client.connect', 'client.authz', 'message.route', 'message.forward', 'message.handle_forward', 'broker.publish'.</br>
+- `1`: In addition to basic events.</br>
+  The events 'broker.puback', 'client.puback', 'broker.pubrec', 'client.pubrec' will be recorded as Spans.</br>
+  That is, the first response packet in the QoS1 or QoS2 message interaction.
+- `2`: In addition to level 1.</br>
+  The events 'broker.pubrel', 'client.pubrel', 'broker.pubcomp', 'client.pubcomp' will be recorded as Spans.</br>"""
+msg_trace_level.label: "Message Trace Level"
 
-client_connect.desc: """In addition to the given rules, whether to sample Client Connect event."""
-client_connect.label: "Client Connect"
+sample_ratio.desc:
+"""Sampling ratio for the event types. Transparent to events switch and whitelist sampling.</br>"""
+sample_ratio.label: "Sampling Ratio"
 
-client_disconnect.desc: """In addition to the given rules, whether to sample Client Disconnect event."""
-client_disconnect.label: "Client Disconnect"
+client_connect_disconnect.desc:
+"""In addition to white list, whether to trace the client connect and disconnect events."""
+client_connect_disconnect.label: "Client Connect/Disconnect"
 
-client_subscribe.desc: """In addition to the given rules, whether to sample Client Subscribe event."""
-client_subscribe.label: "Client Subscribe"
+client_subscribe_unsubscribe.desc:
+"""In addition to white list, whether to trace the client subscribe and unsubscribe events."""
+client_subscribe_unsubscribe.label: "Client Subscribe/Unsubscribe"
 
-client_unsubscribe.desc: """In addition to the given rules, whether to sample Client Unsubscribe event."""
-client_unsubscribe.label: "Client Unsubscribe"
-
-client_publish.desc: """In addition to the given rules, whether to sample Client Publish event."""
+client_publish.desc:
+"""In addition to white list, whether to trace the client publish event."""
 client_publish.label: "Client Publish"
 
 clientid_match_rules_max.desc: """Maximum length of the rule list based on clientid matching."""
@@ -101,8 +104,5 @@ clientid_match_rules_max.label: "Client ID Match Rules Max"
 
 topic_match_rules_max.desc: """Maximum length of the rule list based on topic matching."""
 topic_match_rules_max.label: "Topic Match Rules Max"
-
-sample_ratio.desc: "Sampling ratio for the event types."
-sample_ratio.label: "Sampling Ratio"
 
 }

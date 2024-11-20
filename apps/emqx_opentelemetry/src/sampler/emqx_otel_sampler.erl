@@ -131,12 +131,7 @@ record_count() ->
 %% OpenTelemetry Sampler Callback
 %%--------------------------------------------------------------------
 
-setup(
-    #{
-        mqtt_publish_trace_level := Level,
-        sample_ratio := Ratio
-    } = InitOpts
-) ->
+setup(#{sample_ratio := Ratio} = InitOpts) ->
     IdUpper =
         case Ratio of
             R when R =:= +0.0 ->
@@ -149,16 +144,14 @@ setup(
 
     Opts = (maps:with(
         [
-            client_connect,
-            client_disconnect,
-            client_subscribe,
-            client_unsubscribe,
+            client_connect_disconnect,
+            client_subscribe_unsubscribe,
             client_publish,
+            msg_trace_level,
             attribute_meta_value
         ],
         InitOpts
     ))#{
-        response_trace_qos => level_to_qos(Level),
         id_upper => IdUpper
     },
 
@@ -168,11 +161,6 @@ setup(
     }),
 
     Opts.
-
--compile({inline, [level_to_qos/1]}).
-level_to_qos(basic) -> ?QOS_0;
-level_to_qos(first_ack) -> ?QOS_1;
-level_to_qos(all) -> ?QOS_2.
 
 %% TODO: description
 description(_Opts) ->
@@ -213,7 +201,7 @@ should_sample(
     _SpanKind,
     _Attributes,
     #{
-        response_trace_qos := QoS,
+        msg_trace_level := QoS,
         attribute_meta_value := MetaValue
     } = _Opts
 ) ->
@@ -256,14 +244,16 @@ decide_by_traceid_ratio(TraceId, SpanName, #{id_upper := IdUpperBound} = Opts) -
             false
     end.
 
-span_name_to_config_key(?CLIENT_CONNECT_SPAN_NAME) ->
-    client_connect;
-span_name_to_config_key(?CLIENT_DISCONNECT_SPAN_NAME) ->
-    client_disconnect;
-span_name_to_config_key(?CLIENT_SUBSCRIBE_SPAN_NAME) ->
-    client_subscribe;
-span_name_to_config_key(?CLIENT_UNSUBSCRIBE_SPAN_NAME) ->
-    client_unsubscribe;
+span_name_to_config_key(SpanName) when
+    SpanName =:= ?CLIENT_CONNECT_SPAN_NAME orelse
+        SpanName =:= ?CLIENT_DISCONNECT_SPAN_NAME
+->
+    client_connect_disconnect;
+span_name_to_config_key(SpanName) when
+    SpanName =:= ?CLIENT_SUBSCRIBE_SPAN_NAME orelse
+        SpanName =:= ?CLIENT_UNSUBSCRIBE_SPAN_NAME
+->
+    client_subscribe_unsubscribe;
 span_name_to_config_key(?CLIENT_PUBLISH_SPAN_NAME) ->
     client_publish.
 

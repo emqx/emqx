@@ -4,6 +4,7 @@
 -module(emqx_otel_schema).
 
 -include("emqx_otel_trace.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -244,18 +245,16 @@ fields("e2e_tracing_options") ->
             ?HOCON(
                 string(),
                 #{
-                    default => <<"emqxcl">>,
                     desc => ?DESC(e2e_attribute_meta_value),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        %% TODO: Rename
-        {mqtt_publish_trace_level,
+        {msg_trace_level,
             ?HOCON(
-                ?ENUM([basic, first_ack, all]),
+                emqx_schema:qos(),
                 #{
-                    default => basic,
-                    desc => ?DESC(publish_response_trace_level),
+                    default => ?QOS_0,
+                    desc => ?DESC(msg_trace_level),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
@@ -285,20 +284,35 @@ fields("e2e_tracing_options") ->
                     desc => ?DESC(sample_ratio),
                     importance => ?IMPORTANCE_MEDIUM
                 }
+            )},
+        {client_connect_disconnect,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(client_connect_disconnect),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {client_subscribe_unsubscribe,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(client_subscribe_unsubscribe),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {client_publish,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(client_publish),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
             )}
-    ] ++
-        [
-            {TraceEvent,
-                ?HOCON(
-                    boolean(),
-                    #{
-                        desc => ?DESC(TraceEvent),
-                        default => false,
-                        importance => ?IMPORTANCE_MEDIUM
-                    }
-                )}
-         || TraceEvent <- root_span_names()
-        ].
+    ].
 
 desc("opentelemetry") ->
     ?DESC(opentelemetry);
@@ -316,15 +330,6 @@ desc("e2e_tracing_options") ->
     ?DESC(e2e_tracing_options);
 desc(_) ->
     undefined.
-
-root_span_names() ->
-    [
-        client_connect,
-        client_disconnect,
-        client_subscribe,
-        client_unsubscribe,
-        client_publish
-    ].
 
 %% Compatibility with the previous schema that defined only metrics fields
 legacy_metrics_converter(OtelConf, _Opts) when is_map(OtelConf) ->
