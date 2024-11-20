@@ -172,10 +172,20 @@ t_cluster_node_restart('end', Config) ->
 t_cluster_node_restart(Config) ->
     ClusterNode = ?config(cluster_node, Config),
     ClusterSpec = ?config(cluster_node_spec, Config),
-    emqx_router:add_route(<<"restart/b/c">>, ClusterNode),
+    emqx_router:add_route(<<"restart/b/+">>, ClusterNode),
     emqx_router:add_route(<<"test/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
+    ok = emqx_cth_cluster:stop([ClusterNode]),
+    %% The route should still be there, still expecting the node to come back up.
+    ?assertMatch([_, _], emqx_router:topics()),
+    %% Verify broker is aware there's no reason to route to a node that is down.
+    ok = timer:sleep(500),
+    ?assertEqual(
+        [],
+        emqx_broker:publish(emqx_message:make(<<?MODULE_STRING>>, <<"restart/b/c">>, <<>>))
+    ),
     _ = emqx_cth_cluster:restart(ClusterSpec),
+    %% Node should have cleaned up upon restart.
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
 t_message(_) ->

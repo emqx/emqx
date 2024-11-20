@@ -31,6 +31,7 @@
 -export([
     start_link/0,
     monitor/1,
+    is_routable/1,
     purge/0,
     purge_force/0
 ]).
@@ -49,6 +50,8 @@
 ]).
 
 -record(routing_node, {name, const = unused}).
+
+-define(TAB_STATUS, ?MODULE).
 
 -define(LOCK(RESOURCE), {?MODULE, RESOURCE}).
 
@@ -95,6 +98,19 @@ monitor(Node) when is_atom(Node) ->
         false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
     end.
 
+%% @doc Is given node considered routable?
+%% I.e. should the broker attempt to forward messages there, even if there are
+%% routes to this node in the routing table?
+-spec is_routable(node()) -> boolean().
+is_routable(Node) when Node == node() ->
+    true;
+is_routable(Node) ->
+    try
+        lookup_node_reachable(Node)
+    catch
+        error:badarg -> true
+    end.
+
 %% @doc Schedule dead node purges.
 -spec purge() -> scheduled.
 purge() ->
@@ -114,6 +130,8 @@ purge_force() ->
 
 init([]) ->
     process_flag(trap_exit, true),
+    %% Initialize a table to cache node status.
+    Tab = ets:new(?TAB_STATUS, [protected, named_table, set, {read_concurrency, true}]),
     %% Monitor nodes lifecycle events.
     ok = ekka:monitor(membership),
     %% Cleanup any routes left by old incarnations of this node (if any).
@@ -126,6 +144,7 @@ init([]) ->
     State = #{
         down => #{},
         left => #{},
+        tab_node_status => Tab,
         timer_reconcile => TRef
     },
     {ok, State, hibernate}.
@@ -173,10 +192,12 @@ handle_membership_event(_Event, State) ->
     State.
 
 record_node_down(Node, State = #{down := Down}) ->
+    _ = ets:insert(?TAB_STATUS, {Node, down, _Reachable = false}),
     Record = #{since => erlang:monotonic_time(millisecond)},
     State#{down := Down#{Node => Record}}.
 
 record_node_left(Node, State = #{left := Left}) ->
+    _ = ets:insert(?TAB_STATUS, {Node, left, _Reachable = false}),
     Record = #{since => erlang:monotonic_time(millisecond)},
     State#{left := Left#{Node => Record}}.
 
@@ -184,10 +205,14 @@ record_node_alive(Node, State) ->
     forget_node(Node, State).
 
 forget_node(Node, State = #{down := Down, left := Left}) ->
+    _ = ets:delete(?TAB_STATUS, Node),
     State#{
         down := maps:remove(Node, Down),
         left := maps:remove(Node, Left)
     }.
+
+lookup_node_reachable(Node) ->
+    ets:lookup_element(?TAB_STATUS, Node, 3, _Default = true).
 
 handle_reconcile(State) ->
     TRef = schedule_task(reconcile, ?RECONCILE_INTERVAL),
@@ -196,8 +221,10 @@ handle_reconcile(State) ->
     schedule_purges(TS, reconcile(NState)).
 
 reconcile(State) ->
-    %% Fallback: avoid purging live nodes, if missed lifecycle events for whatever reason.
-    lists:foldl(fun record_node_alive/2, State, mria:running_nodes()).
+    %% NOTE
+    %% This is a fallback mechanism. Avoid purging / ignoring live nodes, if missed
+    %% lifecycle events for whatever reason.
+    lists:foldl(fun record_node_alive/2, State, mria:running_nodes() ++ nodes()).
 
 select_outdated(NodesInfo, Since0) ->
     maps:keys(maps:filter(fun(_, #{since := Since}) -> Since < Since0 end, NodesInfo)).
