@@ -29,7 +29,8 @@ all() ->
     [
         {group, smoke},
         {group, cleanup},
-        {group, cluster}
+        {group, cluster},
+        {group, cluster_replicant}
     ].
 
 groups() ->
@@ -51,6 +52,7 @@ groups() ->
             {group, routing_schema_v2}
         ]},
         {cluster, [], ClusterTCs},
+        {cluster_replicant, [], ClusterTCs},
         {routing_schema_v1, [], SchemaTCs},
         {routing_schema_v2, [], SchemaTCs}
     ].
@@ -58,11 +60,15 @@ groups() ->
 init_per_group(GroupName, Config) when
     GroupName == smoke;
     GroupName == cluster;
+    GroupName == cluster_replicant;
     GroupName == routing_schema_v1;
     GroupName == routing_schema_v2
 ->
     WorkDir = emqx_cth_suite:work_dir(Config),
-    AppSpecs = [{emqx, mk_config(GroupName)}],
+    AppSpecs = [
+        {mria, mk_config(mria, GroupName)},
+        {emqx, mk_config(emqx, GroupName)}
+    ],
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
     [{group_name, GroupName}, {group_apps, Apps} | Config];
 init_per_group(fallback, Config) ->
@@ -74,6 +80,7 @@ init_per_group(_GroupName, Config) ->
 end_per_group(GroupName, Config) when
     GroupName == smoke;
     GroupName == cluster;
+    GroupName == cluster_replicant;
     GroupName == routing_schema_v1;
     GroupName == routing_schema_v2
 ->
@@ -84,18 +91,24 @@ end_per_group(fallback, _Config) ->
 end_per_group(_GroupName, _Config) ->
     ok.
 
-mk_config(routing_schema_v1) ->
+mk_config(emqx, routing_schema_v1) ->
     #{
         config => "broker.routing.storage_schema = v1",
         override_env => [{boot_modules, [broker]}]
     };
-mk_config(routing_schema_v2) ->
+mk_config(emqx, routing_schema_v2) ->
     #{
         config => "broker.routing.storage_schema = v2",
         override_env => [{boot_modules, [broker]}]
     };
-mk_config(_) ->
-    #{override_env => [{boot_modules, [broker]}]}.
+mk_config(mria, cluster_replicant) ->
+    #{
+        override_env => [{node_role, core}, {db_backend, rlog}]
+    };
+mk_config(emqx, _) ->
+    #{override_env => [{boot_modules, [broker]}]};
+mk_config(_App, _) ->
+    #{}.
 
 mock_mria_match_delete() ->
     ok = meck:new(mria, [no_link, passthrough]),
@@ -199,8 +212,14 @@ t_message(_) ->
 %%
 
 start_join_node(Name, Config) ->
+    case ?config(group_name, Config) of
+        cluster_replicant ->
+            Role = replicant;
+        _Cluster ->
+            Role = core
+    end,
     [ClusterSpec] = emqx_cth_cluster:mk_nodespecs(
-        [{Name, #{apps => [emqx], join_to => node()}}],
+        [{Name, #{apps => [emqx], role => Role, join_to => node()}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [ClusterNode] = emqx_cth_cluster:start([ClusterSpec]),
