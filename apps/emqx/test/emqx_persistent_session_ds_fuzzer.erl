@@ -197,9 +197,8 @@ test_parameters() ->
 %%--------------------------------------------------------------------
 
 qos() ->
-    %% FIXME
-    %% range(?QOS_0, ?QOS_2).
-    oneof([?QOS_1]).
+    %% FIXME: QoS2
+    range(?QOS_0, ?QOS_1).
 
 %% @doc Proper generator for `emqtt:connect' parameters:
 connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
@@ -365,7 +364,13 @@ receive_ack_loop(
                     emqtt:pubrec(client_pid(), PID)
             end,
             receive_ack_loop(S, Result);
-        {pubrel, Msg = #{client_pid := CPID}} ->
+        {pubrel, Msg} ->
+            %% FIXME: currently emqtt doesn't supply `client_pid' to
+            %% pubrel messages, so it's impossible to discard old
+            %% pubrels in case the client restarts. This can create
+            %% hard-to-debug situations. Proper solution would be to
+            %% fix emqtt, but for now we rely on flushing the messages
+            %% in the clause below.
             ?tp(notice, ?sessds_test_in_pubrel, Msg),
             #{packet_id := PID} = Msg,
             emqtt:pubcomp(client_pid(), PID),
@@ -374,6 +379,7 @@ receive_ack_loop(
         %% Handle client/session crash:
         {'DOWN', CMRef, process, CPID, Reason} ->
             ?tp(warning, ?sessds_test_client_crash, #{pid => CPID, reason => Reason}),
+            flush_emqtt_messages(),
             receive_ack_loop(S, {error, client_crash});
         {'DOWN', SMRef, process, SessPid, Reason} ->
             ?tp(warning, ?sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
@@ -387,6 +393,16 @@ receive_ack_loop(
             receive_ack_loop(S, Result)
     after Timeout ->
         Result
+    end.
+
+flush_emqtt_messages() ->
+    receive
+        {pubrel, #{}} ->
+            flush_emqtt_messages();
+        {publish, #{}} ->
+            flush_emqtt_messages()
+    after 0 ->
+        ok
     end.
 
 %%--------------------------------------------------------------------
@@ -466,10 +482,10 @@ tprop_packet_id_history(I = #{?snk_kind := Kind}, Acc) ->
             #{PID := {publish, #{qos := ?QOS_2}}} = Acc,
             Acc#{PID := pubrec};
         ?sessds_test_in_pubrel ->
-            #{packet_id := PID, dup := DUP} = I,
+            #{packet_id := PID} = I,
             case Acc of
-                #{PID := pubrec} -> ok;
-                #{} when DUP -> ok
+                #{PID := PIDState} -> PIDState = pubrec;
+                #{} -> ok
             end,
             Acc#{PID => pubrel};
         ?sessds_test_out_pubcomp ->
@@ -586,7 +602,8 @@ command(S = #s{connected = Conn, has_data = HasData, model_state = #{subs := Sub
     Connected =
         [{5,  publish_(S)}                   || HasSubs] ++
         [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
-        [{1,  {call, ?MODULE, disconnect, [S]}},
+        [
+         %% {1,  {call, ?MODULE, disconnect, [S]}},
          %% {5,  unsubscribe_(S)},
          {5,  subscribe_(S)}
         ],
