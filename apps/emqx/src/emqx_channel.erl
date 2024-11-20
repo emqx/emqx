@@ -75,6 +75,11 @@
 %% Exports for CT
 -export([set_field/3]).
 
+-if(?EMQX_RELEASE_EDITION == ee).
+-export([basic_trace_attrs/1]).
+-else.
+-endif.
+
 -import(
     emqx_utils,
     [
@@ -157,9 +162,6 @@
 -define(LIMITER_ROUTING, message_routing).
 -define(chan_terminating, chan_terminating).
 -define(RAND_CLIENTID_BYTES, 16).
-
--define(DELIVER_TRACE_ATTRS, '$deliver_trace_attrs').
--define(OUTGOING_TRACE_ATTRS, '$outgoing_trace_attrs').
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 

@@ -35,6 +35,7 @@
 -compile(nowarn_export_all).
 -endif.
 
+-elvis([{elvis_style, used_ignored_variable, disable}]).
 -elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
 
 %% API
@@ -846,12 +847,12 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, State) ->
+handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res = do_handle_outgoing(Packets, State),
     ?EXT_TRACE_WITH_ACTION_STOP(
         outgoing,
         Packets,
-        _Attrs = #{}
+        emqx_channel:basic_trace_attrs(_Channel)
     ),
     Res.
 

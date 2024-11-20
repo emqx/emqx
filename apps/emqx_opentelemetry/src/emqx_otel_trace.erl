@@ -61,7 +61,6 @@
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 
 -define(EMQX_OTEL_CTX, emqx_otel_ctx).
--define(EMQX_OTEL_ATTRS, emqx_otel_attrs).
 
 -define(USER_PROPERTY, 'User-Property').
 
@@ -352,7 +351,7 @@ client_publish(Packet, Attrs, ProcessFun) ->
             %% Attach in process dictionary for outgoing/awaiting packets
             %% for PUBACK/PUBREC/PUBREL/PUBCOMP
             %% TODO: CONNACK, AUTH, SUBACK, UNSUBACK, DISCONNECT
-            attach_outgoing(Packet, Ctx, Attrs),
+            attach_outgoing(Packet, Ctx),
 
             try
                 ProcessFun(Packet)
@@ -364,19 +363,19 @@ client_publish(Packet, Attrs, ProcessFun) ->
         end
     ).
 
--compile({inline, [attach_outgoing/3, erase_outgoing/1]}).
-attach_outgoing(?PUBLISH_PACKET(?QOS_0), _Ctx, _Attrs) ->
+-compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
+attach_outgoing(?PUBLISH_PACKET(?QOS_0), _Ctx) ->
     ok;
-attach_outgoing(?PUBLISH_PACKET(?QOS_1, PacketId), Ctx, Attrs) ->
+attach_outgoing(?PUBLISH_PACKET(?QOS_1, PacketId), Ctx) ->
     attach_internal_ctx(
         {?PUBACK, PacketId},
-        #{?EMQX_OTEL_CTX => Ctx, ?EMQX_OTEL_ATTRS => Attrs}
+        Ctx
     ),
     ok;
-attach_outgoing(?PUBLISH_PACKET(?QOS_2, PacketId), Ctx, Attrs) ->
+attach_outgoing(?PUBLISH_PACKET(?QOS_2, PacketId), Ctx) ->
     attach_internal_ctx(
         {?PUBREC, PacketId},
-        #{?EMQX_OTEL_CTX => Ctx, ?EMQX_OTEL_ATTRS => Attrs}
+        Ctx
     ),
     ok.
 
@@ -547,8 +546,7 @@ broker_publish(Delivers, Attrs) ->
                             Ctx, ?current_tracer, ?BROKER_PUBLISH_SPAN_NAME, #{attributes => NAttrs}
                         ),
                         NCtx = otel_tracer:set_current_span(Ctx, SpanCtx),
-                        NMsg = put_attrs(NAttrs, Msg0),
-                        Msg = put_ctx(NCtx, NMsg),
+                        Msg = put_ctx(NCtx, Msg0),
                         {deliver, Topic, Msg};
                     _ ->
                         Deliver
@@ -674,35 +672,24 @@ start_outgoing_trace(?PUBREL_PACKET(PacketId) = Packet, Attrs) ->
 start_outgoing_trace(Packet, Attrs) ->
     start_outgoing_trace(Packet, Attrs, otel_ctx:get_current()).
 
-start_outgoing_trace(Packet, Attrs, #{
-    ?EMQX_OTEL_CTX := ParentCtx, ?EMQX_OTEL_ATTRS := AttachedAttrs
-}) ->
-    start_outgoing_trace(Packet, Attrs, ParentCtx, AttachedAttrs).
-
-start_outgoing_trace(
-    Packet,
-    Attrs,
-    ParentCtx,
-    AttachedAttrs
-) ->
+start_outgoing_trace(Packet, Attrs, ParentCtx) ->
     SpanCtx = otel_tracer:start_span(
         ParentCtx,
         ?current_tracer,
         outgoing_span_name(Packet),
-        #{attributes => maps:merge(Attrs, AttachedAttrs)}
+        #{attributes => Attrs}
     ),
     NCtx = otel_tracer:set_current_span(ParentCtx, SpanCtx),
-    NPacket = put_attrs(Attrs, Packet),
-    _PacketWithCtx = put_ctx(NCtx, NPacket).
+    _PacketWithCtx = put_ctx(NCtx, Packet).
 
 %% Ctx attached in Delivers in `broker_publish/2` and
 %% transformed to Packet when outgoing
 stop_outgoing_trace(Anys, Attrs) when is_list(Anys) ->
     lists:foreach(fun(Any) -> stop_outgoing_trace(Any, Attrs) end, Anys);
-stop_outgoing_trace(Packet, _Attrs) when is_record(Packet, mqtt_packet) ->
+stop_outgoing_trace(Packet, Attrs) when is_record(Packet, mqtt_packet) ->
     %% Maybe awaiting for next Packet
     %% The current outgoing Packet SHOULD NOT be modified
-    ok = outgoing_maybe_awaiting_next(Packet),
+    ok = outgoing_maybe_awaiting_next(Packet, Attrs),
     end_span(get_ctx(Packet));
 stop_outgoing_trace(Any, _Attrs) ->
     end_span(get_ctx(Any)).
@@ -721,42 +708,40 @@ end_span(_) ->
 %% At this time, a new span begins and the span ends after receiving and processing the reply
 %% from Client(might be Publisher or Subscriber).
 
--compile({inline, [outgoing_maybe_awaiting_next/1]}).
-
+-compile({inline, [outgoing_maybe_awaiting_next/2]}).
 %% ====================
 %% Broker -> Client(`Publisher'):
-outgoing_maybe_awaiting_next(?PACKET(?PUBACK)) ->
+outgoing_maybe_awaiting_next(?PACKET(?PUBACK), _Attrs) ->
     %% PUBACK (QoS=1), Ignore
     ok;
-outgoing_maybe_awaiting_next(?PUBREC_PACKET(PacketId, _ReasonCode) = Packet) ->
+outgoing_maybe_awaiting_next(?PUBREC_PACKET(PacketId, _ReasonCode) = Packet, Attrs) ->
     %% PUBREC (QoS=2), Awaiting PUBREL
-    start_awaiting_trace(?PUBREL, PacketId, Packet);
-outgoing_maybe_awaiting_next(?PACKET(?PUBCOMP)) ->
+    start_awaiting_trace(?PUBREL, PacketId, Packet, Attrs);
+outgoing_maybe_awaiting_next(?PACKET(?PUBCOMP), _Attrs) ->
     %% PUBCOMP (QoS=2), Ignore
     ok;
 %% ====================
 %% Broker -> Client(`Subscriber'):
-outgoing_maybe_awaiting_next(?PUBLISH_PACKET(?QOS_0)) ->
+outgoing_maybe_awaiting_next(?PUBLISH_PACKET(?QOS_0), _Attrs) ->
     %% PUBLISH (QoS=0), Ignore
     ok;
-outgoing_maybe_awaiting_next(?PUBLISH_PACKET(?QOS_1, PacketId) = Packet) ->
+outgoing_maybe_awaiting_next(?PUBLISH_PACKET(?QOS_1, PacketId) = Packet, Attrs) ->
     %% PUBLISH (QoS=1), Awaiting PUBACK
-    start_awaiting_trace(?PUBACK, PacketId, Packet);
-outgoing_maybe_awaiting_next(?PUBLISH_PACKET(?QOS_2, PacketId) = Packet) ->
+    start_awaiting_trace(?PUBACK, PacketId, Packet, Attrs);
+outgoing_maybe_awaiting_next(?PUBLISH_PACKET(?QOS_2, PacketId) = Packet, Attrs) ->
     %% PUBLISH (QoS=2), Awaiting PUBREC
-    start_awaiting_trace(?PUBREC, PacketId, Packet);
-outgoing_maybe_awaiting_next(?PUBREL_PACKET(PacketId, _ReasonCode) = Packet) ->
+    start_awaiting_trace(?PUBREC, PacketId, Packet, Attrs);
+outgoing_maybe_awaiting_next(?PUBREL_PACKET(PacketId, _ReasonCode) = Packet, Attrs) ->
     %% PUBREL (QoS=2), Awaiting PUBCOMP
-    start_awaiting_trace(?PUBCOMP, PacketId, Packet);
+    start_awaiting_trace(?PUBCOMP, PacketId, Packet, Attrs);
 %% ====================
-outgoing_maybe_awaiting_next(_) ->
+outgoing_maybe_awaiting_next(_, _) ->
     %% TODO: Awaiting AUTH
     ok.
 
-start_awaiting_trace(AwaitingType, PacketId, Packet) ->
+start_awaiting_trace(AwaitingType, PacketId, Packet, Attrs) ->
     AwaitingCtxKey = internal_extra_key(AwaitingType, PacketId),
     ParentCtx = get_ctx(Packet),
-    Attrs = get_attrs(Packet),
     AwaitingSpanCtx = otel_tracer:start_span(
         ParentCtx,
         ?current_tracer,
@@ -764,7 +749,7 @@ start_awaiting_trace(AwaitingType, PacketId, Packet) ->
         #{attributes => Attrs}
     ),
     NCtx = otel_tracer:set_current_span(ParentCtx, AwaitingSpanCtx),
-    _ = attach_internal_ctx(AwaitingCtxKey, #{?EMQX_OTEL_CTX => NCtx, ?EMQX_OTEL_ATTRS => Attrs}),
+    _ = attach_internal_ctx(AwaitingCtxKey, NCtx),
     ok.
 
 client_incoming(?PACKET(AwaitingType, PktVar) = Packet, Attrs, ProcessFun) ->
@@ -781,7 +766,7 @@ client_incoming(?PACKET(AwaitingType, PktVar) = Packet, Attrs, ProcessFun) ->
 
 end_awaiting_client_packet(AwaitingCtxKey, Attrs) ->
     case detach_internal_ctx(AwaitingCtxKey) of
-        #{?EMQX_OTEL_CTX := Ctx} when is_map(Ctx) ->
+        Ctx when is_map(Ctx) ->
             ok = add_span_attrs(Attrs, Ctx),
             _ = end_span(Ctx),
             earse_internal_ctx(AwaitingCtxKey),
@@ -962,48 +947,6 @@ get_ctx(#mqtt_packet{
     );
 get_ctx(_) ->
     undefined.
-
-%% ====================
-%% Trace Attributes in message
-put_attrs(
-    Attrs,
-    Msg = #message{extra = Extra}
-) when is_map(Extra) ->
-    Msg#message{extra = Extra#{?EMQX_OTEL_ATTRS => Attrs}};
-%% ====================
-%% Trace Attributes in packet
-put_attrs(
-    Attrs,
-    #mqtt_packet{
-        variable = #mqtt_packet_publish{properties = Props} = PubPacket
-    } = Packet
-) ->
-    NProps = to_properties(?EMQX_OTEL_ATTRS, Attrs, Props),
-    Packet#mqtt_packet{variable = PubPacket#mqtt_packet_publish{properties = NProps}};
-put_attrs(
-    Attrs,
-    #mqtt_packet{
-        variable = #mqtt_packet_puback{properties = Props} = PubAckPacket
-    } = Packet
-) ->
-    NProps = to_properties(?EMQX_OTEL_ATTRS, Attrs, Props),
-    Packet#mqtt_packet{variable = PubAckPacket#mqtt_packet_puback{properties = NProps}};
-%% ====================
-%% ignore
-put_attrs(_Attrs, Any) ->
-    Any.
-
-get_attrs(#mqtt_packet{
-    variable = PktVar
-}) when is_tuple(PktVar) ->
-    from_extra(
-        ?EMQX_OTEL_ATTRS,
-        maps:get(
-            ?MQTT_INTERNAL_EXTRA,
-            emqx_packet:info(properties, PktVar),
-            #{}
-        )
-    ).
 
 from_extra(Key, Map) ->
     maps:get(Key, Map, undefined).
