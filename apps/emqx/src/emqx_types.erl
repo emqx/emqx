@@ -49,6 +49,7 @@
     sockstate/0,
     conninfo/0,
     clientinfo/0,
+    tns/0,
     clientid/0,
     username/0,
     password/0,
@@ -195,6 +196,7 @@
     atom() => term()
 }.
 -type client_attrs() :: #{binary() => binary()}.
+-type tns() :: binary().
 -type clientid() :: binary() | atom().
 -type username() :: option(binary()).
 -type password() :: option(binary()).
