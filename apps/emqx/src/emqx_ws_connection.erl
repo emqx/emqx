@@ -1011,6 +1011,10 @@ classify([Cmd = {shutdown, _Reason} | More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd | Cmds], Events);
 classify([Cmd = close | More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd | Cmds], Events);
+%% cowboy_websocket's close reason must be an atom to avoid crashing the sender process.
+%% The cause reasons come from parse_frame_error.
+classify([{close, #{cause := Cause}} | More], Packets, Cmds, Events) when is_atom(Cause) ->
+    classify(More, Packets, [{close, Cause} | Cmds], Events);
 classify([Cmd = {close, _Reason} | More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd | Cmds], Events);
 classify([Event | More], Packets, Cmds, Events) ->

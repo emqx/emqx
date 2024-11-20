@@ -636,7 +636,7 @@ parse_property(<<16#29, Val, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#2A, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Shared-Subscription-Available' => Val}, StrictMode);
 parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode) ->
-    ?PARSE_ERR(#{invalid_property_code => Property}).
+    ?PARSE_ERR(#{cause => invalid_property_code, property_code => Property}).
 %% TODO: invalid property in specific packet.
 
 parse_variable_byte_integer(Bin) ->

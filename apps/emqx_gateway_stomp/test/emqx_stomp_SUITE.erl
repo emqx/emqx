@@ -107,11 +107,18 @@ restart_stomp_with_mountpoint(Mountpoint) ->
 t_connect(_) ->
     %% Successful connect
     ConnectSucced = fun(Sock) ->
+        emqx_gateway_test_utils:meck_emqx_hook_calls(),
+
         ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"1000,2000">>),
         {ok, Frame} = recv_a_frame(Sock),
         ?assertMatch(<<"CONNECTED">>, Frame#stomp_frame.command),
         ?assertEqual(
             <<"2000,1000">>, proplists:get_value(<<"heart-beat">>, Frame#stomp_frame.headers)
+        ),
+
+        ?assertMatch(
+            ['client.connect' | _],
+            emqx_gateway_test_utils:collect_emqx_hooks_calls()
         ),
 
         ok = send_disconnect_frame(Sock, <<"12345">>),

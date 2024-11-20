@@ -245,6 +245,10 @@ topic_key(Trie, ThresholdFun, Tokens) ->
 
 %% @doc Return an exisiting topic key if it exists.
 -spec lookup_topic_key(trie(), [level()]) -> {ok, msg_storage_key()} | undefined.
+lookup_topic_key(Trie, [<<"$", _/bytes>> | _] = Tokens) ->
+    %% [MQTT-4.7.2-1]
+    %% See also `match_topics/2`.
+    do_lookup_topic_key(Trie, ?PREFIX_SPECIAL, Tokens, []);
 lookup_topic_key(Trie, Tokens) ->
     do_lookup_topic_key(Trie, ?PREFIX, Tokens, []).
 

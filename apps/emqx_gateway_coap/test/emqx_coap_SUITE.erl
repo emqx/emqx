@@ -145,6 +145,8 @@ restart_coap_with_connection_mode(Bool) ->
 
 t_connection(_) ->
     Action = fun(Channel) ->
+        emqx_gateway_test_utils:meck_emqx_hook_calls(),
+
         %% connection
         Token = connection(Channel),
 
@@ -152,6 +154,11 @@ t_connection(_) ->
         ?assertNotEqual(
             [],
             emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        ),
+
+        ?assertMatch(
+            ['client.connect' | _],
+            emqx_gateway_test_utils:collect_emqx_hooks_calls()
         ),
 
         %% heartbeat
