@@ -18,6 +18,8 @@
 
 -module(emqx_dashboard_admin).
 
+-feature(maybe_expr, enable).
+
 -include("emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -59,6 +61,10 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -export([add_sso_user/4, lookup_user/2]).
+-endif.
+
+-ifdef(TEST).
+-export([unsafe_update_user/1]).
 -endif.
 
 -type emqx_admin() :: #?ADMIN{}.
@@ -188,7 +194,8 @@ force_add_user(Username, Password, Role, Desc) ->
             username = Username,
             pwdhash = hash(Password),
             role = Role,
-            description = Desc
+            description = Desc,
+            extra = #{password_ts => erlang:system_time(second)}
         })
     end,
     case mria:sync_transaction(?DASHBOARD_SHARD, AddFun) of
@@ -204,7 +211,8 @@ add_user_(Username, Password, Role, Desc) ->
                 username = Username,
                 pwdhash = hash(Password),
                 role = Role,
-                description = Desc
+                description = Desc,
+                extra = #{password_ts => erlang:system_time(second)}
             },
             mnesia:write(Admin),
             ?SLOG(info, #{msg => "dashboard_sso_user_added", username => Username, role => Role}),
@@ -280,6 +288,21 @@ verify_hash(Origin, SaltHash) ->
 sha256(SaltBin, Password) ->
     crypto:hash('sha256', <<SaltBin/binary, Password/binary>>).
 
+verify_password_expiration(0, _User) ->
+    {ok, #{}};
+verify_password_expiration(ValidityDuration, #?ADMIN{extra = #{password_ts := Ts}}) ->
+    Diff = Ts + ValidityDuration - erlang:system_time(second),
+    {ok, #{password_expire_in_seconds => Diff}};
+verify_password_expiration(ValidityDuration, #?ADMIN{extra = Extra} = User) ->
+    case
+        unsafe_update_user(User#?ADMIN{extra = Extra#{password_ts => erlang:system_time(second)}})
+    of
+        ok ->
+            {ok, #{password_expire_in_seconds => ValidityDuration}};
+        Error ->
+            Error
+    end.
+
 %% @private
 update_user_(Username, Role, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
@@ -330,6 +353,14 @@ update_pwd(Username, Fun) ->
         end,
     return(mria:sync_transaction(?DASHBOARD_SHARD, Trans)).
 
+%% used to directly update user data
+unsafe_update_user(User) ->
+    Trans = fun() -> mnesia:write(User) end,
+    case mria:sync_transaction(?DASHBOARD_SHARD, Trans) of
+        {atomic, ok} -> ok;
+        {aborted, Reason} -> {error, Reason}
+    end.
+
 -spec lookup_user(dashboard_username()) -> [emqx_admin()].
 lookup_user(Username) ->
     Fun = fun() -> mnesia:read(?ADMIN, Username) end,
@@ -378,11 +409,12 @@ check(Username, Password) ->
 %%--------------------------------------------------------------------
 %% token
 sign_token(Username, Password) ->
-    case check(Username, Password) of
-        {ok, User} ->
-            emqx_dashboard_token:sign(User, Password);
-        Error ->
-            Error
+    ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
+    maybe
+        {ok, User} ?= check(Username, Password),
+        {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, Role, Token} ?= emqx_dashboard_token:sign(User, Password),
+        {ok, Result#{role => Role, token => Token}}
     end.
 
 -spec verify_token(_, Token :: binary()) ->

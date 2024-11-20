@@ -406,7 +406,7 @@ auth_header_() ->
     auth_header_(<<"admin">>, <<"public">>).
 
 auth_header_(Username, Password) ->
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 api_path(Parts) ->

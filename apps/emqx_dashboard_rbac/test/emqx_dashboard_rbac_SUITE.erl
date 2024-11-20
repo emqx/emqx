@@ -147,7 +147,7 @@ t_clean_token(_) ->
     Desc = <<"desc">>,
     NewDesc = <<"new desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
     FakeReq = #{method => <<"GET">>, path => FakePath},
     {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
@@ -166,7 +166,7 @@ t_login_out(_) ->
     Password = <<"public_www1">>,
     Desc = <<"desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/logout")),
     FakeReq = #{method => <<"POST">>, path => FakePath},
     {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
@@ -181,8 +181,12 @@ t_change_pwd(_) ->
     {ok, _} = emqx_dashboard_admin:add_user(Viewer1, Password, ?ROLE_VIEWER, Desc),
     {ok, _} = emqx_dashboard_admin:add_user(Viewer2, Password, ?ROLE_VIEWER, Desc),
     {ok, _} = emqx_dashboard_admin:add_user(SuperUser, Password, ?ROLE_SUPERUSER, Desc),
-    {ok, ?ROLE_VIEWER, Viewer1Token} = emqx_dashboard_admin:sign_token(Viewer1, Password),
-    {ok, ?ROLE_SUPERUSER, SuperToken} = emqx_dashboard_admin:sign_token(SuperUser, Password),
+    {ok, #{role := ?ROLE_VIEWER, token := Viewer1Token}} = emqx_dashboard_admin:sign_token(
+        Viewer1, Password
+    ),
+    {ok, #{role := ?ROLE_SUPERUSER, token := SuperToken}} = emqx_dashboard_admin:sign_token(
+        SuperUser, Password
+    ),
     %% viewer can change own password
     ?assertEqual({ok, Viewer1}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password

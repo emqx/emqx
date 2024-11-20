@@ -55,6 +55,14 @@ fields("dashboard") ->
                     desc => ?DESC(token_expired_time)
                 }
             )},
+        {password_expired_time,
+            ?HOCON(
+                emqx_schema:duration_s(),
+                #{
+                    default => 0,
+                    desc => ?DESC(password_expired_time)
+                }
+            )},
         {cors, fun cors/1},
         {swagger_support, fun swagger_support/1},
         {i18n_lang, fun i18n_lang/1},

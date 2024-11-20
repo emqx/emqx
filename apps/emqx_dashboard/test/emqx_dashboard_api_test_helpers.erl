@@ -63,7 +63,8 @@ set_default_config(DefaultUsername, HAProxyEnabled, Opts) ->
         },
         default_username => DefaultUsername,
         default_password => <<"public">>,
-        i18n_lang => en
+        i18n_lang => en,
+        password_expired_time => 0
     },
     emqx_config:put([dashboard], Config),
     ok.
@@ -125,7 +126,7 @@ auth_header(Username) ->
     auth_header(Username, <<"public">>).
 
 auth_header(Username, Password) ->
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 multipart_formdata_request(Url, Fields, Files) ->
