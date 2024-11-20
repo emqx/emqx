@@ -42,6 +42,10 @@
     outgoing/3
 ]).
 
+-export([
+    msg_attrs/1
+]).
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 
@@ -344,8 +348,12 @@ client_publish(Packet, Attrs, ProcessFun) ->
             Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
             %% Otel attach for next spans (client_authz, msg_route... etc )
             _ = otel_ctx:attach(Ctx),
+
             %% Attach in process dictionary for outgoing/awaiting packets
+            %% for PUBACK/PUBREC/PUBREL/PUBCOMP
+            %% TODO: CONNACK, AUTH, SUBACK, UNSUBACK, DISCONNECT
             attach_outgoing(Packet, Ctx, Attrs),
+
             try
                 ProcessFun(Packet)
             after
@@ -356,7 +364,6 @@ client_publish(Packet, Attrs, ProcessFun) ->
         end
     ).
 
-%% TODO: CONNACK, AUTH, SUBACK, UNSUBACK, DISCONNECT
 -compile({inline, [attach_outgoing/3, erase_outgoing/1]}).
 attach_outgoing(?PUBLISH_PACKET(?QOS_0), _Ctx, _Attrs) ->
     ok;
@@ -535,7 +542,7 @@ broker_publish(Delivers, Attrs) ->
             fun({deliver, Topic, Msg0} = Deliver) ->
                 case get_ctx(Msg0) of
                     Ctx when is_map(Ctx) ->
-                        NAttrs = maps:merge(Attrs, emqx_external_trace:msg_attrs(Msg0)),
+                        NAttrs = maps:merge(Attrs, msg_attrs(Msg0)),
                         SpanCtx = otel_tracer:start_span(
                             Ctx, ?current_tracer, ?BROKER_PUBLISH_SPAN_NAME, #{attributes => NAttrs}
                         ),
@@ -877,6 +884,21 @@ add_span_attrs(Attrs, Ctx) ->
     CurrentSpanCtx = otel_tracer:current_span_ctx(Ctx),
     otel_span:set_attributes(CurrentSpanCtx, Attrs),
     ok.
+
+msg_attrs(_Msg = #message{flags = #{sys := true}}) ->
+    #{};
+msg_attrs(Msg = #message{}) ->
+    #{
+        'message.msgid' => emqx_guid:to_hexstr(Msg#message.id),
+        'message.qos' => Msg#message.qos,
+        'message.from' => Msg#message.from,
+        'message.topic' => Msg#message.topic,
+        'message.retain' => maps:get(retain, Msg#message.flags, false),
+        'message.pub_props' => emqx_utils_json:encode(
+            maps:get(properties, Msg#message.headers, #{})
+        ),
+        'message.payload_size' => size(Msg#message.payload)
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions

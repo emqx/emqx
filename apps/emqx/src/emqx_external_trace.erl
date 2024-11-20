@@ -130,30 +130,6 @@
     ]
 ).
 
-%% --------------------------------------------------------------------
-%% Legacy mode callbacks
-
-%% TODO: legacy mode compatible
-%% XXX: not implemented by callback
-%% -callback trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
-%%     Packet :: emqx_types:packet(),
-%%     ChannelInfo :: channel_info(),
-%%     Res :: term().
-
-%% -callback start_trace_send(list(emqx_types:deliver()), channel_info()) ->
-%%     list(emqx_types:deliver()).
-
-%% -callback end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
-%% -export([
-%%     trace_process_publish/3,
-%%     start_trace_send/2,
-%%     end_trace_send/1
-%% ]).
-
--export([
-    msg_attrs/1
-]).
-
 -export([
     provider/0,
     register_provider/1,
@@ -186,26 +162,6 @@ unregister_provider(Module) ->
 -spec provider() -> module() | undefined.
 provider() ->
     persistent_term:get(?PROVIDER, undefined).
-
-%%--------------------------------------------------------------------
-%% Trace in Rich mode API
-%%--------------------------------------------------------------------
-
-msg_attrs(_Msg = #message{flags = #{sys := true}}) ->
-    %% Skip system messages
-    #{};
-msg_attrs(Msg = #message{}) ->
-    #{
-        'message.msgid' => emqx_guid:to_hexstr(Msg#message.id),
-        'message.qos' => Msg#message.qos,
-        'message.from' => Msg#message.from,
-        'message.topic' => Msg#message.topic,
-        'message.retain' => maps:get(retain, Msg#message.flags, false),
-        'message.pub_props' => emqx_utils_json:encode(
-            maps:get(properties, Msg#message.headers, #{})
-        ),
-        'message.payload_size' => size(Msg#message.payload)
-    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions

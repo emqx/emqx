@@ -346,7 +346,7 @@ route(Routes, Delivery = #delivery{message = _Msg}, PersistRes) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_route,
         Delivery,
-        (emqx_external_trace:msg_attrs(_Msg))#{
+        (emqx_otel_trace:msg_attrs(_Msg))#{
             'route.from' => node(),
             'route.matched_result' => emqx_utils_json:encode([
                 route_result({TF, RouteTo})
@@ -429,7 +429,7 @@ forward(Node, To, Delivery = #delivery{message = _Msg}, RpcMode) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_forward,
         Delivery,
-        (emqx_external_trace:msg_attrs(_Msg))#{
+        (emqx_otel_trace:msg_attrs(_Msg))#{
             'forward.from' => node(),
             'forward.to' => Node
         },
@@ -471,7 +471,7 @@ dispatch(Topic, Delivery = #delivery{message = _Msg}) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_handle_forward,
         Delivery,
-        emqx_external_trace:msg_attrs(_Msg),
+        emqx_otel_trace:msg_attrs(_Msg),
         fun(DeliveryWithTrace) ->
             do_dispatch(Topic, DeliveryWithTrace)
         end
