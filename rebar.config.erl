@@ -169,6 +169,12 @@ is_rocksdb_supported("respbian" ++ _) ->
 is_rocksdb_supported(_) ->
     not is_build_without("ROCKSDB").
 
+get_emqx_flavor() ->
+    case os:getenv("EMQX_FLAVOR") of
+        X when X =:= false; X =:= "" -> official;
+        Flavor -> list_to_atom(Flavor)
+    end.
+
 project_app_dirs() ->
     #{edition := Edition, reltype := RelType} = get_edition_from_profile_env(),
     project_app_dirs(Edition, RelType).
@@ -228,6 +234,7 @@ common_compile_opts(Edition, _RelType, Vsn) ->
     ] ++
         [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
         [{d, 'STORE_STATE_IN_DS'} || os:getenv("STORE_STATE_IN_DS") =:= "1"] ++
+        [{d, 'EMQX_FLAVOR', get_emqx_flavor()}] ++
         [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].
 
 warn_profile_env() ->
@@ -369,8 +376,13 @@ relform() ->
         Other -> Other
     end.
 
-emqx_description(_, ee) -> "EMQX Enterprise";
-emqx_description(_, ce) -> "EMQX".
+emqx_description(_, ce) ->
+    "EMQX";
+emqx_description(_, ee) ->
+    case get_emqx_flavor() of
+        official -> "EMQX Enterprise";
+        Flavor -> io_lib:format("EMQX Enterprise(~s)", [Flavor])
+    end.
 
 overlay_vars(_RelType, PkgType, Edition) ->
     [
