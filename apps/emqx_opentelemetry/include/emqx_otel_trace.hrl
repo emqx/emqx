@@ -40,9 +40,9 @@
 
 -record(?EMQX_OTEL_SAMPLER, {
     type ::
-        {?EMQX_OTEL_SAMPLE_CLIENTID, binary()}
-        | {?EMQX_OTEL_SAMPLE_TOPIC, binary()},
-    extra :: map()
+        {?EMQX_OTEL_SAMPLE_CLIENTID, binary() | '_'}
+        | {?EMQX_OTEL_SAMPLE_TOPIC, binary() | '_'},
+    extra :: map() | '_'
 }).
 
 -endif.
