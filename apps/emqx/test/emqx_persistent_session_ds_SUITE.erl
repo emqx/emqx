@@ -861,7 +861,7 @@ t_session_gc(Config) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqtt:stop(Client2),
-                    #{?snk_kind := terminate}
+                    #{?snk_kind := ?sessds_terminate}
                 )
             ),
             ?tp(notice, "disconnected client1", #{}),
@@ -869,7 +869,7 @@ t_session_gc(Config) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqtt:stop(Client3),
-                    #{?snk_kind := terminate}
+                    #{?snk_kind := ?sessds_terminate}
                 )
             ),
             ?tp(notice, "disconnected client2", #{}),
