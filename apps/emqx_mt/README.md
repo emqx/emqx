@@ -1,3 +1,182 @@
-# emqx_mt
+# MQTT Client Multi-tenancy
 
-MQTT client multi-tenancy.
+For a MQTT broker, multi-tenancy is a feature that allows different groups of users
+to have isolated environments within the same broker instance.
+
+The 'users' or 'tenants' here can be a group of MQTT clients with a shared namespace,
+or a group of admins with different access scopes.
+This app (so far) implements MQTT client multi-tenancy but not yet admin multi-tenancy.
+
+## Tenant Namespace Extraction (available in Open-Source Edition)
+
+Starting from **EMQX 5.9**, MQTT clients with a client attribute named `tns`
+will be considered a multi-tenant client.
+
+This client attribute assignment is from config `mqtt.client_attrs_init` setting.
+For example:
+
+```
+mqtt.client_attrs_init = [{expression = "username", set_as_attr = "tns"}]
+```
+
+In this configuration, the username is assigned as the tenant namespace (`tns`).
+
+More examples are:
+
+- `nth(1,tokens(clientid,'-'))`: client ID prefix before `-`.
+- `cn`: TLS certificate common name.
+- `user_property.foobar`: Use `foobar` field from User-Property of the CONNECT packet.
+- `peersni`: Use the server name indication sent by TLS client.
+
+## Tenant Client ID Isolation (available in Open-Source Edition)
+
+Ideally, if well planed, MQTT clients should be pre-assgined to avoid ID clashes between
+different tenants.
+And authenticate mechanisms can be employed to enfores that invalid client IDs are not
+allowed to login.
+
+Nonetheless, starting from EMQX 5.8.3, the config `mqtt.clientid_override` can be used
+to assign a prefix for all clients so to avlid client ID clashing between the tenants.
+
+For example this config `mqtt.clientid_ovrride = "concat([username, '-', clientid])"`
+should add `usnername-` as prefix to the client ID internally in EMQX.
+
+## Tenant Topic Isolation (available in Open-Source Edition)
+
+This can be done by making use of the MQTT listener's `mountpoint` config.
+For example: `listeners.tcp.default.mountpoint = "${client_attrs.tns}/"`.
+
+The topic in below packets will be automatically mounted (receive) or unmounted (send)
+with the prefix:
+
+- Will message in `CONNECT`
+- `PUBLISH`
+- `SUBSCRIBE`
+- `UNSUBSCRIBE`
+
+## Tenant Management Milestone 1
+
+With all the above building blocks available,
+this application (`emqx_mt`) can focus on providing the following functionalities:
+
+- **Live Session Count**: Given a tenant namespace (`tns`),
+  quickly retrieve the count of live sessions registered.
+- **Paginated Client Iteration**: Given a tenant namespace (`tns`),
+  provide a paginated iterator for traversing the client IDs.
+
+To minimize changes to the core `emqx` application, this functionality is implemented independently.
+The application registers callbacks to the `session.created` hook-point to track client presence
+and monitors processes to deregister them when the process terminates.
+
+**Note**: Handling offline durable sessions stored in persistent storage is yet to be decided.
+
+### Data Structure
+
+This application uses two **mnesia** tables, and one ETS table:
+
+- **`emqx_mt_records`**: An `ordered_set` table for tracking records:
+  - `{_Key = {Tns, ClientId, Pid}, _Value = []}` for tenant namespaces (`Tns`).
+
+- **`emqx_mt_count`**: A `ordered_set` table for maintaining counters for each `Tns` in `emqx_mt_records`.
+  The records follow the structure: `{{Tns, Node}, Count}`.
+
+- **`emqx_mt_monitor`**: A `set` ETS table to index from `Pid` to `{Tns, ClientId}`
+  in order to perform clean-ups when process exits.
+
+### Algorithm
+
+- To query client IDs for a tenant: traverse from `ets:next(emqx_mt_records, {Tns, <<>>, 0})`.
+- To query the number of clients for a tenant sum up all the counts: `lists:sum(ets:match(emqx_mt_count, [{{{Tns,'_'},'$1'},[],['$1']}]))`.
+
+### Event Handling
+
+### Register
+
+The application spawns a pool of workers to handle client PID registration
+when the `session.created` callback is triggered.
+
+```
+hook_callback(ClientInfo) ->
+  Msg = {register, get_tns(ClientInfo), get_clientid(ClientInfo), self()},
+  _ = erlang:send(pick_pool_worker(emqx_mt), Msg),
+  ok.
+
+handle_info({register, Tns, ClientId, Pid}, State) ->
+    ok = monitor_and_insert_ets(Pid),
+    ok = insert_record(Tns, ClientId, Pid),
+    %% when a client reconnects, there can be multiple Pids registered
+    %% due to race condition or session-takeover transition period
+    ok = inc_counter(Tns);
+    {noreply, State1}.
+```
+
+### Deregister
+
+When a `DOWN` message is received, the process deregisters the corresponding client.
+
+```
+handle_info({'DOWN', _, _, Pid, _}, State) ->
+  {Tns, ClientId} = delete_monitor(Pid),
+  ok = delete_record(Tns, ClientId),
+  ok = dec_counter(Tns),
+  {noreply, State}.
+```
+
+### Counter Keeping
+
+It's challenging to keep cluster-wide counters.
+The proposed idea is for each woker to keep their own counters,
+and periodically emits it to a counter collector process for aggregation (per tns-node).
+
+To get a sum of all nodes: `lists:sum(ets:select(emqx_mt_count, MatchSpec))`
+
+Similar to routes, when a node is down, one of the core nodes should be responsible
+to clean up the records and the counter for the peer node.
+
+## Tenant Session Count Limit [milestone 1]
+
+Limit the total number of sessions allowed for each tenant.
+Will maybe need to extend the `client.authenticate` hook callback return value
+to support 'quota-exceeded' error reason, because `client_attrs` is not available
+before `client.authenticate` hook callback.
+
+Configuration:
+
+```
+multi_tenancy {
+    # default limit for all tenants,
+    # in milestone 2, there will be per-tenant limits
+    # however per-tenant configs are to be stored in a mria table instead of in files
+    per_tenant_session_limit = 1000
+}
+```
+
+## Tenant Management Milestone 2
+
+Allow sys-admin to create tenants before hand. Meaning there should be a
+`client.authenticate` hook callback to check if `client_attrs.tns` is
+already created. This hook should have a higher priority than the default
+priority `HP_AUTHN` so it can be checked before the authentication chain.
+
+## Per-tenant Message Rate Limit [milestone 2]
+
+This depens on the named rate limiter feature to be ready with an overridable design.
+e.g. each client puts the rate limiter name as `put(rate_limiter, 'global')`.
+
+According to how it's configured, `emqx_mt` should be able to create named rate limiter(s)
+and override the defalut limiters for the client processes.
+
+e.g. in the `session.created` callback function, lookup the rate limiter for
+the current client, and `put(rate_limiter, Name)`.
+
+## Limitations
+
+There is so far no limit for the totoal number of tenants (unique `tns`).
+Although creating large number of tenants is only a matter of RAM usage,
+it's still a good idea to have a limit to avoid abuse.
+
+When there is a large number of tenants, the tenant listing API may cause excessive
+CPU and RAM usage because it's so far not possible to be paginated.
+
+To avoid DoS attacks, it is the authentication subsystem's responsibility to
+ensure only ledgit tenants are allowed to connect.
