@@ -245,6 +245,8 @@ fields("e2e_tracing_options") ->
             ?HOCON(
                 string(),
                 #{
+                    required => true,
+                    default => ?EMQX_OTEL_DEFAULT_META_VALUE,
                     desc => ?DESC(e2e_attribute_meta_value),
                     importance => ?IMPORTANCE_MEDIUM
                 }

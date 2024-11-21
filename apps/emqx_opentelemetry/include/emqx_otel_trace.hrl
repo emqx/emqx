@@ -38,6 +38,8 @@
 -define(EMQX_OTEL_SAMPLE_CLIENTID, 1).
 -define(EMQX_OTEL_SAMPLE_TOPIC, 2).
 
+-define(EMQX_OTEL_DEFAULT_META_VALUE, <<"emqxcl">>).
+
 -record(?EMQX_OTEL_SAMPLER, {
     type ::
         {?EMQX_OTEL_SAMPLE_CLIENTID, binary() | '_'}

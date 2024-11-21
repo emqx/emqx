@@ -174,9 +174,7 @@ should_sample(
     SpanName,
     _SpanKind,
     Attributes,
-    #{
-        attribute_meta_value := MetaValue
-    } = Opts
+    Opts
 ) when
     SpanName =:= ?CLIENT_CONNECT_SPAN_NAME orelse
         SpanName =:= ?CLIENT_DISCONNECT_SPAN_NAME orelse
@@ -189,7 +187,7 @@ should_sample(
             decide_by_traceid_ratio(TraceId, SpanName, Opts),
     {
         decide(Desicion),
-        #{?META_KEY => MetaValue},
+        with_meta_value(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     };
 %% None Root Span, decide by Parent or Publish Response Tracing Level
@@ -200,17 +198,14 @@ should_sample(
     SpanName,
     _SpanKind,
     _Attributes,
-    #{
-        msg_trace_level := QoS,
-        attribute_meta_value := MetaValue
-    } = _Opts
+    #{msg_trace_level := QoS} = Opts
 ) ->
     Desicion =
         parent_sampled(otel_tracer:current_span_ctx(Ctx)) andalso
             match_by_span_name(SpanName, QoS),
     {
         decide(Desicion),
-        #{?META_KEY => MetaValue},
+        with_meta_value(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     }.
 
@@ -308,3 +303,8 @@ decide(true) ->
     ?RECORD_AND_SAMPLE;
 decide(false) ->
     ?DROP.
+
+with_meta_value(#{attribute_meta_value := MetaValue}) ->
+    #{?META_KEY => MetaValue};
+with_meta_value(_) ->
+    #{}.
