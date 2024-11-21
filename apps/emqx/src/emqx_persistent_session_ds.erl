@@ -693,9 +693,10 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 handle_timeout(
     _ClientInfo,
     ?TIMER_RENEW_STREAMS,
-    Session
+    Session0
 ) ->
-    {ok, [], renew_streams(all, Session)};
+    Session = renew_streams(all, Session0),
+    {ok, [], Session#{?TIMER_RENEW_STREAMS := undefined}};
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?SLOG(warning, #{msg => "unknown_ds_timeout", timeout => Timeout}),
     {ok, [], Session}.

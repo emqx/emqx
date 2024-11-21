@@ -347,67 +347,31 @@ handle_call(
         request_clientinfo => ClientInfo
     }),
     {reply, {error, ?RESP_PERMISSION_DENY, <<"Client socket disconnected">>}, Channel};
-handle_call(
-    {auth, ClientInfo0, Password},
-    _From,
-    Channel = #channel{
-        ctx = Ctx,
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo
-    }
-) ->
-    ClientInfo1 = enrich_clientinfo(ClientInfo0, ClientInfo),
-    ConnInfo1 = enrich_conninfo(ClientInfo0, ConnInfo),
-
-    Channel1 = Channel#channel{
-        conninfo = ConnInfo1,
-        clientinfo = ClientInfo1
-    },
-
-    #{clientid := ClientId, username := Username} = ClientInfo1,
-
+handle_call({auth, ClientInfo0, Password}, _From, Channel) ->
+    ClientInfo1 = ClientInfo0#{password => Password},
     case
-        emqx_gateway_ctx:authenticate(
-            Ctx, ClientInfo1#{password => Password}
+        emqx_utils:pipeline(
+            [
+                fun enrich_conninfo/2,
+                fun run_conn_hooks/2,
+                fun enrich_clientinfo/2,
+                fun set_log_meta/2,
+                fun auth_connect/2
+            ],
+            ClientInfo1,
+            Channel#channel{conn_state = connecting}
         )
     of
-        {ok, NClientInfo} ->
-            SessFun = fun(_, _) -> #{} end,
-            emqx_logger:set_metadata_clientid(ClientId),
-            case
-                emqx_gateway_ctx:open_session(
-                    Ctx,
-                    true,
-                    NClientInfo,
-                    ConnInfo1,
-                    SessFun
-                )
-            of
-                {ok, _Session} ->
-                    ?SLOG(debug, #{
-                        msg => "client_login_succeed",
-                        clientid => ClientId,
-                        username => Username
-                    }),
-                    {reply, ok, [{event, connected}],
-                        ensure_connected(Channel1#channel{clientinfo = NClientInfo})};
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "client_login_failed",
-                        clientid => ClientId,
-                        username => Username,
-                        reason => Reason
-                    }),
-                    {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
-            end;
-        {error, Reason} ->
+        {ok, _, NChannel} ->
+            process_connect(NChannel);
+        {error, Reason, NChannel} ->
             ?SLOG(warning, #{
                 msg => "client_login_failed",
-                clientid => ClientId,
-                username => Username,
+                clientid => maps:get(clientid, ClientInfo0, undefined),
+                username => maps:get(username, ClientInfo0, undefined),
                 reason => Reason
             }),
-            {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
+            {reply, {error, ?RESP_PERMISSION_DENY, Reason}, NChannel}
     end;
 handle_call(
     {start_timer, keepalive, Interval},
@@ -706,6 +670,10 @@ run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run(Name, Args).
 
+run_hooks(Ctx, Name, Args, Acc) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run_fold(Name, Args, Acc).
+
 metrics_inc(Ctx, Name) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
@@ -765,11 +733,22 @@ dispatch(FunName, Req, Channel = #channel{gcli = GClient}) ->
 %% Format
 %%--------------------------------------------------------------------
 
-enrich_conninfo(InClientInfo, ConnInfo) ->
+enrich_conninfo(
+    InClientInfo,
+    Channel = #channel{
+        conninfo = ConnInfo
+    }
+) ->
     Ks = [proto_name, proto_ver, clientid, username],
-    maps:merge(ConnInfo, maps:with(Ks, InClientInfo)).
+    NConnInfo = maps:merge(ConnInfo, maps:with(Ks, InClientInfo)),
+    {ok, Channel#channel{conninfo = NConnInfo}}.
 
-enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
+enrich_clientinfo(
+    InClientInfo = #{proto_name := ProtoName},
+    Channel = #channel{
+        clientinfo = ClientInfo
+    }
+) ->
     Ks = [clientid, username],
     case maps:get(mountpoint, InClientInfo, <<>>) of
         <<>> ->
@@ -788,7 +767,87 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
             )
     end,
     NClientInfo = maps:merge(ClientInfo, maps:with(Ks, InClientInfo)),
-    NClientInfo#{protocol => proto_name_to_protocol(ProtoName)}.
+    NClientInfo1 = NClientInfo#{protocol => proto_name_to_protocol(ProtoName)},
+    {ok, Channel#channel{clientinfo = NClientInfo1}}.
+
+set_log_meta(_InClientInfo, #channel{clientinfo = #{clientid := ClientId}}) ->
+    emqx_logger:set_metadata_clientid(ClientId),
+    ok.
+
+run_conn_hooks(
+    InClientInfo,
+    Channel = #channel{
+        ctx = Ctx,
+        conninfo = ConnInfo
+    }
+) ->
+    ConnProps = #{},
+    case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
+        Error = {error, _Reason} -> Error;
+        _NConnProps -> {ok, InClientInfo, Channel}
+    end.
+
+auth_connect(
+    _InClientInfo = #{password := Password},
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo
+    }
+) ->
+    #{
+        clientid := ClientId,
+        username := Username
+    } = ClientInfo,
+    case emqx_gateway_ctx:authenticate(Ctx, ClientInfo#{password => Password}) of
+        {ok, NClientInfo} ->
+            {ok, Channel#channel{clientinfo = NClientInfo}};
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "client_login_failed",
+                clientid => ClientId,
+                username => Username,
+                reason => Reason
+            }),
+            {error, Reason}
+    end.
+
+process_connect(
+    Channel = #channel{
+        ctx = Ctx,
+        conninfo = ConnInfo,
+        clientinfo = ClientInfo
+    }
+) ->
+    #{
+        clientid := ClientId,
+        username := Username
+    } = ClientInfo,
+    SessFun = fun(_, _) -> #{} end,
+    case
+        emqx_gateway_ctx:open_session(
+            Ctx,
+            true,
+            ClientInfo,
+            ConnInfo,
+            SessFun
+        )
+    of
+        {ok, _Session} ->
+            ?SLOG(debug, #{
+                msg => "client_login_succeed",
+                clientid => ClientId,
+                username => Username
+            }),
+            {reply, ok, [{event, connected}], ensure_connected(Channel)};
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "client_login_failed",
+                clientid => ClientId,
+                username => Username,
+                reason => Reason
+            }),
+            {reply, {error, ?RESP_PERMISSION_DENY, Reason}, Channel}
+    end.
 
 default_conninfo(ConnInfo) ->
     ConnInfo#{

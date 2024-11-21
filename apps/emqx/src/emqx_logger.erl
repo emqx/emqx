@@ -48,6 +48,7 @@
     set_primary_log_level/1,
     set_log_handler_level/2,
     set_log_level/1,
+    set_level/1,
     set_all_log_handlers_level/1
 ]).
 
@@ -244,12 +245,15 @@ set_log_handler_level(HandlerId, Level) ->
     end.
 
 %% @doc Set both the primary and all handlers level in one command
--spec set_log_level(logger:level()) -> ok | {error, term()}.
-set_log_level(Level) ->
+-spec set_level(logger:level()) -> ok | {error, term()}.
+set_level(Level) ->
     case set_primary_log_level(Level) of
         ok -> set_all_log_handlers_level(Level);
         {error, Error} -> {error, {primary_logger_level, Error}}
     end.
+
+set_log_level(Level) ->
+    set_level(Level).
 
 %%--------------------------------------------------------------------
 %% Internal Functions

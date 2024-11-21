@@ -405,10 +405,19 @@ t_websocket_info_incoming(_) ->
     {[{binary, IoData2}], St2} =
         websocket_info({incoming, ?PACKET(?PINGREQ)}, St1),
     ?assertEqual(<<208, 0>>, iolist_to_binary(IoData2)),
-    %% PUBLISH
-    Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
-    {[{binary, IoData3}], _St3} = websocket_info({incoming, Publish}, St2),
-    ?assertEqual(<<64, 4, 0, 1, 0, 0>>, iolist_to_binary(IoData3)).
+    %% PUBLISH with property
+    Publish = ?PUBLISH_PACKET(
+        ?QOS_1, <<"t">>, 1, #{'User-Property' => [{<<"k">>, <<"v">>}]}, <<"payload">>
+    ),
+    {[{binary, IoData3}], St3} = websocket_info({incoming, Publish}, St2),
+    ?assertEqual(<<64, 4, 0, 1, 0, 0>>, iolist_to_binary(IoData3)),
+    %% frame_error
+    Cause = invalid_property_code,
+    FrameError = {frame_error, #{cause => Cause, property_code => 16#2B}},
+    %% cowboy_websocket's close reason must be an atom to avoid crashing the sender process.
+    %% ensure the cause is atom
+    {[{close, CauseReq}], _St4} = websocket_info({incoming, FrameError}, St3),
+    ?assertEqual(Cause, CauseReq).
 
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},

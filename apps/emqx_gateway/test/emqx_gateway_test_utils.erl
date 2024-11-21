@@ -203,3 +203,37 @@ sn_client_disconnect(Socket) ->
     _ = emqx_sn_protocol_SUITE:send_disconnect_msg(Socket, undefined),
     gen_udp:close(Socket),
     ok.
+
+meck_emqx_hook_calls() ->
+    Self = self(),
+    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_hooks,
+        run,
+        fun(A1, A2) ->
+            Self ! {hook_call, A1},
+            meck:passthrough([A1, A2])
+        end
+    ),
+
+    ok = meck:expect(
+        emqx_hooks,
+        run_fold,
+        fun(A1, A2, A3) ->
+            Self ! {hook_call, A1},
+            meck:passthrough([A1, A2, A3])
+        end
+    ).
+
+collect_emqx_hooks_calls() ->
+    collect_emqx_hooks_calls([]).
+
+collect_emqx_hooks_calls(Acc) ->
+    receive
+        {hook_call, Args} ->
+            collect_emqx_hooks_calls([Args | Acc])
+    after 1000 ->
+        L = lists:reverse(Acc),
+        meck:unload(emqx_hooks),
+        L
+    end.

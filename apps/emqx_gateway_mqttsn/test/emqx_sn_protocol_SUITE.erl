@@ -206,8 +206,17 @@ t_connect(_) ->
     SockName = {'mqttsn:udp:default', 1884},
     ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
 
+    emqx_gateway_test_utils:meck_emqx_hook_calls(),
+
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"client_id_test1">>),
+
+    %% assert: client.connect hook is called
+    ?assertMatch(
+        ['client.connect' | _],
+        emqx_gateway_test_utils:collect_emqx_hooks_calls()
+    ),
+
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
     send_disconnect_msg(Socket, undefined),

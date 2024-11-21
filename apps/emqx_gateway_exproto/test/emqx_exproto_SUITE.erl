@@ -440,11 +440,18 @@ t_hook_connected_disconnected(Cfg) ->
     ConnAckBin = frame_connack(0),
 
     Parent = self(),
+    emqx_hooks:add('client.connect', {?MODULE, hook_fun0, [Parent]}, 1000),
     emqx_hooks:add('client.connected', {?MODULE, hook_fun1, [Parent]}, 1000),
     emqx_hooks:add('client.disconnected', {?MODULE, hook_fun2, [Parent]}, 1000),
 
     send(Sock, ConnBin),
     {ok, ConnAckBin} = recv(Sock, 5000),
+
+    receive
+        connect -> ok
+    after 1000 ->
+        error(hook_is_not_running)
+    end,
 
     receive
         connected -> ok
@@ -465,6 +472,7 @@ t_hook_connected_disconnected(Cfg) ->
         begin
             {error, closed} = recv(Sock, 5000)
         end,
+    emqx_hooks:del('client.connect', {?MODULE, hook_fun0}),
     emqx_hooks:del('client.connected', {?MODULE, hook_fun1}),
     emqx_hooks:del('client.disconnected', {?MODULE, hook_fun2}).
 
@@ -593,6 +601,10 @@ t_idle_timeout(Cfg) ->
 
 %%--------------------------------------------------------------------
 %% Utils
+
+hook_fun0(_, _, Parent) ->
+    Parent ! connect,
+    ok.
 
 hook_fun1(_, _, Parent) ->
     Parent ! connected,

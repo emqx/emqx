@@ -254,8 +254,8 @@ do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     case
         emqx_utils:pipeline(
             [
-                fun enrich_clientinfo/2,
                 fun enrich_conninfo/2,
+                fun enrich_clientinfo/2,
                 fun set_log_meta/2
             ],
             Frame,
@@ -275,8 +275,9 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
     case
         emqx_utils:pipeline(
             [
-                fun enrich_clientinfo/2,
                 fun enrich_conninfo/2,
+                fun run_conn_hooks/2,
+                fun enrich_clientinfo/2,
                 fun set_log_meta/2
             ],
             Frame,
@@ -924,6 +925,19 @@ enrich_conninfo(
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
+run_conn_hooks(
+    Input,
+    Channel = #channel{
+        ctx = Ctx,
+        conninfo = ConnInfo
+    }
+) ->
+    ConnProps = #{},
+    case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
+        Error = {error, _Reason} -> Error;
+        _NConnProps -> {ok, Input, Channel}
+    end.
+
 %% Register
 enrich_clientinfo(
     #{
@@ -1006,6 +1020,10 @@ start_keepalive(Secs, _Channel) when Secs > 0 ->
 run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run(Name, Args).
+
+run_hooks(Ctx, Name, Args, Acc) ->
+    emqx_gateway_ctx:metrics_inc(Ctx, Name),
+    emqx_hooks:run_fold(Name, Args, Acc).
 
 discard_downlink_messages([], _Channel) ->
     ok;
