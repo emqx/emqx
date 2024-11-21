@@ -353,11 +353,11 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_cassandra,
       :emqx_bridge_opents,
       :emqx_bridge_dynamo,
+      :emqx_bridge_es,
       :emqx_bridge_greptimedb,
       :emqx_bridge_hstreamdb,
       :emqx_bridge_influxdb,
       :emqx_bridge_iotdb,
-      :emqx_bridge_es,
       :emqx_bridge_matrix,
       :emqx_bridge_mongodb,
       :emqx_bridge_mysql,
@@ -493,6 +493,7 @@ defmodule EMQXUmbrella.MixProject do
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
       {:d, :EMQX_RELEASE_EDITION, erlang_edition(edition_type)},
       {:d, :EMQX_ELIXIR},
+      {:d, :EMQX_FLAVOR, get_emqx_flavor()},
       {:d, :snk_kind, :msg}
     ] ++
       singleton(test_env?(), {:d, :TEST}) ++
@@ -1172,7 +1173,13 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_description(release_type, edition_type) do
     case {release_type, edition_type} do
       {_, :enterprise} ->
-        "EMQX Enterprise"
+        case get_emqx_flavor() do
+          :official ->
+            "EMQX Enterprise"
+
+          flavor ->
+            "EMQX Enterprise(#{flavor})"
+        end
 
       {_, :community} ->
         "EMQX"
@@ -1221,6 +1228,14 @@ defmodule EMQXUmbrella.MixProject do
         macos?(),
         build_without_quic?()
       ])
+  end
+
+  def get_emqx_flavor() do
+    case System.get_env("EMQX_FLAVOR") do
+      nil -> :official
+      "" -> :official
+      flavor -> flavor
+    end
   end
 
   defp enable_rocksdb?() do

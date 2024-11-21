@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include("../../emqx/include/emqx.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -31,7 +32,7 @@
 
 opts(Config, Overrides) ->
     Layout = ?config(layout, Config),
-    maps:merge(
+    emqx_utils_maps:deep_merge(
         #{
             backend => builtin_raft,
             storage => Layout,
@@ -176,6 +177,157 @@ t_replication_transfers_snapshots(Config) ->
             emqx_ds_test_helpers:verify_stream_effects(?DB, ?FUNCTION_NAME, Nodes, TopicStreams)
         end,
         []
+    ).
+
+t_preconditions_idempotent(init, Config) ->
+    Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_preconditions_idempotent1, #{apps => Apps}},
+            {t_preconditions_idempotent2, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    [{nodes, Nodes}, {specs, Specs} | Config];
+t_preconditions_idempotent('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
+
+t_preconditions_idempotent(Config) ->
+    C1 = <<"C1">>,
+    Topic1 = <<"t/foo">>,
+    Topic2 = <<"t/bar/xyz">>,
+
+    Nodes = [N1, N2] = ?config(nodes, Config),
+    _Specs = [NS1, _] = ?config(specs, Config),
+    Opts = opts(Config, #{
+        n_shards => 1,
+        n_sites => 2,
+        replication_factor => 3,
+        append_only => false,
+        replication_options => #{
+            %% Make sure snapshots are taken eagerly.
+            snapshot_interval => 6
+        }
+    }),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            assert_db_open(Nodes, ?DB, Opts),
+
+            %% Store several messages.
+            Messages = [
+                message(C1, Topic1, <<"T1/0">>, 0),
+                message(C1, Topic2, <<"T2/0">>, 0),
+                message(C1, Topic1, <<"T1/1">>, 1),
+                message(C1, Topic2, <<"T2/2">>, 1),
+                message(C1, Topic1, <<"T1/2">>, 2),
+                message(C1, Topic2, <<"T2/2">>, 2),
+                message(C1, Topic1, <<"T1/100">>, 100)
+            ],
+            [ok = ?ON(N2, emqx_ds:store_batch(?DB, [M], #{sync => true})) || M <- Messages],
+
+            %% Add a generation. This will cause the storage layer to flush.
+            Since1 = 300,
+            ok = ?ON(N2, emqx_ds_replication_layer:add_generation(?DB, Since1)),
+
+            %% Store batches with preconditions.
+            Batch1 = #dsbatch{
+                preconditions = [
+                    %% Appears later, as part of `Batch2`.
+                    {if_exists, #message_matcher{
+                        from = C1, topic = Topic1, timestamp = 400, payload = '_'
+                    }}
+                ],
+                operations = [
+                    message(C1, Topic1, <<"Should not be here">>, 500)
+                ]
+            },
+            ?assertMatch(
+                %% No `{Topic1, _TS = 400}` message yet, should fail.
+                {error, _, {precondition_failed, _}},
+                ?ON(N2, emqx_ds:store_batch(?DB, Batch1, #{sync => true}))
+            ),
+            Batch2 = [
+                message(C1, Topic1, <<"T1/400">>, 400),
+                message(C1, Topic2, <<"T2/400">>, 400)
+            ],
+            ?assertEqual(
+                %% Only now `{Topic1, _TS = 400}` should be stored.
+                ok,
+                ?ON(N2, emqx_ds:store_batch(?DB, Batch2, #{sync => true}))
+            ),
+
+            %% Restart N1 and wait until it is ready.
+            [N1] = emqx_cth_cluster:restart(NS1),
+            RestartedAt1 = erlang:monotonic_time(millisecond),
+            ok = ?ON(N1, emqx_ds:open_db(?DB, Opts)),
+            SinceRestarted1 = erlang:monotonic_time(millisecond) - RestartedAt1,
+            wait_db_bootstrapped([N1], ?DB, infinity, SinceRestarted1),
+
+            %% Both replicas should still contain the same set of messages.
+            [N1Msgs1, N2Msgs1] = ?ON(
+                Nodes,
+                emqx_ds_test_helpers:storage_consume({?DB, <<"0">>}, ['#'])
+            ),
+            emqx_ds_test_helpers:assert_same_set(N1Msgs1, N2Msgs1),
+
+            Batch3 = #dsbatch{
+                preconditions = [
+                    %% Exists at this point.
+                    {unless_exists, #message_matcher{
+                        from = C1, topic = Topic1, timestamp = 400, payload = '_'
+                    }}
+                ],
+                operations = [
+                    message(C1, Topic2, <<"Should not be here">>, 500)
+                ]
+            },
+            ?assertMatch(
+                %% There is `{Topic1, _TS = 400}` message yet, should fail.
+                {error, _, {precondition_failed, _}},
+                ?ON(N2, emqx_ds:store_batch(?DB, Batch3, #{sync => true}))
+            ),
+            Batch4 = [
+                {delete, #message_matcher{
+                    from = C1, topic = Topic1, timestamp = 400, payload = '_'
+                }}
+            ],
+            ?assertEqual(
+                %% Only now `{Topic1, _TS = 400}` should be deleted.
+                ok,
+                ?ON(N2, emqx_ds:store_batch(?DB, Batch4, #{sync => true}))
+            ),
+
+            %% Add one more generation, idempotency should still hold if it's
+            %% the last log entry.
+            Since2 = 600,
+            ok = ?ON(N2, emqx_ds_replication_layer:add_generation(?DB, Since2)),
+
+            %% Restart N1 and wait until it is ready.
+            [N1] = emqx_cth_cluster:restart(NS1),
+            RestartedAt2 = erlang:monotonic_time(millisecond),
+            ok = ?ON(N1, emqx_ds:open_db(?DB, Opts)),
+            SinceRestarted2 = erlang:monotonic_time(millisecond) - RestartedAt2,
+            wait_db_bootstrapped([N1], ?DB, infinity, SinceRestarted2),
+
+            %% But both replicas should still contain the same set of messages.
+            [N1Msgs2, N2Msgs2] = ?ON(
+                Nodes,
+                emqx_ds_test_helpers:storage_consume({?DB, <<"0">>}, ['#'])
+            ),
+            emqx_ds_test_helpers:assert_same_set(N1Msgs2, N2Msgs2)
+        end,
+        fun(Trace) ->
+            %% Expect Raft log entries following `add_generation/2` to be reapplied
+            %% twice, once per each restart.
+            Events = ?of_kind(ds_ra_apply_batch, ?of_node(N1, Trace)),
+            ?assertMatch(
+                %% Batch1, Batch2, Batch1, Batch2, Batch3, Batch4, Batch1, Batch2, Batch3, Batch4
+                [_, _, _, _, _, _, _, _, _, _],
+                [E || E = #{latest := L} <- Events, L > (_Since1 = 300)]
+            )
+        end
     ).
 
 t_rebalance(init, Config) ->

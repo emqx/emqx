@@ -182,8 +182,8 @@ parse_message_body(
         <<"province">> => Province,
         <<"city">> => City,
         <<"manufacturer">> => Manufacturer,
-        <<"model">> => Model,
-        <<"dev_id">> => DevId,
+        <<"model">> => remove_tail_zero(Model),
+        <<"dev_id">> => remove_tail_zero(DevId),
         <<"color">> => Color,
         <<"license_number">> => LicNumber
     };
@@ -204,8 +204,8 @@ parse_message_body(
     #{
         <<"type">> => Type,
         <<"manufacturer">> => Manufacturer,
-        <<"model">> => Model,
-        <<"id">> => Id,
+        <<"model">> => remove_tail_zero(Model),
+        <<"id">> => remove_tail_zero(Id),
         <<"iccid">> => from_bcd(ICCID, []),
         <<"hardware_version">> => HV,
         <<"firmware_version">> => FV,
@@ -1103,3 +1103,17 @@ cal_xor(C, undefined) ->
     C;
 cal_xor(C, XorValue) ->
     C bxor XorValue.
+
+remove_tail_zero(<<>>) ->
+    <<>>;
+remove_tail_zero(Bin) ->
+    LastIdx = search_tail_zero_pos(Bin, size(Bin) - 1),
+    binary:part(Bin, 0, LastIdx + 1).
+
+search_tail_zero_pos(_Bin, 0) ->
+    0;
+search_tail_zero_pos(Bin, Pos) ->
+    case binary:at(Bin, Pos) of
+        0 -> search_tail_zero_pos(Bin, Pos - 1);
+        _ -> Pos
+    end.
