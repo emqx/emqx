@@ -188,15 +188,15 @@ t_process_msg(_) ->
     ).
 
 t_ensure_stats_timer(_) ->
-    NStats = emqx_connection:ensure_stats_timer(100, st()),
-    Stats_timer = emqx_connection:info(stats_timer, NStats),
-    ?assert(is_reference(Stats_timer)),
+    NStats = emqx_connection:ensure_stats_timer(100, st(#{stats_timer => undefined})),
+    StatsTimer = emqx_connection:info(stats_timer, NStats),
+    ?assert(is_reference(StatsTimer)),
     ?assertEqual(NStats, emqx_connection:ensure_stats_timer(100, NStats)).
 
 t_cancel_stats_timer(_) ->
     NStats = emqx_connection:cancel_stats_timer(st(#{stats_timer => make_ref()})),
-    Stats_timer = emqx_connection:info(stats_timer, NStats),
-    ?assertEqual(undefined, Stats_timer),
+    StatsTimer = emqx_connection:info(stats_timer, NStats),
+    ?assertEqual(undefined, StatsTimer),
     ?assertEqual(NStats, emqx_connection:cancel_stats_timer(NStats)).
 
 t_append_msg(_) ->
