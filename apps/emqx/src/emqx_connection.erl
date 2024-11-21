@@ -414,7 +414,6 @@ recvloop(
     Parent,
     State = #state{
         hibernate_after = HibernateAfterMs,
-        channel = Channel,
         zone = Zone
     }
 ) ->
@@ -431,9 +430,7 @@ recvloop(
             true ->
                 recvloop(Parent, State);
             false ->
-                ClientId = emqx_channel:info(clientid, Channel),
-                undefined =/= ClientId andalso
-                    emqx_cm:set_chan_stats(ClientId, stats(State)),
+                _ = set_chan_stats(State),
                 hibernate(Parent, cancel_stats_timer(State))
         end
     end.
@@ -727,9 +724,8 @@ handle_timeout(
         socket = Socket
     }
 ) ->
+    _ = set_chan_stats(State),
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
-    ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
     TRef,
@@ -746,6 +742,13 @@ handle_timeout(
     end;
 handle_timeout(TRef, Msg, State) ->
     with_channel(handle_timeout, [TRef, Msg], State).
+
+set_chan_stats(State = #state{channel = Channel}) ->
+    case emqx_channel:info(clientid, Channel) of
+        %% ClientID is not yet known, nothing to report.
+        undefined -> false;
+        ClientId -> emqx_cm:set_chan_stats(ClientId, stats(State))
+    end.
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
