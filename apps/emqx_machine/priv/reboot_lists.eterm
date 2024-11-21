@@ -88,6 +88,7 @@
             emqx_license,
             emqx_enterprise,
             emqx_opentelemetry,
+            emqx_mt,
             emqx_schema_validation,
             emqx_message_transformation,
             emqx_connector_aggregator,
