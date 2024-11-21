@@ -384,11 +384,16 @@ t_connect_emit_stats_timeout('end', _Config) ->
 
 t_connect_emit_stats_timeout(Config) ->
     ConnFun = ?config(conn_fun, Config),
-    {_, IdleTimeout} = lists:keyfind(idle_timeout, 1, Config),
+    IdleTimeout = ?config(idle_timeout, Config),
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {keepalive, 60} | Config]),
     {ok, _} = emqtt:ConnFun(Client),
+    %% Poke the connection to ensure stats timer is armed.
+    pong = emqtt:ping(Client),
     [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
-    ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
+    ?assertMatch(
+        TRef when is_reference(TRef),
+        emqx_connection:info(stats_timer, sys:get_state(ClientPid))
+    ),
     ?block_until(#{?snk_kind := cancel_stats_timer}, IdleTimeout * 2, _BackInTime = 0),
     ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
     ok = emqtt:disconnect(Client).

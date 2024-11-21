@@ -454,22 +454,17 @@ wakeup_from_hib(Parent, State) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
--compile({inline, [ensure_stats_timer/1, ensure_stats_timer/2]}).
+-compile({inline, [ensure_stats_timer/1]}).
 ensure_stats_timer(State = #state{stats_timer = undefined}) ->
     Timeout = get_zone_idle_timeout(State#state.zone),
-    ensure_stats_timer(Timeout, State);
-ensure_stats_timer(State) ->
-    State.
-
-ensure_stats_timer(Timeout, State = #state{stats_timer = undefined}) ->
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
-ensure_stats_timer(_Timeout, State) ->
+ensure_stats_timer(State) ->
     %% Either already active, disabled, or paused.
     State.
 
 -compile({inline, [resume_stats_timer/1]}).
 resume_stats_timer(State = #state{stats_timer = paused}) ->
-    ensure_stats_timer(0, State#state{stats_timer = undefined});
+    State#state{stats_timer = undefined};
 resume_stats_timer(State = #state{stats_timer = disabled}) ->
     State.
 
@@ -569,9 +564,7 @@ handle_msg(
         serialize = emqx_frame:serialize_opts(ConnPkt),
         idle_timer = undefined
     },
-    %% Causes stats timer to be emitted (if enabled) right after CONNECT is processed.
-    FState = resume_stats_timer(NState),
-    handle_incoming(Packet, FState);
+    handle_incoming(Packet, NState);
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
@@ -622,7 +615,8 @@ handle_msg(
             maps:get(conn_pid, QSS), {PS, Serialize, Channel}
         ),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State));
+    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    {ok, resume_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
