@@ -346,9 +346,6 @@ init_state(
         end,
     IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
 
-    set_tcp_keepalive(Listener),
-
-    IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{
         transport = Transport,
         socket = Socket,
@@ -362,7 +359,6 @@ init_state(
         gc_state = GcState,
         stats_timer = StatsTimer,
         idle_timeout = IdleTimeout,
-        idle_timer = IdleTimer,
         hibernate_after = maps:get(hibernate_after, Opts, IdleTimeout),
         zone = Zone,
         listener = Listener,
@@ -378,7 +374,9 @@ run_loop(
         transport = Transport,
         socket = Socket,
         peername = Peername,
-        channel = Channel
+        channel = Channel,
+        listener = Listener,
+        idle_timeout = IdleTimeout
     }
 ) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
@@ -389,7 +387,9 @@ run_loop(
     emqx_utils:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
         {ok, NState} ->
-            hibernate(Parent, NState);
+            ok = set_tcp_keepalive(Listener),
+            IdleTimer = start_timer(IdleTimeout, idle_timeout),
+            hibernate(Parent, NState#state{idle_timer = IdleTimer});
         {error, Reason} ->
             ok = Transport:fast_close(Socket),
             exit_on_sock_error(Reason)
