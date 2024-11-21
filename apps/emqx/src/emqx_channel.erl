@@ -2038,8 +2038,14 @@ authenticate(Packet, Channel) ->
         },
         fun(PacketWithTrace) ->
             Res = process_authenticate(PacketWithTrace, Channel),
-            %% TODO: which authenticator is used
             ?EXT_TRACE_ADD_ATTRS(authn_attrs(Res)),
+            case Res of
+                {ok, _, _} -> ?EXT_TRACE_SET_STATUS_OK();
+                %% TODO: Enhanced AUTH
+                {continue, _, _} -> ok;
+                {error, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
+            end,
+            %% TODO: which authenticator is used
             Res
         end
     ).
@@ -2317,6 +2323,7 @@ do_check_pub_authz(
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => allow
             }),
+            ?EXT_TRACE_SET_STATUS_OK(),
             ok;
         deny ->
             ?EXT_TRACE_ADD_ATTRS(#{
@@ -2324,6 +2331,7 @@ do_check_pub_authz(
                 'authz.publish.result' => deny,
                 'authz.reason_code' => ?RC_NOT_AUTHORIZED
             }),
+            ?EXT_TRACE_SET_STATUS_ERROR(),
             {error, ?RC_NOT_AUTHORIZED}
     end.
 
@@ -2376,20 +2384,21 @@ do_check_sub_authzs(
         CheckResult
     ),
     DenyAction = emqx:get_config([authorization, deny_action], ignore),
-    case DenyAction =:= disconnect andalso HasAuthzDeny of
-        true ->
-            ?EXT_TRACE_ADD_ATTRS(
-                (subscribe_authz_result_attrs(CheckResult))#{
-                    'authz.deny_action' => disconnect
-                }
-            ),
+    case {HasAuthzDeny, DenyAction} of
+        {true, disconnect} ->
+            ?EXT_TRACE_ADD_ATTRS((subscribe_authz_result_attrs(CheckResult))#{
+                'authz.deny_action' => disconnect
+            }),
+            ?EXT_TRACE_SET_STATUS_ERROR(),
             {error, {disconnect, ?RC_NOT_AUTHORIZED}, Channel};
-        false ->
-            ?EXT_TRACE_ADD_ATTRS(
-                (subscribe_authz_result_attrs(CheckResult))#{
-                    'authz.deny_action' => ignore
-                }
-            ),
+        {true, ignore} ->
+            ?EXT_TRACE_ADD_ATTRS((subscribe_authz_result_attrs(CheckResult))#{
+                'authz.deny_action' => ignore
+            }),
+            ?EXT_TRACE_SET_STATUS_ERROR(),
+            {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel};
+        {false, _} ->
+            ?EXT_TRACE_SET_STATUS_OK(),
             {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}
     end.
 

@@ -33,12 +33,14 @@
 -if(?EMQX_RELEASE_EDITION == ee).
 
 -define(with_provider(IfRegistered, IfNotRegistered),
-    case persistent_term:get(?PROVIDER, undefined) of
-        undefined ->
-            IfNotRegistered;
-        Provider ->
-            Provider:IfRegistered
-    end
+    fun() ->
+        case persistent_term:get(?PROVIDER, undefined) of
+            undefined ->
+                IfNotRegistered;
+            Provider ->
+                Provider:IfRegistered
+        end
+    end()
 ).
 
 -define(EXT_TRACE_ANY(FuncName, Any, Attrs),
@@ -54,6 +56,27 @@
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs, Ctx),
     ?with_provider(add_span_attrs(Attrs, Ctx), ok)
+).
+
+-define(EXT_TRACE_SET_STATUS_OK(),
+    ?with_provider(
+        set_status_ok(),
+        ok
+    )
+).
+
+-define(EXT_TRACE_SET_STATUS_ERROR(),
+    ?with_provider(
+        set_status_error(),
+        ok
+    )
+).
+
+-define(EXT_TRACE_SET_STATUS_ERROR(Msg),
+    ?with_provider(
+        set_status_error(Msg),
+        ok
+    )
 ).
 
 -define(EXT_TRACE_WITH_ACTION_START(FuncName, Any, Attrs),
@@ -84,6 +107,9 @@
 -define(EXT_TRACE_ANY(_FuncName, Any, _Attrs), Any).
 -define(EXT_TRACE_ADD_ATTRS(_Attrs), ok).
 -define(EXT_TRACE_ADD_ATTRS(_Attrs, _Ctx), ok).
+-define(EXT_TRACE_SET_STATUS_OK(), ok).
+-define(EXT_TRACE_SET_STATUS_ERROR(), ok).
+-define(EXT_TRACE_SET_STATUS_ERROR(_), ok).
 -define(EXT_TRACE_WITH_ACTION_START(_FuncName, Any, _Attrs), Any).
 -define(EXT_TRACE_WITH_ACTION_STOP(_FuncName, Any, _Attrs), ok).
 -define(EXT_TRACE_WITH_PROCESS_FUN(_FuncName, Any, _Attrs, ProcessFun), ProcessFun(Any)).

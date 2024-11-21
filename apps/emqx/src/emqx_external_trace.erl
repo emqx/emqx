@@ -121,10 +121,19 @@
     Attrs :: attrs(),
     Ctx :: map() | undefined.
 
+-callback set_status_ok() -> ok.
+
+-callback set_status_error() -> ok.
+
+-callback set_status_error(unicode:unicode_binary()) -> ok.
+
 -optional_callbacks(
     [
         add_span_attrs/1,
         add_span_attrs/2,
+        set_status_ok/0,
+        set_status_error/0,
+        set_status_error/1,
         client_authn/3,
         client_authz/3
     ]

@@ -50,7 +50,11 @@
 %% Span enrichments APIs
 
 -export([
-    add_span_attrs/1
+    add_span_attrs/1,
+    add_span_attrs/2,
+    set_status_ok/0,
+    set_status_error/0,
+    set_status_error/1
 ]).
 
 -include("emqx_otel_trace.hrl").
@@ -59,6 +63,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
 -define(EMQX_OTEL_CTX, emqx_otel_ctx).
 
@@ -869,6 +874,30 @@ add_span_attrs(Attrs, Ctx) ->
     CurrentSpanCtx = otel_tracer:current_span_ctx(Ctx),
     otel_span:set_attributes(CurrentSpanCtx, Attrs),
     ok.
+
+-spec set_status_ok() -> ok.
+set_status_ok() ->
+    ?with_trace_mode(
+        ok,
+        begin
+            ?set_status(?OTEL_STATUS_OK),
+            ok
+        end
+    ).
+
+-spec set_status_error() -> ok.
+set_status_error() ->
+    set_status_error(<<>>).
+
+-spec set_status_error(unicode:unicode_binary()) -> ok.
+set_status_error(Msg) ->
+    ?with_trace_mode(
+        ok,
+        begin
+            ?set_status(?OTEL_STATUS_ERROR, Msg),
+            ok
+        end
+    ).
 
 msg_attrs(_Msg = #message{flags = #{sys := true}}) ->
     #{};
