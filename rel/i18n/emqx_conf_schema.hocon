@@ -683,7 +683,8 @@ rpc_mode.label:
 """RPC Mode"""
 
 node_crash_dump_file.desc:
-"""Location of the crash dump file."""
+"""Location of the crash dump file. Defaults to <code>log/erl_crash.YYYY.MM.DD.HH.MM.SS.dump</code>.
+The timestamp is generated when emqx starts."""
 
 node_crash_dump_file.label:
 """Crash Dump File"""

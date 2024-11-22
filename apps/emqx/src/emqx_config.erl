@@ -643,17 +643,6 @@ save_to_override_conf(false = _HasDeprecatedFile, RawConf, Opts) ->
             backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
     end.
 
-%% @private This is the same human-readable timestamp format as
-%% hocon-cli generated app.<time>.config file name.
-now_time() ->
-    Ts = os:system_time(millisecond),
-    {{Y, M, D}, {HH, MM, SS}} = calendar:system_time_to_local_time(Ts, millisecond),
-    Res = io_lib:format(
-        "~0p.~2..0b.~2..0b.~2..0b.~2..0b.~2..0b.~3..0b",
-        [Y, M, D, HH, MM, SS, Ts rem 1000]
-    ),
-    lists:flatten(Res).
-
 %% @private Backup the current config to a file with a timestamp suffix and
 %% then save the new config to the config file.
 backup_and_write(Path, Content) ->
@@ -677,7 +666,7 @@ backup_and_write(Path, Content) ->
     end.
 
 backup_and_replace(Path, TmpPath) ->
-    Backup = Path ++ "." ++ now_time() ++ ".bak",
+    Backup = Path ++ "." ++ emqx_utils_calendar:now_time(millisecond) ++ ".bak",
     case file:rename(Path, Backup) of
         ok ->
             ok = file:rename(TmpPath, Path),
