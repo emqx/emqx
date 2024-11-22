@@ -71,8 +71,8 @@ convert_secret(Secret, #{}) ->
     end.
 
 -spec wrap(source()) -> emqx_secret:t(t()).
-wrap(<<"file://", Filename/binary>>) ->
-    emqx_secret:wrap_load({file, Filename});
+wrap(<<"file://", _Filename/binary>> = Secret) ->
+    emqx_secret:wrap_load({file, Secret});
 wrap(Secret) ->
     emqx_secret:wrap(Secret).
 
