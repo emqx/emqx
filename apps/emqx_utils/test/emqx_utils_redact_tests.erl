@@ -50,14 +50,28 @@ no_redact_file_paths_test() ->
         #{
             password => <<"file:///abs/path/a">>,
             <<"secret">> => <<"file://relative/path/b">>,
-            account_key => "file://string/path/x",
-            private_key => "file://string/path/y"
+            account_key => "file://string/path/x"
         },
         redact(#{
             password => <<"file:///abs/path/a">>,
             <<"secret">> => <<"file://relative/path/b">>,
-            account_key => "file://string/path/x",
-            private_key => "file://string/path/y"
+            account_key => "file://string/path/x"
+        })
+    ).
+
+no_redact_wrapped_file_paths_test() ->
+    ?assertEqual(
+        #{password => <<"file:///abs/path/a">>},
+        redact(#{
+            password => emqx_secret:wrap_load({file, <<"file:///abs/path/a">>})
+        })
+    ).
+
+redact_wrapped_secret_test() ->
+    ?assertEqual(
+        #{password => <<"******">>},
+        redact(#{
+            password => emqx_secret:wrap(<<"aaa">>)
         })
     ).
 
