@@ -79,6 +79,7 @@
     %% GC State
     gc_state :: option(emqx_gc:gc_state()),
     %% Postponed Packets|Cmds|Events
+    %% Order is reversed: most recent entry is the first element.
     postponed :: list(emqx_types:packet() | ws_cmd() | tuple()),
     %% Stats Timer
     stats_timer :: paused | disabled | option(reference()),
@@ -971,8 +972,6 @@ resume_stats_timer(State = #state{stats_timer = disabled}) ->
 %%--------------------------------------------------------------------
 %% Postpone the packet, cmd or event
 
-postpone(Packet, State) when is_record(Packet, mqtt_packet) ->
-    enqueue(Packet, State);
 postpone(Event, State) when is_tuple(Event) ->
     enqueue(Event, State);
 postpone(More, State) when is_list(More) ->
@@ -1010,8 +1009,12 @@ classify([], Packets, Cmds, Events) ->
     {Packets, Cmds, Events};
 classify([{outgoing, Outgoing} | More], Packets, Cmds, Events) ->
     case is_list(Outgoing) of
-        true -> NPackets = Outgoing ++ Packets;
-        false -> NPackets = [Outgoing | Packets]
+        true ->
+            %% Outgoing is a list in least-to-most recent order (i.e. not reversed).
+            %% Prepending will keep the overall order correct.
+            NPackets = Outgoing ++ Packets;
+        false ->
+            NPackets = [Outgoing | Packets]
     end,
     classify(More, NPackets, Cmds, Events);
 classify([{connack, Packet} | More], Packets, Cmds, Events) ->
