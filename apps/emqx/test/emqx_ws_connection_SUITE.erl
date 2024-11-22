@@ -70,26 +70,6 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(cowboy_req, sock, fun(_) -> {{127, 0, 0, 1}, 18083} end),
     ok = meck:expect(cowboy_req, cert, fun(_) -> undefined end),
     ok = meck:expect(cowboy_req, parse_cookies, fun(_) -> error(badarg) end),
-    %% Mock emqx_access_control
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
-    %% Mock emqx_hooks
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> Acc end),
-    %% Mock emqx_broker
-    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_broker, publish, fun(#message{topic = Topic}) ->
-        [{node(), Topic, 1}]
-    end),
-    ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
-    %% Mock emqx_metrics
-    ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
     Config;
 init_per_testcase(t_ws_non_check_origin, Config) ->
     add_bucket(),
@@ -108,17 +88,10 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_pingreq_before_connected
 ->
     del_bucket(),
-    lists:foreach(
-        fun meck:unload/1,
-        [
-            emqx_cm,
-            cowboy_req,
-            emqx_access_control,
-            emqx_broker,
-            emqx_hooks,
-            emqx_metrics
-        ]
-    ),
+    meck:unload([
+        emqx_cm,
+        cowboy_req
+    ]),
     ok;
 end_per_testcase(_, Config) ->
     del_bucket(),
@@ -377,6 +350,7 @@ t_websocket_info_cast(_) ->
     {ok, _St} = websocket_info({cast, msg}, st()).
 
 t_websocket_info_incoming(_) ->
+    ok = emqx_broker:subscribe(<<"#">>, <<?MODULE_STRING>>),
     ConnPkt = #mqtt_packet_connect{
         proto_name = <<"MQTT">>,
         proto_ver = ?MQTT_PROTO_V5,
