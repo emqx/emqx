@@ -129,6 +129,8 @@
 %% Info, Stats
 %%--------------------------------------------------------------------
 
+-type info() :: atom() | {channel, _Info}.
+
 -spec info(pid() | state()) -> emqx_types:infos().
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
@@ -140,8 +142,8 @@ info(State = #state{channel = Channel}) ->
     ChanInfo#{sockinfo => SockInfo}.
 
 -spec info
-    (_Info :: atom(), state()) -> _Value;
-    ([Info], state()) -> [{Info, _Value}] when Info :: atom().
+    (info(), state()) -> _Value;
+    (info(), state()) -> [{atom(), _Value}].
 info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(socktype, _State) ->
@@ -163,7 +165,9 @@ info(postponed, #state{postponed = Postponed}) ->
 info(stats_timer, #state{stats_timer = TRef}) ->
     TRef;
 info(idle_timer, #state{idle_timer = TRef}) ->
-    TRef.
+    TRef;
+info({channel, Info}, #state{channel = Channel}) ->
+    emqx_channel:info(Info, Channel).
 
 -spec stats(pid() | state()) -> emqx_types:stats().
 stats(WsPid) when is_pid(WsPid) ->
@@ -1004,9 +1008,15 @@ return(State = #state{postponed = Postponed}) ->
 
 classify([], Packets, Cmds, Events) ->
     {Packets, Cmds, Events};
-classify([Packet | More], Packets, Cmds, Events) when
-    is_record(Packet, mqtt_packet)
-->
+classify([{outgoing, Outgoing} | More], Packets, Cmds, Events) ->
+    case is_list(Outgoing) of
+        true -> NPackets = Outgoing ++ Packets;
+        false -> NPackets = [Outgoing | Packets]
+    end,
+    classify(More, NPackets, Cmds, Events);
+classify([{connack, Packet} | More], Packets, Cmds, Events) ->
+    classify(More, [Packet | Packets], Cmds, Events);
+classify([Packet = #mqtt_packet{} | More], Packets, Cmds, Events) ->
     classify(More, [Packet | Packets], Cmds, Events);
 classify([Cmd = {active, _} | More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd | Cmds], Events);
