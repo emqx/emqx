@@ -155,13 +155,18 @@ redact_v(V) when is_binary(V) ->
         [{var, _}] ->
             V;
         _ ->
-            <<?REDACT_VAL>>
+            do_redact_v(V)
     end;
 redact_v([{str, Bin}]) when is_binary(Bin) ->
     %% The HOCON schema system may generate sensitive values with this format
-    [{str, <<?REDACT_VAL>>}];
-redact_v(_V) ->
-    ?REDACT_VAL.
+    [{str, do_redact_v(Bin)}];
+redact_v(V) ->
+    do_redact_v(V).
+
+do_redact_v(<<"file://", _/binary>> = V) -> V;
+do_redact_v("file://" ++ _ = V) -> V;
+do_redact_v(B) when is_binary(B) -> <<?REDACT_VAL>>;
+do_redact_v(_) -> ?REDACT_VAL.
 
 deobfuscate(NewConf, OldConf) ->
     deobfuscate(NewConf, OldConf, fun(_) -> false end).
