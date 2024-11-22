@@ -80,9 +80,7 @@
     %% Postponed Packets|Cmds|Events
     postponed :: list(emqx_types:packet() | ws_cmd() | tuple()),
     %% Stats Timer
-    stats_timer :: disabled | option(reference()),
-    %% Idle Timeout
-    idle_timeout :: timeout(),
+    stats_timer :: paused | disabled | option(reference()),
     %% Idle Timer
     idle_timer :: option(reference()),
     %% Zone name
@@ -117,7 +115,6 @@
 
 -type ws_cmd() :: {active, boolean()} | close.
 
--define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
@@ -164,8 +161,6 @@ info(postponed, #state{postponed = Postponed}) ->
     Postponed;
 info(stats_timer, #state{stats_timer = TRef}) ->
     TRef;
-info(idle_timeout, #state{idle_timeout = Timeout}) ->
-    Timeout;
 info(idle_timer, #state{idle_timer = TRef}) ->
     TRef.
 
@@ -325,7 +320,6 @@ websocket_init([Req, Opts]) ->
                     gc_state = GcState,
                     postponed = [],
                     stats_timer = StatsTimer,
-                    idle_timeout = IdleTimeout,
                     idle_timer = IdleTimer,
                     zone = Zone,
                     listener = {Type, Listener},
@@ -350,7 +344,7 @@ tune_heap_size(Channel) ->
 
 get_stats_enable(Zone) ->
     case emqx_config:get_zone_conf(Zone, [stats, enable]) of
-        true -> undefined;
+        true -> paused;
         false -> disabled
     end.
 
@@ -533,7 +527,8 @@ handle_info({close, Reason}, State) ->
 handle_info({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
-    return(State);
+    NState = resume_stats_timer(State),
+    return(NState);
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
@@ -951,12 +946,19 @@ cancel_idle_timer(State = #state{idle_timer = IdleTimer}) ->
 
 ensure_stats_timer(
     State = #state{
-        idle_timeout = Timeout,
+        zone = Zone,
         stats_timer = undefined
     }
 ) ->
+    Timeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
+    %% Either already active, disabled or paused.
+    State.
+
+resume_stats_timer(State = #state{stats_timer = paused}) ->
+    State#state{stats_timer = undefined};
+resume_stats_timer(State = #state{stats_timer = disabled}) ->
     State.
 
 -compile({inline, [postpone/2, enqueue/2, return/1, shutdown/2]}).
