@@ -41,6 +41,16 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %% CT callbacks
 %%--------------------------------------------------------------------
 
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)).
+
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
@@ -49,10 +59,6 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_non_check_origin
 ->
     add_bucket(),
-    Apps = emqx_cth_suite:start(
-        [emqx],
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-    ),
     %% Meck Cm
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
@@ -84,32 +90,23 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
-    [{apps, Apps} | Config];
-init_per_testcase(t_ws_non_check_origin = TestCase, Config) ->
+    Config;
+init_per_testcase(t_ws_non_check_origin, Config) ->
     add_bucket(),
-    Apps = emqx_cth_suite:start(
-        [emqx],
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-    ),
     emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
     emqx_config:put_listener_conf(ws, default, [websocket, check_origins], []),
-    [{apps, Apps} | Config];
-init_per_testcase(TestCase, Config) ->
+    Config;
+init_per_testcase(_TestCase, Config) ->
     add_bucket(),
-    Apps = emqx_cth_suite:start(
-        [emqx],
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-    ),
-    [{apps, Apps} | Config].
+    Config.
 
-end_per_testcase(TestCase, Config) when
+end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected
 ->
-    Apps = ?config(apps, Config),
     del_bucket(),
     lists:foreach(
         fun meck:unload/1,
@@ -122,17 +119,9 @@ end_per_testcase(TestCase, Config) when
             emqx_metrics
         ]
     ),
-    ok = emqx_cth_suite:stop(Apps),
-    ok;
-end_per_testcase(t_ws_non_check_origin, Config) ->
-    Apps = ?config(apps, Config),
-    del_bucket(),
-    ok = emqx_cth_suite:stop(Apps),
     ok;
 end_per_testcase(_, Config) ->
-    Apps = ?config(apps, Config),
     del_bucket(),
-    ok = emqx_cth_suite:stop(Apps),
     Config.
 
 %%--------------------------------------------------------------------
@@ -399,8 +388,9 @@ t_websocket_info_incoming(_) ->
         username = <<"username">>,
         password = <<"passwd">>
     },
-    {[{close, protocol_error}], St1} = websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
-    % ?assertEqual(<<224,2,130,0>>, iolist_to_binary(IoData1)),
+    {[{binary, IoData1}, {close, protocol_error}], St1} =
+        websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
+    ?assertEqual(<<224, 2, ?RC_PROTOCOL_ERROR, 0>>, iolist_to_binary(IoData1)),
     %% PINGREQ
     {[{binary, IoData2}], St2} =
         websocket_info({incoming, ?PACKET(?PINGREQ)}, St1),
@@ -416,7 +406,9 @@ t_websocket_info_incoming(_) ->
     FrameError = {frame_error, #{cause => Cause, property_code => 16#2B}},
     %% cowboy_websocket's close reason must be an atom to avoid crashing the sender process.
     %% ensure the cause is atom
-    {[{close, CauseReq}], _St4} = websocket_info({incoming, FrameError}, St3),
+    {[{binary, IoData4}, {close, CauseReq}], _St4} =
+        websocket_info({incoming, FrameError}, St3),
+    ?assertEqual(<<224, 2, ?RC_MALFORMED_PACKET, 0>>, iolist_to_binary(IoData4)),
     ?assertEqual(Cause, CauseReq).
 
 t_websocket_info_check_gc(_) ->
@@ -427,8 +419,8 @@ t_websocket_info_deliver(_) ->
     Msg0 = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"">>),
     Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"">>),
     self() ! {deliver, <<"#">>, Msg1},
-    {ok, _St} = websocket_info({deliver, <<"#">>, Msg0}, st()).
-% ?assertEqual(<<48,3,0,1,116,50,5,0,1,116,0,1>>, iolist_to_binary(IoData)).
+    {[{binary, _Pub1}, {binary, _Pub2}], _St} =
+        websocket_info({deliver, <<"#">>, Msg0}, st()).
 
 t_websocket_info_timeout_limiter(_) ->
     Ref = make_ref(),
@@ -550,9 +542,10 @@ t_parse_incoming_frame_error(_) ->
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
-    Serialize = emqx_frame:serialize_fun(#{version => 5, max_size => 16#FFFF, strict_mode => false}),
-    {[{close, bad_qos}], _St} = ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})).
-% ?assertEqual(<<224,2,129,0>>, iolist_to_binary(IoData)).
+    Serialize = #{version => 5, max_size => 16#FFFF, strict_mode => false},
+    {[{binary, IoData}, {close, bad_qos}], _St} =
+        ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})),
+    ?assertEqual(<<224, 2, 129, 0>>, iolist_to_binary(IoData)).
 
 t_handle_outgoing(_) ->
     Packets = [
