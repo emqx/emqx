@@ -31,6 +31,7 @@
 %% API
 -export([
     info/1,
+    info/2,
     stats/1
 ]).
 
@@ -122,9 +123,6 @@
 -define(LIMITER_BYTES_IN, bytes).
 -define(LIMITER_MESSAGE_IN, messages).
 
--dialyzer({no_match, [info/2]}).
--dialyzer({nowarn_function, [websocket_init/1]}).
-
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
 %%--------------------------------------------------------------------
@@ -141,6 +139,9 @@ info(State = #state{channel = Channel}) ->
     ),
     ChanInfo#{sockinfo => SockInfo}.
 
+-spec info
+    (_Info :: atom(), state()) -> _Value;
+    ([Info], state()) -> [{Info, _Value}] when Info :: atom().
 info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(socktype, _State) ->
@@ -305,7 +306,7 @@ websocket_init([Req, Opts]) ->
             %% MQTT Idle Timeout
             IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
             IdleTimer = start_timer(IdleTimeout, idle_timeout),
-            tune_heap_size(Channel),
+            _ = tune_heap_size(Channel),
             emqx_logger:set_metadata_peername(esockd:format(Peername)),
             {ok,
                 #state{
