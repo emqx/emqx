@@ -169,9 +169,11 @@ do_redact_v("file://" ++ _ = V) ->
     V;
 do_redact_v(B) when is_binary(B) ->
     <<?REDACT_VAL>>;
-do_redact_v(F) when is_function(F, 0) ->
-    %% this can happen in logs
+do_redact_v(L) when is_list(L) ->
+    ?REDACT_VAL;
+do_redact_v(F) ->
     try
+        %% this can happen in logs
         case emqx_secret:term(F) of
             {file, File} ->
                 File;
@@ -180,10 +182,9 @@ do_redact_v(F) when is_function(F, 0) ->
         end
     catch
         _:_ ->
+            %% most of the time
             ?REDACT_VAL
-    end;
-do_redact_v(_) ->
-    ?REDACT_VAL.
+    end.
 
 deobfuscate(NewConf, OldConf) ->
     deobfuscate(NewConf, OldConf, fun(_) -> false end).
