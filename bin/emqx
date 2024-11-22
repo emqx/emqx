@@ -784,7 +784,8 @@ check_config() {
     ## this command checks the configs without generating any files
     call_hocon -v \
         -s "$SCHEMA_MOD" \
-        -c "$DATA_DIR"/configs/cluster.hocon \
+        -c "$EMQX_ETC_DIR"/base.hocon \
+        -c "$CONFIGS_DIR"/cluster.hocon \
         -c "$EMQX_ETC_DIR"/emqx.conf \
         check_schema
 }
@@ -804,7 +805,8 @@ generate_config() {
 
     ## This command populates two files: app.<time>.config and vm.<time>.args
     ## It takes input sources and overlays values in below order:
-    ##   - $DATA_DIR/cluster.hocon (if exists)
+    ##   - etc/base.hocon
+    ##   - $CONFIGS_DIR/cluster.hocon
     ##   - etc/emqx.conf
     ##   - environment variables starts with EMQX_ e.g. EMQX_NODE__ROLE
     ##
@@ -812,7 +814,8 @@ generate_config() {
     ##       because it has to sync cluster.hocon from other nodes.
     call_hocon -v -t "$NOW_TIME" \
         -s "$SCHEMA_MOD" \
-        -c "$DATA_DIR"/configs/cluster.hocon \
+        -c "$EMQX_ETC_DIR"/base.hocon \
+        -c "$CONFIGS_DIR"/cluster.hocon \
         -c "$EMQX_ETC_DIR"/emqx.conf \
         -d "$DATA_DIR"/configs generate
 

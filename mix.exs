@@ -952,6 +952,12 @@ defmodule EMQXUmbrella.MixProject do
     )
 
     render_template(
+      "apps/emqx_conf/etc/base.hocon",
+      assigns,
+      Path.join(etc, "base.hocon")
+    )
+
+    render_template(
       "rel/emqx_vars",
       assigns,
       Path.join([release.path, "releases", "emqx_vars"])
