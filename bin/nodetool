@@ -176,6 +176,9 @@ do(Args) ->
             case rpc:call(TargetNode, emqx_ctl, run_command, [eval_erl, Parsed], infinity) of
                 {ok, Value} ->
                     io:format("~p~n", [Value]);
+                {error, Reason} ->
+                    io:format("RPC to ~s error: ~p\n", [TargetNode, Reason]),
+                    halt(1);
                 {badrpc, Reason} ->
                     io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
                     halt(1)
