@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-import(emqx_config_SUITE, [prepare_conf_file/3]).
 
 -define(TOPIC_C, <<"/c/${clientid}">>).
 -define(TOPIC_U, <<"/u/${username}">>).
@@ -100,10 +101,16 @@ init_per_suite(Config) ->
 init_per_testcase(t_get_basic_usage_info, Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
     Config;
+init_per_testcase(t_auto_subscribe_reload_from_file, Config) ->
+    {ok, _} = emqx_auto_subscribe:update([]),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_get_basic_usage_info, _Config) ->
+    {ok, _} = emqx_auto_subscribe:update([]),
+    ok;
+end_per_testcase(t_auto_subscribe_reload_from_file, _Config) ->
     {ok, _} = emqx_auto_subscribe:update([]),
     ok;
 end_per_testcase(_TestCase, _Config) ->
@@ -125,6 +132,19 @@ end_per_suite(Config) ->
 
 t_auto_subscribe(_) ->
     emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- ?TOPICS]),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    timer:sleep(200),
+    ?assertEqual(check_subs(length(?TOPICS)), ok),
+    emqtt:disconnect(Client),
+    ok.
+t_auto_subscribe_reload_from_file(Config) ->
+    ConfBin = hocon_pp:do(
+        #{<<"auto_subscribe">> => #{<<"topics">> => [#{<<"topic">> => Topic} || Topic <- ?TOPICS]}},
+        #{}
+    ),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
     {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
     {ok, _} = emqtt:connect(Client),
     timer:sleep(200),
