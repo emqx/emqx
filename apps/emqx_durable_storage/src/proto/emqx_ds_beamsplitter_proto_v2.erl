@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,31 +13,28 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_ds_beamsplitter_proto_v1).
+-module(emqx_ds_beamsplitter_proto_v2).
 
 -behavior(emqx_bpapi).
 -include_lib("emqx_utils/include/bpapi.hrl").
 
 %% API:
--export([dispatch/2]).
+-export([dispatch/3]).
 
 %% behavior callbacks:
--export([introduced_in/0, deprecated_since/0]).
+-export([introduced_in/0]).
 
 %%================================================================================
 %% API functions
 %%================================================================================
 
--spec dispatch(node(), emqx_ds_beamformer:beam()) -> true.
-dispatch(Node, Beam) ->
-    emqx_rpc:cast(Node, emqx_ds_beamformer, do_dispatch, [Beam]).
+-spec dispatch(_SerializationToken, node(), emqx_ds_beamformer:beam()) -> true.
+dispatch(SerializationToken, Node, Beam) ->
+    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamformer, do_dispatch, [Beam]).
 
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 introduced_in() ->
-    "5.8.0".
-
-deprecated_since() ->
     "5.8.3".
