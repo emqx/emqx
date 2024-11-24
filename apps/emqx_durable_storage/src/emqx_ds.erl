@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3, poll/3]).
+-export([get_streams/3, make_iterator/4, next/3, poll/3, subscribe/5]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -88,7 +88,8 @@
     generation_info/0,
 
     poll_iterators/0,
-    poll_opts/0
+    poll_opts/0,
+    sub_opts/0
 ]).
 
 %%================================================================================
@@ -270,6 +271,13 @@
         %% otherwise replies will get lost. If not specified, DS will
         %% create a new alias.
         reply_to => reference()
+    }.
+
+-type sub_opts() ::
+    #{
+        %% Maximum number of unacked batches before subscription is
+        %% considered overloaded and removed from the active queues:
+        window_size => non_neg_integer()
     }.
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
@@ -498,6 +506,11 @@ next(DB, Iter, BatchSize) ->
 -spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
     ?module(DB):poll(DB, Iterators, PollOpts).
+
+%% FIXME: add documentation
+-spec subscribe(db(), pid(), _ItKey, iterator(), sub_opts()) -> {ok, reference()}.
+subscribe(DB, Subscriber, ItKey, Iterator, SubOpts) ->
+    ?module(DB):subscribe(DB, Subscriber, ItKey, Iterator, SubOpts).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->
