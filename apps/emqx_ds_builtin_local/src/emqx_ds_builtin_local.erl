@@ -40,6 +40,7 @@
     update_iterator/3,
     next/3,
     poll/3,
+    subscribe/5,
     delete_next/4,
 
     %% `beamformer':
@@ -418,6 +419,10 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
         Iterators
     ),
     {ok, ReplyTo}.
+
+-spec subscribe(emqx_ds:db(), pid(), _ItKey, iterator(), emqx_ds:sub_opts()) -> {ok, reference()}.
+subscribe(DB, Subscriber, ItKey, #{?tag := ?IT, ?enc := Inner, ?shard := Shard}, SubOpts) ->
+    emqx_ds_beamformer:subscribe(Subscriber, {DB, Shard}, Inner, ItKey, SubOpts).
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     Now = current_timestamp(Shard),
