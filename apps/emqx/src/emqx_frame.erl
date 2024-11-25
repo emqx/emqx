@@ -639,16 +639,16 @@ parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode) ->
     ?PARSE_ERR(#{cause => invalid_property_code, property_code => Property}).
 %% TODO: invalid property in specific packet.
 
-parse_variable_byte_integer(Bin) ->
-    parse_variable_byte_integer(Bin, 1, 0).
-parse_variable_byte_integer(<<1:1, _Len:7, _Rest/binary>>, Multiplier, _Value) when
-    Multiplier > ?MULTIPLIER_MAX
-->
-    ?PARSE_ERR(malformed_variable_byte_integer);
-parse_variable_byte_integer(<<1:1, Len:7, Rest/binary>>, Multiplier, Value) ->
-    parse_variable_byte_integer(Rest, Multiplier * ?HIGHBIT, Value + Len * Multiplier);
-parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
-    {Value + Len * Multiplier, Rest}.
+parse_variable_byte_integer(<<1:1, D1:7, 1:1, D2:7, 1:1, D3:7, 0:1, D4:7, Rest/binary>>) ->
+    {((D4 bsl 7 + D3) bsl 7 + D2) bsl 7 + D1, Rest};
+parse_variable_byte_integer(<<1:1, D1:7, 1:1, D2:7, 0:1, D3:7, Rest/binary>>) ->
+    {(D3 bsl 7 + D2) bsl 7 + D1, Rest};
+parse_variable_byte_integer(<<1:1, D1:7, 0:1, D2:7, Rest/binary>>) ->
+    {D2 bsl 7 + D1, Rest};
+parse_variable_byte_integer(<<0:1, D1:7, Rest/binary>>) ->
+    {D1, Rest};
+parse_variable_byte_integer(_) ->
+    ?PARSE_ERR(malformed_variable_byte_integer).
 
 parse_topic_filters(subscribe, Bin) ->
     [
