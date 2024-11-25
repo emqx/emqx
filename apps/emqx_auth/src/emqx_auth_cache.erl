@@ -23,11 +23,17 @@
 
 -export([
     start_link/3,
+    child_spec/3,
     with_cache/3,
     reset/1,
     reset/2,
-    stats/1,
     metrics/1
+]).
+
+-export([
+    reset_v1/1,
+    reset_v1/2,
+    metrics_v1/1
 ]).
 
 -export([
@@ -51,19 +57,24 @@
     memory :: non_neg_integer()
 }).
 
--define(pt_key(ID), {?MODULE, ID}).
--define(stat_update_interval, 5000).
+-define(pt_key(NAME), {?MODULE, NAME}).
 -define(unlimited, unlimited).
+
+-define(DEFAULT_STAT_UPDATE_INTERVAL, 5000).
+-define(DEFAULT_CLEANUP_INTERVAL, 30000).
 
 %%--------------------------------------------------------------------
 %% Metrics
 %%--------------------------------------------------------------------
 
--define(metric_hit, auth_cache_hit).
--define(metric_miss, auth_cache_miss).
--define(metric_insert, auth_cache_insert).
--define(metric_size, auth_cache_size).
--define(metric_memory, auth_cache_memory).
+-define(metric_hit, hits).
+-define(metric_miss, misses).
+-define(metric_insert, inserts).
+-define(metric_size, size).
+-define(metric_memory, memory).
+
+-define(metric_counters, [?metric_hit, ?metric_miss, ?metric_insert]).
+-define(metric_gauges, [?metric_size, ?metric_memory]).
 
 %% For gauges we use only one "virtual" worker
 -define(worker_id, worker_id).
@@ -72,15 +83,20 @@
 %% Types
 %%--------------------------------------------------------------------
 
--type id() :: binary().
-%% We want to cache many records under the same scope (id())
-%% The Id may be a user id, a topic, etc.
--type cache_key() :: {id(), _Extra :: term()}.
+-type scope() :: binary().
+%% We want to cache many records under the same scope.
+%% The Scope may be a user id, a topic, etc.
+-type cache_key() :: {scope(), _Extra :: term()}.
 -type name() :: atom().
 -type config_path() :: runtime_config_key_path:runtime_config_key_path().
 -type callback() :: fun(() -> {cache | nocache, term()}).
 
 -type metrics_worker() :: emqx_metrics_worker:handler_name().
+
+-export_type([
+    name/0,
+    scope/0
+]).
 
 %%--------------------------------------------------------------------
 %% Messages
@@ -95,10 +111,20 @@
 
 -spec start_link(name(), config_path(), metrics_worker()) -> {ok, pid()}.
 start_link(Name, ConfigPath, MetricsWorker) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Name, ConfigPath, MetricsWorker], []).
+    gen_server:start_link(?MODULE, [Name, ConfigPath, MetricsWorker], []).
+
+-spec child_spec(name(), config_path(), metrics_worker()) -> supervisor:child_spec().
+child_spec(Name, ConfigPath, MetricsWorker) ->
+    #{
+        id => {?MODULE, Name},
+        start => {?MODULE, start_link, [Name, ConfigPath, MetricsWorker]},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker
+    }.
 
 -spec with_cache(config_path(), cache_key(), callback()) -> term().
-with_cache(Name, {Id, _Extra} = Key, Fun) when is_binary(Id) ->
+with_cache(Name, {Scope, _Extra} = Key, Fun) when is_binary(Scope) ->
     case is_cache_enabled(Name) of
         false ->
             with_cache_disabled(Fun);
@@ -116,33 +142,45 @@ reset(Name) ->
         error:badarg -> ok
     end.
 
--spec reset(name(), id()) -> ok.
-reset(Name, Id) ->
+-spec reset(name(), scope()) -> ok.
+reset(Name, Scope) ->
     try
         #{tab := Tab} = persistent_term:get(?pt_key(Name)),
-        Ms = [{#cache_record{key = {Id, '_'}, _ = '_'}, [], [true]}],
+        Ms = [{#cache_record{key = {Scope, '_'}, _ = '_'}, [], [true]}],
         _ = ets:select_delete(Tab, Ms),
         ok
     catch
         error:badarg -> ok
     end.
 
--spec stats(config_path()) -> not_found | #{size => non_neg_integer(), memory => non_neg_integer()}.
-stats(Name) ->
-    try
-        #{tab := Tab} = persistent_term:get(?pt_key(Name)),
-        tab_stats(Tab)
-    catch
-        error:badarg -> not_found
-    end.
-
+-spec metrics(name()) -> map().
 metrics(Name) ->
     try persistent_term:get(?pt_key(Name)) of
-        #{name := Name, metrics_worker := MetricsWorker} ->
-            {ok, emqx_metrics_worker:get_metrics(MetricsWorker, Name)}
+        #{metrics_worker := MetricsWorker} ->
+            RawMetrics = emqx_metrics_worker:get_metrics(MetricsWorker, Name),
+            Metrics0 = fold_counters(RawMetrics, ?metric_counters),
+            Metrics1 = fold_gauges(RawMetrics, ?metric_gauges),
+            maps:merge(Metrics0, Metrics1)
     catch
-        error:badarg -> not_found
+        error:badarg ->
+            error({no_auth_cache, Name})
     end.
+
+%%--------------------------------------------------------------------
+%% RPC Targets
+%%--------------------------------------------------------------------
+
+-spec reset_v1(name()) -> ok.
+reset_v1(Name) ->
+    reset(Name).
+
+-spec reset_v1(name(), scope()) -> ok.
+reset_v1(Name, Scope) ->
+    reset(Name, Scope).
+
+-spec metrics_v1(name()) -> {node(), not_found | {ok, map()}}.
+metrics_v1(Name) ->
+    {node(), metrics(Name)}.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -225,22 +263,9 @@ with_cache_disabled(Fun) ->
 
 create_metrics(Name, MetricsWorker) ->
     ok = emqx_metrics_worker:create_metrics(
-        MetricsWorker,
-        Name,
-        [
-            ?metric_hit,
-            ?metric_miss,
-            ?metric_insert
-        ],
-        [
-            ?metric_hit,
-            ?metric_miss,
-            ?metric_insert
-        ]
+        MetricsWorker, Name, ?metric_counters, ?metric_counters
     ).
 
-%% TODO:
-%% metrics
 with_cache_enabled(#{tab := Tab} = PtState, Key, Fun) ->
     case lookup(Tab, Key) of
         {ok, Value} ->
@@ -291,10 +316,10 @@ deadline(ConfigPath) ->
     now_ms_monotonic() + config_value(ConfigPath, cache_ttl).
 
 cleanup_interval(#{config_path := ConfigPath}) ->
-    config_value(ConfigPath, cleanup_interval).
+    config_value(ConfigPath, cleanup_interval, ?DEFAULT_CLEANUP_INTERVAL).
 
 stat_update_interval(#{config_path := ConfigPath}) ->
-    config_value(ConfigPath, stat_update_interval, ?stat_update_interval).
+    config_value(ConfigPath, stat_update_interval, ?DEFAULT_STAT_UPDATE_INTERVAL).
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
@@ -379,3 +404,35 @@ limits_reached(ConfigPath, StatTab) ->
 
 pt_state(#{name := Name} = _State) ->
     persistent_term:get(?pt_key(Name)).
+
+%%--------------------------------------------------------------------
+%% Metric helpers
+%%--------------------------------------------------------------------
+
+fold_counters(RawMetrics, Counters) ->
+    lists:foldl(
+        fun(Counter, Acc) ->
+            case RawMetrics of
+                #{counters := #{Counter := Value}, rate := #{Counter := Rate}} ->
+                    Acc#{Counter => #{value => Value, rate => Rate}};
+                _ ->
+                    Acc
+            end
+        end,
+        #{},
+        Counters
+    ).
+
+fold_gauges(RawMetrics, Gauges) ->
+    lists:foldl(
+        fun(Gauge, Acc) ->
+            case RawMetrics of
+                #{gauges := #{Gauge := Value}} ->
+                    Acc#{Gauge => Value};
+                _ ->
+                    Acc
+            end
+        end,
+        #{},
+        Gauges
+    ).

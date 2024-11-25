@@ -164,11 +164,23 @@ authz_fields() ->
                     %% hence the importance level for config is low
                     importance => ?IMPORTANCE_LOW
                 }
+            )},
+        {node_cache,
+            ?HOCON(
+                ?R_REF(emqx_auth_cache_schema, config),
+                #{
+                    desc => ?DESC("node_cache"),
+                    importance => ?IMPORTANCE_LOW,
+                    default => emqx_auth_cache_schema:default_config()
+                }
             )}
     ].
 
 api_authz_fields() ->
-    [{sources, ?HOCON(?ARRAY(api_source_type()), #{desc => ?DESC(sources)})}].
+    [
+        {sources, ?HOCON(?ARRAY(api_source_type()), #{desc => ?DESC(sources)})},
+        {node_cache, ?HOCON(?R_REF(emqx_auth_cache_schema, config), #{desc => ?DESC("node_cache")})}
+    ].
 
 api_source_type() ->
     AuthzSchemaMods = source_schema_mods(),

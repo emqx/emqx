@@ -66,7 +66,9 @@
     listener_authenticator_users/2,
     listener_authenticator_user/2,
     lookup_from_local_node/2,
-    lookup_from_all_nodes/2
+    lookup_from_all_nodes/2,
+    authentication_cache/2,
+    authentication_cache_status/2
 ]).
 
 -export([
@@ -74,7 +76,9 @@
     request_user_create_examples/0,
     request_user_update_examples/0,
     response_user_examples/0,
-    response_users_example/0
+    response_users_example/0,
+    authn_cache_example/0,
+    authn_cache_status_example/0
 ]).
 
 %% export these funcs for gateway
@@ -109,7 +113,9 @@ paths() ->
         "/authentication/:id/position/:position",
         "/authentication/:id/users",
         "/authentication/:id/users/:user_id",
-        "/authentication/order"
+        "/authentication/order",
+        "/authentication/cache",
+        "/authentication/cache/status"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -154,7 +160,11 @@ fields(request_authn_order) ->
                 required => true,
                 example => "password_based:built_in_database"
             })}
-    ].
+    ];
+fields(request_authn_cache) ->
+    emqx_auth_cache_schema:fields(config);
+fields(response_authn_cache) ->
+    emqx_auth_cache_schema:fields(config).
 
 schema("/authentication") ->
     #{
@@ -562,6 +572,47 @@ schema("/authentication/order") ->
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
             }
         }
+    };
+schema("/authentication/cache") ->
+    #{
+        'operationId' => authentication_cache,
+        get => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => ?DESC(authentication_cache_get),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(?MODULE, response_authn_cache),
+                    authn_cache_example()
+                )
+            }
+        },
+        put => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => ?DESC(authentication_cache_put),
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                ref(?MODULE, response_authn_cache),
+                authn_cache_example()
+            ),
+            responses => #{
+                204 => <<"Authentication cache updated">>,
+                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+            }
+        }
+    };
+schema("/authentication/cache/status") ->
+    #{
+        'operationId' => authentication_cache_status,
+        get => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => ?DESC(authentication_cache_status_get),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(emqx_auth_cache_schema, status),
+                    authn_cache_status_example()
+                ),
+                500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+            }
+        }
     }.
 
 param_auth_id() ->
@@ -711,6 +762,43 @@ authenticators_order(put, #{body := AuthnOrder}) ->
             serialize_error(Reason);
         {error, Reason} ->
             serialize_error(Reason)
+    end.
+
+authentication_cache(get, _Params) ->
+    RawConfig = emqx:get_raw_config([authentication_cache]),
+    {200, emqx_auth_cache_schema:fill_defaults(RawConfig)};
+authentication_cache(put, #{body := Config}) ->
+    case update_config([authentication_cache], Config) of
+        {ok, _} ->
+            {204};
+        {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
+            serialize_error(Reason);
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+authentication_cache_status(get, _Params) ->
+    Nodes = mria:running_nodes(),
+    LookupResult = emqx_auth_cache_proto_v1:metrics(Nodes, ?AUTHN_CACHE),
+    case is_ok(LookupResult) of
+        {ok, ResList} ->
+            NodeMetrics = lists:map(
+                fun({Node, Metrics}) ->
+                    #{node => Node, metrics => Metrics}
+                end,
+                ResList
+            ),
+            {_, Metrics} = lists:unzip(LookupResult),
+            AggregatedMetrics = aggregate_metrics(Metrics),
+            {200, #{
+                node_metrics => NodeMetrics,
+                metrics => AggregatedMetrics
+            }};
+        {error, ErrL} ->
+            {500, #{
+                code => <<"INTERNAL_ERROR">>,
+                message => list_to_binary(io_lib:format("~p", [ErrL]))
+            }}
     end.
 
 authenticator_position(
@@ -1582,3 +1670,16 @@ response_users_example() ->
             count => 300
         }
     }.
+
+authn_cache_example() ->
+    #{
+        enable => true,
+        cache_ttl => <<"1M">>,
+        cleanup_interval => <<"1M">>,
+        stat_update_interval => <<"1M">>,
+        max_size => 100000,
+        max_memory => <<"100MB">>
+    }.
+
+authn_cache_status_example() ->
+    #{}.
