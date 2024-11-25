@@ -351,7 +351,7 @@ sample_nodes(Nodes, Time) ->
     lists:foldl(fun(I, B) -> merge_samplers(Time, I, B) end, #{}, Success).
 
 concurrently_sample_nodes(Nodes, Time) ->
-    %% emqx_dashboard_proto_v1:do_sample has a timeout (5s),
+    %% emqx_dashboard_proto_v2:do_sample has a timeout (5s),
     %% call emqx_utils:pmap here instead of a rpc multicall
     %% to avoid having to introduce a new bpapi proto version
     emqx_utils:pmap(fun(Node) -> do_sample(Node, Time) end, Nodes, infinity).
