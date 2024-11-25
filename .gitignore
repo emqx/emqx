@@ -79,3 +79,5 @@ rebar-git-cache.tar
 apps/emqx_utils/src/emqx_variform_parser.erl
 apps/emqx_utils/src/emqx_variform_scan.erl
 default-profile.mk
+
+/_build.*

@@ -1244,16 +1244,9 @@ fixqos(?UNSUBSCRIBE, 0) -> 1;
 fixqos(_Type, QoS) -> QoS.
 
 validate_utf8(Bin) ->
-    case unicode:characters_to_binary(Bin) of
-        {error, _, _} ->
-            ?PARSE_ERR(utf8_string_invalid);
-        {incomplete, _, _} ->
-            ?PARSE_ERR(utf8_string_invalid);
-        Bin when is_binary(Bin) ->
-            case validate_mqtt_utf8_char(Bin) of
-                true -> Bin;
-                false -> ?PARSE_ERR(utf8_string_invalid)
-            end
+    case validate_mqtt_utf8_char(Bin) of
+        true -> Bin;
+        false -> ?PARSE_ERR(utf8_string_invalid)
     end.
 
 %% Is the utf8 string respecting UTF-8 characters defined by MQTT Spec?
@@ -1268,4 +1261,6 @@ validate_mqtt_utf8_char(<<H/utf8, _Rest/binary>>) when
 ->
     false;
 validate_mqtt_utf8_char(<<_H/utf8, Rest/binary>>) ->
-    validate_mqtt_utf8_char(Rest).
+    validate_mqtt_utf8_char(Rest);
+validate_mqtt_utf8_char(<<_BadUtf8, _Rest/binary>>) ->
+    false.
