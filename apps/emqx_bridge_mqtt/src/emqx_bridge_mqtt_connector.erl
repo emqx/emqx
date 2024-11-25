@@ -175,22 +175,24 @@ on_remove_channel(
     } = OldState,
     ChannelId
 ) ->
-    ChannelState = maps:get(ChannelId, InstalledChannels),
-    case ChannelState of
-        #{
-            config_root := sources
-        } ->
-            emqx_bridge_mqtt_ingress:unsubscribe_channel(
-                PoolName, ChannelState, ChannelId, TopicToHandlerIndex
-            ),
-            ok;
-        _ ->
-            ok
-    end,
-    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
-    %% Update state
-    NewState = OldState#{installed_channels => NewInstalledChannels},
-    {ok, NewState}.
+    case maps:find(ChannelId, InstalledChannels) of
+        error ->
+            %% maybe the channel failed to be added, just ignore it
+            {ok, OldState};
+        {ok, ChannelState} ->
+            case ChannelState of
+                #{config_root := sources} ->
+                    ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
+                        PoolName, ChannelState, ChannelId, TopicToHandlerIndex
+                    );
+                _ ->
+                    ok
+            end,
+            NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+            %% Update state
+            NewState = OldState#{installed_channels => NewInstalledChannels},
+            {ok, NewState}
+    end.
 
 on_get_channel_status(
     _ResId,
