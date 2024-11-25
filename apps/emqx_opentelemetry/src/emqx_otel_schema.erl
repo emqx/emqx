@@ -242,13 +242,13 @@ fields("trace_filter") ->
     ];
 fields("e2e_tracing_options") ->
     [
-        {attribute_meta_value,
+        {cluster_identifier,
             ?HOCON(
                 string(),
                 #{
                     required => true,
-                    default => ?EMQX_OTEL_DEFAULT_META_VALUE,
-                    desc => ?DESC(e2e_attribute_meta_value),
+                    default => ?EMQX_OTEL_DEFAULT_CLUSTER_ID,
+                    desc => ?DESC(cluster_identifier),
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},

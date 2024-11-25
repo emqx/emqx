@@ -11,7 +11,7 @@
 -include_lib("opentelemetry/include/otel_sampler.hrl").
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
 
--define(META_KEY, 'emqx.meta').
+-define(CLUSTER_ID_KEY, 'cluster.id').
 
 -export([
     init_tables/0,
@@ -148,7 +148,7 @@ setup(#{sample_ratio := Ratio} = InitOpts) ->
             client_subscribe_unsubscribe,
             client_publish,
             msg_trace_level,
-            attribute_meta_value
+            cluster_identifier
         ],
         InitOpts
     ))#{
@@ -187,7 +187,7 @@ should_sample(
             decide_by_traceid_ratio(TraceId, SpanName, Opts),
     {
         decide(Desicion),
-        with_meta_value(Opts),
+        with_cluster_id(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     };
 %% None Root Span, decide by Parent or Publish Response Tracing Level
@@ -205,7 +205,7 @@ should_sample(
             match_by_span_name(SpanName, QoS),
     {
         decide(Desicion),
-        with_meta_value(Opts),
+        with_cluster_id(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     }.
 
@@ -304,7 +304,7 @@ decide(true) ->
 decide(false) ->
     ?DROP.
 
-with_meta_value(#{attribute_meta_value := MetaValue}) ->
-    #{?META_KEY => MetaValue};
-with_meta_value(_) ->
+with_cluster_id(#{cluster_identifier := IdValue}) ->
+    #{?CLUSTER_ID_KEY => IdValue};
+with_cluster_id(_) ->
     #{}.
