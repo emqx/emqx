@@ -23,6 +23,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(metrics_worker, emqx_auth_cache_metrics_worker).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -31,9 +33,11 @@ groups() ->
 
 init_per_testcase(_TestCase, Config) ->
     _ = ets:new(?MODULE, [named_table, set, public]),
+    {ok, _Pid} = emqx_metrics_worker:start_link(?metrics_worker),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    _ = emqx_metrics_worker:stop(?metrics_worker),
     emqx_config:erase(?MODULE),
     ets:delete(?MODULE).
 
@@ -48,7 +52,7 @@ t_cache(_Config) ->
         cleanup_interval => 500,
         cache_ttl => 100
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     ?assertEqual(
         v1,
@@ -74,7 +78,7 @@ t_nocache(_Config) ->
         cleanup_interval => 500,
         cache_ttl => 100
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     ?assertEqual(
         v1,
@@ -98,7 +102,7 @@ t_cache_disabled(_Config) ->
         cleanup_interval => 500,
         cache_ttl => 100
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     ?assertEqual(
         v1,
@@ -116,9 +120,10 @@ t_cleanup_expired(_Config) ->
     emqx_config:put(ConfigPath, #{
         enable => true,
         cleanup_interval => 5,
+        stat_update_interval => 10,
         cache_ttl => 50
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
     set_val(k1, v2),
@@ -129,8 +134,8 @@ t_cleanup_expired(_Config) ->
     ),
     ct:sleep(100),
     ?assertMatch(
-        #{size := 0, memory := _},
-        emqx_auth_cache:stats(somecache)
+        {ok, #{gauges := #{auth_cache_size := 0}}},
+        emqx_auth_cache:metrics(somecache)
     ).
 
 t_reset(_Config) ->
@@ -140,7 +145,7 @@ t_reset(_Config) ->
         cleanup_interval => 100,
         cache_ttl => 100
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
     set_val(k1, v2),
@@ -162,7 +167,7 @@ t_reset_by_id(_Config) ->
         cleanup_interval => 100,
         cache_ttl => 100
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     set_val(k2, v1),
     _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
@@ -190,7 +195,7 @@ t_size_limit(_Config) ->
         max_memory => unlimited,
         stat_update_interval => 10
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     set_val(k1, v1),
     set_val(k2, v1),
     set_val(k3, v1),
@@ -225,7 +230,7 @@ t_memory_limit(_Config) ->
         max_memory => 10000,
         stat_update_interval => 10
     }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
     Value = lists:seq(1, 15000),
     set_val(k1, Value),
     set_val(k2, Value),
@@ -243,6 +248,45 @@ t_memory_limit(_Config) ->
         v2,
         emqx_auth_cache:with_cache(somecache, {<<"k2cache">>, v}, fun() -> {cache, get_val(k2)} end)
     ).
+
+t_metrics(_Config) ->
+    ConfigPath = [?MODULE, ?FUNCTION_NAME],
+    emqx_config:put(ConfigPath, #{
+        enable => true,
+        cleanup_interval => 10,
+        cache_ttl => 100,
+        stat_update_interval => 10
+    }),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
+    set_val(k1, v1),
+    %% Cache miss
+    _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
+    set_val(k1, v2),
+    %% Cache hit
+    _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
+    ct:sleep(101),
+    %% cache expired, miss
+    _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
+
+    {ok, #{
+        counters :=
+            #{
+                auth_cache_hit := Hit,
+                auth_cache_miss := Miss,
+                auth_cache_insert := Insert
+            },
+        gauges := #{auth_cache_size := Size, auth_cache_memory := Memory}
+    }} =
+        emqx_auth_cache:metrics(somecache),
+
+    ?assertEqual(Hit, 1),
+    ?assertEqual(Miss, 2),
+    ?assertEqual(Insert, 2),
+
+    ?assertEqual(Size, 1),
+    ?assert(Memory > 0),
+
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helpers
