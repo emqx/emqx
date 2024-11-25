@@ -65,6 +65,24 @@ authentication_order_put.desc:
 authentication_order_put.label:
 """Reorder Authenticators"""
 
+authentication_cache_status_get.desc:
+"""Get authentication cache status."""
+
+authentication_cache_status_get.label:
+"""Authentication Cache Status"""
+
+authentication_cache_get.desc:
+"""Get authentication cache settings."""
+
+authentication_cache_get.label:
+"""Authentication Cache Settings"""
+
+authentication_cache_put.desc:
+"""Update authentication cache settings."""
+
+authentication_cache_put.label:
+"""Update Authentication Cache Settings"""
+
 is_superuser.desc:
 """Is superuser"""
 is_superuser.label:

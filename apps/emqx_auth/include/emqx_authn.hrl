@@ -45,4 +45,6 @@
     ?VAR_NS_CLIENT_ATTRS
 ]).
 
+-define(AUTHN_CACHE, emqx_authn_cache).
+
 -endif.
