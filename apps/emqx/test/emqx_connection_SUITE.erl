@@ -188,10 +188,10 @@ t_process_msg(_) ->
     ).
 
 t_ensure_stats_timer(_) ->
-    NStats = emqx_connection:ensure_stats_timer(100, st()),
-    Stats_timer = emqx_connection:info(stats_timer, NStats),
-    ?assert(is_reference(Stats_timer)),
-    ?assertEqual(NStats, emqx_connection:ensure_stats_timer(100, NStats)).
+    NStats = emqx_connection:ensure_stats_timer(st()),
+    StatsTimer = emqx_connection:info(stats_timer, NStats),
+    ?assert(is_reference(StatsTimer)),
+    ?assertEqual(NStats, emqx_connection:ensure_stats_timer(NStats)).
 
 t_cancel_stats_timer(_) ->
     NStats = emqx_connection:cancel_stats_timer(st(#{stats_timer => make_ref()})),
@@ -557,11 +557,11 @@ t_cancel_congestion_alarm(_) ->
     ),
     with_conn(
         fun(Pid) ->
-            #{
-                channel := Channel,
-                transport := Transport,
-                socket := Socket
-            } = emqx_connection:get_state(Pid),
+            [
+                {channel, Channel},
+                {transport, Transport},
+                {socket, Socket}
+            ] = emqx_connection:info([channel, transport, socket], sys:get_state(Pid)),
             %% precondition
             Zone = emqx_channel:info(zone, Channel),
             true = emqx_config:get_zone_conf(Zone, [conn_congestion, enable_alarm]),

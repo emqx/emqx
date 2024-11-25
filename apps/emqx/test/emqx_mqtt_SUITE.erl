@@ -243,9 +243,10 @@ do_async_set_keepalive(OptKeepIdle, OptKeepInterval, OptKeepCount) ->
         100
     ),
     [Pid] = emqx_cm:lookup_channels(ClientID),
-    State = emqx_connection:get_state(Pid),
-    Transport = maps:get(transport, State),
-    Socket = maps:get(socket, State),
+    [
+        {socket, Socket},
+        {transport, Transport}
+    ] = emqx_connection:info([socket, transport], sys:get_state(Pid)),
     ?assert(is_port(Socket)),
     Opts = [{raw, 6, OptKeepIdle, 4}, {raw, 6, OptKeepInterval, 4}, {raw, 6, OptKeepCount, 4}],
     {ok, [
