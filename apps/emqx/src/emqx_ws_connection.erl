@@ -31,6 +31,7 @@
 %% API
 -export([
     info/1,
+    info/2,
     stats/1
 ]).
 
@@ -78,11 +79,10 @@
     %% GC State
     gc_state :: option(emqx_gc:gc_state()),
     %% Postponed Packets|Cmds|Events
+    %% Order is reversed: most recent entry is the first element.
     postponed :: list(emqx_types:packet() | ws_cmd() | tuple()),
     %% Stats Timer
-    stats_timer :: disabled | option(reference()),
-    %% Idle Timeout
-    idle_timeout :: timeout(),
+    stats_timer :: paused | disabled | option(reference()),
     %% Idle Timer
     idle_timer :: option(reference()),
     %% Zone name
@@ -117,7 +117,6 @@
 
 -type ws_cmd() :: {active, boolean()} | close.
 
--define(ACTIVE_N, 100).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
@@ -125,14 +124,13 @@
 -define(LIMITER_BYTES_IN, bytes).
 -define(LIMITER_MESSAGE_IN, messages).
 
--dialyzer({no_match, [info/2]}).
--dialyzer({nowarn_function, [websocket_init/1]}).
-
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
+
+-type info() :: atom() | {channel, _Info}.
 
 -spec info(pid() | state()) -> emqx_types:infos().
 info(WsPid) when is_pid(WsPid) ->
@@ -144,6 +142,9 @@ info(State = #state{channel = Channel}) ->
     ),
     ChanInfo#{sockinfo => SockInfo}.
 
+-spec info
+    (info(), state()) -> _Value;
+    (info(), state()) -> [{atom(), _Value}].
 info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(socktype, _State) ->
@@ -164,10 +165,10 @@ info(postponed, #state{postponed = Postponed}) ->
     Postponed;
 info(stats_timer, #state{stats_timer = TRef}) ->
     TRef;
-info(idle_timeout, #state{idle_timeout = Timeout}) ->
-    Timeout;
 info(idle_timer, #state{idle_timer = TRef}) ->
-    TRef.
+    TRef;
+info({channel, Info}, #state{channel = Channel}) ->
+    emqx_channel:info(Info, Channel).
 
 -spec stats(pid() | state()) -> emqx_types:stats().
 stats(WsPid) when is_pid(WsPid) ->
@@ -310,7 +311,7 @@ websocket_init([Req, Opts]) ->
             %% MQTT Idle Timeout
             IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
             IdleTimer = start_timer(IdleTimeout, idle_timeout),
-            tune_heap_size(Channel),
+            _ = tune_heap_size(Channel),
             emqx_logger:set_metadata_peername(esockd:format(Peername)),
             {ok,
                 #state{
@@ -325,7 +326,6 @@ websocket_init([Req, Opts]) ->
                     gc_state = GcState,
                     postponed = [],
                     stats_timer = StatsTimer,
-                    idle_timeout = IdleTimeout,
                     idle_timer = IdleTimer,
                     zone = Zone,
                     listener = {Type, Listener},
@@ -350,7 +350,7 @@ tune_heap_size(Channel) ->
 
 get_stats_enable(Zone) ->
     case emqx_config:get_zone_conf(Zone, [stats, enable]) of
-        true -> undefined;
+        true -> paused;
         false -> disabled
     end.
 
@@ -533,7 +533,8 @@ handle_info({close, Reason}, State) ->
 handle_info({event, connected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
-    return(State);
+    NState = resume_stats_timer(State),
+    return(NState);
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
@@ -951,12 +952,19 @@ cancel_idle_timer(State = #state{idle_timer = IdleTimer}) ->
 
 ensure_stats_timer(
     State = #state{
-        idle_timeout = Timeout,
+        zone = Zone,
         stats_timer = undefined
     }
 ) ->
+    Timeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
+    %% Either already active, disabled or paused.
+    State.
+
+resume_stats_timer(State = #state{stats_timer = paused}) ->
+    State#state{stats_timer = undefined};
+resume_stats_timer(State = #state{stats_timer = disabled}) ->
     State.
 
 -compile({inline, [postpone/2, enqueue/2, return/1, shutdown/2]}).
@@ -964,8 +972,6 @@ ensure_stats_timer(State) ->
 %%--------------------------------------------------------------------
 %% Postpone the packet, cmd or event
 
-postpone(Packet, State) when is_record(Packet, mqtt_packet) ->
-    enqueue(Packet, State);
 postpone(Event, State) when is_tuple(Event) ->
     enqueue(Event, State);
 postpone(More, State) when is_list(More) ->
@@ -1001,9 +1007,19 @@ return(State = #state{postponed = Postponed}) ->
 
 classify([], Packets, Cmds, Events) ->
     {Packets, Cmds, Events};
-classify([Packet | More], Packets, Cmds, Events) when
-    is_record(Packet, mqtt_packet)
-->
+classify([{outgoing, Outgoing} | More], Packets, Cmds, Events) ->
+    case is_list(Outgoing) of
+        true ->
+            %% Outgoing is a list in least-to-most recent order (i.e. not reversed).
+            %% Prepending will keep the overall order correct.
+            NPackets = Outgoing ++ Packets;
+        false ->
+            NPackets = [Outgoing | Packets]
+    end,
+    classify(More, NPackets, Cmds, Events);
+classify([{connack, Packet} | More], Packets, Cmds, Events) ->
+    classify(More, [Packet | Packets], Cmds, Events);
+classify([Packet = #mqtt_packet{} | More], Packets, Cmds, Events) ->
     classify(More, [Packet | Packets], Cmds, Events);
 classify([Cmd = {active, _} | More], Packets, Cmds, Events) ->
     classify(More, Packets, [Cmd | Cmds], Events);

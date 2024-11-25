@@ -48,6 +48,7 @@
 all() ->
     [
         {group, tcp},
+        {group, ws},
         {group, quic}
     ].
 
@@ -55,18 +56,25 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
         {tcp, [], TCs},
+        {ws, [], TCs},
         {quic, [], TCs}
     ].
 
 init_per_group(tcp, Config) ->
     Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    [{conn_type, tcp}, {port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config].
+    [{conn_type, quic}, {port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config];
+init_per_group(ws, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.ws.test { enable = true, bind = 8888 }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{conn_type, ws}, {port, 8888}, {conn_fun, ws_connect}, {group_apps, Apps} | Config].
 
 end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)).
@@ -89,7 +97,17 @@ end_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 client_info(Key, Client) ->
-    maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).
+    proplists:get_value(Key, emqtt:info(Client), undefined).
+
+connection_info(Info, ClientPid, Config) when is_list(Config) ->
+    connection_info(Info, ClientPid, ?config(conn_type, Config));
+connection_info(Info, ClientPid, tcp) ->
+    emqx_connection:info(Info, sys:get_state(ClientPid));
+connection_info(Info, ClientPid, quic) ->
+    emqx_connection:info(Info, sys:get_state(ClientPid));
+connection_info(Info, ClientPid, ws) ->
+    {_WSState, ConnState, _} = sys:get_state(ClientPid),
+    emqx_ws_connection:info(Info, ConnState).
 
 receive_messages(Count) ->
     receive_messages(Count, []).
@@ -206,9 +224,9 @@ t_connect_will_message(Config) ->
     ]),
     {ok, _} = emqtt:ConnFun(Client1),
     [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client1)),
-    Info = emqx_connection:info(sys:get_state(ClientPid)),
+    WillMsg = connection_info({channel, will_msg}, ClientPid, Config),
     %% [MQTT-3.1.2-7]
-    ?assertNotEqual(undefined, maps:find(will_msg, Info)),
+    ?assertNotEqual(undefined, WillMsg),
 
     {ok, Client2} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, _} = emqtt:ConnFun(Client2),
@@ -392,10 +410,10 @@ t_connect_emit_stats_timeout(Config) ->
     [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
     ?assertMatch(
         TRef when is_reference(TRef),
-        emqx_connection:info(stats_timer, sys:get_state(ClientPid))
+        connection_info(stats_timer, ClientPid, Config)
     ),
     ?block_until(#{?snk_kind := cancel_stats_timer}, IdleTimeout * 2, _BackInTime = 0),
-    ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),
+    ?assertEqual(undefined, connection_info(stats_timer, ClientPid, Config)),
     ok = emqtt:disconnect(Client).
 
 %% [MQTT-3.1.2-22]
