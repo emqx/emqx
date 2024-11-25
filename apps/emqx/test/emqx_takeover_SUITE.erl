@@ -1072,7 +1072,7 @@ filter_payload(List, Payload) when is_binary(Payload) ->
 %% @doc assert emqtt *client* process exits as expected.
 assert_client_exit(Pid, v5, takenover) ->
     %% @ref: MQTT 5.0 spec [MQTT-3.1.4-3]
-    ?assertReceive({'EXIT', Pid, {disconnected, ?RC_SESSION_TAKEN_OVER, _}});
+    ?assertReceive({'EXIT', Pid, {shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}});
 assert_client_exit(Pid, v3, takenover) ->
     ?assertReceive(
         {'EXIT', Pid, {shutdown, Reason}} when
@@ -1084,7 +1084,7 @@ assert_client_exit(Pid, v3, takenover) ->
 assert_client_exit(Pid, v3, kicked) ->
     ?assertReceive({'EXIT', Pid, _}, 1_000, #{pid => Pid});
 assert_client_exit(Pid, v5, kicked) ->
-    ?assertReceive({'EXIT', Pid, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}});
+    ?assertReceive({'EXIT', Pid, {shutdown, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}}});
 assert_client_exit(Pid, _, killed) ->
     ?assertReceive({'EXIT', Pid, killed}).
 

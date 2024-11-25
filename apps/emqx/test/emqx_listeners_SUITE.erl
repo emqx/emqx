@@ -379,9 +379,8 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
-        %% Due to a bug `emqtt` exits with `badmatch` in this case.
-        ?assertExit(
-            _Badmatch,
+        ?assertError(
+            timeout,
             emqtt_connect_wss(Host, Port, ClientSSLOpts)
         ),
 
