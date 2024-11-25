@@ -77,7 +77,9 @@ schema("/login") ->
             summary => <<"Dashboard authentication">>,
             'requestBody' => fields([username, password]),
             responses => #{
-                200 => fields([role, token, version, license]),
+                200 => fields([
+                    role, token, version, license, password_expire_in_seconds
+                ]),
                 401 => response_schema(401)
             },
             security => []
@@ -213,7 +215,10 @@ field(role) ->
     {role,
         mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
 field(backend) ->
-    {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})}.
+    {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})};
+field(password_expire_in_seconds) ->
+    {password_expire_in_seconds,
+        mk(integer(), #{desc => ?DESC(password_expire_in_seconds), example => 3600})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -223,13 +228,11 @@ login(post, #{body := Params}) ->
     Password = maps:get(<<"password">>, Params),
     minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username}),
     case emqx_dashboard_admin:sign_token(Username, Password) of
-        {ok, Role, Token} ->
+        {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200,
-                filter_result(#{
-                    role => Role,
-                    token => Token,
+                filter_result(Result#{
                     version => Version,
                     license => #{edition => emqx_release:edition()}
                 })};

@@ -52,7 +52,12 @@ set_special_configs(_App) ->
 
 -spec emqx_dashboard() -> emqx_cth_suite:appspec().
 emqx_dashboard() ->
-    emqx_dashboard("dashboard.listeners.http { enable = true, bind = 18083 }").
+    emqx_dashboard(
+        "dashboard {\n"
+        "           listeners.http { enable = true, bind = 18083}, \n"
+        "           password_expired_time = \"86400s\"\n"
+        "}"
+    ).
 
 emqx_dashboard(Config) ->
     {emqx_dashboard, #{

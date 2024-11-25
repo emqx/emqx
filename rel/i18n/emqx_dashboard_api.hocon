@@ -87,4 +87,7 @@ role.desc:
 backend.desc:
 """User account source"""
 
+password_expire_in_seconds.desc:
+"""Time in seconds until the password expiresc."""
+
 }

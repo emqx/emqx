@@ -137,6 +137,9 @@ token_expired_time.desc:
 token_expired_time.label:
 """Token expired time"""
 
+password_expired_time.desc:
+"""The expiration time for the password of users. The default value `0` means the password will never expire."""
+
 ssl_options.desc:
 """SSL/TLS options for the dashboard listener."""
 

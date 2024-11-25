@@ -184,7 +184,7 @@ t_clean_token(_) ->
     Password = <<"public_www1">>,
     NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
-    {ok, _, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
     FakeReq = #{method => <<"GET">>, path => FakePath},
     {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
@@ -193,9 +193,21 @@ t_clean_token(_) ->
     timer:sleep(5),
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     %% remove user
-    {ok, _, Token2} = emqx_dashboard_admin:sign_token(Username, NewPassword),
+    {ok, #{token := Token2}} = emqx_dashboard_admin:sign_token(Username, NewPassword),
     {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token2),
     {ok, _} = emqx_dashboard_admin:remove_user(Username),
     timer:sleep(5),
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token2),
+    ok.
+
+t_password_expired(_) ->
+    Username = <<"t_password_expired">>,
+    Password = <<"public_www1">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
+    {ok, #{token := _Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    [#?ADMIN{extra = #{password_ts := PwdTS}} = User] = emqx_dashboard_admin:lookup_user(Username),
+    PwdTS2 = PwdTS - 86400 * 2,
+    emqx_dashboard_admin:unsafe_update_user(User#?ADMIN{extra = #{password_ts => PwdTS2}}),
+    SignResult = emqx_dashboard_admin:sign_token(Username, Password),
+    ?assertMatch({ok, #{password_expire_in_seconds := X}} when X =< -86400, SignResult),
     ok.

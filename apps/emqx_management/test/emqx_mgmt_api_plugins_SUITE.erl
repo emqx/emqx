@@ -258,7 +258,7 @@ describe_plugins(Name) ->
     end.
 
 install_plugin(FilePath) ->
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
     case
         emqx_mgmt_api_test_util:upload_request(
