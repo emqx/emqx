@@ -345,7 +345,8 @@ wait_cmd_down(Port) ->
                 _ -> {error, Status}
             end
     after 1_000 ->
-        exit(timeout)
+        ct:pal("still waiting for command response..."),
+        wait_cmd_down(Port)
     end.
 
 close_port(Port) ->
