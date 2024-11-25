@@ -20,9 +20,9 @@
 
 -export([
     introduced_in/0,
-    deprecated_since/0,
     do_sample/2,
-    current_rate/1
+    current_rate/1,
+    deprecated_since/0
 ]).
 
 -include("emqx_dashboard.hrl").
@@ -32,7 +32,7 @@ introduced_in() ->
     "5.0.0".
 
 deprecated_since() ->
-    "5.8.1".
+    "5.8.4".
 
 -spec do_sample(node(), Latest :: pos_integer() | infinity) -> list(map()) | emqx_rpc:badrpc().
 do_sample(Node, Latest) ->

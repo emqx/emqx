@@ -29,12 +29,13 @@
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.8.1".
+    "5.8.4".
 
 -spec do_sample(node(), Latest :: pos_integer() | infinity) -> list(map()) | emqx_rpc:badrpc().
 do_sample(Node, Latest) ->
     erpc:call(Node, emqx_dashboard_monitor, do_sample, [Node, Latest], ?RPC_TIMEOUT).
 
+-spec clear_table(Nodes :: [node()]) -> emqx_rpc:erpc_multicall(ok).
 clear_table(Nodes) ->
     erpc:multicall(Nodes, emqx_dashboard_monitor, clear_table, [], ?RPC_TIMEOUT).
 
