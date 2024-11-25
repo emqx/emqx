@@ -34,6 +34,7 @@
 %% ====================
 %% OTEL sample whitelist/blacklist Table
 -define(EMQX_OTEL_SAMPLER, emqx_otel_sampler).
+-define(EMQX_OTEL_SAMPLER_SHARD, emqx_otel_sampler_shard).
 
 -define(EMQX_OTEL_SAMPLE_CLIENTID, 1).
 -define(EMQX_OTEL_SAMPLE_TOPIC, 2).

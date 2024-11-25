@@ -41,8 +41,8 @@ create_tables() ->
         ?EMQX_OTEL_SAMPLER,
         [
             {type, ordered_set},
+            {rlog_shard, ?EMQX_OTEL_SAMPLER_SHARD},
             {storage, disc_copies},
-            {local_content, true},
             {record_name, ?EMQX_OTEL_SAMPLER},
             {attributes, record_info(fields, ?EMQX_OTEL_SAMPLER)}
         ]
