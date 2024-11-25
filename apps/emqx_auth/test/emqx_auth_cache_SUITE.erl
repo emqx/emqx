@@ -134,7 +134,7 @@ t_cleanup_expired(_Config) ->
     ),
     ct:sleep(100),
     ?assertMatch(
-        {ok, #{gauges := #{auth_cache_size := 0}}},
+        #{size := 0},
         emqx_auth_cache:metrics(somecache)
     ).
 
@@ -268,15 +268,13 @@ t_metrics(_Config) ->
     %% cache expired, miss
     _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
 
-    {ok, #{
-        counters :=
-            #{
-                auth_cache_hit := Hit,
-                auth_cache_miss := Miss,
-                auth_cache_insert := Insert
-            },
-        gauges := #{auth_cache_size := Size, auth_cache_memory := Memory}
-    }} =
+    #{
+        hits := #{value := Hit},
+        misses := #{value := Miss},
+        inserts := #{value := Insert},
+        size := Size,
+        memory := Memory
+    } =
         emqx_auth_cache:metrics(somecache),
 
     ?assertEqual(Hit, 1),
@@ -287,6 +285,17 @@ t_metrics(_Config) ->
     ?assert(Memory > 0),
 
     ok.
+
+t_cluster(_Config) ->
+    ConfigPath = [?MODULE, ?FUNCTION_NAME],
+    emqx_config:put(ConfigPath, #{
+        enable => true
+    }),
+    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
+
+    [{ok, {_Node, #{}}}] = emqx_auth_cache_proto_v1:metrics([node()], somecache),
+    [{ok, ok}] = emqx_auth_cache_proto_v1:reset([node()], somecache),
+    [{ok, ok}] = emqx_auth_cache_proto_v1:reset([node()], somecache, <<"k1cache">>).
 
 %%------------------------------------------------------------------------------
 %% Helpers

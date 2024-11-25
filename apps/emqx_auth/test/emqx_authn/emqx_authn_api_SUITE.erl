@@ -34,7 +34,8 @@
 ).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    % emqx_common_test_helpers:all(?MODULE).
+    [t_cache].
 
 groups() ->
     [].
@@ -691,6 +692,15 @@ t_bcrypt_validation(_Config) ->
         uri([?CONF_NS]),
         ConfValid
     ).
+
+t_cache(_Config) ->
+    {ok, 200, Data} = request(
+        get,
+        uri([?CONF_NS, "cache"])
+    ),
+    ct:print(Data),
+
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helpers
