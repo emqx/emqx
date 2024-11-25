@@ -1182,6 +1182,9 @@ post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, OldConf
         {error, timeout} ->
             ErrorContext = #{
                 error => uninstall_timeout,
+                bridge_kind => ConfRootKey,
+                type => BridgeType,
+                name => BridgeName,
                 reason => <<
                     "Timed out trying to remove action or source.  Please try again and,"
                     " if the error persists, try disabling the connector before retrying."
