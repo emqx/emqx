@@ -97,7 +97,10 @@
     limiter_buffer :: queue:queue(cache()),
 
     %% limiter timers
-    limiter_timer :: undefined | reference()
+    limiter_timer :: undefined | reference(),
+
+    %% Extra field for future hot-upgrade support
+    extra = []
 }).
 
 -record(retry, {
@@ -330,7 +333,8 @@ websocket_init([Req, Opts]) ->
                     zone = Zone,
                     listener = {Type, Listener},
                     limiter_timer = undefined,
-                    limiter_buffer = queue:new()
+                    limiter_buffer = queue:new(),
+                    extra = []
                 },
                 hibernate};
         {denny, Reason} ->
