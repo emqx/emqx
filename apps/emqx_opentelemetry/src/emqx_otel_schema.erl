@@ -213,6 +213,7 @@ fields("trace_filter") ->
             ?HOCON(
                 ?ENUM([legacy, e2e]),
                 #{
+                    %% TODO: change default value to `e2e` after 5.9
                     default => legacy,
                     desc => ?DESC(trace_mode),
                     importance => ?IMPORTANCE_MEDIUM

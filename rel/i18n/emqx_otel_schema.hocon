@@ -49,18 +49,23 @@ trace_filter.label: "Trace Filter"
 
 trace_all.desc:
 """If enabled, all published messages are traced, a new trace ID is generated if it can't be extracted from the message.
-Otherwise, only messages published with trace context are traced. <br/>
-Disabled by default.<br/>
-Note: this config only takes effect when <code>trace_mode</code> is set to <code>legacy</code>."""
+Otherwise, only messages published with trace context are traced.
+Disabled by default.
+Note: this config only takes effect when `trace_mode` is set to `legacy`."""
 trace_all.label: "Trace All"
 
 trace_mode.desc:
-"""OpenTelemetry tracing mode.<br/>
-- `legacy`: follow the old tracing method, only trace message publishing and delivery.<br/>
-  Span Name will remain compatible with the old version.
-- `e2e`: end-to-end tracing mode. All kinds of client behaviors will be traced:<br/>
-  Connect/Disconnect/Subscribe/Unsubscribe/Message Publish/Message Delivery.<br/>
-  More control options and sampling functions are controlled by the `e2e_tracing_options` sub-configuration item"""
+"""OpenTelemetry tracing mode.
+- `legacy`: follow the old tracing method, only trace message publishing and delivery.
+  Span names will be compatible to versions before 5.9.
+- `e2e`: end-to-end tracing mode. All client behaviors will be traced:
+  - connect and disconnect
+  - sbuscrib and unsubscribe
+  - messaging events such as `PUBLISH`, `PUBACK`, `PUBREL` etc
+  When enabled (for each type of events), there will be a background tracing for all clients at the configured sample ratio.
+  From the dashboard, one can also add additional trace whitelist on top of the background tracing at full volume for a list of clients or topics.
+  See dashboard or API documents for more details.
+  More control and sampling options can be provided in `e2e_tracing_options`"""
 trace_mode.label: "Trace Mode"
 
 e2e_tracing_options.desc: "End-to-end tracing options"
@@ -72,37 +77,36 @@ Typically, set a simple and easily recognizable name or use the cluster name to 
 e2e_attribute_meta_value.label: "Attribute Meta Value"
 
 msg_trace_level.desc:
-"""Trace level for all message exchanges during the message publishing process.<br/>
-Note: This is effective for all message traces. It is transparent to whitelist sampling or ratio sampling.</br>
-- `0`: Basic events during message publish will be recorded as Spans.</br>
-  Includes 'client.connect', 'client.authz', 'message.route', 'message.forward', 'message.handle_forward', 'broker.publish'.</br>
-- `1`: In addition to basic events.</br>
-  The events 'broker.puback', 'client.puback', 'broker.pubrec', 'client.pubrec' will be recorded as Spans.</br>
+"""Trace level for all message exchanges during the message publishing process.
+- `0`: Basic events during message publish will be recorded as Spans.
+  Including 'client.connect', 'client.authz', 'message.route', 'message.forward', 'message.handle_forward', 'broker.publish'.
+- `1`: In addition to basic events.
+  The events 'broker.puback', 'client.puback', 'broker.pubrec', 'client.pubrec' will be recorded as Spans.
   That is, the first response packet in the QoS1 or QoS2 message interaction.
-- `2`: In addition to level 1.</br>
-  The events 'broker.pubrel', 'client.pubrel', 'broker.pubcomp', 'client.pubcomp' will be recorded as Spans.</br>"""
+- `2`: In addition to level 1.
+  The events 'broker.pubrel', 'client.pubrel', 'broker.pubcomp', 'client.pubcomp' will be recorded as Spans."""
 msg_trace_level.label: "Message Trace Level"
 
 sample_ratio.desc:
-"""Sampling ratio for the event types. Transparent to events switch and whitelist sampling.</br>"""
+"""Background tracing sampe ratio for the listed event types."""
 sample_ratio.label: "Sampling Ratio"
 
 client_connect_disconnect.desc:
-"""In addition to white list, whether to trace the client connect and disconnect events."""
-client_connect_disconnect.label: "Client Connect/Disconnect"
+"""Enable/disable background tracing for all clients' connect/disconnect events at the configured sample ratio."""
+client_connect_disconnect.label: "Trace Client Connect/Disconnect"
 
 client_subscribe_unsubscribe.desc:
-"""In addition to white list, whether to trace the client subscribe and unsubscribe events."""
-client_subscribe_unsubscribe.label: "Client Subscribe/Unsubscribe"
+"""Enable/disable background tracing for all clients' subscribe/unsubscribe at the configured sample ratio."""
+client_subscribe_unsubscribe.label: "Trace Client Subscribe/Unsubscribe"
 
 client_publish.desc:
-"""In addition to white list, whether to trace the client publish event."""
-client_publish.label: "Client Publish"
+"""Enable/disable background messaging events for all clients at the configured sample ratio and trace-level."""
+client_publish.label: "Trace Messaging Events"
 
-clientid_match_rules_max.desc: """Maximum length of the rule list based on clientid matching."""
-clientid_match_rules_max.label: "Client ID Match Rules Max"
+clientid_match_rules_max.desc: """Maximum length of the whitelist for clientid matching."""
+clientid_match_rules_max.label: "Maximum Number of Client ID Match Whitelist"
 
-topic_match_rules_max.desc: """Maximum length of the rule list based on topic matching."""
-topic_match_rules_max.label: "Topic Match Rules Max"
+topic_match_rules_max.desc: """Maximum length of the whitelist based for topic matching."""
+topic_match_rules_max.label: "Maximum Number of Topic Match Whitelist"
 
 }
