@@ -268,7 +268,7 @@ packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
 parse_connect(FrameBin, Options = #{strict_mode := StrictMode}) ->
-    {ProtoName, Rest0} = parse_utf8_string_with_cause(FrameBin, StrictMode, invalid_proto_name),
+    {ProtoName, Rest0} = parse_utf8_string(FrameBin, StrictMode, _Cause = invalid_proto_name),
     %% No need to parse and check proto_ver if proto_name is invalid, check it first
     %% And the matching check of `proto_name` and `proto_ver` fields will be done in `emqx_packet:check_proto_ver/2`
     _ = validate_proto_name(ProtoName),
@@ -326,7 +326,7 @@ do_parse_connect(
         PasswordFlag = bool(PasswordFlagB)
     ),
     {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode),
-    {ClientId, Rest4} = parse_utf8_string_with_cause(Rest3, StrictMode, invalid_clientid),
+    {ClientId, Rest4} = parse_utf8_string(Rest3, StrictMode, invalid_clientid),
     ConnPacket = #mqtt_packet_connect{
         proto_name = ProtoName,
         proto_ver = ProtoVer,
@@ -345,14 +345,14 @@ do_parse_connect(
     {Username, Rest6} = parse_optional(
         Rest5,
         fun(Bin) ->
-            parse_utf8_string_with_cause(Bin, StrictMode, invalid_username)
+            parse_utf8_string(Bin, StrictMode, invalid_username)
         end,
         UsernameFlag
     ),
     {Password, Rest7} = parse_optional(
         Rest6,
         fun(Bin) ->
-            parse_utf8_string_with_cause(Bin, StrictMode, invalid_password)
+            parse_utf8_string(Bin, StrictMode, invalid_password)
         end,
         PasswordFlag
     ),
@@ -396,7 +396,7 @@ parse_packet(
     Bin,
     #{strict_mode := StrictMode, version := Ver}
 ) ->
-    {TopicName, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_topic),
+    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_topic),
     {PacketId, Rest1} =
         case QoS of
             ?QOS_0 -> {undefined, Rest};
@@ -519,7 +519,7 @@ parse_will_message(
     StrictMode
 ) ->
     {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
-    {Topic, Rest1} = parse_utf8_string_with_cause(Rest, StrictMode, invalid_topic),
+    {Topic, Rest1} = parse_utf8_string(Rest, StrictMode, _Cause = invalid_topic),
     {Payload, Rest2} = parse_will_payload(Rest1),
     {
         Packet#mqtt_packet_connect{
@@ -571,10 +571,10 @@ parse_property(<<16#01, Val, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#02, Val:32/big, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Message-Expiry-Interval' => Val}, StrictMode);
 parse_property(<<16#03, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_content_type),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_content_type),
     parse_property(Rest, Props#{'Content-Type' => Val}, StrictMode);
 parse_property(<<16#08, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_response_topic),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_response_topic),
     parse_property(Rest, Props#{'Response-Topic' => Val}, StrictMode);
 parse_property(<<16#09, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Correlation-Data' => Val}, StrictMode);
@@ -584,12 +584,12 @@ parse_property(<<16#0B, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#11, Val:32/big, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Session-Expiry-Interval' => Val}, StrictMode);
 parse_property(<<16#12, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_assigned_client_id),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_assigned_client_id),
     parse_property(Rest, Props#{'Assigned-Client-Identifier' => Val}, StrictMode);
 parse_property(<<16#13, Val:16, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Server-Keep-Alive' => Val}, StrictMode);
 parse_property(<<16#15, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_authn_method),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_authn_method),
     parse_property(Rest, Props#{'Authentication-Method' => Val}, StrictMode);
 parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Authentication-Data' => Val}, StrictMode);
@@ -600,13 +600,13 @@ parse_property(<<16#18, Val:32, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<16#19, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Request-Response-Information' => Val}, StrictMode);
 parse_property(<<16#1A, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_response_info),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_response_info),
     parse_property(Rest, Props#{'Response-Information' => Val}, StrictMode);
 parse_property(<<16#1C, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_server_reference),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_server_reference),
     parse_property(Rest, Props#{'Server-Reference' => Val}, StrictMode);
 parse_property(<<16#1F, Bin/binary>>, Props, StrictMode) ->
-    {Val, Rest} = parse_utf8_string_with_cause(Bin, StrictMode, invalid_reason_string),
+    {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_reason_string),
     parse_property(Rest, Props#{'Reason-String' => Val}, StrictMode);
 parse_property(<<16#21, Val:16/big, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Receive-Maximum' => Val}, StrictMode);
@@ -697,31 +697,27 @@ parse_utf8_pair(Bin, _StrictMode) when
         total_bytes => byte_size(Bin)
     }).
 
-parse_utf8_string_with_cause(Bin, StrictMode, Cause) ->
-    try
-        parse_utf8_string(Bin, StrictMode)
-    catch
-        throw:{?FRAME_PARSE_ERROR, Reason} when is_map(Reason) ->
-            ?PARSE_ERR(Reason#{cause => Cause})
-    end.
-
 parse_optional(Bin, F, true) ->
     F(Bin);
 parse_optional(Bin, _F, false) ->
     {undefined, Bin}.
 
-parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true) ->
+parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
     {validate_utf8(Str), Rest};
-parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false) ->
+parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause) ->
     {Str, Rest};
-parse_utf8_string(<<Len:16/big, Rest/binary>>, _) when Len > byte_size(Rest) ->
+parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
-        cause => malformed_utf8_string,
+        cause => Cause,
+        reason => malformed_utf8_string,
         parsed_length => Len,
         remaining_bytes_length => byte_size(Rest)
     });
-parse_utf8_string(Bin, _) when 2 > byte_size(Bin) ->
-    ?PARSE_ERR(#{cause => malformed_utf8_string_length}).
+parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
+    ?PARSE_ERR(#{
+        cause => Cause,
+        reason => malformed_utf8_string_length
+    }).
 
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     {Data, Rest};
