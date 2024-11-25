@@ -101,12 +101,13 @@
     %% GC State
     gc_state :: option(emqx_gc:gc_state()),
     %% Stats Timer
-    stats_timer :: disabled | option(reference()),
-    %% Idle Timeout
-    idle_timeout :: integer() | infinity,
+    %% When `disabled` stats are never reported.
+    %% When `paused` stats are not reported until complete CONNECT packet received.
+    %% Connection starts with `paused` by default.
+    stats_timer :: disabled | paused | option(reference()),
     %% Idle Timer
     idle_timer :: option(reference()),
-    %% Idle Timeout
+    %% Hibernate connection process if inactive for
     hibernate_after :: integer() | infinity,
     %% Zone name
     zone :: atom(),
@@ -341,14 +342,10 @@ init_state(
         end,
     StatsTimer =
         case emqx_config:get_zone_conf(Zone, [stats, enable]) of
-            true -> undefined;
+            true -> paused;
             false -> disabled
         end,
-    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
 
-    set_tcp_keepalive(Listener),
-
-    IdleTimer = start_timer(IdleTimeout, idle_timeout),
     #state{
         transport = Transport,
         socket = Socket,
@@ -361,9 +358,7 @@ init_state(
         channel = Channel,
         gc_state = GcState,
         stats_timer = StatsTimer,
-        idle_timeout = IdleTimeout,
-        idle_timer = IdleTimer,
-        hibernate_after = maps:get(hibernate_after, Opts, IdleTimeout),
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         zone = Zone,
         listener = Listener,
         limiter_buffer = queue:new(),
@@ -378,18 +373,19 @@ run_loop(
         transport = Transport,
         socket = Socket,
         peername = Peername,
-        channel = Channel
+        listener = Listener,
+        zone = Zone
     }
 ) ->
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    ShutdownPolicy = emqx_config:get_zone_conf(
-        emqx_channel:info(zone, Channel),
-        [force_shutdown]
-    ),
+    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     emqx_utils:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
         {ok, NState} ->
-            hibernate(Parent, NState);
+            ok = set_tcp_keepalive(Listener),
+            IdleTimeout = get_zone_idle_timeout(Zone),
+            IdleTimer = start_timer(IdleTimeout, idle_timeout),
+            hibernate(Parent, NState#state{idle_timer = IdleTimer});
         {error, Reason} ->
             ok = Transport:fast_close(Socket),
             exit_on_sock_error(Reason)
@@ -414,7 +410,6 @@ recvloop(
     Parent,
     State = #state{
         hibernate_after = HibernateAfterMs,
-        channel = Channel,
         zone = Zone
     }
 ) ->
@@ -431,9 +426,7 @@ recvloop(
             true ->
                 recvloop(Parent, State);
             false ->
-                ClientId = emqx_channel:info(clientid, Channel),
-                undefined =/= ClientId andalso
-                    emqx_cm:set_chan_stats(ClientId, stats(State)),
+                _ = try_set_chan_stats(State),
                 hibernate(Parent, cancel_stats_timer(State))
         end
     end.
@@ -443,8 +436,8 @@ handle_recv({system, From, Request}, Parent, State) ->
 handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
     %% FIXME: it's not trapping exit, should never receive an EXIT
     terminate(Reason, State);
-handle_recv(Msg, Parent, State = #state{idle_timeout = IdleTimeout}) ->
-    case process_msg([Msg], ensure_stats_timer(IdleTimeout, State)) of
+handle_recv(Msg, Parent, State) ->
+    case process_msg([Msg], ensure_stats_timer(State)) of
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
         {stop, Reason, NewSate} ->
@@ -461,10 +454,18 @@ wakeup_from_hib(Parent, State) ->
 %%--------------------------------------------------------------------
 %% Ensure/cancel stats timer
 
--compile({inline, [ensure_stats_timer/2]}).
-ensure_stats_timer(Timeout, State = #state{stats_timer = undefined}) ->
+-compile({inline, [ensure_stats_timer/1]}).
+ensure_stats_timer(State = #state{stats_timer = undefined}) ->
+    Timeout = get_zone_idle_timeout(State#state.zone),
     State#state{stats_timer = start_timer(Timeout, emit_stats)};
-ensure_stats_timer(_Timeout, State) ->
+ensure_stats_timer(State) ->
+    %% Either already active, disabled, or paused.
+    State.
+
+-compile({inline, [resume_stats_timer/1]}).
+resume_stats_timer(State = #state{stats_timer = paused}) ->
+    State#state{stats_timer = undefined};
+resume_stats_timer(State = #state{stats_timer = disabled}) ->
     State.
 
 -compile({inline, [cancel_stats_timer/1]}).
@@ -474,6 +475,10 @@ cancel_stats_timer(State = #state{stats_timer = TRef}) when is_reference(TRef) -
     State#state{stats_timer = undefined};
 cancel_stats_timer(State) ->
     State.
+
+-compile({inline, [get_zone_idle_timeout/1]}).
+get_zone_idle_timeout(Zone) ->
+    emqx_channel:get_mqtt_conf(Zone, idle_timeout).
 
 %%--------------------------------------------------------------------
 %% Process next Msg
@@ -555,9 +560,8 @@ handle_msg(
     State = #state{idle_timer = IdleTimer}
 ) ->
     ok = emqx_utils:cancel_timer(IdleTimer),
-    Serialize = emqx_frame:serialize_opts(ConnPkt),
     NState = State#state{
-        serialize = Serialize,
+        serialize = emqx_frame:serialize_opts(ConnPkt),
         idle_timer = undefined
     },
     handle_incoming(Packet, NState);
@@ -611,7 +615,8 @@ handle_msg(
             maps:get(conn_pid, QSS), {PS, Serialize, Channel}
         ),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State));
+    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    {ok, resume_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
@@ -727,9 +732,9 @@ handle_timeout(
         socket = Socket
     }
 ) ->
-    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
+    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
     TRef,
@@ -746,6 +751,13 @@ handle_timeout(
     end;
 handle_timeout(TRef, Msg, State) ->
     with_channel(handle_timeout, [TRef, Msg], State).
+
+try_set_chan_stats(State = #state{channel = Channel}) ->
+    case emqx_channel:info(clientid, Channel) of
+        %% ClientID is not yet known, nothing to report.
+        undefined -> false;
+        ClientId -> emqx_cm:set_chan_stats(ClientId, stats(State))
+    end.
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
@@ -1108,10 +1120,8 @@ run_gc(Pubs, Bytes, State = #state{gc_state = GcSt, zone = Zone}) ->
         {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
     end.
 
-check_oom(Pubs, Bytes, State = #state{channel = Channel}) ->
-    ShutdownPolicy = emqx_config:get_zone_conf(
-        emqx_channel:info(zone, Channel), [force_shutdown]
-    ),
+check_oom(Pubs, Bytes, State = #state{zone = Zone}) ->
+    ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     case emqx_utils:check_oom(ShutdownPolicy) of
         {shutdown, Reason} ->
             %% triggers terminate/2 callback immediately
