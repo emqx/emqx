@@ -22,11 +22,12 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -export([
-    start_link/2,
+    start_link/3,
     with_cache/3,
     reset/1,
     reset/2,
-    stats/1
+    stats/1,
+    metrics/1
 ]).
 
 -export([
@@ -55,6 +56,19 @@
 -define(unlimited, unlimited).
 
 %%--------------------------------------------------------------------
+%% Metrics
+%%--------------------------------------------------------------------
+
+-define(metric_hit, auth_cache_hit).
+-define(metric_miss, auth_cache_miss).
+-define(metric_insert, auth_cache_insert).
+-define(metric_size, auth_cache_size).
+-define(metric_memory, auth_cache_memory).
+
+%% For gauges we use only one "virtual" worker
+-define(worker_id, worker_id).
+
+%%--------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------
 
@@ -65,6 +79,8 @@
 -type name() :: atom().
 -type config_path() :: runtime_config_key_path:runtime_config_key_path().
 -type callback() :: fun(() -> {cache | nocache, term()}).
+
+-type metrics_worker() :: emqx_metrics_worker:handler_name().
 
 %%--------------------------------------------------------------------
 %% Messages
@@ -77,9 +93,9 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec start_link(name(), config_path()) -> {ok, pid()}.
-start_link(Name, ConfigPath) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Name, ConfigPath], []).
+-spec start_link(name(), config_path(), metrics_worker()) -> {ok, pid()}.
+start_link(Name, ConfigPath, MetricsWorker) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Name, ConfigPath, MetricsWorker], []).
 
 -spec with_cache(config_path(), cache_key(), callback()) -> term().
 with_cache(Name, {Id, _Extra} = Key, Fun) when is_binary(Id) ->
@@ -120,11 +136,19 @@ stats(Name) ->
         error:badarg -> not_found
     end.
 
+metrics(Name) ->
+    try persistent_term:get(?pt_key(Name)) of
+        #{name := Name, metrics_worker := MetricsWorker} ->
+            {ok, emqx_metrics_worker:get_metrics(MetricsWorker, Name)}
+    catch
+        error:badarg -> not_found
+    end.
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Name, ConfigPath]) ->
+init([Name, ConfigPath, MetricsWorker]) ->
     Tab = ets:new(emqx_node_cache, [
         public,
         ordered_set,
@@ -135,20 +159,19 @@ init([Name, ConfigPath]) ->
     StatTab = ets:new(emqx_node_cache_tab, [
         public, set, {keypos, #stats.key}, {read_concurrency, true}
     ]),
-    ok = update_stats(Tab, StatTab),
-    _ = persistent_term:put(?pt_key(Name), #{
-        tab => Tab,
-        stat_tab => StatTab,
-        config_path => ConfigPath
-    }),
-    _ = erlang:send_after(cleanup_interval(ConfigPath), self(), #cleanup{}),
-    _ = erlang:send_after(stat_update_interval(ConfigPath), self(), #update_stats{}),
-    {ok, #{
+    ok = create_metrics(Name, MetricsWorker),
+    State = #{
         name => Name,
         tab => Tab,
         stat_tab => StatTab,
-        config_path => ConfigPath
-    }}.
+        config_path => ConfigPath,
+        metrics_worker => MetricsWorker
+    },
+    ok = update_stats(State),
+    _ = persistent_term:put(?pt_key(Name), State),
+    _ = erlang:send_after(cleanup_interval(ConfigPath), self(), #cleanup{}),
+    _ = erlang:send_after(stat_update_interval(ConfigPath), self(), #update_stats{}),
+    {ok, State}.
 
 handle_call(Msg, _From, State) ->
     ?tp(warning, auth_cache_unkown_call, #{
@@ -166,8 +189,8 @@ handle_info(#cleanup{}, #{config_path := ConfigPath} = State) ->
     ok = cleanup(State),
     erlang:send_after(cleanup_interval(ConfigPath), self(), #cleanup{}),
     {noreply, State};
-handle_info(#update_stats{}, #{tab := Tab, stat_tab := StatTab, config_path := ConfigPath} = State) ->
-    ok = update_stats(Tab, StatTab),
+handle_info(#update_stats{}, #{config_path := ConfigPath} = State) ->
+    ok = update_stats(State),
     erlang:send_after(stat_update_interval(ConfigPath), self(), #update_stats{}),
     {noreply, State};
 handle_info(Msg, State) ->
@@ -198,17 +221,41 @@ is_cache_enabled(Name) ->
 with_cache_disabled(Fun) ->
     dont_cache(Fun()).
 
+create_metrics(Name, MetricsWorker) ->
+    ok = emqx_metrics_worker:create_metrics(
+        MetricsWorker,
+        Name,
+        [
+            ?metric_hit,
+            ?metric_miss,
+            ?metric_insert
+        ],
+        [
+            ?metric_hit,
+            ?metric_miss,
+            ?metric_insert
+        ]
+    ).
+
 %% TODO:
 %% metrics
 with_cache_enabled(#{tab := Tab} = PtState, Key, Fun) ->
     case lookup(Tab, Key) of
         {ok, Value} ->
+            ok = inc_metric(PtState, ?metric_hit),
             Value;
         not_found ->
+            ok = inc_metric(PtState, ?metric_miss),
             maybe_cache(PtState, Key, Fun());
         error ->
             dont_cache(Fun())
     end.
+
+inc_metric(#{name := Name, metrics_worker := MetricsWorker}, Metric) ->
+    ok = emqx_metrics_worker:inc(MetricsWorker, Name, Metric).
+
+set_gauge(#{name := Name, metrics_worker := MetricsWorker}, Metric, Value) ->
+    ok = emqx_metrics_worker:set_gauge(MetricsWorker, Name, ?worker_id, Metric, Value).
 
 cleanup(#{tab := Tab}) ->
     Now = now_ms_monotonic(),
@@ -223,13 +270,15 @@ cleanup(#{tab := Tab}) ->
     }),
     ok.
 
-update_stats(Tab, StatTab) ->
+update_stats(#{tab := Tab, stat_tab := StatTab} = State) ->
     #{size := Size, memory := Memory} = tab_stats(Tab),
     Stats = #stats{
         key = ?stat_key,
         size = Size,
         memory = Memory
     },
+    ok = set_gauge(State, ?metric_size, Size),
+    ok = set_gauge(State, ?metric_memory, Memory),
     ?tp(warning, update_stats, #{
         stats => Stats
     }),
@@ -283,7 +332,7 @@ tab_stats(Tab) ->
         error:badarg -> not_found
     end.
 
-maybe_insert(#{tab := Tab, stat_tab := StatTab, config_path := ConfigPath}, Key, Value) ->
+maybe_insert(#{tab := Tab, stat_tab := StatTab, config_path := ConfigPath} = PtState, Key, Value) ->
     LimitsReached = limits_reached(ConfigPath, StatTab),
     ?tp(warning, node_cache_insert, #{
         key => Key,
@@ -294,6 +343,7 @@ maybe_insert(#{tab := Tab, stat_tab := StatTab, config_path := ConfigPath}, Key,
         true ->
             ok;
         false ->
+            ok = inc_metric(PtState, ?metric_insert),
             insert(Tab, Key, Value, ConfigPath)
     end.
 
