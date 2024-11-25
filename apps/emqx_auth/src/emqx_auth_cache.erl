@@ -169,9 +169,9 @@ init([Name, ConfigPath, MetricsWorker]) ->
     },
     ok = update_stats(State),
     _ = persistent_term:put(?pt_key(Name), State),
-    _ = erlang:send_after(cleanup_interval(ConfigPath), self(), #cleanup{}),
-    _ = erlang:send_after(stat_update_interval(ConfigPath), self(), #update_stats{}),
-    {ok, State}.
+    _ = erlang:send_after(cleanup_interval(State), self(), #cleanup{}),
+    _ = erlang:send_after(stat_update_interval(State), self(), #update_stats{}),
+    {ok, #{name => Name}}.
 
 handle_call(Msg, _From, State) ->
     ?tp(warning, auth_cache_unkown_call, #{
@@ -185,13 +185,15 @@ handle_cast(Msg, State) ->
     }),
     {noreply, State}.
 
-handle_info(#cleanup{}, #{config_path := ConfigPath} = State) ->
-    ok = cleanup(State),
-    erlang:send_after(cleanup_interval(ConfigPath), self(), #cleanup{}),
+handle_info(#cleanup{}, State) ->
+    PtState = pt_state(State),
+    ok = cleanup(PtState),
+    erlang:send_after(cleanup_interval(PtState), self(), #cleanup{}),
     {noreply, State};
-handle_info(#update_stats{}, #{config_path := ConfigPath} = State) ->
-    ok = update_stats(State),
-    erlang:send_after(stat_update_interval(ConfigPath), self(), #update_stats{}),
+handle_info(#update_stats{}, State) ->
+    PtState = pt_state(State),
+    ok = update_stats(PtState),
+    erlang:send_after(stat_update_interval(PtState), self(), #update_stats{}),
     {noreply, State};
 handle_info(Msg, State) ->
     ?tp(warning, auth_cache_unkown_info, #{
@@ -288,10 +290,10 @@ update_stats(#{tab := Tab, stat_tab := StatTab} = State) ->
 deadline(ConfigPath) ->
     now_ms_monotonic() + config_value(ConfigPath, cache_ttl).
 
-cleanup_interval(ConfigPath) ->
+cleanup_interval(#{config_path := ConfigPath}) ->
     config_value(ConfigPath, cleanup_interval).
 
-stat_update_interval(ConfigPath) ->
+stat_update_interval(#{config_path := ConfigPath}) ->
     config_value(ConfigPath, stat_update_interval, ?stat_update_interval).
 
 now_ms_monotonic() ->
@@ -374,3 +376,6 @@ limits_reached(ConfigPath, StatTab) ->
         {_, MaxMemory} when is_integer(MaxMemory) andalso Memory >= MaxMemory -> true;
         _ -> false
     end.
+
+pt_state(#{name := Name} = _State) ->
+    persistent_term:get(?pt_key(Name)).
