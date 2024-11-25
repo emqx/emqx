@@ -954,6 +954,7 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
                 added_channels = NewAddedChannelsMap
             };
         {error, Reason} ->
+            ?tp("remove_channel_failed", #{resource_id => ResId, reason => Reason}),
             ?SLOG(
                 log_level(IsDryRun),
                 #{
@@ -1082,6 +1083,7 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
             {keep_state, update_state(UpdatedData), [{reply, From, ok}]};
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Id),
+            ?tp("remove_channel_failed", #{resource_id => Id, reason => Reason}),
             ?SLOG(
                 log_level(IsDryRun),
                 #{
@@ -1681,6 +1683,7 @@ parse_health_check_result({Status, NewState}, _Data) when ?IS_STATUS(Status) ->
 parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_STATUS(Status) ->
     {Status, NewState, {error, Error}};
 parse_health_check_result({error, Error}, Data) ->
+    ?tp("health_check_exception", #{resource_id => Data#data.id, reason => Error}),
     ?SLOG(
         error,
         #{
