@@ -97,7 +97,7 @@
 -export([upgrade_raw_conf/2]).
 
 -ifdef(TEST).
--export([erase_all/0, backup_and_write/2]).
+-export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
 -endif.
 
 -include("logger.hrl").
