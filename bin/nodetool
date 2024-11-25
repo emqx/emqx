@@ -78,10 +78,10 @@ do(Args) ->
         {true, pong} ->
             ok;
         {false, pong} ->
-            io:format(standard_error, "Failed to connect to node ~p\n", [TargetNode]),
+            io:format(standard_error, "Failed to connect to node ~p~n", [TargetNode]),
             halt(1);
         {_, pang} ->
-            io:format(standard_error, "Node ~p not responding to pings.\n", [TargetNode]),
+            io:format(standard_error, "Node ~p not responding to pings.~n", [TargetNode]),
             halt(1)
     end,
 
@@ -91,11 +91,11 @@ do(Args) ->
     logger:set_primary_config(level, none),
     case RestArgs of
         ["getpid"] ->
-            io:format("~p\n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
+            io:format("~p~n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
         ["ping"] ->
             %% If we got this far, the node already responded to a ping, so just dump
             %% a "pong"
-            io:format("pong\n");
+            io:format("pong~n");
         ["stop"] ->
             Pid = start_shutdown_status(),
             Res = rpc:call(TargetNode, emqx_machine, graceful_shutdown, [], ?SHUTDOWN_TIMEOUT_MS),
@@ -106,7 +106,7 @@ do(Args) ->
                 {badrpc, timeout} ->
                     io:format(
                         "EMQX is still shutting down, it failed to stop gracefully "
-                        "within the configured timeout of: ~ps\n",
+                        "within the configured timeout of: ~ps~n",
                         [erlang:convert_time_unit(?SHUTDOWN_TIMEOUT_MS, millisecond, second)]
                     ),
                     halt(1);
@@ -131,10 +131,10 @@ do(Args) ->
                 {error, cmd_not_found} ->
                     halt(1);
                 {error, Reason} ->
-                    io:format("RPC to ~s error: ~p\n", [TargetNode, Reason]),
+                    io:format("RPC to ~s error: ~0p~n", [TargetNode, Reason]),
                     halt(1);
                 {badrpc, Reason} ->
-                    io:format("RPC to ~s failed: ~p\n", [TargetNode, Reason]),
+                    io:format("RPC to ~s failed: ~0p~n", [TargetNode, Reason]),
                     halt(1);
                 _ ->
                     halt(1)
@@ -148,7 +148,7 @@ do(Args) ->
                 ok ->
                     ok;
                 {badrpc, Reason} ->
-                    io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    io:format("RPC to ~s failed: ~0p~n", [TargetNode, Reason]),
                     halt(1);
                 _ ->
                     halt(1)
@@ -164,10 +164,10 @@ do(Args) ->
                 )
             of
                 {badrpc, Reason} ->
-                    io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    io:format("RPC to ~s failed: ~0p~n", [TargetNode, Reason]),
                     halt(1);
                 Other ->
-                    io:format("~p\n", [Other])
+                    io:format("~p~n", [Other])
             end;
         ["eval" | ListOfArgs] ->
             % parse args locally in the remsh node
@@ -176,14 +176,17 @@ do(Args) ->
             case rpc:call(TargetNode, emqx_ctl, run_command, [eval_erl, Parsed], infinity) of
                 {ok, Value} ->
                     io:format("~p~n", [Value]);
+                {error, Reason} ->
+                    io:format("RPC to ~s error: ~0p~n", [TargetNode, Reason]),
+                    halt(1);
                 {badrpc, Reason} ->
-                    io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
+                    io:format("RPC to ~s failed: ~0p~n", [TargetNode, Reason]),
                     halt(1)
             end;
         Other ->
             io:format("Other: ~p~n", [Other]),
             io:format(
-                "Usage: nodetool getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n"
+                "Usage: nodetool getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]~n"
             )
     end,
     net_kernel:stop().
@@ -197,7 +200,7 @@ stop_shutdown_status(Pid) ->
 
 shutdown_status_loop() ->
     timer:sleep(10_000),
-    io:format("EMQX is shutting down, please wait...\n", []),
+    io:format("EMQX is shutting down, please wait...~n", []),
     shutdown_status_loop().
 
 parse_eval_args(Args) ->
