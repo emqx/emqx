@@ -1398,13 +1398,16 @@ log_handler_common_confs(Handler, Default) ->
     ].
 
 crash_dump_file_default() ->
-    case os:getenv("EMQX_LOG_DIR") of
-        false ->
-            %% testing, or running emqx app as deps
-            <<"log/erl_crash.dump">>;
-        Dir ->
-            unicode:characters_to_binary(filename:join([Dir, "erl_crash.dump"]), utf8)
-    end.
+    File = "erl_crash." ++ emqx_utils_calendar:now_time(second) ++ ".dump",
+    LogDir =
+        case os:getenv("EMQX_LOG_DIR") of
+            false ->
+                %% testing, or running emqx app as deps
+                "log";
+            Dir ->
+                Dir
+        end,
+    unicode:characters_to_binary(filename:join([LogDir, File]), utf8).
 
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().
