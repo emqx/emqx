@@ -306,11 +306,11 @@ fields("e2e_tracing_options") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {client_publish,
+        {client_messaging,
             ?HOCON(
                 boolean(),
                 #{
-                    desc => ?DESC(client_publish),
+                    desc => ?DESC(client_messaging),
                     default => false,
                     importance => ?IMPORTANCE_MEDIUM
                 }

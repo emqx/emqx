@@ -99,9 +99,9 @@ client_subscribe_unsubscribe.desc:
 """Enable/disable background tracing for all clients' subscribe/unsubscribe at the configured sample ratio."""
 client_subscribe_unsubscribe.label: "Trace Client Subscribe/Unsubscribe"
 
-client_publish.desc:
+client_messaging.desc:
 """Enable/disable background messaging events for all clients at the configured sample ratio and trace-level."""
-client_publish.label: "Trace Messaging Events"
+client_messaging.label: "Trace Messaging Events"
 
 clientid_match_rules_max.desc: """Maximum length of the whitelist for clientid matching."""
 clientid_match_rules_max.label: "Maximum Number of Client ID Match Whitelist"

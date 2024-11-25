@@ -146,7 +146,7 @@ setup(#{sample_ratio := Ratio} = InitOpts) ->
         [
             client_connect_disconnect,
             client_subscribe_unsubscribe,
-            client_publish,
+            client_messaging,
             msg_trace_level,
             cluster_identifier
         ],
@@ -250,7 +250,7 @@ span_name_to_config_key(SpanName) when
 ->
     client_subscribe_unsubscribe;
 span_name_to_config_key(?CLIENT_PUBLISH_SPAN_NAME) ->
-    client_publish.
+    client_messaging.
 
 by_clientid(#{'client.clientid' := ClientId}) ->
     read_should_sample({?EMQX_OTEL_SAMPLE_CLIENTID, ClientId});
