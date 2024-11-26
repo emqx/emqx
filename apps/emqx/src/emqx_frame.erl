@@ -16,7 +16,6 @@
 
 -module(emqx_frame).
 
--include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
 -export([
@@ -47,8 +46,6 @@
     serialize_opts/0
 ]).
 
--define(Q(BYTES, Q), {BYTES, Q}).
-
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
@@ -69,7 +66,7 @@
         State :: #{
             hdr := #mqtt_packet_header{},
             len := {pos_integer(), non_neg_integer()} | non_neg_integer(),
-            rest => binary() | ?Q(non_neg_integer(), queue:queue(binary()))
+            rest => iodata()
         }
     }.
 
@@ -96,15 +93,15 @@ describe_state({{len, _}, _Opts}) ->
 describe_state({{body, State}, _Opts}) ->
     #{
         hdr := Hdr,
-        len := Len
+        need := Need
     } = State,
     Desc = #{
         parsed_header => Hdr,
-        expected_bytes => Len
+        remaining_bytes => Need
     },
     case maps:get(rest, State, undefined) of
         undefined -> Desc;
-        Body -> Desc#{received_bytes => body_bytes(Body)}
+        Body -> Desc#{received_bytes => iolist_size(Body)}
     end.
 
 %%--------------------------------------------------------------------
@@ -154,13 +151,12 @@ parse(Bin, {
 parse(Bin, {
     {body, #{
         hdr := Header,
-        len := Length,
+        need := Need,
         rest := Body
     }},
     Options
 }) when is_binary(Bin) ->
-    NewBody = append_body(Body, Bin),
-    parse_frame(NewBody, Header, Length, Options).
+    parse_frame(Bin, Body, Header, Need, Options).
 
 parse_remaining_len(<<>>, Header, Options) ->
     {more, {{len, #{hdr => Header, len => {1, 0}}}, Options}};
@@ -187,7 +183,7 @@ parse_remaining_len(
 parse_remaining_len(
     <<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?PINGREQ}, 1, 0, Options
 ) ->
-    parse_frame(Rest, Header, 0, Options);
+    parse_frame(Rest, <<>>, Header, 0, Options);
 parse_remaining_len(
     <<0:8, _Rest/binary>>, _Header = #mqtt_packet_header{type = ?PINGRESP}, 1, 0, _Options
 ) ->
@@ -199,7 +195,7 @@ parse_remaining_len(
     ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Header#mqtt_packet_header.type});
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
-    parse_frame(Rest, Header, 2, Options);
+    parse_frame(Rest, <<>>, Header, 2, Options);
 parse_remaining_len(<<1:1, _Len:7, _Rest/binary>>, _Header, Multiplier, _Value, _Options) when
     Multiplier > ?MULTIPLIER_MAX
 ->
@@ -216,31 +212,23 @@ parse_remaining_len(
     FrameLen = Value + Len * Multiplier,
     case FrameLen > MaxSize of
         true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-        false -> parse_frame(Rest, Header, FrameLen, Options)
+        false -> parse_frame(Rest, <<>>, Header, FrameLen, Options)
     end.
 
-body_bytes(B) when is_binary(B) -> size(B);
-body_bytes(?Q(Bytes, _)) -> Bytes.
+append_body(Acc, <<>>) ->
+    Acc;
+append_body(Acc, Bytes) when is_binary(Acc) andalso byte_size(Acc) < 1024 ->
+    <<Acc/binary, Bytes/binary>>;
+append_body(Acc, Bytes) ->
+    [Acc | Bytes].
 
-append_body(H, <<>>) ->
-    H;
-append_body(H, T) when is_binary(H) andalso size(H) < 1024 ->
-    <<H/binary, T/binary>>;
-append_body(H, T) when is_binary(H) ->
-    Bytes = size(H) + size(T),
-    ?Q(Bytes, queue:from_list([H, T]));
-append_body(?Q(Bytes, Q), T) ->
-    ?Q(Bytes + iolist_size(T), queue:in(T, Q)).
-
-flatten_body(Body) when is_binary(Body) -> Body;
-flatten_body(?Q(_, Q)) -> iolist_to_binary(queue:to_list(Q)).
-
-parse_frame(Body, Header, 0, Options) ->
-    {ok, packet(Header), flatten_body(Body), ?NONE(Options)};
-parse_frame(Body, Header, Length, Options) ->
-    case body_bytes(Body) >= Length of
+parse_frame(Rest, _Empty, Header, 0, Options) ->
+    {ok, packet(Header), Rest, ?NONE(Options)};
+parse_frame(Bin, Body, Header, Need, Options) ->
+    case byte_size(Bin) >= Need of
         true ->
-            <<FrameBin:Length/binary, Rest/binary>> = flatten_body(Body),
+            <<LastPart:Need/binary, Rest/binary>> = Bin,
+            FrameBin = iolist_to_binary(append_body(Body, LastPart)),
             case parse_packet(Header, FrameBin, Options) of
                 {Variable, Payload} ->
                     {ok, packet(Header, Variable, Payload), Rest, ?NONE(Options)};
@@ -253,7 +241,7 @@ parse_frame(Body, Header, Length, Options) ->
             {more, {
                 {body, #{
                     hdr => Header,
-                    len => Length,
+                    need => Need - byte_size(Bin),
                     rest => Body
                 }},
                 Options
