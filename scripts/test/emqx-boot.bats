@@ -27,3 +27,11 @@
     [[ $status -ne 0 ]]
     rm -f $conffile
 }
+
+@test "corrupted base.hocon" {
+    conffile="./_build/$PROFILE/rel/emqx/etc/base.hocon"
+    echo "{" > $conffile
+    run ./_build/$PROFILE/rel/emqx/bin/emqx console
+    [[ $status -ne 0 ]]
+    rm -f $conffile
+}
