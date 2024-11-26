@@ -56,7 +56,6 @@ end_per_suite(Config) ->
 
 app_specs() ->
     [
-        emqx,
         emqx_conf,
         emqx_prometheus,
         emqx_modules,
@@ -114,15 +113,8 @@ t_shutdown_reboot(Config) ->
         [{machine_reboot_SUITE1, #{role => core, apps => app_specs()}}],
         #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
     ),
-    SortedApps = app_specs(),
     try
         erpc:call(Node, fun() ->
-            %% Since `emqx_cth_*' starts applications without going through
-            %% `emqx_machine', we need to start this manually.
-            {ok, _} = emqx_machine_app_booter:start_link(),
-            ok = meck:new(emqx_machine_boot, [passthrough]),
-            ok = meck:expect(emqx_machine_boot, sorted_reboot_apps, 0, SortedApps),
-
             true = emqx:is_running(node()),
             emqx_machine_boot:stop_apps(),
             false = emqx:is_running(node()),

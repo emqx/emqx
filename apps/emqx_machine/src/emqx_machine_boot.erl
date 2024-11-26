@@ -24,7 +24,6 @@
 -export([start_autocluster/0]).
 -export([stop_port_apps/0]).
 -export([read_apps/0]).
--export([restart_type/1]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
@@ -65,7 +64,11 @@ start_autocluster() ->
     ok.
 
 stop_apps() ->
-    emqx_machine_app_booter:stop_apps().
+    ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
+    _ = emqx_alarm_handler:unload(),
+    ok = emqx_conf_app:unset_config_loaded(),
+    ok = emqx_plugins:ensure_stopped(),
+    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
 
 %% Those port apps are terminated after the main apps
 %% Don't need to stop when reboot.
@@ -96,7 +99,19 @@ stop_one_app(App) ->
     end.
 
 ensure_apps_started() ->
-    emqx_machine_app_booter:start_apps().
+    ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
+    lists:foreach(fun start_one_app/1, sorted_reboot_apps()),
+    ?tp(emqx_machine_boot_apps_started, #{}).
+
+start_one_app(App) ->
+    ?SLOG(debug, #{msg => "starting_app", app => App}),
+    case application:ensure_all_started(App, restart_type(App)) of
+        {ok, Apps} ->
+            ?SLOG(debug, #{msg => "started_apps", apps => Apps});
+        {error, Reason} ->
+            ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
+            error({failed_to_start_app, App, Reason})
+    end.
 
 restart_type(App) ->
     PermanentApps =
