@@ -37,67 +37,69 @@ roots() -> [].
 
 fields(config) ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("enable"), default => false})},
+        {enable, mk(boolean(), #{desc => ?DESC(enable), default => false})},
         {cache_ttl,
             mk(emqx_schema:timeout_duration_ms(), #{
-                desc => ?DESC("cache_ttl"), default => <<"1m">>
+                desc => ?DESC(cache_ttl), default => <<"1m">>
             })},
         {cleanup_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
-                desc => ?DESC("cleanup_interval"),
+                desc => ?DESC(cleanup_interval),
                 default => <<"1m">>,
                 importance => ?IMPORTANCE_HIDDEN
             })},
         {stat_update_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
-                desc => ?DESC("cleanup_interval"),
+                desc => ?DESC(stat_update_interval),
                 default => <<"1m">>,
                 importance => ?IMPORTANCE_HIDDEN
             })},
         {max_size,
             mk(hoconsc:union([unlimited, non_neg_integer()]), #{
-                desc => ?DESC("max_size"),
+                desc => ?DESC(max_size),
                 default => 1000000
             })},
         {max_memory,
             mk(hoconsc:union([unlimited, emqx_schema:bytesize()]), #{
-                desc => ?DESC("max_memory"),
+                desc => ?DESC(max_memory),
                 default => <<"100MB">>
             })}
     ];
+%% These fields are not used for the configuration.
+%% They describe API responses.
 fields(rate) ->
     [
-        {rate, ?HOCON(float(), #{desc => ?DESC("rate")})},
-        {rate_max, ?HOCON(float(), #{desc => ?DESC("rate_max")})},
-        {rate_last5m, ?HOCON(float(), #{desc => ?DESC("rate_last5m")})}
+        {rate, ?HOCON(float(), #{desc => "rate"})},
+        {rate_max, ?HOCON(float(), #{desc => "rate_max"})},
+        {rate_last5m, ?HOCON(float(), #{desc => "rate_last5m"})}
     ];
 fields(counter) ->
     [
-        {value, ?HOCON(integer(), #{desc => ?DESC("counter_value")})},
-        {rate, ?HOCON(?R_REF(rate), #{desc => ?DESC("counter_rate")})}
+        {value, ?HOCON(integer(), #{desc => "counter_value"})},
+        {rate, ?HOCON(?R_REF(rate), #{desc => "counter_rate"})}
     ];
 fields(metrics) ->
     [
-        {hits, ?HOCON(?R_REF(counter), #{desc => ?DESC("metrics_hits")})},
-        {misses, ?HOCON(?R_REF(counter), #{desc => ?DESC("metrics_hits")})},
-        {inserts, ?HOCON(?R_REF(counter), #{desc => ?DESC("metrics_hits")})},
-        {size, ?HOCON(integer(), #{desc => ?DESC("metric_size")})},
-        {memory, ?HOCON(integer(), #{desc => ?DESC("metric_memory")})}
+        {hits, ?HOCON(?R_REF(counter), #{desc => "metric_hits"})},
+        {misses, ?HOCON(?R_REF(counter), #{desc => "metric_misses"})},
+        {inserts, ?HOCON(?R_REF(counter), #{desc => "metric_inserts"})},
+        {size, ?HOCON(integer(), #{desc => "metric_size"})},
+        {memory, ?HOCON(integer(), #{desc => "metric_memory"})}
     ];
 fields(node_metrics) ->
     [
-        {node, ?HOCON(binary(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})},
-        {metrics, ?HOCON(?R_REF(metrics), #{desc => ?DESC("metrics")})}
+        {node, ?HOCON(binary(), #{desc => "node", example => "emqx@127.0.0.1"})},
+        {metrics, ?HOCON(?R_REF(metrics), #{desc => "metrics"})}
     ];
 fields(status) ->
     [
-        {metrics, ?HOCON(?R_REF(metrics), #{desc => ?DESC("status_metrics")})},
-        {node_metrics,
-            ?HOCON(?ARRAY(?R_REF(node_metrics)), #{desc => ?DESC("status_node_metrics")})}
+        {metrics, ?HOCON(?R_REF(metrics), #{desc => "status_metrics"})},
+        {node_metrics, ?HOCON(?ARRAY(?R_REF(node_metrics)), #{desc => "status_node_metrics"})}
     ].
 
-desc(config) -> ?DESC("auth_cache_config");
-desc(metrics) -> ?DESC("auth_cache_metrics").
+desc(config) -> ?DESC(auth_cache_config);
+desc(metrics) -> ?DESC(auth_cache_metrics);
+desc(_) -> undefined.
 
 fill_defaults(Config) ->
     WithRoot = #{<<"auth_cache">> => Config},
