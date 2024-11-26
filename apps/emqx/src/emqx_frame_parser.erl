@@ -145,9 +145,9 @@ parse_connect(
     ProtoName,
     ProtoVer,
     IsBridge,
-    Options = #opts{strict_mode = StrictMode}
+    #opts{strict_mode = StrictMode}
 ) ->
-    Ctx = #{proto_name => ProtoName, proto_ver => ProtoVer, parse_state => Options},
+    Ctx = #{proto_name => ProtoName, proto_ver => ProtoVer},
     _ = validate_connect_reserved(Reserved, Ctx),
     _ = validate_connect_will(
         WillFlag = bool(WillFlagB),
@@ -201,14 +201,13 @@ parse_connect(
                 unexpected_trailing_bytes => size(Rest7)
             })
     end;
-parse_connect(Frame, _Header, ProtoName, ProtoVer, _IsBridge, Options) ->
+parse_connect(Frame, _Header, ProtoName, ProtoVer, _IsBridge, _Options) ->
     %% sent less than 24 bytes
     ?PARSE_ERR(#{
         cause => malformed_connect,
         header_bytes => Frame,
         proto_name => ProtoName,
-        proto_ver => ProtoVer,
-        parse_state => Options
+        proto_ver => ProtoVer
     }).
 
 parse_packet(

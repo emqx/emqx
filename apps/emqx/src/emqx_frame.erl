@@ -31,6 +31,7 @@
     serialize_fun/1,
     initial_serialize_opts/1,
     serialize_opts/1,
+    serialize_opts/2,
     serialize_pkt/2,
     serialize/1,
     serialize/2,
@@ -759,8 +760,9 @@ serialize_fun(#{version := Ver, max_size := MaxSize, strict_mode := StrictMode})
 initial_serialize_opts(Opts) ->
     maps:merge(?DEFAULT_OPTIONS, Opts).
 
-serialize_opts(?NONE(Options)) ->
-    maps:merge(?DEFAULT_OPTIONS, Options);
+serialize_opts(ProtoVer, MaxSize) ->
+    #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.
+
 serialize_opts(#mqtt_packet_connect{proto_ver = ProtoVer, properties = ConnProps}) ->
     MaxSize = get_property('Maximum-Packet-Size', ConnProps, ?MAX_PACKET_SIZE),
     #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.

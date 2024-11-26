@@ -1093,8 +1093,8 @@ check_max_connection(Type, Listener) ->
             end
     end.
 
-enrich_state(#{parse_state := NParseState}, State) ->
-    Serialize = emqx_frame:serialize_opts(NParseState),
+enrich_state(#{proto_ver := ProtoVer, parse_state := NParseState}, State) ->
+    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
     State#state{parse_state = NParseState, serialize = Serialize};
 enrich_state(_, State) ->
     State.
