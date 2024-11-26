@@ -458,7 +458,7 @@ t_handle_in_expected_packet(_) ->
 t_process_connect(_) ->
     mock_cm_open_session(),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
-        emqx_channel:process_connect(#{}, channel(#{conn_state => idle})).
+        emqx_channel:post_process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
@@ -475,12 +475,12 @@ t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
     {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
-        emqx_channel:process_subscribe(TopicFilters, channel()).
+        emqx_channel:post_process_subscribe(TopicFilters, channel()).
 
 t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
-    {[?RC_SUCCESS], _Channel} = emqx_channel:process_unsubscribe(TopicFilters, #{}, channel()).
+    {[?RC_SUCCESS], _Channel} = emqx_channel:post_process_unsubscribe(TopicFilters, #{}, channel()).
 
 t_quota_qos0(_) ->
     esockd_limiter:start_link(),
@@ -823,7 +823,7 @@ t_enrich_client(_) ->
     {ok, _ConnPkt, _Chan} = emqx_channel:enrich_client(connpkt(), channel()).
 
 t_auth_connect(_) ->
-    {ok, _, _Chan} = emqx_channel:authenticate(?CONNECT_PACKET(connpkt()), channel()).
+    {ok, _, _Chan} = emqx_channel:process_authenticate(?CONNECT_PACKET(connpkt()), channel()).
 
 t_process_alias(_) ->
     Publish = #mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias' => 1}},

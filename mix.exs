@@ -374,6 +374,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_clickhouse,
       :emqx_ft,
       :emqx_license,
+      :emqx_opentelemetry,
       :emqx_s3,
       :emqx_bridge_s3,
       :emqx_bridge_azure_blob_storage,

@@ -15,39 +15,135 @@
 %%--------------------------------------------------------------------
 -module(emqx_external_trace).
 
--callback trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
+-include("emqx_external_trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
+
+%% Legacy
+-type channel_info() :: #{atom() => _}.
+-export_type([channel_info/0]).
+
+%% --------------------------------------------------------------------
+%% Trace in Rich mode callbacks
+
+%% Client Connect/Disconnect
+-callback client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
-    ChannelInfo :: channel_info(),
+    InitAttrs :: attrs(),
     Res :: term().
 
--callback start_trace_send(list(emqx_types:deliver()), channel_info()) ->
-    list(emqx_types:deliver()).
+-callback client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
 
--callback end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
+-callback client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
 
--type channel_info() :: #{atom() => _}.
+-callback client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+%% Message Processing Spans
+%% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DELIVER(to Subscribers)
+-callback client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_puback(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_pubrec(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_pubrel(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_pubcomp(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
+    Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
+%% @doc Trace message forwarding
+%% The span `message.forward` always starts in the publisher process and ends in the subscriber process.
+%% They are logically two unrelated processes. So the SpanCtx always need to be propagated.
+-callback msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
+-callback msg_handle_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Delivery :: emqx_types:delivery(),
+    Res :: term().
+
+-callback broker_publish(list(Deliver), Attrs) -> list(Deliver) when
+    Deliver :: emqx_types:deliver(),
+    Attrs :: attrs().
+
+-callback outgoing(TraceAction, Packet, Attrs) -> Res when
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Packet :: emqx_types:packet(),
+    Attrs :: attrs(),
+    Res :: term().
+
+%% --------------------------------------------------------------------
+%% Span enrichments APIs
+
+-callback add_span_attrs(Attrs) -> ok when
+    Attrs :: attrs().
+
+-callback add_span_attrs(Attrs, Ctx) -> ok when
+    Attrs :: attrs(),
+    Ctx :: map() | undefined.
+
+-callback set_status_ok() -> ok.
+
+-callback set_status_error() -> ok.
+
+-callback set_status_error(unicode:unicode_binary()) -> ok.
+
+-optional_callbacks(
+    [
+        add_span_attrs/1,
+        add_span_attrs/2,
+        set_status_ok/0,
+        set_status_error/0,
+        set_status_error/1,
+        client_authn/3,
+        client_authz/3
+    ]
+).
 
 -export([
     provider/0,
     register_provider/1,
-    unregister_provider/1,
-    trace_process_publish/3,
-    start_trace_send/2,
-    end_trace_send/1
+    unregister_provider/1
 ]).
-
--export_type([channel_info/0]).
-
--define(PROVIDER, {?MODULE, trace_provider}).
-
--define(with_provider(IfRegistered, IfNotRegistered),
-    case persistent_term:get(?PROVIDER, undefined) of
-        undefined ->
-            IfNotRegistered;
-        Provider ->
-            Provider:IfRegistered
-    end
-).
 
 %%--------------------------------------------------------------------
 %% provider API
@@ -77,31 +173,14 @@ provider() ->
     persistent_term:get(?PROVIDER, undefined).
 
 %%--------------------------------------------------------------------
-%% trace API
-%%--------------------------------------------------------------------
-
--spec trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    ChannelInfo :: channel_info(),
-    Res :: term().
-trace_process_publish(Packet, ChannelInfo, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, ChannelInfo, ProcessFun), ProcessFun(Packet)).
-
--spec start_trace_send(list(emqx_types:deliver()), channel_info()) ->
-    list(emqx_types:deliver()).
-start_trace_send(Delivers, ChannelInfo) ->
-    ?with_provider(?FUNCTION_NAME(Delivers, ChannelInfo), Delivers).
-
--spec end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
-end_trace_send(Packets) ->
-    ?with_provider(?FUNCTION_NAME(Packets), ok).
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% TODO:
+%% 1. Add more checks for the provider module and functions
+%% 2. Add more checks for the trace functions
 is_valid_provider(Module) ->
     lists:all(
         fun({F, A}) -> erlang:function_exported(Module, F, A) end,
-        ?MODULE:behaviour_info(callbacks)
+        ?MODULE:behaviour_info(callbacks) -- ?MODULE:behaviour_info(optional_callbacks)
     ).

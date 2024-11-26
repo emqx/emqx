@@ -27,6 +27,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -34,6 +35,7 @@
 -compile(nowarn_export_all).
 -endif.
 
+-elvis([{elvis_style, used_ignored_variable, disable}]).
 -elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
 
 %% API
@@ -857,9 +859,13 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, State) ->
+handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res = do_handle_outgoing(Packets, State),
-    emqx_external_trace:end_trace_send(Packets),
+    ?EXT_TRACE_WITH_ACTION_STOP(
+        outgoing,
+        Packets,
+        emqx_channel:basic_trace_attrs(_Channel)
+    ),
     Res.
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->

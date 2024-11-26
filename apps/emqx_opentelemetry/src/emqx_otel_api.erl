@@ -1,19 +1,6 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
-
 -module(emqx_otel_api).
 
 -behaviour(minirest_api).
@@ -116,6 +103,19 @@ otel_config_example() ->
         },
         traces => #{
             enable => true,
-            filter => #{trace_all => false}
+            filter => #{
+                trace_all => false,
+                trace_mode => legacy,
+                e2e_tracing_options => #{
+                    attribute_meta_value => "emqxcl",
+                    msg_trace_level => 0,
+                    clientid_match_rules_max => 30,
+                    topic_match_rules_max => 30,
+                    sample_ratio => "10%",
+                    client_connect_disconnect => true,
+                    client_subscribe_unsubscribe => true,
+                    client_publish => true
+                }
+            }
         }
     }.
