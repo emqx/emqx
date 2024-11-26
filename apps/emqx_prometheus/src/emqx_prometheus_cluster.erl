@@ -46,14 +46,17 @@ raw_data(Module, undefined) ->
     raw_data(Module, ?PROM_DATA_MODE__NODE);
 raw_data(Module, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED = Mode) ->
     AllNodesMetrics = aggre_cluster(Module, Mode),
+    %% TODO: fix this typo
     Cluster = Module:fetch_cluster_consistented_data(),
     maps:merge(AllNodesMetrics, Cluster);
 raw_data(Module, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED = Mode) ->
     AllNodesMetrics = zip_cluster_data(Module, Mode),
+    %% TODO: fix this typo
     Cluster = Module:fetch_cluster_consistented_data(),
     maps:merge(AllNodesMetrics, Cluster);
 raw_data(Module, ?PROM_DATA_MODE__NODE = Mode) ->
     {_Node, LocalNodeMetrics} = Module:fetch_from_local_node(Mode),
+    %% TODO: fix this typo
     Cluster = Module:fetch_cluster_consistented_data(),
     maps:merge(LocalNodeMetrics, Cluster).
 
@@ -172,9 +175,9 @@ do_zip_cluster(NodeMetrics, AccIn0) ->
     ).
 
 point_to_map_fun(Key) ->
-    fun({Lables, Metric}, AccIn2) ->
-        LablesKVMap = maps:from_list(Lables),
-        [maps:merge(LablesKVMap, #{Key => Metric}) | AccIn2]
+    fun({Labels, Metric}, AccIn2) ->
+        LabelsKVMap = maps:from_list(Labels),
+        [maps:merge(LabelsKVMap, #{Key => Metric}) | AccIn2]
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
