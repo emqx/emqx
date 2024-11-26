@@ -60,8 +60,8 @@ trace_mode.desc:
   Span names will be compatible to versions before 5.9.
 - `e2e`: end-to-end tracing mode. All client behaviors will be traced:
   - connect and disconnect
-  - sbuscrib and unsubscribe
-  - messaging events such as `PUBLISH`, `PUBACK`, `PUBREL` etc
+  - subscribe and unsubscribe
+  - messaging events such as `PUBLISH`, `PUBACK`, `PUBREL` etc.
   When enabled (for each type of events), there will be a background tracing for all clients at the configured sample ratio.
   From the dashboard, one can also add additional trace whitelist on top of the background tracing at full volume for a list of clients or topics.
   See dashboard or API documents for more details.
@@ -88,7 +88,7 @@ msg_trace_level.desc:
 msg_trace_level.label: "Message Trace Level"
 
 sample_ratio.desc:
-"""Background tracing sampe ratio for the listed event types."""
+"""Background tracing sample ratio for the listed event types."""
 sample_ratio.label: "Sampling Ratio"
 
 client_connect_disconnect.desc:
