@@ -788,12 +788,13 @@ authentication_cache_status(get, _Params) ->
                 end,
                 ResList
             ),
-            {_, Metrics} = lists:unzip(LookupResult),
+            {_, Metrics} = lists:unzip(ResList),
             AggregatedMetrics = aggregate_metrics(Metrics),
-            {200, #{
+            Response = #{
                 node_metrics => NodeMetrics,
                 metrics => AggregatedMetrics
-            }};
+            },
+            {200, Response};
         {error, ErrL} ->
             {500, #{
                 code => <<"INTERNAL_ERROR">>,
