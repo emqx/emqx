@@ -915,7 +915,7 @@ t_start_node_with_plugin_enabled({init, Config}) ->
         emqx_ctl,
         {emqx_plugins, #{
             after_start => fun() ->
-                {ok, Pid} = emqx_machine_boot:start_link(),
+                {ok, Pid} = emqx_machine_app_booter:start_link(),
                 unlink(Pid)
             end,
             config =>
@@ -978,7 +978,7 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             %% order, and also we need to override the config loader to emulate what
             %% `emqx_cth_cluster' does and avoid the node crashing due to lack of config
             %% keys.
-            ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
+            ok = ?ON(N2, emqx_machine_app_booter:start_autocluster()),
             ?ON(N2, begin
                 StartCallback0 =
                     case ekka:env({callback, start}) of
