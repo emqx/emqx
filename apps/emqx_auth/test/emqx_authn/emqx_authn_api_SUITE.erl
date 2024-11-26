@@ -694,12 +694,72 @@ t_bcrypt_validation(_Config) ->
     ).
 
 t_cache(_Config) ->
-    {ok, 200, Data} = request(
+    {ok, 200, CacheData0} = request(
         get,
         uri([?CONF_NS, "cache"])
     ),
-    ct:print(Data),
+    ?assertMatch(
+        #{<<"enable">> := false},
+        emqx_utils_json:decode(CacheData0, [return_maps])
+    ),
+    {ok, 200, MetricsData0} = request(
+        get,
+        uri([?CONF_NS, "cache", "status"])
+    ),
+    ?assertMatch(
+        #{<<"metrics">> := #{<<"size">> := 0}},
+        emqx_utils_json:decode(MetricsData0, [return_maps])
+    ),
+    {ok, 204, _} = request(
+        put,
+        uri([?CONF_NS, "cache"]),
+        #{
+            <<"enable">> => true
+        }
+    ),
+    {ok, 200, CacheData1} = request(
+        get,
+        uri([?CONF_NS, "cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := true},
+        emqx_utils_json:decode(CacheData1, [return_maps])
+    ),
 
+    %% We enabled authn cache, let's create
+    %% * authenticator
+    %% * user
+    %% * connection to miss the cache
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        emqx_authn_test_lib:built_in_database_example()
+    ),
+    User = #{user_id => <<"user">>, password => <<"pass">>},
+    {ok, 201, _} = request(
+        post,
+        uri([?CONF_NS, "password_based:built_in_database", "users"]),
+        User
+    ),
+    {ok, Client2} = emqtt:start_link([
+        {username, <<"user">>},
+        {password, <<"pass">>}
+    ]),
+    ?assertMatch(
+        {ok, _},
+        emqtt:connect(Client2)
+    ),
+    ok = emqtt:disconnect(Client2),
+
+    %% Now check the metrics, the cache should have been populated
+    {ok, 200, MetricsData2} = request(
+        get,
+        uri([?CONF_NS, "cache", "status"])
+    ),
+    ?assertMatch(
+        #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
+        emqx_utils_json:decode(MetricsData2, [return_maps])
+    ),
     ok.
 
 %%------------------------------------------------------------------------------
