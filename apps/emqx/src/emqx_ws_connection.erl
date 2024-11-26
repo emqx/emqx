@@ -727,7 +727,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
             {Packets, State#state{parse_state = NParseState}};
-        {ok, Packet, Rest, NParseState} ->
+        {Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [{incoming, Packet} | Packets], NState)
     catch
