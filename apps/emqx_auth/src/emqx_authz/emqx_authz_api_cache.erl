@@ -269,52 +269,7 @@ fields(response_authz_node_cache) ->
 %%--------------------------------------------------------------------
 
 authz_node_cache_example() ->
-    #{
-        enable => true,
-        cache_ttl => <<"1M">>,
-        cleanup_interval => <<"1M">>,
-        stat_update_interval => <<"1M">>,
-        max_size => 100000,
-        max_memory => <<"100MB">>
-    }.
+    emqx_auth_cache_schema:cache_settings_example().
 
 authz_node_cache_status_example() ->
-    #{
-        metrics =>
-            #{
-                memory => 1704,
-                size => 0,
-                hits =>
-                    #{value => 0, rate => #{max => 0.0, current => 0.0, last5m => 0.0}},
-                inserts =>
-                    #{value => 0, rate => #{max => 0.0, current => 0.0, last5m => 0.0}},
-                misses =>
-                    #{value => 1, rate => #{max => 0.0, current => 0.0, last5m => 0.0}}
-            },
-        node_metrics =>
-            [
-                #{
-                    node => <<"test@127.0.0.1">>,
-                    metrics =>
-                        #{
-                            memory => 1704,
-                            size => 0,
-                            hits =>
-                                #{
-                                    value => 0,
-                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
-                                },
-                            inserts =>
-                                #{
-                                    value => 0,
-                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
-                                },
-                            misses =>
-                                #{
-                                    value => 1,
-                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
-                                }
-                        }
-                }
-            ]
-    }.
+    emqx_auth_cache_schema:metrics_example().
