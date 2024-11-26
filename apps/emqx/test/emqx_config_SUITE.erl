@@ -126,7 +126,9 @@ t_init_load_with_base_hocon(C) when is_list(C) ->
     ?assertEqual(123, emqx:get_config([mqtt, max_clientid_len])),
     ?assertEqual(123, emqx:get_config([mqtt, max_inflight])),
     emqx_config:erase_all(),
-    ok = file:delete(BaseHocon).
+    ok = file:delete(BaseHocon),
+    ok = file:delete(ClusterHocon),
+    ok.
 
 t_unknown_root_keys(C) when is_list(C) ->
     ?check_trace(
