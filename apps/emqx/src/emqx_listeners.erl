@@ -17,7 +17,6 @@
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
 
--include("emqx_mqtt.hrl").
 -include("emqx_schema.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -80,6 +79,15 @@
 
 -type listener_id() :: atom() | binary().
 -type listener_type() :: tcp | ssl | ws | wss | quic | dtls.
+
+%% MQTT SockOpts
+-define(MQTT_SOCKOPTS, [
+    binary,
+    {packet, mqtt},
+    {reuseaddr, true},
+    {backlog, 512},
+    {nodelay, true}
+]).
 
 -define(ESOCKD_LISTENER(T), (T == tcp orelse T == ssl)).
 -define(COWBOY_LISTENER(T), (T == ws orelse T == wss)).
@@ -435,7 +443,7 @@ do_start_listener(Type, Name, Id, #{bind := ListenOn} = Opts) when ?ESOCKD_LISTE
     esockd:open(
         Id,
         ListenOn,
-        merge_default(esockd_opts(Id, Type, Name, Opts, _OldOpts = undefined))
+        esockd_opts(Id, Type, Name, Opts, _OldOpts = undefined)
     );
 %% Start MQTT/WS listener
 do_start_listener(Type, Name, Id, Opts) when ?COWBOY_LISTENER(Type) ->
@@ -622,11 +630,12 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
             ]}
     },
     PacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    TcpOpts = [{packet_size, PacketSize} | tcp_opts(Opts0)],
     maps:to_list(
         case Type of
             tcp ->
                 Opts3#{
-                    tcp_options => tcp_opts(Opts0#{packet_size => PacketSize})
+                    tcp_options => TcpOpts
                 };
             ssl ->
                 OptsWithCRL = inject_crl_config(Opts0, OldOpts),
@@ -636,7 +645,7 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
                 SSLOpts = ssl_opts(OptsWithVerifyFun),
                 Opts3#{
                     ssl_options => SSLOpts,
-                    tcp_options => tcp_opts(Opts0#{packet_size => PacketSize})
+                    tcp_options => TcpOpts
                 }
         end
     ).
@@ -710,14 +719,6 @@ esockd_access_rules(StrRules) ->
         end
     end,
     lists:foldr(Access, [], StrRules).
-
-merge_default(Options) ->
-    case lists:keytake(tcp_options, 1, Options) of
-        {value, {tcp_options, TcpOpts}, Options1} ->
-            [{tcp_options, emqx_utils:merge_opts(?MQTT_SOCKOPTS, TcpOpts)} | Options1];
-        false ->
-            [{tcp_options, ?MQTT_SOCKOPTS} | Options]
-    end.
 
 -spec format_bind(
     integer() | {tuple(), integer()} | string() | binary()
@@ -833,8 +834,9 @@ ssl_opts(Opts) ->
     emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
 
 tcp_opts(Opts) ->
-    TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),
-    lists:flatten(lists:map(fun tcp_opt/1, TcpOpts)).
+    TcpOpts0 = maps:to_list(maps:get(tcp_options, Opts, #{})),
+    TcpOpts = lists:flatten(lists:map(fun tcp_opt/1, TcpOpts0)),
+    emqx_utils:merge_opts(?MQTT_SOCKOPTS, TcpOpts).
 
 tcp_opt({active_n, _}) ->
     %% The `active_n' option is ignored for listener socket.
