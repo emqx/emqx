@@ -39,9 +39,6 @@
     handle_info/2
 ]).
 
-%% Internal exports (for `emqx_machine_terminator' only)
--export([do_stop_apps/0]).
-
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
@@ -80,7 +77,7 @@ handle_call(#start_apps{}, _From, State) ->
     handle_start_apps(),
     {reply, ok, State};
 handle_call(#stop_apps{}, _From, State) ->
-    do_stop_apps(),
+    handle_stop_apps(),
     {reply, ok, State};
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
@@ -92,21 +89,6 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 %%------------------------------------------------------------------------------
-%% Internal exports
-%%------------------------------------------------------------------------------
-
-%% Callers who wish to stop applications should not call this directly, and instead use
-%% `stop_apps/0`.  The only exception is `emqx_machine_terminator': it should call this
-%% block directly in its try-catch block, without the possibility of crashing this
-%% process.
-do_stop_apps() ->
-    ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
-    _ = emqx_alarm_handler:unload(),
-    ok = emqx_conf_app:unset_config_loaded(),
-    ok = emqx_plugins:ensure_stopped(),
-    lists:foreach(fun stop_one_app/1, lists:reverse(emqx_machine_boot:sorted_reboot_apps())).
-
-%%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
@@ -114,6 +96,13 @@ handle_start_apps() ->
     ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
     lists:foreach(fun start_one_app/1, emqx_machine_boot:sorted_reboot_apps()),
     ?tp(emqx_machine_boot_apps_started, #{}).
+
+handle_stop_apps() ->
+    ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
+    _ = emqx_alarm_handler:unload(),
+    ok = emqx_conf_app:unset_config_loaded(),
+    ok = emqx_plugins:ensure_stopped(),
+    lists:foreach(fun stop_one_app/1, lists:reverse(emqx_machine_boot:sorted_reboot_apps())).
 
 start_one_app(App) ->
     ?SLOG(debug, #{msg => "starting_app", app => App}),
