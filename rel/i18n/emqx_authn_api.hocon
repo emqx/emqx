@@ -174,4 +174,22 @@ param_user_id.desc:
 param_user_id.label:
 """User ID"""
 
+authentication_cache_reset_post.desc:
+"""Reset node-wise authentication cache"""
+
+authentication_cache_reset_post.label:
+"""Reset node-wise authentication cache"""
+
+authentication_cache_client_reset_post.desc:
+"""Reset node-wise authentication cache for a specific client"""
+
+authentication_cache_client_reset_post.label:
+"""Reset node-wise authentication cache for a specific client"""
+
+param_clientid.desc:
+"""Client ID"""
+
+param_clientid.label:
+"""Client ID"""
+
 }

@@ -68,7 +68,9 @@
     lookup_from_local_node/2,
     lookup_from_all_nodes/2,
     authentication_cache/2,
-    authentication_cache_status/2
+    authentication_cache_status/2,
+    authentication_cache_reset/2,
+    authentication_cache_client_reset/2
 ]).
 
 -export([
@@ -115,7 +117,9 @@ paths() ->
         "/authentication/:id/users/:user_id",
         "/authentication/order",
         "/authentication/cache",
-        "/authentication/cache/status"
+        "/authentication/cache/status",
+        "/authentication/cache/reset",
+        "/authentication/cache/:clientid/reset"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -590,7 +594,7 @@ schema("/authentication/cache") ->
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_cache_put),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                ref(?MODULE, response_authn_cache),
+                ref(?MODULE, request_authn_cache),
                 authn_cache_example()
             ),
             responses => #{
@@ -613,6 +617,35 @@ schema("/authentication/cache/status") ->
                 500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
             }
         }
+    };
+schema("/authentication/cache/reset") ->
+    #{
+        'operationId' => authentication_cache_reset,
+        post =>
+            #{
+                description => ?DESC(authentication_cache_reset_post),
+                responses =>
+                    #{
+                        204 => <<"No Content">>,
+                        500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                    }
+            }
+    };
+schema("/authentication/cache/:clientid/reset") ->
+    #{
+        'operationId' => authentication_cache_client_reset,
+        post =>
+            #{
+                description => ?DESC(authentication_cache_client_reset_post),
+                parameters => [
+                    {clientid, mk(binary(), #{in => path, desc => ?DESC(clientid)})}
+                ],
+                responses =>
+                    #{
+                        204 => <<"No Content">>,
+                        500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                    }
+            }
     }.
 
 param_auth_id() ->
@@ -771,8 +804,6 @@ authentication_cache(put, #{body := Config}) ->
     case update_config([authentication_cache], Config) of
         {ok, _} ->
             {204};
-        {error, {_PrePostConfigUpdate, ?CONFIG, Reason}} ->
-            serialize_error(Reason);
         {error, Reason} ->
             serialize_error(Reason)
     end.
@@ -798,7 +829,31 @@ authentication_cache_status(get, _Params) ->
         {error, ErrL} ->
             {500, #{
                 code => <<"INTERNAL_ERROR">>,
-                message => list_to_binary(io_lib:format("~p", [ErrL]))
+                message => bin(ErrL)
+            }}
+    end.
+
+authentication_cache_reset(post, _) ->
+    Nodes = mria:running_nodes(),
+    case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHN_CACHE)) of
+        {ok, _} ->
+            {204};
+        {error, ErrL} ->
+            {500, #{
+                code => <<"INTERNAL_ERROR">>,
+                message => bin(ErrL)
+            }}
+    end.
+
+authentication_cache_client_reset(post, #{bindings := #{clientid := ClientId}}) ->
+    Nodes = mria:running_nodes(),
+    case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHN_CACHE, ClientId)) of
+        {ok, _} ->
+            {204};
+        {error, ErrL} ->
+            {500, #{
+                code => <<"INTERNAL_ERROR">>,
+                message => bin(ErrL)
             }}
     end.
 
@@ -1054,7 +1109,7 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
         {error, ErrL} ->
             {500, #{
                 code => <<"INTERNAL_ERROR">>,
-                message => list_to_binary(io_lib:format("~p", [ErrL]))
+                message => bin(ErrL)
             }}
     end.
 
@@ -1442,6 +1497,7 @@ ensure_list(M) when is_map(M) -> [M];
 ensure_list(L) when is_list(L) -> L.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+bin(Arg) -> binfmt("~0p", [Arg]).
 
 paginated_list_type(Type) ->
     [
@@ -1683,4 +1739,42 @@ authn_cache_example() ->
     }.
 
 authn_cache_status_example() ->
-    #{}.
+    #{
+        metrics =>
+            #{
+                memory => 1704,
+                size => 0,
+                hits =>
+                    #{value => 0, rate => #{max => 0.0, current => 0.0, last5m => 0.0}},
+                inserts =>
+                    #{value => 0, rate => #{max => 0.0, current => 0.0, last5m => 0.0}},
+                misses =>
+                    #{value => 1, rate => #{max => 0.0, current => 0.0, last5m => 0.0}}
+            },
+        node_metrics =>
+            [
+                #{
+                    node => <<"test@127.0.0.1">>,
+                    metrics =>
+                        #{
+                            memory => 1704,
+                            size => 0,
+                            hits =>
+                                #{
+                                    value => 0,
+                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
+                                },
+                            inserts =>
+                                #{
+                                    value => 0,
+                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
+                                },
+                            misses =>
+                                #{
+                                    value => 1,
+                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
+                                }
+                        }
+                }
+            ]
+    }.

@@ -34,8 +34,7 @@
 ).
 
 all() ->
-    % emqx_common_test_helpers:all(?MODULE).
-    [t_cache].
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [].
@@ -741,15 +740,15 @@ t_cache(_Config) ->
         uri([?CONF_NS, "password_based:built_in_database", "users"]),
         User
     ),
-    {ok, Client2} = emqtt:start_link([
+    {ok, Client} = emqtt:start_link([
         {username, <<"user">>},
         {password, <<"pass">>}
     ]),
     ?assertMatch(
         {ok, _},
-        emqtt:connect(Client2)
+        emqtt:connect(Client)
     ),
-    ok = emqtt:disconnect(Client2),
+    ok = emqtt:disconnect(Client),
 
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
@@ -761,6 +760,16 @@ t_cache(_Config) ->
         emqx_utils_json:decode(MetricsData2, [return_maps])
     ),
     ok.
+
+t_cache_reset(_) ->
+    {ok, 204, _} = request(
+        post,
+        uri([?CONF_NS, "cache", "reset"])
+    ),
+    {ok, 204, _} = request(
+        post,
+        uri([?CONF_NS, "cache", "someclient", "reset"])
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers
