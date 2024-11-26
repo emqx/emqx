@@ -2431,7 +2431,7 @@ schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at
     Channel;
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
     Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
-    ensure_timer(connection_auth_expire, Interval + 1500, Channel).
+    ensure_timer(connection_auth_expire, Interval, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
