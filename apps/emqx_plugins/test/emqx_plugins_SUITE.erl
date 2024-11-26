@@ -914,10 +914,6 @@ t_start_node_with_plugin_enabled({init, Config}) ->
         emqx_conf,
         emqx_ctl,
         {emqx_plugins, #{
-            after_start => fun() ->
-                {ok, Pid} = emqx_machine_boot:start_link(),
-                unlink(Pid)
-            end,
             config =>
                 #{
                     plugins =>

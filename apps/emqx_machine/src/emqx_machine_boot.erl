@@ -18,36 +18,18 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% API
--export([
-    start_link/0,
-
-    stop_apps/0,
-    ensure_apps_started/0,
-    sorted_reboot_apps/0,
-    stop_port_apps/0
-]).
-
-%% `gen_server' API
--export([
-    init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2
-]).
-
-%% Internal exports (for `emqx_machine_terminator' only)
--export([do_stop_apps/0]).
+-export([post_boot/0]).
+-export([stop_apps/0, ensure_apps_started/0]).
+-export([sorted_reboot_apps/0]).
+-export([start_autocluster/0]).
+-export([stop_port_apps/0]).
+-export([read_apps/0]).
 
 -dialyzer({no_match, [basic_reboot_apps/0]}).
 
 -ifdef(TEST).
--export([read_apps/0, sorted_reboot_apps/1, reboot_apps/0, start_autocluster/0]).
+-export([sorted_reboot_apps/1, reboot_apps/0]).
 -endif.
-
-%%------------------------------------------------------------------------------
-%% Type declarations
-%%------------------------------------------------------------------------------
 
 %% These apps are always (re)started by emqx_machine:
 -define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx_durable_storage, emqx]).
@@ -59,19 +41,34 @@
 %% release, depending on the build flags:
 -define(OPTIONAL_APPS, [bcrypt, observer]).
 
-%% calls/casts/infos
--record(start_apps, {}).
--record(stop_apps, {}).
+post_boot() ->
+    ok = ensure_apps_started(),
+    ok = print_vsn(),
+    ok = start_autocluster(),
+    ignore.
 
-%%------------------------------------------------------------------------------
-%% API
-%%------------------------------------------------------------------------------
+-ifdef(TEST).
+print_vsn() -> ok.
+% TEST
+-else.
+print_vsn() ->
+    ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
+% TEST
+-endif.
 
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_autocluster() ->
+    ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
+    ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
+    %% returns 'ok' or a pid or 'any()' as in spec
+    _ = ekka:autocluster(emqx),
+    ok.
 
 stop_apps() ->
-    gen_server:call(?MODULE, #stop_apps{}, infinity).
+    ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
+    _ = emqx_alarm_handler:unload(),
+    ok = emqx_conf_app:unset_config_loaded(),
+    ok = emqx_plugins:ensure_stopped(),
+    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
 
 %% Those port apps are terminated after the main apps
 %% Don't need to stop when reboot.
@@ -87,60 +84,34 @@ stop_port_apps() ->
         [os_mon, jq]
     ).
 
+stop_one_app(App) ->
+    ?SLOG(debug, #{msg => "stopping_app", app => App}),
+    try
+        _ = application:stop(App)
+    catch
+        C:E ->
+            ?SLOG(error, #{
+                msg => "failed_to_stop_app",
+                app => App,
+                exception => C,
+                reason => E
+            })
+    end.
+
 ensure_apps_started() ->
-    gen_server:call(?MODULE, #start_apps{}, infinity).
+    ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
+    lists:foreach(fun start_one_app/1, sorted_reboot_apps()),
+    ?tp(emqx_machine_boot_apps_started, #{}).
 
-sorted_reboot_apps() ->
-    RebootApps = reboot_apps(),
-    Apps0 = [{App, app_deps(App, RebootApps)} || App <- RebootApps],
-    Apps = emqx_machine_boot_runtime_deps:inject(Apps0, runtime_deps()),
-    sorted_reboot_apps(Apps).
-
-%%------------------------------------------------------------------------------
-%% `gen_server' API
-%%------------------------------------------------------------------------------
-
-init(_Opts) ->
-    %% Ensure that the stop callback is set, so that join requests concurrent to the
-    %% startup are serialized here.
-    %% It would still be problematic if a join request arrives before this process is
-    %% started, though.
-    ekka:callback(stop, fun ?MODULE:stop_apps/0),
-    do_start_apps(),
-    ok = print_vsn(),
-    ok = start_autocluster(),
-    State = #{},
-    {ok, State}.
-
-handle_call(#start_apps{}, _From, State) ->
-    do_start_apps(),
-    {reply, ok, State};
-handle_call(#stop_apps{}, _From, State) ->
-    do_stop_apps(),
-    {reply, ok, State};
-handle_call(_Call, _From, State) ->
-    {reply, ignored, State}.
-
-handle_cast(_Cast, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-%%------------------------------------------------------------------------------
-%% Internal exports
-%%------------------------------------------------------------------------------
-
-%% Callers who wish to stop applications should not call this directly, and instead use
-%% `stop_apps/0`.  The only exception is `emqx_machine_terminator': it should call this
-%% block directly in its try-catch block, without the possibility of crashing this
-%% process.
-do_stop_apps() ->
-    ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
-    _ = emqx_alarm_handler:unload(),
-    ok = emqx_conf_app:unset_config_loaded(),
-    ok = emqx_plugins:ensure_stopped(),
-    lists:foreach(fun stop_one_app/1, lists:reverse(?MODULE:sorted_reboot_apps())).
+start_one_app(App) ->
+    ?SLOG(debug, #{msg => "starting_app", app => App}),
+    case application:ensure_all_started(App, restart_type(App)) of
+        {ok, Apps} ->
+            ?SLOG(debug, #{msg => "started_apps", apps => Apps});
+        {error, Reason} ->
+            ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
+            error({failed_to_start_app, App, Reason})
+    end.
 
 restart_type(App) ->
     PermanentApps =
@@ -151,26 +122,6 @@ restart_type(App) ->
         false ->
             temporary
     end.
-
-start_autocluster() ->
-    ekka:callback(stop, fun ?MODULE:stop_apps/0),
-    ekka:callback(start, fun ?MODULE:ensure_apps_started/0),
-    %% returns 'ok' or a pid or 'any()' as in spec
-    _ = ekka:autocluster(emqx),
-    ok.
-
-%%------------------------------------------------------------------------------
-%% Internal fns
-%%------------------------------------------------------------------------------
-
--ifdef(TEST).
-print_vsn() -> ok.
-% TEST
--else.
-print_vsn() ->
-    ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
-% TEST
--endif.
 
 %% list of app names which should be rebooted when:
 %% 1. due to static config change
@@ -198,6 +149,13 @@ basic_reboot_apps() ->
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
     ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
 
+%% @doc Read business apps belonging to the current profile/edition.
+read_apps() ->
+    PrivDir = code:priv_dir(emqx_machine),
+    RebootListPath = filename:join([PrivDir, "reboot_lists.eterm"]),
+    {ok, [Apps]} = file:consult(RebootListPath),
+    Apps.
+
 excluded_apps() ->
     %% Optional apps _should_ be (re)started automatically, but only
     %% when they are found in the release:
@@ -210,47 +168,17 @@ is_app(Name) ->
         _ -> false
     end.
 
-do_start_apps() ->
-    ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
-    lists:foreach(fun start_one_app/1, ?MODULE:sorted_reboot_apps()),
-    ?tp(emqx_machine_boot_apps_started, #{}).
-
-start_one_app(App) ->
-    ?SLOG(debug, #{msg => "starting_app", app => App}),
-    case application:ensure_all_started(App, restart_type(App)) of
-        {ok, Apps} ->
-            ?SLOG(debug, #{msg => "started_apps", apps => Apps});
-        {error, Reason} ->
-            ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
-            error({failed_to_start_app, App, Reason})
-    end.
-
-stop_one_app(App) ->
-    ?SLOG(debug, #{msg => "stopping_app", app => App}),
-    try
-        _ = application:stop(App)
-    catch
-        C:E ->
-            ?SLOG(error, #{
-                msg => "failed_to_stop_app",
-                app => App,
-                exception => C,
-                reason => E
-            })
-    end.
+sorted_reboot_apps() ->
+    RebootApps = reboot_apps(),
+    Apps0 = [{App, app_deps(App, RebootApps)} || App <- RebootApps],
+    Apps = emqx_machine_boot_runtime_deps:inject(Apps0, runtime_deps()),
+    sorted_reboot_apps(Apps).
 
 app_deps(App, RebootApps) ->
     case application:get_key(App, applications) of
         undefined -> undefined;
         {ok, List} -> lists:filter(fun(A) -> lists:member(A, RebootApps) end, List)
     end.
-
-%% @doc Read business apps belonging to the current profile/edition.
-read_apps() ->
-    PrivDir = code:priv_dir(emqx_machine),
-    RebootListPath = filename:join([PrivDir, "reboot_lists.eterm"]),
-    {ok, [Apps]} = file:consult(RebootListPath),
-    Apps.
 
 runtime_deps() ->
     [

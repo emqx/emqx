@@ -96,7 +96,7 @@ handle_call(?DO_IT, _From, State) ->
     try
         %% stop port apps before stopping other apps.
         emqx_machine_boot:stop_port_apps(),
-        emqx_machine_boot:do_stop_apps()
+        emqx_machine_boot:stop_apps()
     catch
         C:E:St ->
             Apps = [element(1, A) || A <- application:which_applications()],
