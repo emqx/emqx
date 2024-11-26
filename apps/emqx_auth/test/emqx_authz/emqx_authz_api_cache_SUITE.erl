@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_mgmt_api_test_util, [request/2, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -73,5 +73,69 @@ t_clean_cache(_) ->
 
     ok.
 
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).
+t_node_cache(_) ->
+    {ok, 200, CacheData0} = request(
+        get,
+        uri(["authorization", "node_cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := false},
+        emqx_utils_json:decode(CacheData0, [return_maps])
+    ),
+    {ok, 200, MetricsData0} = request(
+        get,
+        uri(["authorization", "node_cache", "status"])
+    ),
+    ?assertMatch(
+        #{<<"metrics">> := #{<<"size">> := 0}},
+        emqx_utils_json:decode(MetricsData0, [return_maps])
+    ),
+    {ok, 204, _} = request(
+        put,
+        uri(["authorization", "node_cache"]),
+        #{
+            <<"enable">> => true
+        }
+    ),
+    {ok, 200, CacheData1} = request(
+        get,
+        uri(["authorization", "node_cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := true},
+        emqx_utils_json:decode(CacheData1, [return_maps])
+    ),
+
+    %% We enabled authz cache, let's create client and make a subscription
+    %% to touch the cache
+    {ok, Client} = emqtt:start_link([
+        {username, <<"user">>},
+        {password, <<"pass">>}
+    ]),
+    ?assertMatch(
+        {ok, _},
+        emqtt:connect(Client)
+    ),
+    {ok, _, _} = emqtt:subscribe(Client, <<"test/topic">>, 1),
+    ok = emqtt:disconnect(Client),
+
+    %% Now check the metrics, the cache should have been populated
+    {ok, 200, MetricsData2} = request(
+        get,
+        uri(["authorization", "node_cache", "status"])
+    ),
+    ?assertMatch(
+        #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
+        emqx_utils_json:decode(MetricsData2, [return_maps])
+    ),
+    ok.
+
+t_node_cache_reset(_) ->
+    {ok, 204, _} = request(
+        post,
+        uri(["authorization", "node_cache", "reset"])
+    ),
+    {ok, 204, _} = request(
+        post,
+        uri(["authorization", "node_cache", "someclient", "reset"])
+    ).
