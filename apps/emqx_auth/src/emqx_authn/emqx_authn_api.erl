@@ -69,8 +69,7 @@
     lookup_from_all_nodes/2,
     authentication_cache/2,
     authentication_cache_status/2,
-    authentication_cache_reset/2,
-    authentication_cache_client_reset/2
+    authentication_cache_reset/2
 ]).
 
 -export([
@@ -118,8 +117,7 @@ paths() ->
         "/authentication/order",
         "/authentication/cache",
         "/authentication/cache/status",
-        "/authentication/cache/reset",
-        "/authentication/cache/:clientid/reset"
+        "/authentication/cache/reset"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -630,22 +628,6 @@ schema("/authentication/cache/reset") ->
                         500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
                     }
             }
-    };
-schema("/authentication/cache/:clientid/reset") ->
-    #{
-        'operationId' => authentication_cache_client_reset,
-        post =>
-            #{
-                description => ?DESC(authentication_cache_client_reset_post),
-                parameters => [
-                    {clientid, mk(binary(), #{in => path, desc => ?DESC(clientid)})}
-                ],
-                responses =>
-                    #{
-                        204 => <<"No Content">>,
-                        500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
-                    }
-            }
     }.
 
 param_auth_id() ->
@@ -836,18 +818,6 @@ authentication_cache_status(get, _Params) ->
 authentication_cache_reset(post, _) ->
     Nodes = mria:running_nodes(),
     case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHN_CACHE)) of
-        {ok, _} ->
-            {204};
-        {error, ErrL} ->
-            {500, #{
-                code => <<"INTERNAL_ERROR">>,
-                message => bin(ErrL)
-            }}
-    end.
-
-authentication_cache_client_reset(post, #{bindings := #{clientid := ClientId}}) ->
-    Nodes = mria:running_nodes(),
-    case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHN_CACHE, ClientId)) of
         {ok, _} ->
             {204};
         {error, ErrL} ->

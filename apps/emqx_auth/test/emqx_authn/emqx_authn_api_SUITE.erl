@@ -765,10 +765,6 @@ t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
         uri([?CONF_NS, "cache", "reset"])
-    ),
-    {ok, 204, _} = request(
-        post,
-        uri([?CONF_NS, "cache", "someclient", "reset"])
     ).
 
 %%------------------------------------------------------------------------------

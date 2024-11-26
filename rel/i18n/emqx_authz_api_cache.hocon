@@ -29,12 +29,6 @@ authorization_node_cache_reset_post.desc:
 authorization_node_cache_reset_post.label:
 """Reset node-wise authorization cache"""
 
-authorization_node_cache_client_reset_post.desc:
-"""Reset node-wise authorization cache for a specific client."""
-
-authorization_node_cache_client_reset_post.label:
-"""Reset node-wise authorization cache for a specific client"""
-
 param_clientid.desc:
 """Client ID"""
 
