@@ -30,6 +30,11 @@
     default_config/0
 ]).
 
+-export([
+    cache_settings_example/0,
+    metrics_example/0
+]).
+
 namespace() -> auth_cache.
 
 %% @doc auth cache schema is not exported but directly used
@@ -114,6 +119,61 @@ fill_defaults(Config) ->
 default_config() ->
     #{
         <<"enable">> => false
+    }.
+
+%%------------------------------------------------------------------------------
+%% Data examples
+%%------------------------------------------------------------------------------
+
+cache_settings_example() ->
+    #{
+        enable => true,
+        cache_ttl => <<"1M">>,
+        cleanup_interval => <<"1M">>,
+        stat_update_interval => <<"1M">>,
+        max_size => 100000,
+        max_memory => <<"100MB">>
+    }.
+
+metrics_example() ->
+    #{
+        metrics =>
+            #{
+                memory => 1704,
+                size => 0,
+                hits =>
+                    #{value => 0, rate => #{max => 0.0, current => 0.0, last5m => 0.0}},
+                inserts =>
+                    #{value => 0, rate => #{max => 0.0, current => 0.0, last5m => 0.0}},
+                misses =>
+                    #{value => 1, rate => #{max => 0.0, current => 0.0, last5m => 0.0}}
+            },
+        node_metrics =>
+            [
+                #{
+                    node => <<"test@127.0.0.1">>,
+                    metrics =>
+                        #{
+                            memory => 1704,
+                            size => 0,
+                            hits =>
+                                #{
+                                    value => 0,
+                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
+                                },
+                            inserts =>
+                                #{
+                                    value => 0,
+                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
+                                },
+                            misses =>
+                                #{
+                                    value => 1,
+                                    rate => #{max => 0.0, current => 0.0, last5m => 0.0}
+                                }
+                        }
+                }
+            ]
     }.
 
 %%------------------------------------------------------------------------------
