@@ -21,10 +21,15 @@ init([]) ->
         intensity => 10,
         period => 10
     },
+    PoolModule = emqx_mt_pool,
+    PoolType = hash,
+    MFA = {PoolModule, start_link, []},
+    SupArgs = [PoolModule, PoolType, MFA],
     ChildSpecs = [
+        emqx_pool_sup:spec(emqx_mt_pool_sup, SupArgs),
         #{
-            id => emqx_mt,
-            start => {emqx_mt, start_link, []},
+            id => emqx_mt_cluster_watch,
+            start => {emqx_mt_cluster_watch, start_link, []},
             type => worker,
             restart => transient,
             shutdown => 1000

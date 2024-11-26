@@ -2,51 +2,50 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
+%% @doc This module implements the external APIs for multi-tenancy.
 -module(emqx_mt).
 
--behaviour(gen_server).
+-export([
+    list_tenants/0,
+    list_clients/1,
+    list_clients/2,
+    list_clients/3,
+    count_clients/1
+]).
 
--export([start_link/0, stop/1, call/2, cast/2]).
+-export_type([tns/0]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-type tns() :: binary().
+-type clientid() :: emqx_types:clientid().
 
--record(state, {extra = #{}}).
+-define(DEFAULT_PAGE_SIZE, 100).
+-define(MAX_PAGE_SIZE, 1000).
 
--type state() :: #state{}.
+%% @doc List clients of the given tenant.
+%% Starts from the beginning, with default page size 100.
+-spec list_clients(tns()) -> [clientid()].
+list_clients(Tns) ->
+    list_clients(Tns, <<>>).
 
--spec start_link() -> {ok, pid()} | {error, term()}.
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+%% @doc List clients of the given tenant.
+%% Starts after the given client id, with default page size 100.
+-spec list_clients(tns(), clientid()) -> [clientid()].
+list_clients(Tns, LastClientId) ->
+    list_clients(Tns, LastClientId, ?DEFAULT_PAGE_SIZE).
 
--spec stop(pid()) -> ok.
-stop(Pid) ->
-    gen_server:call(Pid, stop).
+%% @doc List clients of the given tenant.
+%% Starts after the given client id, with the given page size.
+-spec list_clients(tns(), clientid(), non_neg_integer()) -> [clientid()].
+list_clients(Tns, LastClientId, PageSize) ->
+    (PageSize < 1 orelse PageSize > ?MAX_PAGE_SIZE) andalso error(bad_page_size),
+    emqx_mt_state:list_clients(Tns, LastClientId, PageSize).
 
--spec call(pid(), term()) -> term().
-call(Pid, Request) ->
-    gen_server:call(Pid, {custom_call, Request}).
+%% @doc Count clients of the given tenant.
+-spec count_clients(tns()) -> non_neg_integer().
+count_clients(Tns) ->
+    emqx_mt_state:count_clients(Tns).
 
--spec cast(pid(), term()) -> ok.
-cast(Pid, Request) ->
-    gen_server:cast(Pid, {custom_cast, Request}).
-
--spec init(term()) -> {ok, state()}.
-init(_Args) ->
-    {ok, #state{extra = #{}}}.
-
-handle_call(stop, _From, State) ->
-    {stop, normal, ok, State};
-handle_call({_Call, _Request}, _From, State) ->
-    {reply, {error, unknown_call}, State}.
-
-handle_cast({custom_cast, _Request}, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+%% @doc List all tenants.
+-spec list_tenants() -> [tns()].
+list_tenants() ->
+    emqx_mt_state:list_tenants().
