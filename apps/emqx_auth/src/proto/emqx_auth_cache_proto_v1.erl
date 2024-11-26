@@ -21,8 +21,7 @@
 -export([
     introduced_in/0,
     metrics/2,
-    reset/2,
-    reset/3
+    reset/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -41,8 +40,3 @@ metrics(Nodes, Name) ->
     emqx_rpc:erpc_multicall(ok).
 reset(Nodes, Name) ->
     erpc:multicall(Nodes, emqx_auth_cache, reset_v1, [Name], ?TIMEOUT).
-
--spec reset([node()], emqx_auth_cache:name(), emqx_auth_cache:scope()) ->
-    emqx_rpc:erpc_multicall(ok).
-reset(Nodes, Name, Scope) ->
-    erpc:multicall(Nodes, emqx_auth_cache, reset_v1, [Name, Scope], ?TIMEOUT).

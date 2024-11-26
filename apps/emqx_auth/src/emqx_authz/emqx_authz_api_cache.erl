@@ -36,11 +36,10 @@
     clean_cache/2,
     node_cache/2,
     node_cache_status/2,
-    node_cache_reset/2,
-    node_cache_client_reset/2
+    node_cache_reset/2
 ]).
 
--import(hoconsc, [ref/2, mk/2]).
+-import(hoconsc, [ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -54,8 +53,7 @@ paths() ->
         "/authorization/cache",
         "/authorization/node_cache",
         "/authorization/node_cache/status",
-        "/authorization/node_cache/reset",
-        "/authorization/node_cache/:clientid/reset"
+        "/authorization/node_cache/reset"
     ].
 
 %%--------------------------------------------------------------------
@@ -125,22 +123,6 @@ schema("/authorization/node_cache/reset") ->
                         500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
                     }
             }
-    };
-schema("/authorization/node_cache/:clientid/reset") ->
-    #{
-        'operationId' => node_cache_client_reset,
-        post =>
-            #{
-                description => ?DESC(authorization_node_cache_client_reset_post),
-                parameters => [
-                    {clientid, mk(binary(), #{in => path, desc => ?DESC(param_clientid)})}
-                ],
-                responses =>
-                    #{
-                        204 => <<"No Content">>,
-                        500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
-                    }
-            }
     }.
 
 %%--------------------------------------------------------------------
@@ -197,18 +179,6 @@ node_cache_status(get, _) ->
 node_cache_reset(post, _) ->
     Nodes = mria:running_nodes(),
     case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHZ_CACHE)) of
-        {ok, _} ->
-            {204};
-        {error, ErrL} ->
-            {500, #{
-                code => <<"INTERNAL_ERROR">>,
-                message => bin(ErrL)
-            }}
-    end.
-
-node_cache_client_reset(post, #{bindings := #{clientid := ClientId}}) ->
-    Nodes = mria:running_nodes(),
-    case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHZ_CACHE, ClientId)) of
         {ok, _} ->
             {204};
         {error, ErrL} ->

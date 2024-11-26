@@ -26,13 +26,11 @@
     child_spec/3,
     with_cache/3,
     reset/1,
-    reset/2,
     metrics/1
 ]).
 
 -export([
     reset_v1/1,
-    reset_v1/2,
     metrics_v1/1
 ]).
 
@@ -83,10 +81,7 @@
 %% Types
 %%--------------------------------------------------------------------
 
--type scope() :: binary().
-%% We want to cache many records under the same scope.
-%% The Scope may be a user id, a topic, etc.
--type cache_key() :: {scope(), _Extra :: term()}.
+-type cache_key() :: term() | fun(() -> term()).
 -type name() :: atom().
 -type config_path() :: runtime_config_key_path:runtime_config_key_path().
 -type callback() :: fun(() -> {cache | nocache, term()}).
@@ -94,8 +89,7 @@
 -type metrics_worker() :: emqx_metrics_worker:handler_name().
 
 -export_type([
-    name/0,
-    scope/0
+    name/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -124,7 +118,7 @@ child_spec(Name, ConfigPath, MetricsWorker) ->
     }.
 
 -spec with_cache(config_path(), cache_key(), callback()) -> term().
-with_cache(Name, {Scope, _Extra} = Key, Fun) when is_binary(Scope) ->
+with_cache(Name, Key, Fun) ->
     case is_cache_enabled(Name) of
         false ->
             with_cache_disabled(Fun);
@@ -137,17 +131,6 @@ reset(Name) ->
     try
         #{tab := Tab} = persistent_term:get(?pt_key(Name)),
         ets:delete_all_objects(Tab),
-        ok
-    catch
-        error:badarg -> ok
-    end.
-
--spec reset(name(), scope()) -> ok.
-reset(Name, Scope) ->
-    try
-        #{tab := Tab} = persistent_term:get(?pt_key(Name)),
-        Ms = [{#cache_record{key = {Scope, '_'}, _ = '_'}, [], [true]}],
-        _ = ets:select_delete(Tab, Ms),
         ok
     catch
         error:badarg -> ok
@@ -173,10 +156,6 @@ metrics(Name) ->
 -spec reset_v1(name()) -> ok.
 reset_v1(Name) ->
     reset(Name).
-
--spec reset_v1(name(), scope()) -> ok.
-reset_v1(Name, Scope) ->
-    reset(Name, Scope).
 
 -spec metrics_v1(name()) -> {node(), not_found | {ok, map()}}.
 metrics_v1(Name) ->
@@ -266,7 +245,8 @@ create_metrics(Name, MetricsWorker) ->
         MetricsWorker, Name, ?metric_counters, ?metric_counters
     ).
 
-with_cache_enabled(#{tab := Tab} = PtState, Key, Fun) ->
+with_cache_enabled(#{tab := Tab} = PtState, KeyOrFun, Fun) ->
+    Key = evaluate_key(KeyOrFun),
     case lookup(Tab, Key) of
         {ok, Value} ->
             ok = inc_metric(PtState, ?metric_hit),
@@ -278,21 +258,23 @@ with_cache_enabled(#{tab := Tab} = PtState, Key, Fun) ->
             dont_cache(Fun())
     end.
 
+evaluate_key(Key) when is_function(Key) ->
+    Key();
+evaluate_key(Key) ->
+    Key.
+
 inc_metric(#{name := Name, metrics_worker := MetricsWorker}, Metric) ->
     ok = emqx_metrics_worker:inc(MetricsWorker, Name, Metric).
 
 set_gauge(#{name := Name, metrics_worker := MetricsWorker}, Metric, Value) ->
     ok = emqx_metrics_worker:set_gauge(MetricsWorker, Name, ?worker_id, Metric, Value).
 
-cleanup(#{tab := Tab}) ->
+cleanup(#{name := Name, tab := Tab}) ->
     Now = now_ms_monotonic(),
     MS = ets:fun2ms(fun(#cache_record{deadline = Deadline}) when Deadline < Now -> true end),
-    ?tp(warning, node_cache_cleanup, #{
-        now => Now,
-        records => ets:tab2list(Tab)
-    }),
     NumDeleted = ets:select_delete(Tab, MS),
-    ?tp(warning, node_cache_cleanup, #{
+    ?tp(info, node_cache_cleanup, #{
+        name => Name,
         num_deleted => NumDeleted
     }),
     ok.
