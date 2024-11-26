@@ -623,6 +623,7 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
             {emqx_connection, start_link, [
                 #{
                     listener => {Type, Name},
+                    parser => emqx_frame_parser,
                     zone => zone(Opts0),
                     limiter => Limiter,
                     enable_authn => enable_authn(Opts0)
@@ -656,6 +657,7 @@ ws_opts(Type, ListenerName, Opts) ->
         {WsPath, emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
+            parser => emqx_frame_stream,
             limiter => limiter(Opts),
             enable_authn => enable_authn(Opts)
         }}
