@@ -908,7 +908,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                     %% setting extra apps to be restarted after
                     %% joining.
                     set_envs(Node, Env),
-                    ok = erpc:call(Node, emqx_machine_app_booter, start_autocluster, [])
+                    ok = erpc:call(Node, emqx_machine_boot, start_autocluster, [])
                 end,
             case rpc:call(Node, ekka, join, [JoinTo]) of
                 ok ->

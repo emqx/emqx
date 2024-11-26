@@ -18,8 +18,10 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-export([post_boot/0]).
 -export([stop_apps/0, ensure_apps_started/0]).
 -export([sorted_reboot_apps/0]).
+-export([start_autocluster/0]).
 -export([stop_port_apps/0]).
 -export([read_apps/0]).
 -export([restart_type/1]).
@@ -39,6 +41,28 @@
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:
 -define(OPTIONAL_APPS, [bcrypt, observer]).
+
+post_boot() ->
+    ok = ensure_apps_started(),
+    ok = print_vsn(),
+    ok = start_autocluster(),
+    ignore.
+
+-ifdef(TEST).
+print_vsn() -> ok.
+% TEST
+-else.
+print_vsn() ->
+    ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
+% TEST
+-endif.
+
+start_autocluster() ->
+    ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
+    ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
+    %% returns 'ok' or a pid or 'any()' as in spec
+    _ = ekka:autocluster(emqx),
+    ok.
 
 stop_apps() ->
     emqx_machine_app_booter:stop_apps().

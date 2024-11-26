@@ -29,14 +29,16 @@ start_link() ->
 
 init([]) ->
     Terminator = child_worker(emqx_machine_terminator, [], transient),
-    %% Must start before `app_booter'.
     ReplicantHealthProbe = child_worker(emqx_machine_replicant_health_probe, [], transient),
+    %% Must start before `post_boot'.
     Booter = child_worker(emqx_machine_app_booter, [], permanent),
+    BootApps = child_worker(emqx_machine_boot, post_boot, [], temporary),
     GlobalGC = child_worker(emqx_global_gc, [], permanent),
     Children = [
         Terminator,
         ReplicantHealthProbe,
         Booter,
+        BootApps,
         GlobalGC
     ],
     SupFlags = #{

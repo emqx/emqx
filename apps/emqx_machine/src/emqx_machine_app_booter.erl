@@ -39,8 +39,6 @@
     handle_info/2
 ]).
 
-%% Internal exports
--export([start_autocluster/0]).
 %% Internal exports (for `emqx_machine_terminator' only)
 -export([do_stop_apps/0]).
 
@@ -75,14 +73,11 @@ init(_Opts) ->
     %% It would still be problematic if a join request arrives before this process is
     %% started, though.
     ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
-    do_start_apps(),
-    ok = print_vsn(),
-    ok = start_autocluster(),
     State = #{},
     {ok, State}.
 
 handle_call(#start_apps{}, _From, State) ->
-    do_start_apps(),
+    handle_start_apps(),
     {reply, ok, State};
 handle_call(#stop_apps{}, _From, State) ->
     do_stop_apps(),
@@ -111,27 +106,11 @@ do_stop_apps() ->
     ok = emqx_plugins:ensure_stopped(),
     lists:foreach(fun stop_one_app/1, lists:reverse(emqx_machine_boot:sorted_reboot_apps())).
 
-start_autocluster() ->
-    ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
-    ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
-    %% returns 'ok' or a pid or 'any()' as in spec
-    _ = ekka:autocluster(emqx),
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
--ifdef(TEST).
-print_vsn() -> ok.
-% TEST
--else.
-print_vsn() ->
-    ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
-% TEST
--endif.
-
-do_start_apps() ->
+handle_start_apps() ->
     ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
     lists:foreach(fun start_one_app/1, emqx_machine_boot:sorted_reboot_apps()),
     ?tp(emqx_machine_boot_apps_started, #{}).
