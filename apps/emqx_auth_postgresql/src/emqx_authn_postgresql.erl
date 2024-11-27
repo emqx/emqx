@@ -78,7 +78,7 @@ authenticate(
     }
 ) ->
     Params = emqx_auth_template:render_sql_params(PlaceHolders, Credential),
-    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, ResourceId),
+    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
     case
         emqx_authn_utils:cached_simple_sync_query(
             CacheKey, ResourceId, {prepared_query, ResourceId, Params}

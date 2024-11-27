@@ -103,7 +103,7 @@ retrieve(
 ) ->
     case emqx_authn_http:generate_request(Credential#{username := Username}, State) of
         {ok, Request} ->
-            CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, {ResourceId, Method}),
+            CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
             Response = emqx_authn_utils:cached_simple_sync_query(
                 CacheKey, ResourceId, {Method, Request, RequestTimeout}
             ),
