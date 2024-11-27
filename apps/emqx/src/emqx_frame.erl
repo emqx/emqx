@@ -1024,9 +1024,12 @@ serialize_properties(Props, StrictMode) when is_map(Props) ->
     >>,
     [serialize_variable_byte_integer(byte_size(Bin)), Bin].
 
-serialize_property(_, Disabled, _StrictMode) when Disabled =:= disabled; Disabled =:= undefined ->
+serialize_property(_, Disabled, _StrictMode) when
+    Disabled =:= disabled;
+    Disabled =:= undefined
+->
     <<>>;
-serialize_property(internal_extra, _, _StrictMode) ->
+serialize_property(?MQTT_INTERNAL_EXTRA, _, _StrictMode) ->
     <<>>;
 serialize_property('Payload-Format-Indicator', Val, _StrictMode) ->
     <<16#01, Val>>;

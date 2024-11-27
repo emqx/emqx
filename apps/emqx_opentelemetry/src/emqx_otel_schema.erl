@@ -1,20 +1,10 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_otel_schema).
 
+-include("emqx_otel_trace.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -219,7 +209,18 @@ fields("otel_exporter") ->
 fields("trace_filter") ->
     %% More filters can be implemented in future, e.g. topic, clientid
     [
+        {trace_mode,
+            ?HOCON(
+                ?ENUM([legacy, e2e]),
+                #{
+                    %% TODO: change default value to `e2e` after 5.9
+                    default => legacy,
+                    desc => ?DESC(trace_mode),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
         {trace_all,
+            %% Only takes effect when trace_mode set to `legacy`
             ?HOCON(
                 boolean(),
                 #{
@@ -227,16 +228,111 @@ fields("trace_filter") ->
                     desc => ?DESC(trace_all),
                     importance => ?IMPORTANCE_MEDIUM
                 }
+            )},
+        {e2e_tracing_options,
+            ?HOCON(
+                %% Only takes effect when trace_mode set to `e2e`
+                ?R_REF("e2e_tracing_options"),
+                #{
+                    desc => ?DESC(e2e_tracing_options),
+                    default => #{},
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ];
+fields("e2e_tracing_options") ->
+    [
+        {cluster_identifier,
+            ?HOCON(
+                string(),
+                #{
+                    required => true,
+                    default => ?EMQX_OTEL_DEFAULT_CLUSTER_ID,
+                    desc => ?DESC(cluster_identifier),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {msg_trace_level,
+            ?HOCON(
+                emqx_schema:qos(),
+                #{
+                    default => ?QOS_0,
+                    desc => ?DESC(msg_trace_level),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {clientid_match_rules_max,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    desc => ?DESC(clientid_match_rules_max),
+                    default => 30,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {topic_match_rules_max,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    desc => ?DESC(topic_match_rules_max),
+                    default => 30,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {sample_ratio,
+            ?HOCON(
+                emqx_schema:percent(),
+                #{
+                    default => <<"10%">>,
+                    desc => ?DESC(sample_ratio),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {client_connect_disconnect,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(client_connect_disconnect),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {client_subscribe_unsubscribe,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(client_subscribe_unsubscribe),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {client_messaging,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(client_messaging),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
             )}
     ].
 
-desc("opentelemetry") -> ?DESC(opentelemetry);
-desc("otel_exporter") -> ?DESC(otel_exporter);
-desc("otel_logs") -> ?DESC(otel_logs);
-desc("otel_metrics") -> ?DESC(otel_metrics);
-desc("otel_traces") -> ?DESC(otel_traces);
-desc("trace_filter") -> ?DESC(trace_filter);
-desc(_) -> undefined.
+desc("opentelemetry") ->
+    ?DESC(opentelemetry);
+desc("otel_exporter") ->
+    ?DESC(otel_exporter);
+desc("otel_logs") ->
+    ?DESC(otel_logs);
+desc("otel_metrics") ->
+    ?DESC(otel_metrics);
+desc("otel_traces") ->
+    ?DESC(otel_traces);
+desc("trace_filter") ->
+    ?DESC(trace_filter);
+desc("e2e_tracing_options") ->
+    ?DESC(e2e_tracing_options);
+desc(_) ->
+    undefined.
 
 %% Compatibility with the previous schema that defined only metrics fields
 legacy_metrics_converter(OtelConf, _Opts) when is_map(OtelConf) ->

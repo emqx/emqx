@@ -36,7 +36,7 @@ assert_otp() ->
     end.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.6"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.9"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.
@@ -105,6 +105,8 @@ is_community_umbrella_app("apps/emqx_oracle") -> false;
 is_community_umbrella_app("apps/emqx_bridge_rabbitmq") -> false;
 is_community_umbrella_app("apps/emqx_ft") -> false;
 is_community_umbrella_app("apps/emqx_s3") -> false;
+is_community_umbrella_app("apps/emqx_license") -> false;
+is_community_umbrella_app("apps/emqx_opentelemetry") -> false;
 is_community_umbrella_app("apps/emqx_bridge_s3") -> false;
 is_community_umbrella_app("apps/emqx_bridge_azure_blob_storage") -> false;
 is_community_umbrella_app("apps/emqx_bridge_couchbase") -> false;
