@@ -43,20 +43,30 @@ description() ->
     "AuthZ with Mysql".
 
 create(#{query := SQL} = Source0) ->
-    {PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
-    Source#{annotations => #{id => ResourceId, tmpl_token => TmplToken}}.
+    Source#{
+        annotations => #{
+            id => ResourceId, tmpl_token => TmplToken, cache_key_template => CacheKeyTemplate
+        }
+    }.
 
 update(#{query := SQL} = Source0) ->
-    {PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     case emqx_authz_utils:update_resource(emqx_mysql, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id, tmpl_token => TmplToken}}
+            Source#{
+                annotations => #{
+                    id => Id, tmpl_token => TmplToken, cache_key_template => CacheKeyTemplate
+                }
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->

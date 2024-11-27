@@ -21,7 +21,7 @@
 -export([parse_deep/1]).
 -export([parse_deep/2]).
 -export([placeholders/1]).
--export([filter_valid_placeholders/2]).
+-export([placeholders/2]).
 -export([validate/2]).
 -export([is_const/1]).
 -export([unparse/1]).
@@ -152,10 +152,11 @@ placeholders(Template) when is_list(Template) ->
 placeholders({'$tpl', Template}) ->
     placeholders_deep(Template).
 
-%% @doc Partition used placeholders into allowed and disallowed lists.
--spec filter_valid_placeholders([varname() | {var_namespace, varname()}], t()) ->
+%% @doc Extract all used placeholders from a template
+%% and partition them into allowed and disallowed.
+-spec placeholders([varname() | {var_namespace, varname()}], t()) ->
     {_UsedAllowed :: [varname()], _UsedDisallowed :: [varname()]}.
-filter_valid_placeholders(Allowed, Template) ->
+placeholders(Allowed, Template) ->
     UsedAll = placeholders(Template),
     UsedUnique = lists:usort(UsedAll),
     UsedDisallowed = find_disallowed(UsedUnique, Allowed),
@@ -168,7 +169,7 @@ filter_valid_placeholders(Allowed, Template) ->
 -spec validate([varname() | {var_namespace, varname()}], t()) ->
     ok | {error, [_Error :: {varname(), disallowed}]}.
 validate(Allowed, Template) ->
-    case filter_valid_placeholders(Allowed, Template) of
+    case placeholders(Allowed, Template) of
         {_UsedAllowed, []} ->
             ok;
         {_UsedAllowed, Disallowed} ->

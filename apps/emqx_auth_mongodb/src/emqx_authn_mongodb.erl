@@ -115,7 +115,8 @@ authenticate_with_filter(
 %%------------------------------------------------------------------------------
 
 parse_config(#{filter := Filter} = Config) ->
-    FilterTemplate = emqx_authn_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter)),
+    {Vars, FilterTemplate} = emqx_authn_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter)),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     State = maps:with(
         [
             collection,
@@ -128,7 +129,7 @@ parse_config(#{filter := Filter} = Config) ->
         Config
     ),
     ok = emqx_authn_password_hashing:init(maps:get(password_hash_algorithm, State)),
-    {Config, State#{filter_template => FilterTemplate}}.
+    {Config, State#{filter_template => FilterTemplate, cache_key_template => CacheKeyTemplate}}.
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};

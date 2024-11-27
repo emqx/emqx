@@ -43,19 +43,26 @@ description() ->
 create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_template:parse_deep(
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     Source#{
         annotations => #{
-            id => ResourceId, skip => Skip, limit => Limit, filter_template => FilterTemp
-        }
+            id => ResourceId,
+            skip => Skip,
+            limit => Limit,
+            filter_template => FilterTemp
+        },
+
+        cache_key_template => CacheKeyTemplate
     }.
 
 update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
-    FilterTemp = emqx_auth_template:parse_deep(
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -63,7 +70,8 @@ update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
             Source#{
                 annotations => #{
                     id => Id, skip => Skip, limit => Limit, filter_template => FilterTemp
-                }
+                },
+                cache_key_template => CacheKeyTemplate
             }
     end.
 

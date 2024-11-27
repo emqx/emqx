@@ -174,20 +174,26 @@ parse_config(
     } = Conf
 ) ->
     {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
+    {BasePathVars, BasePathTemplate} = emqx_auth_template:parse_str(Path, allowed_vars()),
+    {BaseQueryVars, BaseQueryTemplate} = emqx_auth_template:parse_deep(
+        cow_qs:parse_qs(Query),
+        allowed_vars()
+    ),
+    {BodyVars, BodyTemplate} =
+        emqx_auth_template:parse_deep(
+            emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
+            allowed_vars()
+        ),
+    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars,
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Conf#{
         method => Method,
         request_base => RequestBase,
         headers => maps:to_list(emqx_auth_http_utils:transform_header_name(Headers)),
-        base_path_template => emqx_auth_template:parse_str(Path, allowed_vars()),
-        base_query_template => emqx_auth_template:parse_deep(
-            cow_qs:parse_qs(Query),
-            allowed_vars()
-        ),
-        body_template =>
-            emqx_auth_template:parse_deep(
-                emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
-                allowed_vars()
-            ),
+        base_path_template => BasePathTemplate,
+        base_query_template => BaseQueryTemplate,
+        body_template => BodyTemplate,
+        cache_key_template => CacheKeyTemplate,
         request_timeout => ReqTimeout,
         %% pool_type default value `random`
         pool_type => random

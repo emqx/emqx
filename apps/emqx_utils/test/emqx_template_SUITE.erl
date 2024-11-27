@@ -134,14 +134,10 @@ t_placeholders(_) ->
     ?assertEqual(
         ["a", "b", "c", "d.d1"],
         emqx_template:placeholders(Template)
-    ).
-
-t_filter_valid_placeholders(_) ->
-    TString = <<"a:${a},b:${b},c:$${c},d:{${d.d1}},e:${$}{e},lit:${$}{$}">>,
-    Template = emqx_template:parse(TString),
+    ),
     ?assertEqual(
         {["a", "b", "d.d1"], ["c"]},
-        emqx_template:filter_valid_placeholders(["a", "b", "d.d1", "e"], Template)
+        emqx_template:placeholders(["a", "b", "d.d1", "e"], Template)
     ).
 
 t_unparse(_) ->

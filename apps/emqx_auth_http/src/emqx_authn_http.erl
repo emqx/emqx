@@ -166,18 +166,23 @@ parse_config(
     } = Config
 ) ->
     {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
+    {BasePathVars, BasePathTemplate} = emqx_authn_utils:parse_str(Path),
+    {BaseQueryVars, BaseQueryTemplate} = emqx_authn_utils:parse_deep(
+        cow_qs:parse_qs(Query)
+    ),
+    {BodyVars, BodyTemplate} = emqx_authn_utils:parse_deep(
+        emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
+    ),
+    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars,
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     State = #{
         method => Method,
         path => Path,
         headers => maps:to_list(Headers),
-        base_path_template => emqx_authn_utils:parse_str(Path),
-        base_query_template => emqx_authn_utils:parse_deep(
-            cow_qs:parse_qs(Query)
-        ),
-        body_template =>
-            emqx_authn_utils:parse_deep(
-                emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
-            ),
+        base_path_template => BasePathTemplate,
+        base_query_template => BaseQueryTemplate,
+        body_template => BodyTemplate,
+        cache_key_template => CacheKeyTemplate,
         request_timeout => RequestTimeout,
         url => RawUrl
     },
