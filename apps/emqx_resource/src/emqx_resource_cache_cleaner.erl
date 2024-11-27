@@ -126,6 +126,7 @@ handle_down_dry_run([ID | Rest], Pid, State0) ->
     %% No need to wait here: since it's a dry run resource, it won't be recreated,
     %% assuming the ID is random enough.
     spawn(fun() ->
+        _ = emqx_resource_manager:remove(ID),
         emqx_resource_manager_sup:delete_child(ID),
         ?tp("resource_cache_cleaner_deleted_child", #{id => ID})
     end),
