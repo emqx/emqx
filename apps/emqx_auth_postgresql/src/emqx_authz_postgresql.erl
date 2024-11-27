@@ -51,7 +51,11 @@ create(#{query := SQL0} = Source) ->
         emqx_postgresql,
         Source#{prepare_statement => #{ResourceID => SQL}}
     ),
-    Source#{annotations => #{id => ResourceID, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate}}.
+    Source#{
+        annotations => #{
+            id => ResourceID, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate
+        }
+    }.
 
 update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
     {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
@@ -65,7 +69,11 @@ update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate}}
+            Source#{
+                annotations => #{
+                    id => Id, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate
+                }
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -78,14 +86,18 @@ authorize(
     #{
         annotations := #{
             id := ResourceID,
-            placeholders := Placeholders
+            placeholders := Placeholders,
+            cache_key_template := CacheKeyTemplate
         }
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderedParams = emqx_auth_template:render_sql_params(Placeholders, Vars),
+    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate, ResourceID),
     case
-        emqx_resource:simple_sync_query(ResourceID, {prepared_query, ResourceID, RenderedParams})
+        emqx_authz_utils:cached_simple_sync_query(
+            CacheKey, ResourceID, {prepared_query, ResourceID, RenderedParams}
+        )
     of
         {ok, Columns, Rows} ->
             do_authorize(Client, Action, Topic, column_names(Columns), Rows);

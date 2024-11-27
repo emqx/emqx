@@ -90,11 +90,15 @@ authorize(
     Topic,
     #{
         query_timeout := QueryTimeout,
-        annotations := #{id := ResourceID} = Annotations
+        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate} = Annotations
     }
 ) ->
     Attrs = select_attrs(Action, Annotations),
-    case emqx_resource:simple_sync_query(ResourceID, {query, Client, Attrs, QueryTimeout}) of
+    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate, {ResourceID, Attrs}),
+    Result = emqx_authz_utils:cached_simple_sync_query(
+        CacheKey, ResourceID, {query, Client, Attrs, QueryTimeout}
+    ),
+    case Result of
         {ok, []} ->
             nomatch;
         {ok, [Entry]} ->
@@ -119,11 +123,14 @@ do_authorize(Action, Topic, [Attr | T], Entry) ->
 do_authorize(_Action, _Topic, [], _Entry) ->
     nomatch.
 
-new_annotations(Init, Source) ->
+new_annotations(Init, #{base_dn := BaseDN, filter := Filter} = Source) ->
+    BaseDNVars = emqx_auth_utils:placeholder_vars_from_str(BaseDN),
+    FilterVars = emqx_auth_utils:placeholder_vars_from_str(Filter),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(BaseDNVars ++ FilterVars),
     State = maps:with(
         [query_timeout, publish_attribute, subscribe_attribute, all_attribute], Source
     ),
-    maps:merge(Init, State).
+    maps:merge(Init, State#{cache_key_template => CacheKeyTemplate}).
 
 select_attrs(#{action_type := publish}, #{publish_attribute := Pub, all_attribute := All}) ->
     [Pub, All];

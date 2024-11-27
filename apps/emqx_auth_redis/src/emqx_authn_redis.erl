@@ -71,12 +71,14 @@ authenticate(
     #{
         cmd := {CommandName, KeyTemplate, Fields},
         resource_id := ResourceId,
-        password_hash_algorithm := Algorithm
+        password_hash_algorithm := Algorithm,
+        cache_key_template := CacheKeyTemplate
     }
 ) ->
     NKey = emqx_auth_template:render_str(KeyTemplate, Credential),
     Command = [CommandName, NKey | Fields],
-    case emqx_resource:simple_sync_query(ResourceId, {cmd, Command}) of
+    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, ResourceId),
+    case emqx_authn_utils:cached_simple_sync_query(CacheKey, ResourceId, {cmd, Command}) of
         {ok, []} ->
             ignore;
         {ok, Values} ->

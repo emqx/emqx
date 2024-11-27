@@ -76,12 +76,15 @@ authenticate(
     #{
         resource_id := ResourceId,
         method := Method,
-        request_timeout := RequestTimeout
+        request_timeout := RequestTimeout,
+        cache_key_template := CacheKeyTemplate
     } = State
 ) ->
     case generate_request(Credential, State) of
         {ok, Request} ->
-            Response = emqx_resource:simple_sync_query(
+            CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, {ResourceId, Method}),
+            Response = emqx_authn_utils:cached_simple_sync_query(
+                CacheKey,
                 ResourceId, {Method, Request, RequestTimeout}
             ),
             ?TRACE_AUTHN_PROVIDER("http_response", #{
