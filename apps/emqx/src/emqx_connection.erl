@@ -88,7 +88,7 @@
     %% TCP/TLS Transport
     transport :: esockd:transport(),
     %% TCP/TLS Socket
-    socket :: esockd:socket(),
+    socket :: esockd:socket() | emqx_quic_stream:socket(),
     %% Peername of the connection
     peername :: emqx_types:peername(),
     %% Sockname of the connection
@@ -1282,9 +1282,17 @@ set_tcp_keepalive({Type, Id}) ->
     end.
 
 -spec graceful_shutdown_transport(atom(), state()) -> state().
+graceful_shutdown_transport(
+    kicked,
+    S = #state{
+        transport = emqx_quic_stream,
+        socket = Socket
+    }
+) ->
+    _ = emqx_quic_stream:shutdown(Socket, read_write, 1000),
+    S#state{sockstate = closed};
 graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = Socket}) ->
-    %% @TODO Reason is reserved for future use, quic transport
-    Transport:shutdown(Socket, read_write),
+    _ = Transport:shutdown(Socket, read_write),
     S#state{sockstate = closed}.
 
 %%--------------------------------------------------------------------
