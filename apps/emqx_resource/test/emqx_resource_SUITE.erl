@@ -1120,29 +1120,32 @@ create_dry_run_local_succ() ->
 
 t_create_dry_run_local_failed(_) ->
     ct:timetrap({seconds, 120}),
-    ct:pal("creating with creation error"),
-    Res1 = emqx_resource:create_dry_run_local(
-        ?TEST_RESOURCE,
-        #{create_error => true}
-    ),
-    ?assertMatch({error, _}, Res1),
+    emqx_utils:nolink_apply(fun() ->
+        ct:pal("creating with creation error"),
+        Res1 = emqx_resource:create_dry_run_local(
+            ?TEST_RESOURCE,
+            #{create_error => true}
+        ),
+        ?assertMatch({error, _}, Res1),
 
-    ct:pal("creating with health check error"),
-    Res2 = emqx_resource:create_dry_run_local(
-        ?TEST_RESOURCE,
-        #{name => test_resource, health_check_error => true}
-    ),
-    ?assertMatch({error, _}, Res2),
+        ct:pal("creating with health check error"),
+        Res2 = emqx_resource:create_dry_run_local(
+            ?TEST_RESOURCE,
+            #{name => test_resource, health_check_error => true}
+        ),
+        ?assertMatch({error, _}, Res2),
 
-    ct:pal("creating with stop error"),
-    Res3 = emqx_resource:create_dry_run_local(
-        ?TEST_RESOURCE,
-        #{name => test_resource, stop_error => true}
-    ),
-    ?assertEqual(ok, Res3),
+        ct:pal("creating with stop error"),
+        Res3 = emqx_resource:create_dry_run_local(
+            ?TEST_RESOURCE,
+            #{name => test_resource, stop_error => true}
+        ),
+        ?assertEqual(ok, Res3),
+        ok
+    end),
     ?retry(
         100,
-        5,
+        50,
         ?assertEqual(
             [],
             emqx_resource:list_instances_verbose()

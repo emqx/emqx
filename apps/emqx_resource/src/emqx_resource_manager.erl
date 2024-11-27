@@ -273,10 +273,13 @@ create_dry_run(ResId, ResourceType, Config, OnReadyCallback) ->
                     Error
             end;
         {error, Reason} ->
-            _ = remove(ResId),
+            %% Removal is done asynchronously.  See comment below.
             {error, Reason};
         timeout ->
-            _ = remove(ResId),
+            %% Removal is done asynchronously by the cache cleaner.  If the resource
+            %% process is stuck and not responding to calls, doing the removal
+            %% synchronously here would take more time than the defined timeout, possibly
+            %% timing out HTTP API requests.
             {error, timeout}
     end.
 
