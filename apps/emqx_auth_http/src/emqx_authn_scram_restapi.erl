@@ -100,22 +100,31 @@ retrieve(
         request_timeout := RequestTimeout
     } = State
 ) ->
-    Request = emqx_authn_http:generate_request(Credential#{username := Username}, State),
-    Response = emqx_resource:simple_sync_query(ResourceId, {Method, Request, RequestTimeout}),
-    ?TRACE_AUTHN_PROVIDER("scram_restapi_response", #{
-        request => emqx_authn_http:request_for_log(Credential, State),
-        response => emqx_authn_http:response_for_log(Response),
-        resource => ResourceId
-    }),
-    case Response of
-        {ok, 200, Headers, Body} ->
-            handle_response(Headers, Body);
-        {ok, _StatusCode, _Headers} ->
-            {error, bad_response};
-        {ok, _StatusCode, _Headers, _Body} ->
-            {error, bad_response};
-        {error, _Reason} = Error ->
-            Error
+    case emqx_authn_http:generate_request(Credential#{username := Username}, State) of
+        {ok, Request} ->
+            Response = emqx_resource:simple_sync_query(
+                ResourceId, {Method, Request, RequestTimeout}
+            ),
+            ?TRACE_AUTHN_PROVIDER("scram_restapi_response", #{
+                request => emqx_authn_http:request_for_log(Credential, State),
+                response => emqx_authn_http:response_for_log(Response),
+                resource => ResourceId
+            }),
+            case Response of
+                {ok, 200, Headers, Body} ->
+                    handle_response(Headers, Body);
+                {ok, _StatusCode, _Headers} ->
+                    {error, bad_response};
+                {ok, _StatusCode, _Headers, _Body} ->
+                    {error, bad_response};
+                {error, _Reason} = Error ->
+                    Error
+            end;
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER("generate_request_failed", #{
+                reason => Reason
+            }),
+            {error, Reason}
     end.
 
 handle_response(Headers, Body) ->
