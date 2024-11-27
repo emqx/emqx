@@ -31,6 +31,7 @@ init_per_suite(Config) ->
         false ->
             Apps = emqx_cth_suite:start(
                 [
+                    emqx_conf,
                     {emqx, "durable_sessions.enable = true"},
                     emqx_management,
                     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}

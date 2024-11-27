@@ -44,7 +44,7 @@ init_per_suite(Config) ->
 
 -else.
 
-init_per_suite(Config) ->
+init_per_suite(_Config) ->
     {skip, no_replication}.
 
 -endif.
@@ -53,60 +53,85 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
-    Cluster = cluster(),
-    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
-    _ = wait_shards_online(Nodes),
-    [{nodes, Nodes} | Config];
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            Cluster = cluster(),
+            Nodes = emqx_cth_cluster:start(Cluster, #{
+                work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+            }),
+            _ = wait_shards_online(Nodes),
+            [{nodes, Nodes} | Config];
+        Yes ->
+            Yes
+    end;
 init_per_testcase(t_message_gc = TestCase, Config) ->
-    Opts = #{
-        extra_emqx_conf =>
-            "\n  durable_sessions.message_retention_period = 3s"
-            "\n  durable_storage.messages.n_shards = 3"
-    },
-    common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            DurableSessonsOpts = #{<<"message_retention_period">> => <<"3s">>},
+            EMQXOpts = #{<<"durable_storage">> => #{<<"messages">> => #{<<"n_shards">> => 3}}},
+            Opts = #{durable_sessions_opts => DurableSessonsOpts, emqx_opts => EMQXOpts},
+            common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
+        Yes ->
+            Yes
+    end;
 init_per_testcase(t_replication_options = TestCase, Config) ->
-    Opts = #{
-        extra_emqx_conf =>
-            "\n durable_storage.messages.replication_options {"
-            "\n  wal_max_size_bytes = 16000000"
-            "\n  wal_max_batch_size = 1024"
-            "\n  wal_write_strategy = o_sync"
-            "\n  wal_sync_method = datasync"
-            "\n  wal_compute_checksums = false"
-            "\n  snapshot_interval = 64"
-            "\n  resend_window = 60"
-            "\n}"
-    },
-    common_init_per_testcase(TestCase, Config, Opts);
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            EMQXOpts = #{
+                <<"durable_storage">> =>
+                    #{
+                        <<"messages">> =>
+                            #{
+                                <<"replication_options">> =>
+                                    #{
+                                        <<"resend_window">> => 60,
+                                        <<"snapshot_interval">> => 64,
+                                        <<"wal_compute_checksums">> => false,
+                                        <<"wal_max_batch_size">> => 1024,
+                                        <<"wal_max_size_bytes">> => 16000000,
+                                        <<"wal_sync_method">> => <<"datasync">>,
+                                        <<"wal_write_strategy">> => <<"o_sync">>
+                                    }
+                            }
+                    }
+            },
+            Opts = #{emqx_opts => EMQXOpts},
+            common_init_per_testcase(TestCase, Config, Opts);
+        Yes ->
+            Yes
+    end;
+init_per_testcase(t_message_gc_too_young = TestCase, Config) ->
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            common_init_per_testcase(TestCase, Config, _Opts = #{});
+        Yes ->
+            Yes
+    end;
 init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(
-        TestCase,
-        Config,
-        _Opts = #{
-            extra_emqx_conf =>
-                "\ndurable_sessions {\n"
-                "  enable = true\n"
-                "  heartbeat_interval = 100ms\n"
-                "  session_gc_interval = 2s\n"
-                "}\n"
-        }
-    ).
+    DurableSessonsOpts = #{
+        <<"enable">> => true,
+        <<"heartbeat_interval">> => <<"100ms">>,
+        <<"session_gc_interval">> => <<"2s">>
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessonsOpts
+    },
+    common_init_per_testcase(TestCase, Config, Opts).
 
-common_init_per_testcase(TestCase, Config, Opts) ->
-    Apps = emqx_cth_suite:start(
-        app_specs(Opts),
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-    ),
-    [{apps, Apps} | Config].
+common_init_per_testcase(TestCase, Config, Opts0) ->
+    Opts = Opts0#{
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config),
+        start_emqx_conf => false
+    },
+    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
 
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes);
 end_per_testcase(_TestCase, Config) ->
-    Apps = proplists:get_value(apps, Config, []),
     emqx_common_test_helpers:call_janitor(60_000),
-    ok = emqx_cth_suite:stop(Apps).
+    ok = emqx_common_test_helpers:stop_apps_ds(Config).
 
 t_messages_persisted(_Config) ->
     C1 = connect(<<?MODULE_STRING "1">>, true, 30),

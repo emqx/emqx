@@ -379,7 +379,8 @@ default_appspec(emqx_dashboard, _SuiteOpts) ->
 default_appspec(App, _SuiteOpts) when
     App == emqx_schema_registry;
     App == emqx_schema_validation;
-    App == emqx_message_transformation
+    App == emqx_message_transformation;
+    App == emqx_ds_shared_sub
 ->
     %% NOTE: Start those apps with default configuration.
     #{config => #{}};

@@ -113,11 +113,14 @@
 
 -define(DB, ?DURABLE_SESSION_STATE).
 -define(TS, 0).
+-define(SESSION_REOPEN_RETRY_TIMEOUT, 1_000).
+-define(READ_RETRY_TIMEOUT, 100).
+-define(MAX_READ_ATTEMPTS, 5).
 
 -type message() :: emqx_types:message().
 
 -ifdef(STORE_STATE_IN_DS).
--opaque session_iterator() :: #{its := [emqx_ds:iterator()]}.
+-opaque session_iterator() :: #{its := [emqx_ds:iterator()]} | '$end_of_table'.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 -opaque session_iterator() :: emqx_persistent_session_ds:id().
@@ -163,7 +166,7 @@
     #pmap{
         table :: atom(),
         key_mapping :: #{K => internal_key(K)},
-        cache :: #{internal_key(K) => V} | gb_trees:tree(internal_key(K), V),
+        cache :: #{internal_key(K) => V},
         dirty :: #{internal_key(K) => dirty | del}
     }.
 
@@ -211,6 +214,8 @@
         emqx_persistent_session_ds_subs:subscription_state()
     ),
     ?seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
+    %% Fixme: key is actualy `{StreamId :: non_neg_integer(), emqx_ds:stream()}', from
+    %% stream scheduler module.
     ?streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
     ?ranks := pmap(term(), integer()),
     ?awaiting_rel := pmap(emqx_types:packet_id(), _Timestamp :: integer())
@@ -360,9 +365,25 @@ create_tables() ->
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | undefined.
 -ifdef(STORE_STATE_IN_DS).
 open(SessionId) ->
+    open(SessionId, _AttemptsRemaining = 5).
+
+open(SessionId, AttemptsRemaining) ->
+    try
+        do_open(SessionId)
+    catch
+        throw:inconsistent when AttemptsRemaining > 0 ->
+            timer:sleep(?SESSION_REOPEN_RETRY_TIMEOUT),
+            open(SessionId, AttemptsRemaining - 1);
+        throw:inconsistent ->
+            error({inconsistent_session, SessionId})
+    end.
+
+do_open(SessionId) ->
     case session_restore(SessionId) of
         #{
-            ?metadata_domain := [#{val := #{metadata := Metadata, key_mappings := KeyMappings}}],
+            ?metadata_domain := [
+                #{val := #{metadata := Metadata, key_mappings := KeyMappings}}
+            ],
             ?subscription_domain := Subs,
             ?subscription_state_domain := SubStates,
             ?stream_domain := Streams,
@@ -386,6 +407,8 @@ open(SessionId) ->
                 ?unset_dirty
             },
             {ok, Rec};
+        #{?metadata_domain := [_, _ | _]} ->
+            throw(inconsistent);
         _ ->
             undefined
     end.
@@ -448,19 +471,64 @@ list_sessions() ->
 -spec delete(emqx_persistent_session_ds:id()) -> ok.
 -ifdef(STORE_STATE_IN_DS).
 delete(Id) ->
-    Fun = fun(Data, Acc) ->
-        DeleteOps =
-            lists:map(
-                fun(#{key := K, domain := D}) ->
-                    {delete, matcher(Id, D, K)}
-                end,
-                Data
-            ),
-        DeleteOps ++ Acc
-    end,
-    DeleteOps = read_fold(Fun, [], Id, ['#']),
-    store_batch(Id, DeleteOps).
+    Fun = fun(Data, Acc) -> delete_fold_fn(Id, Data, Acc) end,
+    Acc = {[], undefined},
+    {DeleteOps, MaybeMeta} = read_fold(Fun, Acc, Id, ['#']),
+    do_delete(Id, DeleteOps, MaybeMeta).
 
+do_delete(_Id, [], undefined) ->
+    ok;
+do_delete(Id, DeleteOps, #{key_mappings := #{} = KeyMappings}) ->
+    ExpectedNumOps =
+        maps:fold(
+            fun(_Domain, KeyMapping, AccCount) ->
+                AccCount + map_size(KeyMapping)
+            end,
+            %% One entry for the metadata itself
+            1,
+            KeyMappings
+        ),
+    NumOps = length(DeleteOps),
+    case NumOps =:= ExpectedNumOps of
+        true ->
+            %% Loaded consistent data
+            store_batch(DeleteOps);
+        false ->
+            %% Loaded inconsistent data; must retry
+            timer:sleep(?SESSION_REOPEN_RETRY_TIMEOUT),
+            delete(Id)
+    end.
+
+delete_fold_fn(Id, Data, {OpsAcc, undefined = MetaNotFound}) ->
+    {DeleteOps, MaybeMeta} =
+        lists:mapfoldl(
+            fun(#{key := K, val := V, domain := D}, MetaIn) ->
+                Op = {delete, matcher(Id, D, K)},
+                case D of
+                    ?metadata_domain ->
+                        {Op, V};
+                    _ ->
+                        {Op, MetaIn}
+                end
+            end,
+            undefined,
+            Data
+        ),
+    MetaAcc =
+        case MaybeMeta of
+            undefined -> MetaNotFound;
+            MetaFound -> MetaFound
+        end,
+    {DeleteOps ++ OpsAcc, MetaAcc};
+delete_fold_fn(Id, Data, {OpsAcc, MetaFound}) ->
+    DeleteOps =
+        lists:map(
+            fun(#{key := K, domain := D}) ->
+                {delete, matcher(Id, D, K)}
+            end,
+            Data
+        ),
+    {DeleteOps ++ OpsAcc, MetaFound}.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 delete(Id) ->
@@ -478,7 +546,7 @@ delete(Id) ->
 commit(Rec) ->
     commit(Rec, _Opts = #{}).
 
--spec commit(t(), #{ensure_new => boolean()}) -> t().
+-spec commit(t(), map()) -> t().
 commit(Rec = #{dirty := false}, _Opts) ->
     Rec;
 commit(
@@ -512,8 +580,14 @@ commit(
     },
     MetadataVal = #{metadata => Metadata, key_mappings => key_mappings(Rec)},
     MetadataOp = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, MetadataVal),
-    ok = store_batch(
-        SessionId,
+    Preconditions =
+        case Opts of
+            #{new := true} ->
+                [{unless_exists, matcher(SessionId, ?metadata_domain, ?metadata_domain_bin)}];
+            _ ->
+                [{if_exists, matcher(SessionId, ?metadata_domain, ?metadata_domain_bin)}]
+        end,
+    Result = store_batch(
         lists:flatten([
             MetadataOp,
             SubsOps,
@@ -523,8 +597,21 @@ commit(
             RanksOps,
             AwaitingRelsOps
         ]),
-        Opts
+        Preconditions
     ),
+    IsTerminate = maps:get(terminate, Opts, false),
+    case Result of
+        ok ->
+            ok;
+        {error, unrecoverable, {precondition_failed, not_found}} when IsTerminate ->
+            %% Expected race: when kicking a session, we will first destroy it, then call
+            %% `emqx_session:terminate', which always attempts to commit the session.  We
+            %% don't want to re-insert the session data into the DB, so we ignore this
+            %% error.
+            ok;
+        {error, Class, Reason} ->
+            error({failed_to_commit_session, {Class, Reason}})
+    end,
     Rec.
 
 key_mappings(Rec) ->
@@ -537,30 +624,18 @@ key_mappings(Rec) ->
         ?pmaps
     ).
 
-store_batch(SessionId, Batch) ->
-    store_batch(SessionId, Batch, _Opts = #{}).
+store_batch(Batch) ->
+    store_batch(Batch, _Preconditions = []).
 
-store_batch(SessionId, Batch0, Opts) ->
-    EnsureNew = maps:get(ensure_new, Opts, false),
-    Batch =
-        case EnsureNew of
-            true ->
-                #dsbatch{
-                    operations = Batch0,
-                    preconditions = [
-                        {unless_exists, matcher(SessionId, ?metadata_domain, ?metadata_domain_bin)}
-                    ]
-                };
-            false ->
-                Batch0
-        end,
-    emqx_ds:store_batch(?DB, Batch, #{sync => true}).
+store_batch(Batch0, Preconditions) ->
+    Batch = #dsbatch{operations = Batch0, preconditions = Preconditions},
+    emqx_ds:store_batch(?DB, Batch, #{sync => true, atomic => true}).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 commit(Rec) ->
     commit(Rec, _Opts = #{}).
 
--spec commit(t(), #{ensure_new => boolean()}) -> t().
+-spec commit(t(), map()) -> t().
 commit(Rec = #{dirty := false}, _Opts) ->
     Rec;
 commit(
@@ -693,14 +768,42 @@ set_will_message(Val, Rec) ->
 -spec clear_will_message_now(emqx_persistent_session_ds:id()) -> ok.
 -ifdef(STORE_STATE_IN_DS).
 clear_will_message_now(SessionId) when is_binary(SessionId) ->
+    do_clear_will_message_now(SessionId, _AttemptsRemaining = 5).
+
+do_clear_will_message_now(SessionId, AttemptsRemaining) ->
     case session_restore(SessionId) of
-        #{?metadata_domain := [#{val := Metadata0}]} ->
+        #{?metadata_domain := [#{val := #{metadata := Metadata0} = OldVal}]} ->
+            PreviousPayload = val_encode(?metadata_domain, OldVal),
             Metadata = Metadata0#{?will_message => undefined},
-            MetadataMsg = to_domain_msg(?metadata_domain, SessionId, _Key = undefined, Metadata),
-            ok = store_batch(SessionId, [MetadataMsg]),
-            ok;
-        _ ->
-            ok
+            Val = OldVal#{metadata := Metadata},
+            Key = ?metadata_domain_bin,
+            MetadataMsg = to_domain_msg(?metadata_domain, SessionId, Key, Val),
+            Preconditions = [
+                {if_exists, exact_matcher(SessionId, ?metadata_domain, Key, PreviousPayload)}
+            ],
+            case store_batch([MetadataMsg], Preconditions) of
+                ok ->
+                    ok;
+                {error, recoverable, _Reason} when AttemptsRemaining > 0 ->
+                    %% Todo: smaller timeout?
+                    timer:sleep(?SESSION_REOPEN_RETRY_TIMEOUT),
+                    do_clear_will_message_now(SessionId, AttemptsRemaining - 1);
+                {error, unrecoverable, {precondition_failed, not_found}} ->
+                    %% Impossible?  Session metadata disappeared while this function,
+                    %% called by the Session GC worker, was running.  Nothing to clear
+                    %% anymore...
+                    ok;
+                {error, unrecoverable, {precondition_failed, _Message}} when
+                    AttemptsRemaining > 0
+                ->
+                    %% Metadata updated, which means the session has come back alive and
+                    %% taken over ownership of the session state..  Since this function is
+                    %% called from the Session GC Worker, we should give up trying to
+                    %% clear the will message.
+                    ok;
+                {error, _Class, _Reason} = Error ->
+                    Error
+            end
     end.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
@@ -957,6 +1060,8 @@ make_iterators(TopicFilter, Time) ->
         emqx_ds:get_streams(?DB, TopicFilter, Time)
     ).
 
+session_iterator_next('$end_of_table', _N) ->
+    {[], '$end_of_table'};
 session_iterator_next(Cursor, N) ->
     domain_iterator_next(fun msg_extract_session/1, Cursor, N, []).
 
@@ -1182,17 +1287,30 @@ update_pmaps(Fun, Map) ->
 -spec pmap_open(domain(), [data()], #{K => internal_key(K)}) -> pmap(K, _V).
 pmap_open(Domain, Data0, KeyMapping0) ->
     InvKeyMapping = invert_key_mapping(KeyMapping0),
+    Get = fun(IntK) ->
+        case maps:find(IntK, InvKeyMapping) of
+            {ok, K} ->
+                K;
+            error ->
+                throw(inconsistent)
+        end
+    end,
     {Data, KeyMapping} =
         lists:mapfoldl(
             fun(#{key := IntK, val := V}, AccIn) ->
-                %% Drop keys that are no longer used.
-                K = maps:get(IntK, InvKeyMapping),
+                K = Get(IntK),
                 Acc = AccIn#{K => IntK},
                 {{IntK, V}, Acc}
             end,
             #{},
             Data0
         ),
+    case map_size(KeyMapping) =/= map_size(KeyMapping0) of
+        true ->
+            throw(inconsistent);
+        false ->
+            ok
+    end,
     Clean = cache_from_list(Domain, Data),
     #pmap{
         table = Domain,
@@ -1246,10 +1364,11 @@ gen_internal_key(_Domain, _K) ->
 
 pmap_del(
     Key,
-    Pmap = #pmap{table = Table, key_mapping = KeyMapping, dirty = Dirty, cache = Cache}
-) when is_map_key(Key, KeyMapping) ->
-    IntK = maps:get(Key, KeyMapping),
+    Pmap = #pmap{table = Table, key_mapping = KeyMapping0, dirty = Dirty, cache = Cache}
+) when is_map_key(Key, KeyMapping0) ->
+    {IntK, KeyMapping} = maps:take(Key, KeyMapping0),
     Pmap#pmap{
+        key_mapping = KeyMapping,
         cache = cache_remove(Table, IntK, Cache),
         dirty = Dirty#{IntK => del}
     };
@@ -1294,6 +1413,13 @@ pmap_format(#pmap{table = Table, key_mapping = KeyMapping, cache = Cache}) ->
 pmap_size(#pmap{table = Table, cache = Cache}) ->
     cache_size(Table, Cache).
 
+exact_matcher(SessionId, Domain, Key, ExpectedPayload) ->
+    #message_matcher{
+        from = SessionId,
+        topic = to_topic(Domain, SessionId, key_encode(Domain, Key)),
+        payload = ExpectedPayload,
+        timestamp = ?TS
+    }.
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
 
@@ -1380,6 +1506,9 @@ cache_fold(_Table, FunIn, Acc, KeyMapping, Cache) ->
     end,
     maps:fold(Fun, Acc, Cache).
 
+cache_has_key(_Domain, Key, Cache) ->
+    is_map_key(Key, Cache).
+
 cache_format(_Table, InvKeyMapping, Cache) ->
     maps:fold(
         fun(IntK, V, Acc) ->
@@ -1389,9 +1518,6 @@ cache_format(_Table, InvKeyMapping, Cache) ->
         #{},
         Cache
     ).
-
-cache_has_key(_Domain, Key, Cache) ->
-    is_map_key(Key, Cache).
 
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.
@@ -1406,7 +1532,6 @@ cache_format(_Table, Cache) ->
 -endif.
 
 -ifdef(STORE_STATE_IN_DS).
-
 session_restore(SessionId) ->
     Empty = maps:from_keys(
         [
@@ -1579,25 +1704,31 @@ read_fold(Fun, Acc, SessionId0, TopicFilterWords0) ->
         end,
         emqx_ds:get_streams(?DB, TopicFilter, Time)
     ),
-    do_read_fold(Fun, Iterators, Acc).
+    do_read_fold(Fun, Iterators, _Attempts = 0, Acc).
 
 %% Note: no ordering.
-do_read_fold(_Fun, [], Acc) ->
+do_read_fold(_Fun, [], _Attempts, Acc) ->
     Acc;
-do_read_fold(Fun, [Iterator | Rest], Acc) ->
+do_read_fold(Fun, [Iterator | Rest], Attempts, Acc) ->
     %% TODO: config?
     BatchSize = 100,
     case emqx_ds:next(?DB, Iterator, BatchSize) of
         {ok, end_of_stream} ->
-            do_read_fold(Fun, Rest, Acc);
+            do_read_fold(Fun, Rest, _Attempts = 0, Acc);
         {ok, _NewIterator, []} ->
-            do_read_fold(Fun, Rest, Acc);
+            do_read_fold(Fun, Rest, _Attempts = 0, Acc);
         {ok, NewIterator, Msgs} ->
             Data = lists:map(
                 fun({_DSKey, Msg}) -> from_domain_msg(Msg) end,
                 Msgs
             ),
-            do_read_fold(Fun, [NewIterator | Rest], Fun(Data, Acc))
+            do_read_fold(Fun, [NewIterator | Rest], _Attempts = 0, Fun(Data, Acc));
+        {error, recoverable, _Reason} when Attempts < ?MAX_READ_ATTEMPTS ->
+            timer:sleep(?READ_RETRY_TIMEOUT),
+            do_read_fold(Fun, [Iterator | Rest], Attempts + 1, Acc);
+        {error, _Class, Reason} ->
+            %% unrecoverable error, or exhausted maximum attempts
+            error(Reason)
     end.
 %% END ifdef(STORE_STATE_IN_DS).
 -endif.

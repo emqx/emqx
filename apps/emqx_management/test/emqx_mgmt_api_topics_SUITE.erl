@@ -24,21 +24,21 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx, "durable_sessions.enable = true"},
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+init_per_suite(Config0) ->
+    DurableSessionsOpts = #{<<"enable">> => true},
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    ExtraApps = [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
+    Config = emqx_common_test_helpers:start_apps_ds(
+        Config0,
+        ExtraApps,
+        Opts
     ),
     Peer = emqx_common_test_helpers:start_peer(node1, []),
-    [{apps, Apps}, {peer, Peer} | Config].
+    [{peer, Peer} | Config].
 
 end_per_suite(Config) ->
     _ = emqx_common_test_helpers:stop_peer(?config(peer, Config)),
-    ok = emqx_cth_suite:stop(?config(apps, Config)).
+    emqx_common_test_helpers:stop_apps_ds(Config).
 
 t_nodes_api(Config) ->
     Node = atom_to_binary(node(), utf8),
