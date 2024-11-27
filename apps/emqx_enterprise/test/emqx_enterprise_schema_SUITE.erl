@@ -100,7 +100,7 @@ t_audit_log_conf(_Config) ->
             #{
                 <<"enable">> => false,
                 <<"level">> => <<"info">>,
-                <<"path">> => <<"log/audit.log">>,
+                <<"path">> => <<"${EMQX_LOG_DIR}/audit.log">>,
                 <<"ignore_high_frequency_request">> => true,
                 <<"max_filter_size">> => 5000,
                 <<"rotation_count">> => 10,
