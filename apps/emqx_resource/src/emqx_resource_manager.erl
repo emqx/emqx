@@ -1755,7 +1755,9 @@ safe_call(ResId, Message, Timeout) ->
         exit:{R, _} when R == noproc; R == normal; R == shutdown ->
             {error, not_found};
         exit:{timeout, _} ->
-            {error, timeout}
+            {error, timeout};
+        exit:{{shutdown, removed}, _} ->
+            {error, not_found}
     end.
 
 %% Helper functions for chanel status data
