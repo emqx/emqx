@@ -54,9 +54,8 @@ create(#{filter := Filter} = Source) ->
     {Vars, FilterTemp} = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     Source#{
-        annotations => #{id => ResourceId},
-        filter_template => FilterTemp,
-        cache_key_template => CacheKeyTemplate
+        annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
+        filter_template => FilterTemp
     }.
 
 update(#{filter := Filter} = Source) ->
@@ -66,7 +65,11 @@ update(#{filter := Filter} = Source) ->
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, filter_template => FilterTemp, cache_key_template => CacheKeyTemplate}
+            Source#{
+                annotations => #{id => Id},
+                filter_template => FilterTemp,
+                cache_key_template => CacheKeyTemplate
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -91,9 +94,13 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{id := ResourceID}
+    annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
 }) ->
-    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}}) of
+    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate, {ResourceID, Collection}),
+    Result = emqx_authz_utils:cached_simple_sync_query(
+        CacheKey, ResourceID, {find, Collection, RenderedFilter, #{}}
+    ),
+    case Result of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",

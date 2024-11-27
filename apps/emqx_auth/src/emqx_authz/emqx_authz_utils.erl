@@ -39,6 +39,10 @@
     content_type/1
 ]).
 
+-export([
+    cached_simple_sync_query/3
+]).
+
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
 }).
@@ -155,6 +159,9 @@ vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
         qos => Qos,
         retain => maps:get(retain, Action, false)
     }.
+
+cached_simple_sync_query(CacheKey, ResourceID, Query) ->
+    emqx_auth_utils:cached_simple_sync_query(?AUTHZ_CACHE, CacheKey, ResourceID, Query).
 
 %%--------------------------------------------------------------------
 %% Internal functions

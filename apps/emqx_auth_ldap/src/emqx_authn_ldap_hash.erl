@@ -44,15 +44,17 @@ authenticate(
             is_superuser_attribute := IsSuperuserAttr
         },
         query_timeout := Timeout,
-        resource_id := ResourceId
+        resource_id := ResourceId,
+        cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    case
-        emqx_resource:simple_sync_query(
-            ResourceId,
-            {query, Credential, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
-        )
-    of
+    CacheKey = emqx_auth_utils:cache_key(CacheKeyTemplate, Credential, {ResourceId, PasswordAttr, IsSuperuserAttr}),
+    Result = emqx_authn_utils:cached_simple_sync_query(
+        CacheKey,
+        ResourceId,
+        {query, Credential, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
+    ),
+    case Result of
         {ok, []} ->
             ignore;
         {ok, [Entry]} ->
