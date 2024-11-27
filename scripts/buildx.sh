@@ -99,6 +99,10 @@ while [ "$#" -gt 0 ]; do
                 ;;
         esac
         ;;
+    --flavor)
+        EMQX_FLAVOR="$2"
+        shift 2
+        ;;
     *)
       echo "WARN: Unknown arg (ignored): $1"
       shift
@@ -129,6 +133,10 @@ set -x
 
 if [ -z "${IS_ELIXIR:-}" ]; then
   IS_ELIXIR=no
+fi
+
+if [ -z "${EMQX_FLAVOR:-}" ]; then
+  EMQX_FLAVOR=official
 fi
 
 case "${PKGTYPE:-}" in
@@ -183,6 +191,7 @@ elif docker info; then
         --workdir /emqx \
         --platform="linux/$ARCH" \
         --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
+        --env EMQX_FLAVOR="$EMQX_FLAVOR" \
         "$EMQX_BUILDER" \
         bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
 else

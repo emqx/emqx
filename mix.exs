@@ -1235,7 +1235,7 @@ defmodule EMQXUmbrella.MixProject do
     case System.get_env("EMQX_FLAVOR") do
       nil -> :official
       "" -> :official
-      flavor -> flavor
+      flavor -> String.to_atom(flavor)
     end
   end
 
