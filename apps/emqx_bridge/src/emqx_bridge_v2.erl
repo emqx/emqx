@@ -524,7 +524,6 @@ uninstall_bridge_v2(
     BridgeV2Id = id_with_root_name(ConfRootKey, BridgeV2Type, BridgeName, ConnectorName),
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
     ok = emqx_resource_buffer_worker_sup:stop_workers(BridgeV2Id, CreationOpts),
-    ok = emqx_resource:clear_metrics(BridgeV2Id),
     case referenced_connectors_exist(BridgeV2Type, ConnectorName, BridgeName) of
         {error, _} ->
             ok;
@@ -533,7 +532,14 @@ uninstall_bridge_v2(
             ConnectorId = emqx_connector_resource:resource_id(
                 connector_type(BridgeV2Type), ConnectorName
             ),
-            emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id)
+            Res = emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id),
+            case Res of
+                ok ->
+                    ok = emqx_resource:clear_metrics(BridgeV2Id);
+                _ ->
+                    ok
+            end,
+            Res
     end.
 
 combine_connector_and_bridge_v2_config(
