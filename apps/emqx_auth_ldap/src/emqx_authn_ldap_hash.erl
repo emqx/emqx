@@ -48,7 +48,7 @@ authenticate(
         cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    CacheKey = emqx_auth_utils:cache_key(CacheKeyTemplate, Credential, {ResourceId, PasswordAttr, IsSuperuserAttr}),
+    CacheKey = emqx_auth_utils:cache_key(CacheKeyTemplate, Credential),
     Result = emqx_authn_utils:cached_simple_sync_query(
         CacheKey,
         ResourceId,

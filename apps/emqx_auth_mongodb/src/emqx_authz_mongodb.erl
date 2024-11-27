@@ -103,7 +103,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     annotations := #{skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate}
 }) ->
     Options = #{skip => Skip, limit => Limit},
-    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate, {ResourceID, Collection}),
+    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate),
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceID, {find, Collection, RenderedFilter, Options}
     ),

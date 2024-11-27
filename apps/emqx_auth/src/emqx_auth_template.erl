@@ -26,6 +26,7 @@
     parse_sql/3,
     cache_key_template/1,
     cache_key/3,
+    cache_key/2,
     cached_simple_sync_query/4,
     placeholder_vars_from_str/1,
     render_deep_for_json/2,
@@ -81,17 +82,25 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
 -spec cache_key_template(allowed_vars()) -> emqx_template:t().
 cache_key_template(Vars) ->
     emqx_template:parse_deep(
-        [emqx_utils:gen_id() | lists:map(
-            fun(Var) ->
-                list_to_binary("${" ++ Var ++ "}")
-            end,
-            Vars
-        )]
+        [
+            emqx_utils:gen_id()
+            | lists:map(
+                fun(Var) ->
+                    list_to_binary("${" ++ Var ++ "}")
+                end,
+                Vars
+            )
+        ]
     ).
 
-cache_key(Values, TemplatePart, ExtraPart) ->
+cache_key(Values, TemplatePart, ExtraUniqnessKey) ->
     fun() ->
-        {render_deep_for_raw(TemplatePart, Values), ExtraPart}
+        {render_deep_for_raw(TemplatePart, Values), ExtraUniqnessKey}
+    end.
+
+cache_key(Values, TemplatePart) ->
+    fun() ->
+        {render_deep_for_raw(TemplatePart, Values)}
     end.
 
 cached_simple_sync_query(CacheName, CacheKey, ResourceID, Query) ->

@@ -99,7 +99,7 @@ authorize(
     Values = client_vars(Client, Action, Topic),
     case emqx_auth_utils:generate_request(Config, Values) of
         {ok, Request} ->
-            CacheKey = emqx_auth_utils:cache_key(Values, CacheKeyTemplate, {ResourceID, Method}),
+            CacheKey = emqx_auth_utils:cache_key(Values, CacheKeyTemplate),
             Response = emqx_authz_utils:cached_simple_sync_query(
                 CacheKey,
                 ResourceID,

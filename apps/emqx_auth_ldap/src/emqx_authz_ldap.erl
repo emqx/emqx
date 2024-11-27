@@ -94,7 +94,7 @@ authorize(
     }
 ) ->
     Attrs = select_attrs(Action, Annotations),
-    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate, {ResourceID, Attrs}),
+    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate, Attrs),
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceID, {query, Client, Attrs, QueryTimeout}
     ),

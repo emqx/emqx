@@ -70,7 +70,7 @@ authenticate(
     }
 ) ->
     Params = emqx_auth_template:render_sql_params(TmplToken, Credential),
-    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, ResourceId),
+    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
     Result = emqx_authn_utils:cached_simple_sync_query(
         CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}
     ),

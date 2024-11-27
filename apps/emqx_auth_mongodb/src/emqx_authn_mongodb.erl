@@ -82,7 +82,7 @@ authenticate_with_filter(
         cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, {ResourceId, Collection}),
+    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
     Result = emqx_authn_utils:cached_simple_sync_query(
         CacheKey,
         ResourceId,
