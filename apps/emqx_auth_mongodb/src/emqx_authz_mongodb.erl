@@ -51,16 +51,22 @@ description() ->
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
-    Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
+    {Vars, FilterTemp} = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    Source#{
+        annotations => #{id => ResourceId},
+        filter_template => FilterTemp,
+        cache_key_template => CacheKeyTemplate
+    }.
 
 update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    {Vars, FilterTemp} = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, filter_template => FilterTemp}
+            Source#{annotations => #{id => Id}, filter_template => FilterTemp, cache_key_template => CacheKeyTemplate}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->

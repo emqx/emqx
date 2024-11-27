@@ -26,16 +26,24 @@
 -export([render_prepstmt/2]).
 -export([render_prepstmt_strict/2]).
 
--export_type([row_template/0]).
+-export_type([
+    row_template/0,
+    statement/0,
+    raw_statement_template/0,
+    sql_parameters/0
+]).
 
 -type template() :: emqx_template:str().
 -type row_template() :: [emqx_template:placeholder()].
 -type context() :: emqx_template:context().
+-type statement() :: unicode:chardata().
+-type raw_statement_template() :: unicode:chardata().
+-type sql_parameters() :: '$n' | ':n' | '?'.
 
 -type values() :: [emqx_utils_sql:value()].
 
 -type parse_opts() :: #{
-    parameters => '$n' | ':n' | '?',
+    parameters => sql_parameters(),
     % Inherited from `emqx_template:parse_opts()`
     strip_double_quote => boolean()
 }.
@@ -54,18 +62,18 @@
 %%
 
 %% @doc Parse an SQL statement string with zero or more placeholders into a template.
--spec parse(unicode:chardata()) ->
+-spec parse(raw_statement_template()) ->
     template().
 parse(String) ->
     parse(String, #{}).
 
 %% @doc Parse an SQL statement string with zero or more placeholders into a template.
--spec parse(unicode:chardata(), parse_opts()) ->
+-spec parse(raw_statement_template(), parse_opts()) ->
     template().
 parse(String, Opts) ->
     emqx_template:parse(String, Opts).
 
--spec has_placeholder(unicode:chardata()) -> boolean().
+-spec has_placeholder(raw_statement_template()) -> boolean().
 has_placeholder(String) ->
     lists:any(
         fun
@@ -79,7 +87,7 @@ has_placeholder(String) ->
 %% Interpolation generally follows the SQL syntax, strings are escaped according to the
 %% `escaping` option.
 -spec render(template(), context(), render_opts()) ->
-    {unicode:chardata(), [_Error]}.
+    {statement(), [_Error]}.
 render(Template, Context, Opts) ->
     emqx_template:render(Template, Context, #{
         var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
@@ -88,7 +96,7 @@ render(Template, Context, Opts) ->
 %% @doc Render an SQL statement template given a set of bindings.
 %% Errors are raised if any placeholders are not bound.
 -spec render_strict(template(), context(), render_opts()) ->
-    unicode:chardata().
+    statement().
 render_strict(Template, Context, Opts) ->
     emqx_template:render_strict(Template, Context, #{
         var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
@@ -106,8 +114,8 @@ render_strict(Template, Context, Opts) ->
 %% Statement = <<"INSERT INTO table (id, name, age) VALUES ($1, $2, 42)">>,
 %% RowTemplate = [{var, "...", [...]}, ...]
 %% ```
--spec parse_prepstmt(unicode:chardata(), parse_opts()) ->
-    {unicode:chardata(), row_template()}.
+-spec parse_prepstmt(raw_statement_template(), parse_opts()) ->
+    {statement(), row_template()}.
 parse_prepstmt(String, Opts) ->
     Template = emqx_template:parse(String, maps:with(?TEMPLATE_PARSE_OPTS, Opts)),
     Statement = mk_prepared_statement(Template, Opts),
