@@ -27,12 +27,7 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
-    case emqx_release:edition() of
-        ce ->
-            [];
-        _ ->
-            emqx_common_test_helpers:all(?MODULE)
-    end.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
