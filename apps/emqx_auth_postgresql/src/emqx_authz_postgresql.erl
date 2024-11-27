@@ -101,7 +101,7 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderedParams = emqx_auth_utils:render_sql_params(Placeholders, Vars),
-    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate, ResourceID),
+    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
             CacheKey, ResourceID, {prepared_query, ResourceID, RenderedParams}

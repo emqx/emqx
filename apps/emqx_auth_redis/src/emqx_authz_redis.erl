@@ -85,7 +85,7 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Cmd = emqx_auth_utils:render_deep_for_raw(CmdTemplate, Vars),
-    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate, ResourceID),
+    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate),
     case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);

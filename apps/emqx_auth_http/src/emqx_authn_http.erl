@@ -82,10 +82,11 @@ authenticate(
 ) ->
     case generate_request(Credential, State) of
         {ok, Request} ->
-            CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, {ResourceId, Method}),
+            CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
             Response = emqx_authn_utils:cached_simple_sync_query(
                 CacheKey,
-                ResourceId, {Method, Request, RequestTimeout}
+                ResourceId,
+                {Method, Request, RequestTimeout}
             ),
             ?TRACE_AUTHN_PROVIDER("http_response", #{
                 request => request_for_log(Credential, State),
