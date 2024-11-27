@@ -24,6 +24,7 @@
     parse_deep/2,
     parse_str/2,
     parse_sql/3,
+    cache_key_template/1,
     render_deep_for_json/2,
     render_deep_for_url/2,
     render_deep_for_raw/2,
@@ -34,51 +35,86 @@
     escape_disallowed_placeholders_str/2
 ]).
 
+-type allowed_var() :: emqx_template:varname() | {var_namespace, emqx_template:varname()}.
+-type used_var() :: emqx_template:varname().
+-type allowed_vars() :: [allowed_var()].
+-type used_vars() :: [used_var()].
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% Template parsing/rendering
+
+-spec parse_deep(term(), allowed_vars()) -> {used_vars(), emqx_template:t()}.
 parse_deep(Template, AllowedVars) ->
     Result = emqx_template:parse_deep(Template),
     handle_disallowed_placeholders(Result, AllowedVars, {deep, Template}).
 
+-spec parse_str(unicode:chardata(), allowed_vars()) -> {used_vars(), emqx_template:t()}.
 parse_str(Template, AllowedVars) ->
     Result = emqx_template:parse(Template),
     handle_disallowed_placeholders(Result, AllowedVars, {string, Template}).
 
+-spec parse_sql(
+    emqx_template_sql:raw_statement_template(), emqx_template_sql:sql_parameters(), allowed_vars()
+) ->
+    {
+        emqx_template_sql:used_vars(),
+        emqx_template_sql:statement(),
+        emqx_template_sql:row_template()
+    }.
 parse_sql(Template, ReplaceWith, AllowedVars) ->
     {Statement, Result} = emqx_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
-    {Statement, handle_disallowed_placeholders(Result, AllowedVars, {string, Template})}.
+    {UsedVars, TemplateWithAllowedVars} = handle_disallowed_placeholders(
+        Result, AllowedVars, {string, Template}
+    ),
+    {UsedVars, Statement, TemplateWithAllowedVars}.
+
+-spec cache_key_template(allowed_vars()) -> emqx_template:t().
+cache_key_template(Vars) ->
+    emqx_template:parse_deep(
+        lists:map(
+            fun(Var) ->
+                list_to_binary("${" ++ Var ++ "}")
+            end,
+            Vars
+        )
+    ).
 
 escape_disallowed_placeholders_str(Template, AllowedVars) ->
     ParsedTemplate = emqx_template:parse(Template),
     prerender_disallowed_placeholders(ParsedTemplate, AllowedVars).
 
 handle_disallowed_placeholders(Template, AllowedVars, Source) ->
-    case emqx_template:validate(AllowedVars, Template) of
-        ok ->
-            Template;
-        {error, Disallowed} ->
-            ?tp(warning, "auth_template_invalid", #{
-                template => Source,
-                reason => Disallowed,
-                allowed => #{placeholders => AllowedVars},
-                notice =>
-                    "Disallowed placeholders will be rendered as is."
-                    " However, consider using `${$}` escaping for literal `$` where"
-                    " needed to avoid unexpected results."
-            }),
-            Result = prerender_disallowed_placeholders(Template, AllowedVars),
-            case Source of
-                {string, _} ->
-                    emqx_template:parse(Result);
-                {deep, _} ->
-                    emqx_template:parse_deep(Result)
-            end
-    end.
+    {UsedAllowedVars, UsedDisallowedVars} = emqx_template:placeholders(AllowedVars, Template),
+    TemplateWithAllowedVars =
+        case UsedDisallowedVars of
+            [] ->
+                Template;
+            Disallowed ->
+                ?tp(warning, "auth_template_invalid", #{
+                    template => Source,
+                    reason => Disallowed,
+                    allowed => #{placeholders => AllowedVars},
+                    notice =>
+                        "Disallowed placeholders will be rendered as is."
+                        " However, consider using `${$}` escaping for literal `$` where"
+                        " needed to avoid unexpected results."
+                }),
+                Result = prerender_disallowed_placeholders(Template, AllowedVars),
+                case Source of
+                    {string, _} ->
+                        emqx_template:parse(Result);
+                    {deep, _} ->
+                        emqx_template:parse_deep(Result)
+                end
+        end,
+    {UsedAllowedVars, TemplateWithAllowedVars}.
 
 prerender_disallowed_placeholders(Template, AllowedVars) ->
     {Result, _} = emqx_template:render(Template, #{}, #{

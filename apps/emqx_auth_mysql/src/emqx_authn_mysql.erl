@@ -105,10 +105,12 @@ parse_config(
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+    {Vars, PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     State = #{
         password_hash_algorithm => Algorithm,
         tmpl_token => TmplToken,
-        query_timeout => QueryTimeout
+        query_timeout => QueryTimeout,
+        cache_key_template => CacheKeyTemplate
     },
     {Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}}, State}.

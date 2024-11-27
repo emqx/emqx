@@ -41,18 +41,26 @@ description() ->
     "AuthZ with Redis".
 
 create(#{cmd := CmdStr} = Source) ->
-    CmdTemplate = parse_cmd(CmdStr),
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
-    Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
+    Source#{
+        annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
+        cmd_template => CmdTemplate
+    }.
 
 update(#{cmd := CmdStr} = Source) ->
-    CmdTemplate = parse_cmd(CmdStr),
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, cmd_template => CmdTemplate}
+            Source#{
+                annotations => #{id => Id, cache_key_template => CacheKeyTemplate},
+                cmd_template => CmdTemplate
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->

@@ -110,9 +110,11 @@ parse_config(
     ResourceId
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
+    {Vars, Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     State = #{
         placeholders => PlaceHolders,
-        password_hash_algorithm => Algorithm
+        password_hash_algorithm => Algorithm,
+        cache_key_template => CacheKeyTemplate
     },
     {Config#{prepare_statement => #{ResourceId => Query}}, State}.
