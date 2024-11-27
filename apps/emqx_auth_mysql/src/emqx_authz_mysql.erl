@@ -79,14 +79,18 @@ authorize(
     #{
         annotations := #{
             id := ResourceID,
-            tmpl_token := TmplToken
+            tmpl_token := TmplToken,
+            cache_key_template := CacheKeyTemplate
         }
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderParams = emqx_auth_template:render_sql_params(TmplToken, Vars),
+    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate, ResourceID),
     case
-        emqx_resource:simple_sync_query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams})
+        emqx_authz_utils:cached_simple_sync_query(
+            CacheKey, ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}
+        )
     of
         {ok, ColumnNames, Rows} ->
             do_authorize(Client, Action, Topic, ColumnNames, Rows);

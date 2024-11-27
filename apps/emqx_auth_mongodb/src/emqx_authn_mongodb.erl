@@ -75,13 +75,20 @@ authenticate(
 
 authenticate_with_filter(
     Filter,
-    #{password := Password},
+    #{password := Password} = Credential,
     #{
         collection := Collection,
-        resource_id := ResourceId
+        resource_id := ResourceId,
+        cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter}) of
+    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate, {ResourceId, Collection}),
+    Result = emqx_authn_utils:cached_simple_sync_query(
+        CacheKey,
+        ResourceId,
+        {find_one, Collection, Filter}
+    ),
+    case Result of
         {ok, undefined} ->
             ignore;
         {error, Reason} ->

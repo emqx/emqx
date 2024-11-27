@@ -25,6 +25,9 @@
     parse_str/2,
     parse_sql/3,
     cache_key_template/1,
+    cache_key/3,
+    cached_simple_sync_query/4,
+    placeholder_vars_from_str/1,
     render_deep_for_json/2,
     render_deep_for_url/2,
     render_deep_for_raw/2,
@@ -78,13 +81,31 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
 -spec cache_key_template(allowed_vars()) -> emqx_template:t().
 cache_key_template(Vars) ->
     emqx_template:parse_deep(
-        lists:map(
+        [emqx_utils:gen_id() | lists:map(
             fun(Var) ->
                 list_to_binary("${" ++ Var ++ "}")
             end,
             Vars
-        )
+        )]
     ).
+
+cache_key(Values, TemplatePart, ExtraPart) ->
+    fun() ->
+        {render_deep_for_raw(TemplatePart, Values), ExtraPart}
+    end.
+
+cached_simple_sync_query(CacheName, CacheKey, ResourceID, Query) ->
+    emqx_auth_cache:with_cache(CacheName, CacheKey, fun() ->
+        case emqx_resource:simple_sync_query(ResourceID, Query) of
+            {error, _} = Error ->
+                {nocache, Error};
+            Result ->
+                {cache, Result}
+        end
+    end).
+
+placeholder_vars_from_str(Str) ->
+    emqx_template:placeholders(emqx_template:parse(Str)).
 
 escape_disallowed_placeholders_str(Template, AllowedVars) ->
     ParsedTemplate = emqx_template:parse(Template),

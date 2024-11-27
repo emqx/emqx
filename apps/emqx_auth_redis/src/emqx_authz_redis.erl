@@ -72,12 +72,13 @@ authorize(
     Topic,
     #{
         cmd_template := CmdTemplate,
-        annotations := #{id := ResourceID}
+        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
-    case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
+    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate, ResourceID),
+    case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
         {error, Reason} ->

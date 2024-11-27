@@ -98,7 +98,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    % emqx_config:put([authentication_cache, enable], true),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -107,6 +107,8 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    % ct:print("Cache metrics: ~p~n", [emqx_auth_cache:metrics(?AUTHN_CACHE)]),
+    % emqx_auth_cache:reset(?AUTHN_CACHE),
     ok = emqx_authn_http_test_server:stop().
 
 %%------------------------------------------------------------------------------

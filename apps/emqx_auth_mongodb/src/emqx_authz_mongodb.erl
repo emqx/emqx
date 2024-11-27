@@ -52,10 +52,9 @@ create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
             id => ResourceId,
             skip => Skip,
             limit => Limit,
-            filter_template => FilterTemp
-        },
-
-        cache_key_template => CacheKeyTemplate
+            filter_template => FilterTemp,
+            cache_key_template => CacheKeyTemplate
+        }
     }.
 
 update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
@@ -69,9 +68,12 @@ update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
         {ok, Id} ->
             Source#{
                 annotations => #{
-                    id => Id, skip => Skip, limit => Limit, filter_template => FilterTemp
-                },
-                cache_key_template => CacheKeyTemplate
+                    id => Id,
+                    skip => Skip,
+                    limit => Limit,
+                    filter_template => FilterTemp,
+                    cache_key_template => CacheKeyTemplate
+                }
             }
     end.
 
@@ -98,10 +100,14 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{skip := Skip, limit := Limit, id := ResourceID}
+    annotations := #{skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate}
 }) ->
     Options = #{skip => Skip, limit => Limit},
-    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, Options}) of
+    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate, {ResourceID, Collection}),
+    Result = emqx_authz_utils:cached_simple_sync_query(
+        CacheKey, ResourceID, {find, Collection, RenderedFilter, Options}
+    ),
+    case Result of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",
