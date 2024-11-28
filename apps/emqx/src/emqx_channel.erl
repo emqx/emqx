@@ -205,6 +205,8 @@ info(clientid, #channel{clientinfo = ClientInfo}) ->
     maps:get(clientid, ClientInfo, undefined);
 info(username, #channel{clientinfo = ClientInfo}) ->
     maps:get(username, ClientInfo, undefined);
+info(is_bridge, #channel{clientinfo = ClientInfo}) ->
+    maps:get(is_bridge, ClientInfo, undefined);
 info(session, #channel{session = Session}) ->
     maybe_apply(fun emqx_session:info/1, Session);
 info({session, Info}, #channel{session = Session}) ->
@@ -505,8 +507,11 @@ handle_in(
         client_disconnect,
         Packet,
         (basic_trace_attrs(Channel))#{
-            'client.peername' => emqx_utils:ntoa(info(peername, Channel)),
+            'client.proto_name' => info(proto_name, Channel),
+            'client.proto_ver' => info(proto_ver, Channel),
+            'client.is_bridge' => info(is_bridge, Channel),
             'client.sockname' => emqx_utils:ntoa(info(sockname, Channel)),
+            'client.peername' => emqx_utils:ntoa(info(peername, Channel)),
             'client.disconnect.reason_code' => emqx_packet:info(reason_code, _PktVar)
         },
         fun(PacketWithTrace) -> process_disconnect(PacketWithTrace, Channel) end
