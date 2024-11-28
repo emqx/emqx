@@ -527,10 +527,10 @@ shards_of_batch(_DB, [], Acc) ->
 %% TODO
 %% There's a possibility of race condition: storage may shut down right after we
 %% ask for its status.
--define(IF_SHARD_READY(DB, SHARD, EXPR),
-    case emqx_ds_replication_layer_shard:shard_info(DB, SHARD, ready) of
+-define(IF_SHARD_READY(SHARDID, EXPR),
+    case emqx_ds_builtin_raft_db_sup:shard_info(SHARDID, ready) of
         true -> EXPR;
-        false -> {error, recoverable, shard_unavailable}
+        _Unready -> {error, recoverable, shard_unavailable}
     end
 ).
 
@@ -574,8 +574,7 @@ do_get_streams_v1(_DB, _Shard, _TopicFilter, _StartTime) ->
 do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
-        DB,
-        Shard,
+        ShardId,
         emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime)
     ).
 
@@ -602,8 +601,7 @@ do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
 do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
-        DB,
-        Shard,
+        ShardId,
         emqx_ds_storage_layer:make_iterator(ShardId, Stream, TopicFilter, StartTime)
     ).
 
@@ -638,8 +636,7 @@ do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
 do_next_v1(DB, Shard, Iter, BatchSize) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
-        DB,
-        Shard,
+        ShardId,
         emqx_ds_storage_layer:next(
             ShardId, Iter, BatchSize, emqx_ds_replication_layer:current_timestamp(DB, Shard)
         )
@@ -672,8 +669,7 @@ do_add_generation_v2(_DB) ->
 do_list_generations_with_lifetimes_v3(DB, Shard) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
-        DB,
-        Shard,
+        ShardId,
         emqx_ds_storage_layer:list_generations_with_lifetimes(ShardId)
     ).
 
@@ -700,11 +696,14 @@ do_get_delete_streams_v4(DB, Shard, TopicFilter, StartTime) ->
 do_poll_v1(SourceNode, DB, Shard, Iterators, PollOpts) ->
     ShardId = {DB, Shard},
     ?tp(ds_raft_do_poll, #{shard => ShardId, iterators => Iterators}),
-    lists:foreach(
-        fun({RAddr, It}) ->
-            emqx_ds_beamformer:poll(SourceNode, RAddr, ShardId, It, PollOpts)
-        end,
-        Iterators
+    ?IF_SHARD_READY(
+        ShardId,
+        lists:foreach(
+            fun({RAddr, It}) ->
+                emqx_ds_beamformer:poll(SourceNode, RAddr, ShardId, It, PollOpts)
+            end,
+            Iterators
+        )
     ).
 
 %%================================================================================
@@ -1249,11 +1248,9 @@ snapshot_module() ->
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
-scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
-    {DB, Shard} = ShardId,
+scan_stream(ShardId = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
     ?IF_SHARD_READY(
-        DB,
-        Shard,
+        ShardId,
         begin
             Now = current_timestamp(DB, Shard),
             emqx_ds_storage_layer:scan_stream(
