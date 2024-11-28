@@ -509,7 +509,7 @@ log_path_test_() ->
     end,
 
     [
-        {"default-values", fun() -> Assert(default, "log/emqx.log", check(#{})) end},
+        {"default-values", fun() -> Assert(default, "${EMQX_LOG_DIR}/emqx.log", check(#{})) end},
         {"file path with space", fun() -> Assert(name1, "a /b", check(Fh(<<"a /b">>))) end},
         {"windows", fun() -> Assert(name1, "c:\\a\\ b\\", check(Fh(<<"c:\\a\\ b\\">>))) end},
         {"unicoded", fun() -> Assert(name1, "路 径", check(Fh(<<"路 径"/utf8>>))) end},
@@ -714,3 +714,33 @@ node_role_conf(Role0) ->
     Hocon = <<"node { role =", Role/binary, ", cookie = \"cookie\", data_dir = \".\" }">>,
     {ok, ConfMap} = hocon:binary(Hocon, #{format => map}),
     ConfMap.
+
+fix_log_dir_path_test() ->
+    ?assertEqual(
+        "/opt/emqx/log/a.log",
+        emqx_conf_schema:fix_old_version_abs_log_path("/opt/emqx/log/a.log")
+    ),
+    ?assertEqual(
+        "/var/log/emqx/a.log",
+        emqx_conf_schema:fix_old_version_abs_log_path("/var/log/emqx/a.log")
+    ),
+    try
+        os:putenv("EMQX_LOG_DIR", "foobar"),
+        %% assumption: the two hard coded paths below do not exist in CT test runner
+        ?assertEqual(
+            "${EMQX_LOG_DIR}/a.log",
+            emqx_conf_schema:fix_old_version_abs_log_path("/var/log/emqx/a.log")
+        ),
+        ?assertEqual(
+            "${EMQX_LOG_DIR}/a.log",
+            emqx_conf_schema:fix_old_version_abs_log_path("/opt/emqx/log/a.log")
+        ),
+        %% binary in binary out
+        ?assertEqual(
+            <<"${EMQX_LOG_DIR}/a.log">>,
+            emqx_conf_schema:fix_old_version_abs_log_path(<<"/var/log/emqx/a.log">>)
+        )
+    after
+        os:unsetenv("EMQX_LOG_DIR")
+    end,
+    ok.
