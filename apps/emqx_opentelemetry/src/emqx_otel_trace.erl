@@ -24,6 +24,8 @@
     client_authn/3,
     client_authz/3,
 
+    broker_disconnect/3,
+
     %% Message Processing Spans (From Client)
     %% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DELIVER(to Subscribers)
     client_publish/3,
@@ -321,6 +323,28 @@ client_authz(Packet, Attrs, ProcessFun) ->
             %% allow|deny|cache_hit|cache_miss
             %% case ProcessFun(Packet) of
             %%     xx -> xx,
+            end
+        )
+    ).
+
+-spec broker_disconnect(
+    Any,
+    Attrs,
+    fun((Any) -> Res)
+) ->
+    Res
+when
+    Any :: term(),
+    Attrs :: attrs(),
+    Res :: term().
+broker_disconnect(Any, Attrs, ProcessFun) ->
+    ?with_trace_mode(
+        ProcessFun(Any),
+        ?with_span(
+            ?BROKER_DISCONNECT_SPAN_NAME,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                ProcessFun(Any)
             end
         )
     ).
