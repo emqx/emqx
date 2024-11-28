@@ -97,8 +97,6 @@ escape_frame(Rest, State = #{data := Acc}) ->
     case do_escape_frame(Rest, Acc) of
         {ok, Msg, NRest} ->
             {ok, parse_message(Msg), NRest, State#{data => <<>>, phase => searching_head_hex7e}};
-        {error, _E} = Err ->
-            Err;
         {more_data_follow, NRest} ->
             {more, #{data => NRest, phase => escaping_hex7d}}
     end.
@@ -109,22 +107,18 @@ do_escape_frame(<<16#7d, 16#01, Rest/binary>>, Acc) ->
     do_escape_frame(Rest, <<Acc/binary, 16#7d>>);
 do_escape_frame(<<16#7d, _Other:8, _Rest/binary>>, _Acc) ->
     %% only 0x02 and 0x01 is allowed to follow 0x7d
-    {error, invalid_message};
+    error(invalid_message);
 do_escape_frame(<<16#7d>>, Acc) ->
     %% corner case: last byte of the frame segment is 0x7d,
     %% 0x01 or 0x02 is expected in next frame segment
     {more_data_follow, Acc};
 do_escape_frame(<<16#7e, _Rest/binary>>, <<>>) ->
     %% empty message
-    {error, invalid_message};
+    error(invalid_message);
 do_escape_frame(<<16#7e, Rest/binary>>, Acc) ->
     %% end of a normal message
-    case check(Acc) of
-        {error, _} = Err ->
-            Err;
-        Msg ->
-            {ok, Msg, Rest}
-    end;
+    Msg = check(Acc),
+    {ok, Msg, Rest};
 do_escape_frame(<<Byte:8, Rest/binary>>, Acc) ->
     do_escape_frame(Rest, <<Acc/binary, Byte:8>>);
 do_escape_frame(<<>>, Acc) ->
@@ -135,7 +129,7 @@ parse_message(Binary) ->
         {ok, Header = #{<<"msg_id">> := MsgId}, RestBinary} ->
             #{<<"header">> => Header, <<"body">> => parse_message_body(MsgId, RestBinary)};
         invalid_message ->
-            {error, invalid_message}
+            error(invalid_message)
     end.
 
 parse_message_header(
@@ -301,8 +295,8 @@ parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>) ->
 parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>) ->
     #{<<"e">> => E, <<"n">> => base64:encode(N)};
 parse_message_body(UnknownId, Binary) ->
-    ?SLOG(error, #{msg => "unknow_message", id => UnknownId, msg_body => Binary}),
-    {error, invalid_message}.
+    ?SLOG(error, #{msg => "unknow_message_id", id => UnknownId, msg_body => Binary}),
+    error(invalid_message).
 
 parse_client_params(<<Count:?BYTE, Rest/binary>>) ->
     {Count, parse_client_params2(Count, Rest, [])}.
@@ -771,7 +765,7 @@ serialize_body(?MS_RSA_KEY, Body) ->
     N = maps:get(<<"n">>, Body),
     <<E:?DWORD, N:128/binary>>;
 serialize_body(_UnkonwnMsgId, _Body) ->
-    {error, invalid_input}.
+    error(invalid_input).
 
 serialize_corner_point(0, [], Acc) ->
     Acc;
@@ -1085,7 +1079,7 @@ check(Bin) ->
             <<Msg:Size/binary, _:8>> = Bin,
             Msg;
         false ->
-            {error, invalid_message}
+            error(invalid_check_sum)
     end.
 
 check(<<>>, _) ->

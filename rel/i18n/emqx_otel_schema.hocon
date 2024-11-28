@@ -49,8 +49,64 @@ trace_filter.label: "Trace Filter"
 
 trace_all.desc:
 """If enabled, all published messages are traced, a new trace ID is generated if it can't be extracted from the message.
-Otherwise, only messages published with trace context are traced. Disabled by default."""
+Otherwise, only messages published with trace context are traced.
+Disabled by default.
+Note: this config only takes effect when `trace_mode` is set to `legacy`."""
 trace_all.label: "Trace All"
 
+trace_mode.desc:
+"""OpenTelemetry tracing mode.
+- `legacy`: follow the old tracing method, only trace message publishing and delivery.
+  Span names will be compatible to versions before 5.9.
+- `e2e`: end-to-end tracing mode. All client behaviors will be traced:
+  - connect and disconnect
+  - subscribe and unsubscribe
+  - messaging events such as `PUBLISH`, `PUBACK`, `PUBREL` etc.
+  When enabled (for each type of events), there will be a background tracing for all clients at the configured sample ratio.
+  From the dashboard, one can also add additional trace whitelist on top of the background tracing at full volume for a list of clients or topics.
+  See dashboard or API documents for more details.
+  More control and sampling options can be provided in `e2e_tracing_options`"""
+trace_mode.label: "Trace Mode"
+
+e2e_tracing_options.desc: "End-to-end tracing options"
+e2e_tracing_options.label: "End-to-End Tracing Options"
+
+cluster_identifier.desc:
+"""An attribute value added into Span's Attributes. The attribute key will be `cluster.id`
+Typically, set a simple and easily recognizable name or use the cluster name to identify different EMQX clusters."""
+cluster_identifier.label: "Cluster Identifier"
+
+msg_trace_level.desc:
+"""Trace level for all message exchanges during the message publishing process.
+- `0`: Basic events during message publish will be recorded as Spans.
+  Including 'client.connect', 'client.authz', 'message.route', 'message.forward', 'message.handle_forward', 'broker.publish'.
+- `1`: In addition to basic events.
+  The events 'broker.puback', 'client.puback', 'broker.pubrec', 'client.pubrec' will be recorded as Spans.
+  That is, the first response packet in the QoS1 or QoS2 message interaction.
+- `2`: In addition to level 1.
+  The events 'broker.pubrel', 'client.pubrel', 'broker.pubcomp', 'client.pubcomp' will be recorded as Spans."""
+msg_trace_level.label: "Message Trace Level"
+
+sample_ratio.desc:
+"""Background tracing sample ratio for the listed event types."""
+sample_ratio.label: "Sampling Ratio"
+
+client_connect_disconnect.desc:
+"""Enable/disable background tracing for all clients' connect/disconnect events at the configured sample ratio."""
+client_connect_disconnect.label: "Trace Client Connect/Disconnect"
+
+client_subscribe_unsubscribe.desc:
+"""Enable/disable background tracing for all clients' subscribe/unsubscribe at the configured sample ratio."""
+client_subscribe_unsubscribe.label: "Trace Client Subscribe/Unsubscribe"
+
+client_messaging.desc:
+"""Enable/disable background messaging events for all clients at the configured sample ratio and trace-level."""
+client_messaging.label: "Trace Messaging Events"
+
+clientid_match_rules_max.desc: """Maximum length of the whitelist for clientid matching."""
+clientid_match_rules_max.label: "Maximum Number of Client ID Match Whitelist"
+
+topic_match_rules_max.desc: """Maximum length of the whitelist based for topic matching."""
+topic_match_rules_max.label: "Maximum Number of Topic Match Whitelist"
 
 }

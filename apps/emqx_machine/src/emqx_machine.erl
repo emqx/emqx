@@ -51,7 +51,7 @@ start() ->
     ok = start_sysmon(),
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
-    emqx_otel_app:configure_otel_deps(),
+    ok = configure_otel_deps(),
     %% Register mria callbacks that help to check compatibility of the
     %% replicant with the core node. Currently they rely on the exact
     %% match of the version of EMQX OTP application:
@@ -116,6 +116,14 @@ set_mnesia_extra_diagnostic_checks() ->
     Checks = [{check_open_ports, ok, fun ?MODULE:open_ports_check/0}],
     mria_config:set_extra_mnesia_diagnostic_checks(Checks),
     ok.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+configure_otel_deps() ->
+    emqx_otel_app:configure_otel_deps().
+-else.
+configure_otel_deps() ->
+    ok.
+-endif.
 
 -define(PORT_PROBE_TIMEOUT, 10_000).
 open_ports_check() ->

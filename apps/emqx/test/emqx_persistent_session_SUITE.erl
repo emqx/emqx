@@ -374,7 +374,7 @@ t_connect_discards_existing_client(Config) ->
 
     receive
         {'DOWN', MRef, process, Client1, Reason} ->
-            ok = ?assertMatch({disconnected, ?RC_SESSION_TAKEN_OVER, _}, Reason),
+            ok = ?assertMatch({shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}, Reason),
             ok = emqtt:stop(Client2),
             ok
     after 1000 ->

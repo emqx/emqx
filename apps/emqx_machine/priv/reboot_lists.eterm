@@ -79,7 +79,6 @@
             emqx_mysql,
             emqx_postgresql,
             emqx_plugins,
-            emqx_opentelemetry,
             quicer,
             bcrypt
         ],
@@ -88,6 +87,7 @@
         [
             emqx_license,
             emqx_enterprise,
+            emqx_opentelemetry,
             emqx_schema_validation,
             emqx_message_transformation,
             emqx_connector_aggregator,

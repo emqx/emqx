@@ -246,7 +246,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.13.0", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.13.5", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
@@ -374,6 +374,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_clickhouse,
       :emqx_ft,
       :emqx_license,
+      :emqx_opentelemetry,
       :emqx_s3,
       :emqx_bridge_s3,
       :emqx_bridge_azure_blob_storage,
@@ -1211,7 +1212,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.1.6", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.1.9", override: true}
       ],
       else: []
   end
@@ -1234,7 +1235,7 @@ defmodule EMQXUmbrella.MixProject do
     case System.get_env("EMQX_FLAVOR") do
       nil -> :official
       "" -> :official
-      flavor -> flavor
+      flavor -> String.to_atom(flavor)
     end
   end
 
