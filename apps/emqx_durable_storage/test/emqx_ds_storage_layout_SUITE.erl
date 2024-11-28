@@ -42,7 +42,8 @@
 all() ->
     [
         {group, bitfield_lts},
-        {group, skipstream_lts}
+        {group, skipstream_lts},
+        {group, skipstream_lts_master_hash}
     ].
 
 init_per_group(Group, Config) ->
@@ -56,6 +57,12 @@ init_per_group(Group, Config) ->
                 {emqx_ds_storage_skipstream_lts, #{
                     with_guid => true,
                     lts_threshold_spec => ?LTS_THRESHOLD
+                }};
+            skipstream_lts_master_hash ->
+                {emqx_ds_storage_skipstream_lts, #{
+                    with_guid => true,
+                    lts_threshold_spec => ?LTS_THRESHOLD,
+                    master_hash_bytes => 8
                 }};
             bitfield_lts ->
                 {emqx_ds_storage_bitfield_lts, #{}}
@@ -337,6 +344,45 @@ t_replay_special_topics(_Config) ->
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1 ++ Batch2)),
     check(?SHARD, <<"$SYS/test/#">>, 0, []).
 
+t_replay_nonunique_ts(groups, _AllGroups) ->
+    %% NOTE
+    %% Only those 2 layouts support messages with non-unique timestamps (e.g. when a DB is
+    %% non-append-only), and even then there's no guarantee because of possibility of
+    %% hash collisions.
+    [bitfield_lts, skipstream_lts_master_hash];
+t_replay_nonunique_ts(db_config, _Config) ->
+    #{append_only => false}.
+
+t_replay_nonunique_ts(_Config) ->
+    %% Verify that select storage layouts work properly in non-append-only context
+    %% (single generation only):
+    %% 1. Message timestamp is respected.
+    %% 2. Message timestamp and topic uniquely identifies a message.
+    %% Create concrete topics:
+    Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"foo/bar/xyz">>],
+    Timestamps = lists:seq(100, 500, 100),
+    Batch1 = [make_message(TS, Topic, bin(TS)) || Topic <- Topics, TS <- Timestamps],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1, #{sync => true}),
+    %% Create wildcard topics:
+    WTopics1 = [make_topic([foo, Idx, baz]) || Idx <- lists:seq(1, 30)],
+    WTopics2 = [make_topic([foo, Idx, xyz]) || Idx <- lists:seq(1, 30)],
+    WTopics = WTopics1 ++ WTopics2,
+    Batch2 = [make_message(TS, Topic, _Empty = <<>>) || Topic <- WTopics, TS <- Timestamps],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch2, #{sync => true}),
+    %% Overwrite half of the messages written in the previous batch:
+    BatchOverwrite = [make_message(TS, Topic, bin(TS)) || Topic <- WTopics1, TS <- Timestamps],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, BatchOverwrite, #{sync => true}),
+    %% Expect to see messages from both batches but with updated payloads:
+    Messages = lists:append([
+        Batch1,
+        [M || M <- Batch2, binary:match(emqx_message:topic(M), <<"baz">>) == nomatch],
+        BatchOverwrite
+    ]),
+    ?assert(check(?SHARD, <<"foo/bar/baz">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/+/baz">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/+/xyz">>, 0, Messages)),
+    ok.
+
 %% This testcase verifies poll functionality that doesn't involve events:
 t_poll(Config) ->
     ?check_trace(
@@ -432,11 +478,13 @@ compare_poll_reply({ok, ReferenceIterator, BatchRef}, {ok, ReplyIterator, Batch}
 compare_poll_reply(A, B) ->
     ?defer_assert(?assertEqual(A, B)).
 
+t_atomic_store_batch(db_config, _Config) ->
+    #{atomic_batches => true}.
+
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
-            application:set_env(emqx_durable_storage, egress_batch_size, 1),
             Msgs = [
                 make_message(0, <<"1">>, <<"1">>),
                 make_message(1, <<"2">>, <<"2">>),
@@ -444,17 +492,14 @@ t_atomic_store_batch(_Config) ->
             ],
             ?assertEqual(
                 ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => true,
-                    sync => true
-                })
+                emqx_ds:store_batch(DB, Msgs, #{sync => true})
             ),
             timer:sleep(1000)
         end,
         fun(Trace) ->
-            %% Must contain exactly one flush with all messages.
+            %% TODO: Strictly speaking, atomicity does not imply loss of buffering.
             ?assertMatch(
-                [#{batch := [_, _, _]}],
+                [],
                 ?of_kind(emqx_ds_buffer_flush, Trace)
             ),
             ok
@@ -475,10 +520,7 @@ t_non_atomic_store_batch(_Config) ->
             %% Non-atomic batches may be split.
             ?assertEqual(
                 ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => false,
-                    sync => true
-                })
+                emqx_ds:store_batch(DB, Msgs, #{sync => true})
             ),
             Msgs
         end,
@@ -567,24 +609,6 @@ dump_stream(Shard, Stream, TopicFilter, StartTime) ->
     MaxIterations = 1000000,
     Loop(Iterator, MaxIterations).
 
-%% t_create_gen(_Config) ->
-%%     {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG),
-%%     ?assertEqual(
-%%         {error, nonmonotonic},
-%%         emqx_ds_storage_layer:create_generation(?SHARD, 1, ?DEFAULT_CONFIG)
-%%     ),
-%%     ?assertEqual(
-%%         {error, nonmonotonic},
-%%         emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG)
-%%     ),
-%%     {ok, 2} = emqx_ds_storage_layer:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
-%%     Topics = ["foo/bar", "foo/bar/baz"],
-%%     Timestamps = lists:seq(1, 100),
-%%     [
-%%         ?assertMatch({ok, [_]}, store(?SHARD, PublishedAt, Topic, <<>>))
-%%      || Topic <- Topics, PublishedAt <- Timestamps
-%%     ].
-
 make_message(PublishedAt, Topic, Payload) when is_list(Topic) ->
     make_message(PublishedAt, list_to_binary(Topic), Payload);
 make_message(PublishedAt, Topic, Payload) when is_binary(Topic) ->
@@ -628,11 +652,19 @@ bin(X) ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    Groups = [
+        reference,
+        bitfield_lts,
+        skipstream_lts,
+        skipstream_lts_master_hash
+    ],
     [
-        {reference, TCs},
-        {bitfield_lts, TCs},
-        {skipstream_lts, TCs}
+        {Group, [TC || TC <- TCs, lists:member(Group, groups(TC, Groups))]}
+     || Group <- Groups
     ].
+
+groups(TC, AllGroups) ->
+    get_testcase_prop(TC, groups, AllGroups, _Default = AllGroups).
 
 suite() -> [{timetrap, {seconds, 20}}].
 
@@ -664,13 +696,15 @@ end_per_testcase(TC, _Config) ->
 
 db_config(TC, Config) ->
     ConfigBase = ?DB_CONFIG(Config),
-    SpecificConfig =
-        try
-            ?MODULE:TC(?FUNCTION_NAME, Config)
-        catch
-            error:undef -> #{}
-        end,
+    SpecificConfig = get_testcase_prop(TC, ?FUNCTION_NAME, Config, #{}),
     maps:merge(ConfigBase, SpecificConfig).
+
+get_testcase_prop(TC, Prop, Context, Default) ->
+    try
+        ?MODULE:TC(Prop, Context)
+    catch
+        error:R when R == undef; R == function_clause -> Default
+    end.
 
 shard(TC) ->
     {TC, <<"0">>}.
