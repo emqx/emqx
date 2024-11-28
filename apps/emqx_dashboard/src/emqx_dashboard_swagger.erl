@@ -443,7 +443,7 @@ failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace) ->
         standard_error,
         "Failed to generate swagger for path ~p in module ~p~n"
         "error:~p~nreason:~p~n~p~n",
-        [Module, Path, Error, Reason, Stacktrace]
+        [Path, Module, Error, Reason, Stacktrace]
     ),
     error({failed_to_generate_swagger_spec, Module, Path}).
 
