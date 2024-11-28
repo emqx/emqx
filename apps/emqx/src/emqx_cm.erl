@@ -695,7 +695,9 @@ lookup_channels(global, ClientId) ->
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
 
--spec lookup_client({clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
+-spec lookup_client(
+    {clientid, emqx_types:clientid()} | {username, emqx_types:username()} | {chan_pid, chan_pid()}
+) ->
     [channel_info()].
 lookup_client({username, Username}) ->
     MatchSpec = [
@@ -707,7 +709,10 @@ lookup_client({clientid, ClientId}) ->
         Rec
      || Key <- ets:lookup(?CHAN_TAB, ClientId),
         Rec <- ets:lookup(?CHAN_INFO_TAB, Key)
-    ].
+    ];
+lookup_client({chan_pid, ChanPid}) ->
+    MatchSpec = [{{{'_', '$1'}, '_', '_'}, [{'=:=', '$1', ChanPid}], ['$_']}],
+    ets:select(?CHAN_INFO_TAB, MatchSpec).
 
 %% @private
 wrap_rpc(Result) ->

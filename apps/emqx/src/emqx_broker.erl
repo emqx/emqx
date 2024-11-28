@@ -20,6 +20,7 @@
 
 -include("emqx.hrl").
 -include("emqx_router.hrl").
+-include("emqx_external_trace.hrl").
 
 -include("logger.hrl").
 -include("types.hrl").
@@ -106,6 +107,8 @@
     %% do not call message.publish hook point if true
     bypass_hook => boolean()
 }.
+
+-elvis([{elvis_style, used_ignored_variable, disable}]).
 
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
@@ -339,28 +342,67 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %% Route
 %%--------------------------------------------------------------------
 
--spec route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
+route(Routes, Delivery = #delivery{message = _Msg}, PersistRes) ->
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        msg_route,
+        Delivery,
+        (emqx_otel_trace:msg_attrs(_Msg))#{
+            'route.from' => node(),
+            'route.matched_result' => emqx_utils_json:encode([
+                route_result({TF, RouteTo})
+             || {TF, RouteTo} <- Routes
+            ]),
+            'client.clientid' => _Msg#message.from
+        },
+        fun(DeliveryWithTrace) ->
+            do_route(Routes, DeliveryWithTrace, PersistRes)
+        end
+    ).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+route_result({TF, Node}) when is_atom(Node) ->
+    #{node => Node, route => TF};
+route_result({TF, Group}) ->
+    #{group => Group, route => TF}.
+
+-else.
+-endif.
+
+-spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
-route([], #delivery{message = Msg}, _PersistRes = []) ->
+do_route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
+    ?EXT_TRACE_ADD_ATTRS(
+        begin
+            case Msg of
+                #message{flags = #{sys := true}} ->
+                    ok;
+                _ ->
+                    #{
+                        'route.dropped.node' => node(),
+                        'route.dropped.reason' => no_subscribers
+                    }
+            end
+        end
+    ),
     [];
-route([], _Delivery, PersistRes = [_ | _]) ->
+do_route([], _Delivery, PersistRes = [_ | _]) ->
     PersistRes;
-route(Routes, Delivery, PersistRes) ->
+do_route(Routes, Delivery, PersistRes) ->
     lists:foldl(
         fun(Route, Acc) ->
-            [do_route(Route, Delivery) | Acc]
+            [do_route2(Route, Delivery) | Acc]
         end,
         PersistRes,
         Routes
     ).
 
-do_route({To, Node}, Delivery) when Node =:= node() ->
-    {Node, To, dispatch(To, Delivery)};
-do_route({To, Node}, Delivery) when is_atom(Node) ->
+do_route2({To, Node}, Delivery) when Node =:= node() ->
+    {Node, To, do_dispatch(To, Delivery)};
+do_route2({To, Node}, Delivery) when is_atom(Node) ->
     {Node, To, forward(Node, To, Delivery, emqx:get_config([rpc, mode]))};
-do_route({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
+do_route2({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
     {share, To, emqx_shared_sub:dispatch(Group, To, Delivery)}.
 
 aggre([]) ->
@@ -384,15 +426,29 @@ aggre([], true, Acc) ->
 do_forward_external(Delivery, RouteRes) ->
     emqx_external_broker:forward(Delivery) ++ RouteRes.
 
+forward(Node, To, Delivery = #delivery{message = _Msg}, RpcMode) ->
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        msg_forward,
+        Delivery,
+        (emqx_otel_trace:msg_attrs(_Msg))#{
+            'forward.from' => node(),
+            'forward.to' => Node,
+            'client.clientid' => _Msg#message.from
+        },
+        fun(DeliveryWithTrace) ->
+            do_forward(Node, To, DeliveryWithTrace, RpcMode)
+        end
+    ).
+
 %% @doc Forward message to another node.
--spec forward(
+-spec do_forward(
     node(), emqx_types:topic() | emqx_types:share(), emqx_types:delivery(), RpcMode :: sync | async
 ) ->
     emqx_types:deliver_result().
-forward(Node, To, Delivery, async) ->
+do_forward(Node, To, Delivery, async) ->
     true = emqx_broker_proto_v1:forward_async(Node, To, Delivery),
     emqx_metrics:inc('messages.forward');
-forward(Node, To, Delivery, sync) ->
+do_forward(Node, To, Delivery, sync) ->
     case emqx_broker_proto_v1:forward(Node, To, Delivery) of
         {Err, Reason} when Err =:= badrpc; Err =:= badtcp ->
             ?SLOG(
@@ -410,12 +466,26 @@ forward(Node, To, Delivery, sync) ->
             Result
     end.
 
--spec dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
+%% Handle message forwarding form remote nodes by
+%% `emqx_broker_proto_v1:forward/3` or
+%% `emqx_broker_proto_v1:forward_async/3`
+dispatch(Topic, Delivery = #delivery{message = _Msg}) ->
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        msg_handle_forward,
+        Delivery,
+        (emqx_otel_trace:msg_attrs(_Msg))#{'client.clientid' => _Msg#message.from},
+        fun(DeliveryWithTrace) ->
+            do_dispatch(Topic, DeliveryWithTrace)
+        end
+    ).
+
+%% @doc Dispatch message to local subscribers.
+-spec do_dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
-dispatch(Topic, Delivery = #delivery{}) when is_binary(Topic) ->
+do_dispatch(Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     case emqx:is_running() of
         true ->
-            do_dispatch(Topic, Delivery);
+            do_dispatch2(Topic, Delivery);
         false ->
             %% In a rare case emqx_router_helper process may delay
             %% cleanup of the routing table and the peers will
@@ -651,12 +721,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec do_dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
+-spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
-do_dispatch(Topic, #delivery{message = Msg}) ->
+do_dispatch2(Topic, #delivery{message = Msg}) ->
     DispN = lists:foldl(
         fun(Sub, N) ->
-            N + do_dispatch(Sub, Topic, Msg)
+            N + do_dispatch2(Sub, Topic, Msg)
         end,
         0,
         subscribers(Topic)
@@ -672,7 +742,7 @@ do_dispatch(Topic, #delivery{message = Msg}) ->
 
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
-do_dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
+do_dispatch2(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->
             SubPid ! {deliver, Topic, Msg},
@@ -680,10 +750,10 @@ do_dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
         false ->
             0
     end;
-do_dispatch({shard, I}, Topic, Msg) ->
+do_dispatch2({shard, I}, Topic, Msg) ->
     lists:foldl(
         fun(SubPid, N) ->
-            N + do_dispatch(SubPid, Topic, Msg)
+            N + do_dispatch2(SubPid, Topic, Msg)
         end,
         0,
         subscribers({shard, Topic, I})

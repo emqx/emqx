@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_otel_config).
 
@@ -19,7 +7,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--define(OPTL, [opentelemetry]).
+-define(OTEL, [opentelemetry]).
 -define(CERTS_PATH, filename:join(["opentelemetry", "exporter"])).
 
 -define(OTEL_EXPORTER, opentelemetry_exporter).
@@ -35,7 +23,7 @@
 update(Config) ->
     case
         emqx_conf:update(
-            ?OPTL,
+            ?OTEL,
             Config,
             #{rawconf_with_defaults => true, override_to => cluster}
         )
@@ -47,21 +35,21 @@ update(Config) ->
     end.
 
 add_handler() ->
-    ok = emqx_config_handler:add_handler(?OPTL, ?MODULE),
+    ok = emqx_config_handler:add_handler(?OTEL, ?MODULE),
     ok.
 
 remove_handler() ->
-    ok = emqx_config_handler:remove_handler(?OPTL),
+    ok = emqx_config_handler:remove_handler(?OTEL),
     ok.
 
-pre_config_update(?OPTL, RawConf, RawConf) ->
+pre_config_update(?OTEL, RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update(?OPTL, NewRawConf, _RawConf) ->
+pre_config_update(?OTEL, NewRawConf, _RawConf) ->
     {ok, convert_certs(NewRawConf)}.
 
-post_config_update(?OPTL, _Req, Old, Old, _AppEnvs) ->
+post_config_update(?OTEL, _Req, Old, Old, _AppEnvs) ->
     ok;
-post_config_update(?OPTL, _Req, New, Old, AppEnvs) ->
+post_config_update(?OTEL, _Req, New, Old, AppEnvs) ->
     application:set_env(AppEnvs),
     MetricsRes = ensure_otel_metrics(New, Old),
     LogsRes = ensure_otel_logs(New, Old),
@@ -74,7 +62,7 @@ post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 add_otel_log_handler() ->
-    ensure_otel_logs(emqx:get_config(?OPTL), #{}).
+    ensure_otel_logs(emqx:get_config(?OTEL), #{}).
 
 remove_otel_log_handler() ->
     remove_handler_if_present(?OTEL_LOG_HANDLER_ID).

@@ -27,6 +27,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -34,6 +35,7 @@
 -compile(nowarn_export_all).
 -endif.
 
+-elvis([{elvis_style, used_ignored_variable, disable}]).
 -elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
 
 %% API
@@ -86,7 +88,7 @@
     %% TCP/TLS Transport
     transport :: esockd:transport(),
     %% TCP/TLS Socket
-    socket :: esockd:socket(),
+    socket :: esockd:socket() | emqx_quic_stream:socket(),
     %% Peername of the connection
     peername :: emqx_types:peername(),
     %% Sockname of the connection
@@ -861,9 +863,13 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, State) ->
+handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res = do_handle_outgoing(Packets, State),
-    emqx_external_trace:end_trace_send(Packets),
+    ?EXT_TRACE_WITH_ACTION_STOP(
+        outgoing,
+        Packets,
+        emqx_channel:basic_trace_attrs(_Channel)
+    ),
     Res.
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->
@@ -1280,9 +1286,17 @@ set_tcp_keepalive({Type, Id}) ->
     end.
 
 -spec graceful_shutdown_transport(atom(), state()) -> state().
+graceful_shutdown_transport(
+    kicked,
+    S = #state{
+        transport = emqx_quic_stream,
+        socket = Socket
+    }
+) ->
+    _ = emqx_quic_stream:shutdown(Socket, read_write, 1000),
+    S#state{sockstate = closed};
 graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = Socket}) ->
-    %% @TODO Reason is reserved for future use, quic transport
-    Transport:shutdown(Socket, read_write),
+    _ = Transport:shutdown(Socket, read_write),
     S#state{sockstate = closed}.
 
 %%--------------------------------------------------------------------

@@ -1,0 +1,33 @@
+emqx_otel_sampler_api {
+
+clientid.desc:
+"""Client ID"""
+clientid.label:
+"""Client ID"""
+
+topic.desc:
+"""TopicName or TopicFilter"""
+topic.label:
+"""Topic"""
+
+sample_white_list_get.desc:
+"""Show the list of sampler white list for specific type"""
+sample_white_list_get.label:
+"""Show white list"""
+
+sample_white_list_post.desc:
+"""Update white list for specific type"""
+sample_white_list_post.label:
+"""Update white list"""
+
+sample_white_list_delete.desc:
+"""Purge white list for specific type"""
+sample_white_list_delete.label:
+"""Purge white list"""
+
+white_list_type.desc:
+"""Type of white list. Can be `clientid`, `topic`"""
+white_list_type.label:
+"""White list type"""
+
+}
