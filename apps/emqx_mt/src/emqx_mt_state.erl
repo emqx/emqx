@@ -6,11 +6,16 @@
 -module(emqx_mt_state).
 
 -export([
-    create_tables/0,
-    count_clients/1,
-    list_clients/3,
-    list_ns/0
+    create_tables/0
 ]).
+
+-export([
+    list_ns/0,
+    is_any_client/1,
+    count_clients/1,
+    list_clients/3
+]).
+
 -export([
     add/3,
     del/1,
@@ -26,12 +31,21 @@
 -define(COUNTER_TAB, emqx_mt_counter).
 -define(MONITOR_TAB, emqx_mt_monitor).
 -define(LOCK, emqx_mt_clear_node_lock).
+-define(RECORD_KEY(Tns, ClientId, Pid), {Tns, ClientId, Pid}).
+%% 0 is less '<' than any client ID (binary() | atom()) in Erlang.
+%% and it's also less '<' than any pid().
+-define(MIN, 0).
+-define(MIN_RECORD_KEY(Tns), ?RECORD_KEY(Tns, ?MIN, ?MIN)).
 
 -type tns() :: emqx_mt:tns().
 -type clientid() :: emqx_types:clientid().
 
 %% mria
--record(?RECORD_TAB, {key :: {tns(), clientid(), pid()}, value :: node()}).
+-record(?RECORD_TAB, {
+    key :: ?RECORD_KEY(tns(), clientid(), pid()),
+    node :: node(),
+    extra :: []
+}).
 -record(?COUNTER_TAB, {key :: {tns(), node()}, count :: non_neg_integer()}).
 
 %% ets
@@ -67,19 +81,39 @@ list_ns() ->
     ets:select(?COUNTER_TAB, Ms).
 
 %% @doc count the number of clients for a given tns.
--spec count_clients(tns()) -> non_neg_integer().
+-spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.
 count_clients(Tns) ->
+    case is_any_client(Tns) of
+        true -> {ok, do_count_clients(Tns)};
+        false -> {error, not_found}
+    end.
+
+do_count_clients(Tns) ->
     Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = {Tns0, _}, count = Count}) when Tns0 =:= Tns -> Count
     end),
-    Counts = ets:select(?COUNTER_TAB, Ms),
-    lists:sum(Counts).
+    lists:sum(ets:select(?COUNTER_TAB, Ms)).
+
+%% @doc Returns true if any client exists for the given namespace.
+-spec is_any_client(tns()) -> boolean().
+is_any_client(Tns) ->
+    case ets:next(?RECORD_TAB, ?MIN_RECORD_KEY(Tns)) of
+        '$end_of_table' -> false;
+        _ -> true
+    end.
 
 %% @doc list all clients for a given tns.
 %% The second argument is the last clientid from the previous page.
 %% The third argument is the number of clients to return.
--spec list_clients(tns(), clientid(), non_neg_integer()) -> [clientid()].
+-spec list_clients(tns(), clientid(), non_neg_integer()) ->
+    {ok, [clientid()]} | {error, not_found}.
 list_clients(Tns, LastClientId, Limit) ->
-    Ms = ets:fun2ms(fun(#?RECORD_TAB{key = {Tns0, ClientId, _}, value = _}) when
+    case is_any_client(Tns) of
+        false -> {error, not_found};
+        true -> {ok, do_list_clients(Tns, LastClientId, Limit)}
+    end.
+
+do_list_clients(Tns, LastClientId, Limit) ->
+    Ms = ets:fun2ms(fun(#?RECORD_TAB{key = ?RECORD_KEY(Tns0, ClientId, _Pid)}) when
         Tns0 =:= Tns andalso ClientId > LastClientId
     ->
         ClientId
@@ -92,7 +126,11 @@ list_clients(Tns, LastClientId, Limit) ->
 %% @doc insert a record into the table.
 -spec add(tns(), clientid(), pid()) -> ok.
 add(Tns, ClientId, Pid) ->
-    Record = #?RECORD_TAB{key = {Tns, ClientId, Pid}, value = node()},
+    Record = #?RECORD_TAB{
+        key = ?RECORD_KEY(Tns, ClientId, Pid),
+        node = node(),
+        extra = []
+    },
     Monitor = #?MONITOR_TAB{pid = Pid, key = {Tns, ClientId}},
     _ = ets:insert(?MONITOR_TAB, Monitor),
     _ = mria:dirty_update_counter(?COUNTER_TAB, {Tns, node()}, 1),
@@ -110,7 +148,7 @@ del(Pid) ->
             ok;
         [#?MONITOR_TAB{key = {Tns, ClientId}}] ->
             _ = mria:dirty_update_counter(?COUNTER_TAB, {Tns, node()}, -1),
-            ok = mria:dirty_delete(?RECORD_TAB, {Tns, ClientId, Pid}),
+            ok = mria:dirty_delete(?RECORD_TAB, ?RECORD_KEY(Tns, ClientId, Pid)),
             ets:delete(?MONITOR_TAB, Pid),
             ?tp(debug, multi_tenant_client_deleted, #{tns => Tns, clientid => ClientId, pid => Pid})
     end,
@@ -132,7 +170,7 @@ clear_for_node(Node) ->
     ok.
 
 do_clear_for_node(Node) ->
-    M1 = erlang:make_tuple(record_info(size, ?RECORD_TAB), '_', [{#?RECORD_TAB.value, Node}]),
+    M1 = erlang:make_tuple(record_info(size, ?RECORD_TAB), '_', [{#?RECORD_TAB.node, Node}]),
     _ = mria:match_delete(?RECORD_TAB, M1),
     M2 = erlang:make_tuple(record_info(size, ?COUNTER_TAB), '_', [{#?COUNTER_TAB.key, {'_', Node}}]),
     _ = mria:match_delete(?COUNTER_TAB, M2),

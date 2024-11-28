@@ -54,8 +54,10 @@ t_connect_disconnect(_Config) ->
             3000
         )
     ),
-    ?assertEqual(1, emqx_mt:count_clients(Username)),
-    ?assertEqual([ClientId], emqx_mt:list_clients(Username)),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(Username)),
+    ?assertEqual({error, not_found}, emqx_mt:count_clients(<<"unknown">>)),
+    ?assertEqual({ok, [ClientId]}, emqx_mt:list_clients(Username)),
+    ?assertEqual({error, not_found}, emqx_mt:list_clients(<<"unknown">>)),
     ?assertEqual([Username], emqx_mt:list_ns()),
     ok = emqtt:stop(Pid),
     ?assertMatch(

@@ -54,7 +54,7 @@ t_node_down(_Config) ->
             3000
         )
     ),
-    ?assertEqual(1, emqx_mt:count_clients(Username)),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(Username)),
     %% simulate node down
     erlang:send(emqx_mt_cluster_watch, {membership, {node, down, node()}}),
     ?assertMatch(
@@ -64,7 +64,7 @@ t_node_down(_Config) ->
             3000
         )
     ),
-    ?assertEqual(0, emqx_mt:count_clients(Username)),
+    ?assertEqual({error, not_found}, emqx_mt:count_clients(Username)),
     ok = emqtt:stop(Pid),
     ?assertMatch(
         {ok, #{tns := Username, clientid := ClientId}},
