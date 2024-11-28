@@ -56,7 +56,7 @@ t_connect_disconnect(_Config) ->
     ),
     ?assertEqual(1, emqx_mt:count_clients(Username)),
     ?assertEqual([ClientId], emqx_mt:list_clients(Username)),
-    ?assertEqual([Username], emqx_mt:list_tenants()),
+    ?assertEqual([Username], emqx_mt:list_ns()),
     ok = emqtt:stop(Pid),
     ?assertMatch(
         {ok, #{tns := Username, clientid := ClientId}},

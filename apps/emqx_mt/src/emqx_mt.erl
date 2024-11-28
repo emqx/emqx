@@ -6,7 +6,7 @@
 -module(emqx_mt).
 
 -export([
-    list_tenants/0,
+    list_ns/0,
     list_clients/1,
     list_clients/2,
     list_clients/3,
@@ -46,6 +46,6 @@ count_clients(Tns) ->
     emqx_mt_state:count_clients(Tns).
 
 %% @doc List all tenants.
--spec list_tenants() -> [tns()].
-list_tenants() ->
-    emqx_mt_state:list_tenants().
+-spec list_ns() -> [tns()].
+list_ns() ->
+    emqx_mt_state:list_ns().

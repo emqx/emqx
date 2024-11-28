@@ -9,7 +9,7 @@
     create_tables/0,
     count_clients/1,
     list_clients/3,
-    list_tenants/0
+    list_ns/0
 ]).
 -export([
     add/3,
@@ -61,8 +61,8 @@ create_tables() ->
     ok.
 
 %% @doc List all tenants.
--spec list_tenants() -> [tns()].
-list_tenants() ->
+-spec list_ns() -> [tns()].
+list_ns() ->
     Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = {Tns, _}}) -> Tns end),
     ets:select(?COUNTER_TAB, Ms).
 
@@ -77,7 +77,7 @@ count_clients(Tns) ->
 %% @doc list all clients for a given tns.
 %% The second argument is the last clientid from the previous page.
 %% The third argument is the number of clients to return.
--spec list_clients(tns(), clientid(), non_neg_integer()) -> [{tns(), clientid()}].
+-spec list_clients(tns(), clientid(), non_neg_integer()) -> [clientid()].
 list_clients(Tns, LastClientId, Limit) ->
     Ms = ets:fun2ms(fun(#?RECORD_TAB{key = {Tns0, ClientId, _}, value = _}) when
         Tns0 =:= Tns andalso ClientId > LastClientId
