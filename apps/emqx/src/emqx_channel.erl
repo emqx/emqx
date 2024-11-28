@@ -1497,12 +1497,26 @@ handle_call(Req, Channel) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 
 handle_info({subscribe, TopicFilters}, Channel) ->
-    NTopicFilters = enrich_subscribe(TopicFilters, Channel),
-    {_TopicFiltersWithRC, NChannel} = post_process_subscribe(NTopicFilters, Channel),
-    {ok, NChannel};
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_subscribe,
+        [],
+        maps:merge(basic_trace_attrs(Channel), topic_filters_attrs({subscribe, TopicFilters})),
+        fun([]) ->
+            NTopicFilters = enrich_subscribe(TopicFilters, Channel),
+            {_TopicFiltersWithRC, NChannel} = post_process_subscribe(NTopicFilters, Channel),
+            {ok, NChannel}
+        end
+    );
 handle_info({unsubscribe, TopicFilters}, Channel) ->
-    {_RC, NChannel} = post_process_unsubscribe(TopicFilters, #{}, Channel),
-    {ok, NChannel};
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_unsubscribe,
+        [],
+        maps:merge(basic_trace_attrs(Channel), topic_filters_attrs({unsubscribe, TopicFilters})),
+        fun([]) ->
+            {_RC, NChannel} = post_process_unsubscribe(TopicFilters, #{}, Channel),
+            {ok, NChannel}
+        end
+    );
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
     shutdown(Reason, Channel);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
@@ -3149,23 +3163,38 @@ basic_trace_attrs(Channel) ->
     }.
 
 topic_filters_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
-    {TFs, SubOpts} = lists:foldl(
-        fun({Topic, SubOpts}, {AccTFs, AccSubOpts}) ->
-            {[emqx_topic:maybe_format_share(Topic) | AccTFs], [SubOpts | AccSubOpts]}
-        end,
-        {[], []},
-        emqx_packet:info(topic_filters, PktVar)
-    ),
+    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
     #{
         'client.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
         'client.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
     };
 topic_filters_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
+    {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
+    #{'client.unsubscribe.topics' => emqx_utils_json:encode(TFs)};
+topic_filters_attrs({subscribe, TopicFilters}) ->
+    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
+    #{
+        'broker.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'broker.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+    };
+topic_filters_attrs({unsubscribe, TopicFilters}) ->
+    {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
+    #{'broker.unsubscribe.topics' => emqx_utils_json:encode(TFs)}.
+
+do_topic_filters_attrs(subscribe, TopicFilters) ->
+    {_TFs, _SubOpts} = lists:foldl(
+        fun({Topic, SubOpts}, {AccTFs, AccSubOpts}) ->
+            {[emqx_topic:maybe_format_share(Topic) | AccTFs], [SubOpts | AccSubOpts]}
+        end,
+        {[], []},
+        TopicFilters
+    );
+do_topic_filters_attrs(unsubscribe, TopicFilters) ->
     TFs = [
         emqx_topic:maybe_format_share(Name)
-     || Name <- emqx_packet:info(topic_filters, PktVar)
+     || Name <- TopicFilters
     ],
-    #{'client.unsubscribe.topics' => emqx_utils_json:encode(TFs)}.
+    {TFs, undefined}.
 
 authn_attrs({continue, _Properties, _Channel}) ->
     %% TODO

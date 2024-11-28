@@ -14,6 +14,8 @@
 -define(CLIENT_PUBLISH_SPAN_NAME, 'client.publish').
 
 -define(BROKER_DISCONNECT_SPAN_NAME, 'broker.disconnect').
+-define(BROKER_SUBSCRIBE_SPAN_NAME, 'broker.subscribe').
+-define(BROKER_UNSUBSCRIBE_SPAN_NAME, 'broker.unsubscribe').
 
 -define(CLIENT_AUTHN_SPAN_NAME, 'client.authn').
 -define(CLIENT_AUTHZ_SPAN_NAME, 'client.authz').
