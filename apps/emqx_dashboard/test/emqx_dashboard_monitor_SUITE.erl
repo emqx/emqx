@@ -970,4 +970,4 @@ cluster_node_appspec(Enable, Port0) ->
     ].
 
 clean_data() ->
-    ok = emqx_dashboard_monitor:clean(-1).
+    ok = emqx_dashboard_monitor:clean(-100000).
