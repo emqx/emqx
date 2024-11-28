@@ -78,7 +78,7 @@ t_audit_log_conf(_Config) ->
         <<"rotation_count">> => 10,
         <<"rotation_size">> => <<"50MB">>,
         <<"time_offset">> => <<"system">>,
-        <<"path">> => <<"log/emqx.log">>,
+        <<"path">> => <<"${EMQX_LOG_DIR}/emqx.log">>,
         <<"timestamp_format">> => <<"auto">>,
         <<"payload_encode">> => <<"text">>
     },
