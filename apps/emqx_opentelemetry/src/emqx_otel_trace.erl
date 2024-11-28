@@ -25,6 +25,8 @@
     client_authz/3,
 
     broker_disconnect/3,
+    broker_subscribe/3,
+    broker_unsubscribe/3,
 
     %% Message Processing Spans (From Client)
     %% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DELIVER(to Subscribers)
@@ -342,6 +344,50 @@ broker_disconnect(Any, Attrs, ProcessFun) ->
         ProcessFun(Any),
         ?with_span(
             ?BROKER_DISCONNECT_SPAN_NAME,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                ProcessFun(Any)
+            end
+        )
+    ).
+
+-spec broker_subscribe(
+    Any,
+    Attrs,
+    fun((Any) -> Res)
+) ->
+    Res
+when
+    Any :: term(),
+    Attrs :: attrs(),
+    Res :: term().
+broker_subscribe(Any, Attrs, ProcessFun) ->
+    ?with_trace_mode(
+        ProcessFun(Any),
+        ?with_span(
+            ?BROKER_SUBSCRIBE_SPAN_NAME,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                ProcessFun(Any)
+            end
+        )
+    ).
+
+-spec broker_unsubscribe(
+    Any,
+    Attrs,
+    fun((Any) -> Res)
+) ->
+    Res
+when
+    Any :: term(),
+    Attrs :: attrs(),
+    Res :: term().
+broker_unsubscribe(Any, Attrs, ProcessFun) ->
+    ?with_trace_mode(
+        ProcessFun(Any),
+        ?with_span(
+            ?BROKER_UNSUBSCRIBE_SPAN_NAME,
             #{attributes => Attrs},
             fun(_SpanCtx) ->
                 ProcessFun(Any)
