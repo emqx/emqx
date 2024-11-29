@@ -7,6 +7,7 @@
 
 -export([
     list_ns/0,
+    list_ns/2,
     list_clients/1,
     list_clients/2,
     list_clients/3,
@@ -15,17 +16,16 @@
 
 -export_type([tns/0]).
 
+-include("emqx_mt.hrl").
+
 -type tns() :: binary().
 -type clientid() :: emqx_types:clientid().
-
--define(DEFAULT_PAGE_SIZE, 100).
--define(MAX_PAGE_SIZE, 1000).
 
 %% @doc List clients of the given namespace.
 %% Starts from the beginning, with default page size 100.
 -spec list_clients(tns()) -> {ok, [clientid()]} | {error, not_found}.
 list_clients(Tns) ->
-    list_clients(Tns, <<>>).
+    list_clients(Tns, ?MIN_CLIENTID).
 
 %% @doc List clients of the given tenant.
 %% Starts after the given client id, with default page size 100.
@@ -50,7 +50,7 @@ count_clients(Tns) ->
 %% Default page size is 100.
 -spec list_ns() -> [tns()].
 list_ns() ->
-    list_ns(<<>>, ?DEFAULT_PAGE_SIZE).
+    list_ns(?MIN_NS, ?DEFAULT_PAGE_SIZE).
 
 %% @doc List namespaces skipping the last namespace from the previous page.
 %% The second argument is the number of namespaces to return.

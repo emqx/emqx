@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include("emqx_mt.hrl").
 %% -include_lib("emqx/include/logger.hrl").
 
 %% `minirest' and `minirest_trails' API
@@ -115,7 +116,7 @@ param_path_ns() ->
             #{
                 in => path,
                 required => true,
-                example => <<"tns1">>,
+                example => <<"ns1">>,
                 desc => ?DESC("param_path_ns")
             }
         )}.
@@ -126,7 +127,7 @@ last_ns_in_query() ->
             binary(),
             #{
                 in => query,
-                required => true,
+                required => false,
                 example => <<"ns1">>,
                 desc => ?DESC("last_ns_in_query")
             }
@@ -138,7 +139,7 @@ limit_in_query() ->
             non_neg_integer(),
             #{
                 in => query,
-                required => true,
+                required => false,
                 example => 100,
                 desc => ?DESC("limit_in_query")
             }
@@ -150,7 +151,7 @@ last_clientid_in_query() ->
             binary(),
             #{
                 in => query,
-                required => true,
+                required => false,
                 example => <<"clientid1">>,
                 desc => ?DESC("last_clientid_in_query")
             }
@@ -171,11 +172,15 @@ error_schema(Code, Message) ->
 %% `minirest' handlers
 %%-------------------------------------------------------------------------------------------------
 
-ns_list(get, _Params) ->
-    ?OK(emqx_mt:list_ns()).
+ns_list(get, #{query_string := QS}) ->
+    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
+    Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
+    ?OK(emqx_mt:list_ns(LastNs, Limit)).
 
-client_list(get, #{bindings := #{ns := Ns}}) ->
-    case emqx_mt:list_clients(Ns) of
+client_list(get, #{bindings := #{ns := Ns, query_string := QS}}) ->
+    LastClientId = maps:get(<<"last_clientid">>, QS, ?MIN_CLIENTID),
+    Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
+    case emqx_mt:list_clients(Ns, LastClientId, Limit) of
         {ok, Clients} -> ?OK(Clients);
         {error, not_found} -> ?NOT_FOUND("Namespace not found")
     end.
@@ -194,7 +199,7 @@ example_ns_list() ->
         <<"list">> =>
             #{
                 summary => <<"List">>,
-                value => [<<"tns1">>, <<"tns2">>]
+                value => [<<"ns1">>, <<"ns2">>]
             }
     }.
 
