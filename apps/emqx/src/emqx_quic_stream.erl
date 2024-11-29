@@ -33,6 +33,7 @@
     getstat/2,
     fast_close/1,
     shutdown/2,
+    shutdown/3,
     ensure_ok_or_exit/2,
     send/2,
     setopts/2,
@@ -62,7 +63,7 @@
 
 -export_type([socket/0]).
 
--opaque socket() :: {quic, connection_handle(), stream_handle(), socket_info()}.
+-type socket() :: {quic, connection_handle(), stream_handle(), socket_info()}.
 
 -type socket_info() :: #{
     is_orphan => boolean(),
@@ -153,9 +154,12 @@ fast_close({quic, _Conn, Stream, _Info}) ->
     % quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok.
 
-shutdown({quic, _Conn, Stream, _Info}, read_write) ->
+shutdown(Socket, Dir) ->
+    shutdown(Socket, Dir, 3000).
+
+shutdown({quic, _Conn, Stream, _Info}, read_write, Timeout) ->
     %% A graceful shutdown means both side shutdown the read and write gracefully.
-    quicer:shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 1, 5000).
+    quicer:shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 1, Timeout).
 
 -spec ensure_ok_or_exit(atom(), list(term())) -> term().
 ensure_ok_or_exit(Fun, Args = [Sock | _]) when is_atom(Fun), is_list(Args) ->

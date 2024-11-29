@@ -322,6 +322,15 @@ end).
 }).
 
 %%--------------------------------------------------------------------
+%% MQTT Implementation Internal
+%%--------------------------------------------------------------------
+
+%% Propagate extra data in MQTT Packets
+%% Use it in properties and should never be serialized
+%% See also emqx_frame:serialize_property/3
+-define(MQTT_INTERNAL_EXTRA, 'internal_extra').
+
+%%--------------------------------------------------------------------
 %% MQTT Control Packet
 %%--------------------------------------------------------------------
 
@@ -331,6 +340,9 @@ end).
         #mqtt_packet_connect{}
         | #mqtt_packet_connack{}
         | #mqtt_packet_publish{}
+        %% QoS=1: PUBACK,
+        %% QoS=2: PUBREC, PUBREL, PUBCOMP
+        %% all used #mqtt_packet_puback{}
         | #mqtt_packet_puback{}
         | #mqtt_packet_subscribe{}
         | #mqtt_packet_suback{}
@@ -360,6 +372,21 @@ end).
 %%--------------------------------------------------------------------
 %% MQTT Packet Match
 %%--------------------------------------------------------------------
+
+-define(PACKET(Type), #mqtt_packet{
+    header = #mqtt_packet_header{type = Type}
+}).
+
+-define(PACKET(Type, Var), #mqtt_packet{
+    header = #mqtt_packet_header{type = Type},
+    variable = Var
+}).
+
+-define(PACKET(Type, Var, Payload), #mqtt_packet{
+    header = #mqtt_packet_header{type = Type},
+    variable = Var,
+    payload = Payload
+}).
 
 -define(CONNECT_PACKET(), #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}}).
 
@@ -668,8 +695,6 @@ end).
         properties = Properties
     }
 }).
-
--define(PACKET(Type), #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
 
 -define(SHARE, "$share").
 -define(QUEUE, "$queue").
