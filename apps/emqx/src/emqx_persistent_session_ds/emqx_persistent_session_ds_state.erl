@@ -971,16 +971,18 @@ subscription_iterator_next(Cursor0, N) ->
 subscription_iterator_next(Cursor0, N0, Acc) ->
     %% TODO
     %% Better storage layout to be able to walk directly over the subscription domain.
-    case domain_iterator_next(fun msg_extract_subscriptions/1, Cursor0, 1, Acc) of
+    case domain_iterator_next(fun msg_extract_subscriptions/1, Cursor0, 1, []) of
         {[{SessionId, Subs}], Cursor1} ->
-            Subs = subscription_cursor_skip(SessionId, Subs, Cursor0),
-            case N0 - length(Subs) of
+            NextSubs = subscription_cursor_skip(SessionId, Subs, Cursor0),
+            NextN = length(NextSubs),
+            N = N0 - NextN,
+            case N of
                 N when N >= 0 ->
-                    Entries = [{SessionId, S} || S <- Subs],
+                    Entries = [{SessionId, S} || S <- NextSubs],
                     subscription_cursor_next_page(Cursor1, N, Entries ++ Acc);
                 N when N < 0 ->
-                    Entries = [{SessionId, S} || S <- lists:sublist(Subs, N)],
-                    Cursor = subscription_cursor_update(SessionId, N, Cursor0),
+                    Entries = [{SessionId, S} || S <- lists:sublist(NextSubs, N0)],
+                    Cursor = subscription_cursor_update(SessionId, N0, Cursor0),
                     {lists:reverse(Entries ++ Acc), Cursor}
             end;
         {[], _} = EOS ->
@@ -995,7 +997,7 @@ subscription_cursor_skip(_SessionId, Subs, #{}) ->
 subscription_cursor_update(SessionId, N, Cursor = #{skip := {SessionId, NSkip}}) ->
     Cursor#{skip := {SessionId, NSkip + N}};
 subscription_cursor_update(SessionId, N, Cursor = #{}) ->
-    Cursor#{skip := {SessionId, N}}.
+    Cursor#{skip => {SessionId, N}}.
 
 subscription_cursor_next_page(Cursor = #{}, N, Acc) ->
     subscription_iterator_next(maps:remove(skip, Cursor), N, Acc);
