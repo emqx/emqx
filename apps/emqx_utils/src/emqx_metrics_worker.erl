@@ -45,6 +45,7 @@
     get_counters/2,
     create_metrics/3,
     create_metrics/4,
+    ensure_metrics/4,
     clear_metrics/2,
     reset_metrics/2,
     has_metrics/2
@@ -135,6 +136,13 @@
     slides = #{} :: #{metric_id() => #{metric_name() => #slide{}}}
 }).
 
+%% calls/casts/infos
+-record(ensure_metrics, {
+    id :: metric_id(),
+    metrics :: [metric_spec() | metric_name()],
+    rate_metrics :: [metric_name()]
+}).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -165,6 +173,16 @@ create_metrics(Name, Id, Metrics) ->
 create_metrics(Name, Id, Metrics, RateMetrics) ->
     Metrics1 = desugar(Metrics),
     gen_server:call(Name, {create_metrics, Id, Metrics1, RateMetrics}).
+
+-spec ensure_metrics(handler_name(), metric_id(), [metric_spec() | metric_name()], [atom()]) ->
+    {ok, created | already_created} | {error, term()}.
+ensure_metrics(Name, Id, Metrics0, RateMetrics) ->
+    Metrics = desugar(Metrics0),
+    gen_server:call(
+        Name,
+        #ensure_metrics{id = Id, metrics = Metrics, rate_metrics = RateMetrics},
+        infinity
+    ).
 
 -spec clear_metrics(handler_name(), metric_id()) -> ok.
 clear_metrics(Name, Id) ->
@@ -379,28 +397,12 @@ handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
             undefined -> make_rate(0, 0, 0);
             RatesPerId -> format_rates_of_id(RatesPerId)
         end, State};
-handle_call(
-    {create_metrics, Id, Metrics, RateMetrics},
-    _From,
-    State = #state{metric_ids = MIDs, rates = Rates, slides = Slides}
-) ->
-    case RateMetrics -- filter_counters(Metrics) of
-        [] ->
-            RatePerId = maps:from_list([{M, #rate{}} || M <- RateMetrics]),
-            Rate1 =
-                case Rates of
-                    undefined -> #{Id => RatePerId};
-                    _ -> Rates#{Id => RatePerId}
-                end,
-            Slides1 = Slides#{Id => create_slides(Metrics)},
-            {reply, create_counters(get_self_name(), Id, Metrics), State#state{
-                metric_ids = sets:add_element(Id, MIDs),
-                rates = Rate1,
-                slides = Slides1
-            }};
-        _ ->
-            {reply, {error, not_super_set_of, {RateMetrics, Metrics}}, State}
-    end;
+handle_call({create_metrics, Id, Metrics, RateMetrics}, _From, State0) ->
+    {Result, State} = handle_create_metrics(State0, Id, Metrics, RateMetrics),
+    {reply, Result, State};
+handle_call(#ensure_metrics{id = Id, metrics = Metrics, rate_metrics = RateMetrics}, _From, State0) ->
+    {Result, State} = handle_ensure_metrics(State0, Id, Metrics, RateMetrics),
+    {reply, Result, State};
 handle_call(
     {delete_metrics, Id},
     _From,
@@ -702,3 +704,61 @@ create_slides(Metrics) ->
 get_self_name() ->
     {registered_name, Name} = process_info(self(), registered_name),
     Name.
+
+is_superset_of(RateMetrics, Metrics) ->
+    case RateMetrics -- filter_counters(Metrics) of
+        [] ->
+            true;
+        [_ | _] ->
+            false
+    end.
+
+handle_create_metrics(State0, Id, Metrics, RateMetrics) ->
+    #state{metric_ids = MIDs0, rates = Rates0, slides = Slides0} = State0,
+    case is_superset_of(RateMetrics, Metrics) of
+        true ->
+            RatesPerId = maps:from_list([{M, #rate{}} || M <- RateMetrics]),
+            Rates =
+                case Rates0 of
+                    undefined -> #{Id => RatesPerId};
+                    _ -> Rates0#{Id => RatesPerId}
+                end,
+            Slides = Slides0#{Id => create_slides(Metrics)},
+            MIDs = sets:add_element(Id, MIDs0),
+            State = State0#state{
+                metric_ids = MIDs,
+                rates = Rates,
+                slides = Slides
+            },
+            Result = create_counters(get_self_name(), Id, Metrics),
+            {Result, State};
+        false ->
+            {{error, not_super_set_of, {RateMetrics, Metrics}}, State0}
+    end.
+
+handle_ensure_metrics(State0, Id, Metrics, RateMetrics) ->
+    #state{metric_ids = MIDs, rates = Rates, slides = Slides} = State0,
+    Name = get_self_name(),
+    CounterKeys = filter_counters(Metrics),
+    CurrentCounters = get_counters(Name, Id),
+    HasAllCounters = [] =:= (CounterKeys -- maps:keys(CurrentCounters)),
+    HasMetricId = sets:is_element(Id, MIDs),
+    CurrentRates =
+        %% todo: no need to have `undefined' here?
+        case Rates of
+            #{Id := Rs} -> maps:keys(Rs);
+            _ -> []
+        end,
+    HasRates = [] =:= (RateMetrics -- CurrentRates),
+    SlideKeys = [K || {slide, K} <- Metrics],
+    CurrentSlides = maps:keys(maps:get(Id, Slides, #{})),
+    HasSlides = [] =:= (SlideKeys -- CurrentSlides),
+    case HasMetricId andalso HasAllCounters andalso HasRates andalso HasSlides of
+        true ->
+            {{ok, already_created}, State0};
+        false ->
+            case handle_create_metrics(State0, Id, Metrics, RateMetrics) of
+                {ok, State} -> {{ok, created}, State};
+                {Result, State} -> {Result, State}
+            end
+    end.
