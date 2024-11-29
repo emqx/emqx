@@ -1212,7 +1212,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.1.9", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.1.10", override: true}
       ],
       else: []
   end
@@ -1225,10 +1225,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def enable_quicer?() do
     "1" == System.get_env("BUILD_WITH_QUIC") or
-      not Enum.any?([
-        macos?(),
-        build_without_quic?()
-      ])
+      not build_without_quic?()
   end
 
   def get_emqx_flavor() do
@@ -1256,10 +1253,6 @@ defmodule EMQXUmbrella.MixProject do
   defp os_cmd(script, args) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
-  end
-
-  def macos?() do
-    {:unix, :darwin} == :os.type()
   end
 
   defp raspbian?() do
