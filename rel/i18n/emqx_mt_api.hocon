@@ -1,6 +1,9 @@
 emqx_mt_api {
     ns_list {
-        desc: "List all namespaces"
+        desc: """~
+            List all namespaces"
+            The namespace is sorted in lexicographical order,
+            so tihis API can be used for prefix based fuzzy search.~"""
         label: "List Namespaces"
     }
     client_list {
@@ -10,5 +13,21 @@ emqx_mt_api {
     client_count {
         desc: "Count all clients in a namespace"
         label: "Count Clients"
+    }
+    last_ns_in_query {
+        desc: """~
+            The last namespace from the previous page.
+            For the first page, use empty string.~"""
+        label: "Last Namespace"
+    }
+    limit_in_query {
+        desc: "The number of items to return"
+        label: "Limit"
+    }
+    last_client_in_query {
+        desc: """~
+            The last client from the previous page.
+            For the first page, use empty string.~"""
+        label: "Last Client ID"
     }
 }

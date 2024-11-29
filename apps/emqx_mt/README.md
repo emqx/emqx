@@ -59,6 +59,7 @@ with the prefix:
 With all the above building blocks available,
 this application (`emqx_mt`) can focus on providing the following functionalities:
 
+- **Tenant Listing**: List all the tenant namespaces.
 - **Live Session Count**: Given a tenant namespace (`tns`),
   quickly retrieve the count of live sessions registered.
 - **Paginated Client Iteration**: Given a tenant namespace (`tns`),
@@ -72,10 +73,14 @@ and monitors processes to deregister them when the process terminates.
 
 ### Data Structure
 
-This application uses two **mnesia** tables, and one ETS table:
+This application uses two **mnesia** tables, and ETS tables:
+
+- **`emqx_mt_ns`**: An `ordered_set` `disc_copies` table for tracking tenant namespaces.
+  The records follow the structure: `{_Key = Tns, _Value = []}`.
+  Records are not garbage collected, so it's not suitable for randomized namespaces.
 
 - **`emqx_mt_records`**: An `ordered_set` table for tracking records:
-  - `{_Key = {Tns, ClientId, Pid}, _Value = []}` for tenant namespaces (`Tns`).
+  - `{_Key = {Tns, ClientId, Pid}, Node}` for tenant namespaces (`Tns`).
 
 - **`emqx_mt_count`**: A `ordered_set` table for maintaining counters for each `Tns` in `emqx_mt_records`.
   The records follow the structure: `{{Tns, Node}, Count}`.
@@ -85,7 +90,7 @@ This application uses two **mnesia** tables, and one ETS table:
 
 ### Algorithm
 
-- To query client IDs for a tenant: traverse from `ets:next(emqx_mt_records, {Tns, <<>>, 0})`.
+- To query client IDs for a tenant: traverse from `ets:next(emqx_mt_records, {Tns, 0, 0})`.
 - To query the number of clients for a tenant sum up all the counts: `lists:sum(ets:match(emqx_mt_count, [{{{Tns,'_'},'$1'},[],['$1']}]))`.
 
 ### Event Handling
@@ -97,11 +102,11 @@ when the `session.created` callback is triggered.
 
 ```
 hook_callback(ClientInfo) ->
-  Msg = {register, get_tns(ClientInfo), get_clientid(ClientInfo), self()},
+  Msg = {add, get_tns(ClientInfo), get_clientid(ClientInfo), self()},
   _ = erlang:send(pick_pool_worker(emqx_mt), Msg),
   ok.
 
-handle_info({register, Tns, ClientId, Pid}, State) ->
+handle_info({add, Tns, ClientId, Pid}, State) ->
     ok = monitor_and_insert_ets(Pid),
     ok = insert_record(Tns, ClientId, Pid),
     %% when a client reconnects, there can be multiple Pids registered

@@ -10,8 +10,8 @@
 ]).
 
 -export([
-    list_ns/0,
-    is_any_client/1,
+    list_ns/2,
+    is_known_ns/1,
     count_clients/1,
     list_clients/3
 ]).
@@ -35,23 +35,47 @@
 %% 0 is less '<' than any client ID (binary() | atom()) in Erlang.
 %% and it's also less '<' than any pid().
 -define(MIN, 0).
--define(MIN_RECORD_KEY(Tns), ?RECORD_KEY(Tns, ?MIN, ?MIN)).
 
 -type tns() :: emqx_mt:tns().
 -type clientid() :: emqx_types:clientid().
 
-%% mria
+%% Mria table (disc_copies) to store the namespace records.
+%% Value is for future use.
+-define(NS_TAB, emqx_mt_ns).
+-record(?NS_TAB, {
+    ns :: tns(),
+    value = [] :: term()
+}).
+
+%% Mria table to store the client records.
+%% Pid is used in the key to make sure the record is unique,
+%% so there is no need for transaction to update the record.
+-define(MIN_RECORD_KEY(Tns), ?RECORD_KEY(Tns, ?MIN, ?MIN)).
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
     node :: node(),
     extra :: []
 }).
--record(?COUNTER_TAB, {key :: {tns(), node()}, count :: non_neg_integer()}).
 
-%% ets
+%% Mria table to store the number of clients in each namespace.
+%% The key has node in it to make sure the counter is unique,
+%% so there is no need for transaction to update the counter.
+-define(COUNTER_KEY(Tns, Node), {Tns, Node}).
+-record(?COUNTER_TAB, {
+    key :: ?COUNTER_KEY(tns(), node()),
+    count :: non_neg_integer()
+}).
+
+%% ETS table to keep track of the session pid for each client.
 -record(?MONITOR_TAB, {pid :: pid(), key :: {tns(), clientid()}}).
 
 create_tables() ->
+    ok = mria:create_table(?NS_TAB, [
+        {type, ordered_set},
+        {rlog_shard, ?EMQX_MT_SHARD},
+        {storage, disc_copies},
+        {attributes, record_info(fields, ?NS_TAB)}
+    ]),
     ok = mria:create_table(?RECORD_TAB, [
         {type, ordered_set},
         {rlog_shard, ?EMQX_MT_SHARD},
@@ -74,32 +98,37 @@ create_tables() ->
     ]),
     ok.
 
-%% @doc List all tenants.
--spec list_ns() -> [tns()].
-list_ns() ->
-    Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = {Tns, _}}) -> Tns end),
-    ets:select(?COUNTER_TAB, Ms).
+%% @doc List namespaces.
+%% The second argument is the last namespace from the previous page.
+%% The third argument is the number of namespaces to return.
+-spec list_ns(tns(), pos_integer()) -> [tns()].
+list_ns(LastNs, Limit) ->
+    Ms = ets:fun2ms(fun(#?NS_TAB{ns = Ns}) when Ns > LastNs -> Ns end),
+    case ets:select(?NS_TAB, Ms, Limit) of
+        '$end_of_table' -> [];
+        {Nss, _Continuation} -> Nss
+    end.
 
 %% @doc count the number of clients for a given tns.
 -spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.
 count_clients(Tns) ->
-    case is_any_client(Tns) of
+    case is_known_ns(Tns) of
         true -> {ok, do_count_clients(Tns)};
         false -> {error, not_found}
     end.
 
 do_count_clients(Tns) ->
-    Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = {Tns0, _}, count = Count}) when Tns0 =:= Tns -> Count
+    Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Tns0, _), count = Count}) when
+        Tns0 =:= Tns
+    ->
+        Count
     end),
     lists:sum(ets:select(?COUNTER_TAB, Ms)).
 
-%% @doc Returns true if any client exists for the given namespace.
--spec is_any_client(tns()) -> boolean().
-is_any_client(Tns) ->
-    case ets:next(?RECORD_TAB, ?MIN_RECORD_KEY(Tns)) of
-        '$end_of_table' -> false;
-        _ -> true
-    end.
+%% @doc Returns true if it is a known namespace.
+-spec is_known_ns(tns()) -> boolean().
+is_known_ns(Tns) ->
+    [] =/= ets:lookup(?NS_TAB, Tns).
 
 %% @doc list all clients for a given tns.
 %% The second argument is the last clientid from the previous page.
@@ -107,7 +136,7 @@ is_any_client(Tns) ->
 -spec list_clients(tns(), clientid(), non_neg_integer()) ->
     {ok, [clientid()]} | {error, not_found}.
 list_clients(Tns, LastClientId, Limit) ->
-    case is_any_client(Tns) of
+    case is_known_ns(Tns) of
         false -> {error, not_found};
         true -> {ok, do_list_clients(Tns, LastClientId, Limit)}
     end.
@@ -132,11 +161,21 @@ add(Tns, ClientId, Pid) ->
         extra = []
     },
     Monitor = #?MONITOR_TAB{pid = Pid, key = {Tns, ClientId}},
+    ok = ensure_ns_added(Tns),
     _ = ets:insert(?MONITOR_TAB, Monitor),
-    _ = mria:dirty_update_counter(?COUNTER_TAB, {Tns, node()}, 1),
+    _ = mria:dirty_update_counter(?COUNTER_TAB, ?COUNTER_KEY(Tns, node()), 1),
     ok = mria:dirty_write(?RECORD_TAB, Record),
     ?tp(debug, multi_tenant_client_added, #{tns => Tns, clientid => ClientId, pid => Pid}),
     ok.
+
+-spec ensure_ns_added(tns()) -> ok.
+ensure_ns_added(Tns) ->
+    case is_known_ns(Tns) of
+        true ->
+            ok;
+        false ->
+            ok = mria:dirty_write(?NS_TAB, #?NS_TAB{ns = Tns})
+    end.
 
 %% @doc delete a client.
 -spec del(pid()) -> ok.
@@ -147,7 +186,7 @@ del(Pid) ->
             ?tp(debug, multi_tenant_client_not_found, #{pid => Pid}),
             ok;
         [#?MONITOR_TAB{key = {Tns, ClientId}}] ->
-            _ = mria:dirty_update_counter(?COUNTER_TAB, {Tns, node()}, -1),
+            _ = mria:dirty_update_counter(?COUNTER_TAB, ?COUNTER_KEY(Tns, node()), -1),
             ok = mria:dirty_delete(?RECORD_TAB, ?RECORD_KEY(Tns, ClientId, Pid)),
             ets:delete(?MONITOR_TAB, Pid),
             ?tp(debug, multi_tenant_client_deleted, #{tns => Tns, clientid => ClientId, pid => Pid})
@@ -172,6 +211,8 @@ clear_for_node(Node) ->
 do_clear_for_node(Node) ->
     M1 = erlang:make_tuple(record_info(size, ?RECORD_TAB), '_', [{#?RECORD_TAB.node, Node}]),
     _ = mria:match_delete(?RECORD_TAB, M1),
-    M2 = erlang:make_tuple(record_info(size, ?COUNTER_TAB), '_', [{#?COUNTER_TAB.key, {'_', Node}}]),
+    M2 = erlang:make_tuple(record_info(size, ?COUNTER_TAB), '_', [
+        {#?COUNTER_TAB.key, ?COUNTER_KEY('_', Node)}
+    ]),
     _ = mria:match_delete(?COUNTER_TAB, M2),
     ok.

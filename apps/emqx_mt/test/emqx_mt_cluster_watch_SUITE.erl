@@ -64,7 +64,7 @@ t_node_down(_Config) ->
             3000
         )
     ),
-    ?assertEqual({error, not_found}, emqx_mt:count_clients(Username)),
+    ?assertEqual({ok, 0}, emqx_mt:count_clients(Username)),
     ok = emqtt:stop(Pid),
     ?assertMatch(
         {ok, #{tns := Username, clientid := ClientId}},

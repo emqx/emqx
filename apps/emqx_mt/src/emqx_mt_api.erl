@@ -44,8 +44,8 @@ api_spec() ->
 paths() ->
     [
         "/mt/ns_list",
-        "/mt/client_list/:ns",
-        "/mt/client_count/:ns"
+        "/mt/:ns/client_list",
+        "/mt/:ns/client_count"
     ].
 
 schema("/mt/ns_list") ->
@@ -55,6 +55,10 @@ schema("/mt/ns_list") ->
             tags => ?TAGS,
             summary => <<"List Namespaces">>,
             description => ?DESC("ns_list"),
+            parameters => [
+                last_ns_in_query(),
+                limit_in_query()
+            ],
             responses =>
                 #{
                     200 =>
@@ -65,14 +69,18 @@ schema("/mt/ns_list") ->
                 }
         }
     };
-schema("/mt/client_list/:ns") ->
+schema("/mt/:ns/client_list") ->
     #{
         'operationId' => client_list,
         get => #{
             tags => ?TAGS,
             summary => <<"List Clients in a Namespace">>,
             description => ?DESC("client_list"),
-            parameters => [param_path_ns()],
+            parameters => [
+                param_path_ns(),
+                last_clientid_in_query(),
+                limit_in_query()
+            ],
             responses =>
                 #{
                     200 =>
@@ -84,7 +92,7 @@ schema("/mt/client_list/:ns") ->
                 }
         }
     };
-schema("/mt/client_count/:ns") ->
+schema("/mt/:ns/client_count") ->
     #{
         'operationId' => client_count,
         get => #{
@@ -109,6 +117,42 @@ param_path_ns() ->
                 required => true,
                 example => <<"tns1">>,
                 desc => ?DESC("param_path_ns")
+            }
+        )}.
+
+last_ns_in_query() ->
+    {last_ns,
+        mk(
+            binary(),
+            #{
+                in => query,
+                required => true,
+                example => <<"ns1">>,
+                desc => ?DESC("last_ns_in_query")
+            }
+        )}.
+
+limit_in_query() ->
+    {limit,
+        mk(
+            non_neg_integer(),
+            #{
+                in => query,
+                required => true,
+                example => 100,
+                desc => ?DESC("limit_in_query")
+            }
+        )}.
+
+last_clientid_in_query() ->
+    {last_clientid,
+        mk(
+            binary(),
+            #{
+                in => query,
+                required => true,
+                example => <<"clientid1">>,
+                desc => ?DESC("last_clientid_in_query")
             }
         )}.
 
