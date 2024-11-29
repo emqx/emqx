@@ -1,0 +1,14 @@
+emqx_mt_api {
+    ns_list {
+        desc: "List all namespaces"
+        label: "List Namespaces"
+    }
+    client_list {
+        desc: "List all clients in a namespace"
+        label: "List Clients"
+    }
+    client_count {
+        desc: "Count all clients in a namespace"
+        label: "Count Clients"
+    }
+}
