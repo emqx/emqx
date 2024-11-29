@@ -57,7 +57,8 @@ groups() ->
 
 persistent_only_tcs() ->
     [
-        t_mixed_persistent_sessions
+        t_mixed_persistent_sessions,
+        t_many_persistent_sessions
     ].
 
 init_per_suite(Config) ->
@@ -208,6 +209,42 @@ t_mixed_persistent_sessions(Config) ->
 
     emqtt:disconnect(MemClient),
 
+    ok.
+
+t_many_persistent_sessions(Config) ->
+    ClientConfig = ?config(client_config, Config),
+    Clients = lists:map(
+        fun(I) ->
+            IBin = integer_to_binary(I),
+            {ok, Client} = emqtt:start_link(ClientConfig#{clientid => <<"sub_", IBin/binary>>}),
+            {ok, _} = emqtt:connect(Client),
+            ok = lists:foreach(
+                fun(IT) ->
+                    ITBin = integer_to_binary(IT),
+                    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(
+                        Client, <<"t/", IBin/binary, "/", ITBin/binary>>, 1
+                    )
+                end,
+                lists:seq(1, 30)
+            ),
+            Client
+        end,
+        lists:seq(1, 5)
+    ),
+    ct:sleep(100),
+    ok = lists:foreach(
+        fun(Client) -> emqtt:disconnect(Client) end,
+        Clients
+    ),
+    ct:sleep(100),
+    {ok,
+        {{_, 200, _}, _, #{
+            <<"data">> := Data
+        }}} = get_subs(#{page => "1", limit => "1000"}),
+    ?assertEqual(
+        150,
+        length(Data)
+    ),
     ok.
 
 t_subscription_fuzzy_search(Config) ->
