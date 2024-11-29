@@ -79,7 +79,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(#add_dry_run{id = ID, pid = Pid}, #{dry_run_pmon := Pmon0} = State0) ->
-    Pmon = emqx_pmon:monitor(Pid, ID, Pmon0),
+    Pmon = append_monitor(Pmon0, Pid, ID),
     State = State0#{dry_run_pmon := Pmon},
     {noreply, State};
 handle_cast(_Msg, State) ->
@@ -108,8 +108,8 @@ handle_down(Pid, State0) ->
             handle_down_cache(ID, Pid, State0);
         error ->
             case emqx_pmon:find(Pid, DryrunPmon) of
-                {ok, ID} ->
-                    handle_down_dry_run(ID, Pid, State0);
+                {ok, IDs} ->
+                    handle_down_dry_run(IDs, Pid, State0);
                 error ->
                     State0
             end
@@ -121,16 +121,20 @@ handle_down_cache(ID, Pid, State0) ->
     Pmon = emqx_pmon:erase(Pid, Pmon0),
     State0#{cache_pmon := Pmon}.
 
-handle_down_dry_run(ID, Pid, State0) ->
+handle_down_dry_run([ID | Rest], Pid, State0) ->
     #{dry_run_pmon := Pmon0} = State0,
     %% No need to wait here: since it's a dry run resource, it won't be recreated,
     %% assuming the ID is random enough.
     spawn(fun() ->
+        _ = emqx_resource_manager:remove(ID),
         emqx_resource_manager_sup:delete_child(ID),
         ?tp("resource_cache_cleaner_deleted_child", #{id => ID})
     end),
     Pmon = emqx_pmon:erase(Pid, Pmon0),
-    State0#{dry_run_pmon := Pmon}.
+    State = State0#{dry_run_pmon := Pmon},
+    handle_down_dry_run(Rest, Pid, State);
+handle_down_dry_run([], _Pid, State) ->
+    State.
 
 maybe_erase_cache(DownManager, ID) ->
     case emqx_resource_cache:read_manager_pid(ID) =:= DownManager of
@@ -140,4 +144,13 @@ maybe_erase_cache(DownManager, ID) ->
             %% already erased, or already replaced by another manager due to quick
             %% restart by supervisor
             ok
+    end.
+
+append_monitor(Pmon0, Pid, Value) ->
+    case emqx_pmon:find(Pid, Pmon0) of
+        error ->
+            emqx_pmon:monitor(Pid, [Value], Pmon0);
+        {ok, Values} ->
+            Pmon = emqx_pmon:demonitor(Pid, Pmon0),
+            emqx_pmon:monitor(Pid, [Value | Values], Pmon)
     end.
