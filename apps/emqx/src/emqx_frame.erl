@@ -61,8 +61,8 @@
     version :: emqx_types:proto_ver()
 }).
 
--record(remlen, {hdr, len, mult, opts :: options()}).
--record(body, {hdr, need, acc :: iodata(), opts :: options()}).
+-record(remlen, {hdr, len, mult, opts :: #options{}}).
+-record(body, {hdr, need, acc :: iodata(), opts :: #options{}}).
 
 -type parse_state() :: #remlen{} | #body{} | parse_state_initial().
 -type parse_state_initial() :: #options{}.
@@ -223,6 +223,8 @@ parse_bodyless_packet(#mqtt_packet_header{type = Type}) ->
     ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Type}).
 
 -compile({inline, [append_body/2]}).
+-dialyzer({no_improper_lists, [append_body/2]}).
+-spec append_body(iodata(), binary()) -> iodata().
 append_body(Acc, <<>>) ->
     Acc;
 append_body(Acc, Bytes) when is_binary(Acc) andalso byte_size(Acc) < 1024 ->
@@ -250,6 +252,7 @@ packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
 -compile({inline, [parse_packet_complete/3]}).
+-dialyzer({no_improper_lists, [parse_packet_complete/3]}).
 parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
