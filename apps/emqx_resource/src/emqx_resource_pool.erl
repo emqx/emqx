@@ -121,10 +121,9 @@ health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
             end
     end.
 
-parse_reason({
-    {shutdown, {failed_to_start_child, _, {shutdown, {failed_to_start_child, _, Reason}}}},
-    _
-}) ->
+parse_reason({worker_start_failed, Reason}) ->
+    Reason;
+parse_reason({worker_exit, Reason}) ->
     Reason;
 parse_reason(Reason) ->
     Reason.

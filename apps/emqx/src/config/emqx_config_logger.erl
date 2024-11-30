@@ -169,7 +169,7 @@ tr_file_handler({HandlerName, SubConf}) ->
         level => conf_get("level", SubConf),
         config => HandlerConf#{
             type => Type,
-            file => FilePath,
+            file => emqx_schema:naive_env_interpolation(FilePath),
             max_no_files => RotationCount,
             max_no_bytes => RotationSize
         },
@@ -187,6 +187,9 @@ logger_file_handlers(Conf) ->
     logger_handlers(Handlers).
 
 logger_handlers(Handlers) ->
+    keep_only_enabeld(Handlers).
+
+keep_only_enabeld(Handlers) ->
     lists:filter(
         fun({_Name, Handler}) ->
             conf_get("enable", Handler, false)
