@@ -419,12 +419,23 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     maps:foreach(
         fun(Shard, ShardIts) ->
-            ok = ra_poll(
+            Result = ra_poll(
                 DB,
                 Shard,
                 [{{ReplyTo, Token}, It} || {Token, It} <- ShardIts],
                 PollOpts
-            )
+            ),
+            case Result of
+                ok ->
+                    ok;
+                {error, Class, Reason} ->
+                    ?tp(debug, ds_repl_poll_shard_failed, #{
+                        db => DB,
+                        shard => Shard,
+                        class => Class,
+                        reason => Reason
+                    })
+            end
         end,
         Groups
     ),
