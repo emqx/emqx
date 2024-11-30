@@ -129,6 +129,10 @@ if [ -z "${PROFILE+x}" ]; then
         apps/emqx_rule_engine)
             export PROFILE='emqx-enterprise'
             ;;
+        # emqx_auth_http has scram:http support which is only available in emqx-enterprise
+        apps/emqx_auth_http)
+            export PROFILE='emqx-enterprise'
+            ;;
         apps/emqx_fdb*)
             export PROFILE='emqx-platform'
             ;;
