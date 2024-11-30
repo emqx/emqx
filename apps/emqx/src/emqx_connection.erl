@@ -134,8 +134,11 @@
 }).
 
 -type parser() ::
-    {emqx_frame_parser, emqx_frame_parser:options()}
-    | emqx_frame:parse_state().
+    %% Special, slightly better optimized "complete-frames" parser.
+    %% Expected to be enabled when `{packet, mqtt}` is used for MQTT framing.
+    {frame, emqx_frame:parse_state_initial()}
+    %% Bytestream parser.
+    | _Stream :: emqx_frame:parse_state().
 
 -record(retry, {
     types :: list(limiter_type()),
@@ -341,8 +344,8 @@ init_state(
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    ParserMod = maps:get(parser, Opts, emqx_frame_stream),
-    Parser = init_parser(ParserMod, FrameOpts),
+    ParserMode = maps:get(parser_mode, Opts, stream),
+    Parser = init_parser(ParserMode, FrameOpts),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
@@ -824,30 +827,26 @@ parse_incoming(Data, State = #state{parser = Parser}) ->
             {[{frame_error, Reason}], State}
     end.
 
-init_parser(emqx_frame_parser, FrameOpts) ->
-    {emqx_frame_parser, emqx_frame_parser:init_options(FrameOpts)};
-init_parser(emqx_frame_stream, FrameOpts) ->
+init_parser(frame, FrameOpts) ->
+    {frame, emqx_frame:initial_parse_state(FrameOpts)};
+init_parser(stream, FrameOpts) ->
     emqx_frame:initial_parse_state(FrameOpts).
 
 update_state_on_parse_error(
-    {emqx_frame_parser, _Options},
-    #{proto_ver := ProtoVer},
+    ParseState0,
+    #{proto_ver := ProtoVer, parse_state := ParseState},
     State
 ) ->
     Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    State#state{serialize = Serialize};
-update_state_on_parse_error(
-    ParseState,
-    #{proto_ver := ProtoVer} = ParseError,
-    State
-) ->
-    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
-    NParseState = maps:get(parse_state, ParseError, ParseState),
+    case ParseState0 of
+        {frame, _Options} -> NParseState = {frame, ParseState};
+        _StreamParseState -> NParseState = ParseState
+    end,
     State#state{serialize = Serialize, parser = NParseState};
 update_state_on_parse_error(_, _, State) ->
     State.
 
-run_parser(Data, {emqx_frame_parser, Options}, State) ->
+run_parser(Data, {frame, Options}, State) ->
     run_frame_parser(Data, Options, State);
 run_parser(Data, ParseState, State) ->
     run_stream_parser(Data, [], ParseState, State).
@@ -865,23 +864,19 @@ run_stream_parser(Data, Acc, ParseState, State) ->
 
 -compile({inline, [run_frame_parser/3]}).
 run_frame_parser(Data, Options, State) ->
-    Packet = emqx_frame_parser:parse(Data, Options),
-    case Packet of
-        ?CONNECT_PACKET() ->
-            NOptions = emqx_frame_parser:update_options(Packet, Options),
-            NState = State#state{parser = {emqx_frame_parser, NOptions}},
-            {[Packet], NState};
-        _ ->
-            {[Packet], State}
+    case emqx_frame:parse_complete(Data, Options) of
+        Packet when is_tuple(Packet) ->
+            {[Packet], State};
+        [Packet | NOptions] ->
+            NState = State#state{parser = {frame, NOptions}},
+            {[Packet], NState}
     end.
 
-describe_parser_state({emqx_frame_parser, _Options}) ->
-    undefined;
 describe_parser_state(ParseState) ->
     emqx_frame:describe_state(ParseState).
 
-get_parser_state({emqx_frame_parser, _Options}) ->
-    undefined;
+get_parser_state({frame, Options}) ->
+    Options;
 get_parser_state(ParseState) ->
     ParseState.
 

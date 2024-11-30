@@ -20,12 +20,14 @@
 
 -export([
     initial_parse_state/0,
-    initial_parse_state/1
+    initial_parse_state/1,
+    update_parse_state/2
 ]).
 
 -export([
     parse/1,
     parse/2,
+    parse_complete/2,
     serialize_fun/0,
     serialize_fun/1,
     initial_serialize_opts/1,
@@ -42,6 +44,7 @@
 -export_type([
     options/0,
     parse_state/0,
+    parse_state_initial/0,
     parse_result/0,
     serialize_opts/0
 ]).
@@ -155,10 +158,34 @@ parse(
 parse(<<>>, State) ->
     {more, State}.
 
+%% @doc Parses _complete_ binary frame into a single `#mqtt_packet{}`.
+-spec parse_complete(iodata(), parse_state_initial()) ->
+    emqx_types:packet() | nonempty_improper_list(emqx_types:packet(), parse_state_initial()).
+parse_complete(
+    <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
+    Options = #options{strict_mode = StrictMode}
+) ->
+    %% Validate header if strict mode.
+    StrictMode andalso validate_header(Type, Dup, QoS, Retain),
+    Header = #mqtt_packet_header{
+        type = Type,
+        dup = bool(Dup),
+        qos = fixqos(Type, QoS),
+        retain = bool(Retain)
+    },
+    case Rest1 of
+        <<0:8>> ->
+            parse_bodyless_packet(Header);
+        _ ->
+            Rest2 = skip_variable_byte_integer(Rest1),
+            parse_packet_complete(Rest2, Header, Options)
+    end.
+
 parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
     {more, #remlen{hdr = Header, len = Length, mult = Mult, opts = Options}};
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
-    parse_bodyless_frame(Rest, Header, Options);
+    Packet = parse_bodyless_packet(Header),
+    {Packet, Rest, Options};
 %% Match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
 parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     parse_body_frame(Rest, Header, 2, <<>>, Options);
@@ -181,18 +208,18 @@ parse_remaining_len(
         false -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
     end.
 
+-compile({inline, [parse_bodyless_packet/1]}).
+
 %% Match DISCONNECT without payload
-parse_bodyless_frame(Rest, Header = #mqtt_packet_header{type = ?DISCONNECT}, Options) ->
-    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
-    {Packet, Rest, Options};
+parse_bodyless_packet(Header = #mqtt_packet_header{type = ?DISCONNECT}) ->
+    packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS});
 %% Match PINGREQ.
-parse_bodyless_frame(Rest, Header = #mqtt_packet_header{type = ?PINGREQ}, Options) ->
-    Packet = packet(Header),
-    {Packet, Rest, Options};
-parse_bodyless_frame(_Rest, #mqtt_packet_header{type = ?PINGRESP}, _Options) ->
+parse_bodyless_packet(Header = #mqtt_packet_header{type = ?PINGREQ}) ->
+    packet(Header);
+parse_bodyless_packet(#mqtt_packet_header{type = ?PINGRESP}) ->
     ?PARSE_ERR(#{cause => unexpected_packet, header_type => 'PINGRESP'});
 %% All other types of messages should not have a zero remaining length.
-parse_bodyless_frame(_Rest, #mqtt_packet_header{type = Type}, _Options) ->
+parse_bodyless_packet(#mqtt_packet_header{type = Type}) ->
     ?PARSE_ERR(#{cause => zero_remaining_len, header_type => Type}).
 
 -compile({inline, [append_body/2]}).
@@ -222,23 +249,39 @@ packet(Header, Variable) ->
 packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
-parse_connect(Frame, Header, Leftovers, Options = #options{strict_mode = StrictMode}) ->
+-compile({inline, [parse_packet_complete/3]}).
+parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
+    Variable = parse_connect(Frame, Options),
+    Packet = packet(Header, Variable),
+    NOptions = update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options),
+    [Packet | NOptions];
+parse_packet_complete(Frame, Header, Options) ->
+    parse_packet(Frame, Header, Options).
+
+-compile({inline, [parse_packet/4]}).
+parse_packet(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options, Rest) ->
+    Variable = parse_connect(Frame, Options),
+    Packet = packet(Header, Variable),
+    {Packet, Rest, update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options)};
+parse_packet(Frame, Header, Options, Rest) ->
+    Packet = parse_packet(Frame, Header, Options),
+    {Packet, Rest, Options}.
+
+parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
     {ProtoName, Rest0} = parse_utf8_string(Frame, StrictMode, invalid_proto_name),
     %% No need to parse and check proto_ver if proto_name is invalid, check it first
     %% And the matching check of `proto_name` and `proto_ver` fields will be done in `emqx_packet:check_proto_ver/2`
     _ = validate_proto_name(ProtoName),
     {IsBridge, ProtoVer, Rest2} = parse_connect_proto_ver(Rest0),
     try
-        Variable = do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode),
-        Packet = packet(Header, Variable),
-        {Packet, Leftovers, update_options(ProtoVer, Options)}
+        do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
             ?PARSE_ERR(
                 ReasonM#{
                     proto_ver => ProtoVer,
                     proto_name => ProtoName,
-                    parse_state => update_options(ProtoVer, Options)
+                    parse_state => update_parse_state(ProtoVer, Options)
                 }
             );
         throw:{?FRAME_PARSE_ERROR, Reason} ->
@@ -247,14 +290,14 @@ parse_connect(Frame, Header, Leftovers, Options = #options{strict_mode = StrictM
                     cause => Reason,
                     proto_ver => ProtoVer,
                     proto_name => ProtoName,
-                    parse_state => update_options(ProtoVer, Options)
+                    parse_state => update_parse_state(ProtoVer, Options)
                 }
             )
     end.
 
--spec update_options(emqx_types:proto_ver(), parse_state_initial()) ->
+-spec update_parse_state(emqx_types:proto_ver(), parse_state_initial()) ->
     parse_state_initial().
-update_options(ProtoVer, Options) ->
+update_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer}.
 
 do_parse_connect(
@@ -329,13 +372,6 @@ do_parse_connect(
 do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
     %% sent less than 24 bytes
     ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
-
--compile({inline, [parse_packet/4]}).
-parse_packet(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options, Rest) ->
-    parse_connect(Frame, Header, Rest, Options);
-parse_packet(Frame, Header, Options, Rest) ->
-    Packet = parse_packet(Frame, Header, Options),
-    {Packet, Rest, Options}.
 
 parse_packet(
     <<AckFlags:8, ReasonCode:8, Rest/binary>>,
@@ -616,6 +652,17 @@ parse_variable_byte_integer(<<1:1, D1:7, 0:1, D2:7, Rest/binary>>) ->
 parse_variable_byte_integer(<<0:1, D1:7, Rest/binary>>) ->
     {D1, Rest};
 parse_variable_byte_integer(_) ->
+    ?PARSE_ERR(malformed_variable_byte_integer).
+
+skip_variable_byte_integer(<<1:1, _D1:7, 1:1, _D2:7, 1:1, _D3:7, 0:1, _D4:7, Rest/binary>>) ->
+    Rest;
+skip_variable_byte_integer(<<1:1, _D1:7, 1:1, _D2:7, 0:1, _D3:7, Rest/binary>>) ->
+    Rest;
+skip_variable_byte_integer(<<1:1, _D1:7, 0:1, _D2:7, Rest/binary>>) ->
+    Rest;
+skip_variable_byte_integer(<<0:1, _D1:7, Rest/binary>>) ->
+    Rest;
+skip_variable_byte_integer(_) ->
     ?PARSE_ERR(malformed_variable_byte_integer).
 
 parse_topic_filters(subscribe, Bin) ->

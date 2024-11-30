@@ -84,7 +84,7 @@
 %%       'peer_bidi_stream_count` & 'peer_unidi_stream_count`
 -spec activate_data_streams(
     pid(),
-    {emqx_frame:parse_state(), emqx_frame_stream:serialize_opts(), emqx_channel:channel()}
+    {emqx_frame:parse_state(), emqx_frame:serialize_opts(), emqx_channel:channel()}
 ) -> ok.
 activate_data_streams(ConnOwner, {PS, Serialize, Channel}) ->
     gen_server:call(ConnOwner, {activate_data_streams, {PS, Serialize, Channel}}, infinity).
