@@ -54,6 +54,8 @@
     esockd_access_rules/1
 ]).
 
+-export([is_packet_parser_available/1]).
+
 -export([pre_config_update/3, post_config_update/5]).
 
 -export([format_bind/1]).
@@ -83,7 +85,6 @@
 %% MQTT SockOpts
 -define(MQTT_SOCKOPTS, [
     binary,
-    {packet, mqtt},
     {reuseaddr, true},
     {backlog, 512},
     {nodelay, true}
@@ -604,6 +605,7 @@ perform_listener_change(stop, {Type, Name, Conf}) ->
 esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
     Zone = zone(Opts0),
     Limiter = limiter(Opts0),
+    {Parser, PacketTcpOpts} = choose_parser_opts(Zone),
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Opts2 =
         case emqx_limiter_utils:extract_with_type(connection, Limiter) of
@@ -623,15 +625,14 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
             {emqx_connection, start_link, [
                 #{
                     listener => {Type, Name},
-                    parser_mode => frame,
+                    parser_mode => Parser,
                     zone => Zone,
                     limiter => Limiter,
                     enable_authn => enable_authn(Opts0)
                 }
             ]}
     },
-    PacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
-    TcpOpts = [{packet_size, PacketSize} | tcp_opts(Opts0)],
+    TcpOpts = emqx_utils:merge_opts(?MQTT_SOCKOPTS, PacketTcpOpts ++ tcp_opts(Opts0)),
     maps:to_list(
         case Type of
             tcp ->
@@ -692,6 +693,23 @@ ranch_opts(Type, Opts = #{bind := ListenOn}) ->
             %% cowboy don't allow us to set 'reuseaddr'
             proplists:delete(reuseaddr, SocketOpts)
     }.
+
+choose_parser_opts(Zone) ->
+    case is_packet_parser_available(mqtt) of
+        true ->
+            PacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+            {frame, [{packet, mqtt}, {packet_size, PacketSize}]};
+        false ->
+            {stream, [{packet, raw}]}
+    end.
+
+-spec is_packet_parser_available(atom()) -> boolean().
+is_packet_parser_available(Type) ->
+    try erlang:decode_packet(Type, <<>>, []) of
+        _ -> true
+    catch
+        error:badarg -> false
+    end.
 
 ip_port(Port) when is_integer(Port) ->
     [{port, Port}];
@@ -836,9 +854,8 @@ ssl_opts(Opts) ->
     emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
 
 tcp_opts(Opts) ->
-    TcpOpts0 = maps:to_list(maps:get(tcp_options, Opts, #{})),
-    TcpOpts = lists:flatten(lists:map(fun tcp_opt/1, TcpOpts0)),
-    emqx_utils:merge_opts(?MQTT_SOCKOPTS, TcpOpts).
+    TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),
+    lists:flatten(lists:map(fun tcp_opt/1, TcpOpts)).
 
 tcp_opt({active_n, _}) ->
     %% The `active_n' option is ignored for listener socket.
