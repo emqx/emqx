@@ -130,10 +130,11 @@ handle_telemetry_event(
             %% We catch errors to avoid detaching the telemetry handler function.
             %% When restarting a resource while it's under load, there might be transient
             %% failures while the metrics are not yet created.
-            ?SLOG(
+            ?SLOG_THROTTLE(
                 warning,
+                ID,
                 #{
-                    msg => "handle_resource_metrics_failed",
+                    msg => handle_resource_metrics_failed,
                     hint => "transient failures may occur when restarting a resource",
                     kind => Kind,
                     reason => Reason,
@@ -158,10 +159,11 @@ handle_telemetry_event(
             %% We catch errors to avoid detaching the telemetry handler function.
             %% When restarting a resource while it's under load, there might be transient
             %% failures while the metrics are not yet created.
-            ?SLOG(
+            ?SLOG_THROTTLE(
                 warning,
+                ID,
                 #{
-                    msg => "handle_resource_metrics_failed",
+                    msg => handle_resource_metrics_failed,
                     hint => "transient failures may occur when restarting a resource",
                     kind => Kind,
                     reason => Reason,
