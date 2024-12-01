@@ -121,7 +121,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:minirest),
       common_dep(:ecpool),
       common_dep(:replayq),
-      common_dep(:pbkdf2),
       # maybe forbid to fetch quicer
       common_dep(:emqtt),
       common_dep(:rulesql),
@@ -232,9 +231,6 @@ defmodule EMQXUmbrella.MixProject do
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
 
   def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
-
-  def common_dep(:pbkdf2),
-    do: {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true}
 
   def common_dep(:bcrypt),
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true}

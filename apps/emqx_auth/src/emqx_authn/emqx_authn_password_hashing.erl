@@ -87,8 +87,12 @@ fields(pbkdf2) ->
         {name, sc(pbkdf2, #{required => true, desc => "PBKDF2 password hashing."})},
         {mac_fun,
             sc(
-                hoconsc:enum([md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]),
-                #{required => true, desc => "Specifies mac_fun for PBKDF2 hashing algorithm."}
+                hoconsc:enum([sha, sha224, sha256, sha384, sha512]),
+                #{
+                    required => false,
+                    default => sha,
+                    desc => "The hash algorithm used by HMAC."
+                }
             )},
         {iterations,
             sc(

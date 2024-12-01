@@ -140,10 +140,17 @@ compare_secure([], [], Result) ->
     Result == 0.
 
 pbkdf2(MacFun, Password, Salt, Iterations, undefined) ->
-    pbkdf2:pbkdf2(MacFun, Password, Salt, Iterations);
+    DKLength = dk_length(MacFun),
+    pbkdf2(MacFun, Password, Salt, Iterations, DKLength);
 pbkdf2(MacFun, Password, Salt, Iterations, DKLength) ->
-    pbkdf2:pbkdf2(MacFun, Password, Salt, Iterations, DKLength).
+    crypto:pbkdf2_hmac(MacFun, Password, Salt, Iterations, DKLength).
 
 hex(X) when is_binary(X) ->
-    %% TODO: change to binary:encode_hex(X, lowercase) when OTP version is always > 25
+    %% TODO: change to binary:encode_hex(X, lowercase) when OTP version is always >= 26
     string:lowercase(binary:encode_hex(X)).
+
+dk_length(sha) -> 20;
+dk_length(sha224) -> 28;
+dk_length(sha256) -> 32;
+dk_length(sha384) -> 48;
+dk_length(sha512) -> 64.
