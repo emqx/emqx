@@ -1039,7 +1039,7 @@ t_share_subscribe_no_local(Config) ->
     %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1] (Disconnect)
     case catch emqtt:subscribe(Client, #{}, [{ShareTopic, [{nl, true}, {qos, 1}]}]) of
         {'EXIT', {Reason, _Stk}} ->
-            ?assertEqual({disconnected, ?RC_PROTOCOL_ERROR, #{}}, Reason)
+            ?assertEqual({shutdown, {disconnected, ?RC_PROTOCOL_ERROR, #{}}}, Reason)
     end,
 
     process_flag(trap_exit, false).
