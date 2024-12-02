@@ -54,7 +54,11 @@
 ]).
 
 -ifdef(TEST).
+-include_lib("proper/include/proper.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -export([paginate_test_format/1]).
+
 -endif.
 
 -export_type([
@@ -565,8 +569,6 @@ accumulate_query_rows(
                 count => Count + length(SubRows),
                 rows => [{Node, SubRows} | RowsAcc]
             }};
-        NCursor when NCursor >= PageEnd + Limit ->
-            {enough, ResultAcc#{cursor => NCursor}};
         NCursor when NCursor >= PageEnd ->
             SubRows = lists:sublist(Rows, Limit - Count),
             {enough, ResultAcc#{
@@ -707,19 +709,18 @@ format_query_result(
         end,
     #{
         meta => Meta,
-        data => lists:flatten(
-            lists:foldl(
-                fun({Node, Rows}, Acc) ->
-                    [
-                        lists:map(fun(Row) -> exec_format_fun(FmtFun, Node, Row, Opts) end, Rows)
-                        | Acc
-                    ]
-                end,
-                [],
-                RowsAcc
-            )
-        )
+        data => format_query_data(FmtFun, RowsAcc, Opts)
     }.
+
+format_query_data(FmtFun, RowsAcc, Opts) ->
+    %% NOTE: `RowsAcc` is reversed in the node-order, `lists:foldl/3` is correct here.
+    lists:foldl(
+        fun({Node, Rows}, Acc) ->
+            [exec_format_fun(FmtFun, Node, R, Opts) || R <- Rows] ++ Acc
+        end,
+        [],
+        RowsAcc
+    ).
 
 exec_format_fun(FmtFun, Node, Row, Opts) ->
     case erlang:fun_info(FmtFun, arity) of
@@ -813,7 +814,6 @@ b2i(Any) ->
 %%--------------------------------------------------------------------
 
 -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
 
 params2qs_test_() ->
     QSchema = [
@@ -926,4 +926,72 @@ assert_paginate_results(Results, Size, Limit) ->
             ?_assertEqual(Size, length(AllData)),
             ?_assertEqual(Size, sets:size(sets:from_list(AllData)))
         ].
+
+accumulate_prop_test() ->
+    ?assert(proper:quickcheck(accumulate_prop(), [{numtests, 1000}])).
+
+accumulate_prop() ->
+    ?FORALL(
+        #{page := Page, limit := Limit, noderows := NodeRows},
+        emqx_proper_types:fixedmap(#{
+            page => page_t(),
+            limit => limit_t(),
+            noderows => noderows_t()
+        }),
+        begin
+            QState = #{page => Page, limit => Limit},
+            {Status, #{rows := QRowsAcc}} = lists:foldl(
+                fun
+                    ({Node, Rows}, {more, QRAcc}) ->
+                        accumulate_query_rows(Node, Rows, QState, QRAcc);
+                    (_NodeRows, {enough, QRAcc}) ->
+                        {enough, QRAcc}
+                end,
+                {more, init_query_result()},
+                NodeRows
+            ),
+            QRows = format_query_data(fun(N, R) -> {N, R} end, QRowsAcc, #{}),
+            measure(
+                #{
+                    "Limit" => Limit,
+                    "Page" => Page,
+                    "NRows" => length(QRows),
+                    "Complete" => emqx_utils_conv:int(Status == enough)
+                },
+                accumulate_assert_nonempty(Status, QState, QRows) and
+                    accumulate_assert_continuous(QRows)
+            )
+        end
+    ).
+
+accumulate_assert_nonempty(enough, #{limit := Limit}, QRows) ->
+    length(QRows) =:= Limit;
+accumulate_assert_nonempty(more, _QS, _QRows) ->
+    true.
+
+accumulate_assert_continuous([{N, R1} | Rest = [{N, R2} | _]]) ->
+    (R2 - R1 =:= 1) andalso accumulate_assert_continuous(Rest);
+accumulate_assert_continuous([{_N1, _} | Rest = [{_N2, R} | _]]) ->
+    (R =:= 1) andalso accumulate_assert_continuous(Rest);
+accumulate_assert_continuous([_]) ->
+    true;
+accumulate_assert_continuous([]) ->
+    true.
+
+page_t() ->
+    pos_integer().
+
+limit_t() ->
+    emqx_proper_types:scaled(0.6, pos_integer()).
+
+noderows_t() ->
+    ?LET(
+        {Nodes, PageSize},
+        {pos_integer(), limit_t()},
+        [{N, lists:seq(1, PageSize)} || N <- lists:seq(1, Nodes)]
+    ).
+
+measure(NamedSamples, Test) ->
+    maps:fold(fun(Name, Sample, Acc) -> measure(Name, Sample, Acc) end, Test, NamedSamples).
+
 -endif.
