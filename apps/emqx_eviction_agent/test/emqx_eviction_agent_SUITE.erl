@@ -227,7 +227,7 @@ t_explicit_session_takeover(Config) ->
         begin
             ok = rpc:call(Node1, emqx_eviction_agent, evict_connections, [1]),
             receive
-                {'EXIT', C0, {disconnected, ?RC_USE_ANOTHER_SERVER, _}} -> ok
+                {'EXIT', C0, {shutdown, {disconnected, ?RC_USE_ANOTHER_SERVER, _}}} -> ok
             after 1000 ->
                 ?assert(false, "Connection not evicted")
             end

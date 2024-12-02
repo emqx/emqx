@@ -584,7 +584,7 @@ t_auth_expire(_Config) ->
             {ok, _} = emqtt:connect(C),
             receive
                 {'DOWN', _Ref, process, C, Reason} ->
-                    ?assertMatch({disconnected, ?RC_NOT_AUTHORIZED, _}, Reason)
+                    ?assertMatch({shutdown, {disconnected, ?RC_NOT_AUTHORIZED, _}}, Reason)
             after WaitTime ->
                 error(timeout)
             end

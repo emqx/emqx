@@ -36,7 +36,7 @@ assert_otp() ->
     end.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.9"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.10"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.
@@ -142,23 +142,10 @@ is_community_umbrella_app(_) -> true.
 is_build_without(Name) ->
     "1" =:= os:getenv("BUILD_WITHOUT_" ++ Name).
 
-%% BUILD_WITH_QUIC
-is_build_with(Name) ->
-    "1" =:= os:getenv("BUILD_WITH_" ++ Name).
-
 is_jq_supported() ->
     not is_build_without("JQ").
 
 is_quicer_supported() ->
-    %% for ones who want to build QUIC on macos
-    %% export BUILD_WITH_QUIC=1
-    is_build_with("QUIC") orelse
-        is_quicer_supported(os:type()).
-
-is_quicer_supported({unix, darwin}) ->
-    %% no quic on macos so far
-    false;
-is_quicer_supported(_) ->
     not is_build_without("QUIC").
 
 is_rocksdb_supported() ->

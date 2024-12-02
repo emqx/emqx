@@ -429,3 +429,106 @@ t_shift_gauge(_Config) ->
     ?assertEqual(2, emqx_metrics_worker:get_gauge(?NAME, AnotherId, Metric)),
 
     ok.
+
+%% Tests that check the behavior of `ensure_metrics'.
+t_ensure_metrics(_Config) ->
+    Id1 = <<"id1">>,
+    Metrics1 = [c1, {counter, c2}, c3, {slide, s1}, {slide, s2}],
+    RateMetrics1 = [c2, c3],
+    %% Behaves as `create_metrics' if absent
+    ?assertEqual(
+        {ok, created},
+        emqx_metrics_worker:ensure_metrics(?NAME, Id1, Metrics1, RateMetrics1)
+    ),
+    ?assertMatch(
+        #{
+            counters := #{c1 := _, c2 := _, c3 := _},
+            rate := #{c2 := _, c3 := _},
+            gauges := #{},
+            slides := #{s1 := _, s2 := _}
+        },
+        emqx_metrics_worker:get_metrics(?NAME, Id1)
+    ),
+    %% Does nothing if everything is in place
+    ?assertEqual(
+        {ok, already_created},
+        emqx_metrics_worker:ensure_metrics(?NAME, Id1, Metrics1, RateMetrics1)
+    ),
+    ?assertMatch(
+        #{
+            counters := #{c1 := _, c2 := _, c3 := _},
+            rate := #{c2 := _, c3 := _},
+            gauges := #{},
+            slides := #{s1 := _, s2 := _}
+        },
+        emqx_metrics_worker:get_metrics(?NAME, Id1)
+    ),
+
+    %% Does nothing if asked to ensure a subset of existing metrics
+    Metrics2 = [c1],
+    RateMetrics2 = [c3],
+    ?assertEqual(
+        {ok, already_created},
+        emqx_metrics_worker:ensure_metrics(?NAME, Id1, Metrics2, RateMetrics2)
+    ),
+    ?assertEqual(
+        {ok, already_created},
+        emqx_metrics_worker:ensure_metrics(?NAME, Id1, [], [])
+    ),
+    ?assertMatch(
+        #{
+            counters := #{c1 := _, c2 := _, c3 := _},
+            rate := #{c2 := _, c3 := _},
+            gauges := #{},
+            slides := #{s1 := _, s2 := _}
+        },
+        emqx_metrics_worker:get_metrics(?NAME, Id1)
+    ),
+
+    %% If we have an initially smaller set of metrics, `ensure_metrics' will behave as
+    %% `create_metrics' if one is missing.
+    Id2 = <<"id2">>,
+    lists:foreach(
+        fun(
+            #{remove_from_metrics := RemoveFromMetrics, remove_from_rates := RemoveFromRates} = Ctx
+        ) ->
+            ok = emqx_metrics_worker:clear_metrics(?NAME, Id2),
+            Metrics3 = Metrics1 -- RemoveFromMetrics,
+            RateMetrics3 = RateMetrics1 -- RemoveFromRates,
+            ok = emqx_metrics_worker:create_metrics(?NAME, Id2, Metrics3, RateMetrics3),
+            ?assertEqual(
+                {ok, created},
+                emqx_metrics_worker:ensure_metrics(?NAME, Id2, Metrics1, RateMetrics1),
+                Ctx
+            ),
+            ?assertMatch(
+                #{
+                    counters := #{c1 := _, c2 := _, c3 := _},
+                    rate := #{c2 := _, c3 := _},
+                    gauges := #{},
+                    slides := #{s1 := _, s2 := _}
+                },
+                emqx_metrics_worker:get_metrics(?NAME, Id2)
+            ),
+            ok
+        end,
+        [
+            #{
+                remove_from_metrics => [c1],
+                remove_from_rates => []
+            },
+            #{
+                remove_from_metrics => [{counter, c2}],
+                remove_from_rates => [c2]
+            },
+            #{
+                remove_from_metrics => [{slide, s2}],
+                remove_from_rates => []
+            },
+            #{
+                remove_from_metrics => [],
+                remove_from_rates => RateMetrics1
+            }
+        ]
+    ),
+    ok.

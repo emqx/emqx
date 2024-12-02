@@ -486,6 +486,16 @@ get_action_api(Config) ->
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
+get_action_metrics_api(Config) ->
+    ActionName = ?config(action_name, Config),
+    ActionType = ?config(action_type, Config),
+    ActionId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", ActionId, "metrics"]),
+    ct:pal("getting action (http)"),
+    Res = request(get, Path, []),
+    ct:pal("get action (http) result:\n  ~p", [Res]),
+    simplify_result(Res).
+
 update_bridge_api(Config) ->
     update_bridge_api(Config, _Overrides = #{}).
 
