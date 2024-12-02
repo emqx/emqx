@@ -547,7 +547,7 @@ force_set_config_file_paths(emqx, Paths) ->
     %% we need init cluster conf, so we can save the cluster conf to the file
     application:set_env(emqx, local_override_conf_file, "local_override.conf"),
     application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
-    application:set_env(emqx, cluster_conf_file, "cluster.hocon"),
+    application:set_env(emqx, cluster_hocon_file, "cluster.hocon"),
     application:set_env(emqx, config_files, Paths);
 force_set_config_file_paths(_, _) ->
     ok.
@@ -1004,7 +1004,7 @@ clear_screen() ->
     end.
 
 with_mock(Mod, FnName, MockedFn, Fun) ->
-    ok = meck:new(Mod, [non_strict, no_link, no_history, passthrough]),
+    ok = meck:new(Mod, [no_link, no_history, passthrough]),
     ok = meck:expect(Mod, FnName, MockedFn),
     try
         Fun()

@@ -1003,25 +1003,8 @@ t_authentication_error_on_send_message(Config0) ->
         end,
     Config = lists:keyreplace(greptimedb_config, 1, Config0, {greptimedb_config, GreptimeConfig}),
 
-    % Fake initialization to simulate credential update after bridge was created.
-    emqx_common_test_helpers:with_mock(
-        greptimedb,
-        check_auth,
-        fun(_) ->
-            ok
-        end,
-        fun() ->
-            {ok, _} = create_bridge(Config),
-            ResourceId = resource_id(Config0),
-            ?retry(
-                _Sleep = 1_000,
-                _Attempts = 10,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-            )
-        end
-    ),
+    {ok, _} = create_bridge(Config),
 
-    % Now back to wrong credentials
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     Payload = #{
         int_key => -123,

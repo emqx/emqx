@@ -251,5 +251,11 @@
     "listen": "0.0.0.0:8362",
     "upstream": "datalayers_tls:8362",
     "enabled": true
+  },
+  {
+    "name": "mongo_single_tcp",
+    "listen": "0.0.0.0:27017",
+    "upstream": "mongo:27017",
+    "enabled": true
   }
 ]

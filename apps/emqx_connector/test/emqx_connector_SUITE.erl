@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CONNECTOR, emqx_connector_dummy_impl).
 
@@ -325,6 +326,53 @@ t_no_buffer_workers(Config) ->
     ConnConfig = connector_config(),
     ?assertMatch({ok, _}, emqx:update_config(Path, ConnConfig)),
     ?assertEqual([], supervisor:which_children(emqx_resource_buffer_worker_sup)),
+    ok.
+
+%% Checks that the maximum timeout (currently) set by `resource_opts.health_check_timeout'
+%% is respected when doing a dry run, even if the removal gets stuck because the resource
+%% process is unresponsive.
+t_dryrun_timeout({'init', Config}) ->
+    meck:new(emqx_connector_resource, [passthrough]),
+    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
+    meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, resource_type, 0, dummy),
+    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    %% hang forever
+    meck:expect(?CONNECTOR, on_start, fun(_ConnResId, _Opts) ->
+        receive
+            go -> ok
+        end
+    end),
+    meck:expect(?CONNECTOR, on_get_channels, 1, []),
+    meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_stop, 2, ok),
+    meck:expect(?CONNECTOR, on_get_status, 2, connected),
+    meck:expect(?CONNECTOR, query_mode, 1, sync),
+    Config;
+t_dryrun_timeout({'end', _Config}) ->
+    meck:unload(),
+    ok;
+t_dryrun_timeout(Config) when is_list(Config) ->
+    Type = kafka_producer,
+    Conf0 = connector_config(),
+    Timeout = 100,
+    Conf = Conf0#{<<"resource_opts">> => #{<<"health_check_interval">> => Timeout}},
+    %% Minimum timeout is capped at 5 s in `emqx_resource_manager'...  Plus, we need to
+    %% wait for removal of stuck process, which itself has another 5 s timeout.
+    ct:timetrap(15_000),
+    %% Cache cleaner is triggered when the process initiating the dry run dies.
+    Pid = spawn_link(fun() ->
+        Res = emqx_connector_resource:create_dry_run(Type, Conf),
+        ?assertEqual({error, timeout}, Res),
+        ok
+    end),
+    MRef = monitor(process, Pid),
+    receive
+        {'DOWN', MRef, _, _, _} ->
+            ok
+    end,
+    %% Should be removed asynchronously by cache cleaner.
+    ?retry(1_000, 7, ?assertEqual([], emqx_resource:list_instances())),
     ok.
 
 %% helpers

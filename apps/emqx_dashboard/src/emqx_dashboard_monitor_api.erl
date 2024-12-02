@@ -20,6 +20,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(minirest_api).
 
@@ -60,6 +61,13 @@ schema("/monitor") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
+            }
+        },
+        delete => #{
+            tags => [<<"Metrics">>],
+            description => ?DESC(clear_monitor),
+            responses => #{
+                204 => <<"Metrics deleted">>
             }
         }
     };
@@ -148,7 +156,18 @@ fields_current(Names) ->
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
     Latest = maps:get(<<"latest">>, QS, infinity),
     RawNode = maps:get(node, Bindings, <<"all">>),
-    emqx_utils_api:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest)).
+    emqx_utils_api:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest));
+monitor(delete, _) ->
+    Nodes = emqx:running_nodes(),
+    Results = emqx_dashboard_proto_v2:clear_table(Nodes),
+    NodeResults = lists:zip(Nodes, Results),
+    NodeErrors = [Result || Result = {_Node, NOk} <- NodeResults, NOk =/= {atomic, ok}],
+    NodeErrors == [] orelse
+        ?SLOG(warning, #{
+            msg => "clear_monitor_metrics_rpc_errors",
+            errors => NodeErrors
+        }),
+    ?NO_CONTENT.
 
 dashboard_samplers_fun(Latest) ->
     fun(NodeOrCluster) ->

@@ -206,7 +206,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
-  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.5.10", override: true}
+  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.5.12", override: true}
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.3.10", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
@@ -952,6 +952,12 @@ defmodule EMQXUmbrella.MixProject do
     )
 
     render_template(
+      "apps/emqx_conf/etc/base.hocon",
+      assigns,
+      Path.join(etc, "base.hocon")
+    )
+
+    render_template(
       "rel/emqx_vars",
       assigns,
       Path.join([release.path, "releases", "emqx_vars"])
@@ -1212,7 +1218,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.1.9", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.1.10", override: true}
       ],
       else: []
   end
@@ -1225,10 +1231,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def enable_quicer?() do
     "1" == System.get_env("BUILD_WITH_QUIC") or
-      not Enum.any?([
-        macos?(),
-        build_without_quic?()
-      ])
+      not build_without_quic?()
   end
 
   def get_emqx_flavor() do
@@ -1256,10 +1259,6 @@ defmodule EMQXUmbrella.MixProject do
   defp os_cmd(script, args) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
-  end
-
-  def macos?() do
-    {:unix, :darwin} == :os.type()
   end
 
   defp raspbian?() do

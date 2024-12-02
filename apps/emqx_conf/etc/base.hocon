@@ -1,0 +1,24 @@
+## Define configurations that can later be overridden through UI/API/CLI.
+##
+## Config precedence order:
+##   etc/base.hocon < cluster.hocon < emqx.conf < environment variables
+
+## Logging configs
+## EMQX provides support for two primary log handlers: `file` and `console`,
+## with an additional `audit` handler specifically designed to always direct logs to files.
+## The system's default log handling behavior can be configured via the environment
+## variable `EMQX_DEFAULT_LOG_HANDLER`, which accepts the following settings:
+##  - `file`: Directs log output exclusively to files.
+##  - `console`: Channels log output solely to the console.
+## It's noteworthy that `EMQX_DEFAULT_LOG_HANDLER` is set to `file`
+## when EMQX is initiated via systemd `emqx.service` file.
+## In scenarios outside systemd initiation, `console` serves as the default log handler.
+## Read more about configs here: {{ emqx_configuration_doc_log }}
+log {
+    file {
+        level = warning
+    }
+    console {
+        level = warning
+    }
+}
