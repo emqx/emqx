@@ -64,11 +64,7 @@ fields("log_audit_handler") ->
                     desc => ?DESC(emqx_conf_schema, "audit_file_handler_path"),
                     default => <<"${EMQX_LOG_DIR}/audit.log">>,
                     importance => ?IMPORTANCE_HIGH,
-                    converter => fun(Path, Opts) ->
-                        emqx_schema:naive_env_interpolation(
-                            emqx_conf_schema:ensure_unicode_path(Path, Opts)
-                        )
-                    end
+                    converter => fun emqx_conf_schema:log_file_path_converter/2
                 }
             )},
         {"rotation_count",

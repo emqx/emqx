@@ -1004,7 +1004,7 @@ clear_screen() ->
     end.
 
 with_mock(Mod, FnName, MockedFn, Fun) ->
-    ok = meck:new(Mod, [non_strict, no_link, no_history, passthrough]),
+    ok = meck:new(Mod, [no_link, no_history, passthrough]),
     ok = meck:expect(Mod, FnName, MockedFn),
     try
         Fun()

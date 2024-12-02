@@ -51,6 +51,7 @@
     reset_metrics_local/2,
     %% Create metrics for a resource ID
     create_metrics/1,
+    ensure_metrics/1,
     %% Delete metrics for a resource ID
     clear_metrics/1
 ]).
@@ -725,32 +726,37 @@ deallocate_resource(InstanceId, Key) ->
 
 -spec create_metrics(resource_id()) -> ok.
 create_metrics(ResId) ->
-    emqx_metrics_worker:create_metrics(
-        ?RES_METRICS,
-        ResId,
-        [
-            'matched',
-            'retried',
-            'retried.success',
-            'retried.failed',
-            'success',
-            'late_reply',
-            'failed',
-            'dropped',
-            'dropped.expired',
-            'dropped.queue_full',
-            'dropped.resource_not_found',
-            'dropped.resource_stopped',
-            'dropped.other',
-            'received'
-        ],
-        [matched]
-    ).
+    emqx_metrics_worker:create_metrics(?RES_METRICS, ResId, metrics(), rate_metrics()).
+
+-spec ensure_metrics(resource_id()) -> {ok, created | already_created}.
+ensure_metrics(ResId) ->
+    emqx_metrics_worker:ensure_metrics(?RES_METRICS, ResId, metrics(), rate_metrics()).
 
 -spec clear_metrics(resource_id()) -> ok.
 clear_metrics(ResId) ->
     emqx_metrics_worker:clear_metrics(?RES_METRICS, ResId).
 %% =================================================================================
+
+metrics() ->
+    [
+        'matched',
+        'retried',
+        'retried.success',
+        'retried.failed',
+        'success',
+        'late_reply',
+        'failed',
+        'dropped',
+        'dropped.expired',
+        'dropped.queue_full',
+        'dropped.resource_not_found',
+        'dropped.resource_stopped',
+        'dropped.other',
+        'received'
+    ].
+
+rate_metrics() ->
+    ['matched'].
 
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
