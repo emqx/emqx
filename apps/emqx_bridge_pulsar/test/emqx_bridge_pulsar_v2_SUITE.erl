@@ -52,21 +52,18 @@ init_per_group(plain = Type, Config) ->
     PulsarHost = os:getenv("PULSAR_PLAIN_HOST", "toxiproxy"),
     PulsarPort = list_to_integer(os:getenv("PULSAR_PLAIN_PORT", "6652")),
     ProxyName = "pulsar_plain",
+    reset_proxy(),
     case emqx_common_test_helpers:is_tcp_server_available(PulsarHost, PulsarPort) of
         true ->
             Config1 = common_init_per_group(),
-            ConnectorName = ?MODULE,
-            NewConfig =
-                [
-                    {proxy_name, ProxyName},
-                    {pulsar_host, PulsarHost},
-                    {pulsar_port, PulsarPort},
-                    {pulsar_type, Type},
-                    {use_tls, false}
-                    | Config1 ++ Config
-                ],
-            create_connector(ConnectorName, NewConfig),
-            NewConfig;
+            [
+                {proxy_name, ProxyName},
+                {pulsar_host, PulsarHost},
+                {pulsar_port, PulsarPort},
+                {pulsar_type, Type},
+                {use_tls, false}
+                | Config1 ++ Config
+            ];
         false ->
             maybe_skip_without_ci()
     end;
@@ -74,21 +71,18 @@ init_per_group(tls = Type, Config) ->
     PulsarHost = os:getenv("PULSAR_TLS_HOST", "toxiproxy"),
     PulsarPort = list_to_integer(os:getenv("PULSAR_TLS_PORT", "6653")),
     ProxyName = "pulsar_tls",
+    reset_proxy(),
     case emqx_common_test_helpers:is_tcp_server_available(PulsarHost, PulsarPort) of
         true ->
             Config1 = common_init_per_group(),
-            ConnectorName = ?MODULE,
-            NewConfig =
-                [
-                    {proxy_name, ProxyName},
-                    {pulsar_host, PulsarHost},
-                    {pulsar_port, PulsarPort},
-                    {pulsar_type, Type},
-                    {use_tls, true}
-                    | Config1 ++ Config
-                ],
-            create_connector(ConnectorName, NewConfig),
-            NewConfig;
+            [
+                {proxy_name, ProxyName},
+                {pulsar_host, PulsarHost},
+                {pulsar_port, PulsarPort},
+                {pulsar_type, Type},
+                {use_tls, true}
+                | Config1 ++ Config
+            ];
         false ->
             maybe_skip_without_ci()
     end;
@@ -105,9 +99,9 @@ end_per_group(_Group, _Config) ->
     ok.
 
 common_init_per_group() ->
+    reset_proxy(),
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     MQTTTopic = <<"mqtt/topic/", UniqueNum/binary>>,
     [
@@ -115,6 +109,12 @@ common_init_per_group() ->
         {proxy_port, ProxyPort},
         {mqtt_topic, MQTTTopic}
     ].
+
+reset_proxy() ->
+    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    ok.
 
 common_end_per_group(Config) ->
     ProxyHost = ?config(proxy_host, Config),
@@ -131,7 +131,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    emqx_bridge_v2_testlib:delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     stop_consumer(Config),
     %% in CI, apparently this needs more time since the
     %% machines struggle with all the containers running...
@@ -159,21 +159,25 @@ common_init_per_testcase(TestCase, Config0) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-create_connector(Name, Config) ->
-    Connector = pulsar_connector(Config),
-    {ok, _} = emqx_connector:create(?TYPE, Name, Connector).
+create_connector(Config) ->
+    {201, _} = create_connector_api([
+        {connector_type, ?TYPE},
+        {connector_name, ?MODULE},
+        {connector_config, connector_config(Config)}
+    ]),
+    ok.
 
 delete_connector(Name) ->
     ok = emqx_connector:remove(?TYPE, Name).
 
 create_action(Name, Config) ->
-    Action = pulsar_action(Config),
+    Action = action_config(Config),
     {ok, _} = emqx_bridge_v2:create(actions, ?TYPE, Name, Action).
 
 delete_action(Name) ->
     ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).
 
-pulsar_connector(Config) ->
+connector_config(Config) ->
     PulsarHost = ?config(pulsar_host, Config),
     PulsarPort = ?config(pulsar_port, Config),
     UseTLS = proplists:get_value(use_tls, Config, false),
@@ -201,11 +205,13 @@ pulsar_connector(Config) ->
     },
     emqx_bridge_v2_testlib:parse_and_check_connector(?TYPE, Name, InnerConfigMap).
 
-pulsar_action(Config) ->
+action_config(Config) ->
+    action_config(atom_to_binary(?MODULE), Config).
+
+action_config(ConnectorName, Config) ->
     QueryMode = proplists:get_value(query_mode, Config, <<"sync">>),
-    Name = atom_to_binary(?MODULE),
     InnerConfigMap = #{
-        <<"connector">> => Name,
+        <<"connector">> => ConnectorName,
         <<"enable">> => true,
         <<"parameters">> => #{
             <<"retention_period">> => <<"infinity">>,
@@ -231,7 +237,7 @@ pulsar_action(Config) ->
             <<"metrics_flush_interval">> => <<"300ms">>
         }
     },
-    emqx_bridge_v2_testlib:parse_and_check(action, ?TYPE, Name, InnerConfigMap).
+    emqx_bridge_v2_testlib:parse_and_check(action, ?TYPE, <<"some_action">>, InnerConfigMap).
 
 instance_id(Type, Name) ->
     ConnectorId = emqx_bridge_resource:resource_id(Type, ?TYPE, Name),
@@ -269,7 +275,7 @@ start_consumer(TestCase, Config) ->
         cacertfile => filename:join([CertsPath, "cacert.pem"])
     },
     Opts = #{enable_ssl => UseTLS, ssl_opts => emqx_tls_lib:to_client_opts(SSLOpts)},
-    {ok, _ClientPid} = pulsar:ensure_supervised_client(ConsumerClientId, [URL], Opts),
+    {ok, _} = pulsar:ensure_supervised_client(ConsumerClientId, [URL], Opts),
     ConsumerOpts = Opts#{
         cb_init_args => #{send_to => self()},
         cb_module => pulsar_echo_consumer,
@@ -398,6 +404,39 @@ group_path(Config) ->
             Path
     end.
 
+create_connector_api(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config)
+    ).
+
+create_action_api(Config) ->
+    create_action_api(Config, _Overrides = #{}).
+
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_kind_api(Config, Overrides)
+    ).
+
+update_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:update_bridge_api(Config, Overrides)
+    ).
+
+get_combined_metrics(ActionResId, RuleId) ->
+    Metrics = emqx_resource:get_metrics(ActionResId),
+    RuleMetrics = emqx_metrics_worker:get_counters(rule_metrics, RuleId),
+    Metrics#{rule => RuleMetrics}.
+
+reset_combined_metrics(ActionResId, RuleId) ->
+    #{
+        kind := action,
+        type := Type,
+        name := Name
+    } = emqx_bridge_v2:parse_id(ActionResId),
+    ok = emqx_bridge_v2:reset_metrics(actions, Type, Name),
+    ok = emqx_rule_engine:reset_metrics_for_rule(RuleId),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -406,7 +445,8 @@ t_action_probe(matrix) ->
     [[plain], [tls]];
 t_action_probe(Config) when is_list(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
-    Action = pulsar_action(Config),
+    create_connector(Config),
+    Action = action_config(Config),
     {ok, Res0} = emqx_bridge_v2_testlib:probe_bridge_api(action, ?TYPE, Name, Action),
     ?assertMatch({{_, 204, _}, _, _}, Res0),
     ok.
@@ -424,6 +464,7 @@ t_action(Config) when is_list(Config) ->
             _ -> <<"async">>
         end,
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(Config),
     create_action(Name, [{query_mode, QueryMode} | Config]),
     Actions = emqx_bridge_v2:list(actions),
     Any = fun(#{name := BName}) -> BName =:= Name end,
@@ -477,8 +518,8 @@ t_multiple_actions_sharing_topic(matrix) ->
 t_multiple_actions_sharing_topic(Config) when is_list(Config) ->
     Type = ?TYPE,
     ConnectorName = <<"c">>,
-    ConnectorConfig = pulsar_connector(Config),
-    ActionConfig = pulsar_action(Config),
+    ConnectorConfig = connector_config(Config),
+    ActionConfig = action_config(ConnectorName, Config),
     ?check_trace(
         begin
             ConnectorParams = [
@@ -572,14 +613,259 @@ t_sync_query_down(Config0) when is_list(Config0) ->
         success_tp_filter =>
             ?match_event(#{?snk_kind := pulsar_echo_consumer_message})
     },
+    ConnectorName = atom_to_binary(?FUNCTION_NAME),
     Config = [
         {connector_type, ?TYPE},
-        {connector_name, ?FUNCTION_NAME},
-        {connector_config, pulsar_connector(Config0)},
+        {connector_name, ConnectorName},
+        {connector_config, connector_config(Config0)},
         {action_type, ?TYPE},
         {action_name, ?FUNCTION_NAME},
-        {action_config, pulsar_action(Config0)}
+        {action_config, action_config(ConnectorName, Config0)}
         | proplists_with([proxy_name, proxy_host, proxy_port], Config0)
     ],
     emqx_bridge_v2_testlib:t_sync_query_down(Config, Opts),
+    ok.
+
+%% Checks that we correctly handle telemetry events emitted by pulsar.
+t_telemetry_metrics(matrix) ->
+    [[plain]];
+t_telemetry_metrics(Config) when is_list(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    Type = ?TYPE,
+    ConnectorName = <<"c">>,
+    ConnectorConfig = connector_config(Config),
+    ActionConfig = action_config(ConnectorName, Config),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionName1 = <<"a1">>,
+    ActionParams1 = [
+        {action_config, ActionConfig},
+        {action_name, ActionName1},
+        {action_type, Type}
+    ],
+    ActionName2 = <<"a2">>,
+    ActionParams2 = [
+        {action_config, ActionConfig},
+        {action_name, ActionName2},
+        {action_type, Type}
+    ],
+    ?check_trace(
+        begin
+            {201, _} =
+                create_connector_api(ConnectorParams),
+            {201, _} =
+                create_action_api(
+                    ActionParams1,
+                    %% Initially, this will overflow on small messages
+                    #{
+                        <<"parameters">> => #{
+                            <<"buffer">> => #{
+                                <<"mode">> => <<"disk">>,
+                                <<"per_partition_limit">> => <<"2B">>,
+                                <<"segment_bytes">> => <<"1B">>
+                            }
+                        }
+                    }
+                ),
+            {201, _} =
+                create_action_api(ActionParams2),
+            RuleTopic = <<"t/a2">>,
+            {ok, #{<<"id">> := RuleId}} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+                    {bridge_name, ActionName1}
+                ]),
+            {ok, C} = emqtt:start_link([]),
+            {ok, _} = emqtt:connect(C),
+            SendMessage = fun() ->
+                ReqPayload = payload(),
+                ReqPayloadBin = emqx_utils_json:encode(ReqPayload),
+                {ok, _} = emqtt:publish(C, RuleTopic, #{}, ReqPayloadBin, [
+                    {qos, 1}, {retain, false}
+                ]),
+                ok
+            end,
+            SendMessage(),
+            ActionResId1 = emqx_bridge_v2_testlib:bridge_id(ActionParams1),
+            ActionResId2 = emqx_bridge_v2_testlib:bridge_id(ActionParams2),
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'dropped.queue_full' := 1,
+                            'dropped.expired' := 0,
+                            success := 0,
+                            matched := 1,
+                            failed := 0,
+                            received := 0
+                        },
+                        gauges := #{
+                            inflight := 0,
+                            queuing := 0,
+                            queuing_bytes := 0
+                        },
+                        rule := #{
+                            matched := 1,
+                            %% todo: bump action failure count when dropped to mimic common
+                            %% buffer worker behavior.
+                            'actions.failed' := 0,
+                            'actions.failed.unknown' := 0,
+                            'actions.success' := 0
+                        }
+                    },
+                    get_combined_metrics(ActionResId1, RuleId)
+                )
+            ),
+            reset_combined_metrics(ActionResId1, RuleId),
+            %% Now to make it drop expired messages
+            {200, _} =
+                update_action_api(ActionParams1, #{
+                    <<"parameters">> => #{
+                        <<"retention_period">> => <<"10ms">>
+                    }
+                }),
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                SendMessage(),
+                ?retry(
+                    100,
+                    10,
+                    ?assertMatch(
+                        #{
+                            counters := #{
+                                'dropped.queue_full' := 0,
+                                'dropped.expired' := 0,
+                                success := 0,
+                                matched := 1,
+                                failed := 0,
+                                received := 0
+                            },
+                            gauges := #{
+                                inflight := 0,
+                                queuing := 1,
+                                queuing_bytes := QueuingBytes1
+                            }
+                        } when QueuingBytes1 > 0,
+                        get_combined_metrics(ActionResId1, RuleId)
+                    )
+                ),
+                %% Other action is not affected by telemetry events for first action.
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'dropped.queue_full' := 0,
+                            'dropped.expired' := 0,
+                            success := 0,
+                            matched := 0,
+                            failed := 0,
+                            received := 0
+                        },
+                        gauges := #{
+                            inflight := 0,
+                            queuing := 0,
+                            queuing_bytes := 0
+                        }
+                    },
+                    emqx_resource:get_metrics(ActionResId2)
+                ),
+                ct:sleep(20),
+                ok
+            end),
+            %% After connection is restored, the request is already expired
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'dropped.queue_full' := 0,
+                            'dropped.expired' := 1,
+                            success := 0,
+                            matched := 1,
+                            failed := 0,
+                            received := 0
+                        },
+                        gauges := #{
+                            inflight := 0,
+                            queuing := 0,
+                            queuing_bytes := 0
+                        },
+                        rule := #{
+                            matched := 1,
+                            %% todo: bump action failure count when dropped to mimic common
+                            %% buffer worker behavior.
+                            'actions.failed' := 0,
+                            'actions.failed.unknown' := 0,
+                            'actions.success' := 0
+                        }
+                    },
+                    get_combined_metrics(ActionResId1, RuleId)
+                )
+            ),
+            reset_combined_metrics(ActionResId1, RuleId),
+
+            %% Now, a success.
+            SendMessage(),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'dropped.queue_full' := 0,
+                            'dropped.expired' := 0,
+                            success := 1,
+                            matched := 1,
+                            failed := 0,
+                            received := 0
+                        },
+                        gauges := #{
+                            inflight := 0,
+                            queuing := 0,
+                            queuing_bytes := 0
+                        },
+                        rule := #{
+                            matched := 1,
+                            'actions.failed' := 0,
+                            'actions.failed.unknown' := 0,
+                            'actions.success' := 1
+                        }
+                    },
+                    get_combined_metrics(ActionResId1, RuleId)
+                )
+            ),
+
+            %% Other action is not affected by telemetry events for first action.
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'dropped.queue_full' := 0,
+                            'dropped.expired' := 0,
+                            success := 0,
+                            matched := 0,
+                            failed := 0,
+                            received := 0
+                        },
+                        gauges := #{
+                            inflight := 0,
+                            queuing := 0,
+                            queuing_bytes := 0
+                        }
+                    },
+                    emqx_resource:get_metrics(ActionResId2)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
     ok.
