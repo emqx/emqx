@@ -25,7 +25,7 @@ defmodule EMQXBridgePulsar.MixProject do
     [
       UMP.common_dep(:crc32cer),
       UMP.common_dep(:snappyer),
-      {:pulsar, github: "emqx/pulsar-client-erl", tag: "1.0.0"},
+      {:pulsar, github: "emqx/pulsar-client-erl", tag: "2.0.0"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

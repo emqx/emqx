@@ -89,7 +89,7 @@ on_start(ConnResId, Config) ->
         conn_opts => conn_opts(Config)
     },
     case pulsar:ensure_supervised_client(ClientId, Servers, ClientOpts) of
-        {ok, _Pid} ->
+        {ok, _} ->
             ?tp(
                 info,
                 "pulsar_client_started",
@@ -189,18 +189,13 @@ on_stop(ConnResId, _State) ->
 -spec on_get_status(resource_id(), state()) -> connected | connecting.
 on_get_status(_ConnResId, State = #{}) ->
     #{client_id := ClientId} = State,
-    case pulsar_client_sup:find_client(ClientId) of
-        {ok, Pid} ->
-            try pulsar_client:get_status(Pid) of
-                true -> ?status_connected;
-                false -> ?status_connecting
-            catch
-                exit:{timeout, _} ->
-                    ?status_connecting;
-                exit:{noproc, _} ->
-                    ?status_connecting
-            end;
-        {error, _} ->
+    try pulsar_client_manager:get_status(ClientId, 5_000) of
+        true -> ?status_connected;
+        false -> ?status_connecting
+    catch
+        exit:{timeout, _} ->
+            ?status_connecting;
+        exit:{noproc, _} ->
             ?status_connecting
     end;
 on_get_status(_ConnResId, _State) ->
