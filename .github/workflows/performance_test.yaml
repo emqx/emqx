@@ -1,25 +1,12 @@
 name: Performance Test
 
 on:
-  workflow_call:
-    secrets:
-      AWS_ACCESS_KEY_PERF_TEST:
-        required: true
-      AWS_SECRET_ACCESS_KEY_PERF_TEST:
-        required: true
-      AWS_DEFAULT_REGION_PERF_TEST:
-        required: true
-      SLACK_BOT_TOKEN:
-        required: true
-      SLACK_PERFTEST_CHANNEL_ID:
-        required: true
-      EMQX_ENTERPRISE_LICENSE:
-        required: true
   workflow_dispatch:
     inputs:
-      emqx_version:
+      version:
         required: false
-        default: '5.8.0'
+      download_url:
+        required: false
 
 permissions:
   contents: read
@@ -37,35 +24,61 @@ jobs:
         shell: bash
 
     steps:
+    - name: Checkout tf-emqx-performance-test
+      uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+      with:
+        repository: emqx/tf-emqx-performance-test
+        ref: v0.3.2
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      with:
+        terraform_version: 1.6.4
+        terraform_wrapper: false
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - run: pip install -r requirements.txt
+
+    - name: Download emqx package (custom URL)
+      if: github.event.inputs.version == '' && github.event.inputs.download_url != ''
+      run: |
+        wget "${{ github.event.inputs.download_url }}"
+
+    - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+
+    - name: Download emqx package (specific version)
+      env:
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      if: github.event.inputs.version != '' && github.event.inputs.download_url == ''
+      run: |
+        version=${{ github.event.inputs.version }}
+        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
+
+    - name: Download emqx package (latest version)
+      if: github.event.inputs.version == '' && github.event.inputs.download_url == ''
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -xeuo pipefail
+        # get latest emqx version
+        version=$(gh release list --repo emqx/emqx --limit 1 --json tagName --jq '.[] | .tagName')
+        # remove 'v' prefix from the version
+        version=${version:1}
+        wget https://www.emqx.com/en/downloads/enterprise/${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb
+
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
         aws-region: ${{ secrets.AWS_DEFAULT_REGION_PERF_TEST }}
-    - name: Checkout tf-emqx-performance-test
-      uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
-      with:
-        repository: emqx/tf-emqx-performance-test
-        ref: v0.3.2
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-      with:
-        terraform_version: 1.6.4
-        terraform_wrapper: false
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - run: pip install -r requirements.txt
-    - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
-      if: github.event_name != 'workflow_dispatch'
-      with:
-        pattern: "emqx-enterprise-ubuntu22.04-amd64-*"
-    - name: Download emqx package
-      if: github.event_name == 'workflow_dispatch'
-      run: |
-        version=${{ github.event.inputs.emqx_version }}
-        wget https://www.emqx.com/en/downloads/enterprise/${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb
 
     - name: Create infrastructure
       id: infra
@@ -100,7 +113,7 @@ jobs:
     - name: Report failure
       if: failure()
       run: |
-        jq -n '[{"color": "#ff0000", "fields": [{"title": "Infrastructure creation failed", "short": false}]}]' > attachments.json
+        jq -n '[{"color": "#ff0000", "fields": [{"title": "Failed to provision infrastructure", "short": false}]}]' > attachments.json
         jq -n --argjson attachments "$(<attachments.json)" '{"attachments": $attachments}' > slack-payload.json
 
     - name: Run benchmark
