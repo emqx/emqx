@@ -180,7 +180,10 @@ should_sample(
         SpanName =:= ?CLIENT_DISCONNECT_SPAN_NAME orelse
         SpanName =:= ?CLIENT_SUBSCRIBE_SPAN_NAME orelse
         SpanName =:= ?CLIENT_UNSUBSCRIBE_SPAN_NAME orelse
-        SpanName =:= ?CLIENT_PUBLISH_SPAN_NAME
+        SpanName =:= ?CLIENT_PUBLISH_SPAN_NAME orelse
+        SpanName =:= ?BROKER_DISCONNECT_SPAN_NAME orelse
+        SpanName =:= ?BROKER_SUBSCRIBE_SPAN_NAME orelse
+        SpanName =:= ?BROKER_UNSUBSCRIBE_SPAN_NAME
 ->
     Desicion =
         decide_by_match_rule(Attributes, Opts) orelse
@@ -241,12 +244,15 @@ decide_by_traceid_ratio(TraceId, SpanName, #{id_upper := IdUpperBound} = Opts) -
 
 span_name_to_config_key(SpanName) when
     SpanName =:= ?CLIENT_CONNECT_SPAN_NAME orelse
-        SpanName =:= ?CLIENT_DISCONNECT_SPAN_NAME
+        SpanName =:= ?CLIENT_DISCONNECT_SPAN_NAME orelse
+        SpanName =:= ?BROKER_DISCONNECT_SPAN_NAME
 ->
     client_connect_disconnect;
 span_name_to_config_key(SpanName) when
     SpanName =:= ?CLIENT_SUBSCRIBE_SPAN_NAME orelse
-        SpanName =:= ?CLIENT_UNSUBSCRIBE_SPAN_NAME
+        SpanName =:= ?CLIENT_UNSUBSCRIBE_SPAN_NAME orelse
+        SpanName =:= ?BROKER_SUBSCRIBE_SPAN_NAME orelse
+        SpanName =:= ?BROKER_UNSUBSCRIBE_SPAN_NAME
 ->
     client_subscribe_unsubscribe;
 span_name_to_config_key(?CLIENT_PUBLISH_SPAN_NAME) ->
