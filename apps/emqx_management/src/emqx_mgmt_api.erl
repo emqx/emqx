@@ -561,8 +561,11 @@ accumulate_query_rows(
     Len = length(Rows),
     case Cursor + Len of
         NCursor when NCursor < PageStart ->
+            %% Haven't reached the required page.
             {more, ResultAcc#{cursor => NCursor}};
         NCursor when NCursor < PageEnd ->
+            %% Rows overlap with the page start
+            %% Throw away rows in the beginning belonging to the previous page(s).
             SubRows = lists:nthtail(max(0, PageStart - Cursor - 1), Rows),
             {more, ResultAcc#{
                 cursor => NCursor,
@@ -570,7 +573,11 @@ accumulate_query_rows(
                 rows => [{Node, SubRows} | RowsAcc]
             }};
         NCursor when NCursor >= PageEnd ->
-            SubRows = lists:sublist(Rows, Limit - Count),
+            %% Rows overlap with the page end (and potentially with the page start).
+            %% Throw away rows in the beginning belonging to the previous page(s).
+            %% Then throw away rows in the tail belonging to the next page(s).
+            PageRows = lists:nthtail(max(0, PageStart - Cursor - 1), Rows),
+            SubRows = lists:sublist(PageRows, Limit - Count),
             {enough, ResultAcc#{
                 cursor => NCursor,
                 count => Count + length(SubRows),
@@ -939,18 +946,8 @@ accumulate_prop() ->
             noderows => noderows_t()
         }),
         begin
-            QState = #{page => Page, limit => Limit},
-            {Status, #{rows := QRowsAcc}} = lists:foldl(
-                fun
-                    ({Node, Rows}, {more, QRAcc}) ->
-                        accumulate_query_rows(Node, Rows, QState, QRAcc);
-                    (_NodeRows, {enough, QRAcc}) ->
-                        {enough, QRAcc}
-                end,
-                {more, init_query_result()},
-                NodeRows
-            ),
-            QRows = format_query_data(fun(N, R) -> {N, R} end, QRowsAcc, #{}),
+            {Status, QRows} = accumulate_page_rows(Page, Limit, NodeRows),
+            {_Status, QRowsNext} = accumulate_page_rows(Page + 1, Limit, NodeRows),
             measure(
                 #{
                     "Limit" => Limit,
@@ -958,15 +955,32 @@ accumulate_prop() ->
                     "NRows" => length(QRows),
                     "Complete" => emqx_utils_conv:int(Status == enough)
                 },
-                accumulate_assert_nonempty(Status, QState, QRows) and
-                    accumulate_assert_continuous(QRows)
+                %% Verify page is non-empty if accumulation is complete.
+                accumulate_assert_nonempty(Status, Limit, QRows) and
+                    %% Verify rows across 2 consective pages form continuous sequence.
+                    accumulate_assert_continuous(QRows ++ QRowsNext)
             )
         end
     ).
 
-accumulate_assert_nonempty(enough, #{limit := Limit}, QRows) ->
+accumulate_page_rows(Page, Limit, NodeRows) ->
+    QState = #{page => Page, limit => Limit},
+    {Status, #{rows := QRowsAcc}} = lists:foldl(
+        fun
+            ({Node, Rows}, {more, QRAcc}) ->
+                accumulate_query_rows(Node, Rows, QState, QRAcc);
+            (_NodeRows, {enough, QRAcc}) ->
+                {enough, QRAcc}
+        end,
+        {more, init_query_result()},
+        NodeRows
+    ),
+    QRows = format_query_data(fun(N, R) -> {N, R} end, QRowsAcc, #{}),
+    {Status, QRows}.
+
+accumulate_assert_nonempty(enough, Limit, QRows) ->
     length(QRows) =:= Limit;
-accumulate_assert_nonempty(more, _QS, _QRows) ->
+accumulate_assert_nonempty(more, _Limit, _QRows) ->
     true.
 
 accumulate_assert_continuous([{N, R1} | Rest = [{N, R2} | _]]) ->
