@@ -67,12 +67,12 @@ start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
 start_resource_if_enabled(Result, _ResourceId, _Config) ->
     Result.
 
-parse_deep(Template) -> emqx_auth_utils:parse_deep(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
+parse_deep(Template) -> emqx_auth_template:parse_deep(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
 
-parse_str(Template) -> emqx_auth_utils:parse_str(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
+parse_str(Template) -> emqx_auth_template:parse_str(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
 
 parse_sql(Template, ReplaceWith) ->
-    emqx_auth_utils:parse_sql(Template, ReplaceWith, ?AUTHN_DEFAULT_ALLOWED_VARS).
+    emqx_auth_template:parse_sql(Template, ReplaceWith, ?AUTHN_DEFAULT_ALLOWED_VARS).
 
 check_password_from_selected_map(_Algorithm, _Selected, undefined) ->
     {error, bad_username_or_password};

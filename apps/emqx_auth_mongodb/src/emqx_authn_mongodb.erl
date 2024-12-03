@@ -63,7 +63,7 @@ authenticate(#{password := undefined}, _) ->
 authenticate(
     Credential, #{filter_template := FilterTemplate} = State
 ) ->
-    try emqx_auth_utils:render_deep_for_json(FilterTemplate, Credential) of
+    try emqx_auth_template:render_deep_for_json(FilterTemplate, Credential) of
         Filter ->
             authenticate_with_filter(Filter, Credential, State)
     catch

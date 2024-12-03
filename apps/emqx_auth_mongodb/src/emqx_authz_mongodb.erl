@@ -51,11 +51,11 @@ description() ->
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
     Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
 
 update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -72,7 +72,7 @@ authorize(
     Topic,
     #{filter_template := FilterTemplate} = Config
 ) ->
-    try emqx_auth_utils:render_deep_for_json(FilterTemplate, Client) of
+    try emqx_auth_template:render_deep_for_json(FilterTemplate, Client) of
         RenderedFilter -> authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
     catch
         error:{encode_error, _} = EncodeError ->

@@ -104,11 +104,11 @@ generate_request(
     },
     Values
 ) ->
-    Path = emqx_auth_utils:render_urlencoded_str(BasePathTemplate, Values),
-    Query = emqx_auth_utils:render_deep_for_url(BaseQueryTemplate, Values),
+    Path = emqx_auth_template:render_urlencoded_str(BasePathTemplate, Values),
+    Query = emqx_auth_template:render_deep_for_url(BaseQueryTemplate, Values),
     case Method of
         get ->
-            Body = emqx_auth_utils:render_deep_for_url(BodyTemplate, Values),
+            Body = emqx_auth_template:render_deep_for_url(BodyTemplate, Values),
             NPath = append_query(Path, Query, Body),
             {ok, {NPath, Headers}};
         _ ->
@@ -138,10 +138,10 @@ append_query(Path, Query, Body) ->
     append_query(Path, Query ++ maps:to_list(Body)).
 
 serialize_body(<<"application/json">>, BodyTemplate, ClientInfo) ->
-    Body = emqx_auth_utils:render_deep_for_json(BodyTemplate, ClientInfo),
+    Body = emqx_auth_template:render_deep_for_json(BodyTemplate, ClientInfo),
     emqx_utils_json:encode(Body);
 serialize_body(<<"application/x-www-form-urlencoded">>, BodyTemplate, ClientInfo) ->
-    Body = emqx_auth_utils:render_deep_for_url(BodyTemplate, ClientInfo),
+    Body = emqx_auth_template:render_deep_for_url(BodyTemplate, ClientInfo),
     uri_string:compose_query(maps:to_list(Body));
 serialize_body(undefined, _BodyTemplate, _ClientInfo) ->
     throw(missing_content_type_header);

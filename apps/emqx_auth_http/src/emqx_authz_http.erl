@@ -177,13 +177,13 @@ parse_config(
         method => Method,
         request_base => RequestBase,
         headers => maps:to_list(emqx_auth_http_utils:transform_header_name(Headers)),
-        base_path_template => emqx_auth_utils:parse_str(Path, allowed_vars()),
-        base_query_template => emqx_auth_utils:parse_deep(
+        base_path_template => emqx_auth_template:parse_str(Path, allowed_vars()),
+        base_query_template => emqx_auth_template:parse_deep(
             cow_qs:parse_qs(Query),
             allowed_vars()
         ),
         body_template =>
-            emqx_auth_utils:parse_deep(
+            emqx_auth_template:parse_deep(
                 emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
                 allowed_vars()
             ),

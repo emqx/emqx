@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_utils).
+-module(emqx_auth_template).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").

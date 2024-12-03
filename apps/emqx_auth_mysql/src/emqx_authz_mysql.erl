@@ -51,14 +51,14 @@ description() ->
     "AuthZ with Mysql".
 
 create(#{query := SQL} = Source0) ->
-    {PrepareSQL, TmplToken} = emqx_auth_utils:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    {PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
     Source#{annotations => #{id => ResourceId, tmpl_token => TmplToken}}.
 
 update(#{query := SQL} = Source0) ->
-    {PrepareSQL, TmplToken} = emqx_auth_utils:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    {PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     case emqx_authz_utils:update_resource(emqx_mysql, Source) of
         {error, Reason} ->
@@ -82,7 +82,7 @@ authorize(
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    RenderParams = emqx_auth_utils:render_sql_params(TmplToken, Vars),
+    RenderParams = emqx_auth_template:render_sql_params(TmplToken, Vars),
     case
         emqx_resource:simple_sync_query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams})
     of
