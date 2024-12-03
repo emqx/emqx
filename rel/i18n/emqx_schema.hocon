@@ -560,6 +560,16 @@ fields_tcp_opts_buffer.desc:
 fields_tcp_opts_buffer.label:
 """TCP user-space buffer"""
 
+fields_tcp_opts_framing.desc:
+"""Implementation of MQTT framing, e.g. a task of extracting complete MQTT frames from a byte stream.
+- `builtin` framing employs packet parser to extract and parse MQTT frames.
+- `vm` framing offloads the job to the Erlang VM.
+   
+Note: `active_n` has slightly different meaning for `vm` implementation, it's the maximum number of _MQTT frames_ that can reside in a connection process mailbox awaiting processing."""
+
+fields_tcp_opts_framing.label:
+"""TCP MQTT framing implementation"""
+
 server_ssl_opts_schema_honor_cipher_order.desc:
 """An important security setting. If this setting is enabled, the server will prioritize the cipher suites it prefers most from the list of cipher suites supported by the client, thus ignoring the client's preferences.
 

@@ -577,6 +577,7 @@ fields("crl_cache") ->
     ];
 fields("mqtt_tcp_listener") ->
     mqtt_listener(1883) ++
+        mqtt_framing_options() ++
         [
             {"tcp_options",
                 sc(
@@ -586,6 +587,7 @@ fields("mqtt_tcp_listener") ->
         ];
 fields("mqtt_ssl_listener") ->
     mqtt_listener(8883) ++
+        mqtt_framing_options() ++
         [
             {"tcp_options",
                 sc(
@@ -1881,6 +1883,19 @@ mqtt_listener(Bind) ->
                     }
                 )}
         ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
+
+mqtt_framing_options() ->
+    [
+        {"framing",
+            sc(
+                hoconsc:enum([builtin, vm]),
+                #{
+                    default => <<"builtin">>,
+                    desc => ?DESC(fields_tcp_opts_framing),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ].
 
 access_rules_converter(AccessRules) ->
     DeepRules =

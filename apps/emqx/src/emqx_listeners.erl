@@ -605,7 +605,7 @@ perform_listener_change(stop, {Type, Name, Conf}) ->
 esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
     Zone = zone(Opts0),
     Limiter = limiter(Opts0),
-    {Parser, PacketTcpOpts} = choose_parser_opts(Zone),
+    {Parser, PacketTcpOpts} = choose_parser_opts(Opts0),
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Opts2 =
         case emqx_limiter_utils:extract_with_type(connection, Limiter) of
@@ -620,7 +620,7 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
         end,
     Opts3 = Opts2#{
         access_rules => esockd_access_rules(maps:get(access_rules, Opts0, [])),
-        tune_fun => {emqx_olp, backoff_new_conn, [zone(Opts0)]},
+        tune_fun => {emqx_olp, backoff_new_conn, [Zone]},
         connection_mfargs =>
             {emqx_connection, start_link, [
                 #{
@@ -694,12 +694,14 @@ ranch_opts(Type, Opts = #{bind := ListenOn}) ->
             proplists:delete(reuseaddr, SocketOpts)
     }.
 
-choose_parser_opts(Zone) ->
-    case is_packet_parser_available(mqtt) of
-        true ->
-            PacketSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+choose_parser_opts(Opts) ->
+    Framing = maps:get(framing, Opts, builtin),
+    HasPacketParser = is_packet_parser_available(mqtt),
+    case Framing of
+        vm when HasPacketParser ->
+            PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
             {frame, [{packet, mqtt}, {packet_size, PacketSize}]};
-        false ->
+        _Builtin ->
             {stream, [{packet, raw}]}
     end.
 
