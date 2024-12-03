@@ -56,6 +56,21 @@
     InitAttrs :: attrs(),
     Res :: term().
 
+-callback broker_disconnect(Any, InitAttrs, fun((Any) -> Res)) -> Res when
+    Any :: any(),
+    InitAttrs :: attrs(),
+    Res :: any().
+
+-callback broker_subscribe(Any, InitAttrs, fun((Any) -> Res)) -> Res when
+    Any :: any(),
+    InitAttrs :: attrs(),
+    Res :: any().
+
+-callback broker_unsubscribe(Any, InitAttrs, fun((Any) -> Res)) -> Res when
+    Any :: any(),
+    InitAttrs :: attrs(),
+    Res :: any().
+
 %% Message Processing Spans
 %% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DELIVER(to Subscribers)
 -callback client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when

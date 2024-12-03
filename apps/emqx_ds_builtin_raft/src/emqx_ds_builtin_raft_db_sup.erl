@@ -14,6 +14,7 @@
     start_shard/1,
     start_egress/1,
     stop_shard/1,
+    shard_info/2,
     terminate_storage/1,
     restart_storage/1,
     ensure_shard/1,
@@ -31,23 +32,26 @@
 -export([init/1]).
 
 %% internal exports:
--export([start_link_sup/2]).
+-export([start_link_sup/2, start_link_sentinel/1, init_sentinel/2]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
--define(via(REC), {via, gproc, {n, l, REC}}).
+-define(name(REC), {n, l, REC}).
+-define(via(REC), {via, gproc, ?name(REC)}).
 
 -define(db_sup, ?MODULE).
--define(shards_sup, emqx_ds_builtin_db_shards_sup).
--define(egress_sup, emqx_ds_builtin_db_egress_sup).
--define(shard_sup, emqx_ds_builtin_db_shard_sup).
+-define(shards_sup, emqx_ds_builtin_raft_db_shards_sup).
+-define(egress_sup, emqx_ds_builtin_raft_db_egress_sup).
+-define(shard_sup, emqx_ds_builtin_raft_db_shard_sup).
+-define(shard_sentinel, emqx_ds_builtin_raft_db_shard_sentinel).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
 -record(?egress_sup, {db}).
 -record(?shard_sup, {db, shard}).
+-record(?shard_sentinel, {shardid}).
 
 %%================================================================================
 %% API functions
@@ -75,6 +79,13 @@ stop_shard({DB, Shard}) ->
             supervisor:delete_child(Sup, Shard);
         {error, Reason} ->
             {error, Reason}
+    end.
+
+-spec shard_info(emqx_ds_storage_layer:shard_id(), ready) -> boolean() | down.
+shard_info(ShardId = {DB, Shard}, Info) ->
+    case sentinel_alive(ShardId) of
+        true -> emqx_ds_replication_layer_shard:shard_info(DB, Shard, Info);
+        false -> down
     end.
 
 -spec terminate_storage(emqx_ds_storage_layer:shard_id()) -> ok | {error, _Reason}.
@@ -181,7 +192,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_replication_spec(DB, Shard, Opts),
-        shard_beamformers_spec(DB, Shard)
+        shard_beamformers_spec(DB, Shard),
+        shard_sentinel_spec(DB, Shard)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -219,6 +231,22 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
 
 start_link_sup(Id, Options) ->
     supervisor:start_link(?via(Id), ?MODULE, {Id, Options}).
+
+-spec start_link_sentinel(emqx_ds_storage_layer:shard_id()) -> {ok, pid()}.
+start_link_sentinel(Id) ->
+    proc_lib:start_link(?MODULE, init_sentinel, [self(), Id]).
+
+-spec init_sentinel(pid(), emqx_ds_storage_layer:shard_id()) -> no_return().
+init_sentinel(Parent, Id) ->
+    Name = ?name(#?shard_sentinel{shardid = Id}),
+    gproc:reg(Name),
+    proc_lib:init_ack(Parent, {ok, self()}),
+    receive
+        %% Not trapping exits, but just in case.
+        {'EXIT', _Pid, Reason} ->
+            gproc:unreg(Name),
+            exit(Reason)
+    end.
 
 %%================================================================================
 %% Internal functions
@@ -291,6 +319,18 @@ shard_beamformers_spec(DB, Shard) ->
                 emqx_ds_replication_layer, {DB, Shard}, BeamformerOpts
             ]}
     }.
+
+shard_sentinel_spec(DB, Shard) ->
+    #{
+        id => {Shard, sentinel},
+        type => worker,
+        restart => permanent,
+        shutdown => brutal_kill,
+        start => {?MODULE, start_link_sentinel, [{DB, Shard}]}
+    }.
+
+sentinel_alive(Id) ->
+    gproc:where(?name(#?shard_sentinel{shardid = Id})) =/= undefined.
 
 ensure_started(Res) ->
     case Res of
