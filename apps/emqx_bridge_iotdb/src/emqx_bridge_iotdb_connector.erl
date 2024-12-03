@@ -837,7 +837,7 @@ preproc_data_template(DataList) ->
             #{
                 timestamp => emqx_placeholder:preproc_tmpl(Atom2Bin(Timestamp)),
                 measurement => emqx_placeholder:preproc_tmpl(Measurement),
-                data_type => Atom2Bin(DataType),
+                data_type => string:uppercase(Atom2Bin(DataType)),
                 value => emqx_placeholder:preproc_tmpl(Value)
             }
         end,
