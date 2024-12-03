@@ -212,8 +212,11 @@ else
     RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
 fi
 
-COMMAND="${1:-}"
+BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
+# shellcheck disable=SC1090,SC1091
+. "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
+COMMAND="${1:-}"
 if [ -z "$COMMAND" ]; then
     usage 'help'
     exit 1
@@ -249,7 +252,6 @@ case "${COMMAND}" in
 esac
 
 RELUP_DIR="relup"
-BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
 RELUP_PATH="$RUNNER_ROOT_DIR/$RELUP_DIR"
 
 if [ -f "$RELUP_PATH/version" ]; then
@@ -261,9 +263,6 @@ if [ -f "$RELUP_PATH/version" ]; then
     fi
     exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
 fi
-
-# shellcheck disable=SC1090,SC1091
-. "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
 # defined in emqx_vars
 export RUNNER_ROOT_DIR
