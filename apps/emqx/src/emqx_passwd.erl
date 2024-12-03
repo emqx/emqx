@@ -43,7 +43,7 @@
 -type salt_position() :: disable | prefix | suffix.
 -type salt() :: binary().
 
--type pbkdf2_mac_fun() :: md4 | md5 | ripemd160 | sha | sha224 | sha256 | sha384 | sha512.
+-type pbkdf2_mac_fun() :: sha | sha224 | sha256 | sha384 | sha512.
 -type pbkdf2_iterations() :: pos_integer().
 -type pbkdf2_dk_length() :: pos_integer() | undefined.
 
@@ -146,9 +146,6 @@ hex(X) when is_binary(X) ->
 
 %% @doc default derived key length for PBKDF2, backword compatible with the old implementation in pbkdf2
 -spec dk_length(pbkdf2_mac_fun()) -> non_neg_integer().
-dk_length(md4) -> 16;
-dk_length(md5) -> 16;
-dk_length(ripemd160) -> 20;
 dk_length(sha) -> 20;
 dk_length(sha224) -> 28;
 dk_length(sha256) -> 32;
@@ -165,7 +162,7 @@ len_match(Alg) ->
 dk_length_test_() ->
     [
         ?_assert(len_match(Alg))
-     || Alg <- [md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]
+     || Alg <- [sha, sha224, sha256, sha384, sha512]
     ].
 
 -endif.
