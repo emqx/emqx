@@ -57,6 +57,8 @@ erlang_ls.config
 # Emacs temporary files
 .#*
 *#
+# Emacs dir local elisp script
+.dir-locals.el
 # For direnv
 .envrc
 # elixir
