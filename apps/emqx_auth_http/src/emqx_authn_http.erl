@@ -165,7 +165,7 @@ parse_config(
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
+    {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
     State = #{
         method => Method,
         path => Path,
@@ -189,7 +189,7 @@ parse_config(
         State}.
 
 generate_request(Credential, State) ->
-    emqx_auth_utils:generate_request(State, Credential).
+    emqx_auth_http_utils:generate_request(State, Credential).
 
 handle_response(Headers, Body) ->
     ContentType = proplists:get_value(<<"content-type">>, Headers),

@@ -172,7 +172,7 @@ parse_config(
         request_timeout := ReqTimeout
     } = Conf
 ) ->
-    {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
+    {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
     Conf#{
         method => Method,
         request_base => RequestBase,
@@ -194,7 +194,7 @@ parse_config(
 
 generate_request(Action, Topic, Client, Config) ->
     Values = client_vars(Client, Action, Topic),
-    emqx_auth_utils:generate_request(Config, Values).
+    emqx_auth_http_utils:generate_request(Config, Values).
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
