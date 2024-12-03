@@ -17,7 +17,7 @@
 -module(emqx_authz_mongodb).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -behaviour(emqx_authz_source).
 
@@ -35,15 +35,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(ALLOWED_VARS, [
-    ?VAR_USERNAME,
-    ?VAR_CLIENTID,
-    ?VAR_PEERHOST,
-    ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
-]).
+-define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 description() ->
     "AuthZ with MongoDB".

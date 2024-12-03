@@ -203,6 +203,8 @@ render_var(?VAR_PEERHOST, Value) ->
     inet:ntoa(Value);
 render_var(?VAR_PASSWORD, Value) ->
     iolist_to_binary(Value);
+render_var(?VAR_PEERPORT, Value) ->
+    integer_to_binary(Value);
 render_var(_Name, Value) ->
     Value.
 
