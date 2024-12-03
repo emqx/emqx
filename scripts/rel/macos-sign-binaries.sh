@@ -18,7 +18,7 @@ if [ "$(uname)" != 'Darwin' ]; then
 fi
 
 if [ "${APPLE_SIGN_BINARIES:-0}" == 0 ]; then
-n    echo "Signing Apple binaries is disabled, exiting"
+    echo "Signing Apple binaries is disabled, exiting"
     exit 0
 fi
 
@@ -80,6 +80,7 @@ for f in \
         jiffy.so \
         liberocksdb.so \
         libquicer_nif.so \
+        libquicer_nif*.dylib \
         odbcserver \
         otp_test_engine.so \
         sasl_auth.so \
