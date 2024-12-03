@@ -630,6 +630,20 @@ t_sync_query_unmatched_type(Config) ->
 t_thrift_auto_recon(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
 
+t_sync_query_with_lowercase(Config) ->
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36"),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query
+    ),
+    Query = <<"select temp from ", DeviceId/binary>>,
+    {ok, {{_, 200, _}, _, IoTDBResult}} = iotdb_query(Config, Query),
+    ?assertMatch(
+        #{<<"values">> := [[36]]},
+        emqx_utils_json:decode(IoTDBResult)
+    ).
+
 is_empty(null) -> true;
 is_empty([]) -> true;
 is_empty([[]]) -> true;
@@ -662,5 +676,7 @@ test_case_data_type(t_device_id) ->
     <<"BOOLEAN">>;
 test_case_data_type(t_sync_query_unmatched_type) ->
     <<"BOOLEAN">>;
+test_case_data_type(t_sync_query_with_lowercase) ->
+    <<"int32">>;
 test_case_data_type(_) ->
     <<"INT32">>.
