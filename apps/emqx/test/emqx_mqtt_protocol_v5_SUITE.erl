@@ -48,6 +48,7 @@
 all() ->
     [
         {group, tcp},
+        {group, tcp_beam_framing},
         {group, ws},
         {group, quic}
     ].
@@ -56,6 +57,7 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
         {tcp, [], TCs},
+        {tcp_beam_framing, [], TCs},
         {ws, [], TCs},
         {quic, [], TCs}
     ].
@@ -63,6 +65,12 @@ groups() ->
 init_per_group(tcp, Config) ->
     Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
     [{conn_type, tcp}, {port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+init_per_group(tcp_beam_framing, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, framing = vm }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
