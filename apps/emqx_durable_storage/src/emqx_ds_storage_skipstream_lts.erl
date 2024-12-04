@@ -22,7 +22,7 @@
 
 %% behavior callbacks:
 -export([
-    create/5,
+    create/6,
     open/5,
     drop/5,
     prepare_batch/4,
@@ -107,7 +107,6 @@
         %% Default is 0. Setting to non-zero makes sense if you plan to use this layout
         %% in non-append-only DBs.
         master_hash_bytes => pos_integer(),
-        keep_message_id := boolean(),
         serialization_schema := emqx_ds_msg_serializer:schema(),
         with_guid := boolean(),
         lts_threshold_spec => emqx_ds_lts:threshold_spec()
@@ -159,10 +158,15 @@
 %% behavior callbacks
 %%================================================================================
 
-create(_ShardId, DBHandle, GenId, Schema0, SPrev) ->
+create(_ShardId, DBHandle, GenId, Schema0, SPrev, DBOpts) ->
     Defaults = #{
         wildcard_hash_bytes => 8,
         topic_index_bytes => 8,
+        master_hash_bytes =>
+            case DBOpts of
+                #{append_only := true} -> 0;
+                #{} = _NonAppendOnly -> 8
+            end,
         serialization_schema => asn1,
         with_guid => false,
         lts_threshold_spec => ?DEFAULT_LTS_THRESHOLD
