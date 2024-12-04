@@ -177,7 +177,7 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            Rest2 = skip_variable_byte_integer(Rest1),
+            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -655,17 +655,6 @@ parse_variable_byte_integer(<<1:1, D1:7, 0:1, D2:7, Rest/binary>>) ->
 parse_variable_byte_integer(<<0:1, D1:7, Rest/binary>>) ->
     {D1, Rest};
 parse_variable_byte_integer(_) ->
-    ?PARSE_ERR(malformed_variable_byte_integer).
-
-skip_variable_byte_integer(<<1:1, _D1:7, 1:1, _D2:7, 1:1, _D3:7, 0:1, _D4:7, Rest/binary>>) ->
-    Rest;
-skip_variable_byte_integer(<<1:1, _D1:7, 1:1, _D2:7, 0:1, _D3:7, Rest/binary>>) ->
-    Rest;
-skip_variable_byte_integer(<<1:1, _D1:7, 0:1, _D2:7, Rest/binary>>) ->
-    Rest;
-skip_variable_byte_integer(<<0:1, _D1:7, Rest/binary>>) ->
-    Rest;
-skip_variable_byte_integer(_) ->
     ?PARSE_ERR(malformed_variable_byte_integer).
 
 parse_topic_filters(subscribe, Bin) ->
