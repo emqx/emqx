@@ -1365,9 +1365,10 @@ channels_health_check(?status_connecting = _ConnectorStatus, Data0) ->
     {_Actions = [], update_state(Data1)};
 channels_health_check(?status_disconnected = ConnectorStatus, Data1) ->
     %% Whenever the resource is disconnected:
-    %% 1. Remove all added channels
-    %% 2. Change the status to an error status
-    %% 3. Raise alarms
+    %% 1. Change the status of channels to an error status
+    %%    - Except for channels yet to be added to the resource state.  Those need to keep
+    %%    those special errors so they are added or retried.
+    %% 2. Raise alarms
     Channels = Data1#data.added_channels,
     ChannelsWithNewAndOldStatuses =
         lists:map(
