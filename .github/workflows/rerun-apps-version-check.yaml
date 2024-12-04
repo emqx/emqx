@@ -1,0 +1,28 @@
+name: Rerun apps version check
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "Upload release assets"
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  rerun-apps-version-check:
+    runs-on: ubuntu-22.04
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      pull-requests: read
+      checks: write
+      actions: write
+    steps:
+      - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
+      - name: trigger re-run of app versions check on open PRs
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/rerun-apps-version-check.py
