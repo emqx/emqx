@@ -160,7 +160,7 @@ parse(<<>>, State) ->
 
 %% @doc Parses _complete_ binary frame into a single `#mqtt_packet{}`.
 -spec parse_complete(iodata(), parse_state_initial()) ->
-    emqx_types:packet() | nonempty_improper_list(emqx_types:packet(), parse_state_initial()).
+    emqx_types:packet() | [emqx_types:packet() | parse_state_initial()].
 parse_complete(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
     Options = #options{strict_mode = StrictMode}
@@ -252,12 +252,11 @@ packet(Header, Variable, Payload) ->
     #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
 -compile({inline, [parse_packet_complete/3]}).
--dialyzer({no_improper_lists, [parse_packet_complete/3]}).
 parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
     NOptions = update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options),
-    [Packet | NOptions];
+    [Packet, NOptions];
 parse_packet_complete(Frame, Header, Options) ->
     parse_packet(Frame, Header, Options).
 

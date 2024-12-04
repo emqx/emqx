@@ -867,7 +867,7 @@ run_frame_parser(Data, Options, State) ->
     case emqx_frame:parse_complete(Data, Options) of
         Packet when is_tuple(Packet) ->
             {[Packet], State};
-        [Packet | NOptions] ->
+        [Packet, NOptions] ->
             NState = State#state{parser = {frame, NOptions}},
             {[Packet], NState}
     end.
