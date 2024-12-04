@@ -3458,7 +3458,8 @@ naive_env_interpolation(Other) ->
     Other.
 
 split_path(Path) ->
-    split_path(Path, []).
+    {Name0, Tail} = split_path(Path, []),
+    {string:trim(Name0, both, "{}"), Tail}.
 
 split_path([], Acc) ->
     {lists:reverse(Acc), []};
@@ -3467,8 +3468,7 @@ split_path([Char | Rest], Acc) when Char =:= $/ orelse Char =:= $\\ ->
 split_path([Char | Rest], Acc) ->
     split_path(Rest, [Char | Acc]).
 
-resolve_env(Name0) ->
-    Name = string:trim(Name0, both, "{}"),
+resolve_env(Name) ->
     Value = os:getenv(Name),
     case Value =/= false andalso Value =/= "" of
         true ->

@@ -39,21 +39,41 @@ wrap_unwrap_load_test_() ->
         fun(Filename) ->
             ?_assertEqual(
                 Secret,
-                emqx_secret:unwrap(emqx_secret:wrap_load({file, Filename}))
+                emqx_secret:unwrap(emqx_secret:wrap_load(file_ref(Filename)))
             )
         end
     }.
 
+wrap_unwrap_load_path_env_interpolate_test_() ->
+    Secret = <<"111">>,
+    {
+        setup,
+        fun() -> write_temp_file(Secret) end,
+        fun(Filename) -> file:delete(Filename) end,
+        fun(Filename) ->
+            fun() ->
+                os:putenv("SECRETFILEPATH", Filename),
+                File = "file://${SECRETFILEPATH}",
+                try
+                    ?assertEqual(
+                        Secret,
+                        emqx_secret:unwrap(emqx_secret:wrap_load({file, File}))
+                    )
+                after
+                    os:unsetenv("SECRETFILEPATH")
+                end
+            end
+        end
+    }.
+
 wrap_load_term_test() ->
-    ?assertEqual(
-        {file, "no/such/file/i/swear"},
-        emqx_secret:term(emqx_secret:wrap_load({file, "no/such/file/i/swear"}))
-    ).
+    Ref = file_ref("no/such/file/i/swear"),
+    ?assertEqual(Ref, emqx_secret:term(emqx_secret:wrap_load(Ref))).
 
 wrap_unwrap_missing_file_test() ->
     ?assertThrow(
         #{msg := failed_to_read_secret_file, reason := "No such file or directory"},
-        emqx_secret:unwrap(emqx_secret:wrap_load({file, "no/such/file/i/swear"}))
+        emqx_secret:unwrap(emqx_secret:wrap_load(file_ref("no/such/file/i/swear")))
     ).
 
 wrap_term_test() ->
@@ -74,3 +94,6 @@ write_temp_file(Bytes) ->
     Filename = filename:join("/tmp", ?MODULE_STRING ++ integer_to_list(-Ts)),
     ok = file:write_file(Filename, Bytes),
     Filename.
+
+file_ref(Path) ->
+    {file, "file://" ++ Path}.

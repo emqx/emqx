@@ -405,8 +405,8 @@ t_handle_old_monitor_data(_Config) ->
 
     ok = meck:new(emqx, [passthrough, no_history]),
     ok = meck:expect(emqx, running_nodes, fun() -> [node(), 'other@node'] end),
-    ok = meck:new(emqx_dashboard_proto_v1, [passthrough, no_history]),
-    ok = meck:expect(emqx_dashboard_proto_v1, do_sample, fun('other@node', _Time) ->
+    ok = meck:new(emqx_dashboard_proto_v2, [passthrough, no_history]),
+    ok = meck:expect(emqx_dashboard_proto_v2, do_sample, fun('other@node', _Time) ->
         Self ! sample_called,
         FakeOldData
     end),
@@ -421,7 +421,7 @@ t_handle_old_monitor_data(_Config) ->
         hd(emqx_dashboard_monitor:samplers())
     ),
     ?assertReceive(sample_called, 1_000),
-    ok = meck:unload([emqx, emqx_dashboard_proto_v1]),
+    ok = meck:unload([emqx, emqx_dashboard_proto_v2]),
     ok.
 
 t_monitor_api(_) ->
@@ -583,6 +583,8 @@ t_monitor_reset(_) ->
         ),
     {ok, Samplers} = request(["monitor"], "latest=1"),
     ?assertEqual(1, erlang:length(Samplers)),
+    ok = delete(["monitor"]),
+    ?assertMatch({ok, []}, request(["monitor"], "latest=1")),
     ok.
 
 t_monitor_api_error(_) ->
@@ -666,7 +668,7 @@ t_persistent_session_stats(Config) ->
                 <<"connections">> := 3,
                 <<"disconnected_durable_sessions">> := 1,
                 %% N.B.: we currently don't perform any deduplication between persistent
-                %% and non-persistent routes, so we count `commont/topic' twice and get 8
+                %% and non-persistent routes, so we count `common/topic' twice and get 8
                 %% instead of 6 here.
                 <<"topics">> := 8,
                 <<"subscriptions">> := 8,
@@ -702,7 +704,7 @@ t_persistent_session_stats(Config) ->
                 <<"connections">> := 3,
                 <<"disconnected_durable_sessions">> := 2,
                 %% N.B.: we currently don't perform any deduplication between persistent
-                %% and non-persistent routes, so we count `commont/topic' twice and get 8
+                %% and non-persistent routes, so we count `common/topic' twice and get 8
                 %% instead of 6 here.
                 <<"topics">> := 8,
                 <<"subscriptions">> := 8,
@@ -712,7 +714,9 @@ t_persistent_session_stats(Config) ->
             ?ON(N1, request(["monitor_current"]))
         )
     end),
-
+    ?assertNotMatch({ok, []}, ?ON(N1, request(["monitor"]))),
+    ?assertMatch(ok, ?ON(N1, delete(["monitor"]))),
+    ?assertMatch({ok, []}, ?ON(N1, request(["monitor"]))),
     ok.
 
 %% Checks that we get consistent data when changing the requested time window for
@@ -842,6 +846,10 @@ get_req_cluster(Config, Path, QS) ->
 host(Port) ->
     "http://127.0.0.1:" ++ integer_to_list(Port).
 
+delete(Path) ->
+    Url = url(Path, ""),
+    do_request_api(delete, {Url, [auth_header_()]}).
+
 url(Parts, QS) ->
     url(?SERVER, Parts, QS).
 
@@ -858,6 +866,8 @@ do_request_api(Method, Request) ->
     case httpc:request(Method, Request, [], []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
+        {ok, {{"HTTP/1.1", 204, _}, _, _}} ->
+            ok;
         {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
             Code >= 200 andalso Code =< 299
         ->
@@ -960,4 +970,4 @@ cluster_node_appspec(Enable, Port0) ->
     ].
 
 clean_data() ->
-    ok = emqx_dashboard_monitor:clean(-1).
+    ok = emqx_dashboard_monitor:clean(-100000).

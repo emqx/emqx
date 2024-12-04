@@ -318,6 +318,7 @@ generate_app_conf() {
 
     ## This command populates two files: app.<time>.config and vm.<time>.args
     ## It takes input sources and overlays values in below order:
+    ##   - etc/base.hocon
     ##   - $DATA_DIR/cluster.hocon (if exists)
     ##   - etc/emqx.conf
     ##   - environment variables starts with EMQX_ e.g. EMQX_NODE__ROLE
@@ -325,6 +326,7 @@ generate_app_conf() {
     ## NOTE: it's a known issue that cluster.hocon may change right after the node boots up
     ##       because it has to sync cluster.hocon from other nodes.
     call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" \
+        -c "$EMQX_ETC_DIR"/base.hocon \
         -c "$EMQX_DATA_DIR"/configs/cluster.hocon \
         -c "$EMQX_ETC_DIR"/emqx.conf \
         -d "$EMQX_DATA_DIR"/configs generate
@@ -358,6 +360,7 @@ EOF
 # copy cert files and acl.conf to etc
 copy_other_conf_files() {
     cp -r apps/emqx/etc/certs "$EMQX_ETC_DIR"/
+    cp -r apps/emqx_conf/etc/base.hocon "$EMQX_ETC_DIR"/
     cp apps/emqx_auth/etc/acl.conf "$EMQX_ETC_DIR"/
 }
 

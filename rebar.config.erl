@@ -541,7 +541,8 @@ emqx_etc_overlay_per_rel(_RelType) ->
 emqx_etc_overlay() ->
     [
         {"{{base_dir}}/lib/emqx/etc/ssl_dist.conf", "etc/ssl_dist.conf"},
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"},
+        {"{{base_dir}}/lib/emqx_conf/etc/base.hocon", "etc/base.hocon"}
     ].
 
 get_vsn(Profile) ->
