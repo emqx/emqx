@@ -658,7 +658,7 @@ ws_opts(Type, ListenerName, Opts) ->
         {WsPath, emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
-            parser_mode => stream,
+            parser_mode => chunk,
             limiter => limiter(Opts),
             enable_authn => enable_authn(Opts)
         }}
@@ -695,14 +695,17 @@ ranch_opts(Type, Opts = #{bind := ListenOn}) ->
     }.
 
 choose_parser_opts(Opts) ->
-    Framing = maps:get(framing, Opts, builtin),
+    Framing = maps:get(parse_unit, Opts, chunk),
     HasPacketParser = is_packet_parser_available(mqtt),
     case Framing of
-        vm when HasPacketParser ->
+        frame when HasPacketParser ->
             PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
             {frame, [{packet, mqtt}, {packet_size, PacketSize}]};
-        _Builtin ->
-            {stream, [{packet, raw}]}
+        frame ->
+            %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.
+            {chunk, [{packet, raw}]};
+        chunk ->
+            {chunk, [{packet, raw}]}
     end.
 
 -spec is_packet_parser_available(atom()) -> boolean().

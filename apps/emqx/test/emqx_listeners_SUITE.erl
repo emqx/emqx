@@ -186,12 +186,12 @@ t_current_conns_tcp(_Config) ->
         )
     end).
 
-t_tcp_vm_framing_conn(_Config) ->
+t_tcp_frame_parsing_conn(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
         <<"limiter">> => #{},
-        <<"framing">> => <<"vm">>
+        <<"parse_unit">> => <<"frame">>
     },
     with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
@@ -204,7 +204,7 @@ t_tcp_vm_framing_conn(_Config) ->
             ?assertMatch(#{parser := {frame, _Options}}, CState)
     end).
 
-t_ssl_vm_framing_conn(Config) ->
+t_ssl_frame_parsing_conn(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Port = emqx_common_test_helpers:select_free_port(ssl),
     Conf = #{
@@ -215,7 +215,7 @@ t_ssl_vm_framing_conn(Config) ->
             <<"certfile">> => filename:join(PrivDir, "server.pem"),
             <<"keyfile">> => filename:join(PrivDir, "server.key")
         },
-        <<"framing">> => <<"vm">>
+        <<"parse_unit">> => <<"frame">>
     },
     with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}]),

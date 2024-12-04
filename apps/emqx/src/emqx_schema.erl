@@ -577,7 +577,7 @@ fields("crl_cache") ->
     ];
 fields("mqtt_tcp_listener") ->
     mqtt_listener(1883) ++
-        mqtt_framing_options() ++
+        mqtt_parse_options() ++
         [
             {"tcp_options",
                 sc(
@@ -587,7 +587,7 @@ fields("mqtt_tcp_listener") ->
         ];
 fields("mqtt_ssl_listener") ->
     mqtt_listener(8883) ++
-        mqtt_framing_options() ++
+        mqtt_parse_options() ++
         [
             {"tcp_options",
                 sc(
@@ -1884,14 +1884,14 @@ mqtt_listener(Bind) ->
                 )}
         ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
 
-mqtt_framing_options() ->
+mqtt_parse_options() ->
     [
-        {"framing",
+        {"parse_unit",
             sc(
-                hoconsc:enum([builtin, vm]),
+                hoconsc:enum([chunk, frame]),
                 #{
-                    default => <<"builtin">>,
-                    desc => ?DESC(fields_tcp_opts_framing),
+                    default => <<"chunk">>,
+                    desc => ?DESC(fields_mqtt_opts_parse_unit),
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}

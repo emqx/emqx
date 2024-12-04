@@ -67,7 +67,7 @@ init_per_group(tcp, Config) ->
     [{conn_type, tcp}, {port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(tcp_beam_framing, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, framing = vm }"}],
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = frame }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
