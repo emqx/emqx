@@ -20,7 +20,6 @@
         hocon,
         emqx_ds_backends,
         bcrypt,
-        pbkdf2,
         emqx_http_lib,
         recon,
         os_mon

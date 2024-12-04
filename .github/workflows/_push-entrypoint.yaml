@@ -105,15 +105,6 @@ jobs:
       builder_vsn: ${{ needs.init.outputs.BUILDER_VSN }}
     secrets: inherit
 
-  performance_test:
-    if: needs.prepare.outputs.release == 'true'
-    needs:
-      - init
-      - prepare
-      - build_packages
-    uses: ./.github/workflows/performance_test.yaml
-    secrets: inherit
-
   build_and_push_docker_images:
     if: needs.prepare.outputs.release == 'true'
     needs:
@@ -177,6 +168,19 @@ jobs:
             _build/docgen/${{ matrix.profile }}/*.hocon
           retention-days: 7
 
+  performance_test:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - init
+      - prepare
+      - build_packages
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    steps:
+      - name: Trigger performance test
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]} 
   update_emqx_i18n:
     if: needs.prepare.outputs.release == 'true'
     needs:

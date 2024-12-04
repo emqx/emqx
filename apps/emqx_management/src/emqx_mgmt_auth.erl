@@ -117,10 +117,15 @@ post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
 
 -spec try_init_bootstrap_file() -> ok | {error, _}.
 try_init_bootstrap_file() ->
-    File = bootstrap_file(),
-    ?SLOG(debug, #{msg => "init_bootstrap_api_keys_from_file", file => File}),
-    _ = init_bootstrap_file(File),
-    ok.
+    case mria_rlog:role() of
+        core ->
+            File = bootstrap_file(),
+            ?SLOG(debug, #{msg => "init_bootstrap_api_keys_from_file", file => File}),
+            _ = init_bootstrap_file(File),
+            ok;
+        _ ->
+            ok
+    end.
 
 create(Name, Enable, ExpiredAt, Desc, Role) ->
     ApiKey = generate_unique_api_key(Name),

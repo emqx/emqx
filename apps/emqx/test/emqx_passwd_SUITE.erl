@@ -118,10 +118,12 @@ t_hash(_) ->
         "01dbee7f4a9e243e988b62c73cda935d"
         "a05378b93244ec8f48a99e61ad799d86"
     >>,
-    Pbkdf2 = emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Password),
+    _Pbkdf2 = emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Password),
     true = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Pbkdf2, Password),
     false = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Pbkdf2, WrongPassword),
-    false = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, BadDKlen}, Pbkdf2, Password),
+    ?assertException(
+        error, _, emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, BadDKlen}, Pbkdf2, Password)
+    ),
 
     %% Invalid derived_length, pbkdf2 fails
     ?assertException(error, _, emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, BadDKlen}, Password)),

@@ -49,7 +49,6 @@ defmodule EMQX.MixProject do
       UMP.common_dep(:hocon),
       UMP.common_dep(:ranch),
       UMP.common_dep(:bcrypt),
-      UMP.common_dep(:pbkdf2),
       UMP.common_dep(:emqx_http_lib),
     ] ++ UMP.quicer_dep()
   end
