@@ -25,7 +25,7 @@ defmodule EMQXMongodb.MixProject do
     [
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:mongodb, github: "emqx/mongodb-erlang", tag: "v3.0.23"}
+      {:mongodb, github: "emqx/mongodb-erlang", tag: "v3.0.24"}
     ]
   end
 end

@@ -88,7 +88,11 @@ fields(pbkdf2) ->
         {mac_fun,
             sc(
                 hoconsc:enum([md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]),
-                #{required => true, desc => "Specifies mac_fun for PBKDF2 hashing algorithm."}
+                #{
+                    required => true,
+                    desc =>
+                        "Specifies mac_fun for PBKDF2 hashing algorithm and md4, md5, ripemd160 are no longer supported since 5.8.3"
+                }
             )},
         {iterations,
             sc(
