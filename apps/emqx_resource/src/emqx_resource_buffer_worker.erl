@@ -1230,7 +1230,10 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
         {ok, #rt{st_err = #{status := ?status_connecting, error := unhealthy_target}}} ->
             {error, {unrecoverable_error, unhealthy_target}};
-        {ok, #rt{st_err = #{status := Status}, cb = Resource, channel_status = ChanSt}} ->
+        {ok, #rt{st_err = #{status := Status} = StErr, cb = Resource, channel_status = ChanSt}} ->
+            ?tp(warning, ">>>>>>>>>", #{
+                where => {node(), ?MODULE, ?LINE, self()}, status => StErr, chan_status => ChanSt
+            }),
             IsAlwaysSend = is_always_send(QueryOpts, Resource),
             case Status =:= ?status_connected orelse IsAlwaysSend of
                 true ->

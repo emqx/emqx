@@ -217,7 +217,7 @@ pgsql_config(BridgeType, Config) ->
             "\n     batch_size = ~b"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
-            "\n     health_check_interval = 15s"
+            "\n     health_check_interval = 1s"
             "\n     start_after_created = true"
             "\n     start_timeout = 5s"
             "\n     inflight_window = 100"
@@ -225,7 +225,7 @@ pgsql_config(BridgeType, Config) ->
             "\n     buffer_seg_bytes = 10MB"
             "\n     buffer_mode = memory_only"
             "\n     metrics_flush_interval = 5s"
-            "\n     resume_interval = 15s"
+            "\n     resume_interval = 1s"
             "\n   }"
             "\n   ssl = {"
             "\n     enable = ~w"
@@ -803,21 +803,28 @@ t_table_removed(Config) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     ?check_trace(
         begin
+            ct:pal("creating table"),
             connect_and_create_table(Config),
-            ?assertMatch({ok, _}, create_bridge(Config)),
+            ct:pal("creating bridge"),
+            ?assertMatch({ok, _}, create_bridge(Config, #{<<"pool_size">> => 1})),
+            ct:pal("checking bridge health"),
             ?retry(
                 _Sleep = 100,
                 _Attempts = 200,
                 ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
             ),
+            ct:pal("dropping table"),
             connect_and_drop_table(Config),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
             ActionId = emqx_bridge_v2:id(BridgeType, Name),
+            ct:pal("sending query"),
             case query_resource_sync(Config, {ActionId, SentData}) of
-                {error, {unrecoverable_error, _}} ->
+                {error, {unrecoverable_error, _}} = X ->
+                    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{x => X}]),
                     ok;
-                ?RESOURCE_ERROR_M(not_connected, _) ->
+                ?RESOURCE_ERROR_M(not_connected, _) = X ->
+                    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{x => X}]),
                     ok;
                 Res ->
                     ct:fail("unexpected result: ~p", [Res])
