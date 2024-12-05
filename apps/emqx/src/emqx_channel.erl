@@ -1591,7 +1591,10 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
     ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
     ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = reauthenticating}) ->
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) when
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
+->
+    %% Unexpected sock_closed when `connected` or `reauthenticating`
     ?WITH_TRACE(fun([]) -> process_broker_disconnect(Reason, Channel) end);
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% This can happen as a race:
