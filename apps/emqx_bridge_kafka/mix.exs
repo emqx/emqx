@@ -18,7 +18,10 @@ defmodule EMQXBridgeKafka.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_bridge_kafka_app, []}
+    ]
   end
 
   def deps() do
