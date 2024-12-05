@@ -13,7 +13,10 @@
     list_ns/2,
     is_known_ns/1,
     count_clients/1,
-    list_clients/3
+    evict_ccache/0,
+    evict_ccache/1,
+    list_clients/3,
+    is_known_client/2
 ]).
 
 -export([
@@ -22,6 +25,7 @@
     clear_for_node/1
 ]).
 
+-include("emqx_mt.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -30,11 +34,11 @@
 -define(RECORD_TAB, emqx_mt_record).
 -define(COUNTER_TAB, emqx_mt_counter).
 -define(MONITOR_TAB, emqx_mt_monitor).
+-define(CCACHE_TAB, emqx_mt_ccache).
 -define(LOCK, emqx_mt_clear_node_lock).
 -define(RECORD_KEY(Tns, ClientId, Pid), {Tns, ClientId, Pid}).
-%% 0 is less '<' than any client ID (binary() | atom()) in Erlang.
-%% and it's also less '<' than any pid().
--define(MIN, 0).
+%% 0 is less '<' than any pid
+-define(MIN_PID, 0).
 
 -type tns() :: emqx_mt:tns().
 -type clientid() :: emqx_types:clientid().
@@ -50,7 +54,7 @@
 %% Mria table to store the client records.
 %% Pid is used in the key to make sure the record is unique,
 %% so there is no need for transaction to update the record.
--define(MIN_RECORD_KEY(Tns), ?RECORD_KEY(Tns, ?MIN, ?MIN)).
+-define(MIN_RECORD_KEY(Tns), ?RECORD_KEY(Tns, ?MIN_CLIENTID, ?MIN_PID)).
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
     node :: node(),
@@ -67,7 +71,9 @@
 }).
 
 %% ETS table to keep track of the session pid for each client.
--record(?MONITOR_TAB, {pid :: pid(), key :: {tns(), clientid()}}).
+-define(MONITOR(Pid, Key), {Pid, Key}).
+-define(CCACHE(Ns, Ts, Cnt), {Ns, Ts, Cnt}).
+-define(CCACHE_VALID_MS, 5000).
 
 create_tables() ->
     ok = mria:create_table(?NS_TAB, [
@@ -91,10 +97,12 @@ create_tables() ->
     _ = ets:new(?MONITOR_TAB, [
         set,
         named_table,
-        public,
-        {keypos, #?MONITOR_TAB.pid},
-        {write_concurrency, true},
-        {read_concurrency, true}
+        public
+    ]),
+    _ = ets:new(?CCACHE_TAB, [
+        set,
+        named_table,
+        public
     ]),
     ok.
 
@@ -113,13 +121,46 @@ list_ns(LastNs, Limit) ->
 -spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.
 count_clients(Tns) ->
     case is_known_ns(Tns) of
-        true -> {ok, do_count_clients(Tns)};
+        true -> {ok, with_ccache(Tns)};
         false -> {error, not_found}
     end.
 
-do_count_clients(Tns) ->
-    Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Tns0, _), count = Count}) when
-        Tns0 =:= Tns
+%% @doc Returns true if the client is known.
+-spec is_known_client(tns(), clientid()) -> boolean().
+is_known_client(Tns, ClientId) ->
+    case ets:next(?RECORD_TAB, ?RECORD_KEY(Tns, ClientId, ?MIN_PID)) of
+        '$end_of_table' -> false;
+        ?RECORD_KEY(Tns, ClientId, _Pid) -> true
+    end.
+
+now_ts() ->
+    erlang:system_time(millisecond).
+
+lookup_counter_from_cache(Ns) ->
+    case ets:lookup(?CCACHE_TAB, Ns) of
+        [] ->
+            false;
+        [?CCACHE(Ns, Ts, Cnt)] ->
+            case now_ts() - Ts < ?CCACHE_VALID_MS of
+                true -> Cnt;
+                false -> false
+            end
+    end.
+
+with_ccache(Tns) ->
+    case lookup_counter_from_cache(Tns) of
+        false ->
+            Cnt = do_count_clients(Tns),
+            Ts = now_ts(),
+            _ = ets:insert(?CCACHE_TAB, ?CCACHE(Tns, Ts, Cnt)),
+            Cnt;
+        Cnt ->
+            Cnt
+    end.
+
+do_count_clients(Ns) ->
+    Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
+        Ns0 =:= Ns
     ->
         Count
     end),
@@ -160,12 +201,12 @@ add(Tns, ClientId, Pid) ->
         node = node(),
         extra = []
     },
-    Monitor = #?MONITOR_TAB{pid = Pid, key = {Tns, ClientId}},
+    Monitor = ?MONITOR(Pid, {Tns, ClientId}),
     ok = ensure_ns_added(Tns),
     _ = ets:insert(?MONITOR_TAB, Monitor),
     _ = mria:dirty_update_counter(?COUNTER_TAB, ?COUNTER_KEY(Tns, node()), 1),
     ok = mria:dirty_write(?RECORD_TAB, Record),
-    ?tp(debug, multi_tenant_client_added, #{tns => Tns, clientid => ClientId, pid => Pid}),
+    ?tp(multi_tenant_client_added, #{tns => Tns, clientid => ClientId, proc => Pid}),
     ok.
 
 -spec ensure_ns_added(tns()) -> ok.
@@ -182,16 +223,17 @@ ensure_ns_added(Tns) ->
 del(Pid) ->
     case ets:lookup(?MONITOR_TAB, Pid) of
         [] ->
-            %% already deleted
-            ?tp(debug, multi_tenant_client_not_found, #{pid => Pid}),
+            %% some other process' DOWN message?
+            ?tp(debug, multi_tenant_client_proc_not_found, #{proc => Pid}),
             ok;
-        [#?MONITOR_TAB{key = {Tns, ClientId}}] ->
+        [?MONITOR(_, {Tns, ClientId})] ->
             _ = mria:dirty_update_counter(?COUNTER_TAB, ?COUNTER_KEY(Tns, node()), -1),
             ok = mria:dirty_delete(?RECORD_TAB, ?RECORD_KEY(Tns, ClientId, Pid)),
             ets:delete(?MONITOR_TAB, Pid),
-            ?tp(debug, multi_tenant_client_deleted, #{tns => Tns, clientid => ClientId, pid => Pid})
-    end,
-    ok.
+            ?tp(multi_tenant_client_proc_deleted, #{
+                tns => Tns, clientid => ClientId, proc => Pid
+            })
+    end.
 
 %% @doc clear all clients from a node which is down.
 -spec clear_for_node(node()) -> ok.
@@ -215,4 +257,16 @@ do_clear_for_node(Node) ->
         {#?COUNTER_TAB.key, ?COUNTER_KEY('_', Node)}
     ]),
     _ = mria:match_delete(?COUNTER_TAB, M2),
+    ok.
+
+%% @doc delete all counter cache entries.
+-spec evict_ccache() -> ok.
+evict_ccache() ->
+    ets:delete_all_objects(?CCACHE_TAB),
+    ok.
+
+%% @doc delete counter cache for a given namespace.
+-spec evict_ccache(tns()) -> ok.
+evict_ccache(Ns) ->
+    ets:delete(?CCACHE_TAB, Ns),
     ok.

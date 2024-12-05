@@ -7,6 +7,7 @@
 -behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% APIs
 -export([start_link/2]).
@@ -56,7 +57,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({add, Tns, ClientId, Pid}, State) ->
-    erlang:monitor(process, Pid),
+    _ = erlang:monitor(process, Pid),
     ok = emqx_mt_state:add(Tns, ClientId, Pid),
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->

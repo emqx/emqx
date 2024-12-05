@@ -21,7 +21,8 @@
     emqx_schema_validation_schema,
     emqx_message_transformation_schema,
     emqx_ft_schema,
-    emqx_ds_shared_sub_schema
+    emqx_ds_shared_sub_schema,
+    emqx_mt_schema
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.

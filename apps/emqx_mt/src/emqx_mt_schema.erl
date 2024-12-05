@@ -24,13 +24,13 @@ roots() ->
 
 fields("config") ->
     [
-        {default_session_limit,
+        {default_max_sessions,
             mk(
-                union(
+                hoconsc:union(
                     [infinity, non_neg_integer()]
                 ),
                 #{
-                    desc => ?DESC(default_session_limit),
+                    desc => ?DESC(default_max_sessions),
                     importance => ?IMPORTANCE_HIGH,
                     default => infinity
                 }
@@ -39,4 +39,3 @@ fields("config") ->
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Name) -> hoconsc:ref(?MODULE, Name).
-union(Types) -> hoconsc:union(Types).

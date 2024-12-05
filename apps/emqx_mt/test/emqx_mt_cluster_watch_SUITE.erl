@@ -64,12 +64,13 @@ t_node_down(_Config) ->
             3000
         )
     ),
+    ok = emqx_mt_state:evict_ccache(),
     ?assertEqual({ok, 0}, emqx_mt:count_clients(Username)),
     ok = emqtt:stop(Pid),
     ?assertMatch(
         {ok, #{tns := Username, clientid := ClientId}},
         ?block_until(
-            #{?snk_kind := multi_tenant_client_deleted},
+            #{?snk_kind := multi_tenant_client_proc_deleted},
             3000
         )
     ),
