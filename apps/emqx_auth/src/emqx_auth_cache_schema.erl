@@ -56,7 +56,7 @@ fields(config) ->
         {stat_update_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 desc => ?DESC(stat_update_interval),
-                default => <<"1m">>,
+                default => <<"5s">>,
                 importance => ?IMPORTANCE_HIDDEN
             })},
         {max_size,

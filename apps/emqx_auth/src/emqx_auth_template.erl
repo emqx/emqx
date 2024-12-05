@@ -83,7 +83,7 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
 cache_key_template(Vars) ->
     emqx_template:parse_deep(
         [
-            emqx_utils:gen_id()
+            list_to_binary(emqx_utils:gen_id())
             | lists:map(
                 fun(Var) ->
                     list_to_binary("${" ++ Var ++ "}")

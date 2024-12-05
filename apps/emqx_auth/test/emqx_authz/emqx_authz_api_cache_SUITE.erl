@@ -22,6 +22,17 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
+
+-define(SOURCE_HTTP, #{
+    <<"type">> => <<"http">>,
+    <<"enable">> => true,
+    <<"url">> => <<"https://127.0.0.1:443/acl?username=", ?PH_USERNAME/binary>>,
+    <<"ssl">> => #{<<"enable">> => true},
+    <<"headers">> => #{},
+    <<"method">> => <<"get">>,
+    <<"request_timeout">> => <<"5s">>
+}).
 
 suite() -> [{timetrap, {seconds, 60}}].
 
@@ -55,6 +66,19 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
+    ok.
+
+init_per_testcase(_Case, Config) ->
+    Config.
+
+end_per_testcase(t_node_cache, _Config) ->
+    {ok, 204, _} = request(
+        delete,
+        uri(["authorization", "sources", "http"]),
+        []
+    ),
+    ok = emqx_authz_source_registry:unregister(http);
+end_per_testcase(_, _Config) ->
     ok.
 
 t_clean_cache(_) ->
@@ -101,10 +125,12 @@ t_node_cache(_) ->
         get,
         uri(["authorization", "node_cache"])
     ),
+    ok = emqx_authz_source_registry:register(http, emqx_authz_http),
     ?assertMatch(
         #{<<"enable">> := true},
         emqx_utils_json:decode(CacheData1, [return_maps])
     ),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE_HTTP),
 
     %% We enabled authz cache, let's create client and make a subscription
     %% to touch the cache
@@ -134,8 +160,4 @@ t_node_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
         uri(["authorization", "node_cache", "reset"])
-    ),
-    {ok, 204, _} = request(
-        post,
-        uri(["authorization", "node_cache", "someclient", "reset"])
     ).

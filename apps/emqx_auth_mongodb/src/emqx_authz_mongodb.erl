@@ -58,9 +58,8 @@ update(#{filter := Filter} = Source) ->
             error({load_config_error, Reason});
         {ok, Id} ->
             Source#{
-                annotations => #{id => Id},
-                filter_template => FilterTemp,
-                cache_key_template => CacheKeyTemplate
+                annotations => #{id => Id, cache_key_template => CacheKeyTemplate},
+                filter_template => FilterTemp
             }
     end.
 

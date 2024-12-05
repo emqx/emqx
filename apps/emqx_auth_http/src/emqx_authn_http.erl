@@ -18,6 +18,7 @@
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -behaviour(emqx_authn_provider).
 
@@ -83,6 +84,10 @@ authenticate(
     case generate_request(Credential, State) of
         {ok, Request} ->
             CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
+            ?tp(warning, authn_http_authenticate, #{
+                cache_key => CacheKey(),
+                cache_key_template => CacheKeyTemplate
+            }),
             Response = emqx_authn_utils:cached_simple_sync_query(
                 CacheKey,
                 ResourceId,
