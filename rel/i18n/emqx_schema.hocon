@@ -563,7 +563,7 @@ fields_tcp_opts_buffer.label:
 fields_mqtt_opts_parse_unit.desc:
 """This setting specifies the level of granularity for data processed during MQTT framing, determining how frames are extracted and parsed from a byte stream:
 
-- `chunk`: Frames are processed at the transport layer packet level. This method uses raw byte chunks as the parsing unit, requiring the application logic to assemble and interpret MQTT frames. The size of each chunk nondeterministically depends on factors such as transmission speed, socket buffer size, and other kernel settings.
+- `chunk`: Frames are processed at the transport layer packet level. This method uses raw byte chunks as the parsing unit, requiring the application logic to assemble and interpret MQTT frames. The size of each chunk non-deterministically depends on factors such as transmission speed, socket buffer size, and other kernel settings.
 - `frame`: Frames are processed as complete MQTT messages. This method ensures that only fully-formed MQTT frames are delivered to the application logic for further handling. In most of the cases, it offers better performance than the `chunk` option.
 
 Note, the choice of `parse_unit` affects the interpretation of the `active_n` setting: it defines either the number of raw byte chunks or complete MQTT messages are delivered to the connection process."""
