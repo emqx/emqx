@@ -145,6 +145,8 @@
     | connected
     %% mqtt connected but reauthenticating
     | reauthenticating
+    %% MQTT DISCONNECT packet received, socket cleanup and etc...
+    | disconnecting
     %% keepalive timeout or connection terminated
     | disconnected.
 
@@ -171,6 +173,17 @@
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
+-define(WITH_TRACE(_Expr_),
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_disconnect,
+        [],
+        maps:merge(
+            (basic_trace_attrs(Channel))#{},
+            ext_trace_disconnect_reason(sock_closed, Channel)
+        ),
+        _Expr_
+    )
+).
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
@@ -518,7 +531,9 @@ handle_in(
             'client.is_bridge' => info(is_bridge, Channel),
             'client.sockname' => emqx_utils:ntoa(info(sockname, Channel)),
             'client.peername' => emqx_utils:ntoa(info(peername, Channel)),
-            'client.disconnect.reason_code' => emqx_packet:info(reason_code, _PktVar)
+            'client.disconnect.reason' =>
+                emqx_reason_codes:name(emqx_packet:info(reason_code, _PktVar)),
+            'client.disconnect.reason_desc' => undefined
         },
         fun(PacketWithTrace) -> process_disconnect(PacketWithTrace, Channel) end
     );
@@ -1054,7 +1069,7 @@ process_disconnect(
 ) ->
     NConnInfo = ConnInfo#{disconn_props => Properties},
     NChannel = maybe_clean_will_msg(ReasonCode, Channel#channel{conninfo = NConnInfo}),
-    post_process_disconnect(ReasonCode, Properties, NChannel).
+    post_process_disconnect(ReasonCode, Properties, NChannel#channel{conn_state = disconnecting}).
 
 %% MQTT-v5.0: 3.14.2.2.2 Session Expiry Interval
 post_process_disconnect(
@@ -1091,6 +1106,23 @@ maybe_update_expiry_interval(
     end;
 maybe_update_expiry_interval(_Properties, Channel) ->
     Channel.
+
+process_broker_disconnect(
+    Reason,
+    Channel =
+        #channel{
+            clientinfo = ClientInfo,
+            conninfo = ConnInfo,
+            session = Session
+        }
+) ->
+    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
+    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
+    Channel2 = Channel1#channel{session = Session1},
+    case maybe_shutdown(Reason, Intent, Channel2) of
+        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
+        Shutdown -> Shutdown
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
@@ -1421,27 +1453,41 @@ handle_call(
         session = Session
     }
 ) ->
-    emqx_session:destroy(Session),
-    Channel0 = maybe_publish_will_msg(kicked, Channel),
-    Channel1 =
-        case ConnState of
-            connected -> ensure_disconnected(kicked, Channel0);
-            _ -> Channel0
-        end,
-    case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
-        true ->
-            shutdown(
-                kicked,
-                ok,
-                ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
-                Channel1
-            );
-        _ ->
-            shutdown(kicked, ok, Channel1)
-    end;
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_disconnect,
+        [],
+        maps:merge(basic_trace_attrs(Channel), ext_trace_disconnect_reason(kick, Channel)),
+        fun([]) ->
+            emqx_session:destroy(Session),
+            Channel0 = maybe_publish_will_msg(kicked, Channel),
+            Channel1 =
+                case ConnState of
+                    connected -> ensure_disconnected(kicked, Channel0);
+                    _ -> Channel0
+                end,
+            case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
+                true ->
+                    shutdown(
+                        kicked,
+                        ok,
+                        ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
+                        Channel1
+                    );
+                _ ->
+                    shutdown(kicked, ok, Channel1)
+            end
+        end
+    );
 handle_call(discard, Channel) ->
-    Channel0 = maybe_publish_will_msg(discarded, Channel),
-    disconnect_and_shutdown(discarded, ok, Channel0);
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_disconnect,
+        [],
+        maps:merge(basic_trace_attrs(Channel), ext_trace_disconnect_reason(discard, Channel)),
+        fun([]) ->
+            Channel0 = maybe_publish_will_msg(discarded, Channel),
+            disconnect_and_shutdown(discarded, ok, Channel0)
+        end
+    );
 %% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     reply(Session, Channel#channel{takeover = true});
@@ -1453,22 +1499,36 @@ handle_call(
         conninfo = #{clientid := ClientId}
     }
 ) ->
-    %% NOTE
-    %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    ok = emqx_session_mem:takeover(Session),
-    %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
-    ?tp(
-        debug,
-        emqx_channel_takeover_end,
-        #{clientid => ClientId}
-    ),
-    Channel0 = maybe_publish_will_msg(takenover, Channel),
-    disconnect_and_shutdown(takenover, AllPendings, Channel0);
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_disconnect,
+        [],
+        maps:merge(basic_trace_attrs(Channel), ext_trace_disconnect_reason(takeover, Channel)),
+        fun([]) ->
+            %% NOTE
+            %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
+            ok = emqx_session_mem:takeover(Session),
+            %% TODO: Should not drain deliver here (side effect)
+            Delivers = emqx_utils:drain_deliver(),
+            AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
+            ?tp(
+                debug,
+                emqx_channel_takeover_end,
+                #{clientid => ClientId}
+            ),
+            Channel0 = maybe_publish_will_msg(takenover, Channel),
+            disconnect_and_shutdown(takenover, AllPendings, Channel0)
+        end
+    );
 handle_call(takeover_kick, Channel) ->
-    Channel0 = maybe_publish_will_msg(takenover, Channel),
-    disconnect_and_shutdown(takenover, ok, Channel0);
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_disconnect,
+        [],
+        maps:merge(basic_trace_attrs(Channel), ext_trace_disconnect_reason(takeover_kick, Channel)),
+        fun([]) ->
+            Channel0 = maybe_publish_will_msg(takenover, Channel),
+            disconnect_and_shutdown(takenover, ok, Channel0)
+        end
+    );
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 handle_call(
@@ -1523,29 +1583,16 @@ handle_info({unsubscribe, TopicFilters}, Channel) ->
             {ok, NChannel}
         end
     );
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnecting}) ->
+    %% normal disconnect and close socket
+    %% already traced `client.disconnect`, no need to trace `broker.disconnect`
+    process_broker_disconnect(Reason, Channel);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
-    shutdown(Reason, Channel);
+    ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
-    shutdown(Reason, Channel);
-handle_info(
-    {sock_closed, Reason},
-    Channel =
-        #channel{
-            conn_state = ConnState,
-            clientinfo = ClientInfo,
-            conninfo = ConnInfo,
-            session = Session
-        }
-) when
-    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
-->
-    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
-    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
-    Channel2 = Channel1#channel{session = Session1},
-    case maybe_shutdown(Reason, Intent, Channel2) of
-        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
-        Shutdown -> Shutdown
-    end;
+    ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = reauthenticating}) ->
+    ?WITH_TRACE(fun([]) -> process_broker_disconnect(Reason, Channel) end);
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% This can happen as a race:
     %% EMQX closes socket and marks 'disconnected' but 'tcp_closed' or 'ssl_closed'
@@ -1563,10 +1610,20 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
 handle_info({'DOWN', Ref, process, Pid, Reason}, Channel) ->
-    case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
-        [] -> {ok, Channel};
-        Msgs -> {ok, Msgs, Channel}
-    end;
+    ?EXT_TRACE_WITH_PROCESS_FUN(
+        broker_disconnect,
+        [],
+        maps:merge(
+            basic_trace_attrs(Channel),
+            ext_trace_disconnect_reason({process_down, Pid, Reason}, Channel)
+        ),
+        fun([]) ->
+            case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
+                [] -> {ok, Channel};
+                Msgs -> {ok, Msgs, Channel}
+            end
+        end
+    );
 handle_info(Info, Channel = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
     {ok, Channel#channel{session = Session}}.
@@ -3254,6 +3311,36 @@ subscribe_authz_result_attrs(CheckResult) ->
         'authz.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
         'authz.subscribe.reason_codes' => emqx_utils_json:encode(lists:reverse(AuthZRCs))
     }.
+
+-define(ext_trace_disconnect_reason(Reason),
+    ?ext_trace_disconnect_reason(Reason, undefined)
+).
+
+-define(ext_trace_disconnect_reason(Reason, Description), #{
+    'client.proto_name' => info(proto_name, Channel),
+    'client.proto_ver' => info(proto_ver, Channel),
+    'client.is_bridge' => info(is_bridge, Channel),
+    'client.sockname' => emqx_utils:ntoa(info(sockname, Channel)),
+    'client.peername' => emqx_utils:ntoa(info(peername, Channel)),
+    'client.disconnect.reason' => Reason,
+    'client.disconnect.reason_desc' => Description
+}).
+
+ext_trace_disconnect_reason(kick, Channel) ->
+    ?ext_trace_disconnect_reason(kicked);
+ext_trace_disconnect_reason(discard, Channel) ->
+    ?ext_trace_disconnect_reason(discarded);
+ext_trace_disconnect_reason(takeover, Channel) ->
+    ?ext_trace_disconnect_reason(takenover);
+ext_trace_disconnect_reason(takeover_kick, Channel) ->
+    ?ext_trace_disconnect_reason(takenover_kick);
+ext_trace_disconnect_reason(sock_closed, Channel) ->
+    ?ext_trace_disconnect_reason(sock_closed);
+ext_trace_disconnect_reason({process_down, Pid, Reason}, Channel) ->
+    ?ext_trace_disconnect_reason(
+        process_down,
+        iolist_to_binary(io_lib:format("process: ~p down by reason: ~p", [Pid, Reason]))
+    ).
 
 -else.
 -endif.
