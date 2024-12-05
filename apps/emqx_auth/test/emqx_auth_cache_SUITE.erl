@@ -160,31 +160,6 @@ t_reset(_Config) ->
         emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end)
     ).
 
-t_reset_by_id(_Config) ->
-    ConfigPath = [?MODULE, ?FUNCTION_NAME],
-    emqx_config:put(ConfigPath, #{
-        enable => true,
-        cleanup_interval => 100,
-        cache_ttl => 100
-    }),
-    {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
-    set_val(k1, v1),
-    set_val(k2, v1),
-    _ = emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end),
-    _ = emqx_auth_cache:with_cache(somecache, {<<"k2cache">>, v}, fun() -> {cache, get_val(k2)} end),
-    set_val(k1, v2),
-    set_val(k2, v2),
-    ok = emqx_auth_cache:reset(somecache, <<"k1cache">>),
-    %% we should get the new value for k1 but still cached value for k2 but
-    ?assertEqual(
-        v2,
-        emqx_auth_cache:with_cache(somecache, {<<"k1cache">>, v}, fun() -> {cache, get_val(k1)} end)
-    ),
-    ?assertEqual(
-        v1,
-        emqx_auth_cache:with_cache(somecache, {<<"k2cache">>, v}, fun() -> {cache, get_val(k2)} end)
-    ).
-
 t_size_limit(_Config) ->
     ConfigPath = [?MODULE, ?FUNCTION_NAME],
     emqx_config:put(ConfigPath, #{
@@ -294,8 +269,7 @@ t_cluster(_Config) ->
     {ok, _Pid} = emqx_auth_cache:start_link(somecache, ConfigPath, ?metrics_worker),
 
     [{ok, {_Node, #{}}}] = emqx_auth_cache_proto_v1:metrics([node()], somecache),
-    [{ok, ok}] = emqx_auth_cache_proto_v1:reset([node()], somecache),
-    [{ok, ok}] = emqx_auth_cache_proto_v1:reset([node()], somecache, <<"k1cache">>).
+    [{ok, ok}] = emqx_auth_cache_proto_v1:reset([node()], somecache).
 
 %%------------------------------------------------------------------------------
 %% Helpers

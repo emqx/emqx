@@ -177,17 +177,17 @@ init([Name, ConfigPath, MetricsWorker]) ->
         public, set, {keypos, #stats.key}, {read_concurrency, true}
     ]),
     ok = create_metrics(Name, MetricsWorker),
-    State = #{
+    PtState = #{
         name => Name,
         tab => Tab,
         stat_tab => StatTab,
         config_path => ConfigPath,
         metrics_worker => MetricsWorker
     },
-    ok = update_stats(State),
-    _ = persistent_term:put(?pt_key(Name), State),
-    _ = erlang:send_after(cleanup_interval(State), self(), #cleanup{}),
-    _ = erlang:send_after(stat_update_interval(State), self(), #update_stats{}),
+    ok = update_stats(PtState),
+    _ = persistent_term:put(?pt_key(Name), PtState),
+    _ = erlang:send_after(cleanup_interval(PtState), self(), #cleanup{}),
+    _ = erlang:send_after(stat_update_interval(PtState), self(), #update_stats{}),
     {ok, #{name => Name}}.
 
 handle_call(Msg, _From, State) ->
@@ -279,16 +279,17 @@ cleanup(#{name := Name, tab := Tab}) ->
     }),
     ok.
 
-update_stats(#{tab := Tab, stat_tab := StatTab} = State) ->
+update_stats(#{tab := Tab, stat_tab := StatTab, name := Name} = PtState) ->
     #{size := Size, memory := Memory} = tab_stats(Tab),
     Stats = #stats{
         key = ?stat_key,
         size = Size,
         memory = Memory
     },
-    ok = set_gauge(State, ?metric_size, Size),
-    ok = set_gauge(State, ?metric_memory, Memory),
-    ?tp(warning, update_stats, #{
+    ok = set_gauge(PtState, ?metric_size, Size),
+    ok = set_gauge(PtState, ?metric_memory, Memory),
+    ?tp(info, update_stats, #{
+        name => Name,
         stats => Stats
     }),
     _ = ets:insert(StatTab, Stats),
