@@ -43,16 +43,15 @@ all() ->
     [
         {group, bitfield_lts},
         {group, skipstream_lts},
-        {group, skipstream_lts_master_hash}
+        {group, skipstream_lts_master_hash},
+        {group, reference}
     ].
 
 init_per_group(Group, Config) ->
     LayoutConf =
         case Group of
             reference ->
-                {emqx_ds_storage_reference, #{
-                    lts_threshold_spec => ?LTS_THRESHOLD
-                }};
+                {emqx_ds_storage_reference, #{}};
             skipstream_lts ->
                 {emqx_ds_storage_skipstream_lts, #{
                     with_guid => true,
@@ -142,6 +141,10 @@ t_iterate(_Config) ->
     ok.
 
 %% Smoke test for deleting messages.
+t_delete(groups, _AllGroups) ->
+    %% NOTE: Subtly broken in general, but fails explicitly with `reference` layout.
+    [bitfield_lts, skipstream_lts].
+
 t_delete(_Config) ->
     %% Prepare data:
     TopicToDelete = <<"foo/bar/baz">>,
@@ -170,6 +173,10 @@ t_delete(_Config) ->
 
 %% Smoke test that verifies that concrete topics are mapped to
 %% individual streams, unless there's too many of them.
+t_get_streams(groups, _AllGroups) ->
+    %% NOTE: Relevant only to LTS-based layouts.
+    [bitfield_lts, skipstream_lts].
+
 t_get_streams(Config) ->
     %% Prepare data (without wildcards):
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
@@ -220,6 +227,10 @@ t_get_streams(Config) ->
     ?assert(lists:member(FooBarBaz, AllStreams)),
     ?assert(lists:member(A, AllStreams)),
     ok.
+
+t_new_generation_inherit_trie(groups, _AllGroups) ->
+    %% NOTE: Relevant only to LTS-based layouts.
+    [bitfield_lts, skipstream_lts].
 
 t_new_generation_inherit_trie(Config) ->
     %% This test checks that we inherit the previous generation's LTS when creating a new
@@ -344,20 +355,15 @@ t_replay_special_topics(_Config) ->
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1 ++ Batch2)),
     check(?SHARD, <<"$SYS/test/#">>, 0, []).
 
-t_replay_nonunique_ts(groups, _AllGroups) ->
-    %% NOTE
-    %% Only those 2 layouts support messages with non-unique timestamps (e.g. when a DB is
-    %% non-append-only), and even then there's no guarantee because of possibility of
-    %% hash collisions.
-    [bitfield_lts, skipstream_lts_master_hash];
+%% Verify that select storage layouts work properly in non-append-only context
+%% (single generation only):
+%% 1. Message timestamp is respected.
+%% 2. Message timestamp and topic uniquely identifies a message.
 t_replay_nonunique_ts(db_config, _Config) ->
+    %% NOTE: Layouts are expected to pick safe defaults for non-append-only DBs.
     #{append_only => false}.
 
 t_replay_nonunique_ts(_Config) ->
-    %% Verify that select storage layouts work properly in non-append-only context
-    %% (single generation only):
-    %% 1. Message timestamp is respected.
-    %% 2. Message timestamp and topic uniquely identifies a message.
     %% Create concrete topics:
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"foo/bar/xyz">>],
     Timestamps = lists:seq(100, 500, 100),

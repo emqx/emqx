@@ -30,7 +30,7 @@
 
 %% behavior callbacks:
 -export([
-    create/5,
+    create/6,
     open/5,
     drop/5,
     prepare_batch/4,
@@ -57,8 +57,6 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
--define(DB_KEY(TIMESTAMP), <<TIMESTAMP:64>>).
-
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -71,7 +69,8 @@
 %% Runtime state:
 -record(s, {
     db :: rocksdb:db_handle(),
-    cf :: rocksdb:cf_handle()
+    cf :: rocksdb:cf_handle(),
+    topic_hash_bytes :: non_neg_integer()
 }).
 
 -record(stream, {}).
@@ -98,16 +97,27 @@
 %% behavior callbacks
 %%================================================================================
 
-create(_ShardId, DBHandle, GenId, _Options, _SPrev) ->
+create(_ShardId, DBHandle, GenId, _Options, _SPrev, DBOpts) ->
     CFName = data_cf(GenId),
     {ok, CFHandle} = rocksdb:create_column_family(DBHandle, CFName, []),
-    Schema = #schema{},
+    case DBOpts of
+        #{append_only := true} -> THB = 0;
+        _NonAppendOnly -> THB = 8
+    end,
+    Schema = #{
+        topic_hash_bytes => THB
+    },
     {Schema, [{CFName, CFHandle}]}.
 
-open({DB, _}, DBHandle, GenId, CFRefs, #schema{}) ->
+open({DB, _}, DBHandle, GenId, CFRefs, Schema) ->
     {_, CF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     emqx_ds_new_streams:notify_new_stream(DB, ['#']),
-    #s{db = DBHandle, cf = CF}.
+    #s{db = DBHandle, cf = CF, topic_hash_bytes = schema_topic_hash_bytes(Schema)}.
+
+schema_topic_hash_bytes(#{topic_hash_bytes := THB}) ->
+    THB;
+schema_topic_hash_bytes(#schema{}) ->
+    0.
 
 drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
     ok = rocksdb:drop_column_family(DBHandle, CFHandle),
@@ -123,11 +133,11 @@ commit_batch(_ShardId, S = #s{db = DB}, Batch, Options) ->
     rocksdb:release_batch(BatchHandle),
     Res.
 
-process_batch_operation(S, {TS, Msg = #message{}}, BatchHandle) ->
+process_batch_operation(S, {TS, Msg = #message{topic = Topic}}, BatchHandle) ->
     Val = encode_message(Msg),
-    rocksdb:batch_put(BatchHandle, S#s.cf, ?DB_KEY(TS), Val);
-process_batch_operation(S, {delete, #message_matcher{timestamp = TS}}, BatchHandle) ->
-    rocksdb:batch_delete(BatchHandle, S#s.cf, ?DB_KEY(TS)).
+    rocksdb:batch_put(BatchHandle, S#s.cf, db_key(S, TS, Topic), Val);
+process_batch_operation(S, {delete, #message_matcher{timestamp = TS, topic = Topic}}, BatchHandle) ->
+    rocksdb:batch_delete(BatchHandle, S#s.cf, db_key(S, TS, Topic)).
 
 get_streams(_Shard, _Data, _TopicFilter, _StartTime) ->
     [#stream{}].
@@ -215,8 +225,8 @@ delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now, IsCurr
             {ok, It, NumDeleted, NumIterated}
     end.
 
-lookup_message(_ShardId, #s{db = DB, cf = CF}, #message_matcher{timestamp = TS}) ->
-    case rocksdb:get(DB, CF, ?DB_KEY(TS), _ReadOpts = []) of
+lookup_message(_ShardId, S = #s{db = DB, cf = CF}, #message_matcher{timestamp = TS, topic = Topic}) ->
+    case rocksdb:get(DB, CF, db_key(S, TS, Topic), _ReadOpts = []) of
         {ok, Val} ->
             decode_message(Val);
         not_found ->
@@ -270,7 +280,7 @@ do_next(_, _, _, _, 0, Key, Acc) ->
     {Key, Acc};
 do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
     case rocksdb:iterator_move(IT, Action) of
-        {ok, Key = <<TS:64>>, Blob} ->
+        {ok, Key = <<TS:64, _TopicHashOpt/bytes>>, Blob} ->
             Msg = #message{topic = Topic} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
             case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
@@ -341,6 +351,12 @@ do_delete_next(
         {error, invalid_iterator} ->
             {Key0, {AccDel, AccIter}}
     end.
+
+db_key(#s{topic_hash_bytes = 0}, TS, _Topic) ->
+    <<TS:64>>;
+db_key(#s{topic_hash_bytes = THB}, TS, Topic) ->
+    <<Hash:THB/bytes, _/bytes>> = erlang:md5(Topic),
+    <<TS:64, Hash/bytes>>.
 
 encode_message(Msg) ->
     term_to_binary(Msg).

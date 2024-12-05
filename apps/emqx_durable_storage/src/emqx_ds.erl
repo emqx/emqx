@@ -50,6 +50,7 @@
 
 -export_type([
     create_db_opts/0,
+    db_opts/0,
     db/0,
     time/0,
     topic_filter/0,
@@ -253,6 +254,12 @@
         %% Backend-specific options:
         _ => _
     }.
+
+-type db_opts() :: #{
+    %% See respective `create_db_opts()` fields.
+    append_only => boolean(),
+    atomic_batches => boolean()
+}.
 
 -type poll_opts() ::
     #{

@@ -123,8 +123,8 @@
 -spec open_db(emqx_ds:db(), db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
-    {AppendOnly, CreateOpts1} = maps:take(append_only, CreateOpts0),
-    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts1),
+    AppendOnly = maps:get(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
     case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
