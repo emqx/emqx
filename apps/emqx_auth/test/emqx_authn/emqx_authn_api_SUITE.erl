@@ -695,7 +695,7 @@ t_bcrypt_validation(_Config) ->
 t_cache(_Config) ->
     {ok, 200, CacheData0} = request(
         get,
-        uri([?CONF_NS, "cache"])
+        uri(["authentication_cache"])
     ),
     ?assertMatch(
         #{<<"enable">> := false},
@@ -703,7 +703,7 @@ t_cache(_Config) ->
     ),
     {ok, 200, MetricsData0} = request(
         get,
-        uri([?CONF_NS, "cache", "status"])
+        uri(["authentication_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"size">> := 0}},
@@ -711,14 +711,14 @@ t_cache(_Config) ->
     ),
     {ok, 204, _} = request(
         put,
-        uri([?CONF_NS, "cache"]),
+        uri(["authentication_cache"]),
         #{
             <<"enable">> => true
         }
     ),
     {ok, 200, CacheData1} = request(
         get,
-        uri([?CONF_NS, "cache"])
+        uri(["authentication_cache"])
     ),
     ?assertMatch(
         #{<<"enable">> := true},
@@ -727,33 +727,24 @@ t_cache(_Config) ->
 
     %% We enabled authn cache, let's create
     %% * authenticator
-    %% * user
     %% * connection to miss the cache
     {ok, 200, _} = request(
         post,
         uri([?CONF_NS]),
-        emqx_authn_test_lib:built_in_database_example()
+        emqx_authn_test_lib:http_example()
     ),
-    User = #{user_id => <<"user">>, password => <<"pass">>},
-    {ok, 201, _} = request(
-        post,
-        uri([?CONF_NS, "password_based:built_in_database", "users"]),
-        User
-    ),
+
+    process_flag(trap_exit, true),
     {ok, Client} = emqtt:start_link([
         {username, <<"user">>},
         {password, <<"pass">>}
     ]),
-    ?assertMatch(
-        {ok, _},
-        emqtt:connect(Client)
-    ),
-    ok = emqtt:disconnect(Client),
+    _ = emqtt:connect(Client),
 
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
         get,
-        uri([?CONF_NS, "cache", "status"])
+        uri(["authentication_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
@@ -764,7 +755,7 @@ t_cache(_Config) ->
 t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
-        uri([?CONF_NS, "cache", "reset"])
+        uri(["authentication_cache", "reset"])
     ).
 
 %%------------------------------------------------------------------------------
