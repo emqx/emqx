@@ -25,7 +25,6 @@
 -include("emqx_mqtt.hrl").
 -include("emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("stdlib/include/qlc.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -export([start_link/0]).
@@ -75,8 +74,8 @@
 
 %% Client management
 -export([
-    all_channels_table/1,
-    live_connection_table/1
+    all_channels_stream/1,
+    live_connection_stream/1
 ]).
 
 %% gen_server callbacks
@@ -139,6 +138,8 @@
 
 %% Batch drain
 -define(BATCH_SIZE, 100000).
+
+-define(CHAN_INFO_SELECT_LIMIT, 100).
 
 %% Server name
 -define(CM, ?MODULE).
@@ -650,30 +651,57 @@ all_channels() ->
     ets:select(?CHAN_TAB, Pat).
 
 %% @doc Get clientinfo for all clients
-all_channels_table(ConnModuleList) ->
+-spec all_channels_stream([module()]) ->
+    emqx_utils_stream:stream({
+        emqx_types:clientid(),
+        _ConnState :: atom(),
+        emqx_types:conninfo(),
+        emqx_types:clientinfo()
+    }).
+all_channels_stream(ConnModuleList) ->
     Ms = ets:fun2ms(
         fun({{ClientId, _ChanPid}, Info, _Stats}) ->
             {ClientId, Info}
         end
     ),
-    Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
     ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
-    qlc:q([
-        {ClientId, ConnState, ConnInfo, ClientInfo}
-     || {ClientId, #{
-            conn_state := ConnState,
-            clientinfo := ClientInfo,
-            conninfo := #{conn_mod := ConnModule} = ConnInfo
-        }} <-
-            Table,
-        sets:is_element(ConnModule, ConnModules)
-    ]).
+    AllChanInfoStream = emqx_utils_stream:ets(fun
+        (undefined) -> ets:select(?CHAN_INFO_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
+        (Cont) -> ets:select(Cont)
+    end),
+    WithModulesFilteredStream = emqx_utils_stream:filter(
+        fun({_, #{conninfo := #{conn_mod := ConnModule}}}) ->
+            sets:is_element(ConnModule, ConnModules)
+        end,
+        AllChanInfoStream
+    ),
+    %% Map to the plain tuples
+    emqx_utils_stream:map(
+        fun(
+            {ClientId, #{
+                conn_state := ConnState,
+                clientinfo := ClientInfo,
+                conninfo := ConnInfo
+            }}
+        ) ->
+            {ClientId, ConnState, ConnInfo, ClientInfo}
+        end,
+        WithModulesFilteredStream
+    ).
 
 %% @doc Get all local connection query handle
-live_connection_table(ConnModules) ->
+-spec live_connection_stream([module()]) ->
+    emqx_utils_stream:stream({emqx_types:clientid(), pid()}).
+live_connection_stream(ConnModules) ->
     Ms = lists:map(fun live_connection_ms/1, ConnModules),
-    Table = ets:table(?CHAN_CONN_TAB, [{traverse, {select, Ms}}]),
-    qlc:q([{ClientId, ChanPid} || {ClientId, ChanPid} <- Table, is_channel_connected(ChanPid)]).
+    AllConnStream = emqx_utils_stream:ets(fun
+        (undefined) -> ets:select(?CHAN_CONN_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
+        (Cont) -> ets:select(Cont)
+    end),
+    emqx_utils_stream:filter(
+        fun({_ClientId, ChanPid}) -> is_channel_connected(ChanPid) end,
+        AllConnStream
+    ).
 
 live_connection_ms(ConnModule) ->
     {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.

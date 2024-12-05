@@ -9,7 +9,6 @@
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
--include_lib("stdlib/include/qlc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -267,25 +266,31 @@ stats() ->
         sessions => session_count()
     }.
 
-connection_table() ->
-    emqx_cm:live_connection_table(?CONN_MODULES).
+connection_stream() ->
+    emqx_cm:live_connection_stream(?CONN_MODULES).
 
 connection_count() ->
-    table_count(connection_table()).
+    stream_count(connection_stream()).
 
-channel_table(any) ->
-    qlc:q([
-        {ClientId, ConnInfo, ClientInfo}
-     || {ClientId, _, ConnInfo, ClientInfo} <-
-            emqx_cm:all_channels_table(?CONN_MODULES)
-    ]);
-channel_table(RequiredConnState) ->
-    qlc:q([
-        {ClientId, ConnInfo, ClientInfo}
-     || {ClientId, ConnState, ConnInfo, ClientInfo} <-
-            emqx_cm:all_channels_table(?CONN_MODULES),
-        RequiredConnState =:= ConnState
-    ]).
+channel_stream(any) ->
+    emqx_utils_stream:map(
+        fun({ClientId, _, ConnInfo, ClientInfo}) ->
+            {ClientId, ConnInfo, ClientInfo}
+        end,
+        emqx_cm:all_channels_stream(?CONN_MODULES)
+    );
+channel_stream(RequiredConnState) ->
+    WithRequiredConnStateStream =
+        emqx_utils_stream:filter(
+            fun({_, ConnState, _, _}) -> RequiredConnState =:= ConnState end,
+            emqx_cm:all_channels_stream(?CONN_MODULES)
+        ),
+    emqx_utils_stream:map(
+        fun({ClientId, _, ConnInfo, ClientInfo}) ->
+            {ClientId, ConnInfo, ClientInfo}
+        end,
+        WithRequiredConnStateStream
+    ).
 
 -spec all_channels_count() -> non_neg_integer().
 all_channels_count() ->
@@ -312,7 +317,7 @@ all_channels_count() ->
 
 -spec all_local_channels_count() -> non_neg_integer().
 all_local_channels_count() ->
-    table_count(channel_table(any)).
+    stream_count(channel_stream(any)).
 
 session_count() ->
     session_count(any) + durable_session_count().
@@ -321,34 +326,27 @@ durable_session_count() ->
     emqx_persistent_session_bookkeeper:get_disconnected_session_count().
 
 session_count(ConnState) ->
-    table_count(channel_table(ConnState)).
+    stream_count(channel_stream(ConnState)).
 
-table_count(QH) ->
-    qlc:fold(fun(_, Acc) -> Acc + 1 end, 0, QH).
+stream_count(Stream) ->
+    emqx_utils_stream:fold(fun(_, Acc) -> Acc + 1 end, 0, Stream).
 
 take_connections(N) ->
-    ChanQH = qlc:q([ChanPid || {_ClientId, ChanPid} <- connection_table()]),
-    ChanPidCursor = qlc:cursor(ChanQH),
-    ChanPids = qlc:next_answers(ChanPidCursor, N),
-    ok = qlc:delete_cursor(ChanPidCursor),
-    ChanPids.
+    PidStream = emqx_utils_stream:map(
+        fun({_ClientId, ChanPid}) -> ChanPid end,
+        connection_stream()
+    ),
+    consume(N, PidStream).
 
 take_channels(N) ->
-    QH = qlc:q([
-        {ClientId, ConnInfo, ClientInfo}
-     || {ClientId, _, ConnInfo, ClientInfo} <-
-            emqx_cm:all_channels_table(?CONN_MODULES)
-    ]),
-    ChanPidCursor = qlc:cursor(QH),
-    Channels = qlc:next_answers(ChanPidCursor, N),
-    ok = qlc:delete_cursor(ChanPidCursor),
-    Channels.
+    Stream = emqx_utils_stream:map(
+        fun({ClientId, _, ConnInfo, ClientInfo}) -> {ClientId, ConnInfo, ClientInfo} end,
+        emqx_cm:all_channels_stream(?CONN_MODULES)
+    ),
+    consume(N, Stream).
 
 take_channels(N, ConnState) ->
-    ChanPidCursor = qlc:cursor(channel_table(ConnState)),
-    Channels = qlc:next_answers(ChanPidCursor, N),
-    ok = qlc:delete_cursor(ChanPidCursor),
-    Channels.
+    consume(N, channel_stream(ConnState)).
 
 do_evict_connections(N, ServerReference) when N > 0 ->
     ChanPids = take_connections(N),
@@ -490,3 +488,11 @@ do_purge_durable_sessions(N) when N > 0 ->
 
 select_random(List) when length(List) > 0 ->
     lists:nth(rand:uniform(length(List)), List).
+
+consume(N, Stream) ->
+    case emqx_utils_stream:consume(N, Stream) of
+        {Items, _Stream} ->
+            Items;
+        Items when is_list(Items) ->
+            Items
+    end.
