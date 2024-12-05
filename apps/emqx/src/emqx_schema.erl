@@ -1892,7 +1892,7 @@ mqtt_parse_options() ->
                 #{
                     default => <<"chunk">>,
                     desc => ?DESC(fields_mqtt_opts_parse_unit),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_LOW
                 }
             )}
     ].
