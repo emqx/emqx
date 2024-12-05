@@ -64,7 +64,7 @@ deregister_sources() ->
     SourceTypes = emqx_authz_source_registry:get(),
     lists:foreach(
         fun(Type) ->
-            emqx_authz_source_registry:register(Type, emqx_authz_fake_source)
+            emqx_authz_source_registry:unregister(Type)
         end,
         SourceTypes -- BuiltInTypes
     ).

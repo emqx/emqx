@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_auth_ldap, [
     {description, "EMQX LDAP Authentication and Authorization"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {registered, []},
     {mod, {emqx_auth_ldap_app, []}},
     {applications, [

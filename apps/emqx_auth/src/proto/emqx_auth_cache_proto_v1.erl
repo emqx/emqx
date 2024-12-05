@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,25 +14,29 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_authz_metrics_sup).
+-module(emqx_auth_cache_proto_v1).
 
--behaviour(supervisor).
+-behaviour(emqx_bpapi).
 
--export([start_link/0]).
+-export([
+    introduced_in/0,
+    metrics/2,
+    reset/2
+]).
 
--export([init/1]).
+-include_lib("emqx/include/bpapi.hrl").
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+-define(TIMEOUT, 15000).
 
-init([]) ->
-    AuthnMetrics = emqx_metrics_worker:child_spec(emqx_authn_metrics, authn_metrics),
-    AuthzMetrics = emqx_metrics_worker:child_spec(emqx_authz_metrics, authz_metrics),
-    {ok,
-        {
-            {one_for_one, 10, 100},
-            [
-                AuthnMetrics,
-                AuthzMetrics
-            ]
-        }}.
+introduced_in() ->
+    "5.9.0".
+
+-spec metrics([node()], emqx_auth_cache:name()) ->
+    emqx_rpc:erpc_multicall({node(), map()}).
+metrics(Nodes, Name) ->
+    erpc:multicall(Nodes, emqx_auth_cache, metrics_v1, [Name], ?TIMEOUT).
+
+-spec reset([node()], emqx_auth_cache:name()) ->
+    emqx_rpc:erpc_multicall(ok).
+reset(Nodes, Name) ->
+    erpc:multicall(Nodes, emqx_auth_cache, reset_v1, [Name], ?TIMEOUT).

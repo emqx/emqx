@@ -76,13 +76,20 @@ authenticate(
 
 authenticate_with_filter(
     Filter,
-    #{password := Password},
+    #{password := Password} = Credential,
     #{
         collection := Collection,
-        resource_id := ResourceId
+        resource_id := ResourceId,
+        cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter, #{}}) of
+    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
+    Result = emqx_authn_utils:cached_simple_sync_query(
+        CacheKey,
+        ResourceId,
+        {find_one, Collection, Filter, #{}}
+    ),
+    case Result of
         {ok, undefined} ->
             ignore;
         {error, Reason} ->
@@ -116,7 +123,8 @@ authenticate_with_filter(
 %%------------------------------------------------------------------------------
 
 parse_config(#{filter := Filter} = Config) ->
-    FilterTemplate = emqx_authn_utils:parse_deep(Filter),
+    {Vars, FilterTemplate} = emqx_authn_utils:parse_deep(Filter),
+    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
     State = maps:with(
         [
             collection,
@@ -129,7 +137,7 @@ parse_config(#{filter := Filter} = Config) ->
         Config
     ),
     ok = emqx_authn_password_hashing:init(maps:get(password_hash_algorithm, State)),
-    {Config, State#{filter_template => FilterTemplate}}.
+    {Config, State#{filter_template => FilterTemplate, cache_key_template => CacheKeyTemplate}}.
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
