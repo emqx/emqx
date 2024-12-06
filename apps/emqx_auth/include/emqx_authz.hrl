@@ -17,6 +17,7 @@
 -include_lib("emqx/include/emqx_access_control.hrl").
 
 -include("emqx_auth.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 %% authz_mnesia
 -define(ACL_TABLE, emqx_acl).
@@ -166,4 +167,15 @@
 -define(BUILTIN_SOURCES, [
     {client_info, emqx_authz_client_info},
     {file, emqx_authz_file}
+]).
+
+-define(AUTHZ_DEFAULT_ALLOWED_VARS, [
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_PEERHOST,
+    ?VAR_PEERPORT,
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME,
+    ?VAR_ZONE,
+    ?VAR_NS_CLIENT_ATTRS
 ]).

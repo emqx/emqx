@@ -17,7 +17,7 @@
 -module(emqx_authz_postgresql).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -include_lib("epgsql/include/epgsql.hrl").
 
@@ -37,21 +37,13 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(ALLOWED_VARS, [
-    ?VAR_USERNAME,
-    ?VAR_CLIENTID,
-    ?VAR_PEERHOST,
-    ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
-]).
+-define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 description() ->
     "AuthZ with PostgreSQL".
 
 create(#{query := SQL0} = Source) ->
-    {SQL, PlaceHolders} = emqx_auth_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    {SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_postgresql),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceID,
@@ -61,7 +53,7 @@ create(#{query := SQL0} = Source) ->
     Source#{annotations => #{id => ResourceID, placeholders => PlaceHolders}}.
 
 update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
-    {SQL, PlaceHolders} = emqx_auth_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    {SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     case
         emqx_authz_utils:update_resource(
             emqx_postgresql,
@@ -89,7 +81,7 @@ authorize(
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    RenderedParams = emqx_auth_utils:render_sql_params(Placeholders, Vars),
+    RenderedParams = emqx_auth_template:render_sql_params(Placeholders, Vars),
     case
         emqx_resource:simple_sync_query(ResourceID, {prepared_query, ResourceID, RenderedParams})
     of

@@ -17,7 +17,7 @@
 -module(emqx_authz_mongodb).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -behaviour(emqx_authz_source).
 
@@ -35,15 +35,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(ALLOWED_VARS, [
-    ?VAR_USERNAME,
-    ?VAR_CLIENTID,
-    ?VAR_PEERHOST,
-    ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
-]).
+-define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 description() ->
     "AuthZ with MongoDB".
@@ -51,11 +43,11 @@ description() ->
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
     Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
 
 update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -72,7 +64,7 @@ authorize(
     Topic,
     #{filter_template := FilterTemplate} = Config
 ) ->
-    try emqx_auth_utils:render_deep_for_json(FilterTemplate, Client) of
+    try emqx_auth_template:render_deep_for_json(FilterTemplate, Client) of
         RenderedFilter -> authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
     catch
         error:{encode_error, _} = EncodeError ->
