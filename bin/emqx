@@ -51,109 +51,6 @@ die() {
 }
 
 THIS_SCRIPT="$0"
-# We need to find real directory with emqx files on all platforms
-# even when bin/emqx is symlinked on several levels
-# - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
-#   so we can't use it universally.
-# - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
-#   as a universal solution either because GNU stat has different syntax and this argument is invalid.
-#   Also, version of stat which supports this syntax is only available since MacOS 12
-if [ "$(uname -s)" == 'Darwin' ]; then
-    product_version="$(sw_vers -productVersion | cut -d '.' -f 1)"
-    if [ "$product_version" -ge 12 ]; then
-        # if homebrew coreutils package is installed, GNU version of stat can take precedence,
-        # so we use absolute path to ensure we are calling MacOS default
-        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
-    else
-        # try our best to resolve link on MacOS <= 11
-        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
-    fi
-else
-    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
-fi
-
-COMMAND="${1:-}"
-GREP='grep --color=never'
-
-if [ -z "$COMMAND" ]; then
-    usage 'help'
-    exit 1
-elif [ "$COMMAND" = 'help' ]; then
-    usage 'help'
-    exit 0
-fi
-
-if [ "${2:-}" = 'help' ]; then
-    ## 'ctl' command has its own usage info
-    if [ "$COMMAND" != 'ctl' ]; then
-        usage "$COMMAND"
-        exit 0
-    fi
-fi
-
-## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
-case "${COMMAND}" in
-    start|console|console_clean|foreground|check_config)
-        IS_BOOT_COMMAND='yes'
-        ;;
-    ertspath)
-        echo "$ERTS_DIR"
-        exit 0
-        ;;
-    root_dir)
-        echo "$RUNNER_ROOT_DIR"
-        exit 0
-        ;;
-    *)
-        IS_BOOT_COMMAND='no'
-        ;;
-esac
-
-RELUP_DIR="relup"
-BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
-RELUP_PATH="$RUNNER_ROOT_DIR/$RELUP_DIR"
-
-if [ -f "$RELUP_PATH/version" ]; then
-    TARGET_VSN=$(cat "$RELUP_PATH/version")
-    export BASE_RUNNER_ROOT_DIR
-    ## only print for boot commands to avoid messing the CLI outputs
-    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-        loginfo "Loading emqx from hot-upgrade dir: $RELUP_PATH"
-    fi
-    exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
-fi
-
-# shellcheck disable=SC1090,SC1091
-. "$RUNNER_ROOT_DIR"/releases/emqx_vars
-
-# defined in emqx_vars
-export RUNNER_ROOT_DIR
-export EMQX_ETC_DIR
-export REL_VSN
-export SCHEMA_MOD
-export IS_ENTERPRISE
-
-RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
-CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
-REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
-
-WHOAMI=$(whoami 2>/dev/null || id -u)
-
-# hocon try to read environment variables starting with "EMQX_"
-export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
-
-export ERTS_DIR="$RUNNER_ROOT_DIR/erts-$ERTS_VSN"
-export BINDIR="$ERTS_DIR/bin"
-export EMU="beam"
-export PROGNAME="erl"
-export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
-DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
-
-assert_node_alive() {
-    if ! relx_nodetool "ping" > /dev/null; then
-        exit 1
-    fi
-}
 
 usage() {
     local command="$1"
@@ -296,6 +193,109 @@ usage() {
     esac
 }
 
+# We need to find real directory with emqx files on all platforms
+# even when bin/emqx is symlinked on several levels
+# - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
+#   so we can't use it universally.
+# - `stat -f%R` on MacOS does exactly what `readlink -f` does on Linux, but we can't use it
+#   as a universal solution either because GNU stat has different syntax and this argument is invalid.
+#   Also, version of stat which supports this syntax is only available since MacOS 12
+if [ "$(uname -s)" == 'Darwin' ]; then
+    product_version="$(sw_vers -productVersion | cut -d '.' -f 1)"
+    if [ "$product_version" -ge 12 ]; then
+        # if homebrew coreutils package is installed, GNU version of stat can take precedence,
+        # so we use absolute path to ensure we are calling MacOS default
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
+    else
+        # try our best to resolve link on MacOS <= 11
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
+    fi
+else
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
+fi
+
+COMMAND="${1:-}"
+GREP='grep --color=never'
+
+if [ -z "$COMMAND" ]; then
+    usage 'help'
+    exit 1
+elif [ "$COMMAND" = 'help' ]; then
+    usage 'help'
+    exit 0
+fi
+
+if [ "${2:-}" = 'help' ]; then
+    ## 'ctl' command has its own usage info
+    if [ "$COMMAND" != 'ctl' ]; then
+        usage "$COMMAND"
+        exit 0
+    fi
+fi
+
+## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
+case "${COMMAND}" in
+    start|console|console_clean|foreground|check_config)
+        IS_BOOT_COMMAND='yes'
+        ;;
+    ertspath)
+        echo "$ERTS_DIR"
+        exit 0
+        ;;
+    root_dir)
+        echo "$RUNNER_ROOT_DIR"
+        exit 0
+        ;;
+    *)
+        IS_BOOT_COMMAND='no'
+        ;;
+esac
+
+RELUP_DIR="relup"
+BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
+RELUP_PATH="$RUNNER_ROOT_DIR/$RELUP_DIR"
+
+if [ -f "$RELUP_PATH/version" ]; then
+    TARGET_VSN=$(cat "$RELUP_PATH/version")
+    export BASE_RUNNER_ROOT_DIR
+    ## only print for boot commands to avoid messing the CLI outputs
+    if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
+        loginfo "Loading emqx from hot-upgrade dir: $RELUP_PATH"
+    fi
+    exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
+fi
+
+# shellcheck disable=SC1090,SC1091
+. "$RUNNER_ROOT_DIR"/releases/emqx_vars
+
+# defined in emqx_vars
+export RUNNER_ROOT_DIR
+export EMQX_ETC_DIR
+export REL_VSN
+export SCHEMA_MOD
+export IS_ENTERPRISE
+
+RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
+CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
+REL_DIR="$RUNNER_ROOT_DIR/releases/$REL_VSN"
+
+WHOAMI=$(whoami 2>/dev/null || id -u)
+
+# hocon try to read environment variables starting with "EMQX_"
+export HOCON_ENV_OVERRIDE_PREFIX='EMQX_'
+
+export ERTS_DIR="$RUNNER_ROOT_DIR/erts-$ERTS_VSN"
+export BINDIR="$ERTS_DIR/bin"
+export EMU="beam"
+export PROGNAME="erl"
+export ERTS_LIB_DIR="$RUNNER_ROOT_DIR/lib"
+DYNLIBS_DIR="$RUNNER_ROOT_DIR/dynlibs"
+
+assert_node_alive() {
+    if ! relx_nodetool "ping" > /dev/null; then
+        exit 1
+    fi
+}
 
 ## backward compatible
 if [ -d "$ERTS_DIR/lib" ]; then
