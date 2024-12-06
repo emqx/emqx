@@ -10,6 +10,8 @@
     new/1,
     open/2,
     can_subscribe/3,
+    has_subscription/2,
+    has_subscriptions/1,
 
     on_subscribe/4,
     on_unsubscribe/3,
@@ -32,6 +34,12 @@ open(_Topics, _Opts) ->
 
 can_subscribe(_Agent, _TopicFilter, _SubOpts) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}.
+
+has_subscription(_Agent, _SubscriptionId) ->
+    false.
+
+has_subscriptions(_Agent) ->
+    false.
 
 on_subscribe(Agent, _SubscriptionId, _TopicFilter, _SubOpts) ->
     Agent.

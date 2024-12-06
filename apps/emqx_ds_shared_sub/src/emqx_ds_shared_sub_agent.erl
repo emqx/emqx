@@ -15,6 +15,8 @@
     new/1,
     open/2,
     can_subscribe/3,
+    has_subscription/2,
+    has_subscriptions/1,
 
     on_subscribe/4,
     on_unsubscribe/3,
@@ -103,6 +105,14 @@ can_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
         false ->
             {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
     end.
+
+-spec has_subscription(t(), subscription_id()) -> boolean().
+has_subscription(#{groups := Groups}, SubscriptionId) ->
+    maps:is_key(?group_id(SubscriptionId), Groups).
+
+-spec has_subscriptions(t()) -> boolean().
+has_subscriptions(#{groups := Groups}) ->
+    maps:size(Groups) > 0.
 
 -spec on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(State0, SubscriptionId, ShareTopicFilter, _SubOpts) ->

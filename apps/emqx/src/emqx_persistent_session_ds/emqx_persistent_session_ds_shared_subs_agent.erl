@@ -29,6 +29,7 @@
 -type stream_lease() :: #{
     type => lease,
     subscription_id := subscription_id(),
+    share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream(),
     iterator := emqx_ds:iterator()
 }.
@@ -36,6 +37,7 @@
 -type stream_revoke() :: #{
     type => revoke,
     subscription_id := subscription_id(),
+    share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream()
 }.
 
@@ -62,6 +64,8 @@
     new/1,
     open/2,
     can_subscribe/3,
+    has_subscription/2,
+    has_subscriptions/1,
 
     on_subscribe/4,
     on_unsubscribe/3,
@@ -82,6 +86,8 @@
 -callback new(opts()) -> t().
 -callback open([{share_topic_filter(), subscription()}], opts()) -> t().
 -callback can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+-callback has_subscription(t(), subscription_id()) -> boolean().
+-callback has_subscriptions(t()) -> boolean().
 -callback on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
 -callback on_unsubscribe(t(), subscription_id(), [stream_progress()]) -> t().
 -callback on_info(t(), subscription_id(), term()) -> {[event()], t()}.
@@ -103,6 +109,14 @@ open(Topics, Opts) ->
 -spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
 can_subscribe(Agent, ShareTopicFilter, SubOpts) ->
     ?shared_subs_agent:can_subscribe(Agent, ShareTopicFilter, SubOpts).
+
+-spec has_subscription(t(), subscription_id()) -> boolean().
+has_subscription(Agent, SubscriptionId) ->
+    ?shared_subs_agent:has_subscription(Agent, SubscriptionId).
+
+-spec has_subscriptions(t()) -> boolean().
+has_subscriptions(Agent) ->
+    ?shared_subs_agent:has_subscriptions(Agent).
 
 -spec on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(Agent, SubscriptionId, ShareTopicFilter, SubOpts) ->
