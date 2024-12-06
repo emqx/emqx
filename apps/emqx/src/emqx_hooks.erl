@@ -202,11 +202,13 @@ safe_execute({M, F, A}, Args) ->
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
-                msg => "failed_to_execute",
+                msg => "hook_callback_exception",
                 exception => Error,
                 reason => Reason,
                 stacktrace => Stacktrace,
-                failed_call => {M, F, Args ++ A}
+                callback_module => M,
+                callback_function => F,
+                callback_args => emqx_utils_redact:redact(Args ++ A)
             })
     end.
 
