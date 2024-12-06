@@ -459,7 +459,8 @@ t_repeated_topics(Config) ->
                 emqx_bridge_v2_testlib:create_source_api([{source_name, Name2} | Config]),
             ?assertEqual(
                 match,
-                re:run(Error, <<"Topics .* already exist in other sources">>, [{capture, none}])
+                re:run(Error, <<"Topics .* already exist in other sources">>, [{capture, none}]),
+                #{error => Error}
             ),
             ok
         end,

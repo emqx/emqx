@@ -33,12 +33,17 @@ format(
     #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg} =
         emqx_logger_textfmt:evaluate_lazy_values(Entry),
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
+    Tns =
+        case to_iolist(maps:get(tns, Meta, "")) of
+            "" -> "";
+            X -> [" tns: ", X]
+        end,
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),
     Msg1 = to_iolist(Msg),
     Tag1 = to_iolist(Tag),
-    [Time, " [", Tag1, "] ", ClientId, "@", Peername, " msg: ", Msg1, ", ", MetaBin, "\n"];
+    [Time, " [", Tag1, "] ", ClientId, "@", Peername, Tns, " msg: ", Msg1, ", ", MetaBin, "\n"];
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
@@ -79,7 +84,7 @@ format_meta_data(Meta, _Encode) ->
     Meta.
 
 format_meta(Meta0, Encode) ->
-    Meta1 = maps:without([msg, clientid, peername, trace_tag], Meta0),
+    Meta1 = maps:without([msg, tns, clientid, peername, trace_tag], Meta0),
     Meta2 = format_meta_data(Meta1, Encode),
     kvs_to_iolist(lists:sort(fun compare_meta_kvs/2, maps:to_list(Meta2))).
 

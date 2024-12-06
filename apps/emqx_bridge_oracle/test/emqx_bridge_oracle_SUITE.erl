@@ -127,6 +127,8 @@ common_init_per_testcase(TestCase, Config0) ->
     ),
     ok = snabbkaffe:start_trace(),
     [
+        {bridge_type, ?BRIDGE_TYPE_BIN},
+        {bridge_name, Name},
         {oracle_name, Name},
         {oracle_config_string, ConfigString},
         {oracle_config, OracleConfig}
@@ -730,18 +732,20 @@ t_no_sid_nor_service_name(Config0) ->
     ok.
 
 t_missing_table(Config) ->
-    ResourceId = resource_id(Config),
+    Name = ?config(bridge_name, Config),
     ?check_trace(
         begin
             drop_table_if_exists(Config),
             ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ActionId = emqx_bridge_v2:id(?BRIDGE_TYPE_BIN, ?config(oracle_name, Config)),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertMatch(
-                    {ok, Status} when Status =:= disconnected orelse Status =:= connecting,
-                    emqx_resource_manager:health_check(ResourceId)
+                    {ok, #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+                    }},
+                    emqx_bridge_testlib:get_bridge_api(Config)
                 )
             ),
             ?block_until(#{?snk_kind := oracle_undefined_table}),
@@ -752,10 +756,9 @@ t_missing_table(Config) ->
                 payload => ?config(oracle_name, Config),
                 retain => true
             },
-            Message = {ActionId, Params},
             ?assertMatch(
-                {error, {resource_error, #{reason := not_connected}}},
-                emqx_resource:simple_sync_query(ResourceId, Message)
+                {error, {resource_error, #{reason := unhealthy_target}}},
+                emqx_bridge_v2:send_message(?BRIDGE_TYPE_BIN, Name, Params, _QueryOpts = #{})
             ),
             ok
         end,

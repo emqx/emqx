@@ -1,6 +1,6 @@
 {application, emqx_bridge_http, [
     {description, "EMQX HTTP Bridge and Connector Application"},
-    {vsn, "0.3.5"},
+    {vsn, "0.3.6"},
     {registered, []},
     {applications, [kernel, stdlib, emqx_resource, ehttpc]},
     {env, [

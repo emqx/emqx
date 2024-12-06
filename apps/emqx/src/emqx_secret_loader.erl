@@ -22,14 +22,17 @@
 
 -export_type([source/0]).
 
--type source() :: {file, file:filename_all()}.
+-type source() :: {file, string() | binary()}.
 
 -spec load(source()) -> binary() | no_return().
-load({file, Filename}) ->
-    file(Filename).
+load({file, <<"file://", Path/binary>>}) ->
+    file(Path);
+load({file, "file://" ++ Path}) ->
+    file(Path).
 
 -spec file(file:filename_all()) -> binary() | no_return().
-file(Filename) ->
+file(Filename0) ->
+    Filename = emqx_schema:naive_env_interpolation(Filename0),
     case file:read_file(Filename) of
         {ok, Secret} ->
             string:trim(Secret, trailing);
