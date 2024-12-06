@@ -30,7 +30,8 @@
     render_str/2,
     render_urlencoded_str/2,
     render_sql_params/2,
-    render_strict/2
+    render_strict/2,
+    escape_disallowed_placeholders_str/2
 ]).
 
 %%--------------------------------------------------------------------
@@ -51,6 +52,10 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
     {Statement, handle_disallowed_placeholders(Result, AllowedVars, {string, Template})}.
+
+escape_disallowed_placeholders_str(Template, AllowedVars) ->
+    ParsedTemplate = emqx_template:parse(Template),
+    prerender_disallowed_placeholders(ParsedTemplate, AllowedVars).
 
 handle_disallowed_placeholders(Template, AllowedVars, Source) ->
     case emqx_template:validate(AllowedVars, Template) of

@@ -28,6 +28,7 @@
 
 -module(emqx_authz_ldap).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("eldap/include/eldap.hrl").
 
@@ -47,6 +48,16 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PEERHOST,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_ZONE,
+    ?VAR_NS_CLIENT_ATTRS
+]).
+
 %%------------------------------------------------------------------------------
 %% AuthZ Callbacks
 %%------------------------------------------------------------------------------
@@ -54,8 +65,9 @@
 description() ->
     "AuthZ with LDAP".
 
-create(Source) ->
+create(Source0) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
+    Source = filter_placeholders(Source0),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source),
     Annotations = new_annotations(#{id => ResourceId}, Source),
     Source#{annotations => Annotations}.
@@ -125,3 +137,8 @@ match_topic(Target, Topics) ->
         end,
         Topics
     ).
+
+filter_placeholders(#{base_dn := BaseDN0, filter := Filter0} = Config) ->
+    BaseDN = emqx_auth_template:escape_disallowed_placeholders_str(BaseDN0, ?ALLOWED_VARS),
+    Filter = emqx_auth_template:escape_disallowed_placeholders_str(Filter0, ?ALLOWED_VARS),
+    Config#{base_dn => BaseDN, filter => Filter}.
