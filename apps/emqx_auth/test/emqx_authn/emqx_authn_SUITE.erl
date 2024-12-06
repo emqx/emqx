@@ -327,7 +327,7 @@ t_update_conf(Config) when is_list(Config) ->
     ok.
 
 parse(Bytes) ->
-    {ok, Frame, <<>>, {none, _}} = emqx_frame:parse(Bytes),
+    {Frame, <<>>, _} = emqx_frame:parse(Bytes),
     Frame.
 
 authenticate_return_quota_exceeded_hook(_, _) ->

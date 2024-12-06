@@ -731,7 +731,7 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
             {Packets, State#state{parse_state = NParseState}};
-        {ok, Packet, Rest, NParseState} ->
+        {Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [{incoming, Packet} | Packets], NState)
     catch
@@ -1097,8 +1097,8 @@ check_max_connection(Type, Listener) ->
             end
     end.
 
-enrich_state(#{parse_state := NParseState}, State) ->
-    Serialize = emqx_frame:serialize_opts(NParseState),
+enrich_state(#{proto_ver := ProtoVer, parse_state := NParseState}, State) ->
+    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
     State#state{parse_state = NParseState, serialize = Serialize};
 enrich_state(_, State) ->
     State.

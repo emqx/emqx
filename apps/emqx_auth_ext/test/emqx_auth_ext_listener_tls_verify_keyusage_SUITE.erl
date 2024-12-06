@@ -39,11 +39,16 @@ groups() ->
 
 init_per_suite(Config) ->
     generate_tls_certs(Config),
-    application:ensure_all_started(esockd),
-    Config.
+    %% injection happens when module is loaded.
+    code:load_file(emqx_auth_ext),
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    application:stop(esockd).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_group(full_chain, Config) ->
     [{ssl_config, ssl_config_verify_peer_full_chain(Config)} | Config];

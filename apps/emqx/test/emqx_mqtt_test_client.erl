@@ -157,7 +157,7 @@ process_incoming(PSt, Data, Packets) ->
     case emqx_frame:parse(Data, PSt) of
         {more, NewPSt} ->
             {NewPSt, lists:reverse(Packets)};
-        {ok, Packet, Rest, NewPSt} ->
+        {Packet, Rest, NewPSt} ->
             process_incoming(NewPSt, Rest, [Packet | Packets])
     end.
 
