@@ -605,7 +605,7 @@ perform_listener_change(stop, {Type, Name, Conf}) ->
 esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
     Zone = zone(Opts0),
     Limiter = limiter(Opts0),
-    {Parser, PacketTcpOpts} = choose_parser_opts(Opts0),
+    PacketTcpOpts = choose_packet_opts(Opts0),
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
     Opts2 =
         case emqx_limiter_utils:extract_with_type(connection, Limiter) of
@@ -625,7 +625,6 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
             {emqx_connection, start_link, [
                 #{
                     listener => {Type, Name},
-                    parser_mode => Parser,
                     zone => Zone,
                     limiter => Limiter,
                     enable_authn => enable_authn(Opts0)
@@ -658,7 +657,6 @@ ws_opts(Type, ListenerName, Opts) ->
         {WsPath, emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
-            parser_mode => chunk,
             limiter => limiter(Opts),
             enable_authn => enable_authn(Opts)
         }}
@@ -694,18 +692,18 @@ ranch_opts(Type, Opts = #{bind := ListenOn}) ->
             proplists:delete(reuseaddr, SocketOpts)
     }.
 
-choose_parser_opts(Opts) ->
-    Framing = maps:get(parse_unit, Opts, chunk),
+choose_packet_opts(Opts) ->
+    ParseUnit = maps:get(parse_unit, Opts, chunk),
     HasPacketParser = is_packet_parser_available(mqtt),
-    case Framing of
+    case ParseUnit of
         frame when HasPacketParser ->
             PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
-            {frame, [{packet, mqtt}, {packet_size, PacketSize}]};
+            [{packet, mqtt}, {packet_size, PacketSize}];
         frame ->
             %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.
-            {chunk, [{packet, raw}]};
+            [{packet, raw}];
         chunk ->
-            {chunk, [{packet, raw}]}
+            [{packet, raw}]
     end.
 
 -spec is_packet_parser_available(atom()) -> boolean().

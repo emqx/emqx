@@ -344,8 +344,7 @@ init_state(
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    ParserMode = maps:get(parser_mode, Opts, chunk),
-    Parser = init_parser(ParserMode, FrameOpts),
+    Parser = init_parser(Transport, Socket, FrameOpts),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
@@ -827,10 +826,16 @@ parse_incoming(Data, State = #state{parser = Parser}) ->
             {[{frame_error, Reason}], State}
     end.
 
-init_parser(frame, FrameOpts) ->
-    {frame, emqx_frame:initial_parse_state(FrameOpts)};
-init_parser(chunk, FrameOpts) ->
-    emqx_frame:initial_parse_state(FrameOpts).
+init_parser(Transport, Socket, FrameOpts) ->
+    {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
+    case lists:keyfind(packet, 1, SocketOpts) of
+        {packet, mqtt} ->
+            %% Enable whole-frame packet parser.
+            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+        _Otherwise ->
+            %% Go with regular streaming parser.
+            emqx_frame:initial_parse_state(FrameOpts)
+    end.
 
 update_state_on_parse_error(
     ParseState0,
