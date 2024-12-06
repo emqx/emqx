@@ -1197,12 +1197,12 @@ continue_with_health_check(#data{} = Data0, CurrentState, HCRes) ->
         id = ResId,
         error = PrevError
     } = Data0,
-    {NewStatus, NewState, Err} = parse_health_check_result(HCRes, Data0),
+    {NewStatus, Err} = parse_health_check_result(HCRes, Data0),
     IsDryRun = emqx_resource:is_dry_run(ResId),
     _ = maybe_alarm(NewStatus, IsDryRun, ResId, Err, PrevError),
     ok = maybe_resume_resource_workers(ResId, NewStatus),
     Data1 = Data0#data{
-        state = NewState, status = NewStatus, error = Err
+        status = NewStatus, error = Err
     },
     Data = update_state(Data1),
     case CurrentState of
@@ -1733,12 +1733,10 @@ maybe_clear_alarm(true, _ResId) ->
 maybe_clear_alarm(false, ResId) ->
     emqx_alarm:safe_deactivate(ResId).
 
-parse_health_check_result(Status, Data) when ?IS_STATUS(Status) ->
-    {Status, Data#data.state, status_to_error(Status)};
-parse_health_check_result({Status, NewState}, _Data) when ?IS_STATUS(Status) ->
-    {Status, NewState, status_to_error(Status)};
-parse_health_check_result({Status, NewState, Error}, _Data) when ?IS_STATUS(Status) ->
-    {Status, NewState, {error, Error}};
+parse_health_check_result(Status, _Data) when ?IS_STATUS(Status) ->
+    {Status, status_to_error(Status)};
+parse_health_check_result({Status, Error}, _Data) when ?IS_STATUS(Status) ->
+    {Status, {error, Error}};
 parse_health_check_result({error, Error}, Data) ->
     ?tp("health_check_exception", #{resource_id => Data#data.id, reason => Error}),
     ?SLOG(
@@ -1750,7 +1748,7 @@ parse_health_check_result({error, Error}, Data) ->
         },
         #{tag => tag(Data#data.group, Data#data.type)}
     ),
-    {?status_disconnected, Data#data.state, {error, Error}}.
+    {?status_disconnected, {error, Error}}.
 
 status_to_error(?status_connected) ->
     undefined;

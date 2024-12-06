@@ -1,6 +1,6 @@
 {application, emqx_ldap, [
     {description, "EMQX LDAP Connector"},
-    {vsn, "0.1.11"},
+    {vsn, "0.1.12"},
     {registered, []},
     {applications, [
         kernel,

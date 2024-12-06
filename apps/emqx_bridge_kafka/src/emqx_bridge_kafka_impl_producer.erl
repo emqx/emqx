@@ -605,7 +605,7 @@ on_get_status(
         {error, {find_client, _Error}} ->
             ?status_connecting;
         {error, {connectivity, Error}} ->
-            {?status_connecting, State, Error}
+            {?status_connecting, Error}
     end.
 
 on_get_channel_status(
@@ -688,11 +688,11 @@ maybe_check_health_check_topic(ConnResId, #{health_check_topic := Topic} = Conne
             ?status_connected
     catch
         throw:{unhealthy_target, Msg} ->
-            {?status_disconnected, ConnectorState, Msg};
+            {?status_disconnected, Msg};
         throw:#{reason := {connection_down, _} = Reason} ->
-            {?status_disconnected, ConnectorState, Reason};
+            {?status_disconnected, Reason};
         throw:#{reason := Reason} ->
-            {?status_connecting, ConnectorState, Reason}
+            {?status_connecting, Reason}
     end;
 maybe_check_health_check_topic(_ConnResId, _ConnState) ->
     %% Cannot infer further information.  Maybe upgraded from older version.

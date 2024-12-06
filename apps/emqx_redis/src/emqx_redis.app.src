@@ -1,6 +1,6 @@
 {application, emqx_redis, [
     {description, "EMQX Redis Database Connector"},
-    {vsn, "0.1.6"},
+    {vsn, "0.1.7"},
     {registered, []},
     {applications, [
         kernel,
