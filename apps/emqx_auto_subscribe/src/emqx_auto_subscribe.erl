@@ -25,6 +25,7 @@
 -define(HOOK_POINT, 'client.connected').
 
 -define(MAX_AUTO_SUBSCRIBE, 20).
+-define(ROOT_KEY, auto_subscribe).
 
 -export([load/0, unload/0]).
 
@@ -47,27 +48,27 @@
 ]).
 
 load() ->
-    ok = emqx_conf:add_handler([auto_subscribe, topics], ?MODULE),
+    ok = emqx_conf:add_handler([?ROOT_KEY], ?MODULE),
     update_hook().
 
 unload() ->
-    emqx_conf:remove_handler([auto_subscribe, topics]).
+    emqx_conf:remove_handler([?ROOT_KEY]).
 
 max_limit() ->
     ?MAX_AUTO_SUBSCRIBE.
 
 list() ->
-    format(emqx_conf:get([auto_subscribe, topics], [])).
+    format(emqx_conf:get([?ROOT_KEY, topics], [])).
 
 update(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
     case
         emqx_conf:update(
-            [auto_subscribe, topics],
-            Topics,
+            [?ROOT_KEY],
+            #{<<"topics">> => Topics},
             #{rawconf_with_defaults => true, override_to => cluster}
         )
     of
-        {ok, #{raw_config := NewTopics}} ->
+        {ok, #{raw_config := #{<<"topics">> := NewTopics}}} ->
             {ok, NewTopics};
         {error, Reason} ->
             {error, Reason}
@@ -75,9 +76,8 @@ update(Topics) when length(Topics) =< ?MAX_AUTO_SUBSCRIBE ->
 update(_Topics) ->
     {error, quota_exceeded}.
 
-post_config_update(_KeyPath, _Req, NewTopics, _OldConf, _AppEnvs) ->
-    Config = emqx_conf:get([auto_subscribe], #{}),
-    update_hook(Config#{topics => NewTopics}).
+post_config_update([?ROOT_KEY], _Req, NewConf, _OldConf, _AppEnvs) ->
+    update_hook(NewConf).
 
 %%------------------------------------------------------------------------------
 %% hook
@@ -100,25 +100,26 @@ on_client_connected(_, _, _) ->
 
 -spec get_basic_usage_info() -> #{auto_subscribe_count => non_neg_integer()}.
 get_basic_usage_info() ->
-    AutoSubscribe = emqx_conf:get([auto_subscribe, topics], []),
+    AutoSubscribe = emqx_conf:get([?ROOT_KEY, topics], []),
     #{auto_subscribe_count => length(AutoSubscribe)}.
 
 %%------------------------------------------------------------------------------
 %% Data backup
 %%------------------------------------------------------------------------------
 
-import_config(#{<<"auto_subscribe">> := #{<<"topics">> := Topics}}) ->
-    ConfPath = [auto_subscribe, topics],
-    OldTopics = emqx:get_raw_config(ConfPath, []),
+import_config(#{<<"auto_subscribe">> := #{<<"topics">> := Topics} = AutoSubscribe}) ->
+    ConfPath = [?ROOT_KEY],
+    OldTopics = emqx:get_raw_config(ConfPath ++ [topics], []),
     KeyFun = fun(#{<<"topic">> := T}) -> T end,
     MergedTopics = emqx_utils:merge_lists(OldTopics, Topics, KeyFun),
-    case emqx_conf:update(ConfPath, MergedTopics, #{override_to => cluster}) of
-        {ok, #{raw_config := NewTopics}} ->
+    Conf = AutoSubscribe#{<<"topics">> => MergedTopics},
+    case emqx_conf:update(ConfPath, Conf, #{override_to => cluster}) of
+        {ok, #{raw_config := #{<<"topics">> := NewTopics}}} ->
             Changed = maps:get(changed, emqx_utils:diff_lists(NewTopics, OldTopics, KeyFun)),
             Changed1 = [ConfPath ++ [T] || {#{<<"topic">> := T}, _} <- Changed],
-            {ok, #{root_key => auto_subscribe, changed => Changed1}};
+            {ok, #{root_key => ?ROOT_KEY, changed => Changed1}};
         Error ->
-            {error, #{root_key => auto_subscribe, reason => Error}}
+            {error, #{root_key => ?ROOT_KEY, reason => Error}}
     end;
 import_config(_RawConf) ->
     {ok, #{root_key => auto_subscribe, changed => []}}.
@@ -139,7 +140,7 @@ format(Rule = #{topic := Topic}) when is_map(Rule) ->
     }.
 
 update_hook() ->
-    update_hook(emqx_conf:get([auto_subscribe], #{})).
+    update_hook(emqx_conf:get([?ROOT_KEY], #{topics => []})).
 
 update_hook(Config) ->
     {TopicHandler, Options} = emqx_auto_subscribe_handler:init(Config),

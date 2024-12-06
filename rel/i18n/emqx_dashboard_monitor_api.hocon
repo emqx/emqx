@@ -5,6 +5,11 @@ list_monitor.desc:
 list_monitor.label:
 """List cluster stats data"""
 
+clear_monitor.desc:
+"""Clear monitor (statistics) data for the whole cluster."""
+clear_monitor.label:
+"""Clear cluster stats data"""
+
 list_monitor_node.desc:
 """List the monitor (statistics) data on the specified node."""
 list_monitor_node.label:

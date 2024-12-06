@@ -92,7 +92,7 @@ t_init_load(C) when is_list(C) ->
     emqx_config:erase_all(),
     {ok, DeprecatedFile} = application:get_env(emqx, cluster_override_conf_file),
     ?assertEqual(false, filelib:is_regular(DeprecatedFile), DeprecatedFile),
-    %% Don't has deprecated file
+    %% Don't have deprecated file
     ok = emqx_config:init_load(emqx_schema, [ConfFile]),
     ?assertEqual(ExpectRootNames, lists:sort(emqx_config:get_root_names())),
     ?assertMatch({ok, #{raw_config := 256}}, emqx:update_config([mqtt, max_topic_levels], 256)),
@@ -103,6 +103,32 @@ t_init_load(C) when is_list(C) ->
     ?assertEqual(ExpectRootNames, lists:sort(emqx_config:get_root_names())),
     ?assertMatch({ok, #{raw_config := 128}}, emqx:update_config([mqtt, max_topic_levels], 128)),
     ok = file:delete(DeprecatedFile).
+
+t_init_load_with_base_hocon(C) when is_list(C) ->
+    BaseHocon = emqx_config:base_hocon_file(),
+    ClusterHocon = emqx_config:cluster_hocon_file(),
+    ConfFile = "./test_emqx_2.conf",
+    ok = filelib:ensure_dir(BaseHocon),
+    ok = file:write_file(
+        BaseHocon,
+        "mqtt.max_topic_levels = 123\n"
+        "mqtt.max_clientid_len=12\n"
+        "mqtt.max_inflight=12\n"
+    ),
+    ok = file:write_file(
+        ClusterHocon,
+        "mqtt.max_clientid_len = 123\n"
+        "mqtt.max_inflight=22\n"
+    ),
+    ok = file:write_file(ConfFile, "mqtt.max_inflight = 123\n"),
+    ok = emqx_config:init_load(emqx_schema, [ConfFile]),
+    ?assertEqual(123, emqx:get_config([mqtt, max_topic_levels])),
+    ?assertEqual(123, emqx:get_config([mqtt, max_clientid_len])),
+    ?assertEqual(123, emqx:get_config([mqtt, max_inflight])),
+    emqx_config:erase_all(),
+    ok = file:delete(BaseHocon),
+    ok = file:delete(ClusterHocon),
+    ok.
 
 t_unknown_root_keys(C) when is_list(C) ->
     ?check_trace(

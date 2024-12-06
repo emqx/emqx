@@ -126,7 +126,10 @@
     limiter_timer :: undefined | reference(),
 
     %% QUIC conn shared state
-    quic_conn_ss :: option(map())
+    quic_conn_ss :: option(map()),
+
+    %% Extra field for future hot-upgrade support
+    extra = []
 }).
 
 -record(retry, {
@@ -366,7 +369,8 @@ init_state(
         limiter_buffer = queue:new(),
         limiter_timer = undefined,
         %% for quic streams to inherit
-        quic_conn_ss = maps:get(conn_shared_state, Opts, undefined)
+        quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
+        extra = []
     }.
 
 run_loop(

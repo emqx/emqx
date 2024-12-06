@@ -97,7 +97,7 @@
 -export([upgrade_raw_conf/2]).
 
 -ifdef(TEST).
--export([erase_all/0, backup_and_write/2]).
+-export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
 -endif.
 
 -include("logger.hrl").
@@ -440,12 +440,13 @@ do_parse_hocon(true, Conf, IncDirs) ->
 do_parse_hocon(false, Conf, IncDirs) ->
     Opts = #{format => map, include_dirs => IncDirs},
     case is_binary(Conf) of
-        %% only use in test
         true ->
+            %% only used in test
             hocon:binary(Conf, Opts);
         false ->
+            BaseHocon = base_hocon_file(),
             ClusterFile = cluster_hocon_file(),
-            hocon:files([ClusterFile | Conf], Opts)
+            hocon:files([BaseHocon, ClusterFile | Conf], Opts)
     end.
 
 include_dirs() ->
@@ -541,12 +542,12 @@ ensure_file_deleted(F) ->
 
 -spec read_override_conf(map()) -> raw_config().
 read_override_conf(#{} = Opts) ->
-    File =
+    Files =
         case has_deprecated_file() of
-            true -> deprecated_conf_file(Opts);
-            false -> cluster_hocon_file()
+            true -> [deprecated_conf_file(Opts)];
+            false -> [base_hocon_file(), cluster_hocon_file()]
         end,
-    load_hocon_file(File, map).
+    load_hocon_files(Files, map).
 
 %% @doc Return `true' if this node is upgraded from older version which used cluster-override.conf for
 %% cluster-wide config persistence.
@@ -563,6 +564,9 @@ deprecated_conf_file(Opts) when is_map(Opts) ->
     application:get_env(emqx, Key, undefined);
 deprecated_conf_file(Which) when is_atom(Which) ->
     application:get_env(emqx, Which, undefined).
+
+base_hocon_file() ->
+    emqx:etc_file("base.hocon").
 
 %% The newer version cluster-wide config persistence file.
 cluster_hocon_file() ->
@@ -633,15 +637,28 @@ save_to_override_conf(true = _HasDeprecatedFile, RawConf, Opts) ->
         undefined ->
             ok;
         FileName ->
-            backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
+            backup_and_write(FileName, generate_hocon_content(RawConf, Opts))
     end;
 save_to_override_conf(false = _HasDeprecatedFile, RawConf, Opts) ->
     case cluster_hocon_file() of
         undefined ->
             ok;
         FileName ->
-            backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
+            backup_and_write(FileName, generate_hocon_content(RawConf, Opts))
     end.
+
+generate_hocon_content(RawConf, Opts) ->
+    [
+        cluster_dot_hocon_header(),
+        hocon_pp:do(RawConf, Opts)
+    ].
+
+cluster_dot_hocon_header() ->
+    [
+        "# This file is generated. Do not edit.\n",
+        "# The configs are results of online config changes from UI/API/CLI.\n",
+        "# To persist configs in this file, copy the content to etc/base.hocon.\n"
+    ].
 
 %% @private This is the same human-readable timestamp format as
 %% hocon-cli generated app.<time>.config file name.
@@ -730,22 +747,17 @@ remove_handlers() ->
     emqx_sys_mon:remove_handler(),
     ok.
 
-load_hocon_file(FileName, LoadType) ->
-    case filelib:is_regular(FileName) of
-        true ->
-            Opts = #{include_dirs => include_dirs(), format => LoadType},
-            case hocon:load(FileName, Opts) of
-                {ok, Raw0} ->
-                    Raw0;
-                {error, Reason} ->
-                    throw(#{
-                        msg => failed_to_load_conf,
-                        reason => Reason,
-                        file => FileName
-                    })
-            end;
-        false ->
-            #{}
+load_hocon_files(FileNames, LoadType) ->
+    Opts = #{include_dirs => include_dirs(), format => LoadType},
+    case hocon:files(FileNames, Opts) of
+        {ok, Raw0} ->
+            Raw0;
+        {error, Reason} ->
+            throw(#{
+                msg => failed_to_load_conf,
+                reason => Reason,
+                files => FileNames
+            })
     end.
 
 do_get_raw(Path) ->
