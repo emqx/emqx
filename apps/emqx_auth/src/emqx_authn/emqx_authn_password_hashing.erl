@@ -87,11 +87,11 @@ fields(pbkdf2) ->
         {name, sc(pbkdf2, #{required => true, desc => "PBKDF2 password hashing."})},
         {mac_fun,
             sc(
-                hoconsc:enum([md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]),
+                hoconsc:enum([sha, sha224, sha256, sha384, sha512]),
                 #{
                     required => true,
                     desc =>
-                        "Specifies mac_fun for PBKDF2 hashing algorithm and md4, md5, ripemd160 are no longer supported since 5.8.3"
+                        "Specifies mac_fun for PBKDF2 hashing algorithm"
                 }
             )},
         {iterations,
@@ -146,11 +146,11 @@ salt_position(desc) -> "Salt position for PLAIN, MD5, SHA, SHA256 and SHA512 alg
 salt_position(_) -> undefined.
 
 dk_length(type) ->
-    pos_integer();
+    range(1, 1024);
 dk_length(required) ->
     false;
 dk_length(desc) ->
-    "Derived length for PBKDF2 hashing algorithm. If not specified, "
+    "Derived length (in bytes) for PBKDF2 hashing algorithm. If not specified, "
     "calculated automatically based on `mac_fun`.";
 dk_length(_) ->
     undefined.
