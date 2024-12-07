@@ -249,7 +249,7 @@ init_mocks(_TestCase) ->
             (_, bad_connector_state) ->
                 connecting;
             (_, worst_connector_state) ->
-                {?status_disconnected, worst_connector_state, [
+                {?status_disconnected, [
                     #{
                         host => <<"nope:9092">>,
                         reason => unresolvable_hostname

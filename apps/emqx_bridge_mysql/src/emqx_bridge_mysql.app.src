@@ -1,6 +1,6 @@
 {application, emqx_bridge_mysql, [
     {description, "EMQX Enterprise MySQL Bridge"},
-    {vsn, "0.1.9"},
+    {vsn, "0.1.10"},
     {registered, []},
     {applications, [
         kernel,

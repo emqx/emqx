@@ -94,11 +94,15 @@ on_stop(InstanceId, _State) ->
     ?status_connected
     | ?status_disconnected
     | {?status_disconnected, state(), {unhealthy_target, string()}}.
-on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
+on_get_status(_InstanceId, #{pool_name := _Pool} = State) ->
+    do_get_status(State, []).
+
+-spec do_get_status(state(), nil() | [_Stream]) -> _.
+do_get_status(#{pool_name := Pool}, StreamArgs) ->
     case
         emqx_resource_pool:health_check_workers(
             Pool,
-            {emqx_bridge_kinesis_connector_client, connection_status, []},
+            {emqx_bridge_kinesis_connector_client, connection_status, StreamArgs},
             ?HEALTH_CHECK_TIMEOUT,
             #{return_values => true}
         )
@@ -111,7 +115,7 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
                 false ->
                     Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
                     case Unhealthy of
-                        true -> {?status_disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
+                        true -> {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
                         false -> ?status_disconnected
                     end
             end;
@@ -166,39 +170,12 @@ on_get_channel_status(
     _ResId,
     ChannelId,
     #{
-        pool_name := PoolName,
+        pool_name := _PoolName,
         installed_channels := Channels
-    }
+    } = State
 ) ->
     #{stream_name := StreamName} = maps:get(ChannelId, Channels),
-    case
-        emqx_resource_pool:health_check_workers(
-            PoolName,
-            {emqx_bridge_kinesis_connector_client, connection_status, [StreamName]},
-            ?HEALTH_CHECK_TIMEOUT,
-            #{return_values => true}
-        )
-    of
-        {ok, Values} ->
-            AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
-            case AllOk of
-                true ->
-                    ?status_connected;
-                false ->
-                    Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
-                    case Unhealthy of
-                        true -> {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
-                        false -> ?status_disconnected
-                    end
-            end;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "kinesis_producer_get_status_failed",
-                reason => Reason,
-                stream_name => StreamName
-            }),
-            ?status_disconnected
-    end.
+    do_get_status(State, [StreamName]).
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).

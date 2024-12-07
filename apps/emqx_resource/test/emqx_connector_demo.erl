@@ -310,7 +310,7 @@ on_get_status(_InstId, #{health_check_error := true}) ->
     ?status_disconnected;
 on_get_status(_InstId, State = #{health_check_error := {msg, Message}}) ->
     ?tp(connector_demo_health_check_error, #{}),
-    {?status_disconnected, State, Message};
+    {?status_disconnected, Message};
 on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->
     ?tp(connector_demo_health_check_delay, #{}),
     timer:sleep(Delay),

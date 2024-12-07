@@ -1,6 +1,6 @@
 {application, emqx_bridge_clickhouse, [
     {description, "EMQX Enterprise ClickHouse Bridge"},
-    {vsn, "0.4.4"},
+    {vsn, "0.4.5"},
     {registered, []},
     {applications, [
         kernel,

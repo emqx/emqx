@@ -5,6 +5,7 @@
 
 -behaviour(emqx_resource).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% `emqx_resource' API
@@ -51,7 +52,7 @@ on_add_channel(
                     {error, {prepare_statement, Context}};
                 {error, undefined_table} ->
                     {error, {unhealthy_target, <<"Undefined table">>}};
-                _ ->
+                ok ->
                     State = State0#{
                         channels => maps:put(ChannelId, ChannelConfig, Channels),
                         connector_state => ConnectorState
@@ -65,36 +66,16 @@ on_add_channel(
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
     case maps:get(ChannelId, Channels) of
         #{prepares := ok} ->
-            connected;
+            ?status_connected;
         #{prepares := {error, _}} ->
-            connecting
+            ?status_connecting
     end.
 
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
-on_get_status(InstanceId, #{channels := Channels0, connector_state := ConnectorState} = State0) ->
-    case emqx_mysql:on_get_status(InstanceId, ConnectorState) of
-        WithState when is_tuple(WithState) ->
-            NewConnectorState = element(2, WithState),
-            State = State0#{connector_state => NewConnectorState},
-            setelement(2, WithState, State);
-        connected ->
-            Channels =
-                maps:map(
-                    fun
-                        (_ChannelId, #{prepares := ok} = ChannelConfig) ->
-                            ChannelConfig;
-                        (_ChannelId, #{prepares := {error, _}} = ChannelConfig) ->
-                            set_prepares(ChannelConfig, ConnectorState)
-                    end,
-                    Channels0
-                ),
-            State = State0#{channels => Channels},
-            {connected, State};
-        Other ->
-            Other
-    end.
+on_get_status(InstanceId, #{connector_state := ConnectorState}) ->
+    emqx_mysql:on_get_status(InstanceId, ConnectorState).
 
 on_query(InstId, {TypeOrKey, SQLOrKey}, State) ->
     on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, State);

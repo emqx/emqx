@@ -236,7 +236,7 @@ is_unrecoverable_error({error, invalid_cluster_command}) ->
 is_unrecoverable_error(_) ->
     false.
 
-on_get_status(_InstId, #{type := cluster, pool_name := PoolName} = State) ->
+on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
             %% eredis_cluster has null slot even pool_exists when emqx start before redis cluster.
@@ -247,12 +247,12 @@ on_get_status(_InstId, #{type := cluster, pool_name := PoolName} = State) ->
                 [] ->
                     ?status_disconnected;
                 [_ | _] ->
-                    do_cluster_status_check(PoolName, State)
+                    do_cluster_status_check(PoolName)
             end;
         false ->
             ?status_disconnected
     end;
-on_get_status(_InstId, #{pool_name := PoolName} = State) ->
+on_get_status(_InstId, #{pool_name := PoolName}) ->
     HealthCheckResoults = emqx_resource_pool:health_check_workers(
         PoolName,
         fun ?MODULE:do_get_status/1,
@@ -261,27 +261,27 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
     ),
     case HealthCheckResoults of
         {ok, Results} ->
-            sum_worker_results(Results, State);
+            sum_worker_results(Results);
         Error ->
-            {?status_disconnected, State, Error}
+            {?status_disconnected, Error}
     end.
 
-do_cluster_status_check(Pool, State) ->
+do_cluster_status_check(Pool) ->
     Pongs = eredis_cluster:qa(Pool, [<<"PING">>]),
-    sum_worker_results(Pongs, State).
+    sum_worker_results(Pongs).
 
 do_get_status(Conn) ->
     eredis:q(Conn, ["PING"]).
 
-sum_worker_results([], _State) ->
+sum_worker_results([]) ->
     ?status_connected;
-sum_worker_results([{error, <<"NOAUTH Authentication required.">>} = Error | _Rest], State) ->
+sum_worker_results([{error, <<"NOAUTH Authentication required.">>} = Error | _Rest]) ->
     ?tp(emqx_redis_auth_required_error, #{}),
     %% This requires user action to fix so we set the status to disconnected
-    {?status_disconnected, State, {unhealthy_target, Error}};
-sum_worker_results([{ok, _} | Rest], State) ->
-    sum_worker_results(Rest, State);
-sum_worker_results([Error | _Rest], State) ->
+    {?status_disconnected, {unhealthy_target, Error}};
+sum_worker_results([{ok, _} | Rest]) ->
+    sum_worker_results(Rest);
+sum_worker_results([Error | _Rest]) ->
     ?SLOG(
         warning,
         #{
@@ -289,7 +289,7 @@ sum_worker_results([Error | _Rest], State) ->
             error => Error
         }
     ),
-    {?status_connecting, State, Error}.
+    {?status_connecting, Error}.
 
 do_cmd(PoolName, cluster, {cmd, Command}) ->
     eredis_cluster:q(PoolName, Command);
