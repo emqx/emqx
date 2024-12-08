@@ -19,6 +19,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([start_link/0]).
 
 -export([is_enabled/0, is_hist_enabled/0]).
@@ -185,9 +187,11 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
+    ?tp(warning, cm_registry_mnesia_down, #{node => Node}),
     cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, {node, down, Node}}, State) ->
+    ?tp(warning, cm_registry_node_down, #{node => Node}),
     cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, _Event}, State) ->
