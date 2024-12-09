@@ -280,9 +280,13 @@ lookup(ConfRootName, Type, Name) ->
             ChannelStatus = maps:get(BridgeV2Id, Channels, undefined),
             {DisplayBridgeV2Status, ErrorMsg} =
                 case {ChannelStatus, ConnectorStatus} of
+                    {_, ?status_disconnected} ->
+                        {?status_disconnected, <<"Resource not operational">>};
                     {#{status := ?status_connected}, _} ->
                         {?status_connected, <<"">>};
                     {#{error := resource_not_operational}, ?status_connecting} ->
+                        {?status_connecting, <<"Not installed">>};
+                    {#{error := not_added_yet}, _} ->
                         {?status_connecting, <<"Not installed">>};
                     {#{status := Status, error := undefined}, _} ->
                         {Status, <<"Unknown reason">>};

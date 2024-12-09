@@ -1,6 +1,6 @@
 {application, emqx_eviction_agent, [
     {description, "EMQX Eviction Agent"},
-    {vsn, "5.1.8"},
+    {vsn, "5.1.9"},
     {registered, [
         emqx_eviction_agent_sup,
         emqx_eviction_agent,
