@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_mysql).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -240,18 +241,15 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
         true ->
             case do_check_prepares(State) of
                 ok ->
-                    connected;
-                {ok, NState} ->
-                    %% return new state with prepared statements
-                    {connected, NState};
+                    ?status_connected;
                 {error, undefined_table} ->
-                    {disconnected, State, unhealthy_target};
+                    {?status_disconnected, unhealthy_target};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
-                    connecting
+                    ?status_connecting
             end;
         false ->
-            connecting
+            ?status_connecting
     end.
 
 do_get_status(Conn) ->
@@ -287,17 +285,6 @@ do_check_prepares(
         ok,
         Workers
     );
-do_check_prepares(#{prepares := ok}) ->
-    ok;
-do_check_prepares(#{prepares := {error, _}, query_templates := _} = State) ->
-    %% retry to prepare
-    case prepare_sql(State) of
-        ok ->
-            %% remove the error
-            {ok, State#{prepares => ok}};
-        {error, Reason} ->
-            {error, Reason}
-    end;
 do_check_prepares(_NoTemplates) ->
     ok.
 

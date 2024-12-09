@@ -224,7 +224,7 @@ on_format_query_result({ok, ResultMap}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
+on_get_status(_InstanceId, #{pool_name := PoolName}) ->
     case
         emqx_resource_pool:health_check_workers(
             PoolName,
@@ -234,16 +234,16 @@ on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
         )
     of
         {ok, []} ->
-            {?status_connecting, State, undefined};
+            {?status_connecting, undefined};
         {ok, Values} ->
             case lists:keyfind(error, 1, Values) of
                 false ->
                     ?status_connected;
                 {error, Reason} ->
-                    {?status_connecting, State, enhance_reason(Reason)}
+                    {?status_connecting, enhance_reason(Reason)}
             end;
         {error, Reason} ->
-            {?status_connecting, State, enhance_reason(Reason)}
+            {?status_connecting, enhance_reason(Reason)}
     end.
 
 do_get_status(Conn) ->
@@ -301,14 +301,9 @@ on_get_channels(InstanceId) ->
 on_get_channel_status(InstanceId, ChannelId, #{channels := Channels} = State) ->
     case maps:is_key(ChannelId, Channels) of
         true ->
-            case on_get_status(InstanceId, State) of
-                {Status, _State, Reason} ->
-                    {Status, Reason};
-                Status ->
-                    Status
-            end;
+            on_get_status(InstanceId, State);
         _ ->
-            {error, not_exists}
+            ?status_disconnected
     end.
 
 %%========================================================================================

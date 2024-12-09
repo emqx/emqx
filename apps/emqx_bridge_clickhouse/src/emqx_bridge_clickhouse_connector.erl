@@ -306,8 +306,8 @@ on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
 
 on_get_channel_status(InstanceId, _ChannId, State) ->
     case on_get_status(InstanceId, State) of
-        {connected, _} -> connected;
-        {disconnected, _, _} -> disconnected
+        ?status_connected -> ?status_connected;
+        {?status_disconnected, _} -> ?status_disconnected
     end.
 
 on_get_channels(InstanceId) ->
@@ -319,13 +319,13 @@ on_get_channels(InstanceId) ->
 
 on_get_status(
     _InstanceID,
-    #{pool_name := PoolName, connect_timeout := Timeout} = State
+    #{pool_name := PoolName, connect_timeout := Timeout}
 ) ->
     case do_get_status(PoolName, Timeout) of
         ok ->
-            {connected, State};
+            ?status_connected;
         {error, Reason} ->
-            {disconnected, State, Reason}
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(PoolName, Timeout) ->

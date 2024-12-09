@@ -224,15 +224,10 @@ on_stop(ConnectorResId, State) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
-on_get_status(_ConnectorResId, State = #{kafka_client_id := ClientID}) ->
+on_get_status(_ConnectorResId, #{kafka_client_id := ClientID}) ->
     case whereis(ClientID) of
         Pid when is_pid(Pid) ->
-            case check_client_connectivity(Pid) of
-                {Status, Reason} ->
-                    {Status, State, Reason};
-                Status ->
-                    Status
-            end;
+            check_client_connectivity(Pid);
         _ ->
             ?status_disconnected
     end;

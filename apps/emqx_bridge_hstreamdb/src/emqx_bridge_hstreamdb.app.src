@@ -1,6 +1,6 @@
 {application, emqx_bridge_hstreamdb, [
     {description, "EMQX Enterprise HStreamDB Bridge"},
-    {vsn, "0.2.2"},
+    {vsn, "0.2.3"},
     {registered, []},
     {applications, [
         kernel,
