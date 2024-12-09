@@ -644,7 +644,7 @@ t_smoke_test_2(_Config) ->
             <<"node">> := NodeBin,
             <<"peername">> := <<"127.0.0.1:", _/binary>>,
             <<"publish_received_at">> := PRAt,
-            <<"username">> := <<"undefined">>,
+            <<"username">> := <<"">>,
             <<"flags">> := #{<<"dup">> := false, <<"retain">> := false},
             <<"timestamp">> := _,
             <<"pub_props">> := #{
