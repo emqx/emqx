@@ -21,6 +21,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -32,10 +34,15 @@ all() ->
     ].
 
 groups() ->
+    LegacyTCs = legacy_config_test_cases(),
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {new_config, [sequence], [t_stats_auth_api, t_stats_no_auth_api, t_prometheus_api]},
-        {legacy_config, [sequence], [t_stats_no_auth_api, t_legacy_prometheus_api]}
+        {new_config, [sequence], AllTCs -- LegacyTCs},
+        {legacy_config, [sequence], LegacyTCs}
     ].
+
+legacy_config_test_cases() ->
+    [t_stats_no_auth_api, t_legacy_prometheus_api].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -282,18 +289,183 @@ t_stats_no_auth_api(_) ->
             ok
     end,
     emqx_dashboard_listener:regenerate_minirest_dispatch(),
-    Headers = accept_josn_header(),
+    Headers = accept_json_header(),
     request_stats(Headers, []).
 
 t_stats_auth_api(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
     emqx_dashboard_listener:regenerate_minirest_dispatch(),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers = [Auth | accept_josn_header()],
+    Headers = [Auth | accept_json_header()],
     request_stats(Headers, Auth),
     ok.
 
-accept_josn_header() ->
+%% Simple smoke test for verifying reason code labels in `emqx_client_disconnected_reason'
+%% counter metric.
+t_listener_shutdown_count(_Config) ->
+    ClientId1 = <<"shutdown_count_test">>,
+    {ok, C1} = emqtt:start_link(#{clientid => ClientId1}),
+    {ok, _} = emqtt:connect(C1),
+    %% Takeover
+    unlink(C1),
+    {ok, C2} = emqtt:start_link(#{clientid => ClientId1}),
+    {ok, _} = emqtt:connect(C2),
+    %% Kick
+    unlink(C2),
+    ok = emqx_cm:kick_session(ClientId1),
+    %% Normal disconnect
+    ClientId2 = <<"shutdown_count_test2">>,
+    {ok, C3} = emqtt:start_link(#{clientid => ClientId2}),
+    {ok, _} = emqtt:connect(C3),
+    ok = emqtt:stop(C3),
+    %% Disconnect with reason code
+    {ok, C4} = emqtt:start_link(#{clientid => ClientId2}),
+    {ok, _} = emqtt:connect(C4),
+    ok = emqtt:disconnect(C4, ?RC_IMPLEMENTATION_SPECIFIC_ERROR),
+    OnlyDisconnectStats = fun(Stats0) ->
+        Stats = lists:filter(
+            fun
+                (#{<<"emqx_client_disconnected_reason">> := _}) ->
+                    true;
+                (_) ->
+                    false
+            end,
+            Stats0
+        ),
+        lists:sort(Stats)
+    end,
+    #{<<"client">> := JSONClientStatsNode} = get_stats(json, ?PROM_DATA_MODE__NODE),
+    ?assertEqual(
+        [
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"discarded">>
+            },
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"kicked">>
+            },
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"tcp_closed">>
+            }
+        ],
+        OnlyDisconnectStats(JSONClientStatsNode)
+    ),
+    #{<<"client">> := JSONClientStatsAgg} = get_stats(json, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
+    ?assertEqual(
+        [
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"discarded">>
+            },
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"kicked">>
+            },
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"tcp_closed">>
+            }
+        ],
+        OnlyDisconnectStats(JSONClientStatsAgg)
+    ),
+    #{<<"client">> := JSONClientStatsUnagg} = get_stats(
+        json, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED
+    ),
+    NodeBin = atom_to_binary(node()),
+    ?assertEqual(
+        [
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"node">> => NodeBin,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"discarded">>
+            },
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"node">> => NodeBin,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"kicked">>
+            },
+            #{
+                <<"emqx_client_disconnected_reason">> => 1,
+                <<"node">> => NodeBin,
+                <<"listener_type">> => <<"tcp">>,
+                <<"listener_name">> => <<"default">>,
+                <<"reason">> => <<"tcp_closed">>
+            }
+        ],
+        OnlyDisconnectStats(JSONClientStatsUnagg)
+    ),
+    AssertExpectedLines = fun(ExpectedLines, Output) ->
+        lists:foreach(
+            fun(ExpectedLine) ->
+                ?assertEqual(
+                    match,
+                    re:run(Output, ExpectedLine, [global, {capture, none}]),
+                    #{
+                        expected => ExpectedLine,
+                        output => string:split(Output, <<"\n">>, all)
+                    }
+                )
+            end,
+            ExpectedLines
+        )
+    end,
+    PromClientStatsNode = get_stats(prometheus, ?PROM_DATA_MODE__NODE),
+    ExpectedLines1 = [
+        iolist_to_binary(
+            io_lib:format(
+                "emqx_client_disconnected_reason{"
+                "listener_type=\"tcp\",listener_name=\"default\","
+                "reason=\"~s\"} ~b",
+                [Reason, N]
+            )
+        )
+     || {Reason, N} <- [
+            {"discarded", 1},
+            {"kicked", 1},
+            {"tcp_closed", 1}
+        ]
+    ],
+    AssertExpectedLines(ExpectedLines1, PromClientStatsNode),
+    PromClientStatsAgg = get_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
+    AssertExpectedLines(ExpectedLines1, PromClientStatsAgg),
+    PromClientStatsUnagg = get_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED),
+    ExpectedLines2 = [
+        iolist_to_binary(
+            io_lib:format(
+                "emqx_client_disconnected_reason{"
+                "node=\"~s\",listener_type=\"tcp\",listener_name=\"default\","
+                "reason=\"~s\"} ~b",
+                [NodeBin, Reason, N]
+            )
+        )
+     || {Reason, N} <- [
+            {"discarded", 1},
+            {"kicked", 1},
+            {"tcp_closed", 1}
+        ]
+    ],
+    AssertExpectedLines(ExpectedLines2, PromClientStatsUnagg),
+    ok.
+
+accept_json_header() ->
     [{"accept", "application/json"}].
 
 request_stats(Headers, Auth) ->
@@ -321,3 +493,19 @@ do_env_collectors([Collector | Rest], Acc) when is_atom(Collector) ->
 
 all_collectors() ->
     emqx_prometheus_config:all_collectors().
+
+get_stats(Format, Mode) ->
+    Headers =
+        case Format of
+            json -> accept_json_header();
+            prometheus -> []
+        end,
+    QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, QueryString, Headers),
+    case Format of
+        json ->
+            emqx_utils_json:decode(Response, [return_maps]);
+        prometheus ->
+            Response
+    end.
