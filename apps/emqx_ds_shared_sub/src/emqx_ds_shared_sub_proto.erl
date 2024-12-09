@@ -34,7 +34,7 @@
 -type agent() :: ?agent(
     emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
     emqx_persistent_session_ds:id(),
-    pid()
+    reference()
 ).
 -type leader() :: pid().
 -type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
@@ -211,6 +211,6 @@ send_agent_msg(ToLeader, Msg) ->
 send_leader_msg(ToAgent, Msg) ->
     ?log_leader_msg(ToAgent, Msg),
     _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ?agent_pid(ToAgent), ?agent_subscription_id(ToAgent), Msg
+        ?agent_ref(ToAgent), ?agent_subscription_id(ToAgent), {?agent_ref(ToAgent), Msg}
     ),
     ok.

@@ -231,7 +231,10 @@ on_unsubscribe(
             {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 SubId, S1, SchedS0
             ),
-            {S, SharedSubS} = on_streams_gc(S2, SharedSubS0),
+            SharedSubS1 = emqx_persistent_session_ds_shared_subs_agent:on_unsubscribe(
+                SharedSubS0, SubId
+            ),
+            {S, SharedSubS} = on_streams_gc(S2, SharedSubS1),
             {ok, S, SchedS, SharedSubS, Sub}
     end.
 
@@ -420,8 +423,6 @@ handle_events(S0, SchedS0, SharedS0, StreamLeaseEvents) ->
     {true, S, SchedS, SharedS}.
 
 handle_lease_stream(
-    %% TODO
-    %% Add share_topic_filter to the event
     #{share_topic_filter := ShareTopicFilter} = Event,
     S0,
     SchedS0,

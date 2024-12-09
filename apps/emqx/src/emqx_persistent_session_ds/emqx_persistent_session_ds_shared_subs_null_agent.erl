@@ -14,7 +14,7 @@
     has_subscriptions/1,
 
     on_subscribe/4,
-    on_unsubscribe/3,
+    on_unsubscribe/2,
     on_stream_progress/2,
     on_info/3,
     on_disconnect/2
@@ -44,7 +44,7 @@ has_subscriptions(_Agent) ->
 on_subscribe(Agent, _SubscriptionId, _TopicFilter, _SubOpts) ->
     Agent.
 
-on_unsubscribe(Agent, _SubscriptionId, _Progresses) ->
+on_unsubscribe(Agent, _SubscriptionId) ->
     Agent.
 
 on_disconnect(Agent, _) ->

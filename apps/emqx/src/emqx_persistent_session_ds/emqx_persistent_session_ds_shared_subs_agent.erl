@@ -68,7 +68,7 @@
     has_subscriptions/1,
 
     on_subscribe/4,
-    on_unsubscribe/3,
+    on_unsubscribe/2,
     on_stream_progress/2,
     on_info/3,
     on_disconnect/2
@@ -89,7 +89,7 @@
 -callback has_subscription(t(), subscription_id()) -> boolean().
 -callback has_subscriptions(t()) -> boolean().
 -callback on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
--callback on_unsubscribe(t(), subscription_id(), [stream_progress()]) -> t().
+-callback on_unsubscribe(t(), subscription_id()) -> t().
 -callback on_info(t(), subscription_id(), term()) -> {[event()], t()}.
 -callback on_disconnect(t(), #{subscription_id() => [stream_progress()]}) -> t().
 -callback on_stream_progress(t(), #{subscription_id() => [stream_progress()]}) -> t().
@@ -122,9 +122,9 @@ has_subscriptions(Agent) ->
 on_subscribe(Agent, SubscriptionId, ShareTopicFilter, SubOpts) ->
     ?shared_subs_agent:on_subscribe(Agent, SubscriptionId, ShareTopicFilter, SubOpts).
 
--spec on_unsubscribe(t(), subscription_id(), [stream_progress()]) -> t().
-on_unsubscribe(Agent, SubscriptionId, StreamProgresses) ->
-    ?shared_subs_agent:on_unsubscribe(Agent, SubscriptionId, StreamProgresses).
+-spec on_unsubscribe(t(), subscription_id()) -> t().
+on_unsubscribe(Agent, SubscriptionId) ->
+    ?shared_subs_agent:on_unsubscribe(Agent, SubscriptionId).
 
 -spec on_disconnect(t(), #{subscription_id() => [stream_progress()]}) -> t().
 on_disconnect(Agent, StreamProgresses) ->

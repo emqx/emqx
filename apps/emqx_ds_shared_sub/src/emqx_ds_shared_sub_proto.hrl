@@ -199,7 +199,7 @@
 %% -ifdef(TEST).
 -endif.
 
--define(agent_pid(Agent), element(1, Agent)).
+-define(agent_ref(Agent), element(1, Agent)).
 
 -define(agent_subscription_id(Agent), element(2, Agent)).
 
