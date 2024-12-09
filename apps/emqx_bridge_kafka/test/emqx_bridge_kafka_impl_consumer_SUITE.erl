@@ -80,7 +80,6 @@ testcases(once) ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -93,7 +92,6 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _Api} = emqx_common_test_http:create_default_app(),
     [
         {apps, Apps},
         {bridge_type, <<"kafka_consumer">>}
