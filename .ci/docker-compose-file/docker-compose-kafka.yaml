@@ -16,7 +16,7 @@ services:
     user: "${DOCKER_USER:-root}"
     volumes:
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
-  kafka_1:
+  kafka_1: &kafka
     image: wurstmeister/kafka:2.13-2.8.1
     # ports:
     #   - "9192-9195:9192-9195"
@@ -29,7 +29,7 @@ services:
         condition: service_started
       ssl_cert_gen:
         condition: service_completed_successfully
-    environment:
+    environment: &kafka-env
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_LISTENERS: PLAINTEXT://:9092,SASL_PLAINTEXT://:9093,SSL://:9094,SASL_SSL://:9095,LOCAL_PLAINTEXT://:9192,LOCAL_SASL_PLAINTEXT://:9193,LOCAL_SSL://:9194,LOCAL_SASL_SSL://:9195,TOXIPROXY_PLAINTEXT://:9292,TOXIPROXY_SASL_PLAINTEXT://:9293,TOXIPROXY_SSL://:9294,TOXIPROXY_SASL_SSL://:9295
@@ -52,9 +52,24 @@ services:
     networks:
       emqx_bridge:
     volumes:
-      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret-ro:ro
       - ./kafka/jaas.conf:/etc/kafka/jaas.conf
       - ./kafka/kafka-entrypoint.sh:/bin/kafka-entrypoint.sh
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
     command: kafka-entrypoint.sh
+  kafka_2:
+    <<: *kafka
+    container_name: kafka-2.emqx.net
+    hostname: kafka-2.emqx.net
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2.emqx.net:9092,SASL_PLAINTEXT://kafka-2.emqx.net:9093,SSL://kafka-2.emqx.net:9094,SASL_SSL://kafka-2.emqx.net:9095,LOCAL_PLAINTEXT://localhost:19192,LOCAL_SASL_PLAINTEXT://localhost:19193,LOCAL_SSL://localhost:19194,LOCAL_SASL_SSL://localhost:19195,TOXIPROXY_PLAINTEXT://toxiproxy.emqx.net:19292,TOXIPROXY_SASL_PLAINTEXT://toxiproxy.emqx.net:19293,TOXIPROXY_SSL://toxiproxy.emqx.net:19294,TOXIPROXY_SASL_SSL://toxiproxy.emqx.net:19295
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    volumes:
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret-ro:ro
+      - ./kafka/jaas2.conf:/etc/kafka/jaas.conf
+      - ./kafka/kafka-entrypoint.sh:/bin/kafka-entrypoint.sh
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf

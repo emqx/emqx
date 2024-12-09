@@ -16,6 +16,7 @@ kdb5_util -P emqx -r KDC.EMQX.NET create -s
 echo "Add principals"
 
 kadmin.local -w password -q "add_principal -randkey kafka/kafka-1.emqx.net@KDC.EMQX.NET" > /dev/null
+kadmin.local -w password -q "add_principal -randkey kafka/kafka-2.emqx.net@KDC.EMQX.NET" > /dev/null
 kadmin.local -w password -q "add_principal -randkey rig@KDC.EMQX.NET"  > /dev/null
 
 # For Kerberos Authn
@@ -26,6 +27,7 @@ kadmin.local -w password -q "add_principal -randkey krb_authn_cli@KDC.EMQX.NET" 
 echo "Create keytabs"
 
 kadmin.local -w password -q "ktadd  -k /var/lib/secret/kafka.keytab -norandkey kafka/kafka-1.emqx.net@KDC.EMQX.NET " > /dev/null
+kadmin.local -w password -q "ktadd  -k /var/lib/secret/kafka.keytab -norandkey kafka/kafka-2.emqx.net@KDC.EMQX.NET " > /dev/null
 kadmin.local -w password -q "ktadd  -k /var/lib/secret/rig.keytab -norandkey rig@KDC.EMQX.NET " > /dev/null
 
 # For Kerberos Authn

@@ -79,6 +79,30 @@
     "enabled": true
   },
   {
+    "name": "kafka_2_plain",
+    "listen": "0.0.0.0:19292",
+    "upstream": "kafka-2.emqx.net:9292",
+    "enabled": true
+  },
+  {
+    "name": "kafka_2_sasl_plain",
+    "listen": "0.0.0.0:19293",
+    "upstream": "kafka-2.emqx.net:9293",
+    "enabled": true
+  },
+  {
+    "name": "kafka_2_ssl",
+    "listen": "0.0.0.0:19294",
+    "upstream": "kafka-2.emqx.net:9294",
+    "enabled": true
+  },
+  {
+    "name": "kafka_2_sasl_ssl",
+    "listen": "0.0.0.0:19295",
+    "upstream": "kafka-2.emqx.net:9295",
+    "enabled": true
+  },
+  {
     "name": "rocketmq",
     "listen": "0.0.0.0:9876",
     "upstream": "rocketmq_namesrv:9876",
