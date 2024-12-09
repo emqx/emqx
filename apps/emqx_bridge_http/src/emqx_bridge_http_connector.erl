@@ -236,7 +236,8 @@ on_start(
         port => Port,
         connect_timeout => ConnectTimeout,
         scheme => Scheme,
-        request => preprocess_request(maps:get(request, Config, undefined))
+        request => preprocess_request(maps:get(request, Config, undefined)),
+        installed_actions => #{}
     },
     case start_pool(InstId, PoolOpts) of
         ok ->

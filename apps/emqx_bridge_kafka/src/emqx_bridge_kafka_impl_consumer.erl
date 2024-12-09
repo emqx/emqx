@@ -381,26 +381,6 @@ make_subscriber_id(BridgeName) ->
     BridgeNameBin = to_bin(BridgeName),
     <<"kafka_subscriber:", BridgeNameBin/binary>>.
 
-ensure_consumer_supervisor_started() ->
-    Mod = emqx_bridge_kafka_consumer_sup,
-    ChildSpec =
-        #{
-            id => Mod,
-            start => {Mod, start_link, []},
-            restart => permanent,
-            shutdown => infinity,
-            type => supervisor,
-            modules => [Mod]
-        },
-    case supervisor:start_child(emqx_bridge_sup, ChildSpec) of
-        {ok, _Pid} ->
-            ok;
-        {error, already_present} ->
-            ok;
-        {error, {already_started, _Pid}} ->
-            ok
-    end.
-
 -spec start_consumer(
     source_config(),
     connector_resource_id(),
@@ -424,7 +404,6 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
             value_encoding_mode := ValueEncodingMode
         } = Params0
     } = Config,
-    ok = ensure_consumer_supervisor_started(),
     ?tp(kafka_consumer_sup_started, #{}),
     TopicMapping = ensure_topic_mapping(Params0),
     InitialState = #{

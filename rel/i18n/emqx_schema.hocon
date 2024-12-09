@@ -1732,7 +1732,7 @@ clientid_override {
     A one line expression to evaluate a set of predefined string functions (like in the rule engine SQL statements).
     The expression can be a function call with nested calls as its arguments, or direct variable reference.
     So far, it does not provide user-defined variable binding (like `var a=1`) or user-defined functions.
-    As an example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(username, '.'))`.
+    As an example, to extract the prefix of username delimited by a dot: `nth(1, tokens(username, '.'))`.
 
     The variables pre-bound variables are:
     - `cn`: Client's TLS certificate common name.

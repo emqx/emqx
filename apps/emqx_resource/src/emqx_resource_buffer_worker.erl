@@ -1321,7 +1321,7 @@ extract_connector_id(Id) when is_binary(Id) ->
 %% There is no need to query the conncector if the channel is not
 %% installed as the query will fail anyway.
 pre_query_channel_check(Id, {Id, _} = _Request, ChanSt, IsSimpleQuery) ->
-    case emqx_resource_manager:channel_status_is_channel_added(ChanSt) of
+    case is_channel_apt_for_queries(ChanSt) of
         true ->
             ok;
         false ->
@@ -2364,6 +2364,13 @@ buffer_worker(_Tid) ->
 
 is_simple_query(#{simple_query := Bool}) ->
     Bool.
+
+is_channel_apt_for_queries(?status_connected) ->
+    true;
+is_channel_apt_for_queries(?status_connecting) ->
+    true;
+is_channel_apt_for_queries(_) ->
+    false.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
