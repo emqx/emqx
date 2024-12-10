@@ -441,10 +441,27 @@ assert_json_data__olp(M, Mode) when
 assert_json_data__olp(Ms, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) when is_list(Ms) ->
     ok.
 
-assert_json_data__client(M, Mode) when
-    (Mode =:= ?PROM_DATA_MODE__NODE orelse
-        Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+assert_json_data__client(Ms, Mode) when
+    (Mode =:= ?PROM_DATA_MODE__NODE orelse Mode =:= ?PROM_DATA_MODE__ALL_NODES_AGGREGATED) andalso
+        is_list(Ms)
 ->
+    ?assertMatch(
+        [
+            #{
+                emqx_client_connect := _,
+                emqx_client_connack := _,
+                emqx_client_connected := _,
+                emqx_client_authenticate := _,
+                emqx_client_auth_anonymous := _,
+                emqx_client_authorize := _,
+                emqx_client_subscribe := _,
+                emqx_client_unsubscribe := _,
+                emqx_client_disconnected := _
+            }
+        ],
+        Ms
+    );
+assert_json_data__client(#{} = M, ?PROM_DATA_MODE__NODE) ->
     ?assertMatch(
         #{
             emqx_client_connect := _,

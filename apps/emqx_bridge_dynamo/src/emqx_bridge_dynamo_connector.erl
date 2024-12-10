@@ -196,7 +196,7 @@ on_format_query_result(Result) ->
 health_check_timeout() ->
     2500.
 
-on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
+on_get_status(_InstanceId, #{pool_name := Pool}) ->
     Health = emqx_resource_pool:health_check_workers(
         Pool,
         {emqx_bridge_dynamo_connector_client, is_connected, [
@@ -207,19 +207,19 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
     ),
     case Health of
         {error, timeout} ->
-            {?status_connecting, State, <<"timeout_while_checking_connection">>};
+            {?status_connecting, <<"timeout_while_checking_connection">>};
         {ok, Results} ->
-            status_result(Results, State)
+            status_result(Results)
     end.
 
-status_result(Results, State) ->
+status_result(Results) ->
     case lists:filter(fun(Res) -> Res =/= true end, Results) of
         [] when Results =:= [] ->
             ?status_connecting;
         [] ->
             ?status_connected;
         [{false, Error} | _] ->
-            {?status_connecting, State, Error}
+            {?status_connecting, Error}
     end.
 
 %%========================================================================================
