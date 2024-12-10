@@ -172,12 +172,14 @@ error_schema(Code, Message) ->
 %% `minirest' handlers
 %%-------------------------------------------------------------------------------------------------
 
-ns_list(get, #{query_string := QS}) ->
+ns_list(get, Params) ->
+    QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
     ?OK(emqx_mt:list_ns(LastNs, Limit)).
 
-client_list(get, #{bindings := #{ns := Ns, query_string := QS}}) ->
+client_list(get, #{bindings := #{ns := Ns}} = Params) ->
+    QS = maps:get(query_string, Params, #{}),
     LastClientId = maps:get(<<"last_clientid">>, QS, ?MIN_CLIENTID),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
     case emqx_mt:list_clients(Ns, LastClientId, Limit) of

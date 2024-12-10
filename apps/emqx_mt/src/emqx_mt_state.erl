@@ -129,10 +129,9 @@ count_clients(Tns) ->
 -spec is_known_client(tns(), clientid()) -> boolean().
 is_known_client(Tns, ClientId) ->
     case ets:next(?RECORD_TAB, ?RECORD_KEY(Tns, ClientId, ?MIN_PID)) of
-        '$end_of_table' -> false;
-        ?RECORD_KEY(Tns, ClientId, _Pid) -> true
+        ?RECORD_KEY(Tns, ClientId, _Pid) -> true;
+        _ -> false
     end.
-
 now_ts() ->
     erlang:system_time(millisecond).
 
