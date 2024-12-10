@@ -511,8 +511,6 @@ log_path_test_() ->
     [
         {"default-values", fun() -> Assert(default, "${EMQX_LOG_DIR}/emqx.log", check(#{})) end},
         {"file path with space", fun() -> Assert(name1, "a /b", check(Fh(<<"a /b">>))) end},
-        {"windows", fun() -> Assert(name1, "c:\\a\\ b\\", check(Fh(<<"c:\\a\\ b\\">>))) end},
-        {"unicoded", fun() -> Assert(name1, "路 径", check(Fh(<<"路 径"/utf8>>))) end},
         {"bad utf8", fun() ->
             ?assertThrow(
                 {emqx_conf_schema, [
@@ -718,27 +716,31 @@ node_role_conf(Role0) ->
 fix_log_dir_path_test() ->
     ?assertEqual(
         "/opt/emqx/log/a.log",
-        emqx_conf_schema:fix_old_version_abs_log_path("/opt/emqx/log/a.log")
+        emqx_conf_schema:fix_bad_log_path("/opt/emqx/log/a.log")
     ),
     ?assertEqual(
         "/var/log/emqx/a.log",
-        emqx_conf_schema:fix_old_version_abs_log_path("/var/log/emqx/a.log")
+        emqx_conf_schema:fix_bad_log_path("/var/log/emqx/a.log")
+    ),
+    ?assertEqual(
+        "${SOMEDIR}/a.log",
+        emqx_conf_schema:fix_bad_log_path("${SOMEDIR}/a.log")
+    ),
+    ?assertEqual(
+        <<"${SOMEDIR}/a.log">>,
+        emqx_conf_schema:fix_bad_log_path(<<"${SOMEDIR}/a.log">>)
     ),
     try
         os:putenv("EMQX_LOG_DIR", "foobar"),
         %% assumption: the two hard coded paths below do not exist in CT test runner
         ?assertEqual(
             "${EMQX_LOG_DIR}/a.log",
-            emqx_conf_schema:fix_old_version_abs_log_path("/var/log/emqx/a.log")
-        ),
-        ?assertEqual(
-            "${EMQX_LOG_DIR}/a.log",
-            emqx_conf_schema:fix_old_version_abs_log_path("/opt/emqx/log/a.log")
+            emqx_conf_schema:fix_bad_log_path("/nosuchdir/a.log")
         ),
         %% binary in binary out
         ?assertEqual(
             <<"${EMQX_LOG_DIR}/a.log">>,
-            emqx_conf_schema:fix_old_version_abs_log_path(<<"/var/log/emqx/a.log">>)
+            emqx_conf_schema:fix_bad_log_path(<<"/nosuchdir/a.log">>)
         )
     after
         os:unsetenv("EMQX_LOG_DIR")
