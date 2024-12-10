@@ -358,12 +358,7 @@ on_get_status(_ResourceId, State) ->
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
     try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
         Statuses ->
-            case combine_status(Statuses) of
-                {Status, Msg} ->
-                    {Status, State, Msg};
-                Status ->
-                    Status
-            end
+            combine_status(Statuses)
     catch
         exit:timeout ->
             ?status_connecting

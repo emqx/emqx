@@ -1,6 +1,6 @@
 {application, emqx_bridge_s3, [
     {description, "EMQX Enterprise S3 Bridge"},
-    {vsn, "0.1.8"},
+    {vsn, "0.1.9"},
     {registered, []},
     {applications, [
         kernel,

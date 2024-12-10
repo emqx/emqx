@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_influxdb_connector).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -include_lib("hocon/include/hoconsc.hrl").
@@ -221,9 +222,9 @@ on_format_query_result(Result) ->
 on_get_status(_InstId, #{client := Client}) ->
     case influxdb:is_alive(Client) andalso ok =:= influxdb:check_auth(Client) of
         true ->
-            connected;
+            ?status_connected;
         false ->
-            disconnected
+            ?status_disconnected
     end.
 
 transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->

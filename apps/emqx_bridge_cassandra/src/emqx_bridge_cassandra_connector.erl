@@ -6,6 +6,7 @@
 
 -behaviour(emqx_resource).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include("emqx_bridge_cassandra.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -356,8 +357,8 @@ exec(PoolName, Query) ->
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->
     case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
-        true -> connected;
-        false -> connecting
+        true -> ?status_connected;
+        false -> ?status_connecting
     end.
 
 do_get_status(Conn) ->

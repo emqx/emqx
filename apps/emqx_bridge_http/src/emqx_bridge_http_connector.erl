@@ -16,6 +16,7 @@
 
 -module(emqx_bridge_http_connector).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -590,14 +591,14 @@ on_get_channels(ResId) ->
 on_get_status(InstId, State) ->
     on_get_status(InstId, State, fun default_health_checker/2).
 
-on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State, DoPerWorker) ->
+on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout}, DoPerWorker) ->
     case do_get_status(InstId, Timeout, DoPerWorker) of
         ok ->
-            connected;
+            ?status_connected;
         {error, still_connecting} ->
-            connecting;
+            ?status_connecting;
         {error, Reason} ->
-            {disconnected, State, Reason}
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(PoolName, Timeout) ->
@@ -643,14 +644,7 @@ on_get_channel_status(
     _ChannelId,
     State
 ) ->
-    %% N.B.: `on_get_channel_status' expects a different return value than
-    %% `on_get_status'.
-    case on_get_status(InstId, State, fun default_health_checker/2) of
-        {Status, _State, Reason} ->
-            {Status, Reason};
-        Res ->
-            Res
-    end.
+    on_get_status(InstId, State, fun default_health_checker/2).
 
 on_format_query_result({ok, Status, Headers, Body}) ->
     #{

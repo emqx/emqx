@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge_es, [
     {description, "EMQX Enterprise Elastic Search Bridge"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {modules, [
         emqx_bridge_es,
         emqx_bridge_es_connector

@@ -1,6 +1,6 @@
 {application, emqx_bridge_azure_blob_storage, [
     {description, "EMQX Enterprise Azure Blob Storage Bridge"},
-    {vsn, "0.1.1"},
+    {vsn, "0.1.2"},
     {registered, [emqx_bridge_azure_blob_storage_sup]},
     {applications, [
         kernel,

@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_mongodb).
 
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -299,21 +300,21 @@ on_query(
             {ok, Result}
     end.
 
-on_get_status(InstId, State = #{pool_name := PoolName}) ->
+on_get_status(InstId, #{pool_name := PoolName}) ->
     case health_check(PoolName) of
         ok ->
             ?tp(debug, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
                 status => ok
             }),
-            connected;
+            ?status_connected;
         {error, Reason} ->
             ?tp(warning, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
                 reason => Reason,
                 status => failed
             }),
-            {disconnected, State, Reason}
+            {?status_disconnected, Reason}
     end.
 
 health_check(PoolName) ->

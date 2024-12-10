@@ -205,7 +205,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
-  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.5.12", override: true}
+  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1", override: true}
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.3.10", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon

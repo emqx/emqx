@@ -16,6 +16,7 @@
 -module(emqx_postgresql).
 
 -include("emqx_postgresql.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -59,9 +60,6 @@
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
-
--type connector_resource_id() :: binary().
--type action_resource_id() :: binary().
 
 -type template() :: {unicode:chardata(), emqx_template_sql:row_template()}.
 -type state() ::
@@ -175,7 +173,12 @@ on_start(
                     true -> disabled;
                     false -> #{}
                 end,
-            {ok, init_prepare(State2#{pool_name => InstId, prepares => Prepares})};
+            case init_prepare(State2#{pool_name => InstId, prepares => Prepares}) of
+                #{prepares := {error, _} = Error} ->
+                    Error;
+                State ->
+                    {ok, State}
+            end;
         {error, Reason} ->
             ?tp(
                 pgsql_connector_start_failed,
@@ -314,9 +317,9 @@ on_get_channel_status(
         )
     of
         ok ->
-            connected;
+            ?status_connected;
         {error, undefined_table} ->
-            {error, {unhealthy_target, <<"Table does not exist">>}}
+            {?status_disconnected, {unhealthy_target, <<"Table does not exist">>}}
     end.
 
 do_check_channel_sql(
@@ -521,19 +524,14 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
         true ->
             case do_check_prepares(State) of
                 ok ->
-                    connected;
-                {ok, NState} ->
-                    %% return new state with prepared statements
-                    {connected, NState};
+                    ?status_connected;
                 {error, undefined_table} ->
-                    %% return new state indicating that we are connected but the target table is not created
-                    {disconnected, State, unhealthy_target};
-                {error, _Reason} ->
-                    %% do not log error, it is logged in prepare_sql_to_conn
-                    connecting
+                    %% return error indicating that we are connected but the target table
+                    %% is not created
+                    {?status_disconnected, unhealthy_target}
             end;
         false ->
-            connecting
+            ?status_connecting
     end.
 
 do_get_status(Conn) ->
@@ -552,19 +550,8 @@ do_check_prepares(
         {error, Reason} ->
             {error, Reason}
     end;
-do_check_prepares(#{prepares := disabled}) ->
-    ok;
-do_check_prepares(#{prepares := Prepares}) when is_map(Prepares) ->
-    ok;
-do_check_prepares(#{prepares := {error, _}} = State) ->
-    %% retry to prepare
-    case prepare_sql(State) of
-        {ok, PrepStatements} ->
-            %% remove the error
-            {ok, State#{prepares := PrepStatements}};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+do_check_prepares(_) ->
+    ok.
 
 -spec validate_table_existence([pid()], binary()) -> ok | {error, undefined_table}.
 validate_table_existence([WorkerPid | Rest], SQL) ->

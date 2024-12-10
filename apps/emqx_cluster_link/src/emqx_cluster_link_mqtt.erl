@@ -281,7 +281,7 @@ on_get_status(_ResourceId, #{pool_name := PoolName} = _State) ->
             combine_status(Statuses)
     catch
         exit:timeout ->
-            connecting
+            ?status_connecting
     end.
 
 get_status(Worker) ->
@@ -312,7 +312,7 @@ combine_status(Statuses) ->
         [Status | _] ->
             Status;
         [] ->
-            disconnected
+            ?status_disconnected
     end.
 
 %%--------------------------------------------------------------------

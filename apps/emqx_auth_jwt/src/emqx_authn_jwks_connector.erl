@@ -19,6 +19,7 @@
 -behaviour(emqx_resource).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([
@@ -75,8 +76,8 @@ on_query(_InstId, {update, Opts}, #{pool_name := PoolName}) ->
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->
     case emqx_resource_pool:health_check_workers(PoolName, fun health_check/1) of
-        true -> connected;
-        false -> disconnected
+        true -> ?status_connected;
+        false -> ?status_disconnected
     end.
 
 health_check(Conn) ->
