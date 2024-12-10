@@ -175,6 +175,8 @@ jobs:
       - prepare
       - build_packages
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    permissions:
+      actions: write
     steps:
       - name: Trigger performance test
         env:
