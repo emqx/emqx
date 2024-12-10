@@ -32,6 +32,11 @@ render_test_() ->
         {"direct var reference undefined", fun() ->
             ?assertEqual({ok, <<"">>}, render("a", #{a => undefined}))
         end},
+        {"var reference undefined", fun() ->
+            ?assertEqual(
+                {ok, <<"/c1">>}, render("concat([a, '/', c])", #{a => undefined, c => <<"c1">>})
+            )
+        end},
         {"direct var reference null", fun() ->
             ?assertEqual({ok, <<"">>}, render("a", #{a => null}))
         end},

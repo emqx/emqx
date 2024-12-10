@@ -61,13 +61,8 @@ on_get_channel_status(InstanceId, _ChannelId, State) ->
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
 
-on_get_status(InstanceId, ConnectorState = #{connector_state := DriverState0}) ->
-    case emqx_mongodb:on_get_status(InstanceId, DriverState0) of
-        {Status, DriverState, Reason} ->
-            {Status, ConnectorState#{connector_state := DriverState}, Reason};
-        Status when is_atom(Status) ->
-            Status
-    end.
+on_get_status(InstanceId, #{connector_state := DriverState0}) ->
+    emqx_mongodb:on_get_status(InstanceId, DriverState0).
 
 on_query(InstanceId, {Channel, Message0}, #{channels := Channels, connector_state := ConnectorState}) ->
     #{

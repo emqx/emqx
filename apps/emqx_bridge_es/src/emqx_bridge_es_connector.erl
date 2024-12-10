@@ -8,6 +8,7 @@
 -behaviour(emqx_resource).
 
 -include("emqx_bridge_es.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -244,7 +245,7 @@ on_stop(InstanceId, State) ->
     Res.
 
 -spec on_get_status(manager_id(), state()) ->
-    {connected, state()} | {disconnected, state(), term()}.
+    ?status_connected | {?status_disconnected, term()}.
 on_get_status(InstanceId, State) ->
     emqx_bridge_http_connector:on_get_status(InstanceId, State).
 
