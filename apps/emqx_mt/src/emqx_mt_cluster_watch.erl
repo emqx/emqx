@@ -21,9 +21,18 @@
     code_change/3
 ]).
 
--include_lib("emqx/include/logger.hrl").
+-include("emqx_mt.hrl").
 
 -define(SERVER, ?MODULE).
+%% Delay in minutes before clearing the records of a node which is down.
+%% If the node is restarting, it expected to clear for itself.
+%% If the node is down for more than this duration,
+%% one of the core nodes should delete the records on behalf of the node
+-ifdef(TEST).
+-define(CLEAR_NODE_DELAY_SECONDS, 0).
+-else.
+-define(CLEAR_NODE_DELAY_SECONDS, 600).
+-endif.
 
 %% @doc Starts the watcher.
 -spec start_link() -> {ok, pid()}.
@@ -33,20 +42,43 @@ start_link() ->
 init([]) ->
     process_flag(trap_exit, true),
     ok = ekka:monitor(membership),
+    %% clear the reocrds of self-node after restart
+    %% This must be done before init/1 returns
+    %% TODO: spawn a process to do it and listeners should wait
+    %% for the process to finish before accepting connections
+    emqx_mt_state:clear_self_node(),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", server => ?MODULE, call => Req}),
+    ?LOG(error, #{msg => "unexpected_call", server => ?MODULE, call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", server => ?MODULE, cast => Msg}),
+    ?LOG(error, #{msg => "unexpected_cast", server => ?MODULE, cast => Msg}),
     {noreply, State}.
 
+handle_info({clear_for_node, Node}, State) ->
+    case lists:member(Node, emqx:running_nodes()) of
+        true ->
+            ?LOG(info, #{msg => "skip_clear_multi_tenancy_records_for_node", node => Node});
+        false ->
+            ?LOG(warning, #{msg => "clear_multi_tenancy_records_for_down_node_begin", node => Node}),
+            T1 = erlang:system_time(millisecond),
+            emqx_mt_state:clear_for_node(Node),
+            T2 = erlang:system_time(millisecond),
+            ?LOG(warning, #{
+                msg => "clear_multi_tenancy_records_for_down_node_done",
+                node => Node,
+                elapsed => T2 - T1
+            })
+    end,
+    {noreply, State};
 handle_info({nodedown, Node}, State) ->
     case mria_rlog:role() of
         core ->
-            emqx_mt_state:clear_for_node(Node);
+            _ = erlang:send_after(
+                timer:seconds(?CLEAR_NODE_DELAY_SECONDS), self(), {clear_for_node, Node}
+            );
         replicant ->
             ok
     end,
@@ -58,7 +90,7 @@ handle_info({membership, {node, down, Node}}, State) ->
 handle_info({membership, _Event}, State) ->
     {noreply, State};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", server => ?MODULE, info => Info}),
+    ?LOG(error, #{msg => "unexpected_info", server => ?MODULE, info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

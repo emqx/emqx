@@ -10,4 +10,8 @@
 -define(MIN_NS, <<>>).
 -define(MIN_CLIENTID, <<>>).
 
+-include_lib("emqx/include/logger.hrl").
+
+-define(LOG(Level, Msg), ?SLOG(Level, Msg, #{domain => [emqx, mt]})).
+
 -endif.

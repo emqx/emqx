@@ -40,8 +40,11 @@ end_per_testcase(Case, Config) ->
     ok.
 
 t_node_down({init, _Config}) ->
+    meck:new(emqx, [passthrough, no_history, no_link]),
+    meck:expect(emqx, running_nodes, fun() -> [] end),
     snabbkaffe:start_trace();
 t_node_down({'end', _Config}) ->
+    meck:unload(emqx),
     snabbkaffe:stop();
 t_node_down(_Config) ->
     ClientId = ?CLIENTID,
@@ -55,15 +58,10 @@ t_node_down(_Config) ->
         )
     ),
     ?assertEqual({ok, 1}, emqx_mt:count_clients(Username)),
-    %% simulate node down
+    %% simulate node down event
     erlang:send(emqx_mt_cluster_watch, {membership, {node, down, node()}}),
-    ?assertMatch(
-        {ok, #{result := ok, took := _}},
-        ?block_until(
-            #{?snk_kind := multi_tenant_node_clear_done},
-            3000
-        )
-    ),
+    timer:sleep(10),
+    ?assertEqual(ignored, gen_server:call(emqx_mt_cluster_watch, dummy, infinity)),
     ok = emqx_mt_state:evict_ccache(),
     ?assertEqual({ok, 0}, emqx_mt:count_clients(Username)),
     ok = emqtt:stop(Pid),

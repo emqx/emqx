@@ -6,7 +6,7 @@
 
 -behaviour(gen_server).
 
--include_lib("emqx/include/logger.hrl").
+-include("emqx_mt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% APIs
@@ -49,11 +49,11 @@ init([Pool, Id]) ->
     {ok, #{pool => Pool, id => Id}}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", server => ?MODULE, call => Req}),
+    ?LOG(error, #{msg => "unexpected_call", server => ?MODULE, call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", server => ?MODULE, cast => Msg}),
+    ?LOG(error, #{msg => "unexpected_cast", server => ?MODULE, cast => Msg}),
     {noreply, State}.
 
 handle_info({add, Tns, ClientId, Pid}, State) ->
@@ -64,7 +64,7 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
     ok = emqx_mt_state:del(Pid),
     {noreply, State};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", server => ?MODULE, info => Info}),
+    ?LOG(error, #{msg => "unexpected_info", server => ?MODULE, info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

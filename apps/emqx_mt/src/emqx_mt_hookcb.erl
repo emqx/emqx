@@ -42,7 +42,8 @@ on_authenticate(
     case emqx_mt_state:is_known_client(Tns, ClientId) of
         {true, Node} ->
             %% the client is re-connecting
-            %% allow it to continue the authentication
+            %% allow it to continue without checking the session count
+            %% because the session count is already checked when the client is registered
             ?TRACE("existing_session_found", #{reside_in => Node}),
             DefaultResult;
         false ->
