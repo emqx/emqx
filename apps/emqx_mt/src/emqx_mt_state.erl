@@ -125,11 +125,11 @@ count_clients(Tns) ->
         false -> {error, not_found}
     end.
 
-%% @doc Returns true if the client is known.
--spec is_known_client(tns(), clientid()) -> boolean().
+%% @doc Returns {true, node()} if the client is known.
+-spec is_known_client(tns(), clientid()) -> {true, node()} | false.
 is_known_client(Tns, ClientId) ->
     case ets:next(?RECORD_TAB, ?RECORD_KEY(Tns, ClientId, ?MIN_PID)) of
-        ?RECORD_KEY(Tns, ClientId, _Pid) -> true;
+        ?RECORD_KEY(Tns, ClientId, Pid) -> {true, node(Pid)};
         _ -> false
     end.
 now_ts() ->

@@ -13,7 +13,9 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/logger.hrl").
 
+-define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
 register_hooks() ->
     Session = {?MODULE, on_session_created, []},
     ok = emqx_hooks:add('session.created', Session, ?HP_HIGHEST),
@@ -28,6 +30,7 @@ on_session_created(
     },
     _SessionInfo
 ) ->
+    ?TRACE("session_registered_in_namespace", #{}),
     ok = emqx_mt_pool:add(Tns, ClientId, self());
 on_session_created(_ClientInfo, _SessionInfo) ->
     %% not a multi-tenant client
@@ -37,17 +40,22 @@ on_authenticate(
     #{clientid := ClientId, client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}, DefaultResult
 ) ->
     case emqx_mt_state:is_known_client(Tns, ClientId) of
-        true ->
+        {true, Node} ->
             %% the client is re-connecting
             %% allow it to continue the authentication
+            ?TRACE("existing_session_found", #{reside_in => Node}),
             DefaultResult;
         false ->
             case emqx_mt_state:count_clients(Tns) of
                 {ok, Count} ->
                     Max = emqx_mt_config:get_max_sessions(Tns),
                     case Max =/= infinity andalso Count >= Max of
-                        true -> {stop, {error, quota_exceeded}};
-                        false -> DefaultResult
+                        true ->
+                            ?TRACE("session_count_quota_exceeded", #{}),
+                            {stop, {error, quota_exceeded}};
+                        false ->
+                            ?TRACE("session_count_quota_available", #{}),
+                            DefaultResult
                     end;
                 {error, not_found} ->
                     %% TDOO: deny access when namespaces are managed by admin
@@ -56,6 +64,7 @@ on_authenticate(
                     %%   true -> {stop, {error, not_auhorized}};
                     %%   false -> DefaultResult
                     %%  end
+                    ?TRACE("first_clientid_in_namespace", #{}),
                     DefaultResult
             end
     end;
@@ -65,4 +74,5 @@ on_authenticate(_, DefaultResult) ->
     %%   true -> {stop, {error, not_auhorized}};
     %%   false -> DefaultResult
     %% end
+    ?TRACE("new_tenant_namespace", #{}),
     DefaultResult.
