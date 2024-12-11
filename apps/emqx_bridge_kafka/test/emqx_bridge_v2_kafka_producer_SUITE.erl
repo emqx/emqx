@@ -44,6 +44,7 @@ init_per_suite(Config) ->
     KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "toxiproxy.emqx.net"),
     KafkaPort = list_to_integer(os:getenv("KAFKA_PLAIN_PORT", "9292")),
     ProxyName = "kafka_plain",
+    ProxyName2 = "kafka_2_plain",
     DirectKafkaHost = os:getenv("KAFKA_DIRECT_PLAIN_HOST", "kafka-1.emqx.net"),
     DirectKafkaPort = list_to_integer(os:getenv("KAFKA_DIRECT_PLAIN_PORT", "9092")),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
@@ -66,6 +67,7 @@ init_per_suite(Config) ->
         {proxy_host, ProxyHost},
         {proxy_port, ProxyPort},
         {proxy_name, ProxyName},
+        {proxy_name_2, ProxyName2},
         {kafka_host, KafkaHost},
         {kafka_port, KafkaPort},
         {direct_kafka_host, DirectKafkaHost},
@@ -379,6 +381,17 @@ tap_telemetry(HandlerId) ->
 simplify_result(Res) ->
     emqx_bridge_v2_testlib:simplify_result(Res).
 
+with_brokers_down(Config, Fun) ->
+    ProxyName1 = ?config(proxy_name, Config),
+    ProxyName2 = ?config(proxy_name_2, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:with_failure(
+        down, ProxyName1, ProxyHost, ProxyPort, fun() ->
+            emqx_common_test_helpers:with_failure(down, ProxyName2, ProxyHost, ProxyPort, Fun)
+        end
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -588,9 +601,6 @@ t_http_api_get(_Config) ->
     ok.
 
 t_create_connector_while_connection_is_down(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
     KafkaHost = ?config(kafka_host, Config),
     KafkaPort = ?config(kafka_port, Config),
     Host = iolist_to_binary([KafkaHost, ":", integer_to_binary(KafkaPort)]),
@@ -622,7 +632,7 @@ t_create_connector_while_connection_is_down(Config) ->
             Disconnected = atom_to_binary(?status_disconnected),
             %% Initially, the connection cannot be stablished.  Messages are not buffered,
             %% hence the status is `?status_disconnected'.
-            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            with_brokers_down(Config, fun() ->
                 {ok, {{_, 201, _}, _, #{<<"status">> := Disconnected}}} =
                     emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
                 {ok, {{_, 201, _}, _, #{<<"status">> := Disconnected}}} =
@@ -673,7 +683,7 @@ t_create_connector_while_connection_is_down(Config) ->
             %% `?status_connecting' to avoid destroying wolff_producers and their replayq
             %% buffers.
             Connecting = atom_to_binary(?status_connecting),
-            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            with_brokers_down(Config, fun() ->
                 ?retry(
                     _Sleep0 = 1_100,
                     _Attempts0 = 10,
@@ -1133,9 +1143,6 @@ t_dynamic_topics(Config) ->
 %% Checks that messages accumulated in disk mode for a fixed topic producer are kicked off
 %% when the action is later restarted and kafka is online.
 t_fixed_topic_recovers_in_disk_mode(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
     Type = proplists:get_value(type, Config, ?TYPE),
     ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
     ConnectorConfig = proplists:get_value(
@@ -1191,26 +1198,23 @@ t_fixed_topic_recovers_in_disk_mode(Config) ->
             ),
             %% Cut connection to kafka and enqueue some messages
             ActionId = emqx_bridge_v2:id(Type, ActionName),
-            SentMessages =
-                emqx_common_test_helpers:with_failure(
-                    down, ProxyName, ProxyHost, ProxyPort, fun() ->
-                        ct:sleep(100),
-                        SentMessages = [send_message(ActionName) || _ <- lists:seq(1, 5)],
-                        ?assertEqual(5, emqx_resource_metrics:matched_get(ActionId)),
-                        ?retry(
-                            _Sleep = 200,
-                            _Attempts = 20,
-                            ?assertEqual(5, emqx_resource_metrics:queuing_get(ActionId))
-                        ),
-                        ?assertEqual(0, emqx_resource_metrics:success_get(ActionId)),
-                        %% Turn off action, restore kafka connection
-                        ?assertMatch(
-                            {204, _},
-                            emqx_bridge_v2_testlib:disable_kind_api(action, Type, ActionName)
-                        ),
-                        SentMessages
-                    end
+            SentMessages = with_brokers_down(Config, fun() ->
+                ct:sleep(100),
+                SentMessages = [send_message(ActionName) || _ <- lists:seq(1, 5)],
+                ?assertEqual(5, emqx_resource_metrics:matched_get(ActionId)),
+                ?retry(
+                    _Sleep = 200,
+                    _Attempts = 20,
+                    ?assertEqual(5, emqx_resource_metrics:queuing_get(ActionId))
                 ),
+                ?assertEqual(0, emqx_resource_metrics:success_get(ActionId)),
+                %% Turn off action, restore kafka connection
+                ?assertMatch(
+                    {204, _},
+                    emqx_bridge_v2_testlib:disable_kind_api(action, Type, ActionName)
+                ),
+                SentMessages
+            end),
             %% Restart action; should've shot enqueued messages
             ?tapTelemetry(),
             ?assertMatch(

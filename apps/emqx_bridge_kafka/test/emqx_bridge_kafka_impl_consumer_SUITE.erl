@@ -80,7 +80,6 @@ testcases(once) ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -93,7 +92,6 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _Api} = emqx_common_test_http:create_default_app(),
     [
         {apps, Apps},
         {bridge_type, <<"kafka_consumer">>}
@@ -111,11 +109,13 @@ init_per_group(plain = Type, Config) ->
     DirectKafkaHost = os:getenv("KAFKA_DIRECT_PLAIN_HOST", "kafka-1.emqx.net"),
     DirectKafkaPort = list_to_integer(os:getenv("KAFKA_DIRECT_PLAIN_PORT", "9092")),
     ProxyName = "kafka_plain",
+    ProxyName2 = "kafka_2_plain",
     case emqx_common_test_helpers:is_tcp_server_available(KafkaHost, KafkaPort) of
         true ->
             Config1 = common_init_per_group(),
             [
                 {proxy_name, ProxyName},
+                {proxy_name_2, ProxyName2},
                 {kafka_host, KafkaHost},
                 {kafka_port, KafkaPort},
                 {direct_kafka_host, DirectKafkaHost},
@@ -139,11 +139,13 @@ init_per_group(sasl_plain = Type, Config) ->
     DirectKafkaHost = os:getenv("KAFKA_DIRECT_SASL_HOST", "kafka-1.emqx.net"),
     DirectKafkaPort = list_to_integer(os:getenv("KAFKA_DIRECT_SASL_PORT", "9093")),
     ProxyName = "kafka_sasl_plain",
+    ProxyName2 = "kafka_2_sasl_plain",
     case emqx_common_test_helpers:is_tcp_server_available(KafkaHost, KafkaPort) of
         true ->
             Config1 = common_init_per_group(),
             [
                 {proxy_name, ProxyName},
+                {proxy_name_2, ProxyName2},
                 {kafka_host, KafkaHost},
                 {kafka_port, KafkaPort},
                 {direct_kafka_host, DirectKafkaHost},
@@ -167,11 +169,13 @@ init_per_group(ssl = Type, Config) ->
     DirectKafkaHost = os:getenv("KAFKA_DIRECT_SSL_HOST", "kafka-1.emqx.net"),
     DirectKafkaPort = list_to_integer(os:getenv("KAFKA_DIRECT_SSL_PORT", "9094")),
     ProxyName = "kafka_ssl",
+    ProxyName2 = "kafka_2_ssl",
     case emqx_common_test_helpers:is_tcp_server_available(KafkaHost, KafkaPort) of
         true ->
             Config1 = common_init_per_group(),
             [
                 {proxy_name, ProxyName},
+                {proxy_name_2, ProxyName2},
                 {kafka_host, KafkaHost},
                 {kafka_port, KafkaPort},
                 {direct_kafka_host, DirectKafkaHost},
@@ -195,11 +199,13 @@ init_per_group(sasl_ssl = Type, Config) ->
     DirectKafkaHost = os:getenv("KAFKA_DIRECT_SASL_SSL_HOST", "kafka-1.emqx.net"),
     DirectKafkaPort = list_to_integer(os:getenv("KAFKA_DIRECT_SASL_SSL_PORT", "9095")),
     ProxyName = "kafka_sasl_ssl",
+    ProxyName2 = "kafka_2_sasl_ssl",
     case emqx_common_test_helpers:is_tcp_server_available(KafkaHost, KafkaPort) of
         true ->
             Config1 = common_init_per_group(),
             [
                 {proxy_name, ProxyName},
+                {proxy_name_2, ProxyName2},
                 {kafka_host, KafkaHost},
                 {kafka_port, KafkaPort},
                 {direct_kafka_host, DirectKafkaHost},
@@ -536,8 +542,12 @@ ensure_topics(Config) ->
                 ConnConfig0#{sasl => undefined}
         end,
     case brod:create_topics(Endpoints, TopicConfigs, RequestConfig, ConnConfig) of
-        ok -> ok;
-        {error, topic_already_exists} -> ok
+        ok ->
+            %% Need some time for all brokers to stabilize...
+            ct:sleep(500),
+            ok;
+        {error, topic_already_exists} ->
+            ok
     end.
 
 shared_secret_path() ->
@@ -1137,6 +1147,17 @@ get_mqtt_port(Node) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
     Port.
 
+with_brokers_down(Config, Fun) ->
+    ProxyName1 = ?config(proxy_name, Config),
+    ProxyName2 = ?config(proxy_name_2, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:with_failure(
+        down, ProxyName1, ProxyHost, ProxyPort, fun() ->
+            emqx_common_test_helpers:with_failure(down, ProxyName2, ProxyHost, ProxyPort, Fun)
+        end
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -1537,8 +1558,7 @@ t_receive_after_recovery(Config) ->
             %% 1) cut the connection with kafka.
             WorkerRefs = maps:from_list([
                 {monitor(process, Pid), Pid}
-             || {_TopicPartition, Pid} <-
-                    maps:to_list(get_subscriber_workers())
+             || Pid <- maps:values(get_subscriber_workers())
             ]),
             NumMsgs = 50,
             Messages1 = [
@@ -1555,7 +1575,7 @@ t_receive_after_recovery(Config) ->
             on_exit(fun() -> emqtt:stop(C) end),
             {ok, _} = emqtt:connect(C),
             {ok, _, [0]} = emqtt:subscribe(C, MQTTTopic),
-            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            with_brokers_down(Config, fun() ->
                 wait_downs(WorkerRefs, _Timeout2 = 1_000),
                 %% 2) publish messages while the consumer is down.
                 %% we use `pmap' to avoid wolff sending the whole
