@@ -1,7 +1,7 @@
 emqx_mt_schema {
     config {
-        desc: "Multi-tentancy configuration"
-        label: "Multi-tentancy"
+        desc: "Multi-tenancy configuration"
+        label: "Multi-tenancy"
     }
     default_max_sessions {
         desc: """~

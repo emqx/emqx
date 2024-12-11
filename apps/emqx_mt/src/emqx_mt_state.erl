@@ -260,19 +260,10 @@ clear_self_node() ->
     ok.
 
 %% @doc clear all clients from a node which is down.
--spec clear_for_node(node()) -> ok.
+-spec clear_for_node(node()) -> ok | aborted.
 clear_for_node(Node) ->
     Fn = fun() -> do_clear_for_node(Node) end,
-    T1 = erlang:system_time(),
-    Res = global:trans({?LOCK(Node), self()}, Fn),
-    T2 = erlang:system_time(),
-    Level =
-        case Res of
-            ok -> debug;
-            _ -> error
-        end,
-    ?tp(Level, multi_tenant_node_clear_done, #{node => Node, result => Res, took => T2 - T1}),
-    ok.
+    global:trans({?LOCK(Node), self()}, Fn).
 
 do_clear_for_node(Node) ->
     M1 = erlang:make_tuple(record_info(size, ?RECORD_TAB), '_', [{#?RECORD_TAB.node, Node}]),

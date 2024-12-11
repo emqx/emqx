@@ -8,7 +8,8 @@
 
 %% API
 -export([
-    start_link/0
+    start_link/0,
+    immediate_node_clear/1
 ]).
 
 %% gen_server callbacks
@@ -39,6 +40,11 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+%% @doc Clear the records of a node immediately.
+-spec immediate_node_clear(node()) -> async.
+immediate_node_clear(Node) ->
+    erlang:send(?SERVER, {clear_for_node, Node}).
+
 init([]) ->
     process_flag(trap_exit, true),
     ok = ekka:monitor(membership),
@@ -64,12 +70,13 @@ handle_info({clear_for_node, Node}, State) ->
         false ->
             ?LOG(warning, #{msg => "clear_multi_tenancy_records_for_down_node_begin", node => Node}),
             T1 = erlang:system_time(millisecond),
-            emqx_mt_state:clear_for_node(Node),
+            Res = emqx_mt_state:clear_for_node(Node),
             T2 = erlang:system_time(millisecond),
             ?LOG(warning, #{
                 msg => "clear_multi_tenancy_records_for_down_node_done",
                 node => Node,
-                elapsed => T2 - T1
+                elapsed => T2 - T1,
+                result => Res
             })
     end,
     {noreply, State};
