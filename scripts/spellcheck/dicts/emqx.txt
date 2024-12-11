@@ -178,6 +178,7 @@ multicalls
 Multicast
 multicasts
 namespace
+namespacing
 natively
 nif
 NIF
@@ -285,6 +286,7 @@ systemd
 tcp
 TCP
 TDengine
+templated
 ticktime
 timeseries
 tlog
