@@ -8,6 +8,62 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-type ssubscriber_id() :: ?ssubscriber_id(
+    emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
+    emqx_persistent_session_ds:id(),
+    reference()
+).
+-type leader() :: pid().
+-type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type leader_stream_progress() :: #{
+    stream := emqx_ds:stream(),
+    progress := emqx_persistent_session_ds_shared_subs:progress()
+}.
+-type agent_stream_progress() :: emqx_persistent_session_ds_shared_subs:agent_stream_progress().
+
+-type to_leader_msg() ::
+    ?ssubscriber_ping_match(ssubscriber_id())
+    | ?ssubscriber_connect_match(ssubscriber_id(), share_topic_filter()).
+
+-type to_ssubscriber_msg() ::
+    ?leader_connect_response_match(leader())
+    | ?leader_ping_response_match(leader()).
+
+-export_type([
+    leader/0,
+    ssubscriber_id/0,
+    leader_stream_progress/0,
+    agent_stream_progress/0,
+    to_leader_msg/0,
+    to_ssubscriber_msg/0
+]).
+
+-export([
+    send_to_leader/2,
+    send_to_ssubscriber/2
+]).
+
+-export([
+    ssubscriber_id/3,
+    ssubscriber_pidref/1
+]).
+
+%% Legacy types
+-type agent() :: term().
+-type group() :: emqx_types:group().
+-type version() :: non_neg_integer().
+-type agent_metadata() :: #{
+    id := emqx_persistent_session_ds:id()
+}.
+
+-export_type([
+    agent/0,
+    group/0,
+    version/0,
+    agent_metadata/0
+]).
+
+%% Legacy exports
 -export([
     agent_connect_leader/4,
     agent_update_stream_states/4,
@@ -27,102 +83,61 @@
     leader_invalidate_v2/2
 ]).
 
--export([
-    agent/3
-]).
-
--type agent() :: ?agent(
-    emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
-    emqx_persistent_session_ds:id(),
-    reference()
-).
--type leader() :: pid().
--type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
--type group() :: emqx_types:group().
--type version() :: non_neg_integer().
--type agent_metadata() :: #{
-    id := emqx_persistent_session_ds:id()
-}.
-
--type leader_stream_progress() :: #{
-    stream := emqx_ds:stream(),
-    progress := emqx_persistent_session_ds_shared_subs:progress()
-}.
-
--type agent_stream_progress() :: emqx_persistent_session_ds_shared_subs:agent_stream_progress().
-
--export_type([
-    agent/0,
-    leader/0,
-    group/0,
-    version/0,
-    leader_stream_progress/0,
-    agent_stream_progress/0,
-    agent_metadata/0
-]).
-
--define(log_agent_msg(ToLeader, Msg),
-    ?tp(debug, agent_to_leader, #{
-        to_leader => ToLeader,
-        proto_msg => ?format_agent_msg(Msg)
-    })
-).
-
--define(log_leader_msg(ToAgent, Msg),
-    ?tp(debug, leader_to_agent, #{
-        to_agent => ToAgent,
-        proto_msg => ?format_leader_msg(Msg)
-    })
-).
-
 %%--------------------------------------------------------------------
 %% API
+%%--------------------------------------------------------------------
+
+-spec send_to_leader(leader(), to_leader_msg()) -> ok.
+send_to_leader(ToLeader, Msg) when ?is_local_leader(ToLeader) ->
+    ?log_ssubscriber_msg(ToLeader, Msg),
+    _ = erlang:send(ToLeader, Msg),
+    ok;
+send_to_leader(ToLeader, Msg) ->
+    emqx_ds_shared_sub_proto_v3:send_to_leader(node(ToLeader), ToLeader, Msg).
+
+-spec send_to_ssubscriber(ssubscriber_id(), to_ssubscriber_msg()) -> ok.
+send_to_ssubscriber(ToSSubscriberId, Msg) when ?is_local_ssubscriber(ToSSubscriberId) ->
+    ?log_leader_msg(ToSSubscriberId, Msg),
+    _ = emqx_persistent_session_ds_shared_subs_agent:send(
+        ?ssubscriber_pidref(ToSSubscriberId), ?ssubscriber_subscription_id(ToSSubscriberId), {
+            ?ssubscriber_pidref(ToSSubscriberId), Msg
+        }
+    ),
+    ok;
+send_to_ssubscriber(ToSSubscriberId, Msg) ->
+    emqx_ds_shared_sub_proto_v3:send_to_ssubscriber(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, Msg
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal API
+%%--------------------------------------------------------------------
+
+ssubscriber_id(SessionId, SubscriptionId, PidRef) ->
+    ?ssubscriber_id(SessionId, SubscriptionId, PidRef).
+
+ssubscriber_pidref(SSubscriberId) ->
+    ?ssubscriber_pidref(SSubscriberId).
+
+%%--------------------------------------------------------------------
+%% Legacy API
 %%--------------------------------------------------------------------
 
 %% agent -> leader messages
 
 -spec agent_connect_leader(leader(), agent(), agent_metadata(), share_topic_filter()) -> ok.
-agent_connect_leader(ToLeader, FromAgent, AgentMetadata, ShareTopicFilter) when
-    ?is_local_leader(ToLeader)
-->
-    send_agent_msg(ToLeader, ?agent_connect_leader(FromAgent, AgentMetadata, ShareTopicFilter));
-agent_connect_leader(ToLeader, FromAgent, AgentMetadata, ShareTopicFilter) ->
-    emqx_ds_shared_sub_proto_v2:agent_connect_leader(
-        ?leader_node(ToLeader), ToLeader, FromAgent, AgentMetadata, ShareTopicFilter
-    ).
+agent_connect_leader(_ToLeader, _FromAgent, _AgentMetadata, _ShareTopicFilter) -> ok.
 
 -spec agent_update_stream_states(leader(), agent(), list(agent_stream_progress()), version()) -> ok.
-agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, Version) when
-    ?is_local_leader(ToLeader)
-->
-    send_agent_msg(ToLeader, ?agent_update_stream_states(FromAgent, StreamProgresses, Version));
-agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, Version) ->
-    emqx_ds_shared_sub_proto_v2:agent_update_stream_states(
-        ?leader_node(ToLeader), ToLeader, FromAgent, StreamProgresses, Version
-    ).
+agent_update_stream_states(_ToLeader, _FromAgent, _StreamProgresses, _Version) -> ok.
 
 -spec agent_update_stream_states(
     leader(), agent(), list(agent_stream_progress()), version(), version()
 ) -> ok.
-agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew) when
-    ?is_local_leader(ToLeader)
-->
-    send_agent_msg(
-        ToLeader, ?agent_update_stream_states(FromAgent, StreamProgresses, VersionOld, VersionNew)
-    );
-agent_update_stream_states(ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew) ->
-    emqx_ds_shared_sub_proto_v2:agent_update_stream_states(
-        ?leader_node(ToLeader), ToLeader, FromAgent, StreamProgresses, VersionOld, VersionNew
-    ).
+agent_update_stream_states(_ToLeader, _FromAgent, _StreamProgresses, _VersionOld, _VersionNew) ->
+    ok.
 
-agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) when
-    ?is_local_leader(ToLeader)
-->
-    send_agent_msg(ToLeader, ?agent_disconnect(FromAgent, StreamProgresses, Version));
-agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) ->
-    emqx_ds_shared_sub_proto_v2:agent_disconnect(
-        ?leader_node(ToLeader), ToLeader, FromAgent, StreamProgresses, Version
-    ).
+agent_disconnect(_ToLeader, _FromAgent, _StreamProgresses, _Version) -> ok.
 
 %% leader -> agent messages
 
@@ -130,53 +145,24 @@ agent_disconnect(ToLeader, FromAgent, StreamProgresses, Version) ->
     agent(), group(), leader(), list(leader_stream_progress()), version()
 ) ->
     ok.
-leader_lease_streams_v2(ToAgent, OfGroup, Leader, Streams, Version) when ?is_local_agent(ToAgent) ->
-    send_leader_msg(ToAgent, ?leader_lease_streams(OfGroup, Leader, Streams, Version));
-leader_lease_streams_v2(ToAgent, OfGroup, Leader, Streams, Version) ->
-    emqx_ds_shared_sub_proto_v2:leader_lease_streams(
-        ?agent_node(ToAgent), ToAgent, OfGroup, Leader, Streams, Version
-    ).
+leader_lease_streams_v2(_ToAgent, _OfGroup, _Leader, _Streams, _Version) -> ok.
 
 -spec leader_renew_stream_lease_v2(agent(), group(), version()) -> ok.
-leader_renew_stream_lease_v2(ToAgent, OfGroup, Version) when ?is_local_agent(ToAgent) ->
-    send_leader_msg(ToAgent, ?leader_renew_stream_lease(OfGroup, Version));
-leader_renew_stream_lease_v2(ToAgent, OfGroup, Version) ->
-    emqx_ds_shared_sub_proto_v2:leader_renew_stream_lease(
-        ?agent_node(ToAgent), ToAgent, OfGroup, Version
-    ).
+leader_renew_stream_lease_v2(_ToAgent, _OfGroup, _Version) -> ok.
 
 -spec leader_renew_stream_lease_v2(agent(), group(), version(), version()) -> ok.
-leader_renew_stream_lease_v2(ToAgent, OfGroup, VersionOld, VersionNew) when
-    ?is_local_agent(ToAgent)
-->
-    send_leader_msg(ToAgent, ?leader_renew_stream_lease(OfGroup, VersionOld, VersionNew));
-leader_renew_stream_lease_v2(ToAgent, OfGroup, VersionOld, VersionNew) ->
-    emqx_ds_shared_sub_proto_v2:leader_renew_stream_lease(
-        ?agent_node(ToAgent), ToAgent, OfGroup, VersionOld, VersionNew
-    ).
+leader_renew_stream_lease_v2(_ToAgent, _OfGroup, _VersionOld, _VersionNew) -> ok.
 
 -spec leader_update_streams_v2(
     agent(), group(), version(), version(), list(leader_stream_progress())
 ) ->
     ok.
-leader_update_streams_v2(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) when
-    ?is_local_agent(ToAgent)
-->
-    send_leader_msg(ToAgent, ?leader_update_streams(OfGroup, VersionOld, VersionNew, StreamsNew));
-leader_update_streams_v2(ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew) ->
-    emqx_ds_shared_sub_proto_v2:leader_update_streams(
-        ?agent_node(ToAgent), ToAgent, OfGroup, VersionOld, VersionNew, StreamsNew
-    ).
+leader_update_streams_v2(_ToAgent, _OfGroup, _VersionOld, _VersionNew, _StreamsNew) -> ok.
 
 -spec leader_invalidate_v2(agent(), group()) -> ok.
-leader_invalidate_v2(ToAgent, OfGroup) when ?is_local_agent(ToAgent) ->
-    send_leader_msg(ToAgent, ?leader_invalidate(OfGroup));
-leader_invalidate_v2(ToAgent, OfGroup) ->
-    emqx_ds_shared_sub_proto_v2:leader_invalidate(
-        ?agent_node(ToAgent), ToAgent, OfGroup
-    ).
+leader_invalidate_v2(_ToAgent, _OfGroup) -> ok.
 
-%% leader -> agent messages, v1, ignore
+%% v1,v2 targets for leader <-> agent messages. Ignore them.
 
 -spec leader_lease_streams(term(), group(), leader(), list(leader_stream_progress()), version()) ->
     ok.
@@ -194,23 +180,3 @@ leader_update_streams(_ToAgent, _OfGroup, _VersionOld, _VersionNew, _StreamsNew)
 
 -spec leader_invalidate(term(), group()) -> ok.
 leader_invalidate(_ToAgent, _OfGroup) -> ok.
-
-%%--------------------------------------------------------------------
-%% Internal API
-%%--------------------------------------------------------------------
-
-agent(SessionId, SubscriptionId, Pid) ->
-    _ = SessionId,
-    ?agent(SessionId, SubscriptionId, Pid).
-
-send_agent_msg(ToLeader, Msg) ->
-    ?log_agent_msg(ToLeader, Msg),
-    _ = erlang:send(ToLeader, Msg),
-    ok.
-
-send_leader_msg(ToAgent, Msg) ->
-    ?log_leader_msg(ToAgent, Msg),
-    _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ?agent_ref(ToAgent), ?agent_subscription_id(ToAgent), {?agent_ref(ToAgent), Msg}
-    ),
-    ok.

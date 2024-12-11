@@ -2,211 +2,211 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Asynchronous messages between shared sub agent and shared sub leader
-%% These messages are instantiated on the receiver's side, so they do not
-%% travel over the network.
+%% @doc Asynchronous messages between shared sub subscriber and shared sub leader.
 
 %% NOTE
 %% We do not need any kind of request/response identification,
 %% because the protocol is fully event-based.
 
-%% agent messages, sent from agent side to the leader
+%% SSubscriber messages sent to the leader.
+%% Leader talks to many SSubscribers, `ssubscriber_id` field is used to identify the sender.
 
--define(agent_connect_leader_msg, 1).
--define(agent_update_stream_states_msg, 2).
--define(agent_connect_leader_timeout_msg, 3).
--define(agent_renew_stream_lease_timeout_msg, 4).
--define(agent_disconnect_msg, 5).
-
-%% message keys (used used not to send atoms over the network)
--define(agent_msg_type, 1).
--define(agent_msg_agent, 2).
--define(agent_msg_share_topic_filter, 3).
--define(agent_msg_agent_metadata, 4).
--define(agent_msg_stream_states, 5).
--define(agent_msg_version, 6).
--define(agent_msg_version_old, 7).
--define(agent_msg_version_new, 8).
-
-%% Agent messages sent to the leader.
-%% Leader talks to many agents, `agent` field is used to identify the sender.
-
--define(agent_connect_leader(Agent, AgentMetadata, ShareTopicFilter), #{
-    ?agent_msg_type => ?agent_connect_leader_msg,
-    ?agent_msg_share_topic_filter => ShareTopicFilter,
-    ?agent_msg_agent_metadata => AgentMetadata,
-    ?agent_msg_agent => Agent
+-define(ssubscriber_connect(FromSSubscriberId, ShareTopicFilter), #{
+    message_type => ssubscriber_connect,
+    from_ssubscriber_id => FromSSubscriberId,
+    share_topic_filter => ShareTopicFilter
 }).
 
--define(agent_connect_leader_match(Agent, AgentMetadata, ShareTopicFilter), #{
-    ?agent_msg_type := ?agent_connect_leader_msg,
-    ?agent_msg_share_topic_filter := ShareTopicFilter,
-    ?agent_msg_agent_metadata := AgentMetadata,
-    ?agent_msg_agent := Agent
+-define(ssubscriber_connect_match(FromSSubscriberId, ShareTopicFilter), #{
+    message_type := ssubscriber_connect,
+    from_ssubscriber_id := FromSSubscriberId,
+    share_topic_filter := ShareTopicFilter
 }).
 
--define(agent_update_stream_states(Agent, StreamStates, Version), #{
-    ?agent_msg_type => ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states => StreamStates,
-    ?agent_msg_version => Version,
-    ?agent_msg_agent => Agent
+-define(ssubscriber_ping(FromSSubscriberId), #{
+    message_type => ssubscriber_ping,
+    from_ssubscriber_id => FromSSubscriberId
 }).
 
--define(agent_update_stream_states_match(Agent, StreamStates, Version), #{
-    ?agent_msg_type := ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states := StreamStates,
-    ?agent_msg_version := Version,
-    ?agent_msg_agent := Agent
+-define(ssubscriber_ping_match(FromSSubscriberId), #{
+    message_type := ssubscriber_ping,
+    from_ssubscriber_id := FromSSubscriberId
 }).
 
--define(agent_update_stream_states(Agent, StreamStates, VersionOld, VersionNew), #{
-    ?agent_msg_type => ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states => StreamStates,
-    ?agent_msg_version_old => VersionOld,
-    ?agent_msg_version_new => VersionNew,
-    ?agent_msg_agent => Agent
+-define(ssubscriber_update_progress_match(FromSSubscriberId, Stream, Progress), #{
+    message_type := ssubscriber_update_progresses,
+    from_ssubscriber_id := FromSSubscriberId,
+    stream := Stream,
+    progress := Progress
 }).
 
--define(agent_update_stream_states_match(Agent, StreamStates, VersionOld, VersionNew), #{
-    ?agent_msg_type := ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states := StreamStates,
-    ?agent_msg_version_old := VersionOld,
-    ?agent_msg_version_new := VersionNew,
-    ?agent_msg_agent := Agent
+-define(ssubscriber_update_progress(FromSSubscriberId, Stream, Progress), #{
+    message_type => ssubscriber_update_progresses,
+    from_ssubscriber_id => FromSSubscriberId,
+    stream => Stream,
+    progress => Progress
 }).
 
--define(agent_disconnect(Agent, StreamStates, Version), #{
-    ?agent_msg_type => ?agent_disconnect_msg,
-    ?agent_msg_stream_states => StreamStates,
-    ?agent_msg_version => Version,
-    ?agent_msg_agent => Agent
+-define(ssubscriber_revoke_finished_match(FromSSubscriberId, Stream), #{
+    message_type := ssubscriber_revoke_finished,
+    from_ssubscriber_id := FromSSubscriberId,
+    stream := Stream
 }).
 
--define(agent_disconnect_match(Agent, StreamStates, Version), #{
-    ?agent_msg_type := ?agent_disconnect_msg,
-    ?agent_msg_stream_states := StreamStates,
-    ?agent_msg_version := Version,
-    ?agent_msg_agent := Agent
+-define(ssubscriber_revoke_finished(FromSSubscriberId, Stream), #{
+    message_type => ssubscriber_revoke_finished,
+    from_ssubscriber_id => FromSSubscriberId,
+    stream => Stream
 }).
 
-%% leader messages, sent from the leader to the agent
-%% Agent may have several shared subscriptions, so may talk to several leaders
-%% `group_id` field is used to identify the leader.
-
--define(leader_lease_streams_msg, 101).
--define(leader_renew_stream_lease_msg, 102).
--define(leader_update_streams, 103).
--define(leader_invalidate, 104).
-
--define(leader_msg_type, 101).
--define(leader_msg_streams, 102).
--define(leader_msg_version, 103).
--define(leader_msg_version_old, 104).
--define(leader_msg_version_new, 105).
--define(leader_msg_streams_new, 106).
--define(leader_msg_leader, 107).
--define(leader_msg_group_id, 108).
-
--define(leader_lease_streams(GrouId, Leader, Streams, Version), #{
-    ?leader_msg_type => ?leader_lease_streams_msg,
-    ?leader_msg_streams => Streams,
-    ?leader_msg_version => Version,
-    ?leader_msg_leader => Leader,
-    ?leader_msg_group_id => GrouId
+-define(ssubscriber_disconnect_match(FromSSubscriberId, Progresses), #{
+    message_type := ssubscriber_unsubscribe,
+    from_ssubscriber_id := FromSSubscriberId,
+    progresses := Progresses
 }).
 
--define(leader_lease_streams_match(GroupId, Leader, Streams, Version), #{
-    ?leader_msg_type := ?leader_lease_streams_msg,
-    ?leader_msg_streams := Streams,
-    ?leader_msg_version := Version,
-    ?leader_msg_leader := Leader,
-    ?leader_msg_group_id := GroupId
+-define(ssubscriber_disconnect(FromSSubscriberId, Progresses), #{
+    message_type => ssubscriber_unsubscribe,
+    from_ssubscriber_id => FromSSubscriberId,
+    progresses => Progresses
 }).
 
--define(leader_renew_stream_lease(GroupId, Version), #{
-    ?leader_msg_type => ?leader_renew_stream_lease_msg,
-    ?leader_msg_version => Version,
-    ?leader_msg_group_id => GroupId
+%% Leader messages sent to the SSubscriber.
+
+%% A common matcher for leader messages.
+-define(leader_message_match(FromLeader), #{
+    from_leader := FromLeader
 }).
 
--define(leader_renew_stream_lease_match(GroupId, Version), #{
-    ?leader_msg_type := ?leader_renew_stream_lease_msg,
-    ?leader_msg_version := Version,
-    ?leader_msg_group_id := GroupId
+%% Respond to the SSubscriber's connection request.
+
+-define(leader_connect_response(FromLeader), #{
+    message_type => leader_connect_response,
+    from_leader => FromLeader
 }).
 
--define(leader_renew_stream_lease(GroupId, VersionOld, VersionNew), #{
-    ?leader_msg_type => ?leader_renew_stream_lease_msg,
-    ?leader_msg_version_old => VersionOld,
-    ?leader_msg_version_new => VersionNew,
-    ?leader_msg_group_id => GroupId
+-define(leader_connect_response_match(FromLeader), #{
+    message_type := leader_connect_response,
+    from_leader := FromLeader
 }).
 
--define(leader_renew_stream_lease_match(GroupId, VersionOld, VersionNew), #{
-    ?leader_msg_type := ?leader_renew_stream_lease_msg,
-    ?leader_msg_version_old := VersionOld,
-    ?leader_msg_version_new := VersionNew,
-    ?leader_msg_group_id := GroupId
+%% Respond to the SSubscriber's ping request.
+
+-define(leader_ping_response(FromLeader), #{
+    message_type => leader_ping_response,
+    from_leader => FromLeader
 }).
 
--define(leader_update_streams(GroupId, VersionOld, VersionNew, StreamsNew), #{
-    ?leader_msg_type => ?leader_update_streams,
-    ?leader_msg_version_old => VersionOld,
-    ?leader_msg_version_new => VersionNew,
-    ?leader_msg_streams_new => StreamsNew,
-    ?leader_msg_group_id => GroupId
+-define(leader_ping_response_match(FromLeader), #{
+    message_type := leader_ping_response,
+    from_leader := FromLeader
 }).
 
--define(leader_update_streams_match(GroupId, VersionOld, VersionNew, StreamsNew), #{
-    ?leader_msg_type := ?leader_update_streams,
-    ?leader_msg_version_old := VersionOld,
-    ?leader_msg_version_new := VersionNew,
-    ?leader_msg_streams_new := StreamsNew,
-    ?leader_msg_group_id := GroupId
+%% Grant a stream to the SSubscriber.
+
+-define(leader_grant_match(FromLeader, Stream, Progress), #{
+    message_type := leader_grant,
+    from_leader := FromLeader,
+    stream := Stream,
+    progress := Progress
 }).
 
--define(leader_invalidate(GroupId), #{
-    ?leader_msg_type => ?leader_invalidate,
-    ?leader_msg_group_id => GroupId
+-define(leader_grant(FromLeader, Stream, Progress), #{
+    message_type => leader_grant,
+    from_leader => FromLeader,
+    stream => Stream,
+    progress => Progress
 }).
 
--define(leader_invalidate_match(GroupId), #{
-    ?leader_msg_type := ?leader_invalidate,
-    ?leader_msg_group_id := GroupId
+%% Start a revoke process for a stream from the SSubscriber.
+
+-define(leader_revoke_match(FromLeader, Stream), #{
+    message_type := leader_revoke,
+    from_leader := FromLeader,
+    stream := Stream
 }).
 
-%% Helpers
-%% In test mode we extend agents with (session) Id to have more
-%% readable traces.
+-define(leader_revoke(FromLeader, Stream), #{
+    message_type => leader_revoke,
+    from_leader => FromLeader,
+    stream => Stream
+}).
+
+%% Confirm that the leader obtained the progress of the stream,
+%% allow the ssubscriber to clean the data
+
+-define(leader_revoked_match(FromLeader, Stream), #{
+    message_type := leader_revoked,
+    from_leader := FromLeader,
+    stream := Stream
+}).
+
+-define(leader_revoked(FromLeader, Stream), #{
+    message_type => leader_revoked,
+    from_leader => FromLeader,
+    stream => Stream
+}).
+
+%% Notify the SSubscriber that it is in unexpected state and should reconnect.
+
+-define(leader_invalidate_match(FromLeader), #{
+    message_type := leader_invalidate,
+    from_leader := FromLeader
+}).
+
+-define(leader_invalidate(FromLeader), #{
+    message_type => leader_invalidate,
+    from_leader => FromLeader
+}).
+
+%% Respond to the SSubscriber's disconnect request
+
+-define(leader_disconnect_response_match(FromLeader), #{
+    message_type := leader_disconnect_response,
+    from_leader := FromLeader
+}).
+
+-define(leader_disconnect_response(FromLeader), #{
+    message_type => leader_disconnect_response,
+    from_leader => FromLeader
+}).
+
+%% SSubscriber/Leader Id helpers
+
+-define(ssubscriber_id(SessionId, SubscriptionId, PidRef), {SessionId, SubscriptionId, PidRef}).
+-define(ssubscriber_pidref(SSubscriberId), element(1, SSubscriberId)).
+-define(ssubscriber_subscription_id(SSubscriberId), element(2, SSubscriberId)).
+-define(ssubscriber_node(SSubscriberId), node(element(1, SSubscriberId))).
+-define(is_local_ssubscriber(SSubscriberId), (?ssubscriber_node(SSubscriberId) =:= node())).
+-define(leader_node(Leader), node(Leader)).
+-define(is_local_leader(Leader), (?leader_node(Leader) =:= node())).
+
+%% Logging helpers
 
 -ifdef(TEST).
 
--define(agent(SessionId, SubscriptionId, Pid), {Pid, SubscriptionId, SessionId}).
-
--define(format_agent_msg(Msg), emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)).
-
+-define(format_ssubscriber_msg(Msg), emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)).
 -define(format_leader_msg(Msg), emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)).
 
 %% -ifdef(TEST).
 -else.
 
--define(agent(_SessionId, SubscriptionId, Pid), {Pid, SubscriptionId}).
-
--define(format_agent_msg(Msg), Msg).
-
+-define(format_ssubscriber_msg(Msg), Msg).
 -define(format_leader_msg(Msg), Msg).
 
 %% -ifdef(TEST).
 -endif.
 
--define(agent_ref(Agent), element(1, Agent)).
+-define(log_ssubscriber_msg(ToLeader, Msg),
+    ?tp(debug, ssubscriber_to_leader, #{
+        to_leader => ToLeader,
+        proto_msg => ?format_ssubscriber_msg(Msg)
+    })
+).
 
--define(agent_subscription_id(Agent), element(2, Agent)).
-
--define(agent_node(Agent), node(element(1, Agent))).
-
--define(is_local_agent(Agent), (?agent_node(Agent) =:= node())).
-
--define(leader_node(Leader), node(Leader)).
-
--define(is_local_leader(Leader), (?leader_node(Leader) =:= node())).
+-define(log_leader_msg(ToSSubscriberId, Msg),
+    ?tp(debug, leader_to_ssubscriber, #{
+        to_ssubscriber => ToSSubscriberId,
+        proto_msg => ?format_leader_msg(Msg)
+    })
+).
