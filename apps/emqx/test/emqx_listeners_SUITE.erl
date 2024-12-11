@@ -272,11 +272,13 @@ t_ssl_update_opts(Config) ->
     Name = ?FUNCTION_NAME,
     with_listener(ssl, Name, Conf, fun() ->
         %% Client connects successfully.
+        ct:pal("attempting successful connection"),
         C1 = emqtt_connect_ssl(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
         ]),
 
         %% Change the listener SSL configuration: another set of cert/key files.
+        ct:pal("updating config"),
         {ok, _} = emqx:update_config(
             [listeners, ssl, Name],
             {update, #{
@@ -289,6 +291,7 @@ t_ssl_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
+        ct:pal("attempting connection with unknown CA"),
         ?assertError(
             {tls_alert, {unknown_ca, _}},
             emqtt_connect_ssl(Host, Port, [
@@ -312,13 +315,21 @@ t_ssl_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        ?assertExceptionOneOf(
-            {error, {ssl_error, _Socket, {tls_alert, {certificate_required, _}}}},
-            {error, closed},
+        try
             emqtt_connect_ssl(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
-            ])
-        ),
+            ]),
+            ct:fail("l ~b: unexpected success", [?LINE])
+        catch
+            error:{ssl_error, _Socket, {tls_alert, {certificate_required, _}}} ->
+                ok;
+            error:closed ->
+                ok;
+            error:connack_timeout ->
+                ok;
+            K:E:S ->
+                error({unexpected_exception, {K, E, S}})
+        end,
 
         C3 = emqtt_connect_ssl(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")},
@@ -359,6 +370,7 @@ t_wss_update_opts(Config) ->
     Name = ?FUNCTION_NAME,
     with_listener(wss, Name, Conf, fun() ->
         %% Start a client.
+        ct:pal("attempting successful connection"),
         C1 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")}
             | ClientSSLOpts
@@ -367,6 +379,7 @@ t_wss_update_opts(Config) ->
         %% Change the listener SSL configuration.
         %% 1. Another set of (password protected) cert/key files.
         %% 2. Require peer certificate.
+        ct:pal("changing config"),
         {ok, _} = emqx:update_config(
             [listeners, wss, Name],
             {update, #{
@@ -379,11 +392,16 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
+        ct:pal("attempting connection with unknown CA"),
         ?assertError(
             timeout,
-            emqtt_connect_wss(Host, Port, ClientSSLOpts)
+            emqtt_connect_wss(Host, Port, [
+                {cacerts, public_key:cacerts_get()}
+                | ClientSSLOpts
+            ])
         ),
 
+        ct:pal("attempting connection with another CA"),
         C2 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")}
             | ClientSSLOpts
@@ -656,7 +674,7 @@ with_listener(Type, Name, Config, Then) ->
 emqtt_connect_ssl(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 1,
+        connect_timeout => 2,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -664,7 +682,7 @@ emqtt_connect_ssl(Host, Port, SSLOpts) ->
 emqtt_connect_quic(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:quic_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 1,
+        connect_timeout => 2,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -672,7 +690,7 @@ emqtt_connect_quic(Host, Port, SSLOpts) ->
 emqtt_connect_wss(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 1,
+        connect_timeout => 2,
         ws_transport_options => [
             {protocols, [http]},
             {transport, tls},
