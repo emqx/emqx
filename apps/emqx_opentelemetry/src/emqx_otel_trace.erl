@@ -766,7 +766,7 @@ stop_outgoing_trace(Packet, Attrs) when is_record(Packet, mqtt_packet) ->
     %% The current outgoing Packet SHOULD NOT be modified
     ok = outgoing_maybe_awaiting_next(Packet, Attrs),
     Ctx = get_ctx(Packet),
-    ok = add_span_attrs(#{'message.qos' => emqx_packet:qos(Packet)}, Ctx),
+    ok = maybe_override_message_qos(Packet, Ctx),
     end_span(Ctx);
 stop_outgoing_trace(Any, _Attrs) ->
     end_span(get_ctx(Any)).
@@ -814,6 +814,11 @@ outgoing_maybe_awaiting_next(?PUBREL_PACKET(PacketId, _ReasonCode) = Packet, Att
 %% ====================
 outgoing_maybe_awaiting_next(_, _) ->
     %% TODO: Awaiting AUTH
+    ok.
+
+maybe_override_message_qos(?PUBLISH_PACKET(QoS), Ctx) ->
+    ok = add_span_attrs(#{'message.qos' => QoS}, Ctx);
+maybe_override_message_qos(_, _Ctx) ->
     ok.
 
 start_awaiting_trace(AwaitingType, PacketId, Packet, Attrs) ->
