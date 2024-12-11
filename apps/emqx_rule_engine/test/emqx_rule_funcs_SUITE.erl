@@ -333,6 +333,16 @@ t_is_array(_) ->
      || T <- [<<>>, a]
     ].
 
+t_is_empty(_) ->
+    [
+        ?assertEqual(true, emqx_rule_funcs:is_empty(T))
+     || T <- [[], #{}, <<"{}">>]
+    ],
+    [
+        ?assertEqual(false, emqx_rule_funcs:is_empty(T))
+     || T <- [[1], #{a => b}, <<"{\"a\" : \"b\"}">>]
+    ].
+
 t_coalesce(_) ->
     ?assertEqual(undefined, emqx_rule_funcs:coalesce([])),
     ?assertEqual(undefined, emqx_rule_funcs:coalesce([undefined, undefined, undefined])),
@@ -945,6 +955,14 @@ t_map_to_entries(_) ->
         ],
         apply_func(map_to_entries, [J])
     ).
+
+t_map_size(_) ->
+    ?assertEqual(0, apply_func(map_size, [#{}])),
+    ?assertEqual(1, apply_func(map_size, [#{a => b}])),
+    ?assertEqual(0, apply_func(map_size, [[]])),
+    ?assertEqual(1, apply_func(map_size, [[{a, b}]])),
+    ?assertEqual(0, apply_func(map_size, [<<"{}">>])),
+    ?assertEqual(1, apply_func(map_size, [<<"{\"a\" : \"b\"}">>])).
 
 t_bitsize(_) ->
     ?assertEqual(8, apply_func(bitsize, [<<"a">>])),

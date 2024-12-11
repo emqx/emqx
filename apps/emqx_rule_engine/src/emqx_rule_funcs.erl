@@ -131,7 +131,8 @@
     is_float/1,
     is_num/1,
     is_map/1,
-    is_array/1
+    is_array/1,
+    is_empty/1
 ]).
 
 %% String Funcs
@@ -183,7 +184,8 @@
     map_put/3,
     map_keys/1,
     map_values/1,
-    map_to_entries/1
+    map_to_entries/1,
+    map_size/1
 ]).
 
 %% For backward compatibility
@@ -785,6 +787,15 @@ is_map(_) -> false.
 is_array(T) when is_list(T) -> true;
 is_array(_) -> false.
 
+is_empty([]) ->
+    true;
+is_empty(<<>>) ->
+    true;
+is_empty(List) when is_list(List) ->
+    false;
+is_empty(Map) ->
+    ?MODULE:map_size(Map) == 0.
+
 %%------------------------------------------------------------------------------
 %% String Funcs
 %%------------------------------------------------------------------------------
@@ -1051,6 +1062,9 @@ map_values(Map) ->
     maps:values(map(Map)).
 map_to_entries(Map) ->
     [#{key => K, value => V} || {K, V} <- maps:to_list(map(Map))].
+
+map_size(Map) ->
+    maps:size(map(Map)).
 
 %%------------------------------------------------------------------------------
 %% Hash Funcs

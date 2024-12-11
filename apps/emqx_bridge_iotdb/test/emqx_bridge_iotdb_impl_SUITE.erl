@@ -19,9 +19,7 @@
 
 all() ->
     [
-        {group, iotdb110},
         {group, iotdb130},
-        {group, legacy},
         {group, thrift}
     ].
 
@@ -29,16 +27,11 @@ groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE) -- [t_thrift_auto_recon],
     Async = [
         t_async_device_id_missing,
-        t_async_invalid_template,
         t_async_query,
-        t_extract_device_id_from_rule_engine_message,
-        %%todo
-        t_sync_query_aggregated
+        t_extract_device_id_from_rule_engine_message
     ],
     [
-        {iotdb110, AllTCs},
         {iotdb130, AllTCs},
-        {legacy, AllTCs},
         {thrift, (AllTCs -- Async) ++ [t_thrift_auto_recon]}
     ].
 
@@ -60,14 +53,11 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_bridge_v2_testlib:end_per_suite(Config).
 
-init_per_group(Type, Config0) when Type =:= iotdb110 orelse Type =:= iotdb130 ->
+init_per_group(iotdb130 = Type, Config0) ->
     Host = os:getenv("IOTDB_PLAIN_HOST", "toxiproxy.emqx.net"),
     ProxyName = atom_to_list(Type),
-    {IotDbVersion, DefaultPort} =
-        case Type of
-            iotdb110 -> {?VSN_1_1_X, "18080"};
-            iotdb130 -> {?VSN_1_3_X, "28080"}
-        end,
+    IotDbVersion = ?VSN_1_3_X,
+    DefaultPort = "28080",
     Port = list_to_integer(os:getenv("IOTDB_PLAIN_PORT", DefaultPort)),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
@@ -79,30 +69,6 @@ init_per_group(Type, Config0) when Type =:= iotdb110 orelse Type =:= iotdb130 ->
                 {proxy_name, ProxyName},
                 {iotdb_version, IotDbVersion},
                 {iotdb_rest_prefix, <<"/rest/v2/">>}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_iotdb);
-                _ ->
-                    {skip, no_iotdb}
-            end
-    end;
-init_per_group(legacy = Type, Config0) ->
-    Host = os:getenv("IOTDB_LEGACY_HOST", "toxiproxy.emqx.net"),
-    Port = list_to_integer(os:getenv("IOTDB_LEGACY_PORT", "38080")),
-    ProxyName = "iotdb013",
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Config = emqx_bridge_v2_testlib:init_per_group(Type, ?BRIDGE_TYPE_BIN, Config0),
-            [
-                {bridge_host, Host},
-                {bridge_port, Port},
-                {rest_port, Port},
-                {proxy_name, ProxyName},
-                {iotdb_version, ?VSN_0_13_X},
-                {iotdb_rest_prefix, <<"/rest/v1/">>}
                 | Config
             ];
         false ->
@@ -140,11 +106,7 @@ init_per_group(thrift = Type, Config0) ->
 init_per_group(_Group, Config) ->
     Config.
 
-end_per_group(Group, Config) when
-    Group =:= iotdb110;
-    Group =:= iotdb130;
-    Group =:= legacy
-->
+end_per_group(iotdb130, Config) ->
     emqx_bridge_v2_testlib:end_per_group(Config),
     ok;
 end_per_group(_Group, _Config) ->
@@ -318,13 +280,26 @@ is_error_check(Reason) ->
 action_config(TestCase, Name, Config) ->
     Type = ?config(bridge_type, Config),
     QueryMode = query_mode(TestCase),
+    DataTemplate =
+        case TestCase of
+            t_template ->
+                <<"">>;
+            _ ->
+                emqx_utils_json:encode(
+                    #{
+                        <<"measurement">> => <<"${payload.measurement}">>,
+                        <<"data_type">> => test_case_data_type(TestCase),
+                        <<"value">> => <<"${payload.value}">>
+                    }
+                )
+        end,
     ConfigString =
         io_lib:format(
             "actions.~s.~s {\n"
             "  enable = true\n"
             "  connector = \"~s\"\n"
             "  parameters = {\n"
-            "     data = []\n"
+            "     data = [~s]\n"
             "  }\n"
             "  resource_opts = {\n"
             "     query_mode = \"~s\"\n"
@@ -334,6 +309,7 @@ action_config(TestCase, Name, Config) ->
                 Type,
                 Name,
                 Name,
+                DataTemplate,
                 QueryMode
             ]
         ),
@@ -445,104 +421,6 @@ t_async_query(Config) ->
         emqx_utils_json:decode(IoTDBResult)
     ).
 
-t_sync_query_aggregated(Config) ->
-    DeviceId = iotdb_device(Config),
-    MS = erlang:system_time(millisecond) - 5000,
-    Payload = [
-        make_iotdb_payload(DeviceId, "temp", "INT32", "36", MS - 7000),
-        make_iotdb_payload(DeviceId, "temp", "INT32", 37, MS - 6000),
-        make_iotdb_payload(DeviceId, "temp", "INT64", 38.7, MS - 5000),
-        make_iotdb_payload(DeviceId, "temp", "INT64", "39", integer_to_binary(MS - 4000)),
-        make_iotdb_payload(DeviceId, "temp", "INT64", "34", MS - 3000),
-        make_iotdb_payload(DeviceId, "temp", "INT32", 33.7, MS - 2000),
-        make_iotdb_payload(DeviceId, "temp", "INT32", 32, MS - 1000),
-        %% [FIXME] neither nanoseconds nor microseconds don't seem to be supported by IoTDB
-        (make_iotdb_payload(DeviceId, "temp", "INT32", "41"))#{timestamp => <<"now_us">>},
-
-        make_iotdb_payload(DeviceId, "weight", "FLOAT", "87.3", MS - 6000),
-        make_iotdb_payload(DeviceId, "weight", "FLOAT", 87.3, MS - 5000),
-        make_iotdb_payload(DeviceId, "weight", "FLOAT", 87, MS - 4000),
-        make_iotdb_payload(DeviceId, "weight", "DOUBLE", "87.3", MS - 3000),
-        make_iotdb_payload(DeviceId, "weight", "DOUBLE", 87.3, MS - 2000),
-        make_iotdb_payload(DeviceId, "weight", "DOUBLE", 87, MS - 1000),
-
-        make_iotdb_payload(DeviceId, "charged", "BOOLEAN", "1", MS + 1000),
-        make_iotdb_payload(DeviceId, "floated", "BOOLEAN", 1, MS + 1000),
-        make_iotdb_payload(DeviceId, "started", "BOOLEAN", true, MS + 1000),
-        make_iotdb_payload(DeviceId, "stoked", "BOOLEAN", "true", MS + 1000),
-        make_iotdb_payload(DeviceId, "enriched", "BOOLEAN", "TRUE", MS + 1000),
-        make_iotdb_payload(DeviceId, "gutted", "BOOLEAN", "True", MS + 1000),
-        make_iotdb_payload(DeviceId, "drained", "BOOLEAN", "0", MS + 1000),
-        make_iotdb_payload(DeviceId, "toasted", "BOOLEAN", 0, MS + 1000),
-        make_iotdb_payload(DeviceId, "uncharted", "BOOLEAN", false, MS + 1000),
-        make_iotdb_payload(DeviceId, "dazzled", "BOOLEAN", "false", MS + 1000),
-        make_iotdb_payload(DeviceId, "unplugged", "BOOLEAN", "FALSE", MS + 1000),
-        make_iotdb_payload(DeviceId, "unraveled", "BOOLEAN", "False", MS + 1000),
-        make_iotdb_payload(DeviceId, "undecided", "BOOLEAN", null, MS + 1000),
-
-        make_iotdb_payload(DeviceId, "foo", "TEXT", "bar", MS + 1000)
-    ],
-    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
-    ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query
-    ),
-
-    Time = integer_to_binary(MS - 20000),
-    %% check weight
-    QueryWeight = <<"select weight from ", DeviceId/binary, " where time > ", Time/binary>>,
-    {ok, {{_, 200, _}, _, ResultWeight}} = iotdb_query(Config, QueryWeight),
-    ?assertMatch(
-        #{<<"values">> := [[87.3, 87.3, 87.0, 87.3, 87.3, 87.0]]},
-        emqx_utils_json:decode(ResultWeight)
-    ),
-    %% [FIXME] https://github.com/apache/iotdb/issues/12375
-    %% null don't seem to be supported by IoTDB insertTablet when 1.3.0
-    case ?config(iotdb_version, Config) of
-        ?VSN_1_3_X ->
-            skip;
-        _ ->
-            %% check rest ts = MS + 1000
-            CheckTime = integer_to_binary(MS + 1000),
-            QueryRest = <<"select * from ", DeviceId/binary, " where time = ", CheckTime/binary>>,
-            {ok, {{_, 200, _}, _, ResultRest}} = iotdb_query(Config, QueryRest),
-            #{<<"values">> := Values, <<"expressions">> := Expressions} = emqx_utils_json:decode(
-                ResultRest
-            ),
-            Results = maps:from_list(lists:zipwith(fun(K, [V]) -> {K, V} end, Expressions, Values)),
-            Exp = #{
-                exp(DeviceId, "charged") => true,
-                exp(DeviceId, "floated") => true,
-                exp(DeviceId, "started") => true,
-                exp(DeviceId, "stoked") => true,
-                exp(DeviceId, "enriched") => true,
-                exp(DeviceId, "gutted") => true,
-                exp(DeviceId, "drained") => false,
-                exp(DeviceId, "toasted") => false,
-                exp(DeviceId, "uncharted") => false,
-                exp(DeviceId, "dazzled") => false,
-                exp(DeviceId, "unplugged") => false,
-                exp(DeviceId, "unraveled") => false,
-                exp(DeviceId, "undecided") => null,
-                exp(DeviceId, "foo") => <<"bar">>,
-                exp(DeviceId, "temp") => null,
-                exp(DeviceId, "weight") => null
-            },
-            ?assertEqual(Exp, Results),
-
-            %% check temp
-            QueryTemp = <<"select temp from ", DeviceId/binary, " where time > ", Time/binary>>,
-            {ok, {{_, 200, _}, _, ResultTemp}} = iotdb_query(Config, QueryTemp),
-            ?assertMatch(
-                #{<<"values">> := [[36, 37, 38, 39, 34, 33, 32, 41]]},
-                emqx_utils_json:decode(ResultTemp)
-            )
-    end,
-    ok.
-
-exp(Dev, M0) ->
-    M = s_to_b(M0),
-    <<Dev/binary, ".", M/binary>>.
-
 t_sync_query_fail(Config) ->
     DeviceId = iotdb_device(Config),
     Payload = make_iotdb_payload(DeviceId, "temp", "INT32", "Anton"),
@@ -598,27 +476,11 @@ t_extract_device_id_from_rule_engine_message(Config) ->
     ),
     ok.
 
-t_sync_invalid_template(Config) ->
-    emqx_bridge_v2_testlib:t_sync_query(
-        Config,
-        make_message_fun(iotdb_topic(Config), #{foo => bar, device_id => <<"root.sg27">>}),
-        is_error_check(invalid_template),
-        iotdb_bridge_on_query
-    ).
-
 t_async_device_id_missing(Config) ->
     emqx_bridge_v2_testlib:t_async_query(
         Config,
         make_message_fun(iotdb_topic(Config), #{foo => bar}),
         is_error_check(device_id_missing),
-        iotdb_bridge_on_query_async
-    ).
-
-t_async_invalid_template(Config) ->
-    emqx_bridge_v2_testlib:t_async_query(
-        Config,
-        make_message_fun(iotdb_topic(Config), #{foo => bar, device_id => <<"root.sg27">>}),
-        is_error_check(invalid_template),
         iotdb_bridge_on_query_async
     ).
 
@@ -706,12 +568,9 @@ t_template(Config) ->
     Payload1 = make_iotdb_payload(DeviceId, "test", "BOOLEAN", true),
     MessageF1 = make_message_fun(Topic, Payload1),
 
-    is_success_check(
+    is_error_check(
         emqx_resource:simple_sync_query(ResourceId, {BridgeId, MessageF1()})
     ),
-
-    {ok, {{_, 200, _}, _, Res1_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
-    ?assertMatch(#{<<"values">> := [[true]]}, emqx_utils_json:decode(Res1_1)),
 
     iotdb_reset(Config, DeviceId),
     iotdb_reset(Config, TemplateDeviceId),
@@ -759,15 +618,6 @@ t_sync_query_case(Config) ->
         emqx_utils_json:decode(IoTDBResult)
     ).
 
-t_sync_query_invalid_type(Config) ->
-    DeviceId = iotdb_device(Config),
-    Payload = make_iotdb_payload(DeviceId, "temp", "IxT32", "36"),
-    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
-    IsInvalidType = fun(Result) -> ?assertMatch({error, #{reason := invalid_type}}, Result) end,
-    ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun, IsInvalidType, iotdb_bridge_on_query
-    ).
-
 t_sync_query_unmatched_type(Config) ->
     DeviceId = iotdb_device(Config),
     Payload = make_iotdb_payload(DeviceId, "temp", "BOOLEAN", "not boolean"),
@@ -779,6 +629,20 @@ t_sync_query_unmatched_type(Config) ->
 
 t_thrift_auto_recon(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
+
+t_sync_query_with_lowercase(Config) ->
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36"),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query
+    ),
+    Query = <<"select temp from ", DeviceId/binary>>,
+    {ok, {{_, 200, _}, _, IoTDBResult}} = iotdb_query(Config, Query),
+    ?assertMatch(
+        #{<<"values">> := [[36]]},
+        emqx_utils_json:decode(IoTDBResult)
+    ).
 
 is_empty(null) -> true;
 is_empty([]) -> true;
@@ -803,3 +667,16 @@ query_mode(TestCase) ->
         _ ->
             sync
     end.
+
+exp(Dev, M0) ->
+    M = s_to_b(M0),
+    <<Dev/binary, ".", M/binary>>.
+
+test_case_data_type(t_device_id) ->
+    <<"BOOLEAN">>;
+test_case_data_type(t_sync_query_unmatched_type) ->
+    <<"BOOLEAN">>;
+test_case_data_type(t_sync_query_with_lowercase) ->
+    <<"int32">>;
+test_case_data_type(_) ->
+    <<"INT32">>.
