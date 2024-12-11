@@ -12,6 +12,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -import(emqx_config_SUITE, [prepare_conf_file/3]).
 
 -import(emqx_bridge_rabbitmq_test_utils, [
@@ -430,20 +432,28 @@ t_action_dynamic(Config) ->
     ?assertMatch(Payload, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
-    #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
+    ?retry(
+        _Interval0 = 500,
+        _NAttempts0 = 10,
+        begin
+            #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
+            ?assertMatch(
+                #{
+                    dropped := 0,
+                    success := 1,
+                    matched := 1,
+                    failed := 0,
+                    received := 0
+                },
+                Counters
+            )
+        end
+    ),
+
     ok = delete_action(Name),
     ActionsAfterDelete = emqx_bridge_v2:list(actions),
     ?assertNot(lists:any(Any, ActionsAfterDelete), ActionsAfterDelete),
-    ?assertMatch(
-        #{
-            dropped := 0,
-            success := 0,
-            matched := 1,
-            failed := 0,
-            received := 0
-        },
-        Counters
-    ),
+
     ok.
 
 waiting_for_disconnected_alarms(InstanceId) ->
