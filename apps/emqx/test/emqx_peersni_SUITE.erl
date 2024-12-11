@@ -23,7 +23,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
-
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("esockd/include/esockd.hrl").
 
 -define(SERVER_NAME, <<"localhost">>).
@@ -145,7 +145,7 @@ t_peersni_saved_into_conninfo(Config) ->
     ClientFn = proplists:get_value(client_fn, Config),
 
     {ok, Client} = ClientFn(ClientId, _Opts = #{}),
-    ?assertMatch(#{clientinfo := #{peersni := ?SERVER_NAME}}, emqx_cm:get_chan_info(ClientId)),
+    ?assertMatch(#{clientinfo := #{peersni := ?SERVER_NAME}}, get_chan_info(ClientId)),
 
     ok = emqtt:disconnect(Client).
 
@@ -155,7 +155,7 @@ t_parse_peersni_to_client_attr(Config) ->
     %% set the peersni to the client attribute
     {ok, Variform} = emqx_variform:compile("nth(1, tokens(peersni, 'h'))"),
     emqx_config:put([mqtt, client_attrs_init], [
-        #{expression => Variform, set_as_attr => mnts}
+        #{expression => Variform, set_as_attr => tns}
     ]),
 
     ClientId = <<"test-clientid2">>,
@@ -163,7 +163,14 @@ t_parse_peersni_to_client_attr(Config) ->
     {ok, Client} = ClientFn(ClientId, _Opts = #{}),
 
     ?assertMatch(
-        #{clientinfo := #{client_attrs := #{mnts := <<"local">>}}}, emqx_cm:get_chan_info(ClientId)
+        #{clientinfo := #{client_attrs := #{tns := <<"local">>}}}, get_chan_info(ClientId)
     ),
 
     ok = emqtt:disconnect(Client).
+
+get_chan_info(ClientId) ->
+    ?retry(
+        3_000,
+        100,
+        #{} = emqx_cm:get_chan_info(ClientId)
+    ).
