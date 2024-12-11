@@ -69,7 +69,7 @@ config_path.desc:
 """The URL path for this Action.<br/>
 This path will be appended to the Connector's <code>url</code> configuration to form the full
 URL address.
-Template with variables is allowed in this option. For example, <code>/room/{$room_no}</code>"""
+Template with variables is allowed in this option. For example, <code>/room/${room_no}</code>"""
 
 config_path.label:
 """URL Path"""
