@@ -32,21 +32,17 @@
 
 -define(EMQX_MT_SHARD, emqx_mt_shard).
 
+%% mria tables
 -define(RECORD_TAB, emqx_mt_record).
 -define(COUNTER_TAB, emqx_mt_counter).
+-define(NS_TAB, emqx_mt_ns).
+
+%% ets tables
 -define(MONITOR_TAB, emqx_mt_monitor).
 -define(CCACHE_TAB, emqx_mt_ccache).
--define(LOCK(Node), {emqx_mt_clear_node_lock, Node}).
--define(RECORD_KEY(Ns, ClientId, Pid), {Ns, ClientId, Pid}).
-%% 0 is less '<' than any pid
--define(MIN_PID, 0).
-
--type tns() :: emqx_mt:tns().
--type clientid() :: emqx_types:clientid().
 
 %% Mria table (disc_copies) to store the namespace records.
 %% Value is for future use.
--define(NS_TAB, emqx_mt_ns).
 -record(?NS_TAB, {
     ns :: tns(),
     value = [] :: term()
@@ -55,6 +51,9 @@
 %% Mria table to store the client records.
 %% Pid is used in the key to make sure the record is unique,
 %% so there is no need for transaction to update the record.
+-define(RECORD_KEY(Ns, ClientId, Pid), {Ns, ClientId, Pid}).
+%% 0 is less '<' than any pid
+-define(MIN_PID, 0).
 -define(MIN_RECORD_KEY(Ns), ?RECORD_KEY(Ns, ?MIN_CLIENTID, ?MIN_PID)).
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
@@ -75,6 +74,11 @@
 -define(MONITOR(Pid, Key), {Pid, Key}).
 -define(CCACHE(Ns, Ts, Cnt), {Ns, Ts, Cnt}).
 -define(CCACHE_VALID_MS, 5000).
+
+-define(LOCK(Node), {emqx_mt_clear_node_lock, Node}).
+
+-type tns() :: emqx_mt:tns().
+-type clientid() :: emqx_types:clientid().
 
 create_tables() ->
     ok = mria:create_table(?NS_TAB, [

@@ -49,49 +49,47 @@ For example: `listeners.tcp.default.mountpoint = "${client_attrs.tns}/"`.
 The topic in below packets will be automatically mounted (receive) or unmounted (send)
 with the prefix:
 
-- Will message in `CONNECT`
 - `PUBLISH`
 - `SUBSCRIBE`
 - `UNSUBSCRIBE`
+- Will message in `CONNECT`
 
 ## Tenant Management Milestone 1
 
 With all the above building blocks available,
 this application (`emqx_mt`) can focus on providing the following functionalities:
 
-- **Tenant Listing**: List all the tenant namespaces.
+- **Tenant Listing**: Pagenated listing of all tenant namespaces.
 - **Live Session Count**: Given a tenant namespace (`tns`),
-  quickly retrieve the count of live sessions registered.
+  quickly retrieve the count of live sessions registered. Due to the nature of asynchronous, the count may not be accurate. For example, when a client is disconnected, the count may not be updated immediately, if the client immediately reconnects, the count may be off by one. When a node restarts, the other nodes in the cluster may take a while to clean up the records, so the count may be off by by many.
 - **Paginated Client Iteration**: Given a tenant namespace (`tns`),
   provide a paginated iterator for traversing the client IDs.
-
-To minimize changes to the core `emqx` application, this functionality is implemented independently.
-The application registers callbacks to the `session.created` hook-point to track client presence
-and monitors processes to deregister them when the process terminates.
-
-**Note**: Handling offline durable sessions stored in persistent storage is yet to be decided.
+- **Tenant Session Count Limit**: Limit the total number of sessions allowed for each tenant. This is so far a global limit for all tenants, but in milestone 2, there will be per-tenant limits.
 
 ### Data Structure
 
-This application uses two **mnesia** tables, and ETS tables:
+This application uses **mnesia** tables, ETS tables:
 
 - **`emqx_mt_ns`**: An `ordered_set` `disc_copies` table for tracking tenant namespaces.
-  The records follow the structure: `{_Key = Tns, _Value = []}`.
+  The records follow the structure: `{_Key = Ns, _Value = []}`.
   Records are not garbage collected, so it's not suitable for randomized namespaces.
 
 - **`emqx_mt_records`**: An `ordered_set` table for tracking records:
-  - `{_Key = {Tns, ClientId, Pid}, Node}` for tenant namespaces (`Tns`).
+  - `{_Key = {Ns, ClientId, Pid}, _Value = Node}` for tenant namespaces (`Ns`).
 
-- **`emqx_mt_count`**: A `ordered_set` table for maintaining counters for each `Tns` in `emqx_mt_records`.
-  The records follow the structure: `{{Tns, Node}, Count}`.
+- **`emqx_mt_count`**: A `ordered_set` table for maintaining counters for each `Ns` in `emqx_mt_records`.
+  The records follow the structure: `{{Ns, Node}, Count}`.
 
-- **`emqx_mt_monitor`**: A `set` ETS table to index from `Pid` to `{Tns, ClientId}`
+- **`emqx_mt_monitor`**: A `set` ETS table to index from `Pid` to `{Ns, ClientId}`
   in order to perform clean-ups when process exits.
+
+- **`emqx_mt_ccache`**: A `set` ETS table to cache the counter for each `Ns` in `emqx_mt_count`.
+  The records follow the structure: `{Ns, Timestamp, Count}`. The `Timestamp` is used to expire the cache every 5 seconds.
 
 ### Algorithm
 
-- To query client IDs for a tenant: traverse from `ets:next(emqx_mt_records, {Tns, 0, 0})`.
-- To query the number of clients for a tenant sum up all the counts: `lists:sum(ets:match(emqx_mt_count, [{{{Tns,'_'},'$1'},[],['$1']}]))`.
+- To query client IDs for a tenant: traverse from `ets:next(emqx_mt_records, {Ns, 0, 0})`.
+- To query the number of clients for a tenant sum up all the counts: `lists:sum(ets:match(emqx_mt_count, [{{{Ns,'_'},'$1'},[],['$1']}]))`.
 
 ### Event Handling
 
@@ -106,12 +104,12 @@ hook_callback(ClientInfo) ->
   _ = erlang:send(pick_pool_worker(emqx_mt), Msg),
   ok.
 
-handle_info({add, Tns, ClientId, Pid}, State) ->
+handle_info({add, Ns, ClientId, Pid}, State) ->
     ok = monitor_and_insert_ets(Pid),
-    ok = insert_record(Tns, ClientId, Pid),
+    ok = insert_record(Ns, ClientId, Pid),
     %% when a client reconnects, there can be multiple Pids registered
     %% due to race condition or session-takeover transition period
-    ok = inc_counter(Tns);
+    ok = inc_counter(Ns);
     {noreply, State1}.
 ```
 
@@ -121,9 +119,9 @@ When a `DOWN` message is received, the process deregisters the corresponding cli
 
 ```
 handle_info({'DOWN', _, _, Pid, _}, State) ->
-  {Tns, ClientId} = delete_monitor(Pid),
-  ok = delete_record(Tns, ClientId),
-  ok = dec_counter(Tns),
+  {Ns, ClientId} = delete_monitor(Pid),
+  ok = delete_record(Ns, ClientId),
+  ok = dec_counter(Ns),
   {noreply, State}.
 ```
 
@@ -152,7 +150,7 @@ multi_tenancy {
     # default limit for all tenants,
     # in milestone 2, there will be per-tenant limits
     # however per-tenant configs are to be stored in a mria table instead of in files
-    per_tenant_session_limit = 1000
+    default_max_sessions = 1000
 }
 ```
 
