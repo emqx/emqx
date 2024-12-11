@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge_iotdb, [
     {description, "EMQX Enterprise Apache IoTDB Bridge"},
-    {vsn, "0.2.6"},
+    {vsn, "0.2.7"},
     {modules, [
         emqx_bridge_iotdb,
         emqx_bridge_iotdb_connector
