@@ -12,7 +12,8 @@
 -export([
     namespace/0,
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 namespace() -> emqx_mt.
@@ -39,3 +40,6 @@ fields("config") ->
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Name) -> hoconsc:ref(?MODULE, Name).
+
+desc("config") -> ?DESC("config");
+desc(_) -> undefined.
