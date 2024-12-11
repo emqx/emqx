@@ -85,7 +85,8 @@ handle_info({nodedown, Node}, State) ->
         core ->
             _ = erlang:send_after(
                 timer:seconds(?CLEAR_NODE_DELAY_SECONDS), self(), {clear_for_node, Node}
-            );
+            ),
+            ok;
         replicant ->
             ok
     end,
