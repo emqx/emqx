@@ -50,11 +50,6 @@
     do_cleanup_subscriptions/1
 ]).
 
--record(exclusive_subscription, {
-    topic :: emqx_types:topic(),
-    clientid :: emqx_types:clientid()
-}).
-
 -record(exclusive_subscription_v2, {
     topic :: emqx_types:topic(),
     clientid :: emqx_types:clientid(),
@@ -62,7 +57,6 @@
     extra = #{} :: map()
 }).
 
--define(TAB, emqx_exclusive_subscription).
 -define(TAB_V2, emqx_exclusive_subscription_v2).
 -define(EXCLUSIVE_SHARD, emqx_exclusive_shard).
 
@@ -78,15 +72,6 @@ init_tables() ->
         ]}
     ],
 
-    ok = mria:create_table(?TAB, [
-        {rlog_shard, ?EXCLUSIVE_SHARD},
-        {type, set},
-        {storage, ram_copies},
-        {record_name, exclusive_subscription},
-        {attributes, record_info(fields, exclusive_subscription)},
-        {storage_properties, StoreProps}
-    ]),
-
     ok = mria:create_table(?TAB_V2, [
         {rlog_shard, ?EXCLUSIVE_SHARD},
         {type, set},
@@ -96,7 +81,7 @@ init_tables() ->
         {storage_properties, StoreProps}
     ]),
 
-    ok = mria:wait_for_tables([?TAB, ?TAB_V2]).
+    ok = mria:wait_for_tables([?TAB_V2]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -121,22 +106,20 @@ check_subscribe(#{clientid := ClientId}, Topic) ->
     end.
 
 unsubscribe(Topic, #{is_exclusive := true}) ->
-    _ = mria:transaction(?EXCLUSIVE_SHARD, fun mnesia:delete/1, [{?TAB, Topic}]),
     _ = mria:transaction(?EXCLUSIVE_SHARD, fun mnesia:delete/1, [{?TAB_V2, Topic}]),
     ok;
 unsubscribe(_Topic, _SubOpts) ->
     ok.
 
 dirty_lookup_clientid(Topic) ->
-    case mnesia:dirty_read(?TAB, Topic) of
-        [#exclusive_subscription{clientid = ClientId}] ->
+    case mnesia:dirty_read(?TAB_V2, Topic) of
+        [#exclusive_subscription_v2{clientid = ClientId}] ->
             ClientId;
         _ ->
             undefined
     end.
 
 clear() ->
-    _ = mria:clear_table(?TAB),
     _ = mria:clear_table(?TAB_V2),
     ok.
 
@@ -186,16 +169,8 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 
 try_subscribe(ClientId, Topic, Node) ->
-    case mnesia:wread({?TAB, Topic}) of
+    case mnesia:wread({?TAB_V2, Topic}) of
         [] ->
-            mnesia:write(
-                ?TAB,
-                #exclusive_subscription{
-                    clientid = ClientId,
-                    topic = Topic
-                },
-                write
-            ),
             mnesia:write(
                 ?TAB_V2,
                 #exclusive_subscription_v2{
@@ -206,12 +181,19 @@ try_subscribe(ClientId, Topic, Node) ->
                 write
             ),
             allow;
-        [#exclusive_subscription{clientid = ClientId, topic = Topic}] ->
+        [#exclusive_subscription_v2{clientid = ClientId, topic = Topic, node = Node}] ->
             %% Fixed the issue-13476
             %% In this feature, the user must manually call `unsubscribe` to release the lock,
             %% but sometimes the node may go down for some reason,
             %% then the client will reconnect to this node and resubscribe.
             %% We need to allow resubscription, otherwise the lock will never be released.
+            allow;
+        [#exclusive_subscription_v2{clientid = ClientId, topic = Topic} = Data] ->
+            mnesia:write(
+                ?TAB_V2,
+                Data#exclusive_subscription_v2{node = Node},
+                write
+            ),
             allow;
         [_] ->
             deny
@@ -232,8 +214,7 @@ do_cleanup_subscriptions(Node0) ->
         Data
     end),
     lists:foreach(
-        fun(#exclusive_subscription_v2{topic = Topic} = Obj) ->
-            mnesia:delete({?TAB, Topic}),
+        fun(Obj) ->
             mnesia:delete_object(?TAB_V2, Obj, write)
         end,
         mnesia:select(?TAB_V2, Spec, write)
