@@ -25,29 +25,39 @@
 ]).
 
 -type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
-
 -type group_id() :: share_topic_filter().
+-type ssubscriber_id() :: emqx_ds_shared_sub_proto:ssubscriber_id().
 
 -type options() :: #{
     share_topic_filter := share_topic_filter()
 }.
 
-%% Agent states
+%% Stream statuses. Stream with states other than `stream_granted` are
+%% considered "transient".
 
--define(waiting_replaying, waiting_replaying).
--define(replaying, replaying).
--define(waiting_updating, waiting_updating).
--define(updating, updating).
+%% Stream is being assigned to a ssubscriber, a ssubscriber should confirm the assignment
+%% by sending progress or reject the assignment
+-define(stream_granting, stream_granting).
+%% Stream is assigned to a ssubscriber, the ssubscriber confirmed the assignment
+-define(stream_granted, stream_granted).
+%% Stream is being revoked from a ssubscriber, a ssubscriber should send us final progress
+%% for the stream
+-define(stream_revoking, stream_revoking).
+%% Stream is revoked from a ssubscriber, the ssubscriber sent us final progress.
+%% We wait till the ssubscriber cleans up the data.
+-define(stream_revoked, stream_revoked).
 
--type agent_state() :: #{
-    %% Our view of group_id sm's status
-    %% it lags the actual state
-    state := ?waiting_replaying | ?replaying | ?waiting_updating | ?updating,
-    prev_version := emqx_maybe:t(emqx_ds_shared_sub_proto:version()),
-    version := emqx_ds_shared_sub_proto:version(),
-    agent_metadata := emqx_ds_shared_sub_proto:agent_metadata(),
-    streams := list(emqx_ds:stream()),
-    revoked_streams := list(emqx_ds:stream())
+-type stream_status() :: ?stream_granting | ?stream_granted | ?stream_revoking | ?stream_revoked.
+
+-record(stream_ownership, {
+    status :: stream_status(),
+    ssubscriber_id :: ssubscriber_id()
+}).
+
+-type stream_ownership() :: #stream_ownership{}.
+
+-type ssubscriber_state() :: #{
+    validity_deadline := integer()
 }.
 
 %% Some data should be persisted
@@ -63,11 +73,11 @@
     %%
     %% Ephemeral data, should not be persisted
     %%
-    agents := #{
-        emqx_ds_shared_sub_proto:agent() => agent_state()
+    ssubscribers := #{
+        emqx_ds_shared_sub_proto:ssubscriber_id() => ssubscriber_state()
     },
     stream_owners := #{
-        emqx_ds:stream() => emqx_ds_shared_sub_proto:agent()
+        emqx_ds:stream() => stream_ownership()
     }
 }.
 
@@ -76,15 +86,14 @@
     data/0
 ]).
 
-%% States
+%% Leader states
 
 -define(leader_active, leader_active).
 
 %% Events
 
 -record(renew_streams, {}).
--record(renew_leases, {}).
--record(drop_timeout, {}).
+-record(ssubscriber_timeout, {}).
 -record(renew_leader_claim, {}).
 
 %%--------------------------------------------------------------------
@@ -116,7 +125,7 @@ init_data(#share{topic = Topic} = ShareTopicFilter) ->
                 topic => Topic,
                 store => Store,
                 stream_owners => #{},
-                agents => #{}
+                ssubscribers => #{}
             };
         false ->
             %% NOTE: No leader store -> no subscription
@@ -137,8 +146,11 @@ handle_event(enter, _OldState, ?leader_active, #{topic := Topic} = _Data) ->
     ?tp(debug, shared_sub_leader_enter_actve, #{topic => Topic}),
     {keep_state_and_data, [
         {{timeout, #renew_streams{}}, 0, #renew_streams{}},
-        {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}},
-        {{timeout, #drop_timeout{}}, ?dq_config(leader_drop_timeout_interval_ms), #drop_timeout{}}
+        {
+            {timeout, #ssubscriber_timeout{}},
+            ?dq_config(leader_drop_timeout_interval_ms),
+            #ssubscriber_timeout{}
+        }
     ]};
 %%--------------------------------------------------------------------
 %% timers
@@ -152,17 +164,15 @@ handle_event({timeout, #renew_streams{}}, #renew_streams{}, ?leader_active, Data
             ?dq_config(leader_renew_streams_interval_ms),
             #renew_streams{}
         }};
-%% renew_leases timer
-handle_event({timeout, #renew_leases{}}, #renew_leases{}, ?leader_active, Data0) ->
-    ?tp(debug, shared_sub_leader_timeout, #{timeout => renew_leases}),
-    Data1 = renew_leases(Data0),
+%% ssubscriber_timeout timer
+handle_event({timeout, #ssubscriber_timeout{}}, #ssubscriber_timeout{}, ?leader_active, Data0) ->
+    Data1 = do_timeout_actions(Data0),
     {keep_state, Data1,
-        {{timeout, #renew_leases{}}, ?dq_config(leader_renew_lease_interval_ms), #renew_leases{}}};
-%% drop_timeout timer
-handle_event({timeout, #drop_timeout{}}, #drop_timeout{}, ?leader_active, Data0) ->
-    Data1 = drop_timeout_agents(Data0),
-    {keep_state, Data1,
-        {{timeout, #drop_timeout{}}, ?dq_config(leader_drop_timeout_interval_ms), #drop_timeout{}}};
+        {
+            {timeout, #ssubscriber_timeout{}},
+            ?dq_config(leader_drop_timeout_interval_ms),
+            #ssubscriber_timeout{}
+        }};
 handle_event({timeout, #renew_leader_claim{}}, #renew_leader_claim{}, ?leader_active, Data0) ->
     case renew_leader_claim(Data0) of
         Data1 = #{} ->
@@ -176,39 +186,45 @@ handle_event({timeout, #renew_leader_claim{}}, #renew_leader_claim{}, ?leader_ac
 %%--------------------------------------------------------------------
 %% agent events
 handle_event(
-    info, ?agent_connect_leader_match(Agent, AgentMetadata, _TopicFilter), ?leader_active, Data0
+    info, ?ssubscriber_connect_match(SSubscriberId, _ShareTopicFilter), ?leader_active, Data0
 ) ->
-    Data1 = connect_agent(Data0, Agent, AgentMetadata),
+    Data1 = handle_ssubscriber_connect(Data0, SSubscriberId),
     {keep_state, Data1};
 handle_event(
-    info,
-    ?agent_update_stream_states_match(Agent, StreamProgresses, Version),
-    ?leader_active,
-    Data0
+    info, ?ssubscriber_ping_match(SSubscriberId), ?leader_active, Data0
 ) ->
-    Data1 = with_agent(Data0, Agent, fun() ->
-        update_agent_stream_states(Data0, Agent, StreamProgresses, Version)
+    Data1 = with_valid_ssubscriber(Data0, SSubscriberId, fun() ->
+        handle_ssubscriber_ping(Data0, SSubscriberId)
     end),
     {keep_state, Data1};
 handle_event(
     info,
-    ?agent_update_stream_states_match(Agent, StreamProgresses, VersionOld, VersionNew),
+    ?ssubscriber_update_progress_match(SSubscriberId, Stream, StreamProgress),
     ?leader_active,
     Data0
 ) ->
-    Data1 = with_agent(Data0, Agent, fun() ->
-        update_agent_stream_states(Data0, Agent, StreamProgresses, VersionOld, VersionNew)
+    Data1 = with_valid_ssubscriber(Data0, SSubscriberId, fun() ->
+        handle_update_stream_progress(Data0, SSubscriberId, Stream, StreamProgress)
     end),
     {keep_state, Data1};
 handle_event(
     info,
-    ?agent_disconnect_match(Agent, StreamProgresses, Version),
+    ?ssubscriber_revoke_finished_match(SSubscriberId, Stream),
     ?leader_active,
     Data0
 ) ->
-    Data1 = with_agent(Data0, Agent, fun() ->
-        disconnect_agent(Data0, Agent, StreamProgresses, Version)
+    Data1 = with_valid_ssubscriber(Data0, SSubscriberId, fun() ->
+        handle_revoke_finished(Data0, SSubscriberId, Stream)
     end),
+    {keep_state, Data1};
+handle_event(
+    info,
+    ?ssubscriber_disconnect_match(SSubscriberId, StreamProgresses),
+    ?leader_active,
+    Data0
+) ->
+    %% We allow this event to be processed even if the ssubscriber is unknown
+    Data1 = disconnect_ssubscriber(Data0, SSubscriberId, StreamProgresses),
     {keep_state, Data1};
 %%--------------------------------------------------------------------
 %% fallback
@@ -286,8 +302,8 @@ renew_leader_claim(Data = #{group_id := ShareTopicFilter, store := Store0, leade
 %% Renew streams
 
 %% * Find new streams in DS
-%% * Revoke streams from agents having too many streams
-%% * Assign streams to agents having too few streams
+%% * Revoke streams from ssubscribers having too many streams
+%% * Assign streams to ssubscribers having too few streams
 
 renew_streams(#{topic := Topic} = Data0) ->
     TopicFilter = emqx_topic:words(Topic),
@@ -301,8 +317,8 @@ renew_streams(#{topic := Topic} = Data0) ->
     ),
     {Data1, VanishedStreams} = update_progresses(Data0, NewStreamsWRanks, TopicFilter, StartTime),
     Data2 = store_put_rank_progress(Data1, RankProgress),
-    Data3 = removed_vanished_streams(Data2, VanishedStreams),
-    DesiredCounts = desired_stream_count_for_agents(Data3),
+    Data3 = remove_vanished_streams(Data2, VanishedStreams),
+    DesiredCounts = desired_stream_count_for_ssubscribers(Data3),
     Data4 = revoke_streams(Data3, DesiredCounts),
     Data5 = assign_streams(Data4, DesiredCounts),
     ?SLOG(info, #{
@@ -339,584 +355,346 @@ update_progresses(Data0, NewStreamsWRanks, TopicFilter, StartTime) ->
 %%
 %% If streams disappear from DS during leader being in replaying state
 %% this is an abnormal situation (we should receive `end_of_stream` first),
-%% but clients clients are unlikely to report any progress on them.
+%% but clients are unlikely to report any progress on them.
 %%
 %% If streams disappear after long leader sleep, it is a normal situation.
 %% This removal will be a part of initialization before any agents connect.
-removed_vanished_streams(Data0, VanishedStreams) ->
-    Data1 = lists:foldl(
-        fun(Stream, #{stream_owners := StreamOwners0} = DataAcc) ->
-            case StreamOwners0 of
-                #{Stream := Agent} ->
-                    #{streams := Streams0, revoked_streams := RevokedStreams0} =
-                        AgentState0 = get_agent_state(Data0, Agent),
-                    Streams1 = Streams0 -- [Stream],
-                    RevokedStreams1 = RevokedStreams0 -- [Stream],
-                    AgentState1 = AgentState0#{
-                        streams => Streams1,
-                        revoked_streams => RevokedStreams1
-                    },
-                    set_agent_state(DataAcc, Agent, AgentState1);
-                _ ->
-                    DataAcc
-            end
-        end,
-        Data0,
-        VanishedStreams
-    ),
-    Data2 = unassign_streams(Data1, VanishedStreams),
-    Data2.
+remove_vanished_streams(Data, VanishedStreams) ->
+    finalize_streams(Data, VanishedStreams).
 
-%% We revoke streams from agents that have too many streams (> desired_stream_count_per_agent).
-%% We revoke only from replaying agents.
+finalize_streams(#{stream_owners := StreamOwners0} = Data, [Stream | RestStreams]) ->
+    case StreamOwners0 of
+        #{Stream := #stream_ownership{status = ?stream_revoked}} ->
+            finalize_streams(Data, RestStreams);
+        #{
+            Stream := #stream_ownership{status = _OtherStatus, ssubscriber_id = SSubscriberId} =
+                Ownership0
+        } ->
+            emqx_ds_shared_sub_proto:send_to_ssubscriber(
+                SSubscriberId,
+                ?leader_revoked(this_leader(Data), Stream)
+            ),
+            Ownership1 = Ownership0#{status => ?stream_revoked},
+            StreamOwners1 = StreamOwners0#{Stream => Ownership1},
+            finalize_streams(
+                Data#{
+                    stream_owners => StreamOwners1
+                },
+                RestStreams
+            );
+        _ ->
+            finalize_streams(Data, RestStreams)
+    end.
+
+%% We revoke streams from ssubscribers that have too many streams (> desired_stream_count_per_agent).
+%% We revoke only from stable subscribers — those not having streams in transient states.
 %% After revoking, no unassigned streams appear. Streams will become unassigned
-%% only after agents report them as acked and unsubscribed.
+%% only after ssubscriber reports them back as revoked.
 revoke_streams(Data0, DesiredCounts) ->
-    Agents = replaying_agents(Data0),
-    lists:foldl(
-        fun(Agent, DataAcc) ->
-            DesiredCount = maps:get(Agent, DesiredCounts),
-            revoke_excess_streams_from_agent(DataAcc, Agent, DesiredCount)
+    StableSSubscribers = stable_ssubscribers(Data0),
+    maps:fold(
+        fun(SSubscriberId, GrantedStreams, DataAcc) ->
+            DesiredCount = maps:get(SSubscriberId, DesiredCounts),
+            revoke_excess_streams_from_ssubscriber(
+                DataAcc, SSubscriberId, GrantedStreams, DesiredCount
+            )
         end,
         Data0,
-        Agents
+        StableSSubscribers
     ).
 
-revoke_excess_streams_from_agent(Data0, Agent, DesiredCount) ->
-    #{streams := Streams0, revoked_streams := []} = AgentState0 = get_agent_state(Data0, Agent),
-    RevokeCount = length(Streams0) - DesiredCount,
-    AgentState1 =
-        case RevokeCount > 0 of
-            false ->
-                AgentState0;
-            true ->
-                ?tp(debug, shared_sub_leader_revoke_streams, #{
-                    agent => Agent,
-                    agent_stream_count => length(Streams0),
-                    revoke_count => RevokeCount,
-                    desired_count => DesiredCount
-                }),
-                revoke_streams_from_agent(Data0, Agent, AgentState0, RevokeCount)
-        end,
-    set_agent_state(Data0, Agent, AgentState1).
+revoke_excess_streams_from_ssubscriber(Data, SSubscriberId, GrantedStreams, DesiredCount) ->
+    CurrentCount = length(GrantedStreams),
+    RevokeCount = CurrentCount - DesiredCount,
+    case RevokeCount > 0 of
+        false ->
+            Data;
+        true ->
+            ?tp(debug, shared_sub_leader_revoke_streams, #{
+                ssubscriber_id => SSubscriberId,
+                current_count => CurrentCount,
+                revoke_count => RevokeCount,
+                desired_count => DesiredCount
+            }),
+            StreamsToRevoke = select_streams_for_revoke(Data, GrantedStreams, RevokeCount),
+            revoke_streams_from_ssubscriber(Data, SSubscriberId, StreamsToRevoke)
+    end.
 
-revoke_streams_from_agent(
-    Data,
-    Agent,
-    #{
-        streams := Streams0, revoked_streams := []
-    } = AgentState0,
-    RevokeCount
-) ->
-    RevokedStreams = select_streams_for_revoke(Data, AgentState0, RevokeCount),
-    Streams = Streams0 -- RevokedStreams,
-    agent_transition_to_waiting_updating(Data, Agent, AgentState0, Streams, RevokedStreams).
-
-select_streams_for_revoke(
-    _Data, #{streams := Streams, revoked_streams := []} = _AgentState, RevokeCount
-) ->
+select_streams_for_revoke(_Data, GrantedStreams, RevokeCount) ->
     %% TODO
     %% Some intellectual logic should be used regarding:
     %% * shard ids (better do not mix shards in the same agent);
     %% * stream stats (how much data was replayed from stream),
     %%   heavy streams should be distributed across different agents);
     %% * data locality (agents better preserve streams with data available on the agent's node)
-    lists:sublist(shuffle(Streams), RevokeCount).
+    lists:sublist(shuffle(GrantedStreams), RevokeCount).
 
 %% We assign streams to agents that have too few streams (< desired_stream_count_per_agent).
-%% We assign only to replaying agents.
+%% We assign only to stable subscribers — those not having streams in transient states.
 assign_streams(Data0, DesiredCounts) ->
-    Agents = replaying_agents(Data0),
-    lists:foldl(
-        fun(Agent, DataAcc) ->
-            DesiredCount = maps:get(Agent, DesiredCounts),
-            assign_lacking_streams(DataAcc, Agent, DesiredCount)
+    StableSSubscribers = stable_ssubscribers(Data0),
+    maps:fold(
+        fun(SSubscriberId, GrantedStreams, DataAcc) ->
+            DesiredCount = maps:get(SSubscriberId, DesiredCounts),
+            assign_lacking_streams(DataAcc, SSubscriberId, GrantedStreams, DesiredCount)
         end,
         Data0,
-        Agents
+        StableSSubscribers
     ).
 
-assign_lacking_streams(Data0, Agent, DesiredCount) ->
-    #{streams := Streams0, revoked_streams := []} = get_agent_state(Data0, Agent),
-    AssignCount = DesiredCount - length(Streams0),
+assign_lacking_streams(Data0, SSubscriberId, GrantedStreams, DesiredCount) ->
+    CurrentCount = length(GrantedStreams),
+    AssignCount = DesiredCount - CurrentCount,
     case AssignCount > 0 of
         false ->
             Data0;
         true ->
             ?tp(debug, shared_sub_leader_assign_streams, #{
-                agent => Agent,
-                agent_stream_count => length(Streams0),
+                ssubscriber_id => SSubscriberId,
+                current_count => CurrentCount,
                 assign_count => AssignCount,
                 desired_count => DesiredCount
             }),
-            assign_streams_to_agent(Data0, Agent, AssignCount)
+            StreamsToAssign = select_streams_for_assign(Data0, SSubscriberId, AssignCount),
+            assign_streams_to_ssubscriber(Data0, SSubscriberId, StreamsToAssign)
     end.
 
-assign_streams_to_agent(Data0, Agent, AssignCount) ->
-    StreamsToAssign = select_streams_for_assign(Data0, Agent, AssignCount),
-    Data1 = set_stream_ownership_to_agent(Data0, Agent, StreamsToAssign),
-    #{agents := #{Agent := AgentState0}} = Data1,
-    #{streams := Streams0, revoked_streams := []} = AgentState0,
-    Streams1 = Streams0 ++ StreamsToAssign,
-    AgentState1 = agent_transition_to_waiting_updating(Data0, Agent, AgentState0, Streams1, []),
-    set_agent_state(Data1, Agent, AgentState1).
-
-select_streams_for_assign(Data0, _Agent, AssignCount) ->
+select_streams_for_assign(Data0, _SSubscriberId, AssignCount) ->
     %% TODO
     %% Some intellectual logic should be used. See `select_streams_for_revoke/3`.
     UnassignedStreams = unassigned_streams(Data0),
     lists:sublist(shuffle(UnassignedStreams), AssignCount).
 
-%%--------------------------------------------------------------------
-%% renew_leases - send lease confirmations to agents
-
-renew_leases(#{agents := AgentStates} = Data) ->
-    ?tp(debug, shared_sub_leader_renew_leases, #{agents => maps:keys(AgentStates)}),
-    ok = lists:foreach(
-        fun({Agent, AgentState}) ->
-            renew_lease(Data, Agent, AgentState)
+revoke_streams_from_ssubscriber(Data, SSubscriberId, StreamsToRevoke) ->
+    lists:foldl(
+        fun(Stream, DataAcc0) ->
+            ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
+                SSubscriberId,
+                ?leader_revoke(this_leader(Data), Stream)
+            ),
+            set_stream_status(DataAcc0, Stream, ?stream_revoking)
         end,
-        maps:to_list(AgentStates)
-    ),
-    Data.
+        Data,
+        StreamsToRevoke
+    ).
 
-renew_lease(#{group_id := GroupId}, Agent, #{state := ?replaying, version := Version}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(Agent, GroupId, Version);
-renew_lease(#{group_id := GroupId}, Agent, #{state := ?waiting_replaying, version := Version}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(Agent, GroupId, Version);
-renew_lease(#{group_id := GroupId} = Data, Agent, #{
-    streams := Streams, state := ?waiting_updating, version := Version, prev_version := PrevVersion
-}) ->
-    StreamProgresses = stream_progresses(Data, Streams),
-    ok = emqx_ds_shared_sub_proto:leader_update_streams_v2(
-        Agent, GroupId, PrevVersion, Version, StreamProgresses
-    ),
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(
-        Agent, GroupId, PrevVersion, Version
-    );
-renew_lease(#{group_id := GroupId}, Agent, #{
-    state := ?updating, version := Version, prev_version := PrevVersion
-}) ->
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(
-        Agent, GroupId, PrevVersion, Version
+assign_streams_to_ssubscriber(Data, SSubscriberId, StreamsToAssign) ->
+    lists:foldl(
+        fun(Stream, DataAcc) ->
+            Progress = stream_progress(DataAcc, Stream),
+            emqx_ds_shared_sub_proto:send_to_ssubscriber(
+                SSubscriberId,
+                ?leader_grant(this_leader(DataAcc), Stream, Progress)
+            ),
+            set_stream_status(DataAcc, Stream, ?stream_granting)
+        end,
+        Data,
+        StreamsToAssign
     ).
 
 %%--------------------------------------------------------------------
-%% Drop agents that stopped reporting progress
+%% Timeout actions
 
-drop_timeout_agents(#{agents := Agents} = Data) ->
+do_timeout_actions(Data0) ->
+    Data1 = drop_timeout_ssubscribers(Data0),
+    Data2 = renew_transient_streams(Data1),
+    Data2.
+
+drop_timeout_ssubscribers(#{ssubscribers := SSubscribers} = Data) ->
     Now = now_ms_monotonic(),
-    lists:foldl(
-        fun(
-            {Agent,
-                #{update_deadline := UpdateDeadline, not_replaying_deadline := NoReplayingDeadline} =
-                    _AgentState},
-            DataAcc
-        ) ->
-            UpdatedDeadlineReached = (UpdateDeadline < Now),
-            NoReplayingDeadlineReached =
-                is_integer(NoReplayingDeadline) andalso NoReplayingDeadline < Now,
-            case UpdatedDeadlineReached or NoReplayingDeadlineReached of
+    map:foldl(
+        fun(SSubscriberId, #{validity_deadline := Deadline}, DataAcc) ->
+            case Deadline < Now of
                 true ->
-                    ?tp(warning, shared_sub_leader_agent_timeout, #{
-                        now => Now,
-                        update_deadline => UpdateDeadline,
-                        not_replaying_deadline => NoReplayingDeadline,
-                        update_deadline_reached => UpdatedDeadlineReached,
-                        not_replaying_deadline_reached => NoReplayingDeadlineReached,
-                        agent => Agent
+                    ?tp(debug, shared_sub_leader_drop_timeout_ssubscriber, #{
+                        ssubscriber_id => SSubscriberId,
+                        deadline => Deadline,
+                        now => Now
                     }),
-                    drop_invalidate_agent(DataAcc, Agent);
+                    drop_invalidate_ssubscriber(DataAcc, SSubscriberId);
                 false ->
                     DataAcc
             end
         end,
         Data,
-        maps:to_list(Agents)
+        SSubscribers
+    ).
+
+renew_transient_streams(#{stream_owners := StreamOwners} = Data) ->
+    Leader = this_leader(Data),
+    maps:foreach(
+        fun
+            (Stream, #stream_ownership{status = ?stream_granting, ssubscriber_id = SSubscriberId}) ->
+                Progress = stream_progress(Data, Stream),
+                emqx_ds_shared_sub_proto:send_to_ssubscriber(
+                    SSubscriberId,
+                    ?leader_grant(Leader, Stream, Progress)
+                );
+            (Stream, #stream_ownership{status = ?stream_revoking, ssubscriber_id = SSubscriberId}) ->
+                emqx_ds_shared_sub_proto:send_to_ssubscriber(
+                    SSubscriberId,
+                    ?leader_revoke(Leader, Stream)
+                );
+            (Stream, #stream_ownership{status = ?stream_revoked, ssubscriber_id = SSubscriberId}) ->
+                emqx_ds_shared_sub_proto:send_to_ssubscriber(
+                    SSubscriberId,
+                    ?leader_revoked(Leader, Stream)
+                )
+        end,
+        StreamOwners
     ).
 
 %%--------------------------------------------------------------------
-%% Handle a newly connected agent
+%% Handle a newly connected subscriber
 
-connect_agent(
-    #{group_id := GroupId, agents := Agents} = Data,
-    Agent,
-    AgentMetadata
+handle_ssubscriber_connect(
+    #{group_id := GroupId, ssubscribers := SSubscribers} = Data,
+    SSubscriberId
 ) ->
     ?SLOG(debug, #{
-        msg => leader_agent_connected,
-        agent => Agent,
+        msg => leader_ssubscriber_connect,
+        ssubscriber => SSubscriberId,
         group_id => GroupId
     }),
-    case Agents of
-        #{Agent := AgentState} ->
-            ?tp(debug, shared_sub_leader_agent_already_connected, #{
-                agent => Agent
-            }),
-            reconnect_agent(Data, Agent, AgentMetadata, AgentState);
+    case SSubscribers of
+        #{SSubscriberId := _} ->
+            ?tp(debug, shared_sub_leader_ssubscriber_already_connected, #{
+                ssubscriber_id => SSubscriberId
+            });
         _ ->
-            DesiredCounts = desired_stream_count_for_agents(Data, [Agent | maps:keys(Agents)]),
-            DesiredCount = maps:get(Agent, DesiredCounts),
-            assign_initial_streams_to_agent(Data, Agent, AgentMetadata, DesiredCount)
+            DesiredCounts = desired_stream_count_for_ssubscribers(Data, [
+                SSubscriberId | maps:keys(SSubscribers)
+            ]),
+            DesiredCount = maps:get(SSubscriberId, DesiredCounts),
+            assign_initial_streams_to_ssubscriber(Data, SSubscriberId, DesiredCount)
     end.
 
-assign_initial_streams_to_agent(Data, Agent, AgentMetadata, AssignCount) ->
-    InitialStreamsToAssign = select_streams_for_assign(Data, Agent, AssignCount),
-    Data1 = set_stream_ownership_to_agent(Data, Agent, InitialStreamsToAssign),
-    AgentState = agent_transition_to_initial_waiting_replaying(
-        Data1, Agent, AgentMetadata, InitialStreamsToAssign
-    ),
-    set_agent_state(Data1, Agent, AgentState).
-
-reconnect_agent(
-    Data0,
-    Agent,
-    AgentMetadata,
-    #{streams := OldStreams, revoked_streams := OldRevokedStreams} = _OldAgentState
-) ->
-    ?tp(debug, shared_sub_leader_agent_reconnect, #{
-        agent => Agent,
-        agent_metadata => AgentMetadata,
-        inherited_streams => OldStreams
-    }),
-    AgentState = agent_transition_to_initial_waiting_replaying(
-        Data0, Agent, AgentMetadata, OldStreams
-    ),
-    Data1 = set_agent_state(Data0, Agent, AgentState),
-    %% If client reconnected gracefully then it either had already sent all the final progresses
-    %% for the revoked streams (so `OldRevokedStreams` should be empty) or it had not started
-    %% to replay them (if we revoked streams after it desided to reconnect). So we can safely
-    %% unassign them.
-    %%
-    %% If client reconnects after a crash, then we wouldn't be here (the agent identity will be new).
-    Data2 = unassign_streams(Data1, OldRevokedStreams),
-    Data2.
+assign_initial_streams_to_ssubscriber(Data, SSubscriberId, AssignCount) ->
+    InitialStreamsToAssign = select_streams_for_assign(Data, SSubscriberId, AssignCount),
+    assign_streams_to_ssubscriber(Data, SSubscriberId, InitialStreamsToAssign).
 
 %%--------------------------------------------------------------------
-%% Handle stream progress updates from agent in replaying state
+%% Handle ssubscriber ping
 
-update_agent_stream_states(Data0, Agent, AgentStreamProgresses, Version) ->
-    #{state := State, version := AgentVersion, prev_version := AgentPrevVersion} =
-        AgentState0 = get_agent_state(Data0, Agent),
-    case {State, Version} of
-        {?waiting_updating, AgentPrevVersion} ->
-            %% Stale update, ignoring
-            Data0;
-        {?waiting_replaying, AgentVersion} ->
-            %% Agent finished updating, now replaying
-            {Data1, AgentState1} = update_stream_progresses(
-                Data0, Agent, AgentState0, AgentStreamProgresses
-            ),
-            AgentState2 = update_agent_timeout(AgentState1),
-            AgentState3 = agent_transition_to_replaying(Agent, AgentState2),
-            set_agent_state(Data1, Agent, AgentState3);
-        {?replaying, AgentVersion} ->
-            %% Common case, agent is replaying
-            {Data1, AgentState1} = update_stream_progresses(
-                Data0, Agent, AgentState0, AgentStreamProgresses
-            ),
-            AgentState2 = update_agent_timeout(AgentState1),
-            set_agent_state(Data1, Agent, AgentState2);
-        {OtherState, OtherVersion} ->
-            ?tp(warning, unexpected_update, #{
-                agent => Agent,
-                update_version => OtherVersion,
-                state => OtherState,
-                our_agent_version => AgentVersion,
-                our_agent_prev_version => AgentPrevVersion
-            }),
-            drop_invalidate_agent(Data0, Agent)
-    end.
-
-update_stream_progresses(
-    #{stream_owners := StreamOwners} = Data0,
-    Agent,
-    AgentState0,
-    ReceivedStreamProgresses
-) ->
-    ReplayedStreams = lists:foldl(
-        fun(#{stream := Stream, progress := Progress}, Acc) ->
-            case StreamOwners of
-                #{Stream := Agent} ->
-                    case Progress of
-                        #{iterator := end_of_stream} ->
-                            #{rank := Rank} = store_get_stream(Data0, Stream),
-                            Acc#{Stream => Rank};
-                        _ ->
-                            Acc
-                    end;
-                _ ->
-                    Acc
-            end
-        end,
-        #{},
-        ReceivedStreamProgresses
+handle_ssubscriber_ping(Data0, SSubscriberId) ->
+    ?SLOG(debug, #{
+        msg => leader_ssubscriber_ping,
+        ssubscriber => SSubscriberId
+    }),
+    #{ssubscribers := #{SSubscriberId := SSubscriberState0} = SSubscribers0} = Data0,
+    NewDeadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_interval_ms),
+    SSubscriberState1 = SSubscriberState0#{validity_deadline => NewDeadline},
+    ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
+        SSubscriberId,
+        ?leader_ping_response(this_leader(Data0))
     ),
-    Data1 = lists:foldl(
-        fun(#{stream := Stream, progress := Progress}, DataAcc) ->
-            case StreamOwners of
-                #{Stream := Agent} ->
-                    StreamData0 = store_get_stream(DataAcc, Stream),
-                    case Progress of
-                        #{iterator := end_of_stream} ->
-                            store_delete_stream(DataAcc, Stream);
-                        _ ->
-                            StreamData = StreamData0#{progress => Progress},
-                            store_put_stream(DataAcc, Stream, StreamData)
-                    end;
-                _ ->
-                    DataAcc
-            end
-        end,
-        Data0,
-        ReceivedStreamProgresses
-    ),
-    Data2 = update_rank_progress(Data1, ReplayedStreams),
-    AgentState1 = filter_replayed_streams(AgentState0, ReplayedStreams),
-    {Data2, AgentState1}.
-
-update_rank_progress(Data, ReplayedStreams) ->
-    RankProgress = maps:fold(
-        fun(Stream, Rank, RankProgressAcc) ->
-            emqx_ds_shared_sub_leader_rank_progress:set_replayed({Rank, Stream}, RankProgressAcc)
-        end,
-        store_get_rank_progress(Data),
-        ReplayedStreams
-    ),
-    store_put_rank_progress(Data, RankProgress).
-
-%% No need to revoke fully replayed streams. We do not assign them anymore.
-%% The agent's session also will drop replayed streams itself.
-filter_replayed_streams(
-    #{streams := Streams0, revoked_streams := RevokedStreams0} = AgentState0,
-    ReplayedStreams
-) ->
-    Streams1 = lists:filter(
-        fun(Stream) -> not maps:is_key(Stream, ReplayedStreams) end,
-        Streams0
-    ),
-    RevokedStreams1 = lists:filter(
-        fun(Stream) -> not maps:is_key(Stream, ReplayedStreams) end,
-        RevokedStreams0
-    ),
-    AgentState0#{
-        streams => Streams1,
-        revoked_streams => RevokedStreams1
+    Data0#{
+        ssubscribers => SSubscribers0#{SSubscriberId => SSubscriberState1}
     }.
 
-clean_revoked_streams(
-    Data0, _Agent, #{revoked_streams := RevokedStreams0} = AgentState0, ReceivedStreamProgresses
-) ->
-    FinishedReportedStreams = maps:from_list(
-        lists:filtermap(
-            fun
-                (
-                    #{
-                        stream := Stream,
-                        use_finished := true
-                    }
-                ) ->
-                    {true, {Stream, true}};
-                (_) ->
-                    false
-            end,
-            ReceivedStreamProgresses
-        )
-    ),
-    {FinishedStreams, StillRevokingStreams} = lists:partition(
-        fun(Stream) ->
-            maps:is_key(Stream, FinishedReportedStreams)
-        end,
-        RevokedStreams0
-    ),
-    Data1 = unassign_streams(Data0, FinishedStreams),
-    AgentState1 = AgentState0#{revoked_streams => StillRevokingStreams},
-    {AgentState1, Data1}.
+%%--------------------------------------------------------------------
+%% Handle stream progress
 
-unassign_streams(#{stream_owners := StreamOwners0} = Data, Streams) ->
-    StreamOwners1 = maps:without(Streams, StreamOwners0),
+handle_update_stream_progress(Data0, SSubscriberId, Stream, Progress) ->
+    case stream_ownership(Data0, Stream) of
+        #stream_ownership{status = Status, ssubscriber_id = SSubscriberId} ->
+            handle_update_stream_progress(Data0, SSubscriberId, Stream, Status, Progress);
+        _ ->
+            drop_invalidate_ssubscriber(Data0, SSubscriberId)
+    end.
+
+handle_update_stream_progress(Data0, _SSubscriberId, Stream, Status, Progress) when
+    Status =:= ?stream_granted orelse Status =:= ?stream_granting
+->
+    Data1 = update_stream_progress(Data0, Stream, Progress),
+    Data2 = set_stream_status(Data1, Stream, ?stream_granted),
+    finalize_stream_if_replayed(Data2, Stream, Progress);
+handle_update_stream_progress(Data0, _SSubscriberId, Stream, ?stream_revoking, Progress) ->
+    Data1 = update_stream_progress(Data0, Stream, Progress),
+    finalize_stream_if_revoke_finished_or_replayed(Data1, Stream, Progress);
+handle_update_stream_progress(Data, _SSubscriberId, _Stream, ?stream_revoked, _Progress) ->
+    Data.
+
+update_stream_progress(Data0, Stream, Progress) ->
+    Data1 = update_store_progress(Data0, Stream, Progress),
+    update_rank_progress(Data1, Stream, Progress).
+
+update_store_progress(Data, Stream, #{iterator := end_of_stream}) ->
+    store_delete_stream(Data, Stream);
+update_store_progress(Data, Stream, Progress) ->
+    StreamData0 = store_get_stream(Data, Stream),
+    StreamData = StreamData0#{progress => Progress},
+    store_put_stream(Data, Stream, StreamData).
+
+finalize_stream_if_replayed(Data, Stream, #{iterator := end_of_stream}) ->
+    finalize_streams(Data, [Stream]);
+finalize_stream_if_replayed(Data, _Stream, _Progress) ->
+    Data.
+
+finalize_stream_if_revoke_finished_or_replayed(Data, Stream, #{use_finished := true}) ->
+    finalize_streams(Data, [Stream]);
+finalize_stream_if_revoke_finished_or_replayed(Data, Stream, #{iterator := end_of_stream}) ->
+    finalize_streams(Data, [Stream]);
+finalize_stream_if_revoke_finished_or_replayed(Data, _Stream, _Progress) ->
+    Data.
+
+update_rank_progress(Data, Stream, #{iterator := end_of_stream}) ->
+    RankProgress0 = store_get_rank_progress(Data),
+    #{rank := Rank} = store_get_stream(Data, Stream),
+    RankProgress = emqx_ds_shared_sub_leader_rank_progress:set_replayed(
+        {Rank, Stream}, RankProgress0
+    ),
+    store_put_rank_progress(Data, RankProgress);
+update_rank_progress(Data, _Stream, _Progress) ->
+    Data.
+
+set_stream_status(#{stream_owners := StreamOwners} = Data, Stream, Status) ->
+    #{Stream := Ownership0} = StreamOwners,
+    Ownership1 = Ownership0#stream_ownership{status = Status},
+    StreamOwners1 = StreamOwners#{Stream => Ownership1},
+    Data#{
+        stream_owners => StreamOwners1
+    }.
+
+set_stream_free(#{stream_owners := StreamOwners} = Data, Stream) ->
+    StreamOwners1 = maps:remove(Stream, StreamOwners),
     Data#{
         stream_owners => StreamOwners1
     }.
 
 %%--------------------------------------------------------------------
-%% Handle stream progress updates from agent in updating (VersionOld -> VersionNew) state
-
-update_agent_stream_states(Data0, Agent, AgentStreamProgresses, VersionOld, VersionNew) ->
-    #{state := State, version := AgentVersion, prev_version := AgentPrevVersion} =
-        AgentState0 = get_agent_state(Data0, Agent),
-    case {State, VersionOld, VersionNew} of
-        {?waiting_updating, AgentPrevVersion, AgentVersion} ->
-            %% Client started updating
-            {Data1, AgentState1} = update_stream_progresses(
-                Data0, Agent, AgentState0, AgentStreamProgresses
-            ),
-            AgentState2 = update_agent_timeout(AgentState1),
-            {AgentState3, Data2} = clean_revoked_streams(
-                Data1, Agent, AgentState2, AgentStreamProgresses
-            ),
-            AgentState4 =
-                case AgentState3 of
-                    #{revoked_streams := []} ->
-                        agent_transition_to_waiting_replaying(Data1, Agent, AgentState3);
-                    _ ->
-                        agent_transition_to_updating(Agent, AgentState3)
-                end,
-            set_agent_state(Data2, Agent, AgentState4);
-        {?updating, AgentPrevVersion, AgentVersion} ->
-            {Data1, AgentState1} = update_stream_progresses(
-                Data0, Agent, AgentState0, AgentStreamProgresses
-            ),
-            AgentState2 = update_agent_timeout(AgentState1),
-            {AgentState3, Data2} = clean_revoked_streams(
-                Data1, Agent, AgentState2, AgentStreamProgresses
-            ),
-            AgentState4 =
-                case AgentState3 of
-                    #{revoked_streams := []} ->
-                        agent_transition_to_waiting_replaying(Data1, Agent, AgentState3);
-                    _ ->
-                        AgentState3
-                end,
-            set_agent_state(Data2, Agent, AgentState4);
-        {?waiting_replaying, _, AgentVersion} ->
-            {Data1, AgentState1} = update_stream_progresses(
-                Data0, Agent, AgentState0, AgentStreamProgresses
-            ),
-            AgentState2 = update_agent_timeout(AgentState1),
-            set_agent_state(Data1, Agent, AgentState2);
-        {?replaying, _, AgentVersion} ->
-            {Data1, AgentState1} = update_stream_progresses(
-                Data0, Agent, AgentState0, AgentStreamProgresses
-            ),
-            AgentState2 = update_agent_timeout(AgentState1),
-            set_agent_state(Data1, Agent, AgentState2);
-        {OtherState, OtherVersionOld, OtherVersionNew} ->
-            ?tp(warning, unexpected_update, #{
-                agent => Agent,
-                update_version_old => OtherVersionOld,
-                update_version_new => OtherVersionNew,
-                state => OtherState,
-                our_agent_version => AgentVersion,
-                our_agent_prev_version => AgentPrevVersion
-            }),
-            drop_invalidate_agent(Data0, Agent)
-    end.
-
-%%--------------------------------------------------------------------
 %% Disconnect agent gracefully
 
-disconnect_agent(Data0, Agent, AgentStreamProgresses, Version) ->
-    case get_agent_state(Data0, Agent) of
-        #{version := Version} ->
-            ?tp(debug, shared_sub_leader_disconnect_agent, #{
-                agent => Agent,
-                version => Version
-            }),
-            Data1 = update_agent_stream_states(Data0, Agent, AgentStreamProgresses, Version),
-            Data2 = with_agent(Data1, Agent, fun() -> drop_agent(Data1, Agent) end),
-            Data2;
+disconnect_ssubscriber(Data0, SSubscriberId, StreamProgresses) ->
+    Data1 = maps:fold(
+        fun({Stream, Progress}, DataAcc0) ->
+            case stream_ownership(DataAcc0, Stream) of
+                SSubscriberId ->
+                    DataAcc1 = update_stream_progress(DataAcc0, Stream, Progress),
+                    set_stream_free(DataAcc1, Stream);
+                _ ->
+                    DataAcc0
+            end
+        end,
+        Data0,
+        StreamProgresses
+    ),
+    ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
+        SSubscriberId,
+        ?leader_disconnect_response(this_leader(Data1))
+    ),
+    drop_ssubscriber(Data1, SSubscriberId).
+
+%%--------------------------------------------------------------------
+%% Finalize revoked stream
+
+handle_revoke_finished(Data0, SSubscriberId, Stream) ->
+    case stream_ownership(Data0, Stream) of
+        #stream_ownership{status = ?stream_revoked, ssubscriber_id = SSubscriberId} ->
+            set_stream_free(Data0, Stream);
         _ ->
-            ?tp(warning, shared_sub_leader_unexpected_disconnect, #{
-                agent => Agent,
-                version => Version
-            }),
-            Data1 = drop_agent(Data0, Agent),
-            Data1
+            drop_invalidate_ssubscriber(Data0, SSubscriberId)
     end.
-
-%%--------------------------------------------------------------------
-%% Agent state transitions
-%%--------------------------------------------------------------------
-
-agent_transition_to_waiting_updating(
-    #{group_id := GroupId} = Data,
-    Agent,
-    #{state := OldState, version := Version, prev_version := undefined} = AgentState0,
-    Streams,
-    RevokedStreams
-) ->
-    ?tp(debug, shared_sub_leader_agent_state_transition, #{
-        agent => Agent,
-        old_state => OldState,
-        new_state => ?waiting_updating
-    }),
-    NewVersion = next_version(Version),
-
-    AgentState1 = AgentState0#{
-        state => ?waiting_updating,
-        streams => Streams,
-        revoked_streams => RevokedStreams,
-        prev_version => Version,
-        version => NewVersion
-    },
-    AgentState2 = renew_no_replaying_deadline(AgentState1),
-    StreamProgresses = stream_progresses(Data, Streams),
-    ok = emqx_ds_shared_sub_proto:leader_update_streams_v2(
-        Agent, GroupId, Version, NewVersion, StreamProgresses
-    ),
-    AgentState2.
-
-agent_transition_to_waiting_replaying(
-    #{group_id := GroupId} = _Data, Agent, #{state := OldState, version := Version} = AgentState0
-) ->
-    ?tp(debug, shared_sub_leader_agent_state_transition, #{
-        agent => Agent,
-        old_state => OldState,
-        new_state => ?waiting_replaying
-    }),
-    ok = emqx_ds_shared_sub_proto:leader_renew_stream_lease_v2(Agent, GroupId, Version),
-    AgentState1 = AgentState0#{
-        state => ?waiting_replaying,
-        revoked_streams => []
-    },
-    renew_no_replaying_deadline(AgentState1).
-
-agent_transition_to_initial_waiting_replaying(
-    #{group_id := GroupId} = Data, Agent, AgentMetadata, InitialStreams
-) ->
-    ?tp(debug, shared_sub_leader_agent_state_transition, #{
-        agent => Agent,
-        old_state => none,
-        new_state => ?waiting_replaying
-    }),
-    Version = 0,
-    StreamProgresses = stream_progresses(Data, InitialStreams),
-    Leader = this_leader(Data),
-    ok = emqx_ds_shared_sub_proto:leader_lease_streams_v2(
-        Agent, GroupId, Leader, StreamProgresses, Version
-    ),
-    AgentState = #{
-        metadata => AgentMetadata,
-        state => ?waiting_replaying,
-        version => Version,
-        prev_version => undefined,
-        streams => InitialStreams,
-        revoked_streams => [],
-        update_deadline => now_ms_monotonic() + ?dq_config(leader_session_update_timeout_ms)
-    },
-    renew_no_replaying_deadline(AgentState).
-
-agent_transition_to_replaying(Agent, #{state := ?waiting_replaying} = AgentState) ->
-    ?tp(debug, shared_sub_leader_agent_state_transition, #{
-        agent => Agent,
-        old_state => ?waiting_replaying,
-        new_state => ?replaying
-    }),
-    AgentState#{
-        state => ?replaying,
-        prev_version => undefined,
-        not_replaying_deadline => undefined
-    }.
-
-agent_transition_to_updating(Agent, #{state := ?waiting_updating} = AgentState0) ->
-    ?tp(debug, shared_sub_leader_agent_state_transition, #{
-        agent => Agent,
-        old_state => ?waiting_updating,
-        new_state => ?updating
-    }),
-    AgentState1 = AgentState0#{state => ?updating},
-    renew_no_replaying_deadline(AgentState1).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -925,54 +703,27 @@ agent_transition_to_updating(Agent, #{state := ?waiting_updating} = AgentState0)
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
 
-renew_no_replaying_deadline(#{not_replaying_deadline := undefined} = AgentState) ->
-    AgentState#{
-        not_replaying_deadline => now_ms_monotonic() +
-            ?dq_config(leader_session_not_replaying_timeout_ms)
-    };
-renew_no_replaying_deadline(#{not_replaying_deadline := _Deadline} = AgentState) ->
-    AgentState;
-renew_no_replaying_deadline(#{} = AgentState) ->
-    AgentState#{
-        not_replaying_deadline => now_ms_monotonic() +
-            ?dq_config(leader_session_not_replaying_timeout_ms)
-    }.
-
 unassigned_streams(#{stream_owners := StreamOwners} = Data) ->
     Streams = store_setof_streams(Data),
     sets:to_list(sets:subtract(Streams, StreamOwners)).
 
-%% Those who are not connecting or updating, i.e. not in a transient state.
-replaying_agents(#{agents := AgentStates}) ->
-    lists:filtermap(
-        fun
-            ({Agent, #{state := ?replaying}}) ->
-                {true, Agent};
-            (_) ->
-                false
-        end,
-        maps:to_list(AgentStates)
+desired_stream_count_for_ssubscribers(#{ssubscribers := SSubscribers} = Data) ->
+    desired_stream_count_for_ssubscribers(Data, maps:keys(SSubscribers)).
+
+desired_stream_count_for_ssubscribers(_Data, []) ->
+    0;
+desired_stream_count_for_ssubscribers(Data, SSubscriberIds) ->
+    StreamCount = store_num_streams(Data),
+    SSubscriberCount = length(SSubscriberIds),
+    maps:from_list(
+        lists:map(
+            fun({I, SSubscriberId}) ->
+                {SSubscriberId,
+                    desired_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I)}
+            end,
+            enumerate(lists:sort(SSubscriberIds))
+        )
     ).
-
-desired_stream_count_for_agents(#{agents := AgentStates} = Data) ->
-    desired_stream_count_for_agents(Data, maps:keys(AgentStates)).
-
-desired_stream_count_for_agents(Data, Agents) ->
-    case Agents of
-        [] ->
-            0;
-        _ ->
-            StreamCount = store_num_streams(Data),
-            AgentCount = length(Agents),
-            maps:from_list(
-                lists:map(
-                    fun({I, Agent}) ->
-                        {Agent, desired_stream_count_for_agent(StreamCount, AgentCount, I)}
-                    end,
-                    enumerate(lists:sort(Agents))
-                )
-            )
-    end.
 
 enumerate(List) ->
     enumerate(0, List).
@@ -982,26 +733,23 @@ enumerate(_, []) ->
 enumerate(I, [H | T]) ->
     [{I, H} | enumerate(I + 1, T)].
 
-desired_stream_count_for_agent(StreamCount, AgentCount, I) ->
-    (StreamCount div AgentCount) + extra_stream_count_for_agent(StreamCount, AgentCount, I).
+desired_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I) ->
+    (StreamCount div SSubscriberCount) +
+        extra_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I).
 
-extra_stream_count_for_agent(StreamCount, AgentCount, I) when I < (StreamCount rem AgentCount) -> 1;
-extra_stream_count_for_agent(_StreamCount, _AgentCount, _I) -> 0.
+extra_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I) when
+    I < (StreamCount rem SSubscriberCount)
+->
+    1;
+extra_stream_count_for_ssubscriber(_StreamCount, _SSubscriberCount, _I) ->
+    0.
 
-stream_progresses(Data, Streams) ->
-    lists:map(
-        fun(Stream) ->
-            StreamData = store_get_stream(Data, Stream),
-            #{
-                stream => Stream,
-                progress => maps:get(progress, StreamData)
-            }
-        end,
-        Streams
-    ).
-
-next_version(Version) ->
-    Version + 1.
+stream_progress(Data, Stream) ->
+    StreamData = store_get_stream(Data, Stream),
+    #{
+        stream => Stream,
+        progress => maps:get(progress, StreamData)
+    }.
 
 shuffle(L0) ->
     L1 = lists:map(
@@ -1014,59 +762,78 @@ shuffle(L0) ->
     {_, L} = lists:unzip(L2),
     L.
 
-set_stream_ownership_to_agent(#{stream_owners := StreamOwners0} = Data, Agent, Streams) ->
-    StreamOwners1 = lists:foldl(
-        fun(Stream, Acc) ->
-            Acc#{Stream => Agent}
-        end,
-        StreamOwners0,
-        Streams
-    ),
-    Data#{
-        stream_owners => StreamOwners1
-    }.
-
-set_agent_state(#{agents := Agents} = Data, Agent, AgentState) ->
-    Data#{
-        agents => Agents#{Agent => AgentState}
-    }.
-
-update_agent_timeout(AgentState) ->
-    AgentState#{
-        update_deadline => now_ms_monotonic() + ?dq_config(leader_session_update_timeout_ms)
-    }.
-
-get_agent_state(#{agents := Agents} = _Data, Agent) ->
-    maps:get(Agent, Agents).
-
 this_leader(_Data) ->
     self().
 
-drop_agent(#{agents := Agents} = Data0, Agent) ->
-    AgentState = get_agent_state(Data0, Agent),
-    #{streams := Streams, revoked_streams := RevokedStreams} = AgentState,
-    AllStreams = Streams ++ RevokedStreams,
-    Data1 = unassign_streams(Data0, AllStreams),
-    ?tp(debug, shared_sub_leader_drop_agent, #{agent => Agent}),
-    Data1#{agents => maps:remove(Agent, Agents)}.
+drop_ssubscriber(
+    #{ssubscribers := SSubscribers0, stream_owners := StreamOwners0} = Data, SSubscriberIdDrop
+) ->
+    ?tp(debug, shared_sub_leader_drop_ssubscriber, #{agent => SSubscriberIdDrop}),
+    Subscribers1 = maps:remove(SSubscriberIdDrop, SSubscribers0),
+    StreamOwners1 = maps:filter(
+        fun(_Stream, SSubscriberId) -> SSubscriberId =/= SSubscriberIdDrop end,
+        StreamOwners0
+    ),
+    Data#{
+        ssubscribers => Subscribers1,
+        stream_owners => StreamOwners1
+    }.
 
-invalidate_agent(#{group_id := GroupId}, Agent) ->
-    ok = emqx_ds_shared_sub_proto:leader_invalidate_v2(Agent, GroupId).
+invalidate_subscriber(Data, SSubscriberId) ->
+    ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
+        SSubscriberId,
+        ?leader_invalidate(this_leader(Data))
+    ).
 
-drop_invalidate_agent(Data0, Agent) ->
-    Data1 = drop_agent(Data0, Agent),
-    ok = invalidate_agent(Data1, Agent),
+drop_invalidate_ssubscriber(Data0, SSubscriberId) ->
+    Data1 = drop_ssubscriber(Data0, SSubscriberId),
+    ok = invalidate_subscriber(Data1, SSubscriberId),
     Data1.
 
-with_agent(#{agents := Agents} = Data, Agent, Fun) ->
-    case Agents of
-        #{Agent := _} ->
-            Fun();
+stream_ownership(Data, Stream) ->
+    case Data of
+        #{stream_owners := #{Stream := #stream_ownership{} = Ownership}} ->
+            Ownership;
         _ ->
-            Data
+            undefined
     end.
 
-%%
+with_valid_ssubscriber(#{ssubscribers := SSubscribers} = Data, SSubscriberId, Fun) ->
+    Now = now_ms_monotonic(),
+    case SSubscribers of
+        #{SSubscriberId := #{validity_deadline := Deadline}} when Deadline > Now ->
+            Fun();
+        _ ->
+            drop_invalidate_ssubscriber(Data, SSubscriberId)
+    end.
+
+%% SSubscribers that do not have streams in transient states.
+%% The result is a map from ssubscriber_id to a list of granted streams.
+stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwners} = _Data) ->
+    maps:fold(
+        fun
+            (
+                Stream,
+                #stream_ownership{status = ?stream_granted, ssubscriber_id = SSubscriberId},
+                SSubscribersAcc
+            ) ->
+                maps:update_with(
+                    SSubscriberId,
+                    fun(_SSubscriberId, Streams) -> [Stream | Streams] end,
+                    SSubscribersAcc
+                );
+            (
+                _Stream,
+                #stream_ownership{status = _OtherStatus, ssubscriber_id = SSubscriberId},
+                IdsAcc
+            ) ->
+                maps:remove(SSubscriberId, IdsAcc)
+        end,
+        maps:from_list(maps:keys(SSubscribers), []),
+        StreamOwners
+    ).
+
+%% DS helpers
 
 get_streams(TopicFilter, StartTime) ->
     emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime).

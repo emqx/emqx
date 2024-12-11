@@ -218,7 +218,7 @@ add_ssubscriber(
         session_id => SessionId,
         share_topic_filter => ShareTopicFilter,
         id => SSubscriberId,
-        send_after => send_to_ssubscriber_after(SubscriptionId)
+        send_after => send_to_ssubscriber_after(SubscriptionId, SSubscriberId)
     }),
     SSubscriberEntry = #ssubscriber_entry{
         ssubscriber_id = SSubscriberId,
@@ -235,7 +235,7 @@ make_ssubscriber_id(Id, SubscriptionId) ->
     emqx_ds_shared_sub_proto:agent(Id, SubscriptionId, alias()).
 
 destroy_ssubscriber_id(SSubscriberId) ->
-    Alias = emqx_ds_shared_sub_proto:agent_ref(SSubscriberId),
+    Alias = emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId),
     _ = unalias(Alias),
     drain(Alias).
 
@@ -247,13 +247,18 @@ drain(Alias) ->
         ok
     end.
 
-send_to_ssubscriber_after(SubscriptionId) ->
+send_to_ssubscriber_after(SubscriptionId, SSubscriberId) ->
     fun(Time, Msg) ->
         emqx_persistent_session_ds_shared_subs_agent:send_after(
             Time,
             SubscriptionId,
             self(),
-            #message_to_ssubscriber{subscription_id = SubscriptionId, message = Msg}
+            #message_to_ssubscriber{
+                subscription_id = SubscriptionId,
+                message = {
+                    emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId), Msg
+                }
+            }
         )
     end.
 
