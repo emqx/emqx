@@ -371,6 +371,7 @@ asn1_deserialize_misc(MiscData, Message0) ->
                     fun(Props) ->
                         maps:put(binary_to_term(Key), binary_to_term(Val), Props)
                     end,
+                    #{binary_to_term(Key) => binary_to_term(Val)},
                     Headers0
                 ),
                 Acc#message{headers = Headers};
@@ -381,6 +382,7 @@ asn1_deserialize_misc(MiscData, Message0) ->
                     fun(Props) ->
                         maps:put(Key, Val, Props)
                     end,
+                    #{Key => Val},
                     Headers0
                 ),
                 Acc#message{headers = Headers};
