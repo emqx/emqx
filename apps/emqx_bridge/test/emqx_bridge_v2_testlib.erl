@@ -271,7 +271,7 @@ maybe_json_decode(X) ->
     end.
 
 request(Method, Path, Params) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = auth_header(),
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
         {ok, {Status, Headers, Body0}} ->
@@ -696,16 +696,24 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     Overrides = maps:get(overrides, Opts, #{}),
     Params = emqx_utils_maps:deep_merge(Params0, Overrides),
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    AuthHeader = auth_header(),
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
             Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            AuthHeaderGetter = get_auth_header_getter(),
+            on_exit(fun() ->
+                set_auth_header_getter(AuthHeaderGetter),
+                {204, _} = delete_rule_api(RuleId)
+            end),
             {ok, Res};
         Error ->
             Error
     end.
+
+delete_rule_api(RuleId) ->
+    Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
+    simplify_result(request(delete, Path, "")).
 
 api_spec_schemas(Root) ->
     Method = get,
@@ -1391,5 +1399,24 @@ proplist_update(Proplist, K, Fn) ->
     {K, OldV} = lists:keyfind(K, 1, Proplist),
     NewV = Fn(OldV),
     lists:keystore(K, 1, Proplist, {K, NewV}).
+
+get_auth_header_getter() ->
+    get({?MODULE, auth_header_fn}).
+
+set_auth_header_getter(Fun) ->
+    _ = put({?MODULE, auth_header_fn}, Fun),
+    ok.
+
+clear_auth_header_getter() ->
+    _ = erase({?MODULE, auth_header_fn}),
+    ok.
+
+auth_header() ->
+    case get_auth_header_getter() of
+        Fun when is_function(Fun, 0) ->
+            Fun();
+        _ ->
+            emqx_mgmt_api_test_util:auth_header_()
+    end.
 
 bin(X) -> emqx_utils_conv:bin(X).
