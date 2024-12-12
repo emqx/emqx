@@ -2,11 +2,22 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Asynchronous messages between shared sub subscriber and shared sub leader.
+-include("emqx_ds_shared_sub_proto_keys.hrl").
 
-%% NOTE
-%% We do not need any kind of request/response identification,
-%% because the protocol is fully event-based.
+-define(agent_proggress(Stream, Progress, UseFinished), #{
+    stream => Stream,
+    progress => Progress,
+    use_finished => UseFinished
+}).
+
+-define(leader_progress(Stream, Progress), #{
+    stream => Stream,
+    progress => Progress
+}).
+
+%%--------------------------------------------------------------------
+%% Asynchronous messages between shared sub subscriber and shared sub leader.
+%%--------------------------------------------------------------------
 
 %% SSubscriber messages sent to the leader.
 %% Leader talks to many SSubscribers, `ssubscriber_id` field is used to identify the sender.
@@ -33,16 +44,16 @@
     from_ssubscriber_id := FromSSubscriberId
 }).
 
--define(ssubscriber_update_progress_match(FromSSubscriberId, Progress), #{
+-define(ssubscriber_update_progress_match(FromSSubscriberId, StreamProgress), #{
     message_type := ssubscriber_update_progresses,
     from_ssubscriber_id := FromSSubscriberId,
-    progress := Progress
+    stream_progress := StreamProgress
 }).
 
--define(ssubscriber_update_progress(FromSSubscriberId, Progress), #{
+-define(ssubscriber_update_progress(FromSSubscriberId, StreamProgress), #{
     message_type => ssubscriber_update_progresses,
     from_ssubscriber_id => FromSSubscriberId,
-    progress => Progress
+    stream_progress => StreamProgress
 }).
 
 -define(ssubscriber_revoke_finished_match(FromSSubscriberId, Stream), #{
@@ -57,16 +68,16 @@
     stream => Stream
 }).
 
--define(ssubscriber_disconnect_match(FromSSubscriberId, Progresses), #{
+-define(ssubscriber_disconnect_match(FromSSubscriberId, StreamProgresses), #{
     message_type := ssubscriber_unsubscribe,
     from_ssubscriber_id := FromSSubscriberId,
-    progresses := Progresses
+    stream_progresses := StreamProgresses
 }).
 
--define(ssubscriber_disconnect(FromSSubscriberId, Progresses), #{
+-define(ssubscriber_disconnect(FromSSubscriberId, StreamProgresses), #{
     message_type => ssubscriber_unsubscribe,
     from_ssubscriber_id => FromSSubscriberId,
-    progresses => Progresses
+    stream_progresses => StreamProgresses
 }).
 
 %% Leader messages sent to the SSubscriber.
@@ -102,16 +113,16 @@
 
 %% Grant a stream to the SSubscriber.
 
--define(leader_grant_match(FromLeader, Progress), #{
+-define(leader_grant_match(FromLeader, StreamProgress), #{
     message_type := leader_grant,
     from_leader := FromLeader,
-    progress := Progress
+    stream_progress := StreamProgress
 }).
 
--define(leader_grant(FromLeader, Progress), #{
+-define(leader_grant(FromLeader, StreamProgress), #{
     message_type => leader_grant,
     from_leader => FromLeader,
-    progress => Progress
+    stream_progress => StreamProgress
 }).
 
 %% Start a revoke process for a stream from the SSubscriber.
@@ -164,33 +175,3 @@
 -define(is_local_ssubscriber(SSubscriberId), (?ssubscriber_node(SSubscriberId) =:= node())).
 -define(leader_node(Leader), node(Leader)).
 -define(is_local_leader(Leader), (?leader_node(Leader) =:= node())).
-
-%% Logging helpers
-
--ifdef(TEST).
-
--define(format_ssubscriber_msg(Msg), emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)).
--define(format_leader_msg(Msg), emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)).
-
-%% -ifdef(TEST).
--else.
-
--define(format_ssubscriber_msg(Msg), Msg).
--define(format_leader_msg(Msg), Msg).
-
-%% -ifdef(TEST).
--endif.
-
--define(log_ssubscriber_msg(ToLeader, Msg),
-    ?tp(debug, ssubscriber_to_leader, #{
-        to_leader => ToLeader,
-        proto_msg => ?format_ssubscriber_msg(Msg)
-    })
-).
-
--define(log_leader_msg(ToSSubscriberId, Msg),
-    ?tp(debug, leader_to_ssubscriber, #{
-        to_ssubscriber => ToSSubscriberId,
-        proto_msg => ?format_leader_msg(Msg)
-    })
-).

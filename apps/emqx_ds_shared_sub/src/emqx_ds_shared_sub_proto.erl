@@ -5,6 +5,7 @@
 -module(emqx_ds_shared_sub_proto).
 
 -include("emqx_ds_shared_sub_proto.hrl").
+-include("emqx_ds_shared_sub_proto_format.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -119,9 +120,16 @@ send_to_ssubscriber(ToSSubscriberId, Msg) ->
 %% Internal API
 %%--------------------------------------------------------------------
 
+-spec ssubscriber_id(
+    emqx_persistent_session_ds:id(),
+    emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
+    reference()
+) ->
+    ssubscriber_id().
 ssubscriber_id(SessionId, SubscriptionId, PidRef) ->
     ?ssubscriber_id(SessionId, SubscriptionId, PidRef).
 
+-spec ssubscriber_pidref(ssubscriber_id()) -> reference().
 ssubscriber_pidref(SSubscriberId) ->
     ?ssubscriber_pidref(SSubscriberId).
 
