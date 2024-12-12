@@ -320,6 +320,16 @@ list_bridges_api() ->
 get_source_api(BridgeType, BridgeName) ->
     get_bridge_api(source, BridgeType, BridgeName).
 
+get_source_metrics_api(Config) ->
+    SourceName = ?config(source_name, Config),
+    SourceType = ?config(source_type, Config),
+    SourceId = emqx_bridge_resource:bridge_id(SourceType, SourceName),
+    Path = emqx_mgmt_api_test_util:api_path(["sources", SourceId, "metrics"]),
+    ct:pal("getting source metrics (http)"),
+    Res = request(get, Path, []),
+    ct:pal("get source metrics (http) result:\n  ~p", [Res]),
+    simplify_result(Res).
+
 get_bridge_api(BridgeType, BridgeName) ->
     get_bridge_api(action, BridgeType, BridgeName).
 
@@ -680,6 +690,9 @@ create_rule_api(Opts) ->
     Res = request(Method, Path, Params),
     ct:pal("create rule results:\n  ~p", [Res]),
     Res.
+
+get_rule_metrics(RuleId) ->
+    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
 
 create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
     create_rule_and_action_http(BridgeType, RuleTopic, Config, _Opts = #{}).

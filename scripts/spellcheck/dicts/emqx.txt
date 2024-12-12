@@ -45,6 +45,7 @@ ci
 CLI
 clickhouse
 clientid
+clientids
 clientinfo
 cmake
 CMD
