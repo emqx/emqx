@@ -232,7 +232,7 @@ add_ssubscriber(
     State1.
 
 make_ssubscriber_id(Id, SubscriptionId) ->
-    emqx_ds_shared_sub_proto:agent(Id, SubscriptionId, alias()).
+    emqx_ds_shared_sub_proto:ssubscriber_id(Id, SubscriptionId, alias()).
 
 destroy_ssubscriber_id(SSubscriberId) ->
     Alias = emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId),

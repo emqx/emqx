@@ -459,7 +459,7 @@ do_timeout_actions(St0) ->
 
 drop_timeout_ssubscribers(#{ssubscribers := SSubscribers} = St) ->
     Now = now_ms_monotonic(),
-    map:foldl(
+    maps:fold(
         fun(SSubscriberId, #{validity_deadline := Deadline}, DataAcc) ->
             case Deadline < Now of
                 true ->
@@ -791,7 +791,7 @@ stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwner
             ) ->
                 maps:remove(SSubscriberId, IdsAcc)
         end,
-        maps:from_list(maps:keys(SSubscribers), []),
+        maps:from_keys(maps:keys(SSubscribers), []),
         StreamOwners
     ).
 

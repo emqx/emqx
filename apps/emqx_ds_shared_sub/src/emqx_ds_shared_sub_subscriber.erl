@@ -157,10 +157,7 @@ on_info(#{leader := Leader} = St, ?leader_message_match(OtherLeader)) when Leade
 %% Connecting
 %%
 on_info(St0, ?leader_connect_response_match(Leader)) when ?is_connecting(St0) ->
-    St1 = St0#{
-        status => ?connected,
-        leader => Leader
-    },
+    St1 = St0#{status => ?connected, leader => Leader},
     St2 = cancel_timer(St1, ?find_leader_timer),
     St3 = ensure_timer(St2, ?ping_leader_timer),
     {ok, [], St3};
@@ -176,8 +173,8 @@ on_info(St0, ?leader_ping_response_match(_)) ->
     St1 = cancel_timer(St0, ?ping_leader_timeout_timer),
     St2 = ensure_timer(St1, ?ping_leader_timer),
     {ok, [], St2};
-on_info(#{id := Id, leader := Leader} = St, ?ping_leader_timer) ->
-    ok = emqx_ds_shared_sub_proto:ping_leader_v3(Leader, Id),
+on_info(St, ?ping_leader_timer) ->
+    ok = notify_ping(St),
     {ok, [], ensure_timer(St, ?ping_leader_timer)};
 on_info(St, ?ping_leader_timeout_timer) ->
     {reset, [], St};
@@ -188,10 +185,7 @@ on_info(St0, ?leader_grant_match(_Leader, _StreamProgress)) when ?is_unsubscribi
     %% If unsubscribing, ignore the grant
     {ok, [], St0};
 on_info(St0, ?leader_grant_match(Leader, _StreamProgress) = Msg) when ?is_connecting(St0) ->
-    St1 = St0#{
-        leader => Leader,
-        status => ?connected
-    },
+    St1 = St0#{leader => Leader, status => ?connected},
     St2 = cancel_timer(St1, ?find_leader_timer),
     St3 = ensure_timer(St2, ?ping_leader_timer),
     on_info(St3, Msg);
@@ -209,9 +203,7 @@ on_info(
                     Streams0#{Stream => new_stream_data(Progress0)}
                 }
         end,
-    St1 = St0#{
-        streams => Streams1
-    },
+    St1 = St0#{streams => Streams1},
     ok = notify_progress(St1, Stream),
     {ok, Events, St1};
 %%
@@ -232,13 +224,9 @@ on_info(#{streams := Streams0} = St0, ?leader_revoke_match(_Leader, Stream)) whe
             {ok, [], St0};
         #{Stream := #{status := ?stream_granted} = StreamData} ->
             Streams1 = Streams0#{
-                Stream => StreamData#{
-                    status => ?stream_revoking
-                }
+                Stream => StreamData#{status => ?stream_revoking}
             },
-            St1 = St0#{
-                streams => Streams1
-            },
+            St1 = St0#{streams => Streams1},
             ok = notify_progress(St1, Stream),
             {ok, [revoke_event(Stream)], St1};
         #{} ->
@@ -265,9 +253,7 @@ on_info(#{streams := Streams0} = St0, ?leader_revoked_match(_Leader, Stream)) wh
             #{} ->
                 {[], Streams0}
         end,
-    St1 = St0#{
-        streams => Streams1
-    },
+    St1 = St0#{streams => Streams1},
     ok = notify_revoke_finished(St1, Stream),
     {ok, Events, St1};
 %%
@@ -293,9 +279,7 @@ on_unsubscribe(St) when ?is_unsubscribing(St) ->
 on_unsubscribe(St0) when ?is_connected(St0) ->
     case has_unfinished_streams(St0) of
         true ->
-            St1 = St0#{
-                status => ?unsubscribing
-            },
+            St1 = St0#{status => ?unsubscribing},
             St2 = ensure_timer(St1, ?unsubscribe_timer),
             {ok, [], St2};
         false ->
@@ -351,6 +335,37 @@ revoke_event(Stream) ->
 revoke_all_events(#{streams := Streams}) ->
     [revoke_event(Stream) || {Stream, #{status := ?stream_granted}} <- maps:to_list(Streams)].
 
+has_unfinished_streams(#{streams := Streams}) ->
+    lists:any(fun(#{use_finished := UseFinished}) -> not UseFinished end, maps:values(Streams)).
+
+update_progresses(St0, Progresses) ->
+    lists:foldl(
+        fun(StreamProgress, St) -> update_progress(St, StreamProgress) end,
+        St0,
+        Progresses
+    ).
+
+update_progress(#{streams := Streams0} = St, #{
+    stream := Stream, progress := Progress, use_finished := UseFinished
+}) ->
+    Streams1 =
+        case Streams0 of
+            #{Stream := StreamData} ->
+                Streams0#{
+                    Stream => StreamData#{
+                        progress := Progress,
+                        use_finished := UseFinished
+                    }
+                };
+            #{} ->
+                Streams0
+        end,
+    St#{streams => Streams1}.
+
+%%-----------------------------------------------------------------------
+%% Messages to the leader
+%%-----------------------------------------------------------------------
+
 notify_progress(#{id := Id, leader := Leader, streams := Streams}, Stream) ->
     case Streams of
         #{Stream := #{progress := Progress, use_finished := UseFinished}} ->
@@ -382,37 +397,12 @@ notify_disconnect(#{id := Id, leader := Leader, streams := Streams}) ->
         Leader, ?ssubscriber_disconnect(Id, StreamProgresses)
     ).
 
-has_unfinished_streams(#{streams := Streams}) ->
-    lists:any(fun(#{use_finished := UseFinished}) -> not UseFinished end, maps:values(Streams)).
-
-update_progresses(St0, Progresses) ->
-    lists:foldl(
-        fun(StreamProgress, St) -> update_progress(St, StreamProgress) end,
-        St0,
-        Progresses
-    ).
-
-update_progress(#{streams := Streams0} = St, #{
-    stream := Stream, progress := Progress, use_finished := UseFinished
-}) ->
-    Streams1 =
-        case Streams0 of
-            #{Stream := StreamData} ->
-                Streams0#{
-                    Stream => StreamData#{
-                        progress := Progress,
-                        use_finished := UseFinished
-                    }
-                };
-            #{} ->
-                Streams0
-        end,
-    St#{
-        streams => Streams1
-    }.
+notify_ping(#{id := Id, leader := Leader}) ->
+    ok = emqx_ds_shared_sub_proto:send_to_leader(Leader, ?ssubscriber_ping(Id)).
 
 %%-----------------------------------------------------------------------
 %% Timers
+%%-----------------------------------------------------------------------
 
 ensure_timer(#{send_after := SendAfter} = State0, TimerName) ->
     Timeout = timer_timeout(TimerName),
