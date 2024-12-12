@@ -537,7 +537,7 @@ stop_client(ClientID) ->
     ok.
 
 do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
-    case brod:get_partitions_count(ClientID, KafkaTopic) of
+    case brod:get_partitions_count_safe(ClientID, KafkaTopic) of
         {ok, NPartitions} ->
             case do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) of
                 ?status_connected ->
