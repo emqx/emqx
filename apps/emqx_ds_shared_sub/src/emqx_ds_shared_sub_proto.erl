@@ -23,11 +23,17 @@
 
 -type to_leader_msg() ::
     ?ssubscriber_ping_match(ssubscriber_id())
-    | ?ssubscriber_connect_match(ssubscriber_id(), share_topic_filter()).
+    | ?ssubscriber_connect_match(ssubscriber_id(), share_topic_filter())
+    | ?ssubscriber_disconnect_match(ssubscriber_id(), list(agent_stream_progress()))
+    | ?ssubscriber_update_progress_match(ssubscriber_id(), agent_stream_progress())
+    | ?ssubscriber_revoke_finished_match(ssubscriber_id(), emqx_ds:stream()).
 
 -type to_ssubscriber_msg() ::
     ?leader_connect_response_match(leader())
-    | ?leader_ping_response_match(leader()).
+    | ?leader_ping_response_match(leader())
+    | ?leader_grant_match(leader(), leader_stream_progress())
+    | ?leader_revoke_match(leader(), emqx_ds:stream())
+    | ?leader_revoked_match(leader(), emqx_ds:stream()).
 
 -export_type([
     leader/0,

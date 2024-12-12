@@ -33,17 +33,15 @@
     from_ssubscriber_id := FromSSubscriberId
 }).
 
--define(ssubscriber_update_progress_match(FromSSubscriberId, Stream, Progress), #{
+-define(ssubscriber_update_progress_match(FromSSubscriberId, Progress), #{
     message_type := ssubscriber_update_progresses,
     from_ssubscriber_id := FromSSubscriberId,
-    stream := Stream,
     progress := Progress
 }).
 
--define(ssubscriber_update_progress(FromSSubscriberId, Stream, Progress), #{
+-define(ssubscriber_update_progress(FromSSubscriberId, Progress), #{
     message_type => ssubscriber_update_progresses,
     from_ssubscriber_id => FromSSubscriberId,
-    stream => Stream,
     progress => Progress
 }).
 
@@ -104,17 +102,15 @@
 
 %% Grant a stream to the SSubscriber.
 
--define(leader_grant_match(FromLeader, Stream, Progress), #{
+-define(leader_grant_match(FromLeader, Progress), #{
     message_type := leader_grant,
     from_leader := FromLeader,
-    stream := Stream,
     progress := Progress
 }).
 
--define(leader_grant(FromLeader, Stream, Progress), #{
+-define(leader_grant(FromLeader, Progress), #{
     message_type => leader_grant,
     from_leader => FromLeader,
-    stream => Stream,
     progress => Progress
 }).
 
@@ -156,18 +152,6 @@
 
 -define(leader_invalidate(FromLeader), #{
     message_type => leader_invalidate,
-    from_leader => FromLeader
-}).
-
-%% Respond to the SSubscriber's disconnect request
-
--define(leader_disconnect_response_match(FromLeader), #{
-    message_type := leader_disconnect_response,
-    from_leader := FromLeader
-}).
-
--define(leader_disconnect_response(FromLeader), #{
-    message_type => leader_disconnect_response,
     from_leader => FromLeader
 }).
 

@@ -38,15 +38,15 @@
 %% considered "transient".
 
 %% Stream is being assigned to a ssubscriber, a ssubscriber should confirm the assignment
-%% by sending progress or reject the assignment
+%% by sending progress or reject the assignment.
 -define(stream_granting, stream_granting).
-%% Stream is assigned to a ssubscriber, the ssubscriber confirmed the assignment
+%% Stream is assigned to a ssubscriber, the ssubscriber confirmed the assignment.
 -define(stream_granted, stream_granted).
 %% Stream is being revoked from a ssubscriber, a ssubscriber should send us final progress
-%% for the stream
+%% for the stream.
 -define(stream_revoking, stream_revoking).
 %% Stream is revoked from a ssubscriber, the ssubscriber sent us final progress.
-%% We wait till the ssubscriber cleans up the data.
+%% We wait till the ssubscriber confirms that it has cleaned the data.
 -define(stream_revoked, stream_revoked).
 
 -type stream_status() :: ?stream_granting | ?stream_granted | ?stream_revoking | ?stream_revoked.
@@ -172,9 +172,9 @@ handle_info(?ssubscriber_ping_match(SSubscriberId), St0) ->
         handle_ssubscriber_ping(St0, SSubscriberId)
     end),
     {noreply, St1};
-handle_info(?ssubscriber_update_progress_match(SSubscriberId, Stream, StreamProgress), St0) ->
+handle_info(?ssubscriber_update_progress_match(SSubscriberId, StreamProgress), St0) ->
     St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
-        handle_update_stream_progress(St0, SSubscriberId, Stream, StreamProgress)
+        handle_update_stream_progress(St0, SSubscriberId, StreamProgress)
     end),
     {noreply, St1};
 handle_info(?ssubscriber_revoke_finished_match(SSubscriberId, Stream), St0) ->
@@ -184,7 +184,7 @@ handle_info(?ssubscriber_revoke_finished_match(SSubscriberId, Stream), St0) ->
     {noreply, St1};
 handle_info(?ssubscriber_disconnect_match(SSubscriberId, StreamProgresses), St0) ->
     %% We allow this event to be processed even if the ssubscriber is unknown
-    St1 = disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses),
+    St1 = handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses),
     {keep_state, St1};
 %%--------------------------------------------------------------------
 %% fallback
@@ -438,10 +438,10 @@ revoke_streams_from_ssubscriber(St, SSubscriberId, StreamsToRevoke) ->
 assign_streams_to_ssubscriber(St, SSubscriberId, StreamsToAssign) ->
     lists:foldl(
         fun(Stream, DataAcc) ->
-            Progress = stream_progress(DataAcc, Stream),
+            StreamProgress = stream_progress(DataAcc, Stream),
             emqx_ds_shared_sub_proto:send_to_ssubscriber(
                 SSubscriberId,
-                ?leader_grant(this_leader(DataAcc), Stream, Progress)
+                ?leader_grant(this_leader(DataAcc), StreamProgress)
             ),
             set_stream_status(DataAcc, Stream, ?stream_granting)
         end,
@@ -482,10 +482,10 @@ renew_transient_streams(#{stream_owners := StreamOwners} = St) ->
     maps:foreach(
         fun
             (Stream, #stream_ownership{status = ?stream_granting, ssubscriber_id = SSubscriberId}) ->
-                Progress = stream_progress(St, Stream),
+                StreamProgress = stream_progress(St, Stream),
                 emqx_ds_shared_sub_proto:send_to_ssubscriber(
                     SSubscriberId,
-                    ?leader_grant(Leader, Stream, Progress)
+                    ?leader_grant(Leader, StreamProgress)
                 );
             (Stream, #stream_ownership{status = ?stream_revoking, ssubscriber_id = SSubscriberId}) ->
                 emqx_ds_shared_sub_proto:send_to_ssubscriber(
@@ -548,57 +548,63 @@ handle_ssubscriber_ping(St0, SSubscriberId) ->
 %%--------------------------------------------------------------------
 %% Handle stream progress
 
-handle_update_stream_progress(St0, SSubscriberId, Stream, Progress) ->
+handle_update_stream_progress(St0, SSubscriberId, #{stream := Stream} = StreamProgress) ->
     case stream_ownership(St0, Stream) of
         #stream_ownership{status = Status, ssubscriber_id = SSubscriberId} ->
-            handle_update_stream_progress(St0, SSubscriberId, Stream, Status, Progress);
+            handle_update_stream_progress(St0, SSubscriberId, Status, StreamProgress);
+        undefined ->
+            St0;
         _ ->
             drop_invalidate_ssubscriber(St0, SSubscriberId)
     end.
 
-handle_update_stream_progress(St0, _SSubscriberId, Stream, Status, Progress) when
+handle_update_stream_progress(
+    St0, _SSubscriberId, Status, #{stream := Stream} = StreamProgress
+) when
     Status =:= ?stream_granted orelse Status =:= ?stream_granting
 ->
-    St1 = update_stream_progress(St0, Stream, Progress),
+    St1 = update_stream_progress(St0, StreamProgress),
     St2 = set_stream_status(St1, Stream, ?stream_granted),
-    finalize_stream_if_replayed(St2, Stream, Progress);
-handle_update_stream_progress(St0, _SSubscriberId, Stream, ?stream_revoking, Progress) ->
-    St1 = update_stream_progress(St0, Stream, Progress),
-    finalize_stream_if_revoke_finished_or_replayed(St1, Stream, Progress);
-handle_update_stream_progress(St, _SSubscriberId, _Stream, ?stream_revoked, _Progress) ->
+    finalize_stream_if_replayed(St2, StreamProgress);
+handle_update_stream_progress(St0, _SSubscriberId, ?stream_revoking, StreamProgress) ->
+    St1 = update_stream_progress(St0, StreamProgress),
+    finalize_stream_if_revoke_finished_or_replayed(St1, StreamProgress);
+handle_update_stream_progress(St, _SSubscriberId, ?stream_revoked, _StreamProgress) ->
     St.
 
-update_stream_progress(St0, Stream, Progress) ->
-    St1 = update_store_progress(St0, Stream, Progress),
-    update_rank_progress(St1, Stream, Progress).
+update_stream_progress(St0, StreamProgress) ->
+    St1 = update_store_progress(St0, StreamProgress),
+    update_rank_progress(St1, StreamProgress).
 
-update_store_progress(St, Stream, #{iterator := end_of_stream}) ->
+update_store_progress(St, #{stream := Stream, progress := #{iterator := end_of_stream}}) ->
     store_delete_stream(St, Stream);
-update_store_progress(St, Stream, Progress) ->
+update_store_progress(St, #{stream := Stream, progress := Progress}) ->
     StreamData0 = store_get_stream(St, Stream),
     StreamData = StreamData0#{progress => Progress},
     store_put_stream(St, Stream, StreamData).
 
-finalize_stream_if_replayed(St, Stream, #{iterator := end_of_stream}) ->
+finalize_stream_if_replayed(St, #{stream := Stream, progress := #{iterator := end_of_stream}}) ->
     finalize_streams(St, [Stream]);
-finalize_stream_if_replayed(St, _Stream, _Progress) ->
+finalize_stream_if_replayed(St, _Progress) ->
     St.
 
-finalize_stream_if_revoke_finished_or_replayed(St, Stream, #{use_finished := true}) ->
+finalize_stream_if_revoke_finished_or_replayed(St, #{stream := Stream, use_finished := true}) ->
     finalize_streams(St, [Stream]);
-finalize_stream_if_revoke_finished_or_replayed(St, Stream, #{iterator := end_of_stream}) ->
+finalize_stream_if_revoke_finished_or_replayed(St, #{
+    stream := Stream, progress := #{iterator := end_of_stream}
+}) ->
     finalize_streams(St, [Stream]);
-finalize_stream_if_revoke_finished_or_replayed(St, _Stream, _Progress) ->
+finalize_stream_if_revoke_finished_or_replayed(St, _StreamProgress) ->
     St.
 
-update_rank_progress(St, Stream, #{iterator := end_of_stream}) ->
+update_rank_progress(St, #{stream := Stream, progress := #{iterator := end_of_stream}}) ->
     RankProgress0 = store_get_rank_progress(St),
     #{rank := Rank} = store_get_stream(St, Stream),
     RankProgress = emqx_ds_shared_sub_leader_rank_progress:set_replayed(
         {Rank, Stream}, RankProgress0
     ),
     store_put_rank_progress(St, RankProgress);
-update_rank_progress(St, _Stream, _Progress) ->
+update_rank_progress(St, _StreamProgress) ->
     St.
 
 set_stream_status(#{stream_owners := StreamOwners} = St, Stream, Status) ->
@@ -618,12 +624,12 @@ set_stream_free(#{stream_owners := StreamOwners} = St, Stream) ->
 %%--------------------------------------------------------------------
 %% Disconnect agent gracefully
 
-disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
-    St1 = maps:fold(
-        fun({Stream, Progress}, DataAcc0) ->
+handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
+    St1 = lists:foldl(
+        fun(#{stream := Stream} = StreamProgress, DataAcc0) ->
             case stream_ownership(DataAcc0, Stream) of
-                SSubscriberId ->
-                    DataAcc1 = update_stream_progress(DataAcc0, Stream, Progress),
+                #stream_ownership{ssubscriber_id = SSubscriberId} ->
+                    DataAcc1 = update_stream_progress(DataAcc0, StreamProgress),
                     set_stream_free(DataAcc1, Stream);
                 _ ->
                     DataAcc0
@@ -631,10 +637,6 @@ disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
         end,
         St0,
         StreamProgresses
-    ),
-    ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
-        SSubscriberId,
-        ?leader_disconnect_response(this_leader(St1))
     ),
     drop_ssubscriber(St1, SSubscriberId).
 
