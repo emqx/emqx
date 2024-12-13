@@ -22,7 +22,7 @@
 -behaviour(gen_server).
 
 %% API:
--export([pool/1, start_link/4, enqueue/3, shard_event/2]).
+-export([pool/1, start_link/4, enqueue/2, shard_event/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -64,10 +64,16 @@
 pool(DBShard) ->
     {emqx_ds_beamformer_rt, DBShard}.
 
--spec enqueue(_Shard, emqx_d_beamformer:poll_req(), timeout()) -> ok.
-enqueue(Shard, Req, Timeout) ->
-    ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => rt}),
-    emqx_ds_beamformer:enqueue(pool(Shard), Req, Timeout).
+-spec enqueue(_Shard, emqx_d_beamformer:poll_req()) -> ok | {error, _}.
+enqueue(Shard, Req = #sub_state{req_id = SubId, stream = Stream}) ->
+    ?tp(debug, beamformer_enqueue, #{req_id => SubId, queue => rt}),
+    Worker = gproc_pool:pick_worker(pool(Shard), Stream),
+    try
+        gen_server:call(Worker, Req)
+    catch
+        exit:{timeout, _} ->
+            {error, timeout}
+    end.
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
@@ -105,15 +111,12 @@ init([CBM, ShardId, Name, _Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #sub_state{}, _From, S0) ->
-    {Reply, S} = do_enqueue(Req, S0),
+handle_call(Req = #sub_state{}, _From, S) ->
+    Reply = do_enqueue(Req, S),
     {reply, Reply, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
-handle_cast(Req = #sub_state{}, S0) ->
-    {_Reply, S} = do_enqueue(Req, S0),
-    {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
     ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
     %% FIXME: make a proper stream wrapper
@@ -132,25 +135,24 @@ handle_cast(_Cast, S) ->
     {noreply, S}.
 
 handle_info(
-    ?housekeeping_loop, S0 = #s{metrics_id = Metrics, queue = Queue, parent_sub_tab = SubTab}
+    ?housekeeping_loop, S0
 ) ->
     %% Reload configuration according from environment variables:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
-    %% Drop expired poll requests:
-    emqx_ds_beamformer:cleanup_expired(rt, SubTab, Metrics, Queue),
     %% Continue the loop:
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, #s{shard = ShardId, name = Name}) ->
+terminate(Reason, #s{shard = ShardId, name = Name, queue = Queue}) ->
     Pool = pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
-    ok.
+    Reason =:= shutdown orelse
+        emqx_ds_beamformer:redispatch(ShardId, emqx_ds_beamformer_waitq:all_reqs(Queue)).
 
 %%================================================================================
 %% Internal exports
@@ -173,22 +175,13 @@ do_enqueue(
                     }),
                     PQLen = emqx_ds_beamformer_waitq:size(Queue),
                     emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
-                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Queue);
-                {error, unrecoverable, old_key} ->
-                    %% FIXME: Race condition: catchup queue managed to
-                    %% read the data faster than we got the
-                    %% notification, and it managed to advance the
-                    %% iterator beyond the current high watermark. We
-                    %% cannot enque this request now, since it would
-                    %% lead to message duplication.
-                    PQLen = emqx_ds_beamformer_waitq:size(Queue),
-                    emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
-                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Queue);
+                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Queue),
+                    ok;
                 {error, unrecoverable, has_data} ->
                     ?tp(info, beamformer_push_rt_downgrade, #{
                         req_id => ReqId, stream => Stream, key => Key
                     }),
-                    emqx_ds_beamformer_catchup:enqueue(Shard, Req, 0);
+                    {error, stale};
                 Other ->
                     ?tp(
                         warning,
@@ -197,16 +190,17 @@ do_enqueue(
                             it => It0,
                             reason => Other
                         }
-                    )
+                    ),
+                    {error, Other}
             end;
         undefined ->
             ?tp(
                 warning,
                 beamformer_push_rt_unknown_stream,
                 #{poll_req => Req}
-            )
-    end,
-    {ok, S}.
+            ),
+            {error, unknown_stream}
+    end.
 
 process_stream_event(
     Stream, S = #s{shard = ShardId, module = CBM, batch_size = BatchSize, queue = Queue}
@@ -258,8 +252,8 @@ queue_search(#s{queue = Queue, parent_sub_tab = SubTab}, Stream, MsgKey, Msg) ->
     Topic = emqx_topic:tokens(Msg#message.topic),
     Candidates = emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue),
     lists:filtermap(
-        fun(WaitqKey) ->
-            case ets:lookup(SubTab, emqx_trie_search:get_id(WaitqKey)) of
+        fun(SubId) ->
+            case ets:lookup(SubTab, SubId) of
                 [Req] ->
                     #sub_state{msg_matcher = Matcher} = Req,
                     case Matcher(MsgKey, Msg) of

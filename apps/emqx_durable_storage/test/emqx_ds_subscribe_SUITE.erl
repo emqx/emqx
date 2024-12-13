@@ -142,7 +142,7 @@ t_subscription(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
-                        seqno = 2,
+                        seqno = 3,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"2">>}},
@@ -154,23 +154,30 @@ t_subscription(Config) ->
                 #{sref => SRef, mref => MRef}
             ),
             %% Fill more data:
-            ?assertMatch(ok, publish(DB, 3, 4)),
+            ?assertMatch(ok, publish(DB, 4, 5)),
             %% This data should not be delivered to the subscriber
             %% until it acks enough messages:
-            %% ?assertMatch([], recv(?FUNCTION_NAME, MRef)),
-            timer:sleep(10),
+            ?assertMatch([], recv(?FUNCTION_NAME, MRef)),
             %% Ack sequence number:
-            %% ?assertMatch(ok, emqx_ds:suback(DB, SRef, 3)),
-            %% ?assertMatch(
-            %%     [#poll_reply{ref = MRef, payload = {ok, _, [_, _, _]}, seqno = 5}],
-            %%     recv(?FUNCTION_NAME, MRef),
-            %%     #{sref => SRef, mref => MRef}
-            %% )
-            ok
+            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 3)),
+            %% Now we get the messages:
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"4">>}},
+                                {_, #message{payload = <<"5">>}}
+                            ]}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef),
+                #{sref => SRef, mref => MRef}
+            )
         end,
-        fun(Trace) ->
-                false
-        end
+        []
     ).
 
 %%

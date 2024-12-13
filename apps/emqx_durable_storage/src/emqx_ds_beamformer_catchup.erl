@@ -22,7 +22,7 @@
 -behavior(gen_server).
 
 %% API:
--export([start_link/4, pool/1, enqueue/3]).
+-export([start_link/4, pool/1, enqueue/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -49,12 +49,12 @@
     parent_sub_tab :: ets:tid(),
     name,
     queue :: ets:tid(),
-    pending_request_limit :: non_neg_integer(),
     batch_size :: non_neg_integer()
 }).
 
 -type s() :: #s{}.
 
+-record(enqueue_req, {sub_ids}).
 -define(fulfill_loop, beamformer_fulfill_loop).
 -define(housekeeping_loop, housekeeping_loop).
 
@@ -62,10 +62,14 @@
 %% API functions
 %%================================================================================
 
--spec enqueue(_Shard, emqx_ds_beamformer:sub_state(), timeout()) -> ok.
-enqueue(Shard, Req, Timeout) ->
-    ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => catchup}),
-    emqx_ds_beamformer:enqueue(pool(Shard), Req, Timeout).
+-spec enqueue(pid(), [emqx_beamformer:sub_id()]) -> ok | {error, _}.
+enqueue(Worker, SubIds) ->
+    try
+        gen_server:call(Worker, #enqueue_req{sub_ids = SubIds})
+    catch
+        exit:{timeout, _} ->
+            {error, timeout}
+    end.
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
@@ -91,21 +95,17 @@ init([CBM, ShardId, Name, _Opts]) ->
         metrics_id = emqx_ds_beamformer:shard_metrics_id(ShardId),
         name = Name,
         queue = queue_new(),
-        pending_request_limit = emqx_ds_beamformer:cfg_pending_request_limit(),
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(Req = #sub_state{}, _From, S0) ->
-    {Reply, S} = do_enqueue(Req, S0),
-    {reply, Reply, S};
+handle_call(#enqueue_req{sub_ids = SubIds}, _From, S) ->
+    do_enqueue(SubIds, S),
+    {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
-handle_cast(Req = #sub_state{}, S0) ->
-    {_Reply, S} = do_enqueue(Req, S0),
-    {noreply, S};
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
@@ -114,23 +114,24 @@ handle_info(?fulfill_loop, S0) ->
     S = fulfill(S0),
     {noreply, S};
 handle_info(
-    ?housekeeping_loop, S0 = #s{parent_sub_tab = SubTab, metrics_id = Metrics, queue = Queue}
+    ?housekeeping_loop, S0 = #s{}
 ) ->
     %% Reload configuration according from environment variables:
     S = S0#s{
-        batch_size = emqx_ds_beamformer:cfg_batch_size(),
-        pending_request_limit = emqx_ds_beamformer:cfg_pending_request_limit()
+        batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
-    emqx_ds_beamformer:cleanup_expired(catchup, SubTab, Metrics, Queue),
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, #s{shard_id = ShardId, name = Name}) ->
+terminate(Reason, #s{shard_id = ShardId, name = Name, queue = Queue}) ->
     gproc_pool:disconnect_worker(pool(ShardId), Name),
     gproc_pool:remove_worker(pool(ShardId), Name),
-    ok.
+    %% In case of abnormal shutdown we notify the parent about dropped
+    %% subscription states:
+    Reason =:= shutdown orelse
+        emqx_ds_beamformer:redispatch(ShardId, queue_all_reqs(Queue)).
 
 %%================================================================================
 %% Internal exports
@@ -140,19 +141,10 @@ terminate(_Reason, #s{shard_id = ShardId, name = Name}) ->
 %% Internal functions
 %%================================================================================
 
-do_enqueue(Req, S = #s{queue = PendingTab, metrics_id = Metrics}) ->
-    PQLen = ets:info(PendingTab, size),
-    emqx_ds_builtin_metrics:set_pendingq_len(Metrics, PQLen),
-    case PQLen >= S#s.pending_request_limit of
-        true ->
-            emqx_ds_builtin_metrics:inc_poll_requests_dropped(Metrics, 1),
-            Reply = {error, recoverable, too_many_requests},
-            {Reply, S};
-        false ->
-            queue_push(S#s.queue, Req),
-            ensure_fulfill_loop(),
-            {ok, S}
-    end.
+do_enqueue(SubIds, #s{parent_sub_tab = SubTab, queue = Queue, metrics_id = Metrics}) ->
+    _ = [queue_push(Queue, Req) || SubId <- SubIds, Req <- ets:lookup(SubTab, SubId)],
+    emqx_ds_builtin_metrics:set_pendingq_len(Metrics, ets:info(Queue, size)),
+    ensure_fulfill_loop().
 
 fulfill(S = #s{queue = Queue}) ->
     %% debug_pending(S),
@@ -234,8 +226,21 @@ move_to_realtime(
                 end_key => EndKey,
                 req_id => Req#sub_state.req_id
             }),
-            emqx_ds_beamformer_rt:enqueue(ShardId, Req, 0),
-            queue_drop(Queue, Req)
+            case emqx_ds_beamformer_rt:enqueue(ShardId, Req) of
+                ok ->
+                    queue_drop(Queue, Req);
+                {error, stale} ->
+                    %% Race condition: new data has been added.
+                    ok;
+                {error, Error} ->
+                    ?tp(
+                        error,
+                        emqx_ds_beamformer_move_to_rt_fail,
+                        #{shard => ShardId, req => Req, error => Error}
+                    ),
+                    ok = emqx_ds_beamformer:redispatch(ShardId, [Req#sub_state.req_id]),
+                    queue_drop(Queue, Req)
+            end
         end,
         Reqs
     ).
@@ -332,16 +337,20 @@ ensure_fulfill_loop() ->
 queue_new() ->
     ets:new(old_polls, [ordered_set, private, {keypos, 1}]).
 
+-define(queue_elem(STREAM, TF, STARTKEY, SUBID),
+    {{STREAM, TF, STARTKEY, SUBID}}
+).
+
 queue_push(
     Queue, #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
 ) ->
     ?tp(beamformer_push_replay, #{req_id => Ref}),
-    ets:insert(Queue, {{Stream, TF, Key, Ref}}).
+    ets:insert(Queue, ?queue_elem(Stream, TF, Key, Ref)).
 
 %% @doc Get all requests that await data with given stream, topic
 %% filter (exact) and start key.
 queue_lookup(#s{queue = Queue, parent_sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
-    MS = {{{Stream, TopicFilter, StartKey, '$1'}}, [], ['$1']},
+    MS = {?queue_elem(Stream, TopicFilter, StartKey, '$1'), [], ['$1']},
     ReqIds = ets:select(Queue, [MS]),
     lists:flatmap(
         fun(ReqId) ->
@@ -351,13 +360,17 @@ queue_lookup(#s{queue = Queue, parent_sub_tab = Subs}, Stream, TopicFilter, Star
     ).
 
 queue_drop_all(Queue, Stream, TopicFilter, StartKey) ->
-    ets:match_delete(Queue, {{Stream, TopicFilter, StartKey, '_'}}).
+    ets:match_delete(Queue, ?queue_elem(Stream, TopicFilter, StartKey, '_')).
 
 queue_drop(
     Queue, #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
 ) ->
     %% logger:warning(#{drop_req => {Stream, TF, Key, Ref}, tab => ets:tab2list(Queue)}),
     ets:delete(Queue, {Stream, TF, Key, Ref}).
+
+queue_all_reqs(Queue) ->
+    MS = {?queue_elem('_', '_', '_', '$1'), [], ['$1']},
+    ets:match(Queue, [MS]).
 
 queue_update(Queue, OldReq, Req) ->
     %% logger:warning(#{old => OldReq, new => Req}),
