@@ -114,7 +114,7 @@ to_sql_value(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
 %% SQL statements. The value is escaped if necessary.
 -spec to_sql_string(term(), Options) -> unicode:chardata() when
     Options :: #{
-        escaping => mysql | sql | cql,
+        escaping => mysql | sql | cql | sqlserver,
         undefined => null | unicode:chardata()
     }.
 to_sql_string(undefined, #{undefined := Str} = Opts) when Str =/= null ->
@@ -132,6 +132,8 @@ to_sql_string(Term, #{escaping := mysql}) ->
     maybe_escape(Term, fun escape_mysql/1);
 to_sql_string(Term, #{escaping := cql}) ->
     maybe_escape(Term, fun escape_cql/1);
+to_sql_string(Term, #{escaping := sqlserver}) ->
+    maybe_escape(Term, fun escape_sqlserver/1);
 to_sql_string(Term, #{}) ->
     maybe_escape(Term, fun escape_sql/1).
 
@@ -173,6 +175,11 @@ escape_mysql(S0) ->
 escape_snowflake(S) ->
     ES = binary:replace(S, <<"\"">>, <<"\"">>, [global, {insert_replaced, 1}]),
     [$", ES, $"].
+
+escape_sqlserver(<<"0x", _Rest/binary>> = SQLServerHex) ->
+    [SQLServerHex];
+escape_sqlserver(S) ->
+    escape_sql(S).
 
 %% NOTE
 %% This thing looks more complicated than needed because it's optimized for as few

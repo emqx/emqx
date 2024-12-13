@@ -183,17 +183,14 @@ preproc_sql(Sql, Opts) ->
 proc_sql(Tokens, Data) ->
     proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => fun sql_data/1}).
 
+%% func `proc_sql_param_str/2` and `proc_sql_param_str2/2` are only used by sqlserver bridge
 -spec proc_sql_param_str(tmpl_token(), map()) -> binary().
 proc_sql_param_str(Tokens, Data) ->
-    % NOTE
-    % This is a bit misleading: currently, escaping logic in `quote_sql/1` likely
-    % won't work with pgsql since it does not support C-style escapes by default.
-    % https://www.postgresql.org/docs/14/sql-syntax-lexical.html#SQL-SYNTAX-CONSTANTS
-    proc_param_str(Tokens, Data, fun quote_sql/1).
+    proc_param_str(Tokens, Data, fun quote_sqlserver/1).
 
 -spec proc_sql_param_str2(tmpl_token(), map()) -> binary().
 proc_sql_param_str2(Tokens, Data) ->
-    proc_param_str(Tokens, Data, fun quote_sql2/1).
+    proc_param_str(Tokens, Data, fun quote_sqlserver2/1).
 
 -spec proc_cql_param_str(tmpl_token(), map()) -> binary().
 proc_cql_param_str(Tokens, Data) ->
@@ -290,6 +287,14 @@ quote_mysql(Str) ->
 -spec quote_mysql2(_Value) -> iolist().
 quote_mysql2(Str) ->
     emqx_utils_sql:to_sql_string(Str, #{escaping => mysql}).
+
+-spec quote_sqlserver(_Str) -> iolist().
+quote_sqlserver(Str) ->
+    emqx_utils_sql:to_sql_string(Str, #{escaping => sqlserver, undefined => <<"undefined">>}).
+
+-spec quote_sqlserver2(_Str) -> iolist().
+quote_sqlserver2(Str) ->
+    emqx_utils_sql:to_sql_string(Str, #{escaping => sqlserver}).
 
 lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     Value;

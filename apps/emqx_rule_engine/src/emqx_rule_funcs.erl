@@ -109,6 +109,7 @@
 -export([
     str/1,
     str_utf8/1,
+    str_utf16_le/1,
     bool/1,
     int/1,
     float/1,
@@ -116,7 +117,8 @@
     float2str/2,
     map/1,
     bin2hexstr/1,
-    hexstr2bin/1
+    hexstr2bin/1,
+    sqlserver_hexbin/1
 ]).
 
 %% Data Type Validation Funcs
@@ -713,6 +715,11 @@ str_utf8(Data) when is_binary(Data); is_list(Data) ->
 str_utf8(Data) ->
     unicode:characters_to_binary(str(Data)).
 
+str_utf16_le(Data) when is_binary(Data); is_list(Data) ->
+    unicode:characters_to_binary(Data, utf8, {utf16, little});
+str_utf16_le(Data) ->
+    unicode:characters_to_binary(str(Data), utf8, {utf16, little}).
+
 bool(Data) ->
     emqx_utils_conv:bool(Data).
 
@@ -748,6 +755,9 @@ bin2hexstr(Bin) ->
 
 hexstr2bin(Str) ->
     emqx_variform_bif:hexstr2bin(Str).
+
+sqlserver_hexbin(Str) ->
+    <<"0x", (emqx_variform_bif:bin2hexstr(Str))/binary>>.
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
