@@ -41,12 +41,11 @@
 %%
 %% There are the following stream replay states:
 %%
-%% - *(R)eady*: stream iterator can be polled. Ready SRS are stored in
-%% `#s.ready' bucket.
+%% - *(R)eady*: stream is not blocked and it has buffered messages.
+%% Ready SRS are stored in `#s.ready' bucket.
 %%
-%% - *(P)ending*: poll request for the iterator has been sent to DS,
-%% and we're awaiting the response. Such iterators are stored in
-%% `#s.pending' bucket.
+%% - *(P)ending*: stream is not blocked, but its buffer is empty. Such
+%% iterators are stored in `#s.pending' bucket.
 %%
 %% - *(S)erved*: poll reply has been received, and ownership over SRS
 %% has been handed over to the parent session. This state is implicit:
@@ -77,12 +76,6 @@
 %%      .--(`?MODULE:poll')--> *P* --(Poll reply)--> *S* --> ...
 %%     /
 %% *R* --(`?MODULE:on_unsubscribe')--> *U*
-%%  ^  \
-%%  |   `--(`?MODULE:poll')--->---.
-%%  |                              \
-%%  \        Idle longpoll loop    *P*
-%%   \                             ,
-%%    `---<--(Poll timeout)---<---'
 %%
 %% *Served* streams are returned to the parent session, which assigns
 %% QoS and sequence numbers to the batch messages according to its own
@@ -128,11 +121,12 @@
 %% API:
 -export([
     init/1,
-    poll/3,
+    %% poll/3,
     on_subscribe/4,
     on_unsubscribe/4,
     on_new_stream_event/3,
-    on_ds_reply/3,
+    verify_reply/2,
+    suback/3,
     on_enqueue/5,
     on_seqno_release/4,
     find_replay_streams/1,
@@ -181,7 +175,7 @@
     it_begin :: emqx_ds:iterator()
 }).
 
--type pending() :: #pending_poll{}.
+%% -type pending() :: #pending_poll{}.
 
 -record(block, {
     id :: stream_key(),
@@ -202,7 +196,7 @@
 -type stream_map() :: #{emqx_ds:rank_x() => [{emqx_ds:rank_y(), emqx_ds:stream()}]}.
 
 %% Subscription-specific state:
--record(subs, {
+-record(sub_metadata, {
     subid :: emqx_persistent_session_ds:subscription_id(),
     %% Cache of streams pending for future replay (essentially,
     %% these are streams that have y-rank greater than the
@@ -211,13 +205,23 @@
     new_streams_watch = emqx_ds_new_streams:watch()
 }).
 
--type subs() :: #subs{}.
+-type sub_metadata() :: #sub_metadata{}.
+
+-record(stream_sub, {
+    ref :: emqx_ds:subscription_handle_handle(),
+    mref :: reference(),
+    seqno = 0 :: emqx_ds:sub_seqno()
+}).
+
+-type stream_sub() :: #stream_sub{}.
 
 -record(s, {
     %% Stream subscriptions:
     new_stream_subs = #{} :: new_stream_subs(),
-    %% Record for each subsription:
-    subs = #{} :: #{emqx_types:topic() => subs()},
+    %% Per-topic metadata records:
+    sub_metadata = #{} :: #{emqx_types:topic() => sub_metadata()},
+    %% Subscriptions:
+    subs = #{} :: #{stream_key() => stream_sub()},
     %% Buckets:
     ready :: ready(),
     pending = #{} :: #{stream_key() => #pending_poll{}},
@@ -251,6 +255,9 @@ init(S0) ->
         {S0, SchedS0},
         S0
     ),
+    %% Subscribe to new messages:
+    ActiveStreams = find_active_streams(S),
+    SchedS2 = SchedS1#s{subs = ds_subscribe(ActiveStreams, S, #{})},
     %% Restore stream states.
     %%
     %% Note: these states are NOT used during replay.
@@ -267,10 +274,24 @@ init(S0) ->
                 bq12 -> to_BQ12(Key, Srs, Acc)
             end
         end,
-        SchedS1,
+        SchedS2,
         S
     ),
     {S, SchedS}.
+
+-spec find_active_streams(emqx_persistent_session_ds_state:t()) -> [stream_key()].
+find_active_streams(S) ->
+    emqx_persistent_session_ds_state:fold_streams(
+        fun(Key, SRS, Acc) ->
+            case SRS of
+                #srs{unsubscribed = true} -> Acc;
+                #srs{it_end = end_of_stream} -> Acc;
+                #srs{} -> [Key | Acc]
+            end
+        end,
+        [],
+        S
+    ).
 
 %% @doc Find the streams that have unacked (in-flight) messages.
 %% Return them in the order they were previously replayed.
@@ -294,47 +315,47 @@ find_replay_streams(S) ->
     ),
     lists:sort(fun compare_streams/2, Streams).
 
-%% @doc Send poll request to DS for all iterators that are currently
-%% in ready state.
--spec poll(emqx_ds:poll_opts(), t(), emqx_persistent_session_ds_state:t()) -> t().
-poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
-    %% Create an alias for replies:
-    Ref = alias([explicit_unalias]),
-    %% Scan ready streams and create poll requests:
-    {Iterators, SchedS} = fold_ready(
-        fun(StreamKey, {AccIt, SchedS1}) ->
-            SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-            It = {StreamKey, SRS#srs.it_end},
-            Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
-            {
-                [It | AccIt],
-                to_P(StreamKey, Pending, SchedS1)
-            }
-        end,
-        {[], SchedS0},
-        Ready
-    ),
-    case Iterators of
-        [] ->
-            %% Nothing to poll:
-            unalias(Ref),
-            ok;
-        _ ->
-            %% Send poll request:
-            PollOpts = PollOpts0#{reply_to => Ref},
-            {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts),
-            ok
-    end,
-    %% Clean ready bucket at once, since we poll all ready streams at once:
-    SchedS#s{ready = empty_ready()}.
+%% %% @doc Send poll request to DS for all iterators that are currently
+%% %% in ready state.
+%% -spec poll(emqx_ds:poll_opts(), t(), emqx_persistent_session_ds_state:t()) -> t().
+%% poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
+%%     %% Create an alias for replies:
+%%     Ref = alias([explicit_unalias]),
+%%     %% Scan ready streams and create poll requests:
+%%     {Iterators, SchedS} = fold_ready(
+%%         fun(StreamKey, {AccIt, SchedS1}) ->
+%%             SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
+%%             It = {StreamKey, SRS#srs.it_end},
+%%             Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
+%%             {
+%%                 [It | AccIt],
+%%                 to_P(StreamKey, Pending, SchedS1)
+%%             }
+%%         end,
+%%         {[], SchedS0},
+%%         Ready
+%%     ),
+%%     case Iterators of
+%%         [] ->
+%%             %% Nothing to poll:
+%%             unalias(Ref),
+%%             ok;
+%%         _ ->
+%%             %% Send poll request:
+%%             PollOpts = PollOpts0#{reply_to => Ref},
+%%             {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts),
+%%             ok
+%%     end,
+%%     %% Clean ready bucket at once, since we poll all ready streams at once:
+%%     SchedS#s{ready = empty_ready()}.
 
 %% @doc DS notified us about new streams.
 -spec on_new_stream_event(emqx_ds_new_streams:watch(), emqx_persistent_session_ds_state:t(), t()) ->
     ret().
-on_new_stream_event(Ref, S0, SchedS0 = #s{subs = Subs}) ->
+on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
     case SchedS0#s.new_stream_subs of
         #{Ref := TopicFilterBin} ->
-            #{TopicFilterBin := SubS0} = Subs,
+            #{TopicFilterBin := SubS0} = SubsMetadata,
             ?tp(?sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
             TopicFilter = emqx_topic:words(TopicFilterBin),
             Subscription =
@@ -345,7 +366,10 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{subs = Subs}) ->
             StreamMap = get_streams(TopicFilter, StartTime),
             {NewSRSIds, S, SubS} = renew_streams(S0, TopicFilter, Subscription, StreamMap, SubS0),
             %% Update state:
-            SchedS1 = SchedS0#s{subs = Subs#{TopicFilterBin := SubS}},
+            SchedS1 = SchedS0#s{
+                sub_metadata = SubsMetadata#{TopicFilterBin := SubS},
+                subs = ds_subscribe(NewSRSIds, S, SchedS0#s.subs)
+            },
             SchedS = to_RU(NewSRSIds, SchedS1),
             {NewSRSIds, S, SchedS};
         _ ->
@@ -353,53 +377,72 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{subs = Subs}) ->
             {[], S0, SchedS0}
     end.
 
--spec on_ds_reply(#poll_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
-    {{stream_key(), emqx_ds:iterator(), emqx_ds:next_result()} | undefined, t()}.
-on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, S, SchedS0 = #s{pending = P0}) ->
-    %% Poll request has timed out. All pending streams that match poll
-    %% reference can be moved to R state:
-    ?SLOG(debug, #{msg => sess_poll_timeout, ref => Ref}),
-    unalias(Ref),
-    SchedS = maps:fold(
-        fun(Key, #pending_poll{ref = R}, SchedS1 = #s{pending = P}) ->
-            case R =:= Ref of
-                true ->
-                    SchedS2 = SchedS1#s{pending = maps:remove(Key, P)},
-                    case emqx_persistent_session_ds_state:get_stream(Key, S) of
-                        undefined ->
-                            SchedS2;
-                        Srs ->
-                            to_RU(Key, Srs, SchedS2)
-                    end;
-                false ->
-                    SchedS1
-            end
-        end,
-        SchedS0,
-        P0
-    ),
-    {undefined, SchedS};
-on_ds_reply(
-    #poll_reply{ref = Ref, userdata = StreamKey, payload = Payload},
-    _S,
-    SchedS0 = #s{pending = Pending0}
-) ->
-    case maps:take(StreamKey, Pending0) of
-        {#pending_poll{ref = Ref, it_begin = ItBegin}, Pending} ->
-            ?tp(debug, ?sessds_poll_reply, #{ref => Ref, stream_key => StreamKey}),
-            SchedS = SchedS0#s{pending = Pending},
-            {{StreamKey, ItBegin, Payload}, to_S(StreamKey, SchedS)};
+verify_reply(AsyncReply, SchedS) ->
+    #poll_reply{ref = Ref, userdata = StreamKey, seqno = SeqNo} = AsyncReply,
+    #s{subs = Subs0} = SchedS,
+    case Subs0 of
+        #{StreamKey := X = #stream_sub{ref = Ref, seqno = PrevSeenSeqNo}} when
+            PrevSeenSeqNo + 1 =:= SeqNo
+        ->
+            Subs = Subs0#{StreamKey := X#stream_sub{seqno = SeqNo}},
+            {true, SchedS#s{subs = Subs}};
         _ ->
-            ?SLOG(
-                info,
-                #{
-                    msg => "sessds_unexpected_msg",
-                    userdata => StreamKey,
-                    ref => Ref
-                }
-            ),
-            {undefined, SchedS0}
+            ?tp(warning, ?sessds_unexpected_ds_batch, #{stream => StreamKey, seqno => SeqNo}),
+            %% TODO: re-subscribe if anything is mismatched
+            {false, SchedS}
     end.
+
+suback(StreamKey, SeqNo, #s{subs = Subs}) ->
+    #{StreamKey := #stream_sub{ref = Ref}} = Subs,
+    emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo).
+
+%% -spec on_ds_reply(#poll_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
+%%     {{stream_key(), emqx_ds:iterator(), emqx_ds:next_result()} | undefined, t()}.
+%% on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, S, SchedS0 = #s{pending = P0}) ->
+%%     %% Poll request has timed out. All pending streams that match poll
+%%     %% reference can be moved to R state:
+%%     ?SLOG(debug, #{msg => sess_poll_timeout, ref => Ref}),
+%%     unalias(Ref),
+%%     SchedS = maps:fold(
+%%         fun(Key, #pending_poll{ref = R}, SchedS1 = #s{pending = P}) ->
+%%             case R =:= Ref of
+%%                 true ->
+%%                     SchedS2 = SchedS1#s{pending = maps:remove(Key, P)},
+%%                     case emqx_persistent_session_ds_state:get_stream(Key, S) of
+%%                         undefined ->
+%%                             SchedS2;
+%%                         Srs ->
+%%                             to_RU(Key, Srs, SchedS2)
+%%                     end;
+%%                 false ->
+%%                     SchedS1
+%%             end
+%%         end,
+%%         SchedS0,
+%%         P0
+%%     ),
+%%     {undefined, SchedS};
+%% on_ds_reply(
+%%     #poll_reply{ref = Ref, userdata = StreamKey, payload = Payload},
+%%     _S,
+%%     SchedS0 = #s{pending = Pending0}
+%% ) ->
+%%     case maps:take(StreamKey, Pending0) of
+%%         {#pending_poll{ref = Ref, it_begin = ItBegin}, Pending} ->
+%%             ?tp(debug, ?sessds_poll_reply, #{ref => Ref, stream_key => StreamKey}),
+%%             SchedS = SchedS0#s{pending = Pending},
+%%             {{StreamKey, ItBegin, Payload}, to_S(StreamKey, SchedS)};
+%%         _ ->
+%%             ?SLOG(
+%%                 info,
+%%                 #{
+%%                     msg => "sessds_unexpected_msg",
+%%                     userdata => StreamKey,
+%%                     ref => Ref
+%%                 }
+%%             ),
+%%             {undefined, SchedS0}
+%%     end.
 
 -spec on_enqueue(
     _IsReplay :: boolean(), stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()
@@ -510,7 +553,7 @@ gc(S) ->
     t()
 ) ->
     ret().
-on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{subs = Subs}) ->
+on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}) ->
     case Subs of
         #{TopicFilterBin := _} ->
             %% Already subscribed:
@@ -539,14 +582,16 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{subs = Subs}) ->
     t()
 ) ->
     {emqx_persistent_session_ds_state:t(), t()}.
-on_unsubscribe(TopicFilterBin, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, subs = Subs}) ->
+on_unsubscribe(
+    TopicFilterBin, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, sub_metadata = Subs}
+) ->
     #{TopicFilterBin := SubS} = Subs,
-    #subs{new_streams_watch = Ref} = SubS,
+    #sub_metadata{new_streams_watch = Ref} = SubS,
     %% Unsubscribe from new stream notifications:
     Watches = unwatch_streams(TopicFilterBin, Ref, Watches0),
     SchedS1 = SchedS0#s{
         new_stream_subs = Watches,
-        subs = maps:remove(TopicFilterBin, Subs)
+        sub_metadata = maps:remove(TopicFilterBin, Subs)
     },
     %% NOTE: this function only marks streams for deletion, but
     %% doesn't outright delete them.
@@ -605,14 +650,17 @@ is_fully_acked(Srs, S) ->
 ) ->
     ret().
 init_for_subscription(
-    TopicFilterBin, Subscription, S0, SchedS0 = #s{new_stream_subs = NewStreamSubs, subs = Subs}
+    TopicFilterBin,
+    Subscription,
+    S0,
+    SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata, subs = Subs}
 ) ->
     #{id := SubId, start_time := StartTime} = Subscription,
     TopicFilter = emqx_topic:words(TopicFilterBin),
     %% Start watching the streams immediately:
     NewStreamsWatch = watch_streams(TopicFilter),
     %% Create the initial record for subscription:
-    SubState0 = #subs{
+    SubState0 = #sub_metadata{
         subid = SubId,
         new_streams_watch = NewStreamsWatch
     },
@@ -624,7 +672,8 @@ init_for_subscription(
     %% Update the accumulator:
     SchedS = SchedS0#s{
         new_stream_subs = NewStreamSubs#{NewStreamsWatch => TopicFilterBin},
-        subs = Subs#{TopicFilterBin => SubState}
+        sub_metadata = SubMetadata#{TopicFilterBin => SubState},
+        subs = ds_subscribe(NewSRSIds, S, Subs)
     },
     {NewSRSIds, S, SchedS}.
 
@@ -651,9 +700,9 @@ init_for_subscription(
     emqx_ds:topic_filter(),
     emqx_persistent_session_ds_subs:subscription(),
     stream_map(),
-    subs()
+    sub_metadata()
 ) ->
-    {[stream_key()], emqx_persistent_session_ds_state:t(), subs()}.
+    {[stream_key()], emqx_persistent_session_ds_state:t(), sub_metadata()}.
 renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
     ?tp(?sessds_sched_renew_streams, #{topic_filter => TopicFilter}),
     {NewSRSIds, S, Pending} =
@@ -671,7 +720,7 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
             {[], S0, #{}},
             StreamMap
         ),
-    SubState = SubState0#subs{pending_streams = Pending},
+    SubState = SubState0#sub_metadata{pending_streams = Pending},
     ?tp(
         debug,
         ?sessds_sched_renew_streams_result,
@@ -691,21 +740,24 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
     t()
 ) ->
     ret().
-renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{subs = Subscriptions0}) ->
-    case find_subscription_by_subid(SubId, maps:iterator(Subscriptions0)) of
+renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0, subs = Subs}) ->
+    case find_subscription_by_subid(SubId, maps:iterator(SubMeta0)) of
         {TopicFilterBin, SubS0} ->
             case emqx_persistent_session_ds_state:get_subscription(TopicFilterBin, S0) of
                 undefined ->
                     {[], S0, SchedS0};
                 Subscription ->
                     TopicFilter = emqx_topic:words(TopicFilterBin),
-                    #subs{pending_streams = Cache} = SubS0,
+                    #sub_metadata{pending_streams = Cache} = SubS0,
                     #{RankX := Pending0} = Cache,
                     {NewSRSIds, S, Pending} = do_renew_streams_for_x(
                         S0, TopicFilter, Subscription, RankX, Pending0
                     ),
-                    SubS = SubS0#subs{pending_streams = Cache#{RankX => Pending}},
-                    SchedS = SchedS0#s{subs = Subscriptions0#{TopicFilterBin := SubS}},
+                    SubS = SubS0#sub_metadata{pending_streams = Cache#{RankX => Pending}},
+                    SchedS = SchedS0#s{
+                        sub_metadata = SubMeta0#{TopicFilterBin := SubS},
+                        subs = ds_subscribe(NewSRSIds, S, Subs)
+                    },
                     {NewSRSIds, S, SchedS}
             end;
         undefined ->
@@ -764,7 +816,7 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
             ({RankY, Stream}, {AccNewSRSIds, AccS0, AccPendingStreams}) when
                 RankY =:= CurrentY
             ->
-                {NewSRSIds, AccS} = ensure_iterator(
+                {NewSRSIds, AccS} = make_iterator(
                     TopicFilter, Subscription, {{RankX, RankY}, Stream}, AccS0
                 ),
                 {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
@@ -789,7 +841,7 @@ unsubscribe_stream(Key, Srs0 = #srs{}, S, SchedS) ->
     Srs = Srs0#srs{unsubscribed = true},
     {
         emqx_persistent_session_ds_state:put_stream(Key, Srs, S),
-        to_U(Key, Srs, SchedS)
+        to_U(Key, Srs, ds_unsubscribe(Key, SchedS))
     };
 unsubscribe_stream(_Key, undefined, S, SchedS) ->
     {S, SchedS}.
@@ -836,12 +888,42 @@ maybe_drop_stream(_CommQos1, _CommQos2, _Key, _SRS, S) ->
 
 find_subscription_by_subid(SubId, It0) ->
     case maps:next(It0) of
-        {TopicFilterBin, SubS = #subs{subid = SubId}, _It} ->
+        {TopicFilterBin, SubS = #sub_metadata{subid = SubId}, _It} ->
             {TopicFilterBin, SubS};
         {_, _, It} ->
             find_subscription_by_subid(SubId, It);
         none ->
             undefined
+    end.
+
+%%--------------------------------------------------------------------------------
+%% Subscription management
+%%--------------------------------------------------------------------------------
+
+ds_subscribe([], _S, Subs) ->
+    Subs;
+ds_subscribe([SrsID | Rest], S, Subs) ->
+    case Subs of
+        #{SrsID := _} ->
+            ds_subscribe(Rest, S, Subs);
+        _ ->
+            #srs{it_begin = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
+            %% FIXME: don't hardcode
+            {ok, SubRef, MRef} = emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, #{
+                max_unacked => 100
+            }),
+            ?tp(debug, ?sessds_sched_subscribe, #{stream => SrsID, ref => SubRef}),
+            ds_subscribe(Rest, S, Subs#{SrsID => #stream_sub{ref = SubRef, mref = MRef}})
+    end.
+
+ds_unsubscribe(SrsID, SchedS = #s{subs = Subs}) ->
+    case Subs of
+        #{SrsID := #stream_sub{ref = SubRef}} ->
+            emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, SubRef),
+            ?tp(debug, ?sessds_sched_unsubscribe, #{stream => SrsID, ref => SubRef}),
+            SchedS#s{subs = maps:remove(SrsID, Subs)};
+        #{} ->
+            SchedS
     end.
 
 %%--------------------------------------------------------------------------------
@@ -897,13 +979,13 @@ to_RU(Key, _Srs, S = #s{ready = R}) ->
     }),
     S#s{ready = push_to_ready(Key, R)}.
 
--spec to_P(stream_key(), pending(), t()) -> t().
-to_P(Key, Pending, S = #s{pending = P}) ->
-    ?tp(?sessds_stream_state_trans, #{
-        key => Key,
-        to => p
-    }),
-    S#s{pending = P#{Key => Pending}}.
+%% -spec to_P(stream_key(), pending(), t()) -> t().
+%% to_P(Key, Pending, S = #s{pending = P}) ->
+%%     ?tp(?sessds_stream_state_trans, #{
+%%         key => Key,
+%%         to => p
+%%     }),
+%%     S#s{pending = P#{Key => Pending}}.
 
 -spec to_BQ1(stream_key(), srs(), t()) -> t().
 to_BQ1(Key, SRS, S = #s{bq1 = BQ1}) ->
@@ -949,13 +1031,13 @@ to_U(
         %% It will be removed on seqno release.
     }.
 
--spec to_S(stream_key(), t()) -> t().
-to_S(Key, S) ->
-    ?tp(?sessds_stream_state_trans, #{
-        key => Key,
-        to => s
-    }),
-    S.
+%% -spec to_S(stream_key(), t()) -> t().
+%% to_S(Key, S) ->
+%%     ?tp(?sessds_stream_state_trans, #{
+%%         key => Key,
+%%         to => s
+%%     }),
+%%     S.
 
 -spec block_of_srs(stream_key(), srs()) -> block().
 block_of_srs(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}) ->
@@ -965,8 +1047,8 @@ block_of_srs(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}) ->
 %% Misc.
 %%--------------------------------------------------------------------------------
 
-fold_ready(Fun, Acc, Ready) ->
-    lists:foldl(Fun, Acc, Ready).
+%% fold_ready(Fun, Acc, Ready) ->
+%%     lists:foldl(Fun, Acc, Ready).
 
 empty_ready() ->
     [].
@@ -978,7 +1060,7 @@ del_ready(K, Ready) ->
     Ready -- [K].
 
 %% Create an iterator for the stream if it doesn't exist yet.
--spec ensure_iterator(
+-spec make_iterator(
     emqx_ds:topic_filter(),
     emqx_persistent_session_ds_subs:subscription(),
     {emqx_ds:stream_rank(), emqx_ds:stream()},
@@ -988,7 +1070,7 @@ del_ready(K, Ready) ->
         [stream_key()],
         emqx_persistent_session_ds_state:t()
     }.
-ensure_iterator(TopicFilter, Subscription, {{RankX, RankY}, Stream}, S) ->
+make_iterator(TopicFilter, Subscription, {{RankX, RankY}, Stream}, S) ->
     #{id := SubId, start_time := StartTime, current_state := CurrentSubState} = Subscription,
     Key = {SubId, Stream},
     %% FIXME: debug
@@ -1079,7 +1161,9 @@ offline_state_invariants(ModelState, #{s := S}) ->
 
 %% Verify that each active subscription has a state and a
 %% watch:
-invariant_subscription_states(#{subs := Subs}, #s{new_stream_subs = Watches, subs = SubStates}) ->
+invariant_subscription_states(#{subs := Subs}, #s{
+    new_stream_subs = Watches, sub_metadata = SubStates
+}) ->
     ExpectedTopics = lists:sort(maps:keys(Subs)),
     ?defer_assert(
         ?assertEqual(

@@ -19,7 +19,7 @@
 -module(emqx_ds_beamformer_waitq).
 
 %% API:
--export([new/0, insert/4, delete/4, matching_keys/3, has_candidates/2, size/1]).
+-export([new/0, insert/4, delete/4, matching_keys/3, has_candidates/2, size/1, all_reqs/1]).
 
 -export_type([t/0]).
 
@@ -48,7 +48,10 @@ delete(Stream, Filter, ID, Tab) ->
     ets:delete(Tab, make_key(Stream, Filter, ID)).
 
 matching_keys(Stream, Topic, Tab) ->
-    emqx_trie_search:matches(Topic, make_nextf(Stream, Tab), []).
+    [
+        emqx_trie_search:get_id(Key)
+     || Key <- emqx_trie_search:matches(Topic, make_nextf(Stream, Tab), [])
+    ].
 
 has_candidates(Stream, Tab) ->
     case ets:next(Tab, {Stream, 0}) of
@@ -58,6 +61,13 @@ has_candidates(Stream, Tab) ->
 
 size(Tab) ->
     ets:info(Tab, size).
+
+all_reqs(Queue) ->
+    MS = {{'$1', '_'}, [], ['$1']},
+    [
+        emqx_trie_search:get_id(Key)
+     || Key <- ets:select(Queue, [MS])
+    ].
 
 %%================================================================================
 %% Internal functions

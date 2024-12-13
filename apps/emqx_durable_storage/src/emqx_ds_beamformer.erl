@@ -76,14 +76,14 @@
 
 -feature(maybe_expr, enable).
 
--behaviour(gen_server).
+-behaviour(gen_statem).
 
 %% API:
 -export([start_link/2]).
 -export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([beams_init/4, beams_add/4, beams_conclude/3, beams_n_matched/1, split/1]).
--export([shard_metrics_id/1, enqueue/3, send_out_term/2, cleanup_expired/4]).
+-export([shard_metrics_id/1, redispatch/2, send_out_term/2]).
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
@@ -92,7 +92,7 @@
 -export([where/1, ls/1, lookup_sub/2, subtab/1]).
 
 %% Behavior callbacks:
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([callback_mode/0, init/1, terminate/3, handle_event/4]).
 
 -export_type([
     dbshard/0,
@@ -121,6 +121,25 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-define(idle, idle).
+-define(busy, busy).
+-define(recovering, recovering).
+
+-type state() ::
+    %% The shard is healthy, and there aren't any pending poll or
+    %% subscribe requests:
+    ?idle
+    %% The shard is healthy, and there are some requests that need to
+    %% be dispatched to the workers immediately:
+    | ?busy
+    %% Working is waiting for shard recovery. Dispatching of requests
+    %% to the workers has been delayed to will be retried later:
+    | ?recovering.
+
+%% State timeout (for both idle and recoverying) states that triggers
+%% dispatching of requests to the workers:
+-define(delegate_timeout, delegate_timeout).
 
 -type dbshard() :: {emqx_ds:db(), _Shard}.
 
@@ -164,7 +183,7 @@
         %% Iterator:
         it :: Iterator,
         %% Callback that filters messages that belong to the request:
-        msg_matcher :: emqx_beamformer:match_messagef(),
+        msg_matcher :: match_messagef(),
         opts :: emqx_ds:sub_opts(),
         deadline :: integer() | undefined
     }.
@@ -206,7 +225,6 @@
 -record(beam_maker, {
     cbm :: module(),
     shard_id :: _Shard,
-    update_iterator :: fun((Iterator, emqx_ds:message_key()) -> Iterator),
     queue_drop :: fun(),
     queue_update :: fun(),
     n = 0 :: non_neg_integer(),
@@ -225,16 +243,13 @@
 %% Callbacks
 %%================================================================================
 
--type match_messagef() :: fun(
-    (emqx_ds:message_key(), emqx_ds:topic(), emqx_types:message()) -> boolean()
-).
+-type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
 
 -type unpack_iterator_result(Stream) :: #{
     stream := Stream,
     topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
-    message_matcher := match_messagef(),
-    type => iterator_type()
+    message_matcher := match_messagef()
 }.
 
 -callback unpack_iterator(dbshard(), _Iterator) ->
@@ -250,6 +265,7 @@
 
 -callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
 
+%% @doc This callback is used to safely advance the iterator to the position represented by the key.
 -callback fast_forward(dbshard(), Iterator, emqx_ds:key()) ->
     {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error().
 
@@ -259,7 +275,7 @@
 
 -spec start_link(dbshard(), module()) -> {ok, pid()}.
 start_link(DBShard, CBM) ->
-    gen_server:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
+    gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
 
 %% @doc Submit a poll request
 -spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
@@ -295,7 +311,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 msg_matcher = MsgMatcher
             },
             emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
-            emqx_ds_beamformer_rt:enqueue(Shard, Req, Timeout);
+            ok = emqx_ds_beamformer_rt:enqueue(Shard, Req);
         Err = {error, _, _} ->
             Beam = #beam{
                 iterators = [{ReturnAddr, Iterator}],
@@ -450,6 +466,7 @@ keep_and_seqno(SubTab, #sub_state{req_id = Ref}, Nmsgs) ->
         ])
     of
         [SeqNo, Acked, Window] ->
+            logger:warning("~p:~p -> ~p, ~p, ~p", [Ref, Nmsgs, SeqNo, Acked, Window]),
             {is_sub_active(SeqNo, Acked, Window), Ref, SeqNo}
     catch
         error:badarg ->
@@ -511,10 +528,9 @@ fast_forward(Mod, Shard, It, Key) ->
     it_key,
     opts :: emqx_ds:poll_opts()
 }).
-
 -record(unsub_req, {id :: sub_id()}).
-
 -record(wakeup_sub_req, {id :: sub_id()}).
+-record(redispatch_req, {ids :: [sub_id()]}).
 
 -spec where(dbshard()) -> pid() | undefined.
 where(DBShard) ->
@@ -537,14 +553,13 @@ lookup_sub(DB, {Shard, SubId}) ->
 subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked}) when
     is_integer(MaxUnacked), MaxUnacked > 0
 ->
-    %% FIXME sub ref should be generated by monitoring the beamformer, rather than other way around
-    gen_server:call(Server, #sub_req{
+    gen_statem:call(Server, #sub_req{
         client = Client, it = It, it_key = ItKey, opts = Opts, handle = SubId
     }).
 
 -spec unsubscribe(dbshard(), sub_id()) -> boolean().
-unsubscribe(Shard, SubId) ->
-    gen_server:call(?via(Shard), #unsub_req{id = SubId}).
+unsubscribe(DBShard, SubId) ->
+    gen_statem:call(?via(DBShard), #unsub_req{id = SubId}).
 
 %% @doc Ack batches up to sequence number:
 -spec suback(dbshard(), sub_id(), emqx_ds:sub_seqno()) -> ok.
@@ -558,9 +573,12 @@ suback(DBShard, SubId, Acked) ->
             ets:update_element(subtab(DBShard), SubId, {#sub_state.acked_seqno, Acked}),
             %% If this subscription ack changed state of the subscription,
             %% then request moving subscription back into the pool:
-            not is_sub_active(SeqNo, OldAcked, Window) andalso is_sub_active(SeqNo, Acked, Window) andalso
-                gen_server:call(?via(DBShard), #wakeup_sub_req{id = SubId}),
-            ok
+            case {is_sub_active(SeqNo, OldAcked, Window), is_sub_active(SeqNo, Acked, Window)} of
+                {false, true} ->
+                    gen_statem:call(?via(DBShard), #wakeup_sub_req{id = SubId});
+                _ ->
+                    ok
+            end
     catch
         error:badarg ->
             %% This happens when subscription is not found:
@@ -568,10 +586,23 @@ suback(DBShard, SubId, Acked) ->
     end.
 
 %%================================================================================
-%% gen_server (responsible for subscriptions)
+%% gen_statem callbacks
 %%================================================================================
 
--record(s, {dbshard :: dbshard(), tab :: ets:tid(), cbm :: module(), monitor_tab = ets:tid()}).
+-record(d, {
+    dbshard :: dbshard(),
+    tab :: ets:tid(),
+    cbm :: module(),
+    monitor_tab = ets:tid(),
+    %% List of subscription IDs waiting for dispatching to the
+    %% worker:
+    pending = [] :: [reference()]
+}).
+
+-type d() :: #d{}.
+
+callback_mode() ->
+    [handle_event_function, state_enter].
 
 init([DBShard, CBM]) ->
     process_flag(trap_exit, true),
@@ -583,12 +614,16 @@ init([DBShard, CBM]) ->
         msg => started_bf, shard => DBShard, cbm => emqx_ds_beamformer_sup:cbm(DBShard)
     }),
     MTab = ets:new(beamformer_monitor_tab, [private, set]),
-    {ok, #s{dbshard = DBShard, tab = SubTab, cbm = CBM, monitor_tab = MTab}}.
+    {ok, ?idle, #d{dbshard = DBShard, tab = SubTab, cbm = CBM, monitor_tab = MTab}}.
 
-handle_call(
+-spec handle_event(gen_statem:event_type(), _Event, state(), d()) ->
+    gen_statem:event_handler_result(state()).
+%% Handle subscribe call:
+handle_event(
+    {call, From},
     #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts, handle = SubId},
-    _From,
-    S = #s{dbshard = Shard, tab = Tab, cbm = CBM, monitor_tab = MTab}
+    State,
+    D0 = #d{dbshard = Shard, tab = Tab, cbm = CBM, monitor_tab = MTab, pending = Pending}
 ) ->
     try CBM:unpack_iterator(Shard, It) of
         #{
@@ -604,6 +639,7 @@ handle_call(
                 shard => Shard,
                 key => DSKey
             }),
+            %% Update monitor table for automatic cleanup:
             ets:insert(MTab, {MRef, SubId}),
             #{max_unacked := MaxUnacked} = Opts,
             SubState = #sub_state{
@@ -619,45 +655,116 @@ handle_call(
                 opts = Opts,
                 msg_matcher = MsgMatcher
             },
+            %% Insert subscription state into the table:
             ets:insert(Tab, SubState),
-            emqx_ds_beamformer_catchup:enqueue(Shard, SubState, 0),
-            {reply, {ok, SubId}, S};
+            %% Schedule dispaching to the worker:
+            D = D0#d{pending = [SubId | Pending]},
+            Reply = {reply, From, {ok, SubId}},
+            case State of
+                ?idle ->
+                    {next_state, ?busy, D, Reply};
+                _ ->
+                    {keep_state, D, Reply}
+            end;
         Err = {error, _, _} ->
-            {reply, Err, S}
+            {keep_state_and_data, {reply, From, Err}}
     catch
-        EC:Err:Stack ->
-            {reply, {error, unrecoverable, {EC, Err, Stack}}, S}
+        EC:Reason:Stack ->
+            Error = {error, unrecoverable, {EC, Reason, Stack}},
+            {keep_state_and_data, {reply, From, Error}}
     end;
-handle_call(#unsub_req{id = Id}, _From, S = #s{tab = Tab, monitor_tab = MTab}) ->
-    Ret =
-        case ets:take(Tab, Id) of
-            [#sub_state{mref = MRef}] ->
-                demonitor(MRef, [flush]),
-                ets:delete(MTab, MRef),
-                true;
-            [] ->
-                false
-        end,
-    {reply, Ret, S};
-handle_call(_Call, _From, S) ->
-    {reply, {error, unknown_call}, S}.
-
-handle_cast(_Cast, S) ->
-    {noreply, S}.
-
-handle_info({'DOWN', MRef, process, _Pid, _Info}, S = #s{tab = Tab, monitor_tab = MTab}) ->
+%% Handle unsubscribe call:
+handle_event(
+    {call, From},
+    #unsub_req{id = SubId},
+    _State,
+    D0
+) ->
+    {Ret, D} = remove_subscription(SubId, D0),
+    {keep_state, D, {reply, From, Ret}};
+%% Handle wakeup subscription call:
+handle_event(
+    {call, From},
+    #wakeup_sub_req{id = SubId},
+    State,
+    D0 = #d{pending = Pending}
+) ->
+    D = D0#d{pending = [SubId | Pending]},
+    Reply = {reply, From, ok},
+    case State of
+        ?idle ->
+            {next_state, ?busy, D, Reply};
+        _ ->
+            {keep_state, D, Reply}
+    end;
+%% Handle redispatch call:
+handle_event(
+    {call, From},
+    #redispatch_req{ids = Ids},
+    _State,
+    D = #d{pending = Pending}
+) ->
+    Reply = {reply, From, ok},
+    {next_state, ?recovering, D#d{pending = Ids ++ Pending}, Reply};
+%% Handle unknown call:
+handle_event(
+    {call, From},
+    Call,
+    State,
+    Data
+) ->
+    ?tp(
+        error,
+        emqx_ds_beamformer_unknown_event,
+        #{event_type => call, state => State, data => Data, from => From, event => Call}
+    ),
+    {keep_state_and_data, {reply, From, {error, unrecoverable, {unknown_call, Call}}}};
+%% Handle down event:
+handle_event(
+    info,
+    {'DOWN', MRef, process, _Pid, _Info},
+    _State,
+    D0 = #d{monitor_tab = MTab}
+) ->
     case ets:take(MTab, MRef) of
         [{_, SubId}] ->
-            %% FIXME: also delete it from the queues
-            ets:delete(Tab, SubId);
+            %% One of the subscribers went down, remove subscription:
+            {_Ret, D} = remove_subscription(SubId, D0),
+            {keep_state, D};
         [] ->
-            ok
-    end,
-    {noreply, S};
-handle_info(_Info, S) ->
-    {noreply, S}.
+            %% Some other process that we don't care about:
+            keep_state_and_data
+    end;
+%% Set up state timeouts:
+handle_event(enter, _OldState, ?busy, _D) ->
+    %% In `busy' state we try to hand over subscriptions to the
+    %% workers as soon as possible:
+    {keep_state_and_data, {state_timeout, 0, ?delegate_timeout}};
+handle_event(enter, _OldState, ?recovering, _D) ->
+    %% In `recovering' state we delay handover to the worker to let
+    %% the system stabilize:
+    Cooldown = 1000,
+    {keep_state_and_data, {state_timeout, Cooldown, ?delegate_timeout}};
+handle_event(enter, _OldState, _NewState, _D) ->
+    keep_state_and_data;
+%% Handover subscriptions to the workers:
+handle_event(state_timeout, ?delegate_timeout, _State, D0) ->
+    {Success, D} = delegate_to_workers(D0),
+    NextState =
+        case Success of
+            true -> ?idle;
+            false -> ?recovering
+        end,
+    {next_state, NextState, D};
+handle_event(EventType, Event, State, Data) ->
+    ?tp(
+        error,
+        emqx_ds_beamformer_unknown_event,
+        #{event_type => EventType, state => State, data => Data, event => Event}
+    ),
+    keep_state_and_data.
 
-terminate(_, #s{dbshard = DBShard}) ->
+terminate(_Reason, _State, #d{dbshard = DBShard}) ->
     persistent_term:erase(?ps_subtid(DBShard)),
     gproc_pool:force_delete(emqx_ds_beamformer_rt:pool(DBShard)),
     gproc_pool:force_delete(emqx_ds_beamformer_catchup:pool(DBShard)),
@@ -667,59 +774,17 @@ terminate(_, #s{dbshard = DBShard}) ->
 %% Internal exports
 %%================================================================================
 
+%% @doc Called by the worker processes when they are about to
+%% terminate abnormally. This causes the FSM to enter `recovering'
+%% where it will attempt to re-assign the subscriptions to the workers
+%% after a cooldown interval:
+-spec redispatch(dbshard(), [sub_id()]) -> ok.
+redispatch(DBShard, SubIds) ->
+    gen_statem:call(?via(DBShard), #redispatch_req{ids = SubIds}).
+
 -spec subtab(dbshard()) -> ets:table().
 subtab(DBShard) ->
     persistent_term:get(?ps_subtid(DBShard)).
-
-%% enqueue(_, Req = #sub_state{hops = Hops}, _) when Hops > 3 ->
-%% It seems that the poll request is being bounced between the
-%% queues. After certain number of such hops we drop it to break
-%% the infinite loop.
-%%
-%% Normally, the poll request is bounced between the queues in the
-%% following cases:
-%%
-%% 1. The request was submitted to the RT queue, but its
-%% `start_key' is older than the high watermark for the stream. In
-%% this case RT queue will move it to the catchup queue.
-%%
-%% 2. Catchup queue tried to fulfill the poll request, but got an
-%% empty batch. In this case, it moves the poll request to the RT
-%% queue.
-%%
-%% Normally, the second case should not lead to the first one,
-%% since catchup queue updates the start key before sending it to
-%% the RT queue. However, the DS backend MAY misbehave and fail to
-%% return the end key corresponding to the empty batch equal to
-%% the high watermark.
-%%
-%% This is the probable cause of this warning. To avoid it the
-%% backend must ensure the following property:
-%%
-%% If `scan_stream' callback returns `{ok, EndKey, []}', then
-%% `EndKey' must be greater or equal to the `high_watermark' for
-%% the stream at the moment.
-%% ?tp(warning, beamformer_enqueue_max_hops, #{req => Req}),
-%% ok;
-enqueue(Pool, Req = #sub_state{stream = Stream}, Timeout) ->
-    %% Currently we implement backpressure by ignoring transient
-    %% errors (gen_server timeouts, `too_many_requests'), and just
-    %% letting poll requests expire at the higher level. This should
-    %% hold back the caller.
-    Worker = gproc_pool:pick_worker(Pool, Stream),
-    case Timeout of
-        0 ->
-            %% Avoid deadlock due to calling self:
-            gen_server:cast(Worker, Req);
-        _ ->
-            try gen_server:call(Worker, Req, Timeout) of
-                ok -> ok;
-                {error, recoverable, too_many_requests} -> ok
-            catch
-                exit:{timeout, _} ->
-                    ok
-            end
-    end.
 
 %% @doc RPC target: split the beam and dispatch replies to local
 %% consumers.
@@ -739,44 +804,58 @@ do_dispatch(Beam = #beam{misc = Misc}) ->
         split(Beam)
     ).
 
-%% @doc Semi-generic function for cleaning expired poll requests from
-%% an ETS table that is organized as a collection of 2-tuples, where
-%% `#poll_req{}' is the second element:
-%%
-%% `{_Key, #sub_state{...}}'
-%%
-%% This function does not affect subscriptions.
-cleanup_expired(QueueType, _ParentSubTab, Metrics, Table) ->
-    Now = erlang:monotonic_time(millisecond),
-    maybe_report_expired(QueueType, Table, Now),
-    %% Cleanup 1-shot poll requests:
-    MS = {
-        {'_', #sub_state{_ = '_', deadline = '$1'}},
-        [{'<', '$1', Now}],
-        [true]
-    },
-    NDeletedPolls = ets:select_delete(Table, [MS]),
-    emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeletedPolls),
-    ok.
-
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
-%% In TEST profile we want to emit trace events for expired poll
-%% reqests. In prod we just silently drop them.
--ifndef(TEST).
-maybe_report_expired(_QueueType, _Tabl, _Now) ->
-    ok.
--else.
-maybe_report_expired(QueueType, Table, Now) ->
-    MS = {{'_', #sub_state{_ = '_', deadline = '$1', req_id = '$2'}}, [{'<', '$1', Now}], ['$2']},
-    [
-        ?tp(beamformer_poll_expired, #{req_id => ReqId, queue => QueueType})
-     || ReqId <- ets:select(Table, [MS])
-    ],
-    ok.
--endif.
+delegate_to_workers(D = #d{dbshard = DBShard, tab = Tab, pending = Pending}) ->
+    Pool = emqx_ds_beamformer_catchup:pool(DBShard),
+    %% Find the appropriate worker for the requests and group the requests:
+    ByWorker = maps:groups_from_list(
+        fun(SubId) ->
+            case ets:lookup(Tab, SubId) of
+                [#sub_state{stream = Stream}] ->
+                    gproc_pool:pick_worker(Pool, Stream);
+                [] ->
+                    undefined
+            end
+        end,
+        Pending
+    ),
+    %% Dispatch the events to the workers and collect the requests
+    %% that couldn't be dispatched:
+    Unmatched = maps:fold(
+        fun
+            (undefined, _Reqs, Unmatched) ->
+                Unmatched;
+            (Worker, Reqs, Unmatched) ->
+                case emqx_ds_beamformer_catchup:enqueue(Worker, Reqs) of
+                    ok ->
+                        Unmatched;
+                    Error ->
+                        ?tp(
+                            error,
+                            emqx_ds_beamformer_delegate_error,
+                            #{shard => DBShard, worker => Worker, error => Error}
+                        ),
+                        Reqs ++ Unmatched
+                end
+        end,
+        [],
+        ByWorker
+    ),
+    {Unmatched =:= [], D#d{pending = Unmatched}}.
+
+remove_subscription(SubId, D = #d{tab = Tab, monitor_tab = MTab, pending = Pending}) ->
+    case ets:take(Tab, SubId) of
+        [#sub_state{mref = MRef}] ->
+            demonitor(MRef, [flush]),
+            ets:delete(MTab, MRef),
+            %% TODO: remove from the workers:
+            {true, D#d{pending = Pending -- [SubId]}};
+        [] ->
+            {false, D}
+    end.
 
 -spec pack(dbshard(), beam_maker(), emqx_ds:message_key(), per_node_requests()) ->
     beam(_ItKey, _Iterator).
@@ -801,31 +880,49 @@ pack(DBShard, BM, NextKey, Reqs) ->
             ) ->
                 ?tp(beamformer_fulfilled, #{req_id => Ref}),
                 {ok, It} = update_iterator(CBM, ShardId, It0, NextKey),
+                #{message_matcher := Matcher} = CBM:unpack_iterator(DBShard, It),
                 #{Ref := Nmsgs} = Counts,
-                NewSubS = SubS#sub_state{start_key = NextKey, it = It},
-                case keep_and_seqno(subtab(DBShard), SubS, Nmsgs) of
-                    false ->
-                        %% This is a singleton poll request. We drop
-                        %% them upon completion:
-                        ets:delete(SubTab, Ref),
-                        QueueDrop(SubS),
-                        AccSeqNo = AccSeqNos0;
-                    {false, SubRef, SeqNo} ->
-                        %% This request belongs to a subscription that
-                        %% went for too long without ack. We drop it
-                        %% from the active queue:
-                        ets:insert(SubTab, NewSubS),
-                        QueueDrop(SubS),
-                        AccSeqNo = AccSeqNos0#{SubRef => SeqNo};
-                    {true, SubRef, SeqNo} ->
-                        %% This request belongs to a subscription that
-                        %% keeps up with the ack window. We update its
-                        %% state:
-                        ets:insert(SubTab, NewSubS),
-                        QueueUpdate(SubS, NewSubS),
-                        AccSeqNo = AccSeqNos0#{SubRef => SeqNo}
-                end,
-                {AccSeqNo, [Ref | AccRefs], [{RAddr, It} | Acc]}
+                AccSeqNos =
+                    case keep_and_seqno(subtab(DBShard), SubS, Nmsgs) of
+                        false ->
+                            %% This is a singleton poll request. We
+                            %% simply drop them upon completion:
+                            ets:delete(SubTab, Ref),
+                            QueueDrop(SubS),
+                            AccSeqNos0;
+                        {Active, SubRef, SeqNo} ->
+                            %% This is a long-living subscription.
+                            %% Update its state:
+                            Existing = ets:update_element(
+                                SubTab,
+                                Ref,
+                                [
+                                    {#sub_state.it, It},
+                                    {#sub_state.start_key, NextKey},
+                                    {#sub_state.msg_matcher, Matcher}
+                                ]
+                            ),
+                            case Existing and Active of
+                                true ->
+                                    %% Subscription is keeping up with
+                                    %% the ack window. We update
+                                    %% worker's queue state:
+                                    QueueUpdate(
+                                        SubS,
+                                        SubS#sub_state{
+                                            start_key = NextKey, it = It, msg_matcher = Matcher
+                                        }
+                                    );
+                                false ->
+                                    %% This subscription is not
+                                    %% keeping up with the acks. We
+                                    %% drop it from the worker's
+                                    %% active queue:
+                                    QueueDrop(SubS)
+                            end,
+                            AccSeqNos0#{SubRef => SeqNo}
+                    end,
+                {AccSeqNos, [Ref | AccRefs], [{RAddr, It} | Acc]}
             end,
             {#{}, [], []},
             Reqs
