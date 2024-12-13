@@ -43,7 +43,8 @@
 -record(poll_reply, {
     ref :: reference(),
     userdata,
-    payload :: emqx_ds:next_result() | poll_timeout
+    payload :: emqx_ds:next_result() | poll_timeout,
+    seqno :: emqx_ds:sub_seqno() | undefined
 }).
 
 -record(new_stream_event, {

@@ -40,7 +40,9 @@
     update_iterator/3,
     next/3,
     poll/3,
-    subscribe/5,
+    subscribe/4,
+    unsubscribe/2,
+    suback/3,
     delete_next/4,
 
     %% `beamformer':
@@ -420,13 +422,29 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
--spec subscribe(emqx_ds:db(), pid(), _ItKey, iterator(), emqx_ds:sub_opts()) -> {ok, reference()}.
-subscribe(DB, Subscriber, ItKey, #{?tag := ?IT, ?enc := Inner, ?shard := Shard}, SubOpts) ->
-    emqx_ds_beamformer:subscribe(Subscriber, {DB, Shard}, Inner, ItKey, SubOpts).
+-spec subscribe(emqx_ds:db(), _ItKey, iterator(), emqx_ds:sub_opts()) ->
+    {ok, emqx_ds:subscription_handle(), reference()}.
+subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+    Server = emqx_ds_beamformer:where({DB, Shard}),
+    MRef = monitor(process, Server),
+    case emqx_ds_beamformer:subscribe(Server, self(), MRef, It, ItKey, SubOpts) of
+        {ok, MRef} ->
+            {ok, {Shard, MRef}, MRef};
+        Err = {error, _, _} ->
+            Err
+    end.
+
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
+unsubscribe(DB, {Shard, SubId}) ->
+    emqx_ds_beamformer:unsubscribe({DB, Shard}, SubId).
+
+-spec suback(emqx_ds:db(), emqx_ds:subscripton(), emqx_ds:sub_seqno()) ->
+    ok | {error, subscription_not_found}.
+suback(DB, {Shard, SubRef}, SeqNo) ->
+    emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    Now = current_timestamp(Shard),
-    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator, Now).
+    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
 high_watermark(Shard, Stream) ->
     Now = current_timestamp(Shard),
@@ -566,7 +584,7 @@ test_applications(_Config) ->
 test_db_config(_Config) ->
     #{
         backend => builtin_local,
-        storage => {emqx_ds_storage_reference, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{}},
         n_shards => 1
     }.
 
