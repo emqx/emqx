@@ -268,6 +268,12 @@ desc("connector") ->
     ?DESC("connector");
 desc("config_connector") ->
     ?DESC("desc_config");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(tablestore_action) ->
+    ?DESC("tablestore_action");
+desc("tablestore_fields") ->
+    ?DESC("tablestore_fields");
 desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
