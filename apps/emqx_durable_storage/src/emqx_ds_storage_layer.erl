@@ -41,7 +41,7 @@
     generation/1,
 
     %% Beamformer
-    unpack_iterator/3,
+    unpack_iterator/2,
     scan_stream/6,
     high_watermark/3,
     fast_forward/4,
@@ -368,7 +368,7 @@
     shard_id(),
     generation_data(),
     _CookedBatch
-) -> #{_Stream => emqx_ds:message_key()}.
+) -> [_Stream].
 
 -optional_callbacks([
     handle_event/4,
@@ -497,7 +497,7 @@ dispatch_events(
 ) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
     Events = Mod:batch_events(Shard, GenData, CookedBatch),
-    DispatchF([{?stream_v2(GenId, InnerStream), Topic} || {InnerStream, Topic} <- Events]).
+    DispatchF([?stream_v2(GenId, InnerStream) || InnerStream <- Events]).
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -638,7 +638,7 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 
 %%    When doing multi-next, we group iterators by stream:
 %% @TODO we need add it to the callback
-unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}, _Now) ->
+unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(Shard, GenData, Inner),
@@ -672,7 +672,7 @@ scan_stream(
 high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
     case make_iterator(Shard, Stream, ['#'], Now) of
         {ok, It} ->
-            #{last_seen_key := LSK} = unpack_iterator(Shard, It, Now),
+            #{last_seen_key := LSK} = unpack_iterator(Shard, It),
             {ok, LSK};
         Err ->
             Err

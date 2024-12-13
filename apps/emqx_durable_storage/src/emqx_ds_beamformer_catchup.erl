@@ -15,13 +15,14 @@
 %%--------------------------------------------------------------------
 
 %% @doc This type of beamformer worker takes care of fulfilling the
-%% poll requests on committed data.
+%% poll requests data committed long time ago. It utilizes the
+%% internal DS indexes.
 -module(emqx_ds_beamformer_catchup).
 
 -behavior(gen_server).
 
 %% API:
--export([start_link/4, enqueue/3]).
+-export([start_link/4, pool/1, enqueue/3]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -44,7 +45,8 @@
 -record(s, {
     module :: module(),
     metrics_id,
-    shard,
+    shard_id,
+    parent_sub_tab :: ets:tid(),
     name,
     queue :: ets:tid(),
     pending_request_limit :: non_neg_integer(),
@@ -56,9 +58,6 @@
 -define(fulfill_loop, beamformer_fulfill_loop).
 -define(housekeeping_loop, housekeeping_loop).
 
-%% Type of the key in the queue table:
--type queue_key() :: {_Stream, emqx_ds_beamformer:event_topic_filter(), emqx_ds:message_key()}.
-
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -66,11 +65,15 @@
 -spec enqueue(_Shard, emqx_ds_beamformer:sub_state(), timeout()) -> ok.
 enqueue(Shard, Req, Timeout) ->
     ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => catchup}),
-    emqx_ds_beamformer:enqueue(emqx_ds_beamformer_sup:catchup_pool(Shard), Req, Timeout).
+    emqx_ds_beamformer:enqueue(pool(Shard), Req, Timeout).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
     gen_server:start_link(?MODULE, [Mod, ShardId, Name, Opts], []).
+
+%% @doc Pool of catchup beamformers
+pool(Shard) ->
+    {emqx_ds_beamformer_catchup, Shard}.
 
 %%================================================================================
 %% behavior callbacks
@@ -78,12 +81,13 @@ start_link(Mod, ShardId, Name, Opts) ->
 
 init([CBM, ShardId, Name, _Opts]) ->
     process_flag(trap_exit, true),
-    Pool = emqx_ds_beamformer_sup:catchup_pool(ShardId),
-    gproc_pool:add_worker(Pool, Name),
-    gproc_pool:connect_worker(Pool, Name),
+    %% Attach this worker to the pool:
+    gproc_pool:add_worker(pool(ShardId), Name),
+    gproc_pool:connect_worker(pool(ShardId), Name),
     S = #s{
         module = CBM,
-        shard = ShardId,
+        shard_id = ShardId,
+        parent_sub_tab = emqx_ds_beamformer:subtab(ShardId),
         metrics_id = emqx_ds_beamformer:shard_metrics_id(ShardId),
         name = Name,
         queue = queue_new(),
@@ -109,22 +113,23 @@ handle_info(?fulfill_loop, S0) ->
     put(?fulfill_loop, false),
     S = fulfill(S0),
     {noreply, S};
-handle_info(?housekeeping_loop, S0 = #s{metrics_id = Metrics, queue = Queue}) ->
+handle_info(
+    ?housekeeping_loop, S0 = #s{parent_sub_tab = SubTab, metrics_id = Metrics, queue = Queue}
+) ->
     %% Reload configuration according from environment variables:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size(),
         pending_request_limit = emqx_ds_beamformer:cfg_pending_request_limit()
     },
-    emqx_ds_beamformer:cleanup_expired(catchup, Metrics, Queue),
+    emqx_ds_beamformer:cleanup_expired(catchup, SubTab, Metrics, Queue),
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, #s{shard = ShardId, name = Name}) ->
-    Pool = emqx_ds_beamformer_sup:catchup_pool(ShardId),
-    gproc_pool:disconnect_worker(Pool, Name),
-    gproc_pool:remove_worker(Pool, Name),
+terminate(_Reason, #s{shard_id = ShardId, name = Name}) ->
+    gproc_pool:disconnect_worker(pool(ShardId), Name),
+    gproc_pool:remove_worker(pool(ShardId), Name),
     ok.
 
 %%================================================================================
@@ -151,15 +156,14 @@ do_enqueue(Req, S = #s{queue = PendingTab, metrics_id = Metrics}) ->
 
 fulfill(S = #s{queue = Queue}) ->
     %% debug_pending(S),
-    case find_older_request(Queue, 100) of
+    %% TODO: rotate through streams, try to be more fair.
+    case find_older_request(Queue) of
         undefined ->
             S;
         {Stream, TopicFilter, StartKey} ->
             ?tp(emqx_ds_beamformer_fulfill_old, #{
                 stream => Stream, topic => TopicFilter, start_key => StartKey
             }),
-            %% The function MUST destructively consume all requests
-            %% matching stream and MsgKey to avoid infinite loop:
             do_fulfill(S, Stream, TopicFilter, StartKey),
             ensure_fulfill_loop(),
             S
@@ -167,125 +171,134 @@ fulfill(S = #s{queue = Queue}) ->
 
 do_fulfill(
     S = #s{
-        shard = Shard,
+        shard_id = Shard,
         module = CBM,
-        queue = OldQueue,
-        batch_size = BatchSize
+        batch_size = BatchSize,
+        queue = Queue,
+        metrics_id = Metrics
     },
     Stream,
     TopicFilter,
     StartKey
 ) ->
-    %% Here we only group requests with exact match of the topic
-    %% filter:
-    GetF = queue_pop(OldQueue, Stream, TopicFilter),
-    Result = emqx_ds_beamformer:scan_stream(CBM, Shard, Stream, TopicFilter, StartKey, BatchSize),
-    OnNomatch = enqueue_nomatch(S),
-    form_beams(S, GetF, OnNomatch, StartKey, Result).
+    case emqx_ds_beamformer:scan_stream(CBM, Shard, Stream, TopicFilter, StartKey, BatchSize) of
+        {ok, EndKey, []} ->
+            %% Empty batch? Try to move request to the RT queue:
+            move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey);
+        {ok, EndKey, Batch} ->
+            fulfill_batch(S, Stream, TopicFilter, StartKey, EndKey, Batch);
+        Other ->
+            %% This clause handles `{ok, end_of_stream}' and errors:
+            case Other of
+                Err = {error, Recoverable, _} ->
+                    Drop = not Recoverable,
+                    Pack = Err;
+                {ok, end_of_stream} ->
+                    Drop = false,
+                    Pack = end_of_stream
+            end,
+            MatchReqs = queue_lookup(S, Stream, TopicFilter, StartKey),
+            NFulfilled = length(MatchReqs),
+            report_metrics(Metrics, NFulfilled),
+            %% Pack requests into beams and send out:
+            emqx_ds_beamformer:send_out_term(Pack, MatchReqs),
+            %% Remove requests that reached `end_of_stream' and those
+            %% that encountered unrecoverable error:
+            Drop andalso queue_drop_all(Queue, Stream, TopicFilter, StartKey),
+            ok
+    end.
 
-%% This function checks pending requests in the `FromTab' and either
-%% dispatches them as a beam or passes them to `OnNomatch' callback if
-%% there's nothing to dispatch.
--spec form_beams(
+-spec move_to_realtime(
     s(),
-    fun((emqx_ds:message_key()) -> [Req]),
-    fun(([Req]) -> _),
+    emqx_ds:stream(),
+    emqx_ds:topic_filter(),
     emqx_ds:message_key(),
-    emqx_ds_beamformer:stream_scan_return()
-) -> boolean() when Req :: emqx_ds_beamformer:sub_state().
-form_beams(S, GetF, OnNomatch, StartKey, {ok, EndKey, Batch}) ->
-    do_form_beams(S, GetF, OnNomatch, StartKey, EndKey, Batch);
-form_beams(#s{metrics_id = Metrics}, GetF, _OnNomatch, StartKey, Result) ->
-    Pack =
-        case Result of
-            Err = {error, _, _} -> Err;
-            {ok, end_of_stream} -> end_of_stream
+    emqx_ds:message_key()
+) ->
+    ok.
+move_to_realtime(
+    S = #s{shard_id = ShardId, queue = Queue},
+    Stream,
+    TopicFilter,
+    StartKey,
+    EndKey
+) ->
+    Reqs = queue_lookup(S, Stream, TopicFilter, StartKey),
+    lists:foreach(
+        fun(Req) ->
+            ?tp(debug, beamformer_move_to_rt, #{
+                shard => ShardId,
+                stream => Stream,
+                tf => TopicFilter,
+                start_key => StartKey,
+                end_key => EndKey,
+                req_id => Req#sub_state.req_id
+            }),
+            emqx_ds_beamformer_rt:enqueue(ShardId, Req, 0),
+            queue_drop(Queue, Req)
         end,
-    MatchReqs = GetF(StartKey),
-    %% Report metrics:
-    NFulfilled = length(MatchReqs),
-    NFulfilled > 0 andalso
-        begin
-            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
-            emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
-        end,
-    %% Pack requests into beams and send out:
-    emqx_ds_beamformer:send_out_term(Pack, MatchReqs),
-    NFulfilled > 0.
+        Reqs
+    ).
 
--spec do_form_beams(
+-spec fulfill_batch(
     s(),
-    fun((emqx_ds:message_key()) -> [Req]),
-    fun(([Req]) -> _),
+    emqx_ds:stream(),
+    emqx_ds:topic_filter(),
     emqx_ds:message_key(),
     emqx_ds:message_key(),
     [{emqx_ds:message_key(), emqx_types:message()}]
-) -> boolean() when Req :: emqx_ds_beamformer:sub_state().
-do_form_beams(
-    #s{metrics_id = Metrics, module = CBM, shard = Shard},
-    GetF,
-    OnNomatch,
+) -> ok.
+fulfill_batch(
+    S = #s{shard_id = ShardId, metrics_id = Metrics, module = CBM, queue = Queue},
+    Stream,
+    TopicFilter,
     StartKey,
     EndKey,
     Batch
 ) ->
     %% Find iterators that match the start message of the batch (to
     %% handle iterators freshly created by `emqx_ds:make_iterator'):
-    Candidates0 = GetF(StartKey),
+    Candidates = queue_lookup(S, Stream, TopicFilter, StartKey),
     %% Search for iterators where `last_seen_key' is equal to key of
     %% any message in the batch:
-    {Candidates, BeamMaker} =
+    BeamMaker =
         process_batch(
-            GetF,
+            S,
+            Stream,
+            TopicFilter,
             Batch,
-            Candidates0,
-            emqx_ds_beamformer:beams_init()
+            Candidates,
+            emqx_ds_beamformer:beams_init(
+                CBM,
+                ShardId,
+                fun(Req) -> queue_drop(Queue, Req) end,
+                fun(OldReq, Req) -> queue_update(Queue, OldReq, Req) end
+            )
         ),
-    %% Find what poll requests _actually_ have data in the batch. It's
-    %% important not to send empty batches to the consumers, so they
-    %% don't come back immediately, creating a busy loop:
-    MatchReqs = emqx_ds_beamformer:beams_matched_requests(BeamMaker),
-    NoMatchReqs = Candidates -- MatchReqs,
-    ?tp(emqx_ds_beamformer_form_beams, #{match => MatchReqs, no_match => NoMatchReqs}),
-    %% Report metrics:
-    NFulfilled = length(MatchReqs),
-    NFulfilled > 0 andalso
-        begin
-            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
-            emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
-        end,
-    %% Place unmatched requests back to the queue:
-    OnNomatch(EndKey, NoMatchReqs),
-    %% Pack requests into beams and serve them:
-    UpdateIterator = fun(Iterator, NextKey) ->
-        emqx_ds_beamformer:update_iterator(CBM, Shard, Iterator, NextKey)
-    end,
-    ok = emqx_ds_beamformer:beams_conclude(UpdateIterator, EndKey, BeamMaker),
-    NFulfilled > 0.
+    report_metrics(Metrics, emqx_ds_beamformer:beams_n_matched(BeamMaker)),
+    %% Send out the replies:
+    ok = emqx_ds_beamformer:beams_conclude(ShardId, EndKey, BeamMaker).
 
-process_batch(_GetF, [], Candidates, Beams) ->
-    {Candidates, Beams};
-process_batch(GetF, [{Key, Msg} | Rest], Candidates0, Beams0) ->
-    Candidates = GetF(Key) ++ Candidates0,
+-spec process_batch(
+    s(),
+    emqx_ds:stream(),
+    emqx_ds:topic_filter(),
+    [{emqx_ds:message_key(), emqx_types:message()}],
+    [#sub_state{}],
+    emqx_ds_beamformer:beam_maker()
+) -> emqx_ds_beamformer:beam_maker().
+process_batch(_S, _Stream, _TopicFilter, [], _Candidates, Beams) ->
+    Beams;
+process_batch(S, Stream, TopicFilter, [{Key, Msg} | Rest], Candidates0, Beams0) ->
+    Candidates = queue_lookup(S, Stream, TopicFilter, Key) ++ Candidates0,
     MatchingReqs = lists:filter(
         fun(#sub_state{msg_matcher = Matcher}) ->
             Matcher(Key, Msg)
         end,
         Candidates
     ),
-    Beams = emqx_ds_beamformer:beams_add({Key, Msg}, MatchingReqs, Beams0),
-    process_batch(GetF, Rest, Candidates, Beams).
-
-enqueue_nomatch(#s{shard = Shard}) ->
-    fun(EndKey, NoMatch) ->
-        lists:foreach(
-            fun(Req0 = #sub_state{}) ->
-                Req = Req0#sub_state{start_key = EndKey},
-                emqx_ds_beamformer_rt:enqueue(Shard, Req, 0)
-            end,
-            NoMatch
-        )
-    end.
+    Beams = emqx_ds_beamformer:beams_add(Key, Msg, MatchingReqs, Beams0),
+    process_batch(S, Stream, TopicFilter, Rest, Candidates, Beams).
 
 %% It's always worth trying to fulfill the oldest requests first,
 %% because they have a better chance of producing a batch that
@@ -295,25 +308,14 @@ enqueue_nomatch(#s{shard = Shard}) ->
 %% request. It simply compares the keys (and nothing else) within a
 %% small sample of pending polls, and picks request with the smallest
 %% key as the starting point.
--spec find_older_request(ets:tid(), pos_integer()) -> queue_key().
-find_older_request(Tab, SampleSize) ->
-    MS = {{'$1', '_'}, [], ['$1']},
-    case ets:select(Tab, [MS], SampleSize) of
+-spec find_older_request(ets:tid()) ->
+    {emqx_ds:stream(), emqx_ds:topic_filter(), emqx_ds:message_key()}.
+find_older_request(Tab) ->
+    case ets:first(Tab) of
         '$end_of_table' ->
             undefined;
-        {[Fst | Rest], _Cont} ->
-            %% Find poll request key with the minimum start_key (3rd
-            %% element):
-            lists:foldl(
-                fun(E, Acc) ->
-                    case element(3, E) < element(3, Acc) of
-                        true -> E;
-                        false -> Acc
-                    end
-                end,
-                Fst,
-                Rest
-            )
+        {Stream, TF, StartKey, _Ref} ->
+            {Stream, TF, StartKey}
     end.
 
 -spec ensure_fulfill_loop() -> ok.
@@ -328,20 +330,42 @@ ensure_fulfill_loop() ->
     end.
 
 queue_new() ->
-    ets:new(old_polls, [duplicate_bag, private, {keypos, 1}]).
+    ets:new(old_polls, [ordered_set, private, {keypos, 1}]).
 
 queue_push(
-    Queue, Req = #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
+    Queue, #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
 ) ->
     ?tp(beamformer_push_replay, #{req_id => Ref}),
-    ets:insert(Queue, {{Stream, TF, Key}, Req}).
+    ets:insert(Queue, {{Stream, TF, Key, Ref}}).
 
-%% queue_lookup(Queue, Stream, TopicFilter) ->
-%%     fun(MsgKey) ->
-%%         [Req || {_, Req} <- ets:lookup(Queue, {Stream, TopicFilter, MsgKey})]
-%%     end.
+%% @doc Get all requests that await data with given stream, topic
+%% filter (exact) and start key.
+queue_lookup(#s{queue = Queue, parent_sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
+    MS = {{{Stream, TopicFilter, StartKey, '$1'}}, [], ['$1']},
+    ReqIds = ets:select(Queue, [MS]),
+    lists:flatmap(
+        fun(ReqId) ->
+            ets:lookup(Subs, ReqId)
+        end,
+        ReqIds
+    ).
 
-queue_pop(OldQueue, Stream, TopicFilter) ->
-    fun(MsgKey) ->
-        [Req || {_, Req} <- ets:take(OldQueue, {Stream, TopicFilter, MsgKey})]
-    end.
+queue_drop_all(Queue, Stream, TopicFilter, StartKey) ->
+    ets:match_delete(Queue, {{Stream, TopicFilter, StartKey, '_'}}).
+
+queue_drop(
+    Queue, #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
+) ->
+    %% logger:warning(#{drop_req => {Stream, TF, Key, Ref}, tab => ets:tab2list(Queue)}),
+    ets:delete(Queue, {Stream, TF, Key, Ref}).
+
+queue_update(Queue, OldReq, Req) ->
+    %% logger:warning(#{old => OldReq, new => Req}),
+    queue_drop(Queue, OldReq),
+    queue_push(Queue, Req).
+
+report_metrics(_Metrics, 0) ->
+    ok;
+report_metrics(Metrics, NFulfilled) ->
+    emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
+    emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled).
