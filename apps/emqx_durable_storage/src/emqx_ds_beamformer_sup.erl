@@ -94,7 +94,7 @@ init({workers, Module, ShardId, Opts}) ->
     %% re-enqueue requests owned by crashed worker.
     SupFlags = #{
         strategy => one_for_all,
-        intensity => 0,
+        intensity => 5,
         period => 10
     },
     {ok, {SupFlags, Children}}.
