@@ -362,7 +362,7 @@ fi
 set +e
 
 if [ "$STOP" = 'yes' ]; then
-    $DC down --remove-orphans
+    $DC down -t 0 --remove-orphans
 elif [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then
