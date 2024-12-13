@@ -114,6 +114,22 @@ t_preproc_sql3(_) ->
         emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
     ).
 
+t_preproc_sqlserver_sql(_) ->
+    Selected = #{
+        a => <<"abc_hello你好👋"/utf8>>,
+        b => 1,
+        c => 1.0,
+        d => #{d1 => <<"hi">>},
+        hex_str => <<"0x0010">>
+    },
+    ParamsTokens = emqx_placeholder:preproc_tmpl(
+        <<"a:${a},b:${b},c:${c},d:${d},hex_str:${hex_str}"/utf8>>
+    ),
+    ?assertEqual(
+        <<"a:'abc_hello你好👋',b:1,c:1.0,d:'{\"d1\":\"hi\"}',hex_str:0x0010"/utf8>>,
+        emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
+    ).
+
 t_preproc_mysql1(_) ->
     %% with apostrophes
     %% https://github.com/emqx/emqx/issues/4135
