@@ -19,10 +19,10 @@
 
 -feature(maybe_expr, enable).
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% API:
--export([start_link/4, enqueue/3, shard_event/2]).
+-export([pool/1, start_link/4, enqueue/3, shard_event/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -46,6 +46,7 @@
     module :: module(),
     metrics_id,
     shard,
+    parent_sub_tab :: ets:tid(),
     name,
     high_watermark :: ets:tid(),
     queue :: emqx_ds_beamformer_waitq:t(),
@@ -60,19 +61,22 @@
 %% API functions
 %%================================================================================
 
+pool(DBShard) ->
+    {emqx_ds_beamformer_rt, DBShard}.
+
 -spec enqueue(_Shard, emqx_d_beamformer:poll_req(), timeout()) -> ok.
 enqueue(Shard, Req, Timeout) ->
     ?tp(debug, beamformer_enqueue, #{req_id => Req#sub_state.req_id, queue => rt}),
-    emqx_ds_beamformer:enqueue(emqx_ds_beamformer_sup:rt_pool(Shard), Req, Timeout).
+    emqx_ds_beamformer:enqueue(pool(Shard), Req, Timeout).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
     gen_server:start_link(?MODULE, [Mod, ShardId, Name, Opts], []).
 
 shard_event(Shard, Events) ->
-    Pool = emqx_ds_beamformer_sup:rt_pool(Shard),
+    Pool = pool(Shard),
     lists:foreach(
-        fun(Event = {Stream, _}) ->
+        fun(Event = Stream) ->
             Worker = gproc_pool:pick_worker(Pool, Stream),
             gen_server:cast(Worker, #shard_event{event = Event})
         end,
@@ -85,12 +89,13 @@ shard_event(Shard, Events) ->
 
 init([CBM, ShardId, Name, _Opts]) ->
     process_flag(trap_exit, true),
-    Pool = emqx_ds_beamformer_sup:rt_pool(ShardId),
+    Pool = pool(ShardId),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
     S = #s{
         module = CBM,
         shard = ShardId,
+        parent_sub_tab = emqx_ds_beamformer:subtab(ShardId),
         metrics_id = emqx_ds_beamformer:shard_metrics_id(ShardId),
         name = Name,
         high_watermark = ets:new(high_watermark, [ordered_set, private]),
@@ -110,8 +115,9 @@ handle_cast(Req = #sub_state{}, S0) ->
     {_Reply, S} = do_enqueue(Req, S0),
     {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
-    ?tp(debug, beamformer_rt_event, #{event => Event, shard => Shard}),
-    {Stream, _} = Event,
+    ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
+    %% FIXME: make a proper stream wrapper
+    Stream = Event,
     case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
         true ->
             process_stream_event(Stream, S);
@@ -125,13 +131,15 @@ handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) -
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info(?housekeeping_loop, S0 = #s{metrics_id = Metrics, queue = Queue}) ->
+handle_info(
+    ?housekeeping_loop, S0 = #s{metrics_id = Metrics, queue = Queue, parent_sub_tab = SubTab}
+) ->
     %% Reload configuration according from environment variables:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
     %% Drop expired poll requests:
-    emqx_ds_beamformer:cleanup_expired(rt, Metrics, Queue),
+    emqx_ds_beamformer:cleanup_expired(rt, SubTab, Metrics, Queue),
     %% Continue the loop:
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
@@ -139,7 +147,7 @@ handle_info(_Info, S) ->
     {noreply, S}.
 
 terminate(_Reason, #s{shard = ShardId, name = Name}) ->
-    Pool = emqx_ds_beamformer_sup:rt_pool(ShardId),
+    Pool = pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
     ok.
@@ -165,9 +173,19 @@ do_enqueue(
                     }),
                     PQLen = emqx_ds_beamformer_waitq:size(Queue),
                     emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
-                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Req, Queue);
+                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Queue);
+                {error, unrecoverable, old_key} ->
+                    %% FIXME: Race condition: catchup queue managed to
+                    %% read the data faster than we got the
+                    %% notification, and it managed to advance the
+                    %% iterator beyond the current high watermark. We
+                    %% cannot enque this request now, since it would
+                    %% lead to message duplication.
+                    PQLen = emqx_ds_beamformer_waitq:size(Queue),
+                    emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
+                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Queue);
                 {error, unrecoverable, has_data} ->
-                    ?tp(beamformer_push_rt_downgrade, #{
+                    ?tp(info, beamformer_push_rt_downgrade, #{
                         req_id => ReqId, stream => Stream, key => Key
                     }),
                     emqx_ds_beamformer_catchup:enqueue(Shard, Req, 0);
@@ -191,66 +209,78 @@ do_enqueue(
     {ok, S}.
 
 process_stream_event(
-    Stream, S = #s{shard = ShardId, module = CBM, batch_size = BatchSize}
+    Stream, S = #s{shard = ShardId, module = CBM, batch_size = BatchSize, queue = Queue}
 ) ->
     {ok, StartKey} = high_watermark(Stream, S),
     case emqx_ds_beamformer:scan_stream(CBM, ShardId, Stream, ['#'], StartKey, BatchSize) of
         {ok, LastKey, []} ->
-            ?tp(debug, beamformer_rt_batch, #{
+            ?tp(beamformer_rt_batch, #{
                 shard => ShardId, from => StartKey, to => LastKey, stream => Stream
             }),
             set_high_watermark(Stream, LastKey, S);
         {ok, LastKey, Batch} ->
-            ?tp(debug, beamformer_rt_batch, #{
+            ?tp(beamformer_rt_batch, #{
                 shard => ShardId, from => StartKey, to => LastKey, stream => Stream
             }),
-            process_batch(Stream, LastKey, Batch, S, emqx_ds_beamformer:beams_init()),
+            Beams = emqx_ds_beamformer:beams_init(
+                CBM,
+                ShardId,
+                fun(SubS) -> queue_drop(Queue, SubS) end,
+                fun(_OldSubState, _SubState) -> ok end
+            ),
+            process_batch(Stream, LastKey, Batch, S, Beams),
             set_high_watermark(Stream, LastKey, S),
             process_stream_event(Stream, S)
     end.
 
 process_batch(
-    _Stream, EndKey, [], S = #s{metrics_id = Metrics, module = CBM, shard = ShardId}, Beams
+    _Stream,
+    EndKey,
+    [],
+    #s{metrics_id = Metrics, shard = ShardId},
+    Beams
 ) ->
-    %% Remove fulfilled requests from the queue:
-    Fulfilled = emqx_ds_beamformer:beams_matched_requests(Beams),
-    NFulfilled = lists:foldl(
-        fun(I, Acc) ->
-            fulfilled(I, S),
-            Acc + 1
-        end,
-        0,
-        Fulfilled
-    ),
+    %% Report metrics:
+    NFulfilled = emqx_ds_beamformer:beams_n_matched(Beams),
     NFulfilled > 0 andalso
         begin
             emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
             emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
         end,
     %% Send data:
-    UpdateIterator = fun(Iterator, NextKey) ->
-        emqx_ds_beamformer:update_iterator(CBM, ShardId, Iterator, NextKey)
-    end,
-    emqx_ds_beamformer:beams_conclude(UpdateIterator, EndKey, Beams);
-process_batch(Stream, EndKey, [{Key, Msg} | Rest], S = #s{queue = Queue}, Beams0) ->
+    emqx_ds_beamformer:beams_conclude(ShardId, EndKey, Beams);
+process_batch(Stream, EndKey, [{Key, Msg} | Rest], S, Beams0) ->
+    Candidates = queue_search(S, Stream, Key, Msg),
+    Beams = emqx_ds_beamformer:beams_add(Key, Msg, Candidates, Beams0),
+    process_batch(Stream, EndKey, Rest, S, Beams).
+
+queue_search(#s{queue = Queue, parent_sub_tab = SubTab}, Stream, MsgKey, Msg) ->
     Topic = emqx_topic:tokens(Msg#message.topic),
-    Candidates = emqx_ds_beamformer_waitq:matching_ids(Stream, Topic, Queue),
-    Matched = lists:filtermap(
-        fun(Id) ->
-            #sub_state{msg_matcher = Matcher} =
-                Req = emqx_ds_beamformer_waitq:lookup_req(Stream, Id, Queue),
-            case Matcher(Key, Msg) of
-                true -> {true, Req};
-                false -> false
+    Candidates = emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue),
+    lists:filtermap(
+        fun(WaitqKey) ->
+            case ets:lookup(SubTab, emqx_trie_search:get_id(WaitqKey)) of
+                [Req] ->
+                    #sub_state{msg_matcher = Matcher} = Req,
+                    case Matcher(MsgKey, Msg) of
+                        true -> {true, Req};
+                        false -> false
+                    end;
+                [] ->
+                    %% FIXME: Unsubscribed.
+                    false
             end
         end,
         Candidates
-    ),
-    Beams = emqx_ds_beamformer:beams_add({Key, Msg}, Matched, Beams0),
-    process_batch(Stream, EndKey, Rest, S, Beams).
+    ).
 
-fulfilled(#sub_state{stream = Stream, topic_filter = TF, req_id = ID}, #s{queue = Queue}) ->
+queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID}) ->
     emqx_ds_beamformer_waitq:delete(Stream, TF, ID, Queue).
+
+%% queue_update(Queue) ->
+%%     fun(_NextKey, Req = #sub_state{stream = Stream, topic_filter = TF, req_id = ReqId}) ->
+%%         emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Req, Queue)
+%%     end.
 
 high_watermark(Stream, S = #s{high_watermark = Tab}) ->
     case ets:lookup(Tab, Stream) of
@@ -263,7 +293,6 @@ high_watermark(Stream, S = #s{high_watermark = Tab}) ->
 update_high_watermark(Stream, S = #s{module = CBM, shard = Shard}) ->
     maybe
         {ok, HWM} ?= emqx_ds_beamformer:high_watermark(CBM, Shard, Stream),
-        ?tp(debug, beamformer_rt_update_high_watermark, #{stream => Stream, key => HWM}),
         set_high_watermark(Stream, HWM, S),
         {ok, HWM}
     else

@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3, poll/3, subscribe/5]).
+-export([get_streams/3, make_iterator/4, next/3, poll/3, subscribe/4, unsubscribe/2, suback/3]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -89,7 +89,9 @@
 
     poll_iterators/0,
     poll_opts/0,
-    sub_opts/0
+    sub_opts/0,
+    subscription_handle/0,
+    sub_seqno/0
 ]).
 
 %%================================================================================
@@ -281,7 +283,7 @@
     #{
         %% Maximum number of unacked batches before subscription is
         %% considered overloaded and removed from the active queues:
-        window_size => non_neg_integer()
+        max_unacked := non_neg_integer()
     }.
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
@@ -294,6 +296,10 @@
     since := time(),
     until := time() | undefined
 }.
+
+-type subscription_handle() :: term().
+
+-type sub_seqno() :: non_neg_integer().
 
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
@@ -511,10 +517,27 @@ next(DB, Iter, BatchSize) ->
 poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
     ?module(DB):poll(DB, Iterators, PollOpts).
 
-%% FIXME: add documentation
--spec subscribe(db(), pid(), _ItKey, iterator(), sub_opts()) -> {ok, reference()}.
-subscribe(DB, Subscriber, ItKey, Iterator, SubOpts) ->
-    ?module(DB):subscribe(DB, Subscriber, ItKey, Iterator, SubOpts).
+%% @doc Subscribe current process to the messages in the stream
+%% starting from `Iterator'.
+%%
+%% This function returns subscription handle that can be used to to
+%% manipulate the subscription (ack async messages and unsubscribe),
+%% as well as a monitor reference that used to detect unexpected
+%% termination of the subscription on the DS side.
+-spec subscribe(db(), _ItKey, iterator(), sub_opts()) -> {ok, subscription_handle(), reference()}.
+subscribe(DB, ItKey, Iterator, SubOpts) ->
+    ?module(DB):subscribe(DB, ItKey, Iterator, SubOpts).
+
+-spec unsubscribe(db(), subscription_handle()) -> boolean().
+unsubscribe(DB, SubRef) ->
+    ?module(DB):unsubscribe(DB, SubRef).
+
+%% @doc Acknowledge processing of batch with a given sequence number.
+%% This way application can signal to DS that it is ready to process
+%% more data.
+-spec suback(db(), subscription_handle(), non_neg_integer()) -> ok.
+suback(DB, SubRef, SeqNo) ->
+    ?module(DB):suback(DB, SubRef, SeqNo).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->

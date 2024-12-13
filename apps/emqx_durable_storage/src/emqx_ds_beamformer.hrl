@@ -18,12 +18,21 @@
 -define(EMQX_DS_BEAMFORMER_HRL, true).
 
 -record(sub_state, {
+    %% Unique ID of the subscription:
     req_id,
+    %% PID of the subscribing process:
+    client,
+    %% Monitor reference that we use for monitoring the client. It's
+    %% kept in the record for cleanup during normal unsubscribe:
+    mref,
+    %% Flow control:
+    seqno = 0,
+    acked_seqno = 0,
+    max_unacked,
+    %%
     stream,
     topic_filter,
     start_key,
-    %% Node from which the poll request originates:
-    node,
     %% Information about the process that created the request:
     return_addr,
     %% Iterator:
@@ -32,10 +41,17 @@
     msg_matcher,
     opts,
     deadline,
-    %% Counter that is increased every time the poll request is moved
-    %% between the queues. Used to break the loop if backend is
-    %% misbehaving:
-    hops = 0
+    %% PID of the beamformer worker process that is currently owning
+    %% the subscription:
+    owner
 }).
+
+%% Persistent term used to store reference to the subscription table
+%% for the shard:
+-define(ps_subtid(SHARD), {emqx_ds_beamformer_sub_tab, SHARD}).
+
+%% Persistent term used to store callback module that implements
+%% beamformer API for the backend:
+-define(ps_cbm(DB), {emqx_ds_beamformer_cbm, DB}).
 
 -endif.

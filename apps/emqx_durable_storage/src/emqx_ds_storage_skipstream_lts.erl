@@ -314,8 +314,8 @@ batch_events(
         fun
             (?cooked_msg_op(_Timestamp, _Static, _Varying, ?cooked_delete), Acc) ->
                 Acc;
-            (?cooked_msg_op(_Timestamp, Static, Varying, _ValBlob), Acc) ->
-                maps:put({Static, Varying}, 1, Acc)
+            (?cooked_msg_op(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+                maps:put(#stream{static_index = Static}, 1, Acc)
         end,
         #{},
         Payloads
@@ -437,12 +437,11 @@ fast_forward(
 ) ->
     case match_ds_key(It0#it.static_index, DSKey) of
         false ->
-            {error, unrecoverable, "Invalid datastream key"};
+            {error, unrecoverable, <<"Invalid datastream key">>};
         FastForwardTo when FastForwardTo > TMax ->
-            {error, recoverble, "Key is too far in the future"};
+            {error, recoverble, <<"Key is too far in the future">>};
         FastForwardTo when FastForwardTo =< TS0 ->
-            %% Already past the key, nothing to do here:
-            {ok, It0};
+            {error, unrecoverable, old_key};
         FastForwardTo ->
             case next(ShardId, S, It0, 1, TMax, true) of
                 {ok, #it{ts = NextTS}, [_]} when NextTS =< FastForwardTo ->

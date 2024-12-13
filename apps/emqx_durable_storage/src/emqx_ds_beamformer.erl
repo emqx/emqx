@@ -74,17 +74,22 @@
 %% '''
 -module(emqx_ds_beamformer).
 
+-feature(maybe_expr, enable).
+
 -behaviour(gen_server).
 
 %% API:
--export([poll/5, subscribe/5, unsubcribe/2, shard_event/2, ack_seqno/3]).
+-export([start_link/2]).
+-export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
--export([beams_init/0, beams_add/3, beams_conclude/3, beams_matched_requests/1, split/1]).
--export([shard_metrics_id/1, enqueue/3, send_out_term/2, cleanup_expired/3]).
+-export([beams_init/4, beams_add/4, beams_conclude/3, beams_n_matched/1, split/1]).
+-export([shard_metrics_id/1, enqueue/3, send_out_term/2, cleanup_expired/4]).
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
--export([do_dispatch/1, next_seqno/2]).
+-export([do_dispatch/1]).
+%% Testing/debugging:
+-export([where/1, ls/1, lookup_sub/2, subtab/1]).
 
 %% Behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -92,7 +97,6 @@
 -export_type([
     dbshard/0,
     sub_id/0,
-    sub_seqno/0,
     opts/0,
     sub_state/0, sub_state/2,
     beam/2, beam/0,
@@ -120,9 +124,7 @@
 
 -type dbshard() :: {emqx_ds:db(), _Shard}.
 
--type sub_id() :: reference().
-
--type sub_seqno() :: non_neg_integer().
+-type sub_id() :: {_Shard, reference()}.
 
 %% `event_topic' and `event_topic_filter' types are structurally (but
 %% not semantically) equivalent to their `emqx_ds' counterparts.
@@ -138,18 +140,6 @@
     n_workers := non_neg_integer()
 }.
 
--record(subscription, {
-    id :: reference(),
-    client :: pid(),
-    %% Subscription state is only stored there when the subscripton is
-    %% falling behind on un-acked batches (and hence removed from all
-    %% queues).
-    state :: sub_state() | undefined,
-    seqno = 0 :: sub_seqno(),
-    acked_seqno = 0 :: sub_seqno(),
-    max_unacked :: pos_integer()
-}).
-
 %% Request:
 
 -type return_addr(ItKey) :: {reference(), ItKey} | {pid(), sub_id(), ItKey}.
@@ -158,17 +148,25 @@
 
 -type sub_state(ItKey, Iterator) ::
     #sub_state{
-        req_id :: poll_req_id(),
+        req_id :: reference(),
+        client :: pid(),
+        mref :: reference(),
+        %% Flow control:
+        seqno :: emqx_ds:sub_seqno(),
+        acked_seqno :: emqx_ds:sub_seqno(),
+        max_unacked :: pos_integer(),
+        %%
         stream :: _Stream,
-        topic_filter :: event_topic_filter(),
+        topic_filter :: emqx_ds:topic_filter(),
         start_key :: emqx_ds:message_key(),
-        node :: node(),
+        %% Information about the process that created the request:
         return_addr :: return_addr(ItKey),
+        %% Iterator:
         it :: Iterator,
-        msg_matcher :: match_messagef(),
-        opts :: emqx_ds:poll_opts(),
-        deadline :: integer(),
-        hops :: non_neg_integer()
+        %% Callback that filters messages that belong to the request:
+        msg_matcher :: emqx_beamformer:match_messagef(),
+        opts :: emqx_ds:sub_opts(),
+        deadline :: integer() | undefined
     }.
 
 -type sub_state() :: sub_state(_, _).
@@ -205,18 +203,23 @@
 -type dispatch_matrix() :: #{{poll_req_id(), non_neg_integer()} => _}.
 
 -type filtered_batch() :: [{non_neg_integer(), {emqx_ds:message_key(), emqx_types:message()}}].
-
 -record(beam_maker, {
+    cbm :: module(),
+    shard_id :: _Shard,
+    update_iterator :: fun((Iterator, emqx_ds:message_key()) -> Iterator),
+    queue_drop :: fun(),
+    queue_update :: fun(),
     n = 0 :: non_neg_integer(),
     reqs = #{} :: #{node() => per_node_requests()},
+    counts = #{} :: #{poll_req_id() => pos_integer()},
     matrix = #{} :: dispatch_matrix(),
     msgs = [] :: filtered_batch()
 }).
 
 -opaque beam_maker() :: #beam_maker{}.
 
--define(subtid(SHARD), {emqx_ds_beamformer_sub_tab, SHARD}).
--define(via(SHARD), {via, gproc, {n, l, {?MODULE, SHARD}}}).
+-define(name(SHARD), {n, l, {?MODULE, SHARD}}).
+-define(via(SHARD), {via, gproc, ?name(SHARD)}).
 
 %%================================================================================
 %% Callbacks
@@ -254,6 +257,10 @@
 %% API functions
 %%================================================================================
 
+-spec start_link(dbshard(), module()) -> {ok, pid()}.
+start_link(DBShard, CBM) ->
+    gen_server:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
+
 %% @doc Submit a poll request
 -spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
     ok.
@@ -281,7 +288,6 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 stream = Stream,
                 topic_filter = TF,
                 start_key = DSKey,
-                node = Node,
                 return_addr = ReturnAddr,
                 it = Iterator,
                 opts = Opts,
@@ -295,7 +301,7 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 iterators = [{ReturnAddr, Iterator}],
                 pack = Err
             },
-            send_out(Node, Beam)
+            send_out(undefined, Node, Beam)
     end.
 
 %% @doc This internal API notifies the beamformer that new data is
@@ -331,10 +337,11 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
+%% FIXME: include shard
 -spec send_out_term({ok, end_of_stream} | emqx_ds:error(_), [sub_state()]) -> ok.
 send_out_term(Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
-        fun(#sub_state{node = Node}) -> Node end,
+        fun(#sub_state{client = PID}) -> node(PID) end,
         fun(#sub_state{return_addr = RAddr, it = It}) ->
             {RAddr, It}
         end,
@@ -347,72 +354,110 @@ send_out_term(Term, Reqs) ->
                 pack = Term,
                 iterators = Its
             },
-            send_out(Node, Beam)
+            send_out(undefined, Node, Beam)
         end,
         ReqsByNode
     ).
 
--spec beams_init() -> beam_maker().
-beams_init() ->
-    #beam_maker{}.
+-spec beams_init(module(), _Shard, fun(), fun()) -> beam_maker().
+beams_init(CBM, ShardId, Drop, UpdateQueue) ->
+    #beam_maker{
+        cbm = CBM,
+        shard_id = ShardId,
+        queue_drop = Drop,
+        queue_update = UpdateQueue
+    }.
+
+%% @doc Return the number of requests represented in the beam
+-spec beams_n_matched(beam_maker()) -> non_neg_integer().
+beams_n_matched(#beam_maker{reqs = Reqs}) ->
+    maps:size(Reqs).
 
 -spec beams_add(
-    {emqx_ds:message_key(), emqx_types:message()},
+    emqx_ds:message_key(),
+    emqx_types:message(),
     [sub_state()],
     beam_maker()
 ) -> beam_maker().
-beams_add(_, [], S = #beam_maker{n = N}) ->
+beams_add(_, _, [], BM = #beam_maker{}) ->
     %% This message was not matched by any poll request, so we don't
     %% pack it into the beam:
-    S#beam_maker{n = N + 1};
-beams_add(Msg, NewReqs, S = #beam_maker{n = N, reqs = Reqs0, matrix = Matrix0, msgs = Msgs}) ->
-    {Reqs, Matrix} = lists:foldl(
-        fun(Req = #sub_state{node = Node, req_id = Ref}, {Reqs1, Matrix1}) ->
+    BM;
+beams_add(
+    MsgKey, Msg, NewReqs, S = #beam_maker{n = N, msgs = Msgs}
+) ->
+    {Reqs, Counts, Matrix} = lists:foldl(
+        fun(Req = #sub_state{client = Client, req_id = Ref}, {Reqs1, Counts1, Matrix1}) ->
+            %% Classify the request according to its source node:
+            Node = node(Client),
             Reqs2 = maps:update_with(
                 Node,
                 fun(A) -> A#{Ref => Req} end,
                 #{Ref => Req},
                 Reqs1
             ),
+            %% Update the sparse dispatch matrix:
             Matrix2 = Matrix1#{{Ref, N} => []},
-            {Reqs2, Matrix2}
+            %% Increase per-request counters counters:
+            Counts2 = maps:update_with(Ref, fun(I) -> I + 1 end, 1, Counts1),
+            {Reqs2, Counts2, Matrix2}
         end,
-        {Reqs0, Matrix0},
+        {S#beam_maker.reqs, S#beam_maker.counts, S#beam_maker.matrix},
         NewReqs
     ),
     S#beam_maker{
         n = N + 1,
         reqs = Reqs,
+        counts = Counts,
         matrix = Matrix,
-        msgs = [{N, Msg} | Msgs]
+        msgs = [{MsgKey, Msg} | Msgs]
     }.
 
--spec beams_matched_requests(beam_maker()) -> [sub_state()].
-beams_matched_requests(#beam_maker{reqs = Reqs}) ->
-    maps:fold(
-        fun(_Node, NodeReqs, Acc) ->
-            maps:values(NodeReqs) ++ Acc
-        end,
-        [],
-        Reqs
-    ).
-
+%% @doc Update seqnos of the subscriptions, send out beams, and return
+%% the list of poll request keys that either don't have parent
+%% subscription or have fallen too far behind on the ack:
 -spec beams_conclude(
-    fun((Iterator, emqx_ds:message_key()) -> Iterator),
+    dbshard(),
     emqx_ds:message_key(),
     beam_maker()
 ) -> ok.
-beams_conclude(UpdateIterator, NextKey, #beam_maker{reqs = Reqs, matrix = Matrix, msgs = Msgs}) ->
+beams_conclude(DBShard, NextKey, #beam_maker{reqs = Reqs} = BM) ->
     maps:foreach(
         fun(Node, NodeReqs) ->
-            Beam = pack(UpdateIterator, NextKey, Matrix, Msgs, NodeReqs),
-            send_out(Node, Beam)
+            Beam = pack(DBShard, BM, NextKey, NodeReqs),
+            send_out(DBShard, Node, Beam)
         end,
         Reqs
     ).
 
 shard_metrics_id({DB, Shard}) ->
     emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
+
+%% @doc In case this is a multishot subscription with a parent get
+%% batch seqno and a whether to keep the request in the queue or
+%% remove it:
+-spec keep_and_seqno(ets:tid(), sub_state(), pos_integer()) ->
+    {boolean(), reference(), emqx_ds:sub_seqno() | undefined} | boolean().
+keep_and_seqno(_SubTab, #sub_state{deadline = Deadline}, _) when is_integer(Deadline) ->
+    %% This is a one-time poll request, we never keep them after the first match:
+    false;
+keep_and_seqno(SubTab, #sub_state{req_id = Ref}, Nmsgs) ->
+    try
+        ets:update_counter(SubTab, Ref, [
+            {#sub_state.seqno, Nmsgs},
+            {#sub_state.acked_seqno, 0},
+            {#sub_state.max_unacked, 0}
+        ])
+    of
+        [SeqNo, Acked, Window] ->
+            {is_sub_active(SeqNo, Acked, Window), Ref, SeqNo}
+    catch
+        error:badarg ->
+            {false, Ref, undefined}
+    end.
+
+is_sub_active(SeqNo, Acked, Window) ->
+    SeqNo - Acked < Window.
 
 %% Dynamic config (currently it's global for all DBs):
 
@@ -451,7 +496,7 @@ high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
 -spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | {error, unrecoverable, has_data} | emqx_ds:error().
+    {ok, Iterator} | {error, unrecoverable, has_data | old_key} | emqx_ds:error().
 fast_forward(Mod, Shard, It, Key) ->
     Mod:fast_forward(Shard, It, Key).
 
@@ -461,6 +506,7 @@ fast_forward(Mod, Shard, It, Key) ->
 
 -record(sub_req, {
     client :: pid(),
+    handle :: emqx_ds:subscription_handle(),
     it :: emqx_ds:ds_specific_iterator(),
     it_key,
     opts :: emqx_ds:poll_opts()
@@ -468,121 +514,194 @@ fast_forward(Mod, Shard, It, Key) ->
 
 -record(unsub_req, {id :: sub_id()}).
 
--spec subscribe(pid(), dbshard(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:poll_opts()) ->
-    {ok, sub_id(), pid()}.
-subscribe(Client, DBShard, It, ItKey, Opts) ->
-    gen_server:call(?via(DBShard), #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts}).
+-record(wakeup_sub_req, {id :: sub_id()}).
 
--spec unsubcribe(dbshard(), sub_id()) -> ok.
-unsubcribe(Shard, SubId) ->
+-spec where(dbshard()) -> pid() | undefined.
+where(DBShard) ->
+    gproc:where(?name(DBShard)).
+
+-spec ls(emqx_ds:db()) -> [dbshard()].
+ls(DB) ->
+    MS = {{?name({DB, '$1'}), '_', '_'}, [], ['$1']},
+    Shards = gproc:select({local, names}, [MS]),
+    [{DB, I} || I <- Shards].
+
+-spec lookup_sub(emqx_ds:db(), sub_id()) -> [sub_state()].
+lookup_sub(DB, {Shard, SubId}) ->
+    ets:lookup(subtab({DB, Shard}), SubId).
+
+-spec subscribe(
+    pid(), pid(), sub_id(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:sub_opts()
+) ->
+    {ok, sub_id()} | emqx_ds:error().
+subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked}) when
+    is_integer(MaxUnacked), MaxUnacked > 0
+->
+    %% FIXME sub ref should be generated by monitoring the beamformer, rather than other way around
+    gen_server:call(Server, #sub_req{
+        client = Client, it = It, it_key = ItKey, opts = Opts, handle = SubId
+    }).
+
+-spec unsubscribe(dbshard(), sub_id()) -> boolean().
+unsubscribe(Shard, SubId) ->
     gen_server:call(?via(Shard), #unsub_req{id = SubId}).
 
 %% @doc Ack batches up to sequence number:
--spec ack_seqno(dbshard(), sub_id(), sub_seqno()) -> ok | {error, subscription_not_found}.
-ack_seqno(Shard, SubId, SeqNo) ->
-    try ets:update_element(?subtid(Shard), SubId, [{#subscription.acked_seqno, SeqNo}]) of
-        true ->
-            ok;
-        false ->
-            {error, subscription_not_found}
+-spec suback(dbshard(), sub_id(), emqx_ds:sub_seqno()) -> ok.
+suback(DBShard, SubId, Acked) ->
+    try
+        ets:update_counter(subtab(DBShard), SubId, [
+            {#sub_state.seqno, 0}, {#sub_state.acked_seqno, 0}, {#sub_state.max_unacked, 0}
+        ])
+    of
+        [SeqNo, OldAcked, Window] ->
+            ets:update_element(subtab(DBShard), SubId, {#sub_state.acked_seqno, Acked}),
+            %% If this subscription ack changed state of the subscription,
+            %% then request moving subscription back into the pool:
+            not is_sub_active(SeqNo, OldAcked, Window) andalso is_sub_active(SeqNo, Acked, Window) andalso
+                gen_server:call(?via(DBShard), #wakeup_sub_req{id = SubId}),
+            ok
     catch
         error:badarg ->
-            %% This happens when the table is gone:
-            {error, subscription_not_found}
+            %% This happens when subscription is not found:
+            {error, subscripton_not_found}
     end.
 
 %%================================================================================
 %% gen_server (responsible for subscriptions)
 %%================================================================================
 
--record(s, {shard :: dbshard(), tab :: ets:tid()}).
+-record(s, {dbshard :: dbshard(), tab :: ets:tid(), cbm :: module(), monitor_tab = ets:tid()}).
 
-init(Shard) ->
-    SubTab = make_subtab(Shard),
-    {ok, #s{shard = Shard, tab = SubTab}}.
+init([DBShard, CBM]) ->
+    process_flag(trap_exit, true),
+    SubTab = make_subtab(DBShard),
+    gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), hash, [{auto_size, true}]),
+    gproc_pool:new(emqx_ds_beamformer_rt:pool(DBShard), hash, [{auto_size, true}]),
+    persistent_term:put(?ps_cbm(DBShard), CBM),
+    logger:debug(#{
+        msg => started_bf, shard => DBShard, cbm => emqx_ds_beamformer_sup:cbm(DBShard)
+    }),
+    MTab = ets:new(beamformer_monitor_tab, [private, set]),
+    {ok, #s{dbshard = DBShard, tab = SubTab, cbm = CBM, monitor_tab = MTab}}.
 
 handle_call(
-    #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts},
+    #sub_req{client = Client, it = It, it_key = ItKey, opts = Opts, handle = SubId},
     _From,
-    S = #s{shard = Shard, tab = Tab}
+    S = #s{dbshard = Shard, tab = Tab, cbm = CBM, monitor_tab = MTab}
 ) ->
-    MRef = monitor(process, Client),
-    State = poll(node(Client), {Client, MRef, ItKey}, Shard, It, Opts#{timeout => 0}),
-    Sub = #subscription{
-        id = MRef,
-        client = Client,
-        state = State
-    },
-    ets:insert(Tab, Sub),
-    {reply, {ok, MRef, self()}, S};
-handle_call(#unsub_req{id = Id}, _From, S = #s{tab = Tab}) ->
-    demonitor(Id, [flush]),
-    ets:delete(Tab, Id),
-    {reply, ok, S};
+    try CBM:unpack_iterator(Shard, It) of
+        #{
+            stream := Stream,
+            topic_filter := TF,
+            last_seen_key := DSKey,
+            message_matcher := MsgMatcher
+        } ->
+            MRef = monitor(process, Client),
+            ?tp(beamformer_subscribe, #{
+                sub_id => SubId,
+                mref => MRef,
+                shard => Shard,
+                key => DSKey
+            }),
+            ets:insert(MTab, {MRef, SubId}),
+            #{max_unacked := MaxUnacked} = Opts,
+            SubState = #sub_state{
+                req_id = SubId,
+                client = Client,
+                mref = MRef,
+                max_unacked = MaxUnacked,
+                stream = Stream,
+                topic_filter = TF,
+                start_key = DSKey,
+                return_addr = {Client, SubId, ItKey},
+                it = It,
+                opts = Opts,
+                msg_matcher = MsgMatcher
+            },
+            ets:insert(Tab, SubState),
+            emqx_ds_beamformer_catchup:enqueue(Shard, SubState, 0),
+            {reply, {ok, SubId}, S};
+        Err = {error, _, _} ->
+            {reply, Err, S}
+    catch
+        EC:Err:Stack ->
+            {reply, {error, unrecoverable, {EC, Err, Stack}}, S}
+    end;
+handle_call(#unsub_req{id = Id}, _From, S = #s{tab = Tab, monitor_tab = MTab}) ->
+    Ret =
+        case ets:take(Tab, Id) of
+            [#sub_state{mref = MRef}] ->
+                demonitor(MRef, [flush]),
+                ets:delete(MTab, MRef),
+                true;
+            [] ->
+                false
+        end,
+    {reply, Ret, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info({'DOWN', MRef, process, _Pid, _Info}, S = #s{tab = Tab}) ->
-    ets:delete(Tab, MRef),
+handle_info({'DOWN', MRef, process, _Pid, _Info}, S = #s{tab = Tab, monitor_tab = MTab}) ->
+    case ets:take(MTab, MRef) of
+        [{_, SubId}] ->
+            %% FIXME: also delete it from the queues
+            ets:delete(Tab, SubId);
+        [] ->
+            ok
+    end,
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_, #s{shard = Shard}) ->
-    persistent_term:erase(?subtid(Shard)).
+terminate(_, #s{dbshard = DBShard}) ->
+    persistent_term:erase(?ps_subtid(DBShard)),
+    gproc_pool:force_delete(emqx_ds_beamformer_rt:pool(DBShard)),
+    gproc_pool:force_delete(emqx_ds_beamformer_catchup:pool(DBShard)),
+    persistent_term:erase(?ps_cbm(DBShard)).
 
 %%================================================================================
 %% Internal exports
 %%================================================================================
 
-%% Return a list: `[NextSeqNo, AckedSeqNo, MaxUnacked]' that can be
-%% used to decide if client is ready to receive more poll requests.
--spec next_seqno(dbshard(), sub_id()) -> [sub_seqno() | pos_integer()] | undefined.
-next_seqno(Shard, Id) ->
-    try
-        ets:update_counter(subtab(Shard), Id, [
-            {#subscription.seqno, 1}, {#subscription.acked_seqno, 0}, {#subscription.max_unacked, 0}
-        ])
-    catch
-        exit:badarg ->
-            undefined
-    end.
+-spec subtab(dbshard()) -> ets:table().
+subtab(DBShard) ->
+    persistent_term:get(?ps_subtid(DBShard)).
 
-enqueue(_, Req = #sub_state{hops = Hops}, _) when Hops > 3 ->
-    %% It seems that the poll request is being bounced between the
-    %% queues. After certain number of such hops we drop it to break
-    %% the infinite loop.
-    %%
-    %% Normally, the poll request is bounced between the queues in the
-    %% following cases:
-    %%
-    %% 1. The request was submitted to the RT queue, but its
-    %% `start_key' is older than the high watermark for the stream. In
-    %% this case RT queue will move it to the catchup queue.
-    %%
-    %% 2. Catchup queue tried to fulfill the poll request, but got an
-    %% empty batch. In this case, it moves the poll request to the RT
-    %% queue.
-    %%
-    %% Normally, the second case should not lead to the first one,
-    %% since catchup queue updates the start key before sending it to
-    %% the RT queue. However, the DS backend MAY misbehave and fail to
-    %% return the end key corresponding to the empty batch equal to
-    %% the high watermark.
-    %%
-    %% This is the probable cause of this warning. To avoid it the
-    %% backend must ensure the following property:
-    %%
-    %% If `scan_stream' callback returns `{ok, EndKey, []}', then
-    %% `EndKey' must be greater or equal to the `high_watermark' for
-    %% the stream at the moment.
-    ?tp(warning, beamformer_enqueue_max_hops, #{req => Req}),
-    ok;
-enqueue(Pool, Req0 = #sub_state{stream = Stream, hops = Hops}, Timeout) ->
-    Req = Req0#sub_state{hops = Hops + 1},
+%% enqueue(_, Req = #sub_state{hops = Hops}, _) when Hops > 3 ->
+%% It seems that the poll request is being bounced between the
+%% queues. After certain number of such hops we drop it to break
+%% the infinite loop.
+%%
+%% Normally, the poll request is bounced between the queues in the
+%% following cases:
+%%
+%% 1. The request was submitted to the RT queue, but its
+%% `start_key' is older than the high watermark for the stream. In
+%% this case RT queue will move it to the catchup queue.
+%%
+%% 2. Catchup queue tried to fulfill the poll request, but got an
+%% empty batch. In this case, it moves the poll request to the RT
+%% queue.
+%%
+%% Normally, the second case should not lead to the first one,
+%% since catchup queue updates the start key before sending it to
+%% the RT queue. However, the DS backend MAY misbehave and fail to
+%% return the end key corresponding to the empty batch equal to
+%% the high watermark.
+%%
+%% This is the probable cause of this warning. To avoid it the
+%% backend must ensure the following property:
+%%
+%% If `scan_stream' callback returns `{ok, EndKey, []}', then
+%% `EndKey' must be greater or equal to the `high_watermark' for
+%% the stream at the moment.
+%% ?tp(warning, beamformer_enqueue_max_hops, #{req => Req}),
+%% ok;
+enqueue(Pool, Req = #sub_state{stream = Stream}, Timeout) ->
     %% Currently we implement backpressure by ignoring transient
     %% errors (gen_server timeouts, `too_many_requests'), and just
     %% letting poll requests expire at the higher level. This should
@@ -605,10 +724,17 @@ enqueue(Pool, Req0 = #sub_state{stream = Stream, hops = Hops}, Timeout) ->
 %% @doc RPC target: split the beam and dispatch replies to local
 %% consumers.
 -spec do_dispatch(beam()) -> ok.
-do_dispatch(Beam = #beam{}) ->
+do_dispatch(Beam = #beam{misc = Misc}) ->
+    SeqNos = maps:get(seqnos, Misc, #{}),
     lists:foreach(
-        fun({{Alias, ItKey}, Result}) ->
-            Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result}
+        fun
+            ({{Alias, ItKey}, Result}) ->
+                %% Single poll:
+                Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result};
+            ({{PID, SubRef, ItKey}, Result}) ->
+                %% Multi-poll (subscription):
+                #{SubRef := SeqNo} = SeqNos,
+                PID ! #poll_reply{ref = SubRef, userdata = ItKey, payload = Result, seqno = SeqNo}
         end,
         split(Beam)
     ).
@@ -617,13 +743,20 @@ do_dispatch(Beam = #beam{}) ->
 %% an ETS table that is organized as a collection of 2-tuples, where
 %% `#poll_req{}' is the second element:
 %%
-%% `{_Key, #poll_req{...}}'
-cleanup_expired(QueueType, Metrics, Table) ->
+%% `{_Key, #sub_state{...}}'
+%%
+%% This function does not affect subscriptions.
+cleanup_expired(QueueType, _ParentSubTab, Metrics, Table) ->
     Now = erlang:monotonic_time(millisecond),
     maybe_report_expired(QueueType, Table, Now),
-    MS = {{'_', #sub_state{_ = '_', deadline = '$1'}}, [{'<', '$1', Now}], [true]},
-    NDeleted = ets:select_delete(Table, [MS]),
-    emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeleted),
+    %% Cleanup 1-shot poll requests:
+    MS = {
+        {'_', #sub_state{_ = '_', deadline = '$1'}},
+        [{'<', '$1', Now}],
+        [true]
+    },
+    NDeletedPolls = ets:select_delete(Table, [MS]),
+    emqx_ds_builtin_metrics:inc_poll_requests_expired(Metrics, NDeletedPolls),
     ok.
 
 %%================================================================================
@@ -640,40 +773,75 @@ maybe_report_expired(QueueType, Table, Now) ->
     MS = {{'_', #sub_state{_ = '_', deadline = '$1', req_id = '$2'}}, [{'<', '$1', Now}], ['$2']},
     [
         ?tp(beamformer_poll_expired, #{req_id => ReqId, queue => QueueType})
-     || ReqId <- ets:select(Tabl, [MS])
+     || ReqId <- ets:select(Table, [MS])
     ],
     ok.
 -endif.
 
--spec pack(
-    fun((Iterator, emqx_ds:message_key()) -> Iterator),
-    emqx_ds:message_key(),
-    dispatch_matrix(),
-    filtered_batch(),
-    per_node_requests()
-) -> beam(_ItKey, _Iterator).
-pack(UpdateIterator, NextKey, Matrix, Msgs, Reqs) ->
-    {Refs, UpdatedIterators} =
+-spec pack(dbshard(), beam_maker(), emqx_ds:message_key(), per_node_requests()) ->
+    beam(_ItKey, _Iterator).
+pack(DBShard, BM, NextKey, Reqs) ->
+    #beam_maker{
+        matrix = Matrix,
+        msgs = Msgs,
+        queue_update = QueueUpdate,
+        queue_drop = QueueDrop,
+        cbm = CBM,
+        shard_id = ShardId,
+        counts = Counts,
+        n = N
+    } = BM,
+    SubTab = subtab(DBShard),
+    {SeqNos, Refs, UpdatedIterators} =
         maps:fold(
-            fun(_, #sub_state{req_id = Ref, it = It0, return_addr = RAddr}, {AccRefs, Acc}) ->
+            fun(
+                _,
+                SubS = #sub_state{req_id = Ref, it = It0, return_addr = RAddr},
+                {AccSeqNos0, AccRefs, Acc}
+            ) ->
                 ?tp(beamformer_fulfilled, #{req_id => Ref}),
-                {ok, It} = UpdateIterator(It0, NextKey),
-                {[Ref | AccRefs], [{RAddr, It} | Acc]}
+                {ok, It} = update_iterator(CBM, ShardId, It0, NextKey),
+                #{Ref := Nmsgs} = Counts,
+                NewSubS = SubS#sub_state{start_key = NextKey, it = It},
+                case keep_and_seqno(subtab(DBShard), SubS, Nmsgs) of
+                    false ->
+                        %% This is a singleton poll request. We drop
+                        %% them upon completion:
+                        ets:delete(SubTab, Ref),
+                        QueueDrop(SubS),
+                        AccSeqNo = AccSeqNos0;
+                    {false, SubRef, SeqNo} ->
+                        %% This request belongs to a subscription that
+                        %% went for too long without ack. We drop it
+                        %% from the active queue:
+                        ets:insert(SubTab, NewSubS),
+                        QueueDrop(SubS),
+                        AccSeqNo = AccSeqNos0#{SubRef => SeqNo};
+                    {true, SubRef, SeqNo} ->
+                        %% This request belongs to a subscription that
+                        %% keeps up with the ack window. We update its
+                        %% state:
+                        ets:insert(SubTab, NewSubS),
+                        QueueUpdate(SubS, NewSubS),
+                        AccSeqNo = AccSeqNos0#{SubRef => SeqNo}
+                end,
+                {AccSeqNo, [Ref | AccRefs], [{RAddr, It} | Acc]}
             end,
-            {[], []},
+            {#{}, [], []},
             Reqs
         ),
-    Pack = do_pack(lists:reverse(Refs), Matrix, Msgs, []),
+    Pack = do_pack(lists:reverse(Refs), Matrix, Msgs, [], N - 1),
     #beam{
         iterators = lists:reverse(UpdatedIterators),
-        pack = Pack
+        pack = Pack,
+        misc = #{seqnos => SeqNos}
     }.
 
-do_pack(_Refs, _Matrix, [], Acc) ->
+do_pack(_Refs, _Matrix, [], Acc, _N) ->
     %% Messages in the `beam_maker' record are reversed, so we don't
     %% have to reverse them here:
     Acc;
-do_pack(Refs, Matrix, [{N, {MsgKey, Msg}} | Msgs], Acc) ->
+do_pack(Refs, Matrix, [{MsgKey, Msg} | Msgs], Acc, N) ->
     %% FIXME: it can include messages that are not needed for the
     %% node:
     DispatchMask = lists:foldl(
@@ -688,7 +856,7 @@ do_pack(Refs, Matrix, [{N, {MsgKey, Msg}} | Msgs], Acc) ->
         <<>>,
         Refs
     ),
-    do_pack(Refs, Matrix, Msgs, [{MsgKey, DispatchMask, Msg} | Acc]).
+    do_pack(Refs, Matrix, Msgs, [{MsgKey, DispatchMask, Msg} | Acc], N - 1).
 
 split([], _Pack, _N, Acc) ->
     Acc;
@@ -710,26 +878,20 @@ check_mask(N, Mask) ->
     <<_:N, Val:1, _/bitstring>> = Mask,
     Val =:= 1.
 
-send_out(Node, Beam) ->
+send_out(DBShard, Node, Beam) ->
     ?tp(debug, beamformer_out, #{
         dest_node => Node,
         beam => Beam
     }),
-    %% gen_rpc currently doesn't optimize local casts:
-    case node() of
-        Node ->
-            erlang:spawn(?MODULE, do_dispatch, [Beam]),
-            ok;
-        _ ->
-            emqx_ds_beamsplitter_proto_v1:dispatch(Node, Beam)
-    end.
+    %% FIXME: gen_rpc currently doesn't optimize local casts:
+    emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, Beam).
 
-subtab(Shard) ->
-    persistent_term:get(?subtid(Shard)).
+%% subtab(Shard) ->
+%%     persistent_term:get(?subtid(Shard)).
 
 make_subtab(Shard) ->
-    Tab = ets:new(emqx_ds_beamformer_sub_tab, [set, public, {keypos, #subscription.id}]),
-    persistent_term:put(?subtid(Shard), Tab),
+    Tab = ets:new(emqx_ds_beamformer_sub_tab, [set, public, {keypos, #sub_state.req_id}]),
+    persistent_term:put(?ps_subtid(Shard), Tab),
     Tab.
 
 %%================================================================================
@@ -753,9 +915,6 @@ chec_mask_test_() ->
     ].
 
 pack_test_() ->
-    UpdateIterator = fun(It0, NextKey) ->
-        {ok, setelement(2, It0, NextKey)}
-    end,
     Raddr = raddr,
     NextKey = <<"42">>,
     Req1 = #sub_state{
@@ -781,7 +940,6 @@ pack_test_() ->
             [],
             maps:to_list(
                 pack_test_helper(
-                    UpdateIterator,
                     NextKey,
                     [
                         {M1, []},
@@ -804,7 +962,6 @@ pack_test_() ->
                     }
             },
             pack_test_helper(
-                UpdateIterator,
                 NextKey,
                 [
                     {M1, [Req1]},
@@ -825,7 +982,6 @@ pack_test_() ->
                     }
             },
             pack_test_helper(
-                UpdateIterator,
                 NextKey,
                 [
                     {M1, []},
@@ -849,7 +1005,6 @@ pack_test_() ->
                     }
             },
             pack_test_helper(
-                UpdateIterator,
                 NextKey,
                 [
                     {M1, [Req1, Req3]},
@@ -859,20 +1014,20 @@ pack_test_() ->
         )
     ].
 
-pack_test_helper(UpdateIterator, NextKey, L) ->
+pack_test_helper(NextKey, L) ->
+    Drop = Update = fun(_SubState) -> ok end,
     BeamMaker = lists:foldl(
-        fun({Message, Reqs}, Acc) ->
-            beams_add(Message, Reqs, Acc)
+        fun({{MsgKey, Message}, Reqs}, Acc) ->
+            beams_add(MsgKey, Message, Reqs, Acc)
         end,
-        beams_init(),
+        beams_init(emqx_ds_beamformer_test_cbm, <<"test_shard">>, Drop, Update),
         L
     ),
-    #beam_maker{reqs = Reqs, matrix = Matrix, msgs = Msgs} = BeamMaker,
     maps:map(
         fun(Node, NodeReqs) ->
-            pack(UpdateIterator, NextKey, Matrix, Msgs, NodeReqs)
+            pack(my_shard, BeamMaker, NextKey, NodeReqs)
         end,
-        Reqs
+        BeamMaker#beam_maker.reqs
     ).
 
 split_test_() ->
