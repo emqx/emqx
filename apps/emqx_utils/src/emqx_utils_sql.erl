@@ -32,7 +32,11 @@
 -type statement_type() :: select | insert | delete | update.
 -type value() :: null | binary() | number() | boolean() | [value()].
 
--define(INSERT_RE_MP_KEY, insert_re_mp).
+%% The type Copied from stdlib/src/re.erl to compatibility with OTP 26
+%% Since `re:mp()` exported after OTP 27
+-type mp() :: {re_pattern, _, _, _, _}.
+
+-define(INSERT_RE_MP_KEY, {?MODULE, insert_re_mp}).
 -define(INSERT_RE_BIN, <<
     %% case-insensitive
     "(?i)^\\s*",
@@ -49,23 +53,41 @@
     "\\s*$"
 >>).
 
+-define(HEX_RE_MP_KEY, {?MODULE, hex_re_mp}).
+-define(HEX_RE_BIN, <<"^[0-9a-fA-F]+$">>).
+
 -dialyzer({no_improper_lists, [escape_mysql/4, escape_prepend/4]}).
 
--on_load(put_insert_mp/0).
+-on_load(on_load/0).
+
+on_load() ->
+    ok = put_insert_mp(),
+    ok = put_hex_re_mp().
 
 put_insert_mp() ->
-    persistent_term:put({?MODULE, ?INSERT_RE_MP_KEY}, re:compile(?INSERT_RE_BIN)),
+    persistent_term:put(?INSERT_RE_MP_KEY, re:compile(?INSERT_RE_BIN)),
     ok.
 
-%% The type Copied from stdlib/src/re.erl to compatibility with OTP 26
-%% Since `re:mp()` exported after OTP 27
--type mp() :: {re_pattern, _, _, _, _}.
 -spec get_insert_mp() -> {ok, mp()}.
 get_insert_mp() ->
-    case persistent_term:get({?MODULE, ?INSERT_RE_MP_KEY}, undefined) of
+    case persistent_term:get(?INSERT_RE_MP_KEY, undefined) of
         undefined ->
             ok = put_insert_mp(),
             get_insert_mp();
+        {ok, MP} ->
+            {ok, MP}
+    end.
+
+put_hex_re_mp() ->
+    persistent_term:put(?HEX_RE_MP_KEY, re:compile(?HEX_RE_BIN)),
+    ok.
+
+-spec get_hex_re_mp() -> {ok, mp()}.
+get_hex_re_mp() ->
+    case persistent_term:get(?HEX_RE_MP_KEY, undefined) of
+        undefined ->
+            ok = put_hex_re_mp(),
+            get_hex_re_mp();
         {ok, MP} ->
             {ok, MP}
     end.
@@ -176,8 +198,14 @@ escape_snowflake(S) ->
     ES = binary:replace(S, <<"\"">>, <<"\"">>, [global, {insert_replaced, 1}]),
     [$", ES, $"].
 
-escape_sqlserver(<<"0x", _Rest/binary>> = SQLServerHex) ->
-    [SQLServerHex];
+escape_sqlserver(<<"0x", Rest/binary>> = S) ->
+    {ok, MP} = get_hex_re_mp(),
+    case re:run(Rest, MP, []) of
+        {match, _} ->
+            [S];
+        _ ->
+            escape_sql(S)
+    end;
 escape_sqlserver(S) ->
     escape_sql(S).
 
