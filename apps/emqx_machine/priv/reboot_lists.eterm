@@ -118,6 +118,7 @@
             emqx_bridge_rabbitmq,
             emqx_bridge_azure_event_hub,
             emqx_bridge_datalayers,
+            emqx_bridge_tablestore,
             emqx_s3,
             emqx_bridge_s3,
             emqx_bridge_azure_blob_storage,
