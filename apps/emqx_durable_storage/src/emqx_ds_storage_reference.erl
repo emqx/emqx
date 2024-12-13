@@ -47,6 +47,8 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
+    fast_forward/5,
+
     batch_events/3
 ]).
 
@@ -167,6 +169,10 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
         start_time = StartTime,
         last_seen_message_key = DSKey
     }}.
+
+fast_forward(_ShardId, _S, It0, DSKey, _TMax) ->
+    %% FIXME:
+    {ok, It0#it{last_seen_message_key = DSKey}}.
 
 next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize, _Now, IsCurrent) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,

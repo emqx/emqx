@@ -384,7 +384,9 @@ message_matcher(
         end
     end.
 
-unpack_iterator(_Shard, #s{trie = Trie}, #it{static_index = StaticIdx, compressed_tf = CTF, last_key = LSK}) ->
+unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
+    static_index = StaticIdx, compressed_tf = CTF, last_key = LSK
+}) ->
     MHB = master_hash_bits(S, CTF),
     DSKey = mk_master_key(StaticIdx, LSK, MHB),
     TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), words(CTF)),
@@ -402,7 +404,6 @@ scan_stream(
 ) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     Varying = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    LastSeenTS = match_ds_key(StaticIdx, LastSeenKey),
     ItSeed = #it{
         static_index = StaticIdx,
         compressed_tf = emqx_topic:join(Varying),
@@ -431,20 +432,25 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
 fast_forward(
     ShardId,
     S,
-    It0 = #it{ts = TS0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
+    It0 = #it{last_key = TS0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
     DSKey,
     TMax
 ) ->
-    case match_ds_key(It0#it.static_index, DSKey) of
+    case match_stream_key(It0#it.static_index, DSKey) of
         false ->
             {error, unrecoverable, <<"Invalid datastream key">>};
         FastForwardTo when FastForwardTo > TMax ->
             {error, recoverble, <<"Key is too far in the future">>};
         FastForwardTo when FastForwardTo =< TS0 ->
-            {error, unrecoverable, old_key};
+            %% The new position is earlier than the current position.
+            %% We keep the original position to prevent duplication of
+            %% messages. De-duplication is performed by
+            %% `message_matcher' callback that filters out messages
+            %% with TS older than the iterator's.
+            {ok, It0};
         FastForwardTo ->
             case next(ShardId, S, It0, 1, TMax, true) of
-                {ok, #it{ts = NextTS}, [_]} when NextTS =< FastForwardTo ->
+                {ok, #it{last_key = NextTS}, [_]} when NextTS =< FastForwardTo ->
                     {error, unrecoverable, has_data};
                 {ok, It, _} ->
                     {ok, It};
