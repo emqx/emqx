@@ -18,15 +18,17 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/3, rt_pool/1, catchup_pool/1, cbm/1]).
+-export([start_link/3, cbm/1]).
 
 %% behavior callbacks:
 -export([init/1]).
 
 %% internal exports:
--export([start_workers/3, init_pool_owner/3]).
+-export([start_workers/3]).
 
 -export_type([]).
+
+-include("emqx_ds_beamformer.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -34,23 +36,13 @@
 
 -define(SUP(SHARD), {n, l, {?MODULE, SHARD}}).
 
--define(cbm(DB), {?MODULE, DB}).
-
 %%================================================================================
 %% API functions
 %%================================================================================
 
 -spec cbm(_Shard) -> module().
 cbm(DB) ->
-    persistent_term:get(?cbm(DB)).
-
-%% @doc Pool of realtime beamformers
-rt_pool(Shard) ->
-    {emqx_ds_beamformer_rt, Shard}.
-
-%% @doc Pool of catchup beamformers
-catchup_pool(Shard) ->
-    {emqx_ds_beamformer_catchup, Shard}.
+    persistent_term:get(?ps_cbm(DB)).
 
 -spec start_link(module(), _Shard, emqx_ds_beamformer:opts()) -> supervisor:startlink_ret().
 start_link(CBM, ShardId, Opts) ->
@@ -65,9 +57,9 @@ start_link(CBM, ShardId, Opts) ->
 init({top, Module, ShardId, Opts}) ->
     Children = [
         #{
-            id => pool_owner,
+            id => leader,
             type => worker,
-            start => {proc_lib, start_link, [?MODULE, init_pool_owner, [self(), ShardId, Module]]}
+            start => {emqx_ds_beamformer, start_link, [ShardId, Module]}
         },
         #{
             id => workers,
@@ -78,7 +70,7 @@ init({top, Module, ShardId, Opts}) ->
     ],
     SupFlags = #{
         strategy => one_for_all,
-        intensity => 1,
+        intensity => 10,
         period => 1
     },
     {ok, {SupFlags, Children}};
@@ -92,11 +84,17 @@ init({workers, Module, ShardId, Opts}) ->
             start => {Type, start_link, [Module, ShardId, I, Opts]}
         }
      || I <- lists:seq(1, InitialNWorkers),
-        Type <- [emqx_ds_beamformer_rt, emqx_ds_beamformer_catchup]
+        Type <- [
+            emqx_ds_beamformer_catchup,
+            emqx_ds_beamformer_rt
+        ]
     ],
+    %% FIXME: currently we want crash in one worker to immediately
+    %% escalate to the leader, since currently there's no mechanism to
+    %% re-enqueue requests owned by crashed worker.
     SupFlags = #{
-        strategy => one_for_one,
-        intensity => 10,
+        strategy => one_for_all,
+        intensity => 0,
         period => 10
     },
     {ok, {SupFlags, Children}}.
@@ -107,24 +105,6 @@ init({workers, Module, ShardId, Opts}) ->
 
 start_workers(Module, ShardId, InitialNWorkers) ->
     supervisor:start_link(?MODULE, {workers, Module, ShardId, InitialNWorkers}).
-
-%% Helper process that automatically destroys gproc pool when
-%% supervisor is stopped:
--spec init_pool_owner(pid(), _Shard, module()) -> no_return().
-init_pool_owner(Parent, ShardId, Module) ->
-    process_flag(trap_exit, true),
-    gproc_pool:new(catchup_pool(ShardId), hash, [{auto_size, true}]),
-    gproc_pool:new(rt_pool(ShardId), hash, [{auto_size, true}]),
-    persistent_term:put(?cbm(ShardId), Module),
-    proc_lib:init_ack(Parent, {ok, self()}),
-    %% Automatic cleanup:
-    receive
-        {'EXIT', _Pid, Reason} ->
-            gproc_pool:force_delete(rt_pool(ShardId)),
-            gproc_pool:force_delete(catchup_pool(ShardId)),
-            persistent_term:erase(?cbm(ShardId)),
-            exit(Reason)
-    end.
 
 %%================================================================================
 %% Internal functions
