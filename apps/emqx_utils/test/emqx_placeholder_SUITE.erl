@@ -120,13 +120,14 @@ t_preproc_sqlserver_sql(_) ->
         b => 1,
         c => 1.0,
         d => #{d1 => <<"hi">>},
-        hex_str => <<"0x0010">>
+        hex_str => <<"0x0010">>,
+        not_hex => <<"0xabcdefghijk_你好🐸"/utf8>>
     },
     ParamsTokens = emqx_placeholder:preproc_tmpl(
-        <<"a:${a},b:${b},c:${c},d:${d},hex_str:${hex_str}"/utf8>>
+        <<"a:${a},b:${b},c:${c},d:${d},hex_str:${hex_str},not_hex:${not_hex}"/utf8>>
     ),
     ?assertEqual(
-        <<"a:'abc_hello你好👋',b:1,c:1.0,d:'{\"d1\":\"hi\"}',hex_str:0x0010"/utf8>>,
+        <<"a:'abc_hello你好👋',b:1,c:1.0,d:'{\"d1\":\"hi\"}',hex_str:0x0010,not_hex:'0xabcdefghijk_你好🐸'"/utf8>>,
         emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
     ).
 
