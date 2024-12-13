@@ -69,6 +69,7 @@ SHA
 SMS
 Struct
 Supabase
+Tablestore
 TCP
 TLS
 TTL
@@ -247,6 +248,7 @@ sys
 sysmem
 sysmon
 systemd
+tablestore
 tcp
 ticktime
 timeseries

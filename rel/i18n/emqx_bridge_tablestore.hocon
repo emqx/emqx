@@ -13,17 +13,17 @@ desc_endpoint.desc:
 desc_instance_name.label:
 """Instance Name"""
 desc_instance_name.desc:
-"""instance name."""
+"""Instance name."""
 
 desc_access_key_id.label:
 """Key ID"""
 desc_access_key_id.desc:
-"""Key ID. e.g NTS**********************"""
+"""Key ID. e.g. NTS**********************"""
 
 desc_access_key_secret.label:
 """Key Secret"""
 desc_access_key_secret.desc:
-"""Key secret. e.g 7NR2****************************************"""
+"""Key secret. e.g. 7NR2****************************************"""
 
 pool_size.label:
 """Pool Size"""
@@ -73,7 +73,7 @@ tablestore_fields_isint.desc:
 tablestore_fields_isbinary.label:
 """Is Binary"""
 tablestore_fields_isbinary.desc:
-"""Whether try write binary values as binary type. Defaults to false, means that write binary values as strings."""
+"""Whether try to write binary values as binary type. Defaults to false, means that write binary values as strings."""
 
 storage_model_type.label:
 """Storage Model Type"""
