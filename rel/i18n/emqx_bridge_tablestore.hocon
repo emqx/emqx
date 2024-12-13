@@ -1,0 +1,108 @@
+emqx_bridge_tablestore {
+
+desc_config.label:
+"""Tablestore Bridge Configuration"""
+desc_config.desc:
+"""Configuration for a Tablestore bridge."""
+
+desc_endpoint.label:
+"""Endpoint"""
+desc_endpoint.desc:
+"""Endpoint for the Tablestore. e.g. https://myinstance.cn-hangzhou.ots.aliyuncs.com"""
+
+desc_instance_name.label:
+"""Instance Name"""
+desc_instance_name.desc:
+"""instance name."""
+
+desc_access_key_id.label:
+"""Key ID"""
+desc_access_key_id.desc:
+"""Key ID. e.g NTS**********************"""
+
+desc_access_key_secret.label:
+"""Key Secret"""
+desc_access_key_secret.desc:
+"""Key secret. e.g 7NR2****************************************"""
+
+pool_size.label:
+"""Pool Size"""
+pool_size.desc:
+"""The pool size."""
+
+desc_table_name.label:
+"""Table Name"""
+desc_table_name.desc:
+"""Table name."""
+
+desc_measurement.label:
+"""Measurement"""
+desc_measurement.desc:
+"""The measurement."""
+
+desc_data_source.label:
+"""Data Source"""
+desc_data_source.desc:
+"""The data source."""
+
+desc_timestamp.label:
+"""Timestamp"""
+desc_timestamp.desc:
+"""The timestamp."""
+
+desc_meta_update_model.label:
+"""Meta Update Model"""
+desc_meta_update_model.desc:
+"""The meta-update-module."""
+
+tablestore_fields_column.label:
+"""Column"""
+tablestore_fields_column.desc:
+"""Column name of the field"""
+
+tablestore_fields_value.label:
+"""Value"""
+tablestore_fields_value.desc:
+"""Value of the field"""
+
+tablestore_fields_isint.label:
+"""Is Int"""
+tablestore_fields_isint.desc:
+"""Whether try to write numeric value as integer. Defaults to false, means that write integers as floats."""
+
+tablestore_fields_isbinary.label:
+"""Is Binary"""
+tablestore_fields_isbinary.desc:
+"""Whether try write binary values as binary type. Defaults to false, means that write binary values as strings."""
+
+storage_model_type.label:
+"""Storage Model Type"""
+storage_model_type.desc:
+"""Storage model type. Can be one of "timeseries" or "order"."""
+
+desc_tags.label:
+"""Tags"""
+desc_tags.desc:
+"""Tags"""
+
+desc_fields.label:
+"""Fields"""
+desc_fields.desc:
+"""Fields"""
+
+connector.label:
+"""Tablestore Connector Configuration"""
+connector.desc:
+"""Configuration for a Tablestore connector."""
+
+action_parameters.label:
+"""Action Parameters"""
+action_parameters.desc:
+"""Additional parameters specific to this action type"""
+
+tablestore_action.label:
+"""Tablestore Action"""
+tablestore_action.desc:
+"""Action to interact with a Tablestore connector"""
+
+}
