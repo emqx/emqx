@@ -240,6 +240,8 @@ handle_membership_event({node, leaving, Node}, State) ->
 handle_membership_event({node, up, Node}, State) ->
     _ = record_node_alive(Node),
     State;
+handle_membership_event({mnesia, up, Node}, State = #{last_membership := Membership}) ->
+    State#{last_membership := lists:usort([Node | Membership])};
 handle_membership_event(_Event, State) ->
     State.
 
