@@ -357,7 +357,7 @@ schedule_purge_left(Node) ->
 handle_purge(Node, State) ->
     try purge_dead_node_trans(Node) of
         true ->
-            ?tp(debug, emqx_router_node_purged, #{node => Node}),
+            ?tp(info, emqx_router_node_purged, #{node => Node}),
             forget_node(Node);
         false ->
             ?tp(debug, emqx_router_node_purge_skipped, #{node => Node}),

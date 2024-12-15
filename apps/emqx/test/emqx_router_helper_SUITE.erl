@@ -38,6 +38,11 @@ groups() ->
     CleanupTCs = [t_membership_node_leaving],
     ClusterTCs = [
         t_cluster_node_leaving,
+        t_cluster_node_force_leave,
+        t_cluster_node_restart
+    ],
+    ClusterReplicantTCs = [
+        t_cluster_node_leaving,
         t_cluster_node_down,
         t_cluster_node_restart
     ],
@@ -52,7 +57,7 @@ groups() ->
             {group, routing_schema_v2}
         ]},
         {cluster, [], ClusterTCs},
-        {cluster_replicant, [], ClusterTCs},
+        {cluster_replicant, [], ClusterReplicantTCs},
         {routing_schema_v1, [], SchemaTCs},
         {routing_schema_v2, [], SchemaTCs}
     ].
@@ -175,6 +180,30 @@ t_cluster_node_down(Config) ->
         10_000
     ),
     ok = emqx_cth_cluster:stop([ClusterNode]),
+    {ok, _Event} = snabbkaffe:receive_events(SRef),
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+
+t_cluster_node_force_leave('init', Config) ->
+    start_join_node(cluster_node_force_leave, Config);
+t_cluster_node_force_leave('end', Config) ->
+    stop_leave_node(Config).
+
+t_cluster_node_force_leave(Config) ->
+    ClusterNode = ?config(cluster_node, Config),
+    emqx_router:add_route(<<"forceleave/b/#">>, ClusterNode),
+    emqx_router:add_route(<<"test/e/f">>, node()),
+    ?assertMatch([_, _], emqx_router:topics()),
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := emqx_router_node_purged, node := ClusterNode}),
+        1,
+        10_000
+    ),
+    %% Simulate node crash.
+    ok = emqx_cth_peer:kill(ClusterNode),
+    %% Give Mria some time to recognize the node is down.
+    ok = timer:sleep(500),
+    %% Force-leave it.
+    ok = ekka:force_leave(ClusterNode),
     {ok, _Event} = snabbkaffe:receive_events(SRef),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
