@@ -58,9 +58,9 @@
 
 %% How often to reconcile nodes state? (ms)
 %% Introduce some jitter to avoid concerted firing on different nodes.
--define(RECONCILE_INTERVAL, {10 * 60_000, '±', 30_000}).
+-define(RECONCILE_INTERVAL, {2 * 60_000, '±', 15_000}).
 %% How soon should a dead node be purged? (ms)
--define(PURGE_DEAD_TIMEOUT, 60 * 60_000).
+-define(PURGE_DEAD_TIMEOUT, 15 * 60_000).
 %% How soon should a left node be purged? (ms)
 %% This is a fallback, left node is expected to be purged right away.
 -define(PURGE_LEFT_TIMEOUT, 15_000).
