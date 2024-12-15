@@ -14,6 +14,33 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% Router helper process.
+%%
+%% Responsibility is twofold:
+%% 1. Cleaning own portion of the global routing table when restarted.
+%%    The assumption is that the node has crashed (worst-case), so the
+%%    previous incarnation's routes are still present upon restart.
+%% 2. Managing portions of global routing table belonging to dead / "left"
+%%    cluster members, i.e. members that are not supposed to come back
+%%    online again.
+%%
+%% Only core nodes are responsible for the latter task. Moreover, helper
+%% adopts the following operational model:
+%% 1. Core nodes are supposed to be explicitly evicted (or "left") from
+%%    the cluster. Even if a core node is marked down for several hours,
+%%    helper won't attempt to purge its portion of the global routing
+%%    table.
+%% 2. Replicant nodes are considered dead (or "left") once they are down
+%%    for a specific timespan. Currently hardcoded as `?PURGE_DEAD_TIMEOUT`.
+%%    Ideally it should reflect amount of time it takes for a connectivity
+%%    failure between cores and replicants to heal worst-case.
+%%
+%% TODO
+%% While cores purge unreachable replicants' routes after a timeout,
+%% replicants _do nothing_ on connectivity loss, regardless of how long
+%% it is. Coupled with the fact that replicants are not affected by
+%% "autoheal" mechanism, this may still lead to routing inconsistencies.
+
 -module(emqx_router_helper).
 
 -behaviour(gen_server).
