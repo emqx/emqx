@@ -106,12 +106,12 @@ t_preproc_sql2(_) ->
     ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>, PrepareStatement),
     ?assertEqual([], emqx_placeholder:proc_sql(ParamsTokens, Selected)).
 
-t_preproc_sql3(_) ->
+t_preproc_sqlserver(_) ->
     Selected = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
     ParamsTokens = emqx_placeholder:preproc_tmpl(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(
         <<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}'">>,
-        emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
+        emqx_placeholder:proc_sqlserver_param_str(ParamsTokens, Selected)
     ).
 
 t_preproc_sqlserver_sql(_) ->
@@ -128,7 +128,7 @@ t_preproc_sqlserver_sql(_) ->
     ),
     ?assertEqual(
         <<"a:'abc_hello你好👋',b:1,c:1.0,d:'{\"d1\":\"hi\"}',hex_str:0x0010,not_hex:'0xabcdefghijk_你好🐸'"/utf8>>,
-        emqx_placeholder:proc_sql_param_str(ParamsTokens, Selected)
+        emqx_placeholder:proc_sqlserver_param_str(ParamsTokens, Selected)
     ).
 
 t_preproc_mysql1(_) ->

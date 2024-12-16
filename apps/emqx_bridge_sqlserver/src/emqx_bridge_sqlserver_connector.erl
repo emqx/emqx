@@ -601,9 +601,9 @@ proc_batch_sql(BatchReqs, BatchInserts, Tokens, ChannelConf) ->
     <<BatchInserts/binary, " values ", Values/binary>>.
 
 proc_msg(Tokens, Msg, #{undefined_vars_as_null := true}) ->
-    emqx_placeholder:proc_sql_param_str2(Tokens, Msg);
+    emqx_placeholder:proc_sqlserver_param_str2(Tokens, Msg);
 proc_msg(Tokens, Msg, _) ->
-    emqx_placeholder:proc_sql_param_str(Tokens, Msg).
+    emqx_placeholder:proc_sqlserver_param_str(Tokens, Msg).
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).

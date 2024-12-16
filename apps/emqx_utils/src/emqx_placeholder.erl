@@ -29,8 +29,8 @@
     preproc_sql/1,
     preproc_sql/2,
     proc_sql/2,
-    proc_sql_param_str/2,
-    proc_sql_param_str2/2,
+    proc_sqlserver_param_str/2,
+    proc_sqlserver_param_str2/2,
     proc_cql_param_str/2,
     proc_param_str/3,
     preproc_tmpl_deep/1,
@@ -183,13 +183,12 @@ preproc_sql(Sql, Opts) ->
 proc_sql(Tokens, Data) ->
     proc_tmpl(Tokens, Data, #{return => rawlist, var_trans => fun sql_data/1}).
 
-%% func `proc_sql_param_str/2` and `proc_sql_param_str2/2` are only used by sqlserver bridge
--spec proc_sql_param_str(tmpl_token(), map()) -> binary().
-proc_sql_param_str(Tokens, Data) ->
+-spec proc_sqlserver_param_str(tmpl_token(), map()) -> binary().
+proc_sqlserver_param_str(Tokens, Data) ->
     proc_param_str(Tokens, Data, fun quote_sqlserver/1).
 
--spec proc_sql_param_str2(tmpl_token(), map()) -> binary().
-proc_sql_param_str2(Tokens, Data) ->
+-spec proc_sqlserver_param_str2(tmpl_token(), map()) -> binary().
+proc_sqlserver_param_str2(Tokens, Data) ->
     proc_param_str(Tokens, Data, fun quote_sqlserver2/1).
 
 -spec proc_cql_param_str(tmpl_token(), map()) -> binary().
