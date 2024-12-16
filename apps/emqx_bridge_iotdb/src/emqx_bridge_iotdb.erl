@@ -101,7 +101,7 @@ fields(action_parameters_data) ->
     [
         {timestamp,
             mk(
-                hoconsc:union([enum([now, now_ms, now_ns, now_us]), binary()]),
+                hoconsc:union([enum([now, now_ms, now_ns, now_us]), emqx_schema:template()]),
                 #{
                     desc => ?DESC("config_parameters_timestamp"),
                     default => <<"now">>
@@ -117,9 +117,7 @@ fields(action_parameters_data) ->
             )},
         {data_type,
             mk(
-                hoconsc:union([
-                    enum([text, boolean, int32, int64, float, double]), emqx_schema:template()
-                ]),
+                enum([text, boolean, int32, int64, float, double]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_data_type")
