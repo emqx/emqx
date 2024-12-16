@@ -210,4 +210,10 @@ t_password_expired(_) ->
     emqx_dashboard_admin:unsafe_update_user(User#?ADMIN{extra = #{password_ts => PwdTS2}}),
     SignResult = emqx_dashboard_admin:sign_token(Username, Password),
     ?assertMatch({ok, #{password_expire_in_seconds := X}} when X =< -86400, SignResult),
+    Now = erlang:system_time(second),
+    timer:sleep(1000),
+    emqx_dashboard_admin:change_password(Username, Password),
+    [#?ADMIN{extra = #{password_ts := PwdTS3}}] = emqx_dashboard_admin:lookup_user(Username),
+    ?assert(PwdTS3 > PwdTS),
+    ?assert(PwdTS3 > Now),
     ok.
