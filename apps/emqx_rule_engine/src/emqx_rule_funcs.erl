@@ -117,8 +117,10 @@
     float2str/2,
     map/1,
     bin2hexstr/1,
+    bin2hexstr/2,
     hexstr2bin/1,
-    sqlserver_hexbin/1
+    hexstr2bin/2,
+    sqlserver_bin2hexstr/1
 ]).
 
 %% Data Type Validation Funcs
@@ -751,13 +753,29 @@ map(Data) ->
     error(badarg, [Data]).
 
 bin2hexstr(Bin) ->
-    emqx_variform_bif:bin2hexstr(Bin).
+    bin2hexstr(Bin, undefined).
+
+bin2hexstr(Bin, undefined) ->
+    emqx_variform_bif:bin2hexstr(Bin);
+bin2hexstr(Bin, Prefix) when is_binary(Prefix) ->
+    <<Prefix/binary, (emqx_variform_bif:bin2hexstr(Bin))/binary>>.
 
 hexstr2bin(Str) ->
-    emqx_variform_bif:hexstr2bin(Str).
+    hexstr2bin(Str, undefined).
 
-sqlserver_hexbin(Str) ->
-    <<"0x", (emqx_variform_bif:bin2hexstr(Str))/binary>>.
+hexstr2bin(Str, undefined) ->
+    emqx_variform_bif:hexstr2bin(Str);
+hexstr2bin(Str, Prefix) when is_binary(Prefix) ->
+    Length = size(Prefix),
+    case Str of
+        <<Prefix:Length/binary, Rest/binary>> ->
+            emqx_variform_bif:hexstr2bin(Rest);
+        _ ->
+            error(binary_prefix_unmatch)
+    end.
+
+sqlserver_bin2hexstr(Str) ->
+    bin2hexstr(Str, <<"0x">>).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
