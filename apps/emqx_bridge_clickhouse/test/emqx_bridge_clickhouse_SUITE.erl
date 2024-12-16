@@ -334,7 +334,8 @@ t_parse_insert_sql_template(_Config) ->
     ?assertEqual(
         <<"[(${key}, \"${data}\", ${timestamp})]">>,
         parse_insert(
-            <<"INSERT INTO mqtt_test(key, data, arrived) FORMAT JSONCompactEachRow [(${key}, \"${data}\", ${timestamp})]">>
+            <<"INSERT INTO mqtt_test(key, data, arrived)",
+                " FORMAT JSONCompactEachRow [(${key}, \"${data}\", ${timestamp})]">>
         )
     ),
     ?assertEqual(
