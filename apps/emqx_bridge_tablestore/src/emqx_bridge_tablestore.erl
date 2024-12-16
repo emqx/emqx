@@ -177,12 +177,32 @@ fields(tablestore_action) ->
 fields(action_parameters) ->
     [
         storage_model_type_field(),
-        {table_name, mk(binary(), #{required => true, desc => ?DESC("desc_table_name")})},
-        {measurement, mk(binary(), #{required => true, desc => ?DESC("desc_measurement")})},
+        {table_name,
+            mk(binary(), #{
+                required => true,
+                is_template => true,
+                desc => ?DESC("desc_table_name")
+            })},
+        {measurement,
+            mk(binary(), #{
+                required => true,
+                is_template => true,
+                desc => ?DESC("desc_measurement")
+            })},
         tags_field(),
         fields_field(),
-        {data_source, mk(binary(), #{required => true, desc => ?DESC("desc_data_source")})},
-        {timestamp, mk(binary(), #{required => false, desc => ?DESC("desc_timestamp")})},
+        {data_source,
+            mk(binary(), #{
+                required => true,
+                is_template => true,
+                desc => ?DESC("desc_data_source")
+            })},
+        {timestamp,
+            mk(binary(), #{
+                required => false,
+                is_template => true,
+                desc => ?DESC("desc_timestamp")
+            })},
         {meta_update_model,
             mk(
                 hoconsc:enum(['MUM_IGNORE', 'MUM_NORMAL']), #{
@@ -214,21 +234,25 @@ fields("tablestore_fields") ->
         {column,
             mk(binary(), #{
                 required => true,
+                is_template => true,
                 desc => ?DESC("tablestore_fields_column")
             })},
         {value,
             mk(hoconsc:union([binary(), boolean(), number()]), #{
                 required => true,
+                is_template => true,
                 desc => ?DESC("tablestore_fields_value")
             })},
         {isint,
             mk(boolean(), #{
                 required => false,
+                is_template => true,
                 desc => ?DESC("tablestore_fields_isint")
             })},
         {isbinary,
             mk(boolean(), #{
                 required => false,
+                is_template => true,
                 desc => ?DESC("tablestore_fields_isbinary")
             })}
     ].
