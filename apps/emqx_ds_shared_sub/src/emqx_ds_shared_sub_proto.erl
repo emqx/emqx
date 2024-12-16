@@ -52,7 +52,8 @@
 
 -export([
     ssubscriber_id/3,
-    ssubscriber_pidref/1
+    ssubscriber_pidref/1,
+    ssubscriber_subscription_id/1
 ]).
 
 %% Legacy types
@@ -105,11 +106,7 @@ send_to_leader(ToLeader, Msg) ->
 -spec send_to_ssubscriber(ssubscriber_id(), to_ssubscriber_msg()) -> ok.
 send_to_ssubscriber(ToSSubscriberId, Msg) when ?is_local_ssubscriber(ToSSubscriberId) ->
     ?log_leader_msg(ToSSubscriberId, Msg),
-    _ = emqx_persistent_session_ds_shared_subs_agent:send(
-        ?ssubscriber_pidref(ToSSubscriberId), ?ssubscriber_subscription_id(ToSSubscriberId), {
-            ?ssubscriber_pidref(ToSSubscriberId), Msg
-        }
-    ),
+    _ = emqx_ds_shared_sub_agent:send_to_ssubscriber(ToSSubscriberId, Msg),
     ok;
 send_to_ssubscriber(ToSSubscriberId, Msg) ->
     emqx_ds_shared_sub_proto_v3:send_to_ssubscriber(
@@ -132,6 +129,11 @@ ssubscriber_id(SessionId, SubscriptionId, PidRef) ->
 -spec ssubscriber_pidref(ssubscriber_id()) -> reference().
 ssubscriber_pidref(SSubscriberId) ->
     ?ssubscriber_pidref(SSubscriberId).
+
+-spec ssubscriber_subscription_id(ssubscriber_id()) ->
+    emqx_persistent_session_ds_shared_subs_agent:subscription_id().
+ssubscriber_subscription_id(SSubscriberId) ->
+    ?ssubscriber_subscription_id(SSubscriberId).
 
 %%--------------------------------------------------------------------
 %% Legacy API

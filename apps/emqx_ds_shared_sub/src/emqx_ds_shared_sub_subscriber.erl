@@ -138,6 +138,7 @@ new(#{
         send_after => SendAfter,
 
         status => ?connecting,
+        streams => #{},
         timers => #{}
     },
     ok = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
@@ -164,6 +165,10 @@ on_info(St0, ?leader_connect_response_match(Leader)) when ?is_connecting(St0) ->
 on_info(#{id := Id, share_topic_filter := ShareTopicFilter} = St, ?find_leader_timer) when
     ?is_connecting(St)
 ->
+    ?tp(warning, ssubscriber_find_leader_timeout, #{
+        ssubscriber_id => Id,
+        share_topic_filter => ShareTopicFilter
+    }),
     ok = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
     {ok, [], ensure_timer(St, ?find_leader_timer)};
 %%
@@ -173,11 +178,13 @@ on_info(St0, ?leader_ping_response_match(_)) ->
     St1 = cancel_timer(St0, ?ping_leader_timeout_timer),
     St2 = ensure_timer(St1, ?ping_leader_timer),
     {ok, [], St2};
-on_info(St, ?ping_leader_timer) ->
+on_info(#{session_id := SessionId} = St, ?ping_leader_timer) ->
+    ?tp(warning, shared_sub_ssubscriber_ping_leader, #{session_id => SessionId}),
     ok = notify_ping(St),
-    {ok, [], ensure_timer(St, ?ping_leader_timer)};
-on_info(St, ?ping_leader_timeout_timer) ->
-    {reset, [], St};
+    {ok, [], ensure_timer(St, ?ping_leader_timeout_timer)};
+on_info(#{session_id := SessionId} = St, ?ping_leader_timeout_timer) ->
+    ?tp(warning, shared_sub_ssubscriber_ping_leader_timeout, #{session_id => SessionId}),
+    reset(St);
 %%
 %% Grant stream
 %%
@@ -190,9 +197,10 @@ on_info(St0, ?leader_grant_match(Leader, _StreamProgress) = Msg) when ?is_connec
     St3 = ensure_timer(St2, ?ping_leader_timer),
     on_info(St3, Msg);
 on_info(
-    #{streams := Streams0} = St0,
+    #{streams := Streams0, session_id := SessionId} = St0,
     ?leader_grant_match(_Leader, #{stream := Stream, progress := Progress0})
-) when ?is_connected(St0) orelse ?is_connecting(St0) ->
+) when ?is_connected(St0) ->
+    ?tp(debug, shared_sub_ssubscriber_leader_grant, #{session_id => SessionId}),
     {Events, Streams1} =
         case Streams0 of
             #{Stream := _} ->
@@ -209,9 +217,9 @@ on_info(
 %%
 %% Revoke stream
 %%
-on_info(St0, ?leader_revoke_match(_Leader, _Stream)) when ?is_connecting(St0) ->
+on_info(St, ?leader_revoke_match(_Leader, _Stream)) when ?is_connecting(St) ->
     %% Should never happen.
-    {reset, []};
+    reset(St);
 on_info(St0, ?leader_revoke_match(_Leader, _Stream)) when ?is_unsubscribing(St0) ->
     %% If unsubscribing, ignore the revoke — we are revoking everything ourselves.
     {ok, [], St0};
@@ -231,14 +239,14 @@ on_info(#{streams := Streams0} = St0, ?leader_revoke_match(_Leader, Stream)) whe
             {ok, [revoke_event(Stream)], St1};
         #{} ->
             %% Should never happen.
-            {reset, revoke_all_events(St0)}
+            reset(St0, revoke_all_events(St0))
     end;
 %%
 %% Revoke finalization
 %%
 on_info(St, ?leader_revoked_match(_Leader, _Stream)) when ?is_connecting(St) ->
     %% Should never happen.
-    {reset, []};
+    reset(St);
 on_info(St, ?leader_revoked_match(_Leader, _Stream)) when ?is_unsubscribing(St) ->
     {ok, [], St};
 on_info(#{streams := Streams0} = St0, ?leader_revoked_match(_Leader, Stream)) when
@@ -259,21 +267,21 @@ on_info(#{streams := Streams0} = St0, ?leader_revoked_match(_Leader, Stream)) wh
 %%
 %% Invalidate
 %%
-on_info(St0, ?leader_invalidate_match(_Leader)) ->
-    {reset, revoke_all_events(St0)};
+on_info(St, ?leader_invalidate_match(_Leader)) ->
+    reset(St, revoke_all_events(St));
 %%
 %% Unsubscribe timeout
 %%
 on_info(St, ?unsubscribe_timer) when ?is_unsubscribing(St) ->
     ok = notify_disconnect(St),
-    {stop, []}.
+    stop(St).
 
 on_disconnect(St0, Progresses) ->
     St1 = update_progresses(St0, Progresses),
     ok = notify_disconnect(St1).
 
 on_unsubscribe(St) when ?is_connecting(St) ->
-    {stop, []};
+    stop(St);
 on_unsubscribe(St) when ?is_unsubscribing(St) ->
     {ok, [], St};
 on_unsubscribe(St0) when ?is_connected(St0) ->
@@ -284,7 +292,7 @@ on_unsubscribe(St0) when ?is_connected(St0) ->
             {ok, [], St2};
         false ->
             ok = notify_disconnect(St0),
-            {stop, []}
+            stop(St0)
     end.
 
 on_stream_progress(St, _StreamProgresses) when ?is_connecting(St) ->
@@ -305,7 +313,7 @@ on_stream_progress(St0, StreamProgresses) when ?is_unsubscribing(St0) ->
             {ok, [], St1};
         false ->
             ok = notify_disconnect(St1),
-            {stop, []}
+            stop(St1)
     end.
 
 %%-----------------------------------------------------------------------
@@ -362,6 +370,17 @@ update_progress(#{streams := Streams0} = St, #{
         end,
     St#{streams => Streams1}.
 
+stop(St) ->
+    _ = cancel_all_timers(St),
+    {stop, []}.
+
+reset(St) ->
+    reset(St, []).
+
+reset(St, Events) ->
+    _ = cancel_all_timers(St),
+    {reset, Events}.
+
 %%-----------------------------------------------------------------------
 %% Messages to the leader
 %%-----------------------------------------------------------------------
@@ -384,6 +403,9 @@ notify_progress(#{id := Id, leader := Leader, streams := Streams}, Stream) ->
 notify_revoke_finished(#{id := Id, leader := Leader}, Stream) ->
     ok = emqx_ds_shared_sub_proto:send_to_leader(Leader, ?ssubscriber_revoke_finished(Id, Stream)).
 
+notify_disconnect(St) when ?is_connecting(St) ->
+    %% We have no leader to notify
+    ok;
 notify_disconnect(#{id := Id, leader := Leader, streams := Streams}) ->
     StreamProgresses = [
         #{
@@ -406,6 +428,10 @@ notify_ping(#{id := Id, leader := Leader}) ->
 
 ensure_timer(#{send_after := SendAfter} = State0, TimerName) ->
     Timeout = timer_timeout(TimerName),
+    ?tp(warning, shared_sub_ssubscriber_ensure_timer, #{
+        timer_name => TimerName,
+        timeout => Timeout
+    }),
     State1 = cancel_timer(State0, TimerName),
     #{timers := Timers} = State1,
     TimerRef = SendAfter(Timeout, TimerName),
@@ -424,11 +450,18 @@ cancel_timer(#{timers := Timers} = St, TimerName) ->
         timers := Timers#{TimerName => undefined}
     }.
 
+cancel_all_timers(#{timers := Timers} = St) ->
+    lists:foldl(
+        fun(TimerName, StAcc) -> cancel_timer(StAcc, TimerName) end,
+        St,
+        maps:keys(Timers)
+    ).
+
 timer_timeout(?find_leader_timer) ->
     ?dq_config(session_find_leader_timeout_ms, 5000);
 timer_timeout(?ping_leader_timer) ->
-    ?dq_config(session_ping_leader_interval_ms, 5000);
+    ?dq_config(session_ping_leader_interval_ms, 4000);
 timer_timeout(?ping_leader_timeout_timer) ->
-    ?dq_config(session_ping_leader_timeout_ms, 5000);
+    ?dq_config(session_ping_leader_timeout_ms, 4000);
 timer_timeout(?unsubscribe_timer) ->
     ?dq_config(session_unsubscribe_timeout_ms, 1000).

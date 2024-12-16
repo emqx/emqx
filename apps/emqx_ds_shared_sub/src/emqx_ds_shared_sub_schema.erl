@@ -42,7 +42,7 @@ fields(durable_queues) ->
         duration(leader_renew_lease_interval_ms, 1000),
         duration(leader_renew_streams_interval_ms, 1000),
         duration(leader_drop_timeout_interval_ms, 1000),
-        duration(leader_session_update_timeout_ms, 5000),
+        duration(leader_ssubscriber_timeout_interval_ms, 5000),
         duration(leader_session_not_replaying_timeout_ms, 5000)
     ].
 

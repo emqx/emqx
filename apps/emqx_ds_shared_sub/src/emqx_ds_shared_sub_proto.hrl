@@ -169,9 +169,9 @@
 %% SSubscriber/Leader Id helpers
 
 -define(ssubscriber_id(SessionId, SubscriptionId, PidRef), {SessionId, SubscriptionId, PidRef}).
--define(ssubscriber_pidref(SSubscriberId), element(1, SSubscriberId)).
+-define(ssubscriber_pidref(SSubscriberId), element(3, SSubscriberId)).
 -define(ssubscriber_subscription_id(SSubscriberId), element(2, SSubscriberId)).
--define(ssubscriber_node(SSubscriberId), node(element(1, SSubscriberId))).
+-define(ssubscriber_node(SSubscriberId), node(?ssubscriber_pidref(SSubscriberId))).
 -define(is_local_ssubscriber(SSubscriberId), (?ssubscriber_node(SSubscriberId) =:= node())).
 -define(leader_node(Leader), node(Leader)).
 -define(is_local_leader(Leader), (?leader_node(Leader) =:= node())).

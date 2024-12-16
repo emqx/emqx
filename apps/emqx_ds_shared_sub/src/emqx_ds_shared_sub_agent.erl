@@ -28,6 +28,10 @@
     on_disconnect/2
 ]).
 
+-export([
+    send_to_ssubscriber/2
+]).
+
 -behaviour(emqx_persistent_session_ds_shared_subs_agent).
 
 -type subscription() :: emqx_persistent_session_ds_shared_subs_agent:subscription().
@@ -54,7 +58,7 @@
 }.
 
 -record(message_to_ssubscriber, {
-    subscription_id :: subscription_id(),
+    ssubscriber_id :: emqx_ds_shared_sub_proto:ssubscriber_id(),
     message :: term()
 }).
 
@@ -130,7 +134,7 @@ on_subscribe(State0, SubscriptionId, ShareTopicFilter, _SubOpts) ->
 -spec on_unsubscribe(t(), subscription_id()) ->
     {[emqx_persistent_session_ds_shared_subs_agent:event()], t()}.
 on_unsubscribe(State0, SubscriptionId) ->
-    {[], State} = with_ssubscriber(State0, SubscriptionId, fun(SSubscriber) ->
+    {[], State} = with_ssubscriber(State0, SubscriptionId, fun(_SSubscriberId, SSubscriber) ->
         emqx_ds_shared_sub_subscriber:on_unsubscribe(SSubscriber)
     end),
     State.
@@ -143,7 +147,9 @@ on_stream_progress(State, StreamProgresses) when map_size(StreamProgresses) == 0
 on_stream_progress(State, StreamProgresses) ->
     maps:fold(
         fun(SubscriptionId, Progresses, StateAcc0) ->
-            {[], StateAcc1} = with_ssubscriber(StateAcc0, SubscriptionId, fun(SSubscriber) ->
+            {[], StateAcc1} = with_ssubscriber(StateAcc0, SubscriptionId, fun(
+                _SSubscriberId, SSubscriber
+            ) ->
                 emqx_ds_shared_sub_subscriber:on_stream_progress(SSubscriber, Progresses)
             end),
             StateAcc1
@@ -167,13 +173,20 @@ on_disconnect(#{ssubscribers := SSubscribers} = State, StreamProgresses) ->
 
 -spec on_info(t(), subscription_id(), term()) ->
     {[emqx_persistent_session_ds_shared_subs_agent:event()], t()}.
-on_info(State, SubscriptionId, {_Alias, Message}) ->
+on_info(State, SubscriptionId, #message_to_ssubscriber{
+    ssubscriber_id = SSubscriberId, message = Message
+}) ->
     ?tp(debug, ds_shared_sub_agent_leader_message, #{
         subscription_id => SubscriptionId,
         message => Message
     }),
-    with_ssubscriber(State, SubscriptionId, fun(SSubscriber) ->
-        emqx_ds_shared_sub_subscriber:on_info(SSubscriber, Message)
+    with_ssubscriber(State, SubscriptionId, fun(KnownSSubscriberId, SSubscriber) ->
+        case KnownSSubscriberId of
+            SSubscriberId ->
+                emqx_ds_shared_sub_subscriber:on_info(SSubscriber, Message);
+            _ ->
+                {ok, [], SSubscriber}
+        end
     end).
 
 %%--------------------------------------------------------------------
@@ -218,7 +231,7 @@ add_ssubscriber(
         session_id => SessionId,
         share_topic_filter => ShareTopicFilter,
         id => SSubscriberId,
-        send_after => send_to_ssubscriber_after(SubscriptionId, SSubscriberId)
+        send_after => send_to_ssubscriber_after(SSubscriberId)
     }),
     SSubscriberEntry = #ssubscriber_entry{
         ssubscriber_id = SSubscriberId,
@@ -247,20 +260,30 @@ drain(Alias) ->
         ok
     end.
 
-send_to_ssubscriber_after(SubscriptionId, SSubscriberId) ->
+send_to_ssubscriber_after(SSubscriberId) ->
+    SubscriptionId = emqx_ds_shared_sub_proto:ssubscriber_subscription_id(SSubscriberId),
     fun(Time, Msg) ->
         emqx_persistent_session_ds_shared_subs_agent:send_after(
             Time,
             SubscriptionId,
             self(),
             #message_to_ssubscriber{
-                subscription_id = SubscriptionId,
-                message = {
-                    emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId), Msg
-                }
+                ssubscriber_id = SSubscriberId,
+                message = Msg
             }
         )
     end.
+
+send_to_ssubscriber(SSubscriberId, Msg) ->
+    SubscriptionId = emqx_ds_shared_sub_proto:ssubscriber_subscription_id(SSubscriberId),
+    emqx_persistent_session_ds_shared_subs_agent:send(
+        emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId),
+        SubscriptionId,
+        #message_to_ssubscriber{
+            ssubscriber_id = SSubscriberId,
+            message = Msg
+        }
+    ).
 
 with_ssubscriber(State0, SubscriptionId, Fun) ->
     case State0 of
@@ -274,7 +297,7 @@ with_ssubscriber(State0, SubscriptionId, Fun) ->
             } = SSubscribers
         } ->
             {Events0, State1} =
-                case Fun(SSubscriber0) of
+                case Fun(SSubscriberId, SSubscriber0) of
                     {ok, Events, SSubscriber1} ->
                         Entry1 = Entry0#ssubscriber_entry{
                             ssubscriber = SSubscriber1
