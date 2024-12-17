@@ -1448,3 +1448,94 @@ t_inexistent_topic_after_created(Config) ->
         []
     ),
     ok.
+
+%% When the connector is disabled but the action is enabled, we should bump the rule
+%% metrics accordingly, bumping only `actions.out_of_service'.
+t_metrics_out_of_service(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig0 = proplists:get_value(
+        connector_config, Config, connector_config_toxiproxy(Config)
+    ),
+    ConnectorConfig = ConnectorConfig0#{<<"enable">> := false},
+    ActionName = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{<<"parameters">> => #{<<"query_mode">> => <<"async">>}}
+        )
+    ),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+    {201, #{<<"enable">> := false}} =
+        simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams)),
+    {201, _} = simplify_result(emqx_bridge_v2_testlib:create_action_api(ActionParams)),
+    RuleTopic = <<"t/k/oos">>,
+    {ok, #{<<"id">> := RuleId}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+            {bridge_name, ActionName}
+        ]),
+    %% Async query
+    emqx:publish(emqx_message:make(RuleTopic, <<"a">>)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters :=
+                    #{
+                        'matched' := 1,
+                        'failed' := 0,
+                        'passed' := 1,
+                        'actions.success' := 0,
+                        'actions.failed' := 1,
+                        'actions.failed.out_of_service' := 1,
+                        'actions.failed.unknown' := 0,
+                        'actions.discarded' := 0
+                    }
+            },
+            get_rule_metrics(RuleId)
+        )
+    ),
+    %% Sync query
+    {200, _} = simplify_result(
+        emqx_bridge_v2_testlib:update_bridge_api(
+            ActionParams,
+            #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
+        )
+    ),
+    emqx:publish(emqx_message:make(RuleTopic, <<"a">>)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters :=
+                    #{
+                        'matched' := 2,
+                        'failed' := 0,
+                        'passed' := 2,
+                        'actions.success' := 0,
+                        'actions.failed' := 2,
+                        'actions.failed.out_of_service' := 2,
+                        'actions.failed.unknown' := 0,
+                        'actions.discarded' := 0
+                    }
+            },
+            get_rule_metrics(RuleId)
+        )
+    ),
+    ok.
