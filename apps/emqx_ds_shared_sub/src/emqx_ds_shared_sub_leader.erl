@@ -322,14 +322,11 @@ update_progresses(St0, NewStreamsWRanks, TopicFilter, StartTime) ->
     ),
     {St, sets:to_list(VanishedStreams)}.
 
-%% We just remove disappeared streams from anywhere.
+%% We mark disappeared streams as revoked.
 %%
-%% If streams disappear from DS during leader being in replaying state
-%% this is an abnormal situation (we should receive `end_of_stream` first),
-%% but clients are unlikely to report any progress on them.
-%%
-%% If streams disappear after long leader sleep, it is a normal situation.
-%% This removal will be a part of initialization before any agents connect.
+%% We do not receive any progress on vanished streams;
+%% the ssubscribers will also delete them from their state
+%% because of revoked status.
 remove_vanished_streams(St, VanishedStreams) ->
     finalize_streams(St, VanishedStreams).
 
@@ -357,7 +354,7 @@ finalize_streams(#{stream_owners := StreamOwners0} = St, [Stream | RestStreams])
             finalize_streams(St, RestStreams)
     end.
 
-%% We revoke streams from ssubscribers that have too many streams (> desired_stream_count_per_agent).
+%% We revoke streams from ssubscribers that have too many streams (> desired_stream_count_per_ssubscriber).
 %% We revoke only from stable subscribers — those not having streams in transient states.
 %% After revoking, no unassigned streams appear. Streams will become unassigned
 %% only after ssubscriber reports them back as revoked.
@@ -394,13 +391,13 @@ revoke_excess_streams_from_ssubscriber(St, SSubscriberId, GrantedStreams, Desire
 select_streams_for_revoke(_St, GrantedStreams, RevokeCount) ->
     %% TODO
     %% Some intellectual logic should be used regarding:
-    %% * shard ids (better do not mix shards in the same agent);
+    %% * shard ids (better do not mix shards in the same ssubscriber);
     %% * stream stats (how much data was replayed from stream),
-    %%   heavy streams should be distributed across different agents);
-    %% * data locality (agents better preserve streams with data available on the agent's node)
+    %%   heavy streams should be distributed across different ssubscribers);
+    %% * data locality (ssubscribers better preserve streams with data available on the ssubscriber's node)
     lists:sublist(shuffle(GrantedStreams), RevokeCount).
 
-%% We assign streams to agents that have too few streams (< desired_stream_count_per_agent).
+%% We assign streams to ssubscribers that have too few streams (< desired_stream_count_per_ssubscriber).
 %% We assign only to stable subscribers — those not having streams in transient states.
 assign_streams(St0, DesiredCounts) ->
     StableSSubscribers = stable_ssubscribers(St0),
@@ -662,7 +659,7 @@ set_stream_free(#{stream_owners := StreamOwners} = St, Stream) ->
     }.
 
 %%--------------------------------------------------------------------
-%% Disconnect agent gracefully
+%% Disconnect ssubscriber gracefully
 
 handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
     ?tp(debug, shared_sub_leader_disconnect_ssubscriber, #{
@@ -779,7 +776,7 @@ this_leader(_St) ->
 drop_ssubscriber(
     #{ssubscribers := SSubscribers0, stream_owners := StreamOwners0} = St, SSubscriberIdDrop
 ) ->
-    ?tp(debug, shared_sub_leader_drop_ssubscriber, #{agent => SSubscriberIdDrop}),
+    ?tp(debug, shared_sub_leader_drop_ssubscriber, #{ssubscriber_id => SSubscriberIdDrop}),
     Subscribers1 = maps:remove(SSubscriberIdDrop, SSubscribers0),
     StreamOwners1 = maps:filter(
         fun(_Stream, #{ssubscriber_id := SSubscriberId}) ->
