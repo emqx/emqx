@@ -1,1 +1,0 @@
--define(CLIENT_REF_FOR_TEST, dummy_client_ref).

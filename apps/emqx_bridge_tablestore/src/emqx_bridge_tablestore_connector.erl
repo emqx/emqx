@@ -67,8 +67,6 @@ on_remove_channel(_InstId, #{channels := Channels} = State, ChannelId) ->
 on_get_channel_status(InstId, _ChannelId, State) ->
     on_get_status(InstId, State).
 
-on_start(?CLIENT_REF_FOR_TEST, Config) ->
-    {ok, #{client_ref => ?CLIENT_REF_FOR_TEST, channels => #{}, config => Config}};
 on_start(InstId, Config) ->
     OtsOpts = [
         {instance, maps:get(instance_name, Config)},
@@ -79,23 +77,19 @@ on_start(InstId, Config) ->
         {pool_size, maps:get(pool_size, Config)}
     ],
     ?LOG_T(info, #{msg => ots_start, opts => OtsOpts}),
-    {ok, ClientRef} = ots_ts_client:start(OtsOpts),
+    {ok, ClientRef} = start_ots_ts_client(InstId, OtsOpts),
     case list_ots_tables(ClientRef) of
         {ok, _} ->
-            {ok, #{client_ref => ClientRef, channels => #{}, config => Config}};
+            {ok, #{client_ref => ClientRef, channels => #{}, ots_opts => OtsOpts}};
         {error, Reason} ->
             _ = ots_ts_client:stop(ClientRef),
             {error, Reason}
     end.
 
-on_stop(_InstId, #{client_ref := ?CLIENT_REF_FOR_TEST} = State) ->
-    {ok, State};
 on_stop(_InstId, #{client_ref := ClientRef} = State) ->
     ots_ts_client:stop(ClientRef),
     State.
 
-on_get_status(_InstId, #{client_ref := ?CLIENT_REF_FOR_TEST}) ->
-    ?status_connected;
 on_get_status(_InstId, #{client_ref := ClientRef}) ->
     case list_ots_tables(ClientRef) of
         {ok, _} -> ?status_connected;
@@ -155,8 +149,9 @@ send_batch_data(BatchDataList, ClientRef, ChannelId) ->
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
-list_ots_tables(?CLIENT_REF_FOR_TEST) ->
-    {ok, []};
+start_ots_ts_client(_, OtsOpts) ->
+    ots_ts_client:start(OtsOpts).
+
 list_ots_tables(ClientRef) ->
     try
         ots_ts_client:list_tables(ClientRef)
@@ -276,6 +271,7 @@ do_mk_tablestore_data_row(Message, ChannelState, Measurement) ->
     Timestamp =
         case render_tmpl(Ts0, Message) of
             <<"now">> -> os:system_time(microsecond);
+            <<"NOW">> -> os:system_time(microsecond);
             undefined -> os:system_time(microsecond);
             Ts1 -> Ts1
         end,
