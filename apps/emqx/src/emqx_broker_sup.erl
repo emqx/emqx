@@ -19,12 +19,28 @@
 -behaviour(supervisor).
 
 -export([start_link/0]).
+-export([get_broker_pool_workers/0]).
 
 -export([init/1]).
+
+-define(broker_pool_sup, broker_pool_sup).
 
 start_link() ->
     ok = mria:wait_for_tables(emqx_shared_sub:create_tables()),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+get_broker_pool_workers() ->
+    try
+        [
+            Pid
+         || {?broker_pool_sup, Sup, _, _} <- supervisor:which_children(?MODULE),
+            {_, Pid, _, _} <- supervisor:which_children(Sup),
+            is_pid(Pid)
+        ]
+    catch
+        _:_ ->
+            []
+    end.
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
@@ -34,7 +50,7 @@ init([]) ->
     %% Broker pool
     ok = emqx_broker:create_tabs(),
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
-    BrokerPool = emqx_pool_sup:spec(broker_pool_sup, permanent, [
+    BrokerPool = emqx_pool_sup:spec(?broker_pool_sup, permanent, [
         broker_pool,
         hash,
         PoolSize,
