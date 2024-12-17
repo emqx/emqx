@@ -51,11 +51,10 @@ init_per_suite(Config) ->
                     emqx_bridge,
                     emqx_rule_engine,
                     emqx_management,
-                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                    emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            {ok, _Api} = emqx_common_test_http:create_default_app(),
             HostPort = GCPEmulatorHost ++ ":" ++ GCPEmulatorPortStr,
             true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
             Client = start_control_client(),
