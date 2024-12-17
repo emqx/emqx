@@ -14,13 +14,12 @@
 
 all() ->
     [
-        % {group, declare_explicit},
+        {group, declare_explicit},
         {group, declare_implicit}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    % TCs = [t_renew_lease_timeout],
     Groups = [declare_explicit, declare_implicit],
     GroupTCs = [{Group, TC} || TC <- TCs, Group <- groups_per_testcase(TC, Groups)],
     lists:foldl(
@@ -279,7 +278,7 @@ t_stream_revoke(_Config) ->
     ?assertWaitEvent(
         {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr6/topic6/#">>, 1),
         #{
-            ?snk_kind := shared_sub_ssubscriber_leader_grant,
+            ?snk_kind := ds_shared_sub_ssubscriber_leader_grant,
             session_id := <<"client_shared2">>
         },
         5_000
@@ -317,7 +316,7 @@ t_graceful_disconnect(_Config) ->
 
     ?assertWaitEvent(
         ok = emqtt:disconnect(ConnShared1),
-        #{?snk_kind := shared_sub_leader_disconnect_ssubscriber},
+        #{?snk_kind := ds_shared_sub_leader_disconnect_ssubscriber},
         1_000
     ),
 
@@ -721,14 +720,14 @@ t_lease_reconnect(_Config) ->
 
     ?assertWaitEvent(
         {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr2/topic2/#">>, 1),
-        #{?snk_kind := ssubscriber_find_leader_timeout},
+        #{?snk_kind := ds_shared_sub_ssubscriber_find_leader_timeout},
         5_000
     ),
 
     %% Agent should retry after some time and find the leader.
     ?assertWaitEvent(
         ok = meck:unload(emqx_ds_shared_sub_store),
-        #{?snk_kind := shared_sub_leader_ssubscriber_connect},
+        #{?snk_kind := ds_shared_sub_leader_ssubscriber_connect},
         5_000
     ),
 
@@ -749,20 +748,20 @@ t_renew_lease_timeout(_Config) ->
 
     ?assertWaitEvent(
         {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr3/topic3/#">>, 1),
-        #{?snk_kind := shared_sub_leader_ssubscriber_connect},
+        #{?snk_kind := ds_shared_sub_leader_ssubscriber_connect},
         5_000
     ),
 
     ?check_trace(
         ?wait_async_action(
             ok = emqx_ds_shared_sub_registry:purge(),
-            #{?snk_kind := shared_sub_leader_ssubscriber_connect},
+            #{?snk_kind := ds_shared_sub_leader_ssubscriber_connect},
             10_000
         ),
         fun(Trace) ->
             ?strict_causality(
-                #{?snk_kind := shared_sub_ssubscriber_ping_leader_timeout},
-                #{?snk_kind := shared_sub_leader_ssubscriber_connect},
+                #{?snk_kind := ds_shared_sub_ssubscriber_ping_leader_timeout},
+                #{?snk_kind := ds_shared_sub_leader_ssubscriber_connect},
                 Trace
             )
         end

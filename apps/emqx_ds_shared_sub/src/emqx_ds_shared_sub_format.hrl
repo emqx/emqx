@@ -6,11 +6,20 @@
 
 -ifdef(TEST).
 
--define(format_ssubscriber_msg(Msg), emqx_ds_shared_sub_format:format_agent_msg(Msg)).
+-define(format_ssubscriber_msg(Msg), emqx_ds_shared_sub_format:format_ssubscriber_msg(Msg)).
 -define(format_leader_msg(Msg), emqx_ds_shared_sub_format:format_leader_msg(Msg)).
 -define(format_ssubscriber(Subscriber), emqx_ds_shared_sub_format:format_ssubscriber(Subscriber)).
 -define(format_stream(Stream), emqx_ds_shared_sub_format:format_stream(Stream)).
--define(format_progress(Progress), emqx_ds_shared_sub_format:format_progress(Progress)).
+-define(format_ssubscriber_id(SSubscriberId),
+    emqx_ds_shared_sub_format:format_ssubscriber_id(SSubscriberId)
+).
+-define(format_ssubscriber_ids(SubscriptionIds),
+    emqx_ds_shared_sub_format:format_ssubscriber_ids(SubscriptionIds)
+).
+-define(format_ssubscriber_map(Map), emqx_ds_shared_sub_format:format_ssubscriber_map(Map)).
+-define(format_stream_map(Map), emqx_ds_shared_sub_format:format_stream_map(Map)).
+-define(format_deep(Value), emqx_ds_shared_sub_format:format_deep(Value)).
+-define(format_streams(Streams), emqx_ds_shared_sub_format:format_streams(Streams)).
 
 %% -ifdef(TEST).
 -else.
@@ -19,7 +28,12 @@
 -define(format_leader_msg(Msg), Msg).
 -define(format_ssubscriber(Subscriber), Subscriber).
 -define(format_stream(Stream), Stream).
--define(format_progress(Progress), Progress).
+-define(format_ssubscriber_id(SSubscriberId), SSubscriberId).
+-define(format_ssubscriber_ids(SubscriptionIds), SubscriptionIds).
+-define(format_ssubscriber_map(Map), Map).
+-define(format_stream_map(Map), Map).
+-define(format_deep(Value), Value).
+-define(format_streams(Streams), Streams).
 
 %% -ifdef(TEST).
 -endif.
@@ -33,7 +47,7 @@
 
 -define(log_leader_msg(ToSSubscriberId, Msg),
     ?tp(debug, leader_to_ssubscriber, #{
-        to_ssubscriber => ToSSubscriberId,
+        to_ssubscriber => ?format_ssubscriber_id(ToSSubscriberId),
         proto_msg => ?format_leader_msg(Msg)
     })
 ).

@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_ds_shared_sub_config.hrl").
 -include("emqx_ds_shared_sub_proto.hrl").
+-include("emqx_ds_shared_sub_format.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -165,8 +166,8 @@ on_info(St0, ?leader_connect_response_match(Leader)) when ?is_connecting(St0) ->
 on_info(#{id := Id, share_topic_filter := ShareTopicFilter} = St, ?find_leader_timer) when
     ?is_connecting(St)
 ->
-    ?tp(warning, ssubscriber_find_leader_timeout, #{
-        ssubscriber_id => Id,
+    ?tp(debug, ds_shared_sub_ssubscriber_find_leader_timeout, #{
+        ssubscriber_id => ?format_ssubscriber_id(Id),
         share_topic_filter => ShareTopicFilter
     }),
     ok = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
@@ -178,12 +179,18 @@ on_info(St0, ?leader_ping_response_match(_)) ->
     St1 = cancel_timer(St0, ?ping_leader_timeout_timer),
     St2 = ensure_timer(St1, ?ping_leader_timer),
     {ok, [], St2};
-on_info(#{session_id := SessionId} = St, ?ping_leader_timer) ->
-    ?tp(warning, shared_sub_ssubscriber_ping_leader, #{session_id => SessionId}),
+on_info(#{session_id := SessionId, id := Id} = St, ?ping_leader_timer) ->
+    ?tp(debug, ds_shared_sub_ssubscriber_ping_leader, #{
+        session_id => SessionId,
+        ssubscriber_id => ?format_ssubscriber_id(Id)
+    }),
     ok = notify_ping(St),
     {ok, [], ensure_timer(St, ?ping_leader_timeout_timer)};
-on_info(#{session_id := SessionId} = St, ?ping_leader_timeout_timer) ->
-    ?tp(warning, shared_sub_ssubscriber_ping_leader_timeout, #{session_id => SessionId}),
+on_info(#{session_id := SessionId, id := Id} = St, ?ping_leader_timeout_timer) ->
+    ?tp(warning, ds_shared_sub_ssubscriber_ping_leader_timeout, #{
+        session_id => SessionId,
+        ssubscriber_id => ?format_ssubscriber_id(Id)
+    }),
     reset(St);
 %%
 %% Grant stream
@@ -197,10 +204,13 @@ on_info(St0, ?leader_grant_match(Leader, _StreamProgress) = Msg) when ?is_connec
     St3 = ensure_timer(St2, ?ping_leader_timer),
     on_info(St3, Msg);
 on_info(
-    #{streams := Streams0, session_id := SessionId} = St0,
+    #{streams := Streams0, session_id := SessionId, id := Id} = St0,
     ?leader_grant_match(_Leader, #{stream := Stream, progress := Progress0})
 ) when ?is_connected(St0) ->
-    ?tp(debug, shared_sub_ssubscriber_leader_grant, #{session_id => SessionId}),
+    ?tp(debug, ds_shared_sub_ssubscriber_leader_grant, #{
+        session_id => SessionId,
+        ssubscriber_id => ?format_ssubscriber_id(Id)
+    }),
     {Events, Streams1} =
         case Streams0 of
             #{Stream := _} ->
@@ -428,10 +438,6 @@ notify_ping(#{id := Id, leader := Leader}) ->
 
 ensure_timer(#{send_after := SendAfter} = State0, TimerName) ->
     Timeout = timer_timeout(TimerName),
-    ?tp(warning, shared_sub_ssubscriber_ensure_timer, #{
-        timer_name => TimerName,
-        timeout => Timeout
-    }),
     State1 = cancel_timer(State0, TimerName),
     #{timers := Timers} = State1,
     TimerRef = SendAfter(Timeout, TimerName),

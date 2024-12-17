@@ -80,7 +80,7 @@ open(TopicSubscriptions, Opts) ->
     State0 = init_state(Opts),
     State1 = lists:foldl(
         fun({ShareTopicFilter, #{id := SubscriptionId}}, State) ->
-            ?tp(debug, ds_agent_open_subscription, #{
+            ?tp(debug, ds_shared_sub_agent_open, #{
                 subscription_id => SubscriptionId,
                 topic_filter => ShareTopicFilter
             }),
@@ -104,7 +104,7 @@ can_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
                 exists ->
                     ok;
                 {error, Class, Reason} ->
-                    ?tp(warning, "Shared queue declare failed", #{
+                    ?tp(debug, ds_shared_sub_agent_queue_declare_failed, #{
                         group => Group,
                         topic => Topic,
                         class => Class,
@@ -126,7 +126,7 @@ has_subscriptions(#{ssubscribers := SSubscribers}) ->
 
 -spec on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(State0, SubscriptionId, ShareTopicFilter, _SubOpts) ->
-    ?tp(debug, ds_agent_on_subscribe, #{
+    ?tp(debug, ds_shared_sub_agent_on_subscribe, #{
         share_topic_filter => ShareTopicFilter
     }),
     add_ssubscriber(State0, SubscriptionId, ShareTopicFilter).
@@ -176,7 +176,7 @@ on_disconnect(#{ssubscribers := SSubscribers} = State, StreamProgresses) ->
 on_info(State, SubscriptionId, #message_to_ssubscriber{
     ssubscriber_id = SSubscriberId, message = Message
 }) ->
-    ?tp(debug, ds_shared_sub_agent_leader_message, #{
+    ?tp(debug, ds_shared_sub_message_to_ssubscriber, #{
         subscription_id => SubscriptionId,
         message => Message
     }),
@@ -222,8 +222,7 @@ add_ssubscriber(
     SubscriptionId,
     ShareTopicFilter
 ) ->
-    ?SLOG(debug, #{
-        msg => agent_add_shared_subscription,
+    ?tp(debug, ds_shared_sub_agent_add_ssubscriber, #{
         share_topic_filter => ShareTopicFilter
     }),
     SSubscriberId = make_ssubscriber_id(SessionId, SubscriptionId),
@@ -312,9 +311,10 @@ with_ssubscriber(State0, SubscriptionId, Fun) ->
                 end,
             Events1 = enrich_events(Events0, SubscriptionId, ShareTopicFilter),
             {Events1, State1};
-        _ ->
+        #{session_id := SessionId} ->
             ?tp(warning, ds_shared_sub_agent_ssubscriber_not_found, #{
-                ssubscriber_id => SubscriptionId
+                session_id => SessionId,
+                subscription_id => SubscriptionId
             }),
             {[], State0}
     end.

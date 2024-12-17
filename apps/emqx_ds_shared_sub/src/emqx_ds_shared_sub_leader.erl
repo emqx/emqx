@@ -142,7 +142,7 @@ init_claim_renewal(_St = #{leader_claim := Claim}) ->
 %% timers
 %% renew_streams timer
 handle_info(#renew_streams{}, St0) ->
-    ?tp(debug, shared_sub_leader_timeout, #{timeout => renew_streams}),
+    ?tp(debug, ds_shared_sub_leader_timeout, #{timeout => renew_streams}),
     St1 = renew_streams(St0),
     ok = send_after(leader_renew_streams_interval_ms, #renew_streams{}),
     {noreply, St1};
@@ -165,45 +165,30 @@ handle_info(#renew_leader_claim{}, St0) ->
 %% ssubscriber messages
 handle_info(?ssubscriber_connect_match(SSubscriberId, _ShareTopicFilter), St0) ->
     St1 = handle_ssubscriber_connect(St0, SSubscriberId),
-    % ?tp(warning, handle_ssubscriber_connect, #{
-    %     new_state => St1
-    % }),
     {noreply, St1};
 handle_info(?ssubscriber_ping_match(SSubscriberId), St0) ->
     St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
         handle_ssubscriber_ping(St0, SSubscriberId)
     end),
-    % ?tp(warning, handle_ssubscriber_ping, #{
-    %     new_state => St1
-    % }),
     {noreply, St1};
 handle_info(?ssubscriber_update_progress_match(SSubscriberId, StreamProgress), St0) ->
     St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
         handle_update_stream_progress(St0, SSubscriberId, StreamProgress)
     end),
-    % ?tp(warning, handle_update_stream_progress, #{
-    %     new_state => St1
-    % }),
     {noreply, St1};
 handle_info(?ssubscriber_revoke_finished_match(SSubscriberId, Stream), St0) ->
     St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
         handle_revoke_finished(St0, SSubscriberId, Stream)
     end),
-    % ?tp(warning, handle_revoke_finished, #{
-    %     new_state => St1
-    % }),
     {noreply, St1};
 handle_info(?ssubscriber_disconnect_match(SSubscriberId, StreamProgresses), St0) ->
     %% We allow this event to be processed even if the ssubscriber is unknown
     St1 = handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses),
-    % ?tp(warning, handle_disconnect_ssubscriber, #{
-    %     new_state => St1
-    % }),
     {noreply, St1};
 %%--------------------------------------------------------------------
 %% fallback
 handle_info(Info, #{group_id := GroupId} = St) ->
-    ?tp(warning, shared_sub_leader_unknown_info, #{info => Info, group_id => GroupId}),
+    ?tp(warning, ds_shared_sub_leader_unknown_info, #{info => Info, group_id => GroupId}),
     {noreply, St}.
 
 handle_call(_Request, _From, St) ->
@@ -222,7 +207,7 @@ terminate(
     StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopicFilter),
     Result = emqx_ds_shared_sub_store:commit_dirty(Claim, Store),
     ok = emqx_ds_shared_sub_store:disown_leadership(StoreID, Claim),
-    ?tp(debug, shared_sub_leader_store_committed_dirty, #{
+    ?tp(debug, ds_shared_sub_leader_store_committed_dirty, #{
         id => ShareTopicFilter,
         store => StoreID,
         claim => Claim,
@@ -250,13 +235,13 @@ renew_leader_claim(St = #{group_id := ShareTopicFilter, store := Store0, leader_
             %% NOTE
             %% Not doing anything under the assumption that destroys happen long after
             %% clients are gone and leaders are dead.
-            ?tp(warning, "Shared subscription leader store destroyed", #{
+            ?tp(warning, ds_shared_sub_leader_store_destroyed, #{
                 id => ShareTopicFilter,
                 store => emqx_ds_shared_sub_store:id(Store0)
             }),
             {stop, shared_subscription_destroyed};
         {error, Class, Reason} = Error ->
-            ?tp(warning, "Shared subscription leader store commit failed", #{
+            ?tp(warning, ds_shared_sub_leader_store_commit_failed, #{
                 id => ShareTopicFilter,
                 store => emqx_ds_shared_sub_store:id(Store0),
                 claim => Claim,
@@ -293,7 +278,7 @@ renew_streams(#{topic := Topic} = St0) ->
     DesiredCounts = desired_stream_count_for_ssubscribers(St3),
     St4 = revoke_streams(St3, DesiredCounts),
     St5 = assign_streams(St4, DesiredCounts),
-    ?tp(info, shared_sub_leader_renew_streams, #{
+    ?tp(info, ds_shared_sub_leader_renew_streams, #{
         topic_filter => TopicFilter,
         new_streams => length(NewStreamsWRanks)
     }),
@@ -378,8 +363,8 @@ revoke_excess_streams_from_ssubscriber(St, SSubscriberId, GrantedStreams, Desire
         false ->
             St;
         true ->
-            ?tp(debug, shared_sub_leader_revoke_streams, #{
-                ssubscriber_id => SSubscriberId,
+            ?tp(debug, ds_shared_sub_leader_revoke_streams, #{
+                ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
                 current_count => CurrentCount,
                 revoke_count => RevokeCount,
                 desired_count => DesiredCount
@@ -417,13 +402,14 @@ assign_lacking_streams(St0, SSubscriberId, GrantedStreams, DesiredCount) ->
         false ->
             St0;
         true ->
-            ?tp(debug, shared_sub_leader_assign_streams, #{
-                ssubscriber_id => SSubscriberId,
+            StreamsToAssign = select_streams_for_assign(St0, SSubscriberId, AssignCount),
+            ?tp(debug, ds_shared_sub_leader_assign_streams, #{
+                ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
                 current_count => CurrentCount,
                 assign_count => AssignCount,
-                desired_count => DesiredCount
+                desired_count => DesiredCount,
+                streams_to_assign => ?format_streams(StreamsToAssign)
             }),
-            StreamsToAssign = select_streams_for_assign(St0, SSubscriberId, AssignCount),
             assign_streams_to_ssubscriber(St0, SSubscriberId, StreamsToAssign)
     end.
 
@@ -474,8 +460,8 @@ drop_timeout_ssubscribers(#{ssubscribers := SSubscribers} = St) ->
         fun(SSubscriberId, #{validity_deadline := Deadline}, DataAcc) ->
             case Deadline < Now of
                 true ->
-                    ?tp(debug, shared_sub_leader_drop_timeout_ssubscriber, #{
-                        ssubscriber_id => SSubscriberId,
+                    ?tp(warning, ds_shared_sub_leader_drop_timeout_ssubscriber, #{
+                        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
                         deadline => Deadline,
                         now => Now
                     }),
@@ -519,28 +505,25 @@ renew_transient_streams(#{stream_owners := StreamOwners} = St) ->
 %% Handle a newly connected subscriber
 
 handle_ssubscriber_connect(
-    #{group_id := GroupId, ssubscribers := SSubscribers0} = St,
+    #{group_id := GroupId, ssubscribers := SSubscribers0} = St0,
     SSubscriberId
 ) ->
-    ?tp(warning, shared_sub_leader_ssubscriber_connect, #{
-        ssubscriber => SSubscriberId,
+    ?tp(debug, ds_shared_sub_leader_ssubscriber_connect, #{
+        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
         group_id => GroupId,
-        ssubscribers => maps:keys(SSubscribers0)
+        ssubscriber_ids => ?format_ssubscriber_ids(maps:keys(SSubscribers0))
     }),
-    case SSubscribers0 of
-        #{SSubscriberId := _} ->
-            ?tp(debug, shared_sub_leader_ssubscriber_already_connected, #{
-                ssubscriber_id => SSubscriberId
-            }),
-            St;
-        _ ->
-            SSubscribers1 = SSubscribers0#{SSubscriberId => new_ssubscriber_data()},
-            DesiredCounts = desired_stream_count_for_ssubscribers(St, maps:keys(SSubscribers1)),
-            DesiredCount = maps:get(SSubscriberId, DesiredCounts),
-            assign_initial_streams_to_ssubscriber(
-                St#{ssubscribers => SSubscribers1}, SSubscriberId, DesiredCount
-            )
-    end.
+    SSubscribers1 =
+        case SSubscribers0 of
+            #{SSubscriberId := _} ->
+                SSubscribers0;
+            _ ->
+                SSubscribers0#{SSubscriberId => new_ssubscriber_data()}
+        end,
+    St1 = St0#{ssubscribers => SSubscribers1},
+    DesiredCounts = desired_stream_count_for_ssubscribers(St1, maps:keys(SSubscribers1)),
+    DesiredCount = maps:get(SSubscriberId, DesiredCounts),
+    assign_initial_streams_to_ssubscriber(St1, SSubscriberId, DesiredCount).
 
 assign_initial_streams_to_ssubscriber(St, SSubscriberId, AssignCount) ->
     case select_streams_for_assign(St, SSubscriberId, AssignCount) of
@@ -558,7 +541,9 @@ assign_initial_streams_to_ssubscriber(St, SSubscriberId, AssignCount) ->
 %% Handle ssubscriber ping
 
 handle_ssubscriber_ping(St0, SSubscriberId) ->
-    ?tp(debug, shared_sub_leader_ssubscriber_ping, #{ssubscriber => SSubscriberId}),
+    ?tp(debug, ds_shared_sub_leader_ssubscriber_ping, #{
+        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId)
+    }),
     #{ssubscribers := #{SSubscriberId := SSubscriberState0} = SSubscribers0} = St0,
     NewDeadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_interval_ms),
     SSubscriberState1 = SSubscriberState0#{validity_deadline => NewDeadline},
@@ -586,11 +571,16 @@ handle_update_stream_progress(St0, SSubscriberId, #{stream := Stream} = StreamPr
 handle_update_stream_progress(
     St0, _SSubscriberId, Status, #{stream := Stream} = StreamProgress
 ) when
-    Status =:= ?stream_granted orelse Status =:= ?stream_granting
+    Status =:= ?stream_granting
 ->
     St1 = update_stream_progress(St0, StreamProgress),
     St2 = set_stream_status(St1, Stream, ?stream_granted),
     finalize_stream_if_replayed(St2, StreamProgress);
+handle_update_stream_progress(St0, _SSubscriberId, Status, StreamProgress) when
+    Status =:= ?stream_granted
+->
+    St1 = update_stream_progress(St0, StreamProgress),
+    finalize_stream_if_replayed(St1, StreamProgress);
 handle_update_stream_progress(St0, _SSubscriberId, ?stream_revoking, StreamProgress) ->
     St1 = update_stream_progress(St0, StreamProgress),
     finalize_stream_if_revoke_finished_or_replayed(St1, StreamProgress);
@@ -633,6 +623,9 @@ update_rank_progress(St, _StreamProgress) ->
     St.
 
 set_stream_status(#{stream_owners := StreamOwners} = St, Stream, Status) ->
+    ?tp(debug, ds_shared_sub_leader_set_stream_status, #{
+        stream => ?format_stream(Stream), status => Status
+    }),
     #{Stream := Ownership0} = StreamOwners,
     Ownership1 = Ownership0#{status := Status},
     StreamOwners1 = StreamOwners#{Stream => Ownership1},
@@ -641,6 +634,9 @@ set_stream_status(#{stream_owners := StreamOwners} = St, Stream, Status) ->
     }.
 
 set_stream_granting(#{stream_owners := StreamOwners0} = St, Stream, SSubscriberId) ->
+    ?tp(debug, ds_shared_sub_leader_set_stream_granting, #{
+        stream => ?format_stream(Stream), ssubscriber_id => ?format_ssubscriber_id(SSubscriberId)
+    }),
     undefined = stream_ownership(St, Stream),
     StreamOwners1 = StreamOwners0#{
         Stream => #{
@@ -653,6 +649,9 @@ set_stream_granting(#{stream_owners := StreamOwners0} = St, Stream, SSubscriberI
     }.
 
 set_stream_free(#{stream_owners := StreamOwners} = St, Stream) ->
+    ?tp(debug, ds_shared_sub_leader_set_stream_free, #{
+        stream => ?format_stream(Stream)
+    }),
     StreamOwners1 = maps:remove(Stream, StreamOwners),
     St#{
         stream_owners => StreamOwners1
@@ -662,9 +661,9 @@ set_stream_free(#{stream_owners := StreamOwners} = St, Stream) ->
 %% Disconnect ssubscriber gracefully
 
 handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
-    ?tp(debug, shared_sub_leader_disconnect_ssubscriber, #{
-        ssubscriber_id => SSubscriberId,
-        stream_progresses => StreamProgresses
+    ?tp(debug, ds_shared_sub_leader_disconnect_ssubscriber, #{
+        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
+        stream_progresses => ?format_deep(StreamProgresses)
     }),
     St1 = lists:foldl(
         fun(#{stream := Stream} = StreamProgress, DataAcc0) ->
@@ -776,7 +775,9 @@ this_leader(_St) ->
 drop_ssubscriber(
     #{ssubscribers := SSubscribers0, stream_owners := StreamOwners0} = St, SSubscriberIdDrop
 ) ->
-    ?tp(debug, shared_sub_leader_drop_ssubscriber, #{ssubscriber_id => SSubscriberIdDrop}),
+    ?tp(debug, ds_shared_sub_leader_drop_ssubscriber, #{
+        ssubscriber_id => ?format_ssubscriber_id(SSubscriberIdDrop)
+    }),
     Subscribers1 = maps:remove(SSubscriberIdDrop, SSubscribers0),
     StreamOwners1 = maps:filter(
         fun(_Stream, #{ssubscriber_id := SSubscriberId}) ->
@@ -820,9 +821,9 @@ with_valid_ssubscriber(#{ssubscribers := SSubscribers} = St, SSubscriberId, Fun)
 %% SSubscribers that do not have streams in transient states.
 %% The result is a map from ssubscriber_id to a list of granted streams.
 stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwners} = _St) ->
-    ?tp(warning, shared_sub_leader_stable_ssubscribers, #{
-        ssubscribers => maps:keys(SSubscribers),
-        stream_owners => StreamOwners
+    ?tp(debug, ds_shared_sub_leader_stable_ssubscribers, #{
+        ssubscriber_ids => ?format_ssubscriber_ids(maps:keys(SSubscribers)),
+        stream_owners => ?format_stream_map(StreamOwners)
     }),
     maps:fold(
         fun
