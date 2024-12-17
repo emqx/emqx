@@ -34,7 +34,7 @@ bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 bin(Map) when is_map(Map) -> emqx_utils_json:encode(Map);
 bin(List) when is_list(List) ->
     case io_lib:printable_list(List) of
-        true -> list_to_binary(List);
+        true -> unicode:characters_to_binary(List);
         false -> emqx_utils_json:encode(List)
     end;
 bin(Data) ->
