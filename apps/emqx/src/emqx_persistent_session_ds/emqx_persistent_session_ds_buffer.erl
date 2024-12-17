@@ -127,7 +127,7 @@ push_pop_test() ->
     {[1], Q3_} = pop_batch(StreamKey, Q3),
     {[2], Q4_} = pop_batch(StreamKey, Q3_),
     {[3], Q5_} = pop_batch(StreamKey, Q4_),
-    {[], Q6_} = pop_batch(StreamKey, Q5_).
+    {[], _} = pop_batch(StreamKey, Q5_).
 
 multiple_streams_test() ->
     Q1 = push_batch(a, a1, new()),

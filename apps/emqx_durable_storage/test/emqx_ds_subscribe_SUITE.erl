@@ -22,104 +22,236 @@
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
--include_lib("emqx_durable_storage/src/emqx_ds_beamformer.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%%
-
 %% @doc This testcase verifies that `subscribe' and `unsubscribe' APIs
 %% work and produce expected side effects on the subscription table.
-%% Subscriptions are automatically removed when the subscriber
-%% terminates, and the subscriber is notified when the shard is
-%% restarted.
-t_subscription_lifetime(Config) ->
+t_sub_unsub(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ok = open_db(Config),
-            %% Fill storage with some data to create streams and make
-            %% an iterator:
-            ?assertMatch(ok, publish(DB, 1, 1)),
-            timer:sleep(100),
-            [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>], 0),
+            Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            %% 1. Test normal unsubscribe flow:
-            {ok, Handle1, MRef1} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            {ok, Handle, _MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
             %% Subscription is registered:
             ?assertMatch(
                 [_],
-                emqx_ds_beamformer:lookup_sub(DB, Handle1),
-                #{ref => Handle1}
+                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                #{ref => Handle}
             ),
             %% Unsubscribe and check that subscription has been
             %% unregistered:
-            ?assertMatch(true, emqx_ds:unsubscribe(DB, Handle1)),
+            ?assertMatch(true, emqx_ds:unsubscribe(DB, Handle)),
             ?assertMatch(
                 [],
-                emqx_ds_beamformer:lookup_sub(DB, Handle1),
-                #{handle => Handle1}
+                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                #{handle => Handle}
             ),
             %% Try to unsubscribe with invalid handle:
-            ?assertMatch(false, emqx_ds:unsubscribe(DB, Handle1)),
-            demonitor(MRef1),
-            %% 2. Verify the scenario where subscriber terminates:
-            Parent = self(),
-            Child = spawn_link(
-                fun() ->
-                    {ok, Handle2, _MRef2} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{
-                        max_unacked => 100
-                    }),
-                    Parent ! {ready, Handle2},
-                    receive
-                    after infinity -> ok
-                    end
-                end
-            ),
-            receive
-                {ready, Handle2} -> ok
-            end,
-            ?assertMatch(
-                [_],
-                emqx_ds_beamformer:lookup_sub(DB, Handle2),
-                #{handle => Handle2}
-            ),
-            %% Shutdown the child process and verify that the subscription has been automatically removed:
-            unlink(Child),
-            erlang:exit(Child, shutdown),
-            timer:sleep(100),
-            ?assertMatch(
-                [],
-                emqx_ds_beamformer:lookup_sub(DB, Handle2),
-                #{handle => Handle2}
-            ),
-            %% 3. Stop the DB and make sure the subscriber receives
-            %% `DOWN' message:
-            {ok, _Handle3, MRef3} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
-            ?assertMatch(ok, emqx_ds:close_db(DB)),
-            ?assertMatch([MRef3], collect_down_msgs())
+            ?assertMatch(false, emqx_ds:unsubscribe(DB, Handle)),
+            ?assertMatch([], collect_down_msgs())
         end,
         []
     ).
 
-%% @doc
-t_subscription(Config) ->
+%% @doc Verify the scenario where the subscriber terminates without
+%% unsubscribing. Here we create a subscription from a temporary
+%% process that exits normally. Subscription must be automatically
+%% removed.
+t_dead_subscriber_cleanup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ok = open_db(Config),
-            %% Fill storage with some data to create streams and make
-            %% an iterator:
-            ?assertMatch(ok, publish(DB, 1, 1)),
-            timer:sleep(100),
-            [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>], 0),
-            {ok, It} = emqx_ds:make_iterator(
-                DB, Stream, [<<"t">>], 0
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            Parent = self(),
+            Child = spawn_link(
+                fun() ->
+                    {ok, Handle, _MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{
+                        max_unacked => 100
+                    }),
+                    Parent ! {ready, Handle},
+                    receive
+                        exit -> ok
+                    end
+                end
             ),
-            %% Subscribe and check state of the beamformer subscription table:
+            receive
+                {ready, Handle} -> ok
+            end,
+            %% Currently the process is running. Verify that the
+            %% subscription is present:
+            ?assertMatch(
+                [_],
+                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                #{handle => Handle}
+            ),
+            %% Shutdown the child process and verify that the
+            %% subscription has been automatically removed:
+            Child ! exit,
+            timer:sleep(100),
+            ?assertMatch(false, is_process_alive(Child)),
+            ?assertMatch(
+                [],
+                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                #{handle => Handle}
+            )
+        end,
+        []
+    ).
+
+%% @doc Verify that the client receives a `DOWN' message when the
+%% server is down:
+t_shard_down_notify(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            ?assertMatch(ok, emqx_ds:close_db(DB)),
+            ?assertMatch([MRef], collect_down_msgs())
+        end,
+        []
+    ).
+
+%% @doc Verify behavior of a subscription that replayes old messages.
+%% This testcase focuses on the correctness of `catchup' beamformer
+%% workers.
+t_catchup(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            Stream = make_stream(Config),
+            %% Fill the storage and close the generation:
+            ?assertMatch(ok, publish(DB, 1, 9)),
+            emqx_ds:add_generation(DB),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 3}),
+            %% We receive one batch and stop waiting for ack. Note:
+            %% batch may contain more messages than `max_unacked',
+            %% because batch size is independent.
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"0">>}},
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}},
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef)
+            ),
+            %% Ack and receive the rest of the messages:
+            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 5)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 10,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"5">>}},
+                                {_, #message{payload = <<"6">>}},
+                                {_, #message{payload = <<"7">>}},
+                                {_, #message{payload = <<"8">>}},
+                                {_, #message{payload = <<"9">>}}
+                            ]}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef)
+            ),
+            %% Ack and receive `end_of_stream':
+            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 10)),
+            ?assertMatch(
+                [#poll_reply{ref = MRef, seqno = 11, payload = {ok, end_of_stream}}],
+                recv(?FUNCTION_NAME, MRef)
+            )
+        end,
+        []
+    ).
+
+%% @doc Verify behavior of a subscription that always stays at the top
+%% of the stream. This testcase focuses on the correctness of
+%% `rt' beamformer workers.
+t_realtime(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            Stream = make_stream(Config),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(
+                DB, Stream, [<<"t">>], erlang:system_time(millisecond)
+            ),
+            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            %% Publish/consume/ack loop:
+            ?assertMatch(ok, publish(DB, 1, 2)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 2,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}}
+                            ]}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef),
+                emqx_ds_beamformer:lookup_sub(DB, SRef)
+            ),
+            ?assertMatch(ok, publish(DB, 3, 4)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 4,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef),
+                emqx_ds_beamformer:lookup_sub(DB, SRef)
+            ),
+            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 4)),
+            %% Close the generation. The subscriber should be promptly
+            %% notified:
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            ?assertMatch(
+                [#poll_reply{ref = MRef, seqno = 5, payload = {ok, end_of_stream}}],
+                recv(?FUNCTION_NAME, MRef)
+            )
+        end,
+        []
+    ).
+
+%% @doc This testcase emulates a slow subscriber.
+t_slow_sub(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            Stream = make_stream(Config),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 3}),
             %% Check receiving of messages published at the beginning:
             ?assertMatch(
@@ -129,15 +261,14 @@ t_subscription(Config) ->
                         seqno = 1,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"1">>}}
+                                {_, #message{payload = <<"0">>}}
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef),
-                #{sref => SRef, mref => MRef}
+                recv(?FUNCTION_NAME, MRef)
             ),
             %% Publish more data, it should result in an event:
-            ?assertMatch(ok, publish(DB, 2, 3)),
+            ?assertMatch(ok, publish(DB, 1, 2)),
             ?assertMatch(
                 [
                     #poll_reply{
@@ -145,17 +276,16 @@ t_subscription(Config) ->
                         seqno = 3,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"2">>}},
-                                {_, #message{payload = <<"3">>}}
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}}
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef),
-                #{sref => SRef, mref => MRef}
+                recv(?FUNCTION_NAME, MRef)
             ),
             %% Fill more data:
-            ?assertMatch(ok, publish(DB, 4, 5)),
-            %% This data should not be delivered to the subscriber
+            ?assertMatch(ok, publish(DB, 3, 4)),
+            %% This data should NOT be delivered to the subscriber
             %% until it acks enough messages:
             ?assertMatch([], recv(?FUNCTION_NAME, MRef)),
             %% Ack sequence number:
@@ -168,13 +298,66 @@ t_subscription(Config) ->
                         seqno = 5,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"4">>}},
-                                {_, #message{payload = <<"5">>}}
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef),
-                #{sref => SRef, mref => MRef}
+                recv(?FUNCTION_NAME, MRef)
+            )
+        end,
+        []
+    ).
+
+%% @doc Remove generation during catchup. The client should receive an
+%% unrecoverable error.
+t_catchup_unrecoverable(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            Stream = make_stream(Config),
+            %% Fill the storage and close the generation:
+            ?assertMatch(ok, publish(DB, 1, 9)),
+            emqx_ds:add_generation(DB),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 3}),
+            %% Receive a batch and pause for the ack:
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"0">>}},
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}},
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef)
+            ),
+            %% Drop generation:
+            ?assertMatch(
+                #{{<<"0">>, 1} := _, {<<"0">>, 2} := _},
+                emqx_ds:list_generations_with_lifetimes(DB)
+            ),
+            ?assertMatch(ok, emqx_ds:drop_generation(DB, {<<"0">>, 1})),
+            %% Ack and receive unrecoverable error:
+            emqx_ds:suback(DB, SRef, 5),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 6,
+                        payload = {error, unrecoverable, generation_not_found}
+                    }
+                ],
+                recv(?FUNCTION_NAME, MRef)
             )
         end,
         []
@@ -184,17 +367,15 @@ t_subscription(Config) ->
 
 %% @doc Recieve poll replies with given UserData:
 recv(UserData, MRef) ->
-    recv(UserData, MRef, 10).
+    recv(UserData, MRef, 1000).
 
-recv(_UserData, _Mref, 0) ->
-    error(too_many_replies);
-recv(UserData, MRef, N) ->
+recv(UserData, MRef, Timeout) ->
     receive
         #poll_reply{userdata = UserData} = Msg ->
-            [Msg | recv(UserData, MRef, N - 1)];
+            [Msg | recv(UserData, MRef, Timeout)];
         {'DOWN', MRef, _, _, Reason} ->
             error({unexpected_beamformer_termination, Reason})
-    after 1000 ->
+    after Timeout ->
         []
     end.
 
@@ -205,6 +386,15 @@ collect_down_msgs() ->
     after 100 ->
         []
     end.
+
+%% Fill topic "t" with some data and return the corresponding stream:
+make_stream(Config) ->
+    DB = proplists:get_value(tc, Config),
+    ok = open_db(Config),
+    ?assertMatch(ok, publish(DB, 0, 0)),
+    timer:sleep(100),
+    [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>], 0),
+    Stream.
 
 publish(DB, Start, End) ->
     emqx_ds:store_batch(DB, [
@@ -247,7 +437,7 @@ init_per_testcase(TCName, Config) ->
     WorkDir = emqx_cth_suite:work_dir(TCName, Config),
     Apps = emqx_cth_suite:start(
         [
-            {emqx_durable_storage, #{}},
+            {emqx_durable_storage, #{override_env => [{poll_batch_size, 5}]}},
             {emqx_ds_backends, #{}}
         ],
         #{work_dir => WorkDir}

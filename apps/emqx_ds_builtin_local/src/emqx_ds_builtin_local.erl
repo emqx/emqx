@@ -148,13 +148,14 @@ add_generation(DB) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     Errors = lists:filtermap(
         fun(Shard) ->
-            ShardId = {DB, Shard},
+            DBShard = {DB, Shard},
             case
                 emqx_ds_storage_layer:add_generation(
-                    ShardId, emqx_ds_builtin_local_meta:ensure_monotonic_timestamp(ShardId)
+                    DBShard, emqx_ds_builtin_local_meta:ensure_monotonic_timestamp(DBShard)
                 )
             of
                 ok ->
+                    emqx_ds_beamformer:generation_event(DBShard),
                     false;
                 Error ->
                     {true, {Shard, Error}}
@@ -443,8 +444,8 @@ unsubscribe(DB, {Shard, SubId}) ->
 suback(DB, {Shard, SubRef}, SeqNo) ->
     emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
 
-unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
+unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:unpack_iterator(DBShard, Iterator).
 
 high_watermark(Shard, Stream) ->
     Now = current_timestamp(Shard),

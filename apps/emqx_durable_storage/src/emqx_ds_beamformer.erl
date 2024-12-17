@@ -80,10 +80,10 @@
 
 %% API:
 -export([start_link/2]).
--export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, suback/3]).
+-export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([beams_init/4, beams_add/4, beams_conclude/3, beams_n_matched/1, split/1]).
--export([shard_metrics_id/1, redispatch/2, send_out_term/2]).
+-export([shard_metrics_id/1, reschedule/2, send_and_forget/3]).
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
@@ -133,13 +133,13 @@
     %% The shard is healthy, and there are some requests that need to
     %% be dispatched to the workers immediately:
     | ?busy
-    %% Working is waiting for shard recovery. Dispatching of requests
-    %% to the workers has been delayed to will be retried later:
+    %% Waiting for shard recovery. Request scheduling has been delayed
+    %% and will be retried after a cooldown period:
     | ?recovering.
 
-%% State timeout (for both idle and recoverying) states that triggers
-%% dispatching of requests to the workers:
--define(delegate_timeout, delegate_timeout).
+%% State timeout (for both `idle' and `recovering' states) that
+%% triggers handover of subscriptions to the workers:
+-define(schedule_timeout, schedule_timeout).
 
 -type dbshard() :: {emqx_ds:db(), _Shard}.
 
@@ -161,7 +161,7 @@
 
 %% Request:
 
--type return_addr(ItKey) :: {reference(), ItKey} | {pid(), sub_id(), ItKey}.
+-type return_addr(ItKey) :: {reference(), ItKey} | {pid(), reference(), ItKey}.
 
 -type poll_req_id() :: reference().
 
@@ -175,6 +175,7 @@
         acked_seqno :: emqx_ds:sub_seqno(),
         max_unacked :: pos_integer(),
         %%
+        rank :: emqx_ds:stream_rank(),
         stream :: _Stream,
         topic_filter :: emqx_ds:topic_filter(),
         start_key :: emqx_ds:message_key(),
@@ -203,7 +204,9 @@
             [{emqx_ds:message_key(), dispatch_mask(), emqx_types:message()}]
             | end_of_stream
             | emqx_ds:error(_),
-        misc :: #{}
+        misc :: #{
+            seqnos => #{reference() => emqx_ds:sub_seqno()}
+        }
     }.
 
 -type beam() :: beam(_ItKey, _Iterator).
@@ -222,6 +225,7 @@
 -type dispatch_matrix() :: #{{poll_req_id(), non_neg_integer()} => _}.
 
 -type filtered_batch() :: [{non_neg_integer(), {emqx_ds:message_key(), emqx_types:message()}}].
+
 -record(beam_maker, {
     cbm :: module(),
     shard_id :: _Shard,
@@ -249,7 +253,8 @@
     stream := Stream,
     topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
-    message_matcher := match_messagef()
+    message_matcher := match_messagef(),
+    rank := emqx_ds:stream_rank()
 }.
 
 -callback unpack_iterator(dbshard(), _Iterator) ->
@@ -353,33 +358,62 @@ split(#beam{iterators = Its, pack = {error, _, _} = Err}) ->
 split(#beam{iterators = Its, pack = Pack}) ->
     split(Its, Pack, 0, []).
 
-%% FIXME: include shard
--spec send_out_term({ok, end_of_stream} | emqx_ds:error(_), [sub_state()]) -> ok.
-send_out_term(Term, Reqs) ->
+%% @doc Create a beam that contains `end_of_stream' or unrecoverable
+%% error, send it to the subscriptions, and forget about the
+%% subscriptions.
+-spec send_and_forget(dbshard(), {ok, end_of_stream} | {error, unrecoverable, _}, [
+    sub_state()
+]) ->
+    ok.
+send_and_forget(DBShard, Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
-        fun(#sub_state{client = PID}) -> node(PID) end,
-        fun(#sub_state{return_addr = RAddr, it = It}) ->
-            {RAddr, It}
+        fun(#sub_state{client = PID}) ->
+            node(PID)
         end,
         Reqs
     ),
     %% Pack requests into beams and serve them:
     maps:foreach(
-        fun(Node, Its) ->
-            Beam = #beam{
-                pack = Term,
-                iterators = Its
-            },
-            send_out(undefined, Node, Beam)
+        fun(Node, Iterators) ->
+            send_and_forget_node(DBShard, Term, Node, Iterators)
         end,
         ReqsByNode
-    ).
+    ),
+    %% FIXME: drop subscriptions:
+    ok.
 
--spec beams_init(module(), _Shard, fun(), fun()) -> beam_maker().
-beams_init(CBM, ShardId, Drop, UpdateQueue) ->
+send_and_forget_node(DBShard, Term, Node, Reqs) ->
+    SubTab = subtab(DBShard),
+    {Iterators, Seqnos} = lists:mapfoldl(
+        fun(#sub_state{req_id = SubId, return_addr = RAddr, it = It}, Acc0) ->
+            Acc =
+                case RAddr of
+                    {_, _} ->
+                        %% This is a singleton poll request:
+                        Acc0;
+                    {_, _, _} ->
+                        %% This is a subscription:
+                        SeqNo = ets:update_counter(SubTab, SubId, {#sub_state.seqno, 1}),
+                        Acc0#{SubId => SeqNo}
+                end,
+            ets:delete(SubTab, SubId),
+            {{RAddr, It}, Acc}
+        end,
+        #{},
+        Reqs
+    ),
+    Beam = #beam{
+        pack = Term,
+        iterators = Iterators,
+        misc = #{seqnos => Seqnos}
+    },
+    send_out(DBShard, Node, Beam).
+
+-spec beams_init(module(), dbshard(), fun(), fun()) -> beam_maker().
+beams_init(CBM, DBShard, Drop, UpdateQueue) ->
     #beam_maker{
         cbm = CBM,
-        shard_id = ShardId,
+        shard_id = DBShard,
         queue_drop = Drop,
         queue_update = UpdateQueue
     }.
@@ -466,7 +500,6 @@ keep_and_seqno(SubTab, #sub_state{req_id = Ref}, Nmsgs) ->
         ])
     of
         [SeqNo, Acked, Window] ->
-            logger:warning("~p:~p -> ~p, ~p, ~p", [Ref, Nmsgs, SeqNo, Acked, Window]),
             {is_sub_active(SeqNo, Acked, Window), Ref, SeqNo}
     catch
         error:badarg ->
@@ -528,20 +561,24 @@ fast_forward(Mod, Shard, It, Key) ->
     it_key,
     opts :: emqx_ds:poll_opts()
 }).
--record(unsub_req, {id :: sub_id()}).
--record(wakeup_sub_req, {id :: sub_id()}).
--record(redispatch_req, {ids :: [sub_id()]}).
+-record(unsub_req, {id :: reference()}).
+-record(wakeup_sub_req, {id :: reference()}).
+-record(reschedule_req, {ids :: [reference()]}).
+-record(generation_event, {}).
 
+%% @doc Get pid of a beamformer process serving the shard
 -spec where(dbshard()) -> pid() | undefined.
 where(DBShard) ->
     gproc:where(?name(DBShard)).
 
+%% @doc List shards that have local beamformer process
 -spec ls(emqx_ds:db()) -> [dbshard()].
 ls(DB) ->
     MS = {{?name({DB, '$1'}), '_', '_'}, [], ['$1']},
     Shards = gproc:select({local, names}, [MS]),
     [{DB, I} || I <- Shards].
 
+%% @doc Look up state of a subscription
 -spec lookup_sub(emqx_ds:db(), sub_id()) -> [sub_state()].
 lookup_sub(DB, {Shard, SubId}) ->
     ets:lookup(subtab({DB, Shard}), SubId).
@@ -561,15 +598,15 @@ subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked})
 unsubscribe(DBShard, SubId) ->
     gen_statem:call(?via(DBShard), #unsub_req{id = SubId}).
 
-%% @doc Ack batches up to sequence number:
--spec suback(dbshard(), sub_id(), emqx_ds:sub_seqno()) -> ok.
+%% @doc Ack batches up to the sequence number:
+-spec suback(dbshard(), sub_id(), emqx_ds:sub_seqno()) -> ok | {error, _}.
 suback(DBShard, SubId, Acked) ->
     try
         ets:update_counter(subtab(DBShard), SubId, [
             {#sub_state.seqno, 0}, {#sub_state.acked_seqno, 0}, {#sub_state.max_unacked, 0}
         ])
     of
-        [SeqNo, OldAcked, Window] ->
+        [SeqNo, OldAcked, Window] when Acked =< SeqNo ->
             ets:update_element(subtab(DBShard), SubId, {#sub_state.acked_seqno, Acked}),
             %% If this subscription ack changed state of the subscription,
             %% then request moving subscription back into the pool:
@@ -578,12 +615,20 @@ suback(DBShard, SubId, Acked) ->
                     gen_statem:call(?via(DBShard), #wakeup_sub_req{id = SubId});
                 _ ->
                     ok
-            end
+            end;
+        _ ->
+            {error, invalid_seqno}
     catch
         error:badarg ->
             %% This happens when subscription is not found:
             {error, subscripton_not_found}
     end.
+
+%% @doc This internal API notifies the beamformer that generatins have
+%% been added or removed.
+-spec generation_event(dbshard()) -> ok.
+generation_event(DBShard) ->
+    gen_statem:cast(?via(DBShard), #generation_event{}).
 
 %%================================================================================
 %% gen_statem callbacks
@@ -596,7 +641,9 @@ suback(DBShard, SubId, Acked) ->
     monitor_tab = ets:tid(),
     %% List of subscription IDs waiting for dispatching to the
     %% worker:
-    pending = [] :: [reference()]
+    pending = [] :: [reference()],
+    %% Generation cache:
+    generations :: #{emqx_ds:generation_rank() => emqx_ds:generation_info()}
 }).
 
 -type d() :: #d{}.
@@ -614,7 +661,13 @@ init([DBShard, CBM]) ->
         msg => started_bf, shard => DBShard, cbm => emqx_ds_beamformer_sup:cbm(DBShard)
     }),
     MTab = ets:new(beamformer_monitor_tab, [private, set]),
-    {ok, ?idle, #d{dbshard = DBShard, tab = SubTab, cbm = CBM, monitor_tab = MTab}}.
+    {ok, ?idle, #d{
+        dbshard = DBShard,
+        tab = SubTab,
+        cbm = CBM,
+        monitor_tab = MTab,
+        generations = emqx_ds:list_generations_with_lifetimes(element(1, DBShard))
+    }}.
 
 -spec handle_event(gen_statem:event_type(), _Event, state(), d()) ->
     gen_statem:event_handler_result(state()).
@@ -630,7 +683,8 @@ handle_event(
             stream := Stream,
             topic_filter := TF,
             last_seen_key := DSKey,
-            message_matcher := MsgMatcher
+            message_matcher := MsgMatcher,
+            rank := Rank
         } ->
             MRef = monitor(process, Client),
             ?tp(beamformer_subscribe, #{
@@ -647,6 +701,7 @@ handle_event(
                 client = Client,
                 mref = MRef,
                 max_unacked = MaxUnacked,
+                rank = Rank,
                 stream = Stream,
                 topic_filter = TF,
                 start_key = DSKey,
@@ -700,7 +755,7 @@ handle_event(
 %% Handle redispatch call:
 handle_event(
     {call, From},
-    #redispatch_req{ids = Ids},
+    #reschedule_req{ids = Ids},
     _State,
     D = #d{pending = Pending}
 ) ->
@@ -739,23 +794,38 @@ handle_event(
 handle_event(enter, _OldState, ?busy, _D) ->
     %% In `busy' state we try to hand over subscriptions to the
     %% workers as soon as possible:
-    {keep_state_and_data, {state_timeout, 0, ?delegate_timeout}};
+    {keep_state_and_data, {state_timeout, 0, ?schedule_timeout}};
 handle_event(enter, _OldState, ?recovering, _D) ->
     %% In `recovering' state we delay handover to the worker to let
     %% the system stabilize:
     Cooldown = 1000,
-    {keep_state_and_data, {state_timeout, Cooldown, ?delegate_timeout}};
+    {keep_state_and_data, {state_timeout, Cooldown, ?schedule_timeout}};
 handle_event(enter, _OldState, _NewState, _D) ->
     keep_state_and_data;
 %% Handover subscriptions to the workers:
-handle_event(state_timeout, ?delegate_timeout, _State, D0) ->
-    {Success, D} = delegate_to_workers(D0),
+handle_event(state_timeout, ?schedule_timeout, _State, D0) ->
+    {Success, D} = do_schedule(D0),
     NextState =
         case Success of
             true -> ?idle;
             false -> ?recovering
         end,
     {next_state, NextState, D};
+%% Handle changes to the generations:
+handle_event(
+    cast,
+    #generation_event{},
+    _State,
+    D = #d{dbshard = DBShard, generations = Gens0}
+) ->
+    {DB, _} = DBShard,
+    %% Find generatins that have been sealed:
+    Gens = emqx_ds:list_generations_with_lifetimes(DB),
+    Sealed = diff_gens(DBShard, Gens0, Gens),
+    %% Notify the RT workers:
+    _ = [emqx_ds_beamformer_rt:seal_generation(DBShard, I) || I <- Sealed],
+    {keep_state, D#d{generations = Gens}};
+%% Unknown event:
 handle_event(EventType, Event, State, Data) ->
     ?tp(
         error,
@@ -778,9 +848,9 @@ terminate(_Reason, _State, #d{dbshard = DBShard}) ->
 %% terminate abnormally. This causes the FSM to enter `recovering'
 %% where it will attempt to re-assign the subscriptions to the workers
 %% after a cooldown interval:
--spec redispatch(dbshard(), [sub_id()]) -> ok.
-redispatch(DBShard, SubIds) ->
-    gen_statem:call(?via(DBShard), #redispatch_req{ids = SubIds}).
+-spec reschedule(dbshard(), [sub_id()]) -> ok.
+reschedule(DBShard, SubIds) ->
+    gen_statem:call(?via(DBShard), #reschedule_req{ids = SubIds}).
 
 -spec subtab(dbshard()) -> ets:table().
 subtab(DBShard) ->
@@ -808,7 +878,24 @@ do_dispatch(Beam = #beam{misc = Misc}) ->
 %% Internal functions
 %%================================================================================
 
-delegate_to_workers(D = #d{dbshard = DBShard, tab = Tab, pending = Pending}) ->
+diff_gens(_DBShard, Old, New) ->
+    %% TODO: filter by shard
+    maps:fold(
+        fun(Rank, #{until := UOld}, Acc) ->
+            case New of
+                #{Rank := #{until := UNew}} when UOld =:= UNew ->
+                    %% Unchanged:
+                    Acc;
+                _ ->
+                    %% Changed or gone:
+                    [Rank | Acc]
+            end
+        end,
+        [],
+        Old
+    ).
+
+do_schedule(D = #d{dbshard = DBShard, tab = Tab, pending = Pending}) ->
     Pool = emqx_ds_beamformer_catchup:pool(DBShard),
     %% Find the appropriate worker for the requests and group the requests:
     ByWorker = maps:groups_from_list(
