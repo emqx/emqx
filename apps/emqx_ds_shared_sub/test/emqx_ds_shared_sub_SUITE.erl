@@ -830,21 +830,21 @@ verify_received_pubs(Pubs, NPubs, ClientByBid) ->
         #{},
         Pubs
     ),
+    Expected = [integer_to_binary(N) || N <- lists:seq(1, NPubs)],
 
     Missing = lists:filter(
-        fun(N) -> not maps:is_key(integer_to_binary(N), Messages) end,
-        lists:seq(1, NPubs)
+        fun(NBin) -> not maps:is_key(NBin, Messages) end,
+        Expected
     ),
     Duplicate = lists:filtermap(
-        fun(N) ->
-            NBin = integer_to_binary(N),
+        fun(NBin) ->
             case Messages of
                 #{NBin := [_]} -> false;
-                #{NBin := [_ | _] = Clients} -> {true, {N, Clients}};
+                #{NBin := [_ | _] = Clients} -> {true, {NBin, Clients}};
                 _ -> false
             end
         end,
-        lists:seq(1, NPubs)
+        Expected
     ),
 
     {Missing, Duplicate}.

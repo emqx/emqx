@@ -5,7 +5,7 @@
 -module(emqx_ds_shared_sub_proto).
 
 -include("emqx_ds_shared_sub_proto.hrl").
--include("emqx_ds_shared_sub_proto_format.hrl").
+-include("emqx_ds_shared_sub_format.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 

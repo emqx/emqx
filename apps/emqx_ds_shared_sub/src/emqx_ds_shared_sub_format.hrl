@@ -6,14 +6,20 @@
 
 -ifdef(TEST).
 
--define(format_ssubscriber_msg(Msg), emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)).
--define(format_leader_msg(Msg), emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)).
+-define(format_ssubscriber_msg(Msg), emqx_ds_shared_sub_format:format_agent_msg(Msg)).
+-define(format_leader_msg(Msg), emqx_ds_shared_sub_format:format_leader_msg(Msg)).
+-define(format_ssubscriber(Subscriber), emqx_ds_shared_sub_format:format_ssubscriber(Subscriber)).
+-define(format_stream(Stream), emqx_ds_shared_sub_format:format_stream(Stream)).
+-define(format_progress(Progress), emqx_ds_shared_sub_format:format_progress(Progress)).
 
 %% -ifdef(TEST).
 -else.
 
 -define(format_ssubscriber_msg(Msg), Msg).
 -define(format_leader_msg(Msg), Msg).
+-define(format_ssubscriber(Subscriber), Subscriber).
+-define(format_stream(Stream), Stream).
+-define(format_progress(Progress), Progress).
 
 %% -ifdef(TEST).
 -endif.

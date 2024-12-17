@@ -6,6 +6,7 @@
 
 -include("emqx_ds_shared_sub_proto.hrl").
 -include("emqx_ds_shared_sub_config.hrl").
+-include("emqx_ds_shared_sub_format.hrl").
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -51,12 +52,10 @@
 
 -type stream_status() :: ?stream_granting | ?stream_granted | ?stream_revoking | ?stream_revoked.
 
--record(stream_ownership, {
-    status :: stream_status(),
-    ssubscriber_id :: ssubscriber_id()
-}).
-
--type stream_ownership() :: #stream_ownership{}.
+-type stream_ownership() :: #{
+    status := stream_status(),
+    ssubscriber_id := ssubscriber_id()
+}.
 
 -type ssubscriber_state() :: #{
     validity_deadline := integer()
@@ -338,17 +337,17 @@ finalize_streams(St, []) ->
     St;
 finalize_streams(#{stream_owners := StreamOwners0} = St, [Stream | RestStreams]) ->
     case StreamOwners0 of
-        #{Stream := #stream_ownership{status = ?stream_revoked}} ->
+        #{Stream := #{status := ?stream_revoked}} ->
             finalize_streams(St, RestStreams);
         #{
-            Stream := #stream_ownership{status = _OtherStatus, ssubscriber_id = SSubscriberId} =
+            Stream := #{status := _OtherStatus, ssubscriber_id := SSubscriberId} =
                 Ownership0
         } ->
             emqx_ds_shared_sub_proto:send_to_ssubscriber(
                 SSubscriberId,
                 ?leader_revoked(this_leader(St), Stream)
             ),
-            Ownership1 = Ownership0#stream_ownership{status = ?stream_revoked},
+            Ownership1 = Ownership0#{status := ?stream_revoked},
             StreamOwners1 = StreamOwners0#{Stream => Ownership1},
             finalize_streams(
                 St#{stream_owners => StreamOwners1},
@@ -496,23 +495,23 @@ renew_transient_streams(#{stream_owners := StreamOwners} = St) ->
     Leader = this_leader(St),
     ok = maps:foreach(
         fun
-            (Stream, #stream_ownership{status = ?stream_granting, ssubscriber_id = SSubscriberId}) ->
+            (Stream, #{status := ?stream_granting, ssubscriber_id := SSubscriberId}) ->
                 StreamProgress = stream_progress(St, Stream),
                 emqx_ds_shared_sub_proto:send_to_ssubscriber(
                     SSubscriberId,
                     ?leader_grant(Leader, StreamProgress)
                 );
-            (Stream, #stream_ownership{status = ?stream_revoking, ssubscriber_id = SSubscriberId}) ->
+            (Stream, #{status := ?stream_revoking, ssubscriber_id := SSubscriberId}) ->
                 emqx_ds_shared_sub_proto:send_to_ssubscriber(
                     SSubscriberId,
                     ?leader_revoke(Leader, Stream)
                 );
-            (Stream, #stream_ownership{status = ?stream_revoked, ssubscriber_id = SSubscriberId}) ->
+            (Stream, #{status := ?stream_revoked, ssubscriber_id := SSubscriberId}) ->
                 emqx_ds_shared_sub_proto:send_to_ssubscriber(
                     SSubscriberId,
                     ?leader_revoked(Leader, Stream)
                 );
-            (_Stream, #stream_ownership{}) ->
+            (_Stream, #{}) ->
                 ok
         end,
         StreamOwners
@@ -579,7 +578,7 @@ handle_ssubscriber_ping(St0, SSubscriberId) ->
 
 handle_update_stream_progress(St0, SSubscriberId, #{stream := Stream} = StreamProgress) ->
     case stream_ownership(St0, Stream) of
-        #stream_ownership{status = Status, ssubscriber_id = SSubscriberId} ->
+        #{status := Status, ssubscriber_id := SSubscriberId} ->
             handle_update_stream_progress(St0, SSubscriberId, Status, StreamProgress);
         undefined ->
             St0;
@@ -638,19 +637,18 @@ update_rank_progress(St, _StreamProgress) ->
 
 set_stream_status(#{stream_owners := StreamOwners} = St, Stream, Status) ->
     #{Stream := Ownership0} = StreamOwners,
-    Ownership1 = Ownership0#stream_ownership{status = Status},
+    Ownership1 = Ownership0#{status := Status},
     StreamOwners1 = StreamOwners#{Stream => Ownership1},
     St#{
         stream_owners => StreamOwners1
     }.
 
 set_stream_granting(#{stream_owners := StreamOwners0} = St, Stream, SSubscriberId) ->
-    %% assert that the stream is not owned by anyone
     undefined = stream_ownership(St, Stream),
     StreamOwners1 = StreamOwners0#{
-        Stream => #stream_ownership{
-            status = ?stream_granting,
-            ssubscriber_id = SSubscriberId
+        Stream => #{
+            status => ?stream_granting,
+            ssubscriber_id => SSubscriberId
         }
     },
     St#{
@@ -674,7 +672,7 @@ handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
     St1 = lists:foldl(
         fun(#{stream := Stream} = StreamProgress, DataAcc0) ->
             case stream_ownership(DataAcc0, Stream) of
-                #stream_ownership{ssubscriber_id = SSubscriberId} ->
+                #{ssubscriber_id := SSubscriberId} ->
                     DataAcc1 = update_stream_progress(DataAcc0, StreamProgress),
                     ok = send_after(0, #renew_streams{}),
                     set_stream_free(DataAcc1, Stream);
@@ -692,7 +690,7 @@ handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
 
 handle_revoke_finished(St0, SSubscriberId, Stream) ->
     case stream_ownership(St0, Stream) of
-        #stream_ownership{status = ?stream_revoked, ssubscriber_id = SSubscriberId} ->
+        #{status := ?stream_revoked, ssubscriber_id := SSubscriberId} ->
             set_stream_free(St0, Stream);
         _ ->
             drop_invalidate_ssubscriber(St0, SSubscriberId)
@@ -784,7 +782,7 @@ drop_ssubscriber(
     ?tp(debug, shared_sub_leader_drop_ssubscriber, #{agent => SSubscriberIdDrop}),
     Subscribers1 = maps:remove(SSubscriberIdDrop, SSubscribers0),
     StreamOwners1 = maps:filter(
-        fun(_Stream, #stream_ownership{ssubscriber_id = SSubscriberId}) ->
+        fun(_Stream, #{ssubscriber_id := SSubscriberId}) ->
             SSubscriberId =/= SSubscriberIdDrop
         end,
         StreamOwners0
@@ -807,7 +805,7 @@ drop_invalidate_ssubscriber(St0, SSubscriberId) ->
 
 stream_ownership(St, Stream) ->
     case St of
-        #{stream_owners := #{Stream := #stream_ownership{} = Ownership}} ->
+        #{stream_owners := #{Stream := #{} = Ownership}} ->
             Ownership;
         _ ->
             undefined
@@ -833,7 +831,7 @@ stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwner
         fun
             (
                 Stream,
-                #stream_ownership{status = ?stream_granted, ssubscriber_id = SSubscriberId},
+                #{status := ?stream_granted, ssubscriber_id := SSubscriberId},
                 SSubscribersAcc
             ) ->
                 case SSubscribersAcc of
@@ -844,7 +842,7 @@ stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwner
                 end;
             (
                 _Stream,
-                #stream_ownership{status = _OtherStatus, ssubscriber_id = SSubscriberId},
+                #{status := _OtherStatus, ssubscriber_id := SSubscriberId},
                 IdsAcc
             ) ->
                 maps:remove(SSubscriberId, IdsAcc)
