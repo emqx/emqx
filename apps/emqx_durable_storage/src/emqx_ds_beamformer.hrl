@@ -30,6 +30,7 @@
     acked_seqno = 0,
     max_unacked,
     %%
+    rank,
     stream,
     topic_filter,
     start_key,
@@ -40,10 +41,7 @@
     %% Callback that filters messages that belong to the request:
     msg_matcher,
     opts,
-    deadline,
-    %% PID of the beamformer worker process that is currently owning
-    %% the subscription:
-    owner
+    deadline
 }).
 
 %% Persistent term used to store reference to the subscription table
