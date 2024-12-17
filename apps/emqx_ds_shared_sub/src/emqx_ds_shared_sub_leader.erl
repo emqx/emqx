@@ -90,7 +90,7 @@
 %% Events
 
 -record(renew_streams, {}).
--record(ssubscriber_timeout, {}).
+-record(periodical_actions_timeout, {}).
 -record(renew_leader_claim, {}).
 
 %%--------------------------------------------------------------------
@@ -117,7 +117,7 @@ init_state(#share{topic = Topic} = ShareTopicFilter) ->
         {ok, Store} ->
             ?tp(debug, dssub_store_open, #{topic => ShareTopicFilter, store => Store}),
             ok = send_after(0, #renew_streams{}),
-            ok = send_after(leader_drop_timeout_interval_ms, #ssubscriber_timeout{}),
+            ok = send_after(leader_periodical_actions_interval_ms, #periodical_actions_timeout{}),
             #{
                 group_id => ShareTopicFilter,
                 topic => Topic,
@@ -146,10 +146,10 @@ handle_info(#renew_streams{}, St0) ->
     St1 = renew_streams(St0),
     ok = send_after(leader_renew_streams_interval_ms, #renew_streams{}),
     {noreply, St1};
-%% ssubscriber_timeout timer
-handle_info(#ssubscriber_timeout{}, St0) ->
+%% periodical_actions_timeout timer
+handle_info(#periodical_actions_timeout{}, St0) ->
     St1 = do_timeout_actions(St0),
-    ok = send_after(leader_drop_timeout_interval_ms, #ssubscriber_timeout{}),
+    ok = send_after(leader_periodical_actions_interval_ms, #periodical_actions_timeout{}),
     {noreply, St1};
 handle_info(#renew_leader_claim{}, St0) ->
     case renew_leader_claim(St0) of
@@ -545,7 +545,7 @@ handle_ssubscriber_ping(St0, SSubscriberId) ->
         ssubscriber_id => ?format_ssubscriber_id(SSubscriberId)
     }),
     #{ssubscribers := #{SSubscriberId := SSubscriberState0} = SSubscribers0} = St0,
-    NewDeadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_interval_ms),
+    NewDeadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_ms),
     SSubscriberState1 = SSubscriberState0#{validity_deadline => NewDeadline},
     ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
         SSubscriberId,
@@ -707,7 +707,7 @@ send_after(Timeout, Event) when is_atom(Timeout) ->
     ok.
 
 new_ssubscriber_data() ->
-    Deadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_interval_ms),
+    Deadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_ms),
     #{validity_deadline => Deadline}.
 
 unassigned_streams(#{stream_owners := StreamOwners} = St) ->
