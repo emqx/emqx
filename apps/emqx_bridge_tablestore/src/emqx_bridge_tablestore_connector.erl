@@ -32,6 +32,7 @@
 
 -define(OTS_CLIENT_NAME(ID), list_to_binary("tablestore:" ++ str(ID))).
 -define(TKS(STR), {tmpl_tokens, STR}).
+-define(LOG_T(LEVEL, LOG), ?SLOG(LEVEL, LOG, #{tag => "TABLE_STORE"})).
 
 %%--------------------------------------------------------------------
 %% resource callback
@@ -73,10 +74,11 @@ on_start(InstId, Config) ->
         {instance, maps:get(instance_name, Config)},
         {pool, ?OTS_CLIENT_NAME(InstId)},
         {endpoint, maps:get(endpoint, Config)},
-        {access_key, maps:get(access_key_id, Config)},
-        {access_secret, maps:get(access_key_secret, Config)},
+        {access_key, emqx_secret:unwrap(maps:get(access_key_id, Config))},
+        {access_secret, emqx_secret:unwrap(maps:get(access_key_secret, Config))},
         {pool_size, maps:get(pool_size, Config)}
     ],
+    ?LOG_T(info, #{msg => ots_start, opts => OtsOpts}),
     {ok, ClientRef} = ots_ts_client:start(OtsOpts),
     case list_ots_tables(ClientRef) of
         {ok, _} ->
@@ -110,7 +112,7 @@ on_query(_InstId, {ChannelId, Message}, #{client_ref := ClientRef, channels := C
             of
                 Data ->
                     LogMsg = #{msg => ots_query, channel => ChannelId, data => Data},
-                    ?SLOG(debug, LogMsg, #{tag => "TABLE_STORE"}),
+                    ?LOG_T(debug, LogMsg),
                     case ots_ts_client:put(ClientRef, Data) of
                         {ok, _Res} -> ok;
                         {error, Reason} -> {error, {unrecoverable_error, Reason}}
@@ -139,7 +141,7 @@ on_batch_query(_, [{ChannelId, _} | _] = MsgList, #{client_ref := ClientRef, cha
 
 send_batch_data(BatchDataList, ClientRef, ChannelId) ->
     LogMsg = #{msg => ots_batch_query, channel => ChannelId, batch_data_list => BatchDataList},
-    ?SLOG(debug, LogMsg, #{tag => "TABLE_STORE"}),
+    ?LOG_T(debug, LogMsg),
     Res = [ots_ts_client:put(ClientRef, BatchData) || BatchData <- BatchDataList],
     Filter = fun
         ({error, _}) -> true;
@@ -156,7 +158,12 @@ send_batch_data(BatchDataList, ClientRef, ChannelId) ->
 list_ots_tables(?CLIENT_REF_FOR_TEST) ->
     {ok, []};
 list_ots_tables(ClientRef) ->
-    ots_ts_client:list_tables(ClientRef).
+    try
+        ots_ts_client:list_tables(ClientRef)
+    catch
+        Err:Reason:ST ->
+            {error, #{error => Err, reason => Reason, stacktrace => ST}}
+    end.
 
 preproc_tags(Tags) ->
     maps:fold(

@@ -145,9 +145,20 @@ fields("connector") ->
         storage_model_type_field(),
         {endpoint, mk(binary(), #{required => true, desc => ?DESC("desc_endpoint")})},
         {instance_name, mk(binary(), #{required => true, desc => ?DESC("desc_instance_name")})},
-        {access_key_id, mk(binary(), #{required => true, desc => ?DESC("desc_access_key_id")})},
+        {access_key_id,
+            emqx_schema_secret:mk(
+                #{
+                    required => true,
+                    desc => ?DESC("desc_access_key_id")
+                }
+            )},
         {access_key_secret,
-            mk(binary(), #{required => true, desc => ?DESC("desc_access_key_secret")})},
+            emqx_schema_secret:mk(
+                #{
+                    required => true,
+                    desc => ?DESC("desc_access_key_secret")
+                }
+            )},
         {pool_size,
             mk(
                 integer(),
