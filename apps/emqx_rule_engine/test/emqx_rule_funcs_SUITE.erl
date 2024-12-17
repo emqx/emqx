@@ -118,7 +118,12 @@ t_str(_) ->
     ?assertEqual(<<"abc 你好"/utf8>>, emqx_rule_funcs:str_utf8(<<"abc 你好"/utf8>>)),
     ?assertEqual(<<"abc">>, emqx_rule_funcs:str_utf8(abc)),
     ?assertEqual(
-        <<"{\"a\":\"abc 你好\"}"/utf8>>, emqx_rule_funcs:str_utf8(#{a => <<"abc 你好"/utf8>>})
+        <<"{\"a\":\"abc 你好\"}"/utf8>>,
+        emqx_rule_funcs:str_utf8(#{a => <<"abc 你好"/utf8>>})
+    ),
+    ?assertEqual(
+        <<"[{\"a\":1},{\"你好👋\":1}]"/utf8>>,
+        emqx_rule_funcs:str_utf8([#{a => 1}, #{<<"你好👋"/utf8>> => 1}])
     ),
     ?assertEqual(<<"1">>, emqx_rule_funcs:str_utf8(1)),
     ?assertEqual(<<"2.0">>, emqx_rule_funcs:str_utf8(2.0)),
@@ -141,6 +146,10 @@ t_str_utf16_le(_) ->
     ?assertEqual(
         <<"{\"a\":\"abc 你好\"}"/utf16-little>>,
         emqx_rule_funcs:str_utf16_le(#{a => <<"abc 你好"/utf8>>})
+    ),
+    ?assertEqual(
+        <<"[{\"a\":1},{\"你好👋\":1}]"/utf16-little>>,
+        emqx_rule_funcs:str_utf8([#{a => 1}, #{<<"你好👋"/utf8>> => 1}])
     ),
     ?assertEqual(<<"1"/utf16-little>>, emqx_rule_funcs:str_utf16_le(1)),
     ?assertEqual(<<"2.0"/utf16-little>>, emqx_rule_funcs:str_utf16_le(2.0)),
