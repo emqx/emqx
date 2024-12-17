@@ -211,7 +211,7 @@ update_subscription(
     {ok, emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds:subscription()}
     | {error, emqx_types:reason_code()}.
 on_unsubscribe(
-    SessionId, ShareTopicFilter, S0, SchedS0, SharedSubS0
+    SessionId, ShareTopicFilter, S0, SchedS0, #{agent := Agent0} = SharedSubS0
 ) ->
     case lookup(ShareTopicFilter, S0) of
         undefined ->
@@ -231,9 +231,10 @@ on_unsubscribe(
             {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 SubId, S1, SchedS0
             ),
-            SharedSubS1 = emqx_persistent_session_ds_shared_subs_agent:on_unsubscribe(
-                SharedSubS0, SubId
+            Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_unsubscribe(
+                Agent0, SubId
             ),
+            SharedSubS1 = SharedSubS0#{agent => Agent1},
             {S, SharedSubS} = on_streams_gc(S2, SharedSubS1),
             {ok, S, SchedS, SharedSubS, Sub}
     end.
