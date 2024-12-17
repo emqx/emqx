@@ -2,23 +2,6 @@
 %% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--include("emqx_ds_shared_sub_proto_keys.hrl").
-
--define(agent_proggress(Stream, Progress, UseFinished), #{
-    stream => Stream,
-    progress => Progress,
-    use_finished => UseFinished
-}).
-
--define(leader_progress(Stream, Progress), #{
-    stream => Stream,
-    progress => Progress
-}).
-
-%%--------------------------------------------------------------------
-%% Asynchronous messages between shared sub subscriber and shared sub leader.
-%%--------------------------------------------------------------------
-
 %% SSubscriber messages sent to the leader.
 %% Leader talks to many SSubscribers, `ssubscriber_id` field is used to identify the sender.
 

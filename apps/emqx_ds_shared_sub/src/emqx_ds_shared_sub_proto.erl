@@ -21,11 +21,13 @@
     progress := emqx_persistent_session_ds_shared_subs:progress()
 }.
 -type agent_stream_progress() :: emqx_persistent_session_ds_shared_subs:agent_stream_progress().
+-type agent_stream_progresses() :: list(agent_stream_progress()).
+-type stream() :: emqx_ds:stream().
 
 -type to_leader_msg() ::
     ?ssubscriber_ping_match(ssubscriber_id())
     | ?ssubscriber_connect_match(ssubscriber_id(), share_topic_filter())
-    | ?ssubscriber_disconnect_match(ssubscriber_id(), list(agent_stream_progress()))
+    | ?ssubscriber_disconnect_match(ssubscriber_id(), agent_stream_progresses())
     | ?ssubscriber_update_progress_match(ssubscriber_id(), agent_stream_progress())
     | ?ssubscriber_revoke_finished_match(ssubscriber_id(), emqx_ds:stream()).
 
@@ -38,6 +40,8 @@
 
 -export_type([
     leader/0,
+    stream/0,
+    share_topic_filter/0,
     ssubscriber_id/0,
     leader_stream_progress/0,
     agent_stream_progress/0,
@@ -48,6 +52,20 @@
 -export([
     send_to_leader/2,
     send_to_ssubscriber/2
+]).
+
+-export([
+    ssubscriber_connect_v3/3,
+    ssubscriber_ping_v3/2,
+    ssubscriber_disconnect_v3/3,
+    ssubscriber_update_progress_v3/3,
+    ssubscriber_revoke_finished_v3/3,
+
+    leader_connect_response_v3/2,
+    leader_ping_response_v3/2,
+    leader_grant_v3/3,
+    leader_revoke_v3/3,
+    leader_revoked_v3/3
 ]).
 
 -export([
@@ -100,18 +118,96 @@ send_to_leader(ToLeader, Msg) when ?is_local_leader(ToLeader) ->
     ?log_ssubscriber_msg(ToLeader, Msg),
     _ = erlang:send(ToLeader, Msg),
     ok;
-send_to_leader(ToLeader, Msg) ->
-    emqx_ds_shared_sub_proto_v3:send_to_leader(node(ToLeader), ToLeader, Msg).
+send_to_leader(ToLeader, ?ssubscriber_connect_match(FromSSubscriberId, ShareTopicFilter)) ->
+    emqx_ds_shared_sub_proto_v3:ssubscriber_connect(
+        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, ShareTopicFilter
+    );
+send_to_leader(ToLeader, ?ssubscriber_ping_match(FromSSubscriberId)) ->
+    emqx_ds_shared_sub_proto_v3:ssubscriber_ping(
+        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId
+    );
+send_to_leader(ToLeader, ?ssubscriber_disconnect_match(FromSSubscriberId, StreamProgresses)) ->
+    emqx_ds_shared_sub_proto_v3:ssubscriber_disconnect(
+        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, StreamProgresses
+    );
+send_to_leader(ToLeader, ?ssubscriber_update_progress_match(FromSSubscriberId, StreamProgress)) ->
+    emqx_ds_shared_sub_proto_v3:ssubscriber_update_progress(
+        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, StreamProgress
+    );
+send_to_leader(ToLeader, ?ssubscriber_revoke_finished_match(FromSSubscriberId, Stream)) ->
+    emqx_ds_shared_sub_proto_v3:ssubscriber_revoke_finished(
+        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, Stream
+    ).
 
 -spec send_to_ssubscriber(ssubscriber_id(), to_ssubscriber_msg()) -> ok.
 send_to_ssubscriber(ToSSubscriberId, Msg) when ?is_local_ssubscriber(ToSSubscriberId) ->
     ?log_leader_msg(ToSSubscriberId, Msg),
     _ = emqx_ds_shared_sub_agent:send_to_ssubscriber(ToSSubscriberId, Msg),
     ok;
-send_to_ssubscriber(ToSSubscriberId, Msg) ->
-    emqx_ds_shared_sub_proto_v3:send_to_ssubscriber(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, Msg
+send_to_ssubscriber(ToSSubscriberId, ?leader_connect_response_match(FromLeader)) ->
+    emqx_ds_shared_sub_proto_v3:leader_connect_response(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader
+    );
+send_to_ssubscriber(ToSSubscriberId, ?leader_ping_response_match(FromLeader)) ->
+    emqx_ds_shared_sub_proto_v3:leader_ping_response(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader
+    );
+send_to_ssubscriber(ToSSubscriberId, ?leader_grant_match(FromLeader, StreamProgress)) ->
+    emqx_ds_shared_sub_proto_v3:leader_grant(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, StreamProgress
+    );
+send_to_ssubscriber(ToSSubscriberId, ?leader_revoke_match(FromLeader, Stream)) ->
+    emqx_ds_shared_sub_proto_v3:leader_revoke(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, Stream
+    );
+send_to_ssubscriber(ToSSubscriberId, ?leader_revoked_match(FromLeader, Stream)) ->
+    emqx_ds_shared_sub_proto_v3:leader_revoked(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, Stream
     ).
+
+%%--------------------------------------------------------------------
+%% RPC Targets
+%%--------------------------------------------------------------------
+
+-spec ssubscriber_connect_v3(leader(), ssubscriber_id(), share_topic_filter()) -> ok.
+ssubscriber_connect_v3(ToLeader, FromSSubscriberId, ShareTopicFilter) ->
+    send_to_leader(ToLeader, ?ssubscriber_connect(FromSSubscriberId, ShareTopicFilter)).
+
+-spec ssubscriber_ping_v3(leader(), ssubscriber_id()) -> ok.
+ssubscriber_ping_v3(ToLeader, FromSSubscriberId) ->
+    send_to_leader(ToLeader, ?ssubscriber_ping(FromSSubscriberId)).
+
+-spec ssubscriber_disconnect_v3(leader(), ssubscriber_id(), agent_stream_progresses()) -> ok.
+ssubscriber_disconnect_v3(ToLeader, FromSSubscriberId, StreamProgresses) ->
+    send_to_leader(ToLeader, ?ssubscriber_disconnect(FromSSubscriberId, StreamProgresses)).
+
+-spec ssubscriber_update_progress_v3(leader(), ssubscriber_id(), agent_stream_progress()) -> ok.
+ssubscriber_update_progress_v3(ToLeader, FromSSubscriberId, StreamProgress) ->
+    send_to_leader(ToLeader, ?ssubscriber_update_progress(FromSSubscriberId, StreamProgress)).
+
+-spec ssubscriber_revoke_finished_v3(leader(), ssubscriber_id(), stream()) -> ok.
+ssubscriber_revoke_finished_v3(ToLeader, FromSSubscriberId, Stream) ->
+    send_to_leader(ToLeader, ?ssubscriber_revoke_finished(FromSSubscriberId, Stream)).
+
+-spec leader_connect_response_v3(leader(), ssubscriber_id()) -> ok.
+leader_connect_response_v3(ToLeader, FromSSubscriberId) ->
+    send_to_ssubscriber(ToLeader, ?leader_connect_response(FromSSubscriberId)).
+
+-spec leader_ping_response_v3(leader(), ssubscriber_id()) -> ok.
+leader_ping_response_v3(ToLeader, FromSSubscriberId) ->
+    send_to_ssubscriber(ToLeader, ?leader_ping_response(FromSSubscriberId)).
+
+-spec leader_grant_v3(leader(), ssubscriber_id(), leader_stream_progress()) -> ok.
+leader_grant_v3(ToLeader, FromSSubscriberId, StreamProgress) ->
+    send_to_ssubscriber(ToLeader, ?leader_grant(FromSSubscriberId, StreamProgress)).
+
+-spec leader_revoke_v3(leader(), ssubscriber_id(), stream()) -> ok.
+leader_revoke_v3(ToLeader, FromSSubscriberId, Stream) ->
+    send_to_ssubscriber(ToLeader, ?leader_revoke(FromSSubscriberId, Stream)).
+
+-spec leader_revoked_v3(leader(), ssubscriber_id(), stream()) -> ok.
+leader_revoked_v3(ToLeader, FromSSubscriberId, Stream) ->
+    send_to_ssubscriber(ToLeader, ?leader_revoked(FromSSubscriberId, Stream)).
 
 %%--------------------------------------------------------------------
 %% Internal API
