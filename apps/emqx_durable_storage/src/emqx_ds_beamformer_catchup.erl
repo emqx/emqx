@@ -62,13 +62,14 @@
 %% API functions
 %%================================================================================
 
--spec enqueue(pid(), [emqx_beamformer:sub_id()]) -> ok | {error, _}.
+-spec enqueue(pid(), [emqx_beamformer:sub_id()]) ->
+    ok | {error, unrecoverable, stale} | emqx_ds:error(_).
 enqueue(Worker, SubIds) ->
     try
         gen_server:call(Worker, #enqueue_req{sub_ids = SubIds})
     catch
         exit:{timeout, _} ->
-            {error, timeout}
+            {error, recoverable, timeout}
     end.
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
@@ -131,7 +132,7 @@ terminate(Reason, #s{shard_id = ShardId, name = Name, queue = Queue}) ->
     %% In case of abnormal shutdown we notify the parent about dropped
     %% subscription states:
     Reason =:= shutdown orelse
-        emqx_ds_beamformer:redispatch(ShardId, queue_all_reqs(Queue)).
+        emqx_ds_beamformer:reschedule(ShardId, queue_all_reqs(Queue)).
 
 %%================================================================================
 %% Internal exports
@@ -140,6 +141,15 @@ terminate(Reason, #s{shard_id = ShardId, name = Name, queue = Queue}) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+%% Temporary remove requests from the active queue and notify the
+%% parent about reschedule.
+reschedule(#s{queue = Queue, shard_id = DBShard}, Reqs) ->
+    ok = emqx_ds_beamformer:reschedule(DBShard, [SubId || #sub_state{req_id = SubId} <- Reqs]),
+    lists:foreach(
+        fun(Req) -> queue_drop(Queue, Req) end,
+        Reqs
+    ).
 
 do_enqueue(SubIds, #s{parent_sub_tab = SubTab, queue = Queue, metrics_id = Metrics}) ->
     _ = [queue_push(Queue, Req) || SubId <- SubIds, Req <- ets:lookup(SubTab, SubId)],
@@ -163,7 +173,7 @@ fulfill(S = #s{queue = Queue}) ->
 
 do_fulfill(
     S = #s{
-        shard_id = Shard,
+        shard_id = DBShard,
         module = CBM,
         batch_size = BatchSize,
         queue = Queue,
@@ -173,31 +183,34 @@ do_fulfill(
     TopicFilter,
     StartKey
 ) ->
-    case emqx_ds_beamformer:scan_stream(CBM, Shard, Stream, TopicFilter, StartKey, BatchSize) of
+    case emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, TopicFilter, StartKey, BatchSize) of
         {ok, EndKey, []} ->
             %% Empty batch? Try to move request to the RT queue:
             move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey);
         {ok, EndKey, Batch} ->
             fulfill_batch(S, Stream, TopicFilter, StartKey, EndKey, Batch);
+        {error, recoverable, Err} ->
+            ?tp(
+                warning,
+                emqx_ds_beamformer_fulfill_fail,
+                #{shard => DBShard, recoverable => true, error => Err}
+            ),
+            reschedule(S, queue_lookup(S, Stream, TopicFilter, StartKey));
         Other ->
-            %% This clause handles `{ok, end_of_stream}' and errors:
-            case Other of
-                Err = {error, Recoverable, _} ->
-                    Drop = not Recoverable,
-                    Pack = Err;
-                {ok, end_of_stream} ->
-                    Drop = false,
-                    Pack = end_of_stream
-            end,
+            Pack =
+                case Other of
+                    {ok, end_of_stream} ->
+                        end_of_stream;
+                    {error, unrecoverable, _} ->
+                        Other
+                end,
             MatchReqs = queue_lookup(S, Stream, TopicFilter, StartKey),
             NFulfilled = length(MatchReqs),
             report_metrics(Metrics, NFulfilled),
             %% Pack requests into beams and send out:
-            emqx_ds_beamformer:send_out_term(Pack, MatchReqs),
-            %% Remove requests that reached `end_of_stream' and those
-            %% that encountered unrecoverable error:
-            Drop andalso queue_drop_all(Queue, Stream, TopicFilter, StartKey),
-            ok
+            emqx_ds_beamformer:send_and_forget(DBShard, Pack, MatchReqs),
+            %% Remove requests from the queue to avoid repeated failure:
+            queue_drop_all(Queue, Stream, TopicFilter, StartKey)
     end.
 
 -spec move_to_realtime(
@@ -209,7 +222,7 @@ do_fulfill(
 ) ->
     ok.
 move_to_realtime(
-    S = #s{shard_id = ShardId, queue = Queue},
+    S = #s{shard_id = DBShard, queue = Queue},
     Stream,
     TopicFilter,
     StartKey,
@@ -219,26 +232,36 @@ move_to_realtime(
     lists:foreach(
         fun(Req) ->
             ?tp(debug, beamformer_move_to_rt, #{
-                shard => ShardId,
+                shard => DBShard,
                 stream => Stream,
                 tf => TopicFilter,
                 start_key => StartKey,
                 end_key => EndKey,
                 req_id => Req#sub_state.req_id
             }),
-            case emqx_ds_beamformer_rt:enqueue(ShardId, Req) of
+            case emqx_ds_beamformer_rt:enqueue(DBShard, Req) of
                 ok ->
                     queue_drop(Queue, Req);
-                {error, stale} ->
-                    %% Race condition: new data has been added.
+                {error, unrecoverable, stale} ->
+                    %% Race condition: new data has been added. Keep
+                    %% this request in the catchup queue, so
+                    %% fulfillment of this requst is retried
+                    %% immediately (is it a good idea?):
                     ok;
-                {error, Error} ->
+                {error, recoverable, Error} ->
+                    ?tp(
+                        warning,
+                        emqx_ds_beamformer_move_to_rt_fail,
+                        #{shard => DBShard, recoverable => true, req => Req, error => Error}
+                    ),
+                    reschedule(S, [Req]);
+                Err = {error, unrecoverable, Reason} ->
                     ?tp(
                         error,
                         emqx_ds_beamformer_move_to_rt_fail,
-                        #{shard => ShardId, req => Req, error => Error}
+                        #{shard => DBShard, recoverable => false, req => Req, error => Reason}
                     ),
-                    ok = emqx_ds_beamformer:redispatch(ShardId, [Req#sub_state.req_id]),
+                    emqx_ds_beamformer:send_and_forget(DBShard, Err, [Req]),
                     queue_drop(Queue, Req)
             end
         end,

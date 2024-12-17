@@ -19,7 +19,17 @@
 -module(emqx_ds_beamformer_waitq).
 
 %% API:
--export([new/0, insert/4, delete/4, matching_keys/3, has_candidates/2, size/1, all_reqs/1]).
+-export([
+    new/0,
+    insert/5,
+    delete/4,
+    del_stream/2,
+    matching_keys/3,
+    streams_of_rank/2,
+    has_candidates/2,
+    size/1,
+    all_reqs/1
+]).
 
 -export_type([t/0]).
 
@@ -31,6 +41,8 @@
 %% Type declarations
 %%================================================================================
 
+-define(rec(STREAM, SEARCH, RANK), {{STREAM, SEARCH}, RANK}).
+
 -type t() :: ets:tid().
 
 %%================================================================================
@@ -40,9 +52,9 @@
 new() ->
     ets:new(?MODULE, [ordered_set, private]).
 
-insert(Stream, Filter, ID, Tab) ->
+insert(Stream, Filter, ID, Rank, Tab) ->
     Key = make_key(Stream, Filter, ID),
-    true = ets:insert(Tab, {Key, dummy_val}).
+    true = ets:insert(Tab, {Key, Rank}).
 
 delete(Stream, Filter, ID, Tab) ->
     ets:delete(Tab, make_key(Stream, Filter, ID)).
@@ -53,6 +65,14 @@ matching_keys(Stream, Topic, Tab) ->
      || Key <- emqx_trie_search:matches(Topic, make_nextf(Stream, Tab), [])
     ].
 
+%% @doc Return the list of streams that have certain rank.
+%%
+%% Warning: slow!
+streams_of_rank(Rank, Tab) ->
+    MS = {?rec('$1', '_', Rank), [], ['$1']},
+    streams_of_rank_(ets:select(Tab, [MS], 100), #{}).
+
+%% @doc Quick check if there are any subscribers to the given stream:
 has_candidates(Stream, Tab) ->
     case ets:next(Tab, {Stream, 0}) of
         {Stream, _} -> true;
@@ -63,15 +83,25 @@ size(Tab) ->
     ets:info(Tab, size).
 
 all_reqs(Queue) ->
-    MS = {{'$1', '_'}, [], ['$1']},
+    MS = {?rec('_', '$1', '_'), [], ['$1']},
     [
         emqx_trie_search:get_id(Key)
      || Key <- ets:select(Queue, [MS])
     ].
 
+%% @doc Delete all records with a given stream:
+del_stream(Stream, Tab) ->
+    ets:match_delete(Tab, ?rec(Stream, '_', '_')).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+streams_of_rank_('$end_of_table', Acc) ->
+    maps:keys(Acc);
+streams_of_rank_({Streams, Cont}, Acc0) ->
+    Acc = maps:merge(Acc0, maps:from_keys(Streams, [])),
+    streams_of_rank_(ets:select(Cont), Acc).
 
 make_key(Stream, TopicFilter, ID) ->
     {Stream, emqx_trie_search:make_key(TopicFilter, ID)}.

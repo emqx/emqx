@@ -22,7 +22,7 @@
 -behaviour(gen_server).
 
 %% API:
--export([pool/1, start_link/4, enqueue/2, shard_event/2]).
+-export([pool/1, start_link/4, enqueue/2, shard_event/2, seal_generation/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -56,6 +56,7 @@
 -define(housekeeping_loop, housekeeping_loop).
 
 -record(shard_event, {event}).
+-record(seal_event, {rank}).
 
 %%================================================================================
 %% API functions
@@ -64,7 +65,8 @@
 pool(DBShard) ->
     {emqx_ds_beamformer_rt, DBShard}.
 
--spec enqueue(_Shard, emqx_d_beamformer:poll_req()) -> ok | {error, _}.
+-spec enqueue(_Shard, emqx_d_beamformer:poll_req()) ->
+    ok | {error, unrecoverable, stale} | emqx_ds:error(_).
 enqueue(Shard, Req = #sub_state{req_id = SubId, stream = Stream}) ->
     ?tp(debug, beamformer_enqueue, #{req_id => SubId, queue => rt}),
     Worker = gproc_pool:pick_worker(pool(Shard), Stream),
@@ -72,7 +74,7 @@ enqueue(Shard, Req = #sub_state{req_id = SubId, stream = Stream}) ->
         gen_server:call(Worker, Req)
     catch
         exit:{timeout, _} ->
-            {error, timeout}
+            {error, recoverable, timeout}
     end.
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
@@ -87,6 +89,15 @@ shard_event(Shard, Events) ->
             gen_server:cast(Worker, #shard_event{event = Event})
         end,
         Events
+    ).
+
+seal_generation(DBShard, Rank) ->
+    Workers = gproc_pool:active_workers(pool(DBShard)),
+    lists:foreach(
+        fun({_WorkerId, Pid}) ->
+            gen_server:cast(Pid, #seal_event{rank = Rank})
+        end,
+        Workers
     ).
 
 %%================================================================================
@@ -117,6 +128,13 @@ handle_call(Req = #sub_state{}, _From, S) ->
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
+handle_cast(#seal_event{rank = Rank}, S = #s{queue = Queue}) ->
+    %% Currently generation seal events are treated as stream events,
+    %% for each known stream that has the matching rank:
+    Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
+    logger:warning(#{rank => Rank, streams => Streams, q => ets:tab2list(Queue)}),
+    [process_stream_event(Stream, S) || Stream <- Streams],
+    {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
     ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
     %% FIXME: make a proper stream wrapper
@@ -152,7 +170,7 @@ terminate(Reason, #s{shard = ShardId, name = Name, queue = Queue}) ->
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
     Reason =:= shutdown orelse
-        emqx_ds_beamformer:redispatch(ShardId, emqx_ds_beamformer_waitq:all_reqs(Queue)).
+        emqx_ds_beamformer:reschedule(ShardId, emqx_ds_beamformer_waitq:all_reqs(Queue)).
 
 %%================================================================================
 %% Internal exports
@@ -163,7 +181,9 @@ terminate(Reason, #s{shard = ShardId, name = Name, queue = Queue}) ->
 %%================================================================================
 
 do_enqueue(
-    Req = #sub_state{stream = Stream, topic_filter = TF, req_id = ReqId, start_key = Key, it = It0},
+    Req = #sub_state{
+        stream = Stream, topic_filter = TF, req_id = ReqId, start_key = Key, it = It0, rank = Rank
+    },
     S = #s{shard = Shard, queue = Queue, metrics_id = Metrics, module = CBM}
 ) ->
     case high_watermark(Stream, S) of
@@ -175,23 +195,23 @@ do_enqueue(
                     }),
                     PQLen = emqx_ds_beamformer_waitq:size(Queue),
                     emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
-                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Queue),
+                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Rank, Queue),
                     ok;
                 {error, unrecoverable, has_data} ->
                     ?tp(info, beamformer_push_rt_downgrade, #{
                         req_id => ReqId, stream => Stream, key => Key
                     }),
-                    {error, stale};
-                Other ->
+                    {error, unrecoverable, stale};
+                Error = {error, _, _} ->
                     ?tp(
-                        warning,
+                        error,
                         beamformer_rt_cannot_fast_forward,
                         #{
                             it => It0,
-                            reason => Other
+                            reason => Error
                         }
                     ),
-                    {error, Other}
+                    Error
             end;
         undefined ->
             ?tp(
@@ -199,32 +219,57 @@ do_enqueue(
                 beamformer_push_rt_unknown_stream,
                 #{poll_req => Req}
             ),
-            {error, unknown_stream}
+            {error, unrecoverable, unknown_stream}
     end.
 
 process_stream_event(
-    Stream, S = #s{shard = ShardId, module = CBM, batch_size = BatchSize, queue = Queue}
+    Stream,
+    S = #s{
+        shard = DBShard,
+        module = CBM,
+        batch_size = BatchSize,
+        queue = Queue,
+        parent_sub_tab = SubTab
+    }
 ) ->
     {ok, StartKey} = high_watermark(Stream, S),
-    case emqx_ds_beamformer:scan_stream(CBM, ShardId, Stream, ['#'], StartKey, BatchSize) of
+    case emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, ['#'], StartKey, BatchSize) of
         {ok, LastKey, []} ->
             ?tp(beamformer_rt_batch, #{
-                shard => ShardId, from => StartKey, to => LastKey, stream => Stream
+                shard => DBShard, from => StartKey, to => LastKey, stream => Stream
             }),
             set_high_watermark(Stream, LastKey, S);
         {ok, LastKey, Batch} ->
             ?tp(beamformer_rt_batch, #{
-                shard => ShardId, from => StartKey, to => LastKey, stream => Stream
+                shard => DBShard, from => StartKey, to => LastKey, stream => Stream
             }),
             Beams = emqx_ds_beamformer:beams_init(
                 CBM,
-                ShardId,
+                DBShard,
                 fun(SubS) -> queue_drop(Queue, SubS) end,
                 fun(_OldSubState, _SubState) -> ok end
             ),
             process_batch(Stream, LastKey, Batch, S, Beams),
             set_high_watermark(Stream, LastKey, S),
-            process_stream_event(Stream, S)
+            process_stream_event(Stream, S);
+        {error, recoverable, _Err} ->
+            %% FIXME:
+            exit(retry);
+        Other ->
+            Pack =
+                case Other of
+                    {ok, end_of_stream} ->
+                        end_of_stream;
+                    {error, unrecoverable, _} ->
+                        Other
+                end,
+            Ids = emqx_ds_beamformer_waitq:matching_keys(Stream, ['#'], Queue),
+            MatchReqs = lists:flatmap(
+                fun(SubId) -> ets:lookup(SubTab, SubId) end,
+                Ids
+            ),
+            emqx_ds_beamformer:send_and_forget(DBShard, Pack, MatchReqs),
+            emqx_ds_beamformer_waitq:del_stream(Stream, Queue)
     end.
 
 process_batch(

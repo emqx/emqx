@@ -638,15 +638,16 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 
 %%    When doing multi-next, we group iterators by stream:
 %% @TODO we need add it to the callback
-unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
-    case generation_get(Shard, GenId) of
+unpack_iterator(DBShard = {_, Shard}, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    case generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(Shard, GenData, Inner),
+            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(DBShard, GenData, Inner),
             #{
                 stream => ?stream_v2(GenId, InnerStream),
                 topic_filter => TopicFilter,
                 last_seen_key => Key,
-                message_matcher => Mod:message_matcher(Shard, GenData, Inner)
+                message_matcher => Mod:message_matcher(DBShard, GenData, Inner),
+                rank => {Shard, GenId}
             };
         not_found ->
             %% generation was possibly dropped by GC
