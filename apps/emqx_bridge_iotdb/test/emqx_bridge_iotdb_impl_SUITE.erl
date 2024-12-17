@@ -395,7 +395,7 @@ to_bin(Bin) when is_binary(Bin) ->
 
 t_sync_query_simple(Config) ->
     DeviceId = iotdb_device(Config),
-    Payload = make_iotdb_payload(DeviceId, "temp", "INT32", "36"),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
     ok = emqx_bridge_v2_testlib:t_sync_query(
         Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query
@@ -409,7 +409,7 @@ t_sync_query_simple(Config) ->
 
 t_async_query(Config) ->
     DeviceId = iotdb_device(Config),
-    Payload = make_iotdb_payload(DeviceId, "temp", "INT32", "36"),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
     ok = emqx_bridge_v2_testlib:t_async_query(
         Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query_async
@@ -423,7 +423,7 @@ t_async_query(Config) ->
 
 t_sync_query_fail(Config) ->
     DeviceId = iotdb_device(Config),
-    Payload = make_iotdb_payload(DeviceId, "temp", "INT32", "Anton"),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "Anton"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
     IsSuccessCheck =
         fun(Result) ->
@@ -445,7 +445,7 @@ t_extract_device_id_from_rule_engine_message(Config) ->
     BridgeType = ?config(bridge_type, Config),
     RuleTopic = <<"t/iotdb">>,
     DeviceId = iotdb_device(Config),
-    Payload = make_iotdb_payload(DeviceId, "temp", "INT32", "12"),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "12"),
     Message = emqx_message:make(RuleTopic, emqx_utils_json:encode(Payload)),
     ?check_trace(
         begin
@@ -511,7 +511,7 @@ t_device_id(Config) ->
     Topic = <<"some/random/topic">>,
     iotdb_reset(Config, DeviceId),
     iotdb_reset(Config, ConfiguredDevice),
-    Payload1 = make_iotdb_payload(DeviceId, "test", "BOOLEAN", true),
+    Payload1 = make_iotdb_payload(DeviceId, "test", "boolean", true),
     MessageF1 = make_message_fun(Topic, Payload1),
 
     is_success_check(
@@ -565,7 +565,7 @@ t_template(Config) ->
     Topic = <<"some/random/topic">>,
     iotdb_reset(Config, DeviceId),
     iotdb_reset(Config, TemplateDeviceId),
-    Payload1 = make_iotdb_payload(DeviceId, "test", "BOOLEAN", true),
+    Payload1 = make_iotdb_payload(DeviceId, "test", "boolean", true),
     MessageF1 = make_message_fun(Topic, Payload1),
 
     is_error_check(
@@ -583,7 +583,7 @@ t_template(Config) ->
                 <<"data">> => [
                     #{
                         <<"measurement">> => <<"${payload.measurement}">>,
-                        <<"data_type">> => "TEXT",
+                        <<"data_type">> => <<"text">>,
                         <<"value">> => <<"${payload.device_id}">>
                     }
                 ]
@@ -620,7 +620,7 @@ t_sync_query_case(Config) ->
 
 t_sync_query_unmatched_type(Config) ->
     DeviceId = iotdb_device(Config),
-    Payload = make_iotdb_payload(DeviceId, "temp", "BOOLEAN", "not boolean"),
+    Payload = make_iotdb_payload(DeviceId, "temp", "boolean", "not boolean"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
     IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
     ok = emqx_bridge_v2_testlib:t_sync_query(
@@ -673,10 +673,10 @@ exp(Dev, M0) ->
     <<Dev/binary, ".", M/binary>>.
 
 test_case_data_type(t_device_id) ->
-    <<"BOOLEAN">>;
+    <<"boolean">>;
 test_case_data_type(t_sync_query_unmatched_type) ->
-    <<"BOOLEAN">>;
+    <<"boolean">>;
 test_case_data_type(t_sync_query_with_lowercase) ->
     <<"int32">>;
 test_case_data_type(_) ->
-    <<"INT32">>.
+    <<"int32">>.
