@@ -56,11 +56,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HEALTH_CHECK_TIMEOUT, 1000).
--define(INGRESS, "I").
--define(EGRESS, "E").
 -define(NO_PREFIX, <<>>).
--define(STATIC_CLIENTID, static).
--define(DYNAMIC_CLIENTID, dynamic).
 -define(IS_NO_PREFIX(P), (P =:= undefined orelse P =:= ?NO_PREFIX)).
 -define(MAX_PREFIX_BYTES, 19).
 
@@ -70,7 +66,7 @@
     pool_name := connector_resource_id(),
     installed_channels := #{channel_resource_id() => channel_state()},
     clean_start := boolean(),
-    available_clientids := ?DYNAMIC_CLIENTID | {?STATIC_CLIENTID, [clientid()]},
+    available_clientids := [clientid()],
     topic_to_handler_index := ets:table(),
     server := string()
 }.
@@ -247,7 +243,7 @@ find_my_static_clientids(#{} = _Conf) ->
 start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
     PoolName = ResourceId,
     PoolSize = get_pool_size(StartConf),
-    AvailableClientids = get_available_clientids(StartConf),
+    AvailableClientids = get_available_clientids(StartConf, ClientOpts),
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
@@ -268,12 +264,19 @@ get_pool_size(#{static_clientids := [_ | _]} = Conf) ->
 get_pool_size(#{pool_size := PoolSize}) ->
     PoolSize.
 
-get_available_clientids(#{} = Conf) ->
+get_available_clientids(#{} = Conf, ClientOpts) ->
     case find_my_static_clientids(Conf) of
         {ok, Ids} ->
-            {?STATIC_CLIENTID, Ids};
+            Ids;
         error ->
-            ?DYNAMIC_CLIENTID
+            #{pool_size := PoolSize} = Conf,
+            #{clientid := ClientIdPrefix} = ClientOpts,
+            lists:map(
+                fun(WorkerId) ->
+                    mk_clientid(WorkerId, ClientIdPrefix)
+                end,
+                lists:seq(1, PoolSize)
+            )
     end.
 
 on_stop(ResourceId, State) ->
@@ -439,7 +442,7 @@ combine_status(Statuses, ConnState) ->
     #{available_clientids := AvailableClientids} = ConnState,
     ExpectedNoClientids =
         case AvailableClientids of
-            {?STATIC_CLIENTID, Ids} when length(Ids) == 0 ->
+            _ when length(AvailableClientids) == 0 ->
                 true;
             _ ->
                 false
@@ -567,28 +570,25 @@ mk_emqtt_client_opts(
     WorkerId,
     AvailableClientids,
     ClientOpts = #{
-        clientid := ClientId,
         topic_to_handler_index := TopicToHandlerIndex
     }
 ) ->
+    %% WorkerId :: 1..inf
     ClientOpts#{
-        clientid := mk_clientid(WorkerId, ClientId, AvailableClientids),
+        clientid := lists:nth(WorkerId, AvailableClientids),
         msg_handler => mk_client_event_handler(Name, TopicToHandlerIndex)
     }.
 
-mk_clientid(WorkerId, _ClientIdPrefix, {?STATIC_CLIENTID, Ids}) ->
-    %% WorkerId :: 1..inf
-    lists:nth(WorkerId, Ids);
-mk_clientid(WorkerId, {Prefix, ClientId}, ?DYNAMIC_CLIENTID) when ?IS_NO_PREFIX(Prefix) ->
+mk_clientid(WorkerId, {Prefix, ClientId}) when ?IS_NO_PREFIX(Prefix) ->
     %% When there is no prefix, try to keep the client ID length within 23 bytes
     emqx_bridge_mqtt_lib:bytes23(ClientId, WorkerId);
-mk_clientid(WorkerId, {Prefix, ClientId}, ?DYNAMIC_CLIENTID) when
+mk_clientid(WorkerId, {Prefix, ClientId}) when
     size(Prefix) =< ?MAX_PREFIX_BYTES
 ->
     %% Try to respect client ID prefix when it's no more than 19 bytes,
     %% meaning there are at least 4 bytes as hash space.
     emqx_bridge_mqtt_lib:bytes23_with_prefix(Prefix, ClientId, WorkerId);
-mk_clientid(WorkerId, {Prefix, ClientId}, ?DYNAMIC_CLIENTID) ->
+mk_clientid(WorkerId, {Prefix, ClientId}) ->
     %% There is no other option but to use a long client ID
     iolist_to_binary([Prefix, ClientId, $:, integer_to_binary(WorkerId)]).
 
@@ -665,7 +665,7 @@ take(Key, Map0, Default) ->
             {Default, Map0}
     end.
 
-is_expected_to_have_workers(#{available_clientids := {?STATIC_CLIENTID, []}} = _ConnState) ->
+is_expected_to_have_workers(#{available_clientids := []} = _ConnState) ->
     false;
 is_expected_to_have_workers(_ConnState) ->
     true.
