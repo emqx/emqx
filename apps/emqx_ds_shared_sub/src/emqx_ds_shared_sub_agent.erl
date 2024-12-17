@@ -181,6 +181,8 @@ on_info(State, SubscriptionId, #message_to_ssubscriber{
         message => Message
     }),
     with_ssubscriber(State, SubscriptionId, fun(KnownSSubscriberId, SSubscriber) ->
+        %% We may have recreated invalidated SSubscriber, resulting in a new SSubscriberId.
+        %% Ignore the messages to the old SSubscriber.
         case KnownSSubscriberId of
             SSubscriberId ->
                 emqx_ds_shared_sub_subscriber:on_info(SSubscriber, Message);
@@ -249,15 +251,7 @@ make_ssubscriber_id(Id, SubscriptionId) ->
 destroy_ssubscriber_id(SSubscriberId) ->
     Alias = emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId),
     _ = unalias(Alias),
-    drain(Alias).
-
-drain(Alias) ->
-    receive
-        {Alias, _} ->
-            drain(Alias)
-    after 0 ->
-        ok
-    end.
+    ok.
 
 send_to_ssubscriber_after(SSubscriberId) ->
     SubscriptionId = emqx_ds_shared_sub_proto:ssubscriber_subscription_id(SSubscriberId),
