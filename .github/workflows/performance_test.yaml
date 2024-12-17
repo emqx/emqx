@@ -65,6 +65,7 @@ jobs:
       if: github.event.inputs.version == '' && github.event.inputs.download_url == ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
       run: |
         set -xeuo pipefail
         # get latest emqx version
