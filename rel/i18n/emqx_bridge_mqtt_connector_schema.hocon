@@ -40,7 +40,7 @@ Size of the pool of MQTT clients that will publish messages to the remote broker
 Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:egress:${node}:${n}'
 where 'n' is the number of a client inside the pool.
 
-Does not take effect if static clientids are used.~"""
+This option does not take effect if `static_clientids` is not empty. When static client IDs is in use, pool size is always derived from the number of assigned IDs for each node.~"""
 
 egress_pool_size.label:
 """Pool Size"""
@@ -97,7 +97,7 @@ Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${b
 where 'n' is the number of a client inside the pool.
 NOTE: Non-shared subscription will not work well when EMQX is clustered.
 
-Does not take effect if static clientids are used.~"""
+This option does not take effect if `static_clientids` is not empty. When static client IDs is in use, pool size is always derived from the number of assigned IDs for each node.~"""
 
 ingress_pool_size.label:
 """Pool Size"""
@@ -211,7 +211,7 @@ static_clientid_entry.label:
 """Static ClientId Entries"""
 static_clientid_entry.desc:
 """~
-Entries mapping MQTT clientids to EMQX node names.
+Entries mapping EMQX node names to static client IDs.
 
 If any entries are defined, then only EMQX nodes matching those entries will start MQTT clients with the corresponding clientids.~"""
 
@@ -223,6 +223,6 @@ static_clientid_entry_node.desc:
 static_clientid_entry_ids.label:
 """Static clientids"""
 static_clientid_entry_ids.desc:
-"""Array of static clientids assigned to this node."""
+"""Array of static client IDs assigned to this node."""
 
 }
