@@ -322,7 +322,7 @@ schedule_purges(TS, State) ->
     %% 2. ...Or leave the cluster (be "force-left" to be precise), in which case
     %%    `reconcile/1` should notice a discrepancy and schedule a purge.
     ok = lists:foreach(
-        fun schedule_purge/1,
+        fun(Node) -> schedule_purge(Node, {replicant_down_for, ?PURGE_DEAD_TIMEOUT}) end,
         filter_replicants(select_outdated(down, TS - ?PURGE_DEAD_TIMEOUT))
     ),
     %% Trigger purges for "force-left" nodes found during reconcile, if resposible.
@@ -332,15 +332,15 @@ schedule_purges(TS, State) ->
     ),
     %% Otherwise, purge nodes marked left for a while.
     ok = lists:foreach(
-        fun schedule_purge/1,
+        fun(Node) -> schedule_purge(Node, left) end,
         select_outdated(left, TS - ?PURGE_LEFT_TIMEOUT)
     ),
     State.
 
-schedule_purge(Node) ->
+schedule_purge(Node, Why) ->
     case am_core() of
         true ->
-            schedule_task({purge, Node}, 0);
+            schedule_task({purge, Node, Why}, 0);
         false ->
             false
     end.
@@ -349,26 +349,30 @@ schedule_purge_left(Node) ->
     case am_core() andalso pick_responsible({purge, Node}) of
         Responsible when Responsible == node() ->
             %% Schedule purge on responsible node first, to avoid racing for a global lock.
-            schedule_task({purge, Node}, 0);
+            schedule_task({purge, Node, left}, 0);
         _ ->
             %% Replicant / not responsible.
             %% In the latter case try to purge on the next reconcile, as a fallback.
             false
     end.
 
-handle_purge(Node, State) ->
+handle_purge(Node, Why, State) ->
     try purge_dead_node_trans(Node) of
         true ->
-            ?tp(info, emqx_router_node_purged, #{node => Node}),
+            ?tp(warning, router_node_routing_table_purged, #{
+                node => Node,
+                reason => Why,
+                hint => "Ignore if the node in question went offline due to cluster maintenance"
+            }),
             forget_node(Node);
         false ->
-            ?tp(debug, emqx_router_node_purge_skipped, #{node => Node}),
+            ?tp(debug, router_node_purge_skipped, #{node => Node}),
             forget_node(Node);
         aborted ->
-            ?tp(notice, emqx_router_node_purge_aborted, #{node => Node})
+            ?tp(notice, router_node_purge_aborted, #{node => Node})
     catch
         Kind:Error ->
-            ?tp(warning, emqx_router_node_purge_error, #{
+            ?tp(warning, router_node_purge_error, #{
                 node => Node,
                 kind => Kind,
                 error => Error
@@ -418,8 +422,8 @@ cleanup_routes(Node) ->
 schedule_task(Task, Timeout) ->
     emqx_utils:start_timer(choose_timeout(Timeout), {start, Task}).
 
-handle_task({purge, Node}, State) ->
-    handle_purge(Node, State);
+handle_task({purge, Node, Why}, State) ->
+    handle_purge(Node, Why, State);
 handle_task(reconcile, State) ->
     handle_reconcile(State).
 

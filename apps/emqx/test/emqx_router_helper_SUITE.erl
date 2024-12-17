@@ -141,7 +141,7 @@ t_membership_node_leaving(_Config) ->
     ?assertMatch([_, _], emqx_router:topics()),
     {_, {ok, _}} = ?wait_async_action(
         ?ROUTER_HELPER ! {membership, {node, leaving, AnotherNode}},
-        #{?snk_kind := emqx_router_node_purged, node := AnotherNode},
+        #{?snk_kind := router_node_routing_table_purged, node := AnotherNode},
         1_000
     ),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
@@ -158,7 +158,7 @@ t_cluster_node_leaving(Config) ->
     ?assertMatch([_, _], emqx_router:topics()),
     {ok, {ok, _}} = ?wait_async_action(
         erpc:call(ClusterNode, ekka, leave, []),
-        #{?snk_kind := emqx_router_node_purged, node := ClusterNode},
+        #{?snk_kind := router_node_routing_table_purged, node := ClusterNode},
         3_000
     ),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
@@ -175,7 +175,7 @@ t_cluster_node_down(Config) ->
     ?assertMatch([_, _], emqx_router:topics()),
     {ok, SRef} = snabbkaffe:subscribe(
         %% Should be purged after ~2 reconciliations.
-        ?match_event(#{?snk_kind := emqx_router_node_purged, node := ClusterNode}),
+        ?match_event(#{?snk_kind := router_node_routing_table_purged, node := ClusterNode}),
         1,
         10_000
     ),
@@ -194,7 +194,7 @@ t_cluster_node_force_leave(Config) ->
     emqx_router:add_route(<<"test/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
     {ok, SRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := emqx_router_node_purged, node := ClusterNode}),
+        ?match_event(#{?snk_kind := router_node_routing_table_purged, node := ClusterNode}),
         1,
         10_000
     ),
