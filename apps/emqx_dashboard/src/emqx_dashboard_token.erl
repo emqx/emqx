@@ -29,6 +29,9 @@
     destroy_by_username/1
 ]).
 
+%% internal export
+-export([jwk/3]).
+
 -ifdef(TEST).
 -export([lookup_by_username/1, clean_expired_jwt/1]).
 -endif.

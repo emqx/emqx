@@ -130,6 +130,7 @@
             emqx_gcp_device,
             emqx_dashboard_rbac,
             emqx_dashboard_sso,
+            emqx_dashboard_mfa,
             emqx_audit,
             emqx_gateway_gbt32960,
             emqx_gateway_ocpp,

@@ -1,0 +1,15 @@
+emqx_dashboard_mfa_api {
+
+get_mfa.desc:
+"""Get MFA configuration."""
+
+post_mfa.desc:
+"""Configure MFA methods."""
+
+setup_mfa.desc:
+"""Configure MFA methods."""
+
+bad_request_response400.desc:
+"""Request failed."""
+
+}

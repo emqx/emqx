@@ -1,0 +1,18 @@
+emqx_dashboard_mfa_totp {
+
+enable.desc:
+"""Enable the TOTP."""
+
+code.desc:
+"""TOTP code for verification."""
+
+secret.desc:
+"""TOTP secret."""
+
+interval_length.desc:
+"""The number of seconds for the time window."""
+
+token_length.desc:
+"""The number of digits for the token."""
+
+}

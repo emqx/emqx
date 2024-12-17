@@ -45,6 +45,9 @@
     change_pwd/2
 ]).
 
+%% internal export
+-export([response_schema/1, field/1]).
+
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
@@ -61,12 +64,11 @@ api_spec() ->
 
 paths() ->
     [
-        "/login",
         "/logout",
         "/users",
         "/users/:username",
         "/users/:username/change_pwd"
-    ].
+    ] ++ extra_paths().
 
 schema("/login") ->
     #{
@@ -77,9 +79,7 @@ schema("/login") ->
             summary => <<"Dashboard authentication">>,
             'requestBody' => fields([username, password]),
             responses => #{
-                200 => fields([
-                    role, token, version, license, password_expire_in_seconds
-                ]),
+                200 => fields([role, token, version, license, password_expire_in_seconds]),
                 401 => response_schema(401)
             },
             security => []
@@ -176,6 +176,8 @@ response_schema(404) ->
 
 fields(user) ->
     fields([username, role, description, backend]);
+fields(login) ->
+    fields([username, password]);
 fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
 
@@ -223,9 +225,7 @@ field(password_expire_in_seconds) ->
 %% -------------------------------------------------------------------------------------------------
 %% API
 
-login(post, #{body := Params}) ->
-    Username = maps:get(<<"username">>, Params),
-    Password = maps:get(<<"password">>, Params),
+login(post, #{body := #{<<"username">> := Username, <<"password">> := Password}}) ->
     minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username}),
     case emqx_dashboard_admin:sign_token(Username, Password) of
         {ok, Result} ->
@@ -393,6 +393,9 @@ username(#{query_string := #{<<"backend">> := Backend}}, Username) ->
 username(_Req, Username) ->
     Username.
 
+extra_paths() ->
+    [].
+
 -else.
 
 field_filter(role) ->
@@ -413,4 +416,8 @@ sso_parameters(Any) ->
 
 username(_Req, Username) ->
     Username.
+
+extra_paths() ->
+    ["/login"].
+
 -endif.

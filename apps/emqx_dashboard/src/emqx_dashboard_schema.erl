@@ -77,7 +77,7 @@ fields("dashboard") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ] ++ sso_fields();
+    ] ++ ee_fields();
 fields("listeners") ->
     [
         {"http",
@@ -301,16 +301,21 @@ convert_ssl_layout(Conf = #{}, _Opts) ->
     Conf1#{<<"ssl_options">> => SslOpts}.
 
 -if(?EMQX_RELEASE_EDITION == ee).
-sso_fields() ->
+ee_fields() ->
     [
         {sso,
             ?HOCON(
                 ?R_REF(emqx_dashboard_sso_schema, sso),
                 #{required => {false, recursively}}
+            )},
+        {mfa,
+            ?HOCON(
+                ?R_REF(emqx_dashboard_mfa_schema, mfa),
+                #{required => {false, recursively}}
             )}
     ].
 
 -else.
-sso_fields() ->
+ee_fields() ->
     [].
 -endif.
