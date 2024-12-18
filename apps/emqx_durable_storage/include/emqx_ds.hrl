@@ -45,8 +45,10 @@
     userdata,
     payload :: emqx_ds:next_result() | poll_timeout,
     seqno :: emqx_ds:sub_seqno() | undefined,
-    %% Set to true when
-    stuck = false :: boolean()
+    %% Set to `true' when the subscription becomes inactive due to
+    %% falling behind on acks:
+    stuck :: boolean(),
+    lagging :: boolean()
 }).
 
 -record(new_stream_event, {
