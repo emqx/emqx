@@ -307,7 +307,6 @@ t_timeout_disconnected_then_recover(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
-    ConnectorName = ?config(connector_name, Config),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin

@@ -23,9 +23,6 @@ parse_and_check(InnerConfigs) ->
     ),
     Checked.
 
-link(Name) ->
-    link(Name, _Overrides = #{}).
-
 link(Name, Overrides) ->
     Default = #{
         <<"name">> => Name,
