@@ -242,6 +242,7 @@ on_unsubscribe(
 %%--------------------------------------------------------------------
 %% on_streams_replay
 
+-dialyzer({nowarn_function, on_streams_replay/3}).
 -spec on_streams_replay(emqx_persistent_session_ds_state:t(), t(), [emqx_ds:stream()]) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 on_streams_replay(S, SharedS, []) ->
@@ -329,6 +330,7 @@ stream_progress(
         fully_acked => FullyAcked
     }.
 
+-dialyzer({nowarn_function, select_stream_states/3}).
 select_stream_states(S, #{agent := Agent} = _SharedS, all) ->
     emqx_persistent_session_ds_state:fold_streams(
         fun({SubId, _Stream} = Key, SRS, Acc0) ->
