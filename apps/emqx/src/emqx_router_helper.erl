@@ -60,8 +60,8 @@
     start_link/0,
     monitor/1,
     is_routable/1,
-    purge/0,
-    purge_force/0
+    schedule_purge/0,
+    schedule_force_purge/0
 ]).
 
 %% Internal export
@@ -149,15 +149,15 @@ is_routable(Node) ->
     end.
 
 %% @doc Schedule dead node purges.
--spec purge() -> scheduled.
-purge() ->
+-spec schedule_purge() -> scheduled.
+schedule_purge() ->
     TS = erlang:monotonic_time(millisecond),
     gen_server:call(?MODULE, {purge, TS}).
 
 %% @doc Force dead node purges, regardless of for how long nodes are down.
 %% Mostly for testing purposes.
--spec purge_force() -> scheduled.
-purge_force() ->
+-spec schedule_force_purge() -> scheduled.
+schedule_force_purge() ->
     TS = erlang:monotonic_time(millisecond),
     gen_server:call(?MODULE, {purge, TS + ?PURGE_DEAD_TIMEOUT * 2}).
 
