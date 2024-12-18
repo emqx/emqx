@@ -63,7 +63,7 @@
 -export([
     new/1,
     open/2,
-    can_subscribe/3,
+    pre_subscribe/3,
     has_subscription/2,
     has_subscriptions/1,
 
@@ -85,7 +85,7 @@
 
 -callback new(opts()) -> t().
 -callback open([{share_topic_filter(), subscription()}], opts()) -> t().
--callback can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+-callback pre_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
 -callback has_subscription(t(), subscription_id()) -> boolean().
 -callback has_subscriptions(t()) -> boolean().
 -callback on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
@@ -106,9 +106,9 @@ new(Opts) ->
 open(Topics, Opts) ->
     ?shared_subs_agent:open(Topics, Opts).
 
--spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
-can_subscribe(Agent, ShareTopicFilter, SubOpts) ->
-    ?shared_subs_agent:can_subscribe(Agent, ShareTopicFilter, SubOpts).
+-spec pre_subscribe(t(), share_topic_filter(), emqx_types:subopts()) -> ok | {error, term()}.
+pre_subscribe(Agent, ShareTopicFilter, SubOpts) ->
+    ?shared_subs_agent:pre_subscribe(Agent, ShareTopicFilter, SubOpts).
 
 -spec has_subscription(t(), subscription_id()) -> boolean().
 has_subscription(Agent, SubscriptionId) ->

@@ -136,7 +136,7 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
     props := #{upgrade_qos := UpgradeQoS}
 }) ->
     case
-        emqx_persistent_session_ds_shared_subs_agent:can_subscribe(
+        emqx_persistent_session_ds_shared_subs_agent:pre_subscribe(
             Agent0, ShareTopicFilter, SubOpts
         )
     of

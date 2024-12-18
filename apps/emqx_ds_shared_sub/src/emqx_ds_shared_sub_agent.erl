@@ -17,7 +17,7 @@
 -export([
     new/1,
     open/2,
-    can_subscribe/3,
+    pre_subscribe/3,
     has_subscription/2,
     has_subscriptions/1,
 
@@ -91,9 +91,9 @@ open(TopicSubscriptions, Opts) ->
     ),
     State1.
 
--spec can_subscribe(t(), share_topic_filter(), emqx_types:subopts()) ->
+-spec pre_subscribe(t(), share_topic_filter(), emqx_types:subopts()) ->
     ok | {error, emqx_types:reason_code()}.
-can_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
+pre_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
     case ?dq_config(enable) of
         true ->
             %% TODO: Weird to have side effects in function with this name.

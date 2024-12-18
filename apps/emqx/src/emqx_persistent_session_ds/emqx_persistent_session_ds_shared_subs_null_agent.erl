@@ -9,7 +9,7 @@
 -export([
     new/1,
     open/2,
-    can_subscribe/3,
+    pre_subscribe/3,
     has_subscription/2,
     has_subscriptions/1,
 
@@ -32,7 +32,7 @@ new(_Opts) ->
 open(_Topics, _Opts) ->
     undefined.
 
-can_subscribe(_Agent, _TopicFilter, _SubOpts) ->
+pre_subscribe(_Agent, _TopicFilter, _SubOpts) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}.
 
 has_subscription(_Agent, _SubscriptionId) ->
