@@ -447,13 +447,13 @@ suback(DB, {Shard, SubRef}, SeqNo) ->
 unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(DBShard, Iterator).
 
-high_watermark(Shard, Stream) ->
-    Now = current_timestamp(Shard),
-    emqx_ds_storage_layer:high_watermark(Shard, Stream, Now).
+high_watermark(DBShard, Stream) ->
+    Now = current_timestamp(DBShard),
+    emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
 
-fast_forward(Shard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
-    Now = current_timestamp(Shard),
-    case emqx_ds_storage_layer:fast_forward(Shard, Inner0, Key, Now) of
+fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
+    Now = current_timestamp(DBShard),
+    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
         {ok, end_of_stream} ->
             {ok, end_of_stream};
         {ok, Inner} ->
@@ -462,12 +462,12 @@ fast_forward(Shard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
             Err
     end.
 
-scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
-    {DB, _} = ShardId,
-    Now = current_timestamp(ShardId),
+scan_stream(DBShard, Stream, TopicFilter, StartMsg, BatchSize) ->
+    {DB, _} = DBShard,
+    Now = current_timestamp(DBShard),
     T0 = erlang:monotonic_time(microsecond),
     Result = emqx_ds_storage_layer:scan_stream(
-        ShardId, Stream, TopicFilter, Now, StartMsg, BatchSize
+        DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
     ),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),

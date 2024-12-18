@@ -28,6 +28,10 @@
     poll/3,
     delete_next/4,
 
+    subscribe/4,
+    unsubscribe/2,
+    suback/3,
+
     current_timestamp/2,
 
     shard_of_operation/4,
@@ -74,7 +78,9 @@
 -export(
     [
         unpack_iterator/2,
+        high_watermark/2,
         scan_stream/5,
+        fast_forward/3,
         update_iterator/3
     ]
 ).
@@ -102,6 +108,34 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds_replication_layer.hrl").
+
+-define(SAFE_ERPC(EXPR),
+    try
+        EXPR
+    catch
+        error:RPCError__ = {erpc, _} ->
+            {error, recoverable, RPCError__};
+        %% Note: remote node never _throws_ unrecoverable errors, so
+        %% we can assume that all exceptions are transient.
+        EC__:RPCError__:Stack__ ->
+            {error, recoverable, #{EC__ => RPCError__, stacktrace => Stack__}}
+    end
+).
+
+-define(SHARD_RPC(DB, SHARD, NODE, BODY),
+    case
+        emqx_ds_replication_layer_shard:servers(
+            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
+        )
+    of
+        [{_, NODE} | _] ->
+            begin
+                BODY
+            end;
+        [] ->
+            {error, recoverable, replica_offline}
+    end
+).
 
 %%================================================================================
 %% Type declarations
@@ -441,6 +475,50 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
+-spec subscribe(emqx_ds:db(), _ItKey, emqx_ds:iterator(), emqx_ds:sub_opts()) ->
+    {ok, emqx_ds:subscription_handle(), reference()} | emqx_ds:error().
+subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        try emqx_ds_beamformer_proto_v1:where(Node, {DB, Shard}) of
+            Server when is_pid(Server) ->
+                MRef = monitor(process, Server),
+                Result = ?SAFE_ERPC(
+                    emqx_ds_beamformer_proto_v1:subscribe(
+                        Node, Server, self(), MRef, It, ItKey, SubOpts
+                    )
+                ),
+                case Result of
+                    {ok, SubRef} ->
+                        {ok, {Shard, Server, SubRef}, SubRef};
+                    Err ->
+                        Err
+                end;
+            undefined ->
+                {error, recoverable, beamformer_is_not_started};
+            Err ->
+                Err
+        catch
+            EC:Err:Stack ->
+                {error, recoverable, #{EC => Err, stacktrace => Stack}}
+        end
+    ).
+
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
+unsubscribe(DB, {Shard, Server, SubRef}) ->
+    ?SAFE_ERPC(
+       emqx_ds_beamformer_proto_v1:unsubcribe(node(Server), {DB, Shard}, SubRef)
+      ).
+
+-spec suback(emqx_ds:db(), emqx_ds:subscripton(), emqx_ds:sub_seqno()) ->
+    ok | {error, subscription_not_found}.
+suback(DB, {Shard, Server, SubRef}, SeqNo) ->
+    ?SAFE_ERPC(
+       emqx_ds_beamformer_proto_v1:suback_a(node(Server), {DB, Shard}, SubRef, SeqNo)
+      ).
+
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(delete_iterator()).
 delete_next(DB, Iter0, Selector, BatchSize) ->
@@ -741,34 +819,6 @@ list_nodes() ->
 -define(RA_RELEASE_LOG_APPROX_SIZE, 50_000).
 -define(RA_RELEASE_LOG_MIN_FREQ, 1_000).
 -endif.
-
--define(SAFE_ERPC(EXPR),
-    try
-        EXPR
-    catch
-        error:RPCError__ = {erpc, _} ->
-            {error, recoverable, RPCError__};
-        %% Note: remote node never _throws_ unrecoverable errors, so
-        %% we can assume that all exceptions are transient.
-        EC__:RPCError__:Stack__ ->
-            {error, recoverable, #{EC__ => RPCError__, stacktrace => Stack__}}
-    end
-).
-
--define(SHARD_RPC(DB, SHARD, NODE, BODY),
-    case
-        emqx_ds_replication_layer_shard:servers(
-            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
-        )
-    of
-        [{_, NODE} | _] ->
-            begin
-                BODY
-            end;
-        [] ->
-            {error, recoverable, replica_offline}
-    end
-).
 
 -spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:batch()) ->
     ok | {timeout, _} | emqx_ds:error(_).
@@ -1259,13 +1309,38 @@ snapshot_module() ->
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
-scan_stream(ShardId = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
+high_watermark(DBShard = {DB, Shard}, Stream) ->
     ?IF_SHARD_READY(
-        ShardId,
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now)
+        end
+    ).
+
+fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key) ->
+    ?IF_SHARD_READY(
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+                {ok, end_of_stream} ->
+                    {ok, end_of_stream};
+                {ok, Inner} ->
+                    {ok, It#{?enc := Inner}};
+                {error, _, _} = Err ->
+                    Err
+            end
+        end
+    ).
+
+scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
+    ?IF_SHARD_READY(
+        DBShard,
         begin
             Now = current_timestamp(DB, Shard),
             emqx_ds_storage_layer:scan_stream(
-                ShardId, Stream, TopicFilter, Now, StartMsg, BatchSize
+                DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
             )
         end
     ).
