@@ -43,7 +43,7 @@
 }.
 
 -record(ssubscriber_entry, {
-    ssubscriber_id :: emqx_ds_shared_sub_proto:agent(),
+    ssubscriber_id :: emqx_ds_shared_sub_proto:ssubscriber_id(),
     topic_filter :: share_topic_filter(),
     ssubscriber :: emqx_ds_shared_sub_subscriber:t()
 }).
@@ -131,8 +131,7 @@ on_subscribe(State0, SubscriptionId, ShareTopicFilter, _SubOpts) ->
     }),
     add_ssubscriber(State0, SubscriptionId, ShareTopicFilter).
 
--spec on_unsubscribe(t(), subscription_id()) ->
-    {[emqx_persistent_session_ds_shared_subs_agent:event()], t()}.
+-spec on_unsubscribe(t(), subscription_id()) -> t().
 on_unsubscribe(State0, SubscriptionId) ->
     {[], State} = with_ssubscriber(State0, SubscriptionId, fun(_SSubscriberId, SSubscriber) ->
         emqx_ds_shared_sub_subscriber:on_unsubscribe(SSubscriber)

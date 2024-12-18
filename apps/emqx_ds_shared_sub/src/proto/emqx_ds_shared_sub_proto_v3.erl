@@ -21,7 +21,8 @@
     leader_ping_response/3,
     leader_grant/4,
     leader_revoke/4,
-    leader_revoked/4
+    leader_revoked/4,
+    leader_invalidate/3
 ]).
 
 introduced_in() ->
@@ -41,30 +42,30 @@ introduced_in() ->
 
 -spec ssubscriber_connect(node(), leader(), ssubscriber_id(), share_topic_filter()) -> ok.
 ssubscriber_connect(Node, ToLeader, FromSSubscriberId, ShareTopicFilter) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_connect, [
+    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_connect_v3, [
         ToLeader, FromSSubscriberId, ShareTopicFilter
     ]).
 
 -spec ssubscriber_ping(node(), leader(), ssubscriber_id()) -> ok.
 ssubscriber_ping(Node, ToLeader, FromSSubscriberId) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_ping, [ToLeader, FromSSubscriberId]).
+    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_ping_v3, [ToLeader, FromSSubscriberId]).
 
 -spec ssubscriber_disconnect(node(), leader(), ssubscriber_id(), agent_stream_progresses()) -> ok.
 ssubscriber_disconnect(Node, ToLeader, FromSSubscriberId, StreamProgresses) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_disconnect, [
+    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_disconnect_v3, [
         ToLeader, FromSSubscriberId, StreamProgresses
     ]).
 
 -spec ssubscriber_update_progress(node(), leader(), ssubscriber_id(), agent_stream_progress()) ->
     ok.
 ssubscriber_update_progress(Node, ToLeader, FromSSubscriberId, StreamProgress) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_update_progress, [
+    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_update_progress_v3, [
         ToLeader, FromSSubscriberId, StreamProgress
     ]).
 
 -spec ssubscriber_revoke_finished(node(), leader(), ssubscriber_id(), stream()) -> ok.
 ssubscriber_revoke_finished(Node, ToLeader, FromSSubscriberId, Stream) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_revoke_finished, [
+    erpc:cast(Node, emqx_ds_shared_sub_proto, ssubscriber_revoke_finished_v3, [
         ToLeader, FromSSubscriberId, Stream
     ]).
 
@@ -72,24 +73,34 @@ ssubscriber_revoke_finished(Node, ToLeader, FromSSubscriberId, Stream) ->
 %% Leader -> SSubscriber messages
 %%--------------------------------------------------------------------
 
--spec leader_connect_response(node(), leader(), ssubscriber_id()) -> ok.
-leader_connect_response(Node, ToLeader, FromSSubscriberId) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_connect_response, [ToLeader, FromSSubscriberId]).
-
--spec leader_ping_response(node(), leader(), ssubscriber_id()) -> ok.
-leader_ping_response(Node, ToLeader, FromSSubscriberId) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_ping_response, [ToLeader, FromSSubscriberId]).
-
--spec leader_grant(node(), leader(), ssubscriber_id(), leader_stream_progress()) -> ok.
-leader_grant(Node, ToLeader, FromSSubscriberId, StreamProgress) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_grant, [
-        ToLeader, FromSSubscriberId, StreamProgress
+-spec leader_connect_response(node(), ssubscriber_id(), leader()) -> ok.
+leader_connect_response(Node, ToSSubscriberId, FromLeader) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_connect_response_v3, [
+        ToSSubscriberId, FromLeader
     ]).
 
--spec leader_revoke(node(), leader(), ssubscriber_id(), stream()) -> ok.
-leader_revoke(Node, ToLeader, FromSSubscriberId, Stream) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_revoke, [ToLeader, FromSSubscriberId, Stream]).
+-spec leader_ping_response(node(), ssubscriber_id(), leader()) -> ok.
+leader_ping_response(Node, ToSSubscriberId, FromLeader) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_ping_response_v3, [ToSSubscriberId, FromLeader]).
 
--spec leader_revoked(node(), leader(), ssubscriber_id(), stream()) -> ok.
-leader_revoked(Node, ToLeader, FromSSubscriberId, Stream) ->
-    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_revoked, [ToLeader, FromSSubscriberId, Stream]).
+-spec leader_grant(node(), ssubscriber_id(), leader(), leader_stream_progress()) -> ok.
+leader_grant(Node, ToSSubscriberId, FromLeader, StreamProgress) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_grant_v3, [
+        ToSSubscriberId, FromLeader, StreamProgress
+    ]).
+
+-spec leader_revoke(node(), ssubscriber_id(), leader(), stream()) -> ok.
+leader_revoke(Node, ToSSubscriberId, FromLeader, Stream) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_revoke_v3, [
+        ToSSubscriberId, FromLeader, Stream
+    ]).
+
+-spec leader_revoked(node(), ssubscriber_id(), leader(), stream()) -> ok.
+leader_revoked(Node, ToSSubscriberId, FromLeader, Stream) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_revoked_v3, [
+        ToSSubscriberId, FromLeader, Stream
+    ]).
+
+-spec leader_invalidate(node(), ssubscriber_id(), leader()) -> ok.
+leader_invalidate(Node, ToSSubscriberId, FromLeader) ->
+    erpc:cast(Node, emqx_ds_shared_sub_proto, leader_invalidate_v3, [ToSSubscriberId, FromLeader]).

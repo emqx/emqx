@@ -34,7 +34,7 @@
 
 -type options() :: #{
     session_id := emqx_persistent_session_ds:id(),
-    id := emqx_ds_shared_sub_proto:agent(),
+    id := emqx_ds_shared_sub_proto:ssubscriber_id(),
     share_topic_filter := emqx_persistent_session_ds:share_topic_filter(),
     send_after := fun((non_neg_integer(), term()) -> reference())
 }.
@@ -191,7 +191,7 @@ on_info(#{session_id := SessionId, id := Id} = St, ?ping_leader_timeout_timer) -
         session_id => SessionId,
         ssubscriber_id => ?format_ssubscriber_id(Id)
     }),
-    reset(St);
+    reset(St, revoke_all_events(St));
 %%
 %% Grant stream
 %%

@@ -36,7 +36,8 @@
     | ?leader_ping_response_match(leader())
     | ?leader_grant_match(leader(), leader_stream_progress())
     | ?leader_revoke_match(leader(), emqx_ds:stream())
-    | ?leader_revoked_match(leader(), emqx_ds:stream()).
+    | ?leader_revoked_match(leader(), emqx_ds:stream())
+    | ?leader_invalidate_match(leader()).
 
 -export_type([
     leader/0,
@@ -45,6 +46,7 @@
     ssubscriber_id/0,
     leader_stream_progress/0,
     agent_stream_progress/0,
+    agent_stream_progresses/0,
     to_leader_msg/0,
     to_ssubscriber_msg/0
 ]).
@@ -65,7 +67,8 @@
     leader_ping_response_v3/2,
     leader_grant_v3/3,
     leader_revoke_v3/3,
-    leader_revoked_v3/3
+    leader_revoked_v3/3,
+    leader_invalidate_v3/2
 ]).
 
 -export([
@@ -163,11 +166,17 @@ send_to_ssubscriber(ToSSubscriberId, ?leader_revoke_match(FromLeader, Stream)) -
 send_to_ssubscriber(ToSSubscriberId, ?leader_revoked_match(FromLeader, Stream)) ->
     emqx_ds_shared_sub_proto_v3:leader_revoked(
         ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, Stream
+    );
+send_to_ssubscriber(ToSSubscriberId, ?leader_invalidate_match(FromLeader)) ->
+    emqx_ds_shared_sub_proto_v3:leader_invalidate(
+        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader
     ).
 
 %%--------------------------------------------------------------------
 %% RPC Targets
 %%--------------------------------------------------------------------
+
+%% ssubscriber -> leader messages
 
 -spec ssubscriber_connect_v3(leader(), ssubscriber_id(), share_topic_filter()) -> ok.
 ssubscriber_connect_v3(ToLeader, FromSSubscriberId, ShareTopicFilter) ->
@@ -189,25 +198,31 @@ ssubscriber_update_progress_v3(ToLeader, FromSSubscriberId, StreamProgress) ->
 ssubscriber_revoke_finished_v3(ToLeader, FromSSubscriberId, Stream) ->
     send_to_leader(ToLeader, ?ssubscriber_revoke_finished(FromSSubscriberId, Stream)).
 
--spec leader_connect_response_v3(leader(), ssubscriber_id()) -> ok.
-leader_connect_response_v3(ToLeader, FromSSubscriberId) ->
-    send_to_ssubscriber(ToLeader, ?leader_connect_response(FromSSubscriberId)).
+%% leader -> ssubscriber messages
 
--spec leader_ping_response_v3(leader(), ssubscriber_id()) -> ok.
-leader_ping_response_v3(ToLeader, FromSSubscriberId) ->
-    send_to_ssubscriber(ToLeader, ?leader_ping_response(FromSSubscriberId)).
+-spec leader_connect_response_v3(ssubscriber_id(), leader()) -> ok.
+leader_connect_response_v3(ToSSubscriberId, FromLeader) ->
+    send_to_ssubscriber(ToSSubscriberId, ?leader_connect_response(FromLeader)).
 
--spec leader_grant_v3(leader(), ssubscriber_id(), leader_stream_progress()) -> ok.
-leader_grant_v3(ToLeader, FromSSubscriberId, StreamProgress) ->
-    send_to_ssubscriber(ToLeader, ?leader_grant(FromSSubscriberId, StreamProgress)).
+-spec leader_ping_response_v3(ssubscriber_id(), leader()) -> ok.
+leader_ping_response_v3(ToSSubscriberId, FromLeader) ->
+    send_to_ssubscriber(ToSSubscriberId, ?leader_ping_response(FromLeader)).
 
--spec leader_revoke_v3(leader(), ssubscriber_id(), stream()) -> ok.
-leader_revoke_v3(ToLeader, FromSSubscriberId, Stream) ->
-    send_to_ssubscriber(ToLeader, ?leader_revoke(FromSSubscriberId, Stream)).
+-spec leader_grant_v3(ssubscriber_id(), leader(), leader_stream_progress()) -> ok.
+leader_grant_v3(ToSSubscriberId, FromLeader, StreamProgress) ->
+    send_to_ssubscriber(ToSSubscriberId, ?leader_grant(FromLeader, StreamProgress)).
 
--spec leader_revoked_v3(leader(), ssubscriber_id(), stream()) -> ok.
-leader_revoked_v3(ToLeader, FromSSubscriberId, Stream) ->
-    send_to_ssubscriber(ToLeader, ?leader_revoked(FromSSubscriberId, Stream)).
+-spec leader_revoke_v3(ssubscriber_id(), leader(), stream()) -> ok.
+leader_revoke_v3(ToSSubscriberId, FromLeader, Stream) ->
+    send_to_ssubscriber(ToSSubscriberId, ?leader_revoke(FromLeader, Stream)).
+
+-spec leader_revoked_v3(ssubscriber_id(), leader(), stream()) -> ok.
+leader_revoked_v3(ToSSubscriberId, FromLeader, Stream) ->
+    send_to_ssubscriber(ToSSubscriberId, ?leader_revoked(FromLeader, Stream)).
+
+-spec leader_invalidate_v3(ssubscriber_id(), leader()) -> ok.
+leader_invalidate_v3(ToSSubscriberId, FromLeader) ->
+    send_to_ssubscriber(ToSSubscriberId, ?leader_invalidate(FromLeader)).
 
 %%--------------------------------------------------------------------
 %% Internal API

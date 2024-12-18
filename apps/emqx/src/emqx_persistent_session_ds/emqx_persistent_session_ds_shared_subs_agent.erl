@@ -138,10 +138,10 @@ on_stream_progress(Agent, StreamProgress) ->
 on_info(Agent, SubscriptionId, Info) ->
     ?shared_subs_agent:on_info(Agent, SubscriptionId, Info).
 
--spec send(pid(), subscription_id(), term()) -> term().
+-spec send(pid() | reference(), subscription_id(), term()) -> term().
 send(Dest, SubscriptionId, Msg) ->
     erlang:send(Dest, ?session_message(?shared_sub_message(SubscriptionId, Msg))).
 
--spec send_after(non_neg_integer(), subscription_id(), pid(), term()) -> reference().
+-spec send_after(non_neg_integer(), subscription_id(), pid() | reference(), term()) -> reference().
 send_after(Time, SubscriptionId, Dest, Msg) ->
     erlang:send_after(Time, Dest, ?session_message(?shared_sub_message(SubscriptionId, Msg))).
