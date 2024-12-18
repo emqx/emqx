@@ -224,9 +224,9 @@
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
     %% Buffer accumulates poll replies received from the DS. Buffered
-    %% messages has not been seen by the client. Therefore, messages
-    %% stored in the buffer and their iterators are entirely
-    %% ephemeral. Session restarts with an empty buffer.
+    %% messages have not been seen by the client. Therefore, they (and
+    %% their iterators) are entirely ephemeral and are lost when the
+    %% client disconnets. Session restarts with an empty buffer.
     buffer := emqx_persistent_session_ds_buffer:t(),
     %% Inflight represents a sequence of outgoing messages with
     %% assigned packet IDs. Some of these messages MAY have been seen
@@ -663,7 +663,7 @@ handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
     %% Pull circuit loop:
     ?tp(debug, ?sessds_pull, #{}),
     Session1 = Session0#{?TIMER_PULL := undefined},
-    {Publishes, Session} = drain_buffer(Session1),
+    {Publishes, Session} = drain_inflight(Session1),
     {ok, Publishes, Session};
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
@@ -1060,41 +1060,6 @@ handle_ds_reply(
             fill_inflight(Session, ClientInfo)
     end.
 
-%% @doc Try to move messages from the buffer to inflight
-fill_inflight(Session0 = #{s := S0, buffer := Buf0}, ClientInfo) ->
-    case find_stream(S0, emqx_persistent_session_ds_buffer:iterator(Buf0)) of
-        {ok, StreamKey, SRS0} ->
-            case move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) of
-                {ignore, Session} ->
-                    fill_inflight(Session, ClientInfo);
-                {ok, SRS, Session = #{s := S1}} ->
-                    S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S1),
-                    pull_now(Session#{s := S});
-                {{error, unrecoverable, Reason}, SRS, Session} ->
-                    fill_inflight(
-                        skip_batch(StreamKey, SRS, Session, ClientInfo, Reason),
-                        ClientInfo
-                    )
-            end;
-        none ->
-            Session0
-    end.
-
-%% @doc Find a stream that has buffered messages and is not locked by inflight
-find_stream(S, I0) ->
-    case emqx_persistent_session_ds_buffer:next(I0) of
-        {StreamKey, I} ->
-            SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-            case emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S) of
-                true ->
-                    {ok, StreamKey, SRS};
-                false ->
-                    find_stream(S, I)
-            end;
-        none ->
-            none
-    end.
-
 inc_next(true, _Track, S) ->
     %% Don't touch seqnos during replay:
     S;
@@ -1119,69 +1084,6 @@ put_next(false, Track, Val, S) ->
             put_seqno(Track, Val, S);
         _ ->
             inc_next(false, Track, S)
-    end.
-
-%% @doc Move batches from a specified stream from the buffer to the
-%% inflight.
--spec move_to_inflight(
-    emqx_persistent_session_ds_stream_scheduler:stream_key(),
-    emqx_persistent_session_ds_stream_scheduler:stream_state(),
-    session(),
-    clientinfo()
-) ->
-    {ok, stream_state(), session()}
-    | emqx_ds:error(_)
-    | {ignore, undefined, session()}.
-move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) ->
-    BatchSize = get_config(ClientInfo, [batch_size]),
-    #{buffer := Buf, s := S0} = Session0,
-    {SRS1, SubState} = maybe_update_sub_state_id(SRS0, S0),
-    move_to_inflight(false, BatchSize, Session0, ClientInfo, StreamKey, SRS1, SubState, Buf).
-
--spec move_to_inflight(
-    boolean(),
-    non_neg_integer(),
-    session(),
-    clientinfo(),
-    emqx_persistent_session_ds_stream_scheduler:stream_key(),
-    emqx_persistent_session_ds_stream_scheduler:stream_state(),
-    emqx_persistent_session_ds_subs:subscription_state(),
-    emqx_persistent_session_ds_buffer:t()
-) ->
-    {ok, stream_state(), session()}
-    | emqx_ds:error(_)
-    | {ignore, undefined, session()}.
-move_to_inflight(AppendToSRS, BatchSize, Session0, ClientInfo, StreamKey, SRS0, SubState, Buf0) ->
-    #{stream_scheduler_s := SchedS, inflight := Inflight} = Session0,
-    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize,
-    #srs{it_begin = ItBegin} = SRS0,
-    case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
-        {[#poll_reply{seqno = SeqNo, payload = Payload}], Buf} when not IsFull ->
-            %% Note: here SeqNo is DS subscription seqno, not to be
-            %% confused with any of the MQTT session seqnos.
-            emqx_persistent_session_ds_stream_scheduler:suback(StreamKey, SeqNo, SchedS),
-            Res = enqueue_batch(
-                false,
-                AppendToSRS,
-                Session0,
-                ClientInfo,
-                StreamKey,
-                SRS0,
-                SubState,
-                ItBegin,
-                Payload
-            ),
-            case Res of
-                {ok, SRS, Session} ->
-                    %% Keep moving data from the stream to inflight.
-                    move_to_inflight(
-                        true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
-                    );
-                _ ->
-                    Res
-            end;
-        _ ->
-            {ok, SRS0, Session0#{buffer := Buf0}}
     end.
 
 %%--------------------------------------------------------------------
@@ -1409,29 +1311,129 @@ enqueue_transient(
     }.
 
 %%--------------------------------------------------------------------
-%% Buffer drain
+%% Inflight fill and drain
 %%--------------------------------------------------------------------
 
-drain_buffer(Session = #{inflight := Inflight0, s := S0}) ->
-    {Publishes, Inflight, S} = do_drain_buffer(Inflight0, S0, []),
+drain_inflight(Session = #{inflight := Inflight0, s := S0}) ->
+    {Publishes, Inflight, S} = do_drain_inflight(Inflight0, S0, []),
     {Publishes, Session#{inflight := Inflight, s := S}}.
 
-do_drain_buffer(Inflight0, S0, Acc) ->
+do_drain_inflight(Inflight0, S0, Acc) ->
     case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
             {lists:reverse(Acc), Inflight0, S0};
         {{pubrel, SeqNo}, Inflight} ->
             Publish = {pubrel, seqno_to_packet_id(?QOS_2, SeqNo)},
-            do_drain_buffer(Inflight, S0, [Publish | Acc]);
+            do_drain_inflight(Inflight, S0, [Publish | Acc]);
         {{SeqNo, Msg}, Inflight} ->
             case Msg#message.qos of
                 ?QOS_0 ->
-                    do_drain_buffer(Inflight, S0, [{undefined, Msg} | Acc]);
+                    do_drain_inflight(Inflight, S0, [{undefined, Msg} | Acc]);
                 Qos ->
                     S = put_seqno(?dup(Qos), SeqNo, S0),
                     Publish = {seqno_to_packet_id(Qos, SeqNo), Msg},
-                    do_drain_buffer(Inflight, S, [Publish | Acc])
+                    do_drain_inflight(Inflight, S, [Publish | Acc])
             end
+    end.
+
+%% @doc Try to move messages from the buffer to inflight
+fill_inflight(Session0 = #{s := S0, buffer := Buf0}, ClientInfo) ->
+    case find_ready_stream(S0, emqx_persistent_session_ds_buffer:iterator(Buf0)) of
+        {ok, StreamKey, SRS0} ->
+            case move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) of
+                {ignore, Session} ->
+                    fill_inflight(Session, ClientInfo);
+                {ok, SRS, Session = #{s := S1}} ->
+                    S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S1),
+                    pull_now(Session#{s := S});
+                {{error, unrecoverable, Reason}, SRS, Session} ->
+                    fill_inflight(
+                        skip_batch(StreamKey, SRS, Session, ClientInfo, Reason),
+                        ClientInfo
+                    )
+            end;
+        none ->
+            Session0
+    end.
+
+%% @doc Find a stream that has buffered messages AND is not locked by
+%% inflight
+find_ready_stream(S, BufferIterator0) ->
+    case emqx_persistent_session_ds_buffer:next(BufferIterator0) of
+        {StreamKey, BufferIterator} ->
+            SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
+            case emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS, S) of
+                true ->
+                    {ok, StreamKey, SRS};
+                false ->
+                    find_ready_stream(S, BufferIterator)
+            end;
+        none ->
+            none
+    end.
+
+%% @doc Move batches from a specified stream from the buffer to the
+%% inflight.
+-spec move_to_inflight(
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds_stream_scheduler:stream_state(),
+    session(),
+    clientinfo()
+) ->
+    {ok, stream_state(), session()}
+    | emqx_ds:error(_)
+    | {ignore, undefined, session()}.
+move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) ->
+    BatchSize = get_config(ClientInfo, [batch_size]),
+    #{buffer := Buf, s := S0} = Session0,
+    {SRS1, SubState} = maybe_update_sub_state_id(SRS0, S0),
+    move_to_inflight(false, BatchSize, Session0, ClientInfo, StreamKey, SRS1, SubState, Buf).
+
+-spec move_to_inflight(
+    boolean(),
+    non_neg_integer(),
+    session(),
+    clientinfo(),
+    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds_stream_scheduler:stream_state(),
+    emqx_persistent_session_ds_subs:subscription_state(),
+    emqx_persistent_session_ds_buffer:t()
+) ->
+    {ok, stream_state(), session()}
+    | emqx_ds:error(_)
+    | {ignore, undefined, session()}.
+move_to_inflight(AppendToSRS, BatchSize, Session0, ClientInfo, StreamKey, SRS0, SubState, Buf0) ->
+    #{stream_scheduler_s := SchedS, inflight := Inflight} = Session0,
+    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize,
+    #srs{it_begin = ItBegin} = SRS0,
+    case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
+        {[#poll_reply{seqno = SeqNo, payload = Payload}], Buf} when not IsFull ->
+            %% Note: here SeqNo refers to DS subscription seqno, not
+            %% to be confused with any of the MQTT session seqnos.
+            emqx_persistent_session_ds_stream_scheduler:suback(StreamKey, SeqNo, SchedS),
+            Res = enqueue_batch(
+                false,
+                AppendToSRS,
+                Session0,
+                ClientInfo,
+                StreamKey,
+                SRS0,
+                SubState,
+                ItBegin,
+                Payload
+            ),
+            case Res of
+                {ok, SRS, Session} ->
+                    {ok, SRS, Session};
+                    %% %% Keep moving data from the stream to inflight.
+                    %% move_to_inflight(
+                    %%     true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
+                    %% );
+                _ ->
+                    Res
+            end;
+        _ ->
+            {ok, SRS0, Session0#{buffer := Buf0}}
     end.
 
 %%--------------------------------------------------------------------------------
