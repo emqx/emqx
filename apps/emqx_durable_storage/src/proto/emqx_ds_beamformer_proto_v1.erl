@@ -56,17 +56,17 @@ subscribe(Node, Server, Client, SubRef, It, ItKey, Opts) ->
     emqx_ds_beamformer:dbshard(),
     emqx_ds_beamformer:sub_ref()
 ) ->
-          boolean().
+    boolean().
 unsubscribe(Node, DBShard, SubRef) ->
     erpc:call(Node, emqx_ds_beamformer, unsubscribe, [DBShard, SubRef]).
 
 %% @doc Ack seqno asynchronously:
 -spec suback_a(
-        node(),
-        emqx_ds_beamformer:dbshard(),
-        emqx_ds_beamformer:sub_ref(),
-        emqx_ds:sub_seqno()
-       ) -> ok.
+    node(),
+    emqx_ds_beamformer:dbshard(),
+    emqx_ds_beamformer:sub_ref(),
+    emqx_ds:sub_seqno()
+) -> ok.
 suback_a(Node, DBShard, SubRef, SeqNo) ->
     erpc:cast(Node, emqx_ds_beamformer, suback, [DBShard, SubRef, SeqNo]).
 

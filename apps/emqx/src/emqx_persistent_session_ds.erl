@@ -1425,10 +1425,10 @@ move_to_inflight(AppendToSRS, BatchSize, Session0, ClientInfo, StreamKey, SRS0, 
             case Res of
                 {ok, SRS, Session} ->
                     {ok, SRS, Session};
-                    %% %% Keep moving data from the stream to inflight.
-                    %% move_to_inflight(
-                    %%     true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
-                    %% );
+                %% %% Keep moving data from the stream to inflight.
+                %% move_to_inflight(
+                %%     true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
+                %% );
                 _ ->
                     Res
             end;

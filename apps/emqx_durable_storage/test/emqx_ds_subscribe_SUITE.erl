@@ -142,6 +142,7 @@ t_catchup(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = true,
                         seqno = 5,
                         payload =
                             {ok, _, [
@@ -161,6 +162,7 @@ t_catchup(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = true,
                         seqno = 10,
                         payload =
                             {ok, _, [
@@ -204,6 +206,8 @@ t_realtime(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = false,
+                        stuck = false,
                         seqno = 2,
                         payload =
                             {ok, _, [
@@ -220,6 +224,8 @@ t_realtime(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = false,
+                        stuck = false,
                         seqno = 4,
                         payload =
                             {ok, _, [
@@ -258,6 +264,8 @@ t_slow_sub(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = true,
+                        stuck = false,
                         seqno = 1,
                         payload =
                             {ok, _, [
@@ -273,6 +281,8 @@ t_slow_sub(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = false,
+                        stuck = true,
                         seqno = 3,
                         payload =
                             {ok, _, [
@@ -295,6 +305,8 @@ t_slow_sub(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        lagging = true,
+                        stuck = false,
                         seqno = 5,
                         payload =
                             {ok, _, [

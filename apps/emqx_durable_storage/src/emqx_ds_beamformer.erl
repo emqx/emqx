@@ -82,7 +82,7 @@
 -export([start_link/2]).
 -export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
--export([beams_init/4, beams_add/4, beams_conclude/3, beams_n_matched/1, split/1]).
+-export([beams_init/5, beams_add/4, beams_conclude/3, beams_n_matched/1, split/1]).
 -export([shard_metrics_id/1, reschedule/2, send_out_term/3]).
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
@@ -211,7 +211,9 @@
             | end_of_stream
             | emqx_ds:error(_),
         misc :: #{
-            seqnos => #{reference() => emqx_ds:sub_seqno()}
+            seqnos => #{reference() => emqx_ds:sub_seqno()},
+            lagging => boolean(),
+            stuck => #{reference() => _}
         }
     }.
 
@@ -234,6 +236,7 @@
 
 -record(beam_maker, {
     cbm :: module(),
+    lagging :: boolean(),
     shard_id :: _Shard,
     queue_drop :: fun(),
     queue_update :: fun(),
@@ -387,11 +390,12 @@ send_out_term(DBShard, Term, Reqs) ->
         ReqsByNode
     ).
 
--spec beams_init(module(), dbshard(), fun(), fun()) -> beam_maker().
-beams_init(CBM, DBShard, Drop, UpdateQueue) ->
+-spec beams_init(module(), dbshard(), boolean(), fun(), fun()) -> beam_maker().
+beams_init(CBM, DBShard, Lagging, Drop, UpdateQueue) ->
     #beam_maker{
         cbm = CBM,
         shard_id = DBShard,
+        lagging = Lagging,
         queue_drop = Drop,
         queue_update = UpdateQueue
     }.
@@ -850,15 +854,31 @@ subtab(DBShard) ->
 -spec do_dispatch(beam()) -> ok.
 do_dispatch(Beam = #beam{misc = Misc}) ->
     SeqNos = maps:get(seqnos, Misc, #{}),
+    Lagging = maps:get(lagging, Misc, false),
+    Stuck = maps:get(stuck, Misc, #{}),
     lists:foreach(
         fun
             ({{Alias, ItKey}, Result}) ->
                 %% Single poll:
-                Alias ! #poll_reply{ref = Alias, userdata = ItKey, payload = Result};
+                Alias !
+                    #poll_reply{
+                        ref = Alias,
+                        userdata = ItKey,
+                        payload = Result,
+                        lagging = Lagging
+                    };
             ({{PID, SubRef, ItKey}, Result}) ->
                 %% Multi-poll (subscription):
                 #{SubRef := SeqNo} = SeqNos,
-                PID ! #poll_reply{ref = SubRef, userdata = ItKey, payload = Result, seqno = SeqNo}
+                PID !
+                    #poll_reply{
+                        ref = SubRef,
+                        userdata = ItKey,
+                        payload = Result,
+                        seqno = SeqNo,
+                        lagging = Lagging,
+                        stuck = maps:is_key(SubRef, Stuck)
+                    }
         end,
         split(Beam)
     ).
@@ -964,6 +984,7 @@ remove_subscription(SubId, D = #d{tab = Tab, monitor_tab = MTab, pending = Pendi
     beam(_ItKey, _Iterator).
 pack(DBShard, BM, NextKey, Reqs) ->
     #beam_maker{
+        lagging = Lagging,
         matrix = Matrix,
         msgs = Msgs,
         queue_update = QueueUpdate,
@@ -974,67 +995,69 @@ pack(DBShard, BM, NextKey, Reqs) ->
         n = N
     } = BM,
     SubTab = subtab(DBShard),
-    {SeqNos, Refs, UpdatedIterators} =
+    {SeqNos, StuckOnes, Refs, UpdatedIterators} =
         maps:fold(
             fun(
                 _,
                 SubS = #sub_state{req_id = Ref, it = It0, return_addr = RAddr},
-                {AccSeqNos0, AccRefs, Acc}
+                {AccSeqNos0, AccStuck0, AccRefs, Acc}
             ) ->
                 ?tp(beamformer_fulfilled, #{req_id => Ref}),
                 {ok, It} = update_iterator(CBM, ShardId, It0, NextKey),
                 #{message_matcher := Matcher} = CBM:unpack_iterator(DBShard, It),
                 #{Ref := Nmsgs} = Counts,
-                AccSeqNos =
-                    case keep_and_seqno(subtab(DBShard), SubS, Nmsgs) of
-                        false ->
-                            %% This is a singleton poll request. We
-                            %% simply drop them upon completion:
-                            ets:delete(SubTab, Ref),
-                            QueueDrop(SubS),
-                            AccSeqNos0;
-                        {Active, SubRef, SeqNo} ->
-                            %% This is a long-living subscription.
-                            %% Update its state:
-                            Existing = ets:update_element(
-                                SubTab,
-                                Ref,
-                                [
-                                    {#sub_state.it, It},
-                                    {#sub_state.start_key, NextKey},
-                                    {#sub_state.msg_matcher, Matcher}
-                                ]
-                            ),
-                            case Existing and Active of
-                                true ->
-                                    %% Subscription is keeping up with
-                                    %% the ack window. We update
-                                    %% worker's queue state:
-                                    QueueUpdate(
-                                        SubS,
-                                        SubS#sub_state{
-                                            start_key = NextKey, it = It, msg_matcher = Matcher
-                                        }
-                                    );
-                                false ->
-                                    %% This subscription is not
-                                    %% keeping up with the acks. We
-                                    %% drop it from the worker's
-                                    %% active queue:
-                                    QueueDrop(SubS)
-                            end,
-                            AccSeqNos0#{SubRef => SeqNo}
-                    end,
-                {AccSeqNos, [Ref | AccRefs], [{RAddr, It} | Acc]}
+                case keep_and_seqno(subtab(DBShard), SubS, Nmsgs) of
+                    false ->
+                        %% This is a singleton poll request. We
+                        %% simply drop them upon completion:
+                        ets:delete(SubTab, Ref),
+                        QueueDrop(SubS),
+                        AccStuck = AccStuck0,
+                        AccSeqNos = AccSeqNos0;
+                    {Active, SubRef, SeqNo} ->
+                        %% This is a long-living subscription.
+                        %% Update its state:
+                        Existing = ets:update_element(
+                            SubTab,
+                            Ref,
+                            [
+                                {#sub_state.it, It},
+                                {#sub_state.start_key, NextKey},
+                                {#sub_state.msg_matcher, Matcher}
+                            ]
+                        ),
+                        case Existing and Active of
+                            true ->
+                                %% Subscription is keeping up with
+                                %% the ack window. We update
+                                %% worker's queue state:
+                                AccStuck = AccStuck0,
+                                QueueUpdate(
+                                    SubS,
+                                    SubS#sub_state{
+                                        start_key = NextKey, it = It, msg_matcher = Matcher
+                                    }
+                                );
+                            false ->
+                                %% This subscription is not
+                                %% keeping up with the acks. We
+                                %% drop it from the worker's
+                                %% active queue:
+                                AccStuck = AccStuck0#{SubRef => []},
+                                QueueDrop(SubS)
+                        end,
+                        AccSeqNos = AccSeqNos0#{SubRef => SeqNo}
+                end,
+                {AccSeqNos, AccStuck, [Ref | AccRefs], [{RAddr, It} | Acc]}
             end,
-            {#{}, [], []},
+            {#{}, #{}, [], []},
             Reqs
         ),
     Pack = do_pack(lists:reverse(Refs), Matrix, Msgs, [], N - 1),
     #beam{
         iterators = lists:reverse(UpdatedIterators),
         pack = Pack,
-        misc = #{seqnos => SeqNos}
+        misc = #{lagging => Lagging, seqnos => SeqNos, stuck => StuckOnes}
     }.
 
 do_pack(_Refs, _Matrix, [], Acc, _N) ->
@@ -1220,7 +1243,7 @@ pack_test_helper(NextKey, L) ->
         fun({{MsgKey, Message}, Reqs}, Acc) ->
             beams_add(MsgKey, Message, Reqs, Acc)
         end,
-        beams_init(emqx_ds_beamformer_test_cbm, <<"test_shard">>, Drop, Update),
+        beams_init(emqx_ds_beamformer_test_cbm, true, <<"test_shard">>, Drop, Update),
         L
     ),
     maps:map(
