@@ -59,19 +59,20 @@ jobs:
       if: github.event.inputs.version != '' && github.event.inputs.download_url == ''
       run: |
         version=${{ github.event.inputs.version }}
-        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
+        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
     - name: Download emqx package (latest version)
       if: github.event.inputs.version == '' && github.event.inputs.download_url == ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
       run: |
         set -xeuo pipefail
         # get latest emqx version
         version=$(gh release list --repo emqx/emqx --limit 1 --json tagName --jq '.[] | .tagName')
         # remove 'v' prefix from the version
         version=${version:1}
-        wget https://www.emqx.com/en/downloads/enterprise/${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb
+        aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
