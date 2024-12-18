@@ -44,7 +44,9 @@
     ref :: reference(),
     userdata,
     payload :: emqx_ds:next_result() | poll_timeout,
-    seqno :: emqx_ds:sub_seqno() | undefined
+    seqno :: emqx_ds:sub_seqno() | undefined,
+    %% Set to true when
+    stuck = false :: boolean()
 }).
 
 -record(new_stream_event, {
