@@ -39,7 +39,8 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3, poll/3, subscribe/4, unsubscribe/2, suback/3]).
+-export([get_streams/3, make_iterator/4, next/3, poll/3]).
+-export([subscribe/4, unsubscribe/2, suback/3, subscription_info/2]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -89,8 +90,10 @@
 
     poll_iterators/0,
     poll_opts/0,
+
     sub_opts/0,
     subscription_handle/0,
+    sub_info/0,
     sub_seqno/0
 ]).
 
@@ -280,6 +283,15 @@
         %% Maximum number of unacked batches before subscription is
         %% considered overloaded and removed from the active queues:
         max_unacked := non_neg_integer()
+    }.
+
+-type sub_info() ::
+    #{
+        seqno := emqx_ds:sub_seqno(),
+        acked := emqx_ds:sub_seqno(),
+        window := non_neg_integer(),
+        stuck := boolean(),
+        atom() => _
     }.
 
 %% An opaque term identifying a generation.  Each implementation will possibly add
@@ -539,6 +551,11 @@ unsubscribe(DB, SubRef) ->
 -spec suback(db(), subscription_handle(), non_neg_integer()) -> ok.
 suback(DB, SubRef, SeqNo) ->
     ?module(DB):suback(DB, SubRef, SeqNo).
+
+%% @doc Gen information about the subscription.
+-spec subscription_info(db(), subscription_handle()) -> sub_info() | undefined.
+subscription_info(DB, Handle) ->
+    ?module(DB):subscription_info(DB, Handle).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->

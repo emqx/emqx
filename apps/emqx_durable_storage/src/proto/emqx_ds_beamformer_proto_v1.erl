@@ -23,7 +23,8 @@
     where/2,
     subscribe/7,
     unsubscribe/3,
-    suback_a/4
+    suback_a/4,
+    subscription_info/3
 ]).
 
 %% behavior callbacks:
@@ -69,6 +70,16 @@ unsubscribe(Node, DBShard, SubRef) ->
 ) -> ok.
 suback_a(Node, DBShard, SubRef, SeqNo) ->
     erpc:cast(Node, emqx_ds_beamformer, suback, [DBShard, SubRef, SeqNo]).
+
+%% @doc Lookup subscription info:
+-spec subscription_info(
+    node(),
+    emqx_ds_beamformer:dbshard(),
+    emqx_ds_beamformer:sub_ref()
+) ->
+    emqx_ds_beamformer:subinfo() | undefined.
+subscription_info(Node, DBShard, SubRef) ->
+    erpc:call(Node, emqx_ds_beamformer, subscription_info, [DBShard, SubRef]).
 
 %%================================================================================
 %% behavior callbacks

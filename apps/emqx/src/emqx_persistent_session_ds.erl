@@ -1404,7 +1404,8 @@ move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) ->
     | {ignore, undefined, session()}.
 move_to_inflight(AppendToSRS, BatchSize, Session0, ClientInfo, StreamKey, SRS0, SubState, Buf0) ->
     #{stream_scheduler_s := SchedS, inflight := Inflight} = Session0,
-    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= BatchSize,
+    %% FIXME: replace 0 with BatchSize
+    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= 0,
     #srs{it_begin = ItBegin} = SRS0,
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
         {[#poll_reply{seqno = SeqNo, payload = Payload}], Buf} when not IsFull ->
@@ -1424,11 +1425,10 @@ move_to_inflight(AppendToSRS, BatchSize, Session0, ClientInfo, StreamKey, SRS0, 
             ),
             case Res of
                 {ok, SRS, Session} ->
-                    {ok, SRS, Session};
-                %% %% Keep moving data from the stream to inflight.
-                %% move_to_inflight(
-                %%     true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
-                %% );
+                    %% Keep moving data from the stream to inflight.
+                    move_to_inflight(
+                        true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
+                    );
                 _ ->
                     Res
             end;

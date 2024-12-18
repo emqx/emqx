@@ -89,7 +89,7 @@
 %% internal exports:
 -export([do_dispatch/1]).
 %% Testing/debugging:
--export([where/1, ls/1, lookup_sub/2, subtab/1]).
+-export([where/1, ls/1, subscription_info/2, subtab/1]).
 
 %% Behavior callbacks:
 -export([callback_mode/0, init/1, terminate/3, handle_event/4]).
@@ -191,8 +191,8 @@
         it :: Iterator,
         %% Callback that filters messages that belong to the request:
         msg_matcher :: match_messagef(),
-        opts :: emqx_ds:sub_opts(),
-        deadline :: integer() | undefined
+        deadline :: integer() | undefined,
+        stuck :: boolean()
     }.
 
 -type sub_state() :: sub_state(_, _).
@@ -294,7 +294,7 @@ start_link(DBShard, CBM) ->
 %% @doc Submit a poll request
 -spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
     ok.
-poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
+poll(Node, ReturnAddr, Shard, Iterator, #{timeout := Timeout}) ->
     CBM = emqx_ds_beamformer_sup:cbm(Shard),
     case CBM:unpack_iterator(Shard, Iterator) of
         #{
@@ -320,7 +320,6 @@ poll(Node, ReturnAddr, Shard, Iterator, Opts = #{timeout := Timeout}) ->
                 start_key = DSKey,
                 return_addr = ReturnAddr,
                 it = Iterator,
-                opts = Opts,
                 deadline = Deadline,
                 msg_matcher = MsgMatcher
             },
@@ -561,9 +560,14 @@ ls(DB) ->
     [{DB, I} || I <- Shards].
 
 %% @doc Look up state of a subscription
--spec lookup_sub(emqx_ds:db(), sub_ref()) -> [sub_state()].
-lookup_sub(DB, {Shard, SubId}) ->
-    ets:lookup(subtab({DB, Shard}), SubId).
+-spec subscription_info(emqx_ds:db(), sub_ref()) -> emqx_ds:sub_info() | undefined.
+subscription_info(DBShard, SubId) ->
+    case ets:lookup(subtab(DBShard), SubId) of
+        [#sub_state{seqno = SeqNo, acked_seqno = Acked, max_unacked = Window, stuck = Stuck}] ->
+            #{seqno => SeqNo, acked => Acked, window => Window, stuck => Stuck};
+        [] ->
+            undefined
+    end.
 
 -spec subscribe(
     pid(), pid(), sub_ref(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:sub_opts()
@@ -689,7 +693,6 @@ handle_event(
                 start_key = DSKey,
                 return_addr = {Client, SubId, ItKey},
                 it = It,
-                opts = Opts,
                 msg_matcher = MsgMatcher
             },
             %% Insert subscription state into the table:
