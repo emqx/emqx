@@ -188,6 +188,7 @@ fields(connector_ingress) ->
             )}
     ];
 fields("ingress_remote") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -208,6 +209,7 @@ fields("ingress_remote") ->
             )}
     ];
 fields("ingress_local") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -264,6 +266,7 @@ fields("egress") ->
             )}
     ];
 fields("egress_local") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -276,6 +279,7 @@ fields("egress_local") ->
             )}
     ];
 fields("egress_remote") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(

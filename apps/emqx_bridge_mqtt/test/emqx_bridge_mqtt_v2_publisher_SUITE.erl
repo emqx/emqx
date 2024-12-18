@@ -442,3 +442,50 @@ t_static_clientids(Config) ->
     ),
 
     ok.
+
+%% Checks that we can forward original MQTT user properties via this action.  Also
+%% verifies that extra properties may be added via templates.
+t_forward_user_properties(Config) ->
+    {201, _} = create_connector_api(Config, _Overrides = #{}),
+    {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_action_api(
+            Config,
+            #{}
+        ),
+    RuleTopic = <<"t/forward/ups">>,
+    {ok, _} = create_rule_and_action_http(
+        Config,
+        RuleTopic,
+        _Opts = #{
+            sql => iolist_to_binary(
+                io_lib:format(
+                    "select *,"
+                    " map_put(concat('User-Property.', payload.extra_key), "
+                    "payload.extra_value, pub_props) as pub_props from \"~s\"",
+                    [RuleTopic]
+                )
+            )
+        }
+    ),
+    {ok, C} = emqtt:start_link(#{proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C, RemoteTopic, 1),
+    Payload1 = emqx_utils_json:encode(#{
+        <<"extra_key">> => <<"k2">>,
+        <<"extra_value">> => <<"v2">>
+    }),
+    {ok, _} = emqtt:publish(
+        C,
+        RuleTopic,
+        #{'User-Property' => [{<<"k1">>, <<"v1">>}]},
+        Payload1,
+        [{qos, ?QOS_1}]
+    ),
+    {publish, #{properties := #{'User-Property' := UserProps1}}} =
+        ?assertReceive({publish, #{properties := #{'User-Property' := _}}}),
+    ?assertMatch(
+        [{<<"k1">>, <<"v1">>}, {<<"k2">>, <<"v2">>}],
+        UserProps1
+    ),
+    ok.
