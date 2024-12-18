@@ -705,9 +705,17 @@ get_payload(Payload) ->
     Payload.
 
 parse_payload(ParsedPayload) when is_map(ParsedPayload) ->
-    ParsedPayload;
+    {ok, ParsedPayload};
 parse_payload(UnparsedPayload) when is_binary(UnparsedPayload) ->
-    emqx_utils_json:decode(UnparsedPayload).
+    try emqx_utils_json:decode(UnparsedPayload) of
+        Term when is_map(Term) -> {ok, Term};
+        _ ->
+            %% a plain text will be returned as it is, but here we hope it is a map
+            {error, invalid_data}
+    catch
+        _:_ ->
+            {error, invalid_data}
+    end.
 
 iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
     Timestamp;
@@ -901,38 +909,42 @@ do_render_record([{_, Msg} | Msgs], Channel, Acc) ->
     end.
 
 render_channel_record(#{data := DataTemplate} = Channel, Msg) ->
-    Payload = parse_payload(get_payload(Msg)),
-    case device_id(Msg, Payload, Channel) of
-        undefined ->
-            {error, device_id_missing};
-        DeviceId ->
-            #{timestamp := TimestampTkn} = hd(DataTemplate),
-            NowNS = erlang:system_time(nanosecond),
-            Nows = #{
-                now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
-                now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
-                now_ns => NowNS
-            },
-            case
-                proc_record_data(
-                    DataTemplate,
-                    Msg,
-                    [],
-                    [],
-                    []
-                )
-            of
-                {ok, MeasurementAcc, TypeAcc, ValueAcc} ->
-                    {ok, #{
-                        timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
-                        measurements => MeasurementAcc,
-                        data_types => TypeAcc,
-                        values => ValueAcc,
-                        device_id => DeviceId
-                    }};
-                Error ->
-                    Error
-            end
+    case parse_payload(get_payload(Msg)) of
+        {ok, Payload} ->
+            case device_id(Msg, Payload, Channel) of
+                undefined ->
+                    {error, device_id_missing};
+                DeviceId ->
+                    #{timestamp := TimestampTkn} = hd(DataTemplate),
+                    NowNS = erlang:system_time(nanosecond),
+                    Nows = #{
+                        now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
+                        now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
+                        now_ns => NowNS
+                    },
+                    case
+                        proc_record_data(
+                            DataTemplate,
+                            Msg,
+                            [],
+                            [],
+                            []
+                        )
+                    of
+                        {ok, MeasurementAcc, TypeAcc, ValueAcc} ->
+                            {ok, #{
+                                timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
+                                measurements => MeasurementAcc,
+                                data_types => TypeAcc,
+                                values => ValueAcc,
+                                device_id => DeviceId
+                            }};
+                        Error ->
+                            Error
+                    end
+            end;
+        Error ->
+            Error
     end.
 
 proc_record_data(
