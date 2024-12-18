@@ -413,16 +413,19 @@ t_static_clientids(Config) ->
             ]
     }),
 
-    %% Even nodes without any workers should report as connected.
+    %% Nodes without any workers should report as disconnected.
     ct:pal("checking connector health"),
     ?retry(
         500,
         10,
         ?assertMatch(
             {200, #{
-                <<"status">> := <<"connected">>,
+                <<"status">> := <<"inconsistent">>,
                 <<"node_status">> := [
-                    #{<<"status">> := <<"connected">>},
+                    #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+                    },
                     #{<<"status">> := <<"connected">>},
                     #{<<"status">> := <<"connected">>}
                 ]
@@ -455,9 +458,9 @@ t_static_clientids(Config) ->
         10,
         ?assertMatch(
             {200, #{
-                <<"status">> := <<"connected">>,
+                <<"status">> := <<"inconsistent">>,
                 <<"node_status">> := [
-                    #{<<"status">> := <<"connected">>},
+                    #{<<"status">> := <<"disconnected">>},
                     #{<<"status">> := <<"connected">>},
                     #{<<"status">> := <<"connected">>}
                 ]

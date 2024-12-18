@@ -209,11 +209,19 @@ on_get_channel_status(
     _ResId,
     ChannelId,
     #{
+        available_clientids := AvailableClientids,
         installed_channels := Channels
     } = _State
 ) when is_map_key(ChannelId, Channels) ->
-    %% The channel should be ok as long as the MQTT client is ok
-    ?status_connected.
+    case AvailableClientids of
+        [] ->
+            %% We should mark this connector as unhealthy so messages fail fast and an
+            %% alarm is raised.
+            {?status_disconnected, {unhealthy_target, <<"No clientids assigned to this node">>}};
+        [_ | _] ->
+            %% The channel should be ok as long as the MQTT client is ok
+            ?status_connected
+    end.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -465,7 +473,8 @@ combine_status(Statuses, ConnState) ->
         [Status | _] ->
             Status;
         [] when ExpectedNoClientids ->
-            ?status_connected;
+            {?status_disconnected,
+                {unhealthy_target, <<"Connector has no assigned static clientids">>}};
         [] ->
             ?status_disconnected
     end.
