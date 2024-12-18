@@ -509,15 +509,15 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
 -spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
 unsubscribe(DB, {Shard, Server, SubRef}) ->
     ?SAFE_ERPC(
-       emqx_ds_beamformer_proto_v1:unsubcribe(node(Server), {DB, Shard}, SubRef)
-      ).
+        emqx_ds_beamformer_proto_v1:unsubcribe(node(Server), {DB, Shard}, SubRef)
+    ).
 
 -spec suback(emqx_ds:db(), emqx_ds:subscripton(), emqx_ds:sub_seqno()) ->
     ok | {error, subscription_not_found}.
 suback(DB, {Shard, Server, SubRef}, SeqNo) ->
     ?SAFE_ERPC(
-       emqx_ds_beamformer_proto_v1:suback_a(node(Server), {DB, Shard}, SubRef, SeqNo)
-      ).
+        emqx_ds_beamformer_proto_v1:suback_a(node(Server), {DB, Shard}, SubRef, SeqNo)
+    ).
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(delete_iterator()).

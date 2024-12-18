@@ -299,6 +299,7 @@ fulfill_batch(
             emqx_ds_beamformer:beams_init(
                 CBM,
                 ShardId,
+                true,
                 fun(Req) -> queue_drop(Queue, Req) end,
                 fun(OldReq, Req) -> queue_update(Queue, OldReq, Req) end
             )

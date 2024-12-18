@@ -246,6 +246,7 @@ process_stream_event(
             Beams = emqx_ds_beamformer:beams_init(
                 CBM,
                 DBShard,
+                false,
                 fun(SubS) -> queue_drop(Queue, SubS) end,
                 fun(_OldSubState, _SubState) -> ok end
             ),
