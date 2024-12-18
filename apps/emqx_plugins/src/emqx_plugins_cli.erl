@@ -75,6 +75,9 @@ ensure_enabled(NameVsn, Position, LogFun) ->
 ensure_disabled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_disabled(NameVsn), LogFun).
 
+%% erlang cannot distinguish between "" and [], so best_effort_json is also helpless.
+to_json([]) ->
+    <<"[]">>;
 to_json(Input) ->
     emqx_logger_jsonfmt:best_effort_json(Input).
 
