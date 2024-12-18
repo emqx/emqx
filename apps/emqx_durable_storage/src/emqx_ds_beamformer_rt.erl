@@ -268,7 +268,7 @@ process_stream_event(
                 fun(SubId) -> ets:lookup(SubTab, SubId) end,
                 Ids
             ),
-            emqx_ds_beamformer:send_and_forget(DBShard, Pack, MatchReqs),
+            emqx_ds_beamformer:send_out_term(DBShard, Pack, MatchReqs),
             emqx_ds_beamformer_waitq:del_stream(Stream, Queue)
     end.
 

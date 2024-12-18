@@ -513,13 +513,18 @@ next(DB, Iter, BatchSize) ->
 poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
     ?module(DB):poll(DB, Iterators, PollOpts).
 
-%% @doc Subscribe current process to the messages in the stream
-%% starting from `Iterator'.
+%% @doc "Multi-poll" API: subscribe current process to the messages
+%% that follow `Iterator'.
 %%
 %% This function returns subscription handle that can be used to to
 %% manipulate the subscription (ack async messages and unsubscribe),
 %% as well as a monitor reference that used to detect unexpected
 %% termination of the subscription on the DS side.
+%%
+%% NOTE: Subscriptions are NOT automatically removed when subscriber
+%% encounters `{ok, end_of_stream}' or `{error, unrecoverable, _}'.
+%% Subscriber MUST explicitly call `unsubscribe' when it's done with
+%% the stream.
 -spec subscribe(db(), _ItKey, iterator(), sub_opts()) -> {ok, subscription_handle(), reference()}.
 subscribe(DB, ItKey, Iterator, SubOpts) ->
     ?module(DB):subscribe(DB, ItKey, Iterator, SubOpts).
