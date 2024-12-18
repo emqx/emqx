@@ -356,12 +356,15 @@ t_storage_generations(Config) ->
             %% Publish 3 messages. Subscriber receives them, but
             %% doesn't ack them initially.
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
-            [#{packet_id := PI1}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+            [
+                #{packet_id := PI1, payload := <<"1">>}
+            ] = emqx_common_test_helpers:wait_publishes(1, 5_000),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"2">>, ?QOS_1),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"3">>, ?QOS_1),
-            [#{packet_id := PI2}, #{packet_id := PI3}] = emqx_common_test_helpers:wait_publishes(
-                2, 5_000
-            ),
+            [
+                #{packet_id := PI2, payload := <<"2">>},
+                #{packet_id := PI3, payload := <<"3">>}
+            ] = emqx_common_test_helpers:wait_publishes(2, 5_000),
             %% Ack the first message. It transfers "t/1" stream into
             %% ready state where it will be polled.
             ok = emqtt:puback(Sub, PI1),
@@ -372,9 +375,9 @@ t_storage_generations(Config) ->
             timer:sleep(100),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"4">>, ?QOS_1),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"5">>, ?QOS_1),
-            [#{packet_id := PI4, payload := <<"4">>}] = emqx_common_test_helpers:wait_publishes(
-                2, 5_000
-            ),
+            [
+                #{packet_id := PI4, payload := <<"4">>}
+            ] = emqx_common_test_helpers:wait_publishes(2, 5_000),
             %% Ack the rest of messages, it should unblock 5th
             %% message:
             ok = emqtt:puback(Sub, PI2),
@@ -1079,7 +1082,7 @@ t_last_alive_at_cleanup(Config) ->
     ),
     ok.
 
-t_session_replay_retry(_Config) ->
+tt_session_replay_retry(_Config) ->
     %% Verify that the session recovers smoothly from transient errors during
     %% replay.
 

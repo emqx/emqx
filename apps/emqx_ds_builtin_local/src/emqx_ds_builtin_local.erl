@@ -37,13 +37,16 @@
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
+    delete_next/4,
+
     update_iterator/3,
     next/3,
     poll/3,
+
     subscribe/4,
     unsubscribe/2,
     suback/3,
-    delete_next/4,
+    subscription_info/2,
 
     %% `beamformer':
     unpack_iterator/2,
@@ -434,6 +437,11 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
         Err = {error, _, _} ->
             Err
     end.
+
+-spec subscription_info(emqx_ds:db(), emqx_ds:subscription_handle()) ->
+    emqx_ds:subscription_info() | undefined.
+subscription_info(DB, {Shard, SubRef}) ->
+    emqx_ds_beamformer:subscription_info({DB, Shard}, SubRef).
 
 -spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
 unsubscribe(DB, {Shard, SubId}) ->
