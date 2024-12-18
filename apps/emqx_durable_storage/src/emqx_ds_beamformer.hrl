@@ -40,8 +40,8 @@
     it,
     %% Callback that filters messages that belong to the request:
     msg_matcher,
-    opts,
-    deadline
+    deadline,
+    stuck = true
 }).
 
 %% Persistent term used to store reference to the subscription table

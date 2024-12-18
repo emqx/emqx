@@ -38,16 +38,16 @@ t_sub_unsub(Config) ->
             {ok, Handle, _MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
             %% Subscription is registered:
             ?assertMatch(
-                [_],
-                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                #{},
+                emqx_ds:subscription_info(DB, Handle),
                 #{ref => Handle}
             ),
             %% Unsubscribe and check that subscription has been
             %% unregistered:
             ?assertMatch(true, emqx_ds:unsubscribe(DB, Handle)),
             ?assertMatch(
-                [],
-                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                undefined,
+                emqx_ds:subscription_info(DB, Handle),
                 #{handle => Handle}
             ),
             %% Try to unsubscribe with invalid handle:
@@ -86,8 +86,8 @@ t_dead_subscriber_cleanup(Config) ->
             %% Currently the process is running. Verify that the
             %% subscription is present:
             ?assertMatch(
-                [_],
-                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                #{},
+                emqx_ds:subscription_info(DB, Handle),
                 #{handle => Handle}
             ),
             %% Shutdown the child process and verify that the
@@ -96,8 +96,8 @@ t_dead_subscriber_cleanup(Config) ->
             timer:sleep(100),
             ?assertMatch(false, is_process_alive(Child)),
             ?assertMatch(
-                [],
-                emqx_ds_beamformer:lookup_sub(DB, Handle),
+                undefined,
+                emqx_ds:subscription_info(DB, Handle),
                 #{handle => Handle}
             )
         end,
@@ -216,8 +216,7 @@ t_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef),
-                emqx_ds_beamformer:lookup_sub(DB, SRef)
+                recv(?FUNCTION_NAME, MRef)
             ),
             ?assertMatch(ok, publish(DB, 3, 4)),
             ?assertMatch(
@@ -234,8 +233,7 @@ t_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef),
-                emqx_ds_beamformer:lookup_sub(DB, SRef)
+                recv(?FUNCTION_NAME, MRef)
             ),
             ?assertMatch(ok, emqx_ds:suback(DB, SRef, 4)),
             %% Close the generation. The subscriber should be promptly
