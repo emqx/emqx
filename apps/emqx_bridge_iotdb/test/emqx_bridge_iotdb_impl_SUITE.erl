@@ -644,6 +644,23 @@ t_sync_query_with_lowercase(Config) ->
         emqx_utils_json:decode(IoTDBResult)
     ).
 
+t_sync_query_plain_text(Config) ->
+    IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
+
+    Payload1 = <<"this is a text">>,
+    MakeMessageFun1 = make_message_fun(iotdb_topic(Config), Payload1),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun1, IsInvalidType, iotdb_bridge_on_query
+    ).
+
+t_sync_query_invalid_json(Config) ->
+    IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
+    Payload2 = <<"{\"msg\":}">>,
+    MakeMessageFun2 = make_message_fun(iotdb_topic(Config), Payload2),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun2, IsInvalidType, iotdb_bridge_on_query
+    ).
+
 is_empty(null) -> true;
 is_empty([]) -> true;
 is_empty([[]]) -> true;
