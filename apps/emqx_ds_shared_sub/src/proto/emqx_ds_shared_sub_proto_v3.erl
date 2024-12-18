@@ -26,7 +26,7 @@
 ]).
 
 introduced_in() ->
-    "5.8.5".
+    "5.9.0".
 
 -type share_topic_filter() :: emqx_ds_shared_sub_proto:share_topic_filter().
 -type stream() :: emqx_ds_shared_sub_proto:stream().
