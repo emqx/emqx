@@ -404,12 +404,6 @@ handle_action(RuleId, ActId, Selected, Envs) ->
     try
         do_handle_action(RuleId, ActId, Selected, Envs)
     catch
-        throw:out_of_service ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            ok = emqx_metrics_worker:inc(
-                rule_metrics, RuleId, 'actions.failed.out_of_service'
-            ),
-            trace_action(ActId, "out_of_service", #{}, warning);
         throw:{discard, Reason} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.discarded'),
             trace_action(ActId, "discarded", #{cause => Reason}, debug);
@@ -449,8 +443,6 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selec
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
             throw({discard, Reason});
-        ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
-            throw(out_of_service);
         Result ->
             Result
     end;
@@ -473,8 +465,6 @@ do_handle_action(
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
             throw({discard, Reason});
-        ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
-            throw(out_of_service);
         Result ->
             Result
     end;
@@ -776,6 +766,13 @@ do_inc_action_metrics(
     ),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+do_inc_action_metrics(
+    #{rule_id := RuleId, action_id := ActId},
+    ?RESOURCE_ERROR_M(R, _)
+) when ?IS_RES_DOWN(R) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
+    trace_action(ActId, "out_of_service", #{}, warning);
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
     {error, {recoverable_error, _}} = Reason
