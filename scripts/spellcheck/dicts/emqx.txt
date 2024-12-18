@@ -79,7 +79,6 @@ XMLs
 acceptors
 ack
 acked
-ACL
 addr
 AES
 aliyun

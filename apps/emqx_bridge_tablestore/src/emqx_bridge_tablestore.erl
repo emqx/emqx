@@ -149,6 +149,7 @@ fields("connector") ->
             emqx_schema_secret:mk(
                 #{
                     required => true,
+                    sensitive => true,
                     desc => ?DESC("desc_access_key_id")
                 }
             )},
@@ -156,6 +157,7 @@ fields("connector") ->
             emqx_schema_secret:mk(
                 #{
                     required => true,
+                    sensitive => true,
                     desc => ?DESC("desc_access_key_secret")
                 }
             )},
@@ -204,12 +206,12 @@ fields(action_parameters) ->
         fields_field(),
         {data_source,
             mk(binary(), #{
-                required => true,
+                required => false,
                 is_template => true,
                 desc => ?DESC("desc_data_source")
             })},
         {timestamp,
-            mk(binary(), #{
+            mk(integer(), #{
                 required => false,
                 is_template => true,
                 desc => ?DESC("desc_timestamp")
@@ -218,7 +220,7 @@ fields(action_parameters) ->
             mk(
                 hoconsc:enum(['MUM_IGNORE', 'MUM_NORMAL']), #{
                     required => false,
-                    default => 'MUM_IGNORE',
+                    default => 'MUM_NORMAL',
                     desc => ?DESC("desc_meta_update_model")
                 }
             )}

@@ -1,7 +1,6 @@
 -module(emqx_bridge_tablestore_connector_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_bridge_tablestore/include/emqx_bridge_tablestore.hrl").
 
 -define(CONF, #{
     instance_name => <<"instance">>,
