@@ -408,14 +408,18 @@ do_route2({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
 aggre([]) ->
     [];
 aggre([#route{topic = To, dest = Node}]) when is_atom(Node) ->
-    [{To, Node}];
+    [{To, Node} || emqx_router_helper:is_routable(Node)];
 aggre([#route{topic = To, dest = {Group, _Node}}]) ->
     [{To, Group}];
 aggre(Routes) ->
     aggre(Routes, false, []).
 
 aggre([#route{topic = To, dest = Node} | Rest], Dedup, Acc) when is_atom(Node) ->
-    aggre(Rest, Dedup, [{To, Node} | Acc]);
+    case emqx_router_helper:is_routable(Node) of
+        true -> NAcc = [{To, Node} | Acc];
+        false -> NAcc = Acc
+    end,
+    aggre(Rest, Dedup, NAcc);
 aggre([#route{topic = To, dest = {Group, _Node}} | Rest], _Dedup, Acc) ->
     aggre(Rest, true, [{To, Group} | Acc]);
 aggre([], false, Acc) ->
@@ -442,7 +446,10 @@ forward(Node, To, Delivery = #delivery{message = _Msg}, RpcMode) ->
 
 %% @doc Forward message to another node.
 -spec do_forward(
-    node(), emqx_types:topic() | emqx_types:share(), emqx_types:delivery(), RpcMode :: sync | async
+    node(),
+    emqx_types:topic() | emqx_types:share(),
+    emqx_types:delivery(),
+    RpcMode :: sync | async
 ) ->
     emqx_types:deliver_result().
 do_forward(Node, To, Delivery, async) ->
