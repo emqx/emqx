@@ -40,12 +40,12 @@ groups() ->
         {mnesia_without_indices, [sequence], common_tests()},
         {mnesia_with_indices, [sequence], common_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
-        {test_disable_then_start, [sequence], [test_disable_then_start]},
-        {disabled, [test_disabled]}
+        {test_disable_then_start, [sequence], [t_disable_then_start]},
+        {disabled, [t_disabled]}
     ].
 
 common_tests() ->
-    emqx_common_test_helpers:all(?MODULE) -- [t_reindex].
+    emqx_common_test_helpers:all(?MODULE) -- [t_reindex, t_disable_then_start, t_disabled].
 
 %% erlfmt-ignore
 -define(BASE_CONF, <<"
@@ -55,6 +55,7 @@ retainer {
   msg_expiry_interval = 0s
   max_payload_size = 1MB
   delivery_rate = \"1000/s\"
+  publish_rate = \"100000/s\"
   flow_control {
     batch_read_number = 0
     batch_deliver_number = 0
@@ -90,6 +91,8 @@ end_per_group(_Group, Config) ->
     stop_apps(Config),
     Config.
 
+init_per_testcase(t_disabled, Config) ->
+    Config;
 init_per_testcase(_TestCase, Config) ->
     case ?config(index, Config) of
         false ->
@@ -98,13 +101,13 @@ init_per_testcase(_TestCase, Config) ->
             emqx_retainer_mnesia:populate_index_meta()
     end,
     emqx_retainer:clean(),
+    reset_rates_to_default(),
     Config.
 
-end_per_testcase(t_flow_control, _Config) ->
-    reset_delivery_rate_to_default();
-end_per_testcase(t_cursor_cleanup, _Config) ->
-    reset_delivery_rate_to_default();
+end_per_testcase(t_disabled, _Config) ->
+    ok;
 end_per_testcase(_TestCase, _Config) ->
+    reset_rates_to_default(),
     ok.
 
 app_spec() ->
@@ -470,7 +473,7 @@ t_table_full(Config) ->
         {ok, _} = emqtt:connect(C1),
         emqtt:publish(C1, <<"retained/t/1">>, <<"a">>, [{qos, 0}, {retain, true}]),
         emqtt:publish(C1, <<"retained/t/2">>, <<"b">>, [{qos, 0}, {retain, true}]),
-
+        ct:sleep(100),
         {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/t/1">>, [{qos, 0}, {rh, 0}]),
         ?assertEqual(1, length(receive_messages(1))),
         {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/t/2">>, [{qos, 0}, {rh, 0}]),
@@ -534,7 +537,10 @@ t_stop_publish_clear_msg(_) ->
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->
-    setup_slow_delivery(),
+    %% Setup slow delivery
+    emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"1/1s">>
+    }),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
@@ -551,10 +557,11 @@ t_flow_control(_) ->
     ),
     emqtt:publish(
         C1,
-        <<"retained/3">>,
-        <<"this is a retained message 3">>,
+        <<"retained/2">>,
+        <<"this is a retained message 2">>,
         [{qos, 0}, {retain, true}]
     ),
+    ct:sleep(100),
     Begin = erlang:system_time(millisecond),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
@@ -565,6 +572,71 @@ t_flow_control(_) ->
     ?assert(
         Diff > timer:seconds(2.1) andalso Diff < timer:seconds(4),
         lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))
+    ),
+
+    ok = emqtt:disconnect(C1),
+    ok.
+
+t_publish_rate_limit(_) ->
+    %% Setup tight publish rates
+    emqx_retainer:update_config(#{
+        <<"publish_rate">> => <<"1/1s">>
+    }),
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    ?check_trace(
+        begin
+            {_, {ok, _}} = ?wait_async_action(
+                lists:foreach(
+                    fun(_) ->
+                        emqtt:publish(
+                            C1,
+                            <<"retained/topic">>,
+                            <<"this is a retained message">>,
+                            [{qos, 0}, {retain, true}]
+                        )
+                    end,
+                    lists:seq(1, 10)
+                ),
+                #{
+                    ?snk_kind := retain_failed_for_rate_exceeded_limit,
+                    topic := <<"retained/topic">>
+                },
+                5000
+            )
+        end,
+        []
+    ),
+
+    ok = emqtt:disconnect(C1),
+    ok.
+
+t_delete_rate_limit(_) ->
+    %% Setup tight publish rates
+    emqx_retainer:update_config(#{
+        <<"publish_rate">> => <<"1/1s">>
+    }),
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    ?check_trace(
+        begin
+            {_, {ok, _}} = ?wait_async_action(
+                lists:foreach(
+                    fun(_) ->
+                        emqtt:publish(C1, <<"retained/topic">>, <<"">>, [{qos, 0}, {retain, true}])
+                    end,
+                    lists:seq(1, 10)
+                ),
+                #{
+                    ?snk_kind := retained_delete_failed_for_rate_exceeded_limit,
+                    topic := <<"retained/topic">>
+                },
+                5000
+            )
+        end,
+        []
     ),
 
     ok = emqtt:disconnect(C1),
@@ -693,12 +765,9 @@ t_reindex(_) ->
                         fun(N2) ->
                             emqtt:publish(
                                 C,
-                                erlang:iolist_to_binary([
-                                    <<"retained/">>,
-                                    io_lib:format("~5..0w", [N1]),
-                                    <<"/">>,
-                                    io_lib:format("~5..0w", [N2])
-                                ]),
+                                erlang:iolist_to_binary(
+                                    io_lib:format("retained/~5..0w/~5..0w", [N1, N2])
+                                ),
                                 <<"this is a retained message">>,
                                 [{qos, 0}, {retain, true}]
                             )
@@ -758,32 +827,38 @@ t_reindex(_) ->
 
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 0}, emqx_retainer:get_basic_usage_info()),
-    Context = emqx_retainer:context(),
     lists:foreach(
         fun(N) ->
             Num = integer_to_binary(N),
             Message = emqx_message:make(<<"retained/", Num/binary>>, <<"payload">>),
-            ok = emqx_retainer:store_retained(Context, Message)
+            ok = emqx_retainer_publisher:store_retained(Message)
         end,
         lists:seq(1, 5)
     ),
+    ct:sleep(100),
     ?assertEqual(#{retained_messages => 5}, emqx_retainer:get_basic_usage_info()),
     ok.
 
 %% test whether the app can start normally after disabling emqx_retainer
 %% fix: https://github.com/emqx/emqx/pull/8911
-test_disable_then_start(_Config) ->
+%%
+%% stop/start in enable/disable state
+t_disable_then_start(_Config) ->
     emqx_retainer:update_config(#{<<"enable">> => false}),
-    ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok = application:stop(emqx_retainer),
-    timer:sleep(100),
     ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok = application:ensure_started(emqx_retainer),
-    timer:sleep(100),
+    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    emqx_retainer:update_config(#{<<"enable">> => true}),
+    ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ok = application:stop(emqx_retainer),
+    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ok = application:ensure_started(emqx_retainer),
     ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok.
 
-test_disabled(_Config) ->
+t_disabled(_Config) ->
     ?assertEqual(false, emqx_retainer:enabled()),
     ?assertEqual(ok, emqx_retainer:clean()),
     ?assertEqual({ok, false, []}, emqx_retainer:page_read(undefined, 1, 100)).
@@ -1034,31 +1109,18 @@ do_publish(Client, Topic, Payload, Opts, {sleep, Time}) ->
     ct:sleep(Time),
     Res.
 
-setup_slow_delivery() ->
-    Rate = emqx_ratelimiter_SUITE:to_rate("1/1s"),
-    LimiterCfg = make_limiter_cfg(Rate),
-    JsonCfg = make_limiter_json(<<"1/1s">>),
-    emqx_limiter_server:add_bucket(emqx_retainer, internal, LimiterCfg),
-    emqx_retainer:update_config(#{
-        <<"delivery_rate">> => <<"1/1s">>,
-        <<"flow_control">> =>
-            #{
-                <<"batch_read_number">> => 1,
-                <<"batch_deliver_number">> => 1,
-                <<"batch_deliver_limiter">> => JsonCfg
-            }
-    }).
-
-reset_delivery_rate_to_default() ->
-    emqx_limiter_server:del_bucket(emqx_retainer, internal),
+reset_rates_to_default() ->
+    emqx_retainer_app:delete_buckets(),
     emqx_retainer:update_config(#{
         <<"delivery_rate">> => <<"1000/s">>,
+        <<"publish_rate">> => <<"100000/s">>,
         <<"flow_control">> =>
             #{
                 <<"batch_read_number">> => 0,
                 <<"batch_deliver_number">> => 0
             }
-    }).
+    }),
+    emqx_retainer_app:init_buckets().
 
 qlc_processes() ->
     lists:filter(
