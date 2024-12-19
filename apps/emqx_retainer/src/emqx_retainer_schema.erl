@@ -102,6 +102,16 @@ fields("retainer") ->
                     aliases => [deliver_rate]
                 }
             )},
+        {publish_rate,
+            ?HOCON(
+                emqx_limiter_schema:rate_type(),
+                #{
+                    required => false,
+                    desc => ?DESC(publish_rate),
+                    default => <<"1000/s">>,
+                    example => <<"1000/s">>
+                }
+            )},
         {backend, backend_config()},
         {external_backends,
             ?HOCON(
@@ -164,6 +174,12 @@ fields(flow_control) ->
             sc(
                 ?R_REF(emqx_limiter_schema, internal),
                 batch_deliver_limiter,
+                undefined
+            )},
+        {publish_limiter,
+            sc(
+                ?R_REF(emqx_limiter_schema, internal),
+                publish_limiter,
                 undefined
             )}
     ];
@@ -232,27 +248,50 @@ check_duplicate(List) ->
         true -> ok
     end.
 
-retainer_converter(#{<<"delivery_rate">> := <<"infinity">>} = Conf, _Opts) ->
-    Conf#{
-        <<"flow_control">> => #{
-            <<"batch_read_number">> => 0,
-            <<"batch_deliver_number">> => 0
-        }
-    };
-retainer_converter(#{<<"delivery_rate">> := RateStr} = Conf, _Opts) ->
+retainer_converter(#{<<"deliver_rate">> := Delivery} = Conf, Opts) ->
+    Conf1 = maps:remove(<<"deliver_rate">>, Conf),
+    retainer_converter(Conf1#{<<"delivery_rate">> => Delivery}, Opts);
+retainer_converter(Conf0, Opts) ->
+    Conf1 = delivery_rate_converter(Conf0, Opts),
+    Conf2 = publish_rate_converter(Conf1, Opts),
+    Conf2.
+
+delivery_rate_converter(#{<<"delivery_rate">> := <<"infinity">>} = Conf, _Opts) ->
+    FlowControl0 = maps:get(<<"flow_control">>, Conf, #{}),
+    FlowControl1 = FlowControl0#{
+        <<"batch_read_number">> => 0,
+        <<"batch_deliver_number">> => 0
+    },
+    Conf#{<<"flow_control">> => FlowControl1};
+delivery_rate_converter(#{<<"delivery_rate">> := RateStr} = Conf, _Opts) ->
     {ok, RateNum} = emqx_limiter_schema:to_rate(RateStr),
     RawRate = erlang:floor(RateNum * 1000 / emqx_limiter_schema:default_period()),
-    Control = #{
+    FlowControl0 = maps:get(<<"flow_control">>, Conf, #{}),
+    FlowControl1 = FlowControl0#{
         <<"batch_read_number">> => RawRate,
         <<"batch_deliver_number">> => RawRate,
         %% Set the maximum delivery rate per session
         <<"batch_deliver_limiter">> => #{<<"client">> => #{<<"rate">> => RateStr}}
     },
-    Conf#{<<"flow_control">> => Control};
-retainer_converter(#{<<"deliver_rate">> := Delivery} = Conf, Opts) ->
-    Conf1 = maps:remove(<<"deliver_rate">>, Conf),
-    retainer_converter(Conf1#{<<"delivery_rate">> => Delivery}, Opts);
-retainer_converter(Conf, _Opts) ->
+    Conf#{<<"flow_control">> => FlowControl1};
+delivery_rate_converter(Conf, _Opts) ->
+    Conf.
+
+publish_rate_converter(#{<<"publish_rate">> := <<"infinity">>} = Conf, _Opts) ->
+    Conf;
+publish_rate_converter(#{<<"publish_rate">> := RateStr} = Conf, _Opts) ->
+    FlowControl0 = maps:get(<<"flow_control">>, Conf, #{}),
+    FlowControl1 = FlowControl0#{
+        <<"publish_limiter">> => #{
+            <<"client">> => #{
+                <<"rate">> => RateStr,
+                <<"failure_strategy">> => <<"drop">>,
+                <<"max_retry_time">> => <<"1s">>
+            }
+        }
+    },
+    Conf#{<<"flow_control">> => FlowControl1};
+publish_rate_converter(Conf, _Opts) ->
     Conf.
 
 validate_backends_enabled(Config) ->
