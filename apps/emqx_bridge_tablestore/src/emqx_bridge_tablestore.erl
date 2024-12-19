@@ -294,10 +294,14 @@ fields_field() ->
     {fields,
         mk(
             hoconsc:array(ref(?MODULE, "tablestore_fields")), #{
-                default => [],
+                required => true,
+                validator => fun non_empty_list/1,
                 desc => ?DESC("desc_fields")
             }
         )}.
+
+non_empty_list([]) -> {error, empty_fields_not_allowed};
+non_empty_list(S) when is_list(S) -> ok.
 
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Tablestore using `", string:to_upper(Method), "` method."];
