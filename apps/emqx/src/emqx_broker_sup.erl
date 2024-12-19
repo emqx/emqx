@@ -23,7 +23,7 @@
 
 -export([init/1]).
 
--define(broker_pool_sup, broker_pool_sup).
+-define(broker_pool, broker_pool).
 
 start_link() ->
     ok = mria:wait_for_tables(emqx_shared_sub:create_tables()),
@@ -31,12 +31,7 @@ start_link() ->
 
 get_broker_pool_workers() ->
     try
-        [
-            Pid
-         || {?broker_pool_sup, Sup, _, _} <- supervisor:which_children(?MODULE),
-            {_, Pid, _, _} <- supervisor:which_children(Sup),
-            is_pid(Pid)
-        ]
+        lists:map(fun({_Name, Pid}) -> Pid end, gproc_pool:active_workers(?broker_pool))
     catch
         _:_ ->
             []
@@ -50,8 +45,8 @@ init([]) ->
     %% Broker pool
     ok = emqx_broker:create_tabs(),
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
-    BrokerPool = emqx_pool_sup:spec(?broker_pool_sup, permanent, [
-        broker_pool,
+    BrokerPool = emqx_pool_sup:spec(broker_pool_sup, permanent, [
+        ?broker_pool,
         hash,
         PoolSize,
         {emqx_broker, start_link, []}
