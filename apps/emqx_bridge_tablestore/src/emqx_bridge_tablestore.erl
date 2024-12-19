@@ -211,14 +211,14 @@ fields(action_parameters) ->
                 desc => ?DESC("desc_data_source")
             })},
         {timestamp,
-            mk(integer(), #{
+            mk(hoconsc:union([integer(), binary()]), #{
                 required => false,
                 is_template => true,
                 desc => ?DESC("desc_timestamp")
             })},
         {meta_update_model,
             mk(
-                hoconsc:enum(['MUM_IGNORE', 'MUM_NORMAL']), #{
+                enum(['MUM_IGNORE', 'MUM_NORMAL']), #{
                     required => false,
                     default => 'MUM_NORMAL',
                     desc => ?DESC("desc_meta_update_model")
@@ -251,19 +251,19 @@ fields("tablestore_fields") ->
                 desc => ?DESC("tablestore_fields_column")
             })},
         {value,
-            mk(hoconsc:union([binary(), boolean(), number()]), #{
+            mk(hoconsc:union([boolean(), number(), binary()]), #{
                 required => true,
                 is_template => true,
                 desc => ?DESC("tablestore_fields_value")
             })},
         {isint,
-            mk(boolean(), #{
+            mk(hoconsc:union([boolean(), binary()]), #{
                 required => false,
                 is_template => true,
                 desc => ?DESC("tablestore_fields_isint")
             })},
         {isbinary,
-            mk(boolean(), #{
+            mk(hoconsc:union([boolean(), binary()]), #{
                 required => false,
                 is_template => true,
                 desc => ?DESC("tablestore_fields_isbinary")
@@ -273,7 +273,7 @@ fields("tablestore_fields") ->
 storage_model_type_field() ->
     {storage_model_type,
         mk(
-            hoconsc:enum([timeseries]), #{
+            enum([timeseries]), #{
                 required => false,
                 default => timeseries,
                 desc => ?DESC("storage_model_type")
