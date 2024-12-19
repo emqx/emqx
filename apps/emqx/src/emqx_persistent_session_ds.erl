@@ -758,39 +758,91 @@ replay_streams(Session = #{replay := []}, _ClientInfo) ->
     clientinfo()
 ) ->
     {ok, stream_state(), session()} | emqx_ds:error(_).
-replay_batch(StreamKey, Srs0, Session0 = #{s := S0}, ClientInfo) ->
-    #srs{it_begin = ItBegin, batch_size = BatchSize, sub_state_id = SSID} = Srs0,
-    FetchResult = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize),
-    SubState = emqx_persistent_session_ds_state:get_subscription_state(SSID, S0),
-    case
-        enqueue_batch(
-            true, false, Session0, ClientInfo, StreamKey, Srs0, SubState, ItBegin, FetchResult
-        )
-    of
-        {ok, Srs, Session} ->
-            %% Assert:
-            %%
-            %% FIXME: don't ignore the end iterator. Currently there
-            %% are bogus replay inconsistency warnings that happen
-            %% because `end_iterator' returned by `scan_stream' (a
-            %% call used by beamformer) and the end iterator of `next'
-            %% (a call used during replay) may point at different
-            %% keys. Namely, `scan_stream' returns key at the tip of
-            %% the combined batch, and `next' returns key at the tip
-            %% of the normal batch. This is (believed to be) harmless.
-            %% Using `end_of_stream' as a replacement token to satisfy
-            %% Dialyzer.
-            Srs#srs{it_end = end_of_stream} =:= Srs0#srs{it_end = end_of_stream} orelse
-                ?tp(warning, ?sessds_replay_inconsistency, #{
-                    expected => Srs0,
-                    got => Srs,
-                    sess => Session,
-                    batch => FetchResult
-                }),
-            {ok, Srs, Session};
-        {{error, _, _} = Error, _SRS, _Session} ->
+replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, ClientInfo) ->
+    #srs{
+        it_begin = ItBegin,
+        batch_size = BatchSize,
+        sub_state_id = SSID,
+        first_seqno_qos1 = FirstSeqnoQos1,
+        first_seqno_qos2 = FirstSeqnoQos2
+    } = SRS,
+    %% TODO: end_of_stream
+    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize) of
+        {ok, ItEnd, Batch} ->
+            SubState = emqx_persistent_session_ds_state:get_subscription_state(SSID, S0),
+            {Inflight, LastSeqnoQos1, LastSeqnoQos2} =
+                process_batch(
+                    true,
+                    Session0,
+                    SubState,
+                    ClientInfo,
+                    FirstSeqnoQos1,
+                    FirstSeqnoQos2,
+                    Batch,
+                    Inflight0
+                ),
+            check_replay_consistency(
+                StreamKey,
+                SRS,
+                ItEnd,
+                Batch,
+                LastSeqnoQos1,
+                LastSeqnoQos2,
+                Session0
+            ),
+            Session = on_enqueue(true, StreamKey, SRS, Session0#{inflight := Inflight}),
+            {ok, SRS, Session};
+        Error = {error, _, _} ->
             Error
     end.
+
+check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqnoQos2, Session) ->
+    #srs{last_seqno_qos1 = EQ1, last_seqno_qos2 = EQ2, batch_size = EBS} = SRS,
+    %% FIXME: also check the end iterator. Currently there are bogus
+    %% replay inconsistency warnings that happen because
+    %% `end_iterator' returned by `scan_stream' (a call used by
+    %% beamformer) and the end iterator of `next' (a call used during
+    %% replay) may point at different keys. Namely, `scan_stream'
+    %% returns key at the tip of the combined batch, and `next'
+    %% returns key at the tip of the normal batch. This is (believed
+    %% to be) harmless.
+    case length(Batch) of
+        EBS when
+            EQ1 =:= LastSeqnoQos1,
+            EQ2 =:= LastSeqnoQos2
+        ->
+            ok;
+        BatchSize ->
+            ?tp(
+                warning,
+                ?sessds_replay_inconsistency,
+                #{
+                    stream => StreamKey,
+                    srs => SRS,
+                    batch_size => BatchSize,
+                    q1 => LastSeqnoQos1,
+                    q2 => LastSeqnoQos2,
+                    sess => Session
+                }
+            )
+    end.
+
+on_enqueue(
+    IsReplay,
+    StreamKey,
+    SRS,
+    Session = #{s := S0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0}
+) ->
+    {ReadyStreams, S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+        IsReplay, StreamKey, SRS, S0, SchedS0
+    ),
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+        S1, SharedSubS0, ReadyStreams
+    ),
+    Session#{s := S, stream_scheduler_s := SchedS, shared_sub_s := SharedSubS}.
+
+on_stream_end(_StreamKey, _SRS, _Result, Session) ->
+    Session.
 
 %% Handle `{error, unrecoverable, _}' returned by `enqueue_batch'.
 %% Most likely they mean that the generation containing the messages
@@ -1044,15 +1096,14 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %%--------------------------------------------------------------------
 
 handle_ds_reply(
-    Reply, Session0 = #{stream_scheduler_s := SchedS0, buffer := B0, replay := Replay}, ClientInfo
+    Reply, Session0 = #{buffer := B0, replay := Replay}, ClientInfo
 ) ->
     ?tp(debug, ?sessds_poll_reply, #{reply => Reply}),
     #poll_reply{userdata = Stream} = Reply,
     %% FIXME:
     %% {true, SchedS} = emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, SchedS0),
-    SchedS = SchedS0,
     B = emqx_persistent_session_ds_buffer:push_batch(Stream, Reply, B0),
-    Session = Session0#{stream_scheduler_s := SchedS, buffer := B},
+    Session = Session0#{buffer := B},
     case ?IS_REPLAY_ONGOING(Replay) of
         true ->
             Session;
@@ -1060,10 +1111,7 @@ handle_ds_reply(
             fill_inflight(Session, ClientInfo)
     end.
 
-inc_next(true, _Track, S) ->
-    %% Don't touch seqnos during replay:
-    S;
-inc_next(false, Track, S) ->
+inc_next(Track, S) ->
     Old = emqx_persistent_session_ds_state:get_seqno(Track, S),
     case Track of
         ?next(?QOS_1) ->
@@ -1072,10 +1120,7 @@ inc_next(false, Track, S) ->
             put_seqno(Track, inc_seqno(?QOS_2, Old), S)
     end.
 
-put_next(true, _Track, _Val, S) ->
-    %% Don't touch seqnos during replay:
-    S;
-put_next(false, Track, Val, S) ->
+put_next(Track, Val, S) ->
     %% put_seqno(Track, Val, S).
     %% FIXME: find the root cause for a possible seqno order violation
     Old = emqx_persistent_session_ds_state:get_seqno(Track, S),
@@ -1083,7 +1128,7 @@ put_next(false, Track, Val, S) ->
         _ when Val >= Old ->
             put_seqno(Track, Val, S);
         _ ->
-            inc_next(false, Track, S)
+            inc_next(Track, S)
     end.
 
 %%--------------------------------------------------------------------
@@ -1091,112 +1136,13 @@ put_next(false, Track, Val, S) ->
 %% operation):
 %% --------------------------------------------------------------------
 
-enqueue_batch(
-    IsReplay, AppendToSRS, Session, ClientInfo, StreamKey, Srs0, SubState, ItBegin0, FetchResult
-) ->
-    #{s := S0, inflight := Inflight0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0} =
-        Session,
-    case IsReplay or AppendToSRS of
-        false ->
-            %% Normally we assign a new set of sequence
-            %% numbers to messages in the batch:
-            FirstSeqnoQos1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
-            FirstSeqnoQos2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0);
-        true ->
-            %% During replay or append we reuse the original sequence
-            %% numbers:
-            #srs{
-                first_seqno_qos1 = FirstSeqnoQos1,
-                first_seqno_qos2 = FirstSeqnoQos2
-            } = Srs0
-    end,
-    ItBegin =
-        case AppendToSRS of
-            false -> ItBegin0;
-            true -> Srs0#srs.it_begin
-        end,
-    ?tp_ignore_side_effects_in_prod(
-        ?sessds_do_enqueue,
-        #{
-            is_replay => IsReplay,
-            is_append => AppendToSRS,
-            stream => StreamKey,
-            srs => Srs0,
-            sub_state => SubState,
-            sn1 => FirstSeqnoQos1,
-            sn2 => FirstSeqnoQos2,
-            result => FetchResult
-        }
-    ),
-    case FetchResult of
-        {error, _, _} = Error ->
-            {Error, Srs0, Session};
-        {ok, end_of_stream} ->
-            %% No new messages; just update the end iterator:
-            Srs = Srs0#srs{
-                first_seqno_qos1 = FirstSeqnoQos1,
-                first_seqno_qos2 = FirstSeqnoQos2,
-                last_seqno_qos1 = FirstSeqnoQos1,
-                last_seqno_qos2 = FirstSeqnoQos2,
-                it_begin = ItBegin,
-                it_end = end_of_stream,
-                batch_size = batch_size(AppendToSRS, Srs0, [])
-            },
-            S1 = inc_next(IsReplay, ?next(?QOS_1), S0),
-            S2 = inc_next(IsReplay, ?next(?QOS_2), S1),
-            {ReadyStreams, S3, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-                IsReplay, StreamKey, Srs, S2, SchedS0
-            ),
-            {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S3, SharedSubS0, ReadyStreams
-            ),
-            {ok, Srs, Session#{stream_scheduler_s := SchedS, s := S, shared_sub_s := SharedSubS}};
-        {ok, ItEnd, Messages} ->
-            {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
-                IsReplay,
-                Session,
-                SubState,
-                ClientInfo,
-                FirstSeqnoQos1,
-                FirstSeqnoQos2,
-                Messages,
-                Inflight0
-            ),
-            Srs = Srs0#srs{
-                it_begin = ItBegin,
-                it_end = ItEnd,
-                batch_size = batch_size(AppendToSRS, Srs0, Messages),
-                first_seqno_qos1 = FirstSeqnoQos1,
-                first_seqno_qos2 = FirstSeqnoQos2,
-                last_seqno_qos1 = LastSeqnoQos1,
-                last_seqno_qos2 = LastSeqnoQos2
-            },
-            S1 = put_next(IsReplay, ?next(?QOS_1), LastSeqnoQos1, S0),
-            S2 = put_next(IsReplay, ?next(?QOS_2), LastSeqnoQos2, S1),
-            {ReadyStreams, S3, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-                IsReplay, StreamKey, Srs, S2, SchedS0
-            ),
-            {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S3, SharedSubS0, ReadyStreams
-            ),
-            {ok, Srs, Session#{
-                inflight := Inflight,
-                s := S,
-                stream_scheduler_s := SchedS,
-                shared_sub_s := SharedSubS
-            }}
-    end.
-
-%% @doc Calculate value of `#srs.batch_size' field depending on the
-%% AppendToSRS flag
-batch_size(true, #srs{batch_size = BS}, Messages) ->
-    BS + length(Messages);
-batch_size(false, _, Messages) ->
-    length(Messages).
-
 %% Enrich messages according to the subscription options and assign
 %% sequence number to each message, later to be used for packet ID
 %% generation:
+%%
+%% TODO: ClientInfo is only used by enrich_message to get
+%% client ID. While this should not lead to replay
+%% inconsistency, this API is not the best.
 process_batch(
     _IsReplay, _Session, _SubState, _ClientInfo, LastSeqNoQos1, LastSeqNoQos2, [], Inflight
 ) ->
@@ -1340,12 +1286,11 @@ do_drain_inflight(Inflight0, S0, Acc) ->
 fill_inflight(Session0 = #{s := S0, buffer := Buf0}, ClientInfo) ->
     case find_ready_stream(S0, emqx_persistent_session_ds_buffer:iterator(Buf0)) of
         {ok, StreamKey, SRS0} ->
-            case move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) of
+            case drain_buffer(StreamKey, SRS0, Session0, ClientInfo) of
                 {ignore, Session} ->
                     fill_inflight(Session, ClientInfo);
-                {ok, SRS, Session = #{s := S1}} ->
-                    S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S1),
-                    pull_now(Session#{s := S});
+                {ok, Session} ->
+                    pull_now(Session);
                 {{error, unrecoverable, Reason}, SRS, Session} ->
                     fill_inflight(
                         skip_batch(StreamKey, SRS, Session, ClientInfo, Reason),
@@ -1372,9 +1317,8 @@ find_ready_stream(S, BufferIterator0) ->
             none
     end.
 
-%% @doc Move batches from a specified stream from the buffer to the
-%% inflight.
--spec move_to_inflight(
+%% @doc Move batches from a specified stream's buffer to the inflight.
+-spec drain_buffer(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
     emqx_persistent_session_ds_stream_scheduler:stream_state(),
     session(),
@@ -1382,58 +1326,76 @@ find_ready_stream(S, BufferIterator0) ->
 ) ->
     {ok, stream_state(), session()}
     | emqx_ds:error(_)
-    | {ignore, undefined, session()}.
-move_to_inflight(StreamKey, SRS0, Session0, ClientInfo) ->
-    BatchSize = get_config(ClientInfo, [batch_size]),
-    #{buffer := Buf, s := S0} = Session0,
-    {SRS1, SubState} = maybe_update_sub_state_id(SRS0, S0),
-    move_to_inflight(false, BatchSize, Session0, ClientInfo, StreamKey, SRS1, SubState, Buf).
-
--spec move_to_inflight(
-    boolean(),
-    non_neg_integer(),
-    session(),
-    clientinfo(),
-    emqx_persistent_session_ds_stream_scheduler:stream_key(),
-    emqx_persistent_session_ds_stream_scheduler:stream_state(),
-    emqx_persistent_session_ds_subs:subscription_state(),
-    emqx_persistent_session_ds_buffer:t()
+    | {ignore, session()}.
+drain_buffer(
+    StreamKey,
+    SRS0 = #srs{it_end = NewItBegin},
+    Session0 = #{s := S0, buffer := Buf, inflight := Inflight},
+    ClientInfo
 ) ->
-    {ok, stream_state(), session()}
-    | emqx_ds:error(_)
-    | {ignore, undefined, session()}.
-move_to_inflight(AppendToSRS, BatchSize, Session0, ClientInfo, StreamKey, SRS0, SubState, Buf0) ->
-    #{stream_scheduler_s := SchedS, inflight := Inflight} = Session0,
-    %% FIXME: replace 0 with BatchSize
-    IsFull = emqx_persistent_session_ds_inflight:n_buffered(all, Inflight) >= 0,
-    #srs{it_begin = ItBegin} = SRS0,
+    %% Refresh subscription state:
+    SNQ1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
+    SNQ2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0),
+    SRS1 = SRS0#srs{
+        it_begin = NewItBegin,
+        it_end = NewItBegin,
+        batch_size = 0,
+        first_seqno_qos1 = SNQ1,
+        last_seqno_qos1 = SNQ1,
+        first_seqno_qos2 = SNQ2,
+        last_seqno_qos2 = SNQ2
+    },
+    {SRS, SubState} = maybe_update_sub_state_id(SRS1, S0),
+    %% Drain the buffer:
+    {ok, do_drain_buffer(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight)}.
+
+do_drain_buffer(
+    StreamKey,
+    SRS0 = #srs{batch_size = BatchSize, last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
+    SubState,
+    Session0 = #{s := S0, stream_scheduler_s := SchedS},
+    ClientInfo,
+    Buf0,
+    Inflight0
+) ->
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
-        {[#poll_reply{seqno = SeqNo, payload = Payload}], Buf} when not IsFull ->
+        {[#poll_reply{seqno = SeqNo, payload = {ok, It, Batch}}], Buf} ->
             %% Note: here SeqNo refers to DS subscription seqno, not
             %% to be confused with any of the MQTT session seqnos.
             emqx_persistent_session_ds_stream_scheduler:suback(StreamKey, SeqNo, SchedS),
-            Res = enqueue_batch(
-                false,
-                AppendToSRS,
-                Session0,
-                ClientInfo,
-                StreamKey,
-                SRS0,
-                SubState,
-                ItBegin,
-                Payload
-            ),
-            case Res of
-                {ok, SRS, Session} ->
-                    %% Keep moving data from the stream to inflight.
-                    move_to_inflight(
-                        true, BatchSize, Session, ClientInfo, StreamKey, SRS, SubState, Buf
-                    );
-                _ ->
-                    Res
-            end;
-        _ ->
-            {ok, SRS0, Session0#{buffer := Buf0}}
+            {Inflight, LastSeqnoQos1, LastSeqnoQos2} =
+                process_batch(
+                    false,
+                    Session0,
+                    SubState,
+                    ClientInfo,
+                    SNQ1,
+                    SNQ2,
+                    Batch,
+                    Inflight0
+                ),
+            SRS = SRS0#srs{
+                it_end = It,
+                batch_size = BatchSize + length(Batch),
+                last_seqno_qos1 = LastSeqnoQos1,
+                last_seqno_qos2 = LastSeqnoQos2
+            },
+            do_drain_buffer(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight);
+        {Other, Buf} ->
+            %% Drained all buffered batches for the stream:
+            SRS = case Other of
+                      [] ->
+                          SRS0;
+                      [{ok, end_of_stream}] ->
+                          SRS0#srs{it_end = end_of_stream};
+                      [{error, unrecoverable, _Reason}] ->
+                          SRS0#srs{it_end = end_of_stream}
+                  end,
+            S1 = put_next(?next(?QOS_1), SNQ1, S0),
+            S2 = put_next(?next(?QOS_2), SNQ2, S1),
+            S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S2),
+            Session = Session0#{s := S, inflight := Inflight0, buffer := Buf},
+            on_enqueue(false, StreamKey, SRS, Session)
     end.
 
 %%--------------------------------------------------------------------------------
@@ -1512,8 +1474,8 @@ bump_interval() ->
 commit_interval() ->
     bump_interval().
 
-get_config(#{zone := Zone}, Key) ->
-    emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
+%% get_config(#{zone := Zone}, Key) ->
+%%     emqx_config:get_zone_conf(Zone, [durable_sessions | Key]).
 
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.

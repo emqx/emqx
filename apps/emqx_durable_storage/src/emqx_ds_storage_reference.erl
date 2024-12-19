@@ -265,18 +265,20 @@ message_matcher(_Shard, _S, #it{
         MsgKey > LSK andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
     end.
 
-batch_events(_Shard, _, Messages) ->
-    Topics = lists:foldl(
-        fun
-            ({_TS, #message{topic = Topic}}, Acc) ->
-                Acc#{Topic => 1};
-            ({delete, _Msg}, Acc) ->
-                Acc
-        end,
-        #{},
-        Messages
-    ),
-    [{#stream{}, T} || T <- maps:keys(Topics)].
+batch_events(_Shard, _, _Messages) ->
+    %% FIXME:
+    [#stream{}].
+%% Topics = lists:foldl(
+%%     fun
+%%         ({_TS, #message{topic = Topic}}, Acc) ->
+%%             Acc#{Topic => 1};
+%%         ({delete, _Msg}, Acc) ->
+%%             Acc
+%%     end,
+%%     #{},
+%%     Messages
+%% ),
+%% [#stream{} || T <- maps:keys(Topics)].
 
 %%================================================================================
 %% Internal functions
