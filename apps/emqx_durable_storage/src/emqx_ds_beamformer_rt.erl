@@ -133,15 +133,15 @@ handle_cast(#seal_event{rank = Rank}, S = #s{queue = Queue}) ->
     %% for each known stream that has the matching rank:
     Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
     logger:warning(#{rank => Rank, streams => Streams, q => ets:tab2list(Queue)}),
-    [process_stream_event(Stream, S) || Stream <- Streams],
+    [process_stream_event(false, Stream, S) || Stream <- Streams],
     {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
     ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
-    %% FIXME: make a proper stream wrapper
+    %% FIXME: make a proper event wrapper
     Stream = Event,
     case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
         true ->
-            process_stream_event(Stream, S);
+            process_stream_event(true, Stream, S);
         false ->
             %% Even if we don't have any poll requests for the stream,
             %% it's still necessary to update the high watermark to
@@ -223,6 +223,7 @@ do_enqueue(
     end.
 
 process_stream_event(
+    _RetryOnEmpty,
     Stream,
     S = #s{
         shard = DBShard,
@@ -252,7 +253,7 @@ process_stream_event(
             ),
             process_batch(Stream, LastKey, Batch, S, Beams),
             set_high_watermark(Stream, LastKey, S),
-            process_stream_event(Stream, S);
+            process_stream_event(false, Stream, S);
         {error, recoverable, _Err} ->
             %% FIXME:
             exit(retry);
