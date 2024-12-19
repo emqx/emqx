@@ -1,6 +1,6 @@
 {application, emqx_license, [
     {description, "EMQX License"},
-    {vsn, "5.1.2"},
+    {vsn, "5.1.3"},
     {modules, []},
     {registered, [emqx_license_sup]},
     {applications, [kernel, stdlib, emqx_ctl, emqx_gateway]},
