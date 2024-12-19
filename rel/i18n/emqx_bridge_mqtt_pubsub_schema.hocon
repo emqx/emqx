@@ -19,4 +19,9 @@ emqx_bridge_mqtt_pubsub_schema {
   mqtt_subscriber_source.label:
   """Source"""
 
+  source_no_local.label:
+  """No Local"""
+  source_no_local.desc:
+  """Whether to set the no-local flag when subscribing to the remote topic.  If set to true, and you use the same connector to publish messages to a topic you also subscribe to, this prevents the server from forwarding your own published messages back to you.  Only takes effect when using MQTT protocol version 5.  Note that if you use a pool of workers larger than 1 you will still receive duplicated messages back."""
+
 }
