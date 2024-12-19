@@ -214,7 +214,10 @@ connector_resource_id(Config) ->
     emqx_bridge_mqtt_v2_publisher_SUITE:connector_resource_id(Config).
 
 create_source_api(Config) ->
-    emqx_bridge_v2_testlib:create_source_api(Config).
+    create_source_api(Config, _Overrides = #{}).
+
+create_source_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:create_source_api(Config, Overrides).
 
 get_source_api(Config) ->
     #{
@@ -398,7 +401,6 @@ t_connect_with_more_clients_than_the_broker_accepts(Config) ->
     ok.
 
 t_static_clientids(Config) ->
-    ConnectorName = ?config(connector_name, Config),
     [N1, N2, N3] = Nodes = ?config(nodes, Config),
     [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
     Port = get_tcp_mqtt_port(N1),
@@ -544,4 +546,66 @@ t_static_clientids(Config) ->
         )
     ),
 
+    ok.
+
+%% Checks that we're able to set the no-local `nl' flag when subscribing.
+t_no_local(Config) ->
+    ConnectorName = ?config(connector_name, Config),
+    %% Only 1 worker to avoid the other workers multiplying the message.
+    {201, _} = create_connector_api(Config, #{
+        <<"pool_size">> => 1
+    }),
+    {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        create_source_api(Config, #{
+            <<"parameters">> => #{
+                <<"no_local">> => true
+            }
+        }),
+    %% Must be the same topic
+    ActionParams = [
+        {action_name, <<"t_no_local">>},
+        {action_type, <<"mqtt">>},
+        {action_config,
+            emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
+                <<"connector">> => ConnectorName
+            })}
+    ],
+    {201, #{<<"parameters">> := #{<<"topic">> := RemoteTopic}}} =
+        emqx_bridge_mqtt_v2_publisher_SUITE:create_action_api(ActionParams, _Overrides = #{}),
+
+    RuleTopicPublisher = <<"publisher/t">>,
+    {ok, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_rule_and_action_http(
+        ActionParams, RuleTopicPublisher, #{}
+    ),
+    RuleTopicSubscriber = <<"subscriber/t">>,
+    {ok, _} = create_rule_and_action_http(Config, #{
+        sql => iolist_to_binary(
+            io_lib:format(
+                "select * from \"~s\"",
+                [hookpoint(Config)]
+            )
+        ),
+        overrides => #{
+            actions => [
+                #{
+                    <<"function">> => <<"republish">>,
+                    <<"args">> =>
+                        #{
+                            <<"topic">> => RuleTopicSubscriber,
+                            <<"payload">> => <<>>,
+                            <<"qos">> => 1,
+                            <<"retain">> => false
+                        }
+                }
+            ]
+        }
+    }),
+    %% Should not receive own messages echoed back.
+    ok = emqx:subscribe(RuleTopicSubscriber, #{qos => ?QOS_1, nl => 1}),
+    %% Should receive only 1 message copy.
+    ok = emqx:subscribe(RemoteTopic),
+    emqx:publish(emqx_message:make(<<"external_client">>, ?QOS_1, RuleTopicPublisher, <<"hey">>)),
+    ?assertReceive({deliver, RemoteTopic, _}),
+    ?assertNotReceive({deliver, RemoteTopic, _}),
+    ?assertNotReceive({deliver, RuleTopicSubscriber, _}),
     ok.
