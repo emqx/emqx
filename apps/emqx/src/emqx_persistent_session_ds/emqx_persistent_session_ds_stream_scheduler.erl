@@ -362,78 +362,38 @@ suback(StreamKey, SeqNo, #s{subs = Subs}) ->
     #{StreamKey := #stream_sub{ref = Ref}} = Subs,
     emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo).
 
-%% -spec on_ds_reply(#poll_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
-%%     {{stream_key(), emqx_ds:iterator(), emqx_ds:next_result()} | undefined, t()}.
-%% on_ds_reply(#poll_reply{ref = Ref, payload = poll_timeout}, S, SchedS0 = #s{pending = P0}) ->
-%%     %% Poll request has timed out. All pending streams that match poll
-%%     %% reference can be moved to R state:
-%%     ?SLOG(debug, #{msg => sess_poll_timeout, ref => Ref}),
-%%     unalias(Ref),
-%%     SchedS = maps:fold(
-%%         fun(Key, #pending_poll{ref = R}, SchedS1 = #s{pending = P}) ->
-%%             case R =:= Ref of
-%%                 true ->
-%%                     SchedS2 = SchedS1#s{pending = maps:remove(Key, P)},
-%%                     case emqx_persistent_session_ds_state:get_stream(Key, S) of
-%%                         undefined ->
-%%                             SchedS2;
-%%                         Srs ->
-%%                             to_RU(Key, Srs, SchedS2)
-%%                     end;
-%%                 false ->
-%%                     SchedS1
-%%             end
-%%         end,
-%%         SchedS0,
-%%         P0
-%%     ),
-%%     {undefined, SchedS};
-%% on_ds_reply(
-%%     #poll_reply{ref = Ref, userdata = StreamKey, payload = Payload},
-%%     _S,
-%%     SchedS0 = #s{pending = Pending0}
-%% ) ->
-%%     case maps:take(StreamKey, Pending0) of
-%%         {#pending_poll{ref = Ref, it_begin = ItBegin}, Pending} ->
-%%             ?tp(debug, ?sessds_poll_reply, #{ref => Ref, stream_key => StreamKey}),
-%%             SchedS = SchedS0#s{pending = Pending},
-%%             {{StreamKey, ItBegin, Payload}, to_S(StreamKey, SchedS)};
-%%         _ ->
-%%             ?SLOG(
-%%                 info,
-%%                 #{
-%%                     msg => "sessds_unexpected_msg",
-%%                     userdata => StreamKey,
-%%                     ref => Ref
-%%                 }
-%%             ),
-%%             {undefined, SchedS0}
-%%     end.
-
 -spec on_enqueue(
     _IsReplay :: boolean(), stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()
 ) ->
     ret().
-on_enqueue(true, _Key, _Srs, S, SchedS) ->
+on_enqueue(true, _Key, _SRS, S, SchedS) ->
     {[], S, SchedS};
-on_enqueue(false, Key, Srs, S0, SchedS) ->
+on_enqueue(false, Key, SRS, S0, SchedS0) ->
+    %% Drop DS subscription when encounter end_of_stream:
+    SchedS = case SRS of
+                 #srs{it_end = end_of_stream} ->
+                     ds_unsubscribe(Key, SchedS0);
+                 _ ->
+                     SchedS0
+             end,
+    %% Is the stream blocked?
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
-    case derive_state(Comm1, Comm2, Srs) of
+    case derive_state(Comm1, Comm2, SRS) of
         r ->
-            {[Key], S0, to_RU(Key, Srs, SchedS)};
+            {[Key], S0, to_RU(Key, SRS, SchedS)};
         bq1 ->
-            {[], S0, to_BQ1(Key, Srs, SchedS)};
+            {[], S0, to_BQ1(Key, SRS, SchedS)};
         bq2 ->
-            {[], S0, to_BQ2(Key, Srs, SchedS)};
+            {[], S0, to_BQ2(Key, SRS, SchedS)};
         bq12 ->
-            {[], S0, to_BQ12(Key, Srs, SchedS)};
+            {[], S0, to_BQ12(Key, SRS, SchedS)};
         u ->
             %% Handle a special case: session just enqueued the last
             %% batch at the end of a stream, that contained only QoS0
-            %% messages. Since no acks will be received from now on,
-            %% we should attempt to advance generation now:
-            unblock_stream(Key, Srs, S0, SchedS)
+            %% messages. Since no acks are expected for this batch, we
+            %% should attempt to advance generation now:
+            unblock_stream(Key, SRS, S0, SchedS)
     end.
 
 -spec on_seqno_release(
