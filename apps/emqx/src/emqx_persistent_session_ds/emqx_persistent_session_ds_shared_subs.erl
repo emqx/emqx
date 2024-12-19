@@ -284,7 +284,7 @@ on_unsubscribe(
             }),
             SharedSubS1 = SharedSubS0#{subscriptions => Subscriptions1},
             {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                SubId, S1, SchedS0
+                ShareTopicFilter, SubId, S1, SchedS0
             ),
             {S, SharedSubS} = on_streams_gc(S2, SharedSubS1),
             {ok, S, SchedS, SharedSubS, Sub}
@@ -597,9 +597,9 @@ add_stream_to_session(
                 stream => Stream,
                 sub_id => SubId
             }),
-            S = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
-            {_, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-                _IsReplay = false, Key, NewSRS, S, SchedS0
+            S1 = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
+            {_NewStreamIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+                _IsReplay = false, Key, NewSRS, S1, SchedS0
             ),
             {S, SchedS};
         false ->
