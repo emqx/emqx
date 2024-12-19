@@ -411,7 +411,7 @@ msgs2frame(Messages, Channel) ->
                         Channel
                     ),
                     false;
-                {error, Reason} ->
+                {error, _Reason} ->
                     tp(
                         error,
                         invalid_dl_message,
