@@ -447,7 +447,7 @@ t_subscription_state_change(Config) ->
     %% collection. In the current implementation it happens before
     %% session state is synced to the DB:
     WaitGC = fun() ->
-        emqx_persistent_session_ds:sync(ClientId)
+        erpc:call(Node1, emqx_persistent_session_ds, sync, [ClientId])
     end,
     %% Helper function that gets runtime state of the session:
     GetS = fun() ->
@@ -473,7 +473,7 @@ t_subscription_state_change(Config) ->
             %% to happen. At which point the session should keep 2
             %% subscription states, one being marked as obsolete:
             {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_2),
-            WaitGC(),
+            ok = WaitGC(),
             #{subscriptions := Subs2, subscription_states := SStates2} = GetS(),
             #{TopicFilter := #{current_state := SSID2}} = Subs2,
             ?assertNotEqual(SSID1, SSID2),
@@ -492,7 +492,7 @@ t_subscription_state_change(Config) ->
             %% Verify that QoS of subscription has been updated:
             [#{packet_id := _PI2, qos := ?QOS_2, topic := <<"t/1">>, payload := <<"2">>}] =
                 emqx_common_test_helpers:wait_publishes(1, 5_000),
-            WaitGC(),
+            ok = WaitGC(),
             #{subscriptions := Subs3, subscription_states := SStates3, streams := Streams3} = GetS(),
             ?assertEqual(Subs3, Subs2),
             %% Verify that the old substate (SSID1) was deleted:
@@ -500,6 +500,7 @@ t_subscription_state_change(Config) ->
                 [{SSID2, _}],
                 maps:to_list(SStates3),
                 #{
+                    subs => Subs3,
                     streams => Streams3,
                     ssid1 => SSID1,
                     ssid2 => SSID2,
