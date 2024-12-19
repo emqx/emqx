@@ -794,6 +794,9 @@ handle_result({error, {unrecoverable_error, _Error}} = Res) ->
     Res;
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
+handle_result({error, #{reason := bad_param} = Context}) ->
+    ?tp("postgres_bad_param_error", #{context => Context}),
+    {error, {unrecoverable_error, Context}};
 handle_result({error, Error}) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};
