@@ -670,10 +670,6 @@ handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     {ok, [], ensure_state_commit_timer(Session)};
 handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
     {ok, [], commit(Session)};
-handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
-    Session = commit(Session0),
-    From ! Ref,
-    {ok, [], Session};
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
 handle_timeout(_ClientInfo, Timeout, Session) ->
@@ -709,6 +705,10 @@ handle_info(
         Ref, S0, SchedS0
     ),
     pull_now(Session#{s := S, stream_scheduler_s := SchedS});
+handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
+    Session = commit(Session0),
+    From ! Ref,
+    Session;
 handle_info(Msg, Session, _ClientInfo) ->
     ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
     Session.
@@ -782,13 +782,7 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
                     Inflight0
                 ),
             check_replay_consistency(
-                StreamKey,
-                SRS,
-                ItEnd,
-                Batch,
-                LastSeqnoQos1,
-                LastSeqnoQos2,
-                Session0
+                StreamKey, SRS, ItEnd, Batch, LastSeqnoQos1, LastSeqnoQos2, Session0
             ),
             Session = on_enqueue(true, StreamKey, SRS, Session0#{inflight := Inflight}),
             {ok, SRS, Session};
@@ -798,9 +792,8 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
 
 check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqnoQos2, Session) ->
     #srs{last_seqno_qos1 = EQ1, last_seqno_qos2 = EQ2, batch_size = EBS} = SRS,
-    %% FIXME: also check the end iterator. Currently there are bogus
-    %% replay inconsistency warnings that happen because
-    %% `end_iterator' returned by `scan_stream' (a call used by
+    %% TODO: Also check the end iterator? This is currently impossible
+    %% because iterator returned by `scan_stream' (a call used by
     %% beamformer) and the end iterator of `next' (a call used during
     %% replay) may point at different keys. Namely, `scan_stream'
     %% returns key at the tip of the combined batch, and `next'
@@ -840,9 +833,6 @@ on_enqueue(
         S1, SharedSubS0, ReadyStreams
     ),
     Session#{s := S, stream_scheduler_s := SchedS, shared_sub_s := SharedSubS}.
-
-on_stream_end(_StreamKey, _SRS, _Result, Session) ->
-    Session.
 
 %% Handle `{error, unrecoverable, _}' returned by `enqueue_batch'.
 %% Most likely they mean that the generation containing the messages
@@ -957,18 +947,20 @@ create_tables() ->
 %% END ifndef(STORE_STATE_IN_DS).
 -endif.
 
-%% @doc Force syncing of the transient state to persistent storage
+%% @doc Force commit of the transient state to persistent storage
 sync(ClientId) ->
     case emqx_cm:lookup_channels(ClientId) of
         [Pid] ->
             Ref = monitor(process, Pid),
-            Pid ! {emqx_session, #req_sync{from = self(), ref = Ref}},
+            Pid ! #req_sync{from = self(), ref = Ref},
             receive
                 {'DOWN', Ref, process, _Pid, Reason} ->
                     {error, Reason};
                 Ref ->
                     demonitor(Ref, [flush]),
                     ok
+            after 5000 ->
+                    {error, timeout}
             end;
         [] ->
             {error, noproc}
@@ -1108,6 +1100,7 @@ handle_ds_reply(
         true ->
             Session;
         false ->
+            %% TODO: check inflow size to avoid growing it infinitely
             fill_inflight(Session, ClientInfo)
     end.
 
@@ -1383,14 +1376,15 @@ do_drain_buffer(
             do_drain_buffer(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight);
         {Other, Buf} ->
             %% Drained all buffered batches for the stream:
-            SRS = case Other of
-                      [] ->
-                          SRS0;
-                      [{ok, end_of_stream}] ->
-                          SRS0#srs{it_end = end_of_stream};
-                      [{error, unrecoverable, _Reason}] ->
-                          SRS0#srs{it_end = end_of_stream}
-                  end,
+            SRS =
+                case Other of
+                    [] ->
+                        SRS0;
+                    [{ok, end_of_stream}] ->
+                        SRS0#srs{it_end = end_of_stream};
+                    [{error, unrecoverable, _Reason}] ->
+                        SRS0#srs{it_end = end_of_stream}
+                end,
             S1 = put_next(?next(?QOS_1), SNQ1, S0),
             S2 = put_next(?next(?QOS_2), SNQ2, S1),
             S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S2),
