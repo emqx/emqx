@@ -54,8 +54,6 @@
 -endif.
 
 -define(update, update).
--define(mnesia_tm_high_watermark, 50).
--define(broker_pool_max_high_watermark, 100).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -130,10 +128,10 @@ handle_update(State) ->
     ok.
 
 toggle_alarm(?mnesia_tm_mailbox, MailboxSize) ->
-    Name = <<"mnesia_tm_mailbox_overload">>,
+    Name = <<"mnesia_transaction_manager_overload">>,
     Details = #{mailbox_size => MailboxSize},
     Message = [<<"mnesia overloaded; mailbox size: ">>, integer_to_binary(MailboxSize)],
-    case MailboxSize > ?mnesia_tm_high_watermark of
+    case MailboxSize > mnesia_tm_threshold() of
         true ->
             _ = emqx_alarm:activate(Name, Details, Message),
             ok;
@@ -142,10 +140,10 @@ toggle_alarm(?mnesia_tm_mailbox, MailboxSize) ->
             ok
     end;
 toggle_alarm(?broker_pool_max_mailbox, MailboxSize) ->
-    Name = <<"broker_pool_mailbox_overload">>,
+    Name = <<"broker_pool_overload">>,
     Details = #{mailbox_size => MailboxSize},
     Message = [<<"broker pool overloaded; mailbox size: ">>, integer_to_binary(MailboxSize)],
-    case MailboxSize > ?broker_pool_max_high_watermark of
+    case MailboxSize > broker_pool_threshold() of
         true ->
             _ = emqx_alarm:activate(Name, Details, Message),
             ok;
@@ -209,3 +207,9 @@ read_broker_pool_max_mailbox_size() ->
 start_update_timer() ->
     _ = emqx_utils:start_timer(?UPDATE_INTERVAL_MS, ?update),
     ok.
+
+mnesia_tm_threshold() ->
+    emqx_config:get([sysmon, mnesia_tm_mailbox_threshold]).
+
+broker_pool_threshold() ->
+    emqx_config:get([sysmon, broker_pool_mailbox_threshold]).

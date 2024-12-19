@@ -1453,6 +1453,22 @@ fields("sysmon") ->
                 %% Userful monitoring solution when benchmarking,
                 %% but hardly common enough for regular users.
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {"mnesia_tm_mailbox_threshold",
+            sc(
+                pos_integer(),
+                #{
+                    default => 500,
+                    desc => ?DESC("sysmon_mnesia_tm_mailbox_threshold")
+                }
+            )},
+        {"broker_pool_mailbox_threshold",
+            sc(
+                pos_integer(),
+                #{
+                    default => 500,
+                    desc => ?DESC("sysmon_broker_pool_mailbox_threshold")
+                }
             )}
     ];
 fields("sysmon_vm") ->

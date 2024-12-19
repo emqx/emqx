@@ -25,8 +25,8 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(mnesia_tm_high_watermark, 50).
--define(broker_pool_max_high_watermark, 100).
+-define(mnesia_tm_mailbox_threshold, 50).
+-define(broker_pool_max_threshold, 100).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -38,7 +38,17 @@ all() ->
 init_per_suite(Config) ->
     persistent_term:put({emqx_broker_mon, update_interval}, 100),
     Apps = emqx_cth_suite:start(
-        [emqx],
+        [
+            {emqx, #{
+                config =>
+                    #{
+                        <<"sysmon">> => #{
+                            <<"mnesia_tm_mailbox_threshold">> => ?mnesia_tm_mailbox_threshold,
+                            <<"broker_pool_mailbox_threshold">> => ?broker_pool_max_threshold
+                        }
+                    }
+            }}
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -80,7 +90,7 @@ t_mnesia_tm_overload(_Config) ->
     on_exit(fun() -> sys:resume(mnesia_tm) end),
     ct:pal("suspending mnesia_tm"),
     ok = sys:suspend(mnesia_tm),
-    send_messages(mnesia_tm, ?mnesia_tm_high_watermark),
+    send_messages(mnesia_tm, ?mnesia_tm_mailbox_threshold),
     %% Note: we expect the sent messages _or more_ here because any other process that
     %% tries to interact with mnesia concurrently will also make more messages appear in
     %% `mnesia_tm''s mailbox...
@@ -88,7 +98,7 @@ t_mnesia_tm_overload(_Config) ->
         100,
         5,
         ?assert(
-            ?mnesia_tm_high_watermark =< emqx_broker_mon:get_mnesia_tm_mailbox_size(),
+            ?mnesia_tm_mailbox_threshold =< emqx_broker_mon:get_mnesia_tm_mailbox_size(),
             #{mailbox => process_info(whereis(mnesia_tm), messages)}
         )
     ),
@@ -99,7 +109,7 @@ t_mnesia_tm_overload(_Config) ->
         100,
         5,
         ?assert(
-            ?mnesia_tm_high_watermark < emqx_broker_mon:get_mnesia_tm_mailbox_size(),
+            ?mnesia_tm_mailbox_threshold < emqx_broker_mon:get_mnesia_tm_mailbox_size(),
             #{mailbox => process_info(whereis(mnesia_tm), messages)}
         )
     ),
@@ -112,7 +122,7 @@ t_mnesia_tm_overload(_Config) ->
             [
                 #{
                     message := <<"mnesia overloaded; mailbox size: ", _/binary>>,
-                    name := <<"mnesia_tm_mailbox_overload">>,
+                    name := <<"mnesia_transaction_manager_overload">>,
                     details := #{mailbox_size := _}
                 }
             ],
@@ -145,7 +155,7 @@ t_broker_pool_overload(_Config) ->
         5,
         ?assertEqual(length(WorkerPids), emqx_broker_mon:get_broker_pool_max_mailbox_size())
     ),
-    MessagesUntilHighWatermark = ?broker_pool_max_high_watermark - length(WorkerPids),
+    MessagesUntilHighWatermark = ?broker_pool_max_threshold - length(WorkerPids),
     case MessagesUntilHighWatermark > 0 of
         false ->
             ok;
@@ -156,7 +166,7 @@ t_broker_pool_overload(_Config) ->
         100,
         5,
         ?assertEqual(
-            ?broker_pool_max_high_watermark + 1,
+            ?broker_pool_max_threshold + 1,
             emqx_broker_mon:get_broker_pool_max_mailbox_size()
         )
     ),
@@ -167,7 +177,7 @@ t_broker_pool_overload(_Config) ->
             [
                 #{
                     message := <<"broker pool overloaded; mailbox size: ", _/binary>>,
-                    name := <<"broker_pool_mailbox_overload">>,
+                    name := <<"broker_pool_overload">>,
                     details := #{mailbox_size := _}
                 }
             ],
