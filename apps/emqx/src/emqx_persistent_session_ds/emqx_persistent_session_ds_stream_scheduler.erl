@@ -315,40 +315,6 @@ find_replay_streams(S) ->
     ),
     lists:sort(fun compare_streams/2, Streams).
 
-%% %% @doc Send poll request to DS for all iterators that are currently
-%% %% in ready state.
-%% -spec poll(emqx_ds:poll_opts(), t(), emqx_persistent_session_ds_state:t()) -> t().
-%% poll(PollOpts0, SchedS0 = #s{ready = Ready}, S) ->
-%%     %% Create an alias for replies:
-%%     Ref = alias([explicit_unalias]),
-%%     %% Scan ready streams and create poll requests:
-%%     {Iterators, SchedS} = fold_ready(
-%%         fun(StreamKey, {AccIt, SchedS1}) ->
-%%             SRS = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-%%             It = {StreamKey, SRS#srs.it_end},
-%%             Pending = #pending_poll{ref = Ref, it_begin = SRS#srs.it_begin},
-%%             {
-%%                 [It | AccIt],
-%%                 to_P(StreamKey, Pending, SchedS1)
-%%             }
-%%         end,
-%%         {[], SchedS0},
-%%         Ready
-%%     ),
-%%     case Iterators of
-%%         [] ->
-%%             %% Nothing to poll:
-%%             unalias(Ref),
-%%             ok;
-%%         _ ->
-%%             %% Send poll request:
-%%             PollOpts = PollOpts0#{reply_to => Ref},
-%%             {ok, Ref} = emqx_ds:poll(?PERSISTENT_MESSAGE_DB, Iterators, PollOpts),
-%%             ok
-%%     end,
-%%     %% Clean ready bucket at once, since we poll all ready streams at once:
-%%     SchedS#s{ready = empty_ready()}.
-
 %% @doc DS notified us about new streams.
 -spec on_new_stream_event(emqx_ds_new_streams:watch(), emqx_persistent_session_ds_state:t(), t()) ->
     ret().
