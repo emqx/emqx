@@ -4,6 +4,8 @@
 
 -module(emqx_ds_shared_sub_registry).
 
+-include("emqx_ds_shared_sub_proto.hrl").
+
 %% API
 -export([
     start_link/0,
@@ -11,7 +13,7 @@
 ]).
 
 -export([
-    leader_wanted/3,
+    leader_wanted/2,
     start_elector/1
 ]).
 
@@ -41,13 +43,14 @@ child_spec() ->
     }.
 
 -spec leader_wanted(
-    emqx_ds_shared_sub_proto:agent(),
-    emqx_ds_shared_sub_proto:agent_metadata(),
+    emqx_ds_shared_sub_proto:ssubscriber_id(),
     emqx_persistent_session_ds:share_topic_filter()
 ) -> ok.
-leader_wanted(Agent, AgentMetadata, ShareTopic) ->
+leader_wanted(SSubscriberId, ShareTopic) ->
     {ok, Pid} = ensure_elector_started(ShareTopic),
-    emqx_ds_shared_sub_proto:agent_connect_leader(Pid, Agent, AgentMetadata, ShareTopic).
+    emqx_ds_shared_sub_proto:send_to_leader(Pid, ?ssubscriber_connect(SSubscriberId, ShareTopic)).
+
+% ShareTopic, ?ssubscriber_connect_match(SSubscriberId)).
 
 -spec ensure_elector_started(emqx_persistent_session_ds:share_topic_filter()) ->
     {ok, pid()}.

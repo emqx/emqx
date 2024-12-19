@@ -25,6 +25,7 @@
     load/0,
     unload/0,
     get/1,
+    get/2,
     enabled/0
 ]).
 
@@ -45,6 +46,12 @@ get(Name) when is_atom(Name) ->
     emqx_config:get([durable_queues, Name]);
 get(Name) when is_list(Name) ->
     emqx_config:get([durable_queues | Name]).
+
+-spec get(atom() | [atom()], term()) -> term().
+get(Name, Default) when is_atom(Name) ->
+    emqx_config:get([durable_queues, Name], Default);
+get(Name, Default) when is_list(Name) ->
+    emqx_config:get([durable_queues | Name], Default).
 
 -spec enabled() -> boolean().
 enabled() ->
