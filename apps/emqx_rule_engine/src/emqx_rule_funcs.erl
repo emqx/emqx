@@ -712,12 +712,12 @@ do_get_subbits(Bits, Sz, Len, <<"bits">>, <<"signed">>, <<"little">>) ->
 str(Data) ->
     emqx_utils_conv:bin(Data).
 
-str_utf8(Data) when is_binary(Data); is_list(Data) ->
+str_utf8(Data) when is_binary(Data) ->
     unicode:characters_to_binary(Data);
 str_utf8(Data) ->
     unicode:characters_to_binary(str(Data)).
 
-str_utf16_le(Data) when is_binary(Data); is_list(Data) ->
+str_utf16_le(Data) when is_binary(Data) ->
     unicode:characters_to_binary(Data, utf8, {utf16, little});
 str_utf16_le(Data) ->
     unicode:characters_to_binary(str(Data), utf8, {utf16, little}).
