@@ -1454,20 +1454,20 @@ fields("sysmon") ->
                 %% but hardly common enough for regular users.
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
-        {"mnesia_tm_mailbox_threshold",
+        {"mnesia_tm_mailbox_size_alarm_threshold",
             sc(
                 pos_integer(),
                 #{
                     default => 500,
-                    desc => ?DESC("sysmon_mnesia_tm_mailbox_threshold")
+                    desc => ?DESC("sysmon_mnesia_tm_mailbox_size_alarm_threshold")
                 }
             )},
-        {"broker_pool_mailbox_threshold",
+        {"broker_pool_mailbox_size_alarm_threshold",
             sc(
                 pos_integer(),
                 #{
                     default => 500,
-                    desc => ?DESC("sysmon_broker_pool_mailbox_threshold")
+                    desc => ?DESC("sysmon_broker_pool_mailbox_size_alarm_threshold")
                 }
             )}
     ];

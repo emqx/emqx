@@ -25,7 +25,7 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(mnesia_tm_mailbox_threshold, 50).
+-define(mnesia_tm_mailbox_size_alarm_threshold, 50).
 -define(broker_pool_max_threshold, 100).
 
 %%------------------------------------------------------------------------------
@@ -43,8 +43,8 @@ init_per_suite(Config) ->
                 config =>
                     #{
                         <<"sysmon">> => #{
-                            <<"mnesia_tm_mailbox_threshold">> => ?mnesia_tm_mailbox_threshold,
-                            <<"broker_pool_mailbox_threshold">> => ?broker_pool_max_threshold
+                            <<"mnesia_tm_mailbox_size_alarm_threshold">> => ?mnesia_tm_mailbox_size_alarm_threshold,
+                            <<"broker_pool_mailbox_size_alarm_threshold">> => ?broker_pool_max_threshold
                         }
                     }
             }}
@@ -90,7 +90,7 @@ t_mnesia_tm_overload(_Config) ->
     on_exit(fun() -> sys:resume(mnesia_tm) end),
     ct:pal("suspending mnesia_tm"),
     ok = sys:suspend(mnesia_tm),
-    send_messages(mnesia_tm, ?mnesia_tm_mailbox_threshold),
+    send_messages(mnesia_tm, ?mnesia_tm_mailbox_size_alarm_threshold),
     %% Note: we expect the sent messages _or more_ here because any other process that
     %% tries to interact with mnesia concurrently will also make more messages appear in
     %% `mnesia_tm''s mailbox...
@@ -98,7 +98,7 @@ t_mnesia_tm_overload(_Config) ->
         100,
         5,
         ?assert(
-            ?mnesia_tm_mailbox_threshold =< emqx_broker_mon:get_mnesia_tm_mailbox_size(),
+            ?mnesia_tm_mailbox_size_alarm_threshold =< emqx_broker_mon:get_mnesia_tm_mailbox_size(),
             #{mailbox => process_info(whereis(mnesia_tm), messages)}
         )
     ),
@@ -109,7 +109,7 @@ t_mnesia_tm_overload(_Config) ->
         100,
         5,
         ?assert(
-            ?mnesia_tm_mailbox_threshold < emqx_broker_mon:get_mnesia_tm_mailbox_size(),
+            ?mnesia_tm_mailbox_size_alarm_threshold < emqx_broker_mon:get_mnesia_tm_mailbox_size(),
             #{mailbox => process_info(whereis(mnesia_tm), messages)}
         )
     ),

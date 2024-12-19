@@ -144,6 +144,7 @@ inet
 inflight
 ini
 init
+intra-cluster
 IoTDB
 ip
 ipv

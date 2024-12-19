@@ -209,7 +209,7 @@ start_update_timer() ->
     ok.
 
 mnesia_tm_threshold() ->
-    emqx_config:get([sysmon, mnesia_tm_mailbox_threshold]).
+    emqx_config:get([sysmon, mnesia_tm_mailbox_size_alarm_threshold]).
 
 broker_pool_threshold() ->
-    emqx_config:get([sysmon, broker_pool_mailbox_threshold]).
+    emqx_config:get([sysmon, broker_pool_mailbox_size_alarm_threshold]).
