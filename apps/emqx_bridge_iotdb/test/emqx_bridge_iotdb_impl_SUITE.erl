@@ -542,32 +542,18 @@ t_device_id(Config) ->
 
 t_template(Config) ->
     %% Create without data  configured
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
-    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
-    ?retry(
-        _Sleep = 1_000,
-        _Attempts = 20,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ?assertMatch(
+        {error, #{reason := empty_array_not_allowed}}, emqx_bridge_v2_testlib:create_bridge(Config)
     ),
+
     TemplateDeviceId = <<"root.deviceWithTemplate">>,
     DeviceId = <<"root.deviceWithoutTemplate">>,
-    Topic = <<"some/random/topic">>,
-    iotdb_reset(Config, DeviceId),
-    iotdb_reset(Config, TemplateDeviceId),
-    Payload1 = make_iotdb_payload(DeviceId, "test", "boolean", true),
-    MessageF1 = make_message_fun(Topic, Payload1),
-
-    is_error_check(
-        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MessageF1()})
-    ),
-
     iotdb_reset(Config, DeviceId),
     iotdb_reset(Config, TemplateDeviceId),
 
     %% reconfigure with data template
     {ok, _} =
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+        emqx_bridge_v2_testlib:create_bridge(Config, #{
             <<"parameters">> => #{
                 <<"device_id">> => TemplateDeviceId,
                 <<"data">> => [
@@ -579,6 +565,12 @@ t_template(Config) ->
                 ]
             }
         }),
+
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    Topic = <<"some/random/topic">>,
+    Payload1 = make_iotdb_payload(DeviceId, "test", "boolean", true),
+    MessageF1 = make_message_fun(Topic, Payload1),
 
     is_success_check(
         emqx_resource:simple_sync_query(ResourceId, {BridgeId, MessageF1()})
