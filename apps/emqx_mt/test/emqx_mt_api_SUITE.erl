@@ -111,6 +111,10 @@ t_list_apis(_Config) ->
         request(get, url("ns_list"), #{})
     ),
     ?assertMatch(
+        {ok, {{_, 200, _}, [Ns]}},
+        request(get, url("ns_list"), #{<<"limit">> => <<"2">>})
+    ),
+    ?assertMatch(
         {ok, {{_, 200, _}, []}},
         request(get, url("ns_list"), #{<<"last_ns">> => Ns, <<"limit">> => <<"1">>})
     ),

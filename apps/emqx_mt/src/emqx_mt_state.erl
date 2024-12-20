@@ -116,10 +116,16 @@ create_tables() ->
 %% The third argument is the number of namespaces to return.
 -spec list_ns(tns(), pos_integer()) -> [tns()].
 list_ns(LastNs, Limit) ->
-    Ms = ets:fun2ms(fun(#?NS_TAB{ns = Ns}) when Ns > LastNs -> Ns end),
-    case ets:select(?NS_TAB, Ms, Limit) of
-        '$end_of_table' -> [];
-        {Nss, _Continuation} -> Nss
+    do_list_ns(LastNs, Limit).
+
+do_list_ns(_LastNs, 0) ->
+    [];
+do_list_ns(LastNs, Limit) ->
+    case ets:next(?NS_TAB, LastNs) of
+        '$end_of_table' ->
+            [];
+        Ns ->
+            [Ns | do_list_ns(Ns, Limit - 1)]
     end.
 
 %% @doc count the number of clients for a given tns.
