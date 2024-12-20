@@ -10,7 +10,7 @@ This app (so far) implements MQTT client multi-tenancy but not yet admin multi-t
 ## Tenant Namespace Extraction (available in Open-Source Edition)
 
 Starting from **EMQX 5.9**, MQTT clients with a client attribute named `tns`
-will be considered a multi-tenant client.
+will be considered a client belonging to the corresponding tenant.
 
 This client attribute assignment is from config `mqtt.client_attrs_init` setting.
 For example:
@@ -59,7 +59,7 @@ with the prefix:
 With all the above building blocks available,
 this application (`emqx_mt`) can focus on providing the following functionalities:
 
-- **Tenant Listing**: Pagenated listing of all tenant namespaces.
+- **Tenant Listing**: Paginated listing of all tenant namespaces.
 - **Live Session Count**: Given a tenant namespace (`tns`),
   quickly retrieve the count of live sessions registered. Due to the nature of asynchronous, the count may not be accurate. For example, when a client is disconnected, the count may not be updated immediately, if the client immediately reconnects, the count may be off by one. When a node restarts, the other nodes in the cluster may take a while to clean up the records, so the count may be off by by many.
 - **Paginated Client Iteration**: Given a tenant namespace (`tns`),
