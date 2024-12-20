@@ -345,9 +345,12 @@ t_autocluster_leave(Config) ->
     timer:sleep(1000),
     ?assertEqual(lists:sort([Core1, Repl2]), rpc:call(Core1, emqx, running_nodes, [])),
 
+    ct:pal("enabling discovery for core2"),
     rpc:call(Core2, emqx_mgmt_cli, cluster, [["discovery", "enable"]]),
+    ct:pal("enabling discovery for repl1"),
     rpc:call(Repl1, emqx_mgmt_cli, cluster, [["discovery", "enable"]]),
     %% nodes will join and restart asyncly, may need more time to re-cluster
+    ct:pal("waiting recovery"),
     ?assertEqual(
         ok,
         emqx_common_test_helpers:wait_for(
