@@ -186,7 +186,7 @@ simple_sync_query(Id, Request, QueryOpts0) ->
         ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
         QueryOpts
     ),
-    _ = handle_query_result(Id, Result, _HasBeenSent = false),
+    _ = handle_simple_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
 %% simple async-query the resource without batching and queuing.
@@ -206,7 +206,7 @@ simple_async_query(Id, Request, QueryOpts0) ->
         ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
         QueryOpts
     ),
-    _ = handle_query_result(Id, Result, _HasBeenSent = false),
+    _ = handle_simple_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
 %% This is a hack to handle cases where the underlying connector has internal buffering
@@ -980,7 +980,7 @@ batch_reply_dropped(Batch, Result) ->
 
 %% This is only called by `simple_{,a}sync_query', so we can bump the
 %% counters here.
-handle_query_result(Id, Result, HasBeenSent) ->
+handle_simple_query_result(Id, Result, HasBeenSent) ->
     {ShouldBlock, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
     PostFn(),
     %% TODO: maybe trigger fallback actions
