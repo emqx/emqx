@@ -64,7 +64,8 @@
     simple_query => boolean(),
     reply_to => reply_fun(),
     query_mode => query_mode(),
-    connector_resource_id => resource_id()
+    connector_resource_id => resource_id(),
+    is_fallback => boolean()
 }.
 -type resource_data() :: #{
     id := resource_id(),
