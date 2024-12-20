@@ -215,7 +215,7 @@
     | {channel_status(), Reason :: term()}
     | {error, term()}.
 
--callback query_mode(Config :: term()) -> query_mode().
+-callback query_mode(Config :: term()) -> resource_query_mode().
 
 -callback query_opts(Config :: term()) -> #{timeout => timeout()}.
 
@@ -632,7 +632,7 @@ call_stop(ResId, Mod, ResourceState) ->
         Res
     end).
 
--spec query_mode(module(), term(), creation_opts()) -> query_mode().
+-spec query_mode(module(), term(), creation_opts()) -> resource_query_mode().
 query_mode(Mod, Config, Opts) ->
     case erlang:function_exported(Mod, query_mode, 1) of
         true ->
