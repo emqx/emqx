@@ -39,6 +39,7 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
+    fast_forward/5,
 
     batch_events/3
 ]).
@@ -61,6 +62,7 @@
 -endif.
 
 -elvis([{elvis_style, nesting_level, disable}]).
+-elvis([{elvis_style, no_if_expression, disable}]).
 
 %%================================================================================
 %% Type declarations
@@ -312,8 +314,8 @@ batch_events(
         fun
             (?cooked_msg_op(_Timestamp, _Static, _Varying, ?cooked_delete), Acc) ->
                 Acc;
-            (?cooked_msg_op(_Timestamp, Static, Varying, _ValBlob), Acc) ->
-                maps:put({Static, Varying}, 1, Acc)
+            (?cooked_msg_op(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+                maps:put(#stream{static_index = Static}, 1, Acc)
         end,
         #{},
         Payloads
@@ -382,12 +384,26 @@ message_matcher(
         end
     end.
 
-unpack_iterator(_Shard, S, #it{static_index = StaticIdx, compressed_tf = CTF, last_key = LSK}) ->
+unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
+    static_index = StaticIdx, compressed_tf = CTF, last_key = LSK
+}) ->
     MHB = master_hash_bits(S, CTF),
     DSKey = mk_master_key(StaticIdx, LSK, MHB),
-    {StaticIdx, words(CTF), DSKey, stream_key_ts(LSK, MHB)}.
+    TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), words(CTF)),
+    {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
 
-scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+scan_stream(
+    Shard,
+    S = #s{trie = Trie},
+    #stream{static_index = StaticIdx},
+    TopicFilter,
+    LastSeenKey,
+    BatchSize,
+    TMax,
+    IsCurrent
+) ->
+    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+    Varying = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
     ItSeed = #it{
         static_index = StaticIdx,
         compressed_tf = emqx_topic:join(Varying),
@@ -411,6 +427,36 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
             {error, unrecoverable, "Invalid datastream key"};
         StreamKey ->
             {ok, OldIter#it{last_key = StreamKey}}
+    end.
+
+fast_forward(
+    ShardId,
+    S,
+    It0 = #it{last_key = TS0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
+    DSKey,
+    TMax
+) ->
+    case match_stream_key(It0#it.static_index, DSKey) of
+        false ->
+            {error, unrecoverable, <<"Invalid datastream key">>};
+        FastForwardTo when FastForwardTo > TMax ->
+            {error, recoverble, <<"Key is too far in the future">>};
+        FastForwardTo when FastForwardTo =< TS0 ->
+            %% The new position is earlier than the current position.
+            %% We keep the original position to prevent duplication of
+            %% messages. De-duplication is performed by
+            %% `message_matcher' callback that filters out messages
+            %% with TS older than the iterator's.
+            {ok, It0};
+        FastForwardTo ->
+            case next(ShardId, S, It0, 1, TMax, true) of
+                {ok, #it{last_key = NextTS}, [_]} when NextTS =< FastForwardTo ->
+                    {error, unrecoverable, has_data};
+                {ok, It, _} ->
+                    {ok, It};
+                Err ->
+                    Err
+            end
     end.
 
 next(ShardId = {_DB, Shard}, S, ItSeed, BatchSize, TMax, IsCurrent) ->
@@ -596,6 +642,8 @@ do_delete(CF, Batch, MHB, Static, KeyFamily, MsgKey) ->
 init_iterators(S, #it{static_index = Static, compressed_tf = CompressedTF}) ->
     do_init_iterators(S, Static, words(CompressedTF), 1).
 
+do_init_iterators(S, Static, ['#'], WildcardLevel) ->
+    do_init_iterators(S, Static, [], WildcardLevel);
 do_init_iterators(S, Static, ['+' | TopicFilter], WildcardLevel) ->
     %% Ignore wildcard levels in the topic filter because it has no value to index '+'
     do_init_iterators(S, Static, TopicFilter, WildcardLevel + 1);
