@@ -14,4 +14,5 @@ start(_StartType, _StartArgs) ->
     emqx_mt_sup:start_link().
 
 stop(_State) ->
+    ok = emqx_mt_hookcb:unregister_hooks(),
     ok.

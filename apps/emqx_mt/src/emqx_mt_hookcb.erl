@@ -7,6 +7,7 @@
 
 -export([
     register_hooks/0,
+    unregister_hooks/0,
     on_session_created/2,
     on_authenticate/2
 ]).
@@ -16,11 +17,17 @@
 -include_lib("emqx/include/logger.hrl").
 
 -define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
+-define(SESSION_HOOK, {?MODULE, on_session_created, []}).
+-define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
+
 register_hooks() ->
-    Session = {?MODULE, on_session_created, []},
-    ok = emqx_hooks:add('session.created', Session, ?HP_HIGHEST),
-    Authn = {?MODULE, on_authenticate, []},
-    ok = emqx_hooks:add('client.authenticate', Authn, ?HP_HIGHEST),
+    ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
+    ok.
+
+unregister_hooks() ->
+    ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
+    ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok.
 
 on_session_created(
