@@ -2,12 +2,12 @@ Business Source License 1.1
 
 Licensor:             Hangzhou EMQ Technologies Co., Ltd.
 Licensed Work:        EMQX Enterprise Edition
-                      The Licensed Work is (c) 2024
+                      The Licensed Work is (c) 2025
                       Hangzhou EMQ Technologies Co., Ltd.
 Additional Use Grant: Students and educators are granted right to copy,
                       modify, and create derivative work for research
                       or education.
-Change Date:          2028-06-13
+Change Date:          2029-01-01
 Change License:       Apache License, Version 2.0
 
 For information about alternative licensing arrangements for the Software,
