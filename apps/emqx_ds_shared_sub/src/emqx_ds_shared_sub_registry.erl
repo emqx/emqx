@@ -50,8 +50,6 @@ leader_wanted(SSubscriberId, ShareTopic) ->
     {ok, Pid} = ensure_elector_started(ShareTopic),
     emqx_ds_shared_sub_proto:send_to_leader(Pid, ?ssubscriber_connect(SSubscriberId, ShareTopic)).
 
-% ShareTopic, ?ssubscriber_connect_match(SSubscriberId)).
-
 -spec ensure_elector_started(emqx_persistent_session_ds:share_topic_filter()) ->
     {ok, pid()}.
 ensure_elector_started(ShareTopic) ->

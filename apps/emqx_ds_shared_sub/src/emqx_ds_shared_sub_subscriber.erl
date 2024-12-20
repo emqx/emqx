@@ -105,8 +105,8 @@
 
     status := status(),
     leader => emqx_ds_shared_sub_proto:leader(),
-    streams => #{emqx_ds:stream() => stream_data()},
-    timers => #{
+    streams := #{emqx_ds:stream() => stream_data()},
+    timers := #{
         ?find_leader_timer => emqx_maybe:t(reference()),
         ?ping_leader_timer => emqx_maybe:t(reference()),
         ?ping_leader_timeout_timer => emqx_maybe:t(reference()),

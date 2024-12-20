@@ -832,12 +832,11 @@ stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwner
                 #{status := ?stream_granted, ssubscriber_id := SSubscriberId},
                 SSubscribersAcc
             ) ->
-                case SSubscribersAcc of
-                    #{SSubscriberId := Streams} ->
-                        SSubscribersAcc#{SSubscriberId => [Stream | Streams]};
-                    _ ->
-                        SSubscribersAcc
-                end;
+                emqx_utils_maps:update_if_present(
+                    SSubscriberId,
+                    fun(Streams) -> [Stream | Streams] end,
+                    SSubscribersAcc
+                );
             (
                 _Stream,
                 #{status := _OtherStatus, ssubscriber_id := SSubscriberId},
