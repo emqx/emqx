@@ -280,19 +280,7 @@ is_error_check(Reason) ->
 action_config(TestCase, Name, Config) ->
     Type = ?config(bridge_type, Config),
     QueryMode = query_mode(TestCase),
-    DataTemplate =
-        case TestCase of
-            t_template ->
-                <<"">>;
-            _ ->
-                emqx_utils_json:encode(
-                    #{
-                        <<"measurement">> => <<"${payload.measurement}">>,
-                        <<"data_type">> => test_case_data_type(TestCase),
-                        <<"value">> => <<"${payload.value}">>
-                    }
-                )
-        end,
+    DataTemplate = data_template_config(TestCase),
     ConfigString =
         io_lib:format(
             "actions.~s.~s {\n"
@@ -434,10 +422,11 @@ t_sync_query_fail(Config) ->
     ).
 
 t_sync_device_id_missing(Config) ->
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
     emqx_bridge_v2_testlib:t_sync_query(
         Config,
         make_message_fun(iotdb_topic(Config), #{foo => bar}),
-        is_error_check(device_id_missing),
+        IsInvalidData,
         iotdb_bridge_on_query
     ).
 
@@ -477,10 +466,11 @@ t_extract_device_id_from_rule_engine_message(Config) ->
     ok.
 
 t_async_device_id_missing(Config) ->
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
     emqx_bridge_v2_testlib:t_async_query(
         Config,
         make_message_fun(iotdb_topic(Config), #{foo => bar}),
-        is_error_check(device_id_missing),
+        IsInvalidData,
         iotdb_bridge_on_query_async
     ).
 
@@ -622,9 +612,9 @@ t_sync_query_unmatched_type(Config) ->
     DeviceId = iotdb_device(Config),
     Payload = make_iotdb_payload(DeviceId, "temp", "boolean", "not boolean"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
-    IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
     ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun, IsInvalidType, iotdb_bridge_on_query
+        Config, MakeMessageFun, IsInvalidData, iotdb_bridge_on_query
     ).
 
 t_thrift_auto_recon(Config) ->
@@ -645,20 +635,52 @@ t_sync_query_with_lowercase(Config) ->
     ).
 
 t_sync_query_plain_text(Config) ->
-    IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
-
-    Payload1 = <<"this is a text">>,
-    MakeMessageFun1 = make_message_fun(iotdb_topic(Config), Payload1),
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
+    Payload = <<"this is a text">>,
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
     ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun1, IsInvalidType, iotdb_bridge_on_query
+        Config, MakeMessageFun, IsInvalidData, iotdb_bridge_on_query
     ).
 
 t_sync_query_invalid_json(Config) ->
-    IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
     Payload2 = <<"{\"msg\":}">>,
-    MakeMessageFun2 = make_message_fun(iotdb_topic(Config), Payload2),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload2),
     ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun2, IsInvalidType, iotdb_bridge_on_query
+        Config, MakeMessageFun, IsInvalidData, iotdb_bridge_on_query
+    ).
+
+t_sync_query_invalid_timestamp(Config) ->
+    DeviceId = iotdb_device(Config),
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36", <<"this is a string">>),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, IsInvalidData, iotdb_bridge_on_query
+    ).
+
+t_sync_query_missing_timestamp(Config) ->
+    DeviceId = iotdb_device(Config),
+    IsInvalidData = fun(Result) -> ?assertMatch({error, {invalid_data, _}}, Result) end,
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36"),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, IsInvalidData, iotdb_bridge_on_query
+    ).
+
+t_sync_query_templated_timestamp(Config) ->
+    Ts = erlang:system_time(millisecond) - rand:uniform(864000),
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "int32", "36", Ts),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query
+    ),
+    Query = <<"select temp from ", DeviceId/binary>>,
+    {ok, {{_, 200, _}, _, IoTDBResult}} = iotdb_query(Config, Query),
+    ?assertMatch(
+        #{<<"timestamps">> := [Ts]},
+        emqx_utils_json:decode(IoTDBResult)
     ).
 
 is_empty(null) -> true;
@@ -697,3 +719,27 @@ test_case_data_type(t_sync_query_with_lowercase) ->
     <<"int32">>;
 test_case_data_type(_) ->
     <<"int32">>.
+
+data_template_config(t_template) ->
+    <<"">>;
+data_template_config(TestCase) when
+    TestCase =:= t_sync_query_invalid_timestamp;
+    TestCase =:= t_sync_query_missing_timestamp;
+    TestCase =:= t_sync_query_templated_timestamp
+->
+    emqx_utils_json:encode(
+        #{
+            <<"timestamp">> => <<"${payload.timestamp}">>,
+            <<"measurement">> => <<"${payload.measurement}">>,
+            <<"data_type">> => test_case_data_type(TestCase),
+            <<"value">> => <<"${payload.value}">>
+        }
+    );
+data_template_config(TestCase) ->
+    emqx_utils_json:encode(
+        #{
+            <<"measurement">> => <<"${payload.measurement}">>,
+            <<"data_type">> => test_case_data_type(TestCase),
+            <<"value">> => <<"${payload.value}">>
+        }
+    ).
