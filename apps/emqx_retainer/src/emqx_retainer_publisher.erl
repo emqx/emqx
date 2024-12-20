@@ -14,18 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% This module uses emqx_htb_limiter to limit the rate of retained messages.
-%% emqx_htb_limiter works as follows:
-%% * we try to consume tokens
-%% * if we hit rate limits, the caller is suspended for at most `max_retry_time` till
-%% there are enough tokens.
-%% ** if we succeed, within the time limit, we get {ok, Limiter}
-%% ** if we fail, we get {drop, Limiter}
+%% @doc
+%% This module limits the rate of retained messages publishing
+%% (deletion is a special case of publishing) using a simple token bucket algorithm.
 %%
-%% To avoid overflow and to respect the rate limits, we do the following:
-%% * set `max_retry_time` to a 1s (hidden default value)
-%% * if we hit rate limits, and failed to consume tokens we drop the operation (delete or store)
-%% and drop all the accumulated operations as well.
+%% Each second at most `max_publish_rate` tokens are refilled. Each publish
+%% consumes one token. If there are no tokens available, the publish is dropped.
 
 -module(emqx_retainer_publisher).
 
@@ -37,11 +31,10 @@
 
 %% API
 -export([
-    start_link/2,
+    start_link/0,
     store_retained/1,
     delete_message/1,
-    refresh_limiter/0,
-    refresh_limiter/1
+    refresh_limits/1
 ]).
 
 %% gen_server callbacks
@@ -53,7 +46,7 @@
     terminate/2
 ]).
 
--define(POOL, ?PUBLISHER_POOL).
+-define(REFILL_INTERVAL, 1000).
 
 %% This module is `emqx_retainer` companion
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
@@ -62,181 +55,188 @@
 %% Constants
 %%--------------------------------------------------------------------
 
+-define(COUNTER_PT_KEY, {?MODULE, counter}).
 -define(DEF_MAX_PAYLOAD_SIZE, (1024 * 1024)).
--define(MAX_PAYLOAD_SIZE_CONFIG_PATH, [retainer, max_payload_size]).
--define(PUBLISHER_LIMITER_FULL_CONFIG_PATH, [retainer, flow_control, publish_limiter]).
--define(PUBLISHER_LIMITER_CONFIG_PATH, [flow_control, publish_limiter]).
--define(PUBLISHER_LIMITER_EXPOSED_CONFIG_PATH, [retainer, publish_rate]).
-
-%% States
-
--define(unblocked, unblocked).
--define(blocked, blocked).
+-define(SERVER, ?MODULE).
 
 %%--------------------------------------------------------------------
 %% Messages
 %%--------------------------------------------------------------------
 
--record(store_retained, {
-    message :: emqx_types:message()
+-record(refill, {}).
+-record(refresh_limits, {
+    max_publish_rate :: non_neg_integer() | infinity
 }).
-
--record(refresh_limiter, {
-    conf :: hocon:config()
-}).
-
--record(delete_message, {
-    topic :: binary()
-}).
-
--record(unblock, {}).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 -spec store_retained(emqx_types:message()) -> ok.
-store_retained(Message) ->
-    Worker = gproc_pool:pick_worker(?POOL, self()),
-    gen_server:cast(Worker, #store_retained{message = Message}).
-
--spec delete_message(binary()) -> ok.
-delete_message(Topic) ->
-    Worker = gproc_pool:pick_worker(?POOL, self()),
-    gen_server:cast(Worker, #delete_message{topic = Topic}).
-
-%% reset the client's limiter after updated the limiter's config
-refresh_limiter() ->
-    Conf = emqx:get_config([retainer]),
-    refresh_limiter(Conf).
-
-refresh_limiter(Conf) ->
-    Workers = gproc_pool:active_workers(?POOL),
-    lists:foreach(
-        fun({_, Pid}) ->
-            gen_server:cast(Pid, #refresh_limiter{conf = Conf})
-        end,
-        Workers
-    ).
-
--spec start_link(atom(), pos_integer()) -> {ok, pid()}.
-start_link(Pool, Id) ->
-    gen_server:start_link(
-        {local, emqx_utils:proc_name(?MODULE, Id)},
-        ?MODULE,
-        [Pool, Id],
-        []
-    ).
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-
-init([Pool, Id]) ->
-    erlang:process_flag(trap_exit, true),
-    true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    BucketCfg = emqx:get_config(?PUBLISHER_LIMITER_FULL_CONFIG_PATH, undefined),
-    {ok, Limiter} = emqx_limiter_server:connect(?PUBLISHER_LIMITER_ID, internal, BucketCfg),
-    {ok, #{pool => Pool, id => Id, limiter => Limiter, state => ?unblocked}}.
-
-handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => retainer_publisher_unexpected_call, call => Req}),
-    {reply, ignored, State}.
-
-handle_cast(#store_retained{message = #message{topic = Topic}}, #{state := ?blocked} = State) ->
-    ?tp(warning, retain_failed_for_rate_exceeded_limit, #{
-        reason => blocked,
-        topic => Topic,
-        config => format_hocon_path(?PUBLISHER_LIMITER_EXPOSED_CONFIG_PATH)
-    }),
-    {noreply, State};
-handle_cast(#store_retained{message = Message}, #{limiter := Limiter} = State0) ->
-    State1 = maybe_block(State0, store_retained(Message, Limiter)),
-    {noreply, State1};
-handle_cast(#delete_message{topic = Topic}, #{state := ?blocked} = State) ->
-    ?tp(warning, retained_delete_failed_for_rate_exceeded_limit, #{
-        topic => Topic,
-        reason => blocked,
-        config => format_hocon_path(?PUBLISHER_LIMITER_EXPOSED_CONFIG_PATH)
-    }),
-    {noreply, State};
-handle_cast(#delete_message{topic = Topic}, #{limiter := Limiter} = State0) ->
-    State1 = maybe_block(State0, delete_message(Topic, Limiter)),
-    {noreply, State1};
-handle_cast(#refresh_limiter{conf = Conf}, State) ->
-    BucketCfg = emqx_utils_maps:deep_get(?PUBLISHER_LIMITER_CONFIG_PATH, Conf, undefined),
-    {ok, Limiter} = emqx_limiter_server:connect(?PUBLISHER_LIMITER_ID, internal, BucketCfg),
-    {noreply, State#{limiter := Limiter}};
-handle_cast(#unblock{}, State) ->
-    {noreply, unblock(State)};
-handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => retainer_publisher_unexpected_cast, cast => Msg}),
-    {noreply, State}.
-
-handle_info(Info, State) ->
-    ?SLOG(error, #{msg => retainer_publisher_unexpected_info, info => Info}),
-    {noreply, State}.
-
-terminate(_Reason, #{pool := Pool, id := Id}) ->
-    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-store_retained(#message{topic = Topic, payload = Payload} = Msg, Limiter0) ->
+store_retained(#message{topic = Topic, payload = Payload} = Msg) ->
     Size = iolist_size(Payload),
     case payload_size_limit() of
         PayloadSizeLimit when PayloadSizeLimit > 0 andalso PayloadSizeLimit < Size ->
             ?tp(warning, retain_failed_for_payload_size_exceeded_limit, #{
                 topic => Topic,
-                config => format_hocon_path(?MAX_PAYLOAD_SIZE_CONFIG_PATH),
+                config => "retainer.max_payload_size",
                 size => Size,
                 limit => PayloadSizeLimit
             }),
-            {ok, Limiter0};
+            ok;
         _ ->
-            case emqx_htb_limiter:consume(1, Limiter0) of
-                {ok, Limiter1} ->
-                    _ = emqx_retainer:with_backend(
-                        fun(Mod, State) -> Mod:store_retained(State, Msg) end
-                    ),
-                    {ok, Limiter1};
-                {drop, Limiter1} ->
+            WithinLimits = with_limiter(fun() ->
+                _ = emqx_retainer:with_backend(
+                    fun(Mod, State) -> Mod:store_retained(State, Msg) end
+                )
+            end),
+            case WithinLimits of
+                true ->
+                    ?tp(debug, retain_within_limit, #{topic => Topic});
+                false ->
                     ?tp(warning, retain_failed_for_rate_exceeded_limit, #{
                         topic => Topic,
-                        config => format_hocon_path(?PUBLISHER_LIMITER_EXPOSED_CONFIG_PATH)
-                    }),
-                    {block, Limiter1}
+                        config => "retainer.max_publish_rate"
+                    })
             end
     end.
 
-delete_message(Topic, Limiter0) ->
-    case emqx_htb_limiter:consume(1, Limiter0) of
-        {ok, Limiter1} ->
-            _ = emqx_retainer:with_backend(
-                fun(Mod, State) -> Mod:delete_message(State, Topic) end
-            ),
-            {ok, Limiter1};
-        {drop, Limiter1} ->
+-spec delete_message(binary()) -> ok.
+delete_message(Topic) ->
+    WithinLimits = with_limiter(fun() ->
+        _ = emqx_retainer:with_backend(
+            fun(Mod, State) -> Mod:delete_message(State, Topic) end
+        )
+    end),
+    case WithinLimits of
+        true ->
+            ok;
+        false ->
             ?tp(info, retained_delete_failed_for_rate_exceeded_limit, #{
                 topic => Topic,
-                config => format_hocon_path(?PUBLISHER_LIMITER_EXPOSED_CONFIG_PATH)
-            }),
-            {block, Limiter1}
+                config => "retainer.max_publish_rate"
+            })
+    end.
+
+-spec refresh_limits(map()) -> ok.
+refresh_limits(Config) ->
+    gen_server:cast(?SERVER, #refresh_limits{max_publish_rate = max_publish_rate(Config)}).
+
+-spec start_link() -> {ok, pid()}.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
+
+init([]) ->
+    Counter = counters:new(1, []),
+    ok = persistent_term:put(?COUNTER_PT_KEY, Counter),
+    MaxPublishRate = max_publish_rate(),
+    State0 = #{
+        counter => Counter,
+        timer => undefined,
+        max_publish_rate => MaxPublishRate
+    },
+    {ok, refresh_limits(State0, MaxPublishRate)}.
+
+handle_call(Req, _From, State) ->
+    ?SLOG(error, #{msg => retainer_publisher_unexpected_call, call => Req}),
+    {reply, ignored, State}.
+
+handle_cast(#refresh_limits{max_publish_rate = NewMaxPublishRate}, State) ->
+    {noreply, refresh_limits(State, NewMaxPublishRate)};
+handle_cast(Msg, State) ->
+    ?SLOG(error, #{msg => retainer_publisher_unexpected_cast, cast => Msg}),
+    {noreply, State}.
+
+handle_info(#refill{}, State) ->
+    {noreply, refill(State)};
+handle_info(Info, State) ->
+    ?SLOG(error, #{msg => retainer_publisher_unexpected_info, info => Info}),
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    persistent_term:erase(?COUNTER_PT_KEY),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+refill(#{counter := Counter, max_publish_rate := MaxPublishRate} = State) ->
+    case MaxPublishRate of
+        infinity ->
+            State#{timer => undefined};
+        _ ->
+            RefillCount = min(MaxPublishRate, MaxPublishRate - get_tokens()),
+            _ = counters:add(Counter, 1, RefillCount),
+            set_refill_timer(State)
+    end.
+
+refresh_limits(#{counter := Counter} = State, NewMaxPublishRate) ->
+    case NewMaxPublishRate of
+        infinity ->
+            State#{timer => undefined, max_publish_rate => NewMaxPublishRate};
+        _ ->
+            ok = counters:put(Counter, 1, NewMaxPublishRate),
+            set_refill_timer(State#{max_publish_rate => NewMaxPublishRate})
+    end.
+
+set_refill_timer(#{timer := Timer0} = State) ->
+    ok = emqx_utils:cancel_timer(Timer0),
+    Timer1 = erlang:send_after(?REFILL_INTERVAL, self(), #refill{}),
+    State#{timer => Timer1}.
+
+max_publish_rate() ->
+    max_publish_rate(emqx_config:get([retainer])).
+
+max_publish_rate(#{max_publish_rate := MaxPublishRate}) ->
+    case MaxPublishRate of
+        infinity ->
+            infinity;
+        Rate ->
+            round(Rate * ?REFILL_INTERVAL / emqx_limiter_schema:default_period())
+    end.
+
+with_limiter(Fun) ->
+    case max_publish_rate() of
+        infinity ->
+            _ = Fun(),
+            true;
+        _ ->
+            with_enabled_limiter(Fun)
+    end.
+
+with_enabled_limiter(Fun) ->
+    case get_tokens() of
+        Tokens when Tokens > 0 ->
+            try
+                _ = Fun(),
+                true
+            after
+                consume_tokens(1)
+            end;
+        _Tokens ->
+            false
+    end.
+
+get_tokens() ->
+    try
+        counters:get(persistent_term:get(?COUNTER_PT_KEY), 1)
+    catch
+        error:badarg ->
+            0
+    end.
+
+consume_tokens(N) ->
+    try
+        counters:sub(persistent_term:get(?COUNTER_PT_KEY), 1, N)
+    catch
+        error:badarg ->
+            ok
     end.
 
 payload_size_limit() ->
-    emqx_conf:get(?MAX_PAYLOAD_SIZE_CONFIG_PATH, ?DEF_MAX_PAYLOAD_SIZE).
-
-maybe_block(State, {ok, Limiter}) ->
-    State#{limiter => Limiter};
-maybe_block(State, {block, Limiter}) ->
-    gen_server:cast(self(), #unblock{}),
-    State#{state => ?blocked, limiter => Limiter}.
-
-unblock(State) ->
-    State#{state => ?unblocked}.
-
-format_hocon_path(Path) ->
-    iolist_to_binary(emqx_hocon:format_path(Path)).
+    emqx_conf:get([retainer, max_payload_size], ?DEF_MAX_PAYLOAD_SIZE).

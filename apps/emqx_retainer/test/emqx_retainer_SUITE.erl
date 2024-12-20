@@ -55,7 +55,7 @@ retainer {
   msg_expiry_interval = 0s
   max_payload_size = 1MB
   delivery_rate = \"1000/s\"
-  publish_rate = \"100000/s\"
+  max_publish_rate = \"100000/s\"
   flow_control {
     batch_read_number = 0
     batch_deliver_number = 0
@@ -580,33 +580,95 @@ t_flow_control(_) ->
 t_publish_rate_limit(_) ->
     %% Setup tight publish rates
     emqx_retainer:update_config(#{
-        <<"publish_rate">> => <<"1/1s">>
+        <<"max_publish_rate">> => <<"1/1s">>
     }),
+
+    %% Connect client
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
+    snabbkaffe:start_trace(),
 
+    %% Should see failure after the first message
+    {_, {ok, _}} = ?wait_async_action(
+        publish_messages(C1, 2),
+        #{?snk_kind := retain_failed_for_rate_exceeded_limit, topic := <<"t/2">>},
+        5000
+    ),
+
+    %% Wait for the refill timer to refill the tokens
+    ct:sleep(1100),
+
+    %% Should see success after the first message
+    {_, {ok, _}} = ?wait_async_action(
+        publish_messages(C1, 1),
+        #{?snk_kind := retain_within_limit, topic := <<"t/1">>},
+        5000
+    ),
+    %% And a failure again since we have 1 token per second
+    {_, {ok, _}} = ?wait_async_action(
+        publish_messages(C1, 1),
+        #{?snk_kind := retain_failed_for_rate_exceeded_limit, topic := <<"t/1">>},
+        5000
+    ),
+    snabbkaffe:stop(),
+
+    %% No more failures after setting the rate limit to infinity
+    emqx_retainer:update_config(#{<<"max_publish_rate">> => <<"infinity">>}),
     ?check_trace(
-        begin
-            {_, {ok, _}} = ?wait_async_action(
-                lists:foreach(
-                    fun(_) ->
-                        emqtt:publish(
-                            C1,
-                            <<"retained/topic">>,
-                            <<"this is a retained message">>,
-                            [{qos, 0}, {retain, true}]
-                        )
-                    end,
-                    lists:seq(1, 10)
-                ),
-                #{
-                    ?snk_kind := retain_failed_for_rate_exceeded_limit,
-                    topic := <<"retained/topic">>
-                },
-                5000
+        ?wait_async_action(
+            publish_messages(C1, 100),
+            #{?snk_kind := retain_within_limit, topic := <<"t/100">>},
+            5000
+        ),
+        fun(Trace) ->
+            ?assertEqual(
+                [],
+                ?of_kind(retain_failed_for_rate_exceeded_limit, Trace)
             )
-        end,
-        []
+        end
+    ),
+
+    %% Check that the rate limit is still working after restarting the app
+    ok = application:stop(emqx_retainer),
+    ok = application:ensure_started(emqx_retainer),
+    ?check_trace(
+        ?wait_async_action(
+            publish_messages(C1, 100),
+            #{?snk_kind := retain_within_limit, topic := <<"t/100">>},
+            5000
+        ),
+        fun(Trace) ->
+            ?assertEqual(
+                [],
+                ?of_kind(retain_failed_for_rate_exceeded_limit, Trace)
+            )
+        end
+    ),
+
+    %% Start with tight rate limit
+    emqx_retainer:update_config(#{<<"max_publish_rate">> => <<"1/1s">>}),
+    ok = application:stop(emqx_retainer),
+    ok = application:ensure_started(emqx_retainer),
+
+    %% Check that the rate limit is still working
+    snabbkaffe:start_trace(),
+    {_, {ok, _}} = ?wait_async_action(
+        publish_messages(C1, 2),
+        #{?snk_kind := retain_failed_for_rate_exceeded_limit, topic := <<"t/2">>},
+        5000
+    ),
+
+    %% Check that the tokens do not accumulate, still only 1 token
+    ct:sleep(2200),
+    {_, {ok, _}} = ?wait_async_action(
+        publish_messages(C1, 1),
+        #{?snk_kind := retain_within_limit, topic := <<"t/1">>},
+        5000
+    ),
+    {_, {ok, _}} = ?wait_async_action(
+        publish_messages(C1, 1),
+        #{?snk_kind := retain_failed_for_rate_exceeded_limit, topic := <<"t/1">>},
+        5000
     ),
 
     ok = emqtt:disconnect(C1),
@@ -615,7 +677,7 @@ t_publish_rate_limit(_) ->
 t_delete_rate_limit(_) ->
     %% Setup tight publish rates
     emqx_retainer:update_config(#{
-        <<"publish_rate">> => <<"1/1s">>
+        <<"max_publish_rate">> => <<"1/1s">>
     }),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
@@ -627,7 +689,7 @@ t_delete_rate_limit(_) ->
                     fun(_) ->
                         emqtt:publish(C1, <<"retained/topic">>, <<"">>, [{qos, 0}, {retain, true}])
                     end,
-                    lists:seq(1, 10)
+                    lists:seq(1, 2)
                 ),
                 #{
                     ?snk_kind := retained_delete_failed_for_rate_exceeded_limit,
@@ -1113,7 +1175,7 @@ reset_rates_to_default() ->
     emqx_retainer_app:delete_buckets(),
     emqx_retainer:update_config(#{
         <<"delivery_rate">> => <<"1000/s">>,
-        <<"publish_rate">> => <<"100000/s">>,
+        <<"max_publish_rate">> => <<"100000/s">>,
         <<"flow_control">> =>
             #{
                 <<"batch_read_number">> => 0,
@@ -1122,14 +1184,15 @@ reset_rates_to_default() ->
     }),
     emqx_retainer_app:init_buckets().
 
-qlc_processes() ->
-    lists:filter(
-        fun(Pid) ->
-            {current_function, {qlc, wait_for_request, 3}} =:=
-                erlang:process_info(Pid, current_function)
+publish_messages(C1, Count) ->
+    lists:foreach(
+        fun(I) ->
+            emqtt:publish(
+                C1,
+                iolist_to_binary(io_lib:format("t/~p", [I])),
+                <<"this is a retained message">>,
+                [{qos, 0}, {retain, true}]
+            )
         end,
-        erlang:processes()
+        lists:seq(1, Count)
     ).
-
-qlc_process_count() ->
-    length(qlc_processes()).

@@ -60,7 +60,7 @@ http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038
 delivery_rate.desc:
 """The maximum rate of delivering retained messages"""
 
-publish_rate.desc:
+max_publish_rate.desc:
 """The maximum rate of publishing retained messages. Messages that are published over the limit are delivered but not stored as retained."""
 
 msg_expiry_interval_override.desc:
