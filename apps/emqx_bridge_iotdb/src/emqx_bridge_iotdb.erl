@@ -89,7 +89,8 @@ fields(action_parameters) ->
                 array(ref(?MODULE, action_parameters_data)),
                 #{
                     desc => ?DESC("action_parameters_data"),
-                    default => []
+                    required => true,
+                    validator => fun emqx_schema:non_empty_array/1
                 }
             )}
     ] ++
