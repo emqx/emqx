@@ -510,7 +510,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
             %% `inflight_drop' to avoid the race condition when an
             %% inflight request might get completed concurrently with
             %% the retry, bumping them twice.  Since both inflight
-            %% requests (repeated and original) have the safe `Ref',
+            %% requests (repeated and original) have the same `Ref',
             %% we bump the counter when removing it from the table.
             IsAcked andalso PostFn(),
             ?tp(
@@ -1224,8 +1224,8 @@ handle_async_worker_down(Data0, Pid) ->
 call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
     case emqx_resource_cache:get_runtime(Id) of
-        %% This seems to be the only place where the `rm_status_stopped' status matters,
-        %% to distinguish from the `disconnected' status.
+        %% This seems to be the only place where the `rm_status_stopped' state matters,
+        %% to distinguish from the `disconnected' state.
         {ok, #rt{st_err = #{status := ?rm_status_stopped}}} ->
             Result = ?RESOURCE_ERROR(stopped, "resource stopped or disabled"),
             maybe_reply_to(Result, QueryOpts);
