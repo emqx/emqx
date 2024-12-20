@@ -197,7 +197,7 @@ init([]) ->
     ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
     TRef = schedule_task(reconcile, ?RECONCILE_INTERVAL),
     State = #{
-        last_membership => mria:cluster_nodes(cores),
+        last_membership => emqx_maybe:define(cores(), []),
         tab_node_status => Tab,
         timer_reconcile => TRef
     },
@@ -296,7 +296,8 @@ handle_reconcile(State) ->
 reconcile(State = #{last_membership := MembersLast}) ->
     %% Find if there are discrepancies in membership.
     %% Missing core nodes must have been "force-left" from the cluster.
-    Members = mria:cluster_nodes(cores),
+    %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
+    Members = emqx_maybe:define(cores(), MembersLast),
     ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
     %% This is a fallback mechanism.
     %% Avoid purging live nodes, if missed lifecycle events for whatever reason.
@@ -398,15 +399,20 @@ purge_dead_node_trans(Node) ->
     StillKnown = lookup_node_status(Node) =/= notfound,
     case StillKnown andalso node_has_routes(Node) of
         true ->
-            global:trans(
-                {?LOCK(Node), self()},
-                fun() ->
-                    ok = cleanup_routes(Node),
-                    true
-                end,
-                cores(),
-                _Retries = 3
-            );
+            case cores() of
+                Nodes = [_ | _] ->
+                    global:trans(
+                        {?LOCK(Node), self()},
+                        fun() ->
+                            ok = cleanup_routes(Node),
+                            true
+                        end,
+                        Nodes,
+                        _Retries = 3
+                    );
+                undefined ->
+                    error(no_core_nodes)
+            end;
         false ->
             false
     end.
@@ -443,17 +449,22 @@ choose_timeout(Baseline) ->
 am_core() ->
     mria_config:whoami() =/= replicant.
 
--spec cores() -> [node()].
+-spec cores() -> [node()] | undefined.
 cores() ->
     %% Include stopped nodes as well.
-    mria_membership:nodelist().
+    try
+        mria:cluster_nodes(cores)
+    catch
+        error:_Timeout ->
+            undefined
+    end.
 
 -spec pick_responsible(_Task) -> node().
 pick_responsible(Task) ->
     %% Pick a responsible core node.
     %% We expect the same node to be picked as responsible across the cluster (unless
     %% the cluster is highly turbulent).
-    Nodes = lists:sort(mria_membership:running_core_nodelist()),
+    Nodes = lists:sort(mria_mnesia:running_nodes()),
     case length(Nodes) of
         0 -> node();
         N -> lists:nth(1 + erlang:phash2(Task, N), Nodes)
