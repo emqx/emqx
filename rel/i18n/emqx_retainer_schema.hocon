@@ -60,6 +60,9 @@ http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038
 delivery_rate.desc:
 """The maximum rate of delivering retained messages"""
 
+max_publish_rate.desc:
+"""The maximum rate of publishing retained messages. Messages that are published over the limit are delivered but not stored as retained."""
+
 msg_expiry_interval_override.desc:
 """If set, this value will take precedence over any `Message-Expiry-Interval` property specified in retained MQTT messages, allowing messages to expire earlier if necessary.  This override only applies to the garbage collection process: it does not affect the expiry time of messages being written nor that of already written messages while iterating over them.  Therefore, messages that are candidate for garbage collection when overridden may still be visible when subscribing to retained topics."""
 
