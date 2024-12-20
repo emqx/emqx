@@ -58,6 +58,7 @@
 %% API
 -export([
     start_link/0,
+    post_start/0,
     monitor/1,
     is_routable/1,
     schedule_purge/0,
@@ -125,6 +126,14 @@ create_tables() ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec post_start() -> ignore.
+post_start() ->
+    %% Cleanup any routes left by old incarnations of this node (if any).
+    %% Depending on the size of routing tables this can take signicant amount of time.
+    _ = mria:wait_for_tables([?ROUTING_NODE]),
+    _ = purge_this_node(),
+    ignore.
+
 %% @doc Monitor routing node
 -spec monitor(node() | {binary(), node()}) -> ok.
 monitor({_Group, Node}) ->
@@ -184,10 +193,6 @@ init([]) ->
     ]),
     %% Monitor nodes lifecycle events.
     ok = ekka:monitor(membership),
-    %% Cleanup any routes left by old incarnations of this node (if any).
-    %% Depending on the size of routing tables this can take signicant amount of time.
-    _ = mria:wait_for_tables([?ROUTING_NODE]),
-    _ = purge_this_node(),
     %% Setup periodic stats reporting.
     ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
     TRef = schedule_task(reconcile, ?RECONCILE_INTERVAL),

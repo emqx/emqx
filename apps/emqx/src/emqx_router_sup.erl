@@ -42,6 +42,13 @@ init([]) ->
         type => worker,
         modules => [emqx_router_helper]
     },
+    HelperPostStart = #{
+        id => helper_post_start,
+        start => {emqx_router_helper, post_start, []},
+        restart => transient,
+        shutdown => brutal_kill,
+        type => worker
+    },
     %% Router pool
     RouterPool = emqx_pool_sup:spec([
         router_pool,
@@ -53,4 +60,4 @@ init([]) ->
         intensity => 10,
         period => 100
     },
-    {ok, {SupFlags, [Helper, RouterPool]}}.
+    {ok, {SupFlags, [Helper, HelperPostStart, RouterPool]}}.
