@@ -59,8 +59,8 @@ start_workers() ->
 
 -spec stop_workers() -> ok.
 stop_workers() ->
-    ok = stop_publisher(),
-    ok = stop_dispatcher(),
+    ok = stop_child(publisher),
+    ok = stop_child(dispatcher),
     ok.
 
 %%--------------------------------------------------------------------
@@ -107,24 +107,17 @@ start_dispatcher() ->
     supervisor:start_child(?worker_sup, ChildSpec).
 
 start_publisher() ->
-    ChildSpec = emqx_pool_sup:spec(
-        publisher,
-        [
-            ?PUBLISHER_POOL,
-            hash,
-            emqx_vm:schedulers(),
-            {emqx_retainer_publisher, start_link, []}
-        ]
-    ),
+    ChildSpec = #{
+        id => publisher,
+        start => {emqx_retainer_publisher, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_retainer_publisher]
+    },
     supervisor:start_child(?worker_sup, ChildSpec).
 
-stop_dispatcher() ->
-    ok = stop_worker_pool(dispatcher).
-
-stop_publisher() ->
-    ok = stop_worker_pool(publisher).
-
-stop_worker_pool(ChildId) ->
+stop_child(ChildId) ->
     case supervisor:terminate_child(?worker_sup, ChildId) of
         ok -> supervisor:delete_child(?worker_sup, ChildId);
         {error, not_found} -> ok

@@ -45,11 +45,7 @@ init_buckets() ->
     #{flow_control := FlowControl} = emqx:get_config([retainer]),
     ok = emqx_limiter_server:add_bucket(
         ?DISPATCHER_LIMITER_ID, internal, maps:get(batch_deliver_limiter, FlowControl, undefined)
-    ),
-    ok = emqx_limiter_server:add_bucket(
-        ?PUBLISHER_LIMITER_ID, internal, maps:get(publish_limiter, FlowControl, undefined)
     ).
 
 delete_buckets() ->
-    ok = emqx_limiter_server:del_bucket(?DISPATCHER_LIMITER_ID, internal),
-    ok = emqx_limiter_server:del_bucket(?PUBLISHER_LIMITER_ID, internal).
+    ok = emqx_limiter_server:del_bucket(?DISPATCHER_LIMITER_ID, internal).

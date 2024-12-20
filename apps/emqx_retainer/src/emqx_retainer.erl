@@ -276,7 +276,7 @@ init([]) ->
 handle_call({update_config, NewConf, OldConf}, _, State) ->
     State2 = update_config(State, NewConf, OldConf),
     ok = emqx_retainer_dispatcher:refresh_limiter(NewConf),
-    ok = emqx_retainer_publisher:refresh_limiter(NewConf),
+    ok = emqx_retainer_publisher:refresh_limits(NewConf),
     {reply, ok, State2};
 handle_call(enabled, _From, State = #{enable := Enable}) ->
     {reply, Enable, State};
