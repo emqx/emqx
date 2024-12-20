@@ -1,0 +1,16 @@
+{application, emqx_bridge_tablestore, [
+    {description, "EMQX Enterprise Tablestore Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        ots_erl
+    ]},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_tablestore_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_tablestore_connector_info]}
+    ]},
+    {modules, []},
+    {links, []}
+]}.

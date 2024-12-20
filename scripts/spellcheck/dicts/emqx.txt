@@ -285,6 +285,8 @@ Syskeeper
 sysmem
 sysmon
 systemd
+tablestore
+Tablestore
 tcp
 TCP
 TDengine
