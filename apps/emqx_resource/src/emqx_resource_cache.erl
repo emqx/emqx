@@ -47,6 +47,7 @@
     id :: chan_key(),
     error :: term(),
     status :: channel_status(),
+    query_mode :: emqx_resource:resource_query_mode(),
     extra = []
 }).
 
@@ -202,10 +203,12 @@ get_runtime(ID) ->
     try
         Cb = get_cb(ConnectorId),
         ChannelStatus = get_channel_status(ChanKey),
+        ChannelQueryMode = get_channel_query_mode(ChanKey),
         StErr = ets:lookup_element(?CACHE, ConnectorId, #connector.st_err),
         {ok, #rt{
             st_err = StErr,
             cb = Cb,
+            query_mode = ChannelQueryMode,
             channel_status = ChannelStatus
         }}
     catch
@@ -218,15 +221,21 @@ get_channel_status({_, ?NO_CHANNEL}) ->
 get_channel_status(ChanKey) ->
     ets:lookup_element(?CACHE, ChanKey, #channel.status, ?NO_CHANNEL).
 
+get_channel_query_mode({_, ?NO_CHANNEL}) ->
+    ?NO_CHANNEL;
+get_channel_query_mode(ChanKey) ->
+    ets:lookup_element(?CACHE, ChanKey, #channel.query_mode, ?NO_CHANNEL).
+
 get_cb_pt(ID) ->
     persistent_term:get(?CB_PT_KEY(ID), ?NO_CB).
 
-to_channel_record({ID0, #{status := Status, error := Error}}) ->
+to_channel_record({ID0, #{status := Status, error := Error, query_mode := QueryMode}}) ->
     ID = split_channel_id(ID0),
     #channel{
         id = ID,
         status = Status,
         error = Error,
+        query_mode = QueryMode,
         extra = []
     }.
 
@@ -312,12 +321,13 @@ find_channels(ConnectorId) ->
             #channel{
                 id = {ConnectorId0, ChannelId},
                 status = Status,
+                query_mode = QueryMode,
                 error = Error
             },
             Acc
         ) ->
             Key = iolist_to_binary([ChannelId, ":", ConnectorId0]),
-            Acc#{Key => #{status => Status, error => Error}}
+            Acc#{Key => #{status => Status, error => Error, query_mode => QueryMode}}
         end,
         #{},
         List
