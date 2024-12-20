@@ -1,0 +1,13 @@
+emqx_mt_schema {
+    config {
+        desc: "Multi-tenancy configuration"
+        label: "Multi-tenancy"
+    }
+    default_max_sessions {
+        desc: """~
+            The default number of live sessions allowed for each namespace.
+            Access will be denied for new clients if limit is reached.
+            Online config changes do not affect running sessions.~"""
+        label: "Default Max Number of Sessions"
+    }
+}
