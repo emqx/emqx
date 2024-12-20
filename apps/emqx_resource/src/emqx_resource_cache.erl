@@ -304,19 +304,19 @@ make_resource_data(ID, Connector, Channels) ->
         state => State
     }.
 
-find_channels(ConnectorID) ->
-    MS = ets:fun2ms(fun(#channel{id = {Cid, _}} = C) when Cid =:= ConnectorID -> C end),
+find_channels(ConnectorId) ->
+    MS = ets:fun2ms(fun(#channel{id = {Cid, _}} = C) when Cid =:= ConnectorId -> C end),
     List = ets:select(?CACHE, MS),
     lists:foldl(
         fun(
             #channel{
-                id = {ConnectorId, ChannelId},
+                id = {ConnectorId0, ChannelId},
                 status = Status,
                 error = Error
             },
             Acc
         ) ->
-            Key = iolist_to_binary([ChannelId, ":", ConnectorId]),
+            Key = iolist_to_binary([ChannelId, ":", ConnectorId0]),
             Acc#{Key => #{status => Status, error => Error}}
         end,
         #{},
