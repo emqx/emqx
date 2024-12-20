@@ -968,49 +968,49 @@ handle_query_result(Id, Result, HasBeenSent) ->
 %%   * the result is a success (or at least a delayed result)
 %% We also retry even sync requests.  In that case, we shouldn't reply
 %% the caller until one of those final results above happen.
--spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCTX :: map()) ->
+-spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCtx :: map()) ->
     {ack | nack, function(), counters()}.
-handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCTX) ->
+handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
         ?TRACE(
             error,
             "ERROR",
             "resource_exception",
-            (trace_ctx_map(TraceCTX))#{info => emqx_utils:redact(Msg)}
+            (trace_ctx_map(TraceCtx))#{info => emqx_utils:redact(Msg)}
         ),
         ok
     end,
     {nack, PostFn, #{}};
-handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent, _TraceCTX) when
+handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent, _TraceCtx) when
     NotWorking == not_connected; NotWorking == blocked
 ->
     {nack, fun() -> ok end, #{}};
-handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, TraceCTX) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
         ?TRACE(
             error,
             "ERROR",
             "resource_not_found",
-            (trace_ctx_map(TraceCTX))#{id => Id, info => Msg}
+            (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}
         ),
         ok
     end,
     {ack, PostFn, #{dropped_resource_not_found => 1}};
-handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, TraceCTX) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
-        ?TRACE(error, "ERROR", "resource_stopped", (trace_ctx_map(TraceCTX))#{id => Id, info => Msg}),
+        ?TRACE(error, "ERROR", "resource_stopped", (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}),
         ok
     end,
     {ack, PostFn, #{dropped_resource_stopped => 1}};
-handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCTX) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
-        ?TRACE(error, "ERROR", "other_resource_error", (trace_ctx_map(TraceCTX))#{
+        ?TRACE(error, "ERROR", "other_resource_error", (trace_ctx_map(TraceCtx))#{
             id => Id, reason => Reason
         }),
         ok
     end,
     {nack, PostFn, #{}};
-handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
+handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
     case is_unrecoverable_error(Error) of
         true ->
             PostFn =
@@ -1036,16 +1036,16 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
         false ->
             PostFn =
                 fun() ->
-                    ?TRACE(error, "ERROR", "send_error", (trace_ctx_map(TraceCTX))#{
+                    ?TRACE(error, "ERROR", "send_error", (trace_ctx_map(TraceCtx))#{
                         id => Id, reason => Reason
                     }),
                     ok
                 end,
             {nack, PostFn, #{}}
     end;
-handle_query_result_pure(Id, {async_return, Result}, HasBeenSent, TraceCTX) ->
-    handle_query_async_result_pure(Id, Result, HasBeenSent, TraceCTX);
-handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCTX) ->
+handle_query_result_pure(Id, {async_return, Result}, HasBeenSent, TraceCtx) ->
+    handle_query_async_result_pure(Id, Result, HasBeenSent, TraceCtx);
+handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCtx) ->
     PostFn = fun() ->
         assert_ok_result(Result),
         ok
@@ -1059,7 +1059,7 @@ handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCTX) ->
 
 -spec handle_query_async_result_pure(id(), term(), HasBeenSent :: boolean(), map()) ->
     {ack | nack, function(), counters()}.
-handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCTX) ->
+handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
     case is_unrecoverable_error(Error) of
         true ->
             PostFn =
@@ -1084,18 +1084,18 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCT
             {ack, PostFn, Counters};
         false ->
             PostFn = fun() ->
-                ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCTX))#{
+                ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCtx))#{
                     id => Id, reason => Reason
                 }),
                 ok
             end,
             {nack, PostFn, #{}}
     end;
-handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent, _TraceCTX) when is_pid(Pid) ->
+handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent, _TraceCtx) when is_pid(Pid) ->
     {ack, fun() -> ok end, #{}};
-handle_query_async_result_pure(_Id, ok, _HasBeenSent, _TraceCTX) ->
+handle_query_async_result_pure(_Id, ok, _HasBeenSent, _TraceCtx) ->
     {ack, fun() -> ok end, #{}};
-handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCTX) when is_list(Results) ->
+handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(Results) ->
     All = fun(L) ->
         case L of
             {ok, Pid} -> is_pid(Pid);
@@ -1111,7 +1111,7 @@ handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCTX) when is_list(
                     error,
                     "ERROR",
                     "async_batch_send_error",
-                    (trace_ctx_map(TraceCTX))#{
+                    (trace_ctx_map(TraceCtx))#{
                         id => Id,
                         reason => Results,
                         has_been_sent => HasBeenSent
