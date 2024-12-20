@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+# ===================================
+# Add/Del Iptables rules for the EMQX
+# ===================================
+
+usage() {
+    local Script
+    Script=$(basename "$0")
+    echo "
+Firewall rules to protect EMQX listeners.
+
+(requires root)
+
+Usage:
+        # Ratelimit TCP SYN 2500/s(avg) burst 500 from network interface: eth0
+        $Script add_tcp_syn_rate eth0 1883 2500 500
+
+        # Remove the Ratelimit above
+        $Script del_tcp_syn_rate eth0 1883
+    "
+}
+
+chain_name_tcp_syn_rate() {
+    local dev=$1
+    local port=$2
+    echo "EMQX_TCP_${dev}_${port}"
+}
+
+add_tcp_syn_rate() {
+    local dev=$1
+    local port=$2
+    local rate=$3
+    local burst=$4
+
+    local chain
+    chain=$(chain_name_tcp_syn_rate "$dev" "$port")
+
+    iptables -N "$chain"
+    iptables -I INPUT -i "$dev" -p tcp --dport "$port" -m tcp --syn -j "$chain"
+    iptables -A "$chain" -p tcp -m tcp --syn -m limit --limit "$rate" --limit-burst "$burst" -j ACCEPT
+    iptables -A "$chain" -j DROP
+}
+
+del_tcp_syn_rate() {
+    local dev=$1
+    local port=$2
+
+    local chain
+    chain=$(chain_name_tcp_syn_rate "$dev" "$port")
+
+    iptables -D INPUT -i "$dev" -p tcp --dport "$port" -m tcp --syn -j "$chain"
+    iptables -F "$chain"
+    iptables -X "$chain"
+}
+
+main() {
+
+    if [[ $# -lt 3 ]]; then
+        usage
+    fi
+
+    fun=$1;
+    shift 1;
+    $fun "$@"
+}
+
+main "$@"

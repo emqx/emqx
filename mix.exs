@@ -1015,6 +1015,14 @@ defmodule EMQXUmbrella.MixProject do
 
     File.chmod!(Path.join(bin, "emqx_cluster_rescue"), 0o755)
 
+    Mix.Generator.copy_file(
+      "bin/emqx_fw",
+      Path.join(bin, "emqx_fw"),
+      force: overwrite?
+    )
+
+    File.chmod!(Path.join(bin, "emqx_fw"), 0o755)
+
     render_template(
       "rel/BUILD_INFO",
       assigns,
