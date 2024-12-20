@@ -1257,8 +1257,13 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
         {ok, #rt{st_err = #{status := ?status_connecting, error := unhealthy_target}}} ->
             Result = {error, {unrecoverable_error, unhealthy_target}},
             maybe_reply_to(Result, QueryOpts);
-        {ok, #rt{st_err = #{status := Status}, cb = Resource, channel_status = ChanSt}} ->
-            IsAlwaysSend = is_always_send(QueryOpts, Resource),
+        {ok, #rt{
+            st_err = #{status := Status},
+            cb = Resource,
+            query_mode = QueryMode,
+            channel_status = ChanSt
+        }} ->
+            IsAlwaysSend = is_always_send(QueryMode),
             case Status =:= ?status_connected orelse IsAlwaysSend of
                 true ->
                     call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt);
@@ -1376,16 +1381,12 @@ error_if_channel_is_not_installed(Id, IsSimpleQuery) ->
         end,
     {error, {ErrorType, Msg}}.
 
-is_always_send(#{query_mode := M}, _) when ?IS_BYPASS(M) ->
+is_always_send(M) when ?IS_BYPASS(M) ->
     %% The query overrides the query mode of the resource, send even in disconnected state
     ?tp(simple_query_override, #{query_mode => M}),
     ?tp(simple_query_enter, #{}),
     true;
-is_always_send(_, #{query_mode := M}) when ?IS_BYPASS(M) ->
-    %% The connector supports buffer, send even in disconnected state
-    ?tp(simple_query_enter, #{}),
-    true;
-is_always_send(_, _) ->
+is_always_send(_) ->
     false.
 
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->

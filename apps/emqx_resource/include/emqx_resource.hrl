@@ -32,7 +32,6 @@
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().
--type resource_spec() :: map().
 -type resource_state() :: term().
 %% Note: the `stopped' status can only be emitted by `emqx_resource_manager'...  Modules
 %% implementing `emqx_resource' behavior should not return it.
