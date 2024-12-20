@@ -457,7 +457,7 @@ install_bridge_v2_helper(
     %% Create metrics for Bridge V2
     ok = emqx_resource:create_metrics(BridgeV2Id),
     %% We might need to create buffer workers for Bridge V2
-    case get_query_mode(BridgeV2Type, Config) of
+    case get_resource_query_mode(BridgeV2Type, Config) of
         %% the Bridge V2 has built-in buffer, so there is no need for resource workers
         simple_sync_internal_buffer ->
             ok;
@@ -680,11 +680,11 @@ reset_metrics_helper(ConfRootKey, BridgeV2Type, BridgeName, #{connector := Conne
 reset_metrics_helper(_, _, _, _) ->
     {error, not_found}.
 
-get_query_mode(BridgeV2Type, Config) ->
+get_resource_query_mode(ActionType, Config) ->
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
-    ConnectorType = connector_type(BridgeV2Type),
-    ResourceType = emqx_connector_resource:connector_to_resource_type(ConnectorType),
-    emqx_resource:query_mode(ResourceType, Config, CreationOpts).
+    ConnectorType = connector_type(ActionType),
+    ResourceMod = emqx_connector_resource:connector_to_resource_type(ConnectorType),
+    emqx_resource:query_mode(ResourceMod, Config, CreationOpts).
 
 -spec query(bridge_v2_type(), bridge_v2_name(), Message :: term(), QueryOpts :: map()) ->
     term() | {error, term()}.
@@ -708,16 +708,12 @@ do_query_with_enabled_config(
 do_query_with_enabled_config(
     BridgeType, BridgeName, Message, QueryOpts0, Config
 ) ->
-    QueryMode = get_query_mode(BridgeType, Config),
     ConnectorName = maps:get(connector, Config),
     ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
     ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
         query_opts(BridgeType, Config),
-        QueryOpts0#{
-            connector_resource_id => ConnectorResId,
-            query_mode => QueryMode
-        }
+        QueryOpts0#{connector_resource_id => ConnectorResId}
     ),
     BridgeV2Id = id(BridgeType, BridgeName),
     case Message of
