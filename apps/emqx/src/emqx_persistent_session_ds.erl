@@ -1024,14 +1024,16 @@ ensure_new_session_state(
     S2 = init_last_alive_at(S1),
     S3 = emqx_persistent_session_ds_state:set_created_at(Now, S2),
     S4 = lists:foldl(
-        fun(Track, Acc) ->
-            put_seqno(Track, 0, Acc)
+        fun(Track, SAcc) ->
+            put_seqno(Track, 0, SAcc)
         end,
         S3,
         [
+            %% QoS1:
             ?next(?QOS_1),
             ?dup(?QOS_1),
             ?committed(?QOS_1),
+            %% QoS2:
             ?next(?QOS_2),
             ?dup(?QOS_2),
             ?rec,
