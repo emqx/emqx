@@ -833,8 +833,8 @@ ds_subscribe([SrsID | Rest], S, Subs) ->
         #{SrsID := _} ->
             ds_subscribe(Rest, S, Subs);
         _ ->
-            #srs{it_begin = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
-            %% FIXME: don't hardcode
+            #srs{it_end = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
+            %% FIXME: don't hardcode max_unacked
             {ok, SubRef, MRef} = emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, #{
                 max_unacked => 100
             }),
