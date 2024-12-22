@@ -116,8 +116,11 @@ pop(Rec0) ->
         {{value, Payload}, Q} ->
             Rec =
                 case Payload of
-                    {pubrel, _} ->
-                        Rec0#ds_inflight{queue = Q};
+                    {pubrel, SeqNo} ->
+                        Rec0#ds_inflight{
+                          queue = Q,
+                          pubcomp_queue = ipush(SeqNo, QComp)
+                         };
                     {SeqNo, #message{qos = Qos}} ->
                         case Qos of
                             ?QOS_0 ->
