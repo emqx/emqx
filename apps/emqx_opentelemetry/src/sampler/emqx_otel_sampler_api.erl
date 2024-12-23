@@ -137,7 +137,7 @@ whitelist(post, #{bindings := #{type := Type}, body := Body}) when is_list(Body)
                 code => ?BAD_REQUEST,
                 message =>
                     binfmt(
-                        <<"The rules length for '~ts' exceeds the maximum limit.">>, [Type]
+                        <<"The number of '~ts' exceeds the white list maximum limit.">>, [Type]
                     )
             }}
     end;
