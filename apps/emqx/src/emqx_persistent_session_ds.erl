@@ -211,6 +211,8 @@
 
 -type timer_state() :: reference() | undefined.
 
+-record(ds_suback, {stream_key, seqno}).
+
 %% TODO: Needs configuration?
 -define(TIMEOUT_RETRY_REPLAY, 1000).
 
@@ -223,10 +225,12 @@
     s := emqx_persistent_session_ds_state:t(),
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
-    %% Buffer accumulates poll replies received from the DS. Buffered
-    %% messages have not been seen by the client. Therefore, they (and
-    %% their iterators) are entirely ephemeral and are lost when the
-    %% client disconnets. Session restarts with an empty buffer.
+    %% Buffer accumulates poll replies received from the DS, that
+    %% could not be immediately added to the inflight due to stream
+    %% blocking. Buffered messages have not been seen by the client.
+    %% Therefore, they (and their iterators) are entirely ephemeral
+    %% and are lost when the client disconnets. Session restarts with
+    %% an empty buffer.
     buffer := emqx_persistent_session_ds_buffer:t(),
     %% Inflight represents a sequence of outgoing messages with
     %% assigned packet IDs. Some of these messages MAY have been seen
@@ -960,7 +964,7 @@ sync(ClientId) ->
                     demonitor(Ref, [flush]),
                     ok
             after 5000 ->
-                    {error, timeout}
+                {error, timeout}
             end;
         [] ->
             {error, noproc}
@@ -1255,25 +1259,28 @@ enqueue_transient(
 %% Inflight fill and drain
 %%--------------------------------------------------------------------
 
-drain_inflight(Session = #{inflight := Inflight0, s := S0}) ->
-    {Publishes, Inflight, S} = do_drain_inflight(Inflight0, S0, []),
+drain_inflight(Session = #{inflight := Inflight0, s := S0, stream_scheduler_s := SchedS}) ->
+    {Publishes, Inflight, S} = do_drain_inflight(Inflight0, S0, [], SchedS),
     {Publishes, Session#{inflight := Inflight, s := S}}.
 
-do_drain_inflight(Inflight0, S0, Acc) ->
+do_drain_inflight(Inflight0, S0, Acc, SchedS) ->
     case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
             {lists:reverse(Acc), Inflight0, S0};
+        {{other, #ds_suback{stream_key = Key, seqno = SeqNo}}, Inflight} ->
+            emqx_persistent_session_ds_stream_scheduler:suback(Key, SeqNo, SchedS),
+            do_drain_inflight(Inflight, S0, Acc, SchedS);
         {{pubrel, SeqNo}, Inflight} ->
             Publish = {pubrel, seqno_to_packet_id(?QOS_2, SeqNo)},
-            do_drain_inflight(Inflight, S0, [Publish | Acc]);
+            do_drain_inflight(Inflight, S0, [Publish | Acc], SchedS);
         {{SeqNo, Msg}, Inflight} ->
             case Msg#message.qos of
                 ?QOS_0 ->
-                    do_drain_inflight(Inflight, S0, [{undefined, Msg} | Acc]);
+                    do_drain_inflight(Inflight, S0, [{undefined, Msg} | Acc], SchedS);
                 Qos ->
                     S = put_seqno(?dup(Qos), SeqNo, S0),
                     Publish = {seqno_to_packet_id(Qos, SeqNo), Msg},
-                    do_drain_inflight(Inflight, S, [Publish | Acc])
+                    do_drain_inflight(Inflight, S, [Publish | Acc], SchedS)
             end
     end.
 
@@ -1281,7 +1288,7 @@ do_drain_inflight(Inflight0, S0, Acc) ->
 fill_inflight(Session0 = #{s := S0, buffer := Buf0}, ClientInfo) ->
     case find_ready_stream(S0, emqx_persistent_session_ds_buffer:iterator(Buf0)) of
         {ok, StreamKey, SRS0} ->
-            case drain_buffer(StreamKey, SRS0, Session0, ClientInfo) of
+            case drain_buffer_of_stream(StreamKey, SRS0, Session0, ClientInfo) of
                 {ignore, Session} ->
                     fill_inflight(Session, ClientInfo);
                 {ok, Session} ->
@@ -1313,7 +1320,7 @@ find_ready_stream(S, BufferIterator0) ->
     end.
 
 %% @doc Move batches from a specified stream's buffer to the inflight.
--spec drain_buffer(
+-spec drain_buffer_of_stream(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
     emqx_persistent_session_ds_stream_scheduler:stream_state(),
     session(),
@@ -1322,7 +1329,7 @@ find_ready_stream(S, BufferIterator0) ->
     {ok, stream_state(), session()}
     | emqx_ds:error(_)
     | {ignore, session()}.
-drain_buffer(
+drain_buffer_of_stream(
     StreamKey,
     SRS0 = #srs{it_end = NewItBegin},
     Session0 = #{s := S0, buffer := Buf, inflight := Inflight},
@@ -1342,23 +1349,21 @@ drain_buffer(
     },
     {SRS, SubState} = maybe_update_sub_state_id(SRS1, S0),
     %% Drain the buffer:
-    {ok, do_drain_buffer(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight)}.
+    {ok, do_drain_buffer_of_stream(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight)}.
 
-do_drain_buffer(
+do_drain_buffer_of_stream(
     StreamKey,
     SRS0 = #srs{batch_size = BatchSize, last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
     SubState,
-    Session0 = #{s := S0, stream_scheduler_s := SchedS},
+    Session0 = #{s := S0},
     ClientInfo,
     Buf0,
     Inflight0
 ) ->
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
         {[#poll_reply{seqno = SeqNo, payload = {ok, It, Batch}}], Buf} ->
-            %% Note: here SeqNo refers to DS subscription seqno, not
-            %% to be confused with any of the MQTT session seqnos.
-            emqx_persistent_session_ds_stream_scheduler:suback(StreamKey, SeqNo, SchedS),
-            {Inflight, LastSeqnoQos1, LastSeqnoQos2} =
+            %% Enqueue messages:
+            {Inflight1, LastSeqnoQos1, LastSeqnoQos2} =
                 process_batch(
                     false,
                     Session0,
@@ -1369,13 +1374,19 @@ do_drain_buffer(
                     Batch,
                     Inflight0
                 ),
+            %% Enqueue the DS suback:
+            Inflight = emqx_persistent_session_ds_inflight:push(
+                {other, #ds_suback{stream_key = StreamKey, seqno = SeqNo}}, Inflight1
+            ),
             SRS = SRS0#srs{
                 it_end = It,
                 batch_size = BatchSize + length(Batch),
                 last_seqno_qos1 = LastSeqnoQos1,
                 last_seqno_qos2 = LastSeqnoQos2
             },
-            do_drain_buffer(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight);
+            do_drain_buffer_of_stream(
+                StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight
+            );
         {Other, Buf} ->
             %% Drained all buffered batches for the stream:
             SRS =

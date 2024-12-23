@@ -47,7 +47,8 @@
 
 -type payload() ::
     {emqx_persistent_session_ds:seqno() | undefined, emqx_types:message()}
-    | {pubrel, emqx_persistent_session_ds:seqno()}.
+    | {pubrel, emqx_persistent_session_ds:seqno()}
+    | {other, term()}.
 
 -record(ds_inflight, {
     receive_maximum :: pos_integer(),
@@ -85,6 +86,8 @@ receive_maximum(#ds_inflight{receive_maximum = ReceiveMaximum}) ->
     ReceiveMaximum.
 
 -spec push(payload(), t()) -> t().
+push(Payload = {other, _}, Rec = #ds_inflight{queue = Q}) ->
+    Rec#ds_inflight{queue = queue:in(Payload, Q)};
 push(Payload = {pubrel, _SeqNo}, Rec = #ds_inflight{queue = Q}) ->
     Rec#ds_inflight{queue = queue:in(Payload, Q)};
 push(Payload = {_, Msg}, Rec) ->
@@ -116,11 +119,15 @@ pop(Rec0) ->
         {{value, Payload}, Q} ->
             Rec =
                 case Payload of
+                    {other, _} ->
+                        Rec0#ds_inflight{
+                            queue = Q
+                        };
                     {pubrel, SeqNo} ->
                         Rec0#ds_inflight{
-                          queue = Q,
-                          pubcomp_queue = ipush(SeqNo, QComp)
-                         };
+                            queue = Q,
+                            pubcomp_queue = ipush(SeqNo, QComp)
+                        };
                     {SeqNo, #message{qos = Qos}} ->
                         case Qos of
                             ?QOS_0 ->
