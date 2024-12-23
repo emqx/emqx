@@ -370,12 +370,13 @@ on_enqueue(true, _Key, _SRS, S, SchedS) ->
     {[], S, SchedS};
 on_enqueue(false, Key, SRS, S0, SchedS0) ->
     %% Drop DS subscription when encounter end_of_stream:
-    SchedS = case SRS of
-                 #srs{it_end = end_of_stream} ->
-                     ds_unsubscribe(Key, SchedS0);
-                 _ ->
-                     SchedS0
-             end,
+    SchedS =
+        case SRS of
+            #srs{it_end = end_of_stream} ->
+                ds_unsubscribe(Key, SchedS0);
+            _ ->
+                SchedS0
+        end,
     %% Is the stream blocked?
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
