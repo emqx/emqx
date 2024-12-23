@@ -663,7 +663,7 @@ t_new_stream_notifications(Config) ->
         end
     ).
 
-tt_fuzz(_Config) ->
+t_fuzz(_Config) ->
     snabbkaffe:fix_ct_logging(),
     %% NOTE: we set timeout at the lower level to capture the trace
     %% and have a nicer error message.

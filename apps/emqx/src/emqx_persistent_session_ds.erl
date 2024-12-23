@@ -461,6 +461,7 @@ unsubscribe(
     of
         {ok, S, SchedS, SharedSubS, SubOpts} ->
             Session = Session0#{s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS},
+            %% FIXME: clear buffer
             {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
@@ -475,7 +476,7 @@ unsubscribe(
                 TopicFilter, SubId, S1, SchedS0
             ),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, commit(Session), SubOpts};
+            {ok, commit(clear_buffer(SubId, Session)), SubOpts};
         Error = {error, _} ->
             Error
     end.
@@ -1112,6 +1113,11 @@ put_next(Track, Val, S) ->
         _ ->
             inc_next(Track, S)
     end.
+
+%% @doc Remove buffered data for all streams that belong to a given
+%% subscription.
+clear_buffer(SubId, Session = #{buffer := Buf}) ->
+    Session#{buffer := emqx_persistent_session_ds_buffer:clean_by_subid(SubId, Buf)}.
 
 %%--------------------------------------------------------------------
 %% Generic functions for fetching messages (during replay or normal
