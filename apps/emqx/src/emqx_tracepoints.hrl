@@ -19,7 +19,7 @@
 -define(EMQX_TRACEPOINTS_HRL, true).
 
 %%%%% Trace point kinds:
--define(sessds_pull, sessds_pull).
+-define(sessds_deliver_pending, sessds_deliver_pending).
 
 -define(sessds_unknown_timeout, sessds_unknown_timeout).
 -define(sessds_unknown_message, sessds_unknown_message).
