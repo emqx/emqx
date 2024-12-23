@@ -261,6 +261,19 @@ t_parse_insert_sql_template(_Config) ->
             <<"INSERT INTO Values_таблица (идентификатор, имя, возраст)   VALUES \t (${id}, 'Иван', 25)  "/utf8>>
         )
     ),
+    %% with `;` suffix, bug-to-bug compatibility
+    ?assertEqual(
+        <<"(${id}, 'Иван', 25)"/utf8>>,
+        parse_insert(
+            <<"INSERT INTO Values_таблица (идентификатор, имя, возраст)   VALUES \t (${id}, 'Иван', 25);  "/utf8>>
+        )
+    ),
+    ?assertEqual(
+        <<"(${id},'李四', 35)"/utf8>>,
+        parse_insert(
+            <<"  inSErt into 表格(标识,名字,年龄)values(${id},'李四', 35) ; "/utf8>>
+        )
+    ),
 
     %% `values` in column name
     ?assertEqual(

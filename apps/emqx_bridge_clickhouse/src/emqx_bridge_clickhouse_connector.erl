@@ -110,7 +110,7 @@
     %%     `VALUES [([<VALUE> | <PLACEHOLDER>], ...)]`
     %% Keep Capturing-Group:
     %%     `([<VALUE> | <PLACEHOLDER>], ...) [, ([<VALUE> | <PLACEHOLDER>], ..)]`
-    "(?:values\\s*(\\((?:[^()]++|(?2))*\\)(?:\\s*,\\s*\\((?:[^()]++|(?2)*)\\))*))",
+    "(?:values\\s*(\\((?:[^()]++|(?2))*\\)(?:\\s*,\\s*\\((?:[^()]++|(?2)*)\\))*)\\s*;?\\s*)",
     %% End Group-2
     %% or
     "|",
