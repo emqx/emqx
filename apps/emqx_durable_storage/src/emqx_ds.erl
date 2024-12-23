@@ -40,6 +40,7 @@
 
 %% Message replay API:
 -export([get_streams/3, make_iterator/4, next/3, poll/3]).
+-export([subscribe/4, unsubscribe/2, suback/3, subscription_info/2]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -88,7 +89,12 @@
     generation_info/0,
 
     poll_iterators/0,
-    poll_opts/0
+    poll_opts/0,
+
+    sub_opts/0,
+    subscription_handle/0,
+    sub_info/0,
+    sub_seqno/0
 ]).
 
 %%================================================================================
@@ -272,6 +278,22 @@
         reply_to => reference()
     }.
 
+-type sub_opts() ::
+    #{
+        %% Maximum number of unacked batches before subscription is
+        %% considered overloaded and removed from the active queues:
+        max_unacked := non_neg_integer()
+    }.
+
+-type sub_info() ::
+    #{
+        seqno := emqx_ds:sub_seqno(),
+        acked := emqx_ds:sub_seqno(),
+        window := non_neg_integer(),
+        stuck := boolean(),
+        atom() => _
+    }.
+
 %% An opaque term identifying a generation.  Each implementation will possibly add
 %% information to this term to match its inner structure (e.g.: by embedding the shard id,
 %% in the case of `emqx_ds_replication_layer').
@@ -282,6 +304,10 @@
     since := time(),
     until := time() | undefined
 }.
+
+-type subscription_handle() :: term().
+
+-type sub_seqno() :: non_neg_integer().
 
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
@@ -498,6 +524,38 @@ next(DB, Iter, BatchSize) ->
 -spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
     ?module(DB):poll(DB, Iterators, PollOpts).
+
+%% @doc "Multi-poll" API: subscribe current process to the messages
+%% that follow `Iterator'.
+%%
+%% This function returns subscription handle that can be used to to
+%% manipulate the subscription (ack async messages and unsubscribe),
+%% as well as a monitor reference that used to detect unexpected
+%% termination of the subscription on the DS side.
+%%
+%% NOTE: Subscriptions are NOT automatically removed when subscriber
+%% encounters `{ok, end_of_stream}' or `{error, unrecoverable, _}'.
+%% Subscriber MUST explicitly call `unsubscribe' when it's done with
+%% the stream.
+-spec subscribe(db(), _ItKey, iterator(), sub_opts()) -> {ok, subscription_handle(), reference()}.
+subscribe(DB, ItKey, Iterator, SubOpts) ->
+    ?module(DB):subscribe(DB, ItKey, Iterator, SubOpts).
+
+-spec unsubscribe(db(), subscription_handle()) -> boolean().
+unsubscribe(DB, SubRef) ->
+    ?module(DB):unsubscribe(DB, SubRef).
+
+%% @doc Acknowledge processing of batch with a given sequence number.
+%% This way application can signal to DS that it is ready to process
+%% more data.
+-spec suback(db(), subscription_handle(), non_neg_integer()) -> ok.
+suback(DB, SubRef, SeqNo) ->
+    ?module(DB):suback(DB, SubRef, SeqNo).
+
+%% @doc Gen information about the subscription.
+-spec subscription_info(db(), subscription_handle()) -> sub_info() | undefined.
+subscription_info(DB, Handle) ->
+    ?module(DB):subscription_info(DB, Handle).
 
 -spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
 get_delete_streams(DB, TopicFilter, StartTime) ->

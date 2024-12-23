@@ -23,6 +23,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("proper/include/proper.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/src/emqx_tracepoints.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
 -define(HTTP200, {"HTTP/1.1", 200, "OK"}).
@@ -2299,6 +2300,6 @@ stop_and_commit(Client) ->
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:stop(Client),
-            #{?snk_kind := persistent_session_ds_terminate}
+            #{?snk_kind := ?sessds_terminate}
         ),
     ok.

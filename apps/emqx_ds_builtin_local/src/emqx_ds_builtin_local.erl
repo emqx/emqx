@@ -37,14 +37,22 @@
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
+    delete_next/4,
+
     update_iterator/3,
     next/3,
     poll/3,
-    delete_next/4,
+
+    subscribe/4,
+    unsubscribe/2,
+    suback/3,
+    subscription_info/2,
 
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
+    high_watermark/2,
+    fast_forward/3,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -143,13 +151,14 @@ add_generation(DB) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     Errors = lists:filtermap(
         fun(Shard) ->
-            ShardId = {DB, Shard},
+            DBShard = {DB, Shard},
             case
                 emqx_ds_storage_layer:add_generation(
-                    ShardId, emqx_ds_builtin_local_meta:ensure_monotonic_timestamp(ShardId)
+                    DBShard, emqx_ds_builtin_local_meta:ensure_monotonic_timestamp(DBShard)
                 )
             of
                 ok ->
+                    emqx_ds_beamformer:generation_event(DBShard),
                     false;
                 Error ->
                     {true, {Shard, Error}}
@@ -417,15 +426,56 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
-unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
+-spec subscribe(emqx_ds:db(), _ItKey, iterator(), emqx_ds:sub_opts()) ->
+    {ok, emqx_ds:subscription_handle(), reference()}.
+subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+    Server = emqx_ds_beamformer:where({DB, Shard}),
+    MRef = monitor(process, Server),
+    case emqx_ds_beamformer:subscribe(Server, self(), MRef, It, ItKey, SubOpts) of
+        {ok, MRef} ->
+            {ok, {Shard, MRef}, MRef};
+        Err = {error, _, _} ->
+            Err
+    end.
 
-scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
-    {DB, _} = ShardId,
-    Now = current_timestamp(ShardId),
+-spec subscription_info(emqx_ds:db(), emqx_ds:subscription_handle()) ->
+    emqx_ds:subscription_info() | undefined.
+subscription_info(DB, {Shard, SubRef}) ->
+    emqx_ds_beamformer:subscription_info({DB, Shard}, SubRef).
+
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
+unsubscribe(DB, {Shard, SubId}) ->
+    emqx_ds_beamformer:unsubscribe({DB, Shard}, SubId).
+
+-spec suback(emqx_ds:db(), emqx_ds:subscripton(), emqx_ds:sub_seqno()) ->
+    ok | {error, subscription_not_found}.
+suback(DB, {Shard, SubRef}, SeqNo) ->
+    emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
+
+unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:unpack_iterator(DBShard, Iterator).
+
+high_watermark(DBShard, Stream) ->
+    Now = current_timestamp(DBShard),
+    emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
+
+fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
+    Now = current_timestamp(DBShard),
+    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+        {ok, end_of_stream} ->
+            {ok, end_of_stream};
+        {ok, Inner} ->
+            {ok, It#{?enc := Inner}};
+        {error, _, _} = Err ->
+            Err
+    end.
+
+scan_stream(DBShard, Stream, TopicFilter, StartMsg, BatchSize) ->
+    {DB, _} = DBShard,
+    Now = current_timestamp(DBShard),
     T0 = erlang:monotonic_time(microsecond),
     Result = emqx_ds_storage_layer:scan_stream(
-        ShardId, Stream, TopicFilter, Now, StartMsg, BatchSize
+        DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
     ),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
@@ -543,7 +593,7 @@ test_applications(_Config) ->
 test_db_config(_Config) ->
     #{
         backend => builtin_local,
-        storage => {emqx_ds_storage_reference, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{}},
         n_shards => 1
     }.
 

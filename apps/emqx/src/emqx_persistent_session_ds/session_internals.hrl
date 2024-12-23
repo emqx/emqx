@@ -85,4 +85,6 @@
 }).
 -define(shared_sub_message, #shared_sub_message{}).
 
+-include_lib("emqx/src/emqx_tracepoints.hrl").
+
 -endif.

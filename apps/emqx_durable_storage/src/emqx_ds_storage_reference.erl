@@ -47,6 +47,8 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
+    fast_forward/5,
+
     batch_events/3
 ]).
 
@@ -168,6 +170,10 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
         last_seen_message_key = DSKey
     }}.
 
+fast_forward(_ShardId, _S, It0, DSKey, _TMax) ->
+    %% FIXME:
+    {ok, It0#it{last_seen_message_key = DSKey}}.
+
 next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize, _Now, IsCurrent) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,
     {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
@@ -259,18 +265,20 @@ message_matcher(_Shard, _S, #it{
         MsgKey > LSK andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
     end.
 
-batch_events(_Shard, _, Messages) ->
-    Topics = lists:foldl(
-        fun
-            ({_TS, #message{topic = Topic}}, Acc) ->
-                Acc#{Topic => 1};
-            ({delete, _Msg}, Acc) ->
-                Acc
-        end,
-        #{},
-        Messages
-    ),
-    [{#stream{}, T} || T <- maps:keys(Topics)].
+batch_events(_Shard, _, _Messages) ->
+    %% FIXME:
+    [#stream{}].
+%% Topics = lists:foldl(
+%%     fun
+%%         ({_TS, #message{topic = Topic}}, Acc) ->
+%%             Acc#{Topic => 1};
+%%         ({delete, _Msg}, Acc) ->
+%%             Acc
+%%     end,
+%%     #{},
+%%     Messages
+%% ),
+%% [#stream{} || T <- maps:keys(Topics)].
 
 %%================================================================================
 %% Internal functions
