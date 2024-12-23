@@ -27,23 +27,6 @@
 %% messages as an array of "stream replay state" records (`#srs'), in
 %% such a way, that messages and their corresponging packet IDs can be
 %% reconstructing by "replaying" the stored SRSes.
-%%
-%% The session logic is implemented as two mostly separate loops
-%% ("circuits") that operate on a transient message queue, serving as
-%% a buffer.
-%%
-%% - *Push circuit* polls durable storage, and pushes messages to the
-%% queue. It's assisted by the `stream_scheduler' module that decides
-%% which streams are eligible for pull. Push circuit is responsible
-%% for maintaining a size of the queue at the configured limit.
-%%
-%% - *Pull circuit* consumes messages from the buffer and publishes
-%% them to the client connection. It's responsible for maintining the
-%% number of inflight packets as close to the negitiated
-%% `Recieve-Maximum' as possible to maximize the throughput.
-%%
-%% These circuites interact simply by notifying each other via
-%% `pull_now' or `push_now' functions.
 
 -module(emqx_persistent_session_ds).
 
@@ -200,12 +183,12 @@
 
 -type shared_sub_state() :: term().
 
--define(TIMER_PULL, timer_pull).
+-define(TIMER_DELIVER_PENDING, timer_deliver_pending).
 -define(TIMER_COMMIT, timer_commit).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
 -type timer() ::
-    ?TIMER_PULL
+    ?TIMER_DELIVER_PENDING
     | ?TIMER_COMMIT
     | ?TIMER_RETRY_REPLAY.
 
@@ -247,7 +230,7 @@
     %% List of stream replay states to be added to the inflight buffer.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
     %% Timers:
-    ?TIMER_PULL := timer_state(),
+    ?TIMER_DELIVER_PENDING := timer_state(),
     ?TIMER_COMMIT := timer_state(),
     ?TIMER_RETRY_REPLAY := timer_state()
 }.
@@ -593,7 +576,7 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
 puback(_ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], pull_now(Session)};
+            {ok, Msg, [], ensure_delivery_timer(Session)};
         Error ->
             Error
     end.
@@ -638,7 +621,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
 pubcomp(_ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], pull_now(Session)};
+            {ok, Msg, [], ensure_delivery_timer(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -655,7 +638,7 @@ deliver(ClientInfo, Delivers, Session0) ->
     Session = lists:foldl(
         fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
     ),
-    {ok, [], pull_now(Session)}.
+    {ok, [], ensure_delivery_timer(Session)}.
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -663,11 +646,11 @@ deliver(ClientInfo, Delivers, Session0) ->
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-handle_timeout(_ClientInfo, ?TIMER_PULL, Session0) ->
+handle_timeout(ClientInfo, ?TIMER_DELIVER_PENDING, Session0) ->
     %% Pull circuit loop:
-    ?tp(debug, ?sessds_pull, #{}),
-    Session1 = Session0#{?TIMER_PULL := undefined},
-    {Publishes, Session} = drain_inflight(Session1),
+    ?tp(debug, ?sessds_deliver_pending, #{}),
+    Session1 = Session0#{?TIMER_DELIVER_PENDING := undefined},
+    {Publishes, Session} = drain_inflight(fill_inflight(Session1, ClientInfo)),
     {ok, Publishes, Session};
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
@@ -696,7 +679,7 @@ handle_info(
     Session = Session0#{
         s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
     },
-    pull_now(Session);
+    ensure_delivery_timer(Session);
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     handle_ds_reply(AsyncReply, Session, ClientInfo);
 handle_info(
@@ -708,7 +691,7 @@ handle_info(
     {_NewStreams, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_new_stream_event(
         Ref, S0, SchedS0
     ),
-    pull_now(Session#{s := S, stream_scheduler_s := SchedS});
+    ensure_delivery_timer(Session#{s := S, stream_scheduler_s := SchedS});
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     Session = commit(Session0),
     From ! Ref,
@@ -753,7 +736,7 @@ replay_streams(Session = #{replay := []}, _ClientInfo) ->
     %% Note: we filled the buffer with the historical messages, and
     %% from now on we'll rely on the normal inflight/flow control
     %% mechanisms to replay them:
-    pull_now(Session#{replay := undefined}).
+    ensure_delivery_timer(Session#{replay := undefined}).
 
 -spec replay_batch(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
@@ -1292,7 +1275,7 @@ fill_inflight(Session0 = #{s := S0, buffer := Buf0}, ClientInfo) ->
                 {ignore, Session} ->
                     fill_inflight(Session, ClientInfo);
                 {ok, Session} ->
-                    pull_now(Session);
+                    ensure_delivery_timer(Session);
                 {{error, unrecoverable, Reason}, SRS, Session} ->
                     fill_inflight(
                         skip_batch(StreamKey, SRS, Session, ClientInfo, Reason),
@@ -1438,23 +1421,23 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
         props => Conf,
         stream_scheduler_s => SchedS,
         replay => undefined,
-        ?TIMER_PULL => undefined,
+        ?TIMER_DELIVER_PENDING => undefined,
         ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined
     }.
 
-%% This function triggers sending buffered packets to the client
-%% (provided there is something to send and the number of in-flight
-%% packets is less than `Recieve-Maximum'). Normally, pull is
-%% triggered when:
+%% This function triggers sending packets stored in the inflight to
+%% the client (provided there is something to send and the number of
+%% in-flight packets is less than `Recieve-Maximum'). Normally, this
+%% function is called triggered when:
 %%
 %% - New messages (durable or transient) are enqueued
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
--spec pull_now(session()) -> session().
-pull_now(Session0) ->
-    Session1 = ensure_timer(?TIMER_PULL, 0, Session0),
-    ensure_state_commit_timer(Session1).
+-compile({inline, ensure_delivery_timer/1}).
+-spec ensure_delivery_timer(session()) -> session().
+ensure_delivery_timer(Session) ->
+    ensure_state_commit_timer(ensure_timer(?TIMER_DELIVER_PENDING, 0, Session)).
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->
@@ -1537,7 +1520,7 @@ put_seqno(Key, Val, S) ->
 update_seqno(
     Track,
     PacketId,
-    Session = #{
+    Session0 = #{
         id := SessionId,
         s := S0,
         inflight := Inflight0,
@@ -1578,6 +1561,11 @@ update_seqno(
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
                 S2, SharedSubS0, ReadyStreams
             ),
+            Session =
+                case ReadyStreams of
+                    [] -> Session0;
+                    _ -> ensure_delivery_timer(Session0)
+                end,
             {ok, Msg, Session#{
                 s := put_seqno(SeqNoKey, SeqNo, S),
                 inflight := Inflight,
@@ -1712,6 +1700,7 @@ maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
             {SRS, SubState}
     end.
 
+-compile({inline, ensure_timer/3}).
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
 ensure_timer(Timer, Time, Session) ->
     case Session of
@@ -1721,6 +1710,7 @@ ensure_timer(Timer, Time, Session) ->
             Session
     end.
 
+-compile({inline, set_timer/3}).
 -spec set_timer(timer(), non_neg_integer(), session()) -> session().
 set_timer(Timer, Time, Session) ->
     TRef = emqx_utils:start_timer(Time, {emqx_session, Timer}),
