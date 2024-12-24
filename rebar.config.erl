@@ -494,6 +494,7 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx", "bin/emqx"},
         {copy, "bin/emqx_ctl", "bin/emqx_ctl"},
         {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
+        {copy, "bin/emqx_fw", "bin/emqx_fw"},
         {copy, "bin/node_dump", "bin/node_dump"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
         {copy, "bin/emqx", "bin/emqx-{{release_version}}"},
