@@ -542,6 +542,7 @@ do_authorize(
         ignore ->
             emqx_metrics_worker:inc(authz_metrics, Type, ignore),
             ?TRACE("AUTHZ", "authorization_module_ignore", #{
+                authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
