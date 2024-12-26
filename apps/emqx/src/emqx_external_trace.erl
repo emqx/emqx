@@ -51,8 +51,16 @@
     InitAttrs :: attrs(),
     Res :: term().
 
+-callback client_authn_backend(InitAttrs, fun(() -> Res)) -> Res when
+    InitAttrs :: attrs(),
+    Res :: term().
+
 -callback client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
+    InitAttrs :: attrs(),
+    Res :: term().
+
+-callback client_authz_backend(InitAttrs, fun(() -> Res)) -> Res when
     InitAttrs :: attrs(),
     Res :: term().
 
@@ -150,7 +158,9 @@
         set_status_error/0,
         set_status_error/1,
         client_authn/3,
-        client_authz/3
+        client_authn_backend/2,
+        client_authz/3,
+        client_authz_backend/2
     ]
 ).
 
