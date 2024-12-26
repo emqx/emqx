@@ -550,6 +550,7 @@ do_authorize(
             }),
             do_authorize(Client, PubSub, Topic, Tail);
         {matched, ignore} ->
+            emqx_metrics_worker:inc(authz_metrics, Type, ignore),
             ?TRACE("AUTHZ", "authorization_matched_ignore", #{
                 authorize_type => Type,
                 module => Module,
