@@ -75,12 +75,18 @@
 %% Internal macro
 -define(_DO_TRACE(Tag, Msg, Meta),
     case persistent_term:get(?TRACE_FILTER, []) of
-        [] -> ok;
+        [] ->
+            ok;
         %% We can't bind filter list to a variable because we pollute the calling scope with it.
         %% We also don't want to wrap the macro body in a fun
         %% because this adds overhead to the happy path.
         %% So evaluate `persistent_term:get` twice.
-        _ -> emqx_trace:log(persistent_term:get(?TRACE_FILTER, []), Msg, (Meta)#{trace_tag => Tag})
+        _ ->
+            emqx_trace:log(
+                persistent_term:get(?TRACE_FILTER, []),
+                Msg,
+                maps:merge(Meta, #{trace_tag => Tag})
+            )
     end
 ).
 
@@ -91,7 +97,7 @@
     ?_DO_TRACE(Tag, Msg, Meta),
     ?SLOG(
         Level,
-        (Meta)#{msg => Msg, tag => Tag},
+        maps:merge(Meta, #{msg => Msg, tag => Tag}),
         #{is_trace => false}
     )
 end).
