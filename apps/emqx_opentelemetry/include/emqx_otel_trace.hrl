@@ -18,7 +18,9 @@
 -define(BROKER_UNSUBSCRIBE_SPAN_NAME, 'broker.unsubscribe').
 
 -define(CLIENT_AUTHN_SPAN_NAME, 'client.authn').
+-define(CLIENT_AUTHN_BACKEND_SPAN_NAME, 'client.authn_backend').
 -define(CLIENT_AUTHZ_SPAN_NAME, 'client.authz').
+-define(CLIENT_AUTHZ_BACKEND_SPAN_NAME, 'client.authz_backend').
 
 -define(BROKER_PUBLISH_SPAN_NAME, 'broker.publish').
 -define(BROKER_PUBACK_SPAN_NAME, 'broker.puback').
