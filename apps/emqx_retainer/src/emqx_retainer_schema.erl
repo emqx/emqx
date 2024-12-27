@@ -162,9 +162,9 @@ fields(flow_control) ->
             )},
         {batch_deliver_limiter,
             sc(
-                ?R_REF(emqx_limiter_schema, internal),
+                number(),
                 batch_deliver_limiter,
-                undefined
+                0
             )}
     ];
 fields(external_backends) ->
@@ -241,12 +241,12 @@ retainer_converter(#{<<"delivery_rate">> := <<"infinity">>} = Conf, _Opts) ->
     };
 retainer_converter(#{<<"delivery_rate">> := RateStr} = Conf, _Opts) ->
     {ok, RateNum} = emqx_limiter_schema:to_rate(RateStr),
-    RawRate = erlang:floor(RateNum * 1000 / emqx_limiter_schema:default_period()),
+    Capacity = emqx_limiter:calc_capacity(RateNum),
     Control = #{
-        <<"batch_read_number">> => RawRate,
-        <<"batch_deliver_number">> => RawRate,
+        <<"batch_read_number">> => Capacity,
+        <<"batch_deliver_number">> => Capacity,
         %% Set the maximum delivery rate per session
-        <<"batch_deliver_limiter">> => #{<<"client">> => #{<<"rate">> => RateStr}}
+        <<"batch_deliver_limiter">> => RateNum
     },
     Conf#{<<"flow_control">> => Control};
 retainer_converter(#{<<"deliver_rate">> := Delivery} = Conf, Opts) ->
