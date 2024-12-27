@@ -45,6 +45,7 @@
     userdata,
     payload :: emqx_ds:next_result() | poll_timeout,
     seqno :: emqx_ds:sub_seqno() | undefined,
+    len :: non_neg_integer(),
     %% Set to `true' when the subscription becomes inactive due to
     %% falling behind on acks:
     stuck :: boolean(),
