@@ -40,4 +40,4 @@ introduced_in() ->
     "5.8.0".
 
 deprecated_since() ->
-    "5.8.3".
+    "5.9.0".
