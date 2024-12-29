@@ -212,7 +212,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
+  def common_dep(:gpb), do: {:gpb, "4.21.1", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, "2.15.0", override: true}
 
   # in conflict by emqx_connector and system_monitor
