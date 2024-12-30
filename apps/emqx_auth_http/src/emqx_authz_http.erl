@@ -97,9 +97,9 @@ authorize(
     } = Config
 ) ->
     Values = client_vars(Client, Action, Topic),
-    case emqx_auth_utils:generate_request(Config, Values) of
+    case emqx_auth_http_utils:generate_request(Config, Values) of
         {ok, Request} ->
-            CacheKey = emqx_auth_utils:cache_key(Values, CacheKeyTemplate),
+            CacheKey = emqx_auth_template:cache_key(Values, CacheKeyTemplate),
             Response = emqx_authz_utils:cached_simple_sync_query(
                 CacheKey,
                 ResourceID,
@@ -206,7 +206,6 @@ parse_config(
         %% pool_type default value `random`
         pool_type => random
     }.
-
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),

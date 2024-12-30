@@ -44,7 +44,7 @@ create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
     {Vars, FilterTemp} = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source#{
         annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
         filter_template => FilterTemp
@@ -52,7 +52,7 @@ create(#{filter := Filter} = Source) ->
 
 update(#{filter := Filter} = Source) ->
     {Vars, FilterTemp} = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -87,7 +87,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
     annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
 }) ->
-    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceID, {find, Collection, RenderedFilter, #{}}
     ),

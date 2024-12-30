@@ -87,11 +87,11 @@ parse_config(
 ) ->
     PasswordVars =
         case Method of
-            #{bind_password := Password} -> emqx_auth_utils:placeholder_vars_from_str(Password);
+            #{bind_password := Password} -> emqx_auth_template:placeholder_vars_from_str(Password);
             _ -> []
         end,
-    BaseDNVars = emqx_auth_utils:placeholder_vars_from_str(BaseDN),
-    FilterVars = emqx_auth_utils:placeholder_vars_from_str(Filter),
+    BaseDNVars = emqx_auth_template:placeholder_vars_from_str(BaseDN),
+    FilterVars = emqx_auth_template:placeholder_vars_from_str(Filter),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(
         BaseDNVars ++ FilterVars ++ PasswordVars
     ),

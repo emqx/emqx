@@ -27,7 +27,6 @@
     cache_key_template/1,
     cache_key/3,
     cache_key/2,
-    cached_simple_sync_query/4,
     placeholder_vars_from_str/1,
     render_deep_for_json/2,
     render_deep_for_url/2,
@@ -102,16 +101,6 @@ cache_key(Values, TemplatePart) ->
     fun() ->
         {render_deep_for_raw(TemplatePart, Values)}
     end.
-
-cached_simple_sync_query(CacheName, CacheKey, ResourceID, Query) ->
-    emqx_auth_cache:with_cache(CacheName, CacheKey, fun() ->
-        case emqx_resource:simple_sync_query(ResourceID, Query) of
-            {error, _} = Error ->
-                {nocache, Error};
-            Result ->
-                {cache, Result}
-        end
-    end).
 
 placeholder_vars_from_str(Str) ->
     emqx_template:placeholders(emqx_template:parse(Str)).

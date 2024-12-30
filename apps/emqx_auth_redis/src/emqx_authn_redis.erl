@@ -77,7 +77,7 @@ authenticate(
 ) ->
     NKey = emqx_auth_template:render_str(KeyTemplate, Credential),
     Command = [CommandName, NKey | Fields],
-    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     case emqx_authn_utils:cached_simple_sync_query(CacheKey, ResourceId, {cmd, Command}) of
         {ok, []} ->
             ignore;
@@ -129,7 +129,7 @@ parse_config(
             ok = emqx_authn_password_hashing:init(Algorithm),
             ok = emqx_authn_utils:ensure_apps_started(Algorithm),
             State = maps:with([password_hash_algorithm, salt_position], Config),
-            CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+            CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
             {Config, State#{cmd => Cmd, cache_key_template => CacheKeyTemplate}};
         {error, _} = Error ->
             Error

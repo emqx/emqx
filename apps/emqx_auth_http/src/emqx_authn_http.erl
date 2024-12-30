@@ -83,7 +83,7 @@ authenticate(
 ) ->
     case generate_request(Credential, State) of
         {ok, Request} ->
-            CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
+            CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
             ?tp(warning, authn_http_authenticate, #{
                 cache_key => CacheKey(),
                 cache_key_template => CacheKeyTemplate
@@ -183,7 +183,7 @@ parse_config(
         emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
     ),
     Vars = BasePathVars ++ BaseQueryVars ++ BodyVars,
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         method => Method,
         path => Path,

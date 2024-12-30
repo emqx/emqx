@@ -70,7 +70,7 @@ authenticate(
     }
 ) ->
     Params = emqx_auth_template:render_sql_params(TmplToken, Credential),
-    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     Result = emqx_authn_utils:cached_simple_sync_query(
         CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}
     ),
@@ -109,7 +109,7 @@ parse_config(
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     {Vars, PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         password_hash_algorithm => Algorithm,
         tmpl_token => TmplToken,
