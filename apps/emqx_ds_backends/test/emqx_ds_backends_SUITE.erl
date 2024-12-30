@@ -69,7 +69,7 @@ t_02_smoke_iterate(Config) ->
     timer:sleep(1000),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
     emqx_ds_test_helpers:diff_messages(Msgs, Batch).
 
 %% A simple smoke test that verifies that poll request is fulfilled
@@ -181,7 +181,7 @@ t_05_restart(Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
     ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
-    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
     emqx_ds_test_helpers:diff_messages(Msgs, Batch).
 
 t_06_smoke_add_generation(Config) ->
@@ -540,7 +540,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     ?assertNotEqual(Stream0, Stream1),
     {ok, Iter1} = emqx_ds:make_iterator(DB, Stream1, TopicFilter, StartTime),
 
-    {ok, Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
+    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
     emqx_ds_test_helpers:diff_messages(Msgs1, Batch).
 
 t_drop_generation_with_used_once_iterator(Config) ->
@@ -718,7 +718,7 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [{Backend, TCs -- exclude(Backend)} || Backend <- backends()].
 
-init_per_group(emqx_fdb_ds, Config) ->
+init_per_group(emqx_fdb_ds, _Config) ->
     {skip, fixme};
 init_per_group(emqx_ds_builtin_raft, Config) ->
     %% Raft backend is an odd one, as its main module is named

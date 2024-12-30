@@ -498,6 +498,8 @@ get_query_mode(_ResourceData, #{query_mode := QM}) ->
 get_query_mode(#{query_mode := QM}, _Opts) ->
     QM.
 
+get_error(_ResId, #{error := {unhealthy_target, _} = Error} = _ResourceData) ->
+    Error;
 get_error(ResId, #{added_channels := #{} = Channels} = ResourceData) when
     is_map_key(ResId, Channels)
 ->

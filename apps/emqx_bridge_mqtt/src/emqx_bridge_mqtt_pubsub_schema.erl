@@ -100,6 +100,14 @@ fields(ingress_parameters) ->
                     default => #{},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {no_local,
+            mk(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC("source_no_local")
+                }
             )}
         | emqx_bridge_mqtt_connector_schema:fields("ingress_remote")
     ];

@@ -429,7 +429,6 @@ t_session_unsubscription_idempotency(Config) ->
 %% This testcase verifies that the session handles update of the
 %% subscription settings by the client correctly.
 t_subscription_state_change(Config) ->
-    [Node1Spec | _] = ?config(node_specs, Config),
     [Node1] = ?config(nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
@@ -484,7 +483,7 @@ t_subscription_state_change(Config) ->
             ok = emqtt:puback(Sub, PI1),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_2),
             %% Verify that QoS of subscription has been updated:
-            [#{packet_id := PI2, qos := ?QOS_2, topic := <<"t/1">>, payload := <<"2">>}] =
+            [#{packet_id := _PI2, qos := ?QOS_2, topic := <<"t/1">>, payload := <<"2">>}] =
                 emqx_common_test_helpers:wait_publishes(1, 5_000),
             WaitGC(),
             #{subscriptions := Subs3, subscription_states := SStates3, streams := Streams3} = GetS(),
@@ -507,7 +506,6 @@ t_subscription_state_change(Config) ->
 %% This testcase verifies the lifetimes of session's subscriptions to
 %% new stream events.
 t_new_stream_notifications(Config) ->
-    [Node1Spec | _] = ?config(node_specs, Config),
     [Node1] = ?config(nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
@@ -1065,7 +1063,7 @@ check_stream_state_transitions(Trace) ->
     ).
 
 %% erlfmt-ignore
-check_stream_state_transitions(StreamId, [], _) ->
+check_stream_state_transitions(_StreamId, [], _) ->
     true;
 check_stream_state_transitions(StreamId = {ClientId, Key}, ['$restore', To | Rest], State) ->
     %% This clause verifies that restored session re-calculates states

@@ -233,6 +233,7 @@ t_demo_install_start_stop_uninstall(Config) ->
     ),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
+    ?assertMatch([<<"[]">>], emqx_plugins_cli:list(fun(_, L) -> L end)),
     ok.
 
 %% help function to create a info file.
