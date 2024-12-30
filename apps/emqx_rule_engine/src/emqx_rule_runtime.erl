@@ -416,6 +416,10 @@ handle_action(RuleId, ActId, Selected, Envs) ->
             ),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+        throw:{failed, unhealthy_target} ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unhealthy_target'),
+            trace_action(ActId, "action_failed", #{reason => unhealthy_target}, error);
         Err:Reason:ST ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
@@ -465,6 +469,8 @@ do_handle_action(
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
             throw({discard, Reason});
+        {error, {resource_error, #{reason := unhealthy_target}}} ->
+            throw({failed, unhealthy_target});
         Result ->
             Result
     end;
