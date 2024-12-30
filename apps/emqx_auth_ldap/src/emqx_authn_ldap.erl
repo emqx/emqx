@@ -85,9 +85,16 @@ parse_config(
 parse_config(
     #{base_dn := BaseDN, filter := Filter, query_timeout := QueryTimeout, method := Method}
 ) ->
+    PasswordVars =
+        case Method of
+            #{bind_password := Password} -> emqx_auth_utils:placeholder_vars_from_str(Password);
+            _ -> []
+        end,
     BaseDNVars = emqx_auth_utils:placeholder_vars_from_str(BaseDN),
     FilterVars = emqx_auth_utils:placeholder_vars_from_str(Filter),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(BaseDNVars ++ FilterVars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(
+        BaseDNVars ++ FilterVars ++ PasswordVars
+    ),
     #{
         query_timeout => QueryTimeout,
         method => Method,
