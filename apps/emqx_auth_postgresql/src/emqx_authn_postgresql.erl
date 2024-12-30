@@ -78,7 +78,7 @@ authenticate(
     }
 ) ->
     Params = emqx_auth_template:render_sql_params(PlaceHolders, Credential),
-    CacheKey = emqx_auth_utils:cache_key(Credential, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     case
         emqx_authn_utils:cached_simple_sync_query(
             CacheKey, ResourceId, {prepared_query, ResourceId, Params}
@@ -117,7 +117,7 @@ parse_config(
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     {Vars, Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         placeholders => PlaceHolders,
         password_hash_algorithm => Algorithm,

@@ -44,7 +44,7 @@ description() ->
 
 create(#{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
@@ -56,7 +56,7 @@ create(#{query := SQL} = Source0) ->
 
 update(#{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     case emqx_authz_utils:update_resource(emqx_mysql, Source) of
         {error, Reason} ->
@@ -86,7 +86,7 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderParams = emqx_auth_template:render_sql_params(TmplToken, Vars),
-    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
             CacheKey, ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}

@@ -42,7 +42,7 @@ description() ->
 
 create(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
     Source#{
@@ -52,7 +52,7 @@ create(#{cmd := CmdStr} = Source) ->
 
 update(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -77,7 +77,7 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
-    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);

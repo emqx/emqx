@@ -44,7 +44,7 @@ description() ->
 
 create(#{query := SQL0} = Source) ->
     {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_postgresql),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceID,
@@ -59,7 +59,7 @@ create(#{query := SQL0} = Source) ->
 
 update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
     {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case
         emqx_authz_utils:update_resource(
             emqx_postgresql,
@@ -93,7 +93,7 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderedParams = emqx_auth_template:render_sql_params(Placeholders, Vars),
-    CacheKey = emqx_auth_utils:cache_key(Vars, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
             CacheKey, ResourceID, {prepared_query, ResourceID, RenderedParams}

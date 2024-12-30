@@ -46,7 +46,7 @@ create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     {Vars, FilterTemp} = emqx_auth_template:parse_deep(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source#{
         annotations => #{
             id => ResourceId,
@@ -61,7 +61,7 @@ update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     {Vars, FilterTemp} = emqx_auth_template:parse_deep(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
-    CacheKeyTemplate = emqx_auth_utils:cache_key_template(Vars),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -103,7 +103,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     annotations := #{skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate}
 }) ->
     Options = #{skip => Skip, limit => Limit},
-    CacheKey = emqx_auth_utils:cache_key(Client, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceID, {find, Collection, RenderedFilter, Options}
     ),
