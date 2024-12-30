@@ -27,7 +27,7 @@ init_per_suite(Config) ->
                 config => #{
                     <<"durable_queues">> => #{
                         <<"enable">> => true,
-                        <<"session_find_leader_timeout_ms">> => "1200ms"
+                        <<"session_find_leader_timeout">> => "1200ms"
                     }
                 }
             }},

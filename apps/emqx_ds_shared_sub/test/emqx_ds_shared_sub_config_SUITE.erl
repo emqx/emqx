@@ -38,7 +38,7 @@ init_per_suite(Config) ->
                 config => #{
                     <<"durable_queues">> => #{
                         <<"enable">> => true,
-                        <<"session_find_leader_timeout_ms">> => "1200ms"
+                        <<"session_find_leader_timeout">> => "1200ms"
                     }
                 }
             }},
@@ -55,11 +55,11 @@ end_per_suite(Config) ->
 t_update_config(_Config) ->
     ?assertEqual(
         1200,
-        emqx_ds_shared_sub_config:get(session_find_leader_timeout_ms)
+        emqx_ds_shared_sub_config:get(session_find_leader_timeout)
     ),
 
-    {ok, _} = emqx_conf:update([durable_queues], #{session_find_leader_timeout_ms => 2000}, #{}),
+    {ok, _} = emqx_conf:update([durable_queues], #{session_find_leader_timeout => 2000}, #{}),
     ?assertEqual(
         2000,
-        emqx_ds_shared_sub_config:get(session_find_leader_timeout_ms)
+        emqx_ds_shared_sub_config:get(session_find_leader_timeout)
     ).

@@ -464,10 +464,10 @@ cancel_all_timers(#{timers := Timers} = St) ->
     ).
 
 timer_timeout(?find_leader_timer) ->
-    ?dq_config(session_find_leader_timeout_ms, 5000);
+    ?dq_config(session_find_leader_timeout, 5000);
 timer_timeout(?ping_leader_timer) ->
-    ?dq_config(session_ping_leader_interval_ms, 4000);
+    ?dq_config(session_ping_leader_interval, 4000);
 timer_timeout(?ping_leader_timeout_timer) ->
-    ?dq_config(session_ping_leader_timeout_ms, 4000);
+    ?dq_config(session_ping_leader_timeout, 4000);
 timer_timeout(?unsubscribe_timer) ->
-    ?dq_config(session_unsubscribe_timeout_ms, 1000).
+    ?dq_config(session_unsubscribe_timeout, 1000).

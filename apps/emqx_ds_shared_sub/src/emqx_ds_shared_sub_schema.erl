@@ -35,14 +35,14 @@ fields(durable_queues) ->
                     desc => ?DESC(enable)
                 }
             )},
-        duration(session_find_leader_timeout_ms, 1000),
-        duration(session_ping_leader_interval_ms, 4000),
-        duration(session_ping_leader_timeout_ms, 4000),
-        duration(session_unsubscribe_timeout_ms, 1000),
+        duration(session_find_leader_timeout, 1000),
+        duration(session_ping_leader_interval, 4000),
+        duration(session_ping_leader_timeout, 4000),
+        duration(session_unsubscribe_timeout, 1000),
 
-        duration(leader_periodical_actions_interval_ms, 1000),
-        duration(leader_renew_streams_interval_ms, 1000),
-        duration(leader_ssubscriber_timeout_ms, 5000)
+        duration(leader_periodical_actions_interval, 1000),
+        duration(leader_renew_streams_interval, 1000),
+        duration(leader_ssubscriber_timeout, 5000)
     ].
 
 injected_fields() ->
