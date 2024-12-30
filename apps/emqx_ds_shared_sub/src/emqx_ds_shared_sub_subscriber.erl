@@ -247,13 +247,23 @@ on_info(
 %%
 %% Revoke stream
 %%
-on_info(St, ?leader_revoke_match(_Leader, _Stream)) when ?is_connecting(St) ->
+on_info(#{session_id := SessionId, id := Id} = St, ?leader_revoke_match(_Leader, Stream)) when
+    ?is_connecting(St)
+->
     %% Should never happen.
+    ?tp(warning, ds_shared_sub_ssubscriber_leader_revoke_while_connecting, #{
+        session_id => SessionId,
+        ssubscriber_id => ?format_ssubscriber_id(Id),
+        stream => ?format_stream(Stream)
+    }),
     reset(St);
 on_info(St0, ?leader_revoke_match(_Leader, _Stream)) when ?is_unsubscribing(St0) ->
     %% If unsubscribing, ignore the revoke — we are revoking everything ourselves.
     {ok, [], St0};
-on_info(#{streams := Streams0} = St0, ?leader_revoke_match(_Leader, Stream)) when
+on_info(
+    #{streams := Streams0, session_id := SessionId, id := Id} = St0,
+    ?leader_revoke_match(_Leader, Stream)
+) when
     ?is_connected(St0)
 ->
     case Streams0 of
@@ -269,13 +279,25 @@ on_info(#{streams := Streams0} = St0, ?leader_revoke_match(_Leader, Stream)) whe
             {ok, [revoke_event(Stream)], St1};
         #{} ->
             %% Should never happen.
+            ?tp(warning, ds_shared_sub_ssubscriber_leader_revoke_unknown_stream, #{
+                session_id => SessionId,
+                ssubscriber_id => ?format_ssubscriber_id(Id),
+                stream => ?format_stream(Stream)
+            }),
             reset(St0, revoke_all_events(St0))
     end;
 %%
 %% Revoke finalization
 %%
-on_info(St, ?leader_revoked_match(_Leader, _Stream)) when ?is_connecting(St) ->
+on_info(#{session_id := SessionId, id := Id} = St, ?leader_revoked_match(_Leader, Stream)) when
+    ?is_connecting(St)
+->
     %% Should never happen.
+    ?tp(warning, ds_shared_sub_ssubscriber_leader_revoked_while_connecting, #{
+        session_id => SessionId,
+        ssubscriber_id => ?format_ssubscriber_id(Id),
+        stream => ?format_stream(Stream)
+    }),
     reset(St);
 on_info(St, ?leader_revoked_match(_Leader, _Stream)) when ?is_unsubscribing(St) ->
     {ok, [], St};
@@ -297,7 +319,11 @@ on_info(#{streams := Streams0} = St0, ?leader_revoked_match(_Leader, Stream)) wh
 %%
 %% Invalidate
 %%
-on_info(St, ?leader_invalidate_match(_Leader)) ->
+on_info(#{session_id := SessionId, id := Id} = St, ?leader_invalidate_match(_Leader)) ->
+    ?tp(warning, ds_shared_sub_ssubscriber_leader_invalidate, #{
+        session_id => SessionId,
+        ssubscriber_id => ?format_ssubscriber_id(Id)
+    }),
     reset(St, revoke_all_events(St));
 %%
 %% Unsubscribe timeout
