@@ -216,7 +216,8 @@ store_retained(State, Msg = #message{topic = Topic}) ->
                     reason => table_is_full
                 },
                 #{topic => Topic}
-            );
+            ),
+            ok;
         false ->
             do_store_retained(Msg, Tokens, ExpiryTime),
             ?tp(message_retained, #{topic => Topic}),

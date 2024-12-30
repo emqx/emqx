@@ -24,4 +24,8 @@
 -define(TAB_INDEX_META, emqx_retainer_index_meta).
 -define(RETAINER_SHARD, emqx_retainer_shard).
 
+-define(DISPATCHER_LIMITER_ID, emqx_retainer_dispatcher).
+
+-define(DISPATCHER_POOL, emqx_retainer_dispatcher).
+
 -endif.
