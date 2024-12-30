@@ -381,10 +381,10 @@ check_for_topic_existence(Topic, Client, ReqOpts) ->
     end.
 
 -spec get_client_status(emqx_bridge_gcp_pubsub_client:state()) ->
-    ?status_connected | ?status_connecting.
+    ?status_connected | {?status_connecting, term()}.
 get_client_status(Client) ->
     case emqx_bridge_gcp_pubsub_client:get_status(Client) of
-        ?status_disconnected -> ?status_connecting;
+        {?status_disconnected, Reason} -> {?status_connecting, Reason};
         ?status_connected -> ?status_connected
     end.
 

@@ -1,6 +1,6 @@
 {application, emqx_bridge_gcp_pubsub, [
     {description, "EMQX Enterprise GCP Pub/Sub Bridge"},
-    {vsn, "0.3.4"},
+    {vsn, "0.3.5"},
     {registered, []},
     {applications, [
         kernel,

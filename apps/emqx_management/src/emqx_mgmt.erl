@@ -201,6 +201,8 @@ vm_stats() ->
     cpu_stats() ++
         [
             {run_queue, vm_stats('run.queue')},
+            {mnesia_tm_mailbox_size, emqx_broker_mon:get_mnesia_tm_mailbox_size()},
+            {broker_pool_max_mailbox_size, emqx_broker_mon:get_broker_pool_max_mailbox_size()},
             {total_memory, MemTotal},
             {used_memory, erlang:round(MemTotal * MemUsedRatio)}
         ].

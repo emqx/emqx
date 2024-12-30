@@ -244,7 +244,7 @@ connector_action_config_to_bridge_v1_config(
                     <<"ingress">> =>
                         #{
                             <<"pool_size">> => PoolSize,
-                            <<"remote">> => Params,
+                            <<"remote">> => project_to(Params, "ingress_remote"),
                             <<"local">> => LocalParams
                         }
                 }
@@ -254,3 +254,8 @@ connector_action_config_to_bridge_v1_config(
         <<"resource_opts">> => ResourceOpts
     },
     BridgeV1Conf2.
+
+project_to(Params, ConnectorSchemaRef) ->
+    Fields0 = proplists:get_keys(emqx_bridge_mqtt_connector_schema:fields(ConnectorSchemaRef)),
+    Fields = lists:map(fun emqx_utils_conv:bin/1, Fields0),
+    maps:with(Fields, Params).

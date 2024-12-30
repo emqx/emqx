@@ -376,3 +376,22 @@ t_jose_jwk_function_clause(Config0) ->
         end
     ),
     ok.
+
+%% Checks that we return a pretty reason when health check fails.
+t_connector_health_check_timeout(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    ?check_trace(
+        begin
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ?assertMatch(
+                    {201, #{<<"status_reason">> := <<"Connection refused">>}},
+                    create_connector_api(Config)
+                )
+            end),
+            ok
+        end,
+        []
+    ),
+    ok.

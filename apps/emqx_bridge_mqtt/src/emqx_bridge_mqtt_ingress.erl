@@ -77,11 +77,15 @@ subscribe_remote_topics(Pid, IngressList, WorkerIdx, PoolSize, Name) ->
     [subscribe_remote_topic(Pid, Ingress, WorkerIdx, PoolSize, Name) || Ingress <- IngressList].
 
 subscribe_remote_topic(
-    Pid, #{remote := #{topic := RemoteTopic, qos := QoS}} = _Remote, WorkerIdx, PoolSize, Name
+    Pid,
+    #{remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}} = _Remote,
+    WorkerIdx,
+    PoolSize,
+    Name
 ) ->
     case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _LogWarn = true) of
         true ->
-            emqtt:subscribe(Pid, RemoteTopic, QoS);
+            emqtt:subscribe(Pid, RemoteTopic, [{qos, QoS}, {nl, NoLocal}]);
         false ->
             ok
     end.
