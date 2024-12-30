@@ -104,7 +104,7 @@ pre_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
                 exists ->
                     ok;
                 {error, Class, Reason} ->
-                    ?tp(debug, ds_shared_sub_agent_queue_declare_failed, #{
+                    ?tp(warning, ds_shared_sub_agent_queue_declare_failed, #{
                         group => Group,
                         topic => Topic,
                         class => Class,
