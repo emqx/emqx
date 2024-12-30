@@ -22,7 +22,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 %% erlfmt-ignore
 -define(LEGACY_CONF_DEFAULT, <<"
 prometheus {
@@ -89,7 +88,8 @@ init_per_group(new_config, Config) ->
     Apps = emqx_cth_suite:start(
         lists:flatten([
             %% coverage olp metrics
-            {emqx, "overload_protection.enable = true"},
+            {emqx_conf, "overload_protection.enable = true"},
+            emqx,
             [
                 {emqx_license, "license.key = default"}
              || emqx_release:edition() == ee
@@ -103,7 +103,8 @@ init_per_group(new_config, Config) ->
 init_per_group(legacy_config, Config) ->
     Apps = emqx_cth_suite:start(
         lists:flatten([
-            {emqx, "overload_protection.enable = false"},
+            {emqx_conf, "overload_protection.enable = true"},
+            emqx,
             [
                 {emqx_license, "license.key = default"}
              || emqx_release:edition() == ee
@@ -147,16 +148,21 @@ conf_default() ->
 legacy_conf_default() ->
     ?LEGACY_CONF_DEFAULT.
 
--if(?EMQX_RELEASE_EDITION == ee).
 maybe_meck_license() ->
-    meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
-    meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end).
+    case emqx_release:edition() of
+        ce ->
+            ok;
+        ee ->
+            meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+            meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
+    end.
+
 maybe_unmeck_license() ->
-    meck:unload(emqx_license_checker).
--else.
-maybe_meck_license() -> ok.
-maybe_unmeck_license() -> ok.
--endif.
+    case emqx_release:edition() of
+        ce -> ok;
+        ee -> meck:unload(emqx_license_checker)
+    end.
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
