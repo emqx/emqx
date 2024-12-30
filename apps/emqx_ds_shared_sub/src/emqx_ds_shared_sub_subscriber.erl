@@ -85,16 +85,36 @@
 -type stream_status() :: ?stream_granted | ?stream_revoking.
 
 -type stream_data() :: #{
+    %% See description of the statuses above
     status := stream_status(),
+    %% Progress of the stream, basically, DS iterator
     progress := progress(),
+    %% We set this to true when the stream is being revoked and
+    %% the enclosing session informed us that it has finished
+    %% consuming the stream.
     use_finished := boolean()
 }.
 
 %% Timers
 
+%% This timer is used in the `connecting` state only. After it
+%% expires, the subscriber will request a leader again.
 -define(find_leader_timer, find_leader_timer).
+
+%% This timer is used in the `connected` and `unsubscribing` states.
+%% It is used to issue a ping to the leader to mutually confirm
+%% that the both are still alive.
 -define(ping_leader_timer, ping_leader_timer).
+
+%% This timer is active after a ping request is issued.
+%% If it expires, we consider the leader lost and will reset the
+%% subscriber.
 -define(ping_leader_timeout_timer, ping_leader_timeout_timer).
+
+%% This timer is used in the `unsubscribing` state only. It is used
+%% to wait for the session to reach a consistent state of stream
+%% consumption so that we can safely report stream progress and
+%% disconnect from the leader.
 -define(unsubscribe_timer, unsubscribe_timer).
 
 -type t() :: #{
