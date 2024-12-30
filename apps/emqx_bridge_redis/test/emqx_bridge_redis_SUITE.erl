@@ -132,8 +132,8 @@ wait_for_ci_redis(Checks, Config) ->
                     emqx,
                     emqx_conf,
                     emqx_resource,
-                    emqx_connector,
                     emqx_bridge,
+                    emqx_bridge_redis,
                     emqx_rule_engine,
                     emqx_management,
                     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
