@@ -79,7 +79,7 @@ cluster_identifier.label: "Cluster Identifier"
 msg_trace_level.desc:
 """Trace level for all message exchanges during the message publishing process.
 - `0`: Basic events during message publish will be recorded as Spans.
-  Including 'client.connect', 'client.authz', 'message.route', 'message.forward', 'message.handle_forward', 'broker.publish'.
+  Including 'client.publish', 'client.authz', 'message.route', 'message.forward', 'message.handle_forward', 'broker.publish'.
 - `1`: In addition to basic events.
   The events 'broker.puback', 'client.puback', 'broker.pubrec', 'client.pubrec' will be recorded as Spans.
   That is, the first response packet in the QoS1 or QoS2 message interaction.
