@@ -42,7 +42,7 @@
     format_status/2
 ]).
 
--type limiter() :: emqx_htb_limiter:limiter().
+-type limiter() :: emqx_limiter:limiter().
 -type context() :: emqx_retainer:context().
 -type topic() :: emqx_types:topic().
 
