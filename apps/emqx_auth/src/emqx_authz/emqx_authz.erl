@@ -24,6 +24,8 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -514,40 +516,94 @@ source_for_logging(client_info, #{acl := Acl}) ->
 source_for_logging(Type, _) ->
     Type.
 
-do_authorize(_Client, _PubSub, _Topic, []) ->
+do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [#{enable := false} | Tail]) ->
-    do_authorize(Client, PubSub, Topic, Tail);
+do_authorize(Client, Action, Topic, [#{enable := false} | Tail]) ->
+    do_authorize(Client, Action, Topic, Tail);
 do_authorize(
     #{
         username := Username
     } = Client,
-    PubSub,
+    Action = ?authz_action(_PubSub),
     Topic,
     [Connector = #{type := Type} | Tail]
 ) ->
     Module = authz_module(Type),
     emqx_metrics_worker:inc(authz_metrics, Type, total),
-    try Module:authorize(Client, PubSub, Topic, Connector) of
+    Result = ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_authz_backend,
+        #{
+            'client.clientid' => maps:get(clientid, Client, undefined),
+            'client.username' => Username,
+            'authz.module' => Module,
+            'authz.backend_type' => Type,
+            'authz.topic' => Topic,
+            'authz.action_type' => _PubSub
+        },
+        fun() ->
+            Result0 =
+                try Module:authorize(Client, Action, Topic, Connector) of
+                    Res ->
+                        ok = inc_metrics(Type, Res),
+                        ok = log_trace(Res, Type, Module, Username, Topic, Action),
+                        Res
+                catch
+                    Class:Reason:Stacktrace ->
+                        ok = inc_metrics(Type, nomatch),
+                        ?SLOG(warning, #{
+                            msg => "unexpected_error_in_authorize",
+                            exception => Class,
+                            reason => Reason,
+                            stacktrace => Stacktrace,
+                            authorize_type => Type
+                        }),
+                        error
+                end,
+            ?EXT_TRACE_ADD_ATTRS(#{'authz.result' => format_result(Result0)}),
+            Result0
+        end
+    ),
+
+    case Result of
+        error ->
+            do_authorize(Client, Action, Topic, Tail);
         nomatch ->
-            emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
+            do_authorize(Client, Action, Topic, Tail);
+        ignore ->
+            do_authorize(Client, Action, Topic, Tail);
+        {matched, ignore} ->
+            do_authorize(Client, Action, Topic, Tail);
+        {matched, _Permission} = Matched ->
+            {Matched, Type}
+    end.
+
+inc_metrics(Type, nomatch) ->
+    emqx_metrics_worker:inc(authz_metrics, Type, nomatch);
+inc_metrics(Type, ignore) ->
+    emqx_metrics_worker:inc(authz_metrics, Type, ignore);
+inc_metrics(Type, {matched, ignore}) ->
+    emqx_metrics_worker:inc(authz_metrics, Type, ignore);
+inc_metrics(_, {matched, _}) ->
+    ok.
+
+log_trace(Res, Type, Module, Username, Topic, PubSub) ->
+    case Res of
+        nomatch ->
             ?TRACE("AUTHZ", "authorization_nomatch", #{
                 authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
-            }),
-            do_authorize(Client, PubSub, Topic, Tail);
+            });
         ignore ->
-            emqx_metrics_worker:inc(authz_metrics, Type, ignore),
             ?TRACE("AUTHZ", "authorization_module_ignore", #{
+                authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
-            }),
-            do_authorize(Client, PubSub, Topic, Tail);
+            });
         {matched, ignore} ->
             ?TRACE("AUTHZ", "authorization_matched_ignore", #{
                 authorize_type => Type,
@@ -555,38 +611,40 @@ do_authorize(
                 username => Username,
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
-            }),
-            do_authorize(Client, PubSub, Topic, Tail);
-        {matched, allow} = Matched ->
+            });
+        {matched, allow} ->
             ?TRACE("AUTHZ", "authorization_matched_allow", #{
                 authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
-            }),
-            {Matched, Type};
-        {matched, deny} = Matched ->
+            });
+        {matched, deny} ->
             ?TRACE("AUTHZ", "authorization_matched_deny", #{
                 authorize_type => Type,
                 module => Module,
                 username => Username,
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
-            }),
-            {Matched, Type}
-    catch
-        Class:Reason:Stacktrace ->
-            emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
-            ?SLOG(warning, #{
-                msg => "unexpected_error_in_authorize",
-                exception => Class,
-                reason => Reason,
-                stacktrace => Stacktrace,
-                authorize_type => Type
-            }),
-            do_authorize(Client, PubSub, Topic, Tail)
+            })
     end.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+format_result(error) ->
+    error;
+format_result(nomatch) ->
+    nomatch;
+format_result(ignore) ->
+    ignore;
+format_result({matched, ignore}) ->
+    matched_ignore;
+format_result({matched, allow}) ->
+    matched_allow;
+format_result({matched, deny}) ->
+    matched_deny.
+-else.
+-endif.
 
 get_enabled_authzs() ->
     lists:usort([Type || #{type := Type, enable := true} <- lookup()]).

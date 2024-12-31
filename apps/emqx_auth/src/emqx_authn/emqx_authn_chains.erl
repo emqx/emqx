@@ -25,6 +25,7 @@
 -include("emqx_authn_chains.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -660,46 +661,71 @@ handle_create_authenticator(Chain, Config, Providers) ->
 do_authenticate(_ChainName, [], _) ->
     {ok, {error, not_authorized}};
 do_authenticate(
-    ChainName, [#authenticator{id = ID} = Authenticator | More], Credential
+    ChainName,
+    [#authenticator{id = ID, provider = _Module} = Authenticator | More],
+    Credential
 ) ->
     MetricsID = metrics_id(ChainName, ID),
     emqx_metrics_worker:inc(authn_metrics, MetricsID, total),
-    try authenticate_with_provider(Authenticator, Credential) of
-        ignore ->
-            ok = emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
-            do_authenticate(ChainName, More, Credential);
-        Result ->
-            %% {ok, Extra}
-            %% {ok, Extra, AuthData}
-            %% {continue, AuthCache}
-            %% {continue, AuthData, AuthCache}
-            %% {error, Reason}
-            case Result of
-                {ok, _} ->
-                    emqx_metrics_worker:inc(authn_metrics, MetricsID, success);
-                {error, _} ->
-                    emqx_metrics_worker:inc(authn_metrics, MetricsID, failed);
-                _ ->
-                    ok
-            end,
-            {stop, Result}
-    catch
-        Class:Reason:Stacktrace ->
-            ?TRACE_AUTHN(
-                warning,
-                "authenticator_error",
-                maybe_add_stacktrace(
-                    Class,
-                    #{
-                        exception => Class,
-                        reason => Reason,
-                        authenticator => ID
-                    },
-                    Stacktrace
-                )
-            ),
-            emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
-            do_authenticate(ChainName, More, Credential)
+
+    Result = ?EXT_TRACE_WITH_PROCESS_FUN(
+        client_authn_backend,
+        #{
+            'client.clientid' => maps:get(clientid, Credential, undefined),
+            'client.username' => maps:get(username, Credential, undefined),
+            'authn.authenticator' => ID,
+            'authn.chain' => ChainName,
+            'authn.module' => _Module
+        },
+        fun() ->
+            try authenticate_with_provider(Authenticator, Credential) of
+                ignore ->
+                    ok = emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
+                    ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => ignore}),
+                    ignore;
+                Res ->
+                    %% {ok, Extra}
+                    %% {ok, Extra, AuthData} XXX: should inc metrics success for this clause?
+                    %% {continue, AuthCache}
+                    %% {continue, AuthData, AuthCache}
+                    %% {error, Reason}
+                    case Res of
+                        {ok, _} ->
+                            emqx_metrics_worker:inc(authn_metrics, MetricsID, success),
+                            ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => ok});
+                        {error, _} ->
+                            emqx_metrics_worker:inc(authn_metrics, MetricsID, failed),
+                            ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => error}),
+                            ?EXT_TRACE_SET_STATUS_ERROR();
+                        _ ->
+                            ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => ok}),
+                            ok
+                    end,
+                    {stop, Res}
+            catch
+                Class:Reason:Stacktrace ->
+                    ?TRACE_AUTHN(
+                        warning,
+                        "authenticator_error",
+                        maybe_add_stacktrace(
+                            Class,
+                            #{
+                                exception => Class,
+                                reason => Reason,
+                                authenticator => ID
+                            },
+                            Stacktrace
+                        )
+                    ),
+                    emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
+                    with_provider_failed
+            end
+        end
+    ),
+    case Result of
+        with_provider_failed -> do_authenticate(ChainName, More, Credential);
+        ignore -> do_authenticate(ChainName, More, Credential);
+        {stop, _} -> Result
     end.
 
 maybe_add_stacktrace('throw', Data, _Stacktrace) ->

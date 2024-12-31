@@ -2095,7 +2095,6 @@ authenticate(Packet, Channel) ->
                 {continue, _, _} -> ok;
                 {error, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
             end,
-            %% TODO: which authenticator is used
             Res
         end
     ).
