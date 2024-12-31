@@ -39,6 +39,7 @@
 -record(rt, {
     st_err :: st_err(),
     cb :: cb(),
+    query_mode :: emqx_resource:resource_query_mode(),
     channel_status :: ?NO_CHANNEL | channel_status()
 }).
 

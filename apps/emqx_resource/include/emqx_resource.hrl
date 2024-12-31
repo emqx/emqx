@@ -32,7 +32,6 @@
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().
--type resource_spec() :: map().
 -type resource_state() :: term().
 %% Note: the `stopped' status can only be emitted by `emqx_resource_manager'...  Modules
 %% implementing `emqx_resource' behavior should not return it.
@@ -41,7 +40,8 @@
 -type health_check_status() :: ?status_connected | ?status_disconnected | ?status_connecting.
 -type channel_status() :: ?status_connected | ?status_connecting | ?status_disconnected.
 -type callback_mode() :: always_sync | async_if_possible.
--type query_mode() ::
+-type query_mode() :: resource_query_mode().
+-type resource_query_mode() ::
     simple_sync
     | simple_async
     | simple_sync_internal_buffer
@@ -49,6 +49,7 @@
     | sync
     | async
     | no_queries.
+-type query_kind() :: sync | async.
 -type result() :: term().
 -type reply_fun() ::
     {fun((...) -> any()), Args :: [term()]}
@@ -63,14 +64,16 @@
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
     reply_to => reply_fun(),
-    query_mode => query_mode(),
-    connector_resource_id => resource_id()
+    %% Called `query_mode' due to legacy reasons...
+    query_mode => query_kind(),
+    connector_resource_id => resource_id(),
+    is_fallback => boolean()
 }.
 -type resource_data() :: #{
     id := resource_id(),
     mod := module(),
     callback_mode := callback_mode(),
-    query_mode := query_mode(),
+    query_mode := resource_query_mode(),
     config := resource_config(),
     error := term(),
     status := resource_status(),
@@ -102,7 +105,7 @@
     batch_size => pos_integer(),
     batch_time => pos_integer(),
     max_buffer_bytes => pos_integer(),
-    query_mode => query_mode(),
+    query_mode => resource_query_mode(),
     resume_interval => pos_integer(),
     inflight_window => pos_integer(),
     %% Only for `emqx_resource_manager' usage.  If false, prevents spawning buffer
