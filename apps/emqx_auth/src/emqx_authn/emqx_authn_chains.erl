@@ -662,7 +662,7 @@ do_authenticate(_ChainName, [], _) ->
     {ok, {error, not_authorized}};
 do_authenticate(
     ChainName,
-    [#authenticator{id = ID, provider = Module} = Authenticator | More],
+    [#authenticator{id = ID, provider = _Module} = Authenticator | More],
     Credential
 ) ->
     MetricsID = metrics_id(ChainName, ID),
@@ -675,7 +675,7 @@ do_authenticate(
             'client.username' => maps:get(username, Credential, undefined),
             'authn.authenticator' => ID,
             'authn.chain' => ChainName,
-            'authn.module' => Module
+            'authn.module' => _Module
         },
         fun() ->
             try authenticate_with_provider(Authenticator, Credential) of

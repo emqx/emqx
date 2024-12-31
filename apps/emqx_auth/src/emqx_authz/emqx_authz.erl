@@ -516,15 +516,15 @@ source_for_logging(client_info, #{acl := Acl}) ->
 source_for_logging(Type, _) ->
     Type.
 
-do_authorize(_Client, _PubSub, _Topic, []) ->
+do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [#{enable := false} | Tail]) ->
-    do_authorize(Client, PubSub, Topic, Tail);
+do_authorize(Client, Action, Topic, [#{enable := false} | Tail]) ->
+    do_authorize(Client, Action, Topic, Tail);
 do_authorize(
     #{
         username := Username
     } = Client,
-    Action = ?authz_action(PubSub),
+    Action = ?authz_action(_PubSub),
     Topic,
     [Connector = #{type := Type} | Tail]
 ) ->
@@ -538,7 +538,7 @@ do_authorize(
             'authz.module' => Module,
             'authz.backend_type' => Type,
             'authz.topic' => Topic,
-            'authz.action_type' => PubSub
+            'authz.action_type' => _PubSub
         },
         fun() ->
             Result0 =
@@ -630,6 +630,7 @@ log_trace(Res, Type, Module, Username, Topic, PubSub) ->
             })
     end.
 
+-if(?EMQX_RELEASE_EDITION == ee).
 format_result(error) ->
     error;
 format_result(nomatch) ->
@@ -642,6 +643,8 @@ format_result({matched, allow}) ->
     matched_allow;
 format_result({matched, deny}) ->
     matched_deny.
+-else.
+-endif.
 
 get_enabled_authzs() ->
     lists:usort([Type || #{type := Type, enable := true} <- lookup()]).
