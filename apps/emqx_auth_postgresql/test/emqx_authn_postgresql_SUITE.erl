@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,45 +32,26 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
-all() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE),
-    TCs = AllTCs -- require_seeds_tests(),
-    [
-        {group, require_seeds}
-        | TCs
-    ].
-
-groups() ->
-    [{require_seeds, [], require_seeds_tests()}].
-
-require_seeds_tests() ->
-    [
-        t_create,
-        t_authenticate,
-        t_authenticate_disabled_prepared_statements,
-        t_update,
-        t_destroy,
-        t_is_superuser
-    ].
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    Config.
-
-end_per_testcase(_TestCase, _Config) ->
-    emqx_common_test_helpers:call_janitor(),
-    ok.
-
-init_per_group(require_seeds, Config) ->
     ok = init_seeds(),
     Config.
 
-end_per_group(require_seeds, Config) ->
+end_per_testcase(_TestCase, _Config) ->
     ok = drop_seeds(),
-    Config.
+    _ = emqx_auth_cache:reset(?AUTHN_CACHE),
+    ok = emqx_authn_test_lib:enable_node_cache(false),
+    emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
@@ -96,10 +77,6 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(Config) ->
-    emqx_authn_test_lib:delete_authenticators(
-        [authentication],
-        ?GLOBAL
-    ),
     ok = emqx_resource:remove_local(?PGSQL_RESOURCE),
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
@@ -350,6 +327,50 @@ test_is_superuser({Field, Value, ExpectedValue}) ->
     ?assertEqual(
         {ok, #{is_superuser => ExpectedValue}},
         emqx_access_control:authenticate(Credentials)
+    ).
+
+t_node_cache(_Config) ->
+    ok = create_user(#{
+        username => <<"node_cache_user">>, password_hash => <<"password">>, salt => <<"">>
+    }),
+    Config = maps:merge(
+        raw_pgsql_auth_config(),
+        #{
+            <<"query">> =>
+                <<"SELECT password_hash, salt FROM users where username = ${username} LIMIT 1">>
+        }
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(true),
+    Credentials = #{
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"node_cache_user">>,
+        password => <<"password">>
+    },
+
+    %% First time should be a miss, second time should be a hit
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
+    ),
+
+    %% Change a variable in the query, should be a miss
+    _ = emqx_access_control:authenticate(Credentials#{username => <<"user2">>}),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 2}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
 %%------------------------------------------------------------------------------
