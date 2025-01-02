@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,6 +24,12 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec cached_simple_sync_query(
+    emqx_auth_cache:name(),
+    emqx_auth_cache:cache_key(),
+    emqx_resource:resource_id(),
+    _Request :: term()
+) -> term().
 cached_simple_sync_query(CacheName, CacheKey, ResourceID, Query) ->
     emqx_auth_cache:with_cache(CacheName, CacheKey, fun() ->
         case emqx_resource:simple_sync_query(ResourceID, Query) of

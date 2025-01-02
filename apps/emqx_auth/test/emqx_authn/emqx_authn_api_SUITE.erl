@@ -706,7 +706,7 @@ t_cache(_Config) ->
         uri(["authentication_cache", "status"])
     ),
     ?assertMatch(
-        #{<<"metrics">> := #{<<"size">> := 0}},
+        #{<<"metrics">> := #{<<"count">> := 0}},
         emqx_utils_json:decode(MetricsData0, [return_maps])
     ),
     {ok, 204, _} = request(

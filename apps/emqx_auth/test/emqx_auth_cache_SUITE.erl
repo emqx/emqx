@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -134,7 +134,7 @@ t_cleanup_expired(_Config) ->
     ),
     ct:sleep(100),
     ?assertMatch(
-        #{size := 0},
+        #{count := 0},
         emqx_auth_cache:metrics(somecache)
     ).
 
@@ -166,7 +166,7 @@ t_size_limit(_Config) ->
         enable => true,
         cleanup_interval => 100,
         cache_ttl => 100,
-        max_size => 2,
+        max_count => 2,
         max_memory => unlimited,
         stat_update_interval => 10
     }),
@@ -201,7 +201,7 @@ t_memory_limit(_Config) ->
         enable => true,
         cleanup_interval => 100,
         cache_ttl => 100,
-        max_size => unlimited,
+        max_count => unlimited,
         max_memory => 10000,
         stat_update_interval => 10
     }),
@@ -247,7 +247,7 @@ t_metrics(_Config) ->
         hits := #{value := Hit},
         misses := #{value := Miss},
         inserts := #{value := Insert},
-        size := Size,
+        count := Count,
         memory := Memory
     } =
         emqx_auth_cache:metrics(somecache),
@@ -256,7 +256,7 @@ t_metrics(_Config) ->
     ?assertEqual(Miss, 2),
     ?assertEqual(Insert, 2),
 
-    ?assertEqual(Size, 1),
+    ?assertEqual(Count, 1),
     ?assert(Memory > 0),
 
     ok.

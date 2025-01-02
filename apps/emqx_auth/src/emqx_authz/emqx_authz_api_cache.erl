@@ -130,13 +130,13 @@ schema("/authorization/node_cache/reset") ->
 %%--------------------------------------------------------------------
 
 clean_cache(delete, _) ->
-    case is_ok(emqx_mgmt:clean_authz_cache_all()) of
-        {ok, _} ->
+    case emqx_mgmt:clean_authz_cache_all() of
+        ok ->
             {204};
-        {error, ErrL} ->
-            {500, #{
-                code => <<"INTERNAL_ERROR">>,
-                message => bin(ErrL)
+        {error, Reason} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => bin(Reason)
             }}
     end.
 

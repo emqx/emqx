@@ -46,9 +46,9 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            emqx_conf,
             emqx,
             emqx_auth,
-            emqx_conf,
             emqx_management,
             {emqx_slow_subs, ?CONF_DEFAULT},
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}

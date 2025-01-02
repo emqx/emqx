@@ -69,6 +69,13 @@ deregister_sources() ->
         SourceTypes -- BuiltInTypes
     ).
 
+enable_node_cache(Enable) ->
+    {ok, _} = emqx:update_config(
+        [authorization, node_cache],
+        #{<<"enable">> => Enable}
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Table-based test helpers
 %%--------------------------------------------------------------------

@@ -35,7 +35,8 @@
     render_urlencoded_str/2,
     render_sql_params/2,
     render_strict/2,
-    escape_disallowed_placeholders_str/2
+    escape_disallowed_placeholders_str/2,
+    rename_client_info_vars/1
 ]).
 
 -type allowed_var() :: emqx_template:varname() | {var_namespace, emqx_template:varname()}.
@@ -64,7 +65,7 @@ parse_str(Template, AllowedVars) ->
     emqx_template_sql:raw_statement_template(), emqx_template_sql:sql_parameters(), allowed_vars()
 ) ->
     {
-        emqx_template_sql:used_vars(),
+        used_vars(),
         emqx_template_sql:statement(),
         emqx_template_sql:row_template()
     }.

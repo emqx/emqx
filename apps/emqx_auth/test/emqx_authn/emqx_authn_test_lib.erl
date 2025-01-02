@@ -77,3 +77,10 @@ register_fake_providers(ProviderTypes) ->
 deregister_providers() ->
     ProviderTypes = maps:keys(emqx_authn_chains:get_providers()),
     emqx_authn_chains:deregister_providers(ProviderTypes).
+
+enable_node_cache(Enable) ->
+    {ok, _} = emqx:update_config(
+        [authentication_cache],
+        #{<<"enable">> => Enable}
+    ),
+    ok.

@@ -30,10 +30,10 @@ stat_update_interval.desc:
 stat_update_interval.label:
 """Stat Update Interval"""
 
-max_size.desc:
+max_count.desc:
 """Maximum number of cached results."""
 
-max_size.label:
+max_count.label:
 """Max Cache Size"""
 
 max_memory.desc:
