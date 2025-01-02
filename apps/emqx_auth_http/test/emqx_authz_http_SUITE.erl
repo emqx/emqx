@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -73,6 +73,7 @@ end_per_testcase(t_bad_response, Config) ->
     end_per_testcase(common, Config);
 end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
+    ok = emqx_authz_test_lib:enable_node_cache(false),
     try
         ok = emqx_authz_http_test_server:stop()
     catch
@@ -662,6 +663,69 @@ t_no_value_for_placeholder(_Config) ->
     ?assertEqual(
         allow,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+t_node_cache(_Config) ->
+    ok = setup_handler_and_config(
+        fun(#{path := Path} = Req, State) ->
+            case {Path, cowboy_req:match_qs([username, cn], Req)} of
+                {<<"/authz/clientid">>, #{username := <<"username">>, cn := <<"cn">>}} ->
+                    {ok, ?AUTHZ_HTTP_RESP(allow, Req), State};
+                _ ->
+                    {ok, ?AUTHZ_HTTP_RESP(deny, Req), State}
+            end
+        end,
+        #{
+            <<"method">> => <<"get">>,
+            <<"url">> => <<"http://127.0.0.1:33333/authz/${clientid}?username=${username}">>,
+            <<"body">> => #{<<"cn">> => <<"${cert_common_name}">>}
+        }
+    ),
+    ok = emqx_authz_test_lib:enable_node_cache(true),
+
+    %% We authorize twice, the second time should be cached
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        zone => default,
+        listener => {tcp, default},
+        cn => <<"cn">>,
+        dn => <<"dn">>
+    },
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ),
+    %% Now change a var in each interpolated part, the cache should NOT be hit
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo#{cn => <<"cn2">>}, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            ClientInfo#{clientid => <<"clientid2">>}, ?AUTHZ_PUBLISH, <<"t">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            ClientInfo#{username => <<"username2">>}, ?AUTHZ_PUBLISH, <<"t">>
+        )
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 4}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
 
 t_disallowed_placeholders_preserved(_Config) ->
