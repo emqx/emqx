@@ -1,6 +1,6 @@
 {application, emqx_enterprise, [
     {description, "EMQX Enterprise Edition"},
-    {vsn, "0.2.5"},
+    {vsn, "0.3.0"},
     {registered, []},
     {applications, [
         kernel,
