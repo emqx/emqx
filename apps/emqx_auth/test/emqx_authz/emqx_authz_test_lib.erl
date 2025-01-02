@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -68,6 +68,13 @@ deregister_sources() ->
         end,
         SourceTypes -- BuiltInTypes
     ).
+
+enable_node_cache(Enable) ->
+    {ok, _} = emqx:update_config(
+        [authorization, node_cache],
+        #{<<"enable">> => Enable}
+    ),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Table-based test helpers

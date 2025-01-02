@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,9 +46,9 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            emqx_conf,
             emqx,
             emqx_auth,
-            emqx_conf,
             emqx_management,
             {emqx_slow_subs, ?CONF_DEFAULT},
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}

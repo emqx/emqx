@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -130,13 +130,13 @@ schema("/authorization/node_cache/reset") ->
 %%--------------------------------------------------------------------
 
 clean_cache(delete, _) ->
-    case is_ok(emqx_mgmt:clean_authz_cache_all()) of
-        {ok, _} ->
+    case emqx_mgmt:clean_authz_cache_all() of
+        ok ->
             {204};
-        {error, ErrL} ->
-            {500, #{
-                code => <<"INTERNAL_ERROR">>,
-                message => bin(ErrL)
+        {error, Reason} ->
+            {400, #{
+                code => <<"BAD_REQUEST">>,
+                message => bin(Reason)
             }}
     end.
 

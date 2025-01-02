@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,7 +35,8 @@
     render_urlencoded_str/2,
     render_sql_params/2,
     render_strict/2,
-    escape_disallowed_placeholders_str/2
+    escape_disallowed_placeholders_str/2,
+    rename_client_info_vars/1
 ]).
 
 -type allowed_var() :: emqx_template:varname() | {var_namespace, emqx_template:varname()}.
@@ -64,7 +65,7 @@ parse_str(Template, AllowedVars) ->
     emqx_template_sql:raw_statement_template(), emqx_template_sql:sql_parameters(), allowed_vars()
 ) ->
     {
-        emqx_template_sql:used_vars(),
+        used_vars(),
         emqx_template_sql:statement(),
         emqx_template_sql:row_template()
     }.

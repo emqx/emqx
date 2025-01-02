@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -59,9 +59,9 @@ fields(config) ->
                 default => <<"5s">>,
                 importance => ?IMPORTANCE_HIDDEN
             })},
-        {max_size,
+        {max_count,
             mk(hoconsc:union([unlimited, non_neg_integer()]), #{
-                desc => ?DESC(max_size),
+                desc => ?DESC(max_count),
                 default => 1000000
             })},
         {max_memory,
@@ -88,7 +88,7 @@ fields(metrics) ->
         {hits, ?HOCON(?R_REF(counter), #{desc => "metric_hits"})},
         {misses, ?HOCON(?R_REF(counter), #{desc => "metric_misses"})},
         {inserts, ?HOCON(?R_REF(counter), #{desc => "metric_inserts"})},
-        {size, ?HOCON(integer(), #{desc => "metric_size"})},
+        {count, ?HOCON(integer(), #{desc => "metric_size"})},
         {memory, ?HOCON(integer(), #{desc => "metric_memory"})}
     ];
 fields(node_metrics) ->
@@ -131,7 +131,7 @@ cache_settings_example() ->
         cache_ttl => <<"1M">>,
         cleanup_interval => <<"1M">>,
         stat_update_interval => <<"1M">>,
-        max_size => 100000,
+        max_count => 100000,
         max_memory => <<"100MB">>
     }.
 

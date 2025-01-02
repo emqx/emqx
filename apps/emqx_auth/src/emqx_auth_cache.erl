@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@
 -define(stat_key, stats).
 -record(stats, {
     key :: ?stat_key,
-    size :: non_neg_integer(),
+    count :: non_neg_integer(),
     memory :: non_neg_integer()
 }).
 
@@ -68,11 +68,11 @@
 -define(metric_hit, hits).
 -define(metric_miss, misses).
 -define(metric_insert, inserts).
--define(metric_size, size).
+-define(metric_count, count).
 -define(metric_memory, memory).
 
 -define(metric_counters, [?metric_hit, ?metric_miss, ?metric_insert]).
--define(metric_gauges, [?metric_size, ?metric_memory]).
+-define(metric_gauges, [?metric_count, ?metric_memory]).
 
 %% For gauges we use only one "virtual" worker
 -define(worker_id, worker_id).
@@ -83,13 +83,14 @@
 
 -type cache_key() :: term() | fun(() -> term()).
 -type name() :: atom().
--type config_path() :: runtime_config_key_path:runtime_config_key_path().
+-type config_path() :: emqx_config:runtime_config_key_path().
 -type callback() :: fun(() -> {cache | nocache, term()}).
 
 -type metrics_worker() :: emqx_metrics_worker:handler_name().
 
 -export_type([
-    name/0
+    name/0,
+    cache_key/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -117,7 +118,7 @@ child_spec(Name, ConfigPath, MetricsWorker) ->
         type => worker
     }.
 
--spec with_cache(config_path(), cache_key(), callback()) -> term().
+-spec with_cache(name(), cache_key(), callback()) -> term().
 with_cache(Name, Key, Fun) ->
     case is_cache_enabled(Name) of
         false ->
@@ -136,7 +137,7 @@ reset(Name) ->
         error:badarg -> ok
     end.
 
--spec metrics(name()) -> map().
+-spec metrics(name()) -> map() | no_return().
 metrics(Name) ->
     try persistent_term:get(?pt_key(Name)) of
         #{metrics_worker := MetricsWorker} ->
@@ -146,7 +147,7 @@ metrics(Name) ->
             maps:merge(Metrics0, Metrics1)
     catch
         error:badarg ->
-            error({no_auth_cache, Name})
+            error({cache_not_found, Name})
     end.
 
 %%--------------------------------------------------------------------
@@ -157,7 +158,7 @@ metrics(Name) ->
 reset_v1(Name) ->
     reset(Name).
 
--spec metrics_v1(name()) -> {node(), not_found | {ok, map()}}.
+-spec metrics_v1(name()) -> {node(), map()}.
 metrics_v1(Name) ->
     {node(), metrics(Name)}.
 
@@ -280,13 +281,13 @@ cleanup(#{name := Name, tab := Tab}) ->
     ok.
 
 update_stats(#{tab := Tab, stat_tab := StatTab, name := Name} = PtState) ->
-    #{size := Size, memory := Memory} = tab_stats(Tab),
+    #{count := Count, memory := Memory} = tab_stats(Tab),
     Stats = #stats{
         key = ?stat_key,
-        size = Size,
+        count = Count,
         memory = Memory
     },
-    ok = set_gauge(PtState, ?metric_size, Size),
+    ok = set_gauge(PtState, ?metric_count, Count),
     ok = set_gauge(PtState, ?metric_memory, Memory),
     ?tp(info, update_stats, #{
         name => Name,
@@ -336,8 +337,8 @@ dont_cache({cache, Value}) -> Value.
 tab_stats(Tab) ->
     try
         Memory = ets:info(Tab, memory) * erlang:system_info(wordsize),
-        Size = ets:info(Tab, size),
-        #{size => Size, memory => Memory}
+        Count = ets:info(Tab, size),
+        #{count => Count, memory => Memory}
     catch
         error:badarg -> not_found
     end.
@@ -370,17 +371,17 @@ insert(Tab, Key, Value, ConfigPath) ->
     end.
 
 limits_reached(ConfigPath, StatTab) ->
-    MaxSize = config_value(ConfigPath, max_size, ?unlimited),
+    MaxCount = config_value(ConfigPath, max_count, ?unlimited),
     MaxMemory = config_value(ConfigPath, max_memory, ?unlimited),
-    [#stats{size = Size, memory = Memory}] = ets:lookup(StatTab, ?stat_key),
+    [#stats{count = Count, memory = Memory}] = ets:lookup(StatTab, ?stat_key),
     ?tp(warning, node_cache_limits, #{
-        size => Size,
+        count => Count,
         memory => Memory,
-        max_size => MaxSize,
+        max_count => MaxCount,
         max_memory => MaxMemory
     }),
-    case {MaxSize, MaxMemory} of
-        {MaxSize, _} when is_integer(MaxSize) andalso Size >= MaxSize -> true;
+    case {MaxCount, MaxMemory} of
+        {MaxCount, _} when is_integer(MaxCount) andalso Count >= MaxCount -> true;
         {_, MaxMemory} when is_integer(MaxMemory) andalso Memory >= MaxMemory -> true;
         _ -> false
     end.
