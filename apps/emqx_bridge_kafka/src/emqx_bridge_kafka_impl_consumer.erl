@@ -224,15 +224,10 @@ on_stop(ConnectorResId, State) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
-on_get_status(_ConnectorResId, State = #{kafka_client_id := ClientID}) ->
+on_get_status(_ConnectorResId, #{kafka_client_id := ClientID}) ->
     case whereis(ClientID) of
         Pid when is_pid(Pid) ->
-            case check_client_connectivity(Pid) of
-                {Status, Reason} ->
-                    {Status, State, Reason};
-                Status ->
-                    Status
-            end;
+            check_client_connectivity(Pid);
         _ ->
             ?status_disconnected
     end;
@@ -290,7 +285,7 @@ on_get_channels(ConnectorResId) ->
     source_resource_id(),
     connector_state()
 ) ->
-    ?status_connected | ?status_disconnected.
+    ?status_connected | {?status_disconnected | ?status_connecting, _Msg :: binary()}.
 on_get_channel_status(
     _ConnectorResId,
     SourceResId,
@@ -381,26 +376,6 @@ make_subscriber_id(BridgeName) ->
     BridgeNameBin = to_bin(BridgeName),
     <<"kafka_subscriber:", BridgeNameBin/binary>>.
 
-ensure_consumer_supervisor_started() ->
-    Mod = emqx_bridge_kafka_consumer_sup,
-    ChildSpec =
-        #{
-            id => Mod,
-            start => {Mod, start_link, []},
-            restart => permanent,
-            shutdown => infinity,
-            type => supervisor,
-            modules => [Mod]
-        },
-    case supervisor:start_child(emqx_bridge_sup, ChildSpec) of
-        {ok, _Pid} ->
-            ok;
-        {error, already_present} ->
-            ok;
-        {error, {already_started, _Pid}} ->
-            ok
-    end.
-
 -spec start_consumer(
     source_config(),
     connector_resource_id(),
@@ -424,7 +399,6 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
             value_encoding_mode := ValueEncodingMode
         } = Params0
     } = Config,
-    ok = ensure_consumer_supervisor_started(),
     ?tp(kafka_consumer_sup_started, #{}),
     TopicMapping = ensure_topic_mapping(Params0),
     InitialState = #{
@@ -568,8 +542,8 @@ do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
             case do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) of
                 ?status_connected ->
                     do_get_status(ClientID, RestTopics, SubscriberId);
-                ?status_disconnected ->
-                    ?status_disconnected
+                {Status, Message} when Status =/= ?status_connected ->
+                    {Status, Message}
             end;
         {error, {client_down, Context}} ->
             case infer_client_error(Context) of
@@ -597,33 +571,44 @@ do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
     ?status_connected.
 
 -spec do_get_topic_status(brod:client_id(), binary(), subscriber_id(), pos_integer()) ->
-    ?status_connected | ?status_disconnected.
+    ?status_connected | {?status_disconnected | ?status_connecting, _Msg :: binary()}.
 do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
     Results =
         lists:map(
             fun(N) ->
-                brod_client:get_leader_connection(ClientID, KafkaTopic, N)
+                {N, brod_client:get_leader_connection(ClientID, KafkaTopic, N)}
             end,
             lists:seq(0, NPartitions - 1)
         ),
-    AllLeadersOk =
-        length(Results) > 0 andalso
-            lists:all(
-                fun
-                    ({ok, _}) ->
-                        true;
-                    (_) ->
-                        false
-                end,
-                Results
-            ),
     WorkersAlive = are_subscriber_workers_alive(SubscriberId),
-    case AllLeadersOk andalso WorkersAlive of
-        true ->
+    case check_leader_connection_results(Results) of
+        ok when WorkersAlive ->
             ?status_connected;
-        false ->
-            ?status_disconnected
+        {error, no_leaders} ->
+            {?status_disconnected, <<"No leaders available (no partitions?)">>};
+        {error, {N, Reason}} ->
+            Msg = iolist_to_binary(
+                io_lib:format(
+                    "Leader for partition ~b unavailable; reason: ~0p",
+                    [N, emqx_utils:redact(Reason)]
+                )
+            ),
+            {?status_disconnected, Msg};
+        ok when not WorkersAlive ->
+            {?status_connecting, <<"Subscription workers restarting">>}
     end.
+
+check_leader_connection_results(Results) ->
+    emqx_utils:foldl_while(
+        fun
+            ({_N, {ok, _}}, _Acc) ->
+                {cont, ok};
+            ({N, {error, Reason}}, _Acc) ->
+                {halt, {error, {N, Reason}}}
+        end,
+        {error, no_leaders},
+        Results
+    ).
 
 are_subscriber_workers_alive(SubscriberId) ->
     try
@@ -631,7 +616,9 @@ are_subscriber_workers_alive(SubscriberId) ->
         case lists:keyfind(SubscriberId, 1, Children) of
             false ->
                 false;
-            {_, Pid, _, _} ->
+            {_, undefined, _, _} ->
+                false;
+            {_, Pid, _, _} when is_pid(Pid) ->
                 Workers = brod_group_subscriber_v2:get_workers(Pid),
                 %% we can't enforce the number of partitions on a single
                 %% node, as the group might be spread across an emqx
@@ -639,6 +626,8 @@ are_subscriber_workers_alive(SubscriberId) ->
                 lists:all(fun is_process_alive/1, maps:values(Workers))
         end
     catch
+        exit:{noproc, _} ->
+            false;
         exit:{shutdown, _} ->
             %% may happen if node is shutting down
             false

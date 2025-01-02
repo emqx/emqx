@@ -17,6 +17,7 @@
 -module(emqx_authn_ldap).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 
 -behaviour(emqx_authn_provider).
 
@@ -37,8 +38,9 @@
 create(_AuthenticatorID, Config) ->
     do_create(?MODULE, Config).
 
-do_create(Module, Config) ->
+do_create(Module, Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(Module),
+    Config = filter_placeholders(Config0),
     State = parse_config(Config),
     {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_ldap, Config),
     {ok, State#{resource_id => ResourceId}}.
@@ -82,3 +84,21 @@ parse_config(
     });
 parse_config(Config) ->
     maps:with([query_timeout, method], Config).
+
+filter_placeholders(#{base_dn := BaseDN0, filter := Filter0} = Config0) ->
+    BaseDN = emqx_auth_template:escape_disallowed_placeholders_str(
+        BaseDN0, ?AUTHN_DEFAULT_ALLOWED_VARS
+    ),
+    Filter = emqx_auth_template:escape_disallowed_placeholders_str(
+        Filter0, ?AUTHN_DEFAULT_ALLOWED_VARS
+    ),
+    Config1 = filter_bind_password_placeholders(Config0),
+    Config1#{base_dn => BaseDN, filter => Filter}.
+
+filter_bind_password_placeholders(#{method := #{bind_password := Password0} = Method} = Config0) ->
+    Password = emqx_auth_template:escape_disallowed_placeholders_str(
+        Password0, ?AUTHN_DEFAULT_ALLOWED_VARS
+    ),
+    Config0#{method => Method#{bind_password => Password}};
+filter_bind_password_placeholders(Config) ->
+    Config.

@@ -54,7 +54,7 @@ parse_serialize(Packet, Opts) when is_map(Opts) ->
     Ver = maps:get(version, Opts, ?MQTT_PROTO_V4),
     Bin = iolist_to_binary(emqx_frame:serialize(Packet, Ver)),
     ParseState = emqx_frame:initial_parse_state(Opts),
-    {ok, NPacket, <<>>, _} = emqx_frame:parse(Bin, ParseState),
+    {NPacket, <<>>, _} = emqx_frame:parse(Bin, ParseState),
     NPacket.
 
 %%--------------------------------------------------------------------

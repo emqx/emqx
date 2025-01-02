@@ -144,17 +144,17 @@ on_stop(InstId, _State = #{pool_name := PoolName}) ->
 
 -spec on_get_status(_InstanceId :: resource_id(), state()) ->
     health_check_status().
-on_get_status(_InstId, State = #{client_config := Config}) ->
+on_get_status(_InstId, #{client_config := Config}) ->
     case emqx_s3_client:aws_config(Config) of
         {error, Reason} ->
-            {?status_disconnected, State, map_error_details(Reason)};
+            {?status_disconnected, map_error_details(Reason)};
         AWSConfig ->
             try erlcloud_s3:list_buckets(AWSConfig) of
                 Props when is_list(Props) ->
                     ?status_connected
             catch
                 error:Error ->
-                    {?status_disconnected, State, map_error_details(Error)}
+                    {?status_disconnected, map_error_details(Error)}
             end
     end.
 

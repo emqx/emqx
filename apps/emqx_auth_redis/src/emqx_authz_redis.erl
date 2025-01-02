@@ -17,7 +17,7 @@
 -module(emqx_authz_redis).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -behaviour(emqx_authz_source).
 
@@ -35,15 +35,7 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(ALLOWED_VARS, [
-    ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_PEERHOST,
-    ?VAR_CLIENTID,
-    ?VAR_USERNAME,
-    ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
-]).
+-define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 description() ->
     "AuthZ with Redis".
@@ -76,7 +68,7 @@ authorize(
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    Cmd = emqx_auth_utils:render_deep_for_raw(CmdTemplate, Vars),
+    Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
     case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
@@ -121,7 +113,7 @@ parse_cmd(Query) ->
     case emqx_redis_command:split(Query) of
         {ok, Cmd} ->
             ok = validate_cmd(Cmd),
-            emqx_auth_utils:parse_deep(Cmd, ?ALLOWED_VARS);
+            emqx_auth_template:parse_deep(Cmd, ?ALLOWED_VARS);
         {error, Reason} ->
             error({invalid_redis_cmd, Reason, Query})
     end.

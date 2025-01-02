@@ -185,15 +185,13 @@ on_format_query_result(Result) ->
     Result.
 
 on_get_status(_InstanceId, #{server := Server}) ->
-    Result =
-        case opentsdb_connectivity(Server) of
-            ok ->
-                connected;
-            {error, Reason} ->
-                ?SLOG(error, #{msg => "opents_lost_connection", reason => Reason}),
-                connecting
-        end,
-    Result.
+    case opentsdb_connectivity(Server) of
+        ok ->
+            ?status_connected;
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "opents_lost_connection", reason => Reason}),
+            ?status_connecting
+    end.
 
 on_add_channel(
     _InstanceId,

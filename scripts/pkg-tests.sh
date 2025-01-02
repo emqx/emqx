@@ -212,6 +212,14 @@ EOF
         echo "Error: cannot locate emqx_vars"
         exit 1
     fi
+    if ! "${bin_dir}/emqx" 'start' 'help'; then
+        echo "ERROR: failed_to_call_help_command"
+        exit 1
+    fi
+    if ! "${bin_dir}/emqx" 'help'; then
+        echo "ERROR: failed_to_call_help_command"
+        exit 1
+    fi
     echo "running ${packagename} start"
     if ! "${bin_dir}/emqx" 'start'; then
         echo "ERROR: failed_to_start_emqx"

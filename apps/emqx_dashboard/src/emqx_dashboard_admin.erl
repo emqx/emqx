@@ -331,7 +331,11 @@ change_password(Username, Password) when is_binary(Username), is_binary(Password
 change_password_hash(Username, PasswordHash) ->
     ChangePWD =
         fun(User) ->
-            User#?ADMIN{pwdhash = PasswordHash}
+            Extra = User#?ADMIN.extra,
+            User#?ADMIN{
+                pwdhash = PasswordHash,
+                extra = Extra#{password_ts => erlang:system_time(second)}
+            }
         end,
     case update_pwd(Username, ChangePWD) of
         {ok, Result} ->

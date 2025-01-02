@@ -2,7 +2,7 @@
 {application, emqx_bridge_kafka, [
     {description, "EMQX Enterprise Kafka Bridge"},
     {vsn, "0.5.2"},
-    {registered, [emqx_bridge_kafka_consumer_sup]},
+    {registered, [emqx_bridge_kafka_sup, emqx_bridge_kafka_consumer_sup]},
     {applications, [
         kernel,
         stdlib,
@@ -12,6 +12,7 @@
         brod,
         brod_gssapi
     ]},
+    {mod, {emqx_bridge_kafka_app, []}},
     {env, [
         {emqx_action_info_modules, [
             emqx_bridge_kafka_producer_action_info,

@@ -109,6 +109,7 @@
 -export([
     str/1,
     str_utf8/1,
+    str_utf16_le/1,
     bool/1,
     int/1,
     float/1,
@@ -116,7 +117,10 @@
     float2str/2,
     map/1,
     bin2hexstr/1,
-    hexstr2bin/1
+    bin2hexstr/2,
+    hexstr2bin/1,
+    hexstr2bin/2,
+    sqlserver_bin2hexstr/1
 ]).
 
 %% Data Type Validation Funcs
@@ -131,7 +135,8 @@
     is_float/1,
     is_num/1,
     is_map/1,
-    is_array/1
+    is_array/1,
+    is_empty/1
 ]).
 
 %% String Funcs
@@ -183,7 +188,8 @@
     map_put/3,
     map_keys/1,
     map_values/1,
-    map_to_entries/1
+    map_to_entries/1,
+    map_size/1
 ]).
 
 %% For backward compatibility
@@ -711,6 +717,11 @@ str_utf8(Data) when is_binary(Data); is_list(Data) ->
 str_utf8(Data) ->
     unicode:characters_to_binary(str(Data)).
 
+str_utf16_le(Data) when is_binary(Data); is_list(Data) ->
+    unicode:characters_to_binary(Data, utf8, {utf16, little});
+str_utf16_le(Data) ->
+    unicode:characters_to_binary(str(Data), utf8, {utf16, little}).
+
 bool(Data) ->
     emqx_utils_conv:bool(Data).
 
@@ -742,10 +753,29 @@ map(Data) ->
     error(badarg, [Data]).
 
 bin2hexstr(Bin) ->
-    emqx_variform_bif:bin2hexstr(Bin).
+    bin2hexstr(Bin, undefined).
+
+bin2hexstr(Bin, undefined) ->
+    emqx_variform_bif:bin2hexstr(Bin);
+bin2hexstr(Bin, Prefix) when is_binary(Prefix) ->
+    <<Prefix/binary, (emqx_variform_bif:bin2hexstr(Bin))/binary>>.
 
 hexstr2bin(Str) ->
-    emqx_variform_bif:hexstr2bin(Str).
+    hexstr2bin(Str, undefined).
+
+hexstr2bin(Str, undefined) ->
+    emqx_variform_bif:hexstr2bin(Str);
+hexstr2bin(Str, Prefix) when is_binary(Prefix) ->
+    Length = size(Prefix),
+    case Str of
+        <<Prefix:Length/binary, Rest/binary>> ->
+            emqx_variform_bif:hexstr2bin(Rest);
+        _ ->
+            error(binary_prefix_unmatch)
+    end.
+
+sqlserver_bin2hexstr(Str) ->
+    bin2hexstr(Str, <<"0x">>).
 
 %%------------------------------------------------------------------------------
 %% NULL Funcs
@@ -784,6 +814,15 @@ is_map(_) -> false.
 
 is_array(T) when is_list(T) -> true;
 is_array(_) -> false.
+
+is_empty([]) ->
+    true;
+is_empty(<<>>) ->
+    true;
+is_empty(List) when is_list(List) ->
+    false;
+is_empty(Map) ->
+    ?MODULE:map_size(Map) == 0.
 
 %%------------------------------------------------------------------------------
 %% String Funcs
@@ -1051,6 +1090,9 @@ map_values(Map) ->
     maps:values(map(Map)).
 map_to_entries(Map) ->
     [#{key => K, value => V} || {K, V} <- maps:to_list(map(Map))].
+
+map_size(Map) ->
+    maps:size(map(Map)).
 
 %%------------------------------------------------------------------------------
 %% Hash Funcs

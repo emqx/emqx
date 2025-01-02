@@ -43,7 +43,7 @@
 %% internal exports for `emqx_enterprise_schema' only.
 -export([
     log_file_path_converter/2,
-    fix_old_version_abs_log_path/1,
+    fix_bad_log_path/1,
     ensure_unicode_path/2,
     convert_rotation/2,
     log_handler_common_confs/2
@@ -1528,34 +1528,37 @@ convert_rotation(Count, _Opts) when is_integer(Count) -> Count;
 convert_rotation(Count, _Opts) -> throw({"bad_rotation", Count}).
 
 log_file_path_converter(Path, Opts) ->
-    Fixed = fix_old_version_abs_log_path(Path),
+    Fixed = fix_bad_log_path(Path),
     ensure_unicode_path(Fixed, Opts).
 
 %% Prior to 5.8.3, the log file paths are resolved by scehma module
 %% and the interpolated paths (absolute paths) are exported.
 %% When exported from docker but import to a non-docker environment,
 %% the absolute paths are not valid anymore.
-%% Here we try to fix the old version absolute paths.
-fix_old_version_abs_log_path(Bin) when is_binary(Bin) ->
+%% Here we try to fix non-existing log dir with default log dir.
+fix_bad_log_path(Bin) when is_binary(Bin) ->
     try
         List = [_ | _] = unicode:characters_to_list(Bin, utf8),
-        Fixed = fix_old_version_abs_log_path(List),
+        Fixed = fix_bad_log_path(List),
         unicode:characters_to_binary(Fixed, utf8)
     catch
         _:_ ->
-            %% defer the validation to ensure_unicode_path
+            %% defer validation to ensure_unicode_path
             Bin
     end;
-fix_old_version_abs_log_path("/opt/emqx/log/" ++ Name) ->
-    maybe_subst_log_dir("/opt/emqx/log", Name);
-fix_old_version_abs_log_path("/var/log/emqx/" ++ Name) ->
-    maybe_subst_log_dir("/var/log/emqx", Name);
-fix_old_version_abs_log_path(Other) ->
-    %% undefined, or other log dir
-    Other.
+fix_bad_log_path(Path) when is_list(Path) ->
+    Dir = filename:dirname(Path),
+    Name = filename:basename(Path),
+    maybe_subst_log_dir(Dir, Name);
+fix_bad_log_path(Path) ->
+    %% defer validation to ensure_unicode_path
+    Path.
 
 %% Substitute the log dir with environment variable EMQX_LOG_DIR
 %% when possible
+maybe_subst_log_dir("${" ++ _ = Dir, Name) ->
+    %% the original path is already using environment variable
+    filename:join([Dir, Name]);
 maybe_subst_log_dir(Dir, Name) ->
     Env = os:getenv("EMQX_LOG_DIR"),
     IsEnvSet = (Env =/= false andalso Env =/= ""),
@@ -1563,7 +1566,7 @@ maybe_subst_log_dir(Dir, Name) ->
         true ->
             %% the path is the same as the environment variable
             %% substitute it with the environment variable
-            "${EMQX_LOG_DIR}/" ++ Name;
+            filename:join(["${EMQX_LOG_DIR}", Name]);
         false ->
             case filelib:is_dir(Dir) of
                 true ->
@@ -1572,7 +1575,7 @@ maybe_subst_log_dir(Dir, Name) ->
                 false when IsEnvSet ->
                     %% the path does not exist, but the environment variable is set
                     %% substitute it with the environment variable
-                    "${EMQX_LOG_DIR}/" ++ Name;
+                    filename:join(["${EMQX_LOG_DIR}", Name]);
                 false ->
                     %% the path does not exist, and the environment variable is not set
                     %% keep it

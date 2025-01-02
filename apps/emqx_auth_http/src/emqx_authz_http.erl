@@ -45,6 +45,7 @@
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
     ?VAR_PEERHOST,
+    ?VAR_PEERPORT,
     ?VAR_PROTONAME,
     ?VAR_MOUNTPOINT,
     ?VAR_TOPIC,
@@ -172,18 +173,18 @@ parse_config(
         request_timeout := ReqTimeout
     } = Conf
 ) ->
-    {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
+    {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
     Conf#{
         method => Method,
         request_base => RequestBase,
         headers => maps:to_list(emqx_auth_http_utils:transform_header_name(Headers)),
-        base_path_template => emqx_auth_utils:parse_str(Path, allowed_vars()),
-        base_query_template => emqx_auth_utils:parse_deep(
+        base_path_template => emqx_auth_template:parse_str(Path, allowed_vars()),
+        base_query_template => emqx_auth_template:parse_deep(
             cow_qs:parse_qs(Query),
             allowed_vars()
         ),
         body_template =>
-            emqx_auth_utils:parse_deep(
+            emqx_auth_template:parse_deep(
                 emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
                 allowed_vars()
             ),
@@ -194,7 +195,7 @@ parse_config(
 
 generate_request(Action, Topic, Client, Config) ->
     Values = client_vars(Client, Action, Topic),
-    emqx_auth_utils:generate_request(Config, Values).
+    emqx_auth_http_utils:generate_request(Config, Values).
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),

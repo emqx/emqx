@@ -312,8 +312,8 @@ t_handle_timeout(_) ->
     ?assertMatch({ok, _NState}, emqx_connection:handle_timeout(TRef, undefined, State)).
 
 t_parse_incoming(_) ->
-    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<>>, [], st())),
-    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, [], st())).
+    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<>>, st())),
+    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())).
 
 t_next_incoming_msgs(_) ->
     State = st(#{}),

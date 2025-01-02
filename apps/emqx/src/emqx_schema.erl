@@ -577,6 +577,7 @@ fields("crl_cache") ->
     ];
 fields("mqtt_tcp_listener") ->
     mqtt_listener(1883) ++
+        mqtt_parse_options() ++
         [
             {"tcp_options",
                 sc(
@@ -586,6 +587,7 @@ fields("mqtt_tcp_listener") ->
         ];
 fields("mqtt_ssl_listener") ->
     mqtt_listener(8883) ++
+        mqtt_parse_options() ++
         [
             {"tcp_options",
                 sc(
@@ -1881,6 +1883,19 @@ mqtt_listener(Bind) ->
                     }
                 )}
         ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
+
+mqtt_parse_options() ->
+    [
+        {"parse_unit",
+            sc(
+                hoconsc:enum([chunk, frame]),
+                #{
+                    default => <<"chunk">>,
+                    desc => ?DESC(fields_mqtt_opts_parse_unit),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
+    ].
 
 access_rules_converter(AccessRules) ->
     DeepRules =

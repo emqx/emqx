@@ -184,13 +184,8 @@ on_stop(_ConnResId, _ConnState) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected | {?status_disconnected, connector_state(), term()}.
-on_get_status(_ConnResId, ConnState = #{driver_state := DriverState}) ->
-    case health_check(DriverState) of
-        {Status, Message} ->
-            {Status, ConnState, Message};
-        Status when is_atom(Status) ->
-            Status
-    end.
+on_get_status(_ConnResId, #{driver_state := DriverState}) ->
+    health_check(DriverState).
 
 -spec on_add_channel(
     connector_resource_id(),

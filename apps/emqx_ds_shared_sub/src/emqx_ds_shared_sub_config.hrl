@@ -3,3 +3,4 @@
 %%--------------------------------------------------------------------
 
 -define(dq_config(Path), emqx_ds_shared_sub_config:get(Path)).
+-define(dq_config(Path, Default), emqx_ds_shared_sub_config:get(Path, Default)).

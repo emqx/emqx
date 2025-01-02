@@ -125,6 +125,28 @@ t_str(_) ->
     ?assertEqual(<<"true">>, emqx_rule_funcs:str_utf8(true)),
     ?assertError(_, emqx_rule_funcs:str_utf8({a, v})).
 
+t_str_utf16_le(_) ->
+    ?assertEqual(<<"abc"/utf16-little>>, emqx_rule_funcs:str_utf16_le("abc")),
+    ?assertEqual(<<"abc"/utf16-little>>, emqx_rule_funcs:str_utf16_le(abc)),
+    ?assertEqual(<<"{\"a\":1}"/utf16-little>>, emqx_rule_funcs:str_utf16_le(#{a => 1})),
+    ?assertEqual(<<"1"/utf16-little>>, emqx_rule_funcs:str_utf16_le(1)),
+    ?assertEqual(<<"2.0"/utf16-little>>, emqx_rule_funcs:str_utf16_le(2.0)),
+    ?assertEqual(<<"true"/utf16-little>>, emqx_rule_funcs:str_utf16_le(true)),
+    ?assertError(_, emqx_rule_funcs:str_utf16_le({a, v})),
+
+    ?assertEqual(<<"abc"/utf16-little>>, emqx_rule_funcs:str_utf16_le("abc")),
+    ?assertEqual(<<"abc 你好"/utf16-little>>, emqx_rule_funcs:str_utf16_le("abc 你好")),
+    ?assertEqual(<<"abc 你好"/utf16-little>>, emqx_rule_funcs:str_utf16_le(<<"abc 你好"/utf8>>)),
+    ?assertEqual(<<"abc"/utf16-little>>, emqx_rule_funcs:str_utf16_le(abc)),
+    ?assertEqual(
+        <<"{\"a\":\"abc 你好\"}"/utf16-little>>,
+        emqx_rule_funcs:str_utf16_le(#{a => <<"abc 你好"/utf8>>})
+    ),
+    ?assertEqual(<<"1"/utf16-little>>, emqx_rule_funcs:str_utf16_le(1)),
+    ?assertEqual(<<"2.0"/utf16-little>>, emqx_rule_funcs:str_utf16_le(2.0)),
+    ?assertEqual(<<"true"/utf16-little>>, emqx_rule_funcs:str_utf16_le(true)),
+    ?assertError(_, emqx_rule_funcs:str_utf16_le({a, v})).
+
 t_int(_) ->
     ?assertEqual(1, emqx_rule_funcs:int("1")),
     ?assertEqual(1, emqx_rule_funcs:int(<<"1.0">>)),
@@ -201,9 +223,37 @@ t_hexstr2bin(_) ->
     ?assertEqual(<<1, 2>>, emqx_rule_funcs:hexstr2bin(<<"0102">>)),
     ?assertEqual(<<17, 33>>, emqx_rule_funcs:hexstr2bin(<<"1121">>)).
 
+t_hexstr2bin_with_prefix(_) ->
+    ?assertEqual(<<6, 54, 79>>, emqx_rule_funcs:hexstr2bin(<<"0x6364f">>, <<"0x">>)),
+    ?assertEqual(<<10>>, emqx_rule_funcs:hexstr2bin(<<"0Xa">>, <<"0X">>)),
+    ?assertEqual(<<15>>, emqx_rule_funcs:hexstr2bin(<<"0bf">>, <<"0b">>)),
+    ?assertEqual(<<5>>, emqx_rule_funcs:hexstr2bin(<<"0B5">>, <<"0B">>)),
+    ?assertEqual(<<1, 2>>, emqx_rule_funcs:hexstr2bin(<<"0x0102">>, <<"0x">>)),
+    ?assertEqual(<<17, 33>>, emqx_rule_funcs:hexstr2bin(<<"0X1121">>, <<"0X">>)).
+
+t_hexstr2bin_with_invalid_prefix(_) ->
+    [
+        begin
+            ?assertError(binary_prefix_unmatch, emqx_rule_funcs:hexstr2bin(HexStr, Prefix))
+        end
+     || {HexStr, Prefix} <- [
+            {<<"0x6364f">>, <<"ab">>},
+            {<<"0Xa">>, <<"ef">>},
+            {<<"0bf">>, <<"你好👋"/utf8>>},
+            {<<"0B5">>, <<"🐸"/utf8>>}
+        ]
+    ].
+
 t_bin2hexstr(_) ->
     ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1, 2>>)),
     ?assertEqual(<<"1121">>, emqx_rule_funcs:bin2hexstr(<<17, 33>>)).
+
+t_bin2hexstr_with_prefix(_) ->
+    ?assertEqual(<<"0x0102">>, emqx_rule_funcs:bin2hexstr(<<1, 2>>, <<"0x">>)),
+    ?assertEqual(<<"0X0102">>, emqx_rule_funcs:bin2hexstr(<<1, 2>>, <<"0X">>)),
+    ?assertEqual(<<"0b1121">>, emqx_rule_funcs:bin2hexstr(<<17, 33>>, <<"0b">>)),
+    ?assertEqual(<<"0B1121">>, emqx_rule_funcs:bin2hexstr(<<17, 33>>, <<"0B">>)),
+    ?assertEqual(<<"🧠0102"/utf8>>, emqx_rule_funcs:bin2hexstr(<<1, 2>>, <<"🧠"/utf8>>)).
 
 t_bin2hexstr_not_even_bytes(_) ->
     ?assertEqual(<<"0102">>, emqx_rule_funcs:bin2hexstr(<<1:5, 2>>)),
@@ -217,6 +267,21 @@ t_bin2hexstr_not_even_bytes(_) ->
     ?assertEqual(<<"2">>, emqx_rule_funcs:bin2hexstr(<<2:2>>)),
     ?assertEqual(<<"1121">>, emqx_rule_funcs:bin2hexstr(<<17, 33>>)),
     ?assertEqual(<<"01121">>, emqx_rule_funcs:bin2hexstr(<<17:9, 33>>)).
+
+t_sqlserver_bin2hexstr(_) ->
+    ?assertEqual(<<"0x0102">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<1, 2>>)),
+    ?assertEqual(<<"0x1121">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<17, 33>>)),
+    ?assertEqual(<<"0x0102">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<1:5, 2>>)),
+    ?assertEqual(<<"0x1002">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<16:5, 2>>)),
+    ?assertEqual(<<"0x1002">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<16:8, 2>>)),
+    ?assertEqual(<<"0x102">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<1:4, 2>>)),
+    ?assertEqual(<<"0x102">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<1:3, 2>>)),
+    ?assertEqual(<<"0x102">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<1:1, 2>>)),
+    ?assertEqual(<<"0x002">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<2:1, 2>>)),
+    ?assertEqual(<<"0x02">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<2>>)),
+    ?assertEqual(<<"0x2">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<2:2>>)),
+    ?assertEqual(<<"0x1121">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<17, 33>>)),
+    ?assertEqual(<<"0x01121">>, emqx_rule_funcs:sqlserver_bin2hexstr(<<17:9, 33>>)).
 
 t_hex_convert(_) ->
     ?PROPTEST(hex_convert).
@@ -331,6 +396,16 @@ t_is_array(_) ->
     [
         ?assertEqual(false, emqx_rule_funcs:is_array(T))
      || T <- [<<>>, a]
+    ].
+
+t_is_empty(_) ->
+    [
+        ?assertEqual(true, emqx_rule_funcs:is_empty(T))
+     || T <- [[], #{}, <<"{}">>]
+    ],
+    [
+        ?assertEqual(false, emqx_rule_funcs:is_empty(T))
+     || T <- [[1], #{a => b}, <<"{\"a\" : \"b\"}">>]
     ].
 
 t_coalesce(_) ->
@@ -945,6 +1020,14 @@ t_map_to_entries(_) ->
         ],
         apply_func(map_to_entries, [J])
     ).
+
+t_map_size(_) ->
+    ?assertEqual(0, apply_func(map_size, [#{}])),
+    ?assertEqual(1, apply_func(map_size, [#{a => b}])),
+    ?assertEqual(0, apply_func(map_size, [[]])),
+    ?assertEqual(1, apply_func(map_size, [[{a, b}]])),
+    ?assertEqual(0, apply_func(map_size, [<<"{}">>])),
+    ?assertEqual(1, apply_func(map_size, [<<"{\"a\" : \"b\"}">>])).
 
 t_bitsize(_) ->
     ?assertEqual(8, apply_func(bitsize, [<<"a">>])),

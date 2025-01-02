@@ -412,25 +412,28 @@ fields_ws_opts_mqtt_piggyback.desc:
 fields_ws_opts_mqtt_piggyback.label:
 """MQTT Piggyback"""
 
-base_listener_mountpoint.desc:
-"""When publishing or subscribing, prefix all topics with a mountpoint string.
-The prefixed string will be removed from the topic name when the message
-is delivered to the subscriber. The mountpoint is a way that users can use
-to implement isolation of message routing between different listeners.
-For example if a client A subscribes to `t` with `listeners.tcp.\<name>.mountpoint`
-set to `some_tenant`, then the client actually subscribes to the topic
-`some_tenant/t`. Similarly, if another client B (connected to the same listener
-as the client A) sends a message to topic `t`, the message is routed
-to all the clients subscribed `some_tenant/t`, so client A will receive the
-message, with topic name `t`.<br/>
-Set to `""` to disable the feature.<br/>
+base_listener_mountpoint.desc: """~
+    - Adds a static or templated prefix (e.g., `n1/` or `${username}/`) to topics used by clients in `SUBSCRIBE` and `UNSUBSCRIBE` requests, `PUBLISH` messages, and Will Message (if supplied in the `CONNECT` packet).
+    - Removes this prefix from topics of messages published to the respective subscriptions.
 
-Variables in mountpoint string:
-  - <code>${clientid}</code>: clientid
-  - <code>${username}</code>: username"""
+    The supported placeholders are:
+    - `${username}`
+    - `${clientid}`
+    - `${zone}`
+    - `${client_attrs.NAME}`
 
-base_listener_mountpoint.label:
-"""mountpoint"""
+    For example, with `mountpoint="${username}/"` a client using `u1` as username will have:
+    - Client SUBSCRIBE `sensors/#` -> `u1/sensors/#` internally in the broker.
+    - Broker PUBLISH `u1/sensors/data` -> `sensors/data` sent to the client.
+
+    The prefix mount/unmount is applied to:
+    - Will in `CONNECT`
+    - `PUBLISH`
+    - `SUBSCRIBE`
+    - `UNSUBSCRIBE`
+
+    Note: mounting occurs **after authorization/ACL checks**.~"""
+base_listener_mountpoint.label: "Mountpoint"
 
 mqtt_max_awaiting_rel.desc:
 """For each publisher session, the maximum number of outstanding QoS 2 messages pending on the client to send PUBREL. After reaching this limit, new QoS 2 PUBLISH requests will be rejected with `147(0x93)` until either PUBREL is received or timed out."""
@@ -559,6 +562,17 @@ fields_tcp_opts_buffer.desc:
 
 fields_tcp_opts_buffer.label:
 """TCP user-space buffer"""
+
+fields_mqtt_opts_parse_unit.desc:
+"""This setting specifies the level of granularity for data processed during MQTT framing, determining how frames are extracted and parsed from a byte stream:
+
+- `chunk`: Frames are processed at the transport layer packet level. This method uses raw byte chunks as the parsing unit, requiring the application logic to assemble and interpret MQTT frames. The size of each chunk non-deterministically depends on factors such as transmission speed, socket buffer size, and other kernel settings.
+- `frame`: Frames are processed as complete MQTT messages. This method ensures that only fully-formed MQTT frames are delivered to the application logic for further handling. In most of the cases, it offers better performance than the `chunk` option.
+
+Note, the choice of `parse_unit` affects the interpretation of the `active_n` setting: it defines either the number of raw byte chunks or complete MQTT messages are delivered to the connection process."""
+
+fields_mqtt_opts_parse_unit.label:
+"""MQTT Message Parse Unit"""
 
 server_ssl_opts_schema_honor_cipher_order.desc:
 """An important security setting. If this setting is enabled, the server will prioritize the cipher suites it prefers most from the list of cipher suites supported by the client, thus ignoring the client's preferences.
@@ -1684,10 +1698,12 @@ client_attrs_init {
     Specify how to initialize client attributes.
     Each client attribute can be initialized as `client_attrs.{NAME}`,
     where `{NAME}` is the name of the attribute specified in the config field `set_as_attr`.
+
     The initialized client attribute will be stored in the `client_attrs` property with the specified name,
-    and can be used as a placeholder in a template for authentication and authorization.
-    For example, use `${client_attrs.alias}` to render an HTTP POST body when `set_as_attr = alias`,
-    or render listener config `moutpoint = devices/${client_attrs.alias}/` to initialize a per-client topic namespace."""
+    and can be used as a variable to render a template for mountpoint, authentication and authorization requests.
+
+    For example, use `${client_attrs.tns}` to render an HTTP POST body when `set_as_attr = tns`,
+    or render listener config `moutpoint = ${client_attrs.tns}/` for topic namespacing."""
 }
 
 client_attrs_init_expression {
@@ -1699,11 +1715,14 @@ client_attrs_init_expression {
     As an example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(clientid, '.'))`.
 
     The variables pre-bound variables are:
-    - `cn`: Client's TLS certificate common name.
-    - `dn`: Client's TLS certificate distinguished name (the subject).
     - `clientid`: MQTT Client ID.
     - `username`: MQTT Client's username.
     - `user_property.{NAME}`: User properties in the CONNECT packet.
+    For TLS clients, connected directly or via proxy-protocol (v2) enabled load balancer,
+    some extra variables can be used:
+    - `cn`: Client's TLS certificate common name.
+    - `dn`: Client's TLS certificate distinguished name (the subject).
+    - `peersni`: TLS server name indication sent by the client.
 
     You can read more about variform expressions in EMQX docs."""
 }
@@ -1721,14 +1740,17 @@ clientid_override {
     A one line expression to evaluate a set of predefined string functions (like in the rule engine SQL statements).
     The expression can be a function call with nested calls as its arguments, or direct variable reference.
     So far, it does not provide user-defined variable binding (like `var a=1`) or user-defined functions.
-    As an example, to extract the prefix of client ID delimited by a dot: `nth(1, tokens(username, '.'))`.
+    As an example, to extract the prefix of username delimited by a dot: `nth(1, tokens(username, '.'))`.
 
     The variables pre-bound variables are:
-    - `cn`: Client's TLS certificate common name.
-    - `dn`: Client's TLS certificate distinguished name (the subject).
     - `clientid`: The original MQTT Client ID.
     - `username`: MQTT Client's username.
     - `client_attrs.{NAME}`: Client attributes initialized by per config `client_attrs_init`.
+    For TLS clients, connected directly or via proxy-protocol (v2) enabled load balancer,
+    some extra variables can be used:
+    - `cn`: Client's TLS certificate common name.
+    - `dn`: Client's TLS certificate distinguished name (the subject).
+    - `peersni`: TLS server name indication sent by the client.
 
     You can read more about variform expressions in EMQX docs."""
 }

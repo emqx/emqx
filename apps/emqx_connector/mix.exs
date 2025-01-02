@@ -26,7 +26,7 @@ defmodule EMQXConnector.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: [:eredis], mod: {:emqx_connector_app, []}]
+    [mod: {:emqx_connector_app, []}]
   end
 
   def deps() do
@@ -36,7 +36,6 @@ defmodule EMQXConnector.MixProject do
       {:emqx_connector_jwt, in_umbrella: true},
       UMP.common_dep(:jose),
       UMP.common_dep(:ecpool),
-      {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.6"},
       UMP.common_dep(:ehttpc),
       UMP.common_dep(:emqtt),
     ]

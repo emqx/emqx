@@ -50,6 +50,149 @@ die() {
     exit "$errno"
 }
 
+THIS_SCRIPT="$0"
+
+usage() {
+    local command="$1"
+    local progname="$THIS_SCRIPT"
+
+    case "$command" in
+    start)
+        echo "Start EMQX service in daemon mode"
+        ;;
+    stop)
+        echo "Stop the running EMQX program"
+        ;;
+    console)
+        echo "Boot up EMQX service in an interactive Erlang or Elixir shell"
+        echo "This command needs a tty"
+        ;;
+    console_clean)
+        echo "This command does NOT boot up the EMQX service"
+        echo "It only starts an interactive Erlang or Elixir console with all the"
+        echo "EMQX code available"
+        ;;
+    foreground)
+        echo "Start EMQX in foreground mode without an interactive shell"
+        ;;
+    pid)
+        echo "Print out EMQX process identifier"
+        ;;
+    ping)
+        echo "Check if the EMQX node is up and running"
+        echo "This command exit with 0 silently if node is running"
+        ;;
+    escript)
+        echo "Execute a escript using the Erlang runtime from EMQX package installation"
+        echo "For example $progname escript /path/to/my/escript my_arg1 my_arg2"
+        ;;
+    attach)
+        echo "This command is applicable when EMQX is started in daemon mode."
+        echo "It attaches the current shell to EMQX's control console"
+        echo "through a named pipe."
+        logwarn "try to use the safer alternative, remote_console command."
+        ;;
+    remote_console)
+        echo "Start an interactive shell running an Erlang or Elixir node which "
+        echo "hidden-connects to the running EMQX node".
+        echo "This command is mostly used for troubleshooting."
+        ;;
+    ertspath)
+        echo "Print path to Erlang runtime bin dir"
+        ;;
+    rpc)
+        echo "Usage: $progname rpc MODULE FUNCTION [ARGS, ...]"
+        echo "Connect to the EMQX node and make an Erlang RPC"
+        echo "This command blocks for at most 60 seconds."
+        echo "It exits with non-zero code in case of any RPC failure"
+        echo "including connection error and runtime exception"
+        ;;
+    rpcterms)
+        echo "Usage: $progname rpcterms MODULE FUNCTION [ARGS, ...]"
+        echo "Connect to the EMQX node and make an Erlang RPC"
+        echo "The result of the RPC call is pretty-printed as an "
+        echo "Erlang term"
+        ;;
+    root_dir)
+        echo "Print EMQX installation root dir"
+        ;;
+    eval)
+        echo "Evaluate an Erlang expression in the EMQX node."
+        ;;
+    eval-ex)
+        echo "Evaluate an Elixir expression in the EMQX node. Only applies to Elixir node"
+        ;;
+    versions)
+        echo "List installed EMQX release versions and their status"
+        ;;
+    unpack)
+        echo "Usage: $progname unpack [VERSION]"
+        echo "Unpacks a release package VERSION, it assumes that this"
+        echo "release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        ;;
+    install)
+        echo "Usage: $progname install [VERSION]"
+        echo "Installs a release package VERSION, it assumes that this"
+        echo "release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    uninstall)
+        echo "Usage: $progname uninstall [VERSION]"
+        echo "Uninstalls a release VERSION, it will only accept"
+        echo "versions that are not currently in use"
+        ;;
+    upgrade)
+        echo "Usage: $progname upgrade [VERSION]"
+        echo "Upgrades the currently running release to VERSION, it assumes"
+        echo "that a release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    downgrade)
+        echo "Usage: $progname downgrade [VERSION]"
+        echo "Downgrades the currently running release to VERSION, it assumes"
+        echo "that a release package tarball has already been deployed at one"
+        echo "of the following locations:"
+        echo "      releases/<relname>-<version>.tar.gz"
+        echo ""
+        echo "     --no-permanent   Install release package VERSION but"
+        echo "                      don't make it permanent"
+        ;;
+    check_config)
+        echo "Checks the EMQX config without generating any files"
+        ;;
+    *)
+        echo "Usage: $progname COMMAND [help]"
+        echo ''
+        echo "Commonly used COMMANDs:"
+        echo "  start:      Start EMQX in daemon mode"
+        echo "  console:    Start EMQX in an interactive Erlang or Elixir shell"
+        echo "  foreground: Start EMQX in foreground mode without an interactive shell"
+        echo "  stop:       Stop the running EMQX node"
+        echo "  ctl:        Administration commands, execute '$progname ctl help' for more details"
+        echo ''
+        echo "More:"
+        echo "  Shell attach:     remote_console | attach"
+#       echo "  Up/Down-grade:    upgrade | downgrade | install | uninstall | versions" # TODO enable when supported
+        echo "  Install Info:     ertspath | root_dir"
+        echo "  Runtime Status:   pid | ping"
+        echo "  Validate Config:  check_config"
+        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-ex"
+        echo ''
+        echo "Execute '$progname COMMAND help' for more information"
+    ;;
+    esac
+}
+
 # We need to find real directory with emqx files on all platforms
 # even when bin/emqx is symlinked on several levels
 # - readlink -f works perfectly, but `-f` flag has completely different meaning in BSD version,
@@ -62,13 +205,13 @@ if [ "$(uname -s)" == 'Darwin' ]; then
     if [ "$product_version" -ge 12 ]; then
         # if homebrew coreutils package is installed, GNU version of stat can take precedence,
         # so we use absolute path to ensure we are calling MacOS default
-        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$0" || echo "$0")")"/..; pwd -P)"
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(/usr/bin/stat -f%R "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
     else
         # try our best to resolve link on MacOS <= 11
-        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")"/..; pwd -P)"
+        RUNNER_ROOT_DIR="$(cd "$(dirname "$(readlink "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
     fi
 else
-    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$0" || echo "$0")")"/..; pwd -P)"
+    RUNNER_ROOT_DIR="$(cd "$(dirname "$(realpath "$THIS_SCRIPT" || echo "$THIS_SCRIPT")")"/..; pwd -P)"
 fi
 
 COMMAND="${1:-}"
@@ -153,147 +296,6 @@ assert_node_alive() {
         exit 1
     fi
 }
-
-usage() {
-    local command="$1"
-
-    case "$command" in
-    start)
-        echo "Start EMQX service in daemon mode"
-        ;;
-    stop)
-        echo "Stop the running EMQX program"
-        ;;
-    console)
-        echo "Boot up EMQX service in an interactive Erlang or Elixir shell"
-        echo "This command needs a tty"
-        ;;
-    console_clean)
-        echo "This command does NOT boot up the EMQX service"
-        echo "It only starts an interactive Erlang or Elixir console with all the"
-        echo "EMQX code available"
-        ;;
-    foreground)
-        echo "Start EMQX in foreground mode without an interactive shell"
-        ;;
-    pid)
-        echo "Print out EMQX process identifier"
-        ;;
-    ping)
-        echo "Check if the EMQX node is up and running"
-        echo "This command exit with 0 silently if node is running"
-        ;;
-    escript)
-        echo "Execute a escript using the Erlang runtime from EMQX package installation"
-        echo "For example $REL_NAME escript /path/to/my/escript my_arg1 my_arg2"
-        ;;
-    attach)
-        echo "This command is applicable when EMQX is started in daemon mode."
-        echo "It attaches the current shell to EMQX's control console"
-        echo "through a named pipe."
-        logwarn "try to use the safer alternative, remote_console command."
-        ;;
-    remote_console)
-        echo "Start an interactive shell running an Erlang or Elixir node which "
-        echo "hidden-connects to the running EMQX node".
-        echo "This command is mostly used for troubleshooting."
-        ;;
-    ertspath)
-        echo "Print path to Erlang runtime bin dir"
-        ;;
-    rpc)
-        echo "Usage: $REL_NAME rpc MODULE FUNCTION [ARGS, ...]"
-        echo "Connect to the EMQX node and make an Erlang RPC"
-        echo "This command blocks for at most 60 seconds."
-        echo "It exits with non-zero code in case of any RPC failure"
-        echo "including connection error and runtime exception"
-        ;;
-    rpcterms)
-        echo "Usage: $REL_NAME rpcterms MODULE FUNCTION [ARGS, ...]"
-        echo "Connect to the EMQX node and make an Erlang RPC"
-        echo "The result of the RPC call is pretty-printed as an "
-        echo "Erlang term"
-        ;;
-    root_dir)
-        echo "Print EMQX installation root dir"
-        ;;
-    eval)
-        echo "Evaluate an Erlang expression in the EMQX node."
-        ;;
-    eval-ex)
-        echo "Evaluate an Elixir expression in the EMQX node. Only applies to Elixir node"
-        ;;
-    versions)
-        echo "List installed EMQX release versions and their status"
-        ;;
-    unpack)
-        echo "Usage: $REL_NAME unpack [VERSION]"
-        echo "Unpacks a release package VERSION, it assumes that this"
-        echo "release package tarball has already been deployed at one"
-        echo "of the following locations:"
-        echo "      releases/<relname>-<version>.tar.gz"
-        ;;
-    install)
-        echo "Usage: $REL_NAME install [VERSION]"
-        echo "Installs a release package VERSION, it assumes that this"
-        echo "release package tarball has already been deployed at one"
-        echo "of the following locations:"
-        echo "      releases/<relname>-<version>.tar.gz"
-        echo ""
-        echo "     --no-permanent   Install release package VERSION but"
-        echo "                      don't make it permanent"
-        ;;
-    uninstall)
-        echo "Usage: $REL_NAME uninstall [VERSION]"
-        echo "Uninstalls a release VERSION, it will only accept"
-        echo "versions that are not currently in use"
-        ;;
-    upgrade)
-        echo "Usage: $REL_NAME upgrade [VERSION]"
-        echo "Upgrades the currently running release to VERSION, it assumes"
-        echo "that a release package tarball has already been deployed at one"
-        echo "of the following locations:"
-        echo "      releases/<relname>-<version>.tar.gz"
-        echo ""
-        echo "     --no-permanent   Install release package VERSION but"
-        echo "                      don't make it permanent"
-        ;;
-    downgrade)
-        echo "Usage: $REL_NAME downgrade [VERSION]"
-        echo "Downgrades the currently running release to VERSION, it assumes"
-        echo "that a release package tarball has already been deployed at one"
-        echo "of the following locations:"
-        echo "      releases/<relname>-<version>.tar.gz"
-        echo ""
-        echo "     --no-permanent   Install release package VERSION but"
-        echo "                      don't make it permanent"
-        ;;
-    check_config)
-        echo "Checks the EMQX config without generating any files"
-        ;;
-    *)
-        echo "Usage: $REL_NAME COMMAND [help]"
-        echo ''
-        echo "Commonly used COMMANDs:"
-        echo "  start:      Start EMQX in daemon mode"
-        echo "  console:    Start EMQX in an interactive Erlang or Elixir shell"
-        echo "  foreground: Start EMQX in foreground mode without an interactive shell"
-        echo "  stop:       Stop the running EMQX node"
-        echo "  ctl:        Administration commands, execute '$REL_NAME ctl help' for more details"
-        echo ''
-        echo "More:"
-        echo "  Shell attach:     remote_console | attach"
-#       echo "  Up/Down-grade:    upgrade | downgrade | install | uninstall | versions" # TODO enable when supported
-        echo "  Install Info:     ertspath | root_dir"
-        echo "  Runtime Status:   pid | ping"
-        echo "  Validate Config:  check_config"
-        echo "  Advanced:         console_clean | escript | rpc | rpcterms | eval | eval-ex"
-        echo ''
-        echo "Execute '$REL_NAME COMMAND help' for more information"
-    ;;
-    esac
-}
-
 
 ## backward compatible
 if [ -d "$ERTS_DIR/lib" ]; then

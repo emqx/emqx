@@ -266,7 +266,7 @@ compile_topic(<<"eq ", Topic/binary>>) ->
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
-    Template = emqx_auth_utils:parse_str(Topic, ?ALLOWED_VARS),
+    Template = emqx_auth_template:parse_str(Topic, ?ALLOWED_VARS),
     case emqx_template:is_const(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}
@@ -408,7 +408,7 @@ match_topic(Topic, TopicFilter) ->
 
 render_topic(Topic, ClientInfo) ->
     try
-        bin(emqx_auth_utils:render_strict(Topic, ClientInfo))
+        bin(emqx_auth_template:render_strict(Topic, ClientInfo))
     catch
         error:Reason ->
             ?SLOG(debug, #{

@@ -803,17 +803,37 @@ t_table_removed(Config) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     ?check_trace(
         begin
+            ct:pal("creating table"),
             connect_and_create_table(Config),
-            ?assertMatch({ok, _}, create_bridge(Config)),
+            ct:pal("creating bridge"),
+            ?assertMatch(
+                {ok, _},
+                create_bridge(Config, #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_interval">> => <<"1s">>
+                    }
+                })
+            ),
+            ct:pal("checking bridge health"),
             ?retry(
                 _Sleep = 100,
                 _Attempts = 200,
                 ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
             ),
+            ct:pal("dropping table"),
             connect_and_drop_table(Config),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
             ActionId = emqx_bridge_v2:id(BridgeType, Name),
+            ?retry(
+                _Sleep = 100,
+                _Attempts = 200,
+                ?assertMatch(
+                    #{error := {unhealthy_target, _}, status := disconnected},
+                    emqx_bridge_v2:health_check(BridgeType, Name)
+                )
+            ),
+            ct:pal("sending query"),
             case query_resource_sync(Config, {ActionId, SentData}) of
                 {error, {unrecoverable_error, _}} ->
                     ok;

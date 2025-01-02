@@ -1,6 +1,6 @@
 {application, emqx_ds_shared_sub, [
     {description, "EMQX DS Shared Subscriptions"},
-    {vsn, "0.2.2"},
+    {vsn, "0.2.3"},
     {registered, [emqx_ds_shared_sub_sup]},
     {mod, {emqx_ds_shared_sub_app, []}},
     {applications, [

@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_utils).
+-module(emqx_auth_template).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -30,23 +30,13 @@
     render_str/2,
     render_urlencoded_str/2,
     render_sql_params/2,
-    render_strict/2
+    render_strict/2,
+    escape_disallowed_placeholders_str/2
 ]).
-
-%% URL parsing
--export([parse_url/1]).
-
-%% HTTP request/response helpers
--export([generate_request/2]).
-
--define(DEFAULT_HTTP_REQUEST_CONTENT_TYPE, <<"application/json">>).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% Template parsing/rendering
 
 parse_deep(Template, AllowedVars) ->
     Result = emqx_template:parse_deep(Template),
@@ -62,6 +52,10 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
     {Statement, handle_disallowed_placeholders(Result, AllowedVars, {string, Template})}.
+
+escape_disallowed_placeholders_str(Template, AllowedVars) ->
+    ParsedTemplate = emqx_template:parse(Template),
+    prerender_disallowed_placeholders(ParsedTemplate, AllowedVars).
 
 handle_disallowed_placeholders(Template, AllowedVars, Source) ->
     case emqx_template:validate(AllowedVars, Template) of
@@ -214,6 +208,8 @@ render_var(?VAR_PEERHOST, Value) ->
     inet:ntoa(Value);
 render_var(?VAR_PASSWORD, Value) ->
     iolist_to_binary(Value);
+render_var(?VAR_PEERPORT, Value) ->
+    integer_to_binary(Value);
 render_var(_Name, Value) ->
     Value.
 
@@ -233,111 +229,3 @@ rename_client_info_vars(ClientInfo) ->
         ClientInfo,
         Renames
     ).
-
-%%--------------------------------------------------------------------
-%% URL parsing
-
--spec parse_url(binary()) ->
-    {_Base :: emqx_utils_uri:request_base(), _Path :: binary(), _Query :: binary()}.
-parse_url(Url) ->
-    Parsed = emqx_utils_uri:parse(Url),
-    case Parsed of
-        #{scheme := undefined} ->
-            throw({invalid_url, {no_scheme, Url}});
-        #{authority := undefined} ->
-            throw({invalid_url, {no_host, Url}});
-        #{authority := #{userinfo := Userinfo}} when Userinfo =/= undefined ->
-            throw({invalid_url, {userinfo_not_supported, Url}});
-        #{fragment := Fragment} when Fragment =/= undefined ->
-            throw({invalid_url, {fragments_not_supported, Url}});
-        _ ->
-            case emqx_utils_uri:request_base(Parsed) of
-                {ok, Base} ->
-                    {Base, emqx_utils_uri:path(Parsed),
-                        emqx_maybe:define(emqx_utils_uri:query(Parsed), <<>>)};
-                {error, Reason} ->
-                    throw({invalid_url, {invalid_base, Reason, Url}})
-            end
-    end.
-
-%%--------------------------------------------------------------------
-%% HTTP request/response helpers
-
-generate_request(
-    #{
-        method := Method,
-        headers := Headers,
-        base_path_template := BasePathTemplate,
-        base_query_template := BaseQueryTemplate,
-        body_template := BodyTemplate
-    },
-    Values
-) ->
-    Path = render_urlencoded_str(BasePathTemplate, Values),
-    Query = render_deep_for_url(BaseQueryTemplate, Values),
-    case Method of
-        get ->
-            Body = render_deep_for_url(BodyTemplate, Values),
-            NPath = append_query(Path, Query, Body),
-            {ok, {NPath, Headers}};
-        _ ->
-            try
-                ContentType = post_request_content_type(Headers),
-                Body = serialize_body(ContentType, BodyTemplate, Values),
-                NPathQuery = append_query(Path, Query),
-                {ok, {NPathQuery, Headers, Body}}
-            catch
-                error:{encode_error, _} = Reason ->
-                    {error, Reason}
-            end
-    end.
-
-post_request_content_type(Headers) ->
-    proplists:get_value(<<"content-type">>, Headers, ?DEFAULT_HTTP_REQUEST_CONTENT_TYPE).
-
-append_query(Path, []) ->
-    Path;
-append_query(Path, Query) ->
-    [Path, $?, uri_string:compose_query(Query)].
-append_query(Path, Query, Body) ->
-    append_query(Path, Query ++ maps:to_list(Body)).
-
-serialize_body(<<"application/json">>, BodyTemplate, ClientInfo) ->
-    Body = emqx_auth_utils:render_deep_for_json(BodyTemplate, ClientInfo),
-    emqx_utils_json:encode(Body);
-serialize_body(<<"application/x-www-form-urlencoded">>, BodyTemplate, ClientInfo) ->
-    Body = emqx_auth_utils:render_deep_for_url(BodyTemplate, ClientInfo),
-    uri_string:compose_query(maps:to_list(Body));
-serialize_body(undefined, _BodyTemplate, _ClientInfo) ->
-    throw(missing_content_type_header);
-serialize_body(ContentType, _BodyTemplate, _ClientInfo) ->
-    throw({unknown_content_type_header_value, ContentType}).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-templates_test_() ->
-    [
-        ?_assertEqual(
-            {
-                #{port => 80, scheme => http, host => "example.com"},
-                <<"">>,
-                <<"client=${clientid}">>
-            },
-            parse_url(<<"http://example.com?client=${clientid}">>)
-        ),
-        ?_assertEqual(
-            {
-                #{port => 80, scheme => http, host => "example.com"},
-                <<"/path">>,
-                <<"client=${clientid}">>
-            },
-            parse_url(<<"http://example.com/path?client=${clientid}">>)
-        ),
-        ?_assertEqual(
-            {#{port => 80, scheme => http, host => "example.com"}, <<"/path">>, <<>>},
-            parse_url(<<"http://example.com/path">>)
-        )
-    ].
-
--endif.

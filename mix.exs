@@ -205,14 +205,14 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
-  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.5.12", override: true}
+  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1", override: true}
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.3.10", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
+  def common_dep(:gpb), do: {:gpb, "4.21.1", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, "2.15.0", override: true}
 
   # in conflict by emqx_connector and system_monitor
@@ -284,7 +284,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.11", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
-  def common_dep(:erlavro), do: {:erlavro, github: "emqx/erlavro", tag: "2.10.0", override: true}
+
+  def common_dep(:erlavro) do
+    {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-1", override: true}
+  end
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK

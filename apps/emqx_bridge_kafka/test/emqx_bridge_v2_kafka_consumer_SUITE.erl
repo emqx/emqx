@@ -35,15 +35,19 @@ matrix_cases() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_bridge_kafka_impl_consumer_SUITE:init_per_suite(Config).
+    [
+        {proxy_host, "toxiproxy"},
+        {proxy_port, 8474}
+        | emqx_bridge_kafka_impl_consumer_SUITE:init_per_suite(Config)
+    ].
 
 end_per_suite(Config) ->
     emqx_bridge_kafka_impl_consumer_SUITE:end_per_suite(Config).
 
-init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(TestCase, Config).
-
-common_init_per_testcase(TestCase, Config0) ->
+init_per_testcase(TestCase, Config0) ->
+    ProxyHost = ?config(proxy_host, Config0),
+    ProxyPort = ?config(proxy_port, Config0),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ct:timetrap({seconds, 60}),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = <<(atom_to_binary(TestCase))/binary, UniqueNum/binary>>,
@@ -63,9 +67,7 @@ common_init_per_testcase(TestCase, Config0) ->
         {source_config, SourceConfig},
         {connector_name, Name},
         {connector_type, ?CONNECTOR_TYPE_BIN},
-        {connector_config, ConnectorConfig},
-        {proxy_host, "toxiproxy"},
-        {proxy_port, 8474}
+        {connector_config, ConnectorConfig}
         | Config1
     ].
 
@@ -148,6 +150,9 @@ ensure_topic_and_producers(ConnectorConfig, SourceConfig, TestCase, TCConfig) ->
         num_partitions => 1
     }),
     ok = emqx_bridge_kafka_impl_consumer_SUITE:ensure_topics(CreateConfig),
+    %% Apparently, Kafka in 2+ brokers needs a moment to replicate kafka creation...  We
+    %% need to wait or else starting producers to quickly will crash...
+    ct:sleep(500),
     ProducerConfigs = emqx_bridge_kafka_impl_consumer_SUITE:start_producers(TestCase, CreateConfig),
     [{kafka_producers, ProducerConfigs} | TCConfig].
 
@@ -219,6 +224,58 @@ source_config(Overrides0) ->
             }
         },
     emqx_utils_maps:deep_merge(CommonConfig, Overrides).
+
+create_connector_api(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(
+            Config
+        )
+    ).
+
+probe_source_api(Config, Overrides) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name
+    } = emqx_bridge_v2_testlib:get_common_values(Config),
+    SourceConfig = ?config(source_config, Config),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:probe_bridge_api(
+            Kind,
+            Type,
+            Name,
+            emqx_utils_maps:deep_merge(SourceConfig, Overrides)
+        )
+    ).
+
+get_source_api(Config) ->
+    #{
+        type := Type,
+        name := Name
+    } = emqx_bridge_v2_testlib:get_common_values(Config),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(
+            Type, Name
+        )
+    ).
+
+%% For things like listing groups, apparently different brokers return different
+%% responses, and we need to query more than one...
+all_bootstrap_hosts() ->
+    [
+        {<<"kafka-1.emqx.net">>, 9092},
+        {<<"kafka-2.emqx.net">>, 9092}
+    ].
+
+get_groups() ->
+    lists:foldl(
+        fun(Endpoint, Acc) ->
+            {ok, Groups} = brod:list_groups(Endpoint, _ConnOpts = #{}),
+            Groups ++ Acc
+        end,
+        [],
+        all_bootstrap_hosts()
+    ).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -359,7 +416,6 @@ t_bad_bootstrap_host(Config) ->
 t_absent_group_id(Config) ->
     ?check_trace(
         begin
-            #{<<"bootstrap_hosts">> := BootstrapHosts} = ?config(connector_config, Config),
             SourceConfig = ?config(source_config, Config),
             SourceName = ?config(source_name, Config),
             ?assertEqual(
@@ -371,11 +427,18 @@ t_absent_group_id(Config) ->
                 )
             ),
             {ok, {{_, 201, _}, _, _}} = emqx_bridge_v2_testlib:create_bridge_api(Config),
-            [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(Config)
+                )
+            ),
             GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(#{}, SourceName),
             ct:pal("generated group id: ~p", [GroupId]),
-            ?retry(100, 10, begin
-                {ok, Groups} = brod:list_groups(Endpoint, _ConnOpts = #{}),
+            ?retry(1_000, 10, begin
+                Groups = get_groups(),
                 ?assertMatch(
                     [_],
                     [Group || Group = {_, Id, _} <- Groups, Id == GroupId],
@@ -393,18 +456,24 @@ t_absent_group_id(Config) ->
 t_empty_group_id(Config) ->
     ?check_trace(
         begin
-            #{<<"bootstrap_hosts">> := BootstrapHosts} = ?config(connector_config, Config),
             SourceName = ?config(source_name, Config),
             {ok, {{_, 201, _}, _, _}} =
                 emqx_bridge_v2_testlib:create_bridge_api(
                     Config,
                     #{<<"parameters">> => #{<<"group_id">> => <<"">>}}
                 ),
-            [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(Config)
+                )
+            ),
             GroupId = emqx_bridge_kafka_impl_consumer:consumer_group_id(#{}, SourceName),
             ct:pal("generated group id: ~p", [GroupId]),
-            ?retry(100, 10, begin
-                {ok, Groups} = brod:list_groups(Endpoint, _ConnOpts = #{}),
+            ?retry(1_000, 10, begin
+                Groups = get_groups(),
                 ?assertMatch(
                     [_],
                     [Group || Group = {_, Id, _} <- Groups, Id == GroupId],
@@ -420,16 +489,22 @@ t_empty_group_id(Config) ->
 t_custom_group_id(Config) ->
     ?check_trace(
         begin
-            #{<<"bootstrap_hosts">> := BootstrapHosts} = ?config(connector_config, Config),
             CustomGroupId = <<"my_group_id">>,
             {ok, {{_, 201, _}, _, _}} =
                 emqx_bridge_v2_testlib:create_bridge_api(
                     Config,
                     #{<<"parameters">> => #{<<"group_id">> => CustomGroupId}}
                 ),
-            [Endpoint] = emqx_bridge_kafka_impl:hosts(BootstrapHosts),
-            ?retry(100, 10, begin
-                {ok, Groups} = brod:list_groups(Endpoint, _ConnOpts = #{}),
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(Config)
+                )
+            ),
+            ?retry(1_000, 10, begin
+                Groups = get_groups(),
                 ?assertMatch(
                     [_],
                     [Group || Group = {_, Id, _} <- Groups, Id == CustomGroupId],
@@ -459,7 +534,58 @@ t_repeated_topics(Config) ->
                 emqx_bridge_v2_testlib:create_source_api([{source_name, Name2} | Config]),
             ?assertEqual(
                 match,
-                re:run(Error, <<"Topics .* already exist in other sources">>, [{capture, none}])
+                re:run(Error, <<"Topics .* already exist in other sources">>, [{capture, none}]),
+                #{error => Error}
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Verifies that we return an error containing information to debug connection issues when
+%% one of the partition leaders is unreachable.
+t_pretty_api_dry_run_reason(Config) ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    ProxyName = "kafka_2_plain",
+    ?check_trace(
+        begin
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_bridge_api(Config),
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                Res = probe_source_api(
+                    Config,
+                    #{<<"parameters">> => #{<<"topic">> => <<"test-topic-three-partitions">>}}
+                ),
+                ?assertMatch({400, _}, Res),
+                {400, #{<<"message">> := Msg}} = Res,
+                LeaderUnavailable =
+                    match ==
+                        re:run(
+                            Msg,
+                            <<"Leader for partition . unavailable; reason: ">>,
+                            [{capture, none}]
+                        ),
+                %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
+                %% this failure might occur.
+                CoordinatorFailure =
+                    match ==
+                        re:run(
+                            Msg,
+                            <<"shutdown,coordinator_failure">>,
+                            [{capture, none}]
+                        ),
+                ?assert(LeaderUnavailable or CoordinatorFailure, #{message => Msg})
+            end),
+            %% Wait for recovery; avoids affecting other test cases due to Kafka restabilizing...
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(Config)
+                )
             ),
             ok
         end,

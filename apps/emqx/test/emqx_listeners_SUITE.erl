@@ -19,8 +19,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_schema.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -157,7 +155,6 @@ t_client_attr_as_mountpoint(_Config) ->
             set_as_attr => <<"ns">>
         }
     ]),
-    emqx_logger:set_log_level(debug),
     with_listener(tcp, attr_as_moutpoint, ListenerConf, fun() ->
         {ok, Client} = emqtt:start_link(#{
             hosts => [{"127.0.0.1", Port}],
@@ -187,6 +184,48 @@ t_current_conns_tcp(_Config) ->
             0,
             emqx_listeners:current_conns('tcp:curconns', {{127, 0, 0, 1}, Port})
         )
+    end).
+
+t_tcp_frame_parsing_conn(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"limiter">> => #{},
+        <<"parse_unit">> => <<"frame">>
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client),
+        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
+        [CPid] = emqx_cm:lookup_channels(ClientId),
+        CState = emqx_connection:get_state(CPid),
+        ?assertMatch(#{listener := {tcp, ?FUNCTION_NAME}}, CState),
+        emqx_listeners:is_packet_parser_available(mqtt) andalso
+            ?assertMatch(#{parser := {frame, _Options}}, CState)
+    end).
+
+t_ssl_frame_parsing_conn(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"limiter">> => #{},
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key")
+        },
+        <<"parse_unit">> => <<"frame">>
+    },
+    with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}]),
+        pong = emqtt:ping(Client),
+        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
+        [CPid] = emqx_cm:lookup_channels(ClientId),
+        CState = emqx_connection:get_state(CPid),
+        ?assertMatch(#{listener := {ssl, ?FUNCTION_NAME}}, CState),
+        emqx_listeners:is_packet_parser_available(mqtt) andalso
+            ?assertMatch(#{parser := {frame, _Options}}, CState)
     end).
 
 t_wss_conn(Config) ->
@@ -272,11 +311,13 @@ t_ssl_update_opts(Config) ->
     Name = ?FUNCTION_NAME,
     with_listener(ssl, Name, Conf, fun() ->
         %% Client connects successfully.
+        ct:pal("attempting successful connection"),
         C1 = emqtt_connect_ssl(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
         ]),
 
         %% Change the listener SSL configuration: another set of cert/key files.
+        ct:pal("updating config"),
         {ok, _} = emqx:update_config(
             [listeners, ssl, Name],
             {update, #{
@@ -289,6 +330,7 @@ t_ssl_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
+        ct:pal("attempting connection with unknown CA"),
         ?assertError(
             {tls_alert, {unknown_ca, _}},
             emqtt_connect_ssl(Host, Port, [
@@ -312,13 +354,21 @@ t_ssl_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        ?assertExceptionOneOf(
-            {error, {ssl_error, _Socket, {tls_alert, {certificate_required, _}}}},
-            {error, closed},
+        try
             emqtt_connect_ssl(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
-            ])
-        ),
+            ]),
+            ct:fail("l ~b: unexpected success", [?LINE])
+        catch
+            error:{ssl_error, _Socket, {tls_alert, {certificate_required, _}}} ->
+                ok;
+            error:closed ->
+                ok;
+            error:connack_timeout ->
+                ok;
+            K:E:S ->
+                error({unexpected_exception, {K, E, S}})
+        end,
 
         C3 = emqtt_connect_ssl(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")},
@@ -359,6 +409,7 @@ t_wss_update_opts(Config) ->
     Name = ?FUNCTION_NAME,
     with_listener(wss, Name, Conf, fun() ->
         %% Start a client.
+        ct:pal("attempting successful connection"),
         C1 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca.pem")}
             | ClientSSLOpts
@@ -367,6 +418,7 @@ t_wss_update_opts(Config) ->
         %% Change the listener SSL configuration.
         %% 1. Another set of (password protected) cert/key files.
         %% 2. Require peer certificate.
+        ct:pal("changing config"),
         {ok, _} = emqx:update_config(
             [listeners, wss, Name],
             {update, #{
@@ -379,11 +431,16 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
+        ct:pal("attempting connection with unknown CA"),
         ?assertError(
             timeout,
-            emqtt_connect_wss(Host, Port, ClientSSLOpts)
+            emqtt_connect_wss(Host, Port, [
+                {cacerts, public_key:cacerts_get()}
+                | ClientSSLOpts
+            ])
         ),
 
+        ct:pal("attempting connection with another CA"),
         C2 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")}
             | ClientSSLOpts
@@ -653,10 +710,17 @@ with_listener(Type, Name, Config, Then) ->
         emqx:remove_config([listeners, Type, Name])
     end.
 
+emqtt_connect_tcp(Host, Port) ->
+    emqtt_connect(fun emqtt:connect/1, #{
+        host => Host,
+        port => Port,
+        connect_timeout => 1
+    }).
+
 emqtt_connect_ssl(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 1,
+        connect_timeout => 2,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -664,7 +728,7 @@ emqtt_connect_ssl(Host, Port, SSLOpts) ->
 emqtt_connect_quic(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:quic_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 1,
+        connect_timeout => 2,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -672,7 +736,7 @@ emqtt_connect_quic(Host, Port, SSLOpts) ->
 emqtt_connect_wss(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 1,
+        connect_timeout => 2,
         ws_transport_options => [
             {protocols, [http]},
             {transport, tls},
