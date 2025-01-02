@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,26 +30,25 @@
 -define(PATH, [authentication]).
 -define(ResourceID, <<"password_based:mysql">>).
 
-all() ->
-    [{group, require_seeds}, t_create, t_create_invalid].
-
-groups() ->
-    [{require_seeds, [], [t_authenticate, t_update, t_destroy]}].
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    Config.
-
-init_per_group(require_seeds, Config) ->
     ok = init_seeds(),
     Config.
 
-end_per_group(require_seeds, Config) ->
+end_per_testcase(_TestCase, _Config) ->
     ok = drop_seeds(),
-    Config.
+    _ = emqx_auth_cache:reset(?AUTHN_CACHE),
+    ok = emqx_authn_test_lib:enable_node_cache(false),
+    emqx_authn_test_lib:delete_authenticators(
+        ?PATH,
+        ?GLOBAL
+    ),
+    ok.
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
@@ -225,6 +224,50 @@ t_update(_Config) ->
             listener => 'tcp:default',
             protocol => mqtt
         }
+    ).
+
+t_node_cache(_Config) ->
+    ok = create_user(#{
+        username => <<"node_cache_user">>, password_hash => <<"password">>, salt => <<"">>
+    }),
+    Config = maps:merge(
+        raw_mysql_auth_config(),
+        #{
+            <<"query">> =>
+                <<"SELECT password_hash, salt FROM users where username = ${username} LIMIT 1">>
+        }
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(true),
+    Credentials = #{
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"node_cache_user">>,
+        password => <<"password">>
+    },
+
+    %% First time should be a miss, second time should be a hit
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
+    ),
+
+    %% Change a variable in the query, should be a miss
+    _ = emqx_access_control:authenticate(Credentials#{username => <<"user2">>}),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 2}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
 %%------------------------------------------------------------------------------
@@ -492,6 +535,14 @@ init_seeds() ->
         "                       is_superuser_int TINYINT)"
     ),
 
+    lists:foreach(
+        fun(#{data := Values}) ->
+            create_user(Values)
+        end,
+        user_seeds()
+    ).
+
+create_user(Values) ->
     Fields = [
         username,
         password_hash,
@@ -504,14 +555,8 @@ init_seeds() ->
     InsertQuery =
         "INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,"
         " is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?, ?, ?)",
-
-    lists:foreach(
-        fun(#{data := Values}) ->
-            Params = [maps:get(F, Values, null) || F <- Fields],
-            ok = q(InsertQuery, Params)
-        end,
-        user_seeds()
-    ).
+    Params = [maps:get(F, Values, null) || F <- Fields],
+    ok = q(InsertQuery, Params).
 
 q(Sql) ->
     emqx_resource:simple_sync_query(
