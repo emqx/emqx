@@ -369,7 +369,7 @@ to_quota(Str, Regex) ->
             {match, [Quota, Unit]} ->
                 Val = erlang:list_to_integer(Quota),
                 Unit2 = string:to_lower(Unit),
-                {ok, apply_unit(Unit2, Val)};
+                apply_unit(Unit2, Val);
             {match, [Quota, ""]} ->
                 {ok, erlang:list_to_integer(Quota)};
             {match, ""} ->
@@ -382,11 +382,11 @@ to_quota(Str, Regex) ->
             {error, Error}
     end.
 
-apply_unit("", Val) -> Val;
-apply_unit("kb", Val) -> Val * ?KILOBYTE;
-apply_unit("mb", Val) -> Val * ?KILOBYTE * ?KILOBYTE;
-apply_unit("gb", Val) -> Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
-apply_unit(Unit, _) -> throw("invalid unit:" ++ Unit).
+apply_unit("", Val) -> {ok, Val};
+apply_unit("kb", Val) -> {ok, Val * ?KILOBYTE};
+apply_unit("mb", Val) -> {ok, Val * ?KILOBYTE * ?KILOBYTE};
+apply_unit("gb", Val) -> {ok, Val * ?KILOBYTE * ?KILOBYTE * ?KILOBYTE};
+apply_unit(Unit, _) -> {error, "invalid unit:" ++ Unit}.
 
 %% A bucket with only one type
 simple_bucket_field(Type) when is_atom(Type) ->
