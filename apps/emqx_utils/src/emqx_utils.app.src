@@ -16,6 +16,7 @@
         kernel,
         stdlib,
         jiffy,
+        erlang_qq,
         emqx_http_lib
     ]},
     {env, []},
