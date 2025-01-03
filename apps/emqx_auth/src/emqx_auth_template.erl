@@ -25,8 +25,8 @@
     parse_str/2,
     parse_sql/3,
     cache_key_template/1,
-    cache_key/3,
     cache_key/2,
+    cache_key/3,
     placeholder_vars_from_str/1,
     render_deep_for_json/2,
     render_deep_for_url/2,
@@ -39,17 +39,20 @@
     rename_client_info_vars/1
 ]).
 
--type allowed_var() :: emqx_template:varname() | {var_namespace, emqx_template:varname()}.
--type used_var() :: emqx_template:varname().
--type allowed_vars() :: [allowed_var()].
--type used_vars() :: [used_var()].
+-record(cache_key_template, {
+    id :: binary(),
+    vars :: emqx_template:t()
+}).
+
+-type var() :: emqx_template:varname() | {var_namespace, emqx_template:varname()}.
+-type allowed_vars() :: [var()].
+-type used_vars() :: [var()].
+-type cache_key_template() :: #cache_key_template{}.
+-type cache_key() :: fun(() -> term()).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% Template parsing/rendering
 
 -spec parse_deep(term(), allowed_vars()) -> {used_vars(), emqx_template:t()}.
 parse_deep(Template, AllowedVars) ->
@@ -79,36 +82,75 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
     ),
     {UsedVars, Statement, TemplateWithAllowedVars}.
 
--spec cache_key_template(allowed_vars()) -> emqx_template:t().
+-spec cache_key_template(allowed_vars()) -> cache_key_template().
 cache_key_template(Vars) ->
-    emqx_template:parse_deep(
-        [
-            list_to_binary(emqx_utils:gen_id())
-            | lists:map(
+    #cache_key_template{
+        id = list_to_binary(emqx_utils:gen_id()),
+        vars = emqx_template:parse_deep(
+            lists:map(
                 fun(Var) ->
                     list_to_binary("${" ++ Var ++ "}")
                 end,
                 Vars
             )
-        ]
-    ).
+        )
+    }.
 
-cache_key(Values, TemplatePart, ExtraUniqnessKey) ->
+-spec cache_key(map(), cache_key_template()) -> cache_key().
+cache_key(Values, CacheKeyTemplate) ->
+    cache_key(Values, CacheKeyTemplate, []).
+
+-spec cache_key(map(), cache_key_template(), list()) -> cache_key().
+cache_key(Values0, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKeyParts) when
+    is_list(ExtraKeyParts)
+->
     fun() ->
-        {render_deep_for_raw(TemplatePart, Values), ExtraUniqnessKey}
+        %% We hash the password because we do not want it to be stored as-is in the cache
+        %% for a significant amount of time.
+        %% TemplateId is used as some kind of salt for the password hash.
+        %%
+        %% We may just hash the whole key, but we chose to hash the password only for now
+        %% for better introspection.
+        Values1 = hash_password(TemplateId, Values0),
+        Key0 = render_deep_for_raw(KeyVars, Values1),
+        Key1 = ExtraKeyParts ++ Key0,
+        [TemplateId | Key1]
     end.
 
-cache_key(Values, TemplatePart) ->
-    fun() ->
-        {render_deep_for_raw(TemplatePart, Values)}
-    end.
-
+-spec placeholder_vars_from_str(unicode:chardata()) -> [var()].
 placeholder_vars_from_str(Str) ->
     emqx_template:placeholders(emqx_template:parse(Str)).
 
+-spec escape_disallowed_placeholders_str(unicode:chardata(), allowed_vars()) -> term().
 escape_disallowed_placeholders_str(Template, AllowedVars) ->
     ParsedTemplate = emqx_template:parse(Template),
     prerender_disallowed_placeholders(ParsedTemplate, AllowedVars).
+
+-spec rename_client_info_vars(map()) -> map().
+rename_client_info_vars(ClientInfo) ->
+    Renames = [
+        {cn, cert_common_name},
+        {dn, cert_subject},
+        {protocol, proto_name}
+    ],
+    lists:foldl(
+        fun({Old, New}, Acc) ->
+            emqx_utils_maps:rename(Old, New, Acc)
+        end,
+        ClientInfo,
+        Renames
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+hash_password(TemplateId, Values) ->
+    emqx_utils_maps:update_if_present(
+        password,
+        fun(Password) -> crypto:hash(sha256, [TemplateId, Password]) end,
+        Values
+    ).
 
 handle_disallowed_placeholders(Template, AllowedVars, Source) ->
     {UsedAllowedVars, UsedDisallowedVars} = emqx_template:placeholders(AllowedVars, Template),
@@ -271,17 +313,3 @@ render_var(_Name, Value) ->
 
 render_strict(Topic, ClientInfo) ->
     emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo)).
-
-rename_client_info_vars(ClientInfo) ->
-    Renames = [
-        {cn, cert_common_name},
-        {dn, cert_subject},
-        {protocol, proto_name}
-    ],
-    lists:foldl(
-        fun({Old, New}, Acc) ->
-            emqx_utils_maps:rename(Old, New, Acc)
-        end,
-        ClientInfo,
-        Renames
-    ).
