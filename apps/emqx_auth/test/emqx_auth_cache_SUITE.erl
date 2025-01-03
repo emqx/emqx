@@ -271,6 +271,23 @@ t_cluster(_Config) ->
     [{ok, {_Node, #{}}}] = emqx_auth_cache_proto_v1:metrics([node()], somecache),
     [{ok, ok}] = emqx_auth_cache_proto_v1:reset([node()], somecache).
 
+t_cache_key_template(_Config) ->
+    Vars = ["username", "password", "clientid"],
+    Template = emqx_auth_template:cache_key_template(Vars),
+    Values = #{username => <<"user1">>, password => <<"pass1">>, clientid => <<"client1">>},
+    Key0 = emqx_auth_template:cache_key(Values, Template),
+    Key1 = emqx_auth_template:cache_key(Values#{username => <<"user2">>}, Template),
+    Key2 = emqx_auth_template:cache_key(Values#{password => <<"pass2">>}, Template),
+    Key3 = emqx_auth_template:cache_key(Values#{clientid => <<"client2">>}, Template),
+    ?assertNotEqual(Key0(), Key1()),
+    ?assertNotEqual(Key0(), Key2()),
+    ?assertNotEqual(Key0(), Key3()),
+
+    ?assertEqual(
+        nomatch,
+        re:run(Key0(), <<"pass1">>)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
