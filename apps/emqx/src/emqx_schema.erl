@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_schema).
+-feature(maybe_expr, enable).
 
 -dialyzer(no_return).
 -dialyzer(no_match).
@@ -2668,22 +2669,37 @@ mk_duration(Desc, OverrideMeta) ->
 
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_integer(I) -> {ok, I};
-        _ -> to_integer(Str)
+        D when is_integer(D) ->
+            {ok, D};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid duration"}
+            end
     end.
 
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_number(I) -> {ok, ceiling(I / 1000)};
-        _ -> to_integer(Str)
+        D when is_number(D) ->
+            {ok, ceiling(D / 1000)};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid duration"}
+            end
     end.
 
--spec to_duration_ms(Input) -> {ok, integer()} | {error, Input} when
+-spec to_duration_ms(Input) -> {ok, integer()} | {error, string()} when
     Input :: string() | binary().
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_number(I) -> {ok, ceiling(I)};
-        _ -> to_integer(Str)
+        D when is_number(D) ->
+            {ok, ceiling(D)};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid duration"}
+            end
     end.
 
 -spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
@@ -2703,28 +2719,26 @@ to_timeout_duration_s(Str) ->
 
 do_to_timeout_duration(Str, Fn, Max, Unit) ->
     case Fn(Str) of
-        {ok, I} ->
-            case I =< Max of
-                true ->
-                    {ok, I};
-                false ->
-                    Msg = lists:flatten(
-                        io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
-                    ),
-                    throw(#{
-                        schema_module => ?MODULE,
-                        message => Msg,
-                        kind => validation_error
-                    })
-            end;
+        {ok, I} when I =< Max ->
+            {ok, I};
+        {ok, _} ->
+            Msg = lists:flatten(
+                io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
+            ),
+            {error, Msg};
         Err ->
             Err
     end.
 
 to_bytesize(Str) ->
     case hocon_postprocess:bytesize(Str) of
-        I when is_integer(I) -> {ok, I};
-        _ -> to_integer(Str)
+        BS when is_integer(BS) ->
+            {ok, BS};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid bytesize"}
+            end
     end.
 
 to_wordsize(Str) ->
@@ -2790,13 +2804,14 @@ to_ip_port(Str) ->
     case split_ip_port(Str) of
         {"", Port} ->
             %% this is a local address
-            {ok, parse_port(Port)};
+            parse_port(Port);
         {MaybeIp, Port} ->
-            PortVal = parse_port(Port),
-            case inet:parse_address(MaybeIp) of
-                {ok, IpTuple} ->
-                    {ok, {IpTuple, PortVal}};
-                _ ->
+            maybe
+                {ok, PortVal} ?= parse_port(Port),
+                {ok, IpTuple} ?= inet:parse_address(MaybeIp),
+                {ok, {IpTuple, PortVal}}
+            else
+                {error, _} ->
                     {error, bad_ip_port}
             end;
         _ ->
@@ -2825,7 +2840,7 @@ split_ip_port(Str0) ->
 
 to_erl_cipher_suite(Str) ->
     case ssl:str_to_suite(Str) of
-        {error, Reason} -> error({invalid_cipher, Reason});
+        {error, Reason} -> {error, {invalid_cipher, Reason}};
         Cipher -> Cipher
     end.
 
@@ -3248,7 +3263,7 @@ check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
     #{
         scheme => check_scheme(Scheme, Opts),
         hostname => check_hostname(Hostname),
-        port => parse_port(Port)
+        port => parse_port_(Port)
     };
 check_server_parts([Scheme, "//" ++ Hostname], Context) ->
     #{
@@ -3283,13 +3298,13 @@ check_server_parts([Hostname, Port], Context) ->
         false ->
             #{
                 hostname => check_hostname(Hostname),
-                port => parse_port(Port)
+                port => parse_port_(Port)
             };
         true ->
             #{
                 scheme => DefaultScheme,
                 hostname => check_hostname(Hostname),
-                port => parse_port(Port)
+                port => parse_port_(Port)
             }
     end;
 check_server_parts([Hostname], Context) ->
@@ -3378,21 +3393,26 @@ convert_hocon_map_host_port(Map) ->
         hocon_maps:flatten(Map, #{})
     ).
 
-is_port_number(Port) ->
-    try
-        _ = parse_port(Port),
-        true
-    catch
-        _:_ ->
-            false
+is_port_number(Str) ->
+    {Status, _} = parse_port(Str),
+    Status == ok.
+
+parse_port_(Str) ->
+    case parse_port(Str) of
+        {ok, Port} -> Port;
+        {error, Reason} -> throw(Reason)
     end.
 
 parse_port(Port) ->
     case string:to_integer(string:strip(Port)) of
-        {P, ""} when P < 0 -> throw("port_number_must_be_positive");
-        {P, ""} when P > 65535 -> throw("port_number_too_large");
-        {P, ""} -> P;
-        _ -> throw("bad_port_number")
+        {P, ""} when P < 0 ->
+            {error, "port_number_must_be_positive"};
+        {P, ""} when P > 65535 ->
+            {error, "port_number_too_large"};
+        {P, ""} ->
+            {ok, P};
+        _ ->
+            {error, "bad_port_number"}
     end.
 
 quic_feature_toggle(Desc) ->
