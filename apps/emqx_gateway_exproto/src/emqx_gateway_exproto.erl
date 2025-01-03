@@ -226,10 +226,18 @@ start_grpc_client_channel(_GwName, Options) ->
         }}
     ).
 
-compose_http_uri(Scheme, Host, Port) ->
+compose_http_uri(Scheme, Host0, Port) ->
+    Host =
+        case inet:is_ip_address(Host0) of
+            true ->
+                inet:ntoa(Host0);
+            false when is_list(Host0) ->
+                Host0
+        end,
+
     lists:flatten(
         io_lib:format(
-            "~s://~s:~w", [Scheme, inet:ntoa(Host), Port]
+            "~s://~s:~w", [Scheme, Host, Port]
         )
     ).
 
