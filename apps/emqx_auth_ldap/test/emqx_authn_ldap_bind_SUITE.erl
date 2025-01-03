@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -37,6 +37,14 @@ init_per_testcase(_, Config) ->
         [authentication],
         ?GLOBAL
     ),
+    Config.
+
+end_per_testcase(_, Config) ->
+    emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(false),
     Config.
 
 init_per_suite(Config) ->
@@ -106,6 +114,7 @@ t_create_invalid(_Config) ->
     ).
 
 t_authenticate(_Config) ->
+    ct:print("user_seeds: ~p", [user_seeds()]),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
@@ -209,6 +218,46 @@ t_update(_Config) ->
             listener => 'tcp:default',
             protocol => mqtt
         }
+    ).
+
+t_node_cache(_Config) ->
+    Config = maps:merge(raw_ldap_auth_config(), #{
+        <<"base_dn">> => <<"ou=${cert_common_name},dc=emqx,dc=io">>
+    }),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(true),
+    Credentials = #{
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"mqttuser0001">>,
+        password => <<"mqttuser0001">>,
+        cn => <<"testdevice">>
+    },
+
+    %% First time should be a miss, second time should be a hit
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
+    ),
+
+    %% Change a variable in the different parts of the query, should be 3 misses
+    _ = emqx_access_control:authenticate(Credentials#{username => <<"user2">>}),
+    _ = emqx_access_control:authenticate(Credentials#{cn => <<"testdevice2">>}),
+    _ = emqx_access_control:authenticate(Credentials#{password => <<"password2">>}),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 4}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
 %%------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
--define(LDAP_RESOURCE, <<"emqx_authz_ldap_SUITE">>).
 
 all() ->
     emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
@@ -64,6 +63,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
+    ok = emqx_authz_test_lib:enable_node_cache(false),
     ok.
 
 set_special_configs(emqx_authz) ->
@@ -89,6 +89,53 @@ t_create_invalid(_Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [BadConfig]),
 
     [_] = emqx_authz:lookup().
+
+t_node_cache(_Config) ->
+    ClientInfo = #{username => <<"mqttuser0001">>, cert_common_name => <<"mqttUser">>},
+    Case = #{
+        name => cache_publish,
+        client_info => ClientInfo,
+        checks => []
+    },
+    setup_config(#{
+        <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+        %% This interpolation probably makes no sense,
+        %% but we just test that the filter's vars are used for caching
+        <<"filter">> => <<"(objectClass=${cert_common_name})">>
+    }),
+    ok = emqx_authz_test_lib:enable_node_cache(true),
+
+    %% Subscribe to twice, should hit cache the second time
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>},
+                {allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/+">>}
+            ]
+        }
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ),
+
+    %% Change variables, should miss cache
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [{deny, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>}],
+            client_info => ClientInfo#{username => <<"username2">>}
+        }
+    ),
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [{allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>}],
+            client_info => ClientInfo#{cn => <<"mqttUser1">>}
+        }
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 3}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Case
