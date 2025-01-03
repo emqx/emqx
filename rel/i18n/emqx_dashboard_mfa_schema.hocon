@@ -1,0 +1,12 @@
+emqx_dashboard_mfa_schema {
+
+enable.desc:
+"""enable this method."""
+
+method.desc:
+"""The authentication method"""
+
+token.desc:
+"""Token for a MFA login request."""
+
+}

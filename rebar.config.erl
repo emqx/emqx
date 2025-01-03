@@ -118,6 +118,7 @@ is_community_umbrella_app("apps/emqx_bridge_azure_event_hub") -> false;
 is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_sso") -> false;
+is_community_umbrella_app("apps/emqx_dashboard_mfa") -> false;
 is_community_umbrella_app("apps/emqx_audit") -> false;
 is_community_umbrella_app("apps/emqx_gateway_gbt32960") -> false;
 is_community_umbrella_app("apps/emqx_gateway_ocpp") -> false;
