@@ -6,53 +6,53 @@ enable.desc:
 enable.label:
 """Enable Shared Subscription"""
 
-session_find_leader_timeout_ms.desc:
+session_find_leader_timeout.desc:
 """The timeout in milliseconds for the session to find a leader.
 If the session cannot find a leader within this time, the session will retry."""
 
-session_find_leader_timeout_ms.label:
+session_find_leader_timeout.label:
 """Session Find Leader Timeout"""
 
-session_ping_leader_interval_ms.desc:
+session_ping_leader_interval.desc:
 """The interval in milliseconds for the session to ping the leader."""
 
-session_ping_leader_interval_ms.label:
+session_ping_leader_interval.label:
 """Session Ping Leader Interval"""
 
-session_ping_leader_timeout_ms.desc:
+session_ping_leader_timeout.desc:
 """The timeout in milliseconds for the session to wait for the leader to respond to the ping.
 If the leader does not respond to the ping within this time, the session will consider
 the leader as lost and try to find a new leader."""
 
-session_ping_leader_timeout_ms.label:
+session_ping_leader_timeout.label:
 """Session Ping Leader Timeout"""
 
-session_unsubscribe_timeout_ms.desc:
+session_unsubscribe_timeout.desc:
 """The timeout in milliseconds for the session to wait for the streams to reach
 consistent state that may be reported to the leader. If the timeout is reached,
 the session will send the latest known consistent state to the leader."""
 
-session_unsubscribe_timeout_ms.label:
+session_unsubscribe_timeout.label:
 """Session Unsubscribe Timeout"""
 
-leader_periodical_actions_interval_ms.desc:
+leader_periodical_actions_interval.desc:
 """The interval in milliseconds for the leader to perform periodical actions."""
 
-leader_periodical_actions_interval_ms.label:
+leader_periodical_actions_interval.label:
 """Leader Periodical Actions Interval"""
 
-leader_renew_streams_interval_ms.desc:
+leader_renew_streams_interval.desc:
 """The interval in milliseconds for the leader to renew the streams."""
 
-leader_renew_streams_interval_ms.label:
+leader_renew_streams_interval.label:
 """Leader Renew Streams Interval"""
 
-leader_ssubscriber_timeout_ms.desc:
+leader_ssubscriber_timeout.desc:
 """The maximum time in milliseconds for the leader to wait for the ping from a shared subscriber.
 If the shared subscriber does not ping the leader within this time, the leader will consider
 the shared subscriber as lost and will reclaim its streams."""
 
-leader_ssubscriber_timeout_ms.label:
+leader_ssubscriber_timeout.label:
 """Leader Subscriber Timeout"""
 
 }

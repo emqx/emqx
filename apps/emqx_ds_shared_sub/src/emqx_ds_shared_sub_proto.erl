@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_proto).
@@ -9,7 +9,7 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--type ssubscriber_id() :: ?ssubscriber_id(
+-type borrower_id() :: ?borrower_id(
     emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
     emqx_persistent_session_ds:id(),
     reference()
@@ -25,13 +25,13 @@
 -type stream() :: emqx_ds:stream().
 
 -type to_leader_msg() ::
-    ?ssubscriber_ping_match(ssubscriber_id())
-    | ?ssubscriber_connect_match(ssubscriber_id(), share_topic_filter())
-    | ?ssubscriber_disconnect_match(ssubscriber_id(), agent_stream_progresses())
-    | ?ssubscriber_update_progress_match(ssubscriber_id(), agent_stream_progress())
-    | ?ssubscriber_revoke_finished_match(ssubscriber_id(), emqx_ds:stream()).
+    ?borrower_ping_match(borrower_id())
+    | ?borrower_connect_match(borrower_id(), share_topic_filter())
+    | ?borrower_disconnect_match(borrower_id(), agent_stream_progresses())
+    | ?borrower_update_progress_match(borrower_id(), agent_stream_progress())
+    | ?borrower_revoke_finished_match(borrower_id(), emqx_ds:stream()).
 
--type to_ssubscriber_msg() ::
+-type to_borrower_msg() ::
     ?leader_connect_response_match(leader())
     | ?leader_ping_response_match(leader())
     | ?leader_grant_match(leader(), leader_stream_progress())
@@ -43,25 +43,25 @@
     leader/0,
     stream/0,
     share_topic_filter/0,
-    ssubscriber_id/0,
+    borrower_id/0,
     leader_stream_progress/0,
     agent_stream_progress/0,
     agent_stream_progresses/0,
     to_leader_msg/0,
-    to_ssubscriber_msg/0
+    to_borrower_msg/0
 ]).
 
 -export([
     send_to_leader/2,
-    send_to_ssubscriber/2
+    send_to_borrower/2
 ]).
 
 -export([
-    ssubscriber_connect_v3/3,
-    ssubscriber_ping_v3/2,
-    ssubscriber_disconnect_v3/3,
-    ssubscriber_update_progress_v3/3,
-    ssubscriber_revoke_finished_v3/3,
+    borrower_connect_v3/3,
+    borrower_ping_v3/2,
+    borrower_disconnect_v3/3,
+    borrower_update_progress_v3/3,
+    borrower_revoke_finished_v3/3,
 
     leader_connect_response_v3/2,
     leader_ping_response_v3/2,
@@ -72,9 +72,9 @@
 ]).
 
 -export([
-    ssubscriber_id/3,
-    ssubscriber_pidref/1,
-    ssubscriber_subscription_id/1
+    borrower_id/3,
+    borrower_pidref/1,
+    borrower_subscription_id/1
 ]).
 
 %% Legacy types
@@ -118,133 +118,133 @@
 
 -spec send_to_leader(leader(), to_leader_msg()) -> ok.
 send_to_leader(ToLeader, Msg) when ?is_local_leader(ToLeader) ->
-    ?log_ssubscriber_msg(ToLeader, Msg),
+    ?log_borrower_msg(ToLeader, Msg),
     _ = erlang:send(ToLeader, Msg),
     ok;
-send_to_leader(ToLeader, ?ssubscriber_connect_match(FromSSubscriberId, ShareTopicFilter)) ->
-    emqx_ds_shared_sub_proto_v3:ssubscriber_connect(
-        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, ShareTopicFilter
+send_to_leader(ToLeader, ?borrower_connect_match(FromBorrowerId, ShareTopicFilter)) ->
+    emqx_ds_shared_sub_proto_v3:borrower_connect(
+        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, ShareTopicFilter
     );
-send_to_leader(ToLeader, ?ssubscriber_ping_match(FromSSubscriberId)) ->
-    emqx_ds_shared_sub_proto_v3:ssubscriber_ping(
-        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId
+send_to_leader(ToLeader, ?borrower_ping_match(FromBorrowerId)) ->
+    emqx_ds_shared_sub_proto_v3:borrower_ping(
+        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId
     );
-send_to_leader(ToLeader, ?ssubscriber_disconnect_match(FromSSubscriberId, StreamProgresses)) ->
-    emqx_ds_shared_sub_proto_v3:ssubscriber_disconnect(
-        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, StreamProgresses
+send_to_leader(ToLeader, ?borrower_disconnect_match(FromBorrowerId, StreamProgresses)) ->
+    emqx_ds_shared_sub_proto_v3:borrower_disconnect(
+        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, StreamProgresses
     );
-send_to_leader(ToLeader, ?ssubscriber_update_progress_match(FromSSubscriberId, StreamProgress)) ->
-    emqx_ds_shared_sub_proto_v3:ssubscriber_update_progress(
-        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, StreamProgress
+send_to_leader(ToLeader, ?borrower_update_progress_match(FromBorrowerId, StreamProgress)) ->
+    emqx_ds_shared_sub_proto_v3:borrower_update_progress(
+        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, StreamProgress
     );
-send_to_leader(ToLeader, ?ssubscriber_revoke_finished_match(FromSSubscriberId, Stream)) ->
-    emqx_ds_shared_sub_proto_v3:ssubscriber_revoke_finished(
-        ?ssubscriber_node(FromSSubscriberId), ToLeader, FromSSubscriberId, Stream
+send_to_leader(ToLeader, ?borrower_revoke_finished_match(FromBorrowerId, Stream)) ->
+    emqx_ds_shared_sub_proto_v3:borrower_revoke_finished(
+        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, Stream
     ).
 
--spec send_to_ssubscriber(ssubscriber_id(), to_ssubscriber_msg()) -> ok.
-send_to_ssubscriber(ToSSubscriberId, Msg) when ?is_local_ssubscriber(ToSSubscriberId) ->
-    ?log_leader_msg(ToSSubscriberId, Msg),
-    _ = emqx_ds_shared_sub_agent:send_to_ssubscriber(ToSSubscriberId, Msg),
+-spec send_to_borrower(borrower_id(), to_borrower_msg()) -> ok.
+send_to_borrower(ToBorrowerId, Msg) when ?is_local_borrower(ToBorrowerId) ->
+    ?log_leader_msg(ToBorrowerId, Msg),
+    _ = emqx_ds_shared_sub_agent:send_to_borrower(ToBorrowerId, Msg),
     ok;
-send_to_ssubscriber(ToSSubscriberId, ?leader_connect_response_match(FromLeader)) ->
+send_to_borrower(ToBorrowerId, ?leader_connect_response_match(FromLeader)) ->
     emqx_ds_shared_sub_proto_v3:leader_connect_response(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader
+        ?borrower_node(ToBorrowerId), ToBorrowerId, FromLeader
     );
-send_to_ssubscriber(ToSSubscriberId, ?leader_ping_response_match(FromLeader)) ->
+send_to_borrower(ToBorrowerId, ?leader_ping_response_match(FromLeader)) ->
     emqx_ds_shared_sub_proto_v3:leader_ping_response(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader
+        ?borrower_node(ToBorrowerId), ToBorrowerId, FromLeader
     );
-send_to_ssubscriber(ToSSubscriberId, ?leader_grant_match(FromLeader, StreamProgress)) ->
+send_to_borrower(ToBorrowerId, ?leader_grant_match(FromLeader, StreamProgress)) ->
     emqx_ds_shared_sub_proto_v3:leader_grant(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, StreamProgress
+        ?borrower_node(ToBorrowerId), ToBorrowerId, FromLeader, StreamProgress
     );
-send_to_ssubscriber(ToSSubscriberId, ?leader_revoke_match(FromLeader, Stream)) ->
+send_to_borrower(ToBorrowerId, ?leader_revoke_match(FromLeader, Stream)) ->
     emqx_ds_shared_sub_proto_v3:leader_revoke(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, Stream
+        ?borrower_node(ToBorrowerId), ToBorrowerId, FromLeader, Stream
     );
-send_to_ssubscriber(ToSSubscriberId, ?leader_revoked_match(FromLeader, Stream)) ->
+send_to_borrower(ToBorrowerId, ?leader_revoked_match(FromLeader, Stream)) ->
     emqx_ds_shared_sub_proto_v3:leader_revoked(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader, Stream
+        ?borrower_node(ToBorrowerId), ToBorrowerId, FromLeader, Stream
     );
-send_to_ssubscriber(ToSSubscriberId, ?leader_invalidate_match(FromLeader)) ->
+send_to_borrower(ToBorrowerId, ?leader_invalidate_match(FromLeader)) ->
     emqx_ds_shared_sub_proto_v3:leader_invalidate(
-        ?ssubscriber_node(ToSSubscriberId), ToSSubscriberId, FromLeader
+        ?borrower_node(ToBorrowerId), ToBorrowerId, FromLeader
     ).
 
 %%--------------------------------------------------------------------
 %% RPC Targets
 %%--------------------------------------------------------------------
 
-%% ssubscriber -> leader messages
+%% borrower -> leader messages
 
--spec ssubscriber_connect_v3(leader(), ssubscriber_id(), share_topic_filter()) -> ok.
-ssubscriber_connect_v3(ToLeader, FromSSubscriberId, ShareTopicFilter) ->
-    send_to_leader(ToLeader, ?ssubscriber_connect(FromSSubscriberId, ShareTopicFilter)).
+-spec borrower_connect_v3(leader(), borrower_id(), share_topic_filter()) -> ok.
+borrower_connect_v3(ToLeader, FromBorrowerId, ShareTopicFilter) ->
+    send_to_leader(ToLeader, ?borrower_connect(FromBorrowerId, ShareTopicFilter)).
 
--spec ssubscriber_ping_v3(leader(), ssubscriber_id()) -> ok.
-ssubscriber_ping_v3(ToLeader, FromSSubscriberId) ->
-    send_to_leader(ToLeader, ?ssubscriber_ping(FromSSubscriberId)).
+-spec borrower_ping_v3(leader(), borrower_id()) -> ok.
+borrower_ping_v3(ToLeader, FromBorrowerId) ->
+    send_to_leader(ToLeader, ?borrower_ping(FromBorrowerId)).
 
--spec ssubscriber_disconnect_v3(leader(), ssubscriber_id(), agent_stream_progresses()) -> ok.
-ssubscriber_disconnect_v3(ToLeader, FromSSubscriberId, StreamProgresses) ->
-    send_to_leader(ToLeader, ?ssubscriber_disconnect(FromSSubscriberId, StreamProgresses)).
+-spec borrower_disconnect_v3(leader(), borrower_id(), agent_stream_progresses()) -> ok.
+borrower_disconnect_v3(ToLeader, FromBorrowerId, StreamProgresses) ->
+    send_to_leader(ToLeader, ?borrower_disconnect(FromBorrowerId, StreamProgresses)).
 
--spec ssubscriber_update_progress_v3(leader(), ssubscriber_id(), agent_stream_progress()) -> ok.
-ssubscriber_update_progress_v3(ToLeader, FromSSubscriberId, StreamProgress) ->
-    send_to_leader(ToLeader, ?ssubscriber_update_progress(FromSSubscriberId, StreamProgress)).
+-spec borrower_update_progress_v3(leader(), borrower_id(), agent_stream_progress()) -> ok.
+borrower_update_progress_v3(ToLeader, FromBorrowerId, StreamProgress) ->
+    send_to_leader(ToLeader, ?borrower_update_progress(FromBorrowerId, StreamProgress)).
 
--spec ssubscriber_revoke_finished_v3(leader(), ssubscriber_id(), stream()) -> ok.
-ssubscriber_revoke_finished_v3(ToLeader, FromSSubscriberId, Stream) ->
-    send_to_leader(ToLeader, ?ssubscriber_revoke_finished(FromSSubscriberId, Stream)).
+-spec borrower_revoke_finished_v3(leader(), borrower_id(), stream()) -> ok.
+borrower_revoke_finished_v3(ToLeader, FromBorrowerId, Stream) ->
+    send_to_leader(ToLeader, ?borrower_revoke_finished(FromBorrowerId, Stream)).
 
-%% leader -> ssubscriber messages
+%% leader -> borrower messages
 
--spec leader_connect_response_v3(ssubscriber_id(), leader()) -> ok.
-leader_connect_response_v3(ToSSubscriberId, FromLeader) ->
-    send_to_ssubscriber(ToSSubscriberId, ?leader_connect_response(FromLeader)).
+-spec leader_connect_response_v3(borrower_id(), leader()) -> ok.
+leader_connect_response_v3(ToBorrowerId, FromLeader) ->
+    send_to_borrower(ToBorrowerId, ?leader_connect_response(FromLeader)).
 
--spec leader_ping_response_v3(ssubscriber_id(), leader()) -> ok.
-leader_ping_response_v3(ToSSubscriberId, FromLeader) ->
-    send_to_ssubscriber(ToSSubscriberId, ?leader_ping_response(FromLeader)).
+-spec leader_ping_response_v3(borrower_id(), leader()) -> ok.
+leader_ping_response_v3(ToBorrowerId, FromLeader) ->
+    send_to_borrower(ToBorrowerId, ?leader_ping_response(FromLeader)).
 
--spec leader_grant_v3(ssubscriber_id(), leader(), leader_stream_progress()) -> ok.
-leader_grant_v3(ToSSubscriberId, FromLeader, StreamProgress) ->
-    send_to_ssubscriber(ToSSubscriberId, ?leader_grant(FromLeader, StreamProgress)).
+-spec leader_grant_v3(borrower_id(), leader(), leader_stream_progress()) -> ok.
+leader_grant_v3(ToBorrowerId, FromLeader, StreamProgress) ->
+    send_to_borrower(ToBorrowerId, ?leader_grant(FromLeader, StreamProgress)).
 
--spec leader_revoke_v3(ssubscriber_id(), leader(), stream()) -> ok.
-leader_revoke_v3(ToSSubscriberId, FromLeader, Stream) ->
-    send_to_ssubscriber(ToSSubscriberId, ?leader_revoke(FromLeader, Stream)).
+-spec leader_revoke_v3(borrower_id(), leader(), stream()) -> ok.
+leader_revoke_v3(ToBorrowerId, FromLeader, Stream) ->
+    send_to_borrower(ToBorrowerId, ?leader_revoke(FromLeader, Stream)).
 
--spec leader_revoked_v3(ssubscriber_id(), leader(), stream()) -> ok.
-leader_revoked_v3(ToSSubscriberId, FromLeader, Stream) ->
-    send_to_ssubscriber(ToSSubscriberId, ?leader_revoked(FromLeader, Stream)).
+-spec leader_revoked_v3(borrower_id(), leader(), stream()) -> ok.
+leader_revoked_v3(ToBorrowerId, FromLeader, Stream) ->
+    send_to_borrower(ToBorrowerId, ?leader_revoked(FromLeader, Stream)).
 
--spec leader_invalidate_v3(ssubscriber_id(), leader()) -> ok.
-leader_invalidate_v3(ToSSubscriberId, FromLeader) ->
-    send_to_ssubscriber(ToSSubscriberId, ?leader_invalidate(FromLeader)).
+-spec leader_invalidate_v3(borrower_id(), leader()) -> ok.
+leader_invalidate_v3(ToBorrowerId, FromLeader) ->
+    send_to_borrower(ToBorrowerId, ?leader_invalidate(FromLeader)).
 
 %%--------------------------------------------------------------------
 %% Internal API
 %%--------------------------------------------------------------------
 
--spec ssubscriber_id(
+-spec borrower_id(
     emqx_persistent_session_ds:id(),
     emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
     reference()
 ) ->
-    ssubscriber_id().
-ssubscriber_id(SessionId, SubscriptionId, PidRef) ->
-    ?ssubscriber_id(SessionId, SubscriptionId, PidRef).
+    borrower_id().
+borrower_id(SessionId, SubscriptionId, PidRef) ->
+    ?borrower_id(SessionId, SubscriptionId, PidRef).
 
--spec ssubscriber_pidref(ssubscriber_id()) -> reference().
-ssubscriber_pidref(SSubscriberId) ->
-    ?ssubscriber_pidref(SSubscriberId).
+-spec borrower_pidref(borrower_id()) -> reference().
+borrower_pidref(BorrowerId) ->
+    ?borrower_pidref(BorrowerId).
 
--spec ssubscriber_subscription_id(ssubscriber_id()) ->
+-spec borrower_subscription_id(borrower_id()) ->
     emqx_persistent_session_ds_shared_subs_agent:subscription_id().
-ssubscriber_subscription_id(SSubscriberId) ->
-    ?ssubscriber_subscription_id(SSubscriberId).
+borrower_subscription_id(BorrowerId) ->
+    ?borrower_subscription_id(BorrowerId).
 
 %%--------------------------------------------------------------------
 %% Legacy API

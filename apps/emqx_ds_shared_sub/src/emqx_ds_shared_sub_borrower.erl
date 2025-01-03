@@ -1,13 +1,12 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc State machine for a single subscription of a shared subscription agent.
 %% Implements Shared subscriber described in
 %% https://github.com/emqx/eip/blob/main/active/0028-durable-shared-subscriptions.md
 
-%% Referred as `ssubscriber` outside of this module
--module(emqx_ds_shared_sub_subscriber).
+-module(emqx_ds_shared_sub_borrower).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_ds_shared_sub_config.hrl").
@@ -34,7 +33,7 @@
 
 -type options() :: #{
     session_id := emqx_persistent_session_ds:id(),
-    id := emqx_ds_shared_sub_proto:ssubscriber_id(),
+    id := emqx_ds_shared_sub_proto:borrower_id(),
     share_topic_filter := emqx_persistent_session_ds:share_topic_filter(),
     send_after := fun((non_neg_integer(), term()) -> reference())
 }.
@@ -55,7 +54,7 @@
         stream := emqx_ds:stream()
     }.
 
-%% SSubscriber states
+%% Borrower states
 
 -define(connecting, connecting).
 -define(connected, connected).
@@ -85,16 +84,36 @@
 -type stream_status() :: ?stream_granted | ?stream_revoking.
 
 -type stream_data() :: #{
+    %% See description of the statuses above
     status := stream_status(),
+    %% Progress of the stream, basically, DS iterator
     progress := progress(),
+    %% We set this to true when the stream is being revoked and
+    %% the enclosing session informed us that it has finished
+    %% consuming the stream.
     use_finished := boolean()
 }.
 
 %% Timers
 
+%% This timer is used in the `connecting` state only. After it
+%% expires, the subscriber will request a leader again.
 -define(find_leader_timer, find_leader_timer).
+
+%% This timer is used in the `connected` and `unsubscribing` states.
+%% It is used to issue a ping to the leader to mutually confirm
+%% that the both are still alive.
 -define(ping_leader_timer, ping_leader_timer).
+
+%% This timer is active after a ping request is issued.
+%% If it expires, we consider the leader lost and will reset the
+%% subscriber.
 -define(ping_leader_timeout_timer, ping_leader_timeout_timer).
+
+%% This timer is used in the `unsubscribing` state only. It is used
+%% to wait for the session to reach a consistent state of stream
+%% consumption so that we can safely report stream progress and
+%% disconnect from the leader.
 -define(unsubscribe_timer, unsubscribe_timer).
 
 -type t() :: #{
@@ -166,8 +185,8 @@ on_info(St0, ?leader_connect_response_match(Leader)) when ?is_connecting(St0) ->
 on_info(#{id := Id, share_topic_filter := ShareTopicFilter} = St, ?find_leader_timer) when
     ?is_connecting(St)
 ->
-    ?tp(debug, ds_shared_sub_ssubscriber_find_leader_timeout, #{
-        ssubscriber_id => ?format_ssubscriber_id(Id),
+    ?tp(debug, ds_shared_sub_borrower_find_leader_timeout, #{
+        borrower_id => ?format_borrower_id(Id),
         share_topic_filter => ShareTopicFilter
     }),
     ok = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
@@ -180,16 +199,16 @@ on_info(St0, ?leader_ping_response_match(_)) ->
     St2 = ensure_timer(St1, ?ping_leader_timer),
     {ok, [], St2};
 on_info(#{session_id := SessionId, id := Id} = St, ?ping_leader_timer) ->
-    ?tp(debug, ds_shared_sub_ssubscriber_ping_leader, #{
+    ?tp(debug, ds_shared_sub_borrower_ping_leader, #{
         session_id => SessionId,
-        ssubscriber_id => ?format_ssubscriber_id(Id)
+        borrower_id => ?format_borrower_id(Id)
     }),
     ok = notify_ping(St),
     {ok, [], ensure_timer(St, ?ping_leader_timeout_timer)};
 on_info(#{session_id := SessionId, id := Id} = St, ?ping_leader_timeout_timer) ->
-    ?tp(warning, ds_shared_sub_ssubscriber_ping_leader_timeout, #{
+    ?tp(warning, ds_shared_sub_borrower_ping_leader_timeout, #{
         session_id => SessionId,
-        ssubscriber_id => ?format_ssubscriber_id(Id)
+        borrower_id => ?format_borrower_id(Id)
     }),
     reset(St, revoke_all_events(St));
 %%
@@ -207,9 +226,9 @@ on_info(
     #{streams := Streams0, session_id := SessionId, id := Id} = St0,
     ?leader_grant_match(_Leader, #{stream := Stream, progress := Progress0})
 ) when ?is_connected(St0) ->
-    ?tp(debug, ds_shared_sub_ssubscriber_leader_grant, #{
+    ?tp(debug, ds_shared_sub_borrower_leader_grant, #{
         session_id => SessionId,
-        ssubscriber_id => ?format_ssubscriber_id(Id)
+        borrower_id => ?format_borrower_id(Id)
     }),
     {Events, Streams1} =
         case Streams0 of
@@ -227,13 +246,23 @@ on_info(
 %%
 %% Revoke stream
 %%
-on_info(St, ?leader_revoke_match(_Leader, _Stream)) when ?is_connecting(St) ->
+on_info(#{session_id := SessionId, id := Id} = St, ?leader_revoke_match(_Leader, Stream)) when
+    ?is_connecting(St)
+->
     %% Should never happen.
+    ?tp(warning, ds_shared_sub_borrower_leader_revoke_while_connecting, #{
+        session_id => SessionId,
+        borrower_id => ?format_borrower_id(Id),
+        stream => ?format_stream(Stream)
+    }),
     reset(St);
 on_info(St0, ?leader_revoke_match(_Leader, _Stream)) when ?is_unsubscribing(St0) ->
     %% If unsubscribing, ignore the revoke — we are revoking everything ourselves.
     {ok, [], St0};
-on_info(#{streams := Streams0} = St0, ?leader_revoke_match(_Leader, Stream)) when
+on_info(
+    #{streams := Streams0, session_id := SessionId, id := Id} = St0,
+    ?leader_revoke_match(_Leader, Stream)
+) when
     ?is_connected(St0)
 ->
     case Streams0 of
@@ -249,13 +278,25 @@ on_info(#{streams := Streams0} = St0, ?leader_revoke_match(_Leader, Stream)) whe
             {ok, [revoke_event(Stream)], St1};
         #{} ->
             %% Should never happen.
+            ?tp(warning, ds_shared_sub_borrower_leader_revoke_unknown_stream, #{
+                session_id => SessionId,
+                borrower_id => ?format_borrower_id(Id),
+                stream => ?format_stream(Stream)
+            }),
             reset(St0, revoke_all_events(St0))
     end;
 %%
 %% Revoke finalization
 %%
-on_info(St, ?leader_revoked_match(_Leader, _Stream)) when ?is_connecting(St) ->
+on_info(#{session_id := SessionId, id := Id} = St, ?leader_revoked_match(_Leader, Stream)) when
+    ?is_connecting(St)
+->
     %% Should never happen.
+    ?tp(warning, ds_shared_sub_borrower_leader_revoked_while_connecting, #{
+        session_id => SessionId,
+        borrower_id => ?format_borrower_id(Id),
+        stream => ?format_stream(Stream)
+    }),
     reset(St);
 on_info(St, ?leader_revoked_match(_Leader, _Stream)) when ?is_unsubscribing(St) ->
     {ok, [], St};
@@ -277,7 +318,11 @@ on_info(#{streams := Streams0} = St0, ?leader_revoked_match(_Leader, Stream)) wh
 %%
 %% Invalidate
 %%
-on_info(St, ?leader_invalidate_match(_Leader)) ->
+on_info(#{session_id := SessionId, id := Id} = St, ?leader_invalidate_match(_Leader)) ->
+    ?tp(warning, ds_shared_sub_borrower_leader_invalidate, #{
+        session_id => SessionId,
+        borrower_id => ?format_borrower_id(Id)
+    }),
     reset(St, revoke_all_events(St));
 %%
 %% Unsubscribe timeout
@@ -404,14 +449,14 @@ notify_progress(#{id := Id, leader := Leader, streams := Streams}, Stream) ->
                 use_finished => UseFinished
             },
             ok = emqx_ds_shared_sub_proto:send_to_leader(
-                Leader, ?ssubscriber_update_progress(Id, StreamProgress)
+                Leader, ?borrower_update_progress(Id, StreamProgress)
             );
         #{} ->
             ok
     end.
 
 notify_revoke_finished(#{id := Id, leader := Leader}, Stream) ->
-    ok = emqx_ds_shared_sub_proto:send_to_leader(Leader, ?ssubscriber_revoke_finished(Id, Stream)).
+    ok = emqx_ds_shared_sub_proto:send_to_leader(Leader, ?borrower_revoke_finished(Id, Stream)).
 
 notify_disconnect(St) when ?is_connecting(St) ->
     %% We have no leader to notify
@@ -426,11 +471,11 @@ notify_disconnect(#{id := Id, leader := Leader, streams := Streams}) ->
      || {Stream, #{progress := Progress, use_finished := UseFinished}} <- maps:to_list(Streams)
     ],
     ok = emqx_ds_shared_sub_proto:send_to_leader(
-        Leader, ?ssubscriber_disconnect(Id, StreamProgresses)
+        Leader, ?borrower_disconnect(Id, StreamProgresses)
     ).
 
 notify_ping(#{id := Id, leader := Leader}) ->
-    ok = emqx_ds_shared_sub_proto:send_to_leader(Leader, ?ssubscriber_ping(Id)).
+    ok = emqx_ds_shared_sub_proto:send_to_leader(Leader, ?borrower_ping(Id)).
 
 %%-----------------------------------------------------------------------
 %% Timers
@@ -464,10 +509,10 @@ cancel_all_timers(#{timers := Timers} = St) ->
     ).
 
 timer_timeout(?find_leader_timer) ->
-    ?dq_config(session_find_leader_timeout_ms, 5000);
+    ?dq_config(session_find_leader_timeout, 5000);
 timer_timeout(?ping_leader_timer) ->
-    ?dq_config(session_ping_leader_interval_ms, 4000);
+    ?dq_config(session_ping_leader_interval, 4000);
 timer_timeout(?ping_leader_timeout_timer) ->
-    ?dq_config(session_ping_leader_timeout_ms, 4000);
+    ?dq_config(session_ping_leader_timeout, 4000);
 timer_timeout(?unsubscribe_timer) ->
-    ?dq_config(session_unsubscribe_timeout_ms, 1000).
+    ?dq_config(session_unsubscribe_timeout, 1000).

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_leader).
@@ -29,7 +29,7 @@
 
 -type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
 -type group_id() :: share_topic_filter().
--type ssubscriber_id() :: emqx_ds_shared_sub_proto:ssubscriber_id().
+-type borrower_id() :: emqx_ds_shared_sub_proto:borrower_id().
 
 -type options() :: #{
     share_topic_filter := share_topic_filter()
@@ -38,26 +38,26 @@
 %% Stream statuses. Stream with states other than `stream_granted` are
 %% considered "transient".
 
-%% Stream is being assigned to a ssubscriber, a ssubscriber should confirm the assignment
+%% Stream is being assigned to a borrower, a borrower should confirm the assignment
 %% by sending progress or reject the assignment.
 -define(stream_granting, stream_granting).
-%% Stream is assigned to a ssubscriber, the ssubscriber confirmed the assignment.
+%% Stream is assigned to a borrower, the borrower confirmed the assignment.
 -define(stream_granted, stream_granted).
-%% Stream is being revoked from a ssubscriber, a ssubscriber should send us final progress
+%% Stream is being revoked from a borrower, a borrower should send us final progress
 %% for the stream.
 -define(stream_revoking, stream_revoking).
-%% Stream is revoked from a ssubscriber, the ssubscriber sent us final progress.
-%% We wait till the ssubscriber confirms that it has cleaned the data.
+%% Stream is revoked from a borrower, the borrower sent us final progress.
+%% We wait till the borrower confirms that it has cleaned the data.
 -define(stream_revoked, stream_revoked).
 
 -type stream_status() :: ?stream_granting | ?stream_granted | ?stream_revoking | ?stream_revoked.
 
 -type stream_ownership() :: #{
     status := stream_status(),
-    ssubscriber_id := ssubscriber_id()
+    borrower_id := borrower_id()
 }.
 
--type ssubscriber_state() :: #{
+-type borrower_state() :: #{
     validity_deadline := integer()
 }.
 
@@ -74,8 +74,8 @@
     %%
     %% Ephemeral data, should not be persisted
     %%
-    ssubscribers := #{
-        emqx_ds_shared_sub_proto:ssubscriber_id() => ssubscriber_state()
+    borrowers := #{
+        emqx_ds_shared_sub_proto:borrower_id() => borrower_state()
     },
     stream_owners := #{
         emqx_ds:stream() => stream_ownership()
@@ -117,13 +117,13 @@ init_state(#share{topic = Topic} = ShareTopicFilter) ->
         {ok, Store} ->
             ?tp(debug, dssub_store_open, #{topic => ShareTopicFilter, store => Store}),
             ok = send_after(0, #renew_streams{}),
-            ok = send_after(leader_periodical_actions_interval_ms, #periodical_actions_timeout{}),
+            ok = send_after(leader_periodical_actions_interval, #periodical_actions_timeout{}),
             #{
                 group_id => ShareTopicFilter,
                 topic => Topic,
                 store => Store,
                 stream_owners => #{},
-                ssubscribers => #{}
+                borrowers => #{}
             };
         false ->
             %% NOTE: No leader store -> no subscription
@@ -144,12 +144,12 @@ init_claim_renewal(_St = #{leader_claim := Claim}) ->
 handle_info(#renew_streams{}, St0) ->
     ?tp(debug, ds_shared_sub_leader_timeout, #{timeout => renew_streams}),
     St1 = renew_streams(St0),
-    ok = send_after(leader_renew_streams_interval_ms, #renew_streams{}),
+    ok = send_after(leader_renew_streams_interval, #renew_streams{}),
     {noreply, St1};
 %% periodical_actions_timeout timer
 handle_info(#periodical_actions_timeout{}, St0) ->
     St1 = do_timeout_actions(St0),
-    ok = send_after(leader_periodical_actions_interval_ms, #periodical_actions_timeout{}),
+    ok = send_after(leader_periodical_actions_interval, #periodical_actions_timeout{}),
     {noreply, St1};
 handle_info(#renew_leader_claim{}, St0) ->
     case renew_leader_claim(St0) of
@@ -162,28 +162,28 @@ handle_info(#renew_leader_claim{}, St0) ->
             {stop, Error, St0}
     end;
 %%--------------------------------------------------------------------
-%% ssubscriber messages
-handle_info(?ssubscriber_connect_match(SSubscriberId, _ShareTopicFilter), St0) ->
-    St1 = handle_ssubscriber_connect(St0, SSubscriberId),
+%% borrower messages
+handle_info(?borrower_connect_match(BorrowerId, _ShareTopicFilter), St0) ->
+    St1 = handle_borrower_connect(St0, BorrowerId),
     {noreply, St1};
-handle_info(?ssubscriber_ping_match(SSubscriberId), St0) ->
-    St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
-        handle_ssubscriber_ping(St0, SSubscriberId)
+handle_info(?borrower_ping_match(BorrowerId), St0) ->
+    St1 = with_valid_borrower(St0, BorrowerId, fun() ->
+        handle_borrower_ping(St0, BorrowerId)
     end),
     {noreply, St1};
-handle_info(?ssubscriber_update_progress_match(SSubscriberId, StreamProgress), St0) ->
-    St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
-        handle_update_stream_progress(St0, SSubscriberId, StreamProgress)
+handle_info(?borrower_update_progress_match(BorrowerId, StreamProgress), St0) ->
+    St1 = with_valid_borrower(St0, BorrowerId, fun() ->
+        handle_update_stream_progress(St0, BorrowerId, StreamProgress)
     end),
     {noreply, St1};
-handle_info(?ssubscriber_revoke_finished_match(SSubscriberId, Stream), St0) ->
-    St1 = with_valid_ssubscriber(St0, SSubscriberId, fun() ->
-        handle_revoke_finished(St0, SSubscriberId, Stream)
+handle_info(?borrower_revoke_finished_match(BorrowerId, Stream), St0) ->
+    St1 = with_valid_borrower(St0, BorrowerId, fun() ->
+        handle_revoke_finished(St0, BorrowerId, Stream)
     end),
     {noreply, St1};
-handle_info(?ssubscriber_disconnect_match(SSubscriberId, StreamProgresses), St0) ->
-    %% We allow this event to be processed even if the ssubscriber is unknown
-    St1 = handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses),
+handle_info(?borrower_disconnect_match(BorrowerId, StreamProgresses), St0) ->
+    %% We allow this event to be processed even if the borrower is unknown
+    St1 = handle_disconnect_borrower(St0, BorrowerId, StreamProgresses),
     {noreply, St1};
 %%--------------------------------------------------------------------
 %% fallback
@@ -259,8 +259,8 @@ renew_leader_claim(St = #{group_id := ShareTopicFilter, store := Store0, leader_
 %% Renew streams
 
 %% * Find new streams in DS
-%% * Revoke streams from ssubscribers having too many streams
-%% * Assign streams to ssubscribers having too few streams
+%% * Revoke streams from borrowers having too many streams
+%% * Assign streams to borrowers having too few streams
 
 renew_streams(#{topic := Topic} = St0) ->
     TopicFilter = emqx_topic:words(Topic),
@@ -275,7 +275,7 @@ renew_streams(#{topic := Topic} = St0) ->
     {St1, VanishedStreams} = update_progresses(St0, NewStreamsWRanks, TopicFilter, StartTime),
     St2 = store_put_rank_progress(St1, RankProgress),
     St3 = remove_vanished_streams(St2, VanishedStreams),
-    DesiredCounts = desired_stream_count_for_ssubscribers(St3),
+    DesiredCounts = desired_stream_count_for_borrowers(St3),
     St4 = revoke_streams(St3, DesiredCounts),
     St5 = assign_streams(St4, DesiredCounts),
     ?tp(info, ds_shared_sub_leader_renew_streams, #{
@@ -310,7 +310,7 @@ update_progresses(St0, NewStreamsWRanks, TopicFilter, StartTime) ->
 %% We mark disappeared streams as revoked.
 %%
 %% We do not receive any progress on vanished streams;
-%% the ssubscribers will also delete them from their state
+%% the borrowers will also delete them from their state
 %% because of revoked status.
 remove_vanished_streams(St, VanishedStreams) ->
     finalize_streams(St, VanishedStreams).
@@ -322,11 +322,11 @@ finalize_streams(#{stream_owners := StreamOwners0} = St, [Stream | RestStreams])
         #{Stream := #{status := ?stream_revoked}} ->
             finalize_streams(St, RestStreams);
         #{
-            Stream := #{status := _OtherStatus, ssubscriber_id := SSubscriberId} =
+            Stream := #{status := _OtherStatus, borrower_id := BorrowerId} =
                 Ownership0
         } ->
-            emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                SSubscriberId,
+            emqx_ds_shared_sub_proto:send_to_borrower(
+                BorrowerId,
                 ?leader_revoked(this_leader(St), Stream)
             ),
             Ownership1 = Ownership0#{status := ?stream_revoked},
@@ -339,24 +339,24 @@ finalize_streams(#{stream_owners := StreamOwners0} = St, [Stream | RestStreams])
             finalize_streams(St, RestStreams)
     end.
 
-%% We revoke streams from ssubscribers that have too many streams (> desired_stream_count_per_ssubscriber).
+%% We revoke streams from borrowers that have too many streams (> desired_stream_count_per_borrower).
 %% We revoke only from stable subscribers — those not having streams in transient states.
 %% After revoking, no unassigned streams appear. Streams will become unassigned
-%% only after ssubscriber reports them back as revoked.
+%% only after borrower reports them back as revoked.
 revoke_streams(St0, DesiredCounts) ->
-    StableSSubscribers = stable_ssubscribers(St0),
+    StableBorrowers = stable_borrowers(St0),
     maps:fold(
-        fun(SSubscriberId, GrantedStreams, DataAcc) ->
-            DesiredCount = maps:get(SSubscriberId, DesiredCounts),
-            revoke_excess_streams_from_ssubscriber(
-                DataAcc, SSubscriberId, GrantedStreams, DesiredCount
+        fun(BorrowerId, GrantedStreams, DataAcc) ->
+            DesiredCount = maps:get(BorrowerId, DesiredCounts),
+            revoke_excess_streams_from_borrower(
+                DataAcc, BorrowerId, GrantedStreams, DesiredCount
             )
         end,
         St0,
-        StableSSubscribers
+        StableBorrowers
     ).
 
-revoke_excess_streams_from_ssubscriber(St, SSubscriberId, GrantedStreams, DesiredCount) ->
+revoke_excess_streams_from_borrower(St, BorrowerId, GrantedStreams, DesiredCount) ->
     CurrentCount = length(GrantedStreams),
     RevokeCount = CurrentCount - DesiredCount,
     case RevokeCount > 0 of
@@ -364,66 +364,66 @@ revoke_excess_streams_from_ssubscriber(St, SSubscriberId, GrantedStreams, Desire
             St;
         true ->
             ?tp(debug, ds_shared_sub_leader_revoke_streams, #{
-                ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
+                borrower_id => ?format_borrower_id(BorrowerId),
                 current_count => CurrentCount,
                 revoke_count => RevokeCount,
                 desired_count => DesiredCount
             }),
             StreamsToRevoke = select_streams_for_revoke(St, GrantedStreams, RevokeCount),
-            revoke_streams_from_ssubscriber(St, SSubscriberId, StreamsToRevoke)
+            revoke_streams_from_borrower(St, BorrowerId, StreamsToRevoke)
     end.
 
 select_streams_for_revoke(_St, GrantedStreams, RevokeCount) ->
     %% TODO
     %% Some intellectual logic should be used regarding:
-    %% * shard ids (better do not mix shards in the same ssubscriber);
+    %% * shard ids (better do not mix shards in the same borrower);
     %% * stream stats (how much data was replayed from stream),
-    %%   heavy streams should be distributed across different ssubscribers);
-    %% * data locality (ssubscribers better preserve streams with data available on the ssubscriber's node)
+    %%   heavy streams should be distributed across different borrowers);
+    %% * data locality (borrowers better preserve streams with data available on the borrower's node)
     lists:sublist(shuffle(GrantedStreams), RevokeCount).
 
-%% We assign streams to ssubscribers that have too few streams (< desired_stream_count_per_ssubscriber).
+%% We assign streams to borrowers that have too few streams (< desired_stream_count_per_borrower).
 %% We assign only to stable subscribers — those not having streams in transient states.
 assign_streams(St0, DesiredCounts) ->
-    StableSSubscribers = stable_ssubscribers(St0),
+    StableBorrowers = stable_borrowers(St0),
     maps:fold(
-        fun(SSubscriberId, GrantedStreams, DataAcc) ->
-            DesiredCount = maps:get(SSubscriberId, DesiredCounts),
-            assign_lacking_streams(DataAcc, SSubscriberId, GrantedStreams, DesiredCount)
+        fun(BorrowerId, GrantedStreams, DataAcc) ->
+            DesiredCount = maps:get(BorrowerId, DesiredCounts),
+            assign_lacking_streams(DataAcc, BorrowerId, GrantedStreams, DesiredCount)
         end,
         St0,
-        StableSSubscribers
+        StableBorrowers
     ).
 
-assign_lacking_streams(St0, SSubscriberId, GrantedStreams, DesiredCount) ->
+assign_lacking_streams(St0, BorrowerId, GrantedStreams, DesiredCount) ->
     CurrentCount = length(GrantedStreams),
     AssignCount = DesiredCount - CurrentCount,
     case AssignCount > 0 of
         false ->
             St0;
         true ->
-            StreamsToAssign = select_streams_for_assign(St0, SSubscriberId, AssignCount),
+            StreamsToAssign = select_streams_for_assign(St0, BorrowerId, AssignCount),
             ?tp(debug, ds_shared_sub_leader_assign_streams, #{
-                ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
+                borrower_id => ?format_borrower_id(BorrowerId),
                 current_count => CurrentCount,
                 assign_count => AssignCount,
                 desired_count => DesiredCount,
                 streams_to_assign => ?format_streams(StreamsToAssign)
             }),
-            assign_streams_to_ssubscriber(St0, SSubscriberId, StreamsToAssign)
+            assign_streams_to_borrower(St0, BorrowerId, StreamsToAssign)
     end.
 
-select_streams_for_assign(St0, _SSubscriberId, AssignCount) ->
+select_streams_for_assign(St0, _BorrowerId, AssignCount) ->
     %% TODO
     %% Some intellectual logic should be used. See `select_streams_for_revoke/3`.
     UnassignedStreams = unassigned_streams(St0),
     lists:sublist(shuffle(UnassignedStreams), AssignCount).
 
-revoke_streams_from_ssubscriber(St, SSubscriberId, StreamsToRevoke) ->
+revoke_streams_from_borrower(St, BorrowerId, StreamsToRevoke) ->
     lists:foldl(
         fun(Stream, DataAcc0) ->
-            ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                SSubscriberId,
+            ok = emqx_ds_shared_sub_proto:send_to_borrower(
+                BorrowerId,
                 ?leader_revoke(this_leader(St), Stream)
             ),
             set_stream_status(DataAcc0, Stream, ?stream_revoking)
@@ -432,15 +432,15 @@ revoke_streams_from_ssubscriber(St, SSubscriberId, StreamsToRevoke) ->
         StreamsToRevoke
     ).
 
-assign_streams_to_ssubscriber(St, SSubscriberId, StreamsToAssign) ->
+assign_streams_to_borrower(St, BorrowerId, StreamsToAssign) ->
     lists:foldl(
         fun(Stream, DataAcc) ->
             StreamProgress = stream_progress(DataAcc, Stream),
-            emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                SSubscriberId,
+            emqx_ds_shared_sub_proto:send_to_borrower(
+                BorrowerId,
                 ?leader_grant(this_leader(DataAcc), StreamProgress)
             ),
-            set_stream_granting(DataAcc, Stream, SSubscriberId)
+            set_stream_granting(DataAcc, Stream, BorrowerId)
         end,
         St,
         StreamsToAssign
@@ -450,48 +450,48 @@ assign_streams_to_ssubscriber(St, SSubscriberId, StreamsToAssign) ->
 %% Timeout actions
 
 do_timeout_actions(St0) ->
-    St1 = drop_timeout_ssubscribers(St0),
+    St1 = drop_timeout_borrowers(St0),
     St2 = renew_transient_streams(St1),
     St2.
 
-drop_timeout_ssubscribers(#{ssubscribers := SSubscribers} = St) ->
+drop_timeout_borrowers(#{borrowers := Borrowers} = St) ->
     Now = now_ms_monotonic(),
     maps:fold(
-        fun(SSubscriberId, #{validity_deadline := Deadline}, DataAcc) ->
+        fun(BorrowerId, #{validity_deadline := Deadline}, DataAcc) ->
             case Deadline < Now of
                 true ->
-                    ?tp(warning, ds_shared_sub_leader_drop_timeout_ssubscriber, #{
-                        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
+                    ?tp(warning, ds_shared_sub_leader_drop_timeout_borrower, #{
+                        borrower_id => ?format_borrower_id(BorrowerId),
                         deadline => Deadline,
                         now => Now
                     }),
-                    drop_invalidate_ssubscriber(DataAcc, SSubscriberId);
+                    drop_invalidate_borrower(DataAcc, BorrowerId);
                 false ->
                     DataAcc
             end
         end,
         St,
-        SSubscribers
+        Borrowers
     ).
 
 renew_transient_streams(#{stream_owners := StreamOwners} = St) ->
     Leader = this_leader(St),
     ok = maps:foreach(
         fun
-            (Stream, #{status := ?stream_granting, ssubscriber_id := SSubscriberId}) ->
+            (Stream, #{status := ?stream_granting, borrower_id := BorrowerId}) ->
                 StreamProgress = stream_progress(St, Stream),
-                emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                    SSubscriberId,
+                emqx_ds_shared_sub_proto:send_to_borrower(
+                    BorrowerId,
                     ?leader_grant(Leader, StreamProgress)
                 );
-            (Stream, #{status := ?stream_revoking, ssubscriber_id := SSubscriberId}) ->
-                emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                    SSubscriberId,
+            (Stream, #{status := ?stream_revoking, borrower_id := BorrowerId}) ->
+                emqx_ds_shared_sub_proto:send_to_borrower(
+                    BorrowerId,
                     ?leader_revoke(Leader, Stream)
                 );
-            (Stream, #{status := ?stream_revoked, ssubscriber_id := SSubscriberId}) ->
-                emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                    SSubscriberId,
+            (Stream, #{status := ?stream_revoked, borrower_id := BorrowerId}) ->
+                emqx_ds_shared_sub_proto:send_to_borrower(
+                    BorrowerId,
                     ?leader_revoked(Leader, Stream)
                 );
             (_Stream, #{}) ->
@@ -504,87 +504,87 @@ renew_transient_streams(#{stream_owners := StreamOwners} = St) ->
 %%--------------------------------------------------------------------
 %% Handle a newly connected subscriber
 
-handle_ssubscriber_connect(
-    #{group_id := GroupId, ssubscribers := SSubscribers0} = St0,
-    SSubscriberId
+handle_borrower_connect(
+    #{group_id := GroupId, borrowers := Borrowers0} = St0,
+    BorrowerId
 ) ->
-    ?tp(debug, ds_shared_sub_leader_ssubscriber_connect, #{
-        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
+    ?tp(debug, ds_shared_sub_leader_borrower_connect, #{
+        borrower_id => ?format_borrower_id(BorrowerId),
         group_id => GroupId,
-        ssubscriber_ids => ?format_ssubscriber_ids(maps:keys(SSubscribers0))
+        borrower_ids => ?format_borrower_ids(maps:keys(Borrowers0))
     }),
-    SSubscribers1 =
-        case SSubscribers0 of
-            #{SSubscriberId := _} ->
-                SSubscribers0;
+    Borrowers1 =
+        case Borrowers0 of
+            #{BorrowerId := _} ->
+                Borrowers0;
             _ ->
-                SSubscribers0#{SSubscriberId => new_ssubscriber_data()}
+                Borrowers0#{BorrowerId => new_borrower_data()}
         end,
-    St1 = St0#{ssubscribers => SSubscribers1},
-    DesiredCounts = desired_stream_count_for_ssubscribers(St1, maps:keys(SSubscribers1)),
-    DesiredCount = maps:get(SSubscriberId, DesiredCounts),
-    assign_initial_streams_to_ssubscriber(St1, SSubscriberId, DesiredCount).
+    St1 = St0#{borrowers => Borrowers1},
+    DesiredCounts = desired_stream_count_for_borrowers(St1, maps:keys(Borrowers1)),
+    DesiredCount = maps:get(BorrowerId, DesiredCounts),
+    assign_initial_streams_to_borrower(St1, BorrowerId, DesiredCount).
 
-assign_initial_streams_to_ssubscriber(St, SSubscriberId, AssignCount) ->
-    case select_streams_for_assign(St, SSubscriberId, AssignCount) of
+assign_initial_streams_to_borrower(St, BorrowerId, AssignCount) ->
+    case select_streams_for_assign(St, BorrowerId, AssignCount) of
         [] ->
-            ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
-                SSubscriberId,
+            ok = emqx_ds_shared_sub_proto:send_to_borrower(
+                BorrowerId,
                 ?leader_connect_response(this_leader(St))
             ),
             St;
         InitialStreamsToAssign ->
-            assign_streams_to_ssubscriber(St, SSubscriberId, InitialStreamsToAssign)
+            assign_streams_to_borrower(St, BorrowerId, InitialStreamsToAssign)
     end.
 
 %%--------------------------------------------------------------------
-%% Handle ssubscriber ping
+%% Handle borrower ping
 
-handle_ssubscriber_ping(St0, SSubscriberId) ->
-    ?tp(debug, ds_shared_sub_leader_ssubscriber_ping, #{
-        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId)
+handle_borrower_ping(St0, BorrowerId) ->
+    ?tp(debug, ds_shared_sub_leader_borrower_ping, #{
+        borrower_id => ?format_borrower_id(BorrowerId)
     }),
-    #{ssubscribers := #{SSubscriberId := SSubscriberState0} = SSubscribers0} = St0,
-    NewDeadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_ms),
-    SSubscriberState1 = SSubscriberState0#{validity_deadline => NewDeadline},
-    ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
-        SSubscriberId,
+    #{borrowers := #{BorrowerId := BorrowerState0} = Borrowers0} = St0,
+    NewDeadline = now_ms_monotonic() + ?dq_config(leader_borrower_timeout),
+    BorrowerState1 = BorrowerState0#{validity_deadline => NewDeadline},
+    ok = emqx_ds_shared_sub_proto:send_to_borrower(
+        BorrowerId,
         ?leader_ping_response(this_leader(St0))
     ),
     St0#{
-        ssubscribers => SSubscribers0#{SSubscriberId => SSubscriberState1}
+        borrowers => Borrowers0#{BorrowerId => BorrowerState1}
     }.
 
 %%--------------------------------------------------------------------
 %% Handle stream progress
 
-handle_update_stream_progress(St0, SSubscriberId, #{stream := Stream} = StreamProgress) ->
+handle_update_stream_progress(St0, BorrowerId, #{stream := Stream} = StreamProgress) ->
     case stream_ownership(St0, Stream) of
-        #{status := Status, ssubscriber_id := SSubscriberId} ->
-            handle_update_stream_progress(St0, SSubscriberId, Status, StreamProgress);
+        #{status := Status, borrower_id := BorrowerId} ->
+            handle_update_stream_progress(St0, BorrowerId, Status, StreamProgress);
         undefined ->
             St0;
         _ ->
-            drop_invalidate_ssubscriber(St0, SSubscriberId)
+            drop_invalidate_borrower(St0, BorrowerId)
     end.
 
 handle_update_stream_progress(
-    St0, _SSubscriberId, Status, #{stream := Stream} = StreamProgress
+    St0, _BorrowerId, Status, #{stream := Stream} = StreamProgress
 ) when
     Status =:= ?stream_granting
 ->
     St1 = update_stream_progress(St0, StreamProgress),
     St2 = set_stream_status(St1, Stream, ?stream_granted),
     finalize_stream_if_replayed(St2, StreamProgress);
-handle_update_stream_progress(St0, _SSubscriberId, Status, StreamProgress) when
+handle_update_stream_progress(St0, _BorrowerId, Status, StreamProgress) when
     Status =:= ?stream_granted
 ->
     St1 = update_stream_progress(St0, StreamProgress),
     finalize_stream_if_replayed(St1, StreamProgress);
-handle_update_stream_progress(St0, _SSubscriberId, ?stream_revoking, StreamProgress) ->
+handle_update_stream_progress(St0, _BorrowerId, ?stream_revoking, StreamProgress) ->
     St1 = update_stream_progress(St0, StreamProgress),
     finalize_stream_if_revoke_finished_or_replayed(St1, StreamProgress);
-handle_update_stream_progress(St, _SSubscriberId, ?stream_revoked, _StreamProgress) ->
+handle_update_stream_progress(St, _BorrowerId, ?stream_revoked, _StreamProgress) ->
     St.
 
 update_stream_progress(St0, StreamProgress) ->
@@ -633,15 +633,15 @@ set_stream_status(#{stream_owners := StreamOwners} = St, Stream, Status) ->
         stream_owners => StreamOwners1
     }.
 
-set_stream_granting(#{stream_owners := StreamOwners0} = St, Stream, SSubscriberId) ->
+set_stream_granting(#{stream_owners := StreamOwners0} = St, Stream, BorrowerId) ->
     ?tp(debug, ds_shared_sub_leader_set_stream_granting, #{
-        stream => ?format_stream(Stream), ssubscriber_id => ?format_ssubscriber_id(SSubscriberId)
+        stream => ?format_stream(Stream), borrower_id => ?format_borrower_id(BorrowerId)
     }),
     undefined = stream_ownership(St, Stream),
     StreamOwners1 = StreamOwners0#{
         Stream => #{
             status => ?stream_granting,
-            ssubscriber_id => SSubscriberId
+            borrower_id => BorrowerId
         }
     },
     St#{
@@ -658,17 +658,17 @@ set_stream_free(#{stream_owners := StreamOwners} = St, Stream) ->
     }.
 
 %%--------------------------------------------------------------------
-%% Disconnect ssubscriber gracefully
+%% Disconnect borrower gracefully
 
-handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
-    ?tp(debug, ds_shared_sub_leader_disconnect_ssubscriber, #{
-        ssubscriber_id => ?format_ssubscriber_id(SSubscriberId),
+handle_disconnect_borrower(St0, BorrowerId, StreamProgresses) ->
+    ?tp(debug, ds_shared_sub_leader_disconnect_borrower, #{
+        borrower_id => ?format_borrower_id(BorrowerId),
         stream_progresses => ?format_deep(StreamProgresses)
     }),
     St1 = lists:foldl(
         fun(#{stream := Stream} = StreamProgress, DataAcc0) ->
             case stream_ownership(DataAcc0, Stream) of
-                #{ssubscriber_id := SSubscriberId} ->
+                #{borrower_id := BorrowerId} ->
                     DataAcc1 = update_stream_progress(DataAcc0, StreamProgress),
                     ok = send_after(0, #renew_streams{}),
                     set_stream_free(DataAcc1, Stream);
@@ -679,17 +679,17 @@ handle_disconnect_ssubscriber(St0, SSubscriberId, StreamProgresses) ->
         St0,
         StreamProgresses
     ),
-    drop_ssubscriber(St1, SSubscriberId).
+    drop_borrower(St1, BorrowerId).
 
 %%--------------------------------------------------------------------
 %% Finalize revoked stream
 
-handle_revoke_finished(St0, SSubscriberId, Stream) ->
+handle_revoke_finished(St0, BorrowerId, Stream) ->
     case stream_ownership(St0, Stream) of
-        #{status := ?stream_revoked, ssubscriber_id := SSubscriberId} ->
+        #{status := ?stream_revoked, borrower_id := BorrowerId} ->
             set_stream_free(St0, Stream);
         _ ->
-            drop_invalidate_ssubscriber(St0, SSubscriberId)
+            drop_invalidate_borrower(St0, BorrowerId)
     end.
 
 %%--------------------------------------------------------------------
@@ -706,29 +706,28 @@ send_after(Timeout, Event) when is_atom(Timeout) ->
     _ = erlang:send_after(?dq_config(Timeout), self(), Event),
     ok.
 
-new_ssubscriber_data() ->
-    Deadline = now_ms_monotonic() + ?dq_config(leader_ssubscriber_timeout_ms),
+new_borrower_data() ->
+    Deadline = now_ms_monotonic() + ?dq_config(leader_borrower_timeout),
     #{validity_deadline => Deadline}.
 
 unassigned_streams(#{stream_owners := StreamOwners} = St) ->
     Streams = store_setof_streams(St),
     sets:to_list(sets:subtract(Streams, StreamOwners)).
 
-desired_stream_count_for_ssubscribers(#{ssubscribers := SSubscribers} = St) ->
-    desired_stream_count_for_ssubscribers(St, maps:keys(SSubscribers)).
+desired_stream_count_for_borrowers(#{borrowers := Borrowers} = St) ->
+    desired_stream_count_for_borrowers(St, maps:keys(Borrowers)).
 
-desired_stream_count_for_ssubscribers(_St, []) ->
+desired_stream_count_for_borrowers(_St, []) ->
     0;
-desired_stream_count_for_ssubscribers(St, SSubscriberIds) ->
+desired_stream_count_for_borrowers(St, BorrowerIds) ->
     StreamCount = store_num_streams(St),
-    SSubscriberCount = length(SSubscriberIds),
+    BorrowerCount = length(BorrowerIds),
     maps:from_list(
         lists:map(
-            fun({I, SSubscriberId}) ->
-                {SSubscriberId,
-                    desired_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I)}
+            fun({I, BorrowerId}) ->
+                {BorrowerId, desired_stream_count_for_borrower(StreamCount, BorrowerCount, I)}
             end,
-            enumerate(lists:sort(SSubscriberIds))
+            enumerate(lists:sort(BorrowerIds))
         )
     ).
 
@@ -740,15 +739,15 @@ enumerate(_, []) ->
 enumerate(I, [H | T]) ->
     [{I, H} | enumerate(I + 1, T)].
 
-desired_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I) ->
-    (StreamCount div SSubscriberCount) +
-        extra_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I).
+desired_stream_count_for_borrower(StreamCount, BorrowerCount, I) ->
+    (StreamCount div BorrowerCount) +
+        extra_stream_count_for_borrower(StreamCount, BorrowerCount, I).
 
-extra_stream_count_for_ssubscriber(StreamCount, SSubscriberCount, I) when
-    I < (StreamCount rem SSubscriberCount)
+extra_stream_count_for_borrower(StreamCount, BorrowerCount, I) when
+    I < (StreamCount rem BorrowerCount)
 ->
     1;
-extra_stream_count_for_ssubscriber(_StreamCount, _SSubscriberCount, _I) ->
+extra_stream_count_for_borrower(_StreamCount, _BorrowerCount, _I) ->
     0.
 
 stream_progress(St, Stream) ->
@@ -772,33 +771,33 @@ shuffle(L0) ->
 this_leader(_St) ->
     self().
 
-drop_ssubscriber(
-    #{ssubscribers := SSubscribers0, stream_owners := StreamOwners0} = St, SSubscriberIdDrop
+drop_borrower(
+    #{borrowers := Borrowers0, stream_owners := StreamOwners0} = St, BorrowerIdDrop
 ) ->
-    ?tp(debug, ds_shared_sub_leader_drop_ssubscriber, #{
-        ssubscriber_id => ?format_ssubscriber_id(SSubscriberIdDrop)
+    ?tp(debug, ds_shared_sub_leader_drop_borrower, #{
+        borrower_id => ?format_borrower_id(BorrowerIdDrop)
     }),
-    Subscribers1 = maps:remove(SSubscriberIdDrop, SSubscribers0),
+    Subscribers1 = maps:remove(BorrowerIdDrop, Borrowers0),
     StreamOwners1 = maps:filter(
-        fun(_Stream, #{ssubscriber_id := SSubscriberId}) ->
-            SSubscriberId =/= SSubscriberIdDrop
+        fun(_Stream, #{borrower_id := BorrowerId}) ->
+            BorrowerId =/= BorrowerIdDrop
         end,
         StreamOwners0
     ),
     St#{
-        ssubscribers => Subscribers1,
+        borrowers => Subscribers1,
         stream_owners => StreamOwners1
     }.
 
-invalidate_subscriber(St, SSubscriberId) ->
-    ok = emqx_ds_shared_sub_proto:send_to_ssubscriber(
-        SSubscriberId,
+invalidate_subscriber(St, BorrowerId) ->
+    ok = emqx_ds_shared_sub_proto:send_to_borrower(
+        BorrowerId,
         ?leader_invalidate(this_leader(St))
     ).
 
-drop_invalidate_ssubscriber(St0, SSubscriberId) ->
-    St1 = drop_ssubscriber(St0, SSubscriberId),
-    ok = invalidate_subscriber(St1, SSubscriberId),
+drop_invalidate_borrower(St0, BorrowerId) ->
+    St1 = drop_borrower(St0, BorrowerId),
+    ok = invalidate_subscriber(St1, BorrowerId),
     St1.
 
 stream_ownership(St, Stream) ->
@@ -809,42 +808,42 @@ stream_ownership(St, Stream) ->
             undefined
     end.
 
-with_valid_ssubscriber(#{ssubscribers := SSubscribers} = St, SSubscriberId, Fun) ->
+with_valid_borrower(#{borrowers := Borrowers} = St, BorrowerId, Fun) ->
     Now = now_ms_monotonic(),
-    case SSubscribers of
-        #{SSubscriberId := #{validity_deadline := Deadline}} when Deadline > Now ->
+    case Borrowers of
+        #{BorrowerId := #{validity_deadline := Deadline}} when Deadline > Now ->
             Fun();
         _ ->
-            drop_invalidate_ssubscriber(St, SSubscriberId)
+            drop_invalidate_borrower(St, BorrowerId)
     end.
 
-%% SSubscribers that do not have streams in transient states.
-%% The result is a map from ssubscriber_id to a list of granted streams.
-stable_ssubscribers(#{ssubscribers := SSubscribers, stream_owners := StreamOwners} = _St) ->
-    ?tp(debug, ds_shared_sub_leader_stable_ssubscribers, #{
-        ssubscriber_ids => ?format_ssubscriber_ids(maps:keys(SSubscribers)),
+%% Borrowers that do not have streams in transient states.
+%% The result is a map from borrower_id to a list of granted streams.
+stable_borrowers(#{borrowers := Borrowers, stream_owners := StreamOwners} = _St) ->
+    ?tp(debug, ds_shared_sub_leader_stable_borrowers, #{
+        borrower_ids => ?format_borrower_ids(maps:keys(Borrowers)),
         stream_owners => ?format_stream_map(StreamOwners)
     }),
     maps:fold(
         fun
             (
                 Stream,
-                #{status := ?stream_granted, ssubscriber_id := SSubscriberId},
-                SSubscribersAcc
+                #{status := ?stream_granted, borrower_id := BorrowerId},
+                BorrowersAcc
             ) ->
                 emqx_utils_maps:update_if_present(
-                    SSubscriberId,
+                    BorrowerId,
                     fun(Streams) -> [Stream | Streams] end,
-                    SSubscribersAcc
+                    BorrowersAcc
                 );
             (
                 _Stream,
-                #{status := _OtherStatus, ssubscriber_id := SSubscriberId},
+                #{status := _OtherStatus, borrower_id := BorrowerId},
                 IdsAcc
             ) ->
-                maps:remove(SSubscriberId, IdsAcc)
+                maps:remove(BorrowerId, IdsAcc)
         end,
-        maps:from_keys(maps:keys(SSubscribers), []),
+        maps:from_keys(maps:keys(Borrowers), []),
         StreamOwners
     ).
 
