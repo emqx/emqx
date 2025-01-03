@@ -17,6 +17,7 @@
 -module(emqx_gateway_registry_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -37,13 +38,25 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Cfg) ->
-    emqx_gateway_test_utils:load_all_gateway_apps(),
-    ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([emqx_auth, emqx_gateway]),
-    Cfg.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx,
+            emqx_auth
+        ] ++
+            emqx_gateway_test_utils:all_gateway_apps() ++
+            [
+                {emqx_gateway, #{config => ?CONF_DEFAULT}}
+            ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(Cfg)
+        }
+    ),
+    [{apps, Apps} | Cfg].
 
-end_per_suite(_Cfg) ->
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_auth]),
+end_per_suite(Cfg) ->
+    Apps = ?config(apps, Cfg),
+    ok = emqx_cth_suite:stop(Apps),
     ok.
 
 %%--------------------------------------------------------------------

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -98,7 +98,6 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -107,6 +106,8 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    _ = emqx_auth_cache:reset(?AUTHN_CACHE),
+    ok = emqx_authn_test_lib:enable_node_cache(false),
     ok = emqx_authn_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
@@ -400,6 +401,69 @@ t_update(_Config) ->
     ?assertMatch(
         ?EXCEPTION_ALLOW,
         emqx_access_control:authenticate(?CREDENTIALS)
+    ).
+
+t_node_cache(_Config) ->
+    Config = maps:merge(
+        raw_http_auth_config(),
+        #{
+            <<"method">> => <<"get">>,
+            <<"url">> => <<"http://127.0.0.1:32333/auth/${clientid}?username=${username}">>,
+            <<"body">> => #{<<"password">> => <<"${password}">>}
+        }
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(true),
+    Handler = fun(#{path := Path} = Req0, State) ->
+        Req =
+            case {Path, cowboy_req:match_qs([username, password], Req0)} of
+                {<<"/auth/clientid">>, #{username := <<"username">>, password := <<"password">>}} ->
+                    cowboy_req:reply(204, Req0);
+                _ ->
+                    cowboy_req:reply(403, Req0)
+            end,
+        {ok, Req, State}
+    end,
+    ok = emqx_authn_http_test_server:set_handler(Handler),
+
+    %% We authenticate twice, the second time should be cached
+    Credentials = ?CREDENTIALS#{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        password => <<"password">>
+    },
+    ?assertMatch(
+        ?EXCEPTION_ALLOW,
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        ?EXCEPTION_ALLOW,
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
+    ),
+
+    %% Now change a var in each interpolated part, the cache should NOT be hit
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(Credentials#{username => <<"username2">>})
+    ),
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(Credentials#{password => <<"password2">>})
+    ),
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(Credentials#{clientid => <<"clientid2">>})
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 4}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
 t_is_superuser(_Config) ->

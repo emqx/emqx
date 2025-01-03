@@ -71,12 +71,14 @@ authenticate(
     #{
         cmd := {CommandName, KeyTemplate, Fields},
         resource_id := ResourceId,
-        password_hash_algorithm := Algorithm
+        password_hash_algorithm := Algorithm,
+        cache_key_template := CacheKeyTemplate
     }
 ) ->
     NKey = emqx_auth_template:render_str(KeyTemplate, Credential),
     Command = [CommandName, NKey | Fields],
-    case emqx_resource:simple_sync_query(ResourceId, {cmd, Command}) of
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    case emqx_authn_utils:cached_simple_sync_query(CacheKey, ResourceId, {cmd, Command}) of
         {ok, []} ->
             ignore;
         {ok, Values} ->
@@ -123,11 +125,12 @@ parse_config(
     } = Config
 ) ->
     case parse_cmd(CmdStr) of
-        {ok, Cmd} ->
+        {ok, Vars, Cmd} ->
             ok = emqx_authn_password_hashing:init(Algorithm),
             ok = emqx_authn_utils:ensure_apps_started(Algorithm),
             State = maps:with([password_hash_algorithm, salt_position], Config),
-            {Config, State#{cmd => Cmd}};
+            CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+            {Config, State#{cmd => Cmd, cache_key_template => CacheKeyTemplate}};
         {error, _} = Error ->
             Error
     end.
@@ -138,7 +141,8 @@ parse_cmd(CmdStr) ->
             case validate_cmd(Cmd) of
                 ok ->
                     [CommandName, Key | Fields] = Cmd,
-                    {ok, {CommandName, emqx_authn_utils:parse_str(Key), Fields}};
+                    {Vars, Command} = emqx_authn_utils:parse_str(Key),
+                    {ok, Vars, {CommandName, Command, Fields}};
                 {error, _} = Error ->
                     Error
             end;

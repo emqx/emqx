@@ -5,4 +5,34 @@ authorization_cache_delete.desc:
 authorization_cache_delete.label:
 """Clean authorization cache in cluster"""
 
+authorization_node_cache_get.desc:
+"""Get settings of node-wise authorization cache."""
+
+authorization_node_cache_get.label:
+"""Get node-wise authorization cache settings"""
+
+authorization_node_cache_put.desc:
+"""Update settings of node-wise authorization cache."""
+
+authorization_node_cache_put.label:
+"""Update node-wise authorization cache settings"""
+
+authorization_node_cache_status_get.desc:
+"""Get metrics of node-wise authorization cache."""
+
+authorization_node_cache_status_get.label:
+"""Get node-wise authorization cache metrics"""
+
+authorization_node_cache_reset_post.desc:
+"""Reset node-wise authorization cache."""
+
+authorization_node_cache_reset_post.label:
+"""Reset node-wise authorization cache"""
+
+param_clientid.desc:
+"""Client ID"""
+
+param_clientid.label:
+"""Client ID"""
+
 }

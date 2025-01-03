@@ -266,7 +266,7 @@ compile_topic(<<"eq ", Topic/binary>>) ->
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
-    Template = emqx_auth_template:parse_str(Topic, ?ALLOWED_VARS),
+    {_, Template} = emqx_auth_template:parse_str(Topic, ?ALLOWED_VARS),
     case emqx_template:is_const(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}

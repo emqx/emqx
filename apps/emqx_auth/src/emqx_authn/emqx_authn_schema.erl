@@ -160,7 +160,16 @@ global_auth_fields() ->
                 default => [],
                 validator => validator(),
                 importance => ?IMPORTANCE_LOW
-            })}
+            })},
+        {authentication_cache,
+            ?HOCON(
+                ?R_REF(emqx_auth_cache_schema, config),
+                #{
+                    desc => ?DESC(authentication_cache),
+                    importance => ?IMPORTANCE_LOW,
+                    default => emqx_auth_cache_schema:default_config()
+                }
+            )}
     ].
 
 mqtt_listener_auth_fields() ->

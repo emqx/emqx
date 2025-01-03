@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,31 +30,21 @@
 -define(PATH, [authentication]).
 -define(ResourceID, <<"password_based:redis">>).
 
-all() ->
-    [
-        {group, require_seeds},
-        t_create,
-        t_create_with_config_values_wont_work,
-        t_create_invalid_config
-    ].
-
-groups() ->
-    [{require_seeds, [], [t_authenticate, t_update, t_destroy]}].
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    Config.
-
-init_per_group(require_seeds, Config) ->
     ok = init_seeds(),
     Config.
 
-end_per_group(require_seeds, Config) ->
+end_per_testcase(_TestCase, _Config) ->
     ok = drop_seeds(),
-    Config.
+    _ = emqx_auth_cache:reset(?AUTHN_CACHE),
+    ok = emqx_authn_test_lib:enable_node_cache(false),
+    ok.
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?REDIS_HOST, ?REDIS_DEFAULT_PORT) of
@@ -297,6 +287,50 @@ t_update(_Config) ->
             listener => 'tcp:default',
             protocol => mqtt
         }
+    ).
+
+t_node_cache(_Config) ->
+    ok = create_user(
+        <<"mqtt_user:node_cache_user">>, #{password_hash => <<"password">>, salt => <<"">>}
+    ),
+    Config = maps:merge(
+        raw_redis_auth_config(),
+        #{
+            <<"cmd">> =>
+                <<"HMGET mqtt_user:${username} password_hash salt">>
+        }
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(true),
+    Credentials = #{
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"node_cache_user">>,
+        password => <<"password">>
+    },
+
+    %% First time should be a miss, second time should be a hit
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
+    ),
+
+    %% Change a variable in the query, should be a miss
+    _ = emqx_access_control:authenticate(Credentials#{username => <<"user2">>}),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 2}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
 %%------------------------------------------------------------------------------
@@ -602,14 +636,17 @@ init_seeds() ->
     ok = drop_seeds(),
     lists:foreach(
         fun(#{key := UserKey, data := Values}) ->
-            lists:foreach(
-                fun({Key, Value}) ->
-                    q(["HSET", UserKey, atom_to_list(Key), Value])
-                end,
-                maps:to_list(Values)
-            )
+            create_user(UserKey, Values)
         end,
         user_seeds()
+    ).
+
+create_user(UserKey, Values) ->
+    lists:foreach(
+        fun({Key, Value}) ->
+            q(["HSET", UserKey, atom_to_list(Key), Value])
+        end,
+        maps:to_list(Values)
     ).
 
 q(Command) ->

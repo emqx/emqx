@@ -389,7 +389,7 @@ handle_verify_claims(VerifyClaims) ->
 handle_verify_claims([], Acc) ->
     Acc;
 handle_verify_claims([{Name, Expected0} | More], Acc) ->
-    Expected1 = emqx_auth_template:parse_str(Expected0, ?ALLOWED_VARS),
+    {_, Expected1} = emqx_auth_template:parse_str(Expected0, ?ALLOWED_VARS),
     handle_verify_claims(More, [{Name, Expected1} | Acc]).
 
 binary_to_number(Bin) ->

@@ -43,17 +43,23 @@ description() ->
     "AuthZ with PostgreSQL".
 
 create(#{query := SQL0} = Source) ->
-    {SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceID = emqx_authz_utils:make_resource_id(emqx_postgresql),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceID,
         emqx_postgresql,
         Source#{prepare_statement => #{ResourceID => SQL}}
     ),
-    Source#{annotations => #{id => ResourceID, placeholders => PlaceHolders}}.
+    Source#{
+        annotations => #{
+            id => ResourceID, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate
+        }
+    }.
 
 update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
-    {SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case
         emqx_authz_utils:update_resource(
             emqx_postgresql,
@@ -63,7 +69,11 @@ update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id, placeholders => PlaceHolders}}
+            Source#{
+                annotations => #{
+                    id => Id, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate
+                }
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -76,14 +86,18 @@ authorize(
     #{
         annotations := #{
             id := ResourceID,
-            placeholders := Placeholders
+            placeholders := Placeholders,
+            cache_key_template := CacheKeyTemplate
         }
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderedParams = emqx_auth_template:render_sql_params(Placeholders, Vars),
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
-        emqx_resource:simple_sync_query(ResourceID, {prepared_query, ResourceID, RenderedParams})
+        emqx_authz_utils:cached_simple_sync_query(
+            CacheKey, ResourceID, {prepared_query, ResourceID, RenderedParams}
+        )
     of
         {ok, Columns, Rows} ->
             do_authorize(Client, Action, Topic, column_names(Columns), Rows);

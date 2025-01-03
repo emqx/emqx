@@ -21,6 +21,7 @@
 -export([parse_deep/1]).
 -export([parse_deep/2]).
 -export([placeholders/1]).
+-export([placeholders/2]).
 -export([validate/2]).
 -export([is_const/1]).
 -export([unparse/1]).
@@ -144,11 +145,23 @@ parse_accessor(Var) ->
             Name
     end.
 
+%% @doc Extract all used placeholders from a template.
 -spec placeholders(t()) -> [varname()].
 placeholders(Template) when is_list(Template) ->
     [Name || {var, Name, _} <- Template];
 placeholders({'$tpl', Template}) ->
     placeholders_deep(Template).
+
+%% @doc Extract all used placeholders from a template
+%% and partition them into allowed and disallowed.
+-spec placeholders([varname() | {var_namespace, varname()}], t()) ->
+    {_UsedAllowed :: [varname()], _UsedDisallowed :: [varname()]}.
+placeholders(Allowed, Template) ->
+    UsedAll = placeholders(Template),
+    UsedUnique = lists:usort(UsedAll),
+    UsedDisallowed = find_disallowed(UsedUnique, Allowed),
+    UsedAllowed = UsedUnique -- UsedDisallowed,
+    {UsedAllowed, UsedDisallowed}.
 
 %% @doc Validate a template against a set of allowed variables.
 %% If the given template contains any variable not in the allowed set, an error
@@ -156,11 +169,10 @@ placeholders({'$tpl', Template}) ->
 -spec validate([varname() | {var_namespace, varname()}], t()) ->
     ok | {error, [_Error :: {varname(), disallowed}]}.
 validate(Allowed, Template) ->
-    Used = placeholders(Template),
-    case find_disallowed(lists:usort(Used), Allowed) of
-        [] ->
+    case placeholders(Allowed, Template) of
+        {_UsedAllowed, []} ->
             ok;
-        Disallowed ->
+        {_UsedAllowed, Disallowed} ->
             {error, [{Var, disallowed} || Var <- Disallowed]}
     end.
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
+    ok = emqx_authz_test_lib:enable_node_cache(false),
     ok = drop_table(),
     ok.
 
@@ -87,6 +88,50 @@ t_create_invalid(_Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [BadConfig]),
 
     [_] = emqx_authz:lookup().
+
+t_node_cache(_Config) ->
+    Case = #{
+        name => cache_publish,
+        setup => [
+            "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
+            "permission VARCHAR(255), action VARCHAR(255))",
+
+            "INSERT INTO acl(username, topic, permission, action) "
+            "VALUES('node_cache_user', 'a', 'allow', 'publish')"
+        ],
+        query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+        client_info => #{username => <<"node_cache_user">>},
+        checks => []
+    },
+    ok = setup_source_data(Case),
+    ok = setup_authz_source(Case),
+    ok = emqx_authz_test_lib:enable_node_cache(true),
+
+    %% Subscribe to twice, should hit cache the second time
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>},
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        }
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ),
+
+    %% Change variable, should miss cache
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [{deny, ?AUTHZ_PUBLISH, <<"a">>}],
+            client_info => #{username => <<"username2">>}
+        }
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 2}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Cases

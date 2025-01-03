@@ -43,16 +43,24 @@ description() ->
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
-    Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+    Source#{
+        annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
+        filter_template => FilterTemp
+    }.
 
 update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(Filter, ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, filter_template => FilterTemp}
+            Source#{
+                annotations => #{id => Id, cache_key_template => CacheKeyTemplate},
+                filter_template => FilterTemp
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -77,9 +85,13 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{id := ResourceID}
+    annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
 }) ->
-    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}}) of
+    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
+    Result = emqx_authz_utils:cached_simple_sync_query(
+        CacheKey, ResourceID, {find, Collection, RenderedFilter, #{}}
+    ),
+    case Result of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",
