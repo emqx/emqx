@@ -37,7 +37,7 @@
 %% APIs
 %%------------------------------------------------------------------------------
 authenticate(
-    #{password := Password} = Credential,
+    #{password := Password} = Credential0,
     #{
         method := #{
             password_attribute := PasswordAttr,
@@ -48,7 +48,8 @@ authenticate(
         cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    CacheKey = emqx_auth_template:cache_key(CacheKeyTemplate, Credential),
+    Credential = emqx_auth_template:rename_client_info_vars(Credential0),
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     Result = emqx_authn_utils:cached_simple_sync_query(
         CacheKey,
         ResourceId,
