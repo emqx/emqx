@@ -1107,7 +1107,33 @@ maybe_update_expiry_interval(
 maybe_update_expiry_interval(_Properties, Channel) ->
     Channel.
 
-process_broker_disconnect(
+process_kick(
+    Channel = #channel{
+        conn_state = ConnState,
+        conninfo = #{proto_ver := ProtoVer},
+        session = Session
+    }
+) ->
+    emqx_session:destroy(Session),
+    Channel0 = maybe_publish_will_msg(kicked, Channel),
+    Channel1 =
+        case ConnState of
+            connected -> ensure_disconnected(kicked, Channel0);
+            _ -> Channel0
+        end,
+    case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
+        true ->
+            shutdown(
+                kicked,
+                ok,
+                ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
+                Channel1
+            );
+        _ ->
+            shutdown(kicked, ok, Channel1)
+    end.
+
+process_maybe_shutdown(
     Reason,
     Channel =
         #channel{
@@ -1445,39 +1471,18 @@ return_sub_unsub_ack(Packet, Channel) ->
     {reply, Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}.
-handle_call(
-    kick,
-    Channel = #channel{
-        conn_state = ConnState,
-        conninfo = #{proto_ver := ProtoVer},
-        session = Session
-    }
-) ->
+handle_call(kick, Channel = #channel{conn_state = ConnState}) when
+    ConnState =/= disconnected andalso
+        ConnState =/= disconnecting
+->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         broker_disconnect,
         [],
         maps:merge(basic_trace_attrs(Channel), ext_trace_disconnect_reason(kick, Channel)),
-        fun([]) ->
-            emqx_session:destroy(Session),
-            Channel0 = maybe_publish_will_msg(kicked, Channel),
-            Channel1 =
-                case ConnState of
-                    connected -> ensure_disconnected(kicked, Channel0);
-                    _ -> Channel0
-                end,
-            case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
-                true ->
-                    shutdown(
-                        kicked,
-                        ok,
-                        ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
-                        Channel1
-                    );
-                _ ->
-                    shutdown(kicked, ok, Channel1)
-            end
-        end
+        fun([]) -> process_kick(Channel) end
     );
+handle_call(kick, Channel) ->
+    process_kick(Channel);
 handle_call(discard, Channel) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         broker_disconnect,
@@ -1586,7 +1591,7 @@ handle_info({unsubscribe, TopicFilters}, Channel) ->
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnecting}) ->
     %% normal disconnect and close socket
     %% already traced `client.disconnect`, no need to trace `broker.disconnect`
-    process_broker_disconnect(Reason, Channel);
+    process_maybe_shutdown(Reason, Channel);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
     ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
@@ -1595,7 +1600,7 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) w
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     %% Socket closed when `connected` or `reauthenticating`
-    ?WITH_TRACE(fun([]) -> process_broker_disconnect(Reason, Channel) end);
+    ?WITH_TRACE(fun([]) -> process_maybe_shutdown(Reason, Channel) end);
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% This can happen as a race:
     %% EMQX closes socket and marks 'disconnected' but 'tcp_closed' or 'ssl_closed'
