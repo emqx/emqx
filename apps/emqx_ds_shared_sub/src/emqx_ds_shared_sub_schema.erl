@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_schema).
@@ -42,7 +42,7 @@ fields(durable_queues) ->
 
         duration(leader_periodical_actions_interval, 1000),
         duration(leader_renew_streams_interval, 1000),
-        duration(leader_ssubscriber_timeout, 5000)
+        duration(leader_borrower_timeout, 5000)
     ].
 
 injected_fields() ->

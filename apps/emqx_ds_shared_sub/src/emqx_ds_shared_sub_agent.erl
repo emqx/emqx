@@ -1,8 +1,8 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc This module aggregates shared subscription handlers (ssubscribers)
+%% @doc This module aggregates shared subscription handlers (borrowers)
 %% for a session.
 
 -module(emqx_ds_shared_sub_agent).
@@ -29,7 +29,7 @@
 ]).
 
 -export([
-    send_to_ssubscriber/2
+    send_to_borrower/2
 ]).
 
 -behaviour(emqx_persistent_session_ds_shared_subs_agent).
@@ -42,23 +42,23 @@
     session_id := emqx_persistent_session_ds:id()
 }.
 
--record(ssubscriber_entry, {
-    ssubscriber_id :: emqx_ds_shared_sub_proto:ssubscriber_id(),
+-record(borrower_entry, {
+    borrower_id :: emqx_ds_shared_sub_proto:borrower_id(),
     topic_filter :: share_topic_filter(),
-    ssubscriber :: emqx_ds_shared_sub_subscriber:t()
+    borrower :: emqx_ds_shared_sub_borrower:t()
 }).
 
--type ssubscriber_entry() :: #ssubscriber_entry{}.
+-type borrower_entry() :: #borrower_entry{}.
 
 -type t() :: #{
-    ssubscribers := #{
-        subscription_id() => ssubscriber_entry()
+    borrowers := #{
+        subscription_id() => borrower_entry()
     },
     session_id := emqx_persistent_session_ds:id()
 }.
 
--record(message_to_ssubscriber, {
-    ssubscriber_id :: emqx_ds_shared_sub_proto:ssubscriber_id(),
+-record(message_to_borrower, {
+    borrower_id :: emqx_ds_shared_sub_proto:borrower_id(),
     message :: term()
 }).
 
@@ -84,7 +84,7 @@ open(TopicSubscriptions, Opts) ->
                 subscription_id => SubscriptionId,
                 topic_filter => ShareTopicFilter
             }),
-            add_ssubscriber(State, SubscriptionId, ShareTopicFilter)
+            add_borrower(State, SubscriptionId, ShareTopicFilter)
         end,
         State0,
         TopicSubscriptions
@@ -117,24 +117,24 @@ pre_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
     end.
 
 -spec has_subscription(t(), subscription_id()) -> boolean().
-has_subscription(#{ssubscribers := SSubscribers}, SubscriptionId) ->
-    maps:is_key(SubscriptionId, SSubscribers).
+has_subscription(#{borrowers := Borrowers}, SubscriptionId) ->
+    maps:is_key(SubscriptionId, Borrowers).
 
 -spec has_subscriptions(t()) -> boolean().
-has_subscriptions(#{ssubscribers := SSubscribers}) ->
-    maps:size(SSubscribers) > 0.
+has_subscriptions(#{borrowers := Borrowers}) ->
+    maps:size(Borrowers) > 0.
 
 -spec on_subscribe(t(), subscription_id(), share_topic_filter(), emqx_types:subopts()) -> t().
 on_subscribe(State0, SubscriptionId, ShareTopicFilter, _SubOpts) ->
     ?tp(debug, ds_shared_sub_agent_on_subscribe, #{
         share_topic_filter => ShareTopicFilter
     }),
-    add_ssubscriber(State0, SubscriptionId, ShareTopicFilter).
+    add_borrower(State0, SubscriptionId, ShareTopicFilter).
 
 -spec on_unsubscribe(t(), subscription_id()) -> t().
 on_unsubscribe(State0, SubscriptionId) ->
-    {[], State} = with_ssubscriber(State0, SubscriptionId, fun(_SSubscriberId, SSubscriber) ->
-        emqx_ds_shared_sub_subscriber:on_unsubscribe(SSubscriber)
+    {[], State} = with_borrower(State0, SubscriptionId, fun(_BorrowerId, Borrower) ->
+        emqx_ds_shared_sub_borrower:on_unsubscribe(Borrower)
     end),
     State.
 
@@ -146,10 +146,10 @@ on_stream_progress(State, StreamProgresses) when map_size(StreamProgresses) == 0
 on_stream_progress(State, StreamProgresses) ->
     maps:fold(
         fun(SubscriptionId, Progresses, StateAcc0) ->
-            {[], StateAcc1} = with_ssubscriber(StateAcc0, SubscriptionId, fun(
-                _SSubscriberId, SSubscriber
+            {[], StateAcc1} = with_borrower(StateAcc0, SubscriptionId, fun(
+                _BorrowerId, Borrower
             ) ->
-                emqx_ds_shared_sub_subscriber:on_stream_progress(SSubscriber, Progresses)
+                emqx_ds_shared_sub_borrower:on_stream_progress(Borrower, Progresses)
             end),
             StateAcc1
         end,
@@ -160,33 +160,33 @@ on_stream_progress(State, StreamProgresses) ->
 -spec on_disconnect(t(), #{
     subscription_id() => [emqx_persistent_session_ds_shared_subs:agent_stream_progress()]
 }) -> t().
-on_disconnect(#{ssubscribers := SSubscribers} = State, StreamProgresses) ->
+on_disconnect(#{borrowers := Borrowers} = State, StreamProgresses) ->
     ok = lists:foreach(
         fun(SubscriptionId) ->
             Progress = maps:get(SubscriptionId, StreamProgresses, []),
-            disconnect_ssubscriber(State, SubscriptionId, Progress)
+            disconnect_borrower(State, SubscriptionId, Progress)
         end,
-        maps:keys(SSubscribers)
+        maps:keys(Borrowers)
     ),
-    State#{ssubscribers => #{}}.
+    State#{borrowers => #{}}.
 
 -spec on_info(t(), subscription_id(), term()) ->
     {[emqx_persistent_session_ds_shared_subs_agent:event()], t()}.
-on_info(State, SubscriptionId, #message_to_ssubscriber{
-    ssubscriber_id = SSubscriberId, message = Message
+on_info(State, SubscriptionId, #message_to_borrower{
+    borrower_id = BorrowerId, message = Message
 }) ->
-    ?tp(debug, ds_shared_sub_message_to_ssubscriber, #{
+    ?tp(debug, ds_shared_sub_message_to_borrower, #{
         subscription_id => SubscriptionId,
         message => Message
     }),
-    with_ssubscriber(State, SubscriptionId, fun(KnownSSubscriberId, SSubscriber) ->
-        %% We may have recreated invalidated SSubscriber, resulting in a new SSubscriberId.
-        %% Ignore the messages to the old SSubscriber.
-        case KnownSSubscriberId of
-            SSubscriberId ->
-                emqx_ds_shared_sub_subscriber:on_info(SSubscriber, Message);
+    with_borrower(State, SubscriptionId, fun(KnownBorrowerId, Borrower) ->
+        %% We may have recreated invalidated Borrower, resulting in a new BorrowerId.
+        %% Ignore the messages to the old Borrower.
+        case KnownBorrowerId of
+            BorrowerId ->
+                emqx_ds_shared_sub_borrower:on_info(Borrower, Message);
             _ ->
-                {ok, [], SSubscriber}
+                {ok, [], Borrower}
         end
     end).
 
@@ -198,114 +198,114 @@ init_state(Opts) ->
     SessionId = maps:get(session_id, Opts),
     #{
         session_id => SessionId,
-        ssubscribers => #{}
+        borrowers => #{}
     }.
 
-disconnect_ssubscriber(State, SubscriptionId, Progress) ->
+disconnect_borrower(State, SubscriptionId, Progress) ->
     case State of
         #{
-            ssubscribers := #{
-                SubscriptionId := #ssubscriber_entry{
-                    ssubscriber = SSubscriber, ssubscriber_id = SSubscriberId
+            borrowers := #{
+                SubscriptionId := #borrower_entry{
+                    borrower = Borrower, borrower_id = BorrowerId
                 }
-            } = SSubscribers
+            } = Borrowers
         } ->
-            ok = destroy_ssubscriber_id(SSubscriberId),
+            ok = destroy_borrower_id(BorrowerId),
             %% The whole session is shutting down, no need to handle the result.
-            _ = emqx_ds_shared_sub_subscriber:on_disconnect(SSubscriber, Progress),
-            State#{ssubscribers => maps:remove(SubscriptionId, SSubscribers)};
+            _ = emqx_ds_shared_sub_borrower:on_disconnect(Borrower, Progress),
+            State#{borrowers => maps:remove(SubscriptionId, Borrowers)};
         _ ->
             State
     end.
 
-add_ssubscriber(
-    #{session_id := SessionId, ssubscribers := SSubscribers0} = State0,
+add_borrower(
+    #{session_id := SessionId, borrowers := Borrowers0} = State0,
     SubscriptionId,
     ShareTopicFilter
 ) ->
-    ?tp(debug, ds_shared_sub_agent_add_ssubscriber, #{
+    ?tp(debug, ds_shared_sub_agent_add_borrower, #{
         share_topic_filter => ShareTopicFilter
     }),
-    SSubscriberId = make_ssubscriber_id(SessionId, SubscriptionId),
-    SSubscriber = emqx_ds_shared_sub_subscriber:new(#{
+    BorrowerId = make_borrower_id(SessionId, SubscriptionId),
+    Borrower = emqx_ds_shared_sub_borrower:new(#{
         session_id => SessionId,
         share_topic_filter => ShareTopicFilter,
-        id => SSubscriberId,
-        send_after => send_to_ssubscriber_after(SSubscriberId)
+        id => BorrowerId,
+        send_after => send_to_borrower_after(BorrowerId)
     }),
-    SSubscriberEntry = #ssubscriber_entry{
-        ssubscriber_id = SSubscriberId,
+    BorrowerEntry = #borrower_entry{
+        borrower_id = BorrowerId,
         topic_filter = ShareTopicFilter,
-        ssubscriber = SSubscriber
+        borrower = Borrower
     },
-    SSubscribers1 = SSubscribers0#{
-        SubscriptionId => SSubscriberEntry
+    Borrowers1 = Borrowers0#{
+        SubscriptionId => BorrowerEntry
     },
-    State1 = State0#{ssubscribers => SSubscribers1},
+    State1 = State0#{borrowers => Borrowers1},
     State1.
 
-make_ssubscriber_id(Id, SubscriptionId) ->
-    emqx_ds_shared_sub_proto:ssubscriber_id(Id, SubscriptionId, alias()).
+make_borrower_id(Id, SubscriptionId) ->
+    emqx_ds_shared_sub_proto:borrower_id(Id, SubscriptionId, alias()).
 
-destroy_ssubscriber_id(SSubscriberId) ->
-    Alias = emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId),
+destroy_borrower_id(BorrowerId) ->
+    Alias = emqx_ds_shared_sub_proto:borrower_pidref(BorrowerId),
     _ = unalias(Alias),
     ok.
 
-send_to_ssubscriber_after(SSubscriberId) ->
-    SubscriptionId = emqx_ds_shared_sub_proto:ssubscriber_subscription_id(SSubscriberId),
+send_to_borrower_after(BorrowerId) ->
+    SubscriptionId = emqx_ds_shared_sub_proto:borrower_subscription_id(BorrowerId),
     fun(Time, Msg) ->
         emqx_persistent_session_ds_shared_subs_agent:send_after(
             Time,
             SubscriptionId,
             self(),
-            #message_to_ssubscriber{
-                ssubscriber_id = SSubscriberId,
+            #message_to_borrower{
+                borrower_id = BorrowerId,
                 message = Msg
             }
         )
     end.
 
-send_to_ssubscriber(SSubscriberId, Msg) ->
-    SubscriptionId = emqx_ds_shared_sub_proto:ssubscriber_subscription_id(SSubscriberId),
+send_to_borrower(BorrowerId, Msg) ->
+    SubscriptionId = emqx_ds_shared_sub_proto:borrower_subscription_id(BorrowerId),
     emqx_persistent_session_ds_shared_subs_agent:send(
-        emqx_ds_shared_sub_proto:ssubscriber_pidref(SSubscriberId),
+        emqx_ds_shared_sub_proto:borrower_pidref(BorrowerId),
         SubscriptionId,
-        #message_to_ssubscriber{
-            ssubscriber_id = SSubscriberId,
+        #message_to_borrower{
+            borrower_id = BorrowerId,
             message = Msg
         }
     ).
 
-with_ssubscriber(State0, SubscriptionId, Fun) ->
+with_borrower(State0, SubscriptionId, Fun) ->
     case State0 of
         #{
-            ssubscribers := #{
-                SubscriptionId := #ssubscriber_entry{
+            borrowers := #{
+                SubscriptionId := #borrower_entry{
                     topic_filter = ShareTopicFilter,
-                    ssubscriber = SSubscriber0,
-                    ssubscriber_id = SSubscriberId
+                    borrower = Borrower0,
+                    borrower_id = BorrowerId
                 } = Entry0
-            } = SSubscribers
+            } = Borrowers
         } ->
             {Events0, State1} =
-                case Fun(SSubscriberId, SSubscriber0) of
-                    {ok, Events, SSubscriber1} ->
-                        Entry1 = Entry0#ssubscriber_entry{
-                            ssubscriber = SSubscriber1
+                case Fun(BorrowerId, Borrower0) of
+                    {ok, Events, Borrower1} ->
+                        Entry1 = Entry0#borrower_entry{
+                            borrower = Borrower1
                         },
-                        {Events, State0#{ssubscribers => SSubscribers#{SubscriptionId => Entry1}}};
+                        {Events, State0#{borrowers => Borrowers#{SubscriptionId => Entry1}}};
                     {stop, Events} ->
-                        ok = destroy_ssubscriber_id(SSubscriberId),
-                        {Events, State0#{ssubscribers => maps:remove(SubscriptionId, SSubscribers)}};
+                        ok = destroy_borrower_id(BorrowerId),
+                        {Events, State0#{borrowers => maps:remove(SubscriptionId, Borrowers)}};
                     {reset, Events} ->
-                        ok = destroy_ssubscriber_id(SSubscriberId),
-                        {Events, add_ssubscriber(State0, SubscriptionId, ShareTopicFilter)}
+                        ok = destroy_borrower_id(BorrowerId),
+                        {Events, add_borrower(State0, SubscriptionId, ShareTopicFilter)}
                 end,
             Events1 = enrich_events(Events0, SubscriptionId, ShareTopicFilter),
             {Events1, State1};
         #{session_id := SessionId} ->
-            ?tp(warning, ds_shared_sub_agent_ssubscriber_not_found, #{
+            ?tp(warning, ds_shared_sub_agent_borrower_not_found, #{
                 session_id => SessionId,
                 subscription_id => SubscriptionId
             }),
