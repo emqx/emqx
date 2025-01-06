@@ -273,7 +273,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
         ),
         emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
     ),
-    maps:without([<<"description">>], Merged).
+    maps:without([<<"description">>, <<"fallback_actions">>], Merged).
 
 has_custom_bridge_v1_config_to_connector_config(ActionOrBridgeType) ->
     Module = get_action_info_module(ActionOrBridgeType),

@@ -97,9 +97,15 @@ on_query(
     Channels = maps:get(channels, ConnectorState, #{}),
     %% Lookup the channel
     ChannelState = maps:get(ChannelId, Channels, not_found),
-    SendTo = maps:get(send_to, ChannelState),
-    SendTo ! Message,
-    ok.
+    Ctx = #{message => Message},
+    case ChannelState of
+        #{parameters := #{on_query_fn := OnQueryFn0}} ->
+            OnQueryFn = emqx_bridge_v2_SUITE:unwrap_fun(OnQueryFn0),
+            OnQueryFn(Ctx);
+        #{parameters := #{send_to := SendTo}} ->
+            SendTo ! {query_called, Ctx},
+            ok
+    end.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
@@ -132,7 +138,7 @@ on_get_channel_status(
     Channels = maps:get(channels, State, #{}),
     ChannelState = maps:get(ChannelId, Channels, #{}),
     case ChannelState of
-        #{on_get_channel_status_fun := FunRef} ->
+        #{parameters := #{on_get_channel_status_fun := FunRef}} ->
             Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
             Fun();
         _ ->
