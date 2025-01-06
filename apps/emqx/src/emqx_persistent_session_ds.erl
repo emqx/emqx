@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1942,7 +1942,7 @@ tprop_seqnos(Trace) ->
     M = maps:groups_from_list(fun({Track, _}) -> Track end, L),
     %% Validate seqnos for each track:
     maps:foreach(
-        fun(Track, Vals) ->
+        fun(_Track, Vals) ->
             ?defer_assert(snabbkaffe:increasing(Vals))
         end,
         M
