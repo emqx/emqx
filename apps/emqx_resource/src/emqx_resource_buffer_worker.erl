@@ -94,6 +94,9 @@
 ).
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
+-type query_result_decision() :: ?ack | ?nack.
+-type query_result_side_effect() :: fun(() -> ok).
+-type query_result_pure() :: {query_result_decision(), query_result_side_effect(), counters()}.
 -type timeout_ms() :: emqx_schema:timeout_duration_ms().
 -type request_ttl() :: emqx_schema:timeout_duration_ms().
 -type health_check_interval() :: pos_integer().
@@ -510,7 +513,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     Data1 = aggregate_counters(Data0, DeltaCounters),
     case ShouldAck of
         %% Send failed because resource is down
-        nack ->
+        ?nack ->
             PostFn(),
             ?tp(
                 buffer_worker_retry_inflight_failed,
@@ -522,7 +525,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
             ),
             {keep_state, Data1, {state_timeout, ResumeT, unblock}};
         %% Send ok or failed but the resource is working
-        ack ->
+        ?ack ->
             BufferWorkerPid = self(),
             IsAcked = ack_inflight(InflightTID, Ref, BufferWorkerPid),
             %% we need to defer bumping the counters after
@@ -727,7 +730,7 @@ do_flush(
     case ShouldAck of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
-        nack ->
+        ?nack ->
             ok = replayq:ack(Q1, QAckRef),
             %% we set it atomically just below; a limitation of having
             %% to use tuples for atomic ets updates
@@ -753,7 +756,7 @@ do_flush(
             ),
             {next_state, blocked, Data2};
         %% Success; just ack.
-        ack ->
+        ?ack ->
             ok = replayq:ack(Q1, QAckRef),
             %% Async requests are acked later when the async worker
             %% calls the corresponding callback function.  Also, we
@@ -813,7 +816,7 @@ do_flush(#{queue := Q1} = Data0, #{
     case ShouldAck of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
-        nack ->
+        ?nack ->
             ok = replayq:ack(Q1, QAckRef),
             %% we set it atomically just below; a limitation of having
             %% to use tuples for atomic ets updates
@@ -839,7 +842,7 @@ do_flush(#{queue := Q1} = Data0, #{
             ),
             {next_state, blocked, Data2};
         %% Success; just ack.
-        ack ->
+        ?ack ->
             ok = replayq:ack(Q1, QAckRef),
             %% Async requests are acked later when the async worker
             %% calls the corresponding callback function.  Also, we
@@ -896,18 +899,30 @@ batch_reply_caller(Id, BatchResult, Batch, QueryOpts) ->
     PostFn(),
     {ShouldBlock, DeltaCounters}.
 
+-spec batch_reply_caller_defer_metrics(
+    id(), Result | [Result], [queue_query()], IsSimpleQuery :: boolean()
+) ->
+    query_result_pure()
+when
+    Result :: term().
 batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery) ->
     Replies = expand_batch_reply(BatchResult, Batch),
     {ShouldAck, PostFns, Counters} =
         lists:foldl(
             fun(Reply, {_ShouldAck, PostFns, OldCounters}) ->
-                %% _ShouldAck should be the same as ShouldAck starting from the second reply
+                %% `_ShouldAck' should be the same as `ShouldAck' starting from the second
+                %% reply **only** if the batch result is a single value to be repeated for
+                %% all original queries.
+                %%
+                %% Fixme(EMQX-13796): handle case where distinct results for distinct
+                %% queries are returned; in such case, we should ack the whole batch only
+                %% when a final decision has been reached for all of its elements.
                 {ShouldAck, PostFn, DeltaCounters} = reply_caller_defer_metrics(
                     Id, Reply, IsSimpleQuery
                 ),
                 {ShouldAck, [PostFn | PostFns], merge_counters(OldCounters, DeltaCounters)}
             end,
-            {ack, [], #{}},
+            {?ack, [], #{}},
             Replies
         ),
     PostFn = fun() -> lists:foreach(fun(F) -> F() end, lists:reverse(PostFns)) end,
@@ -943,15 +958,15 @@ reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx), I
         Id, Result, HasBeenSent, TraceCtx
     ),
     case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
-        {ack, {async_return, _}, true, _} ->
+        {?ack, {async_return, _}, true, _} ->
             ok = do_reply_caller(ReplyTo, Result);
-        {ack, {async_return, _}, false, _} ->
+        {?ack, {async_return, _}, false, _} ->
             ok;
         {_, _, _, true} ->
             ok = do_reply_caller(ReplyTo, Result);
-        {nack, _, _, _} ->
+        {?nack, _, _, _} ->
             ok;
-        {ack, _, _, _} ->
+        {?ack, _, _, _} ->
             ok = do_reply_caller(ReplyTo, Result)
     end,
     {ShouldAck, PostFn, DeltaCounters}.
@@ -994,7 +1009,7 @@ handle_simple_query_result(Id, Result, HasBeenSent) ->
 %% We also retry even sync requests.  In that case, we shouldn't reply
 %% the caller until one of those final results above happen.
 -spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCtx :: map()) ->
-    {ack | nack, function(), counters()}.
+    query_result_pure().
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
         ?TRACE(
@@ -1005,11 +1020,11 @@ handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, T
         ),
         ok
     end,
-    {nack, PostFn, #{}};
+    {?nack, PostFn, #{}};
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent, _TraceCtx) when
     NotWorking == not_connected; NotWorking == blocked
 ->
-    {nack, fun() -> ok end, #{}};
+    {?nack, fun() -> ok end, #{}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
         ?TRACE(
@@ -1020,13 +1035,13 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, Tr
         ),
         ok
     end,
-    {ack, PostFn, #{dropped_resource_not_found => 1}};
+    {?ack, PostFn, #{dropped_resource_not_found => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
         ?TRACE(error, "ERROR", "resource_stopped", (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}),
         ok
     end,
-    {ack, PostFn, #{dropped_resource_stopped => 1}};
+    {?ack, PostFn, #{dropped_resource_stopped => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCtx) ->
     PostFn = fun() ->
         ?TRACE(error, "ERROR", "other_resource_error", (trace_ctx_map(TraceCtx))#{
@@ -1034,7 +1049,7 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCt
         }),
         ok
     end,
-    {nack, PostFn, #{}};
+    {?nack, PostFn, #{}};
 handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
     case is_unrecoverable_error(Error) of
         true ->
@@ -1057,7 +1072,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
                     true -> #{retried_failed => 1};
                     false -> #{failed => 1}
                 end,
-            {ack, PostFn, Counters};
+            {?ack, PostFn, Counters};
         false ->
             PostFn =
                 fun() ->
@@ -1066,7 +1081,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
                     }),
                     ok
                 end,
-            {nack, PostFn, #{}}
+            {?nack, PostFn, #{}}
     end;
 handle_query_result_pure(Id, {async_return, Result}, HasBeenSent, TraceCtx) ->
     handle_query_async_result_pure(Id, Result, HasBeenSent, TraceCtx);
@@ -1080,10 +1095,10 @@ handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCtx) ->
             true -> #{retried_success => 1};
             false -> #{success => 1}
         end,
-    {ack, PostFn, Counters}.
+    {?ack, PostFn, Counters}.
 
 -spec handle_query_async_result_pure(id(), term(), HasBeenSent :: boolean(), map()) ->
-    {ack | nack, function(), counters()}.
+    query_result_pure().
 handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
     case is_unrecoverable_error(Error) of
         true ->
@@ -1106,7 +1121,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
                     true -> #{retried_failed => 1};
                     false -> #{failed => 1}
                 end,
-            {ack, PostFn, Counters};
+            {?ack, PostFn, Counters};
         false ->
             PostFn = fun() ->
                 ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCtx))#{
@@ -1114,12 +1129,12 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
                 }),
                 ok
             end,
-            {nack, PostFn, #{}}
+            {?nack, PostFn, #{}}
     end;
 handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent, _TraceCtx) when is_pid(Pid) ->
-    {ack, fun() -> ok end, #{}};
+    {?ack, fun() -> ok end, #{}};
 handle_query_async_result_pure(_Id, ok, _HasBeenSent, _TraceCtx) ->
-    {ack, fun() -> ok end, #{}};
+    {?ack, fun() -> ok end, #{}};
 handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(Results) ->
     All = fun(L) ->
         case L of
@@ -1129,7 +1144,7 @@ handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(
     end,
     case lists:all(All, Results) of
         true ->
-            {ack, fun() -> ok end, #{}};
+            {?ack, fun() -> ok end, #{}};
         false ->
             PostFn = fun() ->
                 ?TRACE(
@@ -1144,7 +1159,7 @@ handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(
                 ),
                 ok
             end,
-            {nack, PostFn, #{}}
+            {?nack, PostFn, #{}}
     end.
 
 trace_ctx_map(undefined) ->
@@ -1675,12 +1690,12 @@ do_handle_async_reply(
         result => Result
     }),
     case Action of
-        nack ->
+        ?nack ->
             %% Keep retrying.
             ok = mark_inflight_as_retriable(InflightTID, Ref),
             ok = ?MODULE:block(BufferWorkerPid),
             blocked;
-        ack ->
+        ?ack ->
             ok = do_async_ack(
                 InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, IsSimpleQuery
             )
@@ -1799,12 +1814,12 @@ do_handle_async_batch_reply(
         result => Result
     }),
     case Action of
-        nack ->
+        ?nack ->
             %% Keep retrying.
             ok = mark_inflight_as_retriable(InflightTID, Ref),
             ok = ?MODULE:block(BufferWorkerPid),
             blocked;
-        ack ->
+        ?ack ->
             ok = do_async_ack(
                 InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, IsSimpleQuery
             )
