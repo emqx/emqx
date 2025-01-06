@@ -21,6 +21,7 @@
 %% Gateway APIs
 -export([
     registered_gateway/0,
+    is_gateway_app_started/0,
     load/2,
     unload/1,
     lookup/1,
@@ -41,6 +42,13 @@
     [{gateway_name(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
+
+-spec is_gateway_app_started() -> boolean().
+is_gateway_app_started() ->
+    case erlang:whereis(emqx_gateway_sup) of
+        undefined -> false;
+        _ -> true
+    end.
 
 %%--------------------------------------------------------------------
 %% Gateway APIs

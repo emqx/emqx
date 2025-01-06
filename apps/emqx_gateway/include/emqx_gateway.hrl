@@ -44,4 +44,6 @@
         config_schema_module := module()
     }.
 
+-define(GATEWAY_SUP_NAME, emqx_gateway_sup).
+
 -endif.
