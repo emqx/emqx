@@ -116,7 +116,7 @@ fields(actions) ->
         override(
             emqx_bridge_kafka:producer_opts(action),
             bridge_v2_overrides()
-        ) ++ emqx_bridge_v2_schema:common_fields(),
+        ) ++ emqx_bridge_v2_schema:common_action_fields(),
     override_documentations(Fields);
 fields(Method) ->
     Fields = emqx_bridge_kafka:fields(Method),

@@ -72,7 +72,7 @@ fields(action) ->
             }
         )};
 fields("http_action") ->
-    emqx_bridge_v2_schema:common_fields() ++
+    emqx_bridge_v2_schema:common_action_fields() ++
         [
             %% Note: there's an implicit convention in `emqx_bridge' that,
             %% for egress bridges with this config, the published messages

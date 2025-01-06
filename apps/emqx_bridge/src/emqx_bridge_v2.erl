@@ -709,11 +709,15 @@ do_query_with_enabled_config(
     BridgeType, BridgeName, Message, QueryOpts0, Config
 ) ->
     ConnectorName = maps:get(connector, Config),
+    FallbackActions = maps:get(fallback_actions, Config, []),
     ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
     ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
         query_opts(BridgeType, Config),
-        QueryOpts0#{connector_resource_id => ConnectorResId}
+        QueryOpts0#{
+            connector_resource_id => ConnectorResId,
+            fallback_actions => FallbackActions
+        }
     ),
     BridgeV2Id = id(BridgeType, BridgeName),
     case Message of

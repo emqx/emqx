@@ -69,7 +69,8 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
         [
             <<"connector">>,
             <<"created_at">>,
-            <<"last_modified_at">>
+            <<"last_modified_at">>,
+            <<"fallback_actions">>
         ],
         ActionConfig
     ),
