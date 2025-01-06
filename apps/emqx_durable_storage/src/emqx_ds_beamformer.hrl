@@ -52,4 +52,11 @@
 %% beamformer API for the backend:
 -define(ps_cbm(DB), {emqx_ds_beamformer_cbm, DB}).
 
+-define(DESTINATION(CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR),
+    {CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR}
+).
+
+-define(DISPATCH_FLAG_STUCK, 1).
+-define(DISPATCH_FLAG_LAGGING, 2).
+
 -endif.
