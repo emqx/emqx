@@ -3333,12 +3333,7 @@ ext_trace_disconnect_reason(takeover, Channel) ->
 ext_trace_disconnect_reason(takeover_kick, Channel) ->
     ?ext_trace_disconnect_reason(takenover_kick);
 ext_trace_disconnect_reason(sock_closed, Channel) ->
-    ?ext_trace_disconnect_reason(sock_closed);
-ext_trace_disconnect_reason({process_down, Pid, Reason}, Channel) ->
-    ?ext_trace_disconnect_reason(
-        process_down,
-        iolist_to_binary(io_lib:format("process: ~p down by reason: ~p", [Pid, Reason]))
-    ).
+    ?ext_trace_disconnect_reason(sock_closed).
 
 -else.
 -endif.
