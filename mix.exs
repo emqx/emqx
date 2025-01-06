@@ -223,7 +223,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.1", override: true}
 
   def common_dep(:system_monitor),
-    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
+    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
