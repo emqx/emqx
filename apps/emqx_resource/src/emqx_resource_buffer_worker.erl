@@ -76,6 +76,8 @@
 -define(RETRY_IDX, 3).
 -define(WORKER_MREF_IDX, 4).
 
+-define(queries, queries).
+
 -type id() :: binary().
 -type index() :: pos_integer().
 -type expire_at() :: infinity | integer().
@@ -95,7 +97,8 @@
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
 -type query_result_decision() :: ?ack | ?nack.
--type query_result_side_effect() :: fun(() -> ok).
+-type query_result_context() :: #{?queries := [queue_query()]}.
+-type query_result_side_effect() :: fun((query_result_context()) -> ok).
 -type query_result_pure() :: {query_result_decision(), query_result_side_effect(), counters()}.
 -type timeout_ms() :: emqx_schema:timeout_duration_ms().
 -type request_ttl() :: emqx_schema:timeout_duration_ms().
@@ -181,15 +184,16 @@ simple_sync_query(Id, Request, QueryOpts0) ->
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
     RequestContext = request_context(QueryOpts0),
     TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
+    Query = ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
     Result = call_query(
         force_sync,
         Id,
         ?NO_INDEX,
         ?NO_REQ_REF,
-        ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
+        Query,
         QueryOpts
     ),
-    _ = handle_simple_query_result(Id, Result, _HasBeenSent = false),
+    _ = handle_simple_query_result(Id, Query, Result, _HasBeenSent = false),
     Result.
 
 %% simple async-query the resource without batching and queuing.
@@ -201,15 +205,9 @@ simple_async_query(Id, Request, QueryOpts0) ->
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
     RequestContext = request_context(QueryOpts0),
     TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
-    Result = call_query(
-        async_if_possible,
-        Id,
-        ?NO_INDEX,
-        ?NO_REQ_REF,
-        ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
-        QueryOpts
-    ),
-    _ = handle_simple_query_result(Id, Result, _HasBeenSent = false),
+    Query = ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
+    Result = call_query(async_if_possible, Id, ?NO_INDEX, ?NO_REQ_REF, Query, QueryOpts),
+    _ = handle_simple_query_result(Id, Query, Result, _HasBeenSent = false),
     Result.
 
 %% This is a hack to handle cases where the underlying connector has internal buffering
@@ -464,7 +462,7 @@ resume_from_blocked(Data) ->
             end;
         {expired, Ref, Batch} ->
             BufferWorkerPid = self(),
-            IsAcked = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+            {IsAcked, _Queries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
             Counters =
                 case IsAcked of
                     true -> #{dropped_expired => length(Batch)};
@@ -499,22 +497,29 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
         resume_interval := ResumeT
     } = Data0,
     ?tp(buffer_worker_retry_inflight, #{query_or_batch => QueryOrBatch, ref => Ref}),
-    QueryOpts = #{simple_query => false},
+    IsSimpleQuery = false,
+    QueryOpts = #{simple_query => IsSimpleQuery},
     Result = call_query(force_sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
-    {ShouldAck, PostFn, DeltaCounters} =
+    {Decision, PostFn, DeltaCounters} =
         case QueryOrBatch of
             ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, _RequestContext, TraceCtx) ->
                 Reply = ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx),
                 reply_caller_defer_metrics(Id, Reply, QueryOpts);
             [?QUERY(_, _, _, _, _, _) | _] = Batch ->
-                batch_reply_caller_defer_metrics(Id, Result, Batch, QueryOpts)
+                batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery)
         end,
-    %% TODO: maybe trigger fallback actions
+    Queries =
+        case QueryOrBatch of
+            ?QUERY(_, _, _, _, _, _) ->
+                [QueryOrBatch];
+            [?QUERY(_, _, _, _, _, _) | _] ->
+                QueryOrBatch
+        end,
     Data1 = aggregate_counters(Data0, DeltaCounters),
-    case ShouldAck of
+    case Decision of
         %% Send failed because resource is down
         ?nack ->
-            PostFn(),
+            PostFn(result_context(Queries)),
             ?tp(
                 buffer_worker_retry_inflight_failed,
                 #{
@@ -527,14 +532,14 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
         %% Send ok or failed but the resource is working
         ?ack ->
             BufferWorkerPid = self(),
-            IsAcked = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+            {IsAcked, Queries1} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
             %% we need to defer bumping the counters after
             %% `inflight_drop' to avoid the race condition when an
             %% inflight request might get completed concurrently with
             %% the retry, bumping them twice.  Since both inflight
             %% requests (repeated and original) have the same `Ref',
             %% we bump the counter when removing it from the table.
-            IsAcked andalso PostFn(),
+            IsAcked andalso PostFn(result_context(Queries1)),
             ?tp(
                 buffer_worker_retry_inflight_succeeded,
                 #{
@@ -580,13 +585,13 @@ collect_and_enqueue_query_requests(Request0, Data0) ->
         ),
     {Overflown, NewQ, DeltaCounters} = append_queue(Id, Index, Q, Queries),
     ok = reply_overflown(Overflown),
-    %% TODO: maybe trigger fallback actions
     aggregate_counters(Data0#{queue := NewQ}, DeltaCounters).
 
 reply_overflown([]) ->
     ok;
 reply_overflown([?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt, _RequestContext, _TraceCtx) | More]) ->
     do_reply_caller(ReplyTo, {error, buffer_overflow}),
+    %% TODO: maybe trigger fallback actions
     reply_overflown(More).
 
 do_reply_caller(undefined, _Result) ->
@@ -725,9 +730,10 @@ do_flush(
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(async_if_possible, Id, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx),
-    {ShouldAck, DeltaCounters} = reply_caller(Id, Reply, QueryOpts),
+    {Decision, PostFn, DeltaCounters} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
+    PostFn(result_context(Batch)),
     Data1 = aggregate_counters(Data0, DeltaCounters),
-    case ShouldAck of
+    case Decision of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
         ?nack ->
@@ -764,14 +770,16 @@ do_flush(
             %% such requests.
             IsUnrecoverableError = is_unrecoverable_error(Result),
             BufferWorkerPid = self(),
-            case is_async_return(Result) of
-                true when IsUnrecoverableError ->
-                    ack_inflight(InflightTID, Ref, BufferWorkerPid);
-                true ->
-                    ok;
-                false ->
-                    ack_inflight(InflightTID, Ref, BufferWorkerPid)
-            end,
+            {_IsAcked, _Queries} =
+                case is_async_return(Result) of
+                    true when IsUnrecoverableError ->
+                        ack_inflight(InflightTID, Ref, BufferWorkerPid);
+                    true ->
+                        {false, []};
+                    false ->
+                        ack_inflight(InflightTID, Ref, BufferWorkerPid)
+                end,
+            %% TODO: maybe trigger fallback actions
             {Data2, AsyncWorkerMRef} = ensure_async_worker_monitored(Data1, Result),
             store_async_worker_reference(InflightTID, Ref, AsyncWorkerMRef),
             ?tp(
@@ -781,7 +789,6 @@ do_flush(
                     result => Result
                 }
             ),
-            %% TODO: maybe trigger fallback actions
             CurrentCount = queue_count(Q1),
             case CurrentCount > 0 of
                 true ->
@@ -809,11 +816,14 @@ do_flush(#{queue := Q1} = Data0, #{
         batch_size := BatchSize,
         inflight_tid := InflightTID
     } = Data0,
-    QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
+    IsSimpleQuery = false,
+    QueryOpts = #{inflight_tid => InflightTID, simple_query => IsSimpleQuery},
     Result = call_query(async_if_possible, Id, Index, Ref, Batch, QueryOpts),
-    {ShouldAck, DeltaCounters} = batch_reply_caller(Id, Result, Batch, QueryOpts),
+    {Decision, PostFn, DeltaCounters} =
+        batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery),
+    PostFn(result_context(Batch)),
     Data1 = aggregate_counters(Data0, DeltaCounters),
-    case ShouldAck of
+    case Decision of
         %% Failed; remove the request from the queue, as we cannot pop
         %% from it again, but we'll retry it using the inflight table.
         ?nack ->
@@ -850,14 +860,16 @@ do_flush(#{queue := Q1} = Data0, #{
             %% such requests.
             IsUnrecoverableError = is_unrecoverable_error(Result),
             BufferWorkerPid = self(),
-            case is_async_return(Result) of
-                true when IsUnrecoverableError ->
-                    ack_inflight(InflightTID, Ref, BufferWorkerPid);
-                true ->
-                    ok;
-                false ->
-                    ack_inflight(InflightTID, Ref, BufferWorkerPid)
-            end,
+            {_IsAcked, _Queries} =
+                case is_async_return(Result) of
+                    true when IsUnrecoverableError ->
+                        ack_inflight(InflightTID, Ref, BufferWorkerPid);
+                    true ->
+                        {false, []};
+                    false ->
+                        ack_inflight(InflightTID, Ref, BufferWorkerPid)
+                end,
+            %% TODO: maybe trigger fallback actions
             {Data2, AsyncWorkerMRef} = ensure_async_worker_monitored(Data1, Result),
             store_async_worker_reference(InflightTID, Ref, AsyncWorkerMRef),
             CurrentCount = queue_count(Q1),
@@ -869,7 +881,6 @@ do_flush(#{queue := Q1} = Data0, #{
                     queue_count => CurrentCount
                 }
             ),
-            %% TODO: maybe trigger fallback actions
             Data3 =
                 case {CurrentCount > 0, CurrentCount >= BatchSize} of
                     {false, _} ->
@@ -892,13 +903,6 @@ do_flush(#{queue := Q1} = Data0, #{
             {keep_state, Data3}
     end.
 
-batch_reply_caller(Id, BatchResult, Batch, QueryOpts) ->
-    IsSimpleQuery = is_simple_query(QueryOpts),
-    {ShouldBlock, PostFn, DeltaCounters} =
-        batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery),
-    PostFn(),
-    {ShouldBlock, DeltaCounters}.
-
 -spec batch_reply_caller_defer_metrics(
     id(), Result | [Result], [queue_query()], IsSimpleQuery :: boolean()
 ) ->
@@ -907,26 +911,37 @@ when
     Result :: term().
 batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery) ->
     Replies = expand_batch_reply(BatchResult, Batch),
-    {ShouldAck, PostFns, Counters} =
+    {Decision, PostFns, Counters} =
         lists:foldl(
-            fun(Reply, {_ShouldAck, PostFns, OldCounters}) ->
-                %% `_ShouldAck' should be the same as `ShouldAck' starting from the second
+            fun(Reply, {_Decision, PostFns, OldCounters}) ->
+                %% `_Decision' should be the same as `Decision' starting from the second
                 %% reply **only** if the batch result is a single value to be repeated for
                 %% all original queries.
                 %%
                 %% Fixme(EMQX-13796): handle case where distinct results for distinct
                 %% queries are returned; in such case, we should ack the whole batch only
                 %% when a final decision has been reached for all of its elements.
-                {ShouldAck, PostFn, DeltaCounters} = reply_caller_defer_metrics(
+                {Decision, PostFn, DeltaCounters} = reply_caller_defer_metrics(
                     Id, Reply, IsSimpleQuery
                 ),
-                {ShouldAck, [PostFn | PostFns], merge_counters(OldCounters, DeltaCounters)}
+                {Decision, [PostFn | PostFns], merge_counters(OldCounters, DeltaCounters)}
             end,
             {?ack, [], #{}},
             Replies
         ),
-    PostFn = fun() -> lists:foreach(fun(F) -> F() end, lists:reverse(PostFns)) end,
-    {ShouldAck, PostFn, Counters}.
+    PostFn = fun(ResultContext) ->
+        %% Since this might be called from a callback function that has only "minimized"
+        %% batches, we should pick the query given to this function, which comes from the
+        %% inflight table and hence is not minimized.
+        #{?queries := Queries} = ResultContext,
+        lists:foreach(
+            fun({F, Query}) ->
+                F(result_context([Query]))
+            end,
+            lists:zip(lists:reverse(PostFns), Queries)
+        )
+    end,
+    {Decision, PostFn, Counters}.
 
 expand_batch_reply(BatchResults, Batch) when is_list(BatchResults) ->
     lists:map(
@@ -943,21 +958,16 @@ expand_batch_reply(BatchResult, Batch) ->
         Batch
     ).
 
-reply_caller(Id, Reply, QueryOpts) ->
-    {ShouldAck, PostFn, DeltaCounters} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
-    PostFn(),
-    {ShouldAck, DeltaCounters}.
-
 %% Should only reply to the caller when the decision is final (not
 %% retriable).  See comment on `handle_query_result_pure'.
 reply_caller_defer_metrics(Id, ?REPLY(undefined, HasBeenSent, Result, TraceCtx), _IsSimpleQuery) ->
     handle_query_result_pure(Id, Result, HasBeenSent, TraceCtx);
 reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx), IsSimpleQuery) ->
     IsUnrecoverableError = is_unrecoverable_error(Result),
-    {ShouldAck, PostFn, DeltaCounters} = handle_query_result_pure(
+    {Decision, PostFn, DeltaCounters} = handle_query_result_pure(
         Id, Result, HasBeenSent, TraceCtx
     ),
-    case {ShouldAck, Result, IsUnrecoverableError, IsSimpleQuery} of
+    case {Decision, Result, IsUnrecoverableError, IsSimpleQuery} of
         {?ack, {async_return, _}, true, _} ->
             ok = do_reply_caller(ReplyTo, Result);
         {?ack, {async_return, _}, false, _} ->
@@ -969,7 +979,7 @@ reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result, TraceCtx), I
         {?ack, _, _, _} ->
             ok = do_reply_caller(ReplyTo, Result)
     end,
-    {ShouldAck, PostFn, DeltaCounters}.
+    {Decision, PostFn, DeltaCounters}.
 
 %% This is basically used only by rule actions.  To avoid rule action metrics from
 %% becoming inconsistent when we drop messages, we need a way to signal rule engine that
@@ -995,12 +1005,12 @@ batch_reply_dropped(Batch, Result) ->
 
 %% This is only called by `simple_{,a}sync_query', so we can bump the
 %% counters here.
-handle_simple_query_result(Id, Result, HasBeenSent) ->
-    {ShouldBlock, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
-    PostFn(),
+handle_simple_query_result(Id, Query, Result, HasBeenSent) ->
+    {Decision, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
+    PostFn(result_context([Query])),
     %% TODO: maybe trigger fallback actions
     bump_counters(Id, DeltaCounters),
-    ShouldBlock.
+    Decision.
 
 %% We should always retry (nack), except when:
 %%   * resource is not found
@@ -1011,7 +1021,7 @@ handle_simple_query_result(Id, Result, HasBeenSent) ->
 -spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCtx :: map()) ->
     query_result_pure().
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
-    PostFn = fun() ->
+    PostFn = fun(_ResultContext) ->
         ?TRACE(
             error,
             "ERROR",
@@ -1024,26 +1034,28 @@ handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, T
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent, _TraceCtx) when
     NotWorking == not_connected; NotWorking == blocked
 ->
-    {?nack, fun() -> ok end, #{}};
+    {?nack, fun(_ResultContext) -> ok end, #{}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, TraceCtx) ->
-    PostFn = fun() ->
+    PostFn = fun(_ResultContext) ->
         ?TRACE(
             error,
             "ERROR",
             "resource_not_found",
             (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}
         ),
+        %% TODO: maybe trigger fallback actions
         ok
     end,
     {?ack, PostFn, #{dropped_resource_not_found => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, TraceCtx) ->
-    PostFn = fun() ->
+    PostFn = fun(_ResultContext) ->
         ?TRACE(error, "ERROR", "resource_stopped", (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}),
+        %% TODO: maybe trigger fallback actions
         ok
     end,
     {?ack, PostFn, #{dropped_resource_stopped => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCtx) ->
-    PostFn = fun() ->
+    PostFn = fun(_ResultContext) ->
         ?TRACE(error, "ERROR", "other_resource_error", (trace_ctx_map(TraceCtx))#{
             id => Id, reason => Reason
         }),
@@ -1054,7 +1066,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
     case is_unrecoverable_error(Error) of
         true ->
             PostFn =
-                fun() ->
+                fun(_ResultContext) ->
                     ?SLOG_THROTTLE(
                         error,
                         Id,
@@ -1065,6 +1077,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
                         },
                         #{tag => ?TAG}
                     ),
+                    %% TODO: maybe trigger fallback actions
                     ok
                 end,
             Counters =
@@ -1075,7 +1088,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
             {?ack, PostFn, Counters};
         false ->
             PostFn =
-                fun() ->
+                fun(_ResultContext) ->
                     ?TRACE(error, "ERROR", "send_error", (trace_ctx_map(TraceCtx))#{
                         id => Id, reason => Reason
                     }),
@@ -1086,7 +1099,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
 handle_query_result_pure(Id, {async_return, Result}, HasBeenSent, TraceCtx) ->
     handle_query_async_result_pure(Id, Result, HasBeenSent, TraceCtx);
 handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCtx) ->
-    PostFn = fun() ->
+    PostFn = fun(_ResultContext) ->
         assert_ok_result(Result),
         ok
     end,
@@ -1103,7 +1116,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
     case is_unrecoverable_error(Error) of
         true ->
             PostFn =
-                fun() ->
+                fun(_ResultContext) ->
                     ?SLOG_THROTTLE(
                         error,
                         Id,
@@ -1114,6 +1127,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
                         },
                         #{tag => ?TAG}
                     ),
+                    %% TODO: maybe trigger fallback actions
                     ok
                 end,
             Counters =
@@ -1123,7 +1137,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
                 end,
             {?ack, PostFn, Counters};
         false ->
-            PostFn = fun() ->
+            PostFn = fun(_ResultContext) ->
                 ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCtx))#{
                     id => Id, reason => Reason
                 }),
@@ -1132,9 +1146,9 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
             {?nack, PostFn, #{}}
     end;
 handle_query_async_result_pure(_Id, {ok, Pid}, _HasBeenSent, _TraceCtx) when is_pid(Pid) ->
-    {?ack, fun() -> ok end, #{}};
+    {?ack, fun(_ResultContext) -> ok end, #{}};
 handle_query_async_result_pure(_Id, ok, _HasBeenSent, _TraceCtx) ->
-    {?ack, fun() -> ok end, #{}};
+    {?ack, fun(_ResultContext) -> ok end, #{}};
 handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(Results) ->
     All = fun(L) ->
         case L of
@@ -1144,9 +1158,9 @@ handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(
     end,
     case lists:all(All, Results) of
         true ->
-            {?ack, fun() -> ok end, #{}};
+            {?ack, fun(_ResultContext) -> ok end, #{}};
         false ->
-            PostFn = fun() ->
+            PostFn = fun(_ResultContext) ->
                 ?TRACE(
                     error,
                     "ERROR",
@@ -1651,11 +1665,12 @@ handle_async_reply1(
     Now = now_(),
     case is_expired(ExpireAt, Now) of
         true ->
-            IsAcked = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+            {IsAcked, _Queries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
             %% evaluate metrics call here since we're not inside
             %% buffer worker
             IsAcked andalso
                 begin
+                    %% TODO: maybe trigger fallback actions
                     emqx_resource_metrics:late_reply_inc(Id),
                     reply_dropped(ReplyTo, {error, late_reply})
                 end,
@@ -1682,7 +1697,6 @@ do_handle_async_reply(
     {Action, PostFn, DeltaCounters} = reply_caller_defer_metrics(
         Id, ?REPLY(ReplyTo, Sent, Result, TraceCtx), IsSimpleQuery
     ),
-    %% TODO: maybe trigger fallback actions
     ?tp(handle_async_reply, #{
         action => Action,
         batch_or_query => [_Query],
@@ -1826,13 +1840,13 @@ do_handle_async_batch_reply(
     end.
 
 do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, IsSimpleQuery) ->
-    IsKnownRef = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+    {IsKnownRef, Queries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
     case IsSimpleQuery of
         true ->
-            PostFn(),
+            PostFn(result_context(Queries)),
             bump_counters(Id, DeltaCounters);
         false when IsKnownRef ->
-            PostFn(),
+            PostFn(result_context(Queries)),
             bump_counters(Id, DeltaCounters);
         false ->
             ok
@@ -2070,21 +2084,23 @@ store_async_worker_reference(InflightTID, Ref, AsyncWorkerMRef) ->
     ),
     ok.
 
+-spec ack_inflight(?NO_INFLIGHT | inflight_table(), inflight_key(), pid()) ->
+    {boolean(), [queue_query()]}.
 ack_inflight(?NO_INFLIGHT, _Ref, _BufferWorkerPid) ->
-    false;
+    {false, []};
 ack_inflight(InflightTID, Ref, BufferWorkerPid) ->
-    {Count, Removed} =
+    {Count, Removed, Queries} =
         case ets:take(InflightTID, Ref) of
-            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _, _, _, _), _IsRetriable, _AsyncWorkerMRef)] ->
-                {1, true};
+            [?INFLIGHT_ITEM(Ref, ?QUERY(_, _, _, _, _, _) = Q, _IsRetriable, _AsyncWorkerMRef)] ->
+                {1, true, [Q]};
             [
                 ?INFLIGHT_ITEM(
                     Ref, [?QUERY(_, _, _, _, _, _) | _] = Batch, _IsRetriable, _AsyncWorkerMRef
                 )
             ] ->
-                {length(Batch), true};
+                {length(Batch), true, Batch};
             [] ->
-                {0, false}
+                {0, false, []}
         end,
     FlushCheck = dec_inflight_remove(InflightTID, Count, Removed),
     case FlushCheck of
@@ -2092,7 +2108,7 @@ ack_inflight(InflightTID, Ref, BufferWorkerPid) ->
         flush -> ?MODULE:flush_worker(BufferWorkerPid)
     end,
     IsKnownRef = (Count > 0),
-    IsKnownRef.
+    {IsKnownRef, Queries}.
 
 mark_inflight_items_as_retriable(Data, AsyncWorkerMRef) ->
     #{inflight_tid := InflightTID} = Data,
@@ -2434,6 +2450,10 @@ is_channel_apt_for_queries(_) ->
 -spec request_context(query_opts()) -> request_context().
 request_context(QueryOpts) ->
     maps:with([is_fallback, fallback_actions], QueryOpts).
+
+-spec result_context([queue_query()]) -> query_result_context().
+result_context(Queries) ->
+    #{?queries => Queries}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
