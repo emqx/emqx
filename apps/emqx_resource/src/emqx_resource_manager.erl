@@ -68,7 +68,7 @@
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
 
 -ifdef(TEST).
--export([stop/2]).
+-export([stop/2, summarize_query_mode/2]).
 -endif.
 
 %%------------------------------------------------------------------------------
@@ -525,6 +525,35 @@ get_query_mode(RequestResId, ResourceData, QueryOpts) ->
             {ok, sync} -> sync;
             {ok, Kind} -> error({bad_query_kind, Kind})
         end,
+    #{
+        is_simple := IsSimple,
+        has_internal_buffer := HasInternalBuffer,
+        requested_query_kind := RequestedQueryKind,
+        resource_query_mode := ResourceQueryMode
+    } = summarize_query_mode(ResourceQueryMode, RequestedQueryKind),
+    case {RequestedQueryKind, ResourceQueryMode} of
+        {undefined, _} ->
+            ResourceQueryMode;
+        {async, _} when HasInternalBuffer ->
+            simple_async_internal_buffer;
+        {sync, _} when HasInternalBuffer ->
+            simple_sync_internal_buffer;
+        {async, _} when IsSimple ->
+            simple_async;
+        {sync, _} when IsSimple ->
+            simple_sync;
+        {_, _} ->
+            RequestedQueryKind
+    end.
+
+-spec summarize_query_mode(resource_query_mode(), query_kind() | undefined) ->
+    #{
+        is_simple := boolean(),
+        has_internal_buffer := boolean(),
+        requested_query_kind := query_kind() | undefined,
+        resource_query_mode := resource_query_mode()
+    }.
+summarize_query_mode(ResourceQueryMode, RequestedQueryKind) ->
     HasInternalBuffer =
         case ResourceQueryMode of
             simple_sync_internal_buffer ->
@@ -543,20 +572,12 @@ get_query_mode(RequestResId, ResourceData, QueryOpts) ->
             _ ->
                 false
         end,
-    case {RequestedQueryKind, ResourceQueryMode} of
-        {undefined, _} ->
-            ResourceQueryMode;
-        {async, _} when HasInternalBuffer ->
-            simple_async_internal_buffer;
-        {sync, _} when HasInternalBuffer ->
-            simple_sync_internal_buffer;
-        {async, _} when IsSimple ->
-            simple_async;
-        {sync, _} when IsSimple ->
-            simple_sync;
-        {_, _} ->
-            RequestedQueryKind
-    end.
+    #{
+        is_simple => IsSimple,
+        has_internal_buffer => HasInternalBuffer,
+        requested_query_kind => RequestedQueryKind,
+        resource_query_mode => ResourceQueryMode
+    }.
 
 get_error(_ResId, #{error := {unhealthy_target, _} = Error} = _ResourceData) ->
     Error;

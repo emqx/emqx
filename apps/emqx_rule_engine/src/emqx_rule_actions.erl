@@ -34,6 +34,9 @@
     republish/3
 ]).
 
+%% Internal exports
+-export([pre_process_args/3]).
+
 -optional_callbacks([pre_process_action_args/2]).
 
 -callback pre_process_action_args(FuncName :: atom(), action_fun_args()) -> action_fun_args().
