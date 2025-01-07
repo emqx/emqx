@@ -23,7 +23,7 @@ defmodule EMQXBridgeTablestore.MixProject do
 
   def deps() do
     [
-      UMP.common_dep(:tablestore),
+      UMP.common_dep(:ots_erl),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
