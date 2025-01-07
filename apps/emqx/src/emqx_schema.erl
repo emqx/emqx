@@ -2782,10 +2782,13 @@ to_url(Str) ->
 
 to_json_binary(Str) ->
     case emqx_utils_json:safe_decode(Str) of
-        {ok, _} ->
-            {ok, unicode:characters_to_binary(Str)};
-        Error ->
-            Error
+        {ok, _} -> {ok, unicode:characters_to_binary(Str)};
+        {error, {_Pos, truncated_json}} -> {error, "Truncated JSON value"};
+        {error, {_Pos, invalid_literal}} -> {error, "Invalid JSON literal"};
+        {error, {_Pos, invalid_number}} -> {error, "Invalid JSON number"};
+        {error, {_Pos, invalid_string}} -> {error, "Invalid JSON string"};
+        {error, {_Pos, invalid_json}} -> {error, "Invalid JSON"};
+        Error -> Error
     end.
 
 to_template(Str) ->
