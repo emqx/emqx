@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_exhook, [
     {description, "EMQX Extension for Hook"},
-    {vsn, "5.0.18"},
+    {vsn, "5.0.19"},
     {modules, []},
     {registered, []},
     {mod, {emqx_exhook_app, []}},
