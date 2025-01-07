@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -132,6 +132,7 @@ handle_cast(#seal_event{rank = Rank}, S = #s{queue = Queue}) ->
     %% Currently generation seal events are treated as stream events,
     %% for each known stream that has the matching rank:
     Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
+    %% FIXME: change severity
     logger:warning(#{rank => Rank, streams => Streams, q => ets:tab2list(Queue)}),
     [process_stream_event(false, Stream, S) || Stream <- Streams],
     {noreply, S};

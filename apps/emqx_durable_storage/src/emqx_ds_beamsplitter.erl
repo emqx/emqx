@@ -21,7 +21,7 @@
 %% internal exports:
 -export([]).
 
--export_type([destination/0]).
+-export_type([pack/0, destination/0]).
 
 -include("emqx_ds.hrl").
 -include("emqx_ds_beamformer.hrl").
@@ -38,6 +38,11 @@
     pid(), reference(), _UserData, emqx_ds:sub_seqno(), dispatch_mask(), flags(), _Iterator
 ).
 
+-type pack() ::
+    [{emqx_ds:message_key(), emqx_types:message()}]
+    | end_of_stream
+    | emqx_ds:error(_).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -45,10 +50,7 @@
 %% @doc Note: first version of dispatch was implemented in
 %% `emqx_ds_beamformer' module
 -spec dispatch_v2(Pack, Destinations) -> ok when
-    Pack ::
-        [{emqx_ds:message_key(), emqx_types:message()}]
-        | end_of_stream
-        | emqx_ds:error(_),
+    Pack :: pack(),
     Destinations :: [destination()].
 dispatch_v2(Pack, Destinations) ->
     %% TODO: paralellize fanout? Perhaps sharding messages in the DB
