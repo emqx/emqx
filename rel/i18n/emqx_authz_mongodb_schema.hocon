@@ -33,4 +33,16 @@ collection.desc:
 collection.label:
 """collection"""
 
+skip.desc:
+"""Number of authorization records to skip."""
+
+skip.label:
+"""Authorization record skip number"""
+
+limit.desc:
+"""Limit the number of records to fetch."""
+
+limit.label:
+"""Authorization record limit"""
+
 }

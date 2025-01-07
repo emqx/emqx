@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -48,19 +48,27 @@
 description() ->
     "AuthZ with MongoDB".
 
-create(#{filter := Filter} = Source) ->
+create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
-    Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
+    FilterTemp = emqx_auth_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS),
+    Source#{
+        annotations => #{
+            id => ResourceId, skip => Skip, limit => Limit, filter_template => FilterTemp
+        }
+    }.
 
-update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_auth_utils:parse_deep(Filter, ?ALLOWED_VARS),
+update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
+    FilterTemp = emqx_auth_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, filter_template => FilterTemp}
+            Source#{
+                annotations => #{
+                    id => Id, skip => Skip, limit => Limit, filter_template => FilterTemp
+                }
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -70,10 +78,11 @@ authorize(
     Client,
     Action,
     Topic,
-    #{filter_template := FilterTemplate} = Config
+    #{annotations := #{filter_template := FilterTemplate}} = Config
 ) ->
     try emqx_auth_utils:render_deep_for_json(FilterTemplate, Client) of
-        RenderedFilter -> authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
+        RenderedFilter ->
+            authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
     catch
         error:{encode_error, _} = EncodeError ->
             ?SLOG(error, #{
@@ -85,15 +94,17 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{id := ResourceID}
+    annotations := #{skip := Skip, limit := Limit, id := ResourceID}
 }) ->
-    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}}) of
+    Options = #{skip => Skip, limit => Limit},
+    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, Options}) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",
                 reason => Reason,
                 collection => Collection,
                 filter => RenderedFilter,
+                options => Options,
                 resource_id => ResourceID
             }),
             nomatch;
