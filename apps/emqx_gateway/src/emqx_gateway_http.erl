@@ -135,7 +135,9 @@ gateways(Status) ->
     end.
 
 gateway_status(GwName) ->
-    case emqx_gateway:lookup(GwName) of
+    case emqx_gateway:is_gateway_app_started() andalso emqx_gateway:lookup(GwName) of
+        false ->
+            #{node => node(), status => unloaded};
         undefined ->
             #{node => node(), status => unloaded};
         #{status := Status, config := Config} ->

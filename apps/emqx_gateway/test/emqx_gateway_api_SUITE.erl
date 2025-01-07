@@ -705,6 +705,15 @@ t_authn_fuzzy_search(_) ->
     {204, _} = request(get, "/gateways/stomp/authentication"),
     ok.
 
+t_cluster_status_if_gateway_sup_is_not_running(_) ->
+    application:stop(emqx_gateway),
+    ?assertEqual(
+        [#{node => node(), status => unloaded}],
+        emqx_gateway_http:cluster_gateway_status(<<"stomp">>)
+    ),
+    application:start(emqx_gateway),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 
