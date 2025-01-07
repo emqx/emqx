@@ -104,7 +104,7 @@
     unpack_iterator_result/1,
     event_topic/0,
     stream_scan_return/0,
-    beam_maker/0
+    beam_builder/0
 ]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -227,32 +227,32 @@
 %% Beam builder:
 
 %% Per-subscription builder state:
--record(beam_maker_sub, {
+-record(beam_builder_sub, {
     mask = emqx_ds_dispatch_mask:enc_make() :: emqx_ds_dispatch_mask:enc(),
     n_msgs = 0 :: pos_integer()
 }).
 
 %% Per-node builder:
--record(beam_maker_node, {
+-record(beam_builder_node, {
     global_n_msgs :: non_neg_integer() | undefined,
     idx = 0 :: non_neg_integer(),
     %% List of messages and keys, reversed:
     pack = [] :: [{emqx_ds:message_key(), emqx_types:message()}],
-    subs = #{} :: #{reference() => #beam_maker_sub{}}
+    subs = #{} :: #{reference() => #beam_builder_sub{}}
 }).
 
 %% Global builder:
--record(beam_maker, {
+-record(beam_builder, {
     cbm :: module(),
     lagging :: boolean(),
     shard_id :: _Shard,
     queue_drop :: fun(),
     queue_update :: fun(),
     global_n_msgs = 0 :: non_neg_integer(),
-    per_node = #{} :: #{node => #beam_maker_node{}}
+    per_node = #{} :: #{node => #beam_builder_node{}}
 }).
 
--opaque beam_maker() :: #beam_maker{}.
+-opaque beam_builder() :: #beam_builder{}.
 
 -define(name(SHARD), {n, l, {?MODULE, SHARD}}).
 -define(via(SHARD), {via, gproc, ?name(SHARD)}).
@@ -386,9 +386,9 @@ send_out_term(DBShard, Term, Reqs) ->
         ReqsByNode
     ).
 
--spec beams_init(module(), dbshard(), boolean(), fun(), fun()) -> beam_maker().
+-spec beams_init(module(), dbshard(), boolean(), fun(), fun()) -> beam_builder().
 beams_init(CBM, DBShard, Lagging, Drop, UpdateQueue) ->
-    #beam_maker{
+    #beam_builder{
         cbm = CBM,
         shard_id = DBShard,
         lagging = Lagging,
@@ -397,10 +397,10 @@ beams_init(CBM, DBShard, Lagging, Drop, UpdateQueue) ->
     }.
 
 %% @doc Return the number of requests represented in the beam
--spec beams_n_matched(beam_maker()) -> non_neg_integer().
-beams_n_matched(#beam_maker{per_node = PerNode}) ->
+-spec beams_n_matched(beam_builder()) -> non_neg_integer().
+beams_n_matched(#beam_builder{per_node = PerNode}) ->
     maps:fold(
-        fun(_SubId, #beam_maker_node{subs = Subs}, Acc) ->
+        fun(_SubId, #beam_builder_node{subs = Subs}, Acc) ->
             Acc + maps:size(Subs)
         end,
         0,
@@ -411,10 +411,10 @@ beams_n_matched(#beam_maker{per_node = PerNode}) ->
     emqx_ds:message_key(),
     emqx_types:message(),
     [#sub_state{}],
-    beam_maker()
-) -> beam_maker().
+    beam_builder()
+) -> beam_builder().
 beams_add(
-    MsgKey, Msg, SubStates, BM = #beam_maker{global_n_msgs = GlobalIdx0, per_node = PerNode0}
+    MsgKey, Msg, SubStates, BB = #beam_builder{global_n_msgs = GlobalIdx0, per_node = PerNode0}
 ) ->
     GlobalNMsgs = GlobalIdx0 + 1,
     PerNode = lists:foldl(
@@ -426,16 +426,16 @@ beams_add(
                 %% message has been already added to the per-node
                 %% state by other request, don't update it again:
                 #{
-                    Node := NodeS1 = #beam_maker_node{
+                    Node := NodeS1 = #beam_builder_node{
                         global_n_msgs = GlobalNMsgs, idx = Idx, subs = Subs
                     }
                 } ->
                     ok;
                 %% This message is new for the node, add it to the
                 %% pack and increase per-node message counter:
-                #{Node := NodeS0 = #beam_maker_node{idx = Idx, subs = Subs, pack = Pack0}} ->
+                #{Node := NodeS0 = #beam_builder_node{idx = Idx, subs = Subs, pack = Pack0}} ->
                     Pack = [{MsgKey, Msg} | Pack0],
-                    NodeS1 = NodeS0#beam_maker_node{
+                    NodeS1 = NodeS0#beam_builder_node{
                         pack = Pack,
                         idx = Idx + 1,
                         global_n_msgs = GlobalNMsgs
@@ -444,7 +444,7 @@ beams_add(
                 #{} ->
                     Idx = 0,
                     Subs = #{},
-                    NodeS1 = #beam_maker_node{
+                    NodeS1 = #beam_builder_node{
                         global_n_msgs = GlobalNMsgs,
                         idx = 1
                     }
@@ -455,21 +455,21 @@ beams_add(
                 #{SubId := SubS0} ->
                     ok;
                 #{} ->
-                    SubS0 = #beam_maker_sub{}
+                    SubS0 = #beam_builder_sub{}
             end,
-            #beam_maker_sub{n_msgs = Count, mask = MaskEncoder} = SubS0,
-            SubS = SubS0#beam_maker_sub{
+            #beam_builder_sub{n_msgs = Count, mask = MaskEncoder} = SubS0,
+            SubS = SubS0#beam_builder_sub{
                 n_msgs = Count + 1,
                 mask = emqx_ds_dispatch_mask:enc_push_true(Idx, MaskEncoder)
             },
             %% Update the accumulator:
-            NodeS = NodeS1#beam_maker_node{subs = Subs#{SubId => SubS}},
+            NodeS = NodeS1#beam_builder_node{subs = Subs#{SubId => SubS}},
             Acc#{Node => NodeS}
         end,
         PerNode0,
         SubStates
     ),
-    BM#beam_maker{
+    BB#beam_builder{
         per_node = PerNode,
         global_n_msgs = GlobalNMsgs
     }.
@@ -479,12 +479,12 @@ beams_add(
 -spec beams_conclude(
     dbshard(),
     emqx_ds:message_key(),
-    beam_maker()
+    beam_builder()
 ) -> ok.
-beams_conclude(DBShard, NextKey, BM = #beam_maker{per_node = PerNode}) ->
+beams_conclude(DBShard, NextKey, BB = #beam_builder{per_node = PerNode}) ->
     maps:foreach(
         fun(Node, BeamMakerNode) ->
-            beams_conclude_node(DBShard, NextKey, BM, Node, BeamMakerNode)
+            beams_conclude_node(DBShard, NextKey, BB, Node, BeamMakerNode)
         end,
         PerNode
     ).
@@ -891,13 +891,13 @@ do_dispatch(_) ->
 %%================================================================================
 
 beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
-    #beam_maker{
+    #beam_builder{
         cbm = CBM,
         lagging = IsLagging,
         queue_drop = QueueDrop,
         queue_update = QueueUpdate
     } = BeamMaker,
-    #beam_maker_node{
+    #beam_builder_node{
         idx = BatchSize,
         pack = PackRev,
         subs = Subs
@@ -910,7 +910,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         end,
     Destinations =
         maps:fold(
-            fun(SubId, #beam_maker_sub{mask = MaskEncoder, n_msgs = NMsgs}, Acc) ->
+            fun(SubId, #beam_builder_sub{mask = MaskEncoder, n_msgs = NMsgs}, Acc) ->
                 case ets:lookup(SubTab, SubId) of
                     [SubS = #sub_state{client = Client, userdata = UserData, it = It0}] ->
                         ?tp(beamformer_fulfilled, #{sub_id => SubId}),
