@@ -21,8 +21,9 @@
 %% internal exports:
 -export([]).
 
--export_type([destination/0]).
+-export_type([pack/0, destination/0]).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_ds.hrl").
 -include("emqx_ds_beamformer.hrl").
 
@@ -38,6 +39,11 @@
     pid(), reference(), _UserData, emqx_ds:sub_seqno(), dispatch_mask(), flags(), _Iterator
 ).
 
+-type pack() ::
+    [{emqx_ds:message_key(), emqx_types:message()}]
+    | end_of_stream
+    | emqx_ds:error(_).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -45,22 +51,21 @@
 %% @doc Note: first version of dispatch was implemented in
 %% `emqx_ds_beamformer' module
 -spec dispatch_v2(Pack, Destinations) -> ok when
-    Pack ::
-        [{emqx_ds:message_key(), emqx_types:message()}]
-        | end_of_stream
-        | emqx_ds:error(_),
+    Pack :: pack(),
     Destinations :: [destination()].
 dispatch_v2(Pack, Destinations) ->
     %% TODO: paralellize fanout? Perhaps sharding messages in the DB
     %% is already sufficient.
+    ?tp(emqx_ds_beamsplitter_dispatch, #{pack => Pack, destinations => Destinations}),
     lists:foreach(
         fun(?DESTINATION(Client, SubRef, ItKey, SeqNo, Mask, Flags, EndIterator)) ->
-            Payload = mk_payload(Pack, Mask, EndIterator),
+            {Size, Payload} = mk_payload(Pack, Mask, EndIterator),
             Client !
                 #poll_reply{
                     ref = SubRef,
                     userdata = ItKey,
                     payload = Payload,
+                    size = Size,
                     seqno = SeqNo,
                     lagging = (Flags band ?DISPATCH_FLAG_LAGGING) > 0,
                     stuck = (Flags band ?DISPATCH_FLAG_STUCK) > 0
@@ -78,9 +83,9 @@ dispatch_v2(Pack, Destinations) ->
 %%================================================================================
 
 mk_payload(end_of_stream, _, _) ->
-    {ok, end_of_stream};
+    {1, {ok, end_of_stream}};
 mk_payload(Err = {error, _, _}, _, _) ->
-    Err;
+    {1, Err};
 mk_payload(Pack, Mask, EndIterator) when is_list(Pack) ->
-    Msgs = emqx_ds_dispatch_mask:filter(Pack, Mask),
-    {ok, EndIterator, Msgs}.
+    {Size, Msgs} = emqx_ds_dispatch_mask:filter_and_size(Pack, Mask),
+    {Size, {ok, EndIterator, Msgs}}.
