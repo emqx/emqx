@@ -1785,4 +1785,26 @@ Default: 'none'"""
 socket_tcp_keepalive.label:
 """TCP keepalive options"""
 
+  sysmon_mnesia_tm_mailbox_size_alarm_threshold {
+    label: "Size Alarm"
+    desc: """~
+    The threshold above which an alarm is raised for the mailbox size of the mnesia transaction manager.  This process handles all transactions in EMQX's internal database mnesia.
+
+    There are several reasons that could give raise to this alarm.  A few things to check for or consider:
+    - Lower `max_conn_rate`, so that clients join at a slower pace;
+    - Increase CPU / RAM resources for EMQX;
+    - Lower retained message rate from the client side;
+    - Check if intra-cluster network bandwidth is reaching a maximum.~"""
+  }
+
+  sysmon_broker_pool_mailbox_size_alarm_threshold {
+    label: "Size Alarm"
+    desc: """~
+    The threshold above which an alarm is raised for the maximum mailbox size among the broker pool workers.  Broker pool workers handle adding and removing subscriptions, and replication of routing information.
+
+    There are several reasons that could give raise to this alarm.  A few things to check for or consider:
+    - Increase CPU / RAM resources for EMQX;
+    - Review the subscriptions that clients are doing, for example, try to compact topic filters;
+    - Check if intra-cluster network bandwidth is reaching a maximum.~"""
+  }
 }

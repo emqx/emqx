@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,7 +36,8 @@ init([]) ->
             child_spec(emqx_sys),
             child_spec(emqx_alarm),
             child_spec(emqx_sys_mon),
-            child_spec(emqx_vm_mon)
+            child_spec(emqx_vm_mon),
+            child_spec(emqx_broker_mon)
         ] ++ OsMon,
     {ok, {{one_for_one, 10, 100}, Children}}.
 

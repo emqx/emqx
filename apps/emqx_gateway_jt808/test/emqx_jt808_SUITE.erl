@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_jt808_SUITE).
@@ -11,6 +11,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(FRM_FLAG, 16#7e:8).
 -define(RESERVE, 0).
@@ -106,6 +108,7 @@ init_per_testcase(Case, Config) when
     Apps = boot_apps(Case, <<>>, Config),
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) ->
+    snabbkaffe:start_trace(),
     Apps = boot_apps(Case, ?CONF_DEFAULT, Config),
     [{suite_apps, Apps} | Config].
 
@@ -116,6 +119,7 @@ end_per_testcase(_Case, Config) ->
         exit:noproc ->
             ok
     end,
+    snabbkaffe:stop(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
@@ -2707,6 +2711,29 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
     % no retrasmition of downlink message
     %%timer:sleep(10000),
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
+
+    ok = gen_tcp:close(Socket).
+
+t_case_dl_invalid_msg(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    DlCommand = #{
+        %% missing msg_id
+        <<"header">> => #{},
+        <<"body">> => #{
+            <<"id">> => 30,
+            <<"flag">> => 40
+        }
+    },
+
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+    ?block_until(#{?snk_kind := invalid_dl_message}),
+
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, <<"invliad_json_str">>)),
+    ?block_until(#{?snk_kind := invalid_dl_message}),
 
     ok = gen_tcp:close(Socket).
 

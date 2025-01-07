@@ -216,7 +216,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ra), do: {:ra, "2.15.0", override: true}
 
   # in conflict by emqx_connector and system_monitor
-  def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.3", override: true}
+  def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.1", override: true}
 
@@ -268,6 +268,9 @@ defmodule EMQXUmbrella.MixProject do
       override: true,
       system_env: emqx_app_system_env()
     }
+
+  def common_dep(:ots_erl),
+    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.2", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
@@ -399,6 +402,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ds_builtin_raft,
       :emqx_auth_kerberos,
       :emqx_bridge_datalayers,
+      :emqx_bridge_tablestore,
       :emqx_auth_cinfo
     ])
   end

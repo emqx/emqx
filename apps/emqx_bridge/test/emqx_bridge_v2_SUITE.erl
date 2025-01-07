@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -119,7 +119,7 @@ start_apps() ->
     ].
 
 setup_mocks() ->
-    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    MeckOpts = [passthrough, no_link, no_history],
 
     catch meck:new(emqx_connector_schema, MeckOpts),
     meck:expect(emqx_connector_schema, fields, 1, con_schema()),
@@ -368,7 +368,13 @@ t_send_message(_) ->
 
 t_send_message_through_rule(_) ->
     BridgeName = my_test_bridge,
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), BridgeName, bridge_config()),
+    BridgeType = bridge_type(),
+    BridgeConfig0 =
+        emqx_utils_maps:deep_merge(
+            bridge_config(),
+            #{<<"resource_opts">> => #{<<"query_mode">> => <<"async">>}}
+        ),
+    {ok, _} = emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig0),
     %% Create a rule to send message to the bridge
     {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
         #{
@@ -398,6 +404,72 @@ t_send_message_through_rule(_) ->
     after 10000 ->
         ct:fail("Failed to receive message")
     end,
+    ?assertMatch(
+        #{
+            counters :=
+                #{
+                    'matched' := 1,
+                    'failed' := 0,
+                    'passed' := 1,
+                    'actions.success' := 1,
+                    'actions.failed' := 0,
+                    'actions.failed.unknown' := 0,
+                    'actions.failed.out_of_service' := 0
+                }
+        },
+        get_rule_metrics(RuleId)
+    ),
+    %% Now, turn off connector.  Should increase `actions.out_of_service' metric.
+    {ok, _} = emqx_connector:create(con_type(), con_name(), (con_config())#{<<"enable">> := false}),
+    emqx:publish(Msg),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters :=
+                    #{
+                        'matched' := 2,
+                        'failed' := 0,
+                        'passed' := 2,
+                        'actions.success' := 1,
+                        'actions.failed' := 1,
+                        'actions.failed.unknown' := 0,
+                        'actions.failed.out_of_service' := 1,
+                        'actions.discarded' := 0
+                    }
+            },
+            get_rule_metrics(RuleId)
+        )
+    ),
+    %% Sync query
+    BridgeConfig1 =
+        emqx_utils_maps:deep_merge(
+            bridge_config(),
+            #{<<"resource_opts">> => #{<<"query_mode">> => <<"sync">>}}
+        ),
+    {ok, _} = emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig1),
+    emqx:publish(Msg),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters :=
+                    #{
+                        'matched' := 3,
+                        'failed' := 0,
+                        'passed' := 3,
+                        'actions.success' := 1,
+                        'actions.failed' := 2,
+                        'actions.failed.unknown' := 0,
+                        'actions.failed.out_of_service' := 2,
+                        'actions.discarded' := 0
+                    }
+            },
+            get_rule_metrics(RuleId)
+        )
+    ),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), BridgeName),
     ok.
@@ -1179,3 +1251,6 @@ wait_until(_, _) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+get_rule_metrics(RuleId) ->
+    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).

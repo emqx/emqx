@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -307,7 +307,6 @@ t_timeout_disconnected_then_recover(Config) ->
     ProxyName = ?config(proxy_name, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
-    ConnectorName = ?config(connector_name, Config),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin

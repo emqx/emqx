@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,12 +19,23 @@
 -behaviour(supervisor).
 
 -export([start_link/0]).
+-export([get_broker_pool_workers/0]).
 
 -export([init/1]).
+
+-define(broker_pool, broker_pool).
 
 start_link() ->
     ok = mria:wait_for_tables(emqx_shared_sub:create_tables()),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+get_broker_pool_workers() ->
+    try
+        lists:map(fun({_Name, Pid}) -> Pid end, gproc_pool:active_workers(?broker_pool))
+    catch
+        _:_ ->
+            []
+    end.
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
@@ -35,7 +46,7 @@ init([]) ->
     ok = emqx_broker:create_tabs(),
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
     BrokerPool = emqx_pool_sup:spec(broker_pool_sup, permanent, [
-        broker_pool,
+        ?broker_pool,
         hash,
         PoolSize,
         {emqx_broker, start_link, []}

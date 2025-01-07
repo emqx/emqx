@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_iotdb).
 
@@ -89,7 +89,8 @@ fields(action_parameters) ->
                 array(ref(?MODULE, action_parameters_data)),
                 #{
                     desc => ?DESC("action_parameters_data"),
-                    default => []
+                    required => true,
+                    validator => fun emqx_schema:non_empty_array/1
                 }
             )}
     ] ++

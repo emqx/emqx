@@ -217,19 +217,6 @@ jobs:
         run: |
           ./build ${PROFILE} docker
 
-      - name: Build and publish docker image with Snowflake ODBC driver
-        if: (inputs.publish || github.repository_owner != 'emqx') && matrix.profile[0] == 'emqx-enterprise'
-        env:
-          DOCKER_PUSH: true
-          DOCKER_BUILD_NOCACHE: false
-          DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          DOCKER_LOAD: false
-          EMQX_DOCKERFILE: deploy/docker/Dockerfile.sfodbc
-        run: |
-          export BUILD_FROM="${_EMQX_DOCKER_IMAGE_TAG}"
-          export EMQX_IMAGE_TAG="${_EMQX_DOCKER_IMAGE_TAG##docker.io/}-sf"
-          ./build ${PROFILE} docker
-
       - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
         if: inputs.publish || github.repository_owner != 'emqx'
         with:

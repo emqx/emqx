@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_gcp_pubsub_impl_producer).
@@ -96,7 +96,8 @@ on_start(InstanceId, Config0) ->
 on_stop(InstanceId, _State) ->
     emqx_bridge_gcp_pubsub_client:stop(InstanceId).
 
--spec on_get_status(connector_resource_id(), connector_state()) -> connected | disconnected.
+-spec on_get_status(connector_resource_id(), connector_state()) ->
+    ?status_connected | {?status_disconnected, term()}.
 on_get_status(_InstanceId, #{client := Client} = _State) ->
     emqx_bridge_gcp_pubsub_client:get_status(Client).
 

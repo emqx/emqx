@@ -138,7 +138,7 @@ jobs:
         done
     - name: Setup 18083 port forwarding
       run: |
-        nohup kubectl port-forward service/${EMQX_NAME} 18083:18083 > /dev/null &
+        nohup bash -c "while true; do kubectl port-forward service/${EMQX_NAME} 18083:18083 ; sleep 1 ; done" &
     - name: Get auth token
       run: |
         curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 http://localhost:18083/status

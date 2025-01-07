@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_sqlserver_SUITE).
@@ -47,7 +47,7 @@
 -define(SQL_SERVER_USERNAME, "sa").
 -define(SQL_SERVER_PASSWORD, "mqtt_public1").
 -define(BATCH_SIZE, 10).
--define(REQUEST_TIMEOUT_MS, 500).
+-define(REQUEST_TIMEOUT_MS, 2_000).
 
 -define(WORKER_POOL_SIZE, 4).
 
