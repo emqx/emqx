@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -77,7 +77,8 @@ store_retained(#message{topic = Topic, payload = Payload} = Msg) ->
     Size = iolist_size(Payload),
     case payload_size_limit() of
         PayloadSizeLimit when PayloadSizeLimit > 0 andalso PayloadSizeLimit < Size ->
-            ?tp(warning, retain_failed_for_payload_size_exceeded_limit, #{
+            ?SLOG_THROTTLE(warning, #{
+                msg => retain_failed_for_payload_size_exceeded_limit,
                 topic => Topic,
                 config => "retainer.max_payload_size",
                 size => Size,
@@ -92,9 +93,11 @@ store_retained(#message{topic = Topic, payload = Payload} = Msg) ->
             end),
             case WithinLimits of
                 true ->
-                    ?tp(debug, retain_within_limit, #{topic => Topic});
+                    ?tp(retain_within_limit, #{topic => Topic});
                 false ->
-                    ?tp(warning, retain_failed_for_rate_exceeded_limit, #{
+                    ?tp(retain_failed_for_rate_exceeded_limit, #{topic => Topic}),
+                    ?SLOG_THROTTLE(warning, #{
+                        msg => retain_failed_for_rate_exceeded_limit,
                         topic => Topic,
                         config => "retainer.max_publish_rate"
                     })
@@ -112,7 +115,9 @@ delete_message(Topic) ->
         true ->
             ok;
         false ->
-            ?tp(info, retained_delete_failed_for_rate_exceeded_limit, #{
+            ?tp(retained_delete_failed_for_rate_exceeded_limit, #{topic => Topic}),
+            ?SLOG_THROTTLE(info, #{
+                msg => retained_delete_failed_for_rate_exceeded_limit,
                 topic => Topic,
                 config => "retainer.max_publish_rate"
             })

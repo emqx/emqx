@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -92,7 +92,10 @@
     failed_to_retain_message,
     handle_resource_metrics_failed,
     socket_receive_paused_by_rate_limit,
-    unrecoverable_resource_error
+    unrecoverable_resource_error,
+    retain_failed_for_rate_exceeded_limit,
+    retained_delete_failed_for_rate_exceeded_limit,
+    retain_failed_for_payload_size_exceeded_limit
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).

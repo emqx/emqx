@@ -74,7 +74,7 @@ init([?root_sup]) ->
                 id => worker_sup,
                 start => {?MODULE, start_worker_sup, []},
                 restart => permanent,
-                shutdown => 5000,
+                shutdown => infinity,
                 type => supervisor,
                 modules => [?MODULE]
             },
