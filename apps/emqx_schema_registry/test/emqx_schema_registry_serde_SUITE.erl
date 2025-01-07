@@ -10,13 +10,12 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--include("emqx_schema_registry.hrl").
-
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(INVALID_JSON, #{
-    reason := #{expected := "emqx_schema:json_binary()"},
-    kind := validation_error
+-define(INVALID_JSON(REASON), #{
+    kind := validation_error,
+    reason := REASON,
+    matched_type := "schema_registry:" ++ _
 }).
 
 %%------------------------------------------------------------------------------
@@ -145,7 +144,10 @@ t_avro_invalid_json_schema(_Config) ->
     SerdeName = my_serde,
     Params = schema_params(avro),
     WrongParams = Params#{source := <<"{">>},
-    ?assertMatch({error, ?INVALID_JSON}, emqx_schema_registry:add_schema(SerdeName, WrongParams)),
+    ?assertMatch(
+        {error, ?INVALID_JSON("Truncated JSON value")},
+        emqx_schema_registry:add_schema(SerdeName, WrongParams)
+    ),
     ok.
 
 t_avro_invalid_schema(_Config) ->
@@ -284,7 +286,10 @@ t_json_invalid_schema(_Config) ->
     BadParams1 = Params#{source := <<"not valid json value">>},
     BadParams2 = Params#{source := <<"\"not an object\"">>},
     BadParams3 = Params#{source := <<"{\"foo\": 1}">>},
-    ?assertMatch({error, ?INVALID_JSON}, emqx_schema_registry:add_schema(SerdeName, BadParams1)),
+    ?assertMatch(
+        {error, ?INVALID_JSON("Invalid JSON literal")},
+        emqx_schema_registry:add_schema(SerdeName, BadParams1)
+    ),
     ?assertMatch(
         {error, {post_config_update, _, {invalid_json_schema, bad_schema_object}}},
         emqx_schema_registry:add_schema(SerdeName, BadParams2)
