@@ -425,7 +425,6 @@ export_request_example() ->
         table_sets => [
             <<"banned">>,
             <<"builtin_authn">>,
-            <<"builtin_authn_scram">>,
             <<"builtin_authz">>
         ],
         root_keys => [
