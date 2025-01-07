@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -87,7 +87,7 @@ push_batch(StreamId, Item, Buf = #buffer{messages = MsgQs}) ->
 -spec clean_by_subid(emqx_persistent_session_ds:subscription_id(), t()) -> t().
 clean_by_subid(SubId, Buf = #buffer{messages = MsgQs0}) ->
     MsgQs = maps:filter(
-        fun({Key, _Val}) ->
+        fun(Key, _Val) ->
             {SID, _} = Key,
             SID =/= SubId
         end,

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 -define(sessds_unknown_message, sessds_unknown_message).
 -define(sessds_replay_inconsistency, sessds_replay_inconsistency).
 -define(sessds_out_of_order_commit, 'sessds_out-of-order_commit').
+-define(sessds_unexpected_reply, sessds_unexpected_ds_reply).
 
 -define(sessds_terminate, sessds_terminate).
 -define(sessds_drop, sessds_drop).

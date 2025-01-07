@@ -1078,20 +1078,35 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %%--------------------------------------------------------------------
 
 handle_ds_reply(
-    Reply, Session0 = #{buffer := B0, replay := Replay}, ClientInfo
+    Reply,
+    Session0 = #{buffer := B0, replay := Replay, stream_scheduler_s := SchedS0},
+    ClientInfo
 ) ->
-    ?tp(debug, ?sessds_poll_reply, #{reply => Reply}),
+    ?tp(notice, ?sessds_poll_reply, #{reply => Reply}),
     #poll_reply{userdata = Stream} = Reply,
-    %% FIXME:
-    %% {true, SchedS} = emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, SchedS0),
-    B = emqx_persistent_session_ds_buffer:push_batch(Stream, Reply, B0),
-    Session = Session0#{buffer := B},
-    case ?IS_REPLAY_ONGOING(Replay) of
-        true ->
-            Session;
-        false ->
-            %% TODO: check inflow size to avoid growing it infinitely
-            fill_inflight(Session, ClientInfo)
+    case emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, SchedS0) of
+        {true, SchedS} ->
+            B = emqx_persistent_session_ds_buffer:push_batch(Stream, Reply, B0),
+            Session = Session0#{buffer := B, stream_scheduler_s := SchedS},
+            case ?IS_REPLAY_ONGOING(Replay) of
+                true ->
+                    Session;
+                false ->
+                    fill_inflight(Session, ClientInfo)
+            end;
+        {false, SchedS} ->
+            ?tp(
+                warning,
+                ?sessds_unexpected_reply,
+                #{
+                    stream => Stream,
+                    seqno => Reply#poll_reply.seqno,
+                    sub_ref => Reply#poll_reply.ref,
+                    stuck => Reply#poll_reply.stuck,
+                    lagging => Reply#poll_reply.lagging
+                }
+            ),
+            Session0#{stream_scheduler_s := SchedS}
     end.
 
 inc_next(Track, S) ->

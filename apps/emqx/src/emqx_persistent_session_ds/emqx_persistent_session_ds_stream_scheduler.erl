@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -344,11 +344,11 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
     end.
 
 verify_reply(AsyncReply, SchedS) ->
-    #poll_reply{ref = Ref, userdata = StreamKey, seqno = SeqNo} = AsyncReply,
+    #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = AsyncReply,
     #s{subs = Subs0} = SchedS,
     case Subs0 of
         #{StreamKey := X = #stream_sub{ref = Ref, seqno = PrevSeenSeqNo}} when
-            PrevSeenSeqNo + 1 =:= SeqNo
+            PrevSeenSeqNo + Size =:= SeqNo
         ->
             Subs = Subs0#{StreamKey := X#stream_sub{seqno = SeqNo}},
             {true, SchedS#s{subs = Subs}};

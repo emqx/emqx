@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@
     userdata,
     payload :: emqx_ds:next_result() | poll_timeout,
     seqno :: emqx_ds:sub_seqno() | undefined,
-    len :: non_neg_integer(),
+    size :: non_neg_integer(),
     %% Set to `true' when the subscription becomes inactive due to
     %% falling behind on acks:
     stuck :: boolean(),
