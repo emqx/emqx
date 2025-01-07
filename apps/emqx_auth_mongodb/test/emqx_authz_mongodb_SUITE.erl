@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -28,10 +28,20 @@
 -define(MONGO_CLIENT, 'emqx_authz_mongo_SUITE_client').
 
 all() ->
-    emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
+    [
+        {group, legacy_protocol_true},
+        {group, legacy_protocol_false},
+        {group, legacy_protocol_auto}
+    ].
 
 groups() ->
-    emqx_authz_test_lib:table_groups(t_run_case, cases()).
+    All = emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()),
+    [
+        {legacy_protocol_true, [], All},
+        {legacy_protocol_false, [], All},
+        {legacy_protocol_auto, [], All}
+    ] ++
+        emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:is_tcp_server_available(?MONGO_HOST, ?MONGO_DEFAULT_PORT) of
@@ -55,6 +65,12 @@ end_per_suite(Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
+init_per_group(legacy_protocol_true, Config) ->
+    [{use_legacy_protocol, true} | Config];
+init_per_group(legacy_protocol_false, Config) ->
+    [{use_legacy_protocol, false} | Config];
+init_per_group(legacy_protocol_auto, Config) ->
+    [{use_legacy_protocol, auto} | Config];
 init_per_group(Group, Config) ->
     [{test_case, emqx_authz_test_lib:get_case(Group, cases())} | Config].
 end_per_group(_Group, _Config) ->
@@ -75,12 +91,11 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 t_run_case(Config) ->
-    run_case(Config, true),
-    run_case(Config, false),
-    run_case(Config, auto).
+    run_test(?config(test_case, Config), ?config(use_legacy_protocol, Config)).
 
-run_case(Config, UseLegacyProtocol) ->
-    Case = ?config(test_case, Config),
+run_test(#{name := extended_query_with_order_skip_limit}, true) ->
+    ok;
+run_test(Case, UseLegacyProtocol) ->
     ok = setup_source_data(Case),
     ok = setup_authz_source(Case#{use_legacy_protocol => UseLegacyProtocol}),
     ok = emqx_authz_test_lib:run_checks(Case).
@@ -139,6 +154,50 @@ cases() ->
             filter => #{<<"username">> => <<"${username}">>},
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => extended_query_with_order_skip_limit,
+            records => [
+                #{
+                    <<"username">> => <<"usernameWrong">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"order">> => <<"0">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"deny">>,
+                    <<"order">> => <<"1">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"order">> => <<"2">>
+                },
+                #{
+                    <<"username">> => <<"username">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"a">>,
+                    <<"permission">> => <<"deny">>,
+                    <<"order">> => <<"3">>
+                }
+            ],
+            filter => #{
+                <<"username">> => <<"${username}">>,
+                <<"$orderby">> => #{<<"order">> => 1}
+            },
+            settings => #{skip => 1, limit => 1},
+            %% We have 3 matching rules from 4.
+            %% From the matching rules ordered by `order' field only the second one is allowing.
+            %% We should reach it utilizing `$orderby' and `skip' options.
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
             ]
         },
         #{
@@ -379,9 +438,10 @@ setup_source_data(#{records := Records}) ->
     {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"acl">>, Records),
     ok.
 
-setup_authz_source(#{filter := Filter, use_legacy_protocol := UseLegacyProtocol}) ->
+setup_authz_source(#{filter := Filter, use_legacy_protocol := UseLegacyProtocol} = Case) ->
+    AdditionalSettings = maps:get(settings, Case, #{}),
     setup_config(
-        #{
+        AdditionalSettings#{
             <<"filter">> => Filter,
             <<"use_legacy_protocol">> => UseLegacyProtocol
         }

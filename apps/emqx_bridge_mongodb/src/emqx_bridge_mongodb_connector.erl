@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_mongodb_connector).
@@ -80,7 +80,7 @@ on_query(InstanceId, {Channel, Message0}, #{channels := Channels, connector_stat
     }),
     Res = emqx_mongodb:on_query(
         InstanceId,
-        {Channel, Message},
+        {insert, Message},
         maps:merge(ConnectorState, ChannelState)
     ),
     ?tp(mongo_bridge_connector_on_query_return, #{instance_id => InstanceId, result => Res}),
