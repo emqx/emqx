@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -34,8 +34,8 @@
     stream,
     topic_filter,
     start_key,
-    %% Information about the process that created the request:
-    return_addr,
+    %% Client-supplied subscription key that is returned verbatim:
+    userdata,
     %% Iterator:
     it,
     %% Callback that filters messages that belong to the request:
@@ -56,6 +56,7 @@
     {CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR}
 ).
 
+%% Bit flags that encode various subscription metadata:
 -define(DISPATCH_FLAG_STUCK, 1).
 -define(DISPATCH_FLAG_LAGGING, 2).
 

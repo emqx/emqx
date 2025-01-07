@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -144,6 +144,7 @@ t_catchup(Config) ->
                         ref = MRef,
                         lagging = true,
                         seqno = 5,
+                        size = 5,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"0">>}},
@@ -164,6 +165,7 @@ t_catchup(Config) ->
                         ref = MRef,
                         lagging = true,
                         seqno = 10,
+                        size = 5,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"5">>}},
@@ -179,7 +181,14 @@ t_catchup(Config) ->
             %% Ack and receive `end_of_stream':
             ?assertMatch(ok, emqx_ds:suback(DB, SRef, 10)),
             ?assertMatch(
-                [#poll_reply{ref = MRef, seqno = 11, payload = {ok, end_of_stream}}],
+                [
+                    #poll_reply{
+                        ref = MRef,
+                        seqno = 11,
+                        size = 1,
+                        payload = {ok, end_of_stream}
+                    }
+                ],
                 recv(?FUNCTION_NAME, MRef)
             )
         end,
@@ -209,6 +218,7 @@ t_realtime(Config) ->
                         lagging = false,
                         stuck = false,
                         seqno = 2,
+                        size = 2,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"1">>}},
@@ -226,6 +236,7 @@ t_realtime(Config) ->
                         lagging = false,
                         stuck = false,
                         seqno = 4,
+                        size = 2,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"3">>}},
@@ -265,6 +276,7 @@ t_slow_sub(Config) ->
                         lagging = true,
                         stuck = false,
                         seqno = 1,
+                        size = 1,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"0">>}}
@@ -282,6 +294,7 @@ t_slow_sub(Config) ->
                         lagging = false,
                         stuck = true,
                         seqno = 3,
+                        size = 2,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"1">>}},
@@ -339,6 +352,7 @@ t_catchup_unrecoverable(Config) ->
                     #poll_reply{
                         ref = MRef,
                         seqno = 5,
+                        size = 5,
                         payload =
                             {ok, _, [
                                 {_, #message{payload = <<"0">>}},
@@ -363,6 +377,7 @@ t_catchup_unrecoverable(Config) ->
                 [
                     #poll_reply{
                         ref = MRef,
+                        size = 1,
                         seqno = 6,
                         payload = {error, unrecoverable, generation_not_found}
                     }

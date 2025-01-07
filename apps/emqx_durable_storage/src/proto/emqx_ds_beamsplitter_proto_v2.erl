@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 -include_lib("emqx_utils/include/bpapi.hrl").
 
 %% API:
--export([dispatch/3]).
+-export([dispatch/4]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -28,9 +28,11 @@
 %% API functions
 %%================================================================================
 
--spec dispatch(_SerializationToken, node(), emqx_ds_beamformer:beam()) -> true.
-dispatch(SerializationToken, Node, Beam) ->
-    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamformer, do_dispatch, [Beam]).
+-spec dispatch(_SerializationToken, node(), emqx_ds_beamsplitter:pack(), [
+    emqx_ds_beamsplitter:destination()
+]) -> true.
+dispatch(SerializationToken, Node, Pack, Destinations) ->
+    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v2, [Pack, Destinations]).
 
 %%================================================================================
 %% behavior callbacks
