@@ -616,6 +616,20 @@ list_connectors_http_api() ->
     ct:pal("list connectors result:\n  ~p", [Res]),
     Res.
 
+summarize_actions_api() ->
+    Path = emqx_mgmt_api_test_util:api_path(["actions_summary"]),
+    ct:pal("summarize actions"),
+    Res = request(get, Path, _Params = []),
+    ct:pal("summarize actions result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+summarize_sources_api() ->
+    Path = emqx_mgmt_api_test_util:api_path(["sources_summary"]),
+    ct:pal("summarize sources"),
+    Res = request(get, Path, _Params = []),
+    ct:pal("summarize sources result:\n  ~p", [Res]),
+    simplify_result(Res).
+
 enable_kind_http_api(Config) ->
     do_enable_disable_kind_http_api(enable, Config).
 
@@ -1413,16 +1427,19 @@ proplist_update(Proplist, K, Fn) ->
     NewV = Fn(OldV),
     lists:keystore(K, 1, Proplist, {K, NewV}).
 
+-define(AUTH_HEADER_FN_PD_KEY, {?MODULE, auth_header_fn}).
 get_auth_header_getter() ->
-    get({?MODULE, auth_header_fn}).
+    get(?AUTH_HEADER_FN_PD_KEY).
 
+%% Note: must be set in init_per_testcase, as this is stored in process dictionary.
 set_auth_header_getter(Fun) ->
-    _ = put({?MODULE, auth_header_fn}, Fun),
+    _ = put(?AUTH_HEADER_FN_PD_KEY, Fun),
     ok.
 
 clear_auth_header_getter() ->
-    _ = erase({?MODULE, auth_header_fn}),
+    _ = erase(?AUTH_HEADER_FN_PD_KEY),
     ok.
+-undef(AUTH_HEADER_FN_PT_KEY).
 
 auth_header() ->
     case get_auth_header_getter() of

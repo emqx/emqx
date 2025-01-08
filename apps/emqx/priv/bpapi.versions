@@ -9,6 +9,7 @@
 {emqx_bridge,4}.
 {emqx_bridge,5}.
 {emqx_bridge,6}.
+{emqx_bridge,7}.
 {emqx_broker,1}.
 {emqx_cluster_link,1}.
 {emqx_cm,1}.

@@ -22,6 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
@@ -1147,10 +1148,14 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_bridge_to_node) -> bpapi_version_range(2, 6);
-supported_versions(start_bridges_to_all_nodes) -> bpapi_version_range(2, 6);
-supported_versions(get_metrics_from_all_nodes) -> bpapi_version_range(4, 6);
-supported_versions(_Call) -> bpapi_version_range(1, 6).
+supported_versions(start_bridge_to_node) ->
+    bpapi_version_range(2, ?MAX_SUPPORTED_PROTO_VERSION);
+supported_versions(start_bridges_to_all_nodes) ->
+    bpapi_version_range(2, ?MAX_SUPPORTED_PROTO_VERSION);
+supported_versions(get_metrics_from_all_nodes) ->
+    bpapi_version_range(4, ?MAX_SUPPORTED_PROTO_VERSION);
+supported_versions(_Call) ->
+    bpapi_version_range(1, ?MAX_SUPPORTED_PROTO_VERSION).
 
 %% [From, To] (inclusive on both ends)
 bpapi_version_range(From, To) ->
