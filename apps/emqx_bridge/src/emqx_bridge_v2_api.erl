@@ -1310,15 +1310,18 @@ summary_from_local_node_v7(ConfRootKey) ->
                 name := Name,
                 status := Status,
                 error := Error,
+                raw_config := RawConfig,
                 resource_data := ResourceData
             } = BridgeInfo,
+            LastModifiedAt = maps:get(<<"last_modified_at">>, RawConfig, undefined),
             IsEnabled = emqx_utils_maps:deep_get([config, enable], ResourceData, true),
             maps:merge(
                 #{
                     node => node(),
                     type => Type,
                     name => Name,
-                    enabled => IsEnabled
+                    enabled => IsEnabled,
+                    last_modified_at => LastModifiedAt
                 },
                 format_bridge_status_and_error(#{status => Status, error => Error})
             )

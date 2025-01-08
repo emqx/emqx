@@ -320,15 +320,22 @@ list(ConfRootKey) ->
 create(BridgeType, BridgeName, RawConf) ->
     create(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, RawConf).
 
-create(ConfRootKey, BridgeType, BridgeName, RawConf) ->
+create(ConfRootKey, BridgeType, BridgeName, RawConf0) ->
     ?SLOG(debug, #{
         bridge_action => create,
         bridge_version => 2,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
-        bridge_raw_config => emqx_utils:redact(RawConf),
+        bridge_raw_config => emqx_utils:redact(RawConf0),
         root_key_path => ConfRootKey
     }),
+    RawConf =
+        emqx_utils_maps:put_if(
+            RawConf0,
+            <<"last_modified_at">>,
+            now_ms(),
+            not is_map_key(<<"last_modified_at">>, RawConf0)
+        ),
     emqx_conf:update(
         [ConfRootKey, BridgeType, BridgeName],
         RawConf,
@@ -2063,3 +2070,6 @@ alarm_connector_not_found(ActionType, ActionName, ConnectorName) ->
         },
         <<"connector not found">>
     ).
+
+now_ms() ->
+    erlang:system_time(millisecond).

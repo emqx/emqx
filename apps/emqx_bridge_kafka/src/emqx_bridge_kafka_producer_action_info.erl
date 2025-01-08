@@ -24,7 +24,7 @@ connector_type_name() -> kafka_producer.
 schema_module() -> emqx_bridge_kafka.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    BridgeV1Config1 = maps:remove(<<"connector">>, ActionConfig),
+    BridgeV1Config1 = maps:without([<<"connector">>, <<"last_modified_at">>], ActionConfig),
     BridgeV1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config1),
     BridgeV1Config = emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, BridgeV1Config2),
     maps:update_with(

@@ -1984,6 +1984,7 @@ t_summary(Config) when is_list(Config) ->
                 <<"enabled">> := true,
                 <<"name">> := Name,
                 <<"type">> := Type,
+                <<"last_modified_at">> := _,
                 <<"node_status">> := [
                     #{
                         <<"node">> := _,
@@ -2035,6 +2036,7 @@ t_summary_inconsistent(Config) when is_list(Config) ->
                 <<"enabled">> := true,
                 <<"name">> := Name,
                 <<"type">> := Type,
+                <<"last_modified_at">> := _,
                 <<"node_status">> := [
                     #{
                         <<"node">> := _,
