@@ -16,6 +16,7 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
+    ok = emqx_mt_state:create_tables(),
     SupFlags = #{
         strategy => one_for_all,
         intensity => 10,

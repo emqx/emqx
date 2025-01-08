@@ -9,7 +9,6 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    ok = emqx_mt_state:create_tables(),
     ok = emqx_mt_hookcb:register_hooks(),
     emqx_mt_sup:start_link().
 
