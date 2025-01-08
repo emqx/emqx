@@ -30,16 +30,16 @@ More examples are:
 
 ## Tenant Client ID Isolation (available in Open-Source Edition)
 
-Ideally, if well planed, MQTT clients should be pre-assgined to avoid ID clashes between
+Ideally, if well planed, MQTT clients should be pre-assigned to avoid ID clashes between
 different tenants.
-And authenticate mechanisms can be employed to enfores that invalid client IDs are not
+And authentication mechanisms can be employed to enforces that invalid client IDs are not
 allowed to login.
 
 Nonetheless, starting from EMQX 5.8.3, the config `mqtt.clientid_override` can be used
-to assign a prefix for all clients so to avlid client ID clashing between the tenants.
+to assign a prefix for all clients so to avoid client ID clashing between the tenants.
 
-For example this config `mqtt.clientid_ovrride = "concat([username, '-', clientid])"`
-should add `usnername-` as prefix to the client ID internally in EMQX.
+For example this config `mqtt.clientid_override = "concat([username, '-', clientid])"`
+should add `username-` as prefix to the client ID internally in EMQX.
 
 ## Tenant Topic Isolation (available in Open-Source Edition)
 
@@ -174,7 +174,7 @@ the current client, and `put(rate_limiter, Name)`.
 
 ## Limitations
 
-There is so far no limit for the totoal number of tenants (unique `tns`).
+There is so far no limit for the total number of tenants (unique `tns`).
 Although creating large number of tenants is only a matter of RAM usage,
 it's still a good idea to have a limit to avoid abuse.
 
@@ -182,4 +182,4 @@ When there is a large number of tenants, the tenant listing API may cause excess
 CPU and RAM usage because it's so far not possible to be paginated.
 
 To avoid DoS attacks, it is the authentication subsystem's responsibility to
-ensure only ledgit tenants are allowed to connect.
+ensure only legit tenants are allowed to connect.

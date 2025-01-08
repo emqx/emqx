@@ -58,7 +58,7 @@
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
     node :: node(),
-    extra :: []
+    extra = [] :: nil()
 }).
 
 %% Mria table to store the number of clients in each namespace.

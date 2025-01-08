@@ -3,7 +3,7 @@ emqx_mt_api {
         desc: """~
             List all namespaces"
             The namespace is sorted in lexicographical order,
-            so tihis API can be used for prefix based fuzzy search.~"""
+            so this API can be used for prefix based fuzzy search.~"""
         label: "List Namespaces"
     }
     client_list {

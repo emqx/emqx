@@ -8,6 +8,7 @@
     get_max_sessions/1
 ]).
 
+%% Internal APIs for tests
 -export([
     tmp_set_default_max_sessions/1
 ]).

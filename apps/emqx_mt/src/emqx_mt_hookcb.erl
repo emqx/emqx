@@ -67,7 +67,7 @@ on_authenticate(
                     end;
                 {error, not_found} ->
                     %% TDOO: deny access when namespaces are managed by admin
-                    %% so fart ns is created from client attributes
+                    %% so far ns is created from client attributes
                     %% case emqx_mt_config:is_managed_ns() of
                     %%   true -> {stop, {error, not_auhorized}};
                     %%   false -> DefaultResult
