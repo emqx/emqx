@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -75,6 +75,9 @@ ensure_enabled(NameVsn, Position, LogFun) ->
 ensure_disabled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_disabled(NameVsn), LogFun).
 
+%% erlang cannot distinguish between "" and [], so best_effort_json is also helpless.
+to_json([]) ->
+    <<"[]">>;
 to_json(Input) ->
     emqx_logger_jsonfmt:best_effort_json(Input).
 

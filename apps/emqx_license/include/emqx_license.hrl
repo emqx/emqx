@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% @doc EMQX License Management CLI.
 %%--------------------------------------------------------------------
@@ -10,7 +10,8 @@
 -define(EVALUATION_LOG,
     "\n"
     "========================================================================\n"
-    "Using an evaluation license limited to ~p concurrent connections.\n"
+    "Using an evaluation license limited to ~p concurrent sessions.\n"
+    "This license is for evaluation purposes only and not permitted for production use.\n"
     "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply a new license.\n"
     "Or contact EMQ customer services via email contact@emqx.io\n"
     "========================================================================\n"

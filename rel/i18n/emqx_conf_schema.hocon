@@ -100,7 +100,7 @@ common_handler_max_depth.label:
 desc_log.desc:
 """EMQX supports multiple log handlers, one console handler and multiple file handlers.
 EMQX by default logs to console when running in docker or in console/foreground mode,
-otherwise it logs to file $EMQX_LOG_DIR/emqx.log.
+otherwise it logs to file `${EMQX_LOG_DIR}/emqx.log.N`.
 For advanced configuration, you can find more parameters in this section."""
 
 desc_log.label:

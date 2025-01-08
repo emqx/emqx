@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_gcp_pubsub_client).
@@ -180,17 +180,18 @@ query_async(
     ),
     do_send_requests_async(State, {prepared_request, PreparedRequest, ReqOpts}, ReplyFunAndArgs).
 
--spec get_status(state()) -> ?status_connected | ?status_disconnected.
+-spec get_status(state()) -> ?status_connected | {?status_disconnected, term()}.
 get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
     case do_get_status(PoolName, Timeout) of
-        true ->
+        ok ->
             ?status_connected;
-        false ->
+        {error, Reason} ->
             ?SLOG(error, #{
                 msg => "gcp_pubsub_bridge_get_status_failed",
-                state => State
+                state => State,
+                reason => Reason
             }),
-            ?status_disconnected
+            {?status_disconnected, Reason}
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -418,33 +419,45 @@ reply_delegator(ResourceId, ReplyFunAndArgs, Response) ->
     Result = handle_response(Response, ResourceId, _QueryMode = async),
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
--spec do_get_status(resource_id(), duration()) -> boolean().
+-spec do_get_status(resource_id(), duration()) -> ok | {error, term()}.
 do_get_status(ResourceId, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ResourceId)],
     DoPerWorker =
         fun(Worker) ->
             case ehttpc:health_check(Worker, Timeout) of
                 ok ->
-                    true;
+                    ok;
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => "ehttpc_health_check_failed",
+                        msg => "gcp_pubsub_ehttpc_health_check_failed",
                         connector => ResourceId,
                         reason => Reason,
                         worker => Worker,
                         wait_time => Timeout
                     }),
-                    false
+                    {error, Reason}
             end
         end,
     try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         [_ | _] = Status ->
-            lists:all(fun(St) -> St =:= true end, Status);
+            Errors = lists:filter(
+                fun
+                    (ok) -> false;
+                    (_) -> true
+                end,
+                Status
+            ),
+            case Errors of
+                [{error, FirstReason} | _] ->
+                    {error, FirstReason};
+                [] ->
+                    ok
+            end;
         [] ->
-            false
+            {error, no_workers_alive}
     catch
         exit:timeout ->
-            false
+            {error, timeout}
     end.
 
 -spec get_transport() -> {tls | tcp, string()}.

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -308,7 +308,7 @@ batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
 on_get_status(_InstId, #{health_check_error := true}) ->
     ?tp(connector_demo_health_check_error, #{}),
     ?status_disconnected;
-on_get_status(_InstId, State = #{health_check_error := {msg, Message}}) ->
+on_get_status(_InstId, _State = #{health_check_error := {msg, Message}}) ->
     ?tp(connector_demo_health_check_error, #{}),
     {?status_disconnected, Message};
 on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->

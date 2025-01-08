@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -794,6 +794,9 @@ handle_result({error, {unrecoverable_error, _Error}} = Res) ->
     Res;
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
+handle_result({error, #{reason := bad_param} = Context}) ->
+    ?tp("postgres_bad_param_error", #{context => Context}),
+    {error, {unrecoverable_error, Context}};
 handle_result({error, Error}) ->
     TranslatedError = translate_to_log_context(Error),
     {error, {unrecoverable_error, export_error(TranslatedError)}};

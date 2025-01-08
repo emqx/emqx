@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -97,6 +97,7 @@ init_per_group(Group, Config) when
 ->
     [
         {bridge_type, group_to_type(Group)},
+        {action_type, group_to_type(Group)},
         {connector_type, group_to_type(Group)}
         | Config
     ];
@@ -145,7 +146,10 @@ init_per_testcase(TestCase, Config) ->
         {connector_name, Name},
         {connector_config, ConnectorConfig},
         {bridge_type, proplists:get_value(bridge_type, Config, ?BRIDGE_TYPE)},
+        {action_type, proplists:get_value(action_type, Config, ?BRIDGE_TYPE)},
         {bridge_name, Name},
+        {action_name, Name},
+        {action_config, BridgeConfig},
         {bridge_config, BridgeConfig}
         | NConfig
     ].
@@ -232,6 +236,16 @@ make_message() ->
         timestamp => 1668602148000
     }.
 
+create_connector_api(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config)
+    ).
+
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -275,7 +289,7 @@ t_disable_prepared_statements(Config0) ->
     BatchTime = ?config(batch_time, Config0),
     ConnectorConfig0 = ?config(connector_config, Config0),
     ConnectorConfig = maps:merge(ConnectorConfig0, #{<<"disable_prepared_statements">> => true}),
-    BridgeConfig0 = ?config(bridge_config, Config0),
+    BridgeConfig0 = ?config(action_config, Config0),
     BridgeConfig = emqx_utils_maps:deep_merge(
         BridgeConfig0,
         #{
@@ -287,7 +301,7 @@ t_disable_prepared_statements(Config0) ->
         }
     ),
     Config1 = lists:keyreplace(connector_config, 1, Config0, {connector_config, ConnectorConfig}),
-    Config = lists:keyreplace(bridge_config, 1, Config1, {bridge_config, BridgeConfig}),
+    Config = lists:keyreplace(action_config, 1, Config1, {action_config, BridgeConfig}),
     ?check_trace(
         #{timetrap => 5_000},
         begin
@@ -376,5 +390,39 @@ t_update_with_invalid_prepare(Config) ->
             ?assertEqual(BridgeResId, Sig)
         end,
         WorkerPids
+    ),
+    ok.
+
+%% Checks that furnishing `epgsql' a value that cannot be encoded to a timestamp results
+%% in a pretty error instead of a crash.
+t_bad_datetime_param(Config) ->
+    {201, _} = create_connector_api(Config),
+    {201, _} = create_action_api(Config, #{
+        <<"parameters">> => #{
+            <<"sql">> => <<
+                "INSERT INTO mqtt_test(payload, arrived) "
+                "VALUES (${payload}, ${payload})"
+            >>
+        }
+    }),
+    RuleTopic = <<"bad/timestamp">>,
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+        ?config(action_type, Config), RuleTopic, Config, #{}
+    ),
+    Payload = <<"2024-06-30 00:10:00">>,
+    ?assertMatch(
+        {_,
+            {ok, #{
+                context := #{
+                    reason := bad_param,
+                    type := timestamp,
+                    index := 1,
+                    value := Payload
+                }
+            }}},
+        ?wait_async_action(
+            emqx:publish(emqx_message:make(RuleTopic, Payload)),
+            #{?snk_kind := "postgres_bad_param_error"}
+        )
     ),
     ok.

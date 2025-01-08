@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?GATEWAY_SUP_NAME}, ?MODULE, []).
 
 -spec load_gateway(gateway()) -> {ok, pid()} | {error, any()}.
 load_gateway(Gateway = #{name := GwName}) ->
@@ -58,13 +58,13 @@ load_gateway(Gateway = #{name := GwName}) ->
     | {error, not_found}
     | {error, any()}.
 unload_gateway(GwName) ->
-    case lists:keyfind(GwName, 1, supervisor:which_children(?MODULE)) of
+    case lists:keyfind(GwName, 1, supervisor:which_children(?GATEWAY_SUP_NAME)) of
         false ->
             {error, not_found};
         {_Id, Pid, _Type, _Mods} ->
             _ = emqx_gateway_gw_sup:remove_insta(Pid, GwName),
-            _ = supervisor:terminate_child(?MODULE, GwName),
-            _ = supervisor:delete_child(?MODULE, GwName),
+            _ = supervisor:terminate_child(?GATEWAY_SUP_NAME, GwName),
+            _ = supervisor:delete_child(?GATEWAY_SUP_NAME, GwName),
             ok
     end.
 
@@ -81,7 +81,7 @@ lookup_gateway(GwName) ->
     ok
     | {error, any()}.
 update_gateway(GwName, Config) ->
-    case emqx_gateway_utils:find_sup_child(?MODULE, GwName) of
+    case emqx_gateway_utils:find_sup_child(?GATEWAY_SUP_NAME, GwName) of
         {ok, GwSup} ->
             emqx_gateway_gw_sup:update_insta(GwSup, GwName, Config);
         _ ->
@@ -136,7 +136,7 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 ensure_gateway_suptree_ready(GwName) ->
-    case lists:keyfind(GwName, 1, supervisor:which_children(?MODULE)) of
+    case lists:keyfind(GwName, 1, supervisor:which_children(?GATEWAY_SUP_NAME)) of
         false ->
             ChildSpec = emqx_gateway_utils:childspec(
                 GwName,
@@ -145,7 +145,7 @@ ensure_gateway_suptree_ready(GwName) ->
                 [GwName]
             ),
             emqx_gateway_utils:supervisor_ret(
-                supervisor:start_child(?MODULE, ChildSpec)
+                supervisor:start_child(?GATEWAY_SUP_NAME, ChildSpec)
             );
         {_Id, Pid, _Type, _Mods} ->
             {ok, Pid}
@@ -167,7 +167,7 @@ started_gateway() ->
         fun({Id, _, _, _}) ->
             is_a_gateway_id(Id) andalso {true, Id}
         end,
-        supervisor:which_children(?MODULE)
+        supervisor:which_children(?GATEWAY_SUP_NAME)
     ).
 
 started_gateway_pid() ->
@@ -175,7 +175,7 @@ started_gateway_pid() ->
         fun({Id, Pid, _, _}) ->
             is_a_gateway_id(Id) andalso {true, Pid}
         end,
-        supervisor:which_children(?MODULE)
+        supervisor:which_children(?GATEWAY_SUP_NAME)
     ).
 
 is_a_gateway_id(Id) ->

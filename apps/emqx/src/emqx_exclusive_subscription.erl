@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -171,9 +171,11 @@ handle_info({membership, {mnesia, down, Node}}, State) ->
 handle_info({membership, {node, down, Node}}, State) ->
     cleanup_subscriptions(Node),
     {noreply, State};
+handle_info({membership, _}, State) ->
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(warning, #{
-        msg => "unexpected_info",
+        msg => "exclusive_sub_worker_unexpected_info",
         info => Info
     }),
     {noreply, State}.

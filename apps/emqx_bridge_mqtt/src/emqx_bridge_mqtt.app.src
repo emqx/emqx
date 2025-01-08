@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge_mqtt, [
     {description, "EMQX MQTT Broker Bridge"},
-    {vsn, "0.2.7"},
+    {vsn, "0.2.8"},
     {registered, []},
     {applications, [
         kernel,

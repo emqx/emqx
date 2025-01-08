@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("logger.hrl").
 
--define(MAX_INT_MQTT_PACKET_SIZE, 268435456).
+-define(MAX_INT_MQTT_PACKET_SIZE, 268435455).
 -define(MAX_INT_TIMEOUT_MS, 4294967295).
 %% floor(?MAX_INT_TIMEOUT_MS / 1000).
 -define(MAX_INT_TIMEOUT_S, 4294967).
@@ -92,10 +92,12 @@
 
 -export([
     validate_heap_size/1,
-    validate_packet_size/1,
+    validate_max_packet_size/1,
+    convert_max_packet_size/2,
     user_lookup_fun_tr/2,
     validate_keepalive_multiplier/1,
     non_empty_string/1,
+    non_empty_array/1,
     validations/0,
     naive_env_interpolation/1,
     ensure_unicode_path/2,
@@ -1456,6 +1458,22 @@ fields("sysmon") ->
                 %% Userful monitoring solution when benchmarking,
                 %% but hardly common enough for regular users.
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {"mnesia_tm_mailbox_size_alarm_threshold",
+            sc(
+                pos_integer(),
+                #{
+                    default => 500,
+                    desc => ?DESC("sysmon_mnesia_tm_mailbox_size_alarm_threshold")
+                }
+            )},
+        {"broker_pool_mailbox_size_alarm_threshold",
+            sc(
+                pos_integer(),
+                #{
+                    default => 500,
+                    desc => ?DESC("sysmon_broker_pool_mailbox_size_alarm_threshold")
+                }
             )}
     ];
 fields("sysmon_vm") ->
@@ -2835,15 +2853,24 @@ validate_heap_size(Siz) when is_integer(Siz) ->
 validate_heap_size(_SizStr) ->
     {error, invalid_heap_size}.
 
-validate_packet_size(Siz) when is_integer(Siz) andalso Siz < 1 ->
-    {error, #{reason => max_mqtt_packet_size_too_small, minimum => 1}};
-validate_packet_size(Siz) when is_integer(Siz) andalso Siz > ?MAX_INT_MQTT_PACKET_SIZE ->
-    Max = integer_to_list(round(?MAX_INT_MQTT_PACKET_SIZE / 1024 / 1024)) ++ "M",
-    {error, #{reason => max_mqtt_packet_size_too_large, maximum => Max}};
-validate_packet_size(Siz) when is_integer(Siz) ->
+validate_max_packet_size(Siz) when is_integer(Siz) andalso Siz < 1 ->
+    {error, #{cause => max_mqtt_packet_size_too_small, minimum => 1}};
+validate_max_packet_size(Siz) when is_integer(Siz) andalso Siz > ?MAX_INT_MQTT_PACKET_SIZE ->
+    {error, #{
+        cause => max_mqtt_packet_size_too_large,
+        maximum => ?MAX_INT_MQTT_PACKET_SIZE
+    }};
+validate_max_packet_size(Siz) when is_integer(Siz) ->
     ok;
-validate_packet_size(_SizStr) ->
+validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
+
+%% This is for backward compatibility.
+%% We used to allow setting 256MB, but in fact the limit is one byte less.
+convert_max_packet_size(<<"256MB">>, _) ->
+    ?MAX_INT_MQTT_PACKET_SIZE;
+convert_max_packet_size(X, _) ->
+    X.
 
 validate_keepalive_multiplier(Multiplier) when
     is_number(Multiplier) andalso Multiplier >= 1.0 andalso Multiplier =< 65535.0
@@ -3022,6 +3049,13 @@ non_empty_string(<<>>) -> {error, empty_string_not_allowed};
 non_empty_string("") -> {error, empty_string_not_allowed};
 non_empty_string(S) when is_binary(S); is_list(S) -> ok;
 non_empty_string(_) -> {error, invalid_string}.
+
+non_empty_array([]) ->
+    {error, empty_array_not_allowed};
+non_empty_array(List) when is_list(List) ->
+    ok;
+non_empty_array(_) ->
+    {error, invalid_data}.
 
 %% @doc Make schema for 'server' or 'servers' field.
 %% for each field, there are three passes:
@@ -3604,7 +3638,8 @@ mqtt_general() ->
                 bytesize(),
                 #{
                     default => <<"1MB">>,
-                    validator => fun ?MODULE:validate_packet_size/1,
+                    validator => fun ?MODULE:validate_max_packet_size/1,
+                    converter => fun ?MODULE:convert_max_packet_size/2,
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},

@@ -1,6 +1,6 @@
 {application, emqx_bridge_mongodb, [
     {description, "EMQX Enterprise MongoDB Bridge"},
-    {vsn, "0.3.5"},
+    {vsn, "0.3.6"},
     {registered, []},
     {applications, [
         kernel,

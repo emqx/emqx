@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -404,12 +404,6 @@ handle_action(RuleId, ActId, Selected, Envs) ->
     try
         do_handle_action(RuleId, ActId, Selected, Envs)
     catch
-        throw:out_of_service ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            ok = emqx_metrics_worker:inc(
-                rule_metrics, RuleId, 'actions.failed.out_of_service'
-            ),
-            trace_action(ActId, "out_of_service", #{}, warning);
         throw:{discard, Reason} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.discarded'),
             trace_action(ActId, "discarded", #{cause => Reason}, debug);
@@ -422,6 +416,10 @@ handle_action(RuleId, ActId, Selected, Envs) ->
             ),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+        throw:{failed, unhealthy_target} ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unhealthy_target'),
+            trace_action(ActId, "action_failed", #{reason => unhealthy_target}, error);
         Err:Reason:ST ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
@@ -449,8 +447,6 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selec
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
             throw({discard, Reason});
-        ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
-            throw(out_of_service);
         Result ->
             Result
     end;
@@ -473,8 +469,8 @@ do_handle_action(
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
             throw({discard, Reason});
-        ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
-            throw(out_of_service);
+        {error, {resource_error, #{reason := unhealthy_target}}} ->
+            throw({failed, unhealthy_target});
         Result ->
             Result
     end;
@@ -776,6 +772,13 @@ do_inc_action_metrics(
     ),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+do_inc_action_metrics(
+    #{rule_id := RuleId, action_id := ActId},
+    ?RESOURCE_ERROR_M(R, _)
+) when ?IS_RES_DOWN(R) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
+    trace_action(ActId, "out_of_service", #{}, warning);
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
     {error, {recoverable_error, _}} = Reason

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -77,11 +77,15 @@ subscribe_remote_topics(Pid, IngressList, WorkerIdx, PoolSize, Name) ->
     [subscribe_remote_topic(Pid, Ingress, WorkerIdx, PoolSize, Name) || Ingress <- IngressList].
 
 subscribe_remote_topic(
-    Pid, #{remote := #{topic := RemoteTopic, qos := QoS}} = _Remote, WorkerIdx, PoolSize, Name
+    Pid,
+    #{remote := #{topic := RemoteTopic, qos := QoS, no_local := NoLocal}} = _Remote,
+    WorkerIdx,
+    PoolSize,
+    Name
 ) ->
     case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _LogWarn = true) of
         true ->
-            emqtt:subscribe(Pid, RemoteTopic, QoS);
+            emqtt:subscribe(Pid, RemoteTopic, [{qos, QoS}, {nl, NoLocal}]);
         false ->
             ok
     end.

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -69,7 +69,8 @@ all() ->
         {group, udp_listener},
         {group, dtls_listener},
         {group, https_grpc_server},
-        {group, streaming_connection_handler}
+        {group, streaming_connection_handler},
+        {group, hostname_grpc_server}
     ].
 
 suite() ->
@@ -93,7 +94,8 @@ groups() ->
         {udp_listener, [sequence], MainCases},
         {dtls_listener, [sequence], MainCases},
         {streaming_connection_handler, [sequence], MainCases},
-        {https_grpc_server, [sequence], MainCases}
+        {https_grpc_server, [sequence], MainCases},
+        {hostname_grpc_server, [sequence], MainCases}
     ].
 
 init_per_group(GrpName, Cfg) when
@@ -109,17 +111,27 @@ init_per_group(GrpName, Cfg) when
             udp_listener -> udp;
             dtls_listener -> dtls
         end,
-    init_per_group(LisType, 'ConnectionUnaryHandler', http, Cfg);
-init_per_group(https_grpc_server, Cfg) ->
-    init_per_group(tcp, 'ConnectionUnaryHandler', https, Cfg);
-init_per_group(streaming_connection_handler, Cfg) ->
-    init_per_group(tcp, 'ConnectionHandler', http, Cfg);
-init_per_group(_, Cfg) ->
-    init_per_group(tcp, 'ConnectionUnaryHandler', http, Cfg).
+    init_per_group(GrpName, LisType, 'ConnectionUnaryHandler', http, Cfg);
+init_per_group(https_grpc_server = GrpName, Cfg) ->
+    init_per_group(GrpName, tcp, 'ConnectionUnaryHandler', https, Cfg);
+init_per_group(streaming_connection_handler = GrpName, Cfg) ->
+    init_per_group(GrpName, tcp, 'ConnectionHandler', http, Cfg);
+init_per_group(GrpName, Cfg) ->
+    init_per_group(GrpName, tcp, 'ConnectionUnaryHandler', http, Cfg).
 
-init_per_group(LisType, ServiceName, Scheme, Cfg) ->
+init_per_group(GrpName, LisType, ServiceName, Scheme, Cfg) ->
     Svrs = emqx_exproto_echo_svr:start(Scheme),
-    Addrs = lists:flatten(io_lib:format("~s://127.0.0.1:9001", [Scheme])),
+    Addrs = lists:flatten(
+        io_lib:format("~s://~s:9001", [
+            Scheme,
+            case GrpName of
+                hostname_grpc_server ->
+                    "localhost";
+                _ ->
+                    "127.0.0.1"
+            end
+        ])
+    ),
     GWConfig = #{
         server => #{bind => 9100},
         idle_timeout => 5000,

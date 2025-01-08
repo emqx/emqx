@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ authenticate_with_filter(
         resource_id := ResourceId
     } = State
 ) ->
-    case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter, #{}}) of
+    case emqx_resource:simple_sync_query(ResourceId, {find_one, Collection, Filter}) of
         {ok, undefined} ->
             ignore;
         {error, Reason} ->
@@ -116,7 +116,7 @@ authenticate_with_filter(
 %%------------------------------------------------------------------------------
 
 parse_config(#{filter := Filter} = Config) ->
-    FilterTemplate = emqx_authn_utils:parse_deep(Filter),
+    FilterTemplate = emqx_authn_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter)),
     State = maps:with(
         [
             collection,

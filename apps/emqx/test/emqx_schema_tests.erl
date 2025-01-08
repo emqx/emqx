@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -942,3 +942,46 @@ unicode_template_test() ->
         #{<<"root">> => #{<<"template">> => <<"中文"/utf8>>}},
         hocon_tconf:check_plain(Sc, Hocon)
     ).
+
+max_packet_size_test_() ->
+    Sc = emqx_schema,
+    Check = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(Sc, Hocon, #{}, [mqtt])
+    end,
+    [
+        {"one byte less than 256MB", fun() ->
+            ?assertMatch(
+                #{<<"mqtt">> := #{<<"max_packet_size">> := 268435455}},
+                Check(<<"mqtt.max_packet_size = 256MB">>)
+            )
+        end},
+        {"default value", fun() ->
+            ?assertMatch(
+                #{<<"mqtt">> := #{<<"max_packet_size">> := 1048576}},
+                Check(<<"mqtt.max_packet_size = null">>)
+            )
+        end},
+        {"1KB is 1024 bytes", fun() ->
+            ?assertMatch(
+                #{<<"mqtt">> := #{<<"max_packet_size">> := 1024}},
+                Check(<<"mqtt.max_packet_size = 1KB">>)
+            )
+        end},
+        {"257MB is not allowed", fun() ->
+            ?assertThrow(
+                {emqx_schema, [
+                    #{reason := #{cause := max_mqtt_packet_size_too_large, maximum := 268435455}}
+                ]},
+                Check(<<"mqtt.max_packet_size = 257MB">>)
+            )
+        end},
+        {"0 is not allowed", fun() ->
+            ?assertThrow(
+                {emqx_schema, [
+                    #{reason := #{cause := max_mqtt_packet_size_too_small, minimum := 1}}
+                ]},
+                Check(<<"mqtt.max_packet_size = 0">>)
+            )
+        end}
+    ].
