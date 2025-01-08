@@ -1169,7 +1169,7 @@ t_query_uses_action_query_mode(_Config) ->
     %% when querying the resource.
 
     %% Set one query mode for the connector...
-    meck:new(con_mod(), [passthrough, no_history, non_strict]),
+    meck:new(con_mod(), [passthrough, no_history]),
     on_exit(fun() -> catch meck:unload([con_mod()]) end),
     meck:expect(con_mod(), query_mode, 1, sync),
     meck:expect(con_mod(), callback_mode, 0, always_sync),

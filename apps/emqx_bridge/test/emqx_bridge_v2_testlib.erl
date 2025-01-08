@@ -22,14 +22,17 @@ end).
 
 %% ct setup helpers
 
+%% Deprecated: better to inline the setup in the test suite.
 init_per_suite(Config, Apps) ->
     [{start_apps, Apps} | Config].
 
+%% Deprecated: better to inline the setup in the test suite.
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
+    emqx_maybe:apply(fun emqx_cth_suite:stop/1, Apps),
     ok.
 
+%% Deprecated: better to inline the setup in the test suite.
 init_per_group(TestGroup, BridgeType, Config) ->
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
@@ -50,6 +53,7 @@ init_per_group(TestGroup, BridgeType, Config) ->
         | Config
     ].
 
+%% Deprecated: better to inline the setup in the test suite.
 end_per_group(Config) ->
     Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
@@ -58,6 +62,7 @@ end_per_group(Config) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
+%% Deprecated: better to inline the setup in the test suite.
 init_per_testcase(TestCase, Config0, BridgeConfigCb) ->
     ct:timetrap(timer:seconds(60)),
     delete_all_bridges_and_connectors(),
@@ -80,6 +85,7 @@ init_per_testcase(TestCase, Config0, BridgeConfigCb) ->
         | Config
     ].
 
+%% Deprecated: better to inline the setup in the test suite.
 end_per_testcase(_Testcase, Config) ->
     case proplists:get_bool(skip_does_not_apply, Config) of
         true ->

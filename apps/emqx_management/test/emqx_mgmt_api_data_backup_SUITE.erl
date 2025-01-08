@@ -153,6 +153,17 @@ t_export_bad_table_sets(Config) ->
     ),
     ok.
 
+%% Checks returned error when one or more invalid root config keys are given to the export
+%% request.
+t_export_bad_root_keys(Config) ->
+    Auth = ?config(auth, Config),
+    Body = #{<<"root_keys">> => [<<"foo">>, <<"bar">>, <<"foo">>]},
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Invalid root keys: bar, foo">>}},
+        export_backup2(?NODE1_PORT, Auth, Body)
+    ),
+    ok.
+
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
@@ -414,7 +425,8 @@ test_case_specific_apps_spec(TC) when
 test_case_specific_apps_spec(t_export_cloud) ->
     [
         emqx_auth,
-        emqx_auth_mnesia
+        emqx_auth_mnesia,
+        emqx_schema_registry
     ];
 test_case_specific_apps_spec(_TC) ->
     [].

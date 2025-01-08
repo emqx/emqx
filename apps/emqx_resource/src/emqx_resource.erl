@@ -109,6 +109,7 @@
     %% stop the instance
     call_stop/3,
     %% get the query mode of the resource
+    query_mode/2,
     query_mode/3,
     %% Add channel to resource
     call_add_channel/5,
@@ -147,6 +148,8 @@
 
 -export_type([
     query_mode/0,
+    query_kind/0,
+    resource_query_mode/0,
     resource_id/0,
     channel_id/0,
     resource_data/0,
@@ -215,7 +218,7 @@
     | {channel_status(), Reason :: term()}
     | {error, term()}.
 
--callback query_mode(Config :: term()) -> query_mode().
+-callback query_mode(Config :: term()) -> resource_query_mode().
 
 -callback query_opts(Config :: term()) -> #{timeout => timeout()}.
 
@@ -273,6 +276,8 @@
         end
     end)()
 ).
+
+-type channel_config() :: map().
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -632,11 +637,16 @@ call_stop(ResId, Mod, ResourceState) ->
         Res
     end).
 
--spec query_mode(module(), term(), creation_opts()) -> query_mode().
-query_mode(Mod, Config, Opts) ->
+-spec query_mode(module(), channel_config()) -> resource_query_mode().
+query_mode(Mod, ChannelConfig) ->
+    ResourceOpts = fetch_creation_opts(ChannelConfig),
+    query_mode(Mod, ChannelConfig, ResourceOpts).
+
+-spec query_mode(module(), channel_config(), creation_opts()) -> resource_query_mode().
+query_mode(Mod, ChannelConfig, Opts) ->
     case erlang:function_exported(Mod, query_mode, 1) of
         true ->
-            Mod:query_mode(Config);
+            Mod:query_mode(ChannelConfig);
         false ->
             maps:get(query_mode, Opts, sync)
     end.
