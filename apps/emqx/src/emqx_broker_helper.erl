@@ -48,6 +48,9 @@
     code_change/3
 ]).
 
+%% Internal APIs
+-export([clean_down/1]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -158,29 +161,29 @@ init([]) ->
     ok = emqx_utils_ets:new(?SUBMON, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% Stats timer
     ok = emqx_stats:update_interval(broker_stats, fun ?MODULE:stats_fun/0),
-    {ok, #{pmon => emqx_pmon:new()}}.
+    {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({register_sub, SubPid, SubId}, State = #{pmon := PMon}) ->
+handle_cast({register_sub, SubPid, SubId}, State) ->
     true = (SubId =:= undefined) orelse ets:insert(?SUBID, {SubId, SubPid}),
+    _ = erlang:monitor(process, SubPid),
     true = ets:insert(?SUBMON, {SubPid, SubId}),
-    {noreply, State#{pmon := emqx_pmon:monitor(SubPid, PMon)}};
+    {noreply, State};
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
+    ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) ->
+handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State) ->
     SubPids = [SubPid | emqx_utils:drain_down(?BATCH_SIZE)],
     ok = emqx_pool:async_submit(
-        fun lists:foreach/2, [fun clean_down/1, SubPids]
+        fun lists:foreach/2, [fun ?MODULE:clean_down/1, SubPids]
     ),
-    {_, PMon1} = emqx_pmon:erase_all(SubPids, PMon),
-    {noreply, State#{pmon := PMon1}};
+    {noreply, State};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+    ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
