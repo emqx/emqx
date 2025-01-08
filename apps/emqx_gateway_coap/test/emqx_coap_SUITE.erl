@@ -541,6 +541,8 @@ t_clients_api(_) ->
             request(get, "/gateways/coap/clients/client1"),
         %% assert
         Client1 = Client2 = Client3 = Client4,
+        %% assert keepalive
+        ?assertEqual(15, maps:get(keepalive, Client4)),
         %% kickout
         {204, _} =
             request(delete, "/gateways/coap/clients/client1"),

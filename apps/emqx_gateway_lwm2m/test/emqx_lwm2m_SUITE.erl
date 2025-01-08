@@ -2501,6 +2501,8 @@ case100_clients_api(Config) ->
         request(get, "/gateways/lwm2m/clients/" ++ binary_to_list(ClientId)),
     %% assert
     Client1 = Client2 = Client3 = Client4,
+    %% assert keepalive
+    ?assertEqual(345, maps:get(keepalive, Client4)),
     %% kickout
     {204, _} =
         request(delete, "/gateways/lwm2m/clients/" ++ binary_to_list(ClientId)),
