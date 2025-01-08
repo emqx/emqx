@@ -194,7 +194,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
 ->
     Chan = {ClientId, ChanPid},
     %% cast (for process monitor) before inserting ets tables
-    cast({registered, Chan}),
+    ok = cast({registered, Chan}),
     true = ets:insert(?CHAN_TAB, Chan),
     true = ets:insert(?CHAN_CONN_TAB, #chan_conn{pid = ChanPid, mod = ConnMod, clientid = ClientId}),
     ok = emqx_cm_registry:register_channel(Chan),
@@ -764,7 +764,9 @@ wrap_rpc(Result) ->
     end.
 
 %% @private
-cast(Msg) -> gen_server:cast(?CM, Msg).
+cast(Msg) ->
+    _ = erlang:send(?CM, Msg),
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -781,16 +783,16 @@ init([]) ->
     {ok, State}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    ?SLOG(error, #{msg => "emqx_cm_unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
-    PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
-    {noreply, State#{chan_pmon := PMon1}};
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
+    ?SLOG(error, #{msg => "emqx_cm_unexpected_cast", cast => Msg}),
     {noreply, State}.
 
+handle_info({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
+    PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
+    {noreply, State#{chan_pmon := PMon1}};
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
     ?tp(emqx_cm_process_down, #{stale_pid => Pid, reason => _Reason}),
     BatchSize = emqx:get_config([node, channel_cleanup_batch_size], ?BATCH_SIZE),
@@ -804,8 +806,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}
     ),
     {noreply, State#{chan_pmon := PMon1}};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "unexpected_info", info => Info}),
-
+    ?SLOG(error, #{msg => "emqx_cm_unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
