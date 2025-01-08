@@ -141,7 +141,12 @@ jobs:
         nohup bash -c "while true; do kubectl port-forward service/${EMQX_NAME} 18083:18083 ; sleep 1 ; done" &
     - name: Get auth token
       run: |
-        curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 http://localhost:18083/status
+        curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 \
+          http://localhost:18083/status || {
+            echo "/status failed to respond with healthy response"
+            kubectl logs -l "app.kubernetes.io/instance=${EMQX_NAME}" -c emqx --tail=1000
+            exit 1
+          }
         echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
     - name: Check cluster
       timeout-minutes: 1
