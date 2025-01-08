@@ -92,7 +92,10 @@
     failed_to_retain_message,
     handle_resource_metrics_failed,
     socket_receive_paused_by_rate_limit,
-    unrecoverable_resource_error
+    unrecoverable_resource_error,
+    retain_failed_for_rate_exceeded_limit,
+    retained_delete_failed_for_rate_exceeded_limit,
+    retain_failed_for_payload_size_exceeded_limit
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).
