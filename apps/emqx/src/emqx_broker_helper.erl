@@ -150,6 +150,7 @@ table_size(Tab) when is_atom(Tab) -> ets:info(Tab, size).
 %%--------------------------------------------------------------------
 
 init([]) ->
+    process_flag(priority, high),
     process_flag(message_queue_data, off_heap),
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
