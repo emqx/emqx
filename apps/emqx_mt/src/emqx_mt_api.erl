@@ -45,8 +45,8 @@ api_spec() ->
 paths() ->
     [
         "/mt/ns_list",
-        "/mt/:ns/client_list",
-        "/mt/:ns/client_count"
+        "/mt/ns/:ns/client_list",
+        "/mt/ns/:ns/client_count"
     ].
 
 schema("/mt/ns_list") ->
@@ -70,7 +70,7 @@ schema("/mt/ns_list") ->
                 }
         }
     };
-schema("/mt/:ns/client_list") ->
+schema("/mt/ns/:ns/client_list") ->
     #{
         'operationId' => client_list,
         get => #{
@@ -93,7 +93,7 @@ schema("/mt/:ns/client_list") ->
                 }
         }
     };
-schema("/mt/:ns/client_count") ->
+schema("/mt/ns/:ns/client_count") ->
     #{
         'operationId' => client_count,
         get => #{
@@ -136,7 +136,7 @@ last_ns_in_query() ->
 limit_in_query() ->
     {limit,
         mk(
-            non_neg_integer(),
+            pos_integer(),
             #{
                 in => query,
                 required => false,

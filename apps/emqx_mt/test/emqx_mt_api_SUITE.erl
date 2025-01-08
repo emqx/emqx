@@ -31,7 +31,6 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _} = emqx_common_test_http:create_default_app(),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -124,7 +123,7 @@ url(Path) ->
     emqx_mgmt_api_test_util:api_path(["mt", Path]).
 
 ns_url(Ns, Path) ->
-    emqx_mgmt_api_test_util:api_path(["mt", Ns, Path]).
+    emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, Path]).
 
 request(Method, Url, Params) ->
     Headers = [],
