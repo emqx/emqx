@@ -14,6 +14,10 @@
     desc/1
 ]).
 
+-export([
+    validate_sample_ratio/1
+]).
+
 namespace() -> opentelemetry.
 
 roots() ->
@@ -285,6 +289,7 @@ fields("e2e_tracing_options") ->
                 #{
                     default => <<"10%">>,
                     desc => ?DESC(sample_ratio),
+                    validator => fun ?MODULE:validate_sample_ratio/1,
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
@@ -357,3 +362,8 @@ legacy_metrics_converter(OtelConf, _Opts) when is_map(OtelConf) ->
     end;
 legacy_metrics_converter(Conf, _Opts) ->
     Conf.
+
+validate_sample_ratio(Ratio) when 0.0 =< Ratio andalso Ratio =< 1.0 ->
+    ok;
+validate_sample_ratio(_Ratio) ->
+    {error, <<"The sample_ratio is a value between 0 and 1.">>}.
