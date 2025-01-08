@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,6 +47,8 @@
 -export([maybe_resolve_srv_and_txt_records/1]).
 
 -define(HEALTH_CHECK_TIMEOUT, 30000).
+-define(DEFAULT_MONGO_LIMIT, 1000).
+-define(DEFAULT_MONGO_BATCH_SIZE, 100).
 
 %% mongo servers don't need parse
 -define(MONGO_HOST_OPTIONS, #{
@@ -234,7 +236,7 @@ on_stop(InstId, _State) ->
 
 on_query(
     InstId,
-    {_ChannelId, Document},
+    {insert, Document},
     #{pool_name := PoolName, collection := Collection} = State
 ) ->
     Request = {insert, Collection, Document},
@@ -263,12 +265,21 @@ on_query(
         {{true, _Info}, _Document} ->
             ok
     end;
-on_query(
+on_query(InstId, {find_one, Collection, Filter}, State) ->
+    on_select_query(InstId, {find_one, Collection, Filter, #{}}, State);
+on_query(InstId, {find_one, _Collection, _Filter, _Options} = Request, State) ->
+    on_select_query(InstId, Request, State);
+on_query(InstId, {find, Collection, Filter}, State) ->
+    on_select_query(InstId, {find, Collection, Filter, #{}}, State);
+on_query(InstId, {find, _Collection, _Filter, _Options} = Request, State) ->
+    on_select_query(InstId, Request, State).
+
+on_select_query(
     InstId,
-    {Action, Collection, Filter, Projector},
+    {Action, Collection, Filter, Options},
     #{pool_name := PoolName} = State
 ) ->
-    Request = {Action, Collection, Filter, Projector},
+    Request = {Action, Collection, Filter, Options},
     ?TRACE(
         "QUERY",
         "mongodb_connector_received",
@@ -277,7 +288,7 @@ on_query(
     case
         ecpool:pick_and_do(
             PoolName,
-            {?MODULE, mongo_query, [Action, Collection, Filter, Projector]},
+            {?MODULE, mongo_query, [Action, Collection, Filter, Options]},
             no_handover
         )
     of
@@ -295,7 +306,8 @@ on_query(
                     {error, Reason}
             end;
         {ok, Cursor} when is_pid(Cursor) ->
-            {ok, mc_cursor:foldl(fun(O, Acc2) -> [O | Acc2] end, [], Cursor, 1000)};
+            Limit = maps:get(limit, Options, ?DEFAULT_MONGO_LIMIT),
+            {ok, mc_cursor:take(Cursor, Limit)};
         Result ->
             {ok, Result}
     end.
@@ -380,14 +392,19 @@ connect(Opts) ->
     Hosts = proplists:get_value(hosts, Opts, []),
     Options = proplists:get_value(options, Opts, []),
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
+    ?SLOG(warning, #{msg => "connecting_mongodb", args => [Type, Hosts, Options, WorkerOptions]}),
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
-mongo_query(Conn, find, Collection, Filter, Projector) ->
-    mongo_api:find(Conn, Collection, Filter, Projector);
-mongo_query(Conn, find_one, Collection, Filter, Projector) ->
-    mongo_api:find_one(Conn, Collection, Filter, Projector);
-%% Todo xxx
-mongo_query(_Conn, _Action, _Collection, _Filter, _Projector) ->
+mongo_query(Conn, find, Collection, Filter, Options) ->
+    Projector = maps:get(projector, Options, #{}),
+    Skip = maps:get(skip, Options, 0),
+    BatchSize = maps:get(batch_size, Options, ?DEFAULT_MONGO_BATCH_SIZE),
+    mongo_api:find(Conn, Collection, Filter, Projector, Skip, BatchSize);
+mongo_query(Conn, find_one, Collection, Filter, Options) ->
+    Projector = maps:get(projector, Options, #{}),
+    Skip = maps:get(skip, Options, 0),
+    mongo_api:find_one(Conn, Collection, Filter, Projector, Skip);
+mongo_query(_Conn, _Action, _Collection, _Filter, _Options) ->
     ok.
 
 mongo_insert(Conn, Collection, Documents) ->

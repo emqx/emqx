@@ -1,7 +1,9 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_iotdb_connector).
+
+-feature(maybe_expr, enable).
 
 -behaviour(emqx_connector_examples).
 
@@ -705,12 +707,20 @@ get_payload(Payload) ->
     Payload.
 
 parse_payload(ParsedPayload) when is_map(ParsedPayload) ->
-    ParsedPayload;
+    {ok, ParsedPayload};
 parse_payload(UnparsedPayload) when is_binary(UnparsedPayload) ->
-    emqx_utils_json:decode(UnparsedPayload).
+    try emqx_utils_json:decode(UnparsedPayload) of
+        Term when is_map(Term) -> {ok, Term};
+        _ ->
+            %% a plain text will be returned as it is, but here we hope it is a map
+            {error, {invalid_data, <<"The payload is not a JSON data">>}}
+    catch
+        _:_ ->
+            {error, {invalid_data, <<"The payload is not a valid JSON data">>}}
+    end.
 
 iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
-    Timestamp;
+    {ok, Timestamp};
 iot_timestamp(TimestampTkn, Msg, Nows) ->
     iot_timestamp(emqx_placeholder:proc_tmpl(TimestampTkn, Msg), Nows).
 
@@ -718,15 +728,20 @@ iot_timestamp(TimestampTkn, Msg, Nows) ->
 %% but an instance only supports one time unit,
 %% and the time unit cannot be changed after the database is started.
 iot_timestamp(<<"now_us">>, #{now_us := NowUs}) ->
-    NowUs;
+    {ok, NowUs};
 iot_timestamp(<<"now_ns">>, #{now_ns := NowNs}) ->
-    NowNs;
+    {ok, NowNs};
 iot_timestamp(Timestamp, #{now_ms := NowMs}) when
     Timestamp =:= <<"now">>; Timestamp =:= <<"now_ms">>; Timestamp =:= <<>>
 ->
-    NowMs;
+    {ok, NowMs};
 iot_timestamp(Timestamp, _) when is_binary(Timestamp) ->
-    binary_to_integer(Timestamp).
+    case string:to_integer(Timestamp) of
+        {Timestamp1, <<>>} ->
+            {ok, Timestamp1};
+        _ ->
+            {error, {invalid_data, <<"Timestamp is undefined or not a integer">>}}
+    end.
 
 proc_value(<<"TEXT">>, ValueTkn, Msg) ->
     case emqx_placeholder:proc_tmpl(ValueTkn, Msg) of
@@ -794,7 +809,7 @@ convert_float(undefined) ->
 device_id(Message, Payload, Channel) ->
     case maps:get(device_id, Channel, []) of
         [] ->
-            maps:get(<<"device_id">>, Payload, undefined);
+            maps:get(<<"device_id">>, Payload, <<"undefined">>);
         DeviceIdTkn ->
             emqx_placeholder:proc_tmpl(DeviceIdTkn, Message)
     end.
@@ -901,38 +916,38 @@ do_render_record([{_, Msg} | Msgs], Channel, Acc) ->
     end.
 
 render_channel_record(#{data := DataTemplate} = Channel, Msg) ->
-    Payload = parse_payload(get_payload(Msg)),
-    case device_id(Msg, Payload, Channel) of
-        undefined ->
-            {error, device_id_missing};
-        DeviceId ->
-            #{timestamp := TimestampTkn} = hd(DataTemplate),
-            NowNS = erlang:system_time(nanosecond),
-            Nows = #{
-                now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
-                now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
-                now_ns => NowNS
-            },
-            case
-                proc_record_data(
-                    DataTemplate,
-                    Msg,
-                    [],
-                    [],
-                    []
-                )
-            of
-                {ok, MeasurementAcc, TypeAcc, ValueAcc} ->
-                    {ok, #{
-                        timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
-                        measurements => MeasurementAcc,
-                        data_types => TypeAcc,
-                        values => ValueAcc,
-                        device_id => DeviceId
-                    }};
-                Error ->
-                    Error
-            end
+    maybe
+        {ok, Payload} ?= parse_payload(get_payload(Msg)),
+        DeviceId = device_id(Msg, Payload, Channel),
+        true ?= (<<"undefined">> =/= DeviceId),
+        #{timestamp := TimestampTkn} = hd(DataTemplate),
+        NowNS = erlang:system_time(nanosecond),
+        Nows = #{
+            now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
+            now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
+            now_ns => NowNS
+        },
+        {ok, MeasurementAcc, TypeAcc, ValueAcc} ?=
+            proc_record_data(
+                DataTemplate,
+                Msg,
+                [],
+                [],
+                []
+            ),
+        {ok, Timestamp} ?= iot_timestamp(TimestampTkn, Msg, Nows),
+        {ok, #{
+            timestamp => Timestamp,
+            measurements => MeasurementAcc,
+            data_types => TypeAcc,
+            values => ValueAcc,
+            device_id => DeviceId
+        }}
+    else
+        false ->
+            {error, {invalid_data, <<"Can not find the device ID">>}};
+        Error ->
+            Error
     end.
 
 proc_record_data(
@@ -960,9 +975,9 @@ proc_record_data(
     catch
         throw:Reason ->
             {error, Reason};
-        Error:Reason:Stacktrace ->
-            ?SLOG(debug, #{exception => Error, reason => Reason, stacktrace => Stacktrace}),
-            {error, invalid_data}
+        Error:Reason ->
+            ?SLOG(debug, #{exception => Error, reason => Reason}),
+            {error, {invalid_data, Reason}}
     end;
 proc_record_data([], _Msg, MeasurementAcc, TypeAcc, ValueAcc) ->
     {ok, MeasurementAcc, TypeAcc, ValueAcc}.

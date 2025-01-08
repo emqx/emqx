@@ -17,7 +17,9 @@ clean_start.label:
 """Clean Session"""
 
 clientid_prefix.desc:
-"""Optional prefix to prepend to the clientid used by egress bridges."""
+"""~
+Optional prefix to prepend to the clientid used by egress bridges.
+Does not apply if `static_clientids` is used.~"""
 
 clientid_prefix.label:
 """Clientid Prefix"""
@@ -33,9 +35,12 @@ egress_desc.label:
 """Egress Configs"""
 
 egress_pool_size.desc:
-"""Size of the pool of MQTT clients that will publish messages to the remote broker.<br/>
+"""~
+Size of the pool of MQTT clients that will publish messages to the remote broker.<br/>
 Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:egress:${node}:${n}'
-where 'n' is the number of a client inside the pool."""
+where 'n' is the number of a client inside the pool.
+
+This option does not take effect if `static_clientids` is not empty. When static client IDs is in use, pool size is always derived from the number of assigned IDs for each node.~"""
 
 egress_pool_size.label:
 """Pool Size"""
@@ -84,12 +89,15 @@ ingress_desc.label:
 """Ingress Configs"""
 
 ingress_pool_size.desc:
-"""Size of the pool of MQTT clients that will ingest messages from the remote broker.<br/>
+"""~
+Size of the pool of MQTT clients that will ingest messages from the remote broker.<br/>
 This value will be respected only if 'remote.topic' is a shared subscription topic or topic-filter
 (for example `$share/name1/topic1` or `$share/name2/topic2/#`), otherwise only a single MQTT client will be used.
 Each MQTT client will be assigned 'clientid' of the form '${clientid_prefix}:${bridge_name}:ingress:${node}:${n}'
 where 'n' is the number of a client inside the pool.
-NOTE: Non-shared subscription will not work well when EMQX is clustered."""
+NOTE: Non-shared subscription will not work well when EMQX is clustered.
+
+This option does not take effect if `static_clientids` is not empty. When static client IDs is in use, pool size is always derived from the number of assigned IDs for each node.~"""
 
 ingress_pool_size.label:
 """Pool Size"""
@@ -198,5 +206,23 @@ config_connector.desc:
 """Configurations for an MQTT connector."""
 config_connector.label:
 """MQTT connector"""
+
+static_clientid_entry.label:
+"""Static ClientId Entries"""
+static_clientid_entry.desc:
+"""~
+Entries mapping EMQX node names to static client IDs.
+
+If any entries are defined, then only EMQX nodes matching those entries will start MQTT clients with the corresponding clientids.~"""
+
+static_clientid_entry_node.label:
+"""Node name"""
+static_clientid_entry_node.desc:
+"""Node name (e.g.: `emqx@10.0.0.1`)."""
+
+static_clientid_entry_ids.label:
+"""Static clientids"""
+static_clientid_entry_ids.desc:
+"""Array of static client IDs assigned to this node."""
 
 }

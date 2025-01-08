@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1227,19 +1227,23 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
         %% This seems to be the only place where the `rm_status_stopped' status matters,
         %% to distinguish from the `disconnected' status.
         {ok, #rt{st_err = #{status := ?rm_status_stopped}}} ->
-            ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
+            Result = ?RESOURCE_ERROR(stopped, "resource stopped or disabled"),
+            maybe_reply_to(Result, QueryOpts);
         {ok, #rt{st_err = #{status := ?status_connecting, error := unhealthy_target}}} ->
-            {error, {unrecoverable_error, unhealthy_target}};
+            Result = {error, {unrecoverable_error, unhealthy_target}},
+            maybe_reply_to(Result, QueryOpts);
         {ok, #rt{st_err = #{status := Status}, cb = Resource, channel_status = ChanSt}} ->
             IsAlwaysSend = is_always_send(QueryOpts, Resource),
             case Status =:= ?status_connected orelse IsAlwaysSend of
                 true ->
                     call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt);
                 false ->
-                    ?RESOURCE_ERROR(not_connected, "resource not connected")
+                    Result = ?RESOURCE_ERROR(not_connected, "resource not connected"),
+                    maybe_reply_to(Result, QueryOpts)
             end;
         {error, not_found} ->
-            ?RESOURCE_ERROR(not_found, "resource not found")
+            Result = ?RESOURCE_ERROR(not_found, "resource not found"),
+            maybe_reply_to(Result, QueryOpts)
     end.
 
 call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->

@@ -45,6 +45,7 @@ ci
 CLI
 clickhouse
 clientid
+clientids
 clientinfo
 cmake
 CMD
@@ -144,6 +145,7 @@ inet
 inflight
 ini
 init
+intra-cluster
 IoTDB
 ip
 ipv
@@ -283,6 +285,8 @@ Syskeeper
 sysmem
 sysmon
 systemd
+tablestore
+Tablestore
 tcp
 TCP
 TDengine

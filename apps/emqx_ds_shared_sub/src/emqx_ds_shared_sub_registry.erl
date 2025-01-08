@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_registry).
@@ -43,12 +43,12 @@ child_spec() ->
     }.
 
 -spec leader_wanted(
-    emqx_ds_shared_sub_proto:ssubscriber_id(),
+    emqx_ds_shared_sub_proto:borrower_id(),
     emqx_persistent_session_ds:share_topic_filter()
 ) -> ok.
-leader_wanted(SSubscriberId, ShareTopic) ->
+leader_wanted(BorrowerId, ShareTopic) ->
     {ok, Pid} = ensure_elector_started(ShareTopic),
-    emqx_ds_shared_sub_proto:send_to_leader(Pid, ?ssubscriber_connect(SSubscriberId, ShareTopic)).
+    emqx_ds_shared_sub_proto:send_to_leader(Pid, ?borrower_connect(BorrowerId, ShareTopic)).
 
 -spec ensure_elector_started(emqx_persistent_session_ds:share_topic_filter()) ->
     {ok, pid()}.

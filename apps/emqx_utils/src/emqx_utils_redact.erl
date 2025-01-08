@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -41,6 +41,12 @@ is_sensitive_key(<<"secret">>) -> true;
 is_sensitive_key(secret_access_key) -> true;
 is_sensitive_key("secret_access_key") -> true;
 is_sensitive_key(<<"secret_access_key">>) -> true;
+is_sensitive_key(access_key_secret) -> true;
+is_sensitive_key("access_key_secret") -> true;
+is_sensitive_key(<<"access_key_secret">>) -> true;
+is_sensitive_key(access_key_id) -> true;
+is_sensitive_key("access_key_id") -> true;
+is_sensitive_key(<<"access_key_id">>) -> true;
 is_sensitive_key(secret_key) -> true;
 is_sensitive_key("secret_key") -> true;
 is_sensitive_key(<<"secret_key">>) -> true;

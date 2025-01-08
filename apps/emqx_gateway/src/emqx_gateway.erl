@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 %% Gateway APIs
 -export([
     registered_gateway/0,
+    is_gateway_app_started/0,
     load/2,
     unload/1,
     lookup/1,
@@ -41,6 +42,13 @@
     [{gateway_name(), emqx_gateway_registry:descriptor()}].
 registered_gateway() ->
     emqx_gateway_registry:list().
+
+-spec is_gateway_app_started() -> boolean().
+is_gateway_app_started() ->
+    case erlang:whereis(emqx_gateway_sup) of
+        undefined -> false;
+        _ -> true
+    end.
 
 %%--------------------------------------------------------------------
 %% Gateway APIs

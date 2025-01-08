@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -498,6 +498,8 @@ get_query_mode(_ResourceData, #{query_mode := QM}) ->
 get_query_mode(#{query_mode := QM}, _Opts) ->
     QM.
 
+get_error(_ResId, #{error := {unhealthy_target, _} = Error} = _ResourceData) ->
+    Error;
 get_error(ResId, #{added_channels := #{} = Channels} = ResourceData) when
     is_map_key(ResId, Channels)
 ->

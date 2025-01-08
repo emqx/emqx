@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -285,7 +285,7 @@ accept('application/json') ->
 do_assert_prom_data([], _Mode) ->
     ok;
 do_assert_prom_data([Metric | RestDataL], Mode) ->
-    [_MetricNamme | _] = Metric,
+    [_MetricName | _] = Metric,
     assert_stats_metric_labels(Metric, Mode),
     do_assert_prom_data(RestDataL, Mode).
 
@@ -334,6 +334,8 @@ metric_meta(<<"emqx_vm_run_queue">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_process_messages_in_queues">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_total_memory">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_vm_used_memory">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_vm_mnesia_tm_mailbox_size">>) -> ?meta(0, 1, 1);
+metric_meta(<<"emqx_vm_broker_pool_max_mailbox_size">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_cluster_nodes_running">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_cluster_nodes_stopped">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_conf_sync_txid">>) -> ?meta(0, 1, 1);

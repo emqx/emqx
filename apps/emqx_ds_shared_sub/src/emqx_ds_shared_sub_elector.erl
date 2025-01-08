@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc Shared subscription group elector process.
@@ -61,7 +61,7 @@ init(Elect = {elect, _ShareTopic}) ->
 handle_event(internal, {elect, ShareTopic}, electing, _) ->
     elect(ShareTopic, _TS = emqx_message:timestamp_now());
 handle_event(
-    info, ?ssubscriber_connect_match(_SSubscriberId, _ShareTopic) = ConnectMessage, follower, Data
+    info, ?borrower_connect_match(_BorrowerId, _ShareTopic) = ConnectMessage, follower, Data
 ) ->
     %% NOTE: Redirecting to the known leader.
     ok = connect_leader(ConnectMessage, Data),

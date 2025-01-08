@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_jt808_channel).
@@ -10,6 +10,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% behaviour callbacks
 -export([
@@ -397,13 +399,25 @@ msgs2frame(Messages, Channel) ->
     lists:filtermap(
         fun(#message{payload = Payload}) ->
             case emqx_utils_json:safe_decode(Payload, [return_maps]) of
-                {ok, Map} ->
-                    MsgId = msgid(Map),
+                {ok, Map = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
                     NewHeader = build_frame_header(MsgId, Channel),
                     Frame = maps:put(<<"header">>, NewHeader, Map),
                     {true, Frame};
-                {error, Reason} ->
-                    log(error, #{msg => "json_decode_error", reason => Reason}, Channel),
+                {ok, _} ->
+                    tp(
+                        error,
+                        invalid_dl_message,
+                        #{reasons => "missing_msg_id", payload => Payload},
+                        Channel
+                    ),
+                    false;
+                {error, _Reason} ->
+                    tp(
+                        error,
+                        invalid_dl_message,
+                        #{reason => "invalid_json", payload => Payload},
+                        Channel
+                    ),
                     false
             end
         end,
@@ -1046,6 +1060,14 @@ metrics_inc(Name, #channel{ctx = Ctx}, Oct) ->
 
 log(Level, Meta, #channel{clientinfo = #{clientid := ClientId, username := Username}} = _Channel) ->
     ?SLOG(Level, Meta#{clientid => ClientId, username => Username}).
+
+tp(
+    Level,
+    Key,
+    Meta,
+    #channel{clientinfo = #{clientid := ClientId, username := Username}} = _Channel
+) ->
+    ?tp(Level, Key, Meta#{clientid => ClientId, username => Username}).
 
 reply(Reply, Channel) ->
     {reply, Reply, Channel}.

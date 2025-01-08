@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -292,10 +292,6 @@ t_sync_query(Config) ->
 %% implementation returns a tuple with new state.
 %% See also: https://emqx.atlassian.net/browse/EMQX-13496.
 t_timeout_during_connector_health_check(Config0) ->
-    ProxyName = ?config(proxy_name, Config0),
-    ProxyHost = ?config(proxy_host, Config0),
-    ProxyPort = ?config(proxy_port, Config0),
-    ConnectorName = ?config(connector_name, Config0),
     Overrides = #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"700ms">>}},
     Config = emqx_bridge_v2_testlib:proplist_update(
         Config0,
@@ -308,10 +304,6 @@ t_timeout_during_connector_health_check(Config0) ->
         begin
             {201, _} = create_bridge_api(Config, Overrides),
 
-            %% emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-            %%   ?retry(500, 10, ?assertEqual(<<"disconnected">>, GetConnectorStatus())),
-            %%   ok
-            %% end),
             %% Wait until it's disconnected
             emqx_common_test_helpers:with_mock(
                 emqx_resource_pool,

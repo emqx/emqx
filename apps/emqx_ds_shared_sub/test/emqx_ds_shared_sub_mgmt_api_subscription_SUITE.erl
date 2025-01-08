@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_mgmt_api_subscription_SUITE).
@@ -27,7 +27,7 @@ init_per_suite(Config) ->
                 config => #{
                     <<"durable_queues">> => #{
                         <<"enable">> => true,
-                        <<"session_find_leader_timeout_ms">> => "1200ms"
+                        <<"session_find_leader_timeout">> => "1200ms"
                     }
                 }
             }},

@@ -68,12 +68,16 @@ jobs:
             echo "No changes in ${SYNC_BRANCH}"
             exit 0
           fi
-
           NEW_BRANCH_NAME=sync-${SYNC_BRANCH}-$(date +"%Y%m%d-%H%M%S")
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git checkout -b ${NEW_BRANCH_NAME}
           git merge origin/${SYNC_BRANCH} 2>&1 | tee merge.log
+          DIFF=$(git rev-list --count master...HEAD)
+          if [ $DIFF -eq 0 ]; then
+            echo "No changes in ${SYNC_BRANCH}"
+            exit 0
+          fi
           git push origin ${NEW_BRANCH_NAME}:${NEW_BRANCH_NAME}
 
           for pr in $(gh pr list --state open --base master --label sync-release-branch --search "Sync ${SYNC_BRANCH} in:title" --repo ${{ github.repository }} --json number --jq '.[] | .number'); do

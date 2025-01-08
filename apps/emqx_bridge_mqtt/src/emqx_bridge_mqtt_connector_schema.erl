@@ -1,5 +1,5 @@
 %%-------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_mqtt_connector_schema).
+
+-feature(maybe_expr, enable).
 
 -behaviour(emqx_connector_examples).
 
@@ -89,6 +91,15 @@ fields("server_configs") ->
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
         {clientid_prefix, mk(binary(), #{required => false, desc => ?DESC("clientid_prefix")})},
+        {static_clientids,
+            mk(
+                hoconsc:array(ref(?MODULE, static_clientid_entry)),
+                #{
+                    desc => ?DESC("static_clientid_entry"),
+                    default => [],
+                    validator => fun static_clientid_validator/1
+                }
+            )},
         {reconnect_interval, mk(string(), #{deprecated => {since, "v5.0.16"}})},
         {proto_ver,
             mk(
@@ -177,6 +188,7 @@ fields(connector_ingress) ->
             )}
     ];
 fields("ingress_remote") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -197,6 +209,7 @@ fields("ingress_remote") ->
             )}
     ];
 fields("ingress_local") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -253,6 +266,7 @@ fields("egress") ->
             )}
     ];
 fields("egress_local") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -265,6 +279,7 @@ fields("egress_local") ->
             )}
     ];
 fields("egress_remote") ->
+    %% Avoid modifying this field, as it's used by bridge v1 API/schema.
     [
         {topic,
             mk(
@@ -301,6 +316,16 @@ fields("egress_remote") ->
                     desc => ?DESC("payload")
                 }
             )}
+    ];
+fields(static_clientid_entry) ->
+    [
+        {node, mk(binary(), #{desc => ?DESC("static_clientid_entry_node"), required => true})},
+        {ids,
+            mk(hoconsc:array(binary()), #{
+                desc => ?DESC("static_clientid_entry_ids"),
+                required => true,
+                validator => fun static_clientid_validate_clientids_length/1
+            })}
     ];
 fields(Field) when
     Field == "get_connector";
@@ -340,6 +365,8 @@ desc("egress_local") ->
     ?DESC("egress_local");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, <<"resource_opts">>);
+desc(static_clientid_entry) ->
+    ?DESC("static_clientid_entry");
 desc(_) ->
     undefined.
 
@@ -352,3 +379,62 @@ parse_server(Str) ->
 
 connector_examples(_Method) ->
     [#{}].
+
+static_clientid_validator([]) ->
+    ok;
+static_clientid_validator([#{node := _} | _] = Entries0) ->
+    Entries = lists:map(fun emqx_utils_maps:binary_key_map/1, Entries0),
+    static_clientid_validator(Entries);
+static_clientid_validator([_ | _] = Entries) ->
+    maybe
+        ok ?= static_clientid_validate_distinct_nodes(Entries),
+        ok ?= static_clientid_validate_at_least_one_clientid(Entries),
+        ok ?= static_clientid_validate_distinct_clientids(Entries)
+    end.
+
+static_clientid_validate_at_least_one_clientid(Entries) ->
+    AllIds = lists:flatmap(fun(#{<<"ids">> := Ids}) -> Ids end, Entries),
+    case AllIds of
+        [] ->
+            {error, <<"must specify at least one static clientid">>};
+        [_ | _] ->
+            ok
+    end.
+
+static_clientid_validate_distinct_nodes(Entries) ->
+    AllNodes = lists:map(fun(#{<<"node">> := Node}) -> Node end, Entries),
+    UniqueNodes = lists:uniq(AllNodes),
+    case AllNodes -- UniqueNodes of
+        [] ->
+            ok;
+        [_ | _] = DuplicatedNodes0 ->
+            DuplicatedNodes = lists:join(<<", ">>, lists:usort(DuplicatedNodes0)),
+            Msg = iolist_to_binary([
+                <<"nodes must be unique; duplicated nodes: ">>,
+                DuplicatedNodes
+            ]),
+            {error, Msg}
+    end.
+
+static_clientid_validate_distinct_clientids(Entries) ->
+    AllIds = lists:flatmap(fun(#{<<"ids">> := Ids}) -> Ids end, Entries),
+    UniqueIds = lists:uniq(AllIds),
+    case AllIds -- UniqueIds of
+        [] ->
+            ok;
+        [_ | _] = DuplicatedIds0 ->
+            DuplicatedIds = lists:join(<<", ">>, lists:usort(DuplicatedIds0)),
+            Msg = iolist_to_binary([
+                <<"clientids must be unique; duplicated clientids: ">>,
+                DuplicatedIds
+            ]),
+            {error, Msg}
+    end.
+
+static_clientid_validate_clientids_length(Ids) ->
+    case lists:any(fun(Id) -> Id == <<"">> end, Ids) of
+        true ->
+            {error, <<"clientids must be non-empty">>};
+        false ->
+            ok
+    end.

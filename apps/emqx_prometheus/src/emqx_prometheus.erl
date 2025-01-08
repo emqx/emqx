@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -365,6 +365,8 @@ emqx_collect(K = emqx_vm_run_queue, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_process_messages_in_queues, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_total_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_used_memory, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_vm_mnesia_tm_mailbox_size, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_vm_broker_pool_max_mailbox_size, D) -> gauge_metrics(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Cluster Info
 emqx_collect(K = emqx_cluster_nodes_running, D) -> gauge_metrics(?MG(K, D));
@@ -623,7 +625,9 @@ vm_metric_meta() ->
         {emqx_vm_run_queue, gauge, 'run_queue'},
         {emqx_vm_process_messages_in_queues, gauge, 'process_total_messages'},
         {emqx_vm_total_memory, gauge, 'total_memory'},
-        {emqx_vm_used_memory, gauge, 'used_memory'}
+        {emqx_vm_used_memory, gauge, 'used_memory'},
+        {emqx_vm_mnesia_tm_mailbox_size, gauge, 'mnesia_tm_mailbox_size'},
+        {emqx_vm_broker_pool_max_mailbox_size, gauge, 'broker_pool_max_mailbox_size'}
     ].
 
 vm_data(Mode) ->
@@ -632,7 +636,7 @@ vm_data(Mode) ->
         fun({Name, _Type, MetricKAtom}, AccIn) ->
             Labels =
                 case Mode of
-                    node ->
+                    ?PROM_DATA_MODE__NODE ->
                         [];
                     _ ->
                         [{node, node(self())}]

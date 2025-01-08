@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_consumer_SUITE).
 
@@ -1498,9 +1498,6 @@ t_failed_creation_then_fixed(Config) ->
 %% consume the messages produced during the down time.
 t_receive_after_recovery(Config) ->
     ct:timetrap(120_000),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
     MQTTTopic = ?config(mqtt_topic, Config),
     NPartitions = ?config(num_partitions, Config),
     KafkaName = ?config(kafka_name, Config),

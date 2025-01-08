@@ -1,17 +1,17 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_format).
 
 -export([
-    format_ssubscriber_msg/1,
+    format_borrower_msg/1,
     format_leader_msg/1,
-    format_ssubscriber_id/1,
+    format_borrower_id/1,
     format_stream/1,
     format_progress/1,
-    format_ssubscriber_ids/1,
-    format_ssubscriber_map/1,
+    format_borrower_ids/1,
+    format_borrower_map/1,
     format_stream_map/1,
     format_streams/1,
     format_deep/1
@@ -21,13 +21,13 @@
 %% API
 %%--------------------------------------------------------------------
 
-format_ssubscriber_msg(Msg) ->
+format_borrower_msg(Msg) ->
     format_deep(Msg).
 
 format_leader_msg(Msg) ->
     format_deep(Msg).
 
-format_ssubscriber_id({SessionId, SubscriptionId, PidRef}) ->
+format_borrower_id({SessionId, SubscriptionId, PidRef}) ->
     iolist_to_binary(io_lib:format("~s:~p:~p", [SessionId, SubscriptionId, erlang:phash2(PidRef)])).
 
 format_stream(Stream) ->
@@ -58,17 +58,17 @@ format_stream_map(Map) when is_map(Map) ->
         Map
     ).
 
-format_ssubscriber_map(Map) when is_map(Map) ->
+format_borrower_map(Map) when is_map(Map) ->
     maps:fold(
         fun(Key, Value, Acc) ->
-            Acc#{format_ssubscriber_id(Key) => format_deep(Value)}
+            Acc#{format_borrower_id(Key) => format_deep(Value)}
         end,
         #{},
         Map
     ).
 
-format_ssubscriber_ids(SubscriptionIds) when is_list(SubscriptionIds) ->
-    [format_ssubscriber_id(SubscriptionId) || SubscriptionId <- SubscriptionIds].
+format_borrower_ids(SubscriptionIds) when is_list(SubscriptionIds) ->
+    [format_borrower_id(SubscriptionId) || SubscriptionId <- SubscriptionIds].
 
 format_streams(Streams) when is_list(Streams) ->
     [format_stream(Stream) || Stream <- Streams].
@@ -77,10 +77,10 @@ format_streams(Streams) when is_list(Streams) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-format_key_value(ssubscriber_id, SSubscriberId) ->
-    format_ssubscriber_id(SSubscriberId);
-format_key_value(ssubscriber_ids, SSubscriberIds) ->
-    format_ssubscriber_ids(SSubscriberIds);
+format_key_value(borrower_id, BorrowerId) ->
+    format_borrower_id(BorrowerId);
+format_key_value(borrower_ids, BorrowerIds) ->
+    format_borrower_ids(BorrowerIds);
 format_key_value(stream, Stream) ->
     format_stream(Stream);
 format_key_value(progress, Progress) ->
