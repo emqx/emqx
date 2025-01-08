@@ -25,7 +25,7 @@
 -include("emqx_mt.hrl").
 
 -define(SERVER, ?MODULE).
-%% Delay in minutes before clearing the records of a node which is down.
+%% Delay in seconds before clearing the records of a node which is down.
 %% If the node is restarting, it expected to clear for itself.
 %% If the node is down for more than this duration,
 %% one of the core nodes should delete the records on behalf of the node
@@ -43,7 +43,8 @@ start_link() ->
 %% @doc Clear the records of a node immediately.
 -spec immediate_node_clear(node()) -> async.
 immediate_node_clear(Node) ->
-    erlang:send(?SERVER, {clear_for_node, Node}).
+    _ = erlang:send(?SERVER, {clear_for_node, Node}),
+    async.
 
 init([]) ->
     process_flag(trap_exit, true),
