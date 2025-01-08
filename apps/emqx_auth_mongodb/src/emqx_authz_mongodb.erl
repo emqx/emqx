@@ -53,7 +53,9 @@ create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     }.
 
 update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
-    FilterTemp = emqx_auth_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS),
+    FilterTemp = emqx_auth_template:parse_deep(
+        emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
+    ),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
