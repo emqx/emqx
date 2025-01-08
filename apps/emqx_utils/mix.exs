@@ -29,7 +29,7 @@ defmodule EMQXUtils.MixProject do
       UMP.common_dep(:jiffy),
       UMP.common_dep(:emqx_http_lib),
       UMP.common_dep(:snabbkaffe),
-      {:erlang_qq, github: "k32/erlang_qq", ref: "beab7523", override: true}
+      {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
     ]
   end
 end

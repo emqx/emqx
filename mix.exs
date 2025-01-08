@@ -109,7 +109,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       common_dep(:lc),
       # in conflict between typerefl and emqx_utils
-      {:erlang_qq, github: "k32/erlang_qq", ref: "beab7523", override: true},
+      {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true},
       common_dep(:typerefl),
       common_dep(:ehttpc),
       common_dep(:gproc),
