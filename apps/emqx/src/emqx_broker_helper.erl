@@ -62,7 +62,7 @@
 -define(SUBSEQ, emqx_subseq).
 -define(SHARD, 1024).
 
--define(BATCH_SIZE, 100000).
+-define(BATCH_SIZE, 1000).
 
 -spec start_link() -> startlink_ret().
 start_link() ->
@@ -72,7 +72,8 @@ start_link() ->
 register_sub(SubPid, SubId) when is_pid(SubPid) ->
     case ets:lookup(?SUBMON, SubPid) of
         [] ->
-            gen_server:cast(?HELPER, {register_sub, SubPid, SubId});
+            _ = erlang:send(?HELPER, {register_sub, SubPid, SubId}),
+            ok;
         [{_, SubId}] ->
             ok;
         _Other ->
@@ -167,20 +168,15 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({register_sub, SubPid, SubId}, State) ->
-    true = (SubId =:= undefined) orelse ets:insert(?SUBID, {SubId, SubPid}),
-    _ = erlang:monitor(process, SubPid),
-    true = ets:insert(?SUBMON, {SubPid, SubId}),
-    {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_cast", cast => Msg}),
     {noreply, State}.
 
+handle_info({register_sub, SubPid, SubId}, State) ->
+    ok = collect_and_handle([{SubId, SubPid}], []),
+    {noreply, State};
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State) ->
-    SubPids = [SubPid | emqx_utils:drain_down(?BATCH_SIZE)],
-    ok = emqx_pool:async_submit(
-        fun lists:foreach/2, [fun ?MODULE:clean_down/1, SubPids]
-    ),
+    ok = collect_and_handle([], [SubPid]),
     {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_info", info => Info}),
@@ -196,6 +192,43 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+collect_and_handle(Reg0, Down0) ->
+    {Reg, Down} = collect_messages(Reg0, Down0),
+    ok = handle_down(Down),
+    ok = handle_register(Reg).
+
+collect_messages(Reg, Down) ->
+    collect_messages(Reg, Down, ?BATCH_SIZE).
+
+%% Collect both register_sub and 'DOWN' messages in a loop.
+%% There is no other message sent to this process, so the
+%% 'receive' should not have to scan the mailbox.
+collect_messages(Reg, Down, 0) ->
+    {Reg, Down};
+collect_messages(Reg, Down, N) ->
+    receive
+        {register_sub, Pid, Id} ->
+            collect_messages([{Id, Pid} | Reg], Down, N - 1);
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            collect_messages(Reg, [Pid | Down], N - 1)
+    after 0 ->
+        {Reg, Down}
+    end.
+
+handle_register(Reg) ->
+    lists:foreach(fun do_handle_register/1, Reg).
+
+do_handle_register({SubId, SubPid}) ->
+    true = (SubId =:= undefined) orelse ets:insert(?SUBID, {SubId, SubPid}),
+    _ = erlang:monitor(process, SubPid),
+    true = ets:insert(?SUBMON, {SubPid, SubId}),
+    ok.
+
+handle_down(SubPids) ->
+    ok = emqx_pool:async_submit(
+        fun lists:foreach/2, [fun ?MODULE:clean_down/1, SubPids]
+    ).
 
 clean_down(SubPid) ->
     try
