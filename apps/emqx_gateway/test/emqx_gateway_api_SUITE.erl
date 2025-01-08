@@ -407,7 +407,7 @@ t_authn_data_mgmt(_) ->
 
 t_listeners_tcp(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
-    {404, _} = request(get, "/gateways/stomp/listeners"),
+    {200, []} = request(get, "/gateways/stomp/listeners"),
     LisConf = #{
         name => <<"def">>,
         type => <<"tcp">>,
@@ -436,7 +436,7 @@ t_listeners_tcp(_) ->
 
 t_listeners_max_conns(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
-    {404, _} = request(get, "/gateways/stomp/listeners"),
+    {200, []} = request(get, "/gateways/stomp/listeners"),
     LisConf = #{
         name => <<"def">>,
         type => <<"tcp">>,
