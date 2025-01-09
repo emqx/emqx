@@ -196,7 +196,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
     %% cast (for process monitor) before inserting ets tables
     cast({registered, Chan}),
     true = ets:insert(?CHAN_TAB, Chan),
-    true = ets:insert(?CHAN_CONN_TAB, {ChanPid, ConnMod}),
+    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{pid = ChanPid, mod = ConnMod, clientid = ClientId}),
     ok = emqx_cm_registry:register_channel(Chan),
     mark_channel_connected(ChanPid),
     ok.
@@ -698,7 +698,9 @@ live_connection_stream(ConnModules) ->
         (undefined) -> ets:select(?CHAN_CONN_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
         (Cont) -> ets:select(Cont)
     end),
-    emqx_utils_stream:filter(fun is_channel_connected/1, AllConnStream).
+    emqx_utils_stream:filter(
+        fun(#chan_conn{pid = Pid}) -> is_channel_connected(Pid) end, AllConnStream
+    ).
 
 live_connection_ms(ConnModule) ->
     {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.
@@ -774,7 +776,9 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
     ok = emqx_utils_ets:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [{write_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [
+        {keypos, #chan_conn.pid}, {write_concurrency, true} | TabOpts
+    ]),
     ok = emqx_utils_ets:new(?CHAN_INFO_TAB, [ordered_set, compressed | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_LIVE_TAB, [ordered_set, {write_concurrency, true} | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
@@ -843,7 +847,7 @@ update_stats({Tab, Stat, MaxStat}) ->
     module() | undefined.
 do_get_chann_conn_mod(_ClientId, ChanPid) ->
     try
-        [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, ChanPid, 2),
+        [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.mod),
         ConnMod
     catch
         error:badarg -> undefined
