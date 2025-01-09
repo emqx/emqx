@@ -137,7 +137,7 @@
 ]).
 
 %% Batch drain
--define(BATCH_SIZE, 100000).
+-define(BATCH_SIZE, 1000).
 
 -define(CHAN_INFO_SELECT_LIMIT, 100).
 
@@ -193,10 +193,10 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
 ->
     Chan = {ClientId, ChanPid},
-    %% cast (for process monitor) before inserting ets tables
-    ok = cast({registered, Chan}),
-    true = ets:insert(?CHAN_TAB, Chan),
     true = ets:insert(?CHAN_CONN_TAB, #chan_conn{pid = ChanPid, mod = ConnMod, clientid = ClientId}),
+    %% cast (for process monitor) after inserting the conn table
+    ok = cast({registered, ChanPid}),
+    true = ets:insert(?CHAN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
     mark_channel_connected(ChanPid),
     ok.
@@ -781,8 +781,7 @@ init([]) ->
     ok = emqx_utils_ets:new(?CHAN_INFO_TAB, [ordered_set, compressed | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_LIVE_TAB, [ordered_set | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
-    State = #{chan_pmon => emqx_pmon:new()},
-    {ok, State}.
+    {ok, #{}}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "emqx_cm_unexpected_call", call => Req}),
@@ -792,21 +791,12 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "emqx_cm_unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
-    PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
-    {noreply, State#{chan_pmon := PMon1}};
-handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
-    ?tp(emqx_cm_process_down, #{stale_pid => Pid, reason => _Reason}),
-    BatchSize = emqx:get_config([node, channel_cleanup_batch_size], ?BATCH_SIZE),
-    ChanPids = [Pid | emqx_utils:drain_down(BatchSize)],
-    {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
-    lists:foreach(fun mark_channel_disconnected/1, ChanPids),
-    ok = emqx_pool:async_submit_to_pool(
-        ?CM_POOL,
-        fun lists:foreach/2,
-        [fun ?MODULE:clean_down/1, Items]
-    ),
-    {noreply, State#{chan_pmon := PMon1}};
+handle_info({registered, Pid}, State) ->
+    ok = collect_and_handle([Pid], []),
+    {noreply, State};
+handle_info({'DOWN', _MRef, process, Pid, _Reason}, State) ->
+    ok = collect_and_handle([], [Pid]),
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "emqx_cm_unexpected_info", info => Info}),
     {noreply, State}.
@@ -821,7 +811,46 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-clean_down({ChanPid, ClientId}) ->
+handle_reg_pids(Pids) ->
+    lists:foreach(fun(Pid) -> _ = erlang:monitor(process, Pid) end, Pids).
+
+handle_down_pids(Pids) ->
+    lists:foreach(fun mark_channel_disconnected/1, Pids),
+    ok = emqx_pool:async_submit_to_pool(?CM_POOL, fun ?MODULE:clean_down/1, [Pids]).
+
+collect_and_handle(Regs0, Down0) ->
+    BatchSize = emqx:get_config([node, channel_cleanup_batch_size], ?BATCH_SIZE),
+    {Regs, Down} = collect_msgs(Regs0, Down0, BatchSize),
+    ok = handle_reg_pids(Regs),
+    ok = handle_down_pids(Down).
+
+collect_msgs(Regs, Down, 0) ->
+    {lists:reverse(Regs), lists:reverse(Down)};
+collect_msgs(Regs, Down, N) ->
+    receive
+        {registered, Pid} ->
+            collect_msgs([Pid | Regs], Down, N - 1);
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            collect_msgs(Regs, [Pid | Down], N - 1)
+    after 0 ->
+        {lists:reverse(Regs), lists:reverse(Down)}
+    end.
+
+clean_down([]) ->
+    ok;
+clean_down([Pid | Pids]) ->
+    ok = clean_down(Pid),
+    clean_down(Pids);
+clean_down(Pid) when is_pid(Pid) ->
+    try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
+        ClientId ->
+            do_clean_down(ClientId, Pid)
+    catch
+        error:badarg ->
+            ok
+    end.
+
+do_clean_down(ClientId, ChanPid) ->
     try
         do_unregister_channel({ClientId, ChanPid})
     catch
