@@ -25,6 +25,50 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
+
+app_specs() ->
+    [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge,
+        emqx_rule_engine
+    ].
+
+init_per_testcase(_TestCase, Config) ->
+    %% Setting up mocks for fake connector and bridge V2
+    setup_mocks(),
+    ets:new(fun_table_name(), [named_table, public]),
+    %% Create a fake connector
+    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ets:delete(fun_table_name()),
+    delete_all_bridges_and_connectors(),
+    meck:unload(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
 con_mod() ->
     emqx_bridge_v2_test_connector.
 
@@ -144,42 +188,6 @@ setup_mocks() ->
     meck:expect(emqx_bridge_v2, is_bridge_v2_type, fun(Type) -> Type =:= BridgeType end),
     ok.
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
-    ok.
-
-app_specs() ->
-    [
-        emqx,
-        emqx_conf,
-        emqx_connector,
-        emqx_bridge,
-        emqx_rule_engine
-    ].
-
-init_per_testcase(_TestCase, Config) ->
-    %% Setting up mocks for fake connector and bridge V2
-    setup_mocks(),
-    ets:new(fun_table_name(), [named_table, public]),
-    %% Create a fake connector
-    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
-    Config.
-
-end_per_testcase(_TestCase, _Config) ->
-    ets:delete(fun_table_name()),
-    delete_all_bridges_and_connectors(),
-    meck:unload(),
-    emqx_common_test_helpers:call_janitor(),
-    ok.
-
 delete_all_bridges_and_connectors() ->
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
@@ -215,6 +223,40 @@ update_root_config(RootConf) ->
 
 update_root_connectors_config(RootConf) ->
     emqx_conf:update([connectors], RootConf, #{override_to => cluster}).
+
+wait_until(Fun) ->
+    wait_until(Fun, 5000).
+
+wait_until(Fun, Timeout) when Timeout >= 0 ->
+    case Fun() of
+        true ->
+            ok;
+        false ->
+            IdleTime = 100,
+            timer:sleep(IdleTime),
+            wait_until(Fun, Timeout - IdleTime)
+    end;
+wait_until(_, _) ->
+    ct:fail("Wait until event did not happen").
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+get_rule_metrics(RuleId) ->
+    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
+
+get_bridge_v2_alarm_cnt() ->
+    Alarms = emqx_alarm:get_alarms(activated),
+    FilterFun = fun
+        (#{name := S}) when is_binary(S) -> string:find(S, "action") =/= nomatch;
+        (_) -> false
+    end,
+    length(lists:filter(FilterFun, Alarms)).
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 t_create_remove(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
@@ -691,14 +733,6 @@ t_unhealthy_channel_alarm(_) ->
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     0 = get_bridge_v2_alarm_cnt(),
     ok.
-
-get_bridge_v2_alarm_cnt() ->
-    Alarms = emqx_alarm:get_alarms(activated),
-    FilterFun = fun
-        (#{name := S}) when is_binary(S) -> string:find(S, "action") =/= nomatch;
-        (_) -> false
-    end,
-    length(lists:filter(FilterFun, Alarms)).
 
 t_load_no_matching_connector(_Config) ->
     Conf = bridge_config(),
@@ -1230,27 +1264,3 @@ t_query_uses_action_query_mode(_Config) ->
         end
     ),
     ok.
-
-%% Helper Functions
-
-wait_until(Fun) ->
-    wait_until(Fun, 5000).
-
-wait_until(Fun, Timeout) when Timeout >= 0 ->
-    case Fun() of
-        true ->
-            ok;
-        false ->
-            IdleTime = 100,
-            timer:sleep(IdleTime),
-            wait_until(Fun, Timeout - IdleTime)
-    end;
-wait_until(_, _) ->
-    ct:fail("Wait until event did not happen").
-
-bin(Bin) when is_binary(Bin) -> Bin;
-bin(Str) when is_list(Str) -> list_to_binary(Str);
-bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
-
-get_rule_metrics(RuleId) ->
-    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
