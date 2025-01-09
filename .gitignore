@@ -48,6 +48,8 @@ apps/*/etc/*.all
 _upgrade_base/
 TAGS
 erlang_ls.config
+.elp.toml
+build_info.json
 .els_cache/
 # VSCode files
 .vs/
@@ -57,6 +59,8 @@ erlang_ls.config
 # Emacs temporary files
 .#*
 *#
+# Emacs dir local variables
+.dir-locals.el
 # For direnv
 .envrc
 # elixir
