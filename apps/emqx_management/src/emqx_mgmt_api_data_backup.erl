@@ -37,19 +37,6 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 
--define(node_field(IsRequired), ?node_field(IsRequired, #{})).
--define(node_field(IsRequired, Meta),
-    {node, ?HOCON(binary(), Meta#{desc => "Node name", required => IsRequired})}
-).
--define(filename_field(IsRequired), ?filename_field(IsRequired, #{})).
--define(filename_field(IsRequired, Meta),
-    {filename,
-        ?HOCON(binary(), Meta#{
-            desc => "Data backup file name",
-            required => IsRequired
-        })}
-).
-
 namespace() -> undefined.
 
 api_spec() ->
@@ -144,8 +131,8 @@ schema("/data/files/:filename") ->
             tags => ?TAGS,
             desc => <<"Download a data backup file">>,
             parameters => [
-                ?filename_field(true, #{in => path}),
-                ?node_field(false, #{in => query})
+                field_filename(true, #{in => path}),
+                field_node(false, #{in => query})
             ],
             responses => #{
                 200 => ?HOCON(binary),
@@ -161,8 +148,8 @@ schema("/data/files/:filename") ->
             tags => ?TAGS,
             desc => <<"Delete a data backup file">>,
             parameters => [
-                ?filename_field(true, #{in => path}),
-                ?node_field(false, #{in => query})
+                field_filename(true, #{in => path}),
+                field_node(false, #{in => query})
             ],
             responses => #{
                 204 => <<"No Content">>,
@@ -183,8 +170,8 @@ fields(files_response) ->
     ];
 fields(backup_file_info) ->
     [
-        ?node_field(true),
-        ?filename_field(true),
+        field_node(true),
+        field_filename(true),
         {created_at,
             ?HOCON(binary(), #{
                 desc => "Data backup file creation date and time",
@@ -219,16 +206,32 @@ fields(export_request_body) ->
             )}
     ];
 fields(import_request_body) ->
-    [?node_field(false), ?filename_field(true)];
+    [field_node(false), field_filename(true)];
 fields(data_backup_file) ->
     [
-        ?filename_field(true),
+        field_filename(true),
         {file,
             ?HOCON(binary(), #{
                 desc => "Data backup file content",
                 required => true
             })}
     ].
+
+field_node(IsRequired) ->
+    field_node(IsRequired, #{}).
+
+field_node(IsRequired, Meta) ->
+    {node, ?HOCON(binary(), Meta#{desc => "Node name", required => IsRequired})}.
+
+field_filename(IsRequired) ->
+    field_filename(IsRequired, #{}).
+
+field_filename(IsRequired, Meta) ->
+    {filename,
+        ?HOCON(binary(), Meta#{
+            desc => "Data backup file name",
+            required => IsRequired
+        })}.
 
 %%------------------------------------------------------------------------------
 %% HTTP API Callbacks
