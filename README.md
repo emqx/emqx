@@ -124,25 +124,29 @@ Below is the matrix supported rolling upgrade paths since 5.0.
 
 - Version numbers end with `?` e.g. `6.0?` are future releases.
 - ✅: Supported, or planed to support.
-- ⚠️:  May experience issues, but resolvable.
+- ⚠️:  May experience issues, require manual resolution.
 - ❌: Not supported.
 - 🔄: Tentative support for future versions.
 
 See release notes for detailed information.
 
-| From\To  | 5.0~5.3  | 5.4  | 5.5  | 5.6  | 5.7  | 5.8  | 5.9?  | 5.10? | 6.0?  |
-|----------|----------|------|------|------|------|------|-------|-------|-------|
-| 5.0~5.3  | ✅       | ✅   | ✅   | ✅   | ✅   | ✅   | 🔄[1] | 🔄[1] | ❌[1] |
-| 5.4      |          | ✅   | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
-| 5.5      |          |      | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
-| 5.6      |          |      |      | ✅   | ✅   | ✅   | ✅    | ✅    | 🔄    |
-| 5.7      |          |      |      |      | ✅   | ✅   | ✅    | ✅    | 🔄    |
-| 5.8      |          |      |      |      |      | ✅   | ✅    | ✅    | ✅    |
-| 5.9?     |          |      |      |      |      |      | ✅    | ✅    | ✅    |
-| 5.10?    |          |      |      |      |      |      |       | ✅    | ✅    |
-| 6.0?     |          |      |      |      |      |      |       |       | ✅    |
+| From\To  | 5.1  | 5.2  | 5.3  | 5.4  | 5.5  | 5.6  | 5.7  | 5.8  | 5.9?  | 5.10? | 6.0?  |
+|----------|------|------|------|------|------|------|------|------|-------|-------|-------|
+| 5.0      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ⚠️[1]  | ❌[2] | ❌[2] |
+| 5.1      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
+| 5.2      |      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
+| 5.3      |      |      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
+| 5.4      |      |      |      | ✅   | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.5      |      |      |      |      | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.6      |      |      |      |      |      | ✅   | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.7      |      |      |      |      |      |      | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.8      |      |      |      |      |      |      |      | ✅   | ✅    | ✅    | 🔄    |
+| 5.9?     |      |      |      |      |      |      |      |      | ✅    | ✅    | ✅    |
+| 5.10?    |      |      |      |      |      |      |      |      |       | ✅    | ✅    |
+| 6.0?     |      |      |      |      |      |      |      |      |       |       | ✅    |
 
-- [1] Pre-5.4 routing table will be deleted.
+- [1] Old limiter configs should be deleted from the config files (`etc/emqx.conf` and `data/configs/cluster-override.conf`) before upgrade.
+- [2] Pre-5.4 routing table will be deleted. Upgrade to 5.9 first, then perform a full-cluster restart (not rolling) before upgrade to 5.10 or later.
 
 ## License
 
