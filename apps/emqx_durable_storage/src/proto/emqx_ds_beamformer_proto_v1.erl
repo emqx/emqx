@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,19 +43,19 @@ where(Node, DBShard) ->
     node(),
     pid(),
     pid(),
-    emqx_ds_beamformer:sub_ref(),
-    emqx_ds:iterator(),
+    emqx_ds:sub_ref(),
+    emqx_ds_replication_layer:iterator(),
     _ItKey,
-    emqx_ds:subopts()
+    emqx_ds:sub_opts()
 ) ->
-    {ok, emqx_ds_beamformer:sub_ref()} | emqx_ds:error().
+    {ok, emqx_ds:sub_ref()} | emqx_ds:error(_).
 subscribe(Node, Server, Client, SubRef, It, ItKey, Opts) ->
     erpc:call(Node, emqx_ds_beamformer, subscribe, [Server, Client, SubRef, It, ItKey, Opts]).
 
 -spec unsubscribe(
     node(),
     emqx_ds_beamformer:dbshard(),
-    emqx_ds_beamformer:sub_ref()
+    emqx_ds:sub_ref()
 ) ->
     boolean().
 unsubscribe(Node, DBShard, SubRef) ->
@@ -65,7 +65,7 @@ unsubscribe(Node, DBShard, SubRef) ->
 -spec suback_a(
     node(),
     emqx_ds_beamformer:dbshard(),
-    emqx_ds_beamformer:sub_ref(),
+    emqx_ds:sub_ref(),
     emqx_ds:sub_seqno()
 ) -> ok.
 suback_a(Node, DBShard, SubRef, SeqNo) ->
@@ -75,9 +75,9 @@ suback_a(Node, DBShard, SubRef, SeqNo) ->
 -spec subscription_info(
     node(),
     emqx_ds_beamformer:dbshard(),
-    emqx_ds_beamformer:sub_ref()
+    emqx_ds:sub_ref()
 ) ->
-    emqx_ds_beamformer:subinfo() | undefined.
+    emqx_ds:sub_info() | undefined.
 subscription_info(Node, DBShard, SubRef) ->
     erpc:call(Node, emqx_ds_beamformer, subscription_info, [DBShard, SubRef]).
 

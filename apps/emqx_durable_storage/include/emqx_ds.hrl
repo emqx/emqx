@@ -48,8 +48,11 @@
     size :: non_neg_integer(),
     %% Set to `true' when the subscription becomes inactive due to
     %% falling behind on acks:
-    stuck :: boolean(),
-    lagging :: boolean()
+    stuck :: boolean() | undefined,
+    %% Currently set to `true' when the subscription was fulfilled by
+    %% the `catchup' worker and `false' when it's fulfilled by the RT
+    %% worker:
+    lagging :: boolean() | undefined
 }).
 
 -record(new_stream_event, {

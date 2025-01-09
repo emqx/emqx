@@ -62,7 +62,7 @@
 %% API functions
 %%================================================================================
 
--spec enqueue(pid(), [emqx_beamformer:sub_id()]) ->
+-spec enqueue(pid(), [emqx_ds:sub_ref()]) ->
     ok | {error, unrecoverable, stale} | emqx_ds:error(_).
 enqueue(Worker, SubIds) ->
     try
@@ -338,7 +338,7 @@ process_batch(S, Stream, TopicFilter, [{Key, Msg} | Rest], Candidates0, Beams0) 
 %% small sample of pending polls, and picks request with the smallest
 %% key as the starting point.
 -spec find_older_request(ets:tid()) ->
-    {emqx_ds:stream(), emqx_ds:topic_filter(), emqx_ds:message_key()}.
+    {emqx_ds:stream(), emqx_ds:topic_filter(), emqx_ds:message_key()} | undefined.
 find_older_request(Tab) ->
     case ets:first(Tab) of
         '$end_of_table' ->
@@ -394,7 +394,7 @@ queue_drop(
 
 queue_all_reqs(Queue) ->
     MS = {?queue_elem('_', '_', '_', '$1'), [], ['$1']},
-    ets:match(Queue, [MS]).
+    ets:match(Queue, MS).
 
 queue_update(Queue, OldReq, Req) ->
     %% logger:warning(#{old => OldReq, new => Req}),

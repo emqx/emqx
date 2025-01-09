@@ -476,8 +476,8 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
--spec subscribe(emqx_ds:db(), _ItKey, emqx_ds:iterator(), emqx_ds:sub_opts()) ->
-    {ok, emqx_ds:subscription_handle(), reference()} | emqx_ds:error().
+-spec subscribe(emqx_ds:db(), _UserData, iterator(), emqx_ds:sub_opts()) ->
+    {ok, emqx_ds:subscription_handle(), emqx_ds:sub_ref()} | emqx_ds:error(_).
 subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
     ?SHARD_RPC(
         DB,
@@ -493,7 +493,7 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
                 ),
                 case Result of
                     {ok, SubRef} ->
-                        {ok, {Shard, Server, SubRef}, SubRef};
+                        {ok, #sub_handle{shard = Shard, server = Server, ref = SubRef}, SubRef};
                     Err ->
                         Err
                 end;
@@ -507,22 +507,22 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
         end
     ).
 
--spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
-unsubscribe(DB, {Shard, Server, SubRef}) ->
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscription_handle()) -> boolean().
+unsubscribe(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef}) ->
     ?SAFE_ERPC(
         emqx_ds_beamformer_proto_v1:unsubscribe(node(Server), {DB, Shard}, SubRef)
     ).
 
--spec suback(emqx_ds:db(), emqx_ds:subscripton(), emqx_ds:sub_seqno()) ->
+-spec suback(emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()) ->
     ok.
-suback(DB, {Shard, Server, SubRef}, SeqNo) ->
+suback(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef}, SeqNo) ->
     ?SAFE_ERPC(
         emqx_ds_beamformer_proto_v1:suback_a(node(Server), {DB, Shard}, SubRef, SeqNo)
     ).
 
--spec subscription_info(emqx_ds:db(), emqx_ds:subscripton()) ->
+-spec subscription_info(emqx_ds:db(), emqx_ds:subscription_handle()) ->
     emqx_ds:sub_info() | undefined.
-subscription_info(DB, {Shard, Server, SubRef}) ->
+subscription_info(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef}) ->
     ?SAFE_ERPC(
         emqx_ds_beamformer_proto_v1:subscription_info(node(Server), {DB, Shard}, SubRef)
     ).

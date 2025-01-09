@@ -96,7 +96,6 @@
 
 -export_type([
     dbshard/0,
-    sub_ref/0,
     opts/0,
     sub_state/0, sub_state/2,
     beam/2, beam/0,
@@ -147,8 +146,6 @@
 -define(init_timeout, init_timeout).
 
 -type dbshard() :: {emqx_ds:db(), _Shard}.
-
--type sub_ref() :: reference().
 
 %% `event_topic' and `event_topic_filter' types are structurally (but
 %% not semantically) equivalent to their `emqx_ds' counterparts.
@@ -228,8 +225,8 @@
 
 %% Per-subscription builder state:
 -record(beam_builder_sub, {
-    mask = emqx_ds_dispatch_mask:enc_make() :: emqx_ds_dispatch_mask:enc(),
-    n_msgs = 0 :: pos_integer()
+    mask :: emqx_ds_dispatch_mask:enc(),
+    n_msgs :: pos_integer()
 }).
 
 %% Per-node builder:
@@ -282,11 +279,11 @@
 ) ->
     stream_scan_return().
 
--callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
+-callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error(_).
 
 %% @doc This callback is used to safely advance the iterator to the position represented by the key.
--callback fast_forward(dbshard(), Iterator, emqx_ds:key()) ->
-    {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error().
+-callback fast_forward(dbshard(), Iterator, emqx_ds:message_key()) ->
+    {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error(_).
 
 %%================================================================================
 %% API functions
@@ -456,13 +453,13 @@ beams_add(
             %% Update the subscription's dispatch mask and increment
             %% its message counter:
             case Subs of
-                #{SubId := SubS0} ->
+                #{SubId := #beam_builder_sub{n_msgs = Count, mask = MaskEncoder}} ->
                     ok;
                 #{} ->
-                    SubS0 = #beam_builder_sub{}
+                    Count = 0,
+                    MaskEncoder = emqx_ds_dispatch_mask:enc_make()
             end,
-            #beam_builder_sub{n_msgs = Count, mask = MaskEncoder} = SubS0,
-            SubS = SubS0#beam_builder_sub{
+            SubS = #beam_builder_sub{
                 n_msgs = Count + 1,
                 mask = emqx_ds_dispatch_mask:enc_push_true(Idx, MaskEncoder)
             },
@@ -500,11 +497,11 @@ shard_metrics_id({DB, Shard}) ->
 %% batch seqno and a whether to keep the request in the queue or
 %% remove it:
 -spec keep_and_seqno(ets:tid(), sub_state(), pos_integer()) ->
-    {boolean(), reference(), emqx_ds:sub_seqno() | undefined} | boolean().
-keep_and_seqno(_SubTab, #sub_state{deadline = Deadline}, _) when is_integer(Deadline) ->
-    %% FIXME: remove this clause?
-    %% This is a one-time poll request, we never keep them after the first match:
-    false;
+    {boolean(), emqx_ds:sub_seqno() | undefined}.
+%% keep_and_seqno(_SubTab, #sub_state{deadline = Deadline}, _) when is_integer(Deadline) ->
+%%     %% FIXME: remove this clause?
+%%     %% This is a one-time poll request, we never keep them after the first match:
+%%     false;
 keep_and_seqno(SubTab, #sub_state{req_id = Ref}, Nmsgs) ->
     try
         ets:update_counter(SubTab, Ref, [
@@ -539,7 +536,7 @@ cfg_housekeeping_interval() ->
 %%================================================================================
 
 -spec unpack_iterator(module(), dbshard(), _Iterator) ->
-    unpack_iterator_result(_Stream) | emqx_ds:error().
+    unpack_iterator_result(_Stream) | emqx_ds:error(_).
 unpack_iterator(Mod, Shard, It) ->
     Mod:unpack_iterator(Shard, It).
 
@@ -555,12 +552,13 @@ update_iterator(Mod, Shard, It, Key) ->
 scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
     Mod:scan_stream(Shard, Stream, TopicFilter, StartKey, BatchSize).
 
--spec high_watermark(module(), dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error().
+-spec high_watermark(module(), dbshard(), _Stream) ->
+    {ok, emqx_ds:message_key()} | emqx_ds:error(_).
 high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
 -spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | {error, unrecoverable, has_data | old_key} | emqx_ds:error().
+    {ok, Iterator} | {error, unrecoverable, has_data | old_key} | emqx_ds:error(_).
 fast_forward(Mod, Shard, It, Key) ->
     Mod:fast_forward(Shard, It, Key).
 
@@ -573,7 +571,7 @@ fast_forward(Mod, Shard, It, Key) ->
     handle :: emqx_ds:subscription_handle(),
     it :: emqx_ds:ds_specific_iterator(),
     userdata,
-    opts :: emqx_ds:poll_opts()
+    opts :: emqx_ds:sub_opts()
 }).
 -record(unsub_req, {id :: reference()}).
 -record(wakeup_sub_req, {id :: reference()}).
@@ -593,7 +591,7 @@ ls(DB) ->
     [{DB, I} || I <- Shards].
 
 %% @doc Look up state of a subscription
--spec subscription_info(emqx_ds:db(), sub_ref()) -> emqx_ds:sub_info() | undefined.
+-spec subscription_info(dbshard(), emqx_ds:sub_ref()) -> emqx_ds:sub_info() | undefined.
 subscription_info(DBShard, SubId) ->
     case ets:lookup(subtab(DBShard), SubId) of
         [#sub_state{seqno = SeqNo, acked_seqno = Acked, max_unacked = Window, stuck = Stuck}] ->
@@ -603,9 +601,9 @@ subscription_info(DBShard, SubId) ->
     end.
 
 -spec subscribe(
-    pid(), pid(), sub_ref(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:sub_opts()
+    pid(), pid(), emqx_ds:sub_ref(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:sub_opts()
 ) ->
-    {ok, sub_ref()} | emqx_ds:error().
+    {ok, emqx_ds:sub_ref()} | emqx_ds:error(_).
 subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked}) when
     is_integer(MaxUnacked), MaxUnacked > 0
 ->
@@ -613,12 +611,12 @@ subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked})
         client = Client, it = It, userdata = ItKey, opts = Opts, handle = SubId
     }).
 
--spec unsubscribe(dbshard(), sub_ref()) -> boolean().
+-spec unsubscribe(dbshard(), emqx_ds:sub_ref()) -> boolean().
 unsubscribe(DBShard, SubId) ->
     gen_statem:call(?via(DBShard), #unsub_req{id = SubId}).
 
 %% @doc Ack batches up to the sequence number:
--spec suback(dbshard(), sub_ref(), emqx_ds:sub_seqno()) -> ok | {error, _}.
+-spec suback(dbshard(), emqx_ds:sub_ref(), emqx_ds:sub_seqno()) -> ok | {error, _}.
 suback(DBShard, SubId, Acked) ->
     try
         ets:update_counter(subtab(DBShard), SubId, [
@@ -640,7 +638,7 @@ suback(DBShard, SubId, Acked) ->
     catch
         error:badarg ->
             %% This happens when subscription is not found:
-            {error, subscripton_not_found}
+            {error, subscription_not_found}
     end.
 
 %% @doc This internal API notifies the beamformer that generatins have
@@ -877,7 +875,7 @@ terminate(_Reason, _State, #d{dbshard = DBShard}) ->
 %% terminate abnormally. This causes the FSM to enter `recovering'
 %% where it will attempt to re-assign the subscriptions to the workers
 %% after a cooldown interval:
--spec reschedule(dbshard(), [sub_ref()]) -> ok.
+-spec reschedule(dbshard(), [emqx_ds:sub_ref()]) -> ok.
 reschedule(DBShard, SubIds) ->
     gen_statem:call(?via(DBShard), #reschedule_req{ids = SubIds}).
 
