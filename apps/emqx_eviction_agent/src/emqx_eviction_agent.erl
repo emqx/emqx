@@ -335,10 +335,7 @@ stream_count(Stream) ->
     emqx_utils_stream:fold(fun(_, Acc) -> Acc + 1 end, 0, Stream).
 
 connection_pid_stream() ->
-    emqx_utils_stream:map(
-        fun({_ClientId, ChanPid}) -> ChanPid end,
-        connection_stream()
-    ).
+    connection_stream().
 
 do_evict_connections(ChanPidStream, ServerReference) ->
     ok = emqx_utils_stream:foreach(
