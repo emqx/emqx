@@ -848,14 +848,6 @@ t_invalid_partition_count_metrics(Config) ->
             {ok, {{_, 201, _}, _, #{}}} =
                 emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
 
-            {ok, {{_, 201, _}, _, #{}}} =
-                emqx_bridge_v2_testlib:create_action_api(ActionParams),
-            RuleTopic = <<"t/a">>,
-            {ok, #{<<"id">> := RuleId}} =
-                emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
-                    {bridge_name, ActionName}
-                ]),
-
             {ok, C} = emqtt:start_link([]),
             {ok, _} = emqtt:connect(C),
 
@@ -867,6 +859,14 @@ t_invalid_partition_count_metrics(Config) ->
             ok = meck:new(emqx_bridge_kafka_impl_producer, [passthrough, no_history]),
             on_exit(fun() -> catch meck:unload() end),
             ok = meck:expect(emqx_bridge_kafka_impl_producer, query_mode, 1, simple_sync),
+
+            {ok, {{_, 201, _}, _, #{}}} =
+                emqx_bridge_v2_testlib:create_action_api(ActionParams),
+            RuleTopic = <<"t/a">>,
+            {ok, #{<<"id">> := RuleId}} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+                    {bridge_name, ActionName}
+                ]),
 
             %% Simulate `invalid_partition_count'
             emqx_common_test_helpers:with_mock(

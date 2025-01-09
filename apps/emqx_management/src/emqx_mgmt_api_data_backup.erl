@@ -236,10 +236,17 @@ fields(data_backup_file) ->
 
 data_export(post, #{body := Params}) ->
     maybe
+        ok ?= validate_export_root_keys(Params),
         {ok, Opts} ?= parse_export_request(Params),
         {ok, #{filename := FileName} = File} ?= emqx_mgmt_data_backup:export(Opts),
         {200, File#{filename => filename:basename(FileName)}}
     else
+        {error, {unknown_root_keys, UnknownKeys}} ->
+            Msg = iolist_to_binary([
+                <<"Invalid root keys: ">>,
+                lists:join(<<", ">>, UnknownKeys)
+            ]),
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
         {error, {bad_table_sets, InvalidSetNames}} ->
             Msg = iolist_to_binary([
                 <<"Invalid table sets: ">>,
@@ -342,6 +349,18 @@ parse_export_request(Params) ->
             {error, {bad_table_sets, InvalidSetNames}}
     end.
 
+validate_export_root_keys(Params) ->
+    RootKeys0 = maps:get(<<"root_keys">>, Params, []),
+    RootKeys = lists:usort(RootKeys0),
+    RootNames = emqx_config:get_root_names(),
+    UnknownKeys = RootKeys -- RootNames,
+    case UnknownKeys of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, {unknown_root_keys, UnknownKeys}}
+    end.
+
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);
 get_or_delete_file(delete, Filename, Node) ->
@@ -425,7 +444,6 @@ export_request_example() ->
         table_sets => [
             <<"banned">>,
             <<"builtin_authn">>,
-            <<"builtin_authn_scram">>,
             <<"builtin_authz">>
         ],
         root_keys => [

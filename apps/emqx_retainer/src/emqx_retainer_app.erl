@@ -25,21 +25,27 @@
     stop/1
 ]).
 
+%% For testing
+-export([
+    init_buckets/0,
+    delete_buckets/0
+]).
+
 start(_Type, _Args) ->
     ok = emqx_retainer_cli:load(),
-    init_bucket(),
+    init_buckets(),
     emqx_retainer_sup:start_link().
 
 stop(_State) ->
     ok = emqx_retainer_cli:unload(),
-    delete_bucket(),
+    delete_buckets(),
     ok.
 
-init_bucket() ->
+init_buckets() ->
     #{flow_control := FlowControl} = emqx:get_config([retainer]),
-    emqx_limiter_server:add_bucket(
-        ?APP, internal, maps:get(batch_deliver_limiter, FlowControl, undefined)
+    ok = emqx_limiter_server:add_bucket(
+        ?DISPATCHER_LIMITER_ID, internal, maps:get(batch_deliver_limiter, FlowControl, undefined)
     ).
 
-delete_bucket() ->
-    emqx_limiter_server:del_bucket(?APP, internal).
+delete_buckets() ->
+    ok = emqx_limiter_server:del_bucket(?DISPATCHER_LIMITER_ID, internal).
