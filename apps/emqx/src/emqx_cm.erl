@@ -773,6 +773,8 @@ cast(Msg) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    process_flag(priority, high),
+    process_flag(message_queue_data, off_heap),
     TabOpts = [public, {write_concurrency, true}],
     ok = emqx_utils_ets:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [ordered_set, {keypos, #chan_conn.pid} | TabOpts]),
