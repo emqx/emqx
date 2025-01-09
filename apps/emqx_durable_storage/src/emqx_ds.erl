@@ -93,6 +93,7 @@
 
     sub_opts/0,
     subscription_handle/0,
+    sub_ref/0,
     sub_info/0,
     sub_seqno/0
 ]).
@@ -310,6 +311,8 @@
 }.
 
 -type subscription_handle() :: term().
+
+-type sub_ref() :: reference().
 
 -type sub_seqno() :: non_neg_integer().
 
@@ -541,7 +544,7 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), 
 %% encounters `{ok, end_of_stream}' or `{error, unrecoverable, _}'.
 %% Subscriber MUST explicitly call `unsubscribe' when it's done with
 %% the stream.
--spec subscribe(db(), _ItKey, iterator(), sub_opts()) -> {ok, subscription_handle(), reference()}.
+-spec subscribe(db(), _ItKey, iterator(), sub_opts()) -> {ok, subscription_handle(), sub_ref()}.
 subscribe(DB, ItKey, Iterator, SubOpts) ->
     ?module(DB):subscribe(DB, ItKey, Iterator, SubOpts).
 

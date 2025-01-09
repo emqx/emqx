@@ -1326,7 +1326,7 @@ find_ready_stream(S, BufferIterator0) ->
 %% @doc Move batches from a specified stream's buffer to the inflight.
 -spec drain_buffer_of_stream(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
-    emqx_persistent_session_ds_stream_scheduler:stream_state(),
+    emqx_persistent_session_ds_stream_scheduler:srs(),
     session(),
     clientinfo()
 ) ->
@@ -1391,22 +1391,21 @@ do_drain_buffer_of_stream(
             do_drain_buffer_of_stream(
                 StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight
             );
-        {Other, Buf} ->
-            %% Drained all buffered batches for the stream:
-            SRS =
-                case Other of
-                    [] ->
-                        SRS0;
-                    [{ok, end_of_stream}] ->
-                        SRS0#srs{it_end = end_of_stream};
-                    [{error, unrecoverable, _Reason}] ->
-                        SRS0#srs{it_end = end_of_stream}
-                end,
+        {[#poll_reply{payload = Payload}], Buf} ->
+            case Payload of
+                {ok, end_of_stream} ->
+                    ok;
+                {error, unrecoverable, _} ->
+                    ok
+            end,
+            SRS = SRS0#srs{it_end = end_of_stream},
             S1 = put_next(?next(?QOS_1), SNQ1, S0),
             S2 = put_next(?next(?QOS_2), SNQ2, S1),
             S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S2),
             Session = Session0#{s := S, inflight := Inflight0, buffer := Buf},
-            on_enqueue(false, StreamKey, SRS, Session)
+            on_enqueue(false, StreamKey, SRS, Session);
+        {[], _Buf} ->
+            Session0
     end.
 
 %%--------------------------------------------------------------------------------

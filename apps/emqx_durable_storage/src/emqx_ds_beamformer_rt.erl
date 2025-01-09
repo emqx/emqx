@@ -65,7 +65,7 @@
 pool(DBShard) ->
     {emqx_ds_beamformer_rt, DBShard}.
 
--spec enqueue(_Shard, emqx_d_beamformer:poll_req()) ->
+-spec enqueue(_Shard, emqx_ds_beamformer:sub_state()) ->
     ok | {error, unrecoverable, stale} | emqx_ds:error(_).
 enqueue(Shard, Req = #sub_state{req_id = SubId, stream = Stream}) ->
     ?tp(debug, beamformer_enqueue, #{req_id => SubId, queue => rt}),
@@ -140,15 +140,16 @@ handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) -
     ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
     %% FIXME: make a proper event wrapper
     Stream = Event,
-    case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
-        true ->
-            process_stream_event(true, Stream, S);
-        false ->
-            %% Even if we don't have any poll requests for the stream,
-            %% it's still necessary to update the high watermark to
-            %% avoid full scans of very old data:
-            update_high_watermark(Stream, S)
-    end,
+    _ =
+        case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
+            true ->
+                process_stream_event(true, Stream, S);
+            false ->
+                %% Even if we don't have any poll requests for the stream,
+                %% it's still necessary to update the high watermark to
+                %% avoid full scans of very old data:
+                update_high_watermark(Stream, S)
+        end,
     {noreply, S};
 handle_cast(_Cast, S) ->
     {noreply, S}.

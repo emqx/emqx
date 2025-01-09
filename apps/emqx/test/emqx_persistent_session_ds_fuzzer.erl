@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -340,6 +340,8 @@ consume(S) ->
         receive_ack_loop(S, ok)
     ).
 
+%% @doc This function receives and acknowledges all MQTT messages
+%% received from the broker.
 receive_ack_loop(
     S = #s{
         conf = #{wait_publishes_time := Timeout},
@@ -484,13 +486,15 @@ tprop_packet_id_history(I = #{?snk_kind := Kind}, Acc) ->
         ?sessds_test_in_pubrel ->
             #{packet_id := PID} = I,
             case Acc of
-                #{PID := PIDState} -> PIDState = pubrec;
-                #{} -> ok
+                #{PID := PIDState} ->
+                    ?assertMatch(pubrec, PIDState);
+                #{} ->
+                    ok
             end,
             Acc#{PID => pubrel};
         ?sessds_test_out_pubcomp ->
             #{packet_id := PID} = I,
-            #{PID := pubrel} = Acc,
+            ?assertMatch(#{PID := pubrel}, Acc),
             maps:remove(PID, Acc);
         _ ->
             Acc
@@ -557,7 +561,9 @@ tprop_qos12_delivery(#{?snk_kind := Kind} = I, {Subs, Pending}) ->
             case I of
                 #{?snk_span := {complete, _}} ->
                     ?assertMatch(
-                        [], Pending, "consume action should complete delivery of all messages"
+                        [],
+                        Pending,
+                        "consume action should complete delivery of all messages"
                     );
                 #{?snk_span := start} ->
                     ok

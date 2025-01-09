@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022, 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022, 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -ifndef(EMQX_DS_REPLICATION_LAYER_HRL).
 -define(EMQX_DS_REPLICATION_LAYER_HRL, true).
@@ -33,5 +33,9 @@
 %% custom events
 -define(payload, 2).
 -define(now, 3).
+
+-record(sub_handle, {
+    shard, server, ref
+}).
 
 -endif.
