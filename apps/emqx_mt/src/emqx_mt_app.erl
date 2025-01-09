@@ -9,8 +9,9 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
+    {ok, Sup} = emqx_mt_sup:start_link(),
     ok = emqx_mt_hookcb:register_hooks(),
-    emqx_mt_sup:start_link().
+    {ok, Sup}.
 
 stop(_State) ->
     ok = emqx_mt_hookcb:unregister_hooks(),
