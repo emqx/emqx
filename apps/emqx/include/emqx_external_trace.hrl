@@ -107,8 +107,6 @@
     )
 ).
 
--type event_name() :: opentelemetry:event_name().
-
 -else.
 
 -define(EXT_TRACE_ANY(_FuncName, Any, _Attrs), Any).
