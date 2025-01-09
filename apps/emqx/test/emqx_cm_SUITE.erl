@@ -219,7 +219,7 @@ t_open_session_race_condition(_) ->
 
     ?assertMatch([_], ets:lookup(?CHAN_TAB, ClientId)),
     ?assertEqual([Winner], emqx_cm:lookup_channels(ClientId)),
-    ?assertMatch([_], ets:lookup(?CHAN_CONN_TAB, {ClientId, Winner})),
+    ?assertMatch([_], ets:lookup(?CHAN_CONN_TAB, Winner)),
     ?assertMatch([_], ets:lookup(?CHAN_REG_TAB, ClientId)),
 
     exit(Winner, kill),

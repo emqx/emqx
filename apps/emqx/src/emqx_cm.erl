@@ -196,7 +196,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
     %% cast (for process monitor) before inserting ets tables
     cast({registered, Chan}),
     true = ets:insert(?CHAN_TAB, Chan),
-    true = ets:insert(?CHAN_CONN_TAB, {Chan, ConnMod}),
+    true = ets:insert(?CHAN_CONN_TAB, {ChanPid, ConnMod}),
     ok = emqx_cm_registry:register_channel(Chan),
     mark_channel_connected(ChanPid),
     ok.
@@ -210,7 +210,7 @@ unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
 %% @private
 do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
-    true = ets:delete(?CHAN_CONN_TAB, Chan),
+    true = ets:delete(?CHAN_CONN_TAB, ChanPid),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
     ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]),
@@ -698,10 +698,7 @@ live_connection_stream(ConnModules) ->
         (undefined) -> ets:select(?CHAN_CONN_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
         (Cont) -> ets:select(Cont)
     end),
-    emqx_utils_stream:filter(
-        fun({_ClientId, ChanPid}) -> is_channel_connected(ChanPid) end,
-        AllConnStream
-    ).
+    emqx_utils_stream:filter(fun is_channel_connected/1, AllConnStream).
 
 live_connection_ms(ConnModule) ->
     {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.
@@ -777,7 +774,7 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
     ok = emqx_utils_ets:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [bag | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [{write_concurrency, true} | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_INFO_TAB, [ordered_set, compressed | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_LIVE_TAB, [ordered_set, {write_concurrency, true} | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
@@ -839,12 +836,14 @@ update_stats({Tab, Stat, MaxStat}) ->
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
 
+%% This function is mostly called locally, but also exported for RPC (from older versions).
+%% The first arg ClientId is no longer used since 5.8.5, but the function is still `/2`
+%% for backward compatibility.
 -spec do_get_chann_conn_mod(emqx_types:clientid(), chan_pid()) ->
     module() | undefined.
-do_get_chann_conn_mod(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
+do_get_chann_conn_mod(_ClientId, ChanPid) ->
     try
-        [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, Chan, 2),
+        [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, ChanPid, 2),
         ConnMod
     catch
         error:badarg -> undefined
