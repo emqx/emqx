@@ -20,8 +20,8 @@ test_key(Filename) ->
     test_key(Filename, decoded).
 
 test_key(Filename, Format) ->
-    Dir = code:lib_dir(emqx_license, test),
-    Path = filename:join([Dir, "data", Filename]),
+    Dir = code:lib_dir(emqx_license),
+    Path = filename:join([Dir, "test", "data", Filename]),
     {ok, KeyData} = file:read_file(Path),
     case Format of
         pem ->

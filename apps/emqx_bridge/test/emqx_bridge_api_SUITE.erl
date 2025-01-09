@@ -1551,8 +1551,8 @@ json(B) when is_binary(B) ->
     emqx_utils_json:decode(B, [return_maps]).
 
 data_file(Name) ->
-    Dir = code:lib_dir(emqx_bridge, test),
-    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Dir = code:lib_dir(emqx_bridge),
+    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
     Bin.
 
 cert_file(Name) ->

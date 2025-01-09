@@ -261,5 +261,5 @@ init(Req0, Opts) ->
     {ok, Req, Opts}.
 
 some_pem_path() ->
-    Dir = code:lib_dir(emqx_prometheus, test),
-    _Path = filename:join([Dir, "data", "cert.crt"]).
+    Dir = code:lib_dir(emqx_prometheus),
+    _Path = filename:join([Dir, "test", "data", "cert.crt"]).
