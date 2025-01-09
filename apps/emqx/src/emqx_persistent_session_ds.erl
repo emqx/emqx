@@ -1339,19 +1339,7 @@ drain_buffer_of_stream(
     Session0 = #{s := S0, buffer := Buf, inflight := Inflight},
     ClientInfo
 ) ->
-    %% Refresh subscription state:
-    SNQ1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
-    SNQ2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0),
-    SRS1 = SRS0#srs{
-        it_begin = NewItBegin,
-        it_end = NewItBegin,
-        batch_size = 0,
-        first_seqno_qos1 = SNQ1,
-        last_seqno_qos1 = SNQ1,
-        first_seqno_qos2 = SNQ2,
-        last_seqno_qos2 = SNQ2
-    },
-    {SRS, SubState} = maybe_update_sub_state_id(SRS1, S0),
+    {SRS, SubState} = update_srs(SRS0, S0),
     %% Drain the buffer:
     {ok, do_drain_buffer_of_stream(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight)}.
 
@@ -1704,6 +1692,23 @@ maybe_set_will_message_timer(#{id := SessionId, s := S}) ->
         _ ->
             ok
     end.
+
+%% @doc Prepare stream state for `process_batch' with new messages.
+%% Make current end iterator into the begin iterator, update seqnos
+%% and sub_state_id.
+update_srs(SRS0 = #srs{it_end = NewItBegin}, S) ->
+    SNQ1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S),
+    SNQ2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S),
+    SRS = SRS0#srs{
+        it_begin = NewItBegin,
+        it_end = NewItBegin,
+        batch_size = 0,
+        first_seqno_qos1 = SNQ1,
+        last_seqno_qos1 = SNQ1,
+        first_seqno_qos2 = SNQ2,
+        last_seqno_qos2 = SNQ2
+    },
+    maybe_update_sub_state_id(SRS, S).
 
 %% If needed, refresh reference to the subscription state in the SRS
 %% and return the updated records:
