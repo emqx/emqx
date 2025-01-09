@@ -17,6 +17,7 @@
 
 -compile(nowarn_export_all).
 -compile(export_all).
+-compile(nowarn_update_literal).
 
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
