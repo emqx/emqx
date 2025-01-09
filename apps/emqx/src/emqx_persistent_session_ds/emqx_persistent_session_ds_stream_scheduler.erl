@@ -208,7 +208,7 @@
 -type sub_metadata() :: #sub_metadata{}.
 
 -record(stream_sub, {
-    ref :: emqx_ds:subscription_handle_handle(),
+    ref :: emqx_ds:subscription_handle(),
     mref :: reference(),
     seqno = 0 :: emqx_ds:sub_seqno()
 }).

@@ -115,7 +115,7 @@ pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
     end.
 
 %% @doc Get number of buffered messages in a given stream:
--spec len(emqx_persistent_sessionb_ds_stream_scheduler:stream_key(), t()) -> non_neg_integer().
+-spec len(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> non_neg_integer().
 len(StreamId, #buffer{messages = MsgQs}) ->
     case MsgQs of
         #{StreamId := Q} ->

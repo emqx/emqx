@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -439,15 +439,15 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
     end.
 
 -spec subscription_info(emqx_ds:db(), emqx_ds:subscription_handle()) ->
-    emqx_ds:subscription_info() | undefined.
+    emqx_ds:sub_info() | undefined.
 subscription_info(DB, {Shard, SubRef}) ->
     emqx_ds_beamformer:subscription_info({DB, Shard}, SubRef).
 
--spec unsubscribe(emqx_ds:db(), emqx_ds:subscripton()) -> boolean().
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscription_handle()) -> boolean().
 unsubscribe(DB, {Shard, SubId}) ->
     emqx_ds_beamformer:unsubscribe({DB, Shard}, SubId).
 
--spec suback(emqx_ds:db(), emqx_ds:subscripton(), emqx_ds:sub_seqno()) ->
+-spec suback(emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()) ->
     ok | {error, subscription_not_found}.
 suback(DB, {Shard, SubRef}, SeqNo) ->
     emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).

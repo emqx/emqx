@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -73,6 +73,7 @@ streams_of_rank(Rank, Tab) ->
     streams_of_rank_(ets:select(Tab, [MS], 100), #{}).
 
 %% @doc Quick check if there are any subscribers to the given stream:
+-spec has_candidates(_Stream, ets:tid()) -> boolean().
 has_candidates(Stream, Tab) ->
     case ets:next(Tab, {Stream, 0}) of
         {Stream, _} -> true;

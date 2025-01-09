@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -50,7 +50,17 @@ with_worker(UserData, Mod, Function, Args) ->
                             stacktrace => Stack
                         }}
                 end,
-            ReplyTo ! #poll_reply{userdata = UserData, ref = ReplyTo, payload = Result}
+            Size =
+                case Result of
+                    {ok, _, L} ->
+                        length(L);
+                    _ ->
+                        1
+                end,
+            ReplyTo !
+                #poll_reply{
+                    userdata = UserData, ref = ReplyTo, payload = Result, seqno = Size, size = Size
+                }
         end,
         [link, {min_heap_size, 10000}]
     ),
@@ -63,7 +73,7 @@ send_poll_timeout(ReplyTo, Timeout) ->
             receive
             after Timeout + 10 ->
                 ?tp(emqx_ds_poll_timeout_send, #{reply_to => ReplyTo}),
-                ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
+                ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout, seqno = 0, size = 0}
             end
         end
     ),
