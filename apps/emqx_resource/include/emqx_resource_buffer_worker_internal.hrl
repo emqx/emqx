@@ -13,36 +13,14 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(RESOURCE_BUFFER_WORKER_INTERNAL_HRL).
+-define(RESOURCE_BUFFER_WORKER_INTERNAL_HRL, true).
 
--ifndef(EMQX_RESOURCE_RUNTIME_HRL).
--define(EMQX_RESOURCE_RUNTIME_HRL, true).
+-define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT, REQ_CONTEXT, TRACE_CTX),
+    {query, FROM, REQUEST, SENT, EXPIRE_AT, REQ_CONTEXT, TRACE_CTX}
+).
 
--include("emqx_resource.hrl").
-
--define(NO_CHANNEL, no_channel).
-
-%% status and error, cached in ets for each connector
--type st_err() :: #{
-    status := resource_status(),
-    error := term()
-}.
-
-%% the relatively stable part to be cached in persistent_term for each connector
--type cb() :: #{
-    mod := module(),
-    callback_mode := callback_mode(),
-    query_mode := query_mode(),
-    state := term()
-}.
-
-%% the rutime context to be used for each channel
--record(rt, {
-    st_err :: st_err(),
-    cb :: cb(),
-    query_mode :: emqx_resource:resource_query_mode(),
-    channel_status :: ?NO_CHANNEL | channel_status()
-}).
-
--type runtime() :: #rt{}.
+-define(ack, ack).
+-define(nack, nack).
 
 -endif.
