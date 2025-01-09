@@ -60,9 +60,9 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),
+    emqx_common_test_helpers:call_janitor(),
     delete_all_bridges_and_connectors(),
     meck:unload(),
-    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -189,20 +189,7 @@ setup_mocks() ->
     ok.
 
 delete_all_bridges_and_connectors() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing bridge ~p", [{Type, Name}]),
-            emqx_bridge_v2:remove(Type, Name)
-        end,
-        emqx_bridge_v2:list()
-    ),
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing connector ~p", [{Type, Name}]),
-            emqx_connector:remove(Type, Name)
-        end,
-        emqx_connector:list()
-    ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     update_root_config(#{}),
     ok.
 
@@ -1263,4 +1250,69 @@ t_query_uses_action_query_mode(_Config) ->
             ok
         end
     ),
+    ok.
+
+t_async_load_config_cli(_Config) ->
+    ResponseETS = ets:new(response_ets, [public]),
+    ets:insert(ResponseETS, {on_start_value, hang}),
+    TestPid = self(),
+    OnStartFun = wrap_fun(fun(_Conf) ->
+        case ets:lookup_element(ResponseETS, on_start_value, 2) of
+            hang ->
+                persistent_term:put({?MODULE, res_pid}, self()),
+                TestPid ! hanging,
+                receive
+                    go ->
+                        ets:insert(ResponseETS, {on_start_value, continue})
+                end;
+            continue ->
+                ok
+        end,
+        {ok, connector_state}
+    end),
+    on_exit(fun() ->
+        case persistent_term:get({?MODULE, res_pid}, undefined) of
+            undefined ->
+                ct:fail("resource didn't start");
+            ResPid ->
+                ResPid ! go,
+                ok
+        end
+    end),
+
+    ConnectorType = con_type(),
+    ConnectorName = atom_to_binary(?FUNCTION_NAME),
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100},
+        <<"on_start_fun">> => OnStartFun
+    }),
+    %% Make the resource stuck while starting
+    spawn_link(fun() ->
+        {ok, _} = emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig)
+    end),
+    receive
+        hanging ->
+            ok
+    after 1_000 ->
+        ct:fail("connector not started and stuck")
+    end,
+
+    ActionType = bridge_type(),
+    ActionName = ConnectorName,
+    ActionConfig = bridge_config(),
+
+    SourceType = bridge_type(),
+    SourceName = ConnectorName,
+    SourceConfig = bridge_config(),
+
+    RawConfig = #{
+        <<"actions">> => #{ActionType => #{ActionName => ActionConfig}},
+        <<"sources">> => #{SourceType => #{SourceName => SourceConfig}}
+    },
+    ConfigToLoadBin = iolist_to_binary(hocon_pp:do(RawConfig, #{})),
+    ct:pal("loading config..."),
+    ct:timetrap(5_000),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
+    ct:pal("config loaded"),
+
     ok.
