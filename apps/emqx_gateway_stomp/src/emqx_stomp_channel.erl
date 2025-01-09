@@ -407,7 +407,8 @@ process_connect(
                 {<<"version">>, <<"1.0,1.1,1.2">>},
                 {<<"content-type">>, <<"text/plain">>}
             ],
-            handle_out(connerr, {Headers, undefined, <<"Not Authenticated">>}, Channel)
+            ErrMsg = io_lib:format("Failed to open session: ~ts", [Reason]),
+            handle_out(connerr, {Headers, undefined, failed_to_open_session, ErrMsg}, Channel)
     end.
 
 %%--------------------------------------------------------------------
@@ -449,7 +450,7 @@ handle_in(Packet = ?PACKET(?CMD_CONNECT), Channel) ->
             process_connect(ensure_connected(NChannel));
         {error, ReasonCode, NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
-            handle_out(connerr, {[], undefined, ErrMsg}, NChannel)
+            handle_out(connerr, {[], undefined, ReasonCode, ErrMsg}, NChannel)
     end;
 handle_in(
     Frame = ?PACKET(?CMD_SEND, Headers),
@@ -782,9 +783,9 @@ do_subscribe(
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 
-handle_out(connerr, {Headers, ReceiptId, ErrMsg}, Channel) ->
+handle_out(connerr, {Headers, ReceiptId, ErrCode, ErrMsg}, Channel) ->
     Frame = error_frame(Headers, ReceiptId, ErrMsg),
-    shutdown(ErrMsg, Frame, Channel);
+    shutdown(ErrCode, Frame, Channel);
 handle_out(error, {ReceiptId, ErrMsg}, Channel) ->
     Frame = error_frame(ReceiptId, ErrMsg),
     {ok, {outgoing, Frame}, Channel};
