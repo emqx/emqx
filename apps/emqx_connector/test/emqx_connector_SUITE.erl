@@ -24,6 +24,10 @@
 
 -define(CONNECTOR, emqx_connector_dummy_impl).
 
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -45,9 +49,11 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({'end', Config}).
 
-%% the 2 test cases below are based on kafka connector which is ee only
--if(?EMQX_RELEASE_EDITION == ee).
-t_connector_lifecycle({init, Config}) ->
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+mock_resource() ->
     meck:new(emqx_connector_resource, [passthrough]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
@@ -56,10 +62,47 @@ t_connector_lifecycle({init, Config}) ->
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
     meck:expect(?CONNECTOR, on_get_status, 2, connected),
-    [{mocked_mods, [?CONNECTOR, emqx_connector_resource]} | Config];
+    ok.
+
+connector_config() ->
+    #{
+        <<"authentication">> => <<"none">>,
+        <<"bootstrap_hosts">> => <<"127.0.0.1:9092">>,
+        <<"connect_timeout">> => <<"5s">>,
+        <<"enable">> => true,
+        <<"metadata_request_timeout">> => <<"5s">>,
+        <<"min_metadata_refresh_interval">> => <<"3s">>,
+        <<"socket_opts">> =>
+            #{
+                <<"recbuf">> => <<"1024KB">>,
+                <<"sndbuf">> => <<"1024KB">>,
+                <<"tcp_keepalive">> => <<"none">>
+            },
+        <<"ssl">> =>
+            #{
+                <<"ciphers">> => [],
+                <<"depth">> => 10,
+                <<"enable">> => false,
+                <<"hibernate_after">> => <<"5s">>,
+                <<"log_level">> => <<"notice">>,
+                <<"reuse_sessions">> => true,
+                <<"secure_renegotiate">> => true,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+            }
+    }.
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
+
+%% the 2 test cases below are based on kafka connector which is ee only
+-if(?EMQX_RELEASE_EDITION == ee).
+t_connector_lifecycle({init, Config}) ->
+    mock_resource(),
+    Config;
 t_connector_lifecycle({'end', Config}) ->
-    MockedMods = ?config(mocked_mods, Config),
-    meck:unload(MockedMods),
+    meck:unload(),
     Config;
 t_connector_lifecycle(_Config) ->
     ?assertEqual(
@@ -169,16 +212,9 @@ t_connector_lifecycle(_Config) ->
     ok.
 
 t_remove_fail({'init', Config}) ->
-    meck:new(emqx_connector_resource, [passthrough]),
-    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
-    meck:new(?CONNECTOR, [non_strict]),
-    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
-    meck:expect(?CONNECTOR, resource_type, 0, dummy),
-    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
+    mock_resource(),
     meck:expect(?CONNECTOR, on_get_channels, 1, [{<<"my_channel">>, #{enable => true}}]),
     meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
-    meck:expect(?CONNECTOR, on_stop, 2, ok),
-    meck:expect(?CONNECTOR, on_get_status, 2, connected),
     meck:expect(?CONNECTOR, query_mode, 1, simple_async_internal_buffer),
     Config;
 t_remove_fail({'end', _Config}) ->
@@ -266,14 +302,7 @@ t_create_with_bad_name_direct_path(_Config) ->
     ok.
 
 t_create_with_bad_name_root_path({init, Config}) ->
-    meck:new(emqx_connector_resource, [passthrough]),
-    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
-    meck:new(?CONNECTOR, [non_strict]),
-    meck:expect(?CONNECTOR, resource_type, 0, dummy),
-    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
-    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
-    meck:expect(?CONNECTOR, on_stop, 2, ok),
-    meck:expect(?CONNECTOR, on_get_status, 2, connected),
+    mock_resource(),
     Config;
 t_create_with_bad_name_root_path({'end', _Config}) ->
     meck:unload(),
@@ -301,16 +330,9 @@ t_create_with_bad_name_root_path(_Config) ->
     ok.
 
 t_no_buffer_workers({'init', Config}) ->
-    meck:new(emqx_connector_resource, [passthrough]),
-    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
-    meck:new(?CONNECTOR, [non_strict]),
-    meck:expect(?CONNECTOR, resource_type, 0, dummy),
-    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
-    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
+    mock_resource(),
     meck:expect(?CONNECTOR, on_get_channels, 1, []),
     meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
-    meck:expect(?CONNECTOR, on_stop, 2, ok),
-    meck:expect(?CONNECTOR, on_get_status, 2, connected),
     meck:expect(?CONNECTOR, query_mode, 1, sync),
     [
         {path, [connectors, kafka_producer, no_bws]}
@@ -332,11 +354,7 @@ t_no_buffer_workers(Config) ->
 %% is respected when doing a dry run, even if the removal gets stuck because the resource
 %% process is unresponsive.
 t_dryrun_timeout({'init', Config}) ->
-    meck:new(emqx_connector_resource, [passthrough]),
-    meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR),
-    meck:new(?CONNECTOR, [non_strict]),
-    meck:expect(?CONNECTOR, resource_type, 0, dummy),
-    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    mock_resource(),
     %% hang forever
     meck:expect(?CONNECTOR, on_start, fun(_ConnResId, _Opts) ->
         receive
@@ -345,8 +363,6 @@ t_dryrun_timeout({'init', Config}) ->
     end),
     meck:expect(?CONNECTOR, on_get_channels, 1, []),
     meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
-    meck:expect(?CONNECTOR, on_stop, 2, ok),
-    meck:expect(?CONNECTOR, on_get_status, 2, connected),
     meck:expect(?CONNECTOR, query_mode, 1, sync),
     Config;
 t_dryrun_timeout({'end', _Config}) ->
@@ -375,33 +391,51 @@ t_dryrun_timeout(Config) when is_list(Config) ->
     ?retry(1_000, 7, ?assertEqual([], emqx_resource:list_instances())),
     ok.
 
-%% helpers
+t_async_load_config_cli({init, Config}) ->
+    mock_resource(),
+    %% hang forever
+    meck:expect(?CONNECTOR, on_start, fun(_ConnResId, _Opts) ->
+        case persistent_term:get({?MODULE, continue}, false) of
+            true ->
+                {ok, connector_state};
+            _ ->
+                persistent_term:put({?MODULE, res_pid}, self()),
+                receive
+                    go ->
+                        persistent_term:put({?MODULE, continue}, true),
+                        {ok, connector_state}
+                end
+        end
+    end),
+    ContinueStart = fun() ->
+        case persistent_term:get({?MODULE, res_pid}, undefined) of
+            undefined ->
+                ct:fail("resource didn't start");
+            ResPid ->
+                ResPid ! go,
+                ok
+        end
+    end,
+    meck:expect(?CONNECTOR, on_get_channels, 1, []),
+    meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
+    meck:expect(?CONNECTOR, query_mode, 1, sync),
+    [{continue_start, ContinueStart} | Config];
+t_async_load_config_cli({'end', Config}) ->
+    ContinueStart = ?config(continue_start, Config),
+    ContinueStart(),
+    emqx_bridge_v2_testlib:delete_all_connectors(),
+    persistent_term:erase({?MODULE, continue}),
+    persistent_term:erase({?MODULE, res_pid}),
+    meck:unload(),
+    ok;
+t_async_load_config_cli(Config) when is_list(Config) ->
+    ConnectorType = <<"kafka_producer">>,
+    ConnectorName = <<"async_load_config_cli">>,
+    RawConf = #{<<"connectors">> => #{ConnectorType => #{ConnectorName => connector_config()}}},
+    ConfigToLoadBin = iolist_to_binary(hocon_pp:do(RawConf, #{})),
+    ct:timetrap(5_000),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
+    ok.
 
-connector_config() ->
-    #{
-        <<"authentication">> => <<"none">>,
-        <<"bootstrap_hosts">> => <<"127.0.0.1:9092">>,
-        <<"connect_timeout">> => <<"5s">>,
-        <<"enable">> => true,
-        <<"metadata_request_timeout">> => <<"5s">>,
-        <<"min_metadata_refresh_interval">> => <<"3s">>,
-        <<"socket_opts">> =>
-            #{
-                <<"recbuf">> => <<"1024KB">>,
-                <<"sndbuf">> => <<"1024KB">>,
-                <<"tcp_keepalive">> => <<"none">>
-            },
-        <<"ssl">> =>
-            #{
-                <<"ciphers">> => [],
-                <<"depth">> => 10,
-                <<"enable">> => false,
-                <<"hibernate_after">> => <<"5s">>,
-                <<"log_level">> => <<"notice">>,
-                <<"reuse_sessions">> => true,
-                <<"secure_renegotiate">> => true,
-                <<"verify">> => <<"verify_peer">>,
-                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
-            }
-    }.
+%% END if(?EMQX_RELEASE_EDITION == ee)
 -endif.

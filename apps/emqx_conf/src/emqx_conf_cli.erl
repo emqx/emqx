@@ -42,6 +42,7 @@
 -define(UPDATE_READONLY_KEYS_PROHIBITED, <<"Cannot update read-only key '~s'.">>).
 -define(SCHEMA_VALIDATION_CONF_ROOT_BIN, <<"schema_validation">>).
 -define(MESSAGE_TRANSFORMATION_CONF_ROOT_BIN, <<"message_transformation">>).
+-define(CONNECTORS_CONF_ROOT_BIN, <<"connectors">>).
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 -define(TIMEOUT, 30000).
 
@@ -468,6 +469,11 @@ update_config_cluster(
     ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts
 ) ->
     check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts) ->
+    Merged = merge_conf(Key, NewConf),
+    check_res(Key, emqx_conf:update([Key], {async_start, Merged}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, #{mode := replace} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], {async_start, Value}, ?OPTIONS), Value, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
     check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
