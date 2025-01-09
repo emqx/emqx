@@ -37,7 +37,8 @@
     change_password/2,
     change_password/3,
     all_users/0,
-    check/2
+    check/2,
+    update_user_extra/2
 ]).
 
 -export([
@@ -45,6 +46,7 @@
     verify_token/2,
     destroy_token_by_username/2
 ]).
+
 -export([
     hash/1,
     verify_hash/2
@@ -58,6 +60,9 @@
 -export([role/1]).
 
 -export([backup_tables/0]).
+
+%% internal export
+-export([do_sign_token/2]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 -export([add_sso_user/4, lookup_user/2]).
@@ -288,6 +293,10 @@ verify_hash(Origin, SaltHash) ->
 sha256(SaltBin, Password) ->
     crypto:hash('sha256', <<SaltBin/binary, Password/binary>>).
 
+verify_password_expiration(User) ->
+    ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
+    verify_password_expiration(ExpiredTime, User).
+
 verify_password_expiration(0, _User) ->
     {ok, #{}};
 verify_password_expiration(ValidityDuration, #?ADMIN{extra = #{password_ts := Ts}}) ->
@@ -337,7 +346,7 @@ change_password_hash(Username, PasswordHash) ->
                 extra = Extra#{password_ts => erlang:system_time(second)}
             }
         end,
-    case update_pwd(Username, ChangePWD) of
+    case update_user(Username, ChangePWD) of
         {ok, Result} ->
             _ = emqx_dashboard_token:destroy_by_username(Username),
             {ok, Result};
@@ -345,7 +354,7 @@ change_password_hash(Username, PasswordHash) ->
             {error, Reason}
     end.
 
-update_pwd(Username, Fun) ->
+update_user(Username, Fun) ->
     Trans =
         fun() ->
             User =
@@ -364,6 +373,13 @@ unsafe_update_user(User) ->
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
+
+update_user_extra(Username, Fun) ->
+    Do = fun(#?ADMIN{extra = Extra} = User) ->
+        Extra2 = Fun(Extra),
+        User#?ADMIN{extra = Extra2}
+    end,
+    update_user(Username, Do).
 
 -spec lookup_user(dashboard_username()) -> [emqx_admin()].
 lookup_user(Username) ->
@@ -413,10 +429,16 @@ check(Username, Password) ->
 %%--------------------------------------------------------------------
 %% token
 sign_token(Username, Password) ->
-    ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
+    case check(Username, Password) of
+        {ok, User} ->
+            do_sign_token(User, Password);
+        Error ->
+            Error
+    end.
+
+do_sign_token(User, Password) ->
     maybe
-        {ok, User} ?= check(Username, Password),
-        {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, Result} ?= verify_password_expiration(User),
         {ok, Role, Token} ?= emqx_dashboard_token:sign(User, Password),
         {ok, Result#{role => Role, token => Token}}
     end.

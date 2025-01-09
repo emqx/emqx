@@ -38,7 +38,8 @@
     safe_atom_key_map/1,
     unindent/2,
     unsafe_atom_key_map/1,
-    update_if_present/3
+    update_if_present/3,
+    any/2
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -351,3 +352,18 @@ unindent(Key, Map) ->
         maps:remove(Key, Map),
         maps:get(Key, Map, #{})
     ).
+
+-spec any(fun((term(), term()) -> boolean()), map()) -> boolean().
+any(Fun, Map) ->
+    Iter = maps:iterator(Map),
+    do_any(Fun, maps:next(Iter)).
+
+do_any(Fun, {Key, Value, Next}) ->
+    case Fun(Key, Value) of
+        true ->
+            true;
+        _ ->
+            do_any(Fun, maps:next(Next))
+    end;
+do_any(_Fun, none) ->
+    false.

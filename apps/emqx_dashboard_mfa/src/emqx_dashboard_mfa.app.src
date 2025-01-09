@@ -1,0 +1,19 @@
+{application, emqx_dashboard_mfa, [
+    {description, "EMQX Dashboard Multi-factor Authentication"},
+    {vsn, "0.1.0"},
+    {registered, [emqx_dashboard_mfa_sup]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_dashboard,
+        pot
+    ]},
+    {mod, {emqx_dashboard_mfa_app, []}},
+    {env, []},
+    {modules, []},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx-dashboard5"}
+    ]}
+]}.
