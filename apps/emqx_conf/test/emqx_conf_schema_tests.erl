@@ -134,18 +134,22 @@ log.file_handlers {
 ).
 
 -define(FILTERS, [{drop_progress_reports, {fun logger_filters:progress/2, stop}}]).
--define(LOG_CONFIG, #{
-    burst_limit_enable => true,
-    burst_limit_max_count => 10000,
-    burst_limit_window_time => 1000,
-    drop_mode_qlen => 3000,
-    flush_qlen => 8000,
-    overload_kill_enable => true,
-    overload_kill_mem_size => 31457280,
-    overload_kill_qlen => 20000,
-    overload_kill_restart_after => 5000,
-    sync_mode_qlen => 100
-}).
+-define(LOG_CONFIG,
+    (begin
+        #{
+            burst_limit_enable => true,
+            burst_limit_max_count => 10000,
+            burst_limit_window_time => 1000,
+            drop_mode_qlen => 3000,
+            flush_qlen => 8000,
+            overload_kill_enable => true,
+            overload_kill_mem_size => 31457280,
+            overload_kill_qlen => 20000,
+            overload_kill_restart_after => 5000,
+            sync_mode_qlen => 100
+        }
+    end)
+).
 
 outdated_log_test() ->
     validate_log(?OUTDATED_LOG_CONF).

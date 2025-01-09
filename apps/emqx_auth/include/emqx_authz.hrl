@@ -79,6 +79,8 @@
         }
     ]
 }).
+-define(USERNAME_RULES_EXAMPLE(EXTRA), (begin ?USERNAME_RULES_EXAMPLE end) EXTRA).
+
 -define(CLIENTID_RULES_EXAMPLE, #{
     clientid => client1,
     rules => [
@@ -113,6 +115,8 @@
         }
     ]
 }).
+-define(CLIENTID_RULES_EXAMPLE(EXTRA), (begin ?CLIENTID_RULES_EXAMPLE end) EXTRA).
+
 -define(ALL_RULES_EXAMPLE, #{
     rules => [
         #{

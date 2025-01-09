@@ -24,12 +24,13 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(SOURCE_HTTP, #{
+-define(SOURCE_HTTP, ?SOURCE_HTTP(#{})).
+-define(SOURCE_HTTP(HEADERS), #{
     <<"type">> => <<"http">>,
     <<"enable">> => true,
     <<"url">> => <<"https://fake.com:443/acl?username=", ?PH_USERNAME/binary>>,
     <<"ssl">> => #{<<"enable">> => true},
-    <<"headers">> => #{},
+    <<"headers">> => HEADERS,
     <<"method">> => <<"get">>,
     <<"request_timeout">> => <<"5s">>
 }).
@@ -114,9 +115,11 @@ t_http_headers_api(_) ->
         emqx_utils_json:decode(Result1, [return_maps])
     ),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]), ?SOURCE_HTTP#{
-        <<"headers">> => #{<<"a">> => <<"b">>}
-    }),
+    {ok, 204, _} = request(
+        put,
+        uri(["authorization", "sources", "http"]),
+        ?SOURCE_HTTP(#{<<"a">> => <<"b">>})
+    ),
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
@@ -127,9 +130,7 @@ t_http_headers_api(_) ->
         emqx_utils_json:decode(Result2, [return_maps])
     ),
 
-    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]), ?SOURCE_HTTP#{
-        <<"headers">> => #{}
-    }),
+    {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]), ?SOURCE_HTTP),
 
     {ok, 200, Result4} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(

@@ -20,8 +20,6 @@
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-bin(X) -> emqx_utils_conv:bin(X).
-
 parse_and_check_connector(InnerConfig) ->
     emqx_bridge_v2_testlib:parse_and_check_connector(<<"mqtt">>, <<"name">>, InnerConfig).
 
@@ -109,7 +107,8 @@ schema_test_() ->
                             #{
                                 <<"node">> => <<"emqx@10.0.0.2">>,
                                 <<"ids">> => []
-                            }#{
+                            },
+                            #{
                                 <<"node">> => <<"emqx@10.0.0.1">>,
                                 <<"ids">> => []
                             },
