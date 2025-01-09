@@ -82,9 +82,16 @@
 
 -define(METRICS, [?METRIC_SUPERUSER, ?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
 
+-define(DEFAULT_LATENCY_BUCKETS, [5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]).
+
 -spec register_metrics() -> ok.
 register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?METRICS).
+    ok = lists:foreach(fun emqx_metrics:ensure/1, ?METRICS),
+    ok = emqx_metrics_worker:create_metrics(
+        authz_metrics,
+        authz_sources,
+        [{hist, latency, ?DEFAULT_LATENCY_BUCKETS}]
+    ).
 
 init() ->
     ok = register_metrics(),
@@ -493,7 +500,16 @@ authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sourc
     end.
 
 authorize_non_superuser(Client, PubSub, Topic, Sources) ->
-    case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
+    {Latency, Result} = timer:tc(fun() ->
+        do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources))
+    end),
+    emqx_metrics_worker:observe_hist(
+        authz_metrics,
+        authz_sources,
+        latency,
+        erlang:convert_time_unit(Latency, microsecond, millisecond)
+    ),
+    case Result of
         {{matched, allow}, AuthzSource} ->
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, allow),
             emqx_metrics:inc(?METRIC_ALLOW),

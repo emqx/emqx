@@ -22,7 +22,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 %% erlfmt-ignore
 -define(LEGACY_CONF_DEFAULT, <<"
 prometheus {
