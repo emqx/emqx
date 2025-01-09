@@ -692,7 +692,7 @@ all_channels_stream(ConnModuleList) ->
 %% @doc Get all local connection query handle
 -spec live_connection_stream([module()]) -> emqx_utils_stream:stream(pid()).
 live_connection_stream(ConnModules) ->
-    Ms = lists:append(lists:map(fun live_connection_ms/1, ConnModules)),
+    Ms = lists:flatmap(fun live_connection_ms/1, ConnModules),
     AllConnStream = emqx_utils_stream:ets(fun
         (undefined) -> ets:select(?CHAN_CONN_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
         (Cont) -> ets:select(Cont)
@@ -773,11 +773,9 @@ cast(Msg) -> gen_server:cast(?CM, Msg).
 init([]) ->
     TabOpts = [public, {write_concurrency, true}],
     ok = emqx_utils_ets:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
-    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [
-        {keypos, #chan_conn.pid}, {write_concurrency, true} | TabOpts
-    ]),
+    ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [ordered_set, {keypos, #chan_conn.pid} | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_INFO_TAB, [ordered_set, compressed | TabOpts]),
-    ok = emqx_utils_ets:new(?CHAN_LIVE_TAB, [ordered_set, {write_concurrency, true} | TabOpts]),
+    ok = emqx_utils_ets:new(?CHAN_LIVE_TAB, [ordered_set | TabOpts]),
     ok = emqx_stats:update_interval(chan_stats, fun ?MODULE:stats_fun/0),
     State = #{chan_pmon => emqx_pmon:new()},
     {ok, State}.
