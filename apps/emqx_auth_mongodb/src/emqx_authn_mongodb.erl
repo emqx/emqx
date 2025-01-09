@@ -17,7 +17,6 @@
 -module(emqx_authn_mongodb).
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -export([
     create/2,

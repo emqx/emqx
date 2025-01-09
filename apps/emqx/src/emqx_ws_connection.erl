@@ -17,7 +17,6 @@
 %% MQTT/WS|WSS Connection
 -module(emqx_ws_connection).
 
--include("emqx.hrl").
 -include("emqx_cm.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
@@ -120,7 +119,6 @@
 
 -type ws_cmd() :: {active, boolean()} | close.
 
--define(ACTIVE_N, 10).
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
@@ -128,7 +126,7 @@
 -define(LIMITER_BYTES_IN, bytes).
 -define(LIMITER_MESSAGE_IN, messages).
 
--define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
+-define(LOG(Level, Data), ?SLOG(Level, ?MAPPEND(Data, #{tag => "MQTT"}))).
 
 %%--------------------------------------------------------------------
 %% Info, Stats

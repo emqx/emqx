@@ -121,7 +121,7 @@
 -define(maybe_log_node_errors(LogData, Errors),
     case Errors of
         [] -> ok;
-        _ -> ?SLOG(error, (LogData)#{node_errors => Errors})
+        _ -> ?SLOG(error, ?MAPPEND(LogData, #{node_errors => Errors}))
     end
 ).
 

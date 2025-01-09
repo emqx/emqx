@@ -25,7 +25,7 @@
 -define(TRACE_AUTHN_PROVIDER(Msg), ?TRACE_AUTHN_PROVIDER(Msg, #{})).
 -define(TRACE_AUTHN_PROVIDER(Msg, Meta), ?TRACE_AUTHN_PROVIDER(debug, Msg, Meta)).
 -define(TRACE_AUTHN_PROVIDER(Level, Msg, Meta),
-    ?TRACE_AUTHN(Level, Msg, (Meta)#{provider => ?MODULE})
+    ?TRACE_AUTHN(Level, Msg, ?MAPPEND(Meta, #{provider => ?MODULE}))
 ).
 
 -define(TRACE_AUTHN(Msg, Meta), ?TRACE_AUTHN(debug, Msg, Meta)).
