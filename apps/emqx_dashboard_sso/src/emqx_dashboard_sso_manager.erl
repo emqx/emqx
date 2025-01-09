@@ -18,9 +18,7 @@
     handle_cast/2,
     handle_info/2,
     handle_continue/2,
-    terminate/2,
-    code_change/3,
-    format_status/2
+    terminate/2
 ]).
 
 -export([
@@ -183,12 +181,6 @@ handle_continue(_Info, State) ->
 terminate(_Reason, _State) ->
     remove_handler(),
     ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-format_status(_Opt, Status) ->
-    Status.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
