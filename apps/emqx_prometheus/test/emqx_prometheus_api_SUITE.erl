@@ -280,6 +280,66 @@ t_prometheus_api(_) ->
     ),
     ok.
 
+t_prometheus_auth_api_aggregated(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth?mode=all_nodes_aggregated"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+
+    emqx_metrics_worker:reset_metrics(authn_metrics, authn_chains),
+    emqx_metrics_worker:reset_metrics(authz_metrics, authz_sources),
+
+    emqx_metrics_worker:observe_hist(authn_metrics, authn_chains, latency, 100),
+    emqx_metrics_worker:observe_hist(authz_metrics, authz_sources, latency, 100),
+
+    meck:new(mria, [passthrough, no_history]),
+    meck:expect(mria, running_nodes, fun() -> [node(), node(), node()] end),
+
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+
+    ?assert(
+        lists:member(
+            "emqx_authn_latency_count{name=\"latency\"} 3",
+            string:split(Response, "\n", all)
+        )
+    ),
+
+    ?assert(
+        lists:member(
+            "emqx_authz_latency_count{name=\"latency\"} 3",
+            string:split(Response, "\n", all)
+        )
+    ),
+
+    meck:unload(mria),
+    ok.
+
+t_prometheus_auth_api(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+
+    emqx_metrics_worker:reset_metrics(authn_metrics, authn_chains),
+    emqx_metrics_worker:reset_metrics(authz_metrics, authz_sources),
+
+    emqx_metrics_worker:observe_hist(authn_metrics, authn_chains, latency, 100),
+    emqx_metrics_worker:observe_hist(authz_metrics, authz_sources, latency, 100),
+
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+
+    ?assert(
+        lists:member(
+            "emqx_authn_latency_count{name=\"latency\"} 1",
+            string:split(Response, "\n", all)
+        )
+    ),
+
+    ?assert(
+        lists:member(
+            "emqx_authz_latency_count{name=\"latency\"} 1",
+            string:split(Response, "\n", all)
+        )
+    ),
+
+    ok.
+
 t_stats_no_auth_api(_) ->
     %% undefined is legacy prometheus
     case emqx:get_config([prometheus, enable_basic_auth], undefined) of
