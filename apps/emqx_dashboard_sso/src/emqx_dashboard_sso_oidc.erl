@@ -4,7 +4,6 @@
 
 -module(emqx_dashboard_sso_oidc).
 
--include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -27,10 +26,11 @@
 ]).
 
 -define(PROVIDER_SVR_NAME, ?MODULE).
--define(RESPHEADERS, #{
+-define(REDIRECT_HEADERS(LOCATION), #{
     <<"cache-control">> => <<"no-cache">>,
     <<"pragma">> => <<"no-cache">>,
-    <<"content-type">> => <<"text/plain">>
+    <<"content-type">> => <<"text/plain">>,
+    <<"location">> => LOCATION
 }).
 -define(REDIRECT_BODY, <<"Redirecting...">>).
 -define(PKCE_VERIFIER_LEN, 60).
@@ -230,7 +230,7 @@ login(
             of
                 {ok, [Base, Delimiter, Params]} ->
                     RedirectUri = <<Base/binary, Delimiter/binary, Params/binary>>,
-                    Redirect = {302, ?RESPHEADERS#{<<"location">> => RedirectUri}, ?REDIRECT_BODY},
+                    Redirect = {302, ?REDIRECT_HEADERS(RedirectUri), ?REDIRECT_BODY},
                     {redirect, Redirect};
                 {error, _Reason} = Error ->
                     Error

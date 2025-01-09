@@ -32,11 +32,13 @@
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
 
--define(RESPHEADERS, #{
+-define(REDIRECT_HEADERS(TARGET), #{
     <<"cache-control">> => <<"no-cache">>,
     <<"pragma">> => <<"no-cache">>,
-    <<"content-type">> => <<"text/plain">>
+    <<"content-type">> => <<"text/plain">>,
+    <<"location">> => TARGET
 }).
+
 -define(REDIRECT_BODY, <<"Redirecting...">>).
 
 -define(TAGS, <<"Dashboard Single Sign-On">>).
@@ -82,7 +84,7 @@ code_callback(get, #{query_string := QS}) ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_login_successful"
             }),
-            {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY};
+            {302, ?REDIRECT_HEADERS(Target), ?REDIRECT_BODY};
         {error, invalid_query_string_param} ->
             {400, #{code => ?BAD_REQUEST, message => <<"Invalid query string">>}};
         {error, invalid_backend} ->

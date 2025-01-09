@@ -1,6 +1,6 @@
 {application, emqx_dashboard_sso, [
     {description, "EMQX Dashboard Single Sign-On"},
-    {vsn, "0.1.8"},
+    {vsn, "0.1.9"},
     {registered, [emqx_dashboard_sso_sup]},
     {applications, [
         kernel,
