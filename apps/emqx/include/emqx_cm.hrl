@@ -41,9 +41,9 @@
 
 %% Map from channel pid to connection module and client ID.
 -record(chan_conn, {
-    pid :: pid(),
-    mod :: module(),
-    clientid :: emqx_types:clientid()
+    pid :: pid() | '_' | '$1',
+    mod :: module() | '_',
+    clientid :: emqx_types:clientid() | '_'
 }).
 
 -endif.

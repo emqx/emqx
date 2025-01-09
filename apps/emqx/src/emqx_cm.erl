@@ -690,20 +690,17 @@ all_channels_stream(ConnModuleList) ->
     ).
 
 %% @doc Get all local connection query handle
--spec live_connection_stream([module()]) ->
-    emqx_utils_stream:stream({emqx_types:clientid(), pid()}).
+-spec live_connection_stream([module()]) -> emqx_utils_stream:stream(pid()).
 live_connection_stream(ConnModules) ->
-    Ms = lists:map(fun live_connection_ms/1, ConnModules),
+    Ms = lists:append(lists:map(fun live_connection_ms/1, ConnModules)),
     AllConnStream = emqx_utils_stream:ets(fun
         (undefined) -> ets:select(?CHAN_CONN_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
         (Cont) -> ets:select(Cont)
     end),
-    emqx_utils_stream:filter(
-        fun(#chan_conn{pid = Pid}) -> is_channel_connected(Pid) end, AllConnStream
-    ).
+    emqx_utils_stream:filter(fun is_channel_connected/1, AllConnStream).
 
 live_connection_ms(ConnModule) ->
-    {{{'$1', '$2'}, ConnModule}, [], [{{'$1', '$2'}}]}.
+    ets:fun2ms(fun(#chan_conn{mod = M, pid = Pid}) when M =:= ConnModule -> Pid end).
 
 is_channel_connected(ChanPid) when node(ChanPid) =:= node() ->
     ets:member(?CHAN_LIVE_TAB, ChanPid);
@@ -847,8 +844,7 @@ update_stats({Tab, Stat, MaxStat}) ->
     module() | undefined.
 do_get_chann_conn_mod(_ClientId, ChanPid) ->
     try
-        [ConnMod] = ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.mod),
-        ConnMod
+        ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.mod)
     catch
         error:badarg -> undefined
     end.

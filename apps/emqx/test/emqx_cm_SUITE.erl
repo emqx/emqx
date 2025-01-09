@@ -461,3 +461,45 @@ t_message(_) ->
     ?CM ! testing,
     gen_server:cast(?CM, testing),
     gen_server:call(?CM, testing).
+
+t_live_connection_stream(_) ->
+    Chans1 = spawn_dummy_chann(emqx_connection, 50),
+    Chans2 = spawn_dummy_chann(emqx_ws_connection, 50),
+    lists:foreach(
+        fun({ClientId, Pid, ChanInfo}) ->
+            ok = emqx_cm:register_channel(ClientId, Pid, ChanInfo)
+        end,
+        Chans1
+    ),
+    lists:foreach(
+        fun({ClientId, Pid, ChanInfo}) ->
+            ok = emqx_cm:register_channel(ClientId, Pid, ChanInfo)
+        end,
+        Chans2
+    ),
+    Stream = emqx_cm:live_connection_stream([emqx_connection, emqx_ws_connection]),
+    Pids = emqx_utils_stream:fold(fun(Pid, Acc) -> [Pid | Acc] end, [], Stream),
+    StreamedPids = lists:sort(Pids),
+    ExpectedPids = lists:sort(lists:map(fun({_, Pid, _}) -> Pid end, Chans1 ++ Chans2)),
+    lists:foreach(
+        fun(Pid) ->
+            unlink(Pid),
+            exit(Pid, kill)
+        end,
+        ExpectedPids
+    ),
+    ?assertEqual(100, length(StreamedPids)),
+    ?assertEqual(ExpectedPids, StreamedPids),
+    ok.
+
+spawn_dummy_chann(Mod, Count) ->
+    #{conninfo := ConnInfo0} = ?ChanInfo,
+    ConnInfo = ConnInfo0#{conn_mod => Mod},
+    lists:map(
+        fun(I) ->
+            ClientId = list_to_binary(atom_to_list(Mod) ++ integer_to_list(I)),
+            Pid = spawn_link(fun() -> timer:sleep(1000000) end),
+            {ClientId, Pid, ConnInfo}
+        end,
+        lists:seq(1, Count)
+    ).
