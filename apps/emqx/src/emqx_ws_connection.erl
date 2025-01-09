@@ -1080,7 +1080,7 @@ check_max_connection(Type, Listener) ->
         infinity ->
             allow;
         Max ->
-            MatchSpec = [{{'_', emqx_ws_connection}, [], [true]}],
+            MatchSpec = [{#chan_conn{mod = emqx_ws_connection, _ = '_'}, [], [true]}],
             Curr = ets:select_count(?CHAN_CONN_TAB, MatchSpec),
             case Curr >= Max of
                 false ->
