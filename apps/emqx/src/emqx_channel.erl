@@ -145,8 +145,6 @@
     | connected
     %% mqtt connected but reauthenticating
     | reauthenticating
-    %% MQTT DISCONNECT packet received, socket cleanup and etc...
-    | disconnecting
     %% keepalive timeout or connection terminated
     | disconnected.
 
@@ -173,7 +171,8 @@
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
--define(WITH_TRACE(_Expr_),
+%% TODO: refactor with unified macro
+-define(WITH_TRACE_BROKER_DISCONNECT(_Expr_),
     ?EXT_TRACE_WITH_PROCESS_FUN(
         broker_disconnect,
         [],
@@ -1069,7 +1068,7 @@ process_disconnect(
 ) ->
     NConnInfo = ConnInfo#{disconn_props => Properties},
     NChannel = maybe_clean_will_msg(ReasonCode, Channel#channel{conninfo = NConnInfo}),
-    post_process_disconnect(ReasonCode, Properties, NChannel#channel{conn_state = disconnecting}).
+    post_process_disconnect(ReasonCode, Properties, NChannel).
 
 %% MQTT-v5.0: 3.14.2.2.2 Session Expiry Interval
 post_process_disconnect(
@@ -1472,8 +1471,7 @@ return_sub_unsub_ack(Packet, Channel) ->
     | {shutdown, Reason :: term(), Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}.
 handle_call(kick, Channel = #channel{conn_state = ConnState}) when
-    ConnState =/= disconnected andalso
-        ConnState =/= disconnecting
+    ConnState =/= disconnected
 ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         broker_disconnect,
@@ -1588,19 +1586,22 @@ handle_info({unsubscribe, TopicFilters}, Channel) ->
             {ok, NChannel}
         end
     );
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnecting}) ->
-    %% normal disconnect and close socket
+handle_info({sock_closed, normal}, Channel = #channel{conn_state = ConnState}) when
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
+->
+    %% normal disconnect(by client's DISCONNECT packet) and close socket
     %% already traced `client.disconnect`, no need to trace `broker.disconnect`
-    process_maybe_shutdown(Reason, Channel);
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
-    ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
-    ?WITH_TRACE(fun([]) -> shutdown(Reason, Channel) end);
+    process_maybe_shutdown(normal, Channel);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     %% Socket closed when `connected` or `reauthenticating`
-    ?WITH_TRACE(fun([]) -> process_maybe_shutdown(Reason, Channel) end);
+    ?WITH_TRACE_BROKER_DISCONNECT(fun([]) -> process_maybe_shutdown(Reason, Channel) end);
+handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= idle orelse
+        ConnState =:= connecting
+->
+    ?WITH_TRACE_BROKER_DISCONNECT(fun([]) -> shutdown(Reason, Channel) end);
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% This can happen as a race:
     %% EMQX closes socket and marks 'disconnected' but 'tcp_closed' or 'ssl_closed'
