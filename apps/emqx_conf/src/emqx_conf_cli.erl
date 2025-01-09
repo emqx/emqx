@@ -353,10 +353,13 @@ load_config_from_raw(RawConf0, Opts) ->
         {ok, RawConf} ->
             case update_cluster_links(cluster, RawConf, Opts) of
                 ok ->
-                    %% It has been ensured that the connector is always the first configuration to be updated.
-                    %% However, when deleting the connector, we need to clean up the dependent actions/sources first;
-                    %% otherwise, the deletion will fail.
-                    %% notice: we can't create a action/sources before connector.
+                    %% It has been ensured that the connector is always the first
+                    %% configuration to be updated.
+                    %%
+                    %% However, when deleting the connector, we need to clean up the
+                    %% dependent actions/sources first; otherwise, the deletion will fail.
+                    %%
+                    %% Note: we can't create action/sources before connector.
                     uninstall(<<"actions">>, RawConf, Opts),
                     uninstall(<<"sources">>, RawConf, Opts),
                     Error = update_config_cluster(Opts, RawConf),
@@ -671,8 +674,8 @@ sorted_fold(Func, Conf) ->
 
 to_sorted_list(Conf0) ->
     Conf1 = maps:remove(<<"cluster">>, Conf0),
-    %% connectors > actions/bridges > rule_engine
-    Keys = [<<"connectors">>, <<"actions">>, <<"bridges">>, <<"rule_engine">>],
+    %% connectors > actions/bridges/sources > rule_engine
+    Keys = [<<"connectors">>, <<"actions">>, <<"sources">>, <<"bridges">>, <<"rule_engine">>],
     {HighPriorities, Conf2} = split_high_priority_conf(Keys, Conf1, []),
     HighPriorities ++ lists:keysort(1, maps:to_list(Conf2)).
 
