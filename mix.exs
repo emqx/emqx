@@ -108,6 +108,8 @@ defmodule EMQXUmbrella.MixProject do
   def overridden_deps() do
     [
       common_dep(:lc),
+      # in conflict between typerefl and emqx_utils
+      {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true},
       common_dep(:typerefl),
       common_dep(:ehttpc),
       common_dep(:gproc),
@@ -186,7 +188,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.7", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.4", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.44.0", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.3", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
@@ -221,7 +223,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.1", override: true}
 
   def common_dep(:system_monitor),
-    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
+    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
@@ -245,7 +247,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/emqtt", tag: "1.13.5", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
-    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
+    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
 
   def common_dep(:rocksdb),
     do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-6", override: true}

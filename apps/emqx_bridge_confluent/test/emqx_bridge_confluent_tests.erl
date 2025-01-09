@@ -89,9 +89,7 @@ check_connector(Conf) when is_map(Conf) ->
         }
     ]}
 ).
--define(action_validation_error(Reason, Value),
-    ?validation_error(emqx_bridge_v2_schema, Reason, Value)
-).
+
 -define(connector_validation_error(Reason, Value),
     ?validation_error(emqx_connector_schema, Reason, Value)
 ).
@@ -147,19 +145,19 @@ confluent_producer_connector_test_() ->
             )},
         {"ssl disabled",
             ?_assertThrow(
-                ?connector_validation_error(#{expected := "true"}, "false"),
+                ?connector_validation_error("Expected: true" ++ _, <<"false">>),
                 check_connector(Override(#{<<"ssl">> => #{<<"enable">> => <<"false">>}}))
             )},
         {"bad authn mechanism: scram sha256",
             ?_assertThrow(
-                ?connector_validation_error(#{expected := "plain"}, "scram_sha_256"),
+                ?connector_validation_error("Expected: plain" ++ _, <<"scram_sha_256">>),
                 check_connector(
                     Override(#{<<"authentication">> => #{<<"mechanism">> => <<"scram_sha_256">>}})
                 )
             )},
         {"bad authn mechanism: scram sha512",
             ?_assertThrow(
-                ?connector_validation_error(#{expected := "plain"}, "scram_sha_512"),
+                ?connector_validation_error("Expected: plain" ++ _, <<"scram_sha_512">>),
                 check_connector(
                     Override(#{<<"authentication">> => #{<<"mechanism">> => <<"scram_sha_512">>}})
                 )

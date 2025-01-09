@@ -48,8 +48,8 @@ health_check_interval_validator_test_() ->
                 {_, [
                     #{
                         kind := validation_error,
-                        reason := <<"Health Check Interval (-10ms) is out of range", _/binary>>,
-                        value := "-10ms"
+                        reason := "Not a valid duration",
+                        value := <<"-10ms">>
                     }
                 ]},
                 parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"-10ms">>))
@@ -59,15 +59,19 @@ health_check_interval_validator_test_() ->
                 {_, [
                     #{
                         kind := validation_error,
-                        reason :=
-                            <<"Health Check Interval (3_600_000ms) is out of range", _/binary>>,
-                        value := "3_600_000ms"
+                        reason := "Not a valid duration",
+                        value := <<"3_600_000ms">>
                     }
                 ]},
                 parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"3_600_000ms">>))
             )},
         ?_assertThrow(
-            #{exception := #{message := "timeout value too large" ++ _}},
+            {_, [
+                #{
+                    kind := validation_error,
+                    reason := "timeout value too large" ++ _
+                }
+            ]},
             parse_and_check_webhook_bridge(
                 webhook_bridge_health_check_hocon(<<"150000000000000s">>)
             )
