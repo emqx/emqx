@@ -87,7 +87,8 @@ unload() ->
 
 safe_load_connector(Type, Name, Conf) ->
     try
-        _Res = emqx_connector_resource:create(Type, Name, Conf),
+        Opts = #{async_start => true},
+        _Res = emqx_connector_resource:create(Type, Name, Conf, Opts),
         ?tp(
             emqx_connector_loaded,
             #{
