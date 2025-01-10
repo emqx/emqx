@@ -128,7 +128,7 @@ t_drain_down(_) ->
     {Pid1, _Ref1} = erlang:spawn_monitor(fun() -> ok end),
     {Pid2, _Ref2} = erlang:spawn_monitor(fun() -> ok end),
     timer:sleep(100),
-    ?assertEqual([Pid1, Pid2], lists:sort(emqx_utils:drain_down(2))),
+    ?assertEqual(lists:sort([Pid1, Pid2]), lists:sort(emqx_utils:drain_down(2))),
     ?assertEqual([], emqx_utils:drain_down(1)).
 
 t_index_of(_) ->
