@@ -45,7 +45,7 @@
 -record(cache_record, {
     key :: term(),
     value :: term(),
-    deadline :: integer() | '_'
+    expire_at :: integer() | '_'
 }).
 
 -define(stat_key, stats).
@@ -272,7 +272,7 @@ set_gauge(#{name := Name, metrics_worker := MetricsWorker}, Metric, Value) ->
 
 cleanup(#{name := Name, tab := Tab}) ->
     Now = now_ms_monotonic(),
-    MS = ets:fun2ms(fun(#cache_record{deadline = Deadline}) when Deadline < Now -> true end),
+    MS = ets:fun2ms(fun(#cache_record{expire_at = ExpireAt}) when ExpireAt < Now -> true end),
     NumDeleted = ets:select_delete(Tab, MS),
     ?tp(info, node_cache_cleanup, #{
         name => Name,
@@ -317,7 +317,7 @@ config_value(ConfigPath, Key, Default) ->
 lookup(Tab, Key) ->
     Now = now_ms_monotonic(),
     try ets:lookup(Tab, Key) of
-        [#cache_record{value = Value, deadline = Deadlne}] when Deadlne > Now ->
+        [#cache_record{value = Value, expire_at = ExpireAt}] when ExpireAt > Now ->
             {ok, Value};
         _ ->
             not_found
@@ -362,7 +362,7 @@ insert(Tab, Key, Value, ConfigPath) ->
     Record = #cache_record{
         key = Key,
         value = Value,
-        deadline = deadline(ConfigPath)
+        expire_at = deadline(ConfigPath)
     },
     try ets:insert(Tab, Record) of
         true -> ok
