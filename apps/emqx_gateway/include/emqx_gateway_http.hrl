@@ -19,7 +19,9 @@
 -define(RESOURCE_NOT_FOUND, 'RESOURCE_NOT_FOUND').
 -define(INTERNAL_ERROR, 'INTERNAL_SERVER_ERROR').
 
--define(STANDARD_RESP(R), R#{
+-define(STANDARD_RESP(R), (begin
+    R
+end)#{
     400 => emqx_dashboard_swagger:error_codes(
         [?BAD_REQUEST], <<"Bad request">>
     ),

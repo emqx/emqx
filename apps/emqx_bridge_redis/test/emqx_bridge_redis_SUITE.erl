@@ -558,11 +558,11 @@ redis_connect_ssl_opts(Type) ->
 client_ssl_cert_opts(redis_single) ->
     emqx_authn_test_lib:client_ssl_cert_opts();
 client_ssl_cert_opts(_) ->
-    Dir = code:lib_dir(emqx, etc),
+    Dir = code:lib_dir(emqx),
     #{
-        <<"keyfile">> => filename:join([Dir, <<"certs">>, <<"client-key.pem">>]),
-        <<"certfile">> => filename:join([Dir, <<"certs">>, <<"client-cert.pem">>]),
-        <<"cacertfile">> => filename:join([Dir, <<"certs">>, <<"cacert.pem">>])
+        <<"keyfile">> => filename:join([Dir, <<"etc">>, <<"certs">>, <<"client-key.pem">>]),
+        <<"certfile">> => filename:join([Dir, <<"etc">>, <<"certs">>, <<"client-cert.pem">>]),
+        <<"cacertfile">> => filename:join([Dir, <<"etc">>, <<"certs">>, <<"cacert.pem">>])
     }.
 
 redis_connect_configs() ->

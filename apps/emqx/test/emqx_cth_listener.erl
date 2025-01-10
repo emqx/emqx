@@ -26,8 +26,10 @@
 
 -export([meck_recv_ppv2/1, clear_meck_recv_ppv2/1]).
 
--define(DEFAULT_OPTS, #{
+-define(CLIENT_OPTS(PORT, SNI), #{
     host => "127.0.0.1",
+    port => PORT,
+    sni => SNI,
     proto_ver => v5,
     connect_timeout => 5,
     ssl => false
@@ -52,9 +54,9 @@ reload_listener_with_ppv2(Path = [listeners, Type, Name], DefaultSni) when
     client_conn_fn(Type, maps:get(bind, Cfg), DefaultSni).
 
 client_conn_fn(tcp, Bind, Sni) ->
-    client_conn_fn_gen(connect, ?DEFAULT_OPTS#{port => bind2port(Bind), sni => Sni});
+    client_conn_fn_gen(connect, ?CLIENT_OPTS(bind2port(Bind), Sni));
 client_conn_fn(ws, Bind, Sni) ->
-    client_conn_fn_gen(ws_connect, ?DEFAULT_OPTS#{port => bind2port(Bind), sni => Sni}).
+    client_conn_fn_gen(ws_connect, ?CLIENT_OPTS(bind2port(Bind), Sni)).
 
 bind2port({_, Port}) -> Port;
 bind2port(Port) when is_integer(Port) -> Port.

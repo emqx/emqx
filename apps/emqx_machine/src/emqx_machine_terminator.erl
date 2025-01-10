@@ -27,12 +27,10 @@
 
 -export([
     init/1,
-    format_status/2,
     handle_cast/2,
     handle_call/3,
     handle_info/2,
-    terminate/2,
-    code_change/3
+    terminate/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -113,12 +111,6 @@ handle_call(?DO_IT, _From, State) ->
     {reply, ok, State};
 handle_call(_Call, _From, State) ->
     {noreply, State}.
-
-format_status(_Opt, [_Pdict, _S]) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
 
 terminate(_Args, _State) ->
     ok.

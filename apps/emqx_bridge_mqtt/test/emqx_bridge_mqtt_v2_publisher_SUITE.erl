@@ -268,7 +268,6 @@ t_start_stop(Config) ->
     ok.
 
 t_static_clientids(Config) ->
-    ConnectorName = ?config(connector_name, Config),
     [N1, N2, N3] = Nodes = ?config(nodes, Config),
     [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
     Port = get_tcp_mqtt_port(N1),

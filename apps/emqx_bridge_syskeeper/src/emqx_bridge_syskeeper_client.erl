@@ -18,9 +18,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
-    terminate/2,
-    code_change/3,
-    format_status/2
+    terminate/2
 ]).
 
 -include("emqx_bridge_syskeeper.hrl").
@@ -87,16 +85,6 @@ handle_info(_Info, State) ->
 terminate(_Reason, #{socket := Socket} = _State) ->
     close_socket(Socket),
     ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
--spec format_status(
-    Opt :: normal | terminate,
-    Status :: list()
-) -> Status :: term().
-format_status(_Opt, Status) ->
-    Status.
 
 %% ------------------------------------------------------------------------------------------------
 connect(

@@ -38,7 +38,6 @@
         Msg
     }
 }).
--define(SUBOPTS, #{qos => 0, rh => 1, rap => 0, nl => 0, is_new => false}).
 
 %% TODO maybe can merge this code into emqx_coap_session, simplify the call chain
 
@@ -89,11 +88,17 @@ get_sub_opts(Msg) ->
     ),
     case SubOpts of
         #{qos := _} ->
-            maps:merge(?SUBOPTS, SubOpts);
+            maps:merge(mk_subopts(), SubOpts);
         _ ->
             CfgType = emqx_conf:get([gateway, coap, subscribe_qos], ?QOS_0),
-            maps:merge(?SUBOPTS#{qos => type_to_qos(CfgType, Msg)}, SubOpts)
+            maps:merge(mk_subopts(type_to_qos(CfgType, Msg)), SubOpts)
     end.
+
+mk_subopts() ->
+    mk_subopts(?QOS_0).
+
+mk_subopts(QoS) ->
+    #{qos => QoS, rh => 1, rap => 0, nl => 0, is_new => false}.
 
 parse_sub_opts(<<"qos">>, V, Opts) ->
     Opts#{qos => erlang:binary_to_integer(V)};
@@ -189,7 +194,7 @@ subscribe(#coap_message{token = Token} = Msg, Topic, Ctx, CInfo) ->
 unsubscribe(Msg, Topic, Ctx, CInfo) ->
     MountTopic = mount(CInfo, Topic),
     emqx_broker:unsubscribe(MountTopic),
-    run_hooks(Ctx, 'session.unsubscribed', [CInfo, Topic, ?SUBOPTS]),
+    run_hooks(Ctx, 'session.unsubscribed', [CInfo, Topic, mk_subopts()]),
     ?UNSUB(MountTopic, Msg).
 
 mount(#{mountpoint := Mountpoint}, Topic) ->

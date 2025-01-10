@@ -440,8 +440,8 @@ list_pem_dir(Name) ->
     file:list_dir(Dir).
 
 data_file(Name) ->
-    Dir = code:lib_dir(emqx_exhook, test),
-    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Dir = code:lib_dir(emqx_exhook),
+    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
     Bin.
 
 cert_file(Name) ->

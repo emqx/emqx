@@ -272,7 +272,7 @@ defmodule EMQXUmbrella.MixProject do
     }
 
   def common_dep(:ots_erl),
-    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.2", override: true}
+    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}

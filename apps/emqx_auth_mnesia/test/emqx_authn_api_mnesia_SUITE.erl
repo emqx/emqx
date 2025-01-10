@@ -325,9 +325,9 @@ test_authenticator_import_users(PathPrefix) ->
         {filenam, "user-credentials.json", <<>>}
     ]),
 
-    Dir = code:lib_dir(emqx_auth, test),
-    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
-    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
+    Dir = code:lib_dir(emqx_auth),
+    JSONFileName = filename:join([Dir, <<"test/data/user-credentials.json">>]),
+    CSVFileName = filename:join([Dir, <<"test/data/user-credentials.csv">>]),
 
     {ok, JSONData} = file:read_file(JSONFileName),
     {ok, 200, Result1} = multipart_formdata_request(ImportUri, [], [
@@ -347,7 +347,9 @@ test_authenticator_import_users(PathPrefix) ->
 
     %% test application/json
     {ok, 200, _} = request(post, ImportUri ++ "?type=hash", emqx_utils_json:decode(JSONData)),
-    {ok, JSONData1} = file:read_file(filename:join([Dir, <<"data/user-credentials-plain.json">>])),
+    {ok, JSONData1} = file:read_file(
+        filename:join([Dir, <<"test/data/user-credentials-plain.json">>])
+    ),
     {ok, 200, _} = request(post, ImportUri ++ "?type=plain", emqx_utils_json:decode(JSONData1)),
 
     %% test application/json; charset=utf-8

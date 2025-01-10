@@ -323,8 +323,8 @@ receive_messages(Count, Msgs) ->
     end.
 
 mk_bootstrap_file(File) ->
-    Dir = code:lib_dir(emqx, test),
-    filename:join([Dir, <<"data/banned">>, File]).
+    Dir = code:lib_dir(emqx),
+    filename:join([Dir, "test", "data", "banned", File]).
 
 get_banned_list() ->
     Tabs = emqx_banned:tables(),

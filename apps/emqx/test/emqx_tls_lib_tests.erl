@@ -795,9 +795,6 @@ do_setup_ssl_files(InOpts) ->
 cleanup_ssl_files(#{temp_dir := Dir}) ->
     file:del_dir_r(Dir).
 
-mktemp_dir() ->
-    mktemp_dir(_BaseDir = "/tmp").
-
 mktemp_dir(BaseDir) ->
     Dir = os:cmd("mktemp -dp " ++ BaseDir ++ " emqx_tls_lib_tests.XXXXXXXXXXX"),
     string:trim(Dir).
