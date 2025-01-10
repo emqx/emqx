@@ -82,6 +82,12 @@ parse_sql(Template, ReplaceWith, AllowedVars) ->
     ),
     {UsedVars, Statement, TemplateWithAllowedVars}.
 
+%% @doc Create a unique template from a list of variables.
+%% The terms rendered from the templates will be the same if and only if
+%% * the very template is the same
+%% * the values provided for the template variables are the same
+%%
+%% Also, the template is unique, so it can be used as a cache key.
 -spec cache_key_template(allowed_vars()) -> cache_key_template().
 cache_key_template(Vars) ->
     #cache_key_template{
@@ -96,6 +102,7 @@ cache_key_template(Vars) ->
         )
     }.
 
+%% @doc Lazily render the cache key from the template and values.
 -spec cache_key(map(), cache_key_template()) -> cache_key().
 cache_key(Values, CacheKeyTemplate) ->
     cache_key(Values, CacheKeyTemplate, []).
