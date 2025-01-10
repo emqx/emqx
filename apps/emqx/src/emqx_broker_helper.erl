@@ -167,11 +167,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_call", call => Req}),
+    ?SLOG(error, #{msg => "emqx_broker_helper_unexpected_call", call => Req}),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_cast", cast => Msg}),
+    ?SLOG(error, #{msg => "emqx_broker_helper_unexpected_cast", cast => Msg}),
     {noreply, State}.
 
 handle_info({register_sub, SubPid, SubId}, State) ->
@@ -181,7 +181,7 @@ handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State) ->
     ok = collect_and_handle([], [SubPid]),
     {noreply, State};
 handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "emqx_borker_helper_unexpected_info", info => Info}),
+    ?SLOG(error, #{msg => "emqx_broker_helper_unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

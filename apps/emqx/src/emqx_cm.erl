@@ -825,7 +825,7 @@ collect_and_handle(Regs0, Down0) ->
     ok = handle_down_pids(Down).
 
 collect_msgs(Regs, Down, 0) ->
-    {lists:reverse(Regs), lists:reverse(Down)};
+    {Regs, Down};
 collect_msgs(Regs, Down, N) ->
     receive
         {registered, Pid} ->
@@ -833,7 +833,7 @@ collect_msgs(Regs, Down, N) ->
         {'DOWN', _MRef, process, Pid, _Reason} ->
             collect_msgs(Regs, [Pid | Down], N - 1)
     after 0 ->
-        {lists:reverse(Regs), lists:reverse(Down)}
+        {Regs, Down}
     end.
 
 clean_down([]) ->
