@@ -197,8 +197,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 collect_and_handle(Reg0, Down0) ->
     {Reg, Down} = collect_messages(Reg0, Down0),
-    ok = handle_down(Down),
-    ok = handle_register(Reg).
+    %% handle register before handle down to avoid race condition
+    %% because down message is always the last one from a process
+    ok = handle_register(Reg),
+    ok = handle_down(Down).
 
 collect_messages(Reg, Down) ->
     collect_messages(Reg, Down, ?BATCH_SIZE).
