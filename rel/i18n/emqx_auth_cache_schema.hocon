@@ -13,7 +13,7 @@ enable.label:
 """Enable"""
 
 cache_ttl.desc:
-"""Time after which the cached authentication/authorization result will be expired."""
+"""Time after which the cached authentication/authorization result will expire."""
 
 cache_ttl.label:
 """Cache TTL"""

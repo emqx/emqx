@@ -100,7 +100,9 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate}
+    annotations := #{
+        skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate
+    }
 }) ->
     Options = #{skip => Skip, limit => Limit},
     CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),

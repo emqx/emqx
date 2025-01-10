@@ -84,10 +84,6 @@ authenticate(
     case generate_request(Credential, State) of
         {ok, Request} ->
             CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
-            ?tp(warning, authn_http_authenticate, #{
-                cache_key => CacheKey(),
-                cache_key_template => CacheKeyTemplate
-            }),
             Response = emqx_authn_utils:cached_simple_sync_query(
                 CacheKey,
                 ResourceId,
