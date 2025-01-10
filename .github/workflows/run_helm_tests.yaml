@@ -141,7 +141,7 @@ jobs:
         nohup bash -c "while true; do kubectl port-forward service/${EMQX_NAME} 18083:18083 ; sleep 1 ; done" &
     - name: Get auth token
       run: |
-        curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 \
+        curl -v --head -X GET --retry 10 --retry-all-errors --retry-delay 6 \
           http://localhost:18083/status || {
             echo "/status failed to respond with healthy response"
             kubectl logs -l "app.kubernetes.io/instance=${EMQX_NAME}" -c emqx --tail=1000
