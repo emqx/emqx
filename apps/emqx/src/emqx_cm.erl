@@ -198,7 +198,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
     ok = cast({registered, ChanPid}),
     true = ets:insert(?CHAN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
-    mark_channel_connected(ChanPid),
+    ok = mark_channel_connected(ChanPid),
     ok.
 
 %% @doc Unregister a channel.
@@ -915,7 +915,6 @@ kick_session_chans(ClientId, ChanPids) ->
 -if(?EMQX_RELEASE_EDITION == ee).
 
 basic_trace_attrs(Pid) ->
-    %% io:format("lookup_client({chan_pid, Pid}): ~p", [lookup_client({chan_pid, Pid})]),
     case lookup_client({chan_pid, Pid}) of
         [] ->
             #{'channel.pid' => iolist_to_binary(io_lib:format("~p", [Pid]))};
