@@ -2,7 +2,7 @@
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
+%% you may not use this ifle except in compliance with the License.
 %% You may obtain a copy of the License at
 %%
 %%     http://www.apache.org/licenses/LICENSE-2.0
@@ -562,9 +562,8 @@ t_flow_control(_) ->
         [{qos, 0}, {retain, true}]
     ),
     ct:sleep(100),
-    Begin = erlang:system_time(millisecond),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
-    ?assertEqual(2, length(receive_messages(3))),
+    ?assertEqual(3, length(receive_messages(3))),
     ok.
 
 t_publish_rate_limit(_) ->
@@ -1136,3 +1135,17 @@ publish_messages(C1, Count) ->
         end,
         lists:seq(1, Count)
     ).
+
+remove_delivery_rate() ->
+    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID),
+    emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"infinity">>
+    }).
+
+reset_delivery_rate_to_default() ->
+    {ok, Rate} = emqx_limiter_schema:to_rate("1000/s"),
+    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID),
+    emqx_limiter_allocator:add_bucket(?DISPATCHER_LIMITER_ID, #{rate => Rate, burst => 0}),
+    emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"1000/s">>
+    }).

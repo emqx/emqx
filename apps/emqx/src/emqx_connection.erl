@@ -120,15 +120,6 @@
     %% Listener Type and Name
     listener :: {Type :: atom(), Name :: atom()},
 
-    %% deprecated
-    limiter :: any(),
-
-    %% deprecated
-    limiter_buffer :: any(),
-
-    %% deprecated
-    limiter_timer :: any(),
-
     %% QUIC conn shared state
     quic_conn_ss :: option(map()),
 
@@ -345,7 +336,6 @@ init_state(
         peername = Peername,
         sockname = Sockname,
         sockstate = idle,
-        limiter = undefined,
         parser = Parser,
         serialize = Serialize,
         channel = Channel,
@@ -354,8 +344,6 @@ init_state(
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         zone = Zone,
         listener = Listener,
-        limiter_buffer = undefined,
-        limiter_timer = undefined,
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         extra = []
