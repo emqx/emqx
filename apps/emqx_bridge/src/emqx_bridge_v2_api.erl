@@ -36,7 +36,8 @@
     check_api_schema/2,
     paths/0,
     schema/1,
-    namespace/0
+    namespace/0,
+    fields/1
 ]).
 
 %% API callbacks : actions
@@ -169,6 +170,31 @@ bridge_info_array_example(Method, ConfRootKey) ->
         fun(#{value := Config}) -> Config end,
         maps:values(bridge_info_examples(Method, ConfRootKey))
     ).
+
+summary_response_example(ConfRootKey) ->
+    {TypeEx, ExName} =
+        case ConfRootKey of
+            ?ROOT_KEY_SOURCES -> {<<"source_type">>, <<"Source">>};
+            ?ROOT_KEY_ACTIONS -> {<<"action_type">>, <<"Action">>}
+        end,
+    [
+        #{
+            enabled => true,
+            name => <<"my", ExName/binary>>,
+            type => TypeEx,
+            last_modified_at => 1736512728666,
+            node_status => [
+                #{
+                    node => <<"emqx@127.0.0.1">>,
+                    status => <<"connected">>,
+                    status_reason => <<"">>
+                }
+            ],
+            rules => [<<"rule1">>, <<"rule2">>],
+            status => <<"connected">>,
+            status_reason => <<"">>
+        }
+    ].
 
 param_path_id() ->
     {id,
@@ -440,10 +466,8 @@ schema("/actions_summary") ->
             description => ?DESC("actions_summary"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    %% FIXME:
-                    array(map()),
-                    %% FIXME:
-                    bridge_info_array_example(get, ?ROOT_KEY_ACTIONS)
+                    array(hoconsc:ref(?MODULE, response_summary)),
+                    summary_response_example(?ROOT_KEY_ACTIONS)
                 )
             }
         }
@@ -669,10 +693,8 @@ schema("/sources_summary") ->
             description => ?DESC("sources_summary"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    %% FIXME:
-                    array(map()),
-                    %% FIXME:
-                    bridge_info_array_example(get, ?ROOT_KEY_SOURCES)
+                    array(hoconsc:ref(?MODULE, response_summary)),
+                    summary_response_example(?ROOT_KEY_SOURCES)
                 )
             }
         }
@@ -698,6 +720,24 @@ schema("/source_types") ->
             }
         }
     }.
+
+fields(response_node_status) ->
+    [
+        {node, mk(binary(), #{})},
+        {status, mk(binary(), #{})},
+        {status_reason, mk(binary(), #{})}
+    ];
+fields(response_summary) ->
+    [
+        {enabled, mk(boolean(), #{})},
+        {name, mk(binary(), #{})},
+        {type, mk(binary(), #{})},
+        {last_modified_at, mk(integer(), #{})},
+        {node_status, mk(array(hoconsc:ref(?MODULE, response_node_status)), #{})},
+        {rules, mk(array(binary()), #{})},
+        {status, mk(binary(), #{})},
+        {status_reason, mk(binary(), #{})}
+    ].
 
 %%------------------------------------------------------------------------------
 
