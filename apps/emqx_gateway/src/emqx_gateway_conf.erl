@@ -175,8 +175,6 @@ gateway(GwName0) ->
     Confs#{<<"listeners">> => convert_listeners(GwName, LsConf)}.
 
 %% @doc convert listeners map to array
-convert_listeners(_GwName, []) ->
-    [];
 convert_listeners(GwName, Ls) when is_map(Ls) ->
     lists:append([
         do_convert_listener(GwName, Type, maps:to_list(Conf))
@@ -210,7 +208,7 @@ listeners(GwName0) ->
     ),
     Listeners = emqx_utils_maps:jsonable_map(
         emqx_utils_maps:deep_get(
-            [<<"gateway">>, GwName, <<"listeners">>], RawConf, []
+            [<<"gateway">>, GwName, <<"listeners">>], RawConf, #{}
         )
     ),
     convert_listeners(GwName, Listeners).
