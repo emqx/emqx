@@ -1742,7 +1742,10 @@ when
     SRS :: emqx_persistent_session_ds_stream_scheduler:srs().
 maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
     case emqx_persistent_session_ds_state:get_subscription_state(SSID0, S) of
-        #{superseded_by := SSID} ->
+        #{superseded_by := _, parent_subscription := ParentSub} ->
+            {_, #{current_state := SSID}} = emqx_persistent_session_ds_subs:find_by_subid(
+                ParentSub, S
+            ),
             ?tp(?sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
             maybe_update_sub_state_id(SRS#srs{sub_state_id = SSID}, S);
         #{} = SubState ->
