@@ -19,13 +19,14 @@
 -define(EMQX_TRACEPOINTS_HRL, true).
 
 %%%%% Trace point kinds:
--define(sessds_deliver_pending, sessds_deliver_pending).
+-define(sessds_drain_inflight, sessds_drain_inflight).
 
 -define(sessds_unknown_timeout, sessds_unknown_timeout).
 -define(sessds_unknown_message, sessds_unknown_message).
 -define(sessds_replay_inconsistency, sessds_replay_inconsistency).
 -define(sessds_out_of_order_commit, 'sessds_out-of-order_commit').
 -define(sessds_unexpected_reply, sessds_unexpected_ds_reply).
+-define(sessds_replay_unrecoverable_error, sessds_replay_unrecoverable_error).
 
 -define(sessds_terminate, sessds_terminate).
 -define(sessds_drop, sessds_drop).
