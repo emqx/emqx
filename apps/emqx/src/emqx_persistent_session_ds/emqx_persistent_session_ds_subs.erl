@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@
     on_session_drop/2,
     gc/1,
     lookup/2,
+    find_by_subid/2,
     to_map/1
 ]).
 
@@ -255,6 +256,33 @@ lookup(TopicFilter, S) ->
             end;
         undefined ->
             undefined
+    end.
+
+%% @doc Lookup subscription by its ID:
+-spec find_by_subid(
+    emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
+) ->
+    {emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds:subscription()}
+    | undefined.
+find_by_subid(SubId, S) ->
+    %% TODO: implement generic find function for emqx_persistent_session_ds_state
+    try
+        emqx_persistent_session_ds_state:fold_subscriptions(
+            fun(TF, Sub = #{id := I}, Acc) ->
+                case I of
+                    SubId ->
+                        throw({found, TF, Sub});
+                    _ ->
+                        Acc
+                end
+            end,
+            [],
+            S
+        ),
+        undefined
+    catch
+        {found, TF, Sub} ->
+            {TF, Sub}
     end.
 
 %% @doc Convert active subscriptions to a map, for information
