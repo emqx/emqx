@@ -2464,6 +2464,8 @@ t_clients_api(_) ->
         request(get, "/gateways/mqttsn/clients/client_id_test1"),
     %% assert
     Client1 = Client2 = Client3 = Client4,
+    %% assert keepalive
+    ?assertEqual(10, maps:get(keepalive, Client4)),
     %% kickout
     {204, _} =
         request(delete, "/gateways/mqttsn/clients/client_id_test1"),
