@@ -39,6 +39,8 @@
     rename_client_info_vars/1
 ]).
 
+-define(POSSIBLE_CACHE_KEY_IDS, [clientid, username, cert_common_name]).
+
 -record(cache_key_template, {
     id :: binary(),
     vars :: emqx_template:t()
@@ -108,20 +110,17 @@ cache_key(Values, CacheKeyTemplate) ->
     cache_key(Values, CacheKeyTemplate, []).
 
 -spec cache_key(map(), cache_key_template(), list()) -> cache_key().
-cache_key(Values0, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKeyParts) when
+cache_key(Values, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKeyParts) when
     is_list(ExtraKeyParts)
 ->
     fun() ->
-        %% We hash the password because we do not want it to be stored as-is in the cache
-        %% for a significant amount of time.
-        %% TemplateId is used as some kind of salt for the password hash.
-        %%
-        %% We may just hash the whole key, but we chose to hash the password only for now
-        %% for better introspection.
-        Values1 = hash_password(TemplateId, Values0),
-        Key0 = render_deep_for_raw(KeyVars, Values1),
-        Key1 = ExtraKeyParts ++ Key0,
-        [TemplateId | Key1]
+        %% We try to add some identifier to the cache key for better introspection.
+        CacheKeyId = cache_template_id(first_present_kv(?POSSIBLE_CACHE_KEY_IDS, Values)),
+        Key0 = render_deep_for_raw(KeyVars, Values),
+        %% We hash the key to avoid storing the passwords or other sensitive data as-is in the cache.        %%
+        %% TemplateId is used as some kind of salt.
+        Key1 = crypto:hash(sha256, [TemplateId, Key0]),
+        [CacheKeyId, Key1 | ExtraKeyParts]
     end.
 
 -spec placeholder_vars_from_str(unicode:chardata()) -> [var()].
@@ -151,13 +150,6 @@ rename_client_info_vars(ClientInfo) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-hash_password(TemplateId, Values) ->
-    emqx_utils_maps:update_if_present(
-        password,
-        fun(Password) -> crypto:hash(sha256, [TemplateId, Password]) end,
-        Values
-    ).
 
 handle_disallowed_placeholders(Template, AllowedVars, Source) ->
     {UsedAllowedVars, UsedDisallowedVars} = emqx_template:placeholders(AllowedVars, Template),
@@ -320,3 +312,25 @@ render_var(_Name, Value) ->
 
 render_strict(Topic, ClientInfo) ->
     emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo)).
+
+first_present_kv([Key | Keys], Map) ->
+    case Map of
+        #{Key := Value} when Value =/= undefined andalso Value =/= <<>> andalso Value =/= "" ->
+            {Key, Value};
+        _ ->
+            first_present_kv(Keys, Map)
+    end;
+first_present_kv([], _) ->
+    undefined.
+
+cache_template_id(undefined) ->
+    <<>>;
+cache_template_id({Key, Value}) ->
+    try emqx_utils_conv:bin(Value) of
+        Bin ->
+            KeyBin = atom_to_binary(Key, utf8),
+            <<KeyBin/binary, ":", Bin/binary, "-">>
+    catch
+        error:_ ->
+            <<>>
+    end.

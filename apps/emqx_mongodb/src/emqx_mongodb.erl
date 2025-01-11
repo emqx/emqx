@@ -392,7 +392,6 @@ connect(Opts) ->
     Hosts = proplists:get_value(hosts, Opts, []),
     Options = proplists:get_value(options, Opts, []),
     WorkerOptions = proplists:get_value(worker_options, Opts, []),
-    ?SLOG(warning, #{msg => "connecting_mongodb", args => [Type, Hosts, Options, WorkerOptions]}),
     mongo_api:connect(Type, Hosts, Options, WorkerOptions).
 
 mongo_query(Conn, find, Collection, Filter, Options) ->

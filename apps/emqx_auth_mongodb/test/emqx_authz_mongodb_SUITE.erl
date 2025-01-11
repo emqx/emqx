@@ -102,6 +102,7 @@ run_test(Case, UseLegacyProtocol) ->
     ok = emqx_authz_test_lib:run_checks(Case).
 
 t_node_cache(_Config) ->
+    ok = emqx_authz_test_lib:reset_node_cache(),
     Case = #{
         name => cache_publish,
         records => [

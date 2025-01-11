@@ -130,11 +130,15 @@ with_cache(Name, Key, Fun) ->
 -spec reset(name()) -> ok.
 reset(Name) ->
     try
-        #{tab := Tab} = persistent_term:get(?pt_key(Name)),
+        #{tab := Tab, metrics_worker := MetricsWorker} = persistent_term:get(?pt_key(Name)),
         ets:delete_all_objects(Tab),
+        ok = emqx_metrics_worker:reset_metrics(MetricsWorker, Name),
+        ?tp(info, auth_cache_reset, #{name => Name, status => ok}),
         ok
     catch
-        error:badarg -> ok
+        error:badarg ->
+            ?tp(warning, auth_cache_reset, #{name => Name, status => not_found}),
+            ok
     end.
 
 -spec metrics(name()) -> map() | no_return().
@@ -274,7 +278,7 @@ cleanup(#{name := Name, tab := Tab}) ->
     Now = now_ms_monotonic(),
     MS = ets:fun2ms(fun(#cache_record{expire_at = ExpireAt}) when ExpireAt < Now -> true end),
     NumDeleted = ets:select_delete(Tab, MS),
-    ?tp(info, node_cache_cleanup, #{
+    ?tp(info, auth_cache_cleanup, #{
         name => Name,
         num_deleted => NumDeleted
     }),
@@ -289,7 +293,7 @@ update_stats(#{tab := Tab, stat_tab := StatTab, name := Name} = PtState) ->
     },
     ok = set_gauge(PtState, ?metric_count, Count),
     ok = set_gauge(PtState, ?metric_memory, Memory),
-    ?tp(info, update_stats, #{
+    ?tp(info, auth_cache_update_stats, #{
         name => Name,
         stats => Stats
     }),
@@ -345,7 +349,7 @@ tab_stats(Tab) ->
 
 maybe_insert(#{tab := Tab, stat_tab := StatTab, config_path := ConfigPath} = PtState, Key, Value) ->
     LimitsReached = limits_reached(ConfigPath, StatTab),
-    ?tp(warning, node_cache_insert, #{
+    ?tp(auth_cache_insert, #{
         key => Key,
         value => Value,
         limits_reached => LimitsReached
@@ -374,7 +378,7 @@ limits_reached(ConfigPath, StatTab) ->
     MaxCount = config_value(ConfigPath, max_count, ?unlimited),
     MaxMemory = config_value(ConfigPath, max_memory, ?unlimited),
     [#stats{count = Count, memory = Memory}] = ets:lookup(StatTab, ?stat_key),
-    ?tp(warning, node_cache_limits, #{
+    ?tp(auth_cache_limits, #{
         count => Count,
         memory => Memory,
         max_count => MaxCount,

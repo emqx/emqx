@@ -76,6 +76,9 @@ enable_node_cache(Enable) ->
     ),
     ok.
 
+reset_node_cache() ->
+    emqx_auth_cache:reset(?AUTHZ_CACHE).
+
 %%--------------------------------------------------------------------
 %% Table-based test helpers
 %%--------------------------------------------------------------------
