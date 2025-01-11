@@ -1086,17 +1086,17 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 handle_ds_reply(
     Reply,
     Session0 = #{
-        s := S, buffer := B0, stream_scheduler_s := SchedS0, inflight := Inflight0
+        s := S, buffer := Buf0, stream_scheduler_s := SchedS0, inflight := Inflight0
     },
     ClientInfo
 ) ->
-    ?tp(debug, ?sessds_poll_reply, #{reply => Reply}),
     #poll_reply{userdata = StreamKey} = Reply,
     case emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, SchedS0) of
         {true, SchedS} ->
             SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
             case emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS0, S) of
                 true ->
+                    ?tp(debug, ?sessds_poll_reply, #{reply => Reply, blocked => false}),
                     %% This stream is not blocked. Add messages
                     %% directly to the inflight and set drain timer.
                     %%
@@ -1116,10 +1116,11 @@ handle_ds_reply(
                         })
                     );
                 false ->
+                    ?tp(debug, ?sessds_poll_reply, #{reply => Reply, blocked => true}),
                     %% This stream is blocked, add batch to the buffer
                     %% instead:
-                    B = emqx_persistent_session_ds_buffer:push_batch(StreamKey, Reply, B0),
-                    Session0#{buffer := B, stream_scheduler_s := SchedS}
+                    Buf = emqx_persistent_session_ds_buffer:push_batch(StreamKey, Reply, Buf0),
+                    Session0#{buffer := Buf, stream_scheduler_s := SchedS}
             end;
         {false, SchedS} ->
             Session0#{stream_scheduler_s := SchedS}
@@ -1322,7 +1323,6 @@ drain_buffer_of_stream(
     ClientInfo
 ) ->
     SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-    ?tp(debug, "sessds_drain_buffer_of_stream", #{stream => StreamKey, srs => SRS0}),
     {SRS, SubState} = pre_enqueue_new(SRS0, S),
     do_drain_buffer_of_stream(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight).
 
@@ -1337,6 +1337,7 @@ do_drain_buffer_of_stream(
 ) ->
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
         {[#poll_reply{payload = {ok, _, _}} = DSReply], Buf} ->
+            ?tp("sessds_drain_buffer_of_stream", #{stream => StreamKey, reply => DSReply}),
             {SRS, Inflight} = enqueue_batch(
                 StreamKey, S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
             ),
@@ -1528,35 +1529,41 @@ update_seqno(
             S = put_seqno(SeqNoKey, SeqNo, S0),
             Session = Session0#{inflight := Inflight, s := S},
             {ok, Msg, Session};
-        {ok, Inflight} ->
-            {ReadyStreams, S1, SchedS} =
+        {ok, Inflight1} ->
+            {UblockedStreams, S1, SchedS} =
                 emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
                     QoS, SeqNo, S0, SchedS0
                 ),
             S2 = put_seqno(SeqNoKey, SeqNo, S1),
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S2, SharedSubS0, ReadyStreams
+                S2, SharedSubS0, UblockedStreams
             ),
-            case ReadyStreams of
-                [] ->
-                    Session = Session0;
-                _ ->
-                    Session1 =
-                        lists:foldl(
-                            fun(StreamKey, SessionAcc) ->
-                                drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
-                            end,
-                            Session0,
-                            ReadyStreams
-                        ),
-                    Session = ensure_delivery_timer(Session1)
-            end,
-            {ok, Msg, Session#{
-                s := put_seqno(SeqNoKey, SeqNo, S),
-                inflight := Inflight,
+            Session1 = Session0#{
+                inflight := Inflight1,
+                s := S,
                 stream_scheduler_s := SchedS,
                 shared_sub_s := SharedSubS
-            }};
+            },
+            Session =
+                case UblockedStreams of
+                    [] ->
+                        Session1;
+                    _ ->
+                        %% Dump stream messages that have been stored
+                        %% in the buffer while the stream was blocked
+                        %% into the inflight:
+                        ensure_delivery_timer(
+                            lists:foldl(
+                                fun(StreamKey, SessionAcc) ->
+                                    ?tp(sessds_unblocked_stream, #{stream => StreamKey}),
+                                    drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
+                                end,
+                                Session1,
+                                UblockedStreams
+                            )
+                        )
+                end,
+            {ok, Msg, Session};
         {error, undefined = _Expected} ->
             {error, ?RC_PROTOCOL_ERROR};
         {error, Expected} ->
@@ -1726,7 +1733,9 @@ enqueue_batch(
     {SRS, Inflight}.
 
 post_enqueue_new(
-    StreamKey, SRS = #srs{last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2}, Session0 = #{s := S0}
+    StreamKey,
+    SRS = #srs{last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
+    Session0 = #{s := S0}
 ) ->
     S1 = put_next(?next(?QOS_1), SNQ1, S0),
     S2 = put_next(?next(?QOS_2), SNQ2, S1),
