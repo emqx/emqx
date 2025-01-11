@@ -185,6 +185,7 @@ t_auth_expire(_) ->
     with_connection(ConnectWithExpire),
     meck:unload(emqx_access_control).
 
+%% Client does not send a heartbeat, server will close the connection
 t_heartbeat(_) ->
     %% Test heart beat
     with_connection(fun(Sock) ->
@@ -213,6 +214,41 @@ t_heartbeat(_) ->
         {ok, ?HEARTBEAT} = gen_tcp:recv(Sock, 0),
         %% Server will close the connection because never receive the heart beat from client
         {error, closed} = gen_tcp:recv(Sock, 0)
+    end).
+
+%% Client keeping the heartbeat, server keep aliveing
+t_heartbeat2(_) ->
+    %% Test heart beat
+    with_connection(fun(Sock) ->
+        gen_tcp:send(
+            Sock,
+            serialize(
+                <<"CONNECT">>,
+                [
+                    {<<"accept-version">>, ?STOMP_VER},
+                    {<<"host">>, <<"127.0.0.1:61613">>},
+                    {<<"login">>, <<"guest">>},
+                    {<<"passcode">>, <<"guest">>},
+                    {<<"heart-beat">>, <<"2000,1000">>}
+                ]
+            )
+        ),
+        {ok, Data} = gen_tcp:recv(Sock, 0),
+        {ok,
+            #stomp_frame{
+                command = <<"CONNECTED">>,
+                headers = _,
+                body = _
+            },
+            _, _} = parse(Data),
+        gen_tcp:send(Sock, ?HEARTBEAT),
+        ct:sleep(1000),
+        {ok, ?HEARTBEAT} = gen_tcp:recv(Sock, 0),
+        ct:sleep(1000),
+        gen_tcp:send(Sock, ?HEARTBEAT),
+        {ok, ?HEARTBEAT} = gen_tcp:recv(Sock, 0),
+        ct:sleep(1000),
+        ?assertMatch({ok, ?HEARTBEAT}, gen_tcp:recv(Sock, 0))
     end).
 
 t_subscribe(_) ->

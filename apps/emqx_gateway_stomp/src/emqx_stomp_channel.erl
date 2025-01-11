@@ -669,8 +669,7 @@ handle_in(
     ?PACKET(?CMD_HEARTBEAT),
     Channel = #channel{heartbeat = Heartbeat}
 ) ->
-    NewVal = emqx_pd:get_counter(recv_pkt),
-    NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, NewVal, Heartbeat),
+    NewHeartbeat = emqx_stomp_heartbeat:reset(incoming, 0, Heartbeat),
     {ok, Channel#channel{heartbeat = NewHeartbeat}}.
 
 handle_frame_error(Reason, Channel = #channel{conn_state = idle}) ->
