@@ -450,7 +450,11 @@ subscribe(
 unsubscribe(
     #share{} = TopicFilter,
     Session0 = #{
-        id := SessionId, s := S0, shared_sub_s := SharedSubS0, stream_scheduler_s := SchedS0
+        id := SessionId,
+        s := S0,
+        shared_sub_s := SharedSubS0,
+        stream_scheduler_s := SchedS0,
+        buffer := Buf0
     }
 ) ->
     case
@@ -458,9 +462,11 @@ unsubscribe(
             SessionId, TopicFilter, S0, SchedS0, SharedSubS0
         )
     of
-        {ok, S, SchedS, SharedSubS, SubOpts} ->
-            Session = Session0#{s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS},
-            %% FIXME: clear buffer
+        {ok, S, SchedS, SharedSubS, SubOpts = #{id := SubId}} ->
+            Buf = emqx_persistent_session_ds_buffer:clean_by_subid(SubId, Buf0),
+            Session = Session0#{
+                s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS, buffer := Buf
+            },
             {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
