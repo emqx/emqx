@@ -435,7 +435,7 @@ print_cmds(L) ->
                     )
                  || Msg <- Batch
                 ],
-                io_lib:format("  publish(~0p)~n", [pprint_args(Args)]);
+                io_lib:format("  publish(~0s)~n", [pprint_args(Args)]);
             ({set, _, {call, ?MODULE, Fun, _}}) when Fun =:= consume; Fun =:= disconnect ->
                 io_lib:format("  ~p(...)~n", [Fun]);
             %% Generic command pretty-printer:

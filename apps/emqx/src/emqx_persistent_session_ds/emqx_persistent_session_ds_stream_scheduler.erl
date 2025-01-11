@@ -208,8 +208,8 @@
 -type sub_metadata() :: #sub_metadata{}.
 
 -record(stream_sub, {
-    ref :: emqx_ds:subscription_handle(),
-    mref :: reference(),
+    handle :: emqx_ds:subscription_handle(),
+    sub_ref :: reference(),
     seqno = 0 :: emqx_ds:sub_seqno()
 }).
 
@@ -343,23 +343,32 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             {[], S0, SchedS0}
     end.
 
-verify_reply(AsyncReply, SchedS) ->
-    #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = AsyncReply,
+verify_reply(Reply, SchedS) ->
+    #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = Reply,
     #s{subs = Subs0} = SchedS,
-    case Subs0 of
-        #{StreamKey := X = #stream_sub{ref = Ref, seqno = PrevSeenSeqNo}} when
+    SubState = maps:get(StreamKey, Subs0, undefined),
+    case SubState of
+        #stream_sub{seqno = PrevSeenSeqNo, sub_ref = Ref} when
             PrevSeenSeqNo + Size =:= SeqNo
         ->
-            Subs = Subs0#{StreamKey := X#stream_sub{seqno = SeqNo}},
+            Subs = Subs0#{StreamKey := SubState#stream_sub{seqno = SeqNo}},
             {true, SchedS#s{subs = Subs}};
         _ ->
-            ?tp(warning, ?sessds_unexpected_ds_batch, #{stream => StreamKey, seqno => SeqNo}),
+            ?tp(warning, ?sessds_unexpected_reply, #{
+                stream => StreamKey,
+                batch_seqno => SeqNo,
+                batch_size => Size,
+                sub_state => SubState,
+                sub_ref => Ref,
+                stuck => Reply#poll_reply.stuck,
+                lagging => Reply#poll_reply.lagging
+            }),
             %% TODO: re-subscribe if anything is mismatched
             {false, SchedS}
     end.
 
 suback(StreamKey, SeqNo, #s{subs = Subs}) ->
-    #{StreamKey := #stream_sub{ref = Ref}} = Subs,
+    #{StreamKey := #stream_sub{handle = Ref}} = Subs,
     emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo).
 
 -spec on_enqueue(
@@ -836,16 +845,16 @@ ds_subscribe([SrsID | Rest], S, Subs) ->
         _ ->
             #srs{it_end = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
             %% FIXME: don't hardcode max_unacked
-            {ok, SubRef, MRef} = emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, #{
+            {ok, Handle, SubRef} = emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, #{
                 max_unacked => 100
             }),
-            ?tp(debug, ?sessds_sched_subscribe, #{stream => SrsID, ref => SubRef}),
-            ds_subscribe(Rest, S, Subs#{SrsID => #stream_sub{ref = SubRef, mref = MRef}})
+            ?tp(debug, ?sessds_sched_subscribe, #{stream => SrsID, ref => Handle}),
+            ds_subscribe(Rest, S, Subs#{SrsID => #stream_sub{handle = Handle, sub_ref = SubRef}})
     end.
 
 ds_unsubscribe(SrsID, SchedS = #s{subs = Subs}) ->
     case Subs of
-        #{SrsID := #stream_sub{ref = SubRef}} ->
+        #{SrsID := #stream_sub{handle = SubRef}} ->
             emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, SubRef),
             ?tp(debug, ?sessds_sched_unsubscribe, #{stream => SrsID, ref => SubRef}),
             SchedS#s{subs = maps:remove(SrsID, Subs)};
