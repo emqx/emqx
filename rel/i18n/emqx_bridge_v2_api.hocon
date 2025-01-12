@@ -78,6 +78,12 @@ desc_enable_bridge.desc:
 desc_enable_bridge.label:
 """Cluster Bridge Enable"""
 
+actions_summary.desc:
+"""Summarize actions."""
+
+sources_summary.desc:
+"""Summarize actions."""
+
 desc_param_path_enable.desc:
 """Whether to enable this bridge."""
 

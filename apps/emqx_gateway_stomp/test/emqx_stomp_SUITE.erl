@@ -957,6 +957,9 @@ t_rest_clientid_info(_) ->
             StompClient
         ),
 
+        %% assert keepalive
+        ?assertEqual(10, maps:get(keepalive, StompClient)),
+
         %% sub & unsub
         {200, []} = request(get, ClientPath ++ "/subscriptions"),
         ok = send_subscribe_frame(Sock, 0, <<"/queue/foo">>),
@@ -1222,7 +1225,7 @@ get_field(body, #stomp_frame{body = Body}) ->
     Body.
 
 send_connection_frame(Sock, Username, Password) ->
-    send_connection_frame(Sock, Username, Password, <<"0,0">>).
+    send_connection_frame(Sock, Username, Password, <<"10000,10000">>).
 
 send_connection_frame(Sock, Username, Password, Heartbeat) ->
     Headers =
