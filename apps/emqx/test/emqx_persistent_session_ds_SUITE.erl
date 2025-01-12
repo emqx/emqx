@@ -699,17 +699,16 @@ t_fuzz(_Config) ->
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
                 ),
-                SessState = emqx_persistent_session_ds_fuzzer:sut_state(),
-                Result =:= ok orelse
-                    begin
-                        logger:error("*** Commands:~n~s~n", [
-                            emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
-                        ]),
-                        logger:error("*** Model state:~n  ~p~n", [State]),
-                        logger:error("*** Session state:~n  ~p~n", [SessState]),
-                        logger:error("*** Result:~n  ~p~n", [Result]),
-                        error(Result)
-                    end
+                %% Print information about the run:
+                logger:notice("*** Commands:~n~s~n", [
+                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                ]),
+                logger:notice("*** Model state:~n  ~p~n", [State]),
+                logger:notice("*** Session state:~n  ~p~n", [
+                    emqx_persistent_session_ds_fuzzer:sut_state()
+                ]),
+                logger:notice("*** Result:~n  ~p~n", [Result]),
+                Result =:= ok orelse error(Result)
             after
                 ok = emqx_persistent_session_ds_fuzzer:cleanup(),
                 ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)

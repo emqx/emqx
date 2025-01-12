@@ -226,7 +226,7 @@
     inflight := emqx_persistent_session_ds_inflight:t(),
     stream_scheduler_s := emqx_persistent_session_ds_stream_scheduler:t(),
     %% In-progress replay:
-    %% List of stream replay states to be added to the inflight buffer.
+    %% List of stream replay states to be added to the inflight.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
     %% Timers:
     ?TIMER_DRAIN_INFLIGHT := timer_state(),
@@ -1952,7 +1952,7 @@ apply_n_times(N, Fun, A) when N > 0 ->
 %% WARNING: this function must be called inside `?check_trace' to
 %% avoid losing invariant violations: some checks may be wrapped in
 %% `?defer_assert()' macro,
-state_invariants(undefined, Sess) ->
+state_invariants(#{conninfo := undefined}, Sess) ->
     %% According to the model, the session should not exist. Verify
     %% that it is the case:
     case Sess of
