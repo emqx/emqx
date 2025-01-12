@@ -129,7 +129,6 @@ on_subscribe(undefined, ShareTopicFilter, SubOpts, #{props := Props, s := S} = S
 on_subscribe(Subscription, ShareTopicFilter, SubOpts, Session) ->
     update_subscription(Subscription, ShareTopicFilter, SubOpts, Session).
 
--dialyzer({nowarn_function, create_new_subscription/3}).
 create_new_subscription(ShareTopicFilter, SubOpts, #{
     s := S0,
     shared_sub_s := #{agent := Agent0} = SharedSubS0,
@@ -242,8 +241,9 @@ on_unsubscribe(
 %%--------------------------------------------------------------------
 %% on_streams_replay
 
--dialyzer({nowarn_function, on_streams_replay/3}).
--spec on_streams_replay(emqx_persistent_session_ds_state:t(), t(), [emqx_ds:stream()]) ->
+-spec on_streams_replay(emqx_persistent_session_ds_state:t(), t(), [
+    emqx_persistent_session_ds_stream_scheduler:stream_key()
+]) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 on_streams_replay(S, SharedS, []) ->
     {S, SharedS};
@@ -330,7 +330,6 @@ stream_progress(
         fully_acked => FullyAcked
     }.
 
--dialyzer({nowarn_function, select_stream_states/3}).
 select_stream_states(S, #{agent := Agent} = _SharedS, all) ->
     emqx_persistent_session_ds_state:fold_streams(
         fun({SubId, _Stream} = Key, SRS, Acc0) ->
@@ -405,7 +404,6 @@ on_info(S0, SchedS0, #{agent := Agent0} = SharedSubS0, ?shared_sub_message(Subsc
     SharedSubS1 = SharedSubS0#{agent => Agent1},
     handle_events(S0, SchedS0, SharedSubS1, StreamLeaseEvents).
 
--dialyzer({nowarn_function, handle_events/4}).
 handle_events(S0, SchedS0, SharedS0, []) ->
     {false, S0, SchedS0, SharedS0};
 handle_events(S0, SchedS0, SharedS0, StreamLeaseEvents) ->
@@ -575,7 +573,6 @@ fold_shared_stream_states(Fun, Acc, S) ->
 agent_opts(#{session_id := SessionId}) ->
     #{session_id => SessionId}.
 
--dialyzer({nowarn_function, now_ms/0}).
 now_ms() ->
     erlang:system_time(millisecond).
 

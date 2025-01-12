@@ -85,8 +85,11 @@
         _ => _
     },
     %% Optional field that is added when subscription state becomes
-    %% outdated:
-    superseded_by => subscription_state_id()
+    %% outdated (note: do not use the value, as GC may delete
+    %% subscription states referenced by `superseded_by'):
+    superseded_by => subscription_state_id(),
+    %% Optional field used by shared subscriptions:
+    share_topic_filter => #share{}
 }.
 
 %%================================================================================
