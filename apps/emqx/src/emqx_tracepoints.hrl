@@ -39,6 +39,7 @@
 -define(sessds_poll_reply, sessds_poll_reply).
 
 -define(sessds_stream_state_trans, sessds_stream_state_trans).
+-define(sessds_unblock_stream, sessds_unblock_stream).
 -define(sessds_unexpected_stream_notification, sessds_unexpected_stream_notification).
 -define(sessds_sched_new_stream_event, sessds_sched_new_stream_event).
 -define(sessds_sched_watch_streams, sessds_sched_watch_streams).

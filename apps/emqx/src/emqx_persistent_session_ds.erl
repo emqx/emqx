@@ -14,20 +14,19 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc This module implements an MQTT session that can survive
-%% restart of EMQX node by backing up its state on disk. It consumes
-%% messages from a shared durable storage. This is in contrast to the
-%% regular "mem" sessions that store all recieved messages in their
+%% @doc This module implements an MQTT session that can survive the
+%% restart of an EMQX node by backing up its state on disk. It
+%% consumes messages from a shared durable storage, in contrast to
+%% regular "mem" sessions, which store all received messages in their
 %% own memory queues.
 %%
-%% The main challenge of durable session is to replay sent, but
-%% unacked, messages in case of the client reconnect. This
-%% implementation approaches this problem by storing iterators, batch
-%% sizes and sequence numbers of MQTT packets for the consumed
-%% messages as an array of "stream replay state" records (`#srs'), in
-%% such a way, that messages and their corresponging packet IDs can be
-%% reconstructing by "replaying" the stored SRSes.
-
+%% The main challenge with durable sessions is to replay sent but
+%% unacked messages when the client reconnects. This implementation
+%% addresses this issue by storing iterators, batch sizes, and
+%% sequence numbers of MQTT packets for consumed messages as an array
+%% of "stream replay state" records (`#srs'). In this way, messages
+%% and their corresponding packet IDs can be reconstructed by
+%% "replaying" the stored SRSes.
 -module(emqx_persistent_session_ds).
 
 -behaviour(emqx_session).
@@ -653,6 +652,8 @@ deliver(ClientInfo, Delivers, Session0) ->
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(_ClientInfo, ?TIMER_DRAIN_INFLIGHT, Session0) ->
+    %% This particular piece of code is responsible for sending
+    %% messages queued up in the inflight to the client:
     Session1 = Session0#{?TIMER_DRAIN_INFLIGHT := undefined},
     {Publishes, Session} = drain_inflight(Session1),
     {ok, Publishes, Session};
@@ -695,7 +696,7 @@ handle_info(
     {_NewStreams, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_new_stream_event(
         Ref, S0, SchedS0
     ),
-    ensure_delivery_timer(Session#{s := S, stream_scheduler_s := SchedS});
+    Session#{s := S, stream_scheduler_s := SchedS};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     Session = commit(Session0),
     From ! Ref,
@@ -793,7 +794,7 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
         first_seqno_qos1 = FirstSeqnoQos1,
         first_seqno_qos2 = FirstSeqnoQos2
     } = SRS,
-    %% TODO: end_of_stream
+    %% TODO: should we handle end_of_stream here?
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize) of
         {ok, ItEnd, Batch} ->
             SubState = emqx_persistent_session_ds_state:get_subscription_state(SSID, S0),
@@ -1108,12 +1109,11 @@ handle_ds_reply(
                     {SRS, Inflight} = enqueue_batch(
                         StreamKey, S, Reply, SubState, SRS1, ClientInfo, Inflight0
                     ),
+                    Session = Session0#{inflight := Inflight, stream_scheduler_s := SchedS},
                     post_enqueue_new(
                         StreamKey,
                         SRS,
-                        ensure_delivery_timer(Session0#{
-                            inflight := Inflight, stream_scheduler_s := SchedS
-                        })
+                        ensure_delivery_timer(Session)
                     );
                 false ->
                     ?tp(debug, ?sessds_poll_reply, #{reply => Reply, blocked => true}),
@@ -1123,6 +1123,7 @@ handle_ds_reply(
                     Session0#{buffer := Buf, stream_scheduler_s := SchedS}
             end;
         {false, SchedS} ->
+            %% FIXME: handle error
             Session0#{stream_scheduler_s := SchedS}
     end.
 
@@ -1270,10 +1271,10 @@ enqueue_transient(
             S = put_seqno(?next(QoS), SeqNo, S0),
             Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
     end,
-    Session#{
+    ensure_delivery_timer(Session#{
         inflight := Inflight,
         s := S
-    }.
+    }).
 
 %%--------------------------------------------------------------------
 %% Inflight fill and drain
@@ -1336,7 +1337,7 @@ do_drain_buffer_of_stream(
     Inflight0
 ) ->
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
-        {[#poll_reply{payload = {ok, _, _}} = DSReply], Buf} ->
+        {[DSReply], Buf} ->
             ?tp("sessds_drain_buffer_of_stream", #{stream => StreamKey, reply => DSReply}),
             {SRS, Inflight} = enqueue_batch(
                 StreamKey, S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
@@ -1346,20 +1347,7 @@ do_drain_buffer_of_stream(
             );
         {[], Buf} ->
             %% No more buffered messages:
-            post_enqueue_new(StreamKey, SRS0, Session0#{buffer := Buf, inflight := Inflight0});
-        {[#poll_reply{payload = Other}], Buf} ->
-            %% Reached the end of the stream:
-            case Other of
-                {ok, end_of_stream} ->
-                    ok;
-                {error, unrecoverable, Err} ->
-                    ?tp(warning, ?sessds_replay_unrecoverable_error, #{
-                        reason => Err,
-                        srs => SRS0
-                    })
-            end,
-            SRS = SRS0#srs{it_end = end_of_stream},
-            post_enqueue_new(StreamKey, SRS, Session0#{buffer := Buf, inflight := Inflight0})
+            post_enqueue_new(StreamKey, SRS0, Session0#{buffer := Buf, inflight := Inflight0})
     end.
 
 %%--------------------------------------------------------------------------------
@@ -1544,17 +1532,17 @@ update_seqno(
                 stream_scheduler_s := SchedS,
                 shared_sub_s := SharedSubS
             },
+            %% Dump stream messages that have been stored in the
+            %% buffer while the stream was blocked into the inflight:
             Session =
                 case UblockedStreams of
                     [] ->
                         Session1;
                     [_ | _] ->
-                        %% Dump stream messages that have been stored
-                        %% in the buffer while the stream was blocked
-                        %% into the inflight:
                         ensure_delivery_timer(
                             lists:foldl(
                                 fun(StreamKey, SessionAcc) ->
+                                    ?tp(?sessds_unblock_stream, #{key => StreamKey}),
                                     drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
                                 end,
                                 Session1,
@@ -1728,6 +1716,34 @@ enqueue_batch(
         batch_size = BatchSize + Size,
         last_seqno_qos1 = LastSeqnoQos1,
         last_seqno_qos2 = LastSeqnoQos2
+    },
+    {SRS, Inflight};
+enqueue_batch(
+    StreamKey,
+    _S,
+    #poll_reply{seqno = SeqNo, payload = Other},
+    _SubState,
+    SRS0,
+    _ClientInfo,
+    Inflight0
+) ->
+    %% Assert:
+    case Other of
+        {ok, end_of_stream} ->
+            ok;
+        {error, unrecoverable, Err} ->
+            ?tp(warning, ?sessds_replay_unrecoverable_error, #{
+                reason => Err,
+                srs => SRS0
+            })
+    end,
+    %% Enqueue the DS suback:
+    Inflight = emqx_persistent_session_ds_inflight:push(
+        {other, #ds_suback{stream_key = StreamKey, seqno = SeqNo}},
+        Inflight0
+    ),
+    SRS = SRS0#srs{
+        it_end = end_of_stream
     },
     {SRS, Inflight}.
 
