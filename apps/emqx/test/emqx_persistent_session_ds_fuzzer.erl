@@ -143,20 +143,25 @@
 %%%%% Trace point kinds:
 -define(sessds_test_connect, sessds_test_connect).
 -define(sessds_test_disconnect, sessds_test_disconnect).
--define(sessds_test_publish, sessds_test_publish).
 -define(sessds_test_add_generation, sessds_test_add_generation).
 -define(sessds_test_subscribe, sessds_test_subscribe).
 -define(sessds_test_unsubscribe, sessds_test_unsubscribe).
 -define(sessds_test_consume, sessds_test_consume).
 
--define(sessds_test_in_publish, sessds_test_in_publish).
--define(sessds_test_in_pubrel, sessds_test_in_pubrel).
+%% Traces for messages sent from the test client to SUT:
+-define(sessds_test_out_publish, sessds_test_out_publish).
 -define(sessds_test_out_puback, sessds_test_out_puback).
 -define(sessds_test_out_pubrec, sessds_test_out_pubrec).
 -define(sessds_test_out_pubcomp, sessds_test_out_pubcomp).
 
+%% Traces for messages recieved from the SUT:
+-define(sessds_test_in_publish, sessds_test_in_publish).
+-define(sessds_test_in_pubrel, sessds_test_in_pubrel).
+-define(sessds_test_in_garbage, sessds_test_in_garbage).
+
 -define(sessds_test_client_crash, sessds_test_client_crash).
 -define(sessds_test_session_crash, sessds_test_session_crash).
+-define(sessds_test_processes_died, sessds_test_processes_died).
 
 %%--------------------------------------------------------------------
 %% Global configuration
@@ -166,10 +171,8 @@
 test_parameters() ->
     #{
         wait_publishes_time => 1000,
-        %% topics => [<<"t1">>, <<"t2">>, <<"t3">>, <<"t4">>],
-        %% publishers => [<<"pub1">>, <<"pub2">>, <<"pub3">>],
-        topics => [<<"t1">>],
-        publishers => [<<"pub1">>],
+        topics => [<<"t1">>, <<"t2">>, <<"t3">>, <<"t4">>],
+        publishers => [<<"pub1">>, <<"pub2">>, <<"pub3">>],
         client_config => #{
             port => 1883,
             proto => v5,
@@ -197,8 +200,7 @@ test_parameters() ->
 %%--------------------------------------------------------------------
 
 qos() ->
-    %% FIXME: QoS2
-    range(?QOS_0, ?QOS_1).
+    range(?QOS_0, ?QOS_2).
 
 %% @doc Proper generator for `emqtt:connect' parameters:
 connect_(S = #s{conf = #{client_config := StaticOpts}}) ->
@@ -310,13 +312,13 @@ disconnect(#s{conninfo = ConnInfo = #{client_pid := C}}) ->
     wait_session_down(ConnInfo).
 
 publish(Batch) ->
+    %% Produce traces for each message we're about to publish:
+    [?tp(notice, ?sessds_test_out_publish, emqx_message:to_map(Msg)) || Msg <- Batch],
     %% We bypass persistent session router for simplicity:
     ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [
         Msg#message{timestamp = emqx_message:timestamp_now()}
      || Msg <- Batch
     ]),
-    %% Produce traces for each message:
-    [?tp(notice, ?sessds_test_publish, emqx_message:to_map(Msg)) || Msg <- Batch],
     timer:sleep(10).
 
 add_generation() ->
@@ -391,7 +393,7 @@ receive_ack_loop(
             %% FIXME: this may include messages from the older
             %% incarnations of the client. Find a better way to deal
             %% with them:
-            ?tp(warning, sessds_test_in_garbage, #{message => Other}),
+            ?tp(warning, ?sessds_test_in_garbage, #{message => Other}),
             receive_ack_loop(S, Result)
     after Timeout ->
         Result
@@ -431,11 +433,11 @@ print_cmds(L) ->
             ({set, _, {call, ?MODULE, publish, [Batch]}}) ->
                 Args = [
                     maps:with(
-                        [qos, from, topic, timestamp, payload], emqx_message:to_map(Msg)
+                        [qos, from, topic, payload], emqx_message:to_map(Msg)
                     )
                  || Msg <- Batch
                 ],
-                io_lib:format("  publish(~0s)~n", [pprint_args(Args)]);
+                io_lib:format("  publish(~s)~n", [pprint_args(Args)]);
             ({set, _, {call, ?MODULE, Fun, _}}) when Fun =:= consume; Fun =:= disconnect ->
                 io_lib:format("  ~p(...)~n", [Fun]);
             %% Generic command pretty-printer:
@@ -462,27 +464,28 @@ pprint_args(Args) ->
 
 %% @doc Verify QoS 1/2 flows for each packet ID.
 tprop_packet_id_history(Trace) ->
-    put(tprop_n_flows, 0),
-    _ = lists:foldl(fun tprop_packet_id_history/2, #{}, Trace),
-    N = get(tprop_n_flows),
-    io:format(user, "~p: Number of flows: ~p~n", [?FUNCTION_NAME, N]),
+    {_, NFlows} = lists:foldl(
+        fun tprop_packet_id_history/2,
+        {#{}, 0},
+        Trace
+    ),
+    io:format(user, "~p: Number of flows: ~p~n", [?FUNCTION_NAME, NFlows]),
     true.
 
-tprop_packet_id_history(I = #{?snk_kind := Kind}, Acc) ->
+tprop_packet_id_history(I = #{?snk_kind := Kind}, {Acc, NFlows}) ->
     case Kind of
         ?sessds_test_in_publish ->
-            put(tprop_n_flows, get(tprop_n_flows) + 1),
-            tprop_pid_publish(I, Acc);
+            {tprop_pid_publish(I, Acc), NFlows + 1};
         %% QoS1:
         ?sessds_test_out_puback ->
             #{packet_id := PID} = I,
             #{PID := {publish, #{qos := ?QOS_1}}} = Acc,
-            maps:remove(PID, Acc);
+            {maps:remove(PID, Acc), NFlows};
         %% QoS2:
         ?sessds_test_out_pubrec ->
             #{packet_id := PID} = I,
             #{PID := {publish, #{qos := ?QOS_2}}} = Acc,
-            Acc#{PID := pubrec};
+            {Acc#{PID := pubrec}, NFlows};
         ?sessds_test_in_pubrel ->
             #{packet_id := PID} = I,
             case Acc of
@@ -491,13 +494,13 @@ tprop_packet_id_history(I = #{?snk_kind := Kind}, Acc) ->
                 #{} ->
                     ok
             end,
-            Acc#{PID => pubrel};
+            {Acc#{PID => pubrel}, NFlows};
         ?sessds_test_out_pubcomp ->
             #{packet_id := PID} = I,
             ?assertMatch(#{PID := pubrel}, Acc),
-            maps:remove(PID, Acc);
+            {maps:remove(PID, Acc), NFlows};
         _ ->
-            Acc
+            {Acc, NFlows}
     end.
 
 tprop_pid_publish(#{packet_id := undefined, qos := ?QOS_0}, Acc) ->
@@ -531,10 +534,10 @@ tprop_qos12_delivery(Trace) ->
     _ = lists:foldl(fun tprop_qos12_delivery/2, {#{}, []}, Trace),
     true.
 
-tprop_qos12_delivery(#{?snk_kind := Kind} = I, {Subs, Pending}) ->
+tprop_qos12_delivery(#{?snk_kind := Kind} = Event, {Subs, Pending}) ->
     case Kind of
         ?sessds_test_subscribe ->
-            #{topic := Topic, qos := QoS} = I,
+            #{topic := Topic, qos := QoS} = Event,
             case QoS of
                 0 ->
                     %% This property ignores QoS 0 subscriptions for
@@ -545,10 +548,10 @@ tprop_qos12_delivery(#{?snk_kind := Kind} = I, {Subs, Pending}) ->
                     {Subs#{Topic => true}, Pending}
             end;
         ?sessds_test_unsubscribe ->
-            #{topic := Topic} = I,
+            #{topic := Topic} = Event,
             tprop_qos12_delivery_drop_sub(Topic, Subs, Pending);
-        ?sessds_test_publish ->
-            #{topic := Topic, qos := Qos, payload := Payload} = I,
+        ?sessds_test_out_publish ->
+            #{topic := Topic, qos := Qos, payload := Payload} = Event,
             case Qos > 0 andalso maps:is_key(Topic, Subs) of
                 true ->
                     {Subs, [{Topic, Payload} | Pending]};
@@ -556,9 +559,9 @@ tprop_qos12_delivery(#{?snk_kind := Kind} = I, {Subs, Pending}) ->
                     {Subs, Pending}
             end;
         ?sessds_test_in_publish ->
-            {Subs, tprop_qos12_delivery_consume_msg(I, Pending)};
+            {Subs, tprop_qos12_delivery_consume_msg(Event, Pending)};
         ?sessds_test_consume ->
-            case I of
+            case Event of
                 #{?snk_span := {complete, _}} ->
                     ?assertMatch(
                         [],
@@ -703,7 +706,7 @@ check_processes(#s{connected = true, conninfo = #{client_pid := CPid, session_pi
         begin
             ?tp(
                 error,
-                sessds_test_processes_died,
+                ?sessds_test_processes_died,
                 #{
                     client => {CPid, CA},
                     session => {SPid, SA}

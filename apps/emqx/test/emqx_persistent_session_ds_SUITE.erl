@@ -385,7 +385,7 @@ t_storage_generations(Config) ->
             ok = emqtt:puback(Sub, PI4),
             [#{packet_id := _PI5}] = emqx_common_test_helpers:wait_publishes(1, 5_000)
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -437,13 +437,16 @@ t_session_subscription_idempotency(Config) ->
 
             ok
         end,
-        fun(_Trace) ->
-            Session = session_open(Node1, ClientId),
-            ?assertMatch(
-                #{SubTopicFilter := #{}},
-                emqx_session:info(subscriptions, Session)
-            )
-        end
+        [
+            fun(_Trace) ->
+                Session = session_open(Node1, ClientId),
+                ?assertMatch(
+                    #{SubTopicFilter := #{}},
+                    emqx_session:info(subscriptions, Session)
+                )
+            end,
+            fun check_stream_state_transitions/1
+        ]
     ),
     ok.
 
@@ -508,14 +511,17 @@ t_session_unsubscription_idempotency(Config) ->
 
             ok = stop_and_commit(Client1)
         end,
-        fun(_Trace) ->
-            Session = session_open(Node1, ClientId),
-            ?assertEqual(
-                #{},
-                emqx_session:info(subscriptions, Session)
-            ),
-            ok
-        end
+        [
+            fun(_Trace) ->
+                Session = session_open(Node1, ClientId),
+                ?assertEqual(
+                    #{},
+                    emqx_session:info(subscriptions, Session)
+                ),
+                ok
+            end,
+            fun check_stream_state_transitions/1
+        ]
     ),
     ok.
 
@@ -591,7 +597,7 @@ t_subscription_state_change(Config) ->
                 }
             )
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ).
 
 %% This testcase verifies the lifetimes of session's subscriptions to
@@ -653,14 +659,14 @@ t_new_stream_notifications(Config) ->
                 #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"foo">>, '+']}
             )
         end,
-        fun(Trace) ->
-            ?assertMatch(
-                [], ?of_kind(sessds_new_stream_notification_for_undefined_subscription, Trace)
-            ),
-            ?assertMatch(
-                [], ?of_kind(sessds_unexpected_stream_notification, Trace)
-            )
-        end
+        [
+            fun(Trace) ->
+                ?assertMatch(
+                    [], ?of_kind(?sessds_unexpected_stream_notification, Trace)
+                )
+            end,
+            fun check_stream_state_transitions/1
+        ]
     ).
 
 t_fuzz(_Config) ->
@@ -711,7 +717,8 @@ t_fuzz(_Config) ->
             [
                 fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
                 fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1,
-                fun no_abnormal_session_terminate/1
+                fun no_abnormal_session_terminate/1,
+                fun check_stream_state_transitions/1
                 | emqx_persistent_session_ds:trace_specs()
             ]
         )
@@ -796,7 +803,7 @@ do_t_session_discard(Params) ->
 
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -883,7 +890,7 @@ do_t_session_expiration(_Config, Opts) ->
             emqtt:disconnect(Client2, ?RC_NORMAL_DISCONNECTION, ThirdDisconn),
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -990,7 +997,7 @@ t_session_gc(Config) ->
             ?assertMatch([_], list_all_subscriptions(Node1), subscriptions),
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -1039,7 +1046,7 @@ t_crashed_node_session_gc(Config) ->
             ct:sleep(100),
             ?assertMatch([], list_all_sessions(Node2), sessions)
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -1079,7 +1086,7 @@ t_last_alive_at_cleanup(Config) ->
                 )
             )
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -1180,7 +1187,7 @@ t_session_gc_will_message(_Config) ->
 
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
@@ -1205,73 +1212,71 @@ no_abnormal_session_terminate(Trace) ->
         Trace
     ).
 
-%% check_stream_state_transitions(Trace) ->
-%%     %% Check sequence of state transitions for each stream replay
-%%     %% state:
-%%     Groups = maps:groups_from_list(
-%%         fun(#{key := Key, ?snk_meta := #{clientid := ClientId}}) -> {ClientId, Key} end,
-%%         fun(#{to := To}) -> To end,
-%%         ?of_kind(sessds_stream_state_trans, Trace)
-%%     ),
-%%     ?assert(maps:size(Groups) > 0),
-%%     maps:foreach(
-%%         fun(StreamId, Transitions) ->
-%%             check_stream_state_transitions(StreamId, Transitions, void)
-%%         end,
-%%         Groups
-%%     ).
+check_stream_state_transitions(Trace) ->
+    %% Check sequence of state transitions for each stream replay
+    %% state:
+    Groups = maps:groups_from_list(
+        fun(#{key := Key, ?snk_meta := #{clientid := ClientId}}) -> {ClientId, Key} end,
+        fun(#{to := To}) -> To end,
+        ?of_kind(sessds_stream_state_trans, Trace)
+    ),
+    ct:pal("Number of state transition groups: ~p", [maps:size(Groups)]),
+    maps:foreach(
+        fun(StreamId, Transitions) ->
+            check_stream_state_transitions(StreamId, Transitions, void)
+        end,
+        Groups
+    ).
 
-%% %% erlfmt-ignore
-%% check_stream_state_transitions(_StreamId, [], _) ->
-%%     true;
-%% check_stream_state_transitions(StreamId = {ClientId, Key}, ['$restore', To | Rest], State) ->
-%%     %% This clause verifies that restored session re-calculates states
-%%     %% of the streams exactly as they were before.
-%%     case To of
-%%         State ->
-%%             check_stream_state_transitions(StreamId, Rest, State);
-%%         _ ->
-%%             error(#{
-%%                 kind => inconsistent_stream_state_after_session_restore,
-%%                 from => State,
-%%                 to => To,
-%%                 clientid => ClientId,
-%%                 key => Key
-%%             })
-%%     end;
-%% check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) ->
-%%     %% See FSM in emqx_persistent_session_ds_stream_scheduler.erl:
-%%     case {State, To} of
-%%         {void, r} -> ok;
-%%         %% R
-%%         {r, p} -> ok;
-%%         {r, u} -> ok;
-%%         %% P
-%%         {p, r} -> ok;
-%%         {p, s} -> ok;
-%%         %% S
-%%         {s, r} -> ok;
-%%         {s, u} -> ok;
-%%         {s, bq1} -> ok;
-%%         {s, bq2} -> ok;
-%%         {s, bq12} -> ok;
-%%         %% BQ1
-%%         {bq1, u} -> ok;
-%%         {bq1, r} -> ok;
-%%         %% BQ2
-%%         {bq2, u} -> ok;
-%%         {bq2, r} -> ok;
-%%         %% BQ12
-%%         {bq12, u} -> ok;
-%%         {bq12, bq1} -> ok;
-%%         {bq12, bq2} -> ok;
-%%         _ ->
-%%             error(#{
-%%                 kind => invalid_state_transition,
-%%                 from => State,
-%%                 to => To,
-%%                 clientid => ClientId,
-%%                 key => Key
-%%             })
-%%     end,
-%%     check_stream_state_transitions(StreamId, Rest, To).
+%% erlfmt-ignore
+check_stream_state_transitions(_StreamId, [], _) ->
+    true;
+check_stream_state_transitions(StreamId = {ClientId, Key}, ['$restore', To | Rest], State) ->
+    %% This clause verifies that restored session re-calculates states
+    %% of the streams exactly as they were before.
+    case To of
+        State ->
+            check_stream_state_transitions(StreamId, Rest, State);
+        _ ->
+            error(#{
+                kind => inconsistent_stream_state_after_session_restore,
+                from => State,
+                to => To,
+                clientid => ClientId,
+                key => Key
+            })
+    end;
+check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) ->
+    %% See FSM in emqx_persistent_session_ds_stream_scheduler.erl:
+    case {State, To} of
+        {void, r} -> ok;
+        {void, p} -> ok;
+        %% P
+        {p, r} -> ok;
+        {p, u} -> ok;
+        %% R
+        {r, bq1} -> ok;
+        {r, bq2} -> ok;
+        {r, bq12} -> ok;
+        {r, u} -> ok;
+        {r, r} -> ok;
+        %% BQ1
+        {bq1, u} -> ok;
+        {bq1, r} -> ok;
+        %% BQ2
+        {bq2, u} -> ok;
+        {bq2, r} -> ok;
+        %% BQ12
+        {bq12, u} -> ok;
+        {bq12, bq1} -> ok;
+        {bq12, bq2} -> ok;
+        _ ->
+            error(#{
+                kind => invalid_state_transition,
+                from => State,
+                to => To,
+                clientid => ClientId,
+                key => Key
+            })
+    end,
+    check_stream_state_transitions(StreamId, Rest, To).
