@@ -22,8 +22,8 @@
 %%
 %% - It keeps track of stream block states.
 %%
-%% - It accumulates notifications new stream notifications, tracks
-%% stream ranks, and subscribes to the new streams when needed.
+%% - It accumulates new stream notifications, tracks stream ranks, and
+%% advances generations.
 %%
 %% - During session reconnect, it returns the list of SRS that must be
 %% replayed in order.
@@ -32,25 +32,24 @@
 %%
 %% For performance reasons we keep only one record of in-flight
 %% messages per stream, and we don't want to overwrite these records
-%% prematurely. So scheduler makes sure that streams that have
-%% un-acked QoS1 or QoS2 messages are not polled.
+%% prematurely.
 %%
 %% ** Stream state machine
 %%
-%% During normal operation, state of each iterator can be described as
-%% a FSM. Implementation detail: unconventially, iterators' states are
-%% tracked implicitly, by moving SRS ID between different buckets.
-%% This facilitates faster processing of iterators that have a certain
-%% state.
+%% During normal operation, state of each stream can be described as a
+%% FSM.
 %%
 %% There are the following stream replay states:
 %%
-%% - *(R)eady*: stream is not blocked.
+%% - *(P)ending*: stream belongs to a newer generation that can not be
+%% replayed yet.
 %%
-%% - *BQ1*, *BQ2* and *BQ12*: these three states correspond to the
-%% situations when stream cannot be polled, because it is blocked by
-%% un-acked QoS1, QoS2 or QoS1&2 messages respectively. Such streams
-%% are stored in `#s.bq1' or `#s.bq2' buckets (or both).
+%% - *(R)eady*: stream is not blocked. Messages from such streams can
+%% be enqueued directly to inflight.
+%%
+%% - *BQ1*, *BQ2* and *BQ12*: stream is blocked by un-acked QoS1, QoS2
+%% or QoS1&2 messages respectively. Such streams are stored in
+%% `#s.bq1' or `#s.bq2' buckets (or both).
 %%
 %% - *(U)ndead*: zombie streams that are kept for historical reasons
 %% only. For example, streams for unsubcribed topics can linger in the
@@ -186,22 +185,22 @@
 
 -type sub_metadata() :: #sub_metadata{}.
 
--record(stream_sub, {
+-record(ds_sub, {
     handle :: emqx_ds:subscription_handle(),
     sub_ref :: reference(),
     seqno = 0 :: emqx_ds:sub_seqno()
 }).
 
--type stream_sub() :: #stream_sub{}.
+-type ds_sub() :: #ds_sub{}.
 
 -record(s, {
     %% Stream subscriptions:
     new_stream_subs = #{} :: new_stream_subs(),
     %% Per-topic metadata records:
     sub_metadata = #{} :: #{emqx_types:topic() => sub_metadata()},
-    %% Subscriptions:
-    subs = #{} :: #{stream_key() => stream_sub()},
-    %% Buckets:
+    %% DS subscriptions:
+    ds_subs = #{} :: #{stream_key() => ds_sub()},
+    %% Block queues:
     bq1 :: blocklist(),
     bq2 :: blocklist()
 }).
@@ -233,7 +232,7 @@ init(S0) ->
     ),
     %% Subscribe to new messages:
     ActiveStreams = find_active_streams(S),
-    SchedS2 = SchedS1#s{subs = ds_subscribe(ActiveStreams, S, #{})},
+    SchedS2 = SchedS1#s{ds_subs = ds_subscribe(ActiveStreams, S, #{})},
     %% Restore stream states.
     %%
     %% Note: these states are NOT used during replay.
@@ -317,7 +316,7 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             %% Update state:
             SchedS = SchedS0#s{
                 sub_metadata = SubsMetadata#{TopicFilterBin := SubS},
-                subs = ds_subscribe(NewSRSIds, S, SchedS0#s.subs)
+                ds_subs = ds_subscribe(NewSRSIds, S, SchedS0#s.ds_subs)
             },
             {NewSRSIds, S, SchedS};
         _ ->
@@ -325,32 +324,33 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             {[], S0, SchedS0}
     end.
 
+%% @doc Verify sequence number of DS subscription reply
 verify_reply(Reply, SchedS) ->
     #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = Reply,
-    #s{subs = Subs0} = SchedS,
-    SubState = maps:get(StreamKey, Subs0, undefined),
-    case SubState of
-        #stream_sub{seqno = PrevSeenSeqNo, sub_ref = Ref} when
+    #s{ds_subs = DSSubs0} = SchedS,
+    DSSubState = maps:get(StreamKey, DSSubs0, undefined),
+    case DSSubState of
+        #ds_sub{seqno = PrevSeenSeqNo, sub_ref = Ref} when
             PrevSeenSeqNo + Size =:= SeqNo
         ->
-            Subs = Subs0#{StreamKey := SubState#stream_sub{seqno = SeqNo}},
-            {true, SchedS#s{subs = Subs}};
+            DSSubs = DSSubs0#{StreamKey := DSSubState#ds_sub{seqno = SeqNo}},
+            {true, SchedS#s{ds_subs = DSSubs}};
         _ ->
             ?tp(warning, ?sessds_unexpected_reply, #{
                 stream => StreamKey,
                 batch_seqno => SeqNo,
                 batch_size => Size,
-                sub_state => SubState,
+                sub_state => DSSubState,
                 sub_ref => Ref,
                 stuck => Reply#poll_reply.stuck,
                 lagging => Reply#poll_reply.lagging
             }),
-            %% TODO: re-subscribe if anything is mismatched
+            %% FIXME: re-subscribe if anything is mismatched
             {false, SchedS}
     end.
 
-suback(StreamKey, SeqNo, #s{subs = Subs}) ->
-    #{StreamKey := #stream_sub{handle = Ref}} = Subs,
+suback(StreamKey, SeqNo, #s{ds_subs = Subs}) ->
+    #{StreamKey := #ds_sub{handle = Ref}} = Subs,
     emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo).
 
 -spec on_enqueue(
@@ -515,7 +515,7 @@ on_unsubscribe(
         sub_metadata = maps:remove(TopicFilterBin, Subs)
     },
     %% NOTE: this function only marks streams for deletion, but
-    %% doesn't outright delete them.
+    %% it doesn't outright delete them.
     %%
     %% It's done for two reasons:
     %%
@@ -574,7 +574,7 @@ init_for_subscription(
     TopicFilterBin,
     Subscription,
     S0,
-    SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata, subs = Subs}
+    SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata, ds_subs = Subs}
 ) ->
     #{id := SubId, start_time := StartTime} = Subscription,
     TopicFilter = emqx_topic:words(TopicFilterBin),
@@ -594,7 +594,7 @@ init_for_subscription(
     SchedS = SchedS0#s{
         new_stream_subs = NewStreamSubs#{NewStreamsWatch => TopicFilterBin},
         sub_metadata = SubMetadata#{TopicFilterBin => SubState},
-        subs = ds_subscribe(NewSRSIds, S, Subs)
+        ds_subs = ds_subscribe(NewSRSIds, S, Subs)
     },
     {NewSRSIds, S, SchedS}.
 
@@ -661,7 +661,7 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
     t()
 ) ->
     ret().
-renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0, subs = Subs}) ->
+renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0, ds_subs = Subs}) ->
     case find_subscription_by_subid(SubId, maps:iterator(SubMeta0)) of
         {TopicFilterBin, SubS0} ->
             case emqx_persistent_session_ds_state:get_subscription(TopicFilterBin, S0) of
@@ -677,7 +677,7 @@ renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0, subs
                     SubS = SubS0#sub_metadata{pending_streams = Cache#{RankX => Pending}},
                     SchedS = SchedS0#s{
                         sub_metadata = SubMeta0#{TopicFilterBin := SubS},
-                        subs = ds_subscribe(NewSRSIds, S, Subs)
+                        ds_subs = ds_subscribe(NewSRSIds, S, Subs)
                     },
                     {NewSRSIds, S, SchedS}
             end;
@@ -836,15 +836,15 @@ ds_subscribe([SrsID | Rest], S, Subs) ->
                 max_unacked => 100
             }),
             ?tp(debug, ?sessds_sched_subscribe, #{stream => SrsID, ref => Handle}),
-            ds_subscribe(Rest, S, Subs#{SrsID => #stream_sub{handle = Handle, sub_ref = SubRef}})
+            ds_subscribe(Rest, S, Subs#{SrsID => #ds_sub{handle = Handle, sub_ref = SubRef}})
     end.
 
-ds_unsubscribe(SrsID, SchedS = #s{subs = Subs}) ->
+ds_unsubscribe(SrsID, SchedS = #s{ds_subs = Subs}) ->
     case Subs of
-        #{SrsID := #stream_sub{handle = SubRef}} ->
+        #{SrsID := #ds_sub{handle = SubRef}} ->
             emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, SubRef),
             ?tp(debug, ?sessds_sched_unsubscribe, #{stream => SrsID, ref => SubRef}),
-            SchedS#s{subs = maps:remove(SrsID, Subs)};
+            SchedS#s{ds_subs = maps:remove(SrsID, Subs)};
         #{} ->
             SchedS
     end.
