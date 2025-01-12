@@ -406,7 +406,8 @@ on_seqno_release(?QOS_1, SnQ1, S, SchedS0 = #s{bq1 = PrimaryTab0, bq2 = Secondar
             %% It was BQ12:
             ?tp(?sessds_stream_state_trans, #{
                 key => Key,
-                to => bq2
+                to => bq2,
+                from => bq12
             }),
             {[], S, SchedS0#s{bq1 = PrimaryTab}}
     end;
@@ -423,7 +424,8 @@ on_seqno_release(?QOS_2, SnQ2, S, SchedS0 = #s{bq2 = PrimaryTab0, bq1 = Secondar
             %% It was BQ12:
             ?tp(?sessds_stream_state_trans, #{
                 key => Key,
-                to => bq1
+                to => bq1,
+                from => bq12
             }),
             {[], S, SchedS0#s{bq2 = PrimaryTab}}
     end.
@@ -433,7 +435,16 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
         error ->
             false;
         {Block = #block{id = StreamKey}, PrimaryTab} ->
-            StillBlocked = gb_trees:is_defined(element(SecondaryIdx, Block), SecondaryTab),
+            StillBlocked =
+                case gb_trees:lookup(element(SecondaryIdx, Block), SecondaryTab) of
+                    {value, #block{id = StreamKey}} ->
+                        %% The same stream is also present
+                        %% in the secondary table:
+                        true;
+                    _ ->
+                        %% `none' or `{value, _Other}':
+                        false
+                end,
             {StillBlocked, StreamKey, PrimaryTab}
     end.
 
@@ -884,7 +895,7 @@ to_BQ1(Key, SRS, S = #s{bq1 = BQ1}) ->
 to_BQ2(Key, SRS, S = #s{bq2 = BQ2}) ->
     ?tp(?sessds_stream_state_trans, #{
         key => Key,
-        to => bq1
+        to => bq2
     }),
     Block = #block{last_seqno_qos2 = SN2} = block_of_srs(Key, SRS),
     S#s{bq2 = gb_trees:insert(SN2, Block, BQ2)}.
