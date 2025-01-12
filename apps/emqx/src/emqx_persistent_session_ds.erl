@@ -1548,14 +1548,13 @@ update_seqno(
                 case UblockedStreams of
                     [] ->
                         Session1;
-                    _ ->
+                    [_ | _] ->
                         %% Dump stream messages that have been stored
                         %% in the buffer while the stream was blocked
                         %% into the inflight:
                         ensure_delivery_timer(
                             lists:foldl(
                                 fun(StreamKey, SessionAcc) ->
-                                    ?tp(sessds_unblocked_stream, #{stream => StreamKey}),
                                     drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
                                 end,
                                 Session1,
