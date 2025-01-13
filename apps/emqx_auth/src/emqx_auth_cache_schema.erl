@@ -128,9 +128,9 @@ default_config() ->
 cache_settings_example() ->
     #{
         enable => true,
-        cache_ttl => <<"1M">>,
-        cleanup_interval => <<"1M">>,
-        stat_update_interval => <<"1M">>,
+        cache_ttl => <<"1m">>,
+        cleanup_interval => <<"1m">>,
+        stat_update_interval => <<"1m">>,
         max_count => 100000,
         max_memory => <<"100MB">>
     }.

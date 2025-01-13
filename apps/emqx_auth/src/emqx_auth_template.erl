@@ -117,7 +117,7 @@ cache_key(Values, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKey
         %% We try to add some identifier to the cache key for better introspection.
         CacheKeyId = cache_template_id(first_present_kv(?POSSIBLE_CACHE_KEY_IDS, Values)),
         Key0 = render_deep_for_raw(KeyVars, Values),
-        %% We hash the key to avoid storing the passwords or other sensitive data as-is in the cache.        %%
+        %% We hash the key to avoid storing the passwords or other sensitive data as-is in the cache.
         %% TemplateId is used as some kind of salt.
         Key1 = crypto:hash(sha256, [TemplateId, Key0]),
         [CacheKeyId, Key1 | ExtraKeyParts]
