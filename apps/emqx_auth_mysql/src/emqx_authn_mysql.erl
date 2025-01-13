@@ -65,13 +65,16 @@ authenticate(
         tmpl_token := TmplToken,
         query_timeout := Timeout,
         resource_id := ResourceId,
-        password_hash_algorithm := Algorithm
+        password_hash_algorithm := Algorithm,
+        cache_key_template := CacheKeyTemplate
     }
 ) ->
     Params = emqx_auth_template:render_sql_params(TmplToken, Credential),
-    case
-        emqx_resource:simple_sync_query(ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout})
-    of
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    Result = emqx_authn_utils:cached_simple_sync_query(
+        CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}
+    ),
+    case Result of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->
@@ -105,10 +108,12 @@ parse_config(
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+    {Vars, PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         password_hash_algorithm => Algorithm,
         tmpl_token => TmplToken,
-        query_timeout => QueryTimeout
+        query_timeout => QueryTimeout,
+        cache_key_template => CacheKeyTemplate
     },
     {Config#{prepare_statement => #{?PREPARE_KEY => PrepareSql}}, State}.

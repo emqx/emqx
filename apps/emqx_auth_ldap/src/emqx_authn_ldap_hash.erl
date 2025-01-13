@@ -37,22 +37,25 @@
 %% APIs
 %%------------------------------------------------------------------------------
 authenticate(
-    #{password := Password} = Credential,
+    #{password := Password} = Credential0,
     #{
         method := #{
             password_attribute := PasswordAttr,
             is_superuser_attribute := IsSuperuserAttr
         },
         query_timeout := Timeout,
-        resource_id := ResourceId
+        resource_id := ResourceId,
+        cache_key_template := CacheKeyTemplate
     } = State
 ) ->
-    case
-        emqx_resource:simple_sync_query(
-            ResourceId,
-            {query, Credential, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
-        )
-    of
+    Credential = emqx_auth_template:rename_client_info_vars(Credential0),
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    Result = emqx_authn_utils:cached_simple_sync_query(
+        CacheKey,
+        ResourceId,
+        {query, Credential, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
+    ),
+    case Result of
         {ok, []} ->
             ignore;
         {ok, [Entry]} ->

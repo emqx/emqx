@@ -134,6 +134,10 @@ t_placeholders(_) ->
     ?assertEqual(
         ["a", "b", "c", "d.d1"],
         emqx_template:placeholders(Template)
+    ),
+    ?assertEqual(
+        {["a", "b", "d.d1"], ["c"]},
+        emqx_template:placeholders(["a", "b", "d.d1", "e"], Template)
     ).
 
 t_unparse(_) ->

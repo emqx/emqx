@@ -1,0 +1,45 @@
+emqx_auth_cache_schema {
+
+auth_cache_config.desc:
+"""Configuration of authentication/authorization cache."""
+
+auth_cache_config.label:
+"""Cache Configuration"""
+
+enable.desc:
+"""Enable or disable the cache."""
+
+enable.label:
+"""Enable"""
+
+cache_ttl.desc:
+"""Time after which the cached authentication/authorization result will expire."""
+
+cache_ttl.label:
+"""Cache TTL"""
+
+cleanup_interval.desc:
+"""Interval to clean up expired cached results."""
+
+cleanup_interval.label:
+"""Cleanup Interval"""
+
+stat_update_interval.desc:
+"""Interval to update cache statistics."""
+
+stat_update_interval.label:
+"""Stat Update Interval"""
+
+max_count.desc:
+"""Maximum number of cached results."""
+
+max_count.label:
+"""Max Cache Size"""
+
+max_memory.desc:
+"""Maximum memory usage of the cache."""
+
+max_memory.label:
+"""Max Memory Usage"""
+
+}

@@ -24,6 +24,10 @@
     parse_deep/2,
     parse_str/2,
     parse_sql/3,
+    cache_key_template/1,
+    cache_key/2,
+    cache_key/3,
+    placeholder_vars_from_str/1,
     render_deep_for_json/2,
     render_deep_for_url/2,
     render_deep_for_raw/2,
@@ -31,54 +35,147 @@
     render_urlencoded_str/2,
     render_sql_params/2,
     render_strict/2,
-    escape_disallowed_placeholders_str/2
+    escape_disallowed_placeholders_str/2,
+    rename_client_info_vars/1
 ]).
+
+-define(POSSIBLE_CACHE_KEY_IDS, [clientid, username, cert_common_name]).
+
+-record(cache_key_template, {
+    id :: binary(),
+    vars :: emqx_template:t()
+}).
+
+-type var() :: emqx_template:varname() | {var_namespace, emqx_template:varname()}.
+-type allowed_vars() :: [var()].
+-type used_vars() :: [var()].
+-type cache_key_template() :: #cache_key_template{}.
+-type cache_key() :: fun(() -> term()).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
+-spec parse_deep(term(), allowed_vars()) -> {used_vars(), emqx_template:t()}.
 parse_deep(Template, AllowedVars) ->
     Result = emqx_template:parse_deep(Template),
     handle_disallowed_placeholders(Result, AllowedVars, {deep, Template}).
 
+-spec parse_str(unicode:chardata(), allowed_vars()) -> {used_vars(), emqx_template:t()}.
 parse_str(Template, AllowedVars) ->
     Result = emqx_template:parse(Template),
     handle_disallowed_placeholders(Result, AllowedVars, {string, Template}).
 
+-spec parse_sql(
+    emqx_template_sql:raw_statement_template(), emqx_template_sql:sql_parameters(), allowed_vars()
+) ->
+    {
+        used_vars(),
+        emqx_template_sql:statement(),
+        emqx_template_sql:row_template()
+    }.
 parse_sql(Template, ReplaceWith, AllowedVars) ->
     {Statement, Result} = emqx_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
-    {Statement, handle_disallowed_placeholders(Result, AllowedVars, {string, Template})}.
+    {UsedVars, TemplateWithAllowedVars} = handle_disallowed_placeholders(
+        Result, AllowedVars, {string, Template}
+    ),
+    {UsedVars, Statement, TemplateWithAllowedVars}.
 
+%% @doc Create a unique template from a list of variables.
+%% The terms rendered from the templates will be the same if and only if
+%% * the very template is the same
+%% * the values provided for the template variables are the same
+%%
+%% Also, the template is unique, so it can be used as a cache key.
+-spec cache_key_template(allowed_vars()) -> cache_key_template().
+cache_key_template(Vars) ->
+    #cache_key_template{
+        id = list_to_binary(emqx_utils:gen_id()),
+        vars = emqx_template:parse_deep(
+            lists:map(
+                fun(Var) ->
+                    list_to_binary("${" ++ Var ++ "}")
+                end,
+                Vars
+            )
+        )
+    }.
+
+%% @doc Lazily render the cache key from the template and values.
+-spec cache_key(map(), cache_key_template()) -> cache_key().
+cache_key(Values, CacheKeyTemplate) ->
+    cache_key(Values, CacheKeyTemplate, []).
+
+-spec cache_key(map(), cache_key_template(), list()) -> cache_key().
+cache_key(Values, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKeyParts) when
+    is_list(ExtraKeyParts)
+->
+    fun() ->
+        %% We try to add some identifier to the cache key for better introspection.
+        CacheKeyId = cache_template_id(first_present_kv(?POSSIBLE_CACHE_KEY_IDS, Values)),
+        Key0 = render_deep_for_raw(KeyVars, Values),
+        %% We hash the key to avoid storing the passwords or other sensitive data as-is in the cache.
+        %% TemplateId is used as some kind of salt.
+        Key1 = crypto:hash(sha256, [TemplateId, Key0]),
+        [CacheKeyId, Key1 | ExtraKeyParts]
+    end.
+
+-spec placeholder_vars_from_str(unicode:chardata()) -> [var()].
+placeholder_vars_from_str(Str) ->
+    emqx_template:placeholders(emqx_template:parse(Str)).
+
+-spec escape_disallowed_placeholders_str(unicode:chardata(), allowed_vars()) -> term().
 escape_disallowed_placeholders_str(Template, AllowedVars) ->
     ParsedTemplate = emqx_template:parse(Template),
     prerender_disallowed_placeholders(ParsedTemplate, AllowedVars).
 
+-spec rename_client_info_vars(map()) -> map().
+rename_client_info_vars(ClientInfo) ->
+    Renames = [
+        {cn, cert_common_name},
+        {dn, cert_subject},
+        {protocol, proto_name}
+    ],
+    lists:foldl(
+        fun({Old, New}, Acc) ->
+            emqx_utils_maps:rename(Old, New, Acc)
+        end,
+        ClientInfo,
+        Renames
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
 handle_disallowed_placeholders(Template, AllowedVars, Source) ->
-    case emqx_template:validate(AllowedVars, Template) of
-        ok ->
-            Template;
-        {error, Disallowed} ->
-            ?tp(warning, "auth_template_invalid", #{
-                template => Source,
-                reason => Disallowed,
-                allowed => #{placeholders => AllowedVars},
-                notice =>
-                    "Disallowed placeholders will be rendered as is."
-                    " However, consider using `${$}` escaping for literal `$` where"
-                    " needed to avoid unexpected results."
-            }),
-            Result = prerender_disallowed_placeholders(Template, AllowedVars),
-            case Source of
-                {string, _} ->
-                    emqx_template:parse(Result);
-                {deep, _} ->
-                    emqx_template:parse_deep(Result)
-            end
-    end.
+    {UsedAllowedVars, UsedDisallowedVars} = emqx_template:placeholders(AllowedVars, Template),
+    TemplateWithAllowedVars =
+        case UsedDisallowedVars of
+            [] ->
+                Template;
+            Disallowed ->
+                ?tp(warning, "auth_template_invalid", #{
+                    template => Source,
+                    reason => Disallowed,
+                    allowed => #{placeholders => AllowedVars},
+                    notice =>
+                        "Disallowed placeholders will be rendered as is."
+                        " However, consider using `${$}` escaping for literal `$` where"
+                        " needed to avoid unexpected results."
+                }),
+                Result = prerender_disallowed_placeholders(Template, AllowedVars),
+                case Source of
+                    {string, _} ->
+                        emqx_template:parse(Result);
+                    {deep, _} ->
+                        emqx_template:parse_deep(Result)
+                end
+        end,
+    {UsedAllowedVars, TemplateWithAllowedVars}.
 
 prerender_disallowed_placeholders(Template, AllowedVars) ->
     {Result, _} = emqx_template:render(Template, #{}, #{
@@ -216,16 +313,24 @@ render_var(_Name, Value) ->
 render_strict(Topic, ClientInfo) ->
     emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo)).
 
-rename_client_info_vars(ClientInfo) ->
-    Renames = [
-        {cn, cert_common_name},
-        {dn, cert_subject},
-        {protocol, proto_name}
-    ],
-    lists:foldl(
-        fun({Old, New}, Acc) ->
-            emqx_utils_maps:rename(Old, New, Acc)
-        end,
-        ClientInfo,
-        Renames
-    ).
+first_present_kv([Key | Keys], Map) ->
+    case Map of
+        #{Key := Value} when Value =/= undefined andalso Value =/= <<>> andalso Value =/= "" ->
+            {Key, Value};
+        _ ->
+            first_present_kv(Keys, Map)
+    end;
+first_present_kv([], _) ->
+    undefined.
+
+cache_template_id(undefined) ->
+    <<>>;
+cache_template_id({Key, Value}) ->
+    try emqx_utils_conv:bin(Value) of
+        Bin ->
+            KeyBin = atom_to_binary(Key, utf8),
+            <<KeyBin/binary, ":", Bin/binary, "-">>
+    catch
+        error:_ ->
+            <<>>
+    end.

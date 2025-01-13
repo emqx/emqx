@@ -183,3 +183,5 @@
     ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
+
+-define(AUTHZ_CACHE, emqx_authz_cache).

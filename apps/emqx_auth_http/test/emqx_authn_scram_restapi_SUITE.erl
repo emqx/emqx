@@ -28,10 +28,8 @@
 
 all() ->
     case emqx_release:edition() of
-        ce ->
-            [];
-        _ ->
-            emqx_common_test_helpers:all(?MODULE)
+        ce -> [];
+        ee -> emqx_common_test_helpers:all(?MODULE)
     end.
 
 init_per_suite(Config) ->

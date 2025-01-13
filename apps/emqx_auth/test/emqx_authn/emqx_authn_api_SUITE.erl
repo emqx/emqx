@@ -692,6 +692,72 @@ t_bcrypt_validation(_Config) ->
         ConfValid
     ).
 
+t_cache(_Config) ->
+    {ok, 200, CacheData0} = request(
+        get,
+        uri(["authentication_cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := false},
+        emqx_utils_json:decode(CacheData0, [return_maps])
+    ),
+    {ok, 200, MetricsData0} = request(
+        get,
+        uri(["authentication_cache", "status"])
+    ),
+    ?assertMatch(
+        #{<<"metrics">> := #{<<"count">> := 0}},
+        emqx_utils_json:decode(MetricsData0, [return_maps])
+    ),
+    {ok, 204, _} = request(
+        put,
+        uri(["authentication_cache"]),
+        #{
+            <<"enable">> => true
+        }
+    ),
+    {ok, 200, CacheData1} = request(
+        get,
+        uri(["authentication_cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := true},
+        emqx_utils_json:decode(CacheData1, [return_maps])
+    ),
+
+    %% We enabled authn cache, let's create
+    %% * authenticator
+    %% * connection to miss the cache
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        emqx_authn_test_lib:http_example()
+    ),
+
+    process_flag(trap_exit, true),
+    {ok, Client} = emqtt:start_link([
+        {username, <<"user">>},
+        {password, <<"pass">>}
+    ]),
+    _ = emqtt:connect(Client),
+
+    %% Now check the metrics, the cache should have been populated
+    {ok, 200, MetricsData2} = request(
+        get,
+        uri(["authentication_cache", "status"])
+    ),
+    ?assertMatch(
+        #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
+        emqx_utils_json:decode(MetricsData2, [return_maps])
+    ),
+    ok.
+
+t_cache_reset(_) ->
+    {ok, 204, _} = request(
+        post,
+        uri(["authentication_cache", "reset"])
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
