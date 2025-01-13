@@ -269,7 +269,7 @@ health_check_pool_workers(ConnResId) ->
                         reason => emqx_utils:redact(Reason),
                         connector => ConnResId
                     }),
-                    ?status_disconnected
+                    {?status_disconnected, Reason}
             end
     catch
         exit:timeout ->
@@ -278,7 +278,7 @@ health_check_pool_workers(ConnResId) ->
                 reason => timeout,
                 connector => ConnResId
             }),
-            ?status_disconnected
+            {?status_disconnected, <<"Health check timeout">>}
     end.
 
 ping(ConnResId, RequestTTL) ->
@@ -292,11 +292,14 @@ ping(ConnResId, RequestTTL) ->
                     ?status_connected;
                 _ ->
                     ?tp("couchbase_bad_ping_response", #{response => Response}),
-                    ?status_disconnected
+                    Msg = iolist_to_binary(
+                        io_lib:format("Malformed ping response: ~0p", [Body0])
+                    ),
+                    {?status_disconnected, Msg}
             end;
         _ ->
             ?tp("couchbase_bad_ping_response", #{response => Response}),
-            ?status_disconnected
+            {?status_disconnected, <<"Ping returned failure">>}
     end.
 
 render_args(Context, ArgsTemplate) ->
