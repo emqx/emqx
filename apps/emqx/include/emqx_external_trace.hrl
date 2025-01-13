@@ -32,55 +32,66 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
--define(with_provider(IfRegistered, IfNotRegistered),
+-define(get_provider(), persistent_term:get(?PROVIDER, undefined)).
+
+-define(no_provider(ProcessFunOrAction, MaybeArgs),
+    case is_function(ProcessFunOrAction) of
+        true -> erlang:apply(ProcessFunOrAction, MaybeArgs);
+        false -> MaybeArgs
+    end
+).
+
+-define(apply_provider(M, F, A), erlang:apply(M, F, A)).
+
+-define(with_provider_apply(
+    Callback,
+    CallbackArgs,
+    IfNoProviderArgs
+),
     fun() ->
-        case persistent_term:get(?PROVIDER, undefined) of
+        case ?get_provider() of
             undefined ->
-                IfNotRegistered;
+                ?no_provider('_', IfNoProviderArgs);
             Provider ->
-                Provider:IfRegistered
+                ?apply_provider(Provider, Callback, CallbackArgs)
         end
     end()
 ).
 
--define(with_provider_apply(TraceCallbackName, Attrs, ProcessFun, ProcessFunArgList),
+-define(with_provider_apply(
+    Callback,
+    Attrs,
+    ProcessFunOrAction,
+    ProcessFunArgs
+),
     fun() ->
-        case persistent_term:get(?PROVIDER, undefined) of
+        case ?get_provider() of
             undefined ->
-                erlang:apply(ProcessFun, ProcessFunArgList);
+                ?no_provider(ProcessFunOrAction, ProcessFunArgs);
             Provider ->
-                erlang:apply(Provider, TraceCallbackName, [Attrs, ProcessFun, ProcessFunArgList])
+                ?apply_provider(Provider, Callback, [Attrs, ProcessFunOrAction, ProcessFunArgs])
         end
     end()
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs),
-    ?with_provider(add_span_attrs(Attrs), ok)
+    ?with_provider_apply(add_span_attrs, [Attrs], ok)
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs, Ctx),
-    ?with_provider(add_span_attrs(Attrs, Ctx), ok)
+    ?with_provider_apply(add_span_attrs, [Attrs, Ctx], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_OK(),
-    ?with_provider(
-        set_status_ok(),
-        ok
-    )
+    ?with_provider_apply(set_status_ok, [], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_ERROR(),
-    ?with_provider(
-        set_status_error(),
-        ok
-    )
+    ?with_provider_apply(set_status_error, [], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_ERROR(Msg),
-    ?with_provider(
-        set_status_error(Msg),
-        ok
-    )
+    ?with_provider_apply(set_status_error, [Msg], ok)
 ).
 
 -define(EXT_TRACE_ATTR(_Expr_), begin
