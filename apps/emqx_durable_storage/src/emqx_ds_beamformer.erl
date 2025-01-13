@@ -232,7 +232,7 @@
 %% Per-node builder:
 -record(beam_builder_node, {
     global_n_msgs :: non_neg_integer() | undefined,
-    idx = 0 :: non_neg_integer(),
+    n_msgs = 0 :: non_neg_integer(),
     %% List of messages and keys, reversed:
     pack = [] :: [{emqx_ds:message_key(), emqx_types:message()}],
     subs = #{} :: #{reference() => #beam_builder_sub{}}
@@ -293,48 +293,11 @@
 start_link(DBShard, CBM) ->
     gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
 
-%% @doc Submit a poll request
+%% @obsolete Submit a poll request
 -spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
     ok.
 poll(_Node, _ReturnAddr, _Shard, _Iterator, #{timeout := _Timeout}) ->
     ok.
-%% CBM = emqx_ds_beamformer_sup:cbm(Shard),
-%% case CBM:unpack_iterator(Shard, Iterator) of
-%%     #{
-%%         stream := Stream,
-%%         topic_filter := TF,
-%%         last_seen_key := DSKey,
-%%         message_matcher := MsgMatcher
-%%     } ->
-%%         Deadline = erlang:monotonic_time(millisecond) + Timeout,
-%%         ReqId = make_ref(),
-%%         ?tp(beamformer_poll, #{
-%%             req_id => ReqId,
-%%             shard => Shard,
-%%             key => DSKey,
-%%             timeout => Timeout,
-%%             deadline => Deadline
-%%         }),
-%%         %% Make a request:
-%%         Req = #sub_state{
-%%             req_id = ReqId,
-%%             stream = Stream,
-%%             topic_filter = TF,
-%%             start_key = DSKey,
-%%             return_addr = ReturnAddr,
-%%             it = Iterator,
-%%             deadline = Deadline,
-%%             msg_matcher = MsgMatcher
-%%         },
-%%         emqx_ds_builtin_metrics:inc_poll_requests(shard_metrics_id(Shard), 1),
-%%         ok = emqx_ds_beamformer_rt:enqueue(Shard, Req);
-%%     Err = {error, _, _} ->
-%%         Beam = #beam{
-%%             iterators = [{ReturnAddr, Iterator}],
-%%             pack = Err
-%%         },
-%%         send_out(undefined, Node, Beam)
-%% end.
 
 %% @doc This internal API notifies the beamformer that new data is
 %% available for reading in the storage.
@@ -411,47 +374,19 @@ beams_n_matched(#beam_builder{per_node = PerNode}) ->
     beam_builder()
 ) -> beam_builder().
 beams_add(
-    MsgKey, Msg, SubStates, BB = #beam_builder{global_n_msgs = GlobalNMsgs0, per_node = PerNode0}
+    Key, Msg, SubStates, BB = #beam_builder{global_n_msgs = GlobalNMsgs0, per_node = PerNode0}
 ) ->
     GlobalNMsgs = GlobalNMsgs0 + 1,
     PerNode = lists:foldl(
         fun(#sub_state{req_id = SubId, client = ClientPid}, Acc) ->
             Node = node(ClientPid),
-            %% Lookup or initialize per-node state:
-            case Acc of
-                %% As indicated by the matching `global_n_msgs', this
-                %% message has been already added to the per-node
-                %% state by other request, don't update it again:
-                #{
-                    Node := NodeS1 = #beam_builder_node{
-                        global_n_msgs = GlobalNMsgs, idx = Idx, subs = Subs
-                    }
-                } ->
-                    ok;
-                %% This message is new for the node, add it to the
-                %% pack and increase per-node message counter:
-                #{
-                    Node := NodeS0 = #beam_builder_node{
-                        idx = Idx, subs = Subs, pack = Pack0
-                    }
-                } ->
-                    NodeS1 = NodeS0#beam_builder_node{
-                        pack = [{MsgKey, Msg} | Pack0],
-                        idx = Idx + 1,
-                        global_n_msgs = GlobalNMsgs
-                    };
-                %% This is an entirely new node within the builder:
-                #{} ->
-                    Idx = 0,
-                    Subs = #{},
-                    NodeS1 = #beam_builder_node{
-                        pack = [{MsgKey, Msg}],
-                        idx = 1,
-                        global_n_msgs = GlobalNMsgs
-                    }
-            end,
-            %% Update the subscription's dispatch mask and increment
-            %% its message counter:
+            BBN0 =
+                #beam_builder_node{n_msgs = NMsgs, subs = Subs} = maybe_update_pack(
+                    GlobalNMsgs, Node, Key, Msg, Acc
+                ),
+            %% Index of message within the per-node batch:
+            Index = NMsgs - 1,
+            %% Lookup or initialize per-subscription beam builder:
             case Subs of
                 #{SubId := #beam_builder_sub{n_msgs = Count, mask = MaskEncoder}} ->
                     ok;
@@ -459,13 +394,15 @@ beams_add(
                     Count = 0,
                     MaskEncoder = emqx_ds_dispatch_mask:enc_make()
             end,
+            %% Update the subscription's dispatch mask and increment
+            %% its message counter:
             SubS = #beam_builder_sub{
                 n_msgs = Count + 1,
-                mask = emqx_ds_dispatch_mask:enc_push_true(Idx, MaskEncoder)
+                mask = emqx_ds_dispatch_mask:enc_push_true(Index, MaskEncoder)
             },
             %% Update the accumulator:
-            NodeS = NodeS1#beam_builder_node{subs = Subs#{SubId => SubS}},
-            Acc#{Node => NodeS}
+            BBN = BBN0#beam_builder_node{subs = Subs#{SubId => SubS}},
+            Acc#{Node => BBN}
         end,
         PerNode0,
         SubStates
@@ -474,6 +411,26 @@ beams_add(
         per_node = PerNode,
         global_n_msgs = GlobalNMsgs
     }.
+
+maybe_update_pack(Global, Node, Key, Msg, PerNodeStates) ->
+    case PerNodeStates of
+        #{Node := BB = #beam_builder_node{global_n_msgs = Global}} ->
+            %% This message has been already added to the node's pack:
+            BB;
+        #{Node := BB0 = #beam_builder_node{n_msgs = Idx, pack = Pack}} ->
+            %% This message is new for the node:
+            BB0#beam_builder_node{
+                pack = [{Key, Msg} | Pack],
+                n_msgs = Idx + 1,
+                global_n_msgs = Global
+            };
+        #{} ->
+            #beam_builder_node{
+                pack = [{Key, Msg}],
+                n_msgs = 1,
+                global_n_msgs = Global
+            }
+    end.
 
 %% @doc Update states of the subscriptions, active queues of the
 %% workers, and send out beams.
@@ -498,10 +455,6 @@ shard_metrics_id({DB, Shard}) ->
 %% remove it:
 -spec keep_and_seqno(ets:tid(), sub_state(), pos_integer()) ->
     {boolean(), emqx_ds:sub_seqno() | undefined}.
-%% keep_and_seqno(_SubTab, #sub_state{deadline = Deadline}, _) when is_integer(Deadline) ->
-%%     %% FIXME: remove this clause?
-%%     %% This is a one-time poll request, we never keep them after the first match:
-%%     false;
 keep_and_seqno(SubTab, #sub_state{req_id = Ref}, Nmsgs) ->
     try
         ets:update_counter(SubTab, Ref, [
@@ -900,7 +853,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         queue_update = QueueUpdate
     } = BeamMaker,
     #beam_builder_node{
-        idx = BatchSize,
+        n_msgs = BatchSize,
         pack = PackRev,
         subs = Subs
     } = BeamMakerNode,
