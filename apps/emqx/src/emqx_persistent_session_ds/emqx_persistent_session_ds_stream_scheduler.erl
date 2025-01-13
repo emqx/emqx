@@ -180,6 +180,7 @@
     %% these are streams that have y-rank greater than the
     %% currently active y-rank for x-rank):
     pending_streams = #{} :: stream_map(),
+    %% Back-reference to the new stream watch:
     new_streams_watch = emqx_ds_new_streams:watch()
 }).
 
@@ -194,7 +195,7 @@
 -type ds_sub() :: #ds_sub{}.
 
 -record(s, {
-    %% Stream subscriptions:
+    %% Lookup table that maps new stream watch ID to topic filter:
     new_stream_subs = #{} :: new_stream_subs(),
     %% Per-topic metadata records:
     sub_metadata = #{} :: #{emqx_types:topic() => sub_metadata()},
@@ -243,10 +244,10 @@ init(S0) ->
             ?tp(?sessds_stream_state_trans, #{key => Key, to => '$restore'}),
             case derive_state(Comm1, Comm2, Srs) of
                 r ->
-                    ?tp(?sessds_stream_state_trans, #{key => Key, to => r}),
+                    ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => '$restore'}),
                     Acc;
                 u ->
-                    ?tp(?sessds_stream_state_trans, #{key => Key, to => u}),
+                    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => '$restore'}),
                     Acc;
                 bq1 ->
                     to_BQ1(Key, Srs, Acc);
@@ -373,7 +374,7 @@ on_enqueue(false, Key, SRS, S0, SchedS0) ->
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
     case derive_state(Comm1, Comm2, SRS) of
         r ->
-            ?tp(?sessds_stream_state_trans, #{key => Key, to => r}),
+            ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => r}),
             {[Key], S0, SchedS};
         bq1 ->
             {[], S0, to_BQ1(Key, SRS, SchedS)};
@@ -386,7 +387,7 @@ on_enqueue(false, Key, SRS, S0, SchedS0) ->
             %% batch at the end of a stream, that contained only QoS0
             %% messages. Since no acks are expected for this batch, we
             %% should attempt to advance generation now:
-            ?tp(?sessds_stream_state_trans, #{key => Key, to => u}),
+            ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => r}),
             unblock_stream(Key, SRS, S0, SchedS)
     end.
 
@@ -453,13 +454,13 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
 unblock_stream(Key = {SubId, _}, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0) ->
     %% We've reached end of the stream. We might advance generation
     %% now:
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => u}),
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => bx}),
     {Keys, S, SchedS} = renew_streams_for_x(S0, SubId, RankX, SchedS0),
     %% TODO: Reporting this key as unblocked for compatibility with
     %% shared_sub. This should not be needed.
     {[Key | Keys], S, SchedS};
 unblock_stream(Key, _SRS, S, SchedS) ->
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => r}),
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => bx}),
     {[Key], S, SchedS}.
 
 %% @doc Batch operation to clean up historical streams.
@@ -545,8 +546,8 @@ on_unsubscribe(
     %% acked by the client.
     emqx_persistent_session_ds_state:fold_streams(
         SubId,
-        fun(Stream, Srs0, {S1, SchedS2}) ->
-            unsubscribe_stream({SubId, Stream}, Srs0, S1, SchedS2)
+        fun(Stream, SRS, {SAcc, SchedSAcc}) ->
+            unsubscribe_stream({SubId, Stream}, SRS, SAcc, SchedSAcc)
         end,
         {S0, SchedS1},
         S0
@@ -753,7 +754,7 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
                 ),
                 {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
             (I = {_, Stream}, {AccNewSRSIds, AccS, AccPendingStreams}) ->
-                ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p}),
+                ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p, from => void}),
                 {AccNewSRSIds, AccS, [I | AccPendingStreams]}
         end,
         {[], S0, []},
@@ -770,15 +771,13 @@ get_streams(TopicFilter, StartTime) ->
     ).
 
 %% @doc Set `unsubscribed' flag and remove stream from the buckets
-unsubscribe_stream(Key, Srs0 = #srs{}, S, SchedS) ->
-    Srs = Srs0#srs{unsubscribed = true},
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => u}),
+unsubscribe_stream(Key, SRS0 = #srs{}, S, SchedS) ->
+    SRS = SRS0#srs{unsubscribed = true},
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => x}),
     {
-        emqx_persistent_session_ds_state:put_stream(Key, Srs, S),
-        SchedS
-    };
-unsubscribe_stream(_Key, undefined, S, SchedS) ->
-    {S, SchedS}.
+        emqx_persistent_session_ds_state:put_stream(Key, SRS, S),
+        bq_drop(Key, SRS, ds_unsubscribe(Key, SchedS))
+    }.
 
 maybe_drop_stream(CommQos1, CommQos2, Key, SRS = #srs{unsubscribed = true}, S) ->
     %% This stream belongs to an unsubscribed topic:
@@ -831,7 +830,7 @@ find_subscription_by_subid(SubId, It0) ->
     end.
 
 %%--------------------------------------------------------------------------------
-%% Subscription management
+%% DS subscription management
 %%--------------------------------------------------------------------------------
 
 ds_subscribe([], _S, Subs) ->
@@ -913,6 +912,24 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
 block_of_srs(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}) ->
     #block{id = Key, last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}.
 
+%% @doc Remove stream from the block queues:
+-spec bq_drop(stream_key(), srs(), t()) -> t().
+bq_drop(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
+    S#s{
+        bq1 = gb_tree_remove(Key, SN1, BQ1),
+        bq2 = gb_tree_remove(Key, SN2, BQ2)
+    }.
+
+gb_tree_remove(Key, SN, BQ0) ->
+    case gb_trees:take_any(SN, BQ0) of
+        {#block{id = Key}, BQ} ->
+            BQ;
+        {#block{}, _} ->
+            BQ0;
+        error ->
+            BQ0
+    end.
+
 %%--------------------------------------------------------------------------------
 %% Misc.
 %%--------------------------------------------------------------------------------
@@ -933,7 +950,7 @@ make_iterator(TopicFilter, Subscription, {{RankX, RankY}, Stream}, S) ->
     Key = {SubId, Stream},
     case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
         {ok, Iterator} ->
-            ?tp(?sessds_stream_state_trans, #{key => Key, to => r}),
+            ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => void}),
             NewStreamState = #srs{
                 rank_x = RankX,
                 rank_y = RankY,

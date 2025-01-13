@@ -1323,9 +1323,15 @@ drain_buffer_of_stream(
     Session0 = #{s := S, buffer := Buf, inflight := Inflight},
     ClientInfo
 ) ->
-    SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-    {SRS, SubState} = pre_enqueue_new(SRS0, S),
-    do_drain_buffer_of_stream(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight).
+    case emqx_persistent_session_ds_state:get_stream(StreamKey, S) of
+        undefined ->
+            Session0;
+        #srs{unsubscribed = true} ->
+            Session0;
+        SRS0 ->
+            {SRS, SubState} = pre_enqueue_new(SRS0, S),
+            do_drain_buffer_of_stream(StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight)
+    end.
 
 do_drain_buffer_of_stream(
     StreamKey,
