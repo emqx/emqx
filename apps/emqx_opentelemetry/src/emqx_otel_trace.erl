@@ -41,7 +41,7 @@
     msg_forward/3,
     msg_handle_forward/3,
 
-    broker_publish/2,
+    broker_publish/3,
 
     %% Start Span when `emqx_channel:handle_out/3` called.
     %% Stop when `emqx_channel:handle_outgoing/3` returned
@@ -434,7 +434,7 @@ client_publish(InitAttrs, ProcessFun, [Packet] = Args) ->
         end
     ).
 
--compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
+%% -compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
 attach_outgoing(?PUBLISH_PACKET(?QOS_0), _Ctx) ->
     ok;
 attach_outgoing(?PUBLISH_PACKET(?QOS_1, PacketId), Ctx) ->
@@ -572,15 +572,13 @@ msg_handle_forward(InitAttrs, ProcessFun, [Delivery] = Args) ->
 %% Span starts in Delivers(Msg) and stops when outgoing(Packets)
 %% Only for `PUBLISH(Qos=0|1|2)`
 -spec broker_publish(
-    list(Deliver),
-    Attrs
-) ->
+    emqx_external_trace:attrs(),
+    TraceAction :: ?EXT_TRACE_START,
     %% Delivers with Ctx Attached
     list(Deliver)
-when
-    Deliver :: emqx_types:deliver(),
-    Attrs :: emqx_external_trace:attrs().
-broker_publish(Delivers, Attrs) ->
+) -> list(Deliver) when
+    Deliver :: emqx_types:deliver().
+broker_publish(Attrs, ?EXT_TRACE_START, Delivers) ->
     ?with_trace_mode(
         start_trace_send(Delivers, #{clientid => maps:get('client.clientid', Attrs)}),
         lists:map(
@@ -603,19 +601,19 @@ broker_publish(Delivers, Attrs) ->
     ).
 
 -spec outgoing(
-    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
     Attrs :: emqx_external_trace:attrs(),
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
     Packet :: emqx_types:packet()
 ) ->
     Res :: emqx_external_trace:t_res().
-outgoing(?EXT_TRACE_START, Attrs, Packet) ->
+outgoing(Attrs, ?EXT_TRACE_START, Packet) ->
     %% Note: the function case only for
     %% `PUBACK`, `PUBREC`, `PUBREL`, `PUBCOMP`
     ?with_trace_mode(
         Packet,
         start_outgoing_trace(Attrs, Packet)
     );
-outgoing(?EXT_TRACE_STOP, Attrs, Any) ->
+outgoing(Attrs, ?EXT_TRACE_STOP, Any) ->
     ?with_trace_mode(
         end_trace_send(Any),
         stop_outgoing_trace(Attrs, Any)
@@ -696,11 +694,11 @@ end_trace_send(Packets) ->
 %% ====================
 %% Broker -> Client(`Publisher'):
 start_outgoing_trace(Attrs, ?PUBACK_PACKET(PacketId) = Packet) ->
-    start_outgoing_trace(Packet, Attrs, detach_internal_ctx({?PUBACK, PacketId}));
+    start_outgoing_trace(Attrs, Packet, detach_internal_ctx({?PUBACK, PacketId}));
 start_outgoing_trace(Attrs, ?PUBREC_PACKET(PacketId) = Packet) ->
-    start_outgoing_trace(Packet, Attrs, detach_internal_ctx({?PUBREC, PacketId}));
+    start_outgoing_trace(Attrs, Packet, detach_internal_ctx({?PUBREC, PacketId}));
 start_outgoing_trace(Attrs, ?PUBCOMP_PACKET(PacketId) = Packet) ->
-    start_outgoing_trace(Packet, Attrs, detach_internal_ctx({?PUBREL, PacketId}));
+    start_outgoing_trace(Attrs, Packet, detach_internal_ctx({?PUBREL, PacketId}));
 %% ====================
 %% Broker -> Client(`Subscriber'):
 start_outgoing_trace(Attrs, ?PUBREL_PACKET(PacketId) = Packet) ->
@@ -800,11 +798,11 @@ start_awaiting_trace(AwaitingType, PacketId, Packet, Attrs) ->
     _ = attach_internal_ctx(AwaitingCtxKey, NCtx),
     ok.
 
-client_incoming(?PACKET(AwaitingType, PktVar) = Packet, Attrs, ProcessFun) ->
+client_incoming(Attrs, ProcessFun, [?PACKET(AwaitingType, PktVar)] = Args) ->
     ?with_trace_mode(
-        ProcessFun(Packet),
+        erlang:apply(ProcessFun, Args),
         try
-            ProcessFun(Packet)
+            erlang:apply(ProcessFun, Args)
         after
             end_awaiting_client_packet(
                 internal_extra_key(AwaitingType, PktVar), Attrs

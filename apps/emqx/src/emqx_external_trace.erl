@@ -85,14 +85,18 @@
 
 %% for broker_publish and outgoing, the process_fun is not needed
 %% They Process Ctx in deliver/packet
--callback broker_publish(list(Deliver), attrs()) -> list(Deliver) when
+-callback broker_publish(
+    attrs(),
+    TraceAction :: ?EXT_TRACE_START,
+    list(Deliver)
+) -> list(Deliver) when
     Deliver :: emqx_types:deliver().
 
--callback outgoing(TraceAction, Attrs, Packet) -> Res when
+-callback outgoing(
+    attrs(),
     TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
-    Attrs :: attrs(),
-    Packet :: emqx_types:packet(),
-    Res :: t_res().
+    Packet :: emqx_types:packet()
+) -> Res :: t_res().
 
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
