@@ -594,7 +594,7 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
         [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
         [
          %% {1,  {call, ?MODULE, disconnect, [S]}},
-         %% {5,  unsubscribe_()},
+         {5,  unsubscribe_()},
          {5,  subscribe_()}
         ],
     case Conn of
