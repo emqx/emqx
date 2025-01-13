@@ -668,17 +668,15 @@ do_authenticate(
     MetricsID = metrics_id(ChainName, ID),
     emqx_metrics_worker:inc(authn_metrics, MetricsID, total),
 
-    Result = ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_authn_backend,
-        [],
-        #{
+    Result = ?EXT_TRACE_CLIENT_AUTHN_BACKEND(
+        ?EXT_TRACE_ATTR(#{
             'client.clientid' => maps:get(clientid, Credential, undefined),
             'client.username' => maps:get(username, Credential, undefined),
             'authn.authenticator' => ID,
             'authn.chain' => ChainName,
             'authn.module' => _Module
-        },
-        fun([]) ->
+        }),
+        fun() ->
             try authenticate_with_provider(Authenticator, Credential) of
                 ignore ->
                     ok = emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
@@ -721,7 +719,8 @@ do_authenticate(
                     emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),
                     with_provider_failed
             end
-        end
+        end,
+        []
     ),
     case Result of
         with_provider_failed -> do_authenticate(ChainName, More, Credential);
