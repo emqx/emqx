@@ -670,6 +670,7 @@ do_authenticate(
 
     Result = ?EXT_TRACE_WITH_PROCESS_FUN(
         client_authn_backend,
+        [],
         #{
             'client.clientid' => maps:get(clientid, Credential, undefined),
             'client.username' => maps:get(username, Credential, undefined),
@@ -677,7 +678,7 @@ do_authenticate(
             'authn.chain' => ChainName,
             'authn.module' => _Module
         },
-        fun() ->
+        fun([]) ->
             try authenticate_with_provider(Authenticator, Credential) of
                 ignore ->
                     ok = emqx_metrics_worker:inc(authn_metrics, MetricsID, nomatch),

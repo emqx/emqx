@@ -532,6 +532,7 @@ do_authorize(
     emqx_metrics_worker:inc(authz_metrics, Type, total),
     Result = ?EXT_TRACE_WITH_PROCESS_FUN(
         client_authz_backend,
+        [],
         #{
             'client.clientid' => maps:get(clientid, Client, undefined),
             'client.username' => Username,
@@ -540,7 +541,7 @@ do_authorize(
             'authz.topic' => Topic,
             'authz.action_type' => _PubSub
         },
-        fun() ->
+        fun([]) ->
             Result0 =
                 try Module:authorize(Client, Action, Topic, Connector) of
                     Res ->

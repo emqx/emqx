@@ -93,13 +93,6 @@
     )
 ).
 
--define(EXT_TRACE_WITH_PROCESS_FUN(FuncName, Attrs, ProcessFun),
-    ?with_provider(
-        FuncName(Attrs, ProcessFun),
-        ProcessFun()
-    )
-).
-
 -define(EXT_TRACE_WITH_PROCESS_FUN(FuncName, Any, Attrs, ProcessFun),
     ?with_provider(
         FuncName(Any, Attrs, ProcessFun),
@@ -117,14 +110,8 @@
 -define(EXT_TRACE_SET_STATUS_ERROR(_), ok).
 -define(EXT_TRACE_WITH_ACTION_START(_FuncName, Any, _Attrs), Any).
 -define(EXT_TRACE_WITH_ACTION_STOP(_FuncName, Any, _Attrs), ok).
--define(EXT_TRACE_WITH_PROCESS_FUN(_FuncName, _Attrs, ProcessFun), ProcessFun()).
 -define(EXT_TRACE_WITH_PROCESS_FUN(_FuncName, Any, _Attrs, ProcessFun), ProcessFun(Any)).
 
 -endif.
-
-%% --------------------------------------------------------------------
-%% types
-
--type attrs() :: #{atom() => _}.
 
 -endif.
