@@ -131,12 +131,12 @@ end_per_group(_Group, Config) ->
         channel := Channel
     } = get_channel_connection(Config),
     amqp_channel:call(Channel, #'queue.purge'{queue = rabbit_mq_queue()}),
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
     %% Close the channel
     ok = amqp_channel:close(Channel),
     %% Close the connection
-    ok = amqp_connection:close(Connection).
+    ok = amqp_connection:close(Connection),
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps).
 
 rabbit_mq_host() ->
     list_to_binary(os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq")).

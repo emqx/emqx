@@ -292,6 +292,21 @@ t_action(Config) ->
     ),
     ok.
 
+t_action_stop(_Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    create_action(?FUNCTION_NAME, Name),
+
+    %% Emulate channel close hitting the timeout
+    meck:new(amqp_channel, [passthrough, no_history]),
+    meck:expect(amqp_channel, close, fun(_Pid) -> timer:sleep(infinity) end),
+
+    %% Delete action should not exceed connector's ?CHANNEL_CLOSE_TIMEOUT
+    {Time, _} = timer:tc(fun() -> delete_action(Name) end),
+    ?assert(Time < 4_500_000),
+
+    meck:unload(amqp_channel),
+    ok.
+
 t_action_not_exist_exchange(_Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
     create_action(?FUNCTION_NAME, Name, <<"not_exist_exchange">>),
