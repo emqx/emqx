@@ -109,8 +109,8 @@ clientinfo() ->
     Keys = [
         {zone, zone()},
         {protocol, protocol()},
+        {peername, peername()},
         {peerhost, ip()},
-        {peerport, port()},
         {sockport, port()},
         {clientid, clientid()},
         {username, username()},

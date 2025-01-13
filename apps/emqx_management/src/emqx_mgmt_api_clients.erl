@@ -1947,9 +1947,8 @@ with_client_info_fields(ClientInfoMap, all) ->
         [
             auth_result,
             peername,
-            sockname,
             peerhost,
-            peerport,
+            sockname,
             conn_state,
             send_pend,
             conn_props,
