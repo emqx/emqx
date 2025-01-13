@@ -41,7 +41,7 @@ connector_type_name() -> http.
 schema_module() -> emqx_bridge_http_schema.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    BridgeV1Config1 = maps:remove(<<"connector">>, ActionConfig),
+    BridgeV1Config1 = maps:without([<<"connector">>, <<"last_modified_at">>], ActionConfig),
     %% Move parameters to the top level
     ParametersMap1 = maps:get(<<"parameters">>, BridgeV1Config1, #{}),
     ParametersMap2 = maps:without([<<"path">>, <<"headers">>], ParametersMap1),
