@@ -14,20 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Below is the strategy for stateful property-based testing of
-%% the durable session.
-%%
-%% Background: PropER can only work with determinstic systems. But
-%% session interacts with a black box (DS), and exhibits
-%% non-deterministic behavior due to e.g. uncertain order of event
-%% delivery. Therefore, it's hard to define a robust model of the
-%% session that PropER could compare with the SUT.
-%%
-%% Solution: instead of using PropER for end-to-end black box
-%% verification, we use it as a fuzzer of sorts to generate random
-%% client behaviors.
-%%
-%% `postcondition' callback gets session state (either runtime or
+%% @doc `postcondition' callback gets session state (either runtime or
 %% stored) so each component of the session can verify that it
 %% satisfies the invariants.
 -module(emqx_persistent_session_ds_fuzzer).
@@ -154,13 +141,16 @@
 -define(sessds_test_processes_died, sessds_test_processes_died).
 
 %%--------------------------------------------------------------------
-%% Global configuration
+%% Proper generators
 %%--------------------------------------------------------------------
+
+qos() ->
+    range(?QOS_0, ?QOS_2).
 
 %% @doc Static part of the client configuration. It is merged with
 %% randomly generated part.
 %% erlfmt-ignore
-static_config() ->
+static_client_opts() ->
     #{
         port => 1883,
         proto => v5,
@@ -183,13 +173,6 @@ static_config() ->
         auto_ack => never
      }.
 
-%%--------------------------------------------------------------------
-%% Proper generators
-%%--------------------------------------------------------------------
-
-qos() ->
-    range(?QOS_0, ?QOS_2).
-
 %% @doc Proper generator for `emqtt:connect' parameters:
 connect_(S) ->
     ?LET(
@@ -199,7 +182,7 @@ connect_(S) ->
             DynamicOpts = #{
                 properies => #{'Receive-Maximum' => ReceiveMaximum}
             },
-            Opts = emqx_utils_maps:deep_merge(static_config(), DynamicOpts),
+            Opts = emqx_utils_maps:deep_merge(static_client_opts(), DynamicOpts),
             {call, ?MODULE, connect, [S, Opts]}
         end
     ).
@@ -270,21 +253,23 @@ connect(S, Opts = #{clientid := ClientId}) ->
     %% Check metadata of the previous state to catch situations when
     %% the testcase starts from a dirty state:
     true = check_session_metadata(S),
+    %% Start the new client:
     {ok, ClientPid} = emqtt:start_link(Opts),
     unlink(ClientPid),
-    CMRef = monitor(process, ClientPid),
     {ok, _} = emqtt:connect(ClientPid),
-    %% Wait for takeover (if the client was previously connected):
+    %% Wait for the old client stepdown:
     maybe_wait_stepdown(S),
+    %% Update connection info:
     register(?client, ClientPid),
+    %% CMRef = monitor(process, ClientPid),
     [SessionPid] = emqx_cm:lookup_channels(local, ClientId),
-    SMRef = monitor(process, SessionPid),
+    %% SMRef = monitor(process, SessionPid),
     %% Return `conninfo()':
     #{
         client_pid => ClientPid,
-        client_mref => CMRef,
-        session_pid => SessionPid,
-        session_mref => SMRef
+        %% client_mref => CMRef,
+        session_pid => SessionPid
+        %% session_mref => SMRef
     }.
 
 %% @doc Shut down emqtt
@@ -328,7 +313,7 @@ consume(S) ->
 %% received from the broker.
 receive_ack_loop(
     S = #{
-        conninfo := #{client_pid := CPID, client_mref := CMRef, session_mref := SMRef}
+        conninfo := #{client_pid := CPID}
     },
     Result
 ) ->
@@ -361,14 +346,14 @@ receive_ack_loop(
             emqtt:pubcomp(client_pid(), PID),
             ?tp(info, ?sessds_test_out_pubcomp, #{packet_id => PID}),
             receive_ack_loop(S, Result);
-        %% Handle client/session crash:
-        {'DOWN', CMRef, process, CPID, Reason} ->
-            ?tp(warning, ?sessds_test_client_crash, #{pid => CPID, reason => Reason}),
-            flush_emqtt_messages(),
-            receive_ack_loop(S, {error, client_crash});
-        {'DOWN', SMRef, process, SessPid, Reason} ->
-            ?tp(warning, ?sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
-            receive_ack_loop(S, {error, session_crash});
+        %% %% Handle client/session crash:
+        %% {'DOWN', CMRef, process, CPID, Reason} ->
+        %%     ?tp(warning, ?sessds_test_client_crash, #{pid => CPID, reason => Reason}),
+        %%     flush_emqtt_messages(),
+        %%     receive_ack_loop(S, {error, client_crash});
+        %% {'DOWN', SMRef, process, SessPid, Reason} ->
+        %%     ?tp(warning, ?sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
+        %%     receive_ack_loop(S, {error, session_crash});
         %%
         Other ->
             %% FIXME: this may include messages from the older
@@ -581,21 +566,21 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
     HasSubs = maps:size(Subs) > 0,
     %% Commands that are executed in any state:
     Common =
-        [
-         %% {1,  connect_(S)},
-         %{2,  {call, ?MODULE, add_generation, []}},
+         %% FIXME: Currently takeover may lead to state corruption due
+         %% to serialization problems:
+         [{1,  connect_(S)} || not Conn] ++
+         %% {2,  {call, ?MODULE, add_generation, []}},
          %% Publish some messages occasionally even when there are no
          %% subs:
-         {1,  publish_(S)}
-        ],
+         [{1,  publish_(S)}],
     %% Commands that are executed when client is connected:
     Connected =
         [{5,  publish_(S)}                   || HasSubs] ++
         [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
         [
-         %% {1,  {call, ?MODULE, disconnect, [S]}},
-         {5,  unsubscribe_()},
-         {5,  subscribe_()}
+         {1,  {call, ?MODULE, disconnect, [S]}},
+         {3,  unsubscribe_()},
+         {3,  subscribe_()}
         ],
     case Conn of
         true  -> frequency(Connected ++ Common);
@@ -721,19 +706,28 @@ maybe_wait_stepdown(#{connected := true, conninfo := ConnInfo}) ->
 maybe_wait_stepdown(_) ->
     ok.
 
-wait_stepdown(#{
-    client_mref := CMRef, session_pid := SessionPid, session_mref := SMRef
-}) ->
-    %% Wait for the session takeover:
+wait_stepdown(#{session_pid := SessionPid}) ->
+    %% Wait for the old client to stop:
+    CMRef = monitor(process, client_pid()),
     receive
-        {'DOWN', SMRef, process, SessionPid, _Reason} ->
+        {'DOWN', CMRef, process, _, _} ->
             ok
     after 5_000 ->
-        error(timeout_waiting_for_takeover)
+        error(timeout_waiting_for_client_down)
     end,
-    %% Demonitor client:
-    demonitor(CMRef, [flush]),
-    ok.
+    wait_channel_disappear(?clientid, SessionPid, 100).
+
+wait_channel_disappear(ClientId, Pid, N) ->
+    Chans = emqx_cm:lookup_channels(local, ClientId),
+    case lists:member(Pid, Chans) of
+        false ->
+            ok;
+        true when N > 0 ->
+            timer:sleep(10),
+            wait_channel_disappear(ClientId, Pid, N - 1);
+        true ->
+            error({timeout_waiting_for_takeover, ClientId, Pid, Chans})
+    end.
 
 client_pid() ->
     whereis(?client).

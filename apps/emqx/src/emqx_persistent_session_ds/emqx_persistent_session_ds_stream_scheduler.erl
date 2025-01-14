@@ -121,6 +121,7 @@
     on_seqno_release/4,
     find_replay_streams/1,
     is_fully_acked/2,
+    is_active_unblocked/2,
     gc/1
 ]).
 
@@ -351,8 +352,12 @@ verify_reply(Reply, SchedS) ->
     end.
 
 suback(StreamKey, SeqNo, #s{ds_subs = Subs}) ->
-    #{StreamKey := #ds_sub{handle = Ref}} = Subs,
-    emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo).
+    case Subs of
+        #{StreamKey := #ds_sub{handle = Ref}} ->
+            emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo);
+        #{} ->
+            ok
+    end.
 
 -spec on_enqueue(
     _IsReplay :: boolean(), stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()
@@ -388,7 +393,7 @@ on_enqueue(false, Key, SRS, S0, SchedS0) ->
             %% messages. Since no acks are expected for this batch, we
             %% should attempt to advance generation now:
             ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => r}),
-            unblock_stream(Key, SRS, S0, SchedS)
+            on_stream_unblock(Key, SRS, S0, SchedS)
     end.
 
 -spec on_seqno_release(
@@ -402,7 +407,7 @@ on_seqno_release(?QOS_1, SnQ1, S, SchedS0 = #s{bq1 = PrimaryTab0, bq2 = Secondar
         {false, Key, PrimaryTab} ->
             %% It was BQ1:
             Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
-            unblock_stream(Key, Srs, S, SchedS0#s{bq1 = PrimaryTab});
+            on_stream_unblock(Key, Srs, S, SchedS0#s{bq1 = PrimaryTab});
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
             ?tp(?sessds_stream_state_trans, #{
@@ -420,7 +425,7 @@ on_seqno_release(?QOS_2, SnQ2, S, SchedS0 = #s{bq2 = PrimaryTab0, bq1 = Secondar
         {false, Key, PrimaryTab} ->
             %% It was BQ2:
             Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
-            unblock_stream(Key, Srs, S, SchedS0#s{bq2 = PrimaryTab});
+            on_stream_unblock(Key, Srs, S, SchedS0#s{bq2 = PrimaryTab});
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
             ?tp(?sessds_stream_state_trans, #{
@@ -449,17 +454,17 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
             {StillBlocked, StreamKey, PrimaryTab}
     end.
 
--spec unblock_stream(stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()) ->
+-spec on_stream_unblock(stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()) ->
     {[stream_key(), ...], emqx_persistent_session_ds_state:t(), t()}.
-unblock_stream(Key = {SubId, _}, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0) ->
+on_stream_unblock(Key = {SubId, _}, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0) ->
     %% We've reached end of the stream. We might advance generation
     %% now:
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => bx}),
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => bx, eos => true}),
     {Keys, S, SchedS} = renew_streams_for_x(S0, SubId, RankX, SchedS0),
     %% TODO: Reporting this key as unblocked for compatibility with
     %% shared_sub. This should not be needed.
     {[Key | Keys], S, SchedS};
-unblock_stream(Key, _SRS, S, SchedS) ->
+on_stream_unblock(Key, _SRS, S, SchedS) ->
     ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => bx}),
     {[Key], S, SchedS}.
 
@@ -560,6 +565,14 @@ is_fully_acked(Srs, S) ->
     CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     is_fully_acked(CommQos1, CommQos2, Srs).
+
+-spec is_active_unblocked(srs() | undefined, emqx_persistent_session_ds_state:t()) -> boolean().
+is_active_unblocked(undefined, _S) ->
+    false;
+is_active_unblocked(#srs{unsubscribed = true}, _S) ->
+    false;
+is_active_unblocked(SRS, S) ->
+    is_fully_acked(SRS, S).
 
 %%================================================================================
 %% Internal functions
@@ -711,7 +724,7 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
     ReplayedRankY = emqx_persistent_session_ds_state:get_rank({SubId, RankX}, S0),
     %% 1. Scan the list of streams returned from DS (or from the local
     %% stream cache) to find new streams, as well as y-rank of the
-    %% generation that is currently scheduled for replay:
+    %% generation that can be scheduled for replay:
     {DiscoveredStreams, CurrentY} =
         lists:foldl(
             fun
@@ -754,7 +767,7 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
                 ),
                 {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
             (I = {_, Stream}, {AccNewSRSIds, AccS, AccPendingStreams}) ->
-                ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p, from => void}),
+                ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p}),
                 {AccNewSRSIds, AccS, [I | AccPendingStreams]}
         end,
         {[], S0, []},

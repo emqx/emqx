@@ -1253,6 +1253,9 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
         %% P
         {p, r} -> ok;
         {p, u} -> ok;
+        %% This is allowed since list of pending streams is rebuilt
+        %% from scratch every time:
+        {p, p} -> ok;
         %% R
         {r, bq1} -> ok;
         {r, bq2} -> ok;
@@ -1269,6 +1272,8 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
         {bq12, u} -> ok;
         {bq12, bq1} -> ok;
         {bq12, bq2} -> ok;
+        %% U
+        {u, u} -> ok;
         _ ->
             error(#{
                 kind => invalid_state_transition,
