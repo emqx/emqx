@@ -87,7 +87,8 @@ unload() ->
 
 safe_load_connector(Type, Name, Conf) ->
     try
-        _Res = emqx_connector_resource:create(Type, Name, Conf),
+        Opts = #{async_start => true},
+        _Res = emqx_connector_resource:create(Type, Name, Conf, Opts),
         ?tp(
             emqx_connector_loaded,
             #{
@@ -111,6 +112,8 @@ safe_load_connector(Type, Name, Conf) ->
 config_key_path() ->
     [?ROOT_KEY].
 
+pre_config_update([?ROOT_KEY], {async_start, NewConf}, RawConf) ->
+    pre_config_update([?ROOT_KEY], NewConf, RawConf);
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
@@ -152,11 +155,20 @@ connector_pre_config_update([?ROOT_KEY, Type, Name] = Path, ConfNew, ConfOld) ->
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
-post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
+post_config_update([?ROOT_KEY], Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} = diff_confs(NewConf, OldConf),
+    Opts =
+        case Req of
+            {async_start, _} ->
+                #{async_start => true};
+            _ ->
+                #{}
+        end,
     case ensure_no_channels(Removed) of
-        ok -> perform_connector_changes(Removed, Added, Updated);
-        {error, Error} -> {error, Error}
+        ok ->
+            perform_connector_changes(Removed, Added, Updated, Opts);
+        {error, Error} ->
+            {error, Error}
     end;
 post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
     case emqx_connector_resource:get_channels(Type, Name) of
@@ -183,17 +195,28 @@ post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ?tp(connector_post_config_update_done, #{}),
     ok.
 
-perform_connector_changes(Removed, Added, Updated) ->
-    Result = perform_connector_changes([
-        #{action => fun emqx_connector_resource:remove/4, action_name => remove, data => Removed},
-        #{
-            action => fun emqx_connector_resource:create/4,
-            action_name => create,
-            data => Added,
-            on_exception_fn => fun emqx_connector_resource:remove/4
-        },
-        #{action => fun emqx_connector_resource:update/4, action_name => update, data => Updated}
-    ]),
+perform_connector_changes(Removed, Added, Updated, Opts) ->
+    Result = perform_connector_changes(
+        [
+            #{
+                action => fun emqx_connector_resource:remove/4,
+                action_name => remove,
+                data => Removed
+            },
+            #{
+                action => fun emqx_connector_resource:create/4,
+                action_name => create,
+                data => Added,
+                on_exception_fn => fun emqx_connector_resource:remove/4
+            },
+            #{
+                action => fun emqx_connector_resource:update/4,
+                action_name => update,
+                data => Updated
+            }
+        ],
+        Opts
+    ),
     ?tp(connector_post_config_update_done, #{}),
     Result.
 
@@ -367,19 +390,20 @@ convert_certs(ConnectorsConf) ->
         ConnectorsConf
     ).
 
-perform_connector_changes(Tasks) ->
-    perform_connector_changes(Tasks, []).
+perform_connector_changes(Tasks, Opts) ->
+    perform_connector_changes(Tasks, [], Opts).
 
-perform_connector_changes([], Errors) ->
+perform_connector_changes([], Errors, _Opts) ->
     case Errors of
         [] -> ok;
         _ -> {error, Errors}
     end;
-perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks], Errors0) ->
+perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks], Errors0, Opts) ->
     OnException = maps:get(on_exception_fn, Task, fun(_Type, _Name, _Conf, _Opts) -> ok end),
     Results = emqx_utils:pmap(
         fun({{Type, Name}, Conf}) ->
-            ResOpts = creation_opts(Conf),
+            ResOpts0 = creation_opts(Conf),
+            ResOpts = maps:merge(ResOpts0, Opts),
             Res =
                 try
                     Action(Type, Name, Conf, ResOpts)
@@ -416,7 +440,7 @@ perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks]
                 #{action_name := ActionName} = Task,
                 [#{action => ActionName, errors => Errs} | Errors0]
         end,
-    perform_connector_changes(Tasks, Errors).
+    perform_connector_changes(Tasks, Errors, Opts).
 
 creation_opts({_OldConf, Conf}) ->
     emqx_resource:fetch_creation_opts(Conf);
