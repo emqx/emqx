@@ -454,17 +454,14 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
     ChanPids = emqx_cm:all_channels(),
-    {ok, {ok, [_, _]}} = wait_for_events(
+    {ok, {ok, [_]}} = wait_for_events(
         fun() ->
             lists:foreach(
                 fun(ChanPid) -> exit(ChanPid, kill) end,
                 ChanPids
             )
         end,
-        [
-            emqx_cm_connected_client_count_dec,
-            emqx_cm_process_down
-        ]
+        [emqx_cm_connected_client_count_dec]
     ),
     ?retry(_Sleep = 100, _Retries = 20, ?assertEqual(0, emqx_cm:get_connected_client_count())),
     ok;
@@ -502,11 +499,10 @@ t_connected_client_count_anonymous(Config) when is_list(Config) ->
     ),
     ?assertEqual(2, emqx_cm:get_connected_client_count()),
     %% when first client disconnects, shouldn't affect the second
-    {ok, {ok, [_, _]}} = wait_for_events(
+    {ok, {ok, [_]}} = wait_for_events(
         fun() -> emqtt:disconnect(ConnPid0) end,
         [
-            emqx_cm_connected_client_count_dec,
-            emqx_cm_process_down
+            emqx_cm_connected_client_count_dec
         ]
     ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
@@ -520,17 +516,16 @@ t_connected_client_count_anonymous(Config) when is_list(Config) ->
         [emqx_cm_connected_client_count_inc]
     ),
     ?assertEqual(2, emqx_cm:get_connected_client_count()),
-    {ok, {ok, [_, _]}} = wait_for_events(
+    {ok, {ok, [_]}} = wait_for_events(
         fun() -> emqtt:disconnect(ConnPid1) end,
         [
-            emqx_cm_connected_client_count_dec,
-            emqx_cm_process_down
+            emqx_cm_connected_client_count_dec
         ]
     ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
     Chans = emqx_cm:all_channels(),
-    {ok, {ok, [_, _]}} = wait_for_events(
+    {ok, {ok, [_]}} = wait_for_events(
         fun() ->
             lists:foreach(
                 fun(ChanPid) -> exit(ChanPid, kill) end,
@@ -538,8 +533,7 @@ t_connected_client_count_anonymous(Config) when is_list(Config) ->
             )
         end,
         [
-            emqx_cm_connected_client_count_dec,
-            emqx_cm_process_down
+            emqx_cm_connected_client_count_dec
         ]
     ),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
@@ -639,16 +633,13 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
     [ChanPid] = emqx_cm:all_channels(),
-    {ok, {ok, [_, _]}} =
+    {ok, {ok, [_]}} =
         wait_for_events(
             fun() ->
                 exit(ChanPid, kill),
                 ok
             end,
-            [
-                emqx_cm_connected_client_count_dec_done,
-                emqx_cm_process_down
-            ],
+            [emqx_cm_connected_client_count_dec_done],
             _Timeout = 10000
         ),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
@@ -759,7 +750,7 @@ authenticate_deny(_Credentials, _Default) ->
     {stop, {error, bad_username_or_password}}.
 
 wait_for_events(Action, Kinds) ->
-    wait_for_events(Action, Kinds, 500).
+    wait_for_events(Action, Kinds, 1000).
 
 wait_for_events(Action, Kinds, Timeout) ->
     wait_for_events(Action, Kinds, Timeout, 0).

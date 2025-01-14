@@ -1,4 +1,4 @@
-# EMQX Extended Auth Library 
+# EMQX Extended Auth Library
 
 Library that extends EMQX authentication capbility for enterprise.
 
