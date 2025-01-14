@@ -167,6 +167,7 @@
 
 -define(LIMITER_ROUTING, message_routing).
 -define(chan_terminating, chan_terminating).
+-define(normal, normal).
 -define(RAND_CLIENTID_BYTES, 16).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
@@ -1586,10 +1587,10 @@ handle_info({unsubscribe, TopicFilters}, Channel) ->
             {ok, NChannel}
         end
     );
-handle_info({sock_closed, normal}, Channel = #channel{conn_state = ConnState}) when
+handle_info({sock_closed, ?normal}, Channel = #channel{conn_state = ConnState}) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    %% normal disconnect(by client's DISCONNECT packet) and close socket
+    %% `normal`, aka `?RC_SUCCES`, disconnect(by client's DISCONNECT packet) and close socket
     %% already traced `client.disconnect`, no need to trace `broker.disconnect`
     process_maybe_shutdown(normal, Channel);
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) when
@@ -3066,7 +3067,7 @@ prepare_will_message_for_publishing(
 %%--------------------------------------------------------------------
 %% Disconnect Reason
 
-disconnect_reason(?RC_SUCCESS) -> normal;
+disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
