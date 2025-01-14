@@ -34,64 +34,76 @@
 
 -define(get_provider(), persistent_term:get(?PROVIDER, undefined)).
 
--define(no_provider(ProcessFunOrAction, MaybeArgs),
-    case is_function(ProcessFunOrAction) of
-        true -> erlang:apply(ProcessFunOrAction, MaybeArgs);
-        false -> MaybeArgs
-    end
-).
+-define(no_provider(Any), Any).
+-define(no_provider(ProcessFun, ProcessFunArgs), erlang:apply(ProcessFun, ProcessFunArgs)).
 
 -define(apply_provider(M, F, A), erlang:apply(M, F, A)).
 
--define(with_provider_apply(
+-define(with_provider_call(
     Callback,
     CallbackArgs,
-    IfNoProviderArgs
+    IfNoProvider
 ),
     fun() ->
         case ?get_provider() of
             undefined ->
-                ?no_provider('_', IfNoProviderArgs);
+                ?no_provider(IfNoProvider);
             Provider ->
                 ?apply_provider(Provider, Callback, CallbackArgs)
         end
     end()
 ).
 
--define(with_provider_apply(
+-define(with_provider_action(
     Callback,
     Attrs,
-    ProcessFunOrAction,
+    Action,
+    Any
+),
+    fun() ->
+        case ?get_provider() of
+            undefined ->
+                ?no_provider(Any);
+            Provider ->
+                ?apply_provider(Provider, Callback, [Attrs, Action, Any])
+        end
+    end()
+).
+
+-define(with_provider_apply_process_fun(
+    Callback,
+    Attrs,
+    ProcessFun,
     ProcessFunArgs
 ),
     fun() ->
         case ?get_provider() of
             undefined ->
-                ?no_provider(ProcessFunOrAction, ProcessFunArgs);
+                ?no_provider(ProcessFun, ProcessFunArgs);
             Provider ->
-                ?apply_provider(Provider, Callback, [Attrs, ProcessFunOrAction, ProcessFunArgs])
+                ?apply_provider(Provider, Callback, [Attrs, ProcessFun, ProcessFunArgs])
         end
     end()
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs),
-    ?with_provider_apply(add_span_attrs, [Attrs], ok)
+    ?with_provider_call(add_span_attrs, [Attrs], ok)
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs, Ctx),
-    ?with_provider_apply(add_span_attrs, [Attrs, Ctx], ok)
+    ?with_provider_call(add_span_attrs, [Attrs, Ctx], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_OK(),
-    ?with_provider_apply(set_status_ok, [], ok)
+    ?with_provider_call(set_status_ok, [], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_ERROR(),
-    ?with_provider_apply(set_status_error, [], ok)
+    ?with_provider_call(set_status_error, [], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_ERROR(Msg),
-    ?with_provider_apply(set_status_error, [Msg], ok)
+    ?with_provider_call(set_status_error, [Msg], ok)
 ).
 
 -define(EXT_TRACE_ATTR(_Expr_), begin
@@ -99,23 +111,23 @@
 end).
 
 -define(EXT_TRACE_CLIENT_CONNECT(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_connect, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_connect, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_DISCONNECT(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_disconnect, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_disconnect, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_SUBSCRIBE(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_subscribe, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_subscribe, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_UNSUBSCRIBE(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_unsubscribe, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_unsubscribe, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_AUTHN(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_authn, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_authn, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_AUTHN_BACKEND(Attrs, Fun, FunArgs),
@@ -123,7 +135,7 @@ end).
 ).
 
 -define(EXT_TRACE_CLIENT_AUTHZ(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_authz, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_authz, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_AUTHZ_BACKEND(Attrs, Fun, FunArgs),
@@ -131,59 +143,59 @@ end).
 ).
 
 -define(EXT_TRACE_BROKER_DISCONNECT(Attrs, Fun, FunArgs),
-    ?with_provider_apply(broker_disconnect, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(broker_disconnect, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_BROKER_SUBSCRIBE(Attrs, Fun, FunArgs),
-    ?with_provider_apply(broker_subscribe, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(broker_subscribe, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_BROKER_UNSUBSCRIBE(Attrs, Fun, FunArgs),
-    ?with_provider_apply(broker_unsubscribe, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(broker_unsubscribe, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_PUBLISH(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_publish, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_publish, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_PUBACK(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_puback, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_puback, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_PUBREC(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_pubrec, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_pubrec, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_PUBREL(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_pubrel, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_pubrel, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_CLIENT_PUBCOMP(Attrs, Fun, FunArgs),
-    ?with_provider_apply(client_pubcomp, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(client_pubcomp, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_MSG_ROUTE(Attrs, Fun, FunArgs),
-    ?with_provider_apply(msg_route, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(msg_route, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_MSG_FORWARD(Attrs, Fun, FunArgs),
-    ?with_provider_apply(msg_forward, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(msg_forward, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_MSG_HANDLE_FORWARD(Attrs, Fun, FunArgs),
-    ?with_provider_apply(msg_handle_forward, Attrs, Fun, FunArgs)
+    ?with_provider_apply_process_fun(msg_handle_forward, Attrs, Fun, FunArgs)
 ).
 
 -define(EXT_TRACE_BROKER_PUBLISH(Attrs, Delivers),
-    ?with_provider_apply(broker_publish, Attrs, ?EXT_TRACE_START, Delivers)
+    ?with_provider_action(broker_publish, Attrs, ?EXT_TRACE_START, Delivers)
 ).
 
 -define(EXT_TRACE_OUTGOING_START(Attrs, Packet),
-    ?with_provider_apply(outgoing, Attrs, ?EXT_TRACE_START, Packet)
+    ?with_provider_action(outgoing, Attrs, ?EXT_TRACE_START, Packet)
 ).
 
 -define(EXT_TRACE_OUTGOING_STOP(Attrs, Packets),
-    ?with_provider_apply(outgoing, Attrs, ?EXT_TRACE_STOP, Packets)
+    ?with_provider_action(outgoing, Attrs, ?EXT_TRACE_STOP, Packets)
 ).
 
 -else.
@@ -286,6 +298,8 @@ end).
     ok
 ).
 
+%% EMQX_RELEASE_EDITION check end
 -endif.
 
+%% EMQX_EXT_TRACE_HRL check end
 -endif.
