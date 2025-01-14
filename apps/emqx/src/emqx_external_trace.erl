@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_external_trace).
 
+-include("emqx_mqtt.hrl").
 -include("emqx_external_trace.hrl").
 
 %% Legacy
@@ -120,6 +121,15 @@
     unregister_provider/1
 ]).
 
+-export([
+    connect_attrs/2,
+    basic_attrs/1,
+    topic_attrs/1,
+    authn_attrs/1,
+    sub_authz_attrs/1,
+    disconnect_attrs/2
+]).
+
 %%--------------------------------------------------------------------
 %% provider API
 %%--------------------------------------------------------------------
@@ -146,6 +156,143 @@ unregister_provider(Module) ->
 -spec provider() -> module() | undefined.
 provider() ->
     persistent_term:get(?PROVIDER, undefined).
+
+%%--------------------------------------------------------------------
+%% Trace Attrs Helper
+%%--------------------------------------------------------------------
+
+%% Client Channel info not be available before `process_connect/2`
+%% The initial attrs should be extracted from packet and update them during `process_connect/2`
+connect_attrs(
+    ?PACKET(?CONNECT, #mqtt_packet_connect{
+        proto_name = ProtoName,
+        proto_ver = ProtoVer,
+        is_bridge = IsBridge,
+        clean_start = CleanStart,
+        will_flag = WillFlag,
+        will_qos = WillQos,
+        will_retain = WillRetain,
+        keepalive = KeepAlive,
+        properties = Properties,
+        clientid = ClientId,
+        will_props = WillProps,
+        will_topic = WillTopic,
+        will_payload = _,
+        username = Username,
+        password = _
+    }),
+    Channel
+) ->
+    #{
+        'client.clientid' => ClientId,
+        'client.username' => Username,
+        'client.proto_name' => ProtoName,
+        'client.proto_ver' => ProtoVer,
+        'client.is_bridge' => IsBridge,
+        'client.clean_start' => CleanStart,
+        'client.will_flag' => WillFlag,
+        'client.will_qos' => WillQos,
+        'client.will_retain' => WillRetain,
+        'client.keepalive' => KeepAlive,
+        'client.conn_props' => emqx_utils_json:encode(Properties),
+        'client.will_props' => emqx_utils_json:encode(WillProps),
+        'client.will_topic' => WillTopic,
+        'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
+        'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel))
+    }.
+
+basic_attrs(Channel) ->
+    #{
+        'client.clientid' => emqx_channel:info(clientid, Channel),
+        'client.username' => emqx_channel:info(username, Channel)
+    }.
+
+topic_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
+    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
+    #{
+        'client.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'client.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+    };
+topic_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
+    {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
+    #{'client.unsubscribe.topics' => emqx_utils_json:encode(TFs)};
+topic_attrs({subscribe, TopicFilters}) ->
+    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
+    #{
+        'broker.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'broker.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+    };
+topic_attrs({unsubscribe, TopicFilters}) ->
+    {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
+    #{'broker.unsubscribe.topics' => emqx_utils_json:encode(TFs)}.
+
+do_topic_filters_attrs(subscribe, TopicFilters) ->
+    {_TFs, _SubOpts} = lists:foldl(
+        fun({Topic, SubOpts}, {AccTFs, AccSubOpts}) ->
+            {[emqx_topic:maybe_format_share(Topic) | AccTFs], [SubOpts | AccSubOpts]}
+        end,
+        {[], []},
+        TopicFilters
+    );
+do_topic_filters_attrs(unsubscribe, TopicFilters) ->
+    TFs = [
+        emqx_topic:maybe_format_share(Name)
+     || Name <- TopicFilters
+    ],
+    {TFs, undefined}.
+
+authn_attrs({continue, _Properties, _Channel}) ->
+    %% TODO
+    #{};
+authn_attrs({ok, _Properties, Channel}) ->
+    #{
+        'client.connect.authn.result' => ok,
+        'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
+        'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
+    };
+authn_attrs({error, _Reason}) ->
+    #{
+        'client.connect.authn.result' => error,
+        'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
+    }.
+
+sub_authz_attrs(CheckResult) ->
+    {TFs, AuthZRCs} = lists:foldl(
+        fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
+            {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
+        end,
+        {[], []},
+        CheckResult
+    ),
+    #{
+        'authz.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'authz.subscribe.reason_codes' => emqx_utils_json:encode(lists:reverse(AuthZRCs))
+    }.
+
+-define(ext_trace_disconnect_reason(Reason),
+    ?ext_trace_disconnect_reason(Reason, undefined)
+).
+
+-define(ext_trace_disconnect_reason(Reason, Description), #{
+    'client.proto_name' => emqx_channel:info(proto_name, Channel),
+    'client.proto_ver' => emqx_channel:info(proto_ver, Channel),
+    'client.is_bridge' => emqx_channel:info(is_bridge, Channel),
+    'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
+    'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel)),
+    'client.disconnect.reason' => Reason,
+    'client.disconnect.reason_desc' => Description
+}).
+
+disconnect_attrs(kick, Channel) ->
+    ?ext_trace_disconnect_reason(kicked);
+disconnect_attrs(discard, Channel) ->
+    ?ext_trace_disconnect_reason(discarded);
+disconnect_attrs(takeover, Channel) ->
+    ?ext_trace_disconnect_reason(takenover);
+disconnect_attrs(takeover_kick, Channel) ->
+    ?ext_trace_disconnect_reason(takenover_kick);
+disconnect_attrs(sock_closed, Channel) ->
+    ?ext_trace_disconnect_reason(sock_closed).
 
 %%--------------------------------------------------------------------
 %% Internal functions
