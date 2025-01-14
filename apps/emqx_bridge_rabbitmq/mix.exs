@@ -23,16 +23,7 @@ defmodule EMQXBridgeRabbitmq.MixProject do
 
   def deps() do
     [
-      {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
-      {:credentials_obfuscation,
-       github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
-      {:rabbit_common,
-       github: "emqx/rabbitmq-server",
-       tag: "v3.11.13.2",
-       sparse: "deps/rabbit_common",
-       override: true},
-      {:amqp_client,
-       github: "emqx/rabbitmq-server", tag: "v3.11.13.2", sparse: "deps/amqp_client"},
+      {:amqp_client, "4.0.3"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

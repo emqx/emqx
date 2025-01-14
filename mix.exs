@@ -437,21 +437,7 @@ defmodule EMQXUmbrella.MixProject do
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
       {:greptimedb,
        github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.1.8", override: true},
-      # The following two are dependencies of rabbit_common. They are needed here to
-      # make mix not complain about conflicting versions
-      {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
-      {:credentials_obfuscation,
-       github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
-      {:rabbit_common,
-       github: "emqx/rabbitmq-server",
-       tag: "v3.11.13.2",
-       sparse: "deps/rabbit_common",
-       override: true},
-      {:amqp_client,
-       github: "emqx/rabbitmq-server",
-       tag: "v3.11.13.2",
-       sparse: "deps/amqp_client",
-       override: true}
+      {:amqp_client, "4.0.3", override: true}
     ]
   end
 
