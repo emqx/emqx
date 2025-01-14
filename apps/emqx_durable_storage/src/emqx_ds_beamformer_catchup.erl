@@ -208,7 +208,7 @@ do_fulfill(
             NFulfilled = length(MatchReqs),
             report_metrics(Metrics, NFulfilled),
             %% Pack requests into beams and send out:
-            emqx_ds_beamformer:send_out_term(DBShard, Pack, MatchReqs),
+            emqx_ds_beamformer:send_out_final_beam(DBShard, Pack, MatchReqs),
             %% Remove requests from the queue to avoid repeated failure:
             queue_drop_all(Queue, Stream, TopicFilter, StartKey)
     end.
@@ -261,7 +261,7 @@ move_to_realtime(
                         emqx_ds_beamformer_move_to_rt_fail,
                         #{shard => DBShard, recoverable => false, req => Req, error => Reason}
                     ),
-                    emqx_ds_beamformer:send_out_term(DBShard, Err, [Req]),
+                    emqx_ds_beamformer:send_out_final_beam(DBShard, Err, [Req]),
                     queue_drop(Queue, Req)
             end
         end,

@@ -83,7 +83,7 @@
 -export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([beams_init/5, beams_add/4, beams_conclude/3, beams_n_matched/1]).
--export([shard_metrics_id/1, reschedule/2, send_out_term/3]).
+-export([shard_metrics_id/1, reschedule/2, send_out_final_beam/3]).
 -export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
 
 %% internal exports:
@@ -324,14 +324,14 @@ shard_event(Shard, Events) ->
     emqx_ds_beamformer_rt:shard_event(Shard, Events).
 
 %% @doc Create a beam that contains `end_of_stream' or unrecoverable
-%% error, and send it to the clients:
--spec send_out_term(
+%% error, and send it to the clients. Then delete the subscriptions.
+-spec send_out_final_beam(
     dbshard(),
     {ok, end_of_stream} | {error, unrecoverable, _},
     [sub_state()]
 ) ->
     ok.
-send_out_term(DBShard, Term, Reqs) ->
+send_out_final_beam(DBShard, Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
         fun(#sub_state{client = PID}) ->
             node(PID)
@@ -341,7 +341,7 @@ send_out_term(DBShard, Term, Reqs) ->
     %% Pack requests into beams and serve them:
     maps:foreach(
         fun(Node, Iterators) ->
-            send_out_term_to_node(DBShard, Term, Node, Iterators)
+            send_out_final_term_to_node(DBShard, Term, Node, Iterators)
         end,
         ReqsByNode
     ).
@@ -924,7 +924,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
     %% Send the beam to the destination node:
     send_out(DBShard, Node, lists:reverse(PackRev), Destinations).
 
-send_out_term_to_node(DBShard, Term, Node, Reqs) ->
+send_out_final_term_to_node(DBShard, Term, Node, Reqs) ->
     SubTab = subtab(DBShard),
     Mask = emqx_ds_dispatch_mask:encode([true]),
     Destinations = lists:map(
