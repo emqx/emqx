@@ -968,7 +968,7 @@ parse_id(Id) ->
             #{kind => action, type => Type, name => Name};
         [<<"source">>, Type, Name | _] ->
             #{kind => source, type => Type, name => Name};
-        _X ->
+        _ ->
             error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
     end.
 

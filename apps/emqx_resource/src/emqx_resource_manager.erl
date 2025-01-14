@@ -876,6 +876,7 @@ start_resource(Data, From) ->
     case emqx_resource:call_start(ResId, Mod, Config) of
         {ok, ResourceState} ->
             UpdatedData1 = Data#data{status = ?status_connecting, state = ResourceState},
+            ensure_channel_metrics_exist(UpdatedData1),
             %% Perform an initial health_check immediately before transitioning into a connected state
             UpdatedData2 = add_channels(UpdatedData1),
             UpdatedData3 = maybe_update_callback_mode(UpdatedData2),
@@ -894,6 +895,7 @@ start_resource(Data, From) ->
             ),
             _ = maybe_alarm(?status_disconnected, IsDryRun, ResId, Err, Data#data.error),
             %% Add channels and raise alarms
+            ensure_channel_metrics_exist(Data),
             {Actions0, NewData1} = channels_health_check(?status_disconnected, add_channels(Data)),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
@@ -2098,3 +2100,15 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
         hc_workers = HCWorkers,
         hc_pending_callers = Pending
     }.
+
+%% When booting up the node, there may be actions/sources in the config that were not
+%% explicitly created yet.  Since we add the channels in the config while first starting
+%% the resource, such channels might immediatelly receive traffic (e.g. ingress MQTT
+%% bridge).  Thus we need to ensure the metrics exist.
+ensure_channel_metrics_exist(Data) ->
+    lists:foreach(
+        fun({ChannelId, _Config}) ->
+            {ok, _} = emqx_resource:ensure_metrics(ChannelId)
+        end,
+        emqx_resource:call_get_channels(Data#data.id, Data#data.mod)
+    ).
