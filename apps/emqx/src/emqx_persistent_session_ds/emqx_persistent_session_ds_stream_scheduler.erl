@@ -36,13 +36,11 @@
 %%
 %% ** Stream state machine
 %%
-%% During normal operation, state of each stream can be described as a
-%% FSM.
+%% During normal operation, state of each stream can be informally
+%% described as a FSM with the following stream states:
 %%
-%% There are the following stream replay states:
-%%
-%% - *(P)ending*: stream belongs to a newer generation that can not be
-%% replayed yet.
+%% - *(P)ending*: stream belongs to a generation that is newer than
+%% the one currently being processed.
 %%
 %% - *(R)eady*: stream is not blocked. Messages from such streams can
 %% be enqueued directly to inflight.
@@ -55,26 +53,27 @@
 %% only. For example, streams for unsubcribed topics can linger in the
 %% session state for a while until all queued messages are acked, as
 %% well as streams that reached `end_of_stream'. This state is
-%% implicit: undead streams are simply removed from all buckets.
-%% Undead streams are ignored by the scheduler until the moment they
-%% can be garbage-collected. So this is a terminal state. Even if the
-%% client resubscribes, it will produce a new, totally separate set of
-%% SRS.
+%% implicit: scheduler doesn't actively track such streams. Undead
+%% streams are ignored by the scheduler until the moment they can be
+%% garbage-collected. So this is a terminal state. Even if the client
+%% resubscribes, it will produce a new, totally separate set of SRS.
 %%
 %% *** State transitions
 %%
 %% New streams start in *Ready* or *Pending* state, depending on their
 %% rank Y, from which they follow one of these paths:
 %%
-%% *P* --(`renew_streams') --> *R* -> ...
+%%     ,--(`renew_streams') --> *P* -> ...
+%%    /
+%% *P* --(`renew_streams', advance generation) --> *R* -> ...
 %%    \
 %%     `--(`on_unsubscribe') --> *U*
 %%
-%% Upon receiving a `poll_reply' for a *ready* stream, session assigns
-%% QoS and sequence numbers to the  messages according to its own
-%% logic, and enqueues batch to the buffer. Then it returns the
-%% updated SRS back to the scheduler, where it can undergo the
-%% following transitions:
+%% Upon receiving a `poll_reply' for a *ready* stream, the session
+%% assigns QoS and sequence numbers to the messages according to its
+%% own logic, then enqueues the batch into the inflight. It
+%% subsequently passes the updated SRS back to the scheduler, where it
+%% can determine its block status:
 %%
 %%        ,--(`on_unsubscribe')--> *U*
 %%       /
@@ -86,7 +85,7 @@
 %%      \
 %%       \--([QoS0] & QoS1 & QoS2)--> *BQ12* --> ...
 %%        \
-%%         `--(`end_of_stream')--> *U*
+%%         `--([QoS0] & `end_of_stream')--> *U*
 %%
 %%
 %% *BQ1* and *BQ2* are handled similarly. They transition to *Ready*
@@ -738,6 +737,8 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
                             %% We've never seen this stream:
                             {[{Y, Stream} | AccPendingStreams], min(Y, AccMinUnreplayed)};
                         SRS ->
+                            %% We have a record for this stream. Use
+                            %% it to adjust fully replayed barrier:
                             case is_fully_replayed(CommQos1, CommQos2, SRS) of
                                 true ->
                                     %% This is a known stream that has
@@ -751,26 +752,35 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
                     end
             end,
             %% According to the Erlang term order, atom `undefined' is
-            %% less than any integer y-rank:
+            %% greater than any integer y-rank:
             {[], undefined},
             YStreamL
         ),
-    %% 2. Select newly discovered streams that belong to the current
+    %% 2. Advance the "fully replayed" barrier if needed:
+    S1 =
+        case is_integer(CurrentY) of
+            true when ReplayedRankY < CurrentY - 1 ->
+                ?tp(debug, ?sessds_advance_generation, #{subid => SubId, x => RankX, y => CurrentY}),
+                emqx_persistent_session_ds_state:put_rank({SubId, RankX}, CurrentY - 1, S0);
+            _ ->
+                S0
+        end,
+    %% 3. Select newly discovered streams that belong to the current
     %% generation and ensure all of them have an iterator:
     lists:foldl(
-        fun
-            ({RankY, Stream}, {AccNewSRSIds, AccS0, AccPendingStreams}) when
-                RankY =:= CurrentY
-            ->
-                {NewSRSIds, AccS} = make_iterator(
-                    TopicFilter, Subscription, {{RankX, RankY}, Stream}, AccS0
-                ),
-                {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
-            (I = {_, Stream}, {AccNewSRSIds, AccS, AccPendingStreams}) ->
-                ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p}),
-                {AccNewSRSIds, AccS, [I | AccPendingStreams]}
+        fun(I = {RankY, Stream}, {AccNewSRSIds, AccS0, AccPendingStreams}) ->
+            case RankY =:= CurrentY of
+                true ->
+                    {NewSRSIds, AccS} = make_iterator(
+                        TopicFilter, Subscription, RankX, RankY, Stream, AccS0
+                    ),
+                    {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
+                false ->
+                    ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p}),
+                    {AccNewSRSIds, AccS0, [I | AccPendingStreams]}
+            end
         end,
-        {[], S0, []},
+        {[], S1, []},
         DiscoveredStreams
     ).
 
@@ -951,19 +961,23 @@ gb_tree_remove(Key, SN, BQ0) ->
 -spec make_iterator(
     emqx_ds:topic_filter(),
     emqx_persistent_session_ds_subs:subscription(),
-    {emqx_ds:stream_rank(), emqx_ds:stream()},
+    emqx_ds:rank_x(),
+    emqx_ds:rank_y(),
+    emqx_ds:stream(),
     emqx_persistent_session_ds_state:t()
 ) ->
     {
         [stream_key()],
         emqx_persistent_session_ds_state:t()
     }.
-make_iterator(TopicFilter, Subscription, {{RankX, RankY}, Stream}, S) ->
+make_iterator(TopicFilter, Subscription, RankX, RankY, Stream, S) ->
     #{id := SubId, start_time := StartTime, current_state := CurrentSubState} = Subscription,
     Key = {SubId, Stream},
     case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
         {ok, Iterator} ->
-            ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => void}),
+            ?tp(?sessds_stream_state_trans, #{
+                key => Key, to => r, from => p, start_time => StartTime
+            }),
             NewStreamState = #srs{
                 rank_x = RankX,
                 rank_y = RankY,
@@ -1037,7 +1051,7 @@ unwatch_streams(TopicFilterBin, Ref, NewStreamSubs) ->
 ) ->
     boolean().
 runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
-    invariant_subscription_states(ModelState, SchedS) and
+    invariant_new_stream_subscriptions(ModelState, SchedS) and
         invariant_active_streams_y_ranks(S).
 
 -spec offline_state_invariants(
@@ -1047,9 +1061,8 @@ runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
 offline_state_invariants(_ModelState, #{s := S}) ->
     invariant_active_streams_y_ranks(S).
 
-%% Verify that each active subscription has a state and a
-%% watch:
-invariant_subscription_states(#{subs := Subs}, #s{
+%% Verify that each active topic subscription has a new stream watch:
+invariant_new_stream_subscriptions(#{subs := Subs}, #s{
     new_stream_subs = Watches, sub_metadata = SubStates
 }) ->
     ExpectedTopics = lists:sort(maps:keys(Subs)),
@@ -1057,17 +1070,52 @@ invariant_subscription_states(#{subs := Subs}, #s{
         ?assertEqual(
             ExpectedTopics,
             lists:sort(maps:keys(SubStates)),
-            "There's a 1:1 relationship between subscribed streams and scheduler's internal subscription states"
+            "There's a 1:1 relationship between subscribed topics and the scheduler's new stream watches"
         )
     ),
     ?defer_assert(
         ?assertEqual(
             ExpectedTopics,
             lists:sort(maps:values(Watches)),
-            "There's a 1:1 relationship between subscribed streams and watches"
+            "There's a 1:1 relationship between subscribed topics and the values of scheduler's watch reference => topic lookup table"
         )
     ),
     true.
+
+%% %% Verify that each active stream has a DS subscription:
+%% invariant_ds_subscriptions(#{streams := Streams}, #s{ds_subs = DSSubs}) ->
+%%     ActiveStreams = maps:fold(
+%%         fun(StreamId, SRS, Acc) ->
+%%             case SRS#srs.it_end =/= end_of_stream of
+%%                 true ->
+%%                     [StreamId | Acc];
+%%                 false ->
+%%                     Acc
+%%             end
+%%         end,
+%%         [],
+%%         Streams
+%%     ),
+%%     ?defer_assert(
+%%         ?assertEqual(
+%%             lists:sort(ActiveStreams),
+%%             lists:sort(maps:keys(DSSubs)),
+%%             "There's a 1:1 relationship between active streams and DS subscriptions"
+%%         )
+%%     ),
+%%     %% maps:foreach(
+%%     %%     fun(StreamId, #ds_sub{handle = Handle}) ->
+%%     %%         ?defer_assert(
+%%     %%             ?assertMatch(
+%%     %%                 #{},
+%%     %%                 emqx_ds:subscription_info(?PERSISTENT_MESSAGE_DB, Handle),
+%%     %%                 #{msg => "Every DS subscription is active", id => StreamId}
+%%     %%             )
+%%     %%         )
+%%     %%     end,
+%%     %%     DSSubs
+%%     %% ),
+%%     true.
 
 %% Verify that all active streams belong to the same generation:
 invariant_active_streams_y_ranks(#{streams := StreamMap}) ->

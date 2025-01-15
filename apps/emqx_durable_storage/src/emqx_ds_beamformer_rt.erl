@@ -92,6 +92,7 @@ shard_event(Shard, Events) ->
     ).
 
 seal_generation(DBShard, Rank) ->
+    ?tp(debug, beamformer_seal_generation, #{shard => DBShard, rank => Rank}),
     Workers = gproc_pool:active_workers(pool(DBShard)),
     lists:foreach(
         fun({_WorkerId, Pid}) ->
@@ -132,8 +133,6 @@ handle_cast(#seal_event{rank = Rank}, S = #s{queue = Queue}) ->
     %% Currently generation seal events are treated as stream events,
     %% for each known stream that has the matching rank:
     Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
-    %% FIXME: change severity
-    logger:warning(#{rank => Rank, streams => Streams, q => ets:tab2list(Queue)}),
     [process_stream_event(false, Stream, S) || Stream <- Streams],
     {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->

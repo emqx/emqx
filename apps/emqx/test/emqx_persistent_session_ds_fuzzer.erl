@@ -82,11 +82,9 @@
         #{
           %% Pid and monitor reference of the client process (emqtt):
           client_pid := pid() | undefined,
-          client_mref := reference() | undefined,
           %% Pid and monitor reference of the session (inside EMQX):
-          session_pid := pid() | undefined,
-          session_mref := reference() | undefined
-         } | undefined.
+          session_pid := pid() | undefined
+         }.
 
 -type sub_opts() ::
     #{
@@ -107,12 +105,11 @@
     %%    `false' by `consume' action (used to avoid generating
     %%    redundand `consume' actions):
     has_data := boolean(),
-    pending_acks := boolean(),
 
     %% Dynamic fields:
     %%    Information about the current incarnation of the
     %%    client/session:
-    conninfo := conninfo() | _Symbolic
+    conninfo := conninfo() | undefined | _Symbolic
 }.
 
 -type model_state() :: s() | undefined.
@@ -147,7 +144,7 @@
 qos() ->
     range(?QOS_0, ?QOS_2).
 
-%% @doc Static part of the client configuration. It is merged with
+%% @doc Static part of the client configuration. It is merged with the
 %% randomly generated part.
 %% erlfmt-ignore
 static_client_opts() ->
@@ -261,15 +258,11 @@ connect(S, Opts = #{clientid := ClientId}) ->
     maybe_wait_stepdown(S),
     %% Update connection info:
     register(?client, ClientPid),
-    %% CMRef = monitor(process, ClientPid),
     [SessionPid] = emqx_cm:lookup_channels(local, ClientId),
-    %% SMRef = monitor(process, SessionPid),
     %% Return `conninfo()':
     #{
         client_pid => ClientPid,
-        %% client_mref => CMRef,
         session_pid => SessionPid
-        %% session_mref => SMRef
     }.
 
 %% @doc Shut down emqtt
@@ -285,8 +278,7 @@ publish(Batch) ->
     ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [
         Msg#message{timestamp = emqx_message:timestamp_now()}
      || Msg <- Batch
-    ]),
-    timer:sleep(10).
+    ]).
 
 add_generation() ->
     ?tp(info, ?sessds_test_add_generation, #{}),
@@ -300,21 +292,24 @@ unsubscribe(Topic) ->
     ?tp(info, ?sessds_test_unsubscribe, #{topic => Topic}),
     emqtt:unsubscribe(client_pid(), Topic).
 
-consume(S) ->
-    %% Consume and ack all messages we can get:
+consume(S = #{conninfo := #{client_pid := CPID, session_pid := SPID}}) ->
+    %% Set up monitoring to detect crashes early:
+    %% Consume and ack all messages we can get from the broker:
+    CMRef = monitor(process, CPID),
+    SMRef = monitor(process, SPID),
     ?tp_span(
         info,
         ?sessds_test_consume,
         #{},
-        receive_ack_loop(S, ok)
+        receive_ack_loop(S, CMRef, SMRef, ok)
     ).
 
-%% @doc This function receives and acknowledges all MQTT messages
-%% received from the broker.
+%% @doc This function receives and acknowledges all MQTT messages sent
+%% to the client
 receive_ack_loop(
-    S = #{
-        conninfo := #{client_pid := CPID}
-    },
+    S = #{conninfo := #{client_pid := CPID}},
+    CMRef,
+    SMRef,
     Result
 ) ->
     receive
@@ -333,7 +328,7 @@ receive_ack_loop(
                     ?tp(info, ?sessds_test_out_pubrec, #{packet_id => PID}),
                     emqtt:pubrec(client_pid(), PID)
             end,
-            receive_ack_loop(S, Result);
+            receive_ack_loop(S, CMRef, SMRef, Result);
         {pubrel, Msg} ->
             %% FIXME: currently emqtt doesn't supply `client_pid' to
             %% pubrel messages, so it's impossible to discard old
@@ -345,23 +340,24 @@ receive_ack_loop(
             #{packet_id := PID} = Msg,
             emqtt:pubcomp(client_pid(), PID),
             ?tp(info, ?sessds_test_out_pubcomp, #{packet_id => PID}),
-            receive_ack_loop(S, Result);
-        %% %% Handle client/session crash:
-        %% {'DOWN', CMRef, process, CPID, Reason} ->
-        %%     ?tp(warning, ?sessds_test_client_crash, #{pid => CPID, reason => Reason}),
-        %%     flush_emqtt_messages(),
-        %%     receive_ack_loop(S, {error, client_crash});
-        %% {'DOWN', SMRef, process, SessPid, Reason} ->
-        %%     ?tp(warning, ?sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
-        %%     receive_ack_loop(S, {error, session_crash});
-        %%
+            receive_ack_loop(S, CMRef, SMRef, Result);
+        %% Handle client/session crash:
+        {'DOWN', CMRef, process, CPID, Reason} ->
+            ?tp(warning, ?sessds_test_client_crash, #{pid => CPID, reason => Reason}),
+            flush_emqtt_messages(),
+            receive_ack_loop(S, CMRef, SMRef, {error, client_crash});
+        {'DOWN', SMRef, process, SessPid, Reason} ->
+            ?tp(warning, ?sessds_test_session_crash, #{pid => SessPid, reason => Reason}),
+            receive_ack_loop(S, CMRef, SMRef, {error, session_crash});
         Other ->
             %% FIXME: this may include messages from the older
             %% incarnations of the client. Find a better way to deal
             %% with them:
             ?tp(warning, ?sessds_test_in_garbage, #{message => Other}),
-            receive_ack_loop(S, Result)
+            receive_ack_loop(S, CMRef, SMRef, Result)
     after ?wait_publishes_time ->
+        demonitor(CMRef, [flush]),
+        demonitor(SMRef, [flush]),
         Result
     end.
 
@@ -435,7 +431,7 @@ tprop_packet_id_history(Trace) ->
         {#{}, 0},
         Trace
     ),
-    io:format(user, "~p: Number of flows: ~p~n", [?FUNCTION_NAME, NFlows]),
+    ct:pal("~p: Verified ~p packet flows.~n", [?FUNCTION_NAME, NFlows]),
     true.
 
 tprop_packet_id_history(I = #{?snk_kind := Kind}, {Acc, NFlows}) ->
@@ -497,10 +493,11 @@ tprop_pid_publish(#{packet_id := PID, qos := QoS, dup := Dup} = I, Acc) ->
 %% topic while the client is subscribed is eventually delivered. Note:
 %% it only verifies the fact of delivery.
 tprop_qos12_delivery(Trace) ->
-    _ = lists:foldl(fun tprop_qos12_delivery/2, {#{}, []}, Trace),
+    {_, _, N} = lists:foldl(fun tprop_qos12_delivery/2, {#{}, [], 0}, Trace),
+    ct:pal("~p: Confirmed delivery of ~p messages.", [?FUNCTION_NAME, N]),
     true.
 
-tprop_qos12_delivery(#{?snk_kind := Kind} = Event, {Subs, Pending}) ->
+tprop_qos12_delivery(#{?snk_kind := Kind} = Event, {Subs, Pending, N}) ->
     case Kind of
         ?sessds_test_subscribe ->
             #{topic := Topic, qos := QoS} = Event,
@@ -509,43 +506,44 @@ tprop_qos12_delivery(#{?snk_kind := Kind} = Event, {Subs, Pending}) ->
                     %% This property ignores QoS 0 subscriptions for
                     %% simplicity. We treat such subscriptions
                     %% identically to "unsubscribed":
-                    tprop_qos12_delivery_drop_sub(Topic, Subs, Pending);
+                    tprop_qos12_delivery_drop_sub(Topic, Subs, Pending, N);
                 _ ->
-                    {Subs#{Topic => true}, Pending}
+                    {Subs#{Topic => true}, Pending, N}
             end;
         ?sessds_test_unsubscribe ->
             #{topic := Topic} = Event,
-            tprop_qos12_delivery_drop_sub(Topic, Subs, Pending);
+            tprop_qos12_delivery_drop_sub(Topic, Subs, Pending, N);
         ?sessds_test_out_publish ->
             #{topic := Topic, qos := Qos, payload := Payload} = Event,
             case Qos > 0 andalso maps:is_key(Topic, Subs) of
                 true ->
-                    {Subs, [{Topic, Payload} | Pending]};
+                    {Subs, [{Topic, Payload} | Pending], N + 1};
                 false ->
-                    {Subs, Pending}
+                    {Subs, Pending, N}
             end;
         ?sessds_test_in_publish ->
-            {Subs, tprop_qos12_delivery_consume_msg(Event, Pending)};
+            {Subs, tprop_qos12_delivery_consume_msg(Event, Pending), N};
         ?sessds_test_consume ->
             case Event of
                 #{?snk_span := {complete, _}} ->
                     ?assertMatch(
                         [],
                         Pending,
-                        "consume action should complete delivery of all messages"
+                        "consume action should complete delivery of all pending messages"
                     );
                 #{?snk_span := start} ->
                     ok
             end,
-            {Subs, Pending};
+            {Subs, Pending, N};
         _ ->
-            {Subs, Pending}
+            {Subs, Pending, N}
     end.
 
-tprop_qos12_delivery_drop_sub(Topic, Subs, Pending) ->
+tprop_qos12_delivery_drop_sub(Topic, Subs, Pending, N) ->
     {
         maps:remove(Topic, Subs),
-        lists:filter(fun({T, _Payload}) -> T =/= Topic end, Pending)
+        lists:filter(fun({T, _Payload}) -> T =/= Topic end, Pending),
+        N
     }.
 
 tprop_qos12_delivery_consume_msg(#{topic := Topic, payload := Payload}, Pending) ->
@@ -567,19 +565,22 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
     %% Commands that are executed in any state:
     Common =
          %% FIXME: Currently takeover may lead to state corruption due
-         %% to serialization problems:
-         [{1,  connect_(S)} || not Conn] ++
-         %% {2,  {call, ?MODULE, add_generation, []}},
-         %% Publish some messages occasionally even when there are no
-         %% subs:
-         [{1,  publish_(S)}],
+         %% to serialization problems. `|| not Conn]` effectively
+         %% disables takeover. This condition should be removed when
+         %% takeover is fixed.
+         [{1,  connect_(S)}                     || not Conn] ++
+         [{1,  {call, ?MODULE, add_generation, []}},
+          %% Publish some messages occasionally even when there are no
+          %% subs:
+          {1,  publish_(S)}
+         ],
     %% Commands that are executed when client is connected:
     Connected =
-        [{5,  publish_(S)}                   || HasSubs] ++
-        [{10, {call, ?MODULE, consume, [S]}} || HasData and HasSubs] ++
+        [{5,  publish_(S)}                      || HasSubs] ++
+        [{10, {call, ?MODULE, consume, [S]}}    || HasData and HasSubs] ++
         [
          {1,  {call, ?MODULE, disconnect, [S]}},
-         {3,  unsubscribe_()},
+         {1,  unsubscribe_()},
          {3,  subscribe_()}
         ],
     case Conn of
@@ -599,7 +600,6 @@ next_state(undefined, Ret, {call, ?MODULE, connect, [_, Opts]}) ->
         message_seqno => 0,
         connected => true,
         has_data => false,
-        pending_acks => false,
         conninfo => Ret
     };
 %% (Re)connect:
