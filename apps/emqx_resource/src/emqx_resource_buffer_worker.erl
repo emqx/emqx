@@ -1080,12 +1080,8 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
                     %% TODO: maybe trigger fallback actions
                     ok
                 end,
-            Counters =
-                case HasBeenSent of
-                    true -> #{retried_failed => 1};
-                    false -> #{failed => 1}
-                end,
-            {?ack, PostFn, Counters};
+            Counter = failure_counter(Reason, HasBeenSent),
+            {?ack, PostFn, Counter};
         false ->
             PostFn =
                 fun(_ResultContext) ->
@@ -1109,6 +1105,17 @@ handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCtx) ->
             false -> #{success => 1}
         end,
     {?ack, PostFn, Counters}.
+
+%% For internal-buffer bridges such as Kakfa producer
+%% the buffer overflow and request expire are returned as errors
+failure_counter(dropped_expired, _HasBeenSent) ->
+    #{dropped_expired => 1};
+failure_counter(dropped_queue_full, _HasBeenSent) ->
+    #{dropped_queue_full => 1};
+failure_counter(_Other, _HasBeenSent = true) ->
+    #{retried_failed => 1};
+failure_counter(_Other, _HasBeenSent = false) ->
+    #{failed => 1}.
 
 -spec handle_query_async_result_pure(id(), term(), HasBeenSent :: boolean(), map()) ->
     query_result_pure().
@@ -2261,9 +2268,6 @@ is_unrecoverable_error({error, {recoverable_error, _}}) ->
 is_unrecoverable_error({async_return, Result}) ->
     is_unrecoverable_error(Result);
 is_unrecoverable_error({error, _}) ->
-    %% TODO: delete this clause.
-    %% Ideally all errors except for 'unrecoverable_error' should be
-    %% retried, including DB schema errors.
     true;
 is_unrecoverable_error(_) ->
     false.

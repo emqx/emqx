@@ -577,10 +577,10 @@ do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
 on_kafka_ack(_Partition, Offset, {ReplyFn, Args}) when is_integer(Offset) ->
     %% the ReplyFn is emqx_rule_runtime:inc_action_metrics/2
     apply(ReplyFn, Args ++ [ok]);
-on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
-    %% wolff should bump the dropped_queue_full counter in handle_telemetry_event/4
-    %% so there is no need to apply the callback here
-    ok;
+on_kafka_ack(_Partition, buffer_overflow_discarded, {ReplyFn, Args}) ->
+    %% wolff bump the dropped_queue_full counter but we do not handle it
+    %% here we return it as an error and count bump is done by ReplyFn
+    apply(ReplyFn, Args ++ [{error, dropped_queue_full}]);
 on_kafka_ack(_Partition, message_too_large, {ReplyFn, Args}) ->
     %% wolff should bump the message 'dropped' counter with handle_telemetry_event/4.
     %% however 'dropped' is not mapped to EMQX metrics name
@@ -915,13 +915,6 @@ with_log_at_error(Fun, Log) ->
 %% the handler config; otherwise, multiple kafka producer bridges will
 %% install multiple handlers to the same wolff events, multiplying the
 handle_telemetry_event(
-    [wolff, dropped_queue_full],
-    #{counter_inc := Val},
-    #{bridge_id := ID},
-    #{bridge_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
-handle_telemetry_event(
     [wolff, queuing],
     #{gauge_set := Val},
     #{bridge_id := ID, partition_id := PartitionID},
@@ -970,7 +963,6 @@ maybe_install_wolff_telemetry_handlers(TelemetryId) ->
         %% unique handler id
         telemetry_handler_id(TelemetryId),
         [
-            [wolff, dropped_queue_full],
             [wolff, queuing],
             [wolff, queuing_bytes],
             [wolff, retried],
