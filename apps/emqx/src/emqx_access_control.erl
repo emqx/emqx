@@ -29,6 +29,7 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
+%% TEST
 -endif.
 
 -define(TRACE_RESULT(Label, Result, Reason), begin
@@ -38,6 +39,14 @@
     }),
     Result
 end).
+
+-define(DEFAULT_AUTH_RESULT_PT_KEY, {?MODULE, default_authn_result}).
+
+-ifdef(TEST).
+-define(DEFAULT_AUTH_RESULT, ok).
+-else.
+-define(DEFAULT_AUTH_RESULT, ignore).
+-endif.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -59,7 +68,7 @@ authenticate(Credential) ->
             on_authentication_complete_success(Credential, NotSuperUser, anonymous),
             {ok, NotSuperUser};
         continue ->
-            case run_hooks('client.authenticate', [Credential], ignore) of
+            case run_hooks('client.authenticate', [Credential], default_authn_result()) of
                 ignore ->
                     on_authentication_complete_no_hooks(Credential, NotSuperUser);
                 ok ->
@@ -74,9 +83,17 @@ authenticate(Credential) ->
                 {error, Reason} = Error ->
                     on_authentication_complete_error(Credential, Reason),
                     Error;
-                %% {continue, AuthCache} | {continue, AuthData, AuthCache}
+                {continue, _AuthCache} = IncompleteResult ->
+                    IncompleteResult;
+                {continue, _AuthData, _AuthCache} = IncompleteResult ->
+                    IncompleteResult;
                 Other ->
-                    Other
+                    ?SLOG(error, #{
+                        msg => "unknown_authentication_result_format",
+                        result => Other
+                    }),
+                    on_authentication_complete_error(Credential, not_authorized),
+                    {error, not_authorized}
             end;
         {error, Reason} = Error ->
             on_authentication_complete_error(Credential, Reason),
@@ -107,6 +124,38 @@ authorize(ClientInfo, Action, Topic) ->
         end,
     inc_authz_metrics(Result),
     Result.
+
+%% @doc Get default authentication result.
+%% The default result is used when none of the authentication hooks
+%% handled the authentication.
+%%
+%% In a release, only the restrictive result is used.
+%% That is, if authn is enabled for a listener and there is no
+%% result from the hooks (or no hooks) then we deny the connection.
+%%
+%% In tests, we use the permissive result to avoid setting up
+%% authentication for numerous tests.
+
+-spec default_authn_result() -> ok | ignore.
+default_authn_result() ->
+    persistent_term:get(?DEFAULT_AUTH_RESULT_PT_KEY, ?DEFAULT_AUTH_RESULT).
+
+-ifdef(TEST).
+
+-spec set_default_authn_permissive() -> ok.
+set_default_authn_permissive() ->
+    set_default_auth_result(ok).
+
+-spec set_default_authn_restrictive() -> ok.
+set_default_authn_restrictive() ->
+    set_default_auth_result(ignore).
+
+set_default_auth_result(Result) ->
+    _ = persistent_term:put(?DEFAULT_AUTH_RESULT_PT_KEY, Result),
+    ok.
+
+%% TEST
+-endif.
 
 %%--------------------------------------------------------------------
 %% Internal Functions

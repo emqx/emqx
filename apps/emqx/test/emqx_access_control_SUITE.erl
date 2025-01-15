@@ -30,9 +30,11 @@ init_per_suite(Config) ->
         [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = emqx_access_control:set_default_authn_restrictive(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    ok = emqx_access_control:set_default_authn_permissive(),
     emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 init_per_testcase(_, Config) ->
