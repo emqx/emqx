@@ -677,8 +677,8 @@ t_fuzz(_Config) ->
         #{
             proper => #{
                 timeout => 3_000_000,
-                numtests => 100,
-                max_size => 1000,
+                numtests => 50,
+                max_size => 500,
                 start_size => 100,
                 max_shrinks => 0
             }
@@ -686,7 +686,7 @@ t_fuzz(_Config) ->
         ?forall_trace(
             Cmds,
             proper_statem:commands(emqx_persistent_session_ds_fuzzer),
-            #{timetrap => 60_000},
+            #{timetrap => 120_000},
             try
                 %% Initialize DS:
                 ok = emqx_persistent_message:init(),

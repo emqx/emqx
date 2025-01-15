@@ -46,6 +46,7 @@
 -define(sessds_sched_unwatch_streams, sessds_sched_unwatch_streams).
 -define(sessds_sched_renew_streams, sessds_sched_renew_streams).
 -define(sessds_sched_renew_streams_result, sessds_sched_renew_streams_result).
+-define(sessds_advance_generation, sessds_advance_generation).
 
 -define(sessds_sched_subscribe, sessds_sched_subscribe).
 -define(sessds_sched_unsubscribe, sessds_sched_unsubscribe).
