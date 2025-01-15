@@ -272,13 +272,10 @@ on_format_query_result({ok, Info}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_pulsar_ack(_ReplyFnAndArgs, {error, Reason}) when
-    Reason =:= expired;
-    Reason =:= overflow
-->
-    %% We already bumped the dropped counter in `handle_telemetry_event/4', so no need to
-    %% call the wrapping callback here (it would bump the failure counter).
-    ok;
+on_pulsar_ack(ReplyFnAndArgs, {error, expired}) ->
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, dropped_expired});
+on_pulsar_ack(ReplyFnAndArgs, {error, overflow}) ->
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, dropped_queue_full});
 on_pulsar_ack(ReplyFnAndArgs, Result) ->
     emqx_resource:apply_reply_fun(ReplyFnAndArgs, Result).
 
@@ -289,20 +286,6 @@ on_pulsar_ack(ReplyFnAndArgs, Result) ->
 %% we *must* match the bridge id in the event metadata with that in
 %% the handler config; otherwise, multiple pulsar producer bridges will
 %% install multiple handlers to the same pulsar events, multiplying the
-handle_telemetry_event(
-    [pulsar, dropped],
-    #{counter_inc := Val, reason := queue_full},
-    #{action_id := ID},
-    #{action_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
-handle_telemetry_event(
-    [pulsar, dropped],
-    #{counter_inc := Val, reason := expired},
-    #{action_id := ID},
-    #{action_id := ID}
-) when is_integer(Val) ->
-    emqx_resource_metrics:dropped_expired_inc(ID, Val);
 handle_telemetry_event(
     [pulsar, queuing],
     #{gauge_set := Val},
@@ -611,7 +594,6 @@ maybe_install_telemetry_handlers(ActionResId) ->
         %% unique handler id
         ActionResId,
         [
-            [pulsar, dropped],
             [pulsar, queuing],
             [pulsar, queuing_bytes],
             [pulsar, retried],

@@ -1137,12 +1137,8 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
                     %% TODO: maybe trigger fallback actions
                     ok
                 end,
-            Counters =
-                case HasBeenSent of
-                    true -> #{retried_failed => 1};
-                    false -> #{failed => 1}
-                end,
-            {?ack, PostFn, Counters};
+            Counter = failure_counter(Reason, HasBeenSent),
+            {?ack, PostFn, Counter};
         false ->
             PostFn = fun(_ResultContext) ->
                 ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCtx))#{
