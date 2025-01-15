@@ -48,6 +48,8 @@
 -define(sessds_sched_renew_streams_result, sessds_sched_renew_streams_result).
 -define(sessds_advance_generation, sessds_advance_generation).
 
+-define(sessds_put_seqno, sessds_put_seqno).
+
 -define(sessds_sched_subscribe, sessds_sched_subscribe).
 -define(sessds_sched_unsubscribe, sessds_sched_unsubscribe).
 -define(sessds_unexpected_ds_batch, sessds_unexpected_ds_batch).

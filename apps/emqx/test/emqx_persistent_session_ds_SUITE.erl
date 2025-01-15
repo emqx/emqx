@@ -670,7 +670,6 @@ t_new_stream_notifications(Config) ->
     ).
 
 t_fuzz(_Config) ->
-    snabbkaffe:fix_ct_logging(),
     %% NOTE: we set timeout at the lower level to capture the trace
     %% and have a nicer error message.
     ?run_prop(
@@ -700,14 +699,14 @@ t_fuzz(_Config) ->
                     emqx_persistent_session_ds_fuzzer, Cmds
                 ),
                 %% Print information about the run:
-                logger:notice("*** Commands:~n~s~n", [
+                ct:pal("*** Commands:~n~s~n", [
                     emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
                 ]),
-                logger:notice("*** Model state:~n  ~p~n", [State]),
-                logger:notice("*** Session state:~n  ~p~n", [
+                ct:log(info, "*** Model state:~n  ~p~n", [State]),
+                ct:log(info, "*** Session state:~n  ~p~n", [
                     emqx_persistent_session_ds_fuzzer:sut_state()
                 ]),
-                logger:notice("*** Result:~n  ~p~n", [Result]),
+                ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)
             after
                 ok = emqx_persistent_session_ds_fuzzer:cleanup(),
@@ -1219,7 +1218,7 @@ check_stream_state_transitions(Trace) ->
         fun(#{to := To}) -> To end,
         ?of_kind(sessds_stream_state_trans, Trace)
     ),
-    ct:pal("Number of state transition groups: ~p", [maps:size(Groups)]),
+    ct:pal("~p: Verified state transitions of ~p streams.", [?FUNCTION_NAME, maps:size(Groups)]),
     maps:foreach(
         fun(StreamId, Transitions) ->
             check_stream_state_transitions(StreamId, Transitions, void)
