@@ -874,9 +874,9 @@ ds_subscribe([SrsID | Rest], S, Subs) ->
 
 ds_unsubscribe(SrsID, SchedS = #s{ds_subs = Subs}) ->
     case Subs of
-        #{SrsID := #ds_sub{handle = SubRef}} ->
-            emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, SubRef),
-            ?tp(debug, ?sessds_sched_unsubscribe, #{stream => SrsID, ref => SubRef}),
+        #{SrsID := #ds_sub{handle = Handle}} ->
+            emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, Handle),
+            ?tp(debug, ?sessds_sched_unsubscribe, #{stream => SrsID, ref => Handle}),
             SchedS#s{ds_subs = maps:remove(SrsID, Subs)};
         #{} ->
             SchedS
