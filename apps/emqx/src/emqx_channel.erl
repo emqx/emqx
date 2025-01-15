@@ -1587,21 +1587,42 @@ handle_info({unsubscribe, TopicFilters}, Channel) ->
             {ok, NChannel}
         end
     );
-handle_info({sock_closed, ?normal}, Channel = #channel{conn_state = ConnState}) when
+handle_info(
+    {sock_closed, ?normal},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = #{clientid := ClientId}
+    }
+) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     %% `normal`, aka `?RC_SUCCES`, disconnect(by client's DISCONNECT packet) and close socket
     %% already traced `client.disconnect`, no need to trace `broker.disconnect`
+    ?tp(sock_closed_normal, #{clientid => ClientId, conn_state => ConnState}),
     process_maybe_shutdown(normal, Channel);
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) when
+handle_info(
+    {sock_closed, Reason},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = #{clientid := ClientId}
+    }
+) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
     %% Socket closed when `connected` or `reauthenticating`
+    ?tp(sock_closed_with_other_reason, #{clientid => ClientId, conn_state => ConnState}),
     ?WITH_TRACE_BROKER_DISCONNECT(fun([]) -> process_maybe_shutdown(Reason, Channel) end);
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = ConnState}) when
+handle_info(
+    {sock_closed, Reason},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = #{clientid := ClientId}
+    }
+) when
     ConnState =:= idle orelse
         ConnState =:= connecting
 ->
+    ?tp(sock_closed_when_idle_or_connecting, #{clientid => ClientId, conn_state => ConnState}),
     ?WITH_TRACE_BROKER_DISCONNECT(fun([]) -> shutdown(Reason, Channel) end);
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% This can happen as a race:

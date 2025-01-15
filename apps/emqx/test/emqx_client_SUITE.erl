@@ -78,6 +78,8 @@ groups() ->
             t_certcn_as_alias,
             t_certdn_as_alias,
             t_client_attr_from_user_property,
+            t_sock_closed_reason_normal,
+            t_sock_closed_force_closed_by_client,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -454,6 +456,54 @@ t_client_attr_from_user_property(_Config) ->
     ),
     emqtt:disconnect(Client).
 
+t_sock_closed_reason_normal(_) ->
+    ProtoVers = [v3, v4, v5],
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    [
+        ?check_trace(
+            begin
+                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
+                {ok, _} = emqtt:connect(C),
+                ?wait_async_action(
+                    emqtt:disconnect(C),
+                    #{?snk_kind := sock_closed_normal},
+                    5_000
+                )
+            end,
+            fun(Trace0) ->
+                ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+                ok
+            end
+        )
+     || Ver <- ProtoVers
+    ].
+
+t_sock_closed_force_closed_by_client(_) ->
+    ProtoVers = [v3, v4, v5],
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    process_flag(trap_exit, true),
+    [
+        ?check_trace(
+            begin
+                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
+                {ok, _} = emqtt:connect(C),
+                ?wait_async_action(
+                    exit(C, kill),
+                    #{?snk_kind := sock_closed_with_other_reason},
+                    5_000
+                )
+            end,
+            fun(Trace0) ->
+                ?assertMatch(
+                    [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+                ),
+                ok
+            end
+        )
+     || Ver <- ProtoVers
+    ],
+    process_flag(trap_exit, false).
+
 t_clientid_override(_) ->
     emqx_logger:set_log_level(debug),
     ClientId = <<"original-clientid-0">>,
@@ -554,7 +604,7 @@ confirm_tls_version(Client, RequiredProtocol) ->
     SSLSocket = element(3, SocketInfo),
     {ok, SSLInfo} = ssl:connection_information(SSLSocket),
     Protocol = proplists:get_value(protocol, SSLInfo),
-    RequiredProtocol = Protocol.
+    ?assertEqual(RequiredProtocol, Protocol).
 
 tls_certcn_as_clientid(default = TLSVsn) ->
     tls_certcn_as_clientid(TLSVsn, 'tlsv1.3');
