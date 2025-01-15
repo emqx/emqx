@@ -1503,7 +1503,7 @@ update_dup(QoS, New, S) ->
 
 -compile({inline, put_seqno/3}).
 put_seqno(Key, Val, S) ->
-    ?tp_ignore_side_effects_in_prod(sessds_state_put_seqno, #{
+    ?tp_ignore_side_effects_in_prod(?sessds_put_seqno, #{
         track => Key,
         seqno => Val,
         prev_val => emqx_persistent_session_ds_state:get_seqno(Key, S)
@@ -2044,16 +2044,29 @@ tprop_no_warnings(Trace) ->
 
 %% Sequence numbers for all tracks should be increasing:
 tprop_seqnos(Trace) ->
-    L = ?projection([track, seqno], ?of_kind(sessds_state_put_seqno, Trace)),
     %% Group seqno operations by track:
-    M = maps:groups_from_list(fun({Track, _}) -> Track end, L),
+    M = maps:groups_from_list(
+        fun(#{track := Track, ?snk_meta := #{clientid := Client}}) -> {Client, Track} end,
+        fun(#{seqno := SeqNo}) -> SeqNo end,
+        ?of_kind(?sessds_put_seqno, Trace)
+    ),
     %% Validate seqnos for each track:
     maps:foreach(
-        fun(_Track, Vals) ->
-            ?defer_assert(snabbkaffe:increasing(Vals))
+        fun({Client, Track}, Vals) ->
+            ?defer_assert(
+                ?assert(
+                    snabbkaffe:increasing(Vals),
+                    #{
+                        client => Client,
+                        track => Track,
+                        msg => "Session's sequence numbers should be updated monotonically"
+                    }
+                )
+            )
         end,
         M
     ),
+    ct:pal("~p: Verified sequence numbers in ~p tracks.", [?FUNCTION_NAME, maps:size(M)]),
     true.
 
 %% @doc Check invariantss for a living session

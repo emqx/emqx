@@ -71,7 +71,7 @@
 -define(clientid, <<?MODULE_STRING>>).
 
 %% Configuration for the generators:
--define(wait_publishes_time, 1000).
+-define(wait_publishes_time, 3000).
 %% List of topics used in the test:
 -define(topics, [<<"t1">>, <<"t2">>, <<"t3">>]).
 %% List of clientIDs of simulated publishers:
