@@ -266,10 +266,11 @@ connect(S, Opts = #{clientid := ClientId}) ->
     }.
 
 %% @doc Shut down emqtt
-disconnect(#{conninfo := ConnInfo = #{client_pid := C}}) ->
-    ?tp(info, ?sessds_test_disconnect, #{pid => C}),
+disconnect(#{conninfo := ConnInfo = #{client_pid := CPid}}) ->
+    ?tp(info, ?sessds_test_disconnect, #{pid => CPid}),
     emqtt:stop(client_pid()),
-    wait_stepdown(ConnInfo).
+    wait_stepdown(ConnInfo),
+    flush_client_messages(CPid).
 
 publish(Batch) ->
     %% Produce traces for each message we're about to publish:
@@ -731,3 +732,11 @@ wait_channel_disappear(ClientId, Pid, N) ->
 
 client_pid() ->
     whereis(?client).
+
+flush_client_messages(CPid) ->
+    receive
+        {_, #{client_pid := CPid}} ->
+            flush_client_messages(CPid)
+    after 0 ->
+        ok
+    end.
