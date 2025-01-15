@@ -56,31 +56,30 @@ authenticate(Credential) ->
     NotSuperUser = #{is_superuser => false},
     case pre_hook_authenticate(Credential) of
         ok ->
-            on_authentication_complete(Credential, NotSuperUser, anonymous),
+            on_authentication_complete_success(Credential, NotSuperUser, anonymous),
             {ok, NotSuperUser};
         continue ->
             case run_hooks('client.authenticate', [Credential], ignore) of
                 ignore ->
-                    on_authentication_complete(Credential, NotSuperUser, anonymous),
-                    {ok, NotSuperUser};
+                    on_authentication_complete_no_hooks(Credential, NotSuperUser);
                 ok ->
-                    on_authentication_complete(Credential, NotSuperUser, ok),
+                    on_authentication_complete_success(Credential, NotSuperUser, ok),
                     {ok, NotSuperUser};
                 {ok, AuthResult} = OkResult ->
-                    on_authentication_complete(Credential, AuthResult, ok),
+                    on_authentication_complete_success(Credential, AuthResult, ok),
                     OkResult;
                 {ok, AuthResult, _AuthData} = OkResult ->
-                    on_authentication_complete(Credential, AuthResult, ok),
+                    on_authentication_complete_success(Credential, AuthResult, ok),
                     OkResult;
                 {error, Reason} = Error ->
-                    on_authentication_complete(Credential, Reason, error),
+                    on_authentication_complete_error(Credential, Reason),
                     Error;
                 %% {continue, AuthCache} | {continue, AuthData, AuthCache}
                 Other ->
                     Other
             end;
         {error, Reason} = Error ->
-            on_authentication_complete(Credential, Reason, error),
+            on_authentication_complete_error(Credential, Reason),
             Error
     end.
 
@@ -242,7 +241,14 @@ inc_authn_metrics(anonymous) ->
     emqx_metrics:inc('authentication.success.anonymous'),
     emqx_metrics:inc('authentication.success').
 
-on_authentication_complete(Credential, Reason, error) ->
+on_authentication_complete_no_hooks(#{enable_authn := false} = Credential, Extra) ->
+    on_authentication_complete_success(Credential, Extra, anonymous),
+    {ok, Extra};
+on_authentication_complete_no_hooks(Credential, _Extra) ->
+    on_authentication_complete_error(Credential, no_authn_hooks),
+    {error, not_authorized}.
+
+on_authentication_complete_error(Credential, Reason) ->
     emqx_hooks:run(
         'client.check_authn_complete',
         [
@@ -252,8 +258,8 @@ on_authentication_complete(Credential, Reason, error) ->
             }
         ]
     ),
-    inc_authn_metrics(error);
-on_authentication_complete(Credential, Result, Type) ->
+    inc_authn_metrics(error).
+on_authentication_complete_success(Credential, Result, Type) ->
     emqx_hooks:run(
         'client.check_authn_complete',
         [

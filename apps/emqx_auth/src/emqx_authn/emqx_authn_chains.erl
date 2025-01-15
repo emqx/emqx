@@ -44,8 +44,7 @@
 
 %% The authentication entrypoint.
 -export([
-    authenticate/2,
-    authenticate_deny/2
+    authenticate/2
 ]).
 
 %% Authenticator manager process start/stop
@@ -165,34 +164,50 @@ end).
 %% Authenticate
 %%------------------------------------------------------------------------------
 
-authenticate(#{listener := Listener, protocol := Protocol} = Credential, AuthResult) ->
+authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
-                    ?TRACE_RESULT("authentication_result", AuthResult, empty_chain);
+                    %% Empty chain means allowed anonymous access.
+                    %% Further authentication hooks may still forbid the access.
+                    %% We return
+                    %% {
+                    %%   ok, %% to tell the hooks that we want to set a new AuthResult acc
+                    %%   ok %% the actual new AuthResult acc
+                    %% }
+                    ?TRACE_RESULT("authentication_result", {ok, ok}, empty_chain);
                 NAuthenticators ->
                     Result = do_authenticate(ChainName, NAuthenticators, Credential),
                     ?TRACE_RESULT("authentication_result", Result, chain_result)
             end;
         none ->
-            ?TRACE_RESULT("authentication_result", AuthResult, no_chain)
+            ?TRACE_RESULT("authentication_result", {ok, ok}, no_chain);
+        no_table ->
+            %% This basically means that authn app crashed or stopped or being restarted.
+            ?TRACE_RESULT("authentication_result", {ok, {error, not_authorized}}, no_chain_table)
     end.
 
-authenticate_deny(_Credential, _AuthResult) ->
-    ?TRACE_RESULT("authentication_result", {ok, {error, not_authorized}}, not_initialized).
-
 get_authenticators(Listener, Global) ->
-    case ets:lookup(?CHAINS_TAB, Listener) of
+    %% Under load, some clients may still execute this function
+    %% while the authn app crashed or stopped and removed the table.
+    %% So we handle this in restrictive manner (see authenticate/2).
+    try ets:lookup(?CHAINS_TAB, Listener) of
         [#chain{name = Name, authenticators = Authenticators}] ->
             {ok, Name, Authenticators};
         _ ->
-            case ets:lookup(?CHAINS_TAB, Global) of
+            try ets:lookup(?CHAINS_TAB, Global) of
                 [#chain{name = Name, authenticators = Authenticators}] ->
                     {ok, Name, Authenticators};
                 _ ->
                     none
+            catch
+                error:badarg ->
+                    no_table
             end
+    catch
+        error:badarg ->
+            no_table
     end.
 
 get_enabled(Authenticators) ->
@@ -361,9 +376,7 @@ init(_Opts) ->
     Module = emqx_authn_config,
     ok = emqx_config_handler:add_handler([?CONF_ROOT], Module),
     ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], Module),
-    ok = hook_deny(),
-    {ok, #{hooked => false, providers => #{}, init_done => false},
-        {continue, initialize_authentication}}.
+    {ok, #{providers => #{}, init_done => false}, {continue, initialize_authentication}}.
 
 handle_call(get_providers, _From, #{providers := Providers} = State) ->
     reply(Providers, State);
@@ -404,19 +417,19 @@ handle_call({delete_chain, ChainName}, _From, State) ->
         {ok, ok, NewChain}
     end,
     Reply = with_chain(ChainName, UpdateFun),
-    reply(Reply, maybe_unhook(State));
+    reply(Reply, State);
 handle_call({create_authenticator, ChainName, Config}, _From, #{providers := Providers} = State) ->
     UpdateFun = fun(Chain) ->
         handle_create_authenticator(Chain, Config, Providers)
     end,
     Reply = with_new_chain(ChainName, UpdateFun),
-    reply(Reply, maybe_hook(State));
+    reply(Reply, State);
 handle_call({delete_authenticator, ChainName, AuthenticatorID}, _From, State) ->
     UpdateFun = fun(Chain) ->
         handle_delete_authenticator(Chain, AuthenticatorID)
     end,
     Reply = with_chain(ChainName, UpdateFun),
-    reply(Reply, maybe_unhook(State));
+    reply(Reply, State);
 handle_call({update_authenticator, ChainName, AuthenticatorID, Config}, _From, State) ->
     UpdateFun = fun(Chain) ->
         handle_update_authenticator(Chain, AuthenticatorID, Config)
@@ -461,7 +474,7 @@ handle_continue(initialize_authentication, #{init_done := true} = State) ->
     {noreply, State};
 handle_continue(initialize_authentication, #{providers := Providers} = State) ->
     InitDone = initialize_authentication(Providers),
-    {noreply, maybe_hook(State#{init_done := InitDone})}.
+    {noreply, State#{init_done := InitDone}}.
 
 handle_cast(Req, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
@@ -483,6 +496,7 @@ terminate(Reason, _State) ->
                 reason => Other
             })
     end,
+    ok = unhook(),
     emqx_config_handler:remove_handler([?CONF_ROOT]),
     emqx_config_handler:remove_handler([listeners, '?', '?', ?CONF_ROOT]),
     ok.
@@ -509,7 +523,7 @@ do_initialize_authentication(Providers, Chains, _HasProviders = true) ->
         end,
         Chains
     ),
-    ok = unhook_deny(),
+    ok = hook(),
     true.
 
 initialize_chain_authentication(_Providers, _ChainName, []) ->
@@ -756,49 +770,11 @@ global_chain(stomp) ->
 global_chain(_) ->
     'unknown:global'.
 
-maybe_hook(#{hooked := false} = State) ->
-    case
-        lists:any(
-            fun
-                (#chain{authenticators = []}) -> false;
-                (_) -> true
-            end,
-            ets:tab2list(?CHAINS_TAB)
-        )
-    of
-        true ->
-            ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate, []}, ?HP_AUTHN),
-            State#{hooked => true};
-        false ->
-            State
-    end;
-maybe_hook(State) ->
-    State.
+hook() ->
+    ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate, []}, ?HP_AUTHN).
 
-maybe_unhook(#{hooked := true} = State) ->
-    case
-        lists:all(
-            fun
-                (#chain{authenticators = []}) -> true;
-                (_) -> false
-            end,
-            ets:tab2list(?CHAINS_TAB)
-        )
-    of
-        true ->
-            ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate, []}),
-            State#{hooked => false};
-        false ->
-            State
-    end;
-maybe_unhook(State) ->
-    State.
-
-hook_deny() ->
-    ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate_deny, []}, ?HP_AUTHN).
-
-unhook_deny() ->
-    ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_deny, []}).
+unhook() ->
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate, []}).
 
 do_create_authenticator(AuthenticatorID, #{enable := Enable} = Config, Providers) ->
     Type = authn_type(Config),
