@@ -848,10 +848,8 @@ check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqno
             )
     end.
 
-on_replay_complete(Session = #{buffer := Buf}, ClientInfo) ->
-    ensure_delivery_timer(
-        drain_buffer(Session, ClientInfo, emqx_persistent_session_ds_buffer:iterator(Buf))
-    ).
+on_replay_complete(Session, ClientInfo) ->
+    ensure_delivery_timer(drain_buffer(Session, ClientInfo)).
 
 on_enqueue(
     IsReplay,
@@ -1307,6 +1305,9 @@ do_drain_inflight(Inflight0, S0, Acc, SchedS) ->
 
 %% @doc Move buffered messages from all unblocked streams to the
 %% inflight:
+drain_buffer(Session = #{buffer := Buf}, ClientInfo) ->
+    drain_buffer(Session, ClientInfo, emqx_persistent_session_ds_buffer:iterator(Buf)).
+
 drain_buffer(Session0, ClientInfo, BufferIterator) ->
     case emqx_persistent_session_ds_buffer:next(BufferIterator) of
         none ->
