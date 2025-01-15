@@ -59,6 +59,7 @@
 -define(NO_PREFIX, <<>>).
 -define(IS_NO_PREFIX(P), (P =:= undefined orelse P =:= ?NO_PREFIX)).
 -define(MAX_PREFIX_BYTES, 19).
+-define(AUTO_RECONNECT_INTERVAL_S, 2).
 
 -type clientid() :: binary().
 -type channel_resource_id() :: action_resource_id() | source_resource_id().
@@ -256,7 +257,8 @@ start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
         {name, PoolName},
         {pool_size, PoolSize},
         {available_clientids, AvailableClientids},
-        {client_opts, ClientOpts}
+        {client_opts, ClientOpts},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
