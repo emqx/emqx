@@ -91,6 +91,14 @@ init_per_testcase(TestCase, Config) when
     },
     NodeSpecs = cluster(Opts#{n => 3}),
     emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, Opts);
+init_per_testcase(t_session_replay_retry, Config) ->
+    %% Todo: ideally, should find a way to "phrase" this test for platform build.
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            Config;
+        Skip ->
+            Skip
+    end;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
