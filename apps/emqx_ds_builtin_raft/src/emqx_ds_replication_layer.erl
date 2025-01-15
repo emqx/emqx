@@ -1111,6 +1111,7 @@ apply(
     ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
+    emqx_ds_beamformer:generation_event(DBShard),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
     Effects = release_log(RaftMeta, State),
