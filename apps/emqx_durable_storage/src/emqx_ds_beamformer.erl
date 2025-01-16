@@ -165,6 +165,11 @@
 
 -type return_addr(ItKey) :: {reference(), ItKey} | {pid(), reference(), ItKey}.
 
+-type flowcontrol() :: {pos_integer(), atomics:atomics_ref()}.
+-define(fc_idx_seqno, 1).
+-define(fc_idx_acked, 2).
+-define(fc_idx_stuck, 3).
+
 %-type poll_req_id() :: reference().
 
 -type sub_state(UserData, Iterator) ::
@@ -173,9 +178,7 @@
         client :: pid(),
         mref :: reference(),
         %% Flow control:
-        seqno :: emqx_ds:sub_seqno(),
-        acked_seqno :: emqx_ds:sub_seqno(),
-        max_unacked :: pos_integer(),
+        flowcontrol :: flowcontrol(),
         %%
         rank :: emqx_ds:stream_rank(),
         stream :: _Stream,
@@ -187,8 +190,7 @@
         it :: Iterator,
         %% Callback that filters messages that belong to the request:
         msg_matcher :: match_messagef(),
-        deadline :: integer() | undefined,
-        stuck :: boolean()
+        deadline :: integer() | undefined
     }.
 
 -type sub_state() :: sub_state(_, _).
@@ -455,16 +457,15 @@ shard_metrics_id({DB, Shard}) ->
 %% remove it:
 -spec keep_and_seqno(ets:tid(), sub_state(), pos_integer()) ->
     {boolean(), emqx_ds:sub_seqno() | undefined}.
-keep_and_seqno(SubTab, #sub_state{req_id = Ref}, Nmsgs) ->
+keep_and_seqno(_SubTab, #sub_state{flowcontrol = FC}, Nmsgs) ->
     try
-        ets:update_counter(SubTab, Ref, [
-            {#sub_state.seqno, Nmsgs},
-            {#sub_state.acked_seqno, 0},
-            {#sub_state.max_unacked, 0}
-        ])
-    of
-        [SeqNo, Acked, Window] ->
-            {is_sub_active(SeqNo, Acked, Window), SeqNo}
+        {MaxUnacked, ARef} = FC,
+        SeqNo = atomics:add_get(ARef, ?fc_idx_seqno, Nmsgs),
+        Acked = atomics:get(ARef, ?fc_idx_acked),
+        IsActive = is_sub_active(SeqNo, Acked, MaxUnacked),
+        (not IsActive) andalso
+            atomics:put(ARef, ?fc_idx_stuck, 1),
+        {IsActive, SeqNo}
     catch
         error:badarg ->
             {false, undefined}
@@ -547,8 +548,11 @@ ls(DB) ->
 -spec subscription_info(dbshard(), emqx_ds:sub_ref()) -> emqx_ds:sub_info() | undefined.
 subscription_info(DBShard, SubId) ->
     case ets:lookup(subtab(DBShard), SubId) of
-        [#sub_state{seqno = SeqNo, acked_seqno = Acked, max_unacked = Window, stuck = Stuck}] ->
-            #{seqno => SeqNo, acked => Acked, window => Window, stuck => Stuck};
+        [#sub_state{flowcontrol = {MaxUnacked, ARef}}] ->
+            SeqNo = atomics:get(ARef, ?fc_idx_seqno),
+            Acked = atomics:get(ARef, ?fc_idx_acked),
+            Stuck = atomics:get(ARef, ?fc_idx_stuck) =:= 1,
+            #{seqno => SeqNo, acked => Acked, window => MaxUnacked, stuck => Stuck};
         [] ->
             undefined
     end.
@@ -571,23 +575,27 @@ unsubscribe(DBShard, SubId) ->
 %% @doc Ack batches up to the sequence number:
 -spec suback(dbshard(), emqx_ds:sub_ref(), emqx_ds:sub_seqno()) -> ok | {error, _}.
 suback(DBShard, SubId, Acked) ->
-    try
-        ets:update_counter(subtab(DBShard), SubId, [
-            {#sub_state.seqno, 0}, {#sub_state.acked_seqno, 0}, {#sub_state.max_unacked, 0}
-        ])
-    of
-        [SeqNo, OldAcked, Window] when Acked =< SeqNo ->
-            ets:update_element(subtab(DBShard), SubId, {#sub_state.acked_seqno, Acked}),
-            %% If this subscription ack changed state of the subscription,
-            %% then request moving subscription back into the pool:
-            case {is_sub_active(SeqNo, OldAcked, Window), is_sub_active(SeqNo, Acked, Window)} of
-                {false, true} ->
-                    gen_statem:call(?via(DBShard), #wakeup_sub_req{id = SubId});
-                _ ->
+    try ets:lookup_element(subtab(DBShard), SubId, #sub_state.flowcontrol) of
+        {MaxUnacked, ARef} ->
+            atomics:put(ARef, ?fc_idx_acked, Acked),
+            case atomics:get(ARef, ?fc_idx_stuck) of
+                1 ->
+                    %% We've been kicked out from the active queue for
+                    %% being stuck:
+                    SeqNo = atomics:get(ARef, ?fc_idx_seqno),
+                    %% FIXME: add hysteresis
+                    case is_sub_active(SeqNo, Acked, MaxUnacked) of
+                        true ->
+                            %% Subscription became active, notify the beamformer:
+                            gen_statem:call(?via(DBShard), #wakeup_sub_req{id = SubId});
+                        false ->
+                            %% Still stuck:
+                            ok
+                    end;
+                0 ->
+                    %% Not stuck:
                     ok
-            end;
-        _ ->
-            {error, invalid_seqno}
+            end
     catch
         error:badarg ->
             %% This happens when subscription is not found:
@@ -666,11 +674,14 @@ handle_event(
             %% Update monitor table for automatic cleanup:
             ets:insert(MTab, {MRef, SubId}),
             #{max_unacked := MaxUnacked} = Opts,
+            %% Create the flow control. It's a triplet of atomic
+            %% variables:
+            FlowControl = {MaxUnacked, atomics:new(3, [])},
             SubState = #sub_state{
                 req_id = SubId,
                 client = Client,
                 mref = MRef,
-                max_unacked = MaxUnacked,
+                flowcontrol = FlowControl,
                 rank = Rank,
                 stream = Stream,
                 topic_filter = TF,
@@ -711,15 +722,22 @@ handle_event(
     {call, From},
     #wakeup_sub_req{id = SubId},
     State,
-    D0 = #d{pending = Pending}
+    D0 = #d{pending = Pending, tab = Tab}
 ) ->
-    D = D0#d{pending = [SubId | Pending]},
-    Reply = {reply, From, ok},
-    case State of
-        ?idle ->
-            {next_state, ?busy, D, Reply};
-        _ ->
-            {keep_state, D, Reply}
+    try
+        {_MaxUnacked, ARef} = ets:lookup_element(Tab, SubId, #sub_state.flowcontrol),
+        atomics:put(ARef, ?fc_idx_stuck, 0),
+        Reply = {reply, From, ok},
+        D = D0#d{pending = [SubId | Pending]},
+        case State of
+            ?idle ->
+                {next_state, ?busy, D, Reply};
+            _ ->
+                {keep_state, D, Reply}
+        end
+    catch
+        error:badarg ->
+            {keep_state_and_data, {reply, From, {error, subscription_not_found}}}
     end;
 %% Handle redispatch call:
 handle_event(
@@ -928,8 +946,13 @@ send_out_final_term_to_node(DBShard, Term, Node, Reqs) ->
     SubTab = subtab(DBShard),
     Mask = emqx_ds_dispatch_mask:encode([true]),
     Destinations = lists:map(
-        fun(#sub_state{client = Client, req_id = SubId, userdata = UserData, it = It}) ->
-            SeqNo = ets:update_counter(SubTab, SubId, {#sub_state.seqno, 1}),
+        fun(
+            #sub_state{
+                client = Client, req_id = SubId, userdata = UserData, it = It, flowcontrol = FC
+            }
+        ) ->
+            {_MaxUnacked, ARef} = FC,
+            SeqNo = atomics:add_get(ARef, ?fc_idx_seqno, 1),
             ets:delete(SubTab, SubId),
             ?DESTINATION(Client, SubId, UserData, SeqNo, Mask, 0, It)
         end,

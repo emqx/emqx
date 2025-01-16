@@ -26,9 +26,7 @@
     %% kept in the record for cleanup during normal unsubscribe:
     mref,
     %% Flow control:
-    seqno = 0,
-    acked_seqno = 0,
-    max_unacked,
+    flowcontrol,
     %%
     rank,
     stream,
@@ -40,8 +38,7 @@
     it,
     %% Callback that filters messages that belong to the request:
     msg_matcher,
-    deadline,
-    stuck = true
+    deadline
 }).
 
 %% Persistent term used to store reference to the subscription table
