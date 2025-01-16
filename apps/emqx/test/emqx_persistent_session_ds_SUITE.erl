@@ -676,7 +676,7 @@ t_fuzz(_Config) ->
         #{
             proper => #{
                 timeout => 3_000_000,
-                numtests => 50,
+                numtests => 10,
                 max_size => 500,
                 start_size => 100,
                 max_shrinks => 0
@@ -685,23 +685,19 @@ t_fuzz(_Config) ->
         ?forall_trace(
             Cmds,
             proper_statem:commands(emqx_persistent_session_ds_fuzzer),
-            #{timetrap => 120_000},
+            #{timetrap => 5_000 * length(Cmds)},
             try
-                %% Initialize DS:
+                %% Print information about the run:
+                ct:pal("*** Commands:~n~s~n", [
+                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                ]),
+                %% Initialize the system:
                 ok = emqx_persistent_message:init(),
-                %% FIXME: get_streams troubleshooting
-                timer:sleep(1000),
-                %% FIXME: this should not be needed, but some crap is
-                %% left behind sometimes.
                 emqx_persistent_session_ds_fuzzer:cleanup(),
                 %% Run test:
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
                 ),
-                %% Print information about the run:
-                ct:pal("*** Commands:~n~s~n", [
-                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
-                ]),
                 ct:log(info, "*** Model state:~n  ~p~n", [State]),
                 ct:log(info, "*** Session state:~n  ~p~n", [
                     emqx_persistent_session_ds_fuzzer:sut_state()

@@ -28,6 +28,7 @@
 -module(emqx_persistent_session_ds_state).
 
 -feature(maybe_expr, enable).
+-compile(inline).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
