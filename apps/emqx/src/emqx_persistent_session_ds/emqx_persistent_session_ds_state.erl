@@ -142,7 +142,7 @@
 %% `key_mapping' is used only when the feature flag to store session data in DS is
 %% enabled.  It maps external keys to unique integers, which are internally used in the
 %% topic level structure to avoid costly encodings of arbitrary key terms.
--record(pmap, {table, key_mapping = #{}, checksum = 0, cache, dirty}).
+-record(pmap, {table, key_mapping = #{}, cache, dirty}).
 
 -ifdef(STORE_STATE_IN_DS).
 -type internal_key(_K) ::
@@ -221,16 +221,16 @@
 -ifdef(STORE_STATE_IN_DS).
 
 -define(session_topic_ns, <<"session">>).
--define(metadata_domain, metadata).
+-define(metadata_domain, ?metadata).
 -define(metadata_domain_bin, <<"metadata">>).
--define(subscription_domain, subscription).
--define(subscription_domain_bin, <<"subscription">>).
--define(subscription_state_domain, subscription_state).
--define(subscription_state_domain_bin, <<"subscription_state">>).
--define(stream_domain, stream).
--define(rank_domain, rank).
--define(seqno_domain, seqno).
--define(awaiting_rel_domain, awaiting_rel).
+-define(subscription_domain, ?subscriptions).
+-define(subscription_domain_bin, <<"subscriptions">>).
+-define(subscription_state_domain, ?subscription_states).
+-define(subscription_state_domain_bin, <<"subscription_states">>).
+-define(stream_domain, ?streams).
+-define(rank_domain, ?ranks).
+-define(seqno_domain, ?seqnos).
+-define(awaiting_rel_domain, ?awaiting_rel).
 -type domain() ::
     ?metadata_domain
     | ?subscription_domain
@@ -399,8 +399,8 @@ do_open(SessionId) ->
             {Rec0, Checksum} =
                 lists:foldl(
                     fun({MetaK, Domain, Data}, {RecAcc, ChecksumAcc}) ->
-                        Loaded = pmap_open(Domain, Data),
-                        {RecAcc#{MetaK => Loaded}, ChecksumAcc bxor Loaded#pmap.checksum}
+                        {Loaded, NChecksum} = pmap_open(Domain, Data),
+                        {RecAcc#{MetaK => Loaded}, ChecksumAcc bxor NChecksum}
                     end,
                     {#{}, 0},
                     [
@@ -511,13 +511,14 @@ do_delete(Id, DeleteOps, Checksum, Metadata) ->
 delete_fold_fn(Id, Data, {OpsAcc, Checksum0, undefined = MetaNotFound}) ->
     {DeleteOps, {Checksum, MaybeMeta}} =
         lists:mapfoldl(
-            fun(#{int_key := IntK, val := V, domain := D}, {ChecksumIn, MetaIn}) ->
+            fun(#{int_key := IntK, ext_key := ExtK, val := V, domain := D}, {ChecksumIn, MetaIn}) ->
                 Op = {delete, matcher(Id, D, IntK)},
                 case D of
                     ?metadata_domain ->
                         {Op, {ChecksumIn, V}};
                     _ ->
-                        NChecksum = update_checksum(D, IntK, ChecksumIn),
+                        Hash = extkey_hash(D, ExtK),
+                        NChecksum = ChecksumIn bxor Hash,
                         {Op, {NChecksum, MetaIn}}
                 end
             end,
@@ -529,8 +530,9 @@ delete_fold_fn(Id, Data, {OpsAcc, Checksum0, undefined = MetaNotFound}) ->
 delete_fold_fn(Id, Data, {OpsAcc, Checksum0, MetaFound}) ->
     {DeleteOps, Checksum} =
         lists:mapfoldl(
-            fun(#{int_key := IntK, domain := D}, ChecksumIn) ->
-                NChecksum = update_checksum(D, IntK, ChecksumIn),
+            fun(#{int_key := IntK, ext_key := ExtK, domain := D}, ChecksumIn) ->
+                Hash = extkey_hash(D, ExtK),
+                NChecksum = ChecksumIn bxor Hash,
                 {{delete, matcher(Id, D, IntK)}, NChecksum}
             end,
             Checksum0,
@@ -561,6 +563,7 @@ commit(
     Rec0 = #{
         ?id := SessionId,
         ?metadata := Metadata,
+        ?checksum := Checksum,
         ?subscriptions := Subs0,
         ?subscription_states := SubStates0,
         ?streams := Streams0,
@@ -577,14 +580,6 @@ commit(
     {SeqNosOps, SeqNos} = pmap_commit(SessionId, SeqNos0),
     {RanksOps, Ranks} = pmap_commit(SessionId, Ranks0),
     {AwaitingRelsOps, AwaitingRels} = pmap_commit(SessionId, AwaitingRels0),
-    Checksum =
-        lists:foldl(
-            fun(#pmap{checksum = C}, Acc) ->
-                C bxor Acc
-            end,
-            0,
-            [Subs, SubStates, Streams, SeqNos, Ranks, AwaitingRels]
-        ),
     Rec = Rec0#{
         ?checksum := Checksum,
         ?subscriptions := Subs,
@@ -673,8 +668,8 @@ create_new(SessionId) ->
     {Rec0, Checksum} =
         lists:foldl(
             fun({MetaK, Domain}, {RecAcc, ChecksumAcc}) ->
-                Loaded = pmap_open(Domain, []),
-                {RecAcc#{MetaK => Loaded}, ChecksumAcc bxor Loaded#pmap.checksum}
+                {Loaded, NChecksum} = pmap_open(Domain, []),
+                {RecAcc#{MetaK => Loaded}, ChecksumAcc bxor NChecksum}
             end,
             {#{}, 0},
             [
@@ -1247,6 +1242,16 @@ gen_fold(Field, Fun, Acc, Rec) ->
     check_sequence(Rec),
     pmap_fold(Fun, Acc, maps:get(Field, Rec)).
 
+-ifdef(STORE_STATE_IN_DS).
+gen_put(Field, Key, Val, Rec0) ->
+    check_sequence(Rec0),
+    Rec1 = add_to_checksum(Field, Key, Rec0),
+    maps:update_with(
+        Field,
+        fun(PMap) -> pmap_put(Key, Val, PMap) end,
+        Rec1#{?set_dirty}
+    ).
+-else.
 gen_put(Field, Key, Val, Rec) ->
     check_sequence(Rec),
     maps:update_with(
@@ -1254,7 +1259,18 @@ gen_put(Field, Key, Val, Rec) ->
         fun(PMap) -> pmap_put(Key, Val, PMap) end,
         Rec#{?set_dirty}
     ).
+-endif.
 
+-ifdef(STORE_STATE_IN_DS).
+gen_del(Field, Key, Rec0) ->
+    check_sequence(Rec0),
+    Rec1 = remove_from_checksum(Field, Key, Rec0),
+    maps:update_with(
+        Field,
+        fun(PMap) -> pmap_del(Key, PMap) end,
+        Rec1#{?set_dirty}
+    ).
+-else.
 gen_del(Field, Key, Rec) ->
     check_sequence(Rec),
     maps:update_with(
@@ -1262,6 +1278,7 @@ gen_del(Field, Key, Rec) ->
         fun(PMap) -> pmap_del(Key, PMap) end,
         Rec#{?set_dirty}
     ).
+-endif.
 
 gen_size(Field, Rec) ->
     check_sequence(Rec),
@@ -1290,7 +1307,7 @@ update_pmaps(Fun, Map) ->
 -ifdef(STORE_STATE_IN_DS).
 
 %% @doc Open a PMAP and fill the clean area with the data from DB.
--spec pmap_open(domain(), [data()]) -> pmap(_K, _V).
+-spec pmap_open(domain(), [data()]) -> {pmap(_K, _V), checksum()}.
 pmap_open(Domain, Data0) ->
     {Data, {KeyMapping, Checksum}} =
         lists:mapfoldl(
@@ -1300,18 +1317,21 @@ pmap_open(Domain, Data0) ->
                 ->
                     throw(inconsistent);
                 (#{int_key := IntK, ext_key := ExtK, val := V}, {AccIn, CheckIn}) ->
-                    {{IntK, V}, {AccIn#{ExtK => IntK}, update_checksum(Domain, IntK, CheckIn)}}
+                    Hash = extkey_hash(Domain, ExtK),
+                    {{IntK, V}, {AccIn#{ExtK => IntK}, CheckIn bxor Hash}}
             end,
             {#{}, 0},
             Data0
         ),
     Clean = cache_from_list(Domain, Data),
-    #pmap{
-        table = Domain,
-        key_mapping = KeyMapping,
-        checksum = Checksum,
-        cache = Clean,
-        dirty = #{}
+    {
+        #pmap{
+            table = Domain,
+            key_mapping = KeyMapping,
+            cache = Clean,
+            dirty = #{}
+        },
+        Checksum
     }.
 
 invert_key_mapping(KeyMapping) ->
@@ -1329,34 +1349,32 @@ pmap_put(
     ExtK,
     V,
     Pmap = #pmap{
-        table = Table, key_mapping = KeyMapping0, checksum = Checksum0, dirty = Dirty, cache = Cache
+        table = Table, key_mapping = KeyMapping0, dirty = Dirty, cache = Cache
     }
 ) ->
-    {IntK, KeyMapping, Checksum} = get_or_gen_internal_key(
-        ExtK, KeyMapping0, Checksum0, Table, Cache
+    {IntK, KeyMapping} = get_or_gen_internal_key(
+        ExtK, KeyMapping0, Table, Cache
     ),
     Pmap#pmap{
         key_mapping = KeyMapping,
-        checksum = Checksum,
         cache = cache_put(Table, IntK, V, Cache),
         dirty = Dirty#{ExtK => dirty}
     }.
 
-get_or_gen_internal_key(K, KeyMapping, Checksum, _Domain, _Cache) when
-    is_map_key(K, KeyMapping)
+get_or_gen_internal_key(ExtK, KeyMapping, _Domain, _Cache) when
+    is_map_key(ExtK, KeyMapping)
 ->
-    IntK = maps:get(K, KeyMapping),
-    {IntK, KeyMapping, Checksum};
-get_or_gen_internal_key(K, KeyMapping0, Checksum0, Domain, Cache) ->
-    IntK = gen_internal_key(Domain, K),
+    IntK = maps:get(ExtK, KeyMapping),
+    {IntK, KeyMapping};
+get_or_gen_internal_key(ExtK, KeyMapping0, Domain, Cache) ->
+    IntK = gen_internal_key(Domain, ExtK),
     case cache_has_key(Domain, IntK, Cache) of
         true ->
             %% collision (node restarted?); just try again
-            get_or_gen_internal_key(K, KeyMapping0, Checksum0, Domain, Cache);
+            get_or_gen_internal_key(ExtK, KeyMapping0, Domain, Cache);
         false ->
-            KeyMapping = KeyMapping0#{K => IntK},
-            Checksum = update_checksum(Domain, IntK, Checksum0),
-            {IntK, KeyMapping, Checksum}
+            KeyMapping = KeyMapping0#{ExtK => IntK},
+            {IntK, KeyMapping}
     end.
 
 gen_internal_key(?stream_domain, {Rank, _Stream}) ->
@@ -1365,28 +1383,49 @@ gen_internal_key(?stream_domain, {Rank, _Stream}) ->
 gen_internal_key(_Domain, _K) ->
     erlang:unique_integer().
 
-update_checksum(?stream_domain, IntK, Checksum0) ->
-    <<Rank:64, LSB:64>> = IntK,
-    Checksum1 = Checksum0 bxor Rank,
-    Checksum1 bxor LSB;
-update_checksum(_Domain, IntK, Checksum0) ->
-    Checksum0 bxor IntK.
+-spec add_to_checksum(domain(), _ExtK, t()) -> t().
+add_to_checksum(Field, ExtK, Rec0) ->
+    #{?checksum := Checksum0} = Rec0,
+    #pmap{key_mapping = KeyMapping} = maps:get(Field, Rec0),
+    case is_map_key(ExtK, KeyMapping) of
+        true ->
+            Rec0;
+        false ->
+            Hash = extkey_hash(Field, ExtK),
+            Checksum = Checksum0 bxor Hash,
+            Rec0#{?checksum := Checksum}
+    end.
+
+-spec remove_from_checksum(domain(), _ExtK, t()) -> t().
+remove_from_checksum(Field, ExtK, Rec0) ->
+    #{?checksum := Checksum0} = Rec0,
+    #pmap{key_mapping = KeyMapping} = maps:get(Field, Rec0),
+    case is_map_key(ExtK, KeyMapping) of
+        true ->
+            Hash = extkey_hash(Field, ExtK),
+            Checksum = Checksum0 bxor Hash,
+            Rec0#{?checksum := Checksum};
+        false ->
+            Rec0
+    end.
+
+-spec extkey_hash(domain(), _ExtK) -> integer().
+extkey_hash(_Domain, ExtK) ->
+    <<Hash:64, _/bitstring>> = erlang:md5(term_to_binary(ExtK)),
+    Hash.
 
 pmap_del(
     ExtK,
     Pmap = #pmap{
         table = Domain,
         key_mapping = KeyMapping0,
-        checksum = Checksum0,
         dirty = Dirty,
         cache = Cache
     }
 ) when is_map_key(ExtK, KeyMapping0) ->
     {IntK, KeyMapping} = maps:take(ExtK, KeyMapping0),
-    Checksum = update_checksum(Domain, IntK, Checksum0),
     Pmap#pmap{
         key_mapping = KeyMapping,
-        checksum = Checksum,
         cache = cache_remove(Domain, IntK, Cache),
         dirty = Dirty#{ExtK => {del, IntK}}
     };
