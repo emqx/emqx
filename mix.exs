@@ -198,7 +198,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ehttpc),
     do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.0", override: true}
 
-  def common_dep(:jiffy), do: {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true}
+  def common_dep(:jiffy), do: {:jiffy, "1.1.2", override: true}
 
   def common_dep(:grpc),
     do:

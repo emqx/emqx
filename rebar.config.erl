@@ -191,7 +191,7 @@ plugins() ->
         {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.2"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
-        {pc, "v1.14.0"}
+        {pc, "1.15.0"}
     ] ++
         %% test plugins are concatenated to default profile plugins
         %% otherwise rebar3 test profile runs are super slow
