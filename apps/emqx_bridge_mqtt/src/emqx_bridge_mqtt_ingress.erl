@@ -159,7 +159,8 @@ unsubscribe_remote_topic(
     ChannelId,
     TopicToHandlerIndex
 ) ->
-    emqx_topic_index:delete(RemoteTopic, ChannelId, TopicToHandlerIndex),
+    IndexTopic = to_index_topic(RemoteTopic),
+    emqx_topic_index:delete(IndexTopic, ChannelId, TopicToHandlerIndex),
     case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _NoWarn = false) of
         true ->
             case emqtt:unsubscribe(Pid, RemoteTopic) of
@@ -197,14 +198,16 @@ fix_remote_config(#{remote := RC}, BridgeName, TopicToHandlerIndex, Conf) ->
 insert_to_topic_to_handler_index(
     #{remote := #{topic := Topic}} = Conf, TopicToHandlerIndex, BridgeName
 ) ->
-    TopicPattern =
-        case emqx_topic:parse(Topic) of
-            {#share{group = _Group, topic = TP}, _} ->
-                TP;
-            _ ->
-                Topic
-        end,
-    emqx_topic_index:insert(TopicPattern, BridgeName, Conf, TopicToHandlerIndex).
+    IndexTopic = to_index_topic(Topic),
+    emqx_topic_index:insert(IndexTopic, BridgeName, Conf, TopicToHandlerIndex).
+
+to_index_topic(Topic) ->
+    case emqx_topic:parse(Topic) of
+        {#share{group = _Group, topic = TP}, _} ->
+            TP;
+        _ ->
+            Topic
+    end.
 
 parse_remote(#{qos := QoSIn} = Remote, BridgeName) ->
     QoS = downgrade_ingress_qos(QoSIn),
