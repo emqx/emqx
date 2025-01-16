@@ -581,7 +581,7 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
 puback(ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0, ClientInfo) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], ensure_delivery_timer(Session)};
+            {ok, Msg, [], schedule_delivery(Session)};
         Error ->
             Error
     end.
@@ -626,7 +626,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
 pubcomp(ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0, ClientInfo) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], ensure_delivery_timer(Session)};
+            {ok, Msg, [], schedule_delivery(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -643,7 +643,7 @@ deliver(ClientInfo, Delivers, Session0) ->
     Session = lists:foldl(
         fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
     ),
-    {ok, [], ensure_delivery_timer(Session)}.
+    {ok, [], schedule_delivery(Session)}.
 
 %%--------------------------------------------------------------------
 %% Timeouts
@@ -654,8 +654,7 @@ deliver(ClientInfo, Delivers, Session0) ->
 handle_timeout(_ClientInfo, ?TIMER_DRAIN_INFLIGHT, Session0) ->
     %% This particular piece of code is responsible for sending
     %% messages queued up in the inflight to the client:
-    Session1 = Session0#{?TIMER_DRAIN_INFLIGHT := undefined},
-    {Publishes, Session} = drain_inflight(Session1),
+    {Publishes, Session} = drain_inflight(Session0),
     {ok, Publishes, Session};
 handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
@@ -684,7 +683,7 @@ handle_info(
     Session = Session0#{
         s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
     },
-    ensure_delivery_timer(Session);
+    schedule_delivery(Session);
 handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
     handle_ds_reply(AsyncReply, Session, ClientInfo);
 handle_info(
@@ -849,7 +848,7 @@ check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqno
     end.
 
 on_replay_complete(Session, ClientInfo) ->
-    ensure_delivery_timer(drain_buffer(Session, ClientInfo)).
+    schedule_delivery(drain_buffer(Session, ClientInfo)).
 
 on_enqueue(
     IsReplay,
@@ -1123,7 +1122,7 @@ handle_ds_reply(
                     post_enqueue_new(
                         StreamKey,
                         SRS,
-                        ensure_delivery_timer(Session)
+                        schedule_delivery(Session)
                     );
                 false ->
                     ?tp(debug, ?sessds_poll_reply, #{reply => Reply, blocked => true}),
@@ -1261,7 +1260,7 @@ enqueue_transient(
             S = put_seqno(?next(QoS), SeqNo, S0),
             Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
     end,
-    ensure_delivery_timer(Session#{
+    schedule_delivery(Session#{
         inflight := Inflight,
         s := S
     }).
@@ -1280,7 +1279,7 @@ drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s :
         DSSubacks
     ),
     Session = ensure_state_commit_timer(
-        cancel_delivery_timer(Session0#{inflight := Inflight, s := S})
+        Session0#{inflight := Inflight, s := S, ?TIMER_DRAIN_INFLIGHT := undefined}
     ),
     {Publishes, Session}.
 
@@ -1418,16 +1417,13 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
 %% - New messages (durable or transient) are enqueued
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
--compile({inline, ensure_delivery_timer/1}).
--spec ensure_delivery_timer(session()) -> session().
-ensure_delivery_timer(Session) ->
-    ensure_state_commit_timer(ensure_timer(?TIMER_DRAIN_INFLIGHT, 0, Session)).
-
--compile({inline, cancel_delivery_timer/1}).
--spec cancel_delivery_timer(session()) -> session().
-cancel_delivery_timer(#{?TIMER_DRAIN_INFLIGHT := TRef} = Session) ->
-    emqx_utils:cancel_timer(TRef),
-    Session#{?TIMER_DRAIN_INFLIGHT := undefined}.
+-compile({inline, schedule_delivery/1}).
+-spec schedule_delivery(session()) -> session().
+schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := undefined}) ->
+    self() ! {timeout, true, {emqx_session, ?TIMER_DRAIN_INFLIGHT}},
+    Session#{?TIMER_DRAIN_INFLIGHT := true};
+schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := true}) ->
+    Session.
 
 -spec receive_maximum(conninfo()) -> pos_integer().
 receive_maximum(ConnInfo) ->
@@ -1578,7 +1574,7 @@ update_seqno(
                     [] ->
                         Session1;
                     [_ | _] ->
-                        ensure_delivery_timer(
+                        schedule_delivery(
                             lists:foldl(
                                 fun(StreamKey, SessionAcc) ->
                                     ?tp(?sessds_unblock_stream, #{key => StreamKey}),
@@ -1851,7 +1847,7 @@ commit(Session = #{s := S0}, Opts) ->
 ensure_state_commit_timer(#{s := S, ?TIMER_COMMIT := undefined} = Session) ->
     case emqx_persistent_session_ds_state:is_dirty(S) of
         true ->
-            set_timer(?TIMER_COMMIT, commit_interval(), Session);
+            ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
         false ->
             Session
     end;
