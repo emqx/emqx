@@ -458,9 +458,8 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        %% Due to a bug `emqtt` does not instantly report that socket was closed.
         ?assertError(
-            timeout,
+            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}},
             emqtt_connect_wss(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca-next.pem")}
                 | ClientSSLOpts
