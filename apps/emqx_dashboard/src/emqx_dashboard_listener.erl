@@ -90,8 +90,11 @@ code_change(_OldVsn, State, _Extra) ->
 %% generate dispatch is very slow, takes about 1s.
 regenerate_minirest_dispatch() ->
     %% optvar:read waits for the var to be set
+    ?tp(warning, ">>>>>>>>>", #{where => {node(), ?MODULE, ?LINE, self()}}),
     Names = emqx_dashboard:wait_for_listeners(),
+    ?tp(warning, ">>>>>>>>>", #{where => {node(), ?MODULE, ?LINE, self()}}),
     {Time, ok} = timer:tc(fun() -> do_regenerate_minirest_dispatch(Names) end),
+    ?tp(warning, ">>>>>>>>>", #{where => {node(), ?MODULE, ?LINE, self()}}),
     Lang = emqx:get_config([dashboard, i18n_lang]),
     ?tp(info, regenerate_minirest_dispatch, #{
         elapsed => erlang:convert_time_unit(Time, microsecond, millisecond),
@@ -103,7 +106,10 @@ regenerate_minirest_dispatch() ->
 do_regenerate_minirest_dispatch(Names) ->
     lists:foreach(
         fun(Name) ->
-            ok = minirest:update_dispatch(Name)
+            ?tp(warning, ">>>>>>>>>", #{where => {node(), ?MODULE, ?LINE, self()}, name => Name}),
+            ok = minirest:update_dispatch(Name),
+            ?tp(warning, ">>>>>>>>>", #{where => {node(), ?MODULE, ?LINE, self()}, name => Name}),
+            ok
         end,
         Names
     ).
