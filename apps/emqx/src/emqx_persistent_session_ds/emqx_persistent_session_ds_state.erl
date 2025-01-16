@@ -240,6 +240,12 @@
     | ?seqno_domain
     | ?awaiting_rel_domain.
 
+-define(IS_SIMPLE_KEY_DOMAIN(D),
+    (Domain =:= ?subscription_state_domain orelse
+        Domain =:= ?seqno_domain orelse
+        Domain =:= ?awaiting_rel_domain)
+).
+
 -type sub_id() :: nil().
 -type data() ::
     #{
@@ -596,9 +602,9 @@ commit(
     Preconditions =
         case Opts of
             #{new := true} ->
-                [{unless_exists, matcher(SessionId, ?metadata_domain, ?metadata_domain_bin)}];
+                [{unless_exists, matcher(SessionId, ?metadata_domain, IntK)}];
             _ ->
-                [{if_exists, matcher(SessionId, ?metadata_domain, ?metadata_domain_bin)}]
+                [{if_exists, matcher(SessionId, ?metadata_domain, IntK)}]
         end,
     Result = store_batch(
         lists:flatten([
@@ -1199,14 +1205,14 @@ val_decode(_Domain, Bin) ->
     binary_to_term(Bin).
 
 -spec key_encode(domain(), internal_key(_)) -> binary().
-key_encode(?metadata_domain, _Key) ->
+key_encode(?metadata_domain, _IntK) ->
     ?metadata_domain_bin;
-key_encode(?stream_domain, Key) ->
+key_encode(?stream_domain, IntK) ->
     %% The generated binary might still contain `$/', which would be confused with an
     %% extra topic level.
-    binary:encode_hex(Key, uppercase);
-key_encode(_Domain, Key) ->
-    integer_to_binary(Key).
+    binary:encode_hex(IntK, uppercase);
+key_encode(_Domain, IntK) ->
+    integer_to_binary(IntK).
 
 -spec key_decode(domain(), binary()) -> term().
 key_decode(?metadata_domain, Bin) ->
@@ -1361,6 +1367,20 @@ pmap_put(
         dirty = Dirty#{ExtK => dirty}
     }.
 
+%% We use an internal integer key for domains that have complex keys:
+%%   * ?stream_domain
+%%   * ?subscription_domain
+%%   * ?rank_domain
+%% Other domains already use integer keys, so we use them as internal keys without extra
+%% mappings.  Such domains are:
+%%   * ?subscription_state_domain
+%%   * ?seqno_domain
+%%   * ?awaiting_rel_domain
+get_or_gen_internal_key(ExtK, KeyMapping, Domain, _Cache) when ?IS_SIMPLE_KEY_DOMAIN(Domain) ->
+    %% Could avoid storing ExtK here, at the expense of making several other call sites
+    %% have more complex / heterogeneous treatment of how to get the internal key or
+    %% detect if the external key is known.
+    {ExtK, KeyMapping#{ExtK => ExtK}};
 get_or_gen_internal_key(ExtK, KeyMapping, _Domain, _Cache) when
     is_map_key(ExtK, KeyMapping)
 ->
