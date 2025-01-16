@@ -214,12 +214,12 @@ ws_pingreq(State) ->
                 protocols => [{<<"mqtt">>, gun_ws_h}]
             }),
             ws_pingreq(State#{wref => StreamRef});
-        {gun_down, _WPID, _, Reason, _, _} ->
+        {gun_down, _WPID, _, Reason, _} ->
             State#{result => {gun_down, Reason}};
-        {gun_upgrade, WPID, _Ref, _Proto, _Data} ->
+        {gun_upgrade, WPID, Ref, _Proto, _Data} ->
             ct:pal("-- gun_upgrade, send ping-req"),
             PingReq = {binary, <<192, 0>>},
-            ok = gun:ws_send(WPID, PingReq),
+            ok = gun:ws_send(WPID, Ref, PingReq),
             gun:flush(WPID),
             ws_pingreq(State);
         {gun_ws, _WPID, _Ref, {binary, <<208, 0>>}} ->
@@ -631,7 +631,7 @@ ws_client(State) ->
                 #{protocols => [{P, gun_ws_h} || P <- Protos]}
             ),
             ws_client(State#{wref => StreamRef});
-        {gun_down, _WPID, _, Reason, _, _} ->
+        {gun_down, _WPID, _, Reason, _} ->
             State#{result => {gun_down, Reason}};
         {gun_upgrade, _WPID, _Ref, _Proto, Data} ->
             ct:pal("-- gun_upgrade: ~p", [Data]),
