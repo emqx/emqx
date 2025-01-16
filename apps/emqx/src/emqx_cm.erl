@@ -95,7 +95,8 @@
     mark_channel_connected/1,
     mark_channel_disconnected/1,
     is_channel_connected/1,
-    get_connected_client_count/0
+    get_connected_client_count/0,
+    get_sessions_count/0
 ]).
 
 %% RPC targets
@@ -879,6 +880,14 @@ mark_channel_disconnected(ChanPid) ->
     ets:delete(?CHAN_LIVE_TAB, ChanPid),
     ?tp(emqx_cm_connected_client_count_dec_done, #{chan_pid => ChanPid}),
     ok.
+
+%% @doc This function counts the sessions (channels) table but not the live-channel table.
+%% Meaning it includes the disconnected sessions (channels at disconnected state).
+get_sessions_count() ->
+    case ets:info(?CHAN_TAB, size) of
+        undefined -> 0;
+        Size -> Size
+    end.
 
 get_connected_client_count() ->
     case ets:info(?CHAN_LIVE_TAB, size) of
