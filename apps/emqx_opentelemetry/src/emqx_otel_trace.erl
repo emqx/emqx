@@ -82,6 +82,19 @@
 -define(TRACE_ALL_KEY, {?MODULE, trace_all}).
 -define(SHOULD_TRACE_ALL, persistent_term:get(?TRACE_ALL_KEY, false)).
 
+-define(with_process_fun_apply(SpanName, Attrs, ProcessFun, Args),
+    ?with_trace_mode(
+        erlang:apply(ProcessFun, Args),
+        ?with_span(
+            SpanName,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                erlang:apply(ProcessFun, Args)
+            end
+        )
+    )
+).
+
 -define(with_trace_mode(LegacyModeBody, E2EModeBody),
     case persistent_term:get(?TRACE_MODE_KEY, undefined) of
         ?TRACE_MODE_E2E -> E2EModeBody;
@@ -274,16 +287,7 @@ client_unsubscribe(InitAttrs, ProcessFun, Args) ->
 ) ->
     Res :: emqx_external_trace:t_res().
 client_authn(Attrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?CLIENT_AUTHN_SPAN_NAME,
-            #{attributes => Attrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?CLIENT_AUTHN_SPAN_NAME, Attrs, ProcessFun, Args).
 
 -spec client_authn_backend(
     Attrs :: emqx_external_trace:attrs(),
@@ -294,16 +298,7 @@ client_authn(Attrs, ProcessFun, Args) ->
 when
     Res :: emqx_external_trace:t_res().
 client_authn_backend(Attrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?CLIENT_AUTHN_BACKEND_SPAN_NAME,
-            #{attributes => Attrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?CLIENT_AUTHN_BACKEND_SPAN_NAME, Attrs, ProcessFun, Args).
 
 -spec client_authz(
     Attrs :: emqx_external_trace:attrs(),
@@ -312,16 +307,7 @@ client_authn_backend(Attrs, ProcessFun, Args) ->
 ) ->
     Res :: emqx_external_trace:t_res().
 client_authz(Attrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?CLIENT_AUTHZ_SPAN_NAME,
-            #{attributes => Attrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?CLIENT_AUTHZ_SPAN_NAME, Attrs, ProcessFun, Args).
 
 -spec client_authz_backend(
     Attrs :: emqx_external_trace:attrs(),
@@ -330,16 +316,7 @@ client_authz(Attrs, ProcessFun, Args) ->
 ) ->
     Res :: emqx_external_trace:t_res().
 client_authz_backend(Attrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?CLIENT_AUTHZ_BACKEND_SPAN_NAME,
-            #{attributes => Attrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?CLIENT_AUTHZ_BACKEND_SPAN_NAME, Attrs, ProcessFun, Args).
 
 -spec broker_disconnect(
     InitAttrs :: emqx_external_trace:init_attrs(),
@@ -348,16 +325,7 @@ client_authz_backend(Attrs, ProcessFun, Args) ->
 ) ->
     Res :: emqx_external_trace:t_res().
 broker_disconnect(InitAttrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?BROKER_DISCONNECT_SPAN_NAME,
-            #{attributes => InitAttrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?BROKER_DISCONNECT_SPAN_NAME, InitAttrs, ProcessFun, Args).
 
 -spec broker_subscribe(
     InitAttrs :: emqx_external_trace:init_attrs(),
@@ -366,16 +334,7 @@ broker_disconnect(InitAttrs, ProcessFun, Args) ->
 ) ->
     Res :: emqx_external_trace:t_res().
 broker_subscribe(InitAttrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?BROKER_SUBSCRIBE_SPAN_NAME,
-            #{attributes => InitAttrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?BROKER_SUBSCRIBE_SPAN_NAME, InitAttrs, ProcessFun, Args).
 
 -spec broker_unsubscribe(
     InitAttrs :: emqx_external_trace:init_attrs(),
@@ -384,16 +343,7 @@ broker_subscribe(InitAttrs, ProcessFun, Args) ->
 ) ->
     Res :: emqx_external_trace:t_res().
 broker_unsubscribe(InitAttrs, ProcessFun, Args) ->
-    ?with_trace_mode(
-        erlang:apply(ProcessFun, Args),
-        ?with_span(
-            ?BROKER_UNSUBSCRIBE_SPAN_NAME,
-            #{attributes => InitAttrs},
-            fun(_SpanCtx) ->
-                erlang:apply(ProcessFun, Args)
-            end
-        )
-    ).
+    ?with_process_fun_apply(?BROKER_UNSUBSCRIBE_SPAN_NAME, InitAttrs, ProcessFun, Args).
 
 -spec client_publish(
     InitAttrs :: emqx_external_trace:init_attrs(),
