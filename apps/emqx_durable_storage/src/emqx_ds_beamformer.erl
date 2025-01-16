@@ -583,17 +583,17 @@ suback(DBShard, SubId, Acked) ->
                     %% We've been kicked out from the active queue for
                     %% being stuck:
                     SeqNo = atomics:get(ARef, ?fc_idx_seqno),
-                    %% FIXME: add hysteresis
                     case is_sub_active(SeqNo, Acked, MaxUnacked) of
                         true ->
                             %% Subscription became active, notify the beamformer:
+                            %% FIXME: add hysteresis
                             gen_statem:call(?via(DBShard), #wakeup_sub_req{id = SubId});
                         false ->
                             %% Still stuck:
                             ok
                     end;
                 0 ->
-                    %% Not stuck:
+                    %% Subscription is active:
                     ok
             end
     catch
@@ -1038,6 +1038,12 @@ send_out(DBShard, Node, Pack, Destinations) ->
 %%     persistent_term:get(?subtid(Shard)).
 
 make_subtab(Shard) ->
-    Tab = ets:new(emqx_ds_beamformer_sub_tab, [set, public, {keypos, #sub_state.req_id}]),
+    Tab = ets:new(emqx_ds_beamformer_sub_tab, [
+        set,
+        public,
+        {keypos, #sub_state.req_id},
+        {read_concurrency, true},
+        {write_concurrency, true}
+    ]),
     persistent_term:put(?ps_subtid(Shard), Tab),
     Tab.
