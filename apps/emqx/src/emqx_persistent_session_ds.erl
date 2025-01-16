@@ -1272,30 +1272,37 @@ enqueue_transient(
 
 drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s := SchedS}) ->
     ?tp(?sessds_drain_inflight, #{}),
-    {Publishes, Inflight, S} = do_drain_inflight(Inflight0, S0, [], SchedS),
+    {Publishes, Inflight, DSSubacks, S} = do_drain_inflight(Inflight0, S0, [], #{}),
+    maps:foreach(
+        fun(Stream, SeqNo) ->
+            emqx_persistent_session_ds_stream_scheduler:suback(Stream, SeqNo, SchedS)
+        end,
+        DSSubacks
+    ),
     Session = ensure_state_commit_timer(
         cancel_delivery_timer(Session0#{inflight := Inflight, s := S})
     ),
     {Publishes, Session}.
 
-do_drain_inflight(Inflight0, S0, Acc, SchedS) ->
+do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
     case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
-            {lists:reverse(Acc), Inflight0, S0};
+            {lists:reverse(Acc), Inflight0, DSSubacks0, S0};
         {{other, #ds_suback{stream_key = Key, seqno = SeqNo}}, Inflight} ->
-            emqx_persistent_session_ds_stream_scheduler:suback(Key, SeqNo, SchedS),
-            do_drain_inflight(Inflight, S0, Acc, SchedS);
+            %% Accumulate the DS subacks:
+            DSSubacks = DSSubacks0#{Key => SeqNo},
+            do_drain_inflight(Inflight, S0, Acc, DSSubacks);
         {{pubrel, SeqNo}, Inflight} ->
             Publish = {pubrel, seqno_to_packet_id(?QOS_2, SeqNo)},
-            do_drain_inflight(Inflight, S0, [Publish | Acc], SchedS);
+            do_drain_inflight(Inflight, S0, [Publish | Acc], DSSubacks0);
         {{SeqNo, Msg}, Inflight} ->
             case Msg#message.qos of
                 ?QOS_0 ->
-                    do_drain_inflight(Inflight, S0, [{undefined, Msg} | Acc], SchedS);
+                    do_drain_inflight(Inflight, S0, [{undefined, Msg} | Acc], DSSubacks0);
                 Qos ->
                     S = update_dup(Qos, SeqNo, S0),
                     Publish = {seqno_to_packet_id(Qos, SeqNo), Msg},
-                    do_drain_inflight(Inflight, S, [Publish | Acc], SchedS)
+                    do_drain_inflight(Inflight, S, [Publish | Acc], DSSubacks0)
             end
     end.
 
