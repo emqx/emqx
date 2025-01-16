@@ -114,8 +114,6 @@
     chan_pid/0
 ]).
 
--type message() :: emqx_types:message().
-
 -type chan_pid() :: pid().
 
 -type channel_info() :: {
@@ -286,7 +284,7 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     _CleanStart :: boolean(),
     emqx_types:clientinfo(),
     emqx_types:conninfo(),
-    emqx_maybe:t(message())
+    emqx_maybe:t(emqx_types:message())
 ) ->
     {ok, #{
         session := emqx_session:t(),
@@ -460,14 +458,6 @@ discard_session(ClientId) when is_binary(ClientId) ->
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
 request_stepdown(Action, ConnMod, Pid) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        broker_disconnect,
-        [],
-        maps:merge(basic_trace_attrs(Pid), action_to_reason(Action)),
-        fun([]) -> do_request_stepdown(Action, ConnMod, Pid) end
-    ).
-
-do_request_stepdown(Action, ConnMod, Pid) ->
     Timeout =
         case Action == kick orelse Action == discard of
             true -> ?T_KICK;
@@ -911,55 +901,3 @@ kick_session_chans(ClientId, ChanPids) ->
             ok
     end,
     lists:foreach(fun(Pid) -> kick_session(ClientId, Pid) end, ChanPids).
-
--if(?EMQX_RELEASE_EDITION == ee).
-
-basic_trace_attrs(Pid) ->
-    case lookup_client({chan_pid, Pid}) of
-        [] ->
-            #{'channel.pid' => iolist_to_binary(io_lib:format("~p", [Pid]))};
-        [{_Chan, #{clientinfo := ClientInfo, conninfo := ConnInfo}, _Stats}] ->
-            #{
-                'client.clientid' => maps:get(clientid, ClientInfo, undefined),
-                'client.username' => maps:get(username, ClientInfo, undefined),
-                'client.proto_name' => maps:get(proto_name, ConnInfo, undefined),
-                'client.proto_ver' => maps:get(proto_ver, ConnInfo, undefined),
-                'client.is_bridge' => maps:get(is_bridge, ClientInfo, undefined),
-                'client.sockname' => ntoa(maps:get(sockname, ConnInfo, undefined)),
-                'client.peername' => ntoa(maps:get(peername, ConnInfo, undefined))
-            };
-        _ ->
-            #{}
-    end.
-
-action_to_reason(Action) when
-    Action =:= kick orelse
-        Action =:= takeover_kick
-->
-    #{
-        'client.disconnect.reason_code' => ?RC_ADMINISTRATIVE_ACTION,
-        'client.disconnect.reason' => kick
-    };
-action_to_reason(discard) ->
-    #{
-        'client.disconnect.reason_code' => ?RC_SESSION_TAKEN_OVER,
-        'client.disconnect.reason' => discard
-    };
-action_to_reason({takeover, 'begin'}) ->
-    #{
-        'client.disconnect.reason_code' => ?RC_SESSION_TAKEN_OVER,
-        'client.disconnect.reason' => takeover_begin
-    };
-action_to_reason({takeover, 'end'}) ->
-    #{
-        'client.disconnect.reason_code' => ?RC_SESSION_TAKEN_OVER,
-        'disconnect.reason' => takeover_end
-    }.
-
-ntoa(undefined) ->
-    undefined;
-ntoa(IpPort) ->
-    emqx_utils:ntoa(IpPort).
-
--else.
--endif.
