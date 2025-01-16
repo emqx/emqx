@@ -357,6 +357,9 @@ assert_status_api(Line, Type, Name, Status) ->
 get_rule_metrics(RuleId) ->
     emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
 
+reset_rule_metrics(RuleId) ->
+    emqx_metrics_worker:reset_metrics(rule_metrics, RuleId).
+
 tap_telemetry(HandlerId) ->
     TestPid = self(),
     telemetry:attach_many(
@@ -1460,7 +1463,6 @@ t_metrics_out_of_service(Config) ->
     ConnectorConfig = ConnectorConfig0#{<<"enable">> := false},
     ActionName = atom_to_binary(?FUNCTION_NAME),
     ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
-    Topic = atom_to_binary(?FUNCTION_NAME),
     ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
         action,
         Type,
@@ -1538,4 +1540,145 @@ t_metrics_out_of_service(Config) ->
             get_rule_metrics(RuleId)
         )
     ),
+    ok.
+
+%% Verifies that the `actions.failed' and `actions.failed.unknown' counters are bumped
+%% when a message is dropped due to buffer overflow (both sync and async).
+t_overflow_rule_metrics(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(
+        connector_config, Config, connector_config_toxiproxy(Config)
+    ),
+    ActionName = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"parameters">> => #{
+                    <<"query_mode">> => <<"async">>,
+                    <<"buffer">> => #{
+                        <<"segment_bytes">> => <<"1B">>,
+                        <<"per_partition_limit">> => <<"2B">>
+                    }
+                }
+            }
+        )
+    ),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+    {201, _} = simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams)),
+    {201, _} = simplify_result(emqx_bridge_v2_testlib:create_action_api(ActionParams)),
+
+    RuleTopic = <<"t/k/overflow">>,
+    {ok, #{<<"id">> := RuleId}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+            {bridge_name, ActionName}
+        ]),
+
+    %% Async
+    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'dropped' := 1,
+                    'dropped.queue_full' := 1,
+                    'dropped.expired' := 0,
+                    'dropped.other' := 0,
+                    'matched' := 1,
+                    'success' := 0,
+                    'failed' := 0,
+                    'late_reply' := 0,
+                    'retried' := 0
+                }
+            },
+            emqx_bridge_v2:get_metrics(Type, ActionName)
+        )
+    ),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters :=
+                    #{
+                        'matched' := 1,
+                        'failed' := 0,
+                        'passed' := 1,
+                        'actions.success' := 0,
+                        'actions.failed' := 1,
+                        'actions.failed.out_of_service' := 0,
+                        'actions.failed.unknown' := 1,
+                        'actions.discarded' := 0
+                    }
+            },
+            get_rule_metrics(RuleId)
+        )
+    ),
+
+    %% Sync
+    {200, _} = simplify_result(
+        emqx_bridge_v2_testlib:update_bridge_api(
+            ActionParams,
+            #{<<"parameters">> => #{<<"query_mode">> => <<"sync">>}}
+        )
+    ),
+    ok = reset_rule_metrics(RuleId),
+    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'dropped' := 1,
+                    'dropped.queue_full' := 1,
+                    'dropped.expired' := 0,
+                    'dropped.other' := 0,
+                    'matched' := 1,
+                    'success' := 0,
+                    'failed' := 0,
+                    'late_reply' := 0,
+                    'retried' := 0
+                }
+            },
+            emqx_bridge_v2:get_metrics(Type, ActionName)
+        )
+    ),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters :=
+                    #{
+                        'matched' := 1,
+                        'failed' := 0,
+                        'passed' := 1,
+                        'actions.success' := 0,
+                        'actions.failed' := 1,
+                        'actions.failed.out_of_service' := 0,
+                        'actions.failed.unknown' := 1,
+                        'actions.discarded' := 0
+                    }
+            },
+            get_rule_metrics(RuleId)
+        )
+    ),
+
     ok.
