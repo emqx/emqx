@@ -425,8 +425,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl,
-       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
       common_dep(:influxdb),
       common_dep(:wolff),
       common_dep(:kafka_protocol),
