@@ -61,15 +61,16 @@ t_cleanup_after_retain(_) ->
     ?assertEqual(2, emqx_cm_registry_keeper:count(0)),
     T0 = erlang:system_time(seconds),
     exit(Pid, kill),
-    %% lookup_channel chesk if the channel is still alive
+    %% lookup_channels should not return dead pids
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)),
-    %% simulate a DOWN message which causes emqx_cm to call clean_down
-    %% to clean the channels for real
-    ok = emqx_cm:clean_down({Pid, ClientId}),
-    ok = emqx_cm:clean_down({Pid, ClientId2}),
+    %% simulate a DOWN message triggering a clean up from emqx_cm
+    ok = emqx_cm_registry:unregister_channel({ClientId, Pid}),
+    ok = emqx_cm_registry:unregister_channel({ClientId2, Pid}),
+    %% expect the channels to be around still
     ?assertEqual(2, emqx_cm_registry_keeper:count(T0)),
     ?assertEqual(2, emqx_cm_registry_keeper:count(0)),
+    %% and finally cleaned up after retain period
     ?retry(_Interval = 1000, _Attempts = 4, begin
         ?assertEqual(0, emqx_cm_registry_keeper:count(T0)),
         ?assertEqual(0, emqx_cm_registry_keeper:count(0))

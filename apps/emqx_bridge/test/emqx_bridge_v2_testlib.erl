@@ -677,6 +677,18 @@ enable_rule_http(RuleId) ->
     Params = #{<<"enable">> => true},
     update_rule_http(RuleId, Params).
 
+get_stats_http() ->
+    Path = emqx_mgmt_api_test_util:api_path(["stats"]),
+    Res = request(get, Path, _Params = []),
+    ct:pal("get stats result:\n  ~p", [Res]),
+    simplify_result(Res).
+
+kick_clients_http(ClientIds) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", "kickout", "bulk"]),
+    Res = request(post, Path, ClientIds),
+    ct:pal("bulk kick clients result:\n  ~p", [Res]),
+    simplify_result(Res).
+
 is_rule_enabled(RuleId) ->
     {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(RuleId),
     Enable.

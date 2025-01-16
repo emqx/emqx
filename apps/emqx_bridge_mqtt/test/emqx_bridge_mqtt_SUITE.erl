@@ -981,9 +981,10 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
 
     %% start the listener 1883 to make the bridge reconnected
     ok = emqx_listeners:start_listener('tcp:default'),
-    timer:sleep(1500),
     %% verify the metrics of the bridge, the 2 queued messages should have been sent
-    ?assertMatch(#{<<"status">> := <<"connected">>}, request_bridge(BridgeIDEgress)),
+    ?retry(
+        500, 20, ?assertMatch(#{<<"status">> := <<"connected">>}, request_bridge(BridgeIDEgress))
+    ),
     %% matched >= 3 because of possible retries.
     ?assertMetrics(
         #{
@@ -1002,45 +1003,52 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
     ok.
 
 t_mqtt_conn_bridge_egress_async_reconnect(_) ->
-    BridgeIDEgress = create_bridge(
-        ?SERVER_CONF#{
-            <<"name">> => ?BRIDGE_NAME_EGRESS,
-            <<"egress">> => ?EGRESS_CONF,
-            <<"resource_opts">> => #{
-                <<"query_mode">> => <<"async">>,
-                %% using a long time so we can test recovery
-                <<"request_ttl">> => <<"15s">>,
-                %% to make it check the healthy and reconnect quickly
-                <<"health_check_interval">> => <<"0.5s">>
-            }
-        }
-    ),
-
     Self = self(),
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
     emqx:subscribe(RemoteTopic),
 
-    Publisher = start_publisher(LocalTopic, 200, Self),
-    ct:sleep(1000),
-
-    %% stop the listener 1883 to make the bridge disconnected
     ?check_trace(
         begin
+            %% stop the listener 1883 to make the bridge disconnected
             ok = emqx_listeners:stop_listener('tcp:default'),
-            ct:sleep(1500),
-            ?assertMatch(
-                #{<<"status">> := Status} when
-                    Status == <<"connecting">> orelse Status == <<"disconnected">>,
-                request_bridge(BridgeIDEgress)
+
+            BridgeIDEgress = create_bridge(
+                ?SERVER_CONF#{
+                    <<"name">> => ?BRIDGE_NAME_EGRESS,
+                    <<"egress">> => ?EGRESS_CONF,
+                    <<"resource_opts">> => #{
+                        <<"query_mode">> => <<"async">>,
+                        %% using a long time so we can test recovery
+                        <<"request_ttl">> => <<"15s">>,
+                        %% to make it check the healthy and reconnect quickly
+                        <<"health_check_interval">> => <<"0.5s">>
+                    }
+                }
+            ),
+
+            Publisher = start_publisher(LocalTopic, 200, Self),
+            ct:sleep(1000),
+
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{<<"status">> := Status} when
+                        Status == <<"connecting">> orelse Status == <<"disconnected">>,
+                    request_bridge(BridgeIDEgress)
+                )
             ),
 
             %% start the listener 1883 to make the bridge reconnected
             ok = emqx_listeners:start_listener('tcp:default'),
-            timer:sleep(1500),
-            ?assertMatch(
-                #{<<"status">> := <<"connected">>},
-                request_bridge(BridgeIDEgress)
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{<<"status">> := <<"connected">>},
+                    request_bridge(BridgeIDEgress)
+                )
             ),
 
             N = stop_publisher(Publisher),

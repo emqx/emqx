@@ -185,7 +185,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.7", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.8", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.44.0", override: true}
@@ -277,7 +277,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.0.4"}
+  def common_dep(:wolff), do: {:wolff, "4.0.5"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
@@ -1011,6 +1011,14 @@ defmodule EMQXUmbrella.MixProject do
     )
 
     File.chmod!(Path.join(bin, "emqx_cluster_rescue"), 0o755)
+
+    Mix.Generator.copy_file(
+      "bin/emqx_fw",
+      Path.join(bin, "emqx_fw"),
+      force: overwrite?
+    )
+
+    File.chmod!(Path.join(bin, "emqx_fw"), 0o755)
 
     render_template(
       "rel/BUILD_INFO",

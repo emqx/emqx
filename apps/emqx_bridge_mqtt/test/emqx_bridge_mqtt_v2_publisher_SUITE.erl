@@ -255,6 +255,25 @@ connect_client(Node) ->
     {ok, _} = emqtt:connect(C),
     C.
 
+get_stats_http() ->
+    {200, Res} = emqx_bridge_v2_testlib:get_stats_http(),
+    lists:foldl(
+        fun(#{<<"node">> := N} = R, Acc) -> Acc#{N => R} end,
+        #{},
+        Res
+    ).
+
+get_emqtt_clients(PoolName) ->
+    lists:filtermap(
+        fun({_Id, Worker}) ->
+            case ecpool_worker:client(Worker) of
+                {ok, Client} -> {true, Client};
+                _ -> false
+            end
+        end,
+        ecpool:workers(PoolName)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -486,5 +505,50 @@ t_forward_user_properties(Config) ->
     ?assertMatch(
         [{<<"k1">>, <<"v1">>}, {<<"k2">>, <<"v2">>}],
         UserProps1
+    ),
+    ok.
+
+%% Verifies that `emqtt' clients automatically try to reconnect once disconnected.
+t_reconnect(Config) ->
+    PoolSize = 3,
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(Config, #{
+                <<"pool_size">> => PoolSize
+            }),
+            NBin = atom_to_binary(node()),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
+                    get_stats_http()
+                )
+            ),
+            ClientIds0 = emqx_cm:all_client_ids(),
+            ClientIds = lists:droplast(ClientIds0),
+            ChanPids0 = emqx_cm:all_channels(),
+            ChanPids = lists:droplast(ChanPids0),
+            lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
+            ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
+            {204, _} = emqx_bridge_v2_testlib:kick_clients_http(ClientIds),
+            DownPids = emqx_utils:drain_down(PoolSize - 1),
+            ?assertEqual(lists:sort(ChanPids), lists:sort(DownPids)),
+            %% Recovery
+            ct:pal("clients kicked; waiting for recovery..."),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
+                    get_stats_http()
+                )
+            ),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+            ?assertEqual(PoolSize, length(ecpool:workers(ConnResId))),
+            ?retry(500, 40, ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))),
+            ok
+        end,
+        []
     ),
     ok.

@@ -706,7 +706,7 @@ listener_shutdown_counts(Mode) ->
         ),
     #{emqx_client_disconnected_reason => Data}.
 
-get_listener_shutdown_counts_with_labels({Id, #{bind := Bind}}, Mode) ->
+get_listener_shutdown_counts_with_labels({Id, #{bind := Bind, running := true}}, Mode) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     AddLabels = fun({Reason, Count}) ->
         Labels = [
@@ -721,7 +721,9 @@ get_listener_shutdown_counts_with_labels({Id, #{bind := Bind}}, Mode) ->
             [];
         Counts ->
             lists:map(AddLabels, Counts)
-    end.
+    end;
+get_listener_shutdown_counts_with_labels({_Id, #{running := false}}, _Mode) ->
+    [].
 
 %%==========
 %% Durable Storage
