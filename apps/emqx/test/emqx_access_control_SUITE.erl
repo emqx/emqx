@@ -30,9 +30,11 @@ init_per_suite(Config) ->
         [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = emqx_access_control:set_default_authn_restrictive(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    ok = emqx_access_control:set_default_authn_permissive(),
     emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 init_per_testcase(_, Config) ->
@@ -43,7 +45,16 @@ end_per_testcase(_, _Config) ->
     ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}).
 
 t_authenticate(_) ->
-    ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
+    ClientInfo = clientinfo(),
+    ?assertMatch({error, not_authorized}, emqx_access_control:authenticate(ClientInfo)),
+    ?assertMatch(
+        {error, not_authorized}, emqx_access_control:authenticate(ClientInfo#{enable_authn => true})
+    ),
+    ?assertMatch(
+        {error, not_authorized},
+        emqx_access_control:authenticate(ClientInfo#{enable_authn => quick_deny_anonymous})
+    ),
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{enable_authn => false})).
 
 t_authorize(_) ->
     ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, <<"t">>)).
