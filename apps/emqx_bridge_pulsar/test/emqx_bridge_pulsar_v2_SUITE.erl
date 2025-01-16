@@ -405,8 +405,11 @@ group_path(Config) ->
     end.
 
 create_connector_api(Config) ->
+    create_connector_api(Config, _Overrides = #{}).
+
+create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:create_connector_api(Config)
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
     ).
 
 create_action_api(Config) ->
@@ -712,10 +715,8 @@ t_telemetry_metrics(Config) when is_list(Config) ->
                         },
                         rule := #{
                             matched := 1,
-                            %% todo: bump action failure count when dropped to mimic common
-                            %% buffer worker behavior.
-                            'actions.failed' := 0,
-                            'actions.failed.unknown' := 0,
+                            'actions.failed' := 1,
+                            'actions.failed.unknown' := 1,
                             'actions.success' := 0
                         }
                     },
@@ -797,10 +798,8 @@ t_telemetry_metrics(Config) when is_list(Config) ->
                         },
                         rule := #{
                             matched := 1,
-                            %% todo: bump action failure count when dropped to mimic common
-                            %% buffer worker behavior.
-                            'actions.failed' := 0,
-                            'actions.failed.unknown' := 0,
+                            'actions.failed' := 1,
+                            'actions.failed.unknown' := 1,
                             'actions.success' := 0
                         }
                     },
@@ -868,4 +867,266 @@ t_telemetry_metrics(Config) when is_list(Config) ->
         end,
         []
     ),
+    ok.
+
+%% Verifies that the `actions.failed' and `actions.failed.unknown' counters are bumped
+%% when a message is dropped due to buffer overflow (both sync and async).
+t_overflow_rule_metrics(matrix) ->
+    [[plain]];
+t_overflow_rule_metrics(Config) when is_list(Config) ->
+    Type = ?TYPE,
+    ConnectorName = <<"c">>,
+    ConnectorConfig = connector_config(Config),
+    ActionConfig = action_config(ConnectorName, Config),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionName = <<"overflow">>,
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+
+    {201, _} =
+        create_connector_api(ConnectorParams),
+    {201, _} =
+        create_action_api(
+            ActionParams,
+            #{
+                <<"parameters">> => #{
+                    <<"buffer">> => #{
+                        <<"per_partition_limit">> => <<"2B">>,
+                        <<"segment_bytes">> => <<"1B">>
+                    }
+                },
+                <<"resource_opts">> => #{<<"query_mode">> => <<"async">>}
+            }
+        ),
+    RuleTopic = <<"pulsar/overflow">>,
+    {ok, #{<<"id">> := RuleId}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+            {bridge_name, ActionName}
+        ]),
+    ActionResId = emqx_bridge_v2_testlib:bridge_id(ActionParams),
+
+    %% Async
+    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'dropped' := 1,
+                    'dropped.queue_full' := 1,
+                    'dropped.expired' := 0,
+                    'dropped.other' := 0,
+                    'success' := 0,
+                    'matched' := 1,
+                    'failed' := 0,
+                    'received' := 0
+                },
+                rule := #{
+                    'matched' := 1,
+                    'failed' := 0,
+                    'passed' := 1,
+                    'actions.success' := 0,
+                    'actions.failed' := 1,
+                    'actions.failed.out_of_service' := 0,
+                    'actions.failed.unknown' := 1,
+                    'actions.discarded' := 0
+                }
+            },
+            get_combined_metrics(ActionResId, RuleId)
+        )
+    ),
+
+    %% Sync
+    {200, _} =
+        update_action_api(ActionParams, #{
+            <<"parameters">> => #{
+                <<"buffer">> => #{
+                    <<"per_partition_limit">> => <<"2B">>,
+                    <<"segment_bytes">> => <<"1B">>
+                }
+            },
+            <<"resource_opts">> => #{<<"query_mode">> => <<"sync">>}
+        }),
+    reset_combined_metrics(ActionResId, RuleId),
+
+    emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'dropped' := 1,
+                    'dropped.queue_full' := 1,
+                    'dropped.expired' := 0,
+                    'dropped.other' := 0,
+                    'success' := 0,
+                    'matched' := 1,
+                    'failed' := 0,
+                    'received' := 0
+                },
+                rule := #{
+                    'matched' := 1,
+                    'failed' := 0,
+                    'passed' := 1,
+                    'actions.success' := 0,
+                    'actions.failed' := 1,
+                    'actions.failed.out_of_service' := 0,
+                    'actions.failed.unknown' := 1,
+                    'actions.discarded' := 0
+                }
+            },
+            get_combined_metrics(ActionResId, RuleId)
+        )
+    ),
+
+    ok.
+
+%% Verifies that the `actions.failed' and `actions.failed.unknown' counters are bumped
+%% when a message is dropped due to reaching its TTL (both sync and async).
+t_expired_rule_metrics(matrix) ->
+    [[plain]];
+t_expired_rule_metrics(Config) when is_list(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    Type = ?TYPE,
+    ConnectorName = <<"c">>,
+    ConnectorConfig = connector_config(Config),
+    ActionConfig = action_config(ConnectorName, Config),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionName = <<"expired">>,
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+
+    {201, _} =
+        create_connector_api(
+            ConnectorParams,
+            #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+        ),
+    {201, _} =
+        create_action_api(
+            ActionParams,
+            #{
+                <<"parameters">> => #{<<"retention_period">> => <<"1ms">>},
+                <<"resource_opts">> => #{<<"query_mode">> => <<"async">>}
+            }
+        ),
+    RuleTopic = <<"pulsar/overflow">>,
+    {ok, #{<<"id">> := RuleId}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+            {bridge_name, ActionName}
+        ]),
+    ActionResId = emqx_bridge_v2_testlib:bridge_id(ActionParams),
+    TelemetryId = <<"expired_queue">>,
+    TestPid = self(),
+    telemetry:attach(
+        TelemetryId,
+        [pulsar, queuing],
+        fun(_EventId, #{gauge_set := N}, _Metadata, _HandlerCfg) ->
+            case N > 0 of
+                true -> TestPid ! enqueued;
+                false -> ok
+            end
+        end,
+        unused
+    ),
+    on_exit(fun() -> telemetry:detach(TelemetryId) end),
+    %% Helper to ensure a message is enqueued before letting it be sent to Pulsar.
+    Enqueue = fun() ->
+        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
+            receive
+                enqueued -> ok
+            after 1_000 -> ct:fail("didn't enqueue message!")
+            end
+        end)
+    end,
+
+    %% Async
+    Enqueue(),
+    ?retry(
+        500,
+        20,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'dropped' := 1,
+                    'dropped.queue_full' := 0,
+                    'dropped.expired' := 1,
+                    'dropped.other' := 0,
+                    'success' := 0,
+                    'matched' := 1,
+                    'failed' := 0,
+                    'received' := 0
+                },
+                rule := #{
+                    'matched' := 1,
+                    'failed' := 0,
+                    'passed' := 1,
+                    'actions.success' := 0,
+                    'actions.failed' := 1,
+                    'actions.failed.out_of_service' := 0,
+                    'actions.failed.unknown' := 1,
+                    'actions.discarded' := 0
+                }
+            },
+            get_combined_metrics(ActionResId, RuleId)
+        )
+    ),
+
+    %% Sync
+    {200, _} =
+        update_action_api(ActionParams, #{
+            <<"parameters">> => #{<<"retention_period">> => <<"1ms">>},
+            <<"resource_opts">> => #{<<"query_mode">> => <<"sync">>}
+        }),
+    reset_combined_metrics(ActionResId, RuleId),
+
+    Enqueue(),
+    ?retry(
+        500,
+        20,
+        ?assertMatch(
+            #{
+                counters := #{
+                    'dropped' := 1,
+                    'dropped.queue_full' := 0,
+                    'dropped.expired' := 1,
+                    'dropped.other' := 0,
+                    'success' := 0,
+                    'matched' := 1,
+                    'failed' := 0,
+                    'received' := 0
+                },
+                rule := #{
+                    'matched' := 1,
+                    'failed' := 0,
+                    'passed' := 1,
+                    'actions.success' := 0,
+                    'actions.failed' := 1,
+                    'actions.failed.out_of_service' := 0,
+                    'actions.failed.unknown' := 1,
+                    'actions.discarded' := 0
+                }
+            },
+            get_combined_metrics(ActionResId, RuleId)
+        )
+    ),
+
     ok.

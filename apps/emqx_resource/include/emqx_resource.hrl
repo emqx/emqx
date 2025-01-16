@@ -63,6 +63,8 @@
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
+    %% Set only by actions that use internal buffering (Kafka, Pulsar).
+    internal_buffer => boolean(),
     reply_to => reply_fun(),
     %% Called `query_mode' due to legacy reasons...
     query_mode => query_kind(),
