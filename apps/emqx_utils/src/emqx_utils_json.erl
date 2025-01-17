@@ -53,8 +53,13 @@
 
 -compile({inline, [is_json/1]}).
 
--type encode_options() :: jiffy:encode_options().
--type decode_options() :: jiffy:decode_options().
+%% See `jiffy:encode_options()`.
+-type encode_options() :: [encode_option()].
+-type encode_option() :: uescape | pretty | force_utf8.
+
+%% See `jiffy:decode_options()`.
+-type decode_options() :: [decode_option()].
+-type decode_option() :: return_maps | return_trailer | dedupe_keys | copy_strings.
 
 -type json_text() :: iolist() | binary().
 -type json_term() :: jiffy:json_value().
