@@ -84,6 +84,7 @@ connector_config(Name, ServiceAccountJSON) ->
             <<"connect_timeout">> => <<"5s">>,
             <<"pool_size">> => 8,
             <<"pipelining">> => <<"100">>,
+            <<"max_inactive">> => <<"10s">>,
             <<"max_retries">> => <<"2">>,
             <<"service_account_json">> => ServiceAccountJSON,
             <<"resource_opts">> =>

@@ -655,6 +655,7 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
             pipelining := Pipelining,
             pool_size := PoolSize,
             max_retries := MaxRetries,
+            max_inactive := MaxInactive,
             proxy := ProxyConfig0
         },
         resource_opts := #{request_ttl := RequestTTL}
@@ -703,6 +704,7 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
                 {pool_size, PoolSize},
                 {transport, tls},
                 {transport_opts, TransportOpts},
+                {max_inactive, MaxInactive},
                 {enable_pipelining, Pipelining}
             ],
     case ehttpc_sup:start_pool(ActionResId, PoolOpts) of

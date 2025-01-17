@@ -136,6 +136,7 @@ connector_config(Name, Server) ->
             <<"enable">> => true,
             <<"tags">> => [<<"bridge">>],
             <<"description">> => <<"my cool bridge">>,
+            <<"max_inactive">> => <<"10s">>,
             <<"server">> => Server,
             <<"username">> => ?USERNAME,
             <<"password">> => ?PASSWORD,

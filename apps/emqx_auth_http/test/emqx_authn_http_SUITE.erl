@@ -725,6 +725,7 @@ raw_http_auth_config() ->
 
         <<"backend">> => <<"http">>,
         <<"method">> => <<"get">>,
+        <<"max_inactive">> => <<"10s">>,
         <<"url">> => <<"http://127.0.0.1:32333/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
