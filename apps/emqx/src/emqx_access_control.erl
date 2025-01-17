@@ -26,6 +26,10 @@
     format_action/1
 ]).
 
+-export([
+    update_latency_buckets/2
+]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -124,6 +128,15 @@ authorize(ClientInfo, Action, Topic) ->
         end,
     inc_authz_metrics(Result),
     Result.
+
+-spec update_latency_buckets('client.authenticate' | 'client.authorize', [non_neg_integer()]) -> ok.
+update_latency_buckets(Id, Buckets) when Id == 'client.authenticate'; Id == 'client.authorize' ->
+    ok = emqx_metrics_worker:clear_metrics(?ACCESS_CONTROL_METRICS_WORKER, Id),
+    ok = emqx_metrics_worker:create_metrics(
+        ?ACCESS_CONTROL_METRICS_WORKER,
+        Id,
+        [{hist, total_latency, Buckets}]
+    ).
 
 %% @doc Get default authentication result.
 %% The default result is used when none of the authentication hooks
@@ -266,10 +279,18 @@ format_retain_flag(true) ->
 format_retain_flag(false) ->
     "R0".
 
--compile({inline, [run_hooks/3]}).
-run_hooks(Name, Args, Acc) ->
+run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.authorize' ->
     ok = emqx_metrics:inc(Name),
-    emqx_hooks:run_fold(Name, Args, Acc).
+    {Time, Value} = timer:tc(
+        fun() -> emqx_hooks:run_fold(Name, Args, Acc) end
+    ),
+    catch emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER,
+        Name,
+        total_latency,
+        erlang:convert_time_unit(Time, microsecond, millisecond)
+    ),
+    Value.
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->

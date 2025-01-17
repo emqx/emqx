@@ -14,7 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_authz_metrics_sup).
+-module(emqx_access_control_metrics_sup).
+
+-include("emqx.hrl").
 
 -behaviour(supervisor).
 
@@ -26,13 +28,16 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    AuthnMetrics = emqx_metrics_worker:child_spec(emqx_authn_metrics, authn_metrics),
-    AuthzMetrics = emqx_metrics_worker:child_spec(emqx_authz_metrics, authz_metrics),
+    AccessControlMetrics = emqx_metrics_worker:child_spec(
+        ?MODULE,
+        ?ACCESS_CONTROL_METRICS_WORKER,
+        [
+            {'client.authenticate', [{hist, total_latency}]},
+            {'client.authorize', [{hist, total_latency}]}
+        ]
+    ),
     {ok,
         {
             {one_for_one, 10, 100},
-            [
-                AuthnMetrics,
-                AuthzMetrics
-            ]
+            [AccessControlMetrics]
         }}.
