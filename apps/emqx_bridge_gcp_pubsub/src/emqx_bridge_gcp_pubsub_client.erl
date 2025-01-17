@@ -356,17 +356,11 @@ to_ehttpc_request(State, Method, Path, Body) ->
 -spec handle_response(term(), resource_id(), sync | async) -> {ok, map()} | {error, term()}.
 handle_response(Result, ResourceId, QueryMode) ->
     case Result of
-        {error, Reason} ->
-            ?tp(
-                gcp_pubsub_request_failed,
-                #{
-                    reason => Reason,
-                    query_mode => QueryMode,
-                    connector => ResourceId
-                }
-            ),
+        {error, {shutdown, Reason}} ->
             {error, Reason};
-        {ok, StatusCode, RespHeaders} when StatusCode >= 200 andalso StatusCode < 300 ->
+        {error, Reason} ->
+            {error, Reason};
+        {ok, StatusCode, RespHeaders} ->
             ?tp(
                 gcp_pubsub_response,
                 #{
@@ -375,10 +369,9 @@ handle_response(Result, ResourceId, QueryMode) ->
                     connector => ResourceId
                 }
             ),
-            {ok, #{status_code => StatusCode, headers => RespHeaders}};
-        {ok, StatusCode, RespHeaders, RespBody} when
-            StatusCode >= 200 andalso StatusCode < 300
-        ->
+            Status = response_status(StatusCode),
+            {Status, #{status_code => StatusCode, headers => RespHeaders}};
+        {ok, StatusCode, RespHeaders, RespBody} ->
             ?tp(
                 gcp_pubsub_response,
                 #{
@@ -387,28 +380,14 @@ handle_response(Result, ResourceId, QueryMode) ->
                     connector => ResourceId
                 }
             ),
-            {ok, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}};
-        {ok, StatusCode, RespHeaders} = _Result ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => _Result,
-                    query_mode => QueryMode,
-                    connector => ResourceId
-                }
-            ),
-            {error, #{status_code => StatusCode, headers => RespHeaders}};
-        {ok, StatusCode, RespHeaders, RespBody} = _Result ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => _Result,
-                    query_mode => QueryMode,
-                    connector => ResourceId
-                }
-            ),
-            {error, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}}
+            Status = response_status(StatusCode),
+            {Status, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}}
     end.
+
+response_status(StatusCode) when StatusCode >= 200 andalso StatusCode < 300 ->
+    ok;
+response_status(_StatusCode) ->
+    error.
 
 -spec reply_delegator(
     resource_id(),

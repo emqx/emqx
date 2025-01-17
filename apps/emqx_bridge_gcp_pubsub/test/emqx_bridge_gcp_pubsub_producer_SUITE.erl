@@ -1247,10 +1247,11 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             case Error of
                 econnrefused ->
                     case ?of_kind(gcp_pubsub_request_failed, Trace) of
-                        [#{reason := Error, connector := ConnectorResourceId} | _] ->
-                            ok;
-                        [#{reason := {closed, _Msg}, connector := ConnectorResourceId} | _] ->
-                            %% _Msg = "The connection was lost."
+                        [#{reason := Reason, connector := ConnectorResourceId} | _] when
+                            Reason == Error;
+                            Reason == closed;
+                            element(1, Reason) == closed
+                        ->
                             ok;
                         Trace0 ->
                             error(
