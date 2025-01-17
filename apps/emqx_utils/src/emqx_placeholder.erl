@@ -303,7 +303,7 @@ lookup_var([Prop | Rest], Data0) ->
             true ->
                 Data0;
             false ->
-                case emqx_utils_json:safe_decode(Data0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Data0) of
                     {ok, Data1} ->
                         Data1;
                     {error, _} ->

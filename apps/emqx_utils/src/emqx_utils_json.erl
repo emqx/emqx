@@ -65,7 +65,7 @@ encode(Term) ->
 
 -spec encode(json_term(), encode_options()) -> json_text().
 encode(Term, Opts) ->
-    to_binary(jiffy:encode(to_ejson(Term), Opts)).
+    to_binary(jiffy:encode(Term, Opts)).
 
 -spec safe_encode(json_term()) ->
     {ok, json_text()} | {error, Reason :: term()}.
@@ -83,16 +83,17 @@ safe_encode(Term, Opts) ->
     end.
 
 -spec decode(json_text()) -> json_term().
-decode(Json) -> decode(Json, [return_maps]).
+decode(Json) ->
+    decode(Json, [return_maps]).
 
 -spec decode(json_text(), decode_options()) -> json_term().
 decode(Json, Opts) ->
-    from_ejson(jiffy:decode(Json, Opts)).
+    jiffy:decode(Json, Opts).
 
 -spec safe_decode(json_text()) ->
     {ok, json_term()} | {error, Reason :: term()}.
 safe_decode(Json) ->
-    safe_decode(Json, []).
+    safe_decode(Json, [return_maps]).
 
 -spec safe_decode(json_text(), decode_options()) ->
     {ok, json_term()} | {error, Reason :: term()}.
@@ -111,33 +112,6 @@ is_json(Json) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
-
--compile(
-    {inline, [
-        to_ejson/1,
-        from_ejson/1
-    ]}
-).
-
-to_ejson([{}]) ->
-    {[]};
-to_ejson([{_, _} | _] = L) ->
-    {[{K, to_ejson(V)} || {K, V} <- L]};
-to_ejson(L) when is_list(L) ->
-    [to_ejson(E) || E <- L];
-to_ejson(M) when is_map(M) ->
-    maps:map(fun(_K, V) -> to_ejson(V) end, M);
-to_ejson(T) ->
-    T.
-
-from_ejson(L) when is_list(L) ->
-    [from_ejson(E) || E <- L];
-from_ejson({[]}) ->
-    [{}];
-from_ejson({L}) ->
-    [{Name, from_ejson(Value)} || {Name, Value} <- L];
-from_ejson(T) ->
-    T.
 
 to_binary(B) when is_binary(B) -> B;
 to_binary(L) when is_list(L) ->

@@ -397,7 +397,7 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
         node => node(),
         payload => Payload,
         peername => Peername,
-        pub_props => Props,
+        pub_props => Props#{'User-Property' => UserProperties},
         publish_received_at => Message#message.timestamp,
         qos => Message#message.qos,
         retain => emqx_message:get_flag(retain, Message, false),

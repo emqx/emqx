@@ -341,7 +341,7 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
     } = get_rule_engine_and_bridge_info(),
     {State, [
         {emqx_version, bin(emqx_app:get_release())},
-        {license, [{edition, <<"opensource">>}]},
+        {license, #{edition => <<"opensource">>}},
         {os_name, bin(get_value(os_name, OSInfo))},
         {os_version, bin(get_value(os_version, OSInfo))},
         {otp_version, bin(otp_version())},
@@ -367,7 +367,7 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
 
 report_telemetry(State0 = #state{url = URL}) ->
     {State, Data} = get_telemetry(State0),
-    case emqx_utils_json:safe_encode(Data) of
+    case emqx_utils_json:safe_encode({Data}) of
         {ok, Bin} ->
             ok = httpc_request(post, URL, [], Bin),
             ?tp(debug, telemetry_data_reported, #{});
@@ -420,10 +420,10 @@ read_raw_build_info() ->
     file:read_file(Filename).
 
 vm_specs() ->
-    [
-        {num_cpus, erlang:system_info(logical_processors)},
-        {total_memory, emqx_mgmt:vm_stats('total.memory')}
-    ].
+    #{
+        num_cpus => erlang:system_info(logical_processors),
+        total_memory => emqx_mgmt:vm_stats('total.memory')
+    }.
 
 -spec mqtt_runtime_insights(state()) -> {map(), state()}.
 mqtt_runtime_insights(State0) ->
