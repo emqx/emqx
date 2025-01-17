@@ -8,7 +8,6 @@
         kernel,
         stdlib,
         gproc,
-        jsx,
         ecpool,
         replayq,
         emqx,
