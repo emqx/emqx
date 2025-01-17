@@ -695,15 +695,15 @@ t_bcrypt_validation(_Config) ->
 t_cache(_Config) ->
     {ok, 200, CacheData0} = request(
         get,
-        uri(["authentication_cache"])
+        uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"enable">> := false},
+        #{<<"cache">> := #{<<"enable">> := false}},
         emqx_utils_json:decode(CacheData0, [return_maps])
     ),
     {ok, 200, MetricsData0} = request(
         get,
-        uri(["authentication_cache", "status"])
+        uri(["authentication", "settings", "cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
@@ -711,17 +711,17 @@ t_cache(_Config) ->
     ),
     {ok, 204, _} = request(
         put,
-        uri(["authentication_cache"]),
+        uri(["authentication", "settings"]),
         #{
-            <<"enable">> => true
+            <<"cache">> => #{<<"enable">> => true}
         }
     ),
     {ok, 200, CacheData1} = request(
         get,
-        uri(["authentication_cache"])
+        uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"enable">> := true},
+        #{<<"cache">> := #{<<"enable">> := true}},
         emqx_utils_json:decode(CacheData1, [return_maps])
     ),
 
@@ -744,7 +744,7 @@ t_cache(_Config) ->
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
         get,
-        uri(["authentication_cache", "status"])
+        uri(["authentication", "settings", "cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
@@ -755,7 +755,7 @@ t_cache(_Config) ->
 t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
-        uri(["authentication_cache", "reset"])
+        uri(["authentication", "settings", "cache", "reset"])
     ).
 
 %%------------------------------------------------------------------------------

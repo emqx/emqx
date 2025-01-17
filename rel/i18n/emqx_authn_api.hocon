@@ -71,17 +71,17 @@ authentication_cache_status_get.desc:
 authentication_cache_status_get.label:
 """Authentication Cache Status"""
 
-authentication_cache_get.desc:
-"""Get authentication cache settings."""
+authentication_settings_get.desc:
+"""Get authentication settings."""
 
-authentication_cache_get.label:
-"""Authentication Cache Settings"""
+authentication_settings_get.label:
+"""Authentication Settings"""
 
-authentication_cache_put.desc:
-"""Update authentication cache settings."""
+authentication_settings_put.desc:
+"""Update authentication settings."""
 
-authentication_cache_put.label:
-"""Update Authentication Cache Settings"""
+authentication_settings_put.label:
+"""Update Authentication Settings"""
 
 is_superuser.desc:
 """Is superuser"""

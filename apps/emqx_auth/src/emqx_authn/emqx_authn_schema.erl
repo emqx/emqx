@@ -41,7 +41,8 @@
     authenticator_type_without/2,
     mechanism/1,
     backend/1,
-    namespace/0
+    namespace/0,
+    fill_defaults/1
 ]).
 
 -export([
@@ -91,6 +92,16 @@ injected_fields(AuthnSchemaMods) ->
 
 tags() ->
     [<<"Authentication">>].
+
+fill_defaults(Config) ->
+    WithRoot = #{<<"auth_settings">> => Config},
+    Schema = #{roots => [{auth_settings, hoconsc:mk(?R_REF("settings"), #{})}]},
+    case emqx_hocon:check(Schema, WithRoot, #{make_serializable => true}) of
+        {ok, #{<<"auth_settings">> := WithDefaults}} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 authenticator_type() ->
     authenticator_type(?DEFAULT_SCHEMA_KIND).
@@ -161,13 +172,12 @@ global_auth_fields() ->
                 validator => validator(),
                 importance => ?IMPORTANCE_LOW
             })},
-        {authentication_cache,
+        {authentication_settings,
             ?HOCON(
-                ?R_REF(emqx_auth_cache_schema, config),
+                ?R_REF("settings"),
                 #{
-                    desc => ?DESC(authentication_cache),
-                    importance => ?IMPORTANCE_LOW,
-                    default => emqx_auth_cache_schema:default_config()
+                    desc => ?DESC(settings),
+                    importance => ?IMPORTANCE_LOW
                 }
             )}
     ].
@@ -213,6 +223,18 @@ enable(importance) -> ?IMPORTANCE_NO_DOC;
 enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
 
+fields("settings") ->
+    [
+        {"cache",
+            ?HOCON(
+                ?R_REF(emqx_auth_cache_schema, config),
+                #{
+                    desc => ?DESC(authentication_cache),
+                    importance => ?IMPORTANCE_LOW,
+                    default => emqx_auth_cache_schema:default_config()
+                }
+            )}
+    ];
 fields("metrics_status_fields") ->
     [
         {"resource_metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})},
