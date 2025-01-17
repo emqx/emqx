@@ -200,7 +200,7 @@ receive_message_from_rabbitmq(Config) ->
             #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
                 amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
             Payload = Content#amqp_msg.payload,
-            case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+            case emqx_utils_json:safe_decode(Payload) of
                 {ok, Msg} -> Msg;
                 {error, _} -> ?assert(false, {"Failed to decode the message", Payload})
             end

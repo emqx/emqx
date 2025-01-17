@@ -104,7 +104,7 @@ t_node_cache(_) ->
     ),
     ?assertMatch(
         #{<<"enable">> := false},
-        emqx_utils_json:decode(CacheData0, [return_maps])
+        emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
         get,
@@ -112,7 +112,7 @@ t_node_cache(_) ->
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
-        emqx_utils_json:decode(MetricsData0, [return_maps])
+        emqx_utils_json:decode(MetricsData0)
     ),
     {ok, 204, _} = request(
         put,
@@ -128,7 +128,7 @@ t_node_cache(_) ->
     ok = emqx_authz_source_registry:register(http, emqx_authz_http),
     ?assertMatch(
         #{<<"enable">> := true},
-        emqx_utils_json:decode(CacheData1, [return_maps])
+        emqx_utils_json:decode(CacheData1)
     ),
     {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE_HTTP),
 
@@ -152,7 +152,7 @@ t_node_cache(_) ->
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
-        emqx_utils_json:decode(MetricsData2, [return_maps])
+        emqx_utils_json:decode(MetricsData2)
     ),
     ok.
 

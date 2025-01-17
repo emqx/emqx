@@ -341,7 +341,7 @@ t_receive_via_rule(Config) ->
                         properties := #{'User-Property' := [{<<"key">>, <<"value">>}]}
                     }}
                 ),
-            Payload = emqx_utils_json:decode(maps:get(payload, Msg), [return_maps]),
+            Payload = emqx_utils_json:decode(maps:get(payload, Msg)),
             ?assertMatch(
                 #{
                     <<"event">> := Hookpoint,
@@ -523,7 +523,7 @@ t_static_clientids(Config) ->
             fun(#{<<"node">> := N}) -> N end,
             fun(#{<<"payload">> := P}) -> P end,
             lists:map(
-                fun(#{payload := P}) -> emqx_utils_json:decode(P, [return_maps]) end,
+                fun(#{payload := P}) -> emqx_utils_json:decode(P) end,
                 Publishes0
             )
         ),

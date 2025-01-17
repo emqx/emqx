@@ -62,7 +62,7 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.
@@ -83,7 +83,7 @@ request(Method, Path, Params, QueryParams0, Opts) when is_list(QueryParams0) ->
             {ok, {Status, Headers, Body}};
         {error, {Status, Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};

@@ -112,7 +112,7 @@ t_http_headers_api(_) ->
             <<"type">> := <<"http">>,
             <<"headers">> := M
         } when map_size(M) =:= 0,
-        emqx_utils_json:decode(Result1, [return_maps])
+        emqx_utils_json:decode(Result1)
     ),
 
     {ok, 204, _} = request(
@@ -127,7 +127,7 @@ t_http_headers_api(_) ->
             <<"type">> := <<"http">>,
             <<"headers">> := #{<<"a">> := <<"b">>}
         },
-        emqx_utils_json:decode(Result2, [return_maps])
+        emqx_utils_json:decode(Result2)
     ),
 
     {ok, 204, _} = request(put, uri(["authorization", "sources", "http"]), ?SOURCE_HTTP),
@@ -138,7 +138,7 @@ t_http_headers_api(_) ->
             <<"type">> := <<"http">>,
             <<"headers">> := M
         } when map_size(M) =:= 0,
-        emqx_utils_json:decode(Result4, [return_maps])
+        emqx_utils_json:decode(Result4)
     ).
 
 data_dir() -> emqx:data_dir().

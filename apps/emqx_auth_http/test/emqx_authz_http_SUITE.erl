@@ -338,7 +338,7 @@ t_json_body(_Config) ->
                     <<"qos">> := <<"1">>,
                     <<"retain">> := <<"false">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -392,7 +392,7 @@ t_no_rich_actions(_Config) ->
                     <<"qos">> := <<"${qos}">>,
                     <<"retain">> := <<"${retain}">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -639,7 +639,7 @@ t_no_value_for_placeholder(_Config) ->
                 #{
                     <<"mountpoint">> := <<"[]">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -910,4 +910,4 @@ get_status_api() ->
     Opts = #{return_all => true},
     Res0 = emqx_mgmt_api_test_util:request_api(get, Path, _QParams = [], Auth, _Body = [], Opts),
     {Status, RawBody} = emqx_mgmt_api_test_util:simplify_result(Res0),
-    {Status, emqx_utils_json:decode(RawBody, [return_maps])}.
+    {Status, emqx_utils_json:decode(RawBody)}.

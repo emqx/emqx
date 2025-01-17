@@ -132,7 +132,7 @@ get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
         {ok, Res} ->
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -141,7 +141,7 @@ update_config(Name, Change) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_utils_json:decode(Update, [return_maps])};
+        {ok, Update} -> {ok, emqx_utils_json:decode(Update)};
         Error -> Error
     end.
 

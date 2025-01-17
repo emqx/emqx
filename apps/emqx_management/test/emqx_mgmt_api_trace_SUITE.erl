@@ -783,8 +783,7 @@ api_path(Path) ->
     emqx_mgmt_api_test_util:api_path([Path]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
-    Jsx.
+    emqx_utils_json:decode(Data).
 
 load() ->
     emqx_trace:start_link().

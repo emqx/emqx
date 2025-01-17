@@ -29,7 +29,7 @@
 -define(assertAuthenticatorsMatch(Guard, Path),
     (fun() ->
         {ok, 200, Response} = request(get, uri(Path)),
-        ?assertMatch(Guard, emqx_utils_json:decode(Response, [return_maps]))
+        ?assertMatch(Guard, emqx_utils_json:decode(Response))
     end)()
 ).
 
@@ -329,20 +329,12 @@ test_authenticator(PathPrefix) ->
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http"])
     ),
-
     {ok, 200, Res} = request(
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http", "status"])
     ),
-    {ok, RList} = emqx_utils_json:safe_decode(Res),
-    Snd = fun({_, Val}) -> Val end,
-    LookupVal = fun LookupV(List, RestJson) ->
-        case List of
-            [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
-            [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
-        end
-    end,
-    LookFun = fun(List) -> LookupVal(List, RList) end,
+    RMap = emqx_utils_json:decode(Res),
+    LookFun = fun(List) -> emqx_utils_maps:deep_get(List, RMap) end,
     MetricsList = [
         {<<"failed">>, 0},
         {<<"total">>, 0},
@@ -699,7 +691,7 @@ t_cache(_Config) ->
     ),
     ?assertMatch(
         #{<<"enable">> := false},
-        emqx_utils_json:decode(CacheData0, [return_maps])
+        emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
         get,
@@ -707,7 +699,7 @@ t_cache(_Config) ->
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
-        emqx_utils_json:decode(MetricsData0, [return_maps])
+        emqx_utils_json:decode(MetricsData0)
     ),
     {ok, 204, _} = request(
         put,
@@ -722,7 +714,7 @@ t_cache(_Config) ->
     ),
     ?assertMatch(
         #{<<"enable">> := true},
-        emqx_utils_json:decode(CacheData1, [return_maps])
+        emqx_utils_json:decode(CacheData1)
     ),
 
     %% We enabled authn cache, let's create
@@ -748,7 +740,7 @@ t_cache(_Config) ->
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
-        emqx_utils_json:decode(MetricsData2, [return_maps])
+        emqx_utils_json:decode(MetricsData2)
     ),
     ok.
 

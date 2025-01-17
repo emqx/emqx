@@ -287,7 +287,7 @@ t_update(Cfg) ->
     ?assertMatch([], emqx_exhook_mgr:running()).
 
 decode_json(Data) ->
-    BinJosn = emqx_utils_json:decode(Data, [return_maps]),
+    BinJosn = emqx_utils_json:decode(Data),
     emqx_utils_maps:unsafe_atom_key_map(BinJosn).
 
 request_api(Method, Url, Auth) ->

@@ -91,7 +91,7 @@ t_legacy_prometheus_api(_) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
     OldConf = emqx:get_raw_config([prometheus]),
-    Conf = emqx_utils_json:decode(Response, [return_maps]),
+    Conf = emqx_utils_json:decode(Response),
     %% Always return new config.
     ?assertMatch(
         #{
@@ -129,7 +129,7 @@ t_legacy_prometheus_api(_) ->
     },
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
-    Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
+    Conf2 = emqx_utils_json:decode(Response2),
     ?assertEqual(NewConf, Conf2),
 
     EnvCollectors = env_collectors(),
@@ -186,7 +186,7 @@ t_prometheus_api(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
-    Conf = emqx_utils_json:decode(Response, [return_maps]),
+    Conf = emqx_utils_json:decode(Response),
     ?assertMatch(
         #{
             <<"push_gateway">> := #{},
@@ -222,7 +222,7 @@ t_prometheus_api(_) ->
     },
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
-    Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
+    Conf2 = emqx_utils_json:decode(Response2),
     ?assertMatch(NewConf, Conf2),
 
     EnvCollectors = env_collectors(),
@@ -473,7 +473,7 @@ accept_json_header() ->
 request_stats(Headers, Auth) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
-    Data = emqx_utils_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
     ok = meck:expect(mria_rlog, backend, fun() -> rlog end),
@@ -507,7 +507,7 @@ get_stats(Format, Mode) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, QueryString, Headers),
     case Format of
         json ->
-            emqx_utils_json:decode(Response, [return_maps]);
+            emqx_utils_json:decode(Response);
         prometheus ->
             Response
     end.

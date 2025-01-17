@@ -72,7 +72,7 @@ on_socket_closed(_Req, _Md) ->
     {ok, emqx_exproto_pb:empty_success(), grpc:metadata()}
     | {error, grpc_stream:error_response()}.
 on_received_bytes(#{conn := Conn, bytes := Bytes}, _Md) ->
-    #{<<"type">> := Type} = Params = emqx_utils_json:decode(Bytes, [return_maps]),
+    #{<<"type">> := Type} = Params = emqx_utils_json:decode(Bytes),
     _ = handle_in(Conn, Type, Params),
     {ok, #{}, _Md}.
 
