@@ -143,7 +143,10 @@ t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
             %% Export and import again
             {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
             ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)),
-            ?assertEqual(RawConfAfterImport, emqx:get_raw_config([]))
+            ?assertEqual(
+                remove_time_based_fields(RawConfAfterImport),
+                remove_time_based_fields(emqx:get_raw_config([]))
+            )
     end,
     ok.
 
@@ -283,10 +286,16 @@ t_cluster_hocon_export_import(Config) ->
     ?assertNotEqual(RawConfBeforeImport, RawConfAfterImport),
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)),
-    ?assertEqual(RawConfAfterImport, emqx:get_raw_config([])),
+    ?assertEqual(
+        remove_time_based_fields(RawConfAfterImport),
+        remove_time_based_fields(emqx:get_raw_config([]))
+    ),
     %% idempotent update assert
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)),
-    ?assertEqual(RawConfAfterImport, emqx:get_raw_config([])),
+    ?assertEqual(
+        remove_time_based_fields(RawConfAfterImport),
+        remove_time_based_fields(emqx:get_raw_config([]))
+    ),
     %% lookup file inside <data_dir>/backup
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(filename:basename(FileName))),
 
@@ -894,3 +903,22 @@ filter_matching(FileTree, RE) ->
 strip_prefix(Path, N) ->
     Segments = filename:split(Path),
     iolist_to_binary(filename:join(lists:nthtail(N, Segments))).
+
+remove_time_based_fields(RawConf0) ->
+    %% These fields are dynamically injected when config updates happen.
+    StripBridgeDates =
+        fun(TypeToNameAndConf) ->
+            maps:map(
+                fun(_Type, NameToConf) ->
+                    maps:map(
+                        fun(_Name, Conf) ->
+                            maps:without([<<"created_at">>, <<"last_modified_at">>], Conf)
+                        end,
+                        NameToConf
+                    )
+                end,
+                TypeToNameAndConf
+            )
+        end,
+    RawConf1 = emqx_utils_maps:update_if_present(<<"actions">>, StripBridgeDates, RawConf0),
+    emqx_utils_maps:update_if_present(<<"sources">>, StripBridgeDates, RawConf1).

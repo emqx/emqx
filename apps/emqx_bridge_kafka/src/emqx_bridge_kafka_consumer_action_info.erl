@@ -30,7 +30,14 @@ connector_type_name() -> kafka_consumer.
 schema_module() -> emqx_bridge_kafka_consumer_schema.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    V1Config1 = maps:without([<<"connector">>, <<"last_modified_at">>], ActionConfig),
+    V1Config1 = maps:without(
+        [
+            <<"connector">>,
+            <<"created_at">>,
+            <<"last_modified_at">>
+        ],
+        ActionConfig
+    ),
     V1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, V1Config1),
     V1Config3 = maybe_fabricate_topic_mapping(V1Config2),
     {Params1, V1Config4} = maps:take(<<"parameters">>, V1Config3),

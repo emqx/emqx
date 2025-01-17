@@ -468,6 +468,7 @@ top_level_common_action_keys() ->
         <<"connector">>,
         <<"tags">>,
         <<"description">>,
+        <<"created_at">>,
         <<"last_modified_at">>,
         <<"enable">>,
         <<"local_topic">>,
@@ -480,6 +481,7 @@ top_level_common_source_keys() ->
         <<"connector">>,
         <<"tags">>,
         <<"description">>,
+        <<"created_at">>,
         <<"last_modified_at">>,
         <<"enable">>,
         <<"parameters">>,
@@ -535,6 +537,7 @@ common_fields() ->
             })},
         {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()},
+        {created_at, mk(integer(), #{required => false, importance => ?IMPORTANCE_HIDDEN})},
         {last_modified_at, mk(integer(), #{required => false, importance => ?IMPORTANCE_HIDDEN})}
     ].
 
