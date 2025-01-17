@@ -31,7 +31,7 @@ register(RegFrame, #auth{registry = RegUrl}) ->
     Params = maps:merge(FBody, #{<<"phone">> => Phone}),
     case request(RegUrl, Params) of
         {ok, 200, Body} ->
-            case emqx_utils_json:safe_decode(Body, [return_maps]) of
+            case emqx_utils_json:safe_decode(Body) of
                 {ok, #{<<"code">> := 0, <<"authcode">> := Authcode}} ->
                     {ok, Authcode};
                 {ok, #{<<"code">> := Code}} ->
