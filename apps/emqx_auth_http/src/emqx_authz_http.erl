@@ -168,15 +168,16 @@ parse_config(
     #{
         url := RawUrl,
         method := Method,
-        headers := Headers,
+        headers := Headers0,
         request_timeout := ReqTimeout
     } = Conf
 ) ->
     {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
+    Headers = maps:to_list(emqx_auth_http_utils:transform_header_name(Headers0)),
     Conf#{
         method => Method,
         request_base => RequestBase,
-        headers => maps:to_list(emqx_auth_http_utils:transform_header_name(Headers)),
+        headers => emqx_authn_utils:parse_deep(Headers),
         base_path_template => emqx_auth_utils:parse_str(Path, allowed_vars()),
         base_query_template => emqx_auth_utils:parse_deep(
             cow_qs:parse_qs(Query),
