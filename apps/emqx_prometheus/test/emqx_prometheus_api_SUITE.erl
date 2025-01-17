@@ -427,6 +427,8 @@ t_listener_shutdown_count(_Config) ->
             ExpectedLines
         )
     end,
+    %% Verify that disabling unrelated listener does not affect anything.
+    ok = emqx_listeners:stop_listener('ssl:default'),
     PromClientStatsNode = get_stats(prometheus, ?PROM_DATA_MODE__NODE),
     ExpectedLines1 = [
         iolist_to_binary(

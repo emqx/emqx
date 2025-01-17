@@ -882,7 +882,7 @@ examples_update_gateway_confs() ->
                         enable_stats => true,
                         idle_timeout => <<"30s">>,
                         mountpoint => <<"lwm2m2/">>,
-                        xml_dir => <<"/etc/emqx/lwm2m_xml">>,
+                        xml_dir => <<"etc/lwm2m_xml">>,
                         lifetime_min => <<"1s">>,
                         lifetime_max => <<"86400s">>,
                         qmode_time_window => <<"22s">>,

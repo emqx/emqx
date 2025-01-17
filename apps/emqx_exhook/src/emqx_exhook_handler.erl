@@ -320,8 +320,7 @@ clientinfo(
         #{
             clientid := ClientId,
             username := Username,
-            peerhost := PeerHost,
-            peerport := PeerPort,
+            peername := {PeerHost, PeerPort},
             sockport := SockPort,
             protocol := Protocol,
             mountpoint := Mountpoiont

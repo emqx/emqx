@@ -41,7 +41,8 @@
     simple_sync_query/2,
     simple_sync_query/3,
     simple_async_query/3,
-    simple_sync_internal_buffer_query/3
+    simple_sync_internal_buffer_query/3,
+    simple_async_internal_buffer_query/3
 ]).
 
 -export([
@@ -56,7 +57,11 @@
 -export([queue_item_marshaller/1, estimate_size/1]).
 
 -export([
-    handle_async_reply/2, handle_async_batch_reply/2, reply_call/2, reply_call_internal_buffer/3
+    handle_async_reply/2,
+    handle_async_batch_reply/2,
+    reply_call/2,
+    reply_call_internal_buffer/3,
+    handle_async_internal_buffer_reply/2
 ]).
 
 -export([clear_disk_queue_dir/2]).
@@ -77,6 +82,15 @@
 -define(WORKER_MREF_IDX, 4).
 
 -define(queries, queries).
+-define(internal_buffer, internal_buffer).
+
+-define(NO_INFLIGHT, []).
+-define(NO_INDEX, []).
+-define(NO_REQ_REF, []).
+-define(NO_BUFFER_WORKER, []).
+-define(IS_BYPASS(Mode),
+    (Mode =:= simple_sync_internal_buffer orelse Mode =:= simple_async_internal_buffer)
+).
 
 -type id() :: binary().
 -type index() :: pos_integer().
@@ -130,14 +144,16 @@
     tref := undefined | {reference(), reference()},
     metrics_tref := undefined | {reference(), reference()}
 }.
-
--define(NO_INFLIGHT, []).
--define(NO_INDEX, []).
--define(NO_REQ_REF, []).
--define(NO_BUFFER_WORKER, []).
--define(IS_BYPASS(Mode),
-    (Mode =:= simple_sync_internal_buffer orelse Mode =:= simple_async_internal_buffer)
-).
+-type minimized_queue_query() :: queue_query().
+-type async_reply_context() :: #{
+    buffer_worker := pid() | ?NO_BUFFER_WORKER,
+    resource_id := id(),
+    worker_index := index(),
+    inflight_tid := inflight_table() | ?NO_INFLIGHT,
+    request_ref := reference(),
+    simple_query := boolean(),
+    min_query := minimized_queue_query()
+}.
 
 -record(query, {request :: request(), query_opts :: query_opts()}).
 
@@ -210,6 +226,12 @@ simple_async_query(Id, Request, QueryOpts0) ->
     _ = handle_simple_query_result(Id, Query, Result, _HasBeenSent = false),
     Result.
 
+%% Special function used by actions that handle buffering internally (e.g.: Kafka and Pulsar).
+-spec simple_async_internal_buffer_query(id(), request(), query_opts()) -> term().
+simple_async_internal_buffer_query(Id, Request, QueryOpts0) ->
+    QueryOpts = QueryOpts0#{?internal_buffer => true},
+    simple_async_query(Id, Request, QueryOpts).
+
 %% This is a hack to handle cases where the underlying connector has internal buffering
 %% (e.g.: Kafka and Pulsar producers).  Since the message may be inernally retried at a
 %% later time, we can't bump metrics immediatelly if the return value is not a success
@@ -224,7 +246,7 @@ simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
             reply_to => {fun ?MODULE:reply_call_internal_buffer/3, [ReplyAlias, MaybeReplyTo]}
         },
         QueryOpts = #{timeout := Timeout} = maps:merge(simple_sync_query_opts(), QueryOpts1),
-        case simple_async_query(Id, Request, QueryOpts) of
+        case simple_async_internal_buffer_query(Id, Request, QueryOpts) of
             {error, _} = Error ->
                 ?tp("resource_simple_sync_internal_buffer_query_error", #{
                     id => Id, request => Request
@@ -1495,7 +1517,11 @@ apply_query_fun(
     ?APPLY_RESOURCE(
         call_query_async,
         begin
-            ReplyFun = fun ?MODULE:handle_async_reply/2,
+            ReplyFun =
+                case maps:get(?internal_buffer, QueryOpts, false) of
+                    false -> fun ?MODULE:handle_async_reply/2;
+                    true -> fun ?MODULE:handle_async_internal_buffer_reply/2
+                end,
             IsSimpleQuery = is_simple_query(QueryOpts),
             ReplyContext = #{
                 buffer_worker => buffer_worker(InflightTID),
@@ -1584,6 +1610,9 @@ apply_query_fun(
     ?APPLY_RESOURCE(
         call_batch_query_async,
         begin
+            %% Note: currently, actions with internal buffering (Kafka, Pulsar) do not
+            %% support sending batches, so we don't have an internal buffer version of
+            %% this reply function.
             ReplyFun = fun ?MODULE:handle_async_batch_reply/2,
             IsSimpleQuery = is_simple_query(QueryOpts),
             ReplyContext = #{
@@ -1632,6 +1661,19 @@ maybe_reply_to(Result, #{reply_to := ReplyTo}) ->
     Result;
 maybe_reply_to(Result, _) ->
     Result.
+
+-spec handle_async_internal_buffer_reply(async_reply_context(), term()) -> ok.
+handle_async_internal_buffer_reply(
+    #{min_query := MinQuery} = _ReplyContext, {error, buffer_overflow}
+) ->
+    reply_overflown([MinQuery]);
+handle_async_internal_buffer_reply(
+    #{min_query := MinQuery} = _ReplyContext, {error, request_expired}
+) ->
+    ?QUERY(ReplyTo, _, _, _, _, _) = MinQuery,
+    do_reply_caller(ReplyTo, {error, request_expired});
+handle_async_internal_buffer_reply(ReplyContext, Result) ->
+    handle_async_reply(ReplyContext, Result).
 
 handle_async_reply(
     #{

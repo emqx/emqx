@@ -55,14 +55,15 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Cfg) ->
-    _ = emqx_exhook_demo_svr:start(),
-    Cfg.
+init_per_suite(Config) ->
+    {ok, Apps} = application:ensure_all_started(grpc),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Cfg) ->
-    emqx_exhook_demo_svr:stop().
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(TC, Config) ->
+    _ = emqx_exhook_demo_svr:start(),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -73,9 +74,9 @@ init_per_testcase(TC, Config) ->
     ),
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
-end_per_testcase(TC, Config) ->
-    _ = emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
-    ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
+end_per_testcase(_, Config) ->
+    ok = emqx_cth_suite:stop(?config(tc_apps, Config)),
+    ok = emqx_exhook_demo_svr:stop().
 
 emqx_conf(t_cluster_name) ->
     io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
@@ -96,8 +97,8 @@ t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
+        peername => {{127, 0, 0, 1}, 3456},
         peerhost => {127, 0, 0, 1},
-        peerport => 3456,
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined
@@ -239,15 +240,39 @@ t_metrics(_) ->
     ?assertMatch(#{'client.connect' := #{succeed := _}}, HooksMetrics),
     ok.
 
-t_handler(_) ->
+t_handler_tcp(_) ->
+    t_handler(fun emqtt:connect/1, 1883, <<"exhook_tcp">>).
+
+t_handler_ws(_) ->
+    t_handler(fun emqtt:ws_connect/1, 8083, <<"exhook_ws">>).
+
+t_handler(ConnFun, Port, CId) ->
+    ?assertMatch(
+        [{on_provider_loaded, #{broker := _Broker}}],
+        emqx_exhook_demo_svr:flush()
+    ),
+
     %% connect
     {ok, C} = emqtt:start_link([
         {host, "localhost"},
-        {port, 1883},
+        {port, Port},
         {username, <<"gooduser">>},
-        {clientid, <<"exhook_gooduser">>}
+        {clientid, CId}
     ]),
-    {ok, _} = emqtt:connect(C),
+    {ok, _} = ConnFun(C),
+
+    ?assertMatch(
+        [
+            {on_client_connect, #{conninfo := #{sockport := Port}}},
+            {on_client_authenticate, #{
+                clientinfo := #{sockport := Port, peerport := _, clientid := CId}
+            }},
+            {on_session_created, #{clientinfo := #{clientid := CId}}},
+            {on_client_connected, #{clientinfo := #{clientid := CId}}},
+            {on_client_connack, #{conninfo := #{}}}
+        ],
+        emqx_exhook_demo_svr:flush()
+    ),
 
     %% pub/sub
     {ok, _, _} = emqtt:subscribe(C, <<"/exhook">>, qos0),
@@ -256,6 +281,50 @@ t_handler(_) ->
     ok = emqtt:publish(C, <<"/ignore">>, <<>>, qos0),
     timer:sleep(100),
     {ok, _, _} = emqtt:unsubscribe(C, <<"/exhook">>),
+
+    Events1 = emqx_exhook_demo_svr:flush(),
+    ?assertMatch(
+        [
+            {on_client_authorize, #{type := 'SUBSCRIBE', clientinfo := #{clientid := CId}}},
+            {on_client_subscribe, #{
+                topic_filters := [#{name := <<"/exhook">>}],
+                clientinfo := #{clientid := CId}
+            }},
+            {on_session_subscribed, #{
+                topic := <<"/exhook">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_client_authorize, #{
+                type := 'PUBLISH',
+                topic := <<"/exhook">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_message_publish, #{message := #{topic := <<"/exhook">>, qos := 0}}},
+            {on_client_authorize, #{
+                type := 'PUBLISH',
+                topic := <<"/ignore">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_message_publish, #{message := #{topic := <<"/ignore">>, qos := 0}}},
+            {on_client_unsubscribe, #{
+                topic_filters := [#{name := <<"/exhook">>}],
+                clientinfo := #{clientid := CId}
+            }},
+            {on_session_unsubscribed, #{
+                topic := <<"/exhook">>,
+                clientinfo := #{clientid := CId}
+            }}
+        ],
+        [E || {ET, _} = E <- Events1, ET /= on_message_dropped, ET /= on_message_delivered]
+    ),
+    ?assertMatch(
+        [{on_message_delivered, #{message := #{topic := <<"/exhook">>, qos := 0}}}],
+        [E || {ET, _} = E <- Events1, ET == on_message_delivered]
+    ),
+    ?assertMatch(
+        [{on_message_dropped, #{message := #{topic := <<"/ignore">>, qos := 0}}}],
+        [E || {ET, _} = E <- Events1, ET == on_message_dropped]
+    ),
 
     %% sys pub/sub
     ok = emqtt:publish(C, <<"$SYS">>, <<>>, qos0),
@@ -266,6 +335,47 @@ t_handler(_) ->
     timer:sleep(100),
     {ok, _, _} = emqtt:unsubscribe(C, <<"$SYS/systest">>),
 
+    ?assertMatch(
+        [
+            {on_client_authorize, #{
+                type := 'PUBLISH',
+                topic := <<"$SYS">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_message_publish, #{message := #{topic := <<"$SYS">>, qos := 0}}},
+            {on_message_dropped, #{message := #{topic := <<"$SYS">>, qos := 0}}},
+            {on_client_authorize, #{type := 'SUBSCRIBE', clientinfo := #{clientid := CId}}},
+            {on_client_subscribe, #{
+                topic_filters := [#{name := <<"$SYS/systest">>}],
+                clientinfo := #{clientid := CId}
+            }},
+            {on_session_subscribed, #{
+                topic := <<"$SYS/systest">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_client_authorize, #{
+                type := 'PUBLISH',
+                topic := <<"$SYS/systest">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_client_authorize, #{
+                type := 'PUBLISH',
+                topic := <<"$SYS/ignore">>,
+                clientinfo := #{clientid := CId}
+            }},
+            %% No publishes.
+            {on_client_unsubscribe, #{
+                topic_filters := [#{name := <<"$SYS/systest">>}],
+                clientinfo := #{clientid := CId}
+            }},
+            {on_session_unsubscribed, #{
+                topic := <<"$SYS/systest">>,
+                clientinfo := #{clientid := CId}
+            }}
+        ],
+        emqx_exhook_demo_svr:flush()
+    ),
+
     %% ack
     {ok, _, _} = emqtt:subscribe(C, <<"/exhook1">>, qos1),
     timer:sleep(100),
@@ -273,14 +383,41 @@ t_handler(_) ->
     timer:sleep(100),
     emqtt:stop(C),
     timer:sleep(100),
-    ok.
+
+    ?assertMatch(
+        [
+            {on_client_authorize, #{type := 'SUBSCRIBE', clientinfo := #{clientid := CId}}},
+            {on_client_subscribe, #{
+                topic_filters := [#{name := <<"/exhook1">>}],
+                clientinfo := #{clientid := CId}
+            }},
+            {on_session_subscribed, #{
+                topic := <<"/exhook1">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_client_authorize, #{
+                type := 'PUBLISH',
+                topic := <<"/exhook1">>,
+                clientinfo := #{clientid := CId}
+            }},
+            {on_message_publish, #{message := #{topic := <<"/exhook1">>, qos := 1}}},
+            {on_message_delivered, #{message := #{topic := <<"/exhook1">>, qos := 1}}},
+            {on_message_acked, #{
+                message := #{topic := <<"/exhook1">>, qos := 1},
+                clientinfo := #{clientid := CId}
+            }},
+            {on_client_disconnected, #{clientinfo := #{clientid := CId}}},
+            {on_session_terminated, #{clientinfo := #{clientid := CId}}}
+        ],
+        emqx_exhook_demo_svr:flush()
+    ).
 
 t_simulated_handler(_) ->
     ClientInfo = #{
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
+        peername => {{127, 0, 0, 1}, 3456},
         peerhost => {127, 0, 0, 1},
-        peerport => 3456,
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined

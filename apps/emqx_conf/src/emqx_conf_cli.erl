@@ -42,6 +42,7 @@
 -define(UPDATE_READONLY_KEYS_PROHIBITED, <<"Cannot update read-only key '~s'.">>).
 -define(SCHEMA_VALIDATION_CONF_ROOT_BIN, <<"schema_validation">>).
 -define(MESSAGE_TRANSFORMATION_CONF_ROOT_BIN, <<"message_transformation">>).
+-define(CONNECTORS_CONF_ROOT_BIN, <<"connectors">>).
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 -define(TIMEOUT, 30000).
 
@@ -353,10 +354,13 @@ load_config_from_raw(RawConf0, Opts) ->
         {ok, RawConf} ->
             case update_cluster_links(cluster, RawConf, Opts) of
                 ok ->
-                    %% It has been ensured that the connector is always the first configuration to be updated.
-                    %% However, when deleting the connector, we need to clean up the dependent actions/sources first;
-                    %% otherwise, the deletion will fail.
-                    %% notice: we can't create a action/sources before connector.
+                    %% It has been ensured that the connector is always the first
+                    %% configuration to be updated.
+                    %%
+                    %% However, when deleting the connector, we need to clean up the
+                    %% dependent actions/sources first; otherwise, the deletion will fail.
+                    %%
+                    %% Note: we can't create action/sources before connector.
                     uninstall(<<"actions">>, RawConf, Opts),
                     uninstall(<<"sources">>, RawConf, Opts),
                     Error = update_config_cluster(Opts, RawConf),
@@ -465,6 +469,11 @@ update_config_cluster(
     ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts
 ) ->
     check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts) ->
+    Merged = merge_conf(Key, NewConf),
+    check_res(Key, emqx_conf:update([Key], {async_start, Merged}, ?OPTIONS), NewConf, Opts);
+update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, #{mode := replace} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], {async_start, Value}, ?OPTIONS), Value, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
     check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
@@ -671,8 +680,8 @@ sorted_fold(Func, Conf) ->
 
 to_sorted_list(Conf0) ->
     Conf1 = maps:remove(<<"cluster">>, Conf0),
-    %% connectors > actions/bridges > rule_engine
-    Keys = [<<"connectors">>, <<"actions">>, <<"bridges">>, <<"rule_engine">>],
+    %% connectors > actions/bridges/sources > rule_engine
+    Keys = [<<"connectors">>, <<"actions">>, <<"sources">>, <<"bridges">>, <<"rule_engine">>],
     {HighPriorities, Conf2} = split_high_priority_conf(Keys, Conf1, []),
     HighPriorities ++ lists:keysort(1, maps:to_list(Conf2)).
 
