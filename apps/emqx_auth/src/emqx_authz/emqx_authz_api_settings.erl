@@ -18,6 +18,8 @@
 
 -behaviour(minirest_api).
 
+-include_lib("emqx_authz.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -62,25 +64,34 @@ schema("/authorization/settings") ->
     }.
 
 ref_authz_schema() ->
-    emqx_schema:authz_fields().
+    emqx_schema:authz_fields() ++ emqx_authz_schema:metrics_fields().
 
 settings(get, _Params) ->
     {200, authorization_settings()};
-settings(put, #{
-    body := #{
+settings(put, #{body := Body}) ->
+    #{
         <<"no_match">> := NoMatch,
         <<"deny_action">> := DenyAction,
-        <<"cache">> := Cache
-    }
-}) ->
+        <<"cache">> := Cache,
+        <<"total_latency_metric_buckets">> := TotalLatencyMetricBucketsRaw
+        %% We do not pass the body to emqx_conf:update_config/3 which
+        %% fills the defaults. So we need to fill the defaults here
+    } = emqx_schema:fill_defaults(ref_authz_schema(), Body),
+
+    %% TODO
+    %% This should be fixed, updating individual keys bypassing
+    %% emqx_conf:update_config/3 is error-prone.
     {ok, _} = emqx_authz_utils:update_config([authorization, no_match], NoMatch),
     {ok, _} = emqx_authz_utils:update_config(
         [authorization, deny_action], DenyAction
     ),
     {ok, _} = emqx_authz_utils:update_config([authorization, cache], Cache),
+
+    TotalLatencyMetricBuckets = emqx_schema:parse_histogram_buckets(TotalLatencyMetricBucketsRaw),
+    {ok, _} = emqx_authz_utils:update_config(
+        [authorization, total_latency_metric_buckets], TotalLatencyMetricBuckets
+    ),
     {200, authorization_settings()}.
 
 authorization_settings() ->
-    C = maps:remove(<<"sources">>, emqx:get_raw_config([authorization], #{})),
-    Schema = emqx_hocon:make_schema(emqx_schema:authz_fields()),
-    hocon_tconf:make_serializable(Schema, C, #{}).
+    emqx_schema:fill_defaults(ref_authz_schema(), emqx_config:get_raw([authorization], #{})).

@@ -139,6 +139,8 @@
     parse_servers/2,
     servers_validator/2,
     servers_sc/2,
+    histogram_buckets_sc/1,
+    parse_histogram_buckets/1,
     convert_servers/1,
     convert_servers/2,
     mqtt_converter/2
@@ -152,6 +154,7 @@
 
 -export([listeners/0]).
 -export([mkunion/2, mkunion/3]).
+-export([fill_defaults/2, fill_defaults_for_type/2]).
 
 -behaviour(hocon_schema).
 
@@ -3426,6 +3429,54 @@ parse_port(Port) ->
             {error, "bad_port_number"}
     end.
 
+histogram_buckets_sc(Meta0) ->
+    DefaultMeta = #{
+        default => <<"5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000">>,
+        desc => "Comma separated histogram buckets.",
+        converter => fun histogram_buckets_converter/2,
+        required => true
+    },
+    hoconsc:mk(string(), maps:merge(DefaultMeta, Meta0)).
+
+histogram_buckets_converter(undefined, _Opts) ->
+    undefined;
+histogram_buckets_converter(Buckets, #{make_serializable := true}) ->
+    case is_list(Buckets) of
+        true ->
+            iolist_to_binary(
+                string:join(
+                    [integer_to_list(I) || I <- Buckets],
+                    ", "
+                )
+            );
+        false ->
+            Buckets
+    end;
+histogram_buckets_converter(Buckets, _Opts) ->
+    case is_binary(Buckets) of
+        true ->
+            parse_histogram_buckets(Buckets);
+        false ->
+            Buckets
+    end.
+
+parse_histogram_buckets(Str) ->
+    case binary:split(Str, <<",">>, [global, trim]) of
+        [] ->
+            [];
+        BucketsStr ->
+            lists:map(
+                fun(BucketStr) ->
+                    case string:to_integer(string:trim(BucketStr)) of
+                        {Int, <<>>} when Int > 0 -> Int;
+                        {Int, <<>>} when Int =< 0 -> throw("non_positive_histogram_bucket");
+                        _ -> throw("bad_histogram_bucket")
+                    end
+                end,
+                BucketsStr
+            )
+    end.
+
 quic_feature_toggle(Desc) ->
     sc(
         %% true, false are for user facing
@@ -4098,4 +4149,23 @@ scunion(Field, Schemas, Default, {value, Value}) ->
             [Schema];
         _Error ->
             throw(#{field_name => Field, expected => maps:keys(Schemas)})
+    end.
+
+fill_defaults(Roots, RawConf) ->
+    Schema = #{roots => Roots},
+    case emqx_hocon:check(Schema, RawConf, #{make_serializable => true}) of
+        {ok, WithDefaults} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
+    end.
+
+fill_defaults_for_type(Type, RawConf) ->
+    WithRoot = #{<<"conf">> => RawConf},
+    Schema = #{roots => [{conf, hoconsc:mk(Type, #{})}]},
+    case emqx_hocon:check(Schema, WithRoot, #{make_serializable => true}) of
+        {ok, #{<<"conf">> := WithDefaults}} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
     end.

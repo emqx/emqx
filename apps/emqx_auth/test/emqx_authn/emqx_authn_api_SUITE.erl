@@ -21,6 +21,7 @@
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -748,6 +749,51 @@ t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
         uri(["authentication", "settings", "cache", "reset"])
+    ).
+
+t_latency_buckets(_Config) ->
+    %% Set the buckets as comma-separated string
+    {ok, 204, _} = request(
+        put,
+        uri(["authentication", "settings"]),
+        #{
+            <<"total_latency_metric_buckets">> => <<" 23456, 23457 ">>
+        }
+    ),
+    Hists0 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    ?assertMatch(
+        #{
+            latency :=
+                #{bucket_counts := [{23456, _} | _]}
+        },
+        Hists0
+    ),
+
+    %% Set the buckets as list of integers
+    {ok, 204, _} = request(
+        put,
+        uri(["authentication", "settings"]),
+        #{
+            <<"total_latency_metric_buckets">> => [12345, 12346]
+        }
+    ),
+    Hists1 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    ?assertMatch(
+        #{
+            latency :=
+                #{bucket_counts := [{12345, _} | _]}
+        },
+        Hists1
+    ),
+
+    %% Fetch the settings, the buckets should be comma-separated string
+    {ok, 200, Settings} = request(
+        get,
+        uri(["authentication", "settings"])
+    ),
+    ?assertMatch(
+        #{<<"total_latency_metric_buckets">> := <<"12345, 12346">>},
+        emqx_utils_json:decode(Settings, [return_maps])
     ).
 
 %%------------------------------------------------------------------------------

@@ -28,7 +28,6 @@
 
 -export([
     authz_fields/0,
-    api_authz_fields/0,
     api_source_type/0,
     source_types/0
 ]).
@@ -39,7 +38,10 @@
 
 -export([
     default_authz/0,
-    authz_common_fields/1
+    authz_common_fields/1,
+    sources_fields/0,
+    metrics_fields/0,
+    node_cache_fields/0
 ]).
 
 -ifdef(TEST).
@@ -135,6 +137,9 @@ injected_fields(AuthzSchemaMods) ->
     }.
 
 authz_fields() ->
+    sources_fields() ++ node_cache_fields() ++ metrics_fields().
+
+sources_fields() ->
     AuthzSchemaMods = source_schema_mods(),
     AllTypes = lists:concat([Mod:source_refs() || Mod <- AuthzSchemaMods]),
     UnionMemberSelector =
@@ -164,7 +169,11 @@ authz_fields() ->
                     %% hence the importance level for config is low
                     importance => ?IMPORTANCE_LOW
                 }
-            )},
+            )}
+    ].
+
+node_cache_fields() ->
+    [
         {node_cache,
             ?HOCON(
                 ?R_REF(emqx_auth_cache_schema, config),
@@ -176,10 +185,10 @@ authz_fields() ->
             )}
     ].
 
-api_authz_fields() ->
+metrics_fields() ->
     [
-        {sources, ?HOCON(?ARRAY(api_source_type()), #{desc => ?DESC(sources)})},
-        {node_cache, ?HOCON(?R_REF(emqx_auth_cache_schema, config), #{desc => ?DESC("node_cache")})}
+        {total_latency_metric_buckets,
+            emqx_schema:histogram_buckets_sc(#{desc => ?DESC(authz_latency_buckets)})}
     ].
 
 api_source_type() ->
