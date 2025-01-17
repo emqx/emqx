@@ -20,6 +20,7 @@
 
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -60,7 +61,7 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    Settings1 = #{
+    Settings1Put = #{
         <<"no_match">> => <<"deny">>,
         <<"deny_action">> => <<"disconnect">>,
         <<"cache">> => #{
@@ -68,28 +69,45 @@ t_api(_) ->
             <<"max_size">> => 32,
             <<"ttl">> => <<"60s">>,
             <<"excludes">> => [<<"nocache/#">>]
-        }
+        },
+        <<"total_latency_metric_buckets">> => [12345, 12346]
+    },
+    Settings1Get = Settings1Put#{
+        <<"total_latency_metric_buckets">> => <<"12345, 12346">>
     },
 
-    {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1),
+    {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1Put),
     {ok, 200, Result1} = request(get, uri(["authorization", "settings"]), []),
-    ?assertEqual(Settings1, emqx_utils_json:decode(Result1)),
+    Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
+    ?assertMatch(
+        #{
+            latency :=
+                #{bucket_counts := [{12345, _} | _]}
+        },
+        Hists
+    ),
+    ?assertEqual(Settings1Get, emqx_utils_json:decode(Result1)),
 
-    Settings2 = #{
-        <<"no_match">> => <<"allow">>,
-        <<"deny_action">> => <<"ignore">>,
-        <<"cache">> => #{
-            <<"enable">> => true,
-            <<"max_size">> => 32,
-            <<"ttl">> => <<"60s">>
-        }
+    #{<<"cache">> := Cache} =
+        Settings2Put = #{
+            <<"no_match">> => <<"allow">>,
+            <<"deny_action">> => <<"ignore">>,
+            <<"cache">> => #{
+                <<"enable">> => true,
+                <<"max_size">> => 32,
+                <<"ttl">> => <<"60s">>
+            },
+            <<"total_latency_metric_buckets">> => <<" 54321, 54322 ">>
+        },
+
+    Settings2Get = Settings2Put#{
+        <<"total_latency_metric_buckets">> := <<"54321, 54322">>,
+        <<"cache">> := Cache#{<<"excludes">> => []}
     },
 
-    {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2),
+    {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
-    Cache = maps:get(<<"cache">>, Settings2),
-    ExpectedSettings2 = Settings2#{<<"cache">> => Cache#{<<"excludes">> => []}},
-    ?assertEqual(ExpectedSettings2, emqx_utils_json:decode(Result2)),
+    ?assertEqual(Settings2Get, emqx_utils_json:decode(Result2)),
 
     ok.
 

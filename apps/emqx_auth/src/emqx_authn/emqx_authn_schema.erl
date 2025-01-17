@@ -17,6 +17,7 @@
 -module(emqx_authn_schema).
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_authn.hrl").
 -include("emqx_authn_chains.hrl").
@@ -35,6 +36,7 @@
     roots/0,
     tags/0,
     fields/1,
+    desc/1,
     authenticator_type/0,
     authenticator_type/1,
     authenticator_type_without/1,
@@ -94,14 +96,7 @@ tags() ->
     [<<"Authentication">>].
 
 fill_defaults(Config) ->
-    WithRoot = #{<<"auth_settings">> => Config},
-    Schema = #{roots => [{auth_settings, hoconsc:mk(?R_REF("settings"), #{})}]},
-    case emqx_hocon:check(Schema, WithRoot, #{make_serializable => true}) of
-        {ok, #{<<"auth_settings">> := WithDefaults}} ->
-            WithDefaults;
-        {error, Reason} ->
-            throw(Reason)
-    end.
+    emqx_schema:fill_defaults_for_type(?R_REF("settings"), Config).
 
 authenticator_type() ->
     authenticator_type(?DEFAULT_SCHEMA_KIND).
@@ -233,7 +228,9 @@ fields("settings") ->
                     importance => ?IMPORTANCE_LOW,
                     default => emqx_auth_cache_schema:default_config()
                 }
-            )}
+            )},
+        {"total_latency_metric_buckets",
+            emqx_schema:histogram_buckets_sc(#{desc => ?DESC(authn_latency_buckets)})}
     ];
 fields("metrics_status_fields") ->
     [
@@ -287,6 +284,11 @@ common_field() ->
         {"rate_max", ?HOCON(float(), #{desc => ?DESC("rate_max")})},
         {"rate_last5m", ?HOCON(float(), #{desc => ?DESC("rate_last5m")})}
     ].
+
+desc("settings") ->
+    "Global settings for authentication";
+desc(_) ->
+    undefined.
 
 validator() ->
     Validations = lists:flatmap(

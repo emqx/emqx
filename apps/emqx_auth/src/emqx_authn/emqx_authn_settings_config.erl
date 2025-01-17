@@ -14,35 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_app).
+%% @doc Authentication settings configuration management module.
+-module(emqx_authn_settings_config).
 
--include("emqx_authn.hrl").
+-behaviour(emqx_config_handler).
 
--behaviour(application).
-
-%% Application callbacks
 -export([
-    start/2,
-    stop/1
+    post_config_update/5
 ]).
 
--include_lib("emqx_authn_chains.hrl").
-
--dialyzer({nowarn_function, [start/2]}).
-
-%%------------------------------------------------------------------------------
-%% APIs
-%%------------------------------------------------------------------------------
-
-start(_StartType, _StartArgs) ->
-    %% required by test cases, ensure the injection of schema
-    _ = emqx_conf_schema:roots(),
-    {ok, Sup} = emqx_auth_sup:start_link(),
-    ok = emqx_authz:init(),
-    ok = emqx_authn:init(),
-    {ok, Sup}.
-
-stop(_State) ->
-    ok = emqx_authn_utils:cleanup_resources(),
-    ok = emqx_authn:deinit(),
-    ok = emqx_authz:deinit().
+-spec post_config_update(
+    list(atom()),
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:raw_config(),
+    emqx_config:app_envs()
+) ->
+    ok | {ok, map()} | {error, term()}.
+post_config_update(
+    _ConfPath,
+    _UpdateReq,
+    #{total_latency_metric_buckets := Buckets} = _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
+    ok = emqx_access_control:update_latency_buckets('client.authenticate', Buckets).

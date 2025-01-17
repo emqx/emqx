@@ -787,6 +787,7 @@ authentication_settings(put, #{body := Config}) ->
         {ok, _} ->
             {204};
         {error, Reason} ->
+            ct:print("Reason: ~p", [Reason]),
             serialize_error(Reason)
     end.
 
