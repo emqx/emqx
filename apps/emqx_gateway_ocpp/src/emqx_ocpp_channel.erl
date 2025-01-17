@@ -750,7 +750,7 @@ frame2payload(Frame = #{type := ?OCPP_MSG_TYPE_ID_CALLERROR}) ->
     ).
 
 payload2frame(Payload) when is_binary(Payload) ->
-    payload2frame(emqx_utils_json:decode(Payload, [return_maps]));
+    payload2frame(emqx_utils_json:decode(Payload));
 payload2frame(#{
     <<"MessageTypeId">> := ?OCPP_MSG_TYPE_ID_CALL,
     <<"UniqueId">> := Id,

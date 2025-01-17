@@ -398,7 +398,7 @@ split_by_pos([E | L], N, A1) ->
 msgs2frame(Messages, Channel) ->
     lists:filtermap(
         fun(#message{payload = Payload}) ->
-            case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+            case emqx_utils_json:safe_decode(Payload) of
                 {ok, Map = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
                     NewHeader = build_frame_header(MsgId, Channel),
                     Frame = maps:put(<<"header">>, NewHeader, Map),

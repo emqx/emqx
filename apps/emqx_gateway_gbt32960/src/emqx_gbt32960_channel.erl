@@ -340,7 +340,7 @@ split_by_pos([E | L], N, A1) ->
 msgs2frame(Messages, Vin, Channel) ->
     lists:filtermap(
         fun(#message{payload = Payload}) ->
-            case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+            case emqx_utils_json:safe_decode(Payload) of
                 {ok, Maps} ->
                     case msg2frame(Maps, Vin) of
                         {error, Reason} ->
