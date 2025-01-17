@@ -85,7 +85,7 @@ t_config(_Config) ->
     ),
 
     UpdateConf = fun(Enable) ->
-        RawConf = emqx_utils_json:decode(ConfJson, [return_maps]),
+        RawConf = emqx_utils_json:decode(ConfJson),
         UpdateJson = RawConf#{<<"enable">> := Enable},
         {ok, UpdateResJson} = request_api(
             put,
@@ -94,7 +94,7 @@ t_config(_Config) ->
             auth_header_(),
             UpdateJson
         ),
-        UpdateRawConf = emqx_utils_json:decode(UpdateResJson, [return_maps]),
+        UpdateRawConf = emqx_utils_json:decode(UpdateResJson),
         ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
     end,
 
@@ -314,7 +314,7 @@ t_lookup_and_delete(Config) ->
 t_change_storage_type(_Config) ->
     Path = api_path(["mqtt", "retainer"]),
     {ok, ConfJson} = request_api(get, Path),
-    RawConf = emqx_utils_json:decode(ConfJson, [return_maps]),
+    RawConf = emqx_utils_json:decode(ConfJson),
     %% pre-conditions
     ?assertMatch(
         #{
@@ -361,7 +361,7 @@ t_change_storage_type(_Config) ->
         auth_header_(),
         ChangedConf
     ),
-    UpdatedRawConf = emqx_utils_json:decode(UpdateResJson, [return_maps]),
+    UpdatedRawConf = emqx_utils_json:decode(UpdateResJson),
     ?assertMatch(
         #{
             <<"backend">> := #{
@@ -446,7 +446,7 @@ t_retained_sys_messages(_Config) ->
 %%--------------------------------------------------------------------
 
 decode_json(Data) ->
-    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    BinJson = emqx_utils_json:decode(Data),
     emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 raw_systopic_conf() ->

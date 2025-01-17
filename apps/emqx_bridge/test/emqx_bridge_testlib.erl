@@ -135,7 +135,7 @@ list_bridges_api() ->
     Res =
         case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             Error ->
                 Error
         end,
@@ -161,7 +161,7 @@ create_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             Error ->
                 Error
         end,
@@ -184,7 +184,7 @@ update_bridge_api(Config, Overrides) ->
     ct:pal("updating bridge (via http): ~p", [Params]),
     Res =
         case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Params, Opts) of
-            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_utils_json:decode(Body0, [return_maps])};
+            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_utils_json:decode(Body0)};
             Error -> Error
         end,
     ct:pal("bridge update result: ~p", [Res]),
@@ -199,7 +199,7 @@ get_bridge_api(Config) ->
     ct:pal("getting bridge (via http)", []),
     Res =
         case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader) of
-            {ok, Body0} -> {ok, emqx_utils_json:decode(Body0, [return_maps])};
+            {ok, Body0} -> {ok, emqx_utils_json:decode(Body0)};
             Error -> Error
         end,
     ct:pal("bridge result: ~p", [Res]),
@@ -249,9 +249,9 @@ probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     Res.
 
 try_decode_error(Body0) ->
-    case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+    case emqx_utils_json:safe_decode(Body0) of
         {ok, #{<<"message">> := Msg0} = Body1} ->
-            case emqx_utils_json:safe_decode(Msg0, [return_maps]) of
+            case emqx_utils_json:safe_decode(Msg0) of
                 {ok, Msg1} -> Body1#{<<"message">> := Msg1};
                 {error, _} -> Body1
             end;
@@ -281,7 +281,7 @@ create_rule_and_action(Action, RuleTopic, Opts) ->
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
             {ok, Res};
         Error ->

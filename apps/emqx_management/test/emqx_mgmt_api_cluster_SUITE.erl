@@ -70,7 +70,7 @@ t_cluster_topology_api_empty_resp(_) ->
     {ok, Resp} = emqx_mgmt_api_test_util:request_api(get, ClusterTopologyPath),
     ?assertEqual(
         [#{<<"core_node">> => atom_to_binary(node()), <<"replicant_nodes">> => []}],
-        emqx_utils_json:decode(Resp, [return_maps])
+        emqx_utils_json:decode(Resp)
     ).
 
 t_cluster_topology_api_replicants(Config) ->

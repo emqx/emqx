@@ -273,7 +273,7 @@ t_large_payload(_) ->
 %%--------------------------------------------------------------------
 
 decode_json(Data) ->
-    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    BinJson = emqx_utils_json:decode(Data),
     emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 clear_all_record() ->

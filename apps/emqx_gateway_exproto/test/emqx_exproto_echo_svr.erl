@@ -169,7 +169,7 @@ on_received_bytes(Stream, _Md) ->
         fun(Reqs) ->
             lists:foreach(
                 fun(#{conn := Conn, bytes := Bytes}) ->
-                    #{<<"type">> := Type} = Params = emqx_utils_json:decode(Bytes, [return_maps]),
+                    #{<<"type">> := Type} = Params = emqx_utils_json:decode(Bytes),
                     _ = handle_in(Conn, Type, Params)
                 end,
                 Reqs

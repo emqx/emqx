@@ -718,7 +718,7 @@ t_create_with_bad_name(Config) ->
         Conf,
         Config
     ),
-    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    Msg = emqx_utils_json:decode(Msg0),
     ?assertMatch(#{<<"kind">> := <<"validation_error">>}, Msg),
     ok.
 
@@ -1044,7 +1044,7 @@ str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
-    case emqx_utils_json:safe_decode(B, [return_maps]) of
+    case emqx_utils_json:safe_decode(B) of
         {ok, Term} ->
             Term;
         {error, Reason} = Error ->

@@ -872,10 +872,10 @@ do_request_api(Method, Request) ->
             Code >= 200 andalso Code =< 299
         ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
-            {ok, emqx_utils_json:decode(Return, [return_maps])};
+            {ok, emqx_utils_json:decode(Return)};
         {ok, {{"HTTP/1.1", Code, _}, _, Return}} ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
-            {error, {Code, emqx_utils_json:decode(Return, [return_maps])}};
+            {error, {Code, emqx_utils_json:decode(Return)}};
         {error, Reason} ->
             {error, Reason}
     end.

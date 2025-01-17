@@ -166,7 +166,7 @@ do_request(Method, Path, Body) ->
         {ok, Code, <<>>} ->
             {ok, Code, <<>>};
         {ok, Code, Res1} ->
-            Res2 = emqx_utils_json:decode(Res1, [return_maps]),
+            Res2 = emqx_utils_json:decode(Res1),
             Res3 = try_decode_error_message(Res2),
             {ok, Code, Res3};
         Error ->
@@ -174,7 +174,7 @@ do_request(Method, Path, Body) ->
     end.
 
 try_decode_error_message(#{<<"message">> := Msg0} = Res0) ->
-    case emqx_utils_json:safe_decode(Msg0, [return_maps]) of
+    case emqx_utils_json:safe_decode(Msg0) of
         {ok, Msg} ->
             Res0#{<<"message">> := Msg};
         {error, _} ->

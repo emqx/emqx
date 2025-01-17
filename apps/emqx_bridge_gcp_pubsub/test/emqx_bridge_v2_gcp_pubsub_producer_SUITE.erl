@@ -225,7 +225,7 @@ t_create_via_http_json_object_service_account(Config0) ->
         <<"service_account_json">>,
         fun(X) ->
             ?assert(is_binary(X), #{json => X}),
-            JSON = emqx_utils_json:decode(X, [return_maps]),
+            JSON = emqx_utils_json:decode(X),
             ?assert(is_map(JSON)),
             JSON
         end,
@@ -350,7 +350,7 @@ t_jose_jwk_function_clause(Config0) ->
         fun(SABin) ->
             #{<<"private_key">> := PKey0} =
                 SA0 =
-                emqx_utils_json:decode(SABin, [return_maps]),
+                emqx_utils_json:decode(SABin),
             Lines0 = binary:split(PKey0, <<"\n">>),
             NumLines = length(Lines0),
             {Lines1, [_ | Lines2]} = lists:split(NumLines div 2, Lines0),

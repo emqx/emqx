@@ -225,7 +225,7 @@ t_shared_topics_invalid(_Config) ->
     ),
     ?assertMatch(
         #{<<"code">> := <<"INVALID_PARAMTER">>, <<"message">> := <<"topic_filter_invalid">>},
-        emqx_utils_json:decode(Body, [return_maps])
+        emqx_utils_json:decode(Body)
     ).
 
 t_persistent_topics(_Config) ->
@@ -322,7 +322,7 @@ request_json(Method, Path, QS) ->
     decode_response(request_api(Method, Path, QS)).
 
 decode_response({ok, Response}) ->
-    emqx_utils_json:decode(Response, [return_maps]);
+    emqx_utils_json:decode(Response);
 decode_response({error, Reason}) ->
     error({request_api_error, Reason}).
 

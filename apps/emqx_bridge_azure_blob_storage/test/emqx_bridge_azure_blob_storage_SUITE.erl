@@ -294,8 +294,8 @@ get_blob(BlobName, Config) ->
 get_and_decode_event(BlobName, Config) ->
     maps:update_with(
         <<"payload">>,
-        fun(Raw) -> emqx_utils_json:decode(Raw, [return_maps]) end,
-        emqx_utils_json:decode(get_blob(BlobName, Config), [return_maps])
+        fun(Raw) -> emqx_utils_json:decode(Raw) end,
+        emqx_utils_json:decode(get_blob(BlobName, Config))
     ).
 
 list_committed_blocks(Config) ->
