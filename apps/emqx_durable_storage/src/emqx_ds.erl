@@ -48,6 +48,7 @@
 %% Misc. API:
 -export([count/1]).
 -export([timestamp_us/0]).
+-export([topic_words/1]).
 
 -export_type([
     create_db_opts/0,
@@ -597,6 +598,12 @@ count(DB) ->
 -spec timestamp_us() -> time().
 timestamp_us() ->
     erlang:system_time(microsecond).
+
+%% @doc Version of `emqx_topic:words()' that doesn't transform empty
+%% topic into atom ''
+-spec topic_words(binary()) -> topic().
+topic_words(<<>>) -> [];
+topic_words(Bin) -> emqx_topic:words(Bin).
 
 %%================================================================================
 %% Internal functions

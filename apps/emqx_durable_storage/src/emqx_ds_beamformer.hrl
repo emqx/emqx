@@ -41,13 +41,9 @@
     deadline
 }).
 
-%% Persistent term used to store reference to the subscription table
-%% for the shard:
--define(ps_subtid(SHARD), {emqx_ds_beamformer_sub_tab, SHARD}).
-
-%% Persistent term used to store callback module that implements
-%% beamformer API for the backend:
--define(ps_cbm(DB), {emqx_ds_beamformer_cbm, DB}).
+%% Persistent term used to store various global information about the
+%% shard:
+-define(pt_gvar(SHARD), {emqx_ds_beamformer_gvar, SHARD}).
 
 -define(DESTINATION(CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR),
     {CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR}

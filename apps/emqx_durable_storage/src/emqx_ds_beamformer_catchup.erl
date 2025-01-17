@@ -46,7 +46,7 @@
     module :: module(),
     metrics_id,
     shard_id,
-    parent_sub_tab :: ets:tid(),
+    sub_tab :: ets:tid(),
     name,
     queue :: ets:tid(),
     batch_size :: non_neg_integer()
@@ -54,7 +54,7 @@
 
 -type s() :: #s{}.
 
--record(enqueue_req, {sub_ids}).
+-record(enqueue_req, {sub_states}).
 -define(fulfill_loop, beamformer_fulfill_loop).
 -define(housekeeping_loop, housekeeping_loop).
 
@@ -62,11 +62,11 @@
 %% API functions
 %%================================================================================
 
--spec enqueue(pid(), [emqx_ds:sub_ref()]) ->
+-spec enqueue(pid(), [emqx_ds_beamformer:sub_state()]) ->
     ok | {error, unrecoverable, stale} | emqx_ds:error(_).
-enqueue(Worker, SubIds) ->
+enqueue(Worker, SubStates) ->
     try
-        gen_server:call(Worker, #enqueue_req{sub_ids = SubIds})
+        gen_server:call(Worker, #enqueue_req{sub_states = SubStates})
     catch
         exit:{timeout, _} ->
             {error, recoverable, timeout}
@@ -92,7 +92,7 @@ init([CBM, ShardId, Name, _Opts]) ->
     S = #s{
         module = CBM,
         shard_id = ShardId,
-        parent_sub_tab = emqx_ds_beamformer:subtab(ShardId),
+        sub_tab = emqx_ds_beamformer:make_subtab(ShardId),
         metrics_id = emqx_ds_beamformer:shard_metrics_id(ShardId),
         name = Name,
         queue = queue_new(),
@@ -101,8 +101,8 @@ init([CBM, ShardId, Name, _Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(#enqueue_req{sub_ids = SubIds}, _From, S) ->
-    do_enqueue(SubIds, S),
+handle_call(#enqueue_req{sub_states = SubStates}, _From, S) ->
+    do_enqueue(SubStates, S),
     {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
@@ -126,13 +126,16 @@ handle_info(
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(Reason, #s{shard_id = ShardId, name = Name, queue = Queue}) ->
+terminate(Reason, #s{sub_tab = SubTab, shard_id = ShardId, name = Name}) ->
     gproc_pool:disconnect_worker(pool(ShardId), Name),
     gproc_pool:remove_worker(pool(ShardId), Name),
-    %% In case of abnormal shutdown we notify the parent about dropped
-    %% subscription states:
-    Reason =:= shutdown orelse
-        emqx_ds_beamformer:reschedule(ShardId, queue_all_reqs(Queue)).
+    %% Should the master to deal with the remaining subscriptions?
+    case Reason of
+        shutdown ->
+            ets:delete(SubTab);
+        _ ->
+            ok
+    end.
 
 %%================================================================================
 %% Internal exports
@@ -144,15 +147,21 @@ terminate(Reason, #s{shard_id = ShardId, name = Name, queue = Queue}) ->
 
 %% Temporary remove requests from the active queue and notify the
 %% parent about reschedule.
-reschedule(#s{queue = Queue, shard_id = DBShard}, Reqs) ->
-    ok = emqx_ds_beamformer:reschedule(DBShard, [SubId || #sub_state{req_id = SubId} <- Reqs]),
+handle_recoverable(#s{sub_tab = SubTab, queue = Queue, shard_id = DBShard}, Subs) ->
+    ok = emqx_ds_beamformer:handle_recoverable_error(DBShard, Subs),
     lists:foreach(
-        fun(Req) -> queue_drop(Queue, Req) end,
-        Reqs
+        fun(SubS) -> drop(Queue, SubTab, SubS) end,
+        Subs
     ).
 
-do_enqueue(SubIds, #s{parent_sub_tab = SubTab, queue = Queue, metrics_id = Metrics}) ->
-    _ = [queue_push(Queue, Req) || SubId <- SubIds, Req <- ets:lookup(SubTab, SubId)],
+do_enqueue(SubStates, #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue, metrics_id = Metrics}) ->
+    lists:foreach(
+        fun(SubS) ->
+            queue_push(Queue, SubS),
+            emqx_ds_beamformer:take_ownership(DBShard, SubTab, SubS)
+        end,
+        SubStates
+    ),
     emqx_ds_builtin_metrics:set_pendingq_len(Metrics, ets:info(Queue, size)),
     ensure_fulfill_loop().
 
@@ -174,6 +183,7 @@ fulfill(S = #s{queue = Queue}) ->
 do_fulfill(
     S = #s{
         shard_id = DBShard,
+        sub_tab = SubTab,
         module = CBM,
         batch_size = BatchSize,
         queue = Queue,
@@ -195,7 +205,7 @@ do_fulfill(
                 emqx_ds_beamformer_fulfill_fail,
                 #{shard => DBShard, recoverable => true, error => Err}
             ),
-            reschedule(S, queue_lookup(S, Stream, TopicFilter, StartKey));
+            handle_recoverable(S, lookup_subs(S, Stream, TopicFilter, StartKey));
         Other ->
             Pack =
                 case Other of
@@ -204,11 +214,11 @@ do_fulfill(
                     {error, unrecoverable, _} ->
                         Other
                 end,
-            MatchReqs = queue_lookup(S, Stream, TopicFilter, StartKey),
+            MatchReqs = lookup_subs(S, Stream, TopicFilter, StartKey),
             NFulfilled = length(MatchReqs),
             report_metrics(Metrics, NFulfilled),
             %% Pack requests into beams and send out:
-            emqx_ds_beamformer:send_out_final_beam(DBShard, Pack, MatchReqs),
+            emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
             %% Remove requests from the queue to avoid repeated failure:
             queue_drop_all(Queue, Stream, TopicFilter, StartKey)
     end.
@@ -222,13 +232,13 @@ do_fulfill(
 ) ->
     ok.
 move_to_realtime(
-    S = #s{shard_id = DBShard, queue = Queue},
+    S = #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue},
     Stream,
     TopicFilter,
     StartKey,
     EndKey
 ) ->
-    Reqs = queue_lookup(S, Stream, TopicFilter, StartKey),
+    Reqs = lookup_subs(S, Stream, TopicFilter, StartKey),
     lists:foreach(
         fun(Req) ->
             ?tp(debug, beamformer_move_to_rt, #{
@@ -241,7 +251,7 @@ move_to_realtime(
             }),
             case emqx_ds_beamformer_rt:enqueue(DBShard, Req) of
                 ok ->
-                    queue_drop(Queue, Req);
+                    drop(Queue, SubTab, Req);
                 {error, unrecoverable, stale} ->
                     %% Race condition: new data has been added. Keep
                     %% this request in the catchup queue, so
@@ -254,14 +264,14 @@ move_to_realtime(
                         emqx_ds_beamformer_move_to_rt_fail,
                         #{shard => DBShard, recoverable => true, req => Req, error => Error}
                     ),
-                    reschedule(S, [Req]);
+                    handle_recoverable(S, [Req]);
                 Err = {error, unrecoverable, Reason} ->
                     ?tp(
                         error,
                         emqx_ds_beamformer_move_to_rt_fail,
                         #{shard => DBShard, recoverable => false, req => Req, error => Reason}
                     ),
-                    emqx_ds_beamformer:send_out_final_beam(DBShard, Err, [Req]),
+                    emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Err, [Req]),
                     queue_drop(Queue, Req)
             end
         end,
@@ -277,7 +287,7 @@ move_to_realtime(
     [{emqx_ds:message_key(), emqx_types:message()}]
 ) -> ok.
 fulfill_batch(
-    S = #s{shard_id = ShardId, metrics_id = Metrics, module = CBM, queue = Queue},
+    S = #s{shard_id = ShardId, sub_tab = SubTab, metrics_id = Metrics, module = CBM, queue = Queue},
     Stream,
     TopicFilter,
     StartKey,
@@ -299,6 +309,7 @@ fulfill_batch(
             emqx_ds_beamformer:beams_init(
                 CBM,
                 ShardId,
+                SubTab,
                 true,
                 fun(Req) -> queue_drop(Queue, Req) end,
                 fun(OldReq, Req) -> queue_update(Queue, OldReq, Req) end
@@ -320,13 +331,7 @@ process_batch(_S, _Stream, _TopicFilter, [], _Candidates, Beams) ->
     Beams;
 process_batch(S, Stream, TopicFilter, [{Key, Msg} | Rest], Candidates0, Beams0) ->
     Candidates = queue_lookup(S, Stream, TopicFilter, Key) ++ Candidates0,
-    MatchingReqs = lists:filter(
-        fun(#sub_state{msg_matcher = Matcher}) ->
-            Matcher(Key, Msg)
-        end,
-        Candidates
-    ),
-    Beams = emqx_ds_beamformer:beams_add(Key, Msg, MatchingReqs, Beams0),
+    Beams = emqx_ds_beamformer:beams_add(Key, Msg, Candidates, Beams0),
     process_batch(S, Stream, TopicFilter, Rest, Candidates, Beams).
 
 %% It's always worth trying to fulfill the oldest requests first,
@@ -373,28 +378,36 @@ queue_push(
 
 %% @doc Get all requests that await data with given stream, topic
 %% filter (exact) and start key.
-queue_lookup(#s{queue = Queue, parent_sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
+queue_lookup(#s{queue = Queue}, Stream, TopicFilter, StartKey) ->
     MS = {?queue_elem(Stream, TopicFilter, StartKey, '$1'), [], ['$1']},
-    ReqIds = ets:select(Queue, [MS]),
+    ets:select(Queue, [MS]).
+
+%% @doc Lookup requests and enrich them with the data from the
+%% subscription registry:
+lookup_subs(S = #s{sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
     lists:flatmap(
         fun(ReqId) ->
             ets:lookup(Subs, ReqId)
         end,
-        ReqIds
+        queue_lookup(S, Stream, TopicFilter, StartKey)
     ).
 
 queue_drop_all(Queue, Stream, TopicFilter, StartKey) ->
     ets:match_delete(Queue, ?queue_elem(Stream, TopicFilter, StartKey, '_')).
 
+drop(Queue, SubTab, Sub = #sub_state{req_id = SubRef}) ->
+    ets:delete(SubTab, SubRef),
+    queue_drop(Queue, Sub).
+
 queue_drop(
-    Queue, #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
+    Queue, #sub_state{req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key}
 ) ->
     %% logger:warning(#{drop_req => {Stream, TF, Key, Ref}, tab => ets:tab2list(Queue)}),
-    ets:delete(Queue, {Stream, TF, Key, Ref}).
+    ets:delete(Queue, {Stream, TF, Key, SubRef}).
 
-queue_all_reqs(Queue) ->
-    MS = {?queue_elem('_', '_', '_', '$1'), [], ['$1']},
-    ets:match(Queue, MS).
+%% queue_all_reqs(Queue) ->
+%%     MS = {?queue_elem('_', '_', '_', '$1'), [], ['$1']},
+%%     ets:match(Queue, MS).
 
 queue_update(Queue, OldReq, Req) ->
     %% logger:warning(#{old => OldReq, new => Req}),

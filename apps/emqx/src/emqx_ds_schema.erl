@@ -387,7 +387,8 @@ common_builtin_fields(polling) ->
                 pos_integer(),
                 #{
                     default => 10,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_storage.beamformer_workers_per_shard"
                 }
             )},
         {poll_batch_size,

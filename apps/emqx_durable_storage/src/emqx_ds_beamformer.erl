@@ -79,17 +79,18 @@
 -behaviour(gen_statem).
 
 %% API:
--export([start_link/2]).
+-export([start_link/2, where/1]).
 -export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
--export([beams_init/5, beams_add/4, beams_conclude/3, beams_n_matched/1]).
--export([shard_metrics_id/1, reschedule/2, send_out_final_beam/3]).
--export([cfg_pending_request_limit/0, cfg_batch_size/0, cfg_housekeeping_interval/0]).
+-export([make_subtab/1, owner_tab/1, take_ownership/3, handle_recoverable_error/2]).
+-export([beams_init/6, beams_add/4, beams_conclude/3, beams_n_matched/1]).
+-export([shard_metrics_id/1, send_out_final_beam/4]).
+-export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
 
 %% internal exports:
 -export([do_dispatch/1]).
 %% Testing/debugging:
--export([where/1, ls/1, subscription_info/2, subtab/1]).
+-export([ls/1, subscription_info/2]).
 
 %% Behavior callbacks:
 -export([callback_mode/0, init/1, terminate/3, handle_event/4]).
@@ -120,10 +121,16 @@
 %% Type declarations
 %%================================================================================
 
+%% States:
 -define(initializing, initializing).
 -define(idle, idle).
 -define(busy, busy).
 -define(recovering, recovering).
+
+%% When the worker terminates and it wants the parent to deal with the
+%% subscriptions it owns, it gives away its ets table containing the
+%% subscriptions. This token is used in the `ETS-TRANSFER':
+-define(heir_info, reschedule_subs).
 
 -type state() ::
     %% Waiting for the shard to start
@@ -195,6 +202,21 @@
 
 -type sub_state() :: sub_state(_, _).
 
+%% Type of records stored in `fc_tab' table of gvar. This table
+%% contains references to the subscription flow control atomics.
+-record(fctab, {
+    sub_ref :: emqx_ds:sub_ref(),
+    max_unacked :: pos_integer(),
+    aref :: atomics:atomics_ref()
+}).
+
+%% Type of records stored in `owner_tab' table of gvar. This table
+%% contains pids of workers that currently own the subscription.
+-record(owner_tab, {
+    sub_ref :: emqx_ds:sub_ref(),
+    owner :: pid() | undefined
+}).
+
 %% Response:
 
 -type pack() ::
@@ -223,6 +245,16 @@
     | {ok, end_of_stream}
     | emqx_ds:error(_).
 
+-define(name(SHARD), {n, l, {?MODULE, SHARD}}).
+-define(via(SHARD), {via, gproc, ?name(SHARD)}).
+
+-type gvar() :: #{
+    cbm := module(),
+    fc_tab := ets:tid(),
+    owner_tab := ets:tid(),
+    stuck_sub_tab := ets:tid()
+}.
+
 %% Beam builder:
 
 %% Per-subscription builder state:
@@ -243,6 +275,7 @@
 %% Global builder:
 -record(beam_builder, {
     cbm :: module(),
+    sub_tab :: ets:tid(),
     lagging :: boolean(),
     shard_id :: _Shard,
     queue_drop :: fun(),
@@ -253,14 +286,18 @@
 
 -opaque beam_builder() :: #beam_builder{}.
 
--define(name(SHARD), {n, l, {?MODULE, SHARD}}).
--define(via(SHARD), {via, gproc, ?name(SHARD)}).
-
 %%================================================================================
 %% Callbacks
 %%================================================================================
 
--type match_messagef() :: fun((emqx_ds:message_key(), emqx_types:message()) -> boolean()).
+-type match_messagef() :: fun(
+    (
+        _LastSeenKey :: emqx_ds:message_key(),
+        _MessageKey :: emqx_ds:message_key(),
+        _TopicTokens :: [binary()],
+        emqx_types:message()
+    ) -> boolean()
+).
 
 -type unpack_iterator_result(Stream) :: #{
     stream := Stream,
@@ -291,6 +328,18 @@
 %% API functions
 %%================================================================================
 
+-record(sub_req, {
+    client :: pid(),
+    handle :: emqx_ds:subscription_handle(),
+    it :: emqx_ds:ds_specific_iterator(),
+    userdata,
+    opts :: emqx_ds:sub_opts()
+}).
+-record(unsub_req, {id :: reference()}).
+-record(wakeup_sub_req, {id :: reference()}).
+-record(generation_event, {}).
+-record(handle_recoverable_req, {sub_states :: [sub_state()]}).
+
 -spec start_link(dbshard(), module()) -> {ok, pid()}.
 start_link(DBShard, CBM) ->
     gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
@@ -300,6 +349,25 @@ start_link(DBShard, CBM) ->
     ok.
 poll(_Node, _ReturnAddr, _Shard, _Iterator, #{timeout := _Timeout}) ->
     ok.
+
+%% @doc Create a local subscription registry
+-spec make_subtab(dbshard()) -> ok.
+make_subtab(DBShard) ->
+    ets:new(emqx_ds_beamformer_sub_tab, [
+        set,
+        private,
+        {keypos, #sub_state.req_id},
+        {heir, where(DBShard), ?heir_info}
+    ]).
+
+-spec take_ownership(dbshard(), ets:tid(), sub_state()) -> ok.
+take_ownership(DBShard, SubTab, SubS = #sub_state{req_id = SubRef}) ->
+    true = ets:insert_new(SubTab, SubS),
+    ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, self()}).
+
+-spec handle_recoverable_error(dbshard(), [sub_state()]) -> ok.
+handle_recoverable_error(DBShard, SubStates) ->
+    gen_statem:call(?via(DBShard), #handle_recoverable_req{sub_states = SubStates}).
 
 %% @doc This internal API notifies the beamformer that new data is
 %% available for reading in the storage.
@@ -329,11 +397,12 @@ shard_event(Shard, Events) ->
 %% error, and send it to the clients. Then delete the subscriptions.
 -spec send_out_final_beam(
     dbshard(),
+    ets:tid(),
     {ok, end_of_stream} | {error, unrecoverable, _},
     [sub_state()]
 ) ->
     ok.
-send_out_final_beam(DBShard, Term, Reqs) ->
+send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
         fun(#sub_state{client = PID}) ->
             node(PID)
@@ -343,15 +412,16 @@ send_out_final_beam(DBShard, Term, Reqs) ->
     %% Pack requests into beams and serve them:
     maps:foreach(
         fun(Node, Iterators) ->
-            send_out_final_term_to_node(DBShard, Term, Node, Iterators)
+            send_out_final_term_to_node(DBShard, SubTab, Term, Node, Iterators)
         end,
         ReqsByNode
     ).
 
--spec beams_init(module(), dbshard(), boolean(), fun(), fun()) -> beam_builder().
-beams_init(CBM, DBShard, Lagging, Drop, UpdateQueue) ->
+-spec beams_init(module(), dbshard(), ets:tid(), boolean(), fun(), fun()) -> beam_builder().
+beams_init(CBM, DBShard, SubTab, Lagging, Drop, UpdateQueue) ->
     #beam_builder{
         cbm = CBM,
+        sub_tab = SubTab,
         shard_id = DBShard,
         lagging = Lagging,
         queue_drop = Drop,
@@ -372,47 +442,64 @@ beams_n_matched(#beam_builder{per_node = PerNode}) ->
 -spec beams_add(
     emqx_ds:message_key(),
     emqx_types:message(),
-    [#sub_state{}],
+    [reference()],
     beam_builder()
 ) -> beam_builder().
 beams_add(
-    Key, Msg, SubStates, BB = #beam_builder{global_n_msgs = GlobalNMsgs0, per_node = PerNode0}
+    Key,
+    Msg = #message{topic = Topic},
+    Candidates,
+    BB = #beam_builder{sub_tab = SubTab, global_n_msgs = GlobalNMsgs0, per_node = PerNode0}
 ) ->
     GlobalNMsgs = GlobalNMsgs0 + 1,
+    TopicTokens = emqx_topic:tokens(Topic),
     PerNode = lists:foldl(
-        fun(#sub_state{req_id = SubId, client = ClientPid}, Acc) ->
-            Node = node(ClientPid),
-            BBN0 =
-                #beam_builder_node{n_msgs = NMsgs, subs = Subs} = maybe_update_pack(
-                    GlobalNMsgs, Node, Key, Msg, Acc
-                ),
-            %% Index of message within the per-node batch:
-            Index = NMsgs - 1,
-            %% Lookup or initialize per-subscription beam builder:
-            case Subs of
-                #{SubId := #beam_builder_sub{n_msgs = Count, mask = MaskEncoder}} ->
-                    ok;
-                #{} ->
-                    Count = 0,
-                    MaskEncoder = emqx_ds_dispatch_mask:enc_make()
-            end,
-            %% Update the subscription's dispatch mask and increment
-            %% its message counter:
-            SubS = #beam_builder_sub{
-                n_msgs = Count + 1,
-                mask = emqx_ds_dispatch_mask:enc_push_true(Index, MaskEncoder)
-            },
-            %% Update the accumulator:
-            BBN = BBN0#beam_builder_node{subs = Subs#{SubId => SubS}},
-            Acc#{Node => BBN}
+        fun(SubId, Acc) ->
+            case ets:lookup(SubTab, SubId) of
+                [#sub_state{msg_matcher = Matcher, start_key = LastSeenKey, client = ClientPid}] ->
+                    case Matcher(LastSeenKey, Key, TopicTokens, Msg) of
+                        true ->
+                            Node = node(ClientPid),
+                            do_beams_add(GlobalNMsgs, Key, Msg, SubId, Node, Acc);
+                        false ->
+                            Acc
+                    end;
+                [] ->
+                    Acc
+            end
         end,
         PerNode0,
-        SubStates
+        Candidates
     ),
     BB#beam_builder{
         per_node = PerNode,
         global_n_msgs = GlobalNMsgs
     }.
+
+do_beams_add(GlobalNMsgs, Key, Msg, SubId, Node, Acc) ->
+    BBN0 =
+        #beam_builder_node{n_msgs = NMsgs, subs = Subs} = maybe_update_pack(
+            GlobalNMsgs, Node, Key, Msg, Acc
+        ),
+    %% Index of message within the per-node batch:
+    Index = NMsgs - 1,
+    %% Lookup or initialize per-subscription beam builder:
+    case Subs of
+        #{SubId := #beam_builder_sub{n_msgs = Count, mask = MaskEncoder}} ->
+            ok;
+        #{} ->
+            Count = 0,
+            MaskEncoder = emqx_ds_dispatch_mask:enc_make()
+    end,
+    %% Update the subscription's dispatch mask and increment
+    %% its message counter:
+    SubS = #beam_builder_sub{
+        n_msgs = Count + 1,
+        mask = emqx_ds_dispatch_mask:enc_push_true(Index, MaskEncoder)
+    },
+    %% Update the accumulator:
+    BBN = BBN0#beam_builder_node{subs = Subs#{SubId => SubS}},
+    Acc#{Node => BBN}.
 
 maybe_update_pack(Global, Node, Key, Msg, PerNodeStates) ->
     case PerNodeStates of
@@ -476,14 +563,14 @@ is_sub_active(SeqNo, Acked, Window) ->
 
 %% Dynamic config (currently it's global for all DBs):
 
-cfg_pending_request_limit() ->
-    application:get_env(emqx_durable_storage, poll_pending_request_limit, 100_000).
-
 cfg_batch_size() ->
-    application:get_env(emqx_durable_storage, poll_batch_size, 100).
+    application:get_env(emqx_durable_storage, poll_batch_size, 1000).
 
 cfg_housekeeping_interval() ->
     application:get_env(emqx_durable_storage, beamformer_housekeeping_interval, 1000).
+
+cfg_workers_per_shard() ->
+    application:get_env(emqx_durable_storage, beamformer_workers_per_shard, 10).
 
 %%================================================================================
 %% behavior callback wrappers
@@ -520,18 +607,6 @@ fast_forward(Mod, Shard, It, Key) ->
 %% Internal subscription management API (RPC target)
 %%================================================================================
 
--record(sub_req, {
-    client :: pid(),
-    handle :: emqx_ds:subscription_handle(),
-    it :: emqx_ds:ds_specific_iterator(),
-    userdata,
-    opts :: emqx_ds:sub_opts()
-}).
--record(unsub_req, {id :: reference()}).
--record(wakeup_sub_req, {id :: reference()}).
--record(reschedule_req, {ids :: [reference()]}).
--record(generation_event, {}).
-
 %% @doc Get pid of a beamformer process serving the shard
 -spec where(dbshard()) -> pid() | undefined.
 where(DBShard) ->
@@ -547,12 +622,18 @@ ls(DB) ->
 %% @doc Look up state of a subscription
 -spec subscription_info(dbshard(), emqx_ds:sub_ref()) -> emqx_ds:sub_info() | undefined.
 subscription_info(DBShard, SubId) ->
-    case ets:lookup(subtab(DBShard), SubId) of
-        [#sub_state{flowcontrol = {MaxUnacked, ARef}}] ->
+    case ets:lookup(fc_tab(DBShard), SubId) of
+        [#fctab{max_unacked = MaxUnacked, aref = ARef}] ->
             SeqNo = atomics:get(ARef, ?fc_idx_seqno),
             Acked = atomics:get(ARef, ?fc_idx_acked),
             Stuck = atomics:get(ARef, ?fc_idx_stuck) =:= 1,
-            #{seqno => SeqNo, acked => Acked, window => MaxUnacked, stuck => Stuck};
+            case ets:lookup(owner_tab(DBShard), SubId) of
+                [#owner_tab{owner = Owner}] ->
+                    ok;
+                [] ->
+                    Owner = undefined
+            end,
+            #{seqno => SeqNo, acked => Acked, window => MaxUnacked, stuck => Stuck, owner => Owner};
         [] ->
             undefined
     end.
@@ -575,8 +656,8 @@ unsubscribe(DBShard, SubId) ->
 %% @doc Ack batches up to the sequence number:
 -spec suback(dbshard(), emqx_ds:sub_ref(), emqx_ds:sub_seqno()) -> ok | {error, _}.
 suback(DBShard, SubId, Acked) ->
-    try ets:lookup_element(subtab(DBShard), SubId, #sub_state.flowcontrol) of
-        {MaxUnacked, ARef} ->
+    case ets:lookup(fc_tab(DBShard), SubId) of
+        [#fctab{max_unacked = MaxUnacked, aref = ARef}] ->
             atomics:put(ARef, ?fc_idx_acked, Acked),
             case atomics:get(ARef, ?fc_idx_stuck) of
                 1 ->
@@ -595,10 +676,8 @@ suback(DBShard, SubId, Acked) ->
                 0 ->
                     %% Subscription is active:
                     ok
-            end
-    catch
-        error:badarg ->
-            %% This happens when subscription is not found:
+            end;
+        [] ->
             {error, subscription_not_found}
     end.
 
@@ -614,7 +693,7 @@ generation_event(DBShard) ->
 
 -record(d, {
     dbshard :: dbshard(),
-    tab :: ets:tid(),
+    stuck_sub_tab :: ets:tid(),
     cbm :: module(),
     monitor_tab = ets:tid(),
     %% List of subscription IDs waiting for dispatching to the
@@ -631,19 +710,27 @@ callback_mode() ->
 
 init([DBShard, CBM]) ->
     process_flag(trap_exit, true),
-    SubTab = make_subtab(DBShard),
     gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), hash, [{auto_size, true}]),
     gproc_pool:new(emqx_ds_beamformer_rt:pool(DBShard), hash, [{auto_size, true}]),
-    persistent_term:put(?ps_cbm(DBShard), CBM),
     logger:debug(#{
-        msg => started_bf, shard => DBShard, cbm => emqx_ds_beamformer_sup:cbm(DBShard)
+        msg => started_bf, shard => DBShard, cbm => CBM
     }),
+    StuckSubTab = ets:new(emqx_ds_beamformer_stuck_sub_tab, [
+        set, public, {keypos, #sub_state.req_id}, {write_concurrency, true}
+    ]),
+    GVar = #{
+        cbm => CBM,
+        fc_tab => make_fctab(),
+        owner_tab => make_owner_tab(),
+        stuck_sub_tab => StuckSubTab
+    },
+    persistent_term:put(?pt_gvar(DBShard), GVar),
     MTab = ets:new(beamformer_monitor_tab, [private, set]),
     {ok, ?initializing, #d{
         dbshard = DBShard,
-        tab = SubTab,
         cbm = CBM,
         monitor_tab = MTab,
+        stuck_sub_tab = StuckSubTab,
         generations = #{}
     }}.
 
@@ -654,7 +741,12 @@ handle_event(
     {call, From},
     #sub_req{client = Client, it = It, userdata = Userdata, opts = Opts, handle = SubId},
     State,
-    D0 = #d{dbshard = Shard, tab = Tab, cbm = CBM, monitor_tab = MTab, pending = Pending}
+    D0 = #d{
+        dbshard = Shard,
+        cbm = CBM,
+        monitor_tab = MTab,
+        pending = Pending
+    }
 ) ->
     try CBM:unpack_iterator(Shard, It) of
         #{
@@ -676,12 +768,12 @@ handle_event(
             #{max_unacked := MaxUnacked} = Opts,
             %% Create the flow control. It's a triplet of atomic
             %% variables:
-            FlowControl = {MaxUnacked, atomics:new(3, [])},
+            FlowControl = atomics:new(3, []),
             SubState = #sub_state{
                 req_id = SubId,
                 client = Client,
                 mref = MRef,
-                flowcontrol = FlowControl,
+                flowcontrol = {MaxUnacked, FlowControl},
                 rank = Rank,
                 stream = Stream,
                 topic_filter = TF,
@@ -690,10 +782,13 @@ handle_event(
                 it = It,
                 msg_matcher = MsgMatcher
             },
-            %% Insert subscription state into the table:
-            ets:insert(Tab, SubState),
+            %% Insert subscription state into the tables:
+            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubId}),
+            ets:insert(fc_tab(Shard), #fctab{
+                sub_ref = SubId, max_unacked = MaxUnacked, aref = FlowControl
+            }),
             %% Schedule dispaching to the worker:
-            D = D0#d{pending = [SubId | Pending]},
+            D = D0#d{pending = [SubState | Pending]},
             Reply = {reply, From, {ok, SubId}},
             case State of
                 ?idle ->
@@ -722,32 +817,44 @@ handle_event(
     {call, From},
     #wakeup_sub_req{id = SubId},
     State,
-    D0 = #d{pending = Pending, tab = Tab}
+    D0 = #d{pending = Pending, stuck_sub_tab = Tab}
 ) ->
-    try
-        {_MaxUnacked, ARef} = ets:lookup_element(Tab, SubId, #sub_state.flowcontrol),
-        atomics:put(ARef, ?fc_idx_stuck, 0),
-        Reply = {reply, From, ok},
-        D = D0#d{pending = [SubId | Pending]},
-        case State of
-            ?idle ->
-                {next_state, ?busy, D, Reply};
-            _ ->
-                {keep_state, D, Reply}
-        end
-    catch
-        error:badarg ->
-            {keep_state_and_data, {reply, From, {error, subscription_not_found}}}
+    case ets:take(Tab, SubId) of
+        [SubS = #sub_state{flowcontrol = {_MaxUnacked, ARef}}] ->
+            atomics:put(ARef, ?fc_idx_stuck, 0),
+            Reply = {reply, From, ok},
+            D = D0#d{pending = [SubS | Pending]},
+            case State of
+                ?idle ->
+                    {next_state, ?busy, D, Reply};
+                _ ->
+                    {keep_state, D, Reply}
+            end;
+        [] ->
+            Reply = {reply, From, {error, subscription_not_found}},
+            {keep_state_and_data, Reply}
     end;
-%% Handle redispatch call:
+%% Handle worker crash:
 handle_event(
-    {call, From},
-    #reschedule_req{ids = Ids},
+    info,
+    {'ETS-TRANSFER', ETS, FromPid, ?heir_info},
     _State,
     D = #d{pending = Pending}
 ) ->
-    Reply = {reply, From, ok},
-    {next_state, ?recovering, D#d{pending = Ids ++ Pending}, Reply};
+    %% FIXME: simply notify the clients and let them resubscribe
+    %% instead of trying to recover potentially broken subscriptions?
+    %% FIXME: cleanup owner table
+    ?tp(warning, emqx_ds_beamformer_worker_crash, #{pid => FromPid}),
+    {next_state, ?recovering, D#d{pending = ets:tab2list(ETS) ++ Pending}};
+%% Handle recoverable errors:
+handle_event(
+    {call, From},
+    #handle_recoverable_req{sub_states = SubStates},
+    _State,
+    D = #d{pending = Pending}
+) ->
+    ?tp(info, emqx_ds_beamformer_handle_recoverable, #{pid => From}),
+    {next_state, ?recovering, D#d{pending = SubStates ++ Pending}};
 %% Handle unknown call:
 handle_event(
     {call, From},
@@ -833,28 +940,15 @@ handle_event(EventType, Event, State, Data) ->
     keep_state_and_data.
 
 terminate(_Reason, _State, #d{dbshard = DBShard}) ->
-    persistent_term:erase(?ps_subtid(DBShard)),
     gproc_pool:force_delete(emqx_ds_beamformer_rt:pool(DBShard)),
     gproc_pool:force_delete(emqx_ds_beamformer_catchup:pool(DBShard)),
-    persistent_term:erase(?ps_cbm(DBShard)).
+    persistent_term:erase(?pt_gvar(DBShard)).
 
 %%================================================================================
 %% Internal exports
 %%================================================================================
 
-%% @doc Called by the worker processes when they are about to
-%% terminate abnormally. This causes the FSM to enter `recovering'
-%% where it will attempt to re-assign the subscriptions to the workers
-%% after a cooldown interval:
--spec reschedule(dbshard(), [emqx_ds:sub_ref()]) -> ok.
-reschedule(DBShard, SubIds) ->
-    gen_statem:call(?via(DBShard), #reschedule_req{ids = SubIds}).
-
--spec subtab(dbshard()) -> ets:table().
-subtab(DBShard) ->
-    persistent_term:get(?ps_subtid(DBShard)).
-
-%% @doc RPC target, obsolete.
+%% @doc RPC target, obsolete. Kept for compatibility.
 -spec do_dispatch(beam()) -> ok.
 do_dispatch(_) ->
     ok.
@@ -863,9 +957,33 @@ do_dispatch(_) ->
 %% Internal functions
 %%================================================================================
 
+-spec fc_tab(dbshard()) -> ets:tid().
+fc_tab(DBShard) ->
+    #{fc_tab := TID} = gvar(DBShard),
+    TID.
+
+-spec owner_tab(dbshard()) -> ets:tid().
+owner_tab(DBShard) ->
+    #{owner_tab := TID} = gvar(DBShard),
+    TID.
+
+%% @doc Transfer ownership over subscription to the parent. Called by
+%% the worker when it drops the subscription from its active queue:
+-spec disown_stuck_subscription(dbshard(), ets:tid(), sub_state()) -> ok.
+disown_stuck_subscription(DBShard, SubTab, #sub_state{req_id = SubRef}) ->
+    [SubState] = ets:take(SubTab, SubRef),
+    ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, undefined}),
+    true = ets:insert_new(disowned_sub_tab(DBShard), SubState).
+
+-spec disowned_sub_tab(dbshard()) -> ets:tid().
+disowned_sub_tab(DBShard) ->
+    #{stuck_sub_tab := TID} = gvar(DBShard),
+    TID.
+
 beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
     #beam_builder{
         cbm = CBM,
+        sub_tab = SubTab,
         lagging = IsLagging,
         queue_drop = QueueDrop,
         queue_update = QueueUpdate
@@ -875,7 +993,6 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         pack = PackRev,
         subs = Subs
     } = BeamMakerNode,
-    SubTab = subtab(DBShard),
     Flags0 =
         case IsLagging of
             true -> ?DISPATCH_FLAG_LAGGING;
@@ -885,25 +1002,17 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         maps:fold(
             fun(SubId, #beam_builder_sub{mask = MaskEncoder, n_msgs = NMsgs}, Acc) ->
                 case ets:lookup(SubTab, SubId) of
-                    [SubS = #sub_state{client = Client, userdata = UserData, it = It0}] ->
+                    [SubS0 = #sub_state{client = Client, userdata = UserData, it = It0}] ->
                         ?tp(beamformer_fulfilled, #{sub_id => SubId}),
                         %% Update the iterator, start key and message
                         %% matcher for the subscription:
                         {ok, It} = update_iterator(CBM, DBShard, It0, NextKey),
-                        #{message_matcher := Matcher} = CBM:unpack_iterator(DBShard, It),
                         %% Update the subscription state:
-                        ets:update_element(
-                            SubTab,
-                            SubId,
-                            [
-                                {#sub_state.it, It},
-                                {#sub_state.start_key, NextKey},
-                                {#sub_state.msg_matcher, Matcher}
-                            ]
-                        ),
+                        SubS = SubS0#sub_state{it = It, start_key = NextKey},
+                        ets:insert(SubTab, SubS),
                         %% Update sequence number and check if the
                         %% subscription should remain active:
-                        {Active, SeqNo} = keep_and_seqno(SubTab, SubS, NMsgs),
+                        {Active, SeqNo} = keep_and_seqno(SubTab, SubS0, NMsgs),
                         %% Update the worker's queue:
                         case Active of
                             true ->
@@ -912,10 +1021,8 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
                                 %% queue:
                                 Flags = Flags0,
                                 QueueUpdate(
-                                    SubS,
-                                    SubS#sub_state{
-                                        start_key = NextKey, it = It, msg_matcher = Matcher
-                                    }
+                                    SubS0,
+                                    SubS
                                 );
                             false ->
                                 %% This subscription is not keeping up
@@ -923,7 +1030,8 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
                                 %% subscription by dropping it from
                                 %% the worker's active queue:
                                 Flags = Flags0 bor ?DISPATCH_FLAG_STUCK,
-                                QueueDrop(SubS)
+                                disown_stuck_subscription(DBShard, SubTab, SubS),
+                                QueueDrop(SubS0)
                         end,
                         DispatchMask = emqx_ds_dispatch_mask:enc_finalize(BatchSize, MaskEncoder),
                         [
@@ -942,8 +1050,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
     %% Send the beam to the destination node:
     send_out(DBShard, Node, lists:reverse(PackRev), Destinations).
 
-send_out_final_term_to_node(DBShard, Term, Node, Reqs) ->
-    SubTab = subtab(DBShard),
+send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
     Mask = emqx_ds_dispatch_mask:encode([true]),
     Destinations = lists:map(
         fun(
@@ -977,50 +1084,47 @@ diff_gens(_DBShard, Old, New) ->
         Old
     ).
 
-do_schedule(D = #d{dbshard = DBShard, tab = Tab, pending = Pending}) ->
+do_schedule(D = #d{dbshard = DBShard, pending = Pending}) ->
     Pool = emqx_ds_beamformer_catchup:pool(DBShard),
     %% Find the appropriate worker for the requests and group the requests:
     ByWorker = maps:groups_from_list(
-        fun(SubId) ->
-            case ets:lookup(Tab, SubId) of
-                [#sub_state{stream = Stream}] ->
-                    gproc_pool:pick_worker(Pool, Stream);
-                [] ->
-                    undefined
-            end
+        fun(#sub_state{stream = Stream}) ->
+            gproc_pool:pick_worker(Pool, Stream)
         end,
         Pending
     ),
     %% Dispatch the events to the workers and collect the requests
     %% that couldn't be dispatched:
     Unmatched = maps:fold(
-        fun
-            (undefined, _Reqs, Unmatched) ->
-                Unmatched;
-            (Worker, Reqs, Unmatched) ->
-                case emqx_ds_beamformer_catchup:enqueue(Worker, Reqs) of
-                    ok ->
-                        Unmatched;
-                    Error ->
-                        ?tp(
-                            error,
-                            emqx_ds_beamformer_delegate_error,
-                            #{shard => DBShard, worker => Worker, error => Error}
-                        ),
-                        Reqs ++ Unmatched
-                end
+        fun(Worker, Reqs, Unmatched) ->
+            case emqx_ds_beamformer_catchup:enqueue(Worker, Reqs) of
+                ok ->
+                    Unmatched;
+                Error ->
+                    ?tp(
+                        error,
+                        emqx_ds_beamformer_delegate_error,
+                        #{shard => DBShard, worker => Worker, error => Error}
+                    ),
+                    Reqs ++ Unmatched
+            end
         end,
         [],
         ByWorker
     ),
     {Unmatched =:= [], D#d{pending = Unmatched}}.
 
-remove_subscription(SubId, D = #d{tab = Tab, monitor_tab = MTab, pending = Pending}) ->
-    case ets:take(Tab, SubId) of
-        [#sub_state{mref = MRef}] ->
-            demonitor(MRef, [flush]),
-            ets:delete(MTab, MRef),
-            %% TODO: remove from the workers:
+remove_subscription(
+    SubId, D = #d{dbshard = DBShard, stuck_sub_tab = SubTab, monitor_tab = _MTab, pending = Pending}
+) ->
+    ets:delete(fc_tab(DBShard), SubId),
+    ets:delete(SubTab, SubId),
+    case ets:take(owner_tab(DBShard), SubId) of
+        [#owner_tab{owner = _Owner}] ->
+            %% FIXME:
+            %% demonitor(MRef, [flush]),
+            %% ets:delete(MTab, MRef),
+            %% FIXME: notify owner
             {true, D#d{pending = Pending -- [SubId]}};
         [] ->
             {false, D}
@@ -1031,19 +1135,35 @@ send_out(DBShard, Node, Pack, Destinations) ->
         dest_node => Node,
         destinations => Destinations
     }),
-    %% FIXME: gen_rpc currently doesn't optimize local casts:
-    emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, Pack, Destinations).
+    case node() of
+        Node ->
+            %% TODO: this may block the worker. Introduce a separate
+            %% worker for local fanout?
+            emqx_ds_beamsplitter:dispatch_v2(Pack, Destinations);
+        _ ->
+            emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, Pack, Destinations)
+    end.
+
+-compile({inline, gvar/1}).
+-spec gvar(dbshard()) -> gvar().
+gvar(DBShard) ->
+    persistent_term:get(?pt_gvar(DBShard)).
 
 %% subtab(Shard) ->
 %%     persistent_term:get(?subtid(Shard)).
 
-make_subtab(Shard) ->
-    Tab = ets:new(emqx_ds_beamformer_sub_tab, [
+make_fctab() ->
+    ets:new(emqx_ds_beamformer_flow_control_tab, [
+        set,
+        protected,
+        {keypos, #fctab.sub_ref},
+        {read_concurrency, true}
+    ]).
+
+make_owner_tab() ->
+    ets:new(emqx_ds_beamformer_owner_tab, [
         set,
         public,
-        {keypos, #sub_state.req_id},
-        {read_concurrency, true},
+        {keypos, #owner_tab.sub_ref},
         {write_concurrency, true}
-    ]),
-    persistent_term:put(?ps_subtid(Shard), Tab),
-    Tab.
+    ]).

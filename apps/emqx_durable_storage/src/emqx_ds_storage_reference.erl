@@ -259,10 +259,10 @@ scan_stream(Shard, S, _Stream, TopicFilter, LastSeenKey, BatchSize, TMax, IsCurr
     end.
 
 message_matcher(_Shard, _S, #it{
-    start_time = StartTime, topic_filter = TF, last_seen_message_key = LSK
+    start_time = StartTime, topic_filter = TF
 }) ->
-    fun(MsgKey = <<TS:64>>, #message{topic = Topic}) ->
-        MsgKey > LSK andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
+    fun(LastSeenKey, MsgKey = <<TS:64>>, _TopicWords, #message{topic = Topic}) ->
+        MsgKey > LastSeenKey andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
     end.
 
 batch_events(_Shard, _, _Messages) ->
