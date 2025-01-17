@@ -40,7 +40,7 @@ init([]) ->
     Metrics = emqx_metrics_worker:child_spec(emqx_authn_metrics, ?METRICS_WORKER_NAME),
 
     AuthNCache = emqx_auth_cache:child_spec(
-        ?AUTHN_CACHE, [authentication_cache], ?METRICS_WORKER_NAME
+        ?AUTHN_CACHE, [authentication_settings, cache], ?METRICS_WORKER_NAME
     ),
 
     AuthN = #{
