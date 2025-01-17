@@ -447,7 +447,7 @@ take_from_context(Context, Message) ->
 decode(Payload, #{type := none}, _Transformation) ->
     {ok, Payload};
 decode(Payload, #{type := json}, Transformation) when is_binary(Payload) ->
-    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+    case emqx_utils_json:safe_decode(Payload) of
         {ok, JSON} ->
             {ok, JSON};
         {error, Reason} ->
