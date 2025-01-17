@@ -107,14 +107,7 @@ desc(metrics) -> ?DESC(auth_cache_metrics);
 desc(_) -> undefined.
 
 fill_defaults(Config) ->
-    WithRoot = #{<<"auth_cache">> => Config},
-    Schema = #{roots => [{auth_cache, hoconsc:mk(?R_REF(config), #{})}]},
-    case emqx_hocon:check(Schema, WithRoot, #{make_serializable => true}) of
-        {ok, #{<<"auth_cache">> := WithDefaults}} ->
-            WithDefaults;
-        {error, Reason} ->
-            throw(Reason)
-    end.
+    emqx_schema:fill_defaults_for_type(?R_REF(config), Config).
 
 default_config() ->
     #{
