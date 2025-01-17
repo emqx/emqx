@@ -19,12 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("esockd/include/esockd.hrl").
 
 -define(SERVER_NAME, <<"localhost">>).
 
@@ -97,7 +93,7 @@ init_per_group(wss, Config) ->
             ws_transport_options => [
                 {transport, tls},
                 {protocols, [http]},
-                {transport_opts, [
+                {tls_opts, [
                     {verify, verify_none},
                     {server_name_indication, binary_to_list(?SERVER_NAME)},
                     {customize_hostname_check, []}
