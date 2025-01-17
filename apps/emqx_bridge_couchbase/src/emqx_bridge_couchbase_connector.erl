@@ -357,17 +357,16 @@ maybe_decode_json(Raw) ->
             Raw
     end.
 
+map_response({error, {shutdown, Reason}}) ->
+    map_response({error, Reason});
 map_response({error, Reason}) when
     Reason =:= econnrefused;
     Reason =:= timeout;
     Reason =:= normal;
-    Reason =:= {shutdown, normal};
-    Reason =:= {shutdown, closed}
+    Reason =:= closed;
+    %% {closed, "The connection was lost."}
+    element(1, Reason) =:= closed
 ->
-    ?tp("couchbase_query_error", #{reason => Reason}),
-    {error, {recoverable_error, Reason}};
-map_response({error, {closed, _Message} = Reason}) ->
-    %% _Message = "The connection was lost."
     ?tp("couchbase_query_error", #{reason => Reason}),
     {error, {recoverable_error, Reason}};
 map_response({error, Reason}) ->
