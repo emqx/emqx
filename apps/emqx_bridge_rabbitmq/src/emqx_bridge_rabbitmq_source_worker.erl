@@ -106,7 +106,7 @@ make_headers(Headers) when is_list(Headers) ->
     maps:from_list([{Key, Value} || {Key, _Type, Value} <- Headers]).
 
 make_payload(Payload) ->
-    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+    case emqx_utils_json:safe_decode(Payload) of
         {ok, Map} -> Map;
         {error, _} -> Payload
     end.
