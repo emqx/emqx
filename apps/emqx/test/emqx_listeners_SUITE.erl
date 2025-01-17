@@ -394,7 +394,7 @@ t_wss_update_opts(Config) ->
         %% Unable to connect with old SSL options, server's cert is signed by another CA.
         ct:pal("attempting connection with unknown CA"),
         ?assertError(
-            timeout,
+            {down, {shutdown, {tls_alert, {unknown_ca, _}}}},
             emqtt_connect_wss(Host, Port, [
                 {cacerts, public_key:cacerts_get()}
                 | ClientSSLOpts
@@ -673,7 +673,7 @@ with_listener(Type, Name, Config, Then) ->
 emqtt_connect_ssl(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 2,
+        connect_timeout => 500,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -681,7 +681,7 @@ emqtt_connect_ssl(Host, Port, SSLOpts) ->
 emqtt_connect_quic(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:quic_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 2,
+        connect_timeout => 500,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -689,7 +689,7 @@ emqtt_connect_quic(Host, Port, SSLOpts) ->
 emqtt_connect_wss(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 2,
+        connect_timeout => 500,
         ws_transport_options => [
             {protocols, [http]},
             {transport, tls},
