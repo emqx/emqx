@@ -131,10 +131,9 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
 
 %% @private
 channel_opts(Opts = #{url := URL, socket_options := SockOpts}) ->
-    ClientOpts = maps:merge(
-        #{pool_size => erlang:system_info(schedulers)},
-        Opts
-    ),
+    ClientOpts = #{
+        pool_size => maps:get(pool_size, Opts, erlang:system_info(schedulers))
+    },
     GunOpts = #{
         transport => tcp,
         tcp_opts => maps:to_list(SockOpts),
