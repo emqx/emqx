@@ -42,7 +42,8 @@
 
 -spec cbm(_Shard) -> module().
 cbm(DB) ->
-    persistent_term:get(?ps_cbm(DB)).
+    #{cbm := CBM} = persistent_term:get(?pt_gvar(DB)),
+    CBM.
 
 -spec start_link(module(), _Shard, emqx_ds_beamformer:opts()) -> supervisor:startlink_ret().
 start_link(CBM, ShardId, Opts) ->

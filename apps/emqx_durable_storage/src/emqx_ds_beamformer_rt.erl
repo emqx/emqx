@@ -46,7 +46,7 @@
     module :: module(),
     metrics_id,
     shard,
-    parent_sub_tab :: ets:tid(),
+    sub_tab :: ets:tid(),
     name,
     high_watermark :: ets:tid(),
     queue :: emqx_ds_beamformer_waitq:t(),
@@ -105,16 +105,16 @@ seal_generation(DBShard, Rank) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, ShardId, Name, _Opts]) ->
+init([CBM, DBShard, Name, _Opts]) ->
     process_flag(trap_exit, true),
-    Pool = pool(ShardId),
+    Pool = pool(DBShard),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
     S = #s{
         module = CBM,
-        shard = ShardId,
-        parent_sub_tab = emqx_ds_beamformer:subtab(ShardId),
-        metrics_id = emqx_ds_beamformer:shard_metrics_id(ShardId),
+        shard = DBShard,
+        sub_tab = emqx_ds_beamformer:make_subtab(DBShard),
+        metrics_id = emqx_ds_beamformer:shard_metrics_id(DBShard),
         name = Name,
         high_watermark = ets:new(high_watermark, [ordered_set, private]),
         queue = emqx_ds_beamformer_waitq:new(),
@@ -166,12 +166,17 @@ handle_info(
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(Reason, #s{shard = ShardId, name = Name, queue = Queue}) ->
+terminate(Reason, #s{shard = ShardId, name = Name, sub_tab = SubTab}) ->
     Pool = pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
-    Reason =:= shutdown orelse
-        emqx_ds_beamformer:reschedule(ShardId, emqx_ds_beamformer_waitq:all_reqs(Queue)).
+    %% Should the master to deal with the remaining subscriptions?
+    case Reason of
+        shutdown ->
+            ets:delete(SubTab);
+        _ ->
+            ok
+    end.
 
 %%================================================================================
 %% Internal exports
@@ -185,7 +190,7 @@ do_enqueue(
     Req = #sub_state{
         stream = Stream, topic_filter = TF, req_id = ReqId, start_key = Key, it = It0, rank = Rank
     },
-    S = #s{shard = Shard, queue = Queue, metrics_id = Metrics, module = CBM}
+    S = #s{shard = Shard, queue = Queue, metrics_id = Metrics, module = CBM, sub_tab = SubTab}
 ) ->
     case high_watermark(Stream, S) of
         {ok, HighWatermark} ->
@@ -194,9 +199,11 @@ do_enqueue(
                     ?tp(beamformer_push_rt, #{
                         req_id => ReqId, stream => Stream, key => Key, it => It
                     }),
+                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Rank, Queue),
+                    emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
+                    %% Report metrics:
                     PQLen = emqx_ds_beamformer_waitq:size(Queue),
                     emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
-                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Rank, Queue),
                     ok;
                 {error, unrecoverable, has_data} ->
                     ?tp(info, beamformer_push_rt_downgrade, #{
@@ -231,7 +238,7 @@ process_stream_event(
         module = CBM,
         batch_size = BatchSize,
         queue = Queue,
-        parent_sub_tab = SubTab
+        sub_tab = SubTab
     }
 ) ->
     {ok, StartKey} = high_watermark(Stream, S),
@@ -248,6 +255,7 @@ process_stream_event(
             Beams = emqx_ds_beamformer:beams_init(
                 CBM,
                 DBShard,
+                SubTab,
                 false,
                 fun(SubS) -> queue_drop(Queue, SubS) end,
                 fun(_OldSubState, _SubState) -> ok end
@@ -271,7 +279,7 @@ process_stream_event(
                 fun(SubId) -> ets:lookup(SubTab, SubId) end,
                 Ids
             ),
-            emqx_ds_beamformer:send_out_final_beam(DBShard, Pack, MatchReqs),
+            emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
             emqx_ds_beamformer_waitq:del_stream(Stream, Queue)
     end.
 
@@ -296,25 +304,9 @@ process_batch(Stream, EndKey, [{Key, Msg} | Rest], S, Beams0) ->
     Beams = emqx_ds_beamformer:beams_add(Key, Msg, Candidates, Beams0),
     process_batch(Stream, EndKey, Rest, S, Beams).
 
-queue_search(#s{queue = Queue, parent_sub_tab = SubTab}, Stream, MsgKey, Msg) ->
+queue_search(#s{queue = Queue}, Stream, _MsgKey, Msg) ->
     Topic = emqx_topic:tokens(Msg#message.topic),
-    Candidates = emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue),
-    lists:filtermap(
-        fun(SubId) ->
-            case ets:lookup(SubTab, SubId) of
-                [Req] ->
-                    #sub_state{msg_matcher = Matcher} = Req,
-                    case Matcher(MsgKey, Msg) of
-                        true -> {true, Req};
-                        false -> false
-                    end;
-                [] ->
-                    %% FIXME: Unsubscribed.
-                    false
-            end
-        end,
-        Candidates
-    ).
+    emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue).
 
 queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID}) ->
     emqx_ds_beamformer_waitq:delete(Stream, TF, ID, Queue).
