@@ -4162,9 +4162,9 @@ fill_defaults(Roots, RawConf) ->
 
 fill_defaults_for_type(Type, RawConf) ->
     WithRoot = #{<<"conf">> => RawConf},
-    Schema = #{roots => [{conf, hoconsc:mk(Type, #{})}]},
-    case emqx_hocon:check(Schema, WithRoot, #{make_serializable => true}) of
-        {ok, #{<<"conf">> := WithDefaults}} ->
+    Roots = [{conf, hoconsc:mk(Type, #{})}],
+    case fill_defaults(Roots, WithRoot) of
+        #{<<"conf">> := WithDefaults} ->
             WithDefaults;
         {error, Reason} ->
             throw(Reason)
