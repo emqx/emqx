@@ -179,7 +179,7 @@ summary_response_example(ConfRootKey) ->
         end,
     [
         #{
-            enabled => true,
+            enable => true,
             name => <<"my", ExName/binary>>,
             type => TypeEx,
             created_at => 1736512728666,
@@ -730,7 +730,7 @@ fields(response_node_status) ->
     ];
 fields(response_summary) ->
     [
-        {enabled, mk(boolean(), #{})},
+        {enable, mk(boolean(), #{})},
         {name, mk(binary(), #{})},
         {type, mk(binary(), #{})},
         {created_at, mk(integer(), #{})},
@@ -1363,7 +1363,7 @@ summary_from_local_node_v7(ConfRootKey) ->
                     node => node(),
                     type => Type,
                     name => Name,
-                    enabled => IsEnabled,
+                    enable => IsEnabled,
                     created_at => CreatedAt,
                     last_modified_at => LastModifiedAt
                 },
