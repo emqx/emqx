@@ -358,7 +358,7 @@ emit_enabled(Type, BConf = #{enable := Enabled}) ->
     Enabled andalso throw({Type, BConf}).
 
 decode(SchemaName, Payload) when is_binary(Payload) ->
-    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+    case emqx_utils_json:safe_decode(Payload) of
         {ok, Map} ->
             decode(SchemaName, Map);
         {error, Error} ->
