@@ -2,7 +2,7 @@
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_otel_trace_SUITE).
+-module(emqx_otel_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -16,6 +16,16 @@
 -define(CONF_PATH, [opentelemetry]).
 
 %% How to run it locally:
+%%
+%% run ct in docker container
+%% run script:
+%% ```bash
+%% ./scripts/ct/run.sh --app apps/emqx_opentelemetry -- \
+%%                     ct -v --readable=true --name 'test@127.0.0.1' \
+%%                     --suite apps/emqx_opentelemetry/test/emqx_otel_SUITE.erl
+%% ```
+%%
+%% run with specical envs:
 %%  1. Uncomment networks in .ci/docker-compose-file/docker-compose-otel.yaml,
 %%     Uncomment OTLP gRPC ports mappings for otel-collector and otel-collector-tls services.
 %%     Uncomment jaeger-all-in-one ports mapping.
@@ -29,7 +39,7 @@
 %%         PROFILE=emqx JAEGER_URL="http://localhost:16686" \
 %%         OTEL_COLLECTOR_URL="http://localhost:4317" OTEL_COLLECTOR_TLS_URL="https://localhost:14317" \
 %%         ./rebar3 ct -v --readable=true --name 'test@127.0.0.1' \
-%%                     --suite apps/emqx_opentelemetry/test/emqx_otel_trace_SUITE.erl
+%%                     --suite apps/emqx_opentelemetry/test/emqx_otel_SUITE.erl
 
 all() ->
     [
@@ -91,6 +101,26 @@ end_per_testcase(_TC, Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files(),
     ok.
+
+logs_exporter_file_path(Group, Config) ->
+    filename:join([project_dir(Config), logs_exporter_filename(Group)]).
+
+project_dir(Config) ->
+    filename:join(
+        lists:takewhile(
+            fun(PathPart) -> PathPart =/= "_build" end,
+            filename:split(?config(priv_dir, Config))
+        )
+    ).
+
+logs_exporter_filename(tcp) ->
+    ".ci/docker-compose-file/otel/otel-collector.json";
+logs_exporter_filename(tls) ->
+    ".ci/docker-compose-file/otel/otel-collector-tls.json".
+
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
 
 t_trace(Config) ->
     MqttHostPort = mqtt_host_port(),
@@ -278,7 +308,6 @@ t_distributed_trace(Config) ->
     ),
     stop_conns([SubConn1, SubConn2, SubConn3, PubConn]).
 
-%% Keeping this test in this SUITE as there is no separate module for logs
 t_log(Config) ->
     Level = emqx_logger:get_primary_log_level(),
     LogsConf = #{
@@ -310,21 +339,9 @@ t_log(Config) ->
         )
     ).
 
-logs_exporter_file_path(Group, Config) ->
-    filename:join([project_dir(Config), logs_exporter_filename(Group)]).
-
-project_dir(Config) ->
-    filename:join(
-        lists:takewhile(
-            fun(PathPart) -> PathPart =/= "_build" end,
-            filename:split(?config(priv_dir, Config))
-        )
-    ).
-
-logs_exporter_filename(tcp) ->
-    ".ci/docker-compose-file/otel/otel-collector.json";
-logs_exporter_filename(tls) ->
-    ".ci/docker-compose-file/otel/otel-collector-tls.json".
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
 
 enabled_trace_conf(TcConfig) ->
     #{
