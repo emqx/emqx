@@ -312,7 +312,7 @@ safely_parse_body(ContentType, Body) ->
     end.
 
 parse_body(<<"application/json", _/binary>>, Body) ->
-    {ok, emqx_utils_json:decode(Body, [return_maps])};
+    {ok, emqx_utils_json:decode(Body)};
 parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     NBody = maps:from_list(cow_qs:parse_qs(Body)),
     {ok, NBody};
