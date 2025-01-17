@@ -98,7 +98,7 @@ query_mode(_Config) -> no_queries.
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
     Config = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X, [return_maps]) end, Config0
+        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
     ),
     #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
