@@ -112,10 +112,6 @@
 
 -define(CHAINS_TAB, emqx_authn_chains).
 
--define(DEFAULT_LATENCY_BUCKETS, [
-    5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000
-]).
-
 -define(TRACE_RESULT(Label, Result, Reason), begin
     ?TRACE_AUTHN(Label, #{
         result => (Result),
@@ -183,15 +179,7 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
                     %% }
                     ?TRACE_RESULT("authentication_result", {ok, ok}, empty_chain);
                 NAuthenticators ->
-                    {Latency, Result} = timer:tc(fun() ->
-                        do_authenticate(ChainName, NAuthenticators, Credential)
-                    end),
-                    emqx_metrics_worker:observe_hist(
-                        authn_metrics,
-                        authn_chains,
-                        latency,
-                        erlang:convert_time_unit(Latency, microsecond, millisecond)
-                    ),
+                    Result = do_authenticate(ChainName, NAuthenticators, Credential),
                     ?TRACE_RESULT("authentication_result", Result, chain_result)
             end;
         none ->
@@ -386,11 +374,6 @@ list_users(ChainName, AuthenticatorID, FuzzyParams) ->
 
 init(_Opts) ->
     process_flag(trap_exit, true),
-    ok = emqx_metrics_worker:create_metrics(
-        authn_metrics,
-        authn_chains,
-        [{hist, latency, ?DEFAULT_LATENCY_BUCKETS}]
-    ),
     Module = emqx_authn_config,
     ok = emqx_config_handler:add_handler([?CONF_ROOT], Module),
     ok = emqx_config_handler:add_handler([listeners, '?', '?', ?CONF_ROOT], Module),

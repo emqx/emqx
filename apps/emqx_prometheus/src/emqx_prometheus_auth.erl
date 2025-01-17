@@ -38,6 +38,7 @@
 ]).
 
 -include("emqx_prometheus.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 -include_lib("prometheus/include/prometheus.hrl").
 
@@ -471,7 +472,7 @@ authz_latency_metric_meta(names) ->
     emqx_prometheus_cluster:metric_names(authz_latency_metric_meta()).
 
 authz_latency_data(Mode) ->
-    Hists = emqx_metrics_worker:get_hists(authz_metrics, authz_sources),
+    Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
     #{
         emqx_authz_latency => [
             {with_node_label(Mode, [{name, Name}]), Hist}
