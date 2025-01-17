@@ -169,7 +169,7 @@ parse_config(
     State = #{
         method => Method,
         path => Path,
-        headers => maps:to_list(Headers),
+        headers => emqx_authn_utils:parse_deep(maps:to_list(Headers)),
         base_path_template => emqx_authn_utils:parse_str(Path),
         base_query_template => emqx_authn_utils:parse_deep(
             cow_qs:parse_qs(Query)
