@@ -18,7 +18,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/3, cbm/1]).
+-export([start_link/3, cbm/1, info/1]).
 
 %% behavior callbacks:
 -export([init/1]).
@@ -50,6 +50,14 @@ start_link(CBM, ShardId, Opts) ->
     supervisor:start_link(
         {via, gproc, ?SUP(ShardId)}, ?MODULE, {top, CBM, ShardId, Opts}
     ).
+
+info(DBShard = {_, Shard}) ->
+    case gproc:where(?SUP(DBShard)) of
+        undefined ->
+            {DBShard, down};
+        Pid ->
+            child_status({Shard, Pid, supervisor, [?MODULE]})
+    end.
 
 %%================================================================================
 %% behavior callbacks
@@ -110,3 +118,16 @@ start_workers(Module, ShardId, InitialNWorkers) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+child_status({Name, Pid, worker, _}) ->
+    ProcessInfo = erlang:process_info(Pid, [message_queue_len, current_function]),
+    {
+        Name,
+        {Pid, maps:from_list(ProcessInfo)}
+    };
+child_status({Name, Pid, supervisor, _}) ->
+    ChildrenInfo = [child_status(Child) || Child <- supervisor:which_children(Pid)],
+    {
+        Name,
+        {Pid, maps:from_list(ChildrenInfo)}
+    }.
