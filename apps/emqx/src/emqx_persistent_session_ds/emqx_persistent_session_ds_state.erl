@@ -1309,20 +1309,14 @@ gen_fold(Field, Fun, Acc, Rec) ->
 -ifdef(STORE_STATE_IN_DS).
 gen_put(Field, Key, Val, Rec0) ->
     check_sequence(Rec0),
-    Rec1 = add_to_checksum(Field, Key, Rec0),
-    maps:update_with(
-        Field,
-        fun(PMap) -> pmap_put(Key, Val, PMap) end,
-        Rec1#{?set_dirty}
-    ).
+    Rec = add_to_checksum(Field, Key, Rec0),
+    #{Field := Pmap} = Rec,
+    Rec#{Field := pmap_put(Key, Val, Pmap), ?set_dirty}.
 -else.
 gen_put(Field, Key, Val, Rec) ->
     check_sequence(Rec),
-    maps:update_with(
-        Field,
-        fun(PMap) -> pmap_put(Key, Val, PMap) end,
-        Rec#{?set_dirty}
-    ).
+    #{Field := Pmap} = Rec,
+    Rec#{Field := pmap_put(Key, Val, Pmap), ?set_dirty}.
 -endif.
 
 -ifdef(STORE_STATE_IN_DS).
@@ -1622,12 +1616,15 @@ pmap_size(#pmap{table = Table, cache = Cache}) ->
 cache_from_list(_Table, L) ->
     maps:from_list(L).
 
+-compile({inline, cache_get/3}).
 cache_get(_Table, K, Cache) ->
     maps:get(K, Cache, undefined).
 
+-compile({inline, cache_put/4}).
 cache_put(_Table, K, V, Cache) ->
     maps:put(K, V, Cache).
 
+-compile({inline, cache_remove/3}).
 cache_remove(_Table, K, Cache) ->
     maps:remove(K, Cache).
 

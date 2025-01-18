@@ -29,6 +29,7 @@
 %% "replaying" the stored SRSes.
 -module(emqx_persistent_session_ds).
 
+-compile(inline).
 -behaviour(emqx_session).
 
 -include("emqx.hrl").
@@ -581,7 +582,7 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
 puback(ClientInfo, PacketId, Session0) ->
     case update_seqno(puback, PacketId, Session0, ClientInfo) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], schedule_delivery(Session)};
+            {ok, Msg, [], Session};
         Error ->
             Error
     end.
@@ -626,7 +627,7 @@ pubrel(PacketId, Session = #{s := S0}) ->
 pubcomp(ClientInfo, PacketId, Session0) ->
     case update_seqno(pubcomp, PacketId, Session0, ClientInfo) of
         {ok, Msg, Session} ->
-            {ok, Msg, [], schedule_delivery(Session)};
+            {ok, Msg, [], Session};
         Error = {error, _} ->
             Error
     end.
@@ -1110,10 +1111,10 @@ handle_ds_reply(
                     %% This stream is not blocked. Add messages
                     %% directly to the inflight and set drain timer.
                     %%
-                    %% Note: this may overwrite SRS records that
-                    %% correspond to batches that only contain QoS0
-                    %% messages. We ignore QoS0 messages during
-                    %% replay, so it's not deemed a problem.
+                    %% Note: this may overwrite SRS records of batches
+                    %% that only contain QoS0 messages. We ignore QoS0
+                    %% messages during replay, so it's not deemed a
+                    %% problem.
                     {SRS1, SubState} = pre_enqueue_new(SRS0, S),
                     {SRS, Inflight} = enqueue_batch(
                         StreamKey, S, Reply, SubState, SRS1, ClientInfo, Inflight0
@@ -1146,92 +1147,89 @@ clear_buffer(SubId, Session = #{buffer := Buf}) ->
 %% operation):
 %% --------------------------------------------------------------------
 
+-record(ctx, {
+    is_replay :: boolean(),
+    clientinfo :: emqx_types:clientinfo(),
+    substate :: emqx_persistent_session_ds_subs:subscription_state(),
+    comm1 :: emqx_persistent_session_ds:seqno(),
+    comm2 :: emqx_persistent_session_ds:seqno(),
+    dup1 :: emqx_persistent_session_ds:seqno(),
+    dup2 :: emqx_persistent_session_ds:seqno(),
+    rec :: emqx_persistent_session_ds:seqno()
+}).
+
 %% Enrich messages according to the subscription options and assign
 %% sequence number to each message, later to be used for packet ID
 %% generation:
-%%
-%% TODO: ClientInfo is only used by enrich_message to get
-%% client ID. While this should not lead to replay
-%% inconsistency, this API is not the best.
-process_batch(
-    _IsReplay, _S, _SubState, _ClientInfo, LastSeqNoQos1, LastSeqNoQos2, [], Inflight
-) ->
-    {Inflight, LastSeqNoQos1, LastSeqNoQos2};
-process_batch(
-    IsReplay,
-    S,
-    SubState,
-    ClientInfo,
-    FirstSeqNoQos1,
-    FirstSeqNoQos2,
-    [KV | Messages],
-    Inflight0
-) ->
+process_batch(IsReplay, S, SubState, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Batch, Inflight) ->
+    Ctx = #ctx{
+        is_replay = IsReplay,
+        clientinfo = ClientInfo,
+        substate = SubState,
+        comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+        comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+        dup1 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S),
+        dup2 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S),
+        rec = emqx_persistent_session_ds_state:get_seqno(?rec, S)
+    },
+    do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, Batch, Inflight).
+
+do_process_batch(_Ctx, LastSeqnoQos1, LastSeqnoQos2, [], Inflight) ->
+    {Inflight, LastSeqnoQos1, LastSeqnoQos2};
+do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, [{_DSMsgKey, Msg0} | Batch], Inflight0) ->
+    #ctx{clientinfo = ClientInfo, substate = SubState} = Ctx,
     #{upgrade_qos := UpgradeQoS, subopts := SubOpts} = SubState,
-    {_DsMsgKey, Msg0} = KV,
-    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
-    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-    Dup1 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S),
-    Dup2 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S),
-    Rec = emqx_persistent_session_ds_state:get_seqno(?rec, S),
-    Msgs = emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS),
-    {Inflight, LastSeqNoQos1, LastSeqNoQos2} = lists:foldl(
-        fun(Msg = #message{qos = Qos}, {Acc, SeqNoQos10, SeqNoQos20}) ->
-            case Qos of
+    case emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS) of
+        [Msg = #message{qos = QoS}] ->
+            case QoS of
                 ?QOS_0 ->
-                    SeqNoQos1 = SeqNoQos10,
-                    SeqNoQos2 = SeqNoQos20;
+                    SeqNoQos1 = FirstSeqnoQos1,
+                    SeqNoQos2 = FirstSeqnoQos2;
                 ?QOS_1 ->
-                    SeqNoQos1 = inc_seqno(?QOS_1, SeqNoQos10),
-                    SeqNoQos2 = SeqNoQos20;
+                    SeqNoQos1 = inc_seqno(?QOS_1, FirstSeqnoQos1),
+                    SeqNoQos2 = FirstSeqnoQos2;
                 ?QOS_2 ->
-                    SeqNoQos1 = SeqNoQos10,
-                    SeqNoQos2 = inc_seqno(?QOS_2, SeqNoQos20)
+                    SeqNoQos1 = FirstSeqnoQos1,
+                    SeqNoQos2 = inc_seqno(?QOS_2, FirstSeqnoQos2)
             end,
-            {
-                case Qos of
-                    ?QOS_0 when IsReplay ->
+            Inflight =
+                case QoS of
+                    ?QOS_0 when Ctx#ctx.is_replay ->
                         %% We ignore QoS 0 messages during replay:
-                        Acc;
+                        Inflight0;
                     ?QOS_0 ->
-                        emqx_persistent_session_ds_inflight:push({undefined, Msg}, Acc);
-                    ?QOS_1 when SeqNoQos1 =< Comm1 ->
+                        emqx_persistent_session_ds_inflight:push({undefined, Msg}, Inflight0);
+                    ?QOS_1 when SeqNoQos1 =< Ctx#ctx.comm1 ->
                         %% QoS1 message has been acked by the client, ignore:
-                        Acc;
-                    ?QOS_1 when SeqNoQos1 =< Dup1 ->
+                        Inflight0;
+                    ?QOS_1 when SeqNoQos1 =< Ctx#ctx.dup1 ->
                         %% QoS1 message has been sent but not
                         %% acked. Retransmit:
                         Msg1 = emqx_message:set_flag(dup, true, Msg),
-                        emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg1}, Acc);
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg1}, Inflight0);
                     ?QOS_1 ->
-                        emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg}, Acc);
-                    ?QOS_2 when SeqNoQos2 =< Comm2 ->
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg}, Inflight0);
+                    ?QOS_2 when SeqNoQos2 =< Ctx#ctx.comm2 ->
                         %% QoS2 message has been PUBCOMP'ed by the client, ignore:
-                        Acc;
-                    ?QOS_2 when SeqNoQos2 =< Rec ->
+                        Inflight0;
+                    ?QOS_2 when SeqNoQos2 =< Ctx#ctx.rec ->
                         %% QoS2 message has been PUBREC'ed by the client, resend PUBREL:
-                        emqx_persistent_session_ds_inflight:push({pubrel, SeqNoQos2}, Acc);
-                    ?QOS_2 when SeqNoQos2 =< Dup2 ->
+                        emqx_persistent_session_ds_inflight:push({pubrel, SeqNoQos2}, Inflight0);
+                    ?QOS_2 when SeqNoQos2 =< Ctx#ctx.dup2 ->
                         %% QoS2 message has been sent, but we haven't received PUBREC.
                         %%
                         %% TODO: According to the MQTT standard 4.3.3:
                         %% DUP flag is never set for QoS2 messages? We
                         %% do so for mem sessions, though.
                         Msg1 = emqx_message:set_flag(dup, true, Msg),
-                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg1}, Acc);
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg1}, Inflight0);
                     ?QOS_2 ->
-                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg}, Acc)
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg}, Inflight0)
                 end,
-                SeqNoQos1,
-                SeqNoQos2
-            }
-        end,
-        {Inflight0, FirstSeqNoQos1, FirstSeqNoQos2},
-        Msgs
-    ),
-    process_batch(
-        IsReplay, S, SubState, ClientInfo, LastSeqNoQos1, LastSeqNoQos2, Messages, Inflight
-    ).
+            do_process_batch(Ctx, SeqNoQos1, SeqNoQos2, Batch, Inflight);
+        [] ->
+            do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, Batch, Inflight0)
+    end.
 
 %%--------------------------------------------------------------------
 %% Transient messages
@@ -1260,10 +1258,10 @@ enqueue_transient(
             S = put_seqno(?next(QoS), SeqNo, S0),
             Inflight = emqx_persistent_session_ds_inflight:push({SeqNo, Msg}, Inflight0)
     end,
-    schedule_delivery(Session#{
+    Session#{
         inflight := Inflight,
         s := S
-    }).
+    }.
 
 %%--------------------------------------------------------------------
 %% Inflight management
