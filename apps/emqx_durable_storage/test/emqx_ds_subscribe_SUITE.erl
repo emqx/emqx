@@ -120,6 +120,40 @@ t_shard_down_notify(Config) ->
         []
     ).
 
+%% @doc Verify that the client is notified when the beamformer worker
+%% currently owning the subscription dies:
+t_worker_down_notify(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{},
+        try
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            %% Inject an error that should crash the worker:
+            meck:new(emqx_ds_beamformer, [passthrough, no_history]),
+            meck:expect(emqx_ds_beamformer, scan_stream, fun(
+                _Mod, _Shard, _Stream, _TopicFilter, _StartKey, _BatchSize
+            ) ->
+                error(injected)
+            end),
+            %% Publish some messages to trigger stream scan leading up
+            %% to the crash:
+            ?assertMatch(ok, publish(DB, 1, 1)),
+            %% Recieve notification:
+            receive
+                {'DOWN', MRef, process, Pid, Reason} ->
+                    ?assertMatch(worker_crash, Reason),
+                    ?assert(is_pid(Pid))
+            after 5000 ->
+                error(timeout_waiting_for_down)
+            end
+        after
+            meck:unload()
+        end,
+        []
+    ).
+
 %% @doc Verify behavior of a subscription that replayes old messages.
 %% This testcase focuses on the correctness of `catchup' beamformer
 %% workers.
@@ -209,6 +243,7 @@ t_realtime(Config) ->
                 DB, Stream, [<<"t">>], erlang:system_time(millisecond)
             ),
             {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            timer:sleep(100),
             %% Publish/consume/ack loop:
             ?assertMatch(ok, publish(DB, 1, 2)),
             ?assertMatch(

@@ -617,7 +617,9 @@ where(DBShard) ->
 ls(DB) ->
     MS = {{?name({DB, '$1'}), '_', '_'}, [], ['$1']},
     Shards = gproc:select({local, names}, [MS]),
-    [{DB, I} || I <- Shards].
+    maps:from_list(
+        [emqx_ds_beamformer_sup:info({DB, I}) || I <- Shards]
+    ).
 
 %% @doc Look up state of a subscription
 -spec subscription_info(dbshard(), emqx_ds:sub_ref()) -> emqx_ds:sub_info() | undefined.
@@ -839,13 +841,14 @@ handle_event(
     info,
     {'ETS-TRANSFER', ETS, FromPid, ?heir_info},
     _State,
-    D = #d{pending = Pending}
+    D
 ) ->
-    %% FIXME: simply notify the clients and let them resubscribe
-    %% instead of trying to recover potentially broken subscriptions?
-    %% FIXME: cleanup owner table
+    %% One of the workers crashed and we inherited its subscription
+    %% table. We'll sent DOWN messages to the subscribers on its behalf:
     ?tp(warning, emqx_ds_beamformer_worker_crash, #{pid => FromPid}),
-    {next_state, ?recovering, D#d{pending = ets:tab2list(ETS) ++ Pending}};
+    on_worker_down(ETS),
+    ets:delete(ETS),
+    {next_state, ?recovering, D};
 %% Handle recoverable errors:
 handle_event(
     {call, From},
@@ -1167,3 +1170,15 @@ make_owner_tab() ->
         {keypos, #owner_tab.sub_ref},
         {write_concurrency, true}
     ]).
+
+%% @doc Send fake monitor messages to all subscribers registered in
+%% the table, nudging them to resubscribe.
+on_worker_down(InheritedSubTab) ->
+    MS = {#sub_state{client = '$1', req_id = '$2', _ = '_'}, [], [{{'$1', '$2'}}]},
+    notify_down_loop(ets:select(InheritedSubTab, [MS], 100)).
+
+notify_down_loop('$end_of_table') ->
+    ok;
+notify_down_loop({Matches, Cont}) ->
+    [Pid ! {'DOWN', Ref, process, self(), worker_crash} || {Pid, Ref} <- Matches],
+    notify_down_loop(ets:select(Cont)).
