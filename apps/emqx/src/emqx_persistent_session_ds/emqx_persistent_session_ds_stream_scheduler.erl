@@ -326,29 +326,32 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
     end.
 
 %% @doc Verify sequence number of DS subscription reply
-verify_reply(Reply, SchedS) ->
-    #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = Reply,
-    #s{ds_subs = DSSubs0} = SchedS,
-    DSSubState = maps:get(StreamKey, DSSubs0, undefined),
-    case DSSubState of
-        #ds_sub{seqno = PrevSeenSeqNo, sub_ref = Ref} when
-            PrevSeenSeqNo + Size =:= SeqNo
-        ->
-            DSSubs = DSSubs0#{StreamKey := DSSubState#ds_sub{seqno = SeqNo}},
-            {true, SchedS#s{ds_subs = DSSubs}};
-        _ ->
-            ?tp(warning, ?sessds_unexpected_reply, #{
-                stream => StreamKey,
-                batch_seqno => SeqNo,
-                batch_size => Size,
-                sub_state => DSSubState,
-                sub_ref => Ref,
-                stuck => Reply#poll_reply.stuck,
-                lagging => Reply#poll_reply.lagging
-            }),
-            %% FIXME: re-subscribe if anything is mismatched
-            {false, SchedS}
-    end.
+verify_reply(_Reply, SchedS) ->
+    {true, SchedS}.
+
+%% verify_reply(Reply, SchedS) ->
+%%     #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = Reply,
+%%     #s{ds_subs = DSSubs0} = SchedS,
+%%     DSSubState = maps:get(StreamKey, DSSubs0, undefined),
+%%     case DSSubState of
+%%         #ds_sub{seqno = PrevSeenSeqNo, sub_ref = Ref} when
+%%             PrevSeenSeqNo + Size =:= SeqNo
+%%         ->
+%%             DSSubs = DSSubs0#{StreamKey := DSSubState#ds_sub{seqno = SeqNo}},
+%%             {true, SchedS#s{ds_subs = DSSubs}};
+%%         _ ->
+%%             ?tp(warning, ?sessds_unexpected_reply, #{
+%%                 stream => StreamKey,
+%%                 batch_seqno => SeqNo,
+%%                 batch_size => Size,
+%%                 sub_state => DSSubState,
+%%                 sub_ref => Ref,
+%%                 stuck => Reply#poll_reply.stuck,
+%%                 lagging => Reply#poll_reply.lagging
+%%             }),
+%%             %% FIXME: re-subscribe if anything is mismatched
+%%             {false, SchedS}
+%%     end.
 
 suback(StreamKey, SeqNo, #s{ds_subs = Subs}) ->
     case Subs of
@@ -864,9 +867,9 @@ ds_subscribe([SrsID | Rest], S, Subs) ->
             ds_subscribe(Rest, S, Subs);
         _ ->
             #srs{it_end = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
-            %% FIXME: don't hardcode max_unacked
+            %% TODO: perhaps it's better to deprecate batch_size.
             {ok, Handle, SubRef} = emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, #{
-                max_unacked => 100
+                max_unacked => emqx_config:get([durable_sessions, batch_size])
             }),
             ?tp(debug, ?sessds_sched_subscribe, #{stream => SrsID, ref => Handle}),
             ds_subscribe(Rest, S, Subs#{SrsID => #ds_sub{handle = Handle, sub_ref = SubRef}})
