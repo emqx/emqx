@@ -259,6 +259,7 @@
 
 %% Per-subscription builder state:
 -record(beam_builder_sub, {
+    s :: sub_state(),
     mask :: emqx_ds_dispatch_mask:enc(),
     n_msgs :: pos_integer()
 }).
@@ -442,7 +443,7 @@ beams_n_matched(#beam_builder{per_node = PerNode}) ->
 -spec beams_add(
     emqx_ds:message_key(),
     emqx_types:message(),
-    [reference()],
+    [{node(), reference()}],
     beam_builder()
 ) -> beam_builder().
 beams_add(
@@ -453,72 +454,90 @@ beams_add(
 ) ->
     GlobalNMsgs = GlobalNMsgs0 + 1,
     TopicTokens = emqx_topic:tokens(Topic),
-    PerNode = lists:foldl(
-        fun(SubId, Acc) ->
-            case ets:lookup(SubTab, SubId) of
-                [#sub_state{msg_matcher = Matcher, start_key = LastSeenKey, client = ClientPid}] ->
-                    case Matcher(LastSeenKey, Key, TopicTokens, Msg) of
-                        true ->
-                            Node = node(ClientPid),
-                            do_beams_add(GlobalNMsgs, Key, Msg, SubId, Node, Acc);
-                        false ->
-                            Acc
-                    end;
-                [] ->
-                    Acc
-            end
+    PerNode = fold_with_groups(
+        fun(SubRef, NodeS) ->
+            beams_add_per_node(SubTab, GlobalNMsgs, Key, Msg, TopicTokens, SubRef, NodeS)
         end,
-        PerNode0,
-        Candidates
+        #beam_builder_node{},
+        Candidates,
+        PerNode0
     ),
     BB#beam_builder{
         per_node = PerNode,
         global_n_msgs = GlobalNMsgs
     }.
 
-do_beams_add(GlobalNMsgs, Key, Msg, SubId, Node, Acc) ->
-    BBN0 =
-        #beam_builder_node{n_msgs = NMsgs, subs = Subs} = maybe_update_pack(
-            GlobalNMsgs, Node, Key, Msg, Acc
-        ),
-    %% Index of message within the per-node batch:
-    Index = NMsgs - 1,
-    %% Lookup or initialize per-subscription beam builder:
-    case Subs of
-        #{SubId := #beam_builder_sub{n_msgs = Count, mask = MaskEncoder}} ->
+-spec beams_add_per_node(
+    ets:tid(),
+    non_neg_integer(),
+    emqqx_ds:message_key(),
+    emqx_types:message(),
+    [binary()],
+    emqx_ds:sub_ref(),
+    #beam_builder_node{}
+) ->
+    #beam_builder_node{}.
+beams_add_per_node(SubTab, GlobalNMsgs, Key, Msg, TopicTokens, SubRef, NodeS0) ->
+    #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = Idx} =
+        NodeS0,
+    %% Lookup subscription's matching parameters (SubS) and
+    %% per-subscription beam builder state (BBS0). If it's not found,
+    %% set BBS0 to undefined:
+    case Subscribers of
+        #{SubRef := BBS0 = #beam_builder_sub{s = SubS}} ->
             ok;
         #{} ->
-            Count = 0,
-            MaskEncoder = emqx_ds_dispatch_mask:enc_make()
+            [SubS] = ets:lookup(SubTab, SubRef),
+            BBS0 = undefined
     end,
-    %% Update the subscription's dispatch mask and increment
-    %% its message counter:
-    SubS = #beam_builder_sub{
-        n_msgs = Count + 1,
-        mask = emqx_ds_dispatch_mask:enc_push_true(Index, MaskEncoder)
-    },
-    %% Update the accumulator:
-    BBN = BBN0#beam_builder_node{subs = Subs#{SubId => SubS}},
-    Acc#{Node => BBN}.
-
-maybe_update_pack(Global, Node, Key, Msg, PerNodeStates) ->
-    case PerNodeStates of
-        #{Node := BB = #beam_builder_node{global_n_msgs = Global}} ->
-            %% This message has been already added to the node's pack:
-            BB;
-        #{Node := BB0 = #beam_builder_node{n_msgs = Idx, pack = Pack}} ->
-            %% This message is new for the node:
-            BB0#beam_builder_node{
-                pack = [{Key, Msg} | Pack],
-                n_msgs = Idx + 1,
-                global_n_msgs = Global
-            };
-        #{} ->
-            #beam_builder_node{
-                pack = [{Key, Msg}],
-                n_msgs = 1,
-                global_n_msgs = Global
-            }
+    #sub_state{msg_matcher = Matcher, start_key = LastSeenKey} = SubS,
+    %% Check if the messages should be delivered to the subscriber:
+    case Matcher(LastSeenKey, Key, TopicTokens, Msg) of
+        false ->
+            %% Message was rejected, ignore:
+            NodeS0;
+        true ->
+            %% Yes, this message is meant for the subscriber.
+            %%
+            %% 1. Ensure the message is added to the node's pack:
+            NodeS1 =
+                case MyGlobalN =:= GlobalNMsgs of
+                    true ->
+                        %% This message is already in the pack, as
+                        %% indicated by MyGlobalN:
+                        NodeS0;
+                    false ->
+                        %% This message is new for the node:
+                        NodeS0#beam_builder_node{
+                            global_n_msgs = GlobalNMsgs,
+                            pack = [{Key, Msg} | Pack],
+                            n_msgs = Idx + 1
+                        }
+                end,
+            %% 2. Update subscriber's state:
+            BBS =
+                case BBS0 of
+                    undefined ->
+                        %% This is the first message for subscriber.
+                        %% Initialize its state:
+                        Mask = emqx_ds_dispatch_mask:enc_push_true(
+                            Idx, emqx_ds_dispatch_mask:enc_make()
+                        ),
+                        #beam_builder_sub{
+                            s = SubS,
+                            mask = Mask,
+                            n_msgs = 1
+                        };
+                    #beam_builder_sub{mask = Mask0, n_msgs = N} ->
+                        %% Existing subscriber:
+                        Mask = emqx_ds_dispatch_mask:enc_push_true(Idx, Mask0),
+                        BBS0#beam_builder_sub{
+                            mask = Mask,
+                            n_msgs = N + 1
+                        }
+                end,
+            %% 3. Update the accumulator:
+            NodeS1#beam_builder_node{subs = Subscribers#{SubRef => BBS}}
     end.
 
 %% @doc Update states of the subscriptions, active queues of the
@@ -1003,49 +1022,43 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         end,
     Destinations =
         maps:fold(
-            fun(SubId, #beam_builder_sub{mask = MaskEncoder, n_msgs = NMsgs}, Acc) ->
-                case ets:lookup(SubTab, SubId) of
-                    [SubS0 = #sub_state{client = Client, userdata = UserData, it = It0}] ->
-                        ?tp(beamformer_fulfilled, #{sub_id => SubId}),
-                        %% Update the iterator, start key and message
-                        %% matcher for the subscription:
-                        {ok, It} = update_iterator(CBM, DBShard, It0, NextKey),
-                        %% Update the subscription state:
-                        SubS = SubS0#sub_state{it = It, start_key = NextKey},
-                        ets:insert(SubTab, SubS),
-                        %% Update sequence number and check if the
-                        %% subscription should remain active:
-                        {Active, SeqNo} = keep_and_seqno(SubTab, SubS0, NMsgs),
-                        %% Update the worker's queue:
-                        case Active of
-                            true ->
-                                %% Subscription is keeping up with the
-                                %% acks. Update the worker's active
-                                %% queue:
-                                Flags = Flags0,
-                                QueueUpdate(
-                                    SubS0,
-                                    SubS
-                                );
-                            false ->
-                                %% This subscription is not keeping up
-                                %% with the acks. Freeze the
-                                %% subscription by dropping it from
-                                %% the worker's active queue:
-                                Flags = Flags0 bor ?DISPATCH_FLAG_STUCK,
-                                disown_stuck_subscription(DBShard, SubTab, SubS),
-                                QueueDrop(SubS0)
-                        end,
-                        DispatchMask = emqx_ds_dispatch_mask:enc_finalize(BatchSize, MaskEncoder),
-                        [
-                            ?DESTINATION(Client, SubId, UserData, SeqNo, DispatchMask, Flags, It)
-                            | Acc
-                        ];
-                    [] ->
-                        %% Subscription has been removed in the
-                        %% meantime:
-                        Acc
-                end
+            fun(SubId, #beam_builder_sub{s = SubS0, mask = MaskEncoder, n_msgs = NMsgs}, Acc) ->
+                #sub_state{client = Client, userdata = UserData, it = It0} = SubS0,
+                ?tp(beamformer_fulfilled, #{sub_id => SubId}),
+                %% Update the iterator, start key and message
+                %% matcher for the subscription:
+                {ok, It} = update_iterator(CBM, DBShard, It0, NextKey),
+                %% Update the subscription state:
+                SubS = SubS0#sub_state{it = It, start_key = NextKey},
+                ets:insert(SubTab, SubS),
+                %% Update sequence number and check if the
+                %% subscription should remain active:
+                {Active, SeqNo} = keep_and_seqno(SubTab, SubS0, NMsgs),
+                %% Update the worker's queue:
+                case Active of
+                    true ->
+                        %% Subscription is keeping up with the
+                        %% acks. Update the worker's active
+                        %% queue:
+                        Flags = Flags0,
+                        QueueUpdate(
+                            SubS0,
+                            SubS
+                        );
+                    false ->
+                        %% This subscription is not keeping up
+                        %% with the acks. Freeze the
+                        %% subscription by dropping it from
+                        %% the worker's active queue:
+                        Flags = Flags0 bor ?DISPATCH_FLAG_STUCK,
+                        disown_stuck_subscription(DBShard, SubTab, SubS),
+                        QueueDrop(SubS0)
+                end,
+                DispatchMask = emqx_ds_dispatch_mask:enc_finalize(BatchSize + 1, MaskEncoder),
+                [
+                    ?DESTINATION(Client, SubId, UserData, SeqNo, DispatchMask, Flags, It)
+                    | Acc
+                ]
             end,
             [],
             Subs
@@ -1182,3 +1195,84 @@ notify_down_loop('$end_of_table') ->
 notify_down_loop({Matches, Cont}) ->
     [Pid ! {'DOWN', Ref, process, self(), worker_crash} || {Pid, Ref} <- Matches],
     notify_down_loop(ets:select(Cont)).
+
+%% @doc Version of `fold' that operates on a list of elements tagged
+%% with a "group". Each group has its own accumulator.
+%%
+%% This function is optimizied for processing lists sorted by groups.
+-spec fold_with_groups(
+    fun((Elem, GroupState) -> GroupState),
+    GroupState,
+    [{Group, Elem}],
+    #{Group => GroupState}
+) ->
+    #{Group => GroupState}.
+fold_with_groups(_Fun, _InitialState, [], Acc) ->
+    Acc;
+fold_with_groups(Fun, InitialState, [{Group, Elem} | Rest], Acc) ->
+    case Acc of
+        #{Group := GroupS} ->
+            fold_with_groups(
+                Fun,
+                InitialState,
+                Group,
+                Fun(Elem, GroupS),
+                Rest,
+                Acc
+            );
+        #{} ->
+            fold_with_groups(
+                Fun,
+                InitialState,
+                Group,
+                Fun(Elem, InitialState),
+                Rest,
+                Acc
+            )
+    end.
+
+-spec fold_with_groups(
+    fun((Elem, GroupState) -> GroupState),
+    GroupState,
+    Group,
+    GroupState,
+    [{Group, Elem}],
+    #{Group => GroupState}
+) ->
+    #{Group => GroupState}.
+fold_with_groups(_Fun, _InitialState, CurrentGroup, CurrentGroupState, [], Acc) ->
+    Acc#{CurrentGroup => CurrentGroupState};
+fold_with_groups(Fun, InitialState, CurrentGroup, CurrentGroupState, [{Group, Elem} | Rest], Acc0) ->
+    case Group of
+        CurrentGroup ->
+            fold_with_groups(
+                Fun,
+                InitialState,
+                CurrentGroup,
+                Fun(Elem, CurrentGroupState),
+                Rest,
+                Acc0
+            );
+        _ ->
+            Acc = Acc0#{CurrentGroup => CurrentGroupState},
+            case Acc of
+                #{Group := GroupState} ->
+                    fold_with_groups(
+                        Fun,
+                        InitialState,
+                        Group,
+                        Fun(Elem, GroupState),
+                        Rest,
+                        Acc
+                    );
+                #{} ->
+                    fold_with_groups(
+                        Fun,
+                        InitialState,
+                        Group,
+                        Fun(Elem, InitialState),
+                        Rest,
+                        Acc
+                    )
+            end
+    end.
