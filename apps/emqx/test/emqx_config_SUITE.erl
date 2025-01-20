@@ -265,7 +265,7 @@ t_init_zones_with_user_defined_default_zone(Config) when is_list(Config) ->
     %% Then user defined value is set
     {MqttV, Others} = maps:take(mqtt, emqx_config:get([zones, default])),
     {ZGDMQTT, ExpectedOthers} = maps:take(mqtt, zone_global_defaults()),
-    ?assertEqual(ZGDMQTT#{max_topic_alias := 1024}, MqttV),
+    ?assertEqual(ZGDMQTT#{max_topic_alias := 1024, limiter => #{alloc_interval => 100}}, MqttV),
     %% Then others are defaults
     ?assertEqual(ExpectedOthers, Others).
 
@@ -283,7 +283,7 @@ t_init_zones_with_user_defined_other_zone(Config) when is_list(Config) ->
     %% Then user defined value is set
     {MqttV, Others} = maps:take(mqtt, emqx_config:get([zones, myzone])),
     {ZGDMQTT, ExpectedOthers} = maps:take(mqtt, zone_global_defaults()),
-    ?assertEqual(ZGDMQTT#{max_topic_alias := 1024}, MqttV),
+    ?assertEqual(ZGDMQTT#{max_topic_alias := 1024, limiter => #{alloc_interval => 100}}, MqttV),
     %% Then others are defaults
     ?assertEqual(ExpectedOthers, Others),
     %% Then default zone still have the defaults
@@ -334,7 +334,8 @@ t_myzone_is_updated_after_global_defaults_updated(Config) when is_list(Config) -
     ?assertEqual(
         GDefaultMqtt#{
             retry_interval := 900000,
-            max_inflight := 32
+            max_inflight := 32,
+            limiter => #{alloc_interval => 100}
         },
         emqx_config:get([zones, myzone, mqtt])
     ),

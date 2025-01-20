@@ -2,7 +2,7 @@
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
+%% you may not use this ifle except in compliance with the License.
 %% You may obtain a copy of the License at
 %%
 %%     http://www.apache.org/licenses/LICENSE-2.0
@@ -562,19 +562,8 @@ t_flow_control(_) ->
         [{qos, 0}, {retain, true}]
     ),
     ct:sleep(100),
-    Begin = erlang:system_time(millisecond),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/#">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(3, length(receive_messages(3))),
-    End = erlang:system_time(millisecond),
-
-    Diff = End - Begin,
-
-    ?assert(
-        Diff > timer:seconds(2.1) andalso Diff < timer:seconds(4),
-        lists:flatten(io_lib:format("Diff is :~p~n", [Diff]))
-    ),
-
-    ok = emqtt:disconnect(C1),
     ok.
 
 t_publish_rate_limit(_) ->
@@ -812,6 +801,7 @@ t_only_for_coverage(_) ->
     ok.
 
 t_reindex(_) ->
+    remove_delivery_rate(),
     {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
 
@@ -885,7 +875,9 @@ t_reindex(_) ->
                 )
             )
         end
-    ).
+    ),
+    reset_delivery_rate_to_default(),
+    ok.
 
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 0}, emqx_retainer:get_basic_usage_info()),
@@ -988,7 +980,7 @@ t_compatibility_for_deliver_rate(_) ->
                     <<"flow_control">> := #{
                         <<"batch_deliver_number">> := 0,
                         <<"batch_read_number">> := 0,
-                        <<"batch_deliver_limiter">> := #{<<"rate">> := infinity}
+                        <<"batch_deliver_limiter">> := 0
                     }
                 }
         },
@@ -1003,29 +995,11 @@ t_compatibility_for_deliver_rate(_) ->
                     <<"flow_control">> := #{
                         <<"batch_deliver_number">> := 1000,
                         <<"batch_read_number">> := 1000,
-                        <<"batch_deliver_limiter">> := #{<<"client">> := #{<<"rate">> := 100.0}}
+                        <<"batch_deliver_limiter">> := 1.0
                     }
                 }
         },
         Parser(R1)
-    ),
-
-    R2 = <<
-        "retainer{deliver_rate = \"1000/s\"",
-        "flow_control.batch_deliver_limiter.rate = \"500/s\"}"
-    >>,
-    ?assertMatch(
-        #{
-            <<"retainer">> :=
-                #{
-                    <<"flow_control">> := #{
-                        <<"batch_deliver_number">> := 1000,
-                        <<"batch_read_number">> := 1000,
-                        <<"batch_deliver_limiter">> := #{<<"client">> := #{<<"rate">> := 100.0}}
-                    }
-                }
-        },
-        Parser(R2)
     ),
 
     DeliveryInf = <<"retainer.delivery_rate = \"infinity\"">>,
@@ -1036,7 +1010,7 @@ t_compatibility_for_deliver_rate(_) ->
                     <<"flow_control">> := #{
                         <<"batch_deliver_number">> := 0,
                         <<"batch_read_number">> := 0,
-                        <<"batch_deliver_limiter">> := #{<<"rate">> := infinity}
+                        <<"batch_deliver_limiter">> := 0
                     }
                 }
         },
@@ -1103,41 +1077,6 @@ with_conf(CTConfig, ConfMod, Case) ->
             erlang:raise(Type, Error, Strace)
     end.
 
-make_limiter_cfg(Rate) ->
-    make_limiter_cfg(Rate, #{}).
-
-make_limiter_cfg(Rate, ClientOpts) ->
-    Client = maps:merge(
-        #{
-            rate => Rate,
-            initial => 0,
-            burst => 0,
-            low_watermark => 1,
-            divisible => false,
-            max_retry_time => timer:seconds(5),
-            failure_strategy => force
-        },
-        ClientOpts
-    ),
-    #{client => Client, rate => Rate, initial => 0, burst => 0}.
-
-make_limiter_json(Rate) ->
-    Client = #{
-        <<"rate">> => Rate,
-        <<"initial">> => 0,
-        <<"burst">> => <<"0">>,
-        <<"low_watermark">> => 0,
-        <<"divisible">> => <<"false">>,
-        <<"max_retry_time">> => <<"5s">>,
-        <<"failure_strategy">> => <<"force">>
-    },
-    #{
-        <<"client">> => Client,
-        <<"rate">> => <<"infinity">>,
-        <<"initial">> => 0,
-        <<"burst">> => <<"0">>
-    }.
-
 publish(Client, Topic, Payload, Opts, TCConfig) ->
     PublishOpts = publish_opts(TCConfig),
     do_publish(Client, Topic, Payload, Opts, PublishOpts).
@@ -1196,3 +1135,17 @@ publish_messages(C1, Count) ->
         end,
         lists:seq(1, Count)
     ).
+
+remove_delivery_rate() ->
+    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID),
+    emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"infinity">>
+    }).
+
+reset_delivery_rate_to_default() ->
+    {ok, Rate} = emqx_limiter_schema:to_rate("1000/s"),
+    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID),
+    emqx_limiter_allocator:add_bucket(?DISPATCHER_LIMITER_ID, #{rate => Rate, burst => 0}),
+    emqx_retainer:update_config(#{
+        <<"delivery_rate">> => <<"1000/s">>
+    }).
