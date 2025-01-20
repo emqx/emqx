@@ -398,7 +398,7 @@ name_field() ->
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
 service_account_json_validator(Val) ->
-    case emqx_utils_json:safe_decode(Val, [return_maps]) of
+    case emqx_utils_json:safe_decode(Val) of
         {ok, Map} ->
             ExpectedKeys = [
                 <<"type">>,
@@ -433,9 +433,9 @@ service_account_json_converter(Val, #{make_serializable := true}) ->
 service_account_json_converter(Map, _Opts) when is_map(Map) ->
     emqx_utils_json:encode(Map);
 service_account_json_converter(Val, _Opts) ->
-    case emqx_utils_json:safe_decode(Val, [return_maps]) of
+    case emqx_utils_json:safe_decode(Val) of
         {ok, Str} when is_binary(Str) ->
-            emqx_utils_json:decode(Str, [return_maps]);
+            emqx_utils_json:decode(Str);
         _ ->
             Val
     end.

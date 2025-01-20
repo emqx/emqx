@@ -99,7 +99,7 @@ handle_info(
                 State1;
             {StatusLine, Headers, Body} ->
                 try
-                    JWKS = jose_jwk:from(emqx_utils_json:decode(Body, [return_maps])),
+                    JWKS = jose_jwk:from(emqx_utils_json:decode(Body)),
                     {_, JWKs} = JWKS#jose_jwk.keys,
                     State1#{jwks := JWKs}
                 catch

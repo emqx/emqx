@@ -387,7 +387,7 @@ list_banned(Params) ->
             emqx_mgmt_api_test_util:auth_header_()
         )
     of
-        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps, [return_maps])};
+        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps)};
         Error -> Error
     end.
 
@@ -395,7 +395,7 @@ create_banned(Banned) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["banned"]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Banned) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 

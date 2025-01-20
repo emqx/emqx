@@ -786,7 +786,7 @@ deliver_to_coap(AlternatePath, JsonData, MQTT, CacheMode, WithContext, Session) 
     is_binary(JsonData)
 ->
     try
-        TermData = emqx_utils_json:decode(JsonData, [return_maps]),
+        TermData = emqx_utils_json:decode(JsonData),
         deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session)
     catch
         ExClass:Error:ST ->

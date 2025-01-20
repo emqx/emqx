@@ -26,7 +26,7 @@ json_encode(X) ->
     end.
 
 json_decode(JSON) ->
-    case emqx_utils_json:safe_decode(JSON, [return_maps]) of
+    case emqx_utils_json:safe_decode(JSON) of
         {ok, X} ->
             X;
         {error, Reason} ->

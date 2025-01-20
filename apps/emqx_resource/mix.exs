@@ -28,7 +28,6 @@ defmodule EMQXResource.MixProject do
       {:emqx, in_umbrella: true},
       UMP.common_dep(:ecpool),
       UMP.common_dep(:gproc),
-      UMP.common_dep(:jsx),
       UMP.common_dep(:telemetry),
     ]
   end

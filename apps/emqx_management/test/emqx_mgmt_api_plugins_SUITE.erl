@@ -246,14 +246,14 @@ list_plugins(Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins"]),
     case emqx_mgmt_api_test_util:request_api(get, Path, Auth) of
-        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps, [return_maps])};
+        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps)};
         Error -> Error
     end.
 
 describe_plugins(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 
@@ -307,7 +307,7 @@ update_boot_order(Name, MoveBody, Config) ->
     case emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, MoveBody, Opts) of
         {ok, Res} ->
             Resp =
-                case emqx_utils_json:safe_decode(Res, [return_maps]) of
+                case emqx_utils_json:safe_decode(Res) of
                     {ok, Decoded} -> Decoded;
                     {error, _} -> Res
                 end,
@@ -347,7 +347,7 @@ create_renamed_package(PackagePath, NewNameVsn) ->
     NewPackagePath.
 
 update_release_json(["release.json"], FileContent, NewName) ->
-    ContentMap = emqx_utils_json:decode(FileContent, [return_maps]),
+    ContentMap = emqx_utils_json:decode(FileContent),
     emqx_utils_json:encode(ContentMap#{<<"name">> => NewName});
 update_release_json(_FileName, FileContent, _NewName) ->
     FileContent.

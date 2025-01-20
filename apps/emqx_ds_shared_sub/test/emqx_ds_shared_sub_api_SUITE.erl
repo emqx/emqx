@@ -300,7 +300,7 @@ api(Method, Path, Data) ->
     case emqx_mgmt_api_test_util:request(Method, uri(Path), Data) of
         {ok, Code, ResponseBody} ->
             Res =
-                case emqx_utils_json:safe_decode(ResponseBody, [return_maps]) of
+                case emqx_utils_json:safe_decode(ResponseBody) of
                     {ok, Decoded} -> Decoded;
                     {error, _} -> ResponseBody
                 end,

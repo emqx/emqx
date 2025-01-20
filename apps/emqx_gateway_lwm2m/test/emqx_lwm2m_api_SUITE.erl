@@ -349,10 +349,10 @@ no_received_request(ClientId, Path, Action) ->
         <<"codeMsg">> => <<"reply_not_received">>,
         <<"path">> => Path
     },
-    ?assertEqual(NotReceived, emqx_utils_json:decode(Response, [return_maps])).
+    ?assertEqual(NotReceived, emqx_utils_json:decode(Response)).
 normal_received_request(ClientId, Path, Action) ->
     Response = call_lookup_api(ClientId, Path, Action),
-    RCont = emqx_utils_json:decode(Response, [return_maps]),
+    RCont = emqx_utils_json:decode(Response),
     ?assertEqual(list_to_binary(ClientId), maps:get(<<"clientid">>, RCont, undefined)),
     ?assertEqual(Path, maps:get(<<"path">>, RCont, undefined)),
     ?assertEqual(Action, maps:get(<<"action">>, RCont, undefined)),

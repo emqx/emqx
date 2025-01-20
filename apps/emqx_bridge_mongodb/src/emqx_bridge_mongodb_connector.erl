@@ -162,14 +162,14 @@ format_data(PayloadTks, Msg) ->
     case maps:size(PreparedTupleMap) of
         % If no tuples were found simply proceed with the json decoding and be done with it
         0 ->
-            emqx_utils_json:decode(emqx_placeholder:proc_tmpl(PayloadTks, Msg), [return_maps]);
+            emqx_utils_json:decode(emqx_placeholder:proc_tmpl(PayloadTks, Msg));
         _ ->
             % If tuples were found, replace the tuple values with the references created, run
             % the modified message through the json parser, and then at the end replace the
             % references with the actual tuple values.
             ProcessedMessage = replace_message_values_with_references(Msg, PreparedTupleMap),
             DecodedMap = emqx_utils_json:decode(
-                emqx_placeholder:proc_tmpl(PayloadTks, ProcessedMessage), [return_maps]
+                emqx_placeholder:proc_tmpl(PayloadTks, ProcessedMessage)
             ),
             populate_map_with_tuple_values(PreparedTupleMap, DecodedMap)
     end.

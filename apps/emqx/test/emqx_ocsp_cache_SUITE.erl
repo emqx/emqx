@@ -395,7 +395,7 @@ request(Method, Url, QueryParams, Body) ->
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, {Reason, Headers, BodyR}} ->
-            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR, [return_maps])}};
+            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR)}};
         Error ->
             Error
     end.
@@ -859,14 +859,14 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw1}} = update_listener_via_api(ListenerId, ListenerData1),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw1} =
-        emqx_utils_json:decode(ResRaw1, [return_maps]),
+        emqx_utils_json:decode(ResRaw1),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
             <<"reason">> :=
                 <<"The responder URL is required for OCSP stapling">>
         },
-        emqx_utils_json:decode(MsgRaw1, [return_maps])
+        emqx_utils_json:decode(MsgRaw1)
     ),
 
     ListenerData2 =
@@ -884,14 +884,14 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw2}} = update_listener_via_api(ListenerId, ListenerData2),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw2} =
-        emqx_utils_json:decode(ResRaw2, [return_maps]),
+        emqx_utils_json:decode(ResRaw2),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
             <<"reason">> :=
                 <<"The issuer PEM path is required for OCSP stapling">>
         },
-        emqx_utils_json:decode(MsgRaw2, [return_maps])
+        emqx_utils_json:decode(MsgRaw2)
     ),
 
     ListenerData3a =
@@ -913,7 +913,7 @@ do_t_validations(_Config) ->
     ),
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
-        emqx_utils_json:decode(ResRaw3, [return_maps]),
+        emqx_utils_json:decode(ResRaw3),
     %% we can't remove certfile now, because it has default value.
     ?assertMatch({match, _}, re:run(MsgRaw3, <<"enoent">>)),
     ?assertMatch({match, _}, re:run(MsgRaw3, <<"ocsp\\.issuer_pem">>)),

@@ -269,7 +269,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 
@@ -376,7 +376,7 @@ create_rule_and_action_http(Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
             {ok, Res};
         Error ->
@@ -388,7 +388,7 @@ request_api_status(BridgeId) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader) of
         {ok, Res0} ->
-            #{<<"status">> := Status} = _Res = emqx_utils_json:decode(Res0, [return_maps]),
+            #{<<"status">> := Status} = _Res = emqx_utils_json:decode(Res0),
             {ok, binary_to_existing_atom(Status)};
         Error ->
             Error

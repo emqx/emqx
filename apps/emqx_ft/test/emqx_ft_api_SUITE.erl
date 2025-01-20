@@ -557,7 +557,7 @@ request_json(Method, Url, Config) ->
 
 json(Body) when is_binary(Body) ->
     try
-        emqx_utils_json:decode(Body, [return_maps])
+        emqx_utils_json:decode(Body)
     catch
         _:_ ->
             error({bad_json, Body})

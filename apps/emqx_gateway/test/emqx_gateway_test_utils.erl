@@ -168,7 +168,7 @@ do_request(Mth, Req) ->
                         #{};
                     _ ->
                         emqx_utils_maps:unsafe_atom_key_map(
-                            emqx_utils_json:decode(Resp, [return_maps])
+                            emqx_utils_json:decode(Resp)
                         )
                 end,
             {Code, NResp};

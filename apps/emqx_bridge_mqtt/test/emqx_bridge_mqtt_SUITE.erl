@@ -353,7 +353,7 @@ t_mqtt_conn_bridge_ingress_full_context(_Config) ->
             <<"server">> := <<"127.0.0.1:1883">>,
             <<"topic">> := <<"ingress_remote_topic/1">>
         },
-        emqx_utils_json:decode(EncodedPayload, [return_maps])
+        emqx_utils_json:decode(EncodedPayload)
     ),
 
     ok.

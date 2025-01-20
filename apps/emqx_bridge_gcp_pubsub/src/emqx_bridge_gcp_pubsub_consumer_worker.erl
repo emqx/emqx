@@ -627,7 +627,7 @@ do_get_subscription(State) ->
             }),
             {error, Reason};
         {ok, #{status_code := 200, body := RespBody}} ->
-            DecodedBody = emqx_utils_json:decode(RespBody, [return_maps]),
+            DecodedBody = emqx_utils_json:decode(RespBody),
             {ok, DecodedBody};
         {ok, Details} ->
             ?SLOG(warning, #{
@@ -716,7 +716,7 @@ subscription_resource(ProjectId, SubscriptionId) ->
 
 -spec decode_response(binary()) -> [decoded_message()].
 decode_response(RespBody) ->
-    case emqx_utils_json:decode(RespBody, [return_maps]) of
+    case emqx_utils_json:decode(RespBody) of
         #{<<"receivedMessages">> := Msgs0} ->
             lists:map(
                 fun(Msg0 = #{<<"message">> := InnerMsg0}) ->

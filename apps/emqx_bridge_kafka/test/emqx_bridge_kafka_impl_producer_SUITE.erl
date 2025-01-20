@@ -314,7 +314,7 @@ kafka_bridge_rest_api_helper(Config) ->
                 <<"sql">> => <<"SELECT * from \"kafka_bridge_topic/#\"">>
             }
         ),
-        #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule, [return_maps]),
+        #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule),
         BridgeV2Id = emqx_bridge_v2:id(
             list_to_binary(?BRIDGE_TYPE_V2),
             list_to_binary(BridgeName)
@@ -1214,8 +1214,7 @@ api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
-    Jsx.
+    emqx_utils_json:decode(Data).
 
 delete_all_bridges() ->
     lists:foreach(

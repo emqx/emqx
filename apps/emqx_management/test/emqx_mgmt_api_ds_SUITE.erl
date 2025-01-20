@@ -57,7 +57,7 @@ t_get_sites(_) ->
     {ok, Response} = request_api(get, Path),
     ?assertEqual(
         [emqx_ds_replication_layer_meta:this_site()],
-        emqx_utils_json:decode(Response, [return_maps])
+        emqx_utils_json:decode(Response)
     ).
 
 t_get_storages(_) ->
@@ -65,7 +65,7 @@ t_get_storages(_) ->
     {ok, Response} = request_api(get, Path),
     ?assertEqual(
         [<<"messages">>],
-        emqx_utils_json:decode(Response, [return_maps])
+        emqx_utils_json:decode(Response)
     ).
 
 t_get_site(_) ->
@@ -93,7 +93,7 @@ t_get_site(_) ->
                     | _
                 ]
         },
-        emqx_utils_json:decode(Response, [return_maps])
+        emqx_utils_json:decode(Response)
     ).
 
 t_get_db(_) ->

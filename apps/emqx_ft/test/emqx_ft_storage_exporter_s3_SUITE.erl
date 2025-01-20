@@ -98,7 +98,7 @@ t_happy_path(Config) ->
             <<"name">> := NameBin,
             <<"size">> := 4
         },
-        emqx_utils_json:decode(metadata_field("filemeta", Meta), [return_maps])
+        emqx_utils_json:decode(metadata_field("filemeta", Meta))
     ).
 
 t_upload_error(Config) ->

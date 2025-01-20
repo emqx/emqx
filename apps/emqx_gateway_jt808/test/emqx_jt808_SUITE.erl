@@ -466,7 +466,7 @@ t_case04(_) ->
             },
             <<"body">> => #{<<"id">> => EventReportId}
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -639,7 +639,7 @@ t_case07_dl_0x8302_send_question(_) ->
             },
             <<"body">> => #{<<"seq">> => MsgSn3, <<"id">> => 2}
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -710,7 +710,7 @@ t_case08_dl_0x8500_vehicle_ctrl(_Config) ->
                     }
                 }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -882,7 +882,7 @@ t_case11_dl_0x8106_query_client_param(_Config) ->
                 ]
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     %% timer:sleep(200),
@@ -963,7 +963,7 @@ t_case11_dl_0x8107_query_client_attrib(_Config) ->
                 <<"comm_prop">> => 102
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     % no retrasmition of downlink message
@@ -1031,7 +1031,7 @@ t_case15_dl_0x8201_query_location(_Config) ->
                 <<"params">> => LocationReportJson
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     %% timer:sleep(200),
@@ -1076,7 +1076,7 @@ t_location_report(_) ->
             },
             <<"body">> => LocationReportJson
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     % receive general response
@@ -1183,7 +1183,7 @@ t_case50_ul_0x0303_info_request_cancel(_Config) ->
             },
             <<"body">> => #{<<"id">> => 1, <<"flag">> => 6}
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -1235,7 +1235,7 @@ t_case51_ul_0x0701_waybill_report(_Config) ->
             },
             <<"body">> => #{<<"length">> => 7, <<"data">> => base64:encode(<<"ABCDEFG">>)}
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -1308,7 +1308,7 @@ t_case52_ul_0x0705_can_bus_report(_Config) ->
                 ]
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -1366,7 +1366,7 @@ t_case53_ul_0x0800_multimedia_event_report(_Config) ->
                 <<"channel">> => 103
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -1418,7 +1418,7 @@ t_case54_ul_0x0900_send_transparent_data(_Config) ->
             },
             <<"body">> => #{<<"type">> => 39, <<"data">> => base64:encode(<<"oufwei">>)}
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
     ok = gen_tcp:close(Socket).
 
@@ -1472,7 +1472,7 @@ t_case55_ul_0x0901_send_zip_data(_Config) ->
                 <<"data">> => base64:encode(<<"1234">>)
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     ok = gen_tcp:close(Socket).
@@ -2218,7 +2218,7 @@ t_case27_dl_0x8700_drive_record_capture(_Config) ->
                 <<"data">> => base64:encode(<<"77777">>)
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     % no retrasmition of downlink message
@@ -2337,7 +2337,7 @@ t_case29_dl_0x8702_request_driver_id(_Config) ->
                 <<"cert_expiry">> => <<"20301231">>
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     % no retrasmition of downlink message
@@ -2422,7 +2422,7 @@ t_case30_dl_0x8801_camera_shot(_Config) ->
                 <<"ids">> => [220, 221]
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     % No retrasmition of downlink message
@@ -2521,7 +2521,7 @@ t_case31_dl_0x8802_mm_data_search(_Config) ->
                 ]
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     %% No retrasmition of downlink message
@@ -2705,7 +2705,7 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
                 ]
             }
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     % no retrasmition of downlink message
@@ -2718,8 +2718,6 @@ t_case_dl_invalid_msg(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
     ok = client_auth_procedure(Socket, AuthCode),
-    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
-
     DlCommand = #{
         %% missing msg_id
         <<"header">> => #{},

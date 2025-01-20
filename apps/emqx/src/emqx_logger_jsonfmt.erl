@@ -306,10 +306,12 @@ json_obj_root(Data0, Config) ->
                 [time, gl, file, report_cb, msg, '$kind', level, mfa, is_trace], Data0
             )
         ),
-    lists:filter(
-        fun({_, V}) -> V =/= undefined end,
-        [{time, format_ts(Time, Config)}, {level, Level}, {msg, Msg}, {mfa, MFA}]
-    ) ++ Data.
+    Properties =
+        lists:filter(
+            fun({_, V}) -> V =/= undefined end,
+            [{time, format_ts(Time, Config)}, {level, Level}, {msg, Msg}, {mfa, MFA}]
+        ) ++ Data,
+    {Properties}.
 
 format_ts(Ts, #{timestamp_format := rfc3339, time_offset := Offset}) when is_integer(Ts) ->
     iolist_to_binary(

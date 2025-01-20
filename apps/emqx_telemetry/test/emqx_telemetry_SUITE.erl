@@ -352,10 +352,10 @@ t_get_telemetry(_Config) ->
         BuildInfo
     ),
     VMSpecs = get_value(vm_specs, TelemetryData),
-    ?assert(is_integer(get_value(num_cpus, VMSpecs))),
-    ?assert(0 =< get_value(num_cpus, VMSpecs)),
-    ?assert(is_integer(get_value(total_memory, VMSpecs))),
-    ?assert(0 =< get_value(total_memory, VMSpecs)),
+    ?assert(is_integer(maps:get(num_cpus, VMSpecs))),
+    ?assert(0 =< maps:get(num_cpus, VMSpecs)),
+    ?assert(is_integer(maps:get(total_memory, VMSpecs))),
+    ?assert(0 =< maps:get(total_memory, VMSpecs)),
     MQTTRTInsights = get_value(mqtt_runtime_insights, TelemetryData),
     ?assert(is_number(maps:get(messages_sent_rate, MQTTRTInsights))),
     ?assert(is_number(maps:get(messages_received_rate, MQTTRTInsights))),
@@ -455,19 +455,16 @@ t_send_after_enable(_) ->
     ok = emqx_telemetry:stop_reporting(),
     ok = snabbkaffe:start_trace(),
     try
-        ok = emqx_telemetry:start_reporting(),
-        Timeout = 12_000,
         ?assertMatch(
             {ok, _},
             ?wait_async_action(
                 ok = emqx_telemetry:start_reporting(),
                 #{?snk_kind := telemetry_data_reported},
-                Timeout
+                _Timeout = 12_000
             )
         ),
         receive
             {request, post, _URL, _Headers, Body} ->
-                {ok, Decoded} = emqx_utils_json:safe_decode(Body, [return_maps]),
                 ?assertMatch(
                     #{
                         <<"uuid">> := _,
@@ -493,7 +490,7 @@ t_send_after_enable(_) ->
                                 <<"delayed">> := _
                             }
                     },
-                    Decoded
+                    emqx_utils_json:decode(Body)
                 )
         after 2100 ->
             exit(telemetry_not_reported)

@@ -266,7 +266,7 @@ t_case_exproto(_) ->
 
                 Mod:send(Sock, ConnBin),
                 {ok, Recv} = Mod:recv(Sock, 5000),
-                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
+                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin)),
                 ?assertEqual(C(Expect), C(Recv))
             end
         )

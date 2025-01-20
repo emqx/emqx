@@ -397,7 +397,7 @@ message_to_context(#message{} = Message, Payload, Transformation) ->
         node => node(),
         payload => Payload,
         peername => Peername,
-        pub_props => Props,
+        pub_props => Props#{'User-Property' => UserProperties},
         publish_received_at => Message#message.timestamp,
         qos => Message#message.qos,
         retain => emqx_message:get_flag(retain, Message, false),
@@ -447,7 +447,7 @@ take_from_context(Context, Message) ->
 decode(Payload, #{type := none}, _Transformation) ->
     {ok, Payload};
 decode(Payload, #{type := json}, Transformation) when is_binary(Payload) ->
-    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+    case emqx_utils_json:safe_decode(Payload) of
         {ok, JSON} ->
             {ok, JSON};
         {error, Reason} ->

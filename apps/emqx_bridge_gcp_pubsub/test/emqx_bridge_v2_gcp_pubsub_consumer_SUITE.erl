@@ -149,7 +149,7 @@ t_create_via_http_json_object_service_account(Config0) ->
         <<"service_account_json">>,
         fun(X) ->
             ?assert(is_binary(X), #{json => X}),
-            JSON = emqx_utils_json:decode(X, [return_maps]),
+            JSON = emqx_utils_json:decode(X),
             ?assert(is_map(JSON)),
             JSON
         end,
