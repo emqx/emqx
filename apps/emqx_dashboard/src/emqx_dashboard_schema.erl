@@ -76,6 +76,16 @@ fields("dashboard") ->
                     deprecated => {since, "5.1.0"},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {default_mfa,
+            ?HOCON(
+                hoconsc:union([none, ?REF("mfa_settings")]),
+                #{
+                    desc => ?DESC("mfa_settings"),
+                    default => none,
+                    required => false,
+                    importance => ?IMPORTANCE_LOW
+                }
             )}
     ] ++ sso_fields();
 fields("listeners") ->
@@ -112,7 +122,19 @@ fields("https") ->
         | common_listener_fields()
     ];
 fields("ssl_options") ->
-    server_ssl_options().
+    server_ssl_options();
+fields("mfa_settings") ->
+    [
+        {mechanism,
+            ?HOCON(
+                hoconsc:enum([totp]),
+                #{
+                    desc => ?DESC("mfa_mechanism"),
+                    importance => ?IMPORTANCE_HIGH,
+                    required => true
+                }
+            )}
+    ].
 
 ssl_options() ->
     {"ssl_options",

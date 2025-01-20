@@ -27,7 +27,7 @@ admins(["add", Username, Password, Desc, Role]) ->
             print_error(Reason)
     end;
 admins(["passwd", Username, Password]) ->
-    case emqx_dashboard_admin:change_password(bin(Username), bin(Password)) of
+    case emqx_dashboard_admin:change_password_trusted(bin(Username), bin(Password)) of
         {ok, _} ->
             emqx_ctl:print("ok~n");
         {error, Reason} ->

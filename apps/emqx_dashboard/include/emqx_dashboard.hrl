@@ -111,3 +111,12 @@
 -else.
 -define(LICENSE_QUOTA, []).
 -endif.
+
+%% use this atom to indicate no value provided from http request
+-define(NO_MFA_TOKEN, no_mfa_token).
+%% use this atom for internal calls where token validation is not required
+%% for example, when handling change_pwd request (which is authenticated
+%% with bearer token).
+-define(TRUSTED_MFA_TOKEN, trusted_mfa_token).
+%% empty bin-string is when the token field exists, but empty
+-define(IS_NO_MFA_TOKEN(X), (X =:= ?NO_MFA_TOKEN orelse X =:= <<>>)).

@@ -30,18 +30,23 @@
 
 -export([
     add_user/4,
+    del_mfa_state/1,
+    set_mfa_state/2,
+    get_mfa_state/1,
     force_add_user/4,
     remove_user/1,
     update_user/3,
     lookup_user/1,
-    change_password/2,
+    change_password_trusted/2,
     change_password/3,
     all_users/0,
-    check/2
+    check/2,
+    check/3
 ]).
 
 -export([
     sign_token/2,
+    sign_token/3,
     verify_token/2,
     destroy_token_by_username/2
 ]).
@@ -122,6 +127,42 @@ add_user(Username, Password, Role, Desc) when is_binary(Username), is_binary(Pas
 do_add_user(Username, Password, Role, Desc) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun add_user_/4, [Username, Password, Role, Desc]),
     return(Res).
+
+get_mfa_state(Username) ->
+    case ets:lookup(?ADMIN, Username) of
+        [#?ADMIN{extra = #{mfa_state := S}}] ->
+            {ok, S};
+        [_] ->
+            {error, no_mfa_sate};
+        [] ->
+            {error, username_not_found}
+    end.
+
+del_mfa_state(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun del_mfa_state2/1, [Username]),
+    return(Res).
+
+del_mfa_state2(Username) ->
+    case mnesia:wread({?ADMIN, Username}) of
+        [] ->
+            mnesia:abort(<<"username_not_found">>);
+        [Admin] ->
+            Extra = Admin#?ADMIN.extra,
+            ok = mnesia:write(Admin#?ADMIN{extra = maps:without([mfa_state], Extra)})
+    end.
+
+set_mfa_state(Username, MfaState) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_mfa_state2/2, [Username, MfaState]),
+    return(Res).
+
+set_mfa_state2(Username, MfaState) ->
+    case mnesia:wread({?ADMIN, Username}) of
+        [] ->
+            mnesia:abort(<<"username_not_found">>);
+        [Admin] ->
+            Extra = Admin#?ADMIN.extra,
+            ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => MfaState}})
+    end.
 
 %% 0-9 or A-Z or a-z or $_
 legal_username(<<>>) ->
@@ -316,13 +357,19 @@ update_user_(Username, Role, Desc) ->
             }
     end.
 
+%% @doc Change password from API/Dashboard, must check old password.
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
-    case check(Username, OldPasswd) of
-        {ok, _} -> change_password(Username, NewPasswd);
+    change_password(Username, OldPasswd, NewPasswd, ?TRUSTED_MFA_TOKEN).
+
+%% @doc Change password from dashboard, must provide MFA token.
+change_password(Username, OldPasswd, NewPasswd, MfaToken) ->
+    case check(Username, OldPasswd, MfaToken) of
+        {ok, _} -> change_password_trusted(Username, NewPasswd);
         Error -> Error
     end.
 
-change_password(Username, Password) when is_binary(Username), is_binary(Password) ->
+%% @doc Change password from CLI.
+change_password_trusted(Username, Password) when is_binary(Username), is_binary(Password) ->
     case legal_password(Password) of
         ok -> change_password_hash(Username, hash(Password));
         Error -> Error
@@ -395,27 +442,124 @@ return({atomic, Result}) ->
 return({aborted, Reason}) ->
     {error, Reason}.
 
-check(undefined, _) ->
-    {error, <<"username_not_provided">>};
-check(_, undefined) ->
-    {error, <<"password_not_provided">>};
 check(Username, Password) ->
+    check(Username, Password, ?NO_MFA_TOKEN).
+
+check(undefined, _, _) ->
+    {error, <<"username_not_provided">>};
+check(_, undefined, _) ->
+    {error, <<"password_not_provided">>};
+check(Username, Password, MfaToken) ->
     case lookup_user(Username) of
         [#?ADMIN{pwdhash = PwdHash} = User] ->
-            case verify_hash(Password, PwdHash) of
-                ok -> {ok, User};
-                error -> {error, <<"password_error">>}
-            end;
+            PasswordFn = fun() ->
+                case verify_hash(Password, PwdHash) of
+                    ok -> {ok, User};
+                    error -> {error, <<"password_error">>}
+                end
+            end,
+            MfaVerifyResult = verify_mfa_token(Username, MfaToken),
+            check_mfa(MfaVerifyResult, PasswordFn);
         [] ->
             {error, <<"username_not_found">>}
     end.
 
+check_mfa(ok, PasswordFn) ->
+    %% MFA token is OK
+    PasswordFn();
+check_mfa({error, MfaError}, PasswordFn) ->
+    %% MFA error
+    case emqx_dashboard_mfa:is_need_setup_error(MfaError) of
+        true ->
+            %% MFA needs setup, need to ensure password is OK.
+            %% Meaning: before MFA is setup, this user is still
+            %% vulnerable to brute-force attack (like no MFA).
+            case PasswordFn() of
+                {ok, _} ->
+                    %% password is OK
+                    %% Return the error which includes MFA setup
+                    %% secret or other context
+                    {error, MfaError};
+                {error, Reason} ->
+                    %% Return password error
+                    {error, Reason}
+            end;
+        false ->
+            %% Other errors, e.g.
+            %% - MFA is setup, but token is not provided
+            %% - Token is prvoided but stale
+            {error, MfaError}
+    end.
+
+verify_mfa_token(_Username, ?TRUSTED_MFA_TOKEN) ->
+    %% e.g. when handing change_pwd request which is authenticated
+    %% by bearer token
+    ok;
+verify_mfa_token(Username, MfaToken) ->
+    ok = maybe_init_mfa_state(Username),
+    do_verify_mfa_token(Username, MfaToken).
+
+do_verify_mfa_token(Username, MfaToken) when ?IS_NO_MFA_TOKEN(MfaToken) ->
+    %% MFA token is not provided
+    case get_mfa_state(Username) of
+        {ok, State} ->
+            %% Expected to receive MFA token, but not provided
+            {error, emqx_dashboard_mfa:make_token_missing_error(State)};
+        _ ->
+            %% No MFA state, proceed to password check
+            ok
+    end;
+do_verify_mfa_token(Username, MfaToken) ->
+    %% MFA token is provided
+    case get_mfa_state(Username) of
+        {ok, State} ->
+            %% MFA is configured, and a token is provided
+            case emqx_dashboard_mfa:verify(State, MfaToken) of
+                ok ->
+                    %% Token is ok, no state change
+                    ok;
+                {ok, NewState} ->
+                    %% Token is ok, state changed, should update db
+                    {ok, ok} = set_mfa_state(Username, NewState),
+                    ok;
+                {error, Reason} ->
+                    %% token is not ok
+                    {error, Reason}
+            end;
+        _ ->
+            %% No MFA configured, but provided with a token
+            %% Can happen if MFA is disabled for this user but the
+            %% dashboad is still providing a token for some reason,
+            %% proceed to password check
+            ok
+    end.
+
+%% Initialize MFA state if there is a default MFA settings configured.
+maybe_init_mfa_state(Username) ->
+    case emqx:get_config([dashboard, default_mfa]) of
+        none ->
+            ok;
+        #{mechanism := Mechanism} ->
+            case get_mfa_state(Username) of
+                {ok, _} ->
+                    ok;
+                _ ->
+                    {ok, State} = emqx_dashboard_mfa:init(Mechanism),
+                    {ok, ok} = set_mfa_state(Username, State),
+                    ok
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% token
+
 sign_token(Username, Password) ->
+    sign_token(Username, Password, ?NO_MFA_TOKEN).
+
+sign_token(Username, Password, MfaToken) ->
     ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
     maybe
-        {ok, User} ?= check(Username, Password),
+        {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
         {ok, Role, Token} ?= emqx_dashboard_token:sign(User, Password),
         {ok, Result#{role => Role, token => Token}}

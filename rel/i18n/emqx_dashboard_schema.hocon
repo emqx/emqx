@@ -151,4 +151,19 @@ swagger_support.desc:
 
 swagger_support.label:
 """Swagger Support"""
+
+default_mfa_settings.label:
+"""Default MFA Settings"""
+default_mfa_settings.desc:
+"""Default Multi-factor authentication settings.
+When set as `none`, MFA can be enabled per user from the dashboard.
+If set as with `mechanism = totp`, all users will initialized with
+a random TOTP secret when they login for the first time.
+"""
+
+mfa_mechanism.label:
+"""MFA Mechanism"""
+mfa_mechanism.desc:
+"""Multi-factor authentication method."""
+
 }
