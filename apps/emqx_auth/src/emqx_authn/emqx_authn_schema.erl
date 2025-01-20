@@ -220,7 +220,7 @@ enable(_) -> undefined.
 
 fields("settings") ->
     [
-        {"cache",
+        {"node_cache",
             ?HOCON(
                 ?R_REF(emqx_auth_cache_schema, config),
                 #{
