@@ -401,15 +401,14 @@ mqtt_host_port(Node) ->
     rpc:call(Node, emqx, get_config, [[listeners, tcp, default, bind]]).
 
 cluster(TC, Config) ->
-    Nodes = emqx_cth_cluster:start(
+    _Nodes = emqx_cth_cluster:start(
         [
             {otel_trace_node1, #{apps => apps_spec()}},
             {otel_trace_node2, #{apps => apps_spec()}},
-            {otel_trace_node3, #{apps => apps_spec()}}
+            {otel_trace_node3, #{apps => apps_spec(), role => replicant}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
-    ),
-    Nodes.
+    ).
 
 apps_spec() ->
     [
