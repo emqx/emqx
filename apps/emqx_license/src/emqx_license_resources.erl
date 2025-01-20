@@ -52,9 +52,12 @@ start_link() ->
 start_link(CheckInterval) when is_integer(CheckInterval) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [CheckInterval], []).
 
+%% @doc This function returns the total number of sessions, not connections,
+%% including the ones which are disconnected.
+%% Function name is not changed for RPC compatibility.
 -spec local_connection_count() -> non_neg_integer().
 local_connection_count() ->
-    emqx_cm:get_connected_client_count().
+    emqx_cm:get_sessions_count().
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks

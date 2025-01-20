@@ -8,7 +8,7 @@
 -compile(export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
-
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -90,6 +90,50 @@ t_check_exceeded(_Config) ->
         emqx_license:check(#{}, #{})
     ),
     ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids).
+
+t_check_exceeded_non_clean(_Config) ->
+    ?assertEqual(0, emqx_cm:get_sessions_count()),
+    {_, License} = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20220111",
+            "100000",
+            "10"
+        ]
+    ),
+    #{} = update(License),
+    Properties = #{'Session-Expiry-Interval' => 10},
+    IDs = [iolist_to_binary(["test-client-", integer_to_list(I)]) || I <- lists:seq(1, 12)],
+    Pids = lists:map(
+        fun(Id) ->
+            {ok, C} = emqtt:start_link([{clientid, Id}, {proto_ver, v5}, {properties, Properties}]),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        IDs
+    ),
+    sync_cache(),
+    ?assertEqual(
+        {stop, {error, ?RC_QUOTA_EXCEEDED}},
+        emqx_license:check(#{}, #{})
+    ),
+    ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids),
+    %% wait until all clients disconnected
+    ?retry(100, 50, ?assertEqual(0, emqx_cm:get_connected_client_count())),
+    ?assertEqual(12, emqx_cm:get_sessions_count()),
+    %% continue to expect quota exceeded
+    ?assertEqual(
+        {stop, {error, ?RC_QUOTA_EXCEEDED}},
+        emqx_license:check(#{}, #{})
+    ),
+    lists:foreach(fun emqx_cm:kick_session/1, IDs),
+    ?retry(100, 50, ?assertEqual(0, emqx_cm:get_sessions_count())),
+    ok.
 
 t_check_ok(_Config) ->
     {_, License} = mk_license(

@@ -51,7 +51,7 @@ t_connection_count(_Config) ->
     ),
 
     meck:new(emqx_cm, [passthrough]),
-    meck:expect(emqx_cm, get_connected_client_count, fun() -> 10 end),
+    meck:expect(emqx_cm, get_sessions_count, fun() -> 10 end),
 
     meck:new(emqx_license_proto_v2, [passthrough]),
     meck:expect(
