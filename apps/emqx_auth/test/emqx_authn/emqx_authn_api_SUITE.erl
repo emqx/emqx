@@ -691,12 +691,12 @@ t_cache(_Config) ->
         uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"cache">> := #{<<"enable">> := false}},
+        #{<<"node_cache">> := #{<<"enable">> := false}},
         emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
         get,
-        uri(["authentication", "settings", "cache", "status"])
+        uri(["authentication", "settings", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
@@ -706,7 +706,7 @@ t_cache(_Config) ->
         put,
         uri(["authentication", "settings"]),
         #{
-            <<"cache">> => #{<<"enable">> => true}
+            <<"node_cache">> => #{<<"enable">> => true}
         }
     ),
     {ok, 200, CacheData1} = request(
@@ -714,7 +714,7 @@ t_cache(_Config) ->
         uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"cache">> := #{<<"enable">> := true}},
+        #{<<"node_cache">> := #{<<"enable">> := true}},
         emqx_utils_json:decode(CacheData1)
     ),
 
@@ -737,7 +737,7 @@ t_cache(_Config) ->
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
         get,
-        uri(["authentication", "settings", "cache", "status"])
+        uri(["authentication", "settings", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
@@ -748,7 +748,7 @@ t_cache(_Config) ->
 t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
-        uri(["authentication", "settings", "cache", "reset"])
+        uri(["authentication", "settings", "node_cache", "reset"])
     ).
 
 t_latency_buckets(_Config) ->

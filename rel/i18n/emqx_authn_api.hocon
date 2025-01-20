@@ -65,10 +65,10 @@ authentication_order_put.desc:
 authentication_order_put.label:
 """Reorder Authenticators"""
 
-authentication_cache_status_get.desc:
+authentication_node_cache_status_get.desc:
 """Get authentication cache status."""
 
-authentication_cache_status_get.label:
+authentication_node_cache_status_get.label:
 """Authentication Cache Status"""
 
 authentication_settings_get.desc:
@@ -174,10 +174,10 @@ param_user_id.desc:
 param_user_id.label:
 """User ID"""
 
-authentication_cache_reset_post.desc:
+authentication_node_cache_reset_post.desc:
 """Reset node-wise authentication cache"""
 
-authentication_cache_reset_post.label:
+authentication_node_cache_reset_post.label:
 """Reset node-wise authentication cache"""
 
 param_clientid.desc:
