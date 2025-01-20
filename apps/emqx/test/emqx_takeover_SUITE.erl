@@ -66,24 +66,22 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(persistence_enabled = Group, Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx,
-                "durable_sessions = {\n"
-                "  enable = true\n"
-                "  force_persistence = true\n"
-                "  heartbeat_interval = 100ms\n"
-                "  renew_streams_interval = 100ms\n"
-                "  idle_poll_interval = 1s\n"
-                "  session_gc_interval = 2s\n"
-                "}\n"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
-    ),
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"force_persistence">> => true,
+        <<"heartbeat_interval">> => <<"100ms">>,
+        <<"renew_streams_interval">> => <<"100ms">>,
+        <<"idle_poll_interval">> => <<"1s">>,
+        <<"session_gc_interval">> => <<"2s">>
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        start_emqx_conf => false,
+        work_dir => emqx_cth_suite:work_dir(Group, Config)
+    },
     [
-        {apps, Apps},
         {persistence_enabled, true}
-        | Config
+        | emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts)
     ];
 init_per_group(persistence_disabled = Group, Config) ->
     Apps = emqx_cth_suite:start(
@@ -101,8 +99,12 @@ init_per_group(mqttv5, Config) ->
     lists:keystore(mqtt_vsn, 1, Config, {mqtt_vsn, v5}).
 
 end_per_group(Group, Config) when
-    Group =:= persistence_disabled;
     Group =:= persistence_enabled
+->
+    emqx_common_test_helpers:stop_apps_ds(Config),
+    ok;
+end_per_group(Group, Config) when
+    Group =:= persistence_disabled
 ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps),
@@ -237,6 +239,7 @@ t_takeover_willmsg(Config) ->
 
 t_takeover_willmsg_clean_session(Config) ->
     process_flag(trap_exit, true),
+    PersistenceEnabled = ?config(persistence_enabled, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
     Middle = ?CNT div 2,
@@ -299,6 +302,7 @@ t_takeover_willmsg_clean_session(Config) ->
 
 t_takeover_clean_session_with_delayed_willmsg(Config) ->
     process_flag(trap_exit, true),
+    PersistenceEnabled = ?config(persistence_enabled, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
     Middle = ?CNT div 2,
@@ -477,7 +481,7 @@ t_session_expire_with_delayed_willmsg(Config) ->
         case ?config(persistence_enabled, Config) of
             true ->
                 %% Session GC uses a larger, safer cutoff time.
-                10_000;
+                15_000;
             false ->
                 5_000
         end,
@@ -542,7 +546,12 @@ t_takeover_before_session_expire_willdelay0(Config) ->
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
 
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
+    Sleep =
+        case ?config(persistence_enabled, Config) of
+            true -> 3_000;
+            false -> ?SLEEP
+        end,
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(Sleep)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
     %% THEN: willmsg is published
@@ -600,7 +609,12 @@ t_takeover_before_session_expire(Config) ->
     ct:pal("FCtx: ~p", [FCtx]),
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
 
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
+    Sleep =
+        case ?config(persistence_enabled, Config) of
+            true -> 3_000;
+            false -> ?SLEEP
+        end,
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(Sleep)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
     %% THEN: No Willmsg is published
@@ -688,14 +702,14 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
         {will_props, #{'Will-Delay-Interval' => 10}},
         {properties, #{'Session-Expiry-Interval' => 3}}
     ],
+    WillSubClientId = <<ClientId/binary, "_willsub">>,
     Commands =
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and will-delay-interval 10s >  session expiry 3s.
             {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client/5, [
-                <<ClientId/binary, "_willsub">>, WillTopic, ?QOS_1, []
-            ]},
+            {fun maybe_wait_subscriptions/1, []},
+            {fun start_client/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
             %% avoid two clients race for session takeover
             {
                 fun(CTX) ->
@@ -713,7 +727,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{},
+        #{persistence_enabled => ?config(persistence_enabled, Config)},
         Commands
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
@@ -721,7 +735,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
     Received1 = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
     %% WHEN: client disconnect abnormally
     emqtt:disconnect(CPid2, ?RC_DISCONNECT_WITH_WILL_MESSAGE),
-    Received2 = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
+    Received2 = [Msg || {publish, Msg} <- ?drainMailbox(2000)],
     Received = Received1 ++ Received2,
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay10">>),
@@ -833,42 +847,45 @@ t_takeover_before_willmsg_expire(Config) ->
         {will_props, #{'Will-Delay-Interval' => 3}},
         {properties, #{'Session-Expiry-Interval' => 10}}
     ],
+    WillSubClientId = <<ClientId/binary, "_willsub">>,
     Commands =
-        %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
-        %%        and will-delay-interval 3s < session expiry 10s.
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
-            [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
-            [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
-            [
-                %% avoid two clients race for session takeover
-                {
-                    fun(CTX) ->
-                        timer:sleep(100),
-                        CTX
-                    end,
-                    []
-                }
-            ] ++
+        lists:flatten([
+            %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
+            %%        and will-delay-interval 3s < session expiry 10s.
+            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun maybe_wait_subscriptions/1, []},
+            {fun start_client/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
+            [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
+            %% avoid two clients race for session takeover
+            {
+                fun(CTX) ->
+                    timer:sleep(100),
+                    CTX
+                end,
+                []
+            },
             %% WHEN: another client takeover the session with in 3s.
-            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}],
+            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
+        ]),
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{},
+        #{persistence_enabled => ?config(persistence_enabled, Config)},
         Commands
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
     ct:pal("FCtx: ~p", [FCtx]),
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
 
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
+    Sleep =
+        case ?config(persistence_enabled, Config) of
+            true -> 3_000;
+            false -> ?SLEEP
+        end,
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(Sleep)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     assert_messages_missed(Client1Msgs, Received),
 
@@ -897,13 +914,12 @@ t_kick_session(Config) ->
         {will_payload, <<"willpayload_kick">>},
         {will_qos, 1}
     ],
+    SubClientId = <<ClientId/binary, "_willsub">>,
     Commands =
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
             {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client/5, [
-                <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-            ]},
+            {fun start_client/5, [SubClientId, WillTopic, ?QOS_1, []]},
             {fun wait_for_chan_reg/2, [ClientId]},
             %% WHEN: client is kicked with kick_session
             {fun kick_client/2, [ClientId]},
@@ -1098,3 +1114,6 @@ make_client_id(Case, Config) ->
                 "-not-persistent-"
         end,
     iolist_to_binary([atom_to_binary(Case), Persist ++ Vsn]).
+
+sleep(_PersistenceEnabled = true) -> 1_000;
+sleep(_) -> ?SLEEP.

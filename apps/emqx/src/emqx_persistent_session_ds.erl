@@ -892,7 +892,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 terminate(_Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
-    _ = commit(Session#{s := S}),
+    _ = commit(Session#{s := S}, #{terminate => true}),
     ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
 
@@ -1067,7 +1067,7 @@ session_ensure_new(
     S5 = emqx_persistent_session_ds_state:set_will_message(MaybeWillMsg, S4),
     S6 = set_clientinfo(ClientInfo, S5),
     S7 = emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S6),
-    S = emqx_persistent_session_ds_state:commit(S7, #{ensure_new => true}),
+    S = emqx_persistent_session_ds_state:commit(S7, #{new => true}),
     #{
         id => Id,
         props => Conf,
@@ -1724,8 +1724,11 @@ set_timer(Timer, Time, Session) ->
     TRef = emqx_utils:start_timer(Time, {emqx_session, Timer}),
     Session#{Timer := TRef}.
 
-commit(Session = #{s := S0}) ->
-    S = emqx_persistent_session_ds_state:commit(S0),
+commit(Session) ->
+    commit(Session, _Opts = #{}).
+
+commit(Session = #{s := S0}, Opts) ->
+    S = emqx_persistent_session_ds_state:commit(S0, Opts),
     cancel_state_commit_timer(Session#{s := S}).
 
 %%--------------------------------------------------------------------

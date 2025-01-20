@@ -34,19 +34,15 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE]),
-    AppSpecs = [
-        emqx_durable_storage,
-        {emqx, #{
-            config => #{durable_sessions => #{enable => true}},
-            override_env => [{boot_modules, [broker]}]
-        }}
-    ],
-    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
-    [{apps, Apps} | Config].
+    DurableSessionsOpts = #{<<"enable">> => true},
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        start_emqx_conf => false
+    },
+    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
 
 end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:stop_apps_ds(Config),
     ok.
 
 init_per_testcase(_TestCase, Config) ->

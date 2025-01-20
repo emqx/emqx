@@ -2981,7 +2981,6 @@ maybe_publish_will_msg(
     case is_durable_session(Channel0) andalso Reason =:= ?chan_terminating of
         false ->
             ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
-
             Channel = publish_will_msg(Channel0),
             remove_willmsg(Channel);
         true ->
