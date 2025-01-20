@@ -28,7 +28,7 @@
 -export_type([mfa_state/0]).
 
 -type mechanism() :: totp.
--type totp_state() :: #{mechanism := totp, secret := binary()}.
+-type totp_state() :: #{mechanism := totp, secret := binary(), first_verify_ts => integer()}.
 -type mfa_state() :: totp_state().
 
 -define(TOTP_KEY_BYTES, 20).
@@ -44,7 +44,7 @@ init(totp) ->
 %% Returns `ok' for most of the happy paths.
 %% Returns `{ok, NewState}' for a token to be verified OK for the first time.
 %% Returns `{error, Reason}' for invalid tokens.
--spec verify(mfa_state(), binary()) -> ok | {ok, mfa_state()} | {error, binary()}.
+-spec verify(mfa_state(), binary()) -> ok | {ok, mfa_state()} | {error, map()}.
 verify(State, Token) ->
     case do_verify(State, Token) of
         ok ->

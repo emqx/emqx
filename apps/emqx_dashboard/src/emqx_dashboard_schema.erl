@@ -77,7 +77,7 @@ fields("dashboard") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ] ++ sso_fields();
+    ] ++ ee_fields();
 fields("listeners") ->
     [
         {"http",
@@ -112,7 +112,19 @@ fields("https") ->
         | common_listener_fields()
     ];
 fields("ssl_options") ->
-    server_ssl_options().
+    server_ssl_options();
+fields("mfa_settings") ->
+    [
+        {mechanism,
+            ?HOCON(
+                hoconsc:enum([totp]),
+                #{
+                    desc => ?DESC("mfa_mechanism"),
+                    importance => ?IMPORTANCE_HIGH,
+                    required => true
+                }
+            )}
+    ].
 
 ssl_options() ->
     {"ssl_options",
@@ -232,6 +244,8 @@ desc("https") ->
     ?DESC(desc_https);
 desc("ssl_options") ->
     ?DESC(ssl_options);
+desc("mfa_settings") ->
+    ?DESC(mfa_settings);
 desc(_) ->
     undefined.
 
@@ -301,8 +315,18 @@ convert_ssl_layout(Conf = #{}, _Opts) ->
     Conf1#{<<"ssl_options">> => SslOpts}.
 
 -if(?EMQX_RELEASE_EDITION == ee).
-sso_fields() ->
+ee_fields() ->
     [
+        {default_mfa,
+            ?HOCON(
+                hoconsc:union([none, ?REF("mfa_settings")]),
+                #{
+                    desc => ?DESC("default_mfa"),
+                    default => none,
+                    required => false,
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {sso,
             ?HOCON(
                 ?R_REF(emqx_dashboard_sso_schema, sso),
@@ -311,6 +335,6 @@ sso_fields() ->
     ].
 
 -else.
-sso_fields() ->
+ee_fields() ->
     [].
 -endif.

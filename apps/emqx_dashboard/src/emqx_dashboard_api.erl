@@ -42,7 +42,8 @@
     logout/2,
     users/2,
     user/2,
-    change_pwd/2
+    change_pwd/2,
+    change_mfa/2
 ]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
@@ -66,7 +67,8 @@ paths() ->
         "/logout",
         "/users",
         "/users/:username",
-        "/users/:username/change_pwd"
+        "/users/:username/change_pwd",
+        "/users/:username/mfa"
     ].
 
 schema("/login") ->
@@ -167,6 +169,29 @@ schema("/users/:username/change_pwd") ->
                     [?BAD_REQUEST, ?ERROR_PWD_NOT_MATCH],
                     ?DESC(login_failed_response400)
                 )
+            }
+        }
+    };
+schema("/users/:username/mfa") ->
+    #{
+        'operationId' => change_mfa,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(change_mfa),
+            parameters => fields([username_in_path]),
+            'requestBody' => emqx_dashboard_schema:fields("mfa_settings"),
+            responses => #{
+                204 => <<"MFA setting is reset">>,
+                404 => response_schema(404)
+            }
+        },
+        delete => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(delete_mfa),
+            parameters => fields([username_in_path]),
+            responses => #{
+                204 => <<"MFA setting is deleted">>,
+                404 => response_schema(404)
             }
         }
     }.
@@ -388,6 +413,29 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
                     ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
                     {400, ?BAD_REQUEST, Reason}
             end
+    end.
+
+change_mfa(delete, #{bindings := #{username := Username}}) ->
+    LogMeta = #{msg => "dashboard_user_mfa_delete", username => binary_to_list(Username)},
+    case emqx_dashboard_admin:del_mfa_state(Username) of
+        {ok, ok} ->
+            ?SLOG(info, LogMeta#{result => success}),
+            {204};
+        {error, <<"username_not_found">>} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+            {404, ?USER_NOT_FOUND, <<"User not found">>}
+    end;
+change_mfa(post, #{bindings := #{username := Username}, body := Settings}) ->
+    Mechanism = maps:get(<<"mechanism">>, Settings),
+    {ok, State} = emqx_dashboard_mfa:init(Mechanism),
+    LogMeta = #{msg => "dashboard_user_mfa_setup", username => binary_to_list(Username)},
+    case emqx_dashboard_admin:set_mfa_state(Username, State) of
+        {ok, ok} ->
+            ?SLOG(info, LogMeta#{result => success}),
+            {204};
+        {error, <<"username_not_found">>} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+            {404, ?USER_NOT_FOUND, <<"User not found">>}
     end.
 
 -if(?EMQX_RELEASE_EDITION == ee).

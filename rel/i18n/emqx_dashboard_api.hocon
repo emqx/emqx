@@ -62,7 +62,13 @@ password.desc:
 """Dashboard Password"""
 
 mfa_token.desc:
-"""Multi-factor authenticaion token."""
+"""Multifactor authenticaion token."""
+
+change_mfa.desc:
+"""Setup MFA for a dashboard user."""
+
+delete_mfa.desc:
+"""Delete MFA state for a dashboard user."""
 
 token.desc:
 """Dashboard Auth Token"""
