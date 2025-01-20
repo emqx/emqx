@@ -58,6 +58,10 @@
 -define(fulfill_loop, beamformer_fulfill_loop).
 -define(housekeeping_loop, housekeeping_loop).
 
+-define(queue_elem(STREAM, TF, STARTKEY, DESTNODE, SUBREF),
+    {STREAM, TF, STARTKEY, DESTNODE, SUBREF}
+).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -348,7 +352,7 @@ find_older_request(Tab) ->
     case ets:first(Tab) of
         '$end_of_table' ->
             undefined;
-        {Stream, TF, StartKey, _Ref} ->
+        ?queue_elem(Stream, TF, StartKey, _Node, _Ref) ->
             {Stream, TF, StartKey}
     end.
 
@@ -366,48 +370,44 @@ ensure_fulfill_loop() ->
 queue_new() ->
     ets:new(old_polls, [ordered_set, private, {keypos, 1}]).
 
--define(queue_elem(STREAM, TF, STARTKEY, SUBID),
-    {{STREAM, TF, STARTKEY, SUBID}}
-).
-
 queue_push(
-    Queue, #sub_state{req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key}
+    Queue, #sub_state{
+        req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
+    }
 ) ->
     ?tp(beamformer_push_replay, #{req_id => Ref}),
-    ets:insert(Queue, ?queue_elem(Stream, TF, Key, Ref)).
+    ets:insert(Queue, {?queue_elem(Stream, TF, Key, node(Pid), Ref)}).
 
 %% @doc Get all requests that await data with given stream, topic
 %% filter (exact) and start key.
 queue_lookup(#s{queue = Queue}, Stream, TopicFilter, StartKey) ->
-    MS = {?queue_elem(Stream, TopicFilter, StartKey, '$1'), [], ['$1']},
+    MS = {{?queue_elem(Stream, TopicFilter, StartKey, '$1', '$2')}, [], [{{'$1', '$2'}}]},
     ets:select(Queue, [MS]).
 
 %% @doc Lookup requests and enrich them with the data from the
 %% subscription registry:
 lookup_subs(S = #s{sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
     lists:flatmap(
-        fun(ReqId) ->
+        fun({_Node, ReqId}) ->
             ets:lookup(Subs, ReqId)
         end,
         queue_lookup(S, Stream, TopicFilter, StartKey)
     ).
 
 queue_drop_all(Queue, Stream, TopicFilter, StartKey) ->
-    ets:match_delete(Queue, ?queue_elem(Stream, TopicFilter, StartKey, '_')).
+    ets:match_delete(Queue, {?queue_elem(Stream, TopicFilter, StartKey, '_', '_')}).
 
 drop(Queue, SubTab, Sub = #sub_state{req_id = SubRef}) ->
     ets:delete(SubTab, SubRef),
     queue_drop(Queue, Sub).
 
 queue_drop(
-    Queue, #sub_state{req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key}
+    Queue, #sub_state{
+        req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
+    }
 ) ->
     %% logger:warning(#{drop_req => {Stream, TF, Key, Ref}, tab => ets:tab2list(Queue)}),
-    ets:delete(Queue, {Stream, TF, Key, SubRef}).
-
-%% queue_all_reqs(Queue) ->
-%%     MS = {?queue_elem('_', '_', '_', '$1'), [], ['$1']},
-%%     ets:match(Queue, MS).
+    ets:delete(Queue, ?queue_elem(Stream, TF, Key, node(Pid), SubRef)).
 
 queue_update(Queue, OldReq, Req) ->
     %% logger:warning(#{old => OldReq, new => Req}),

@@ -188,7 +188,13 @@ terminate(Reason, #s{shard = ShardId, name = Name, sub_tab = SubTab}) ->
 
 do_enqueue(
     Req = #sub_state{
-        stream = Stream, topic_filter = TF, req_id = ReqId, start_key = Key, it = It0, rank = Rank
+        stream = Stream,
+        topic_filter = TF,
+        req_id = ReqId,
+        start_key = Key,
+        it = It0,
+        rank = Rank,
+        client = Client
     },
     S = #s{shard = Shard, queue = Queue, metrics_id = Metrics, module = CBM, sub_tab = SubTab}
 ) ->
@@ -199,7 +205,7 @@ do_enqueue(
                     ?tp(beamformer_push_rt, #{
                         req_id => ReqId, stream => Stream, key => Key, it => It
                     }),
-                    emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Rank, Queue),
+                    emqx_ds_beamformer_waitq:insert(Stream, TF, {node(Client), ReqId}, Rank, Queue),
                     emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
                     %% Report metrics:
                     PQLen = emqx_ds_beamformer_waitq:size(Queue),
@@ -276,7 +282,7 @@ process_stream_event(
                 end,
             Ids = emqx_ds_beamformer_waitq:matching_keys(Stream, ['#'], Queue),
             MatchReqs = lists:flatmap(
-                fun(SubId) -> ets:lookup(SubTab, SubId) end,
+                fun({_Node, SubId}) -> ets:lookup(SubTab, SubId) end,
                 Ids
             ),
             emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
@@ -308,8 +314,8 @@ queue_search(#s{queue = Queue}, Stream, _MsgKey, Msg) ->
     Topic = emqx_topic:tokens(Msg#message.topic),
     emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue).
 
-queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID}) ->
-    emqx_ds_beamformer_waitq:delete(Stream, TF, ID, Queue).
+queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID, client = Client}) ->
+    emqx_ds_beamformer_waitq:delete(Stream, TF, {node(Client), ID}, Queue).
 
 %% queue_update(Queue) ->
 %%     fun(_NextKey, Req = #sub_state{stream = Stream, topic_filter = TF, req_id = ReqId}) ->
