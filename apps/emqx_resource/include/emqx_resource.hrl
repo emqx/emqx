@@ -69,7 +69,8 @@
     %% Called `query_mode' due to legacy reasons...
     query_mode => query_kind(),
     connector_resource_id => resource_id(),
-    is_fallback => boolean()
+    is_fallback => boolean(),
+    fallback_actions => [#{type := _, name := _}]
 }.
 -type resource_data() :: #{
     id := resource_id(),

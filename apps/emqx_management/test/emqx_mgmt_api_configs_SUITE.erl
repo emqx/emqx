@@ -370,6 +370,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                             <<"connector">> => <<"webhook_name">>,
                             <<"description">> => <<>>,
                             <<"enable">> => true,
+                            <<"fallback_actions">> => [],
                             <<"parameters">> =>
                                 #{
                                     <<"body">> => <<"{\"value\": \"${value}\"}">>,

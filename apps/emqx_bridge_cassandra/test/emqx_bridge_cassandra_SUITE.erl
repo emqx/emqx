@@ -327,7 +327,7 @@ query_resource_async(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
     Ref = alias([reply]),
-    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
     ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
     Return = emqx_resource:query(BridgeV2Id, Request, #{

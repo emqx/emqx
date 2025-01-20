@@ -855,7 +855,7 @@ t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
 
 t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ReplyFun =
-        fun(Pid, Result) ->
+        fun(Pid, #{result := Result}) ->
             Pid ! {result, Result}
         end,
     ?check_trace(
