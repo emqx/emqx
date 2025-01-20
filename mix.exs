@@ -185,25 +185,25 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.8", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.20.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.44.0", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.3", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
+  def common_dep(:gun), do: {:gun, "2.1.0", override: true}
   # in conflict by cowboy_swagger and cowboy
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.6.0", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.0", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true}
 
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.6.12", override: true, system_env: emqx_app_system_env()}
+       github: "emqx/grpc-erl", tag: "0.7.1", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
@@ -244,7 +244,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.13.5", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.14.0", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
@@ -425,8 +425,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl,
-       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
       common_dep(:influxdb),
       common_dep(:wolff),
       common_dep(:kafka_protocol),

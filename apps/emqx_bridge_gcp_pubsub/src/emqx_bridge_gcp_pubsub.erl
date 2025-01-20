@@ -400,7 +400,6 @@ name_field() ->
 service_account_json_validator(Val) ->
     case emqx_utils_json:safe_decode(Val, [return_maps]) of
         {ok, Map} ->
-            Map = emqx_utils_json:decode(Val, [return_maps]),
             ExpectedKeys = [
                 <<"type">>,
                 <<"project_id">>,
