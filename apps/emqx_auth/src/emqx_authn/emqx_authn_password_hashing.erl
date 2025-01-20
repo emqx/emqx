@@ -91,7 +91,7 @@ fields(pbkdf2) ->
                     desc =>
                         "PBKDF2 password hashing. "
                         "Hashes are computed according to the PKCS #5 standard, and represented as "
-                        "hexadecimal strings (with letter digits in lowercase)."
+                        "hexadecimal strings."
                 }
             )},
         {mac_fun,
