@@ -61,11 +61,11 @@ t_http_test(_Config) ->
     ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, json(Body)),
 
     Name = <<"test-name">>,
-    Trace = [
-        {<<"name">>, Name},
-        {<<"type">>, <<"topic">>},
-        {<<"topic">>, <<"/x/y/z">>}
-    ],
+    Trace = #{
+        <<"name">> => Name,
+        <<"type">> => <<"topic">>,
+        <<"topic">> => <<"/x/y/z">>
+    },
 
     {ok, Create} = request_api(post, api_path("trace"), Trace),
     ?assertMatch(#{<<"name">> := Name}, json(Create)),
@@ -136,11 +136,11 @@ t_http_test_rule_trace(_Config) ->
     load(),
     %% create
     Name = atom_to_binary(?FUNCTION_NAME),
-    Trace = [
-        {<<"name">>, Name},
-        {<<"type">>, <<"ruleid">>},
-        {<<"ruleid">>, Name}
-    ],
+    Trace = #{
+        <<"name">> => Name,
+        <<"type">> => <<"ruleid">>,
+        <<"ruleid">> => Name
+    },
 
     {ok, Create} = request_api(post, api_path("trace"), Trace),
     ?assertMatch(#{<<"name">> := Name}, json(Create)),
@@ -188,12 +188,12 @@ t_http_test_json_formatter(_Config) ->
 
     Name = <<"testname">>,
     Topic = <<"/x/y/z">>,
-    Trace = [
-        {<<"name">>, Name},
-        {<<"type">>, <<"topic">>},
-        {<<"topic">>, Topic},
-        {<<"formatter">>, <<"json">>}
-    ],
+    Trace = #{
+        <<"name">> => Name,
+        <<"type">> => <<"topic">>,
+        <<"topic">> => Topic,
+        <<"formatter">> => <<"json">>
+    },
 
     {ok, Create} = request_api(post, api_path("trace"), Trace),
     ?assertMatch(#{<<"name">> := Name}, json(Create)),
@@ -476,26 +476,30 @@ t_http_test_json_formatter(_Config) ->
 t_create_failed(_Config) ->
     load(),
     Now = erlang:system_time(second),
-    Trace = [{<<"type">>, <<"topic">>}, {<<"topic">>, <<"/x/y/z">>}, {<<"start_at">>, Now}],
+    Trace = #{
+        <<"type">> => <<"topic">>,
+        <<"topic">> => <<"/x/y/z">>,
+        <<"start_at">> => Now
+    },
 
-    BadName1 = {<<"name">>, <<"test/bad">>},
+    BadName1 = Trace#{<<"name">> => <<"test/bad">>},
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
-        request_api(post, api_path("trace"), [BadName1 | Trace])
+        request_api(post, api_path("trace"), BadName1)
     ),
-    BadName2 = {<<"name">>, list_to_binary(lists:duplicate(257, "t"))},
+    BadName2 = Trace#{<<"name">> => list_to_binary(lists:duplicate(257, "t"))},
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
-        request_api(post, api_path("trace"), [BadName2 | Trace])
+        request_api(post, api_path("trace"), BadName2)
     ),
 
     %% already_exist
-    GoodName = {<<"name">>, <<"test-name-0">>},
-    {ok, Create} = request_api(post, api_path("trace"), [GoodName | Trace]),
+    GoodName = Trace#{<<"name">> => <<"test-name-0">>},
+    {ok, Create} = request_api(post, api_path("trace"), GoodName),
     ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create)),
     ?assertMatch(
         {error, {"HTTP/1.1", 409, _}},
-        request_api(post, api_path("trace"), [GoodName | Trace])
+        request_api(post, api_path("trace"), GoodName)
     ),
 
     %% MAX Limited
@@ -511,28 +515,30 @@ t_create_failed(_Config) ->
         end,
         lists:seq(1, 30 - ets:info(emqx_trace, size))
     ),
-    GoodName1 = {<<"name">>, <<"test-name-1">>},
+    GoodName1 = Trace#{<<"name">> => <<"test-name-1">>},
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
-        request_api(post, api_path("trace"), [GoodName1 | Trace])
+        request_api(post, api_path("trace"), GoodName1)
     ),
     %% clear, delete all
     ?assertMatch({ok, _}, request_api(delete, api_path("trace"), [])),
     %% allow create using test-name-0 again
-    {ok, Create1} = request_api(post, api_path("trace"), [GoodName | Trace]),
+    {ok, Create1} = request_api(post, api_path("trace"), GoodName),
     ?assertMatch(#{<<"name">> := <<"test-name-0">>}, json(Create1)),
     %% new name but same trace in the same second
-    GoodName2 = {<<"name">>, <<"test-name-1">>},
+    GoodName2 = Trace#{<<"name">> => <<"test-name-1">>},
     ?assertMatch(
         {error, {"HTTP/1.1", 409, _}},
-        request_api(post, api_path("trace"), [GoodName2 | Trace])
+        request_api(post, api_path("trace"), GoodName2)
     ),
     %% new name but bad payload-encode
-    GoodName3 = {<<"name">>, <<"test-name-2">>},
-    PayloadEncode = {<<"payload_encode">>, <<"bad">>},
+    GoodName3 = Trace#{
+        <<"name">> => <<"test-name-2">>,
+        <<"payload_encode">> => <<"bad">>
+    },
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
-        request_api(post, api_path("trace"), [GoodName3, PayloadEncode | Trace])
+        request_api(post, api_path("trace"), GoodName3)
     ),
 
     unload(),
