@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   mongo_server_tls:
     container_name: mongo-tls
@@ -27,4 +25,3 @@ services:
           --tlsCAFile /etc/certs/cacert.pem \
           --tlsDisabledProtocols TLS1_0,TLS1_1 \
           --setParameter opensslCipherConfig='HIGH:!EXPORT:!aNULL:!DHE:!kDHE@STRENGTH'
-

@@ -1,5 +1,3 @@
-version: '3.7'
-
 services:
   minio:
     hostname: minio
@@ -20,7 +18,7 @@ services:
       retries: 3
     networks:
       emqx_bridge:
-        aliases: 
+        aliases:
           - minio.net
           - test1.minio.net
           - test2.minio.net

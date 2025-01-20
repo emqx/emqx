@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   influxdb_server_tls:
     container_name: influxdb_tls

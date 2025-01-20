@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   iotdb_1_3_0:
     container_name: iotdb130

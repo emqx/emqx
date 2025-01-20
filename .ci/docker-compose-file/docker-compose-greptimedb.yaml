@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   greptimedb:
     container_name: greptimedb

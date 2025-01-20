@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   datalayers_server_tls:
     container_name: datalayers_tls

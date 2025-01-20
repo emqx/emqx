@@ -1,5 +1,3 @@
-version: '3.9'
-
 x-default-emqx: &default-emqx
     image: ${_EMQX_DOCKER_IMAGE_TAG}
     env_file:

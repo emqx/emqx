@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   pgsql_server:
     container_name: pgsql

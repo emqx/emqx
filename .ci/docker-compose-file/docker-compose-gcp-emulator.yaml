@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   gcp_emulator:
     container_name: gcp_emulator
