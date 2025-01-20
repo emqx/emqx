@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   mysql_server:
     container_name: mysql
