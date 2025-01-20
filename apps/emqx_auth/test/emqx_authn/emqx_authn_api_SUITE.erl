@@ -763,7 +763,7 @@ t_latency_buckets(_Config) ->
     Hists0 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
     ?assertMatch(
         #{
-            latency :=
+            total_latency :=
                 #{bucket_counts := [{23456, _} | _]}
         },
         Hists0
@@ -780,7 +780,7 @@ t_latency_buckets(_Config) ->
     Hists1 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
     ?assertMatch(
         #{
-            latency :=
+            total_latency :=
                 #{bucket_counts := [{12345, _} | _]}
         },
         Hists1

@@ -81,7 +81,7 @@ t_api(_) ->
     Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
     ?assertMatch(
         #{
-            latency :=
+            total_latency :=
                 #{bucket_counts := [{12345, _} | _]}
         },
         Hists
@@ -108,6 +108,9 @@ t_api(_) ->
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
     ?assertEqual(Settings2Get, emqx_utils_json:decode(Result2)),
+
+    Settings3Put = maps:remove(<<"total_latency_metric_buckets">>, Settings2Put),
+    {ok, 200, _} = request(put, uri(["authorization", "settings"]), Settings3Put),
 
     ok.
 
