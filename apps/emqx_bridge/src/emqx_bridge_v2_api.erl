@@ -733,6 +733,7 @@ fields(response_summary) ->
         {enable, mk(boolean(), #{})},
         {name, mk(binary(), #{})},
         {type, mk(binary(), #{})},
+        {description, mk(binary(), #{})},
         {created_at, mk(integer(), #{})},
         {last_modified_at, mk(integer(), #{})},
         {node_status, mk(array(hoconsc:ref(?MODULE, response_node_status)), #{})},
@@ -1357,12 +1358,14 @@ summary_from_local_node_v7(ConfRootKey) ->
             } = BridgeInfo,
             CreatedAt = maps:get(<<"created_at">>, RawConfig, undefined),
             LastModifiedAt = maps:get(<<"last_modified_at">>, RawConfig, undefined),
+            Description = maps:get(<<"description">>, RawConfig, <<"">>),
             IsEnabled = emqx_utils_maps:deep_get([config, enable], ResourceData, true),
             maps:merge(
                 #{
                     node => node(),
                     type => Type,
                     name => Name,
+                    description => Description,
                     enable => IsEnabled,
                     created_at => CreatedAt,
                     last_modified_at => LastModifiedAt
