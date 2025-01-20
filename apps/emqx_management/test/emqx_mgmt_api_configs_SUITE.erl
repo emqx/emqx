@@ -361,36 +361,39 @@ t_create_webhook_v1_bridges_api(Config) ->
     ?assertMatch({ok, _}, hocon:files([WebHookFile])),
     {ok, WebHookBin} = file:read_file(WebHookFile),
     ?assertEqual({ok, <<>>}, update_configs_with_binary(WebHookBin)),
-    Actions =
+    ?assertMatch(
         #{
-            <<"http">> =>
+            <<"http">> :=
                 #{
-                    <<"webhook_name">> =>
+                    <<"webhook_name">> :=
                         #{
-                            <<"connector">> => <<"webhook_name">>,
-                            <<"description">> => <<>>,
-                            <<"enable">> => true,
-                            <<"parameters">> =>
+                            <<"connector">> := <<"webhook_name">>,
+                            <<"description">> := <<>>,
+                            <<"enable">> := true,
+                            <<"created_at">> := _,
+                            <<"last_modified_at">> := _,
+                            <<"parameters">> :=
                                 #{
-                                    <<"body">> => <<"{\"value\": \"${value}\"}">>,
-                                    <<"headers">> => #{},
-                                    <<"max_retries">> => 3,
-                                    <<"method">> => <<"post">>,
-                                    <<"path">> => <<>>
+                                    <<"body">> := <<"{\"value\": \"${value}\"}">>,
+                                    <<"headers">> := #{},
+                                    <<"max_retries">> := 3,
+                                    <<"method">> := <<"post">>,
+                                    <<"path">> := <<>>
                                 },
-                            <<"resource_opts">> =>
+                            <<"resource_opts">> :=
                                 #{
-                                    <<"health_check_interval">> => <<"15s">>,
-                                    <<"inflight_window">> => 100,
-                                    <<"max_buffer_bytes">> => <<"256MB">>,
-                                    <<"query_mode">> => <<"async">>,
-                                    <<"request_ttl">> => <<"45s">>,
-                                    <<"worker_pool_size">> => 4
+                                    <<"health_check_interval">> := <<"15s">>,
+                                    <<"inflight_window">> := 100,
+                                    <<"max_buffer_bytes">> := <<"256MB">>,
+                                    <<"query_mode">> := <<"async">>,
+                                    <<"request_ttl">> := <<"45s">>,
+                                    <<"worker_pool_size">> := 4
                                 }
                         }
                 }
         },
-    ?assertEqual(Actions, emqx_conf:get_raw([<<"actions">>])),
+        emqx_conf:get_raw([<<"actions">>])
+    ),
     Connectors =
         #{
             <<"http">> =>
