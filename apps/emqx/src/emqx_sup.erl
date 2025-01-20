@@ -70,12 +70,13 @@ init([]) ->
     CMSup = child_spec(emqx_cm_sup, supervisor),
     SysSup = child_spec(emqx_sys_sup, supervisor),
     Limiter = child_spec(emqx_limiter_sup, supervisor),
+    AccessControlMetricsSup = child_spec(emqx_access_control_metrics_sup, supervisor),
     Children =
         [KernelSup] ++
             [RouterSup || emqx_boot:is_enabled(broker)] ++
             [BrokerSup || emqx_boot:is_enabled(broker)] ++
             [CMSup || emqx_boot:is_enabled(broker)] ++
-            [SysSup, Limiter],
+            [SysSup, Limiter, AccessControlMetricsSup],
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,

@@ -80,7 +80,7 @@ deregister_providers() ->
 
 enable_node_cache(Enable) ->
     {ok, _} = emqx:update_config(
-        [authentication_cache],
+        [authentication_settings, node_cache],
         #{<<"enable">> => Enable}
     ),
     ok.

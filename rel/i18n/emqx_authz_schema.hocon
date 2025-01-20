@@ -141,4 +141,10 @@ success.desc:
 success.label:
 """Success"""
 
+authz_latency_buckets.desc:
+"""The buckets of the total authorization latency histogram metric."""
+
+authz_latency_buckets.label:
+"""Total Authorization Latency Metric Buckets"""
+
 }

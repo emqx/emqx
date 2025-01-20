@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,25 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_authz_metrics_sup).
+%% @doc Authentication settings configuration management module.
+-module(emqx_authn_settings_config).
 
--behaviour(supervisor).
+-behaviour(emqx_config_handler).
 
--export([start_link/0]).
+-export([
+    post_config_update/5
+]).
 
--export([init/1]).
-
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    AuthnMetrics = emqx_metrics_worker:child_spec(emqx_authn_metrics, authn_metrics),
-    AuthzMetrics = emqx_metrics_worker:child_spec(emqx_authz_metrics, authz_metrics),
-    {ok,
-        {
-            {one_for_one, 10, 100},
-            [
-                AuthnMetrics,
-                AuthzMetrics
-            ]
-        }}.
+-spec post_config_update(
+    list(atom()),
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:raw_config(),
+    emqx_config:app_envs()
+) ->
+    ok | {ok, map()} | {error, term()}.
+post_config_update(
+    _ConfPath,
+    _UpdateReq,
+    #{total_latency_metric_buckets := Buckets} = _NewConfig,
+    _OldConfig,
+    _AppEnvs
+) ->
+    ok = emqx_access_control:update_latency_buckets('client.authenticate', Buckets).

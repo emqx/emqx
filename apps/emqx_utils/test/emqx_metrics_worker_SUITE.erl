@@ -45,7 +45,7 @@ end_per_testcase(_, _Config) ->
     ok.
 
 t_get_metrics(_) ->
-    Metrics = [a, b, c, {slide, d}],
+    Metrics = [a, b, c, {slide, d}, {hist, e, [10, 20, 30]}],
     Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     %% all the metrics are set to zero at start
@@ -61,6 +61,13 @@ t_get_metrics(_) ->
                 a := 0,
                 b := 0,
                 c := 0
+            },
+            hists := #{
+                e := #{
+                    bucket_counts := [{10, 0}, {20, 0}, {30, 0}, {infinity, 0}],
+                    count := 0,
+                    sum := 0
+                }
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
@@ -74,6 +81,10 @@ t_get_metrics(_) ->
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
     ok = emqx_metrics_worker:observe(?NAME, Id, d, 10),
     ok = emqx_metrics_worker:observe(?NAME, Id, d, 30),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 10),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 20),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 30),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 40),
     ct:sleep(1500),
     ?LET(
         #{
@@ -93,6 +104,13 @@ t_get_metrics(_) ->
             } = Counters,
             slides := #{
                 d := #{n_samples := 2, last5m := 20, current := _}
+            },
+            hists := #{
+                e := #{
+                    bucket_counts := [{10, 1}, {20, 2}, {30, 3}, {infinity, 4}],
+                    count := 4,
+                    sum := 100
+                }
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id),
@@ -111,7 +129,7 @@ t_get_metrics(_) ->
     ok = emqx_metrics_worker:clear_metrics(?NAME, Id).
 
 t_clear_metrics(_Config) ->
-    Metrics = [a, b, c],
+    Metrics = [a, b, c, {hist, e, [10, 20, 30]}],
     Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     ?assertMatch(
@@ -127,6 +145,9 @@ t_clear_metrics(_Config) ->
                 a := 0,
                 b := 0,
                 c := 0
+            },
+            hists := #{
+                e := #{}
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
@@ -145,14 +166,15 @@ t_clear_metrics(_Config) ->
             counters => #{},
             gauges => #{},
             rate => #{current => +0.0, last5m => +0.0, max => +0.0},
-            slides => #{}
+            slides => #{},
+            hists => #{}
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
     ok.
 
 t_reset_metrics(_) ->
-    Metrics = [a, b, c, {slide, d}],
+    Metrics = [a, b, c, {slide, d}, {hist, e, [10, 20, 30]}],
     Id = <<"testid">>,
     ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
     %% all the metrics are set to zero at start
@@ -171,6 +193,13 @@ t_reset_metrics(_) ->
             },
             slides := #{
                 d := #{n_samples := 0, last5m := 0, current := 0}
+            },
+            hists := #{
+                e := #{
+                    bucket_counts := [{10, 0}, {20, 0}, {30, 0}, {infinity, 0}],
+                    count := 0,
+                    sum := 0
+                }
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
@@ -184,6 +213,10 @@ t_reset_metrics(_) ->
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
     ok = emqx_metrics_worker:observe(?NAME, Id, d, 100),
     ok = emqx_metrics_worker:observe(?NAME, Id, d, 200),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 10),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 20),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 30),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, e, 40),
     ct:sleep(1500),
     ?assertMatch(
         #{d := #{n_samples := 2}}, emqx_metrics_worker:get_slide(?NAME, <<"testid">>)
@@ -204,6 +237,13 @@ t_reset_metrics(_) ->
             },
             slides := #{
                 d := #{n_samples := 0, last5m := 0, current := 0}
+            },
+            hists := #{
+                e := #{
+                    bucket_counts := [{10, 0}, {20, 0}, {30, 0}, {infinity, 0}],
+                    count := 0,
+                    sum := 0
+                }
             }
         },
         emqx_metrics_worker:get_metrics(?NAME, Id),
@@ -252,8 +292,10 @@ t_get_metrics_2(_) ->
 
 t_recreate_metrics(_) ->
     Id = <<"testid">>,
-    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a]),
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a, {slide, b}, {hist, c, [10, 20, 30]}]),
     ok = emqx_metrics_worker:inc(?NAME, Id, a),
+    ok = emqx_metrics_worker:observe(?NAME, Id, b, 10),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, c, 10),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id0, inflight, 5),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id1, inflight, 7),
     ok = emqx_metrics_worker:set_gauge(?NAME, Id, worker_id2, queuing, 9),
@@ -268,27 +310,47 @@ t_recreate_metrics(_) ->
             },
             counters := C = #{
                 a := 1
+            },
+            slides := #{
+                b := #{n_samples := _}
+            },
+            hists := #{
+                c := #{
+                    count := 1
+                }
             }
         } when map_size(R) == 1 andalso map_size(C) == 1,
         emqx_metrics_worker:get_metrics(?NAME, Id)
     ),
     %% we create the metrics again, to add some counters
-    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [a, b, c]),
-    ok = emqx_metrics_worker:inc(?NAME, Id, b),
-    ok = emqx_metrics_worker:inc(?NAME, Id, c),
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id, [
+        a, {slide, b}, {hist, c, [10, 20, 30]}, d, e, {slide, f}, {hist, g, [10, 20, 30, 40]}
+    ]),
+    ok = emqx_metrics_worker:inc(?NAME, Id, d),
+    ok = emqx_metrics_worker:inc(?NAME, Id, e),
+    ok = emqx_metrics_worker:observe(?NAME, Id, f, 10),
+    ok = emqx_metrics_worker:observe_hist(?NAME, Id, g, 10),
     ?assertMatch(
         #{
             rate := R = #{
                 a := #{current := _, max := _, last5m := _},
-                b := #{current := _, max := _, last5m := _},
-                c := #{current := _, max := _, last5m := _}
+                d := #{current := _, max := _, last5m := _},
+                e := #{current := _, max := _, last5m := _}
             },
             gauges := #{
                 inflight := 12,
                 queuing := 9
             },
             counters := C = #{
-                a := 1, b := 1, c := 1
+                a := 1, d := 1, e := 1
+            },
+            slides := #{
+                b := #{n_samples := _},
+                f := #{n_samples := _}
+            },
+            hists := #{
+                c := #{count := 0},
+                g := #{count := 1}
             }
         } when map_size(R) == 3 andalso map_size(C) == 3,
         emqx_metrics_worker:get_metrics(?NAME, Id)
@@ -433,7 +495,15 @@ t_shift_gauge(_Config) ->
 %% Tests that check the behavior of `ensure_metrics'.
 t_ensure_metrics(_Config) ->
     Id1 = <<"id1">>,
-    Metrics1 = [c1, {counter, c2}, c3, {slide, s1}, {slide, s2}],
+    Metrics1 = [
+        c1,
+        {counter, c2},
+        c3,
+        {slide, s1},
+        {slide, s2},
+        {hist, h1, [10, 20, 30]},
+        {hist, h2, [10, 20, 30, 40]}
+    ],
     RateMetrics1 = [c2, c3],
     %% Behaves as `create_metrics' if absent
     ?assertEqual(
@@ -445,7 +515,8 @@ t_ensure_metrics(_Config) ->
             counters := #{c1 := _, c2 := _, c3 := _},
             rate := #{c2 := _, c3 := _},
             gauges := #{},
-            slides := #{s1 := _, s2 := _}
+            slides := #{s1 := _, s2 := _},
+            hists := #{h1 := _, h2 := _}
         },
         emqx_metrics_worker:get_metrics(?NAME, Id1)
     ),
@@ -459,7 +530,8 @@ t_ensure_metrics(_Config) ->
             counters := #{c1 := _, c2 := _, c3 := _},
             rate := #{c2 := _, c3 := _},
             gauges := #{},
-            slides := #{s1 := _, s2 := _}
+            slides := #{s1 := _, s2 := _},
+            hists := #{h1 := _, h2 := _}
         },
         emqx_metrics_worker:get_metrics(?NAME, Id1)
     ),
@@ -480,7 +552,8 @@ t_ensure_metrics(_Config) ->
             counters := #{c1 := _, c2 := _, c3 := _},
             rate := #{c2 := _, c3 := _},
             gauges := #{},
-            slides := #{s1 := _, s2 := _}
+            slides := #{s1 := _, s2 := _},
+            hists := #{h1 := _, h2 := _}
         },
         emqx_metrics_worker:get_metrics(?NAME, Id1)
     ),
@@ -506,7 +579,8 @@ t_ensure_metrics(_Config) ->
                     counters := #{c1 := _, c2 := _, c3 := _},
                     rate := #{c2 := _, c3 := _},
                     gauges := #{},
-                    slides := #{s1 := _, s2 := _}
+                    slides := #{s1 := _, s2 := _},
+                    hists := #{h1 := _, h2 := _}
                 },
                 emqx_metrics_worker:get_metrics(?NAME, Id2)
             ),
@@ -523,6 +597,10 @@ t_ensure_metrics(_Config) ->
             },
             #{
                 remove_from_metrics => [{slide, s2}],
+                remove_from_rates => []
+            },
+            #{
+                remove_from_metrics => [{hist, h2, [10, 20, 30, 40]}],
                 remove_from_rates => []
             },
             #{

@@ -22,6 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
 
 %%--------------------------------------------------------------------
@@ -277,6 +278,67 @@ t_prometheus_api(_) ->
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
         emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)
+    ),
+    ok.
+
+t_prometheus_auth_api_aggregated(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth?mode=all_nodes_aggregated"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+
+    %% Provide some predefined metrics
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate', total_latency, 100
+    ),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize', total_latency, 100
+    ),
+
+    %% Pretend we have 3 nodes
+    meck:new(mria, [passthrough, no_history]),
+    meck:expect(mria, running_nodes, fun() -> [node(), node(), node()] end),
+
+    %% Get the same single observation duplicated across 3 nodes
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+    ?assert(
+        lists:member(
+            "emqx_authn_latency_count{name=\"total_latency\"} 3",
+            string:split(Response, "\n", all)
+        )
+    ),
+    ?assert(
+        lists:member(
+            "emqx_authz_latency_count{name=\"total_latency\"} 3",
+            string:split(Response, "\n", all)
+        )
+    ),
+    meck:unload(mria),
+    ok.
+
+t_prometheus_auth_api(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate', total_latency, 100
+    ),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize', total_latency, 100
+    ),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+    ?assert(
+        lists:member(
+            "emqx_authn_latency_count{name=\"total_latency\"} 1",
+            string:split(Response, "\n", all)
+        )
+    ),
+    ?assert(
+        lists:member(
+            "emqx_authz_latency_count{name=\"total_latency\"} 1",
+            string:split(Response, "\n", all)
+        )
     ),
     ok.
 

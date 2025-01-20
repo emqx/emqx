@@ -288,24 +288,20 @@ do_assert_prom_data([Metric | RestDataL], Mode) ->
     do_assert_prom_data(RestDataL, Mode).
 
 assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
-    case maps:get(Mode, metric_meta(MetricName), undefined) of
+    %% The last element is the value
+    LabelCount = length(R) - 1,
+    ExpectedLabelCount = maps:get(Mode, metric_meta(MetricName), undefined),
+    case ExpectedLabelCount of
         %% for uncatched metrics (by prometheus.erl)
         undefined ->
             ok;
-        N when is_integer(N) ->
-            case N =:= length(lists:droplast(R)) of
-                true ->
-                    ok;
-                false ->
-                    ct:print(
-                        "====================~n"
-                        "%% Metric: ~p~n"
-                        "%% Expect labels count: ~p in Mode: ~p~n"
-                        "%% But got labels: ~p~n",
-                        [_Metric, N, Mode, length(lists:droplast(R))]
-                    )
-            end,
-            ?assertEqual(N, length(lists:droplast(R)))
+        LabelCount ->
+            ok;
+        _ ->
+            ct:fail(
+                "Label count mismatch for metric: ~p and mode: ~p, expected: ~p, got: ~p",
+                [MetricName, Mode, ExpectedLabelCount, LabelCount]
+            )
     end.
 
 -define(meta(NODE, AGGRE, UNAGGRE), #{
@@ -343,6 +339,8 @@ metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
 %% mria metric with label `shard` and `node` when not in mode `node`
 metric_meta(<<"emqx_mria_", _Tail/binary>>) -> ?meta(1, 2, 2);
 %% `/prometheus/auth`
+metric_meta(<<"emqx_authn_latency_bucket">>) -> ?meta(2, 2, 3);
+metric_meta(<<"emqx_authz_latency_bucket">>) -> ?meta(2, 2, 3);
 metric_meta(<<"emqx_authn_users_count">>) -> ?meta(1, 1, 1);
 metric_meta(<<"emqx_authn_", _Tail/binary>>) -> ?meta(1, 1, 2);
 metric_meta(<<"emqx_authz_rules_count">>) -> ?meta(1, 1, 1);

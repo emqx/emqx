@@ -21,6 +21,7 @@
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -695,15 +696,15 @@ t_bcrypt_validation(_Config) ->
 t_cache(_Config) ->
     {ok, 200, CacheData0} = request(
         get,
-        uri(["authentication_cache"])
+        uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"enable">> := false},
+        #{<<"node_cache">> := #{<<"enable">> := false}},
         emqx_utils_json:decode(CacheData0, [return_maps])
     ),
     {ok, 200, MetricsData0} = request(
         get,
-        uri(["authentication_cache", "status"])
+        uri(["authentication", "settings", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
@@ -711,17 +712,17 @@ t_cache(_Config) ->
     ),
     {ok, 204, _} = request(
         put,
-        uri(["authentication_cache"]),
+        uri(["authentication", "settings"]),
         #{
-            <<"enable">> => true
+            <<"node_cache">> => #{<<"enable">> => true}
         }
     ),
     {ok, 200, CacheData1} = request(
         get,
-        uri(["authentication_cache"])
+        uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"enable">> := true},
+        #{<<"node_cache">> := #{<<"enable">> := true}},
         emqx_utils_json:decode(CacheData1, [return_maps])
     ),
 
@@ -744,7 +745,7 @@ t_cache(_Config) ->
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
         get,
-        uri(["authentication_cache", "status"])
+        uri(["authentication", "settings", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
@@ -755,7 +756,52 @@ t_cache(_Config) ->
 t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
-        uri(["authentication_cache", "reset"])
+        uri(["authentication", "settings", "node_cache", "reset"])
+    ).
+
+t_latency_buckets(_Config) ->
+    %% Set the buckets as comma-separated string
+    {ok, 204, _} = request(
+        put,
+        uri(["authentication", "settings"]),
+        #{
+            <<"total_latency_metric_buckets">> => <<" 23456, 23457 ">>
+        }
+    ),
+    Hists0 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    ?assertMatch(
+        #{
+            total_latency :=
+                #{bucket_counts := [{23456, _} | _]}
+        },
+        Hists0
+    ),
+
+    %% Set the buckets as list of integers
+    {ok, 204, _} = request(
+        put,
+        uri(["authentication", "settings"]),
+        #{
+            <<"total_latency_metric_buckets">> => [12345, 12346]
+        }
+    ),
+    Hists1 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    ?assertMatch(
+        #{
+            total_latency :=
+                #{bucket_counts := [{12345, _} | _]}
+        },
+        Hists1
+    ),
+
+    %% Fetch the settings, the buckets should be comma-separated string
+    {ok, 200, Settings} = request(
+        get,
+        uri(["authentication", "settings"])
+    ),
+    ?assertMatch(
+        #{<<"total_latency_metric_buckets">> := <<"12345, 12346">>},
+        emqx_utils_json:decode(Settings, [return_maps])
     ).
 
 %%------------------------------------------------------------------------------

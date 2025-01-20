@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_prometheus_cluster).
 
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_prometheus.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
@@ -136,8 +137,36 @@ do_sum(K, LogicSumKs, Metric, MetricAcc) ->
         true ->
             logic_sum(Metric, MetricAcc);
         false ->
-            Metric + MetricAcc
+            deep_sum(Metric, MetricAcc)
     end.
+
+deep_sum(Metric, MetricAcc) when is_number(Metric) andalso is_number(MetricAcc) ->
+    Metric + MetricAcc;
+deep_sum(Metric, MetricAcc) when is_map(Metric) andalso is_map(MetricAcc) ->
+    maps:merge_with(
+        fun(_K, V1, V2) ->
+            deep_sum(V1, V2)
+        end,
+        Metric,
+        MetricAcc
+    );
+deep_sum(Metric, MetricAcc) when
+    is_list(Metric) andalso is_list(MetricAcc) andalso length(Metric) == length(MetricAcc)
+->
+    lists:zipwith(
+        fun(V1, V2) ->
+            deep_sum(V1, V2)
+        end,
+        Metric,
+        MetricAcc
+    );
+deep_sum(Metric, MetricAcc) when
+    is_tuple(Metric) andalso is_tuple(MetricAcc) andalso tuple_size(Metric) == tuple_size(MetricAcc) andalso
+        tuple_size(Metric) > 0 andalso element(1, Metric) == element(1, MetricAcc)
+->
+    [Head | Tail0] = tuple_to_list(Metric),
+    [Head | Tail1] = tuple_to_list(MetricAcc),
+    list_to_tuple([Head | deep_sum(Tail0, Tail1)]).
 
 zip_cluster_data(Module, Mode) ->
     zip_cluster(
