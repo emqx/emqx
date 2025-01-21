@@ -30,7 +30,8 @@
 
 -export([
     add_user/4,
-    del_mfa_state/1,
+    disable_mfa/1,
+    clear_mfa_state/1,
     set_mfa_state/2,
     get_mfa_state/1,
     force_add_user/4,
@@ -128,6 +129,14 @@ do_add_user(Username, Password, Role, Desc) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun add_user_/4, [Username, Password, Role, Desc]),
     return(Res).
 
+get_mfa_enabled_state(Username) ->
+    case get_mfa_state(Username) of
+        {ok, disabled} ->
+            {error, disabled};
+        Result ->
+            Result
+    end.
+
 get_mfa_state(Username) ->
     case ets:lookup(?ADMIN, Username) of
         [#?ADMIN{extra = #{mfa_state := S}}] ->
@@ -138,11 +147,13 @@ get_mfa_state(Username) ->
             {error, username_not_found}
     end.
 
-del_mfa_state(Username) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun del_mfa_state2/1, [Username]),
+%% @doc Delete MFA state from user record.
+%% This should allow the user to re-initialize MFA state according to `default_mfa' config.
+clear_mfa_state(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun clear_mfa_state2/1, [Username]),
     return(Res).
 
-del_mfa_state2(Username) ->
+clear_mfa_state2(Username) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             mnesia:abort(<<"username_not_found">>);
@@ -151,6 +162,21 @@ del_mfa_state2(Username) ->
             ok = mnesia:write(Admin#?ADMIN{extra = maps:without([mfa_state], Extra)})
     end.
 
+%% @doc Change `mfa_state' to `disabled'.
+disable_mfa(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun disable_mfa2/1, [Username]),
+    return(Res).
+
+disable_mfa2(Username) ->
+    case mnesia:wread({?ADMIN, Username}) of
+        [] ->
+            mnesia:abort(<<"username_not_found">>);
+        [Admin] ->
+            Extra = Admin#?ADMIN.extra,
+            ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => disabled}})
+    end.
+
+%% @doc Set MFA state.
 set_mfa_state(Username, MfaState) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_mfa_state2/2, [Username, MfaState]),
     return(Res).
@@ -425,17 +451,24 @@ all_users() ->
             #?ADMIN{
                 username = Username,
                 description = Desc,
-                role = Role
+                role = Role,
+                extra = Extra
             }
         ) ->
             flatten_username(#{
                 username => Username,
                 description => Desc,
-                role => ensure_role(Role)
+                role => ensure_role(Role),
+                mfa => format_mfa(Extra)
             })
         end,
         ets:tab2list(?ADMIN)
     ).
+
+format_mfa(#{mfa_state := #{mechanism := Mechanism}}) -> Mechanism;
+format_mfa(#{mfa_state := disabled}) -> disabled;
+format_mfa(_) -> none.
+
 -spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->
     {ok, Result};
@@ -501,7 +534,7 @@ verify_mfa_token(Username, MfaToken) ->
 
 do_verify_mfa_token(Username, MfaToken) when ?IS_NO_MFA_TOKEN(MfaToken) ->
     %% MFA token is not provided
-    case get_mfa_state(Username) of
+    case get_mfa_enabled_state(Username) of
         {ok, State} ->
             %% Expected to receive MFA token, but not provided
             {error, emqx_dashboard_mfa:make_token_missing_error(State)};
@@ -511,7 +544,7 @@ do_verify_mfa_token(Username, MfaToken) when ?IS_NO_MFA_TOKEN(MfaToken) ->
     end;
 do_verify_mfa_token(Username, MfaToken) ->
     %% MFA token is provided
-    case get_mfa_state(Username) of
+    case get_mfa_enabled_state(Username) of
         {ok, State} ->
             %% MFA is configured, and a token is provided
             case emqx_dashboard_mfa:verify(State, MfaToken) of
@@ -527,7 +560,7 @@ do_verify_mfa_token(Username, MfaToken) ->
                     {error, Reason}
             end;
         _ ->
-            %% No MFA configured, but provided with a token
+            %% No MFA enabled, but provided with a token
             %% Can happen if MFA is disabled for this user but the
             %% dashboad is still providing a token for some reason,
             %% proceed to password check
@@ -542,6 +575,8 @@ maybe_init_mfa_state(Username) ->
         #{mechanism := Mechanism} ->
             case get_mfa_state(Username) of
                 {ok, _} ->
+                    %% already enabled
+                    %% or explicitly disabled
                     ok;
                 _ ->
                     {ok, State} = emqx_dashboard_mfa:init(Mechanism),

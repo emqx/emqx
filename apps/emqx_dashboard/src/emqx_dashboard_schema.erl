@@ -21,7 +21,11 @@
     roots/0,
     fields/1,
     namespace/0,
-    desc/1,
+    desc/1
+]).
+
+-export([
+    mfa_fields/0,
     https_converter/2
 ]).
 
@@ -114,6 +118,9 @@ fields("https") ->
 fields("ssl_options") ->
     server_ssl_options();
 fields("mfa_settings") ->
+    mfa_fields().
+
+mfa_fields() ->
     [
         {mechanism,
             ?HOCON(
@@ -315,18 +322,21 @@ convert_ssl_layout(Conf = #{}, _Opts) ->
     Conf1#{<<"ssl_options">> => SslOpts}.
 
 -if(?EMQX_RELEASE_EDITION == ee).
+
+mfa_schema() ->
+    ?HOCON(
+        hoconsc:union([none, ?REF("mfa_settings")]),
+        #{
+            desc => ?DESC("default_mfa"),
+            default => none,
+            required => false,
+            importance => ?IMPORTANCE_LOW
+        }
+    ).
+
 ee_fields() ->
     [
-        {default_mfa,
-            ?HOCON(
-                hoconsc:union([none, ?REF("mfa_settings")]),
-                #{
-                    desc => ?DESC("default_mfa"),
-                    default => none,
-                    required => false,
-                    importance => ?IMPORTANCE_LOW
-                }
-            )},
+        {default_mfa, mfa_schema()},
         {sso,
             ?HOCON(
                 ?R_REF(emqx_dashboard_sso_schema, sso),

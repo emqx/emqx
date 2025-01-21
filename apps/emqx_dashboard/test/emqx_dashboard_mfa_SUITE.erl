@@ -28,40 +28,46 @@
 -define(BASE_PATH, "/api/v5").
 -define(GOOD_TOTP, <<"123456">>).
 
-all() ->
+-define(EE_ONLY(EXPR, NON_EE),
     case emqx_release:edition() of
-        ee ->
-            %% only test in ee profile because it's a ee-only feature
-            emqx_common_test_helpers:all(?MODULE);
-        _ ->
-            []
-    end.
+        ee -> EXPR;
+        _ -> NON_EE
+    end
+).
+
+all() ->
+    ?EE_ONLY(emqx_common_test_helpers:all(?MODULE), []).
 
 init_per_suite(Config) ->
-    %% Load all applications to ensure swagger.json is fully generated.
-    Apps = emqx_machine_boot:reboot_apps(),
-    ct:pal("load apps:~p~n", [Apps]),
-    lists:foreach(fun(App) -> application:load(App) end, Apps),
-    SuiteApps = emqx_cth_suite:start(
-        [
-            emqx_conf,
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    _ = emqx_conf_schema:roots(),
-    ok = emqx_dashboard_desc_cache:init(),
-    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module()),
-    emqx_common_test_http:create_default_app(),
-    ok = init_users(),
-    [{suite_apps, SuiteApps} | Config].
+    ?EE_ONLY(
+        begin
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_management,
+                    emqx_mgmt_api_test_util:emqx_dashboard(
+                        "dashboard.listeners.http { enable = true, bind = 18083 }"
+                    )
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
+            {ok, _} = emqx_common_test_http:create_default_app(),
+            ok = init_users(),
+            [{apps, Apps} | Config]
+        end,
+        Config
+    ).
 
 end_per_suite(Config) ->
-    mnesia:clear_table(?ADMIN),
-    mnesia:clear_table(?ADMIN_JWT),
-    emqx_common_test_http:delete_default_app(),
-    emqx_cth_suite:stop(?config(suite_apps, Config)).
+    ?EE_ONLY(
+        begin
+            mnesia:clear_table(?ADMIN),
+            mnesia:clear_table(?ADMIN_JWT),
+            emqx_cth_suite:stop(?config(apps, Config))
+        end,
+        ok
+    ).
 
 init_per_testcase(Case, Config) ->
     ?MODULE:Case({init, Config}).
@@ -204,6 +210,61 @@ t_disable_mfa(_Config) ->
     ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, AdminJwtToken)),
     ok.
 
+%% Enable MFA from config.
+%% There is no need to call users/{username}/mfa API to enable MFA
+t_enable_by_config({init, Config}) ->
+    %% configure default MFA to use totp mechanism
+    emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
+    %% clear state so it can init a new state according to config
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
+    ok = mock_totp(),
+    Config;
+t_enable_by_config({'end', _Config}) ->
+    emqx_config:put([dashboard, default_mfa], none),
+    ok = unmock_totp();
+t_enable_by_config(_Config) ->
+    ?assertMatch(#{<<"mfa">> := <<"none">>}, get_user(<<"viewer1">>)),
+    LoginBody =
+        #{
+            <<"username">> => <<"viewer1">>,
+            <<"password">> => <<"viewer1pass">>
+        },
+    %% cannot login without TOTP because default MFA is configured
+    {ok, 403, Rsp1} = login(LoginBody),
+    ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_MFA_TOKEN">>,
+            <<"message">> :=
+                #{
+                    <<"error">> := <<"missing_mfa_token">>,
+                    <<"mechanism">> := <<"totp">>,
+                    <<"secret">> := _
+                }
+        },
+        json_map(Rsp1)
+    ),
+    {ok, 403, Rsp2} = login(LoginBody#{<<"mfa_token">> => <<"badtotp">>}),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_MFA_TOKEN">>,
+            <<"message">> :=
+                #{
+                    <<"error">> := <<"bad_mfa_token">>,
+                    <<"mechanism">> := <<"totp">>
+                }
+        },
+        json_map(Rsp2)
+    ),
+    {ok, 200, LoginRsp} = login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP}),
+    #{<<"token">> := JwtToken} = json_map(LoginRsp),
+    %% mark MFA disalbed for this user
+    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, JwtToken)),
+    ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer1">>)),
+    %% should be able to login without TOTP even though default MFA is configured
+    {ok, 200, _} = login(LoginBody),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -236,8 +297,19 @@ enable_mfa(User, JwtToken) ->
 disable_mfa(User, JwtToken) ->
     request_api(delete, api_path(["users", User, mfa]), auth_header(JwtToken), #{}).
 
+get_user(Name) ->
+    Users = list_users(),
+    [User] = lists:filter(fun(#{<<"username">> := N}) -> Name =:= N end, Users),
+    User.
+
+list_users() ->
+    {ok, 200, List} = request_api(get, api_path(["users"]), auth_header()),
+    emqx_utils_json:decode(List).
+
 admin_jwt_token() ->
-    {ok, #{token := JwtToken}} = emqx_dashboard_admin:sign_token(<<"admin1">>, <<"admin1pass">>),
+    {ok, #{token := JwtToken}} = emqx_dashboard_admin:sign_token(
+        <<"admin1">>, <<"admin1pass">>, ?TRUSTED_MFA_TOKEN
+    ),
     JwtToken.
 
 auth_header() ->
@@ -253,11 +325,11 @@ json(Data) ->
     {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
     Jsx.
 
+request_api(Method, Url, Auth) ->
+    emqx_common_test_http:request_api(Method, Url, _QueryParams = [], Auth).
+
 request_api(Method, Url, Auth, Body) ->
     emqx_common_test_http:request_api(Method, Url, _QueryParams = [], Auth, Body).
-
-get_http_data(ResponseBody) ->
-    emqx_common_test_http:get_http_data(ResponseBody).
 
 %% TOTP is not very friendly for tests due to its
 %% time-based nature, here we mock it for determinstic

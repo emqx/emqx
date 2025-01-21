@@ -22,17 +22,22 @@
     verify/2,
     make_token_missing_error/1,
     is_mfa_error/1,
-    is_need_setup_error/1
+    is_need_setup_error/1,
+    supported_mechanisms/0
 ]).
 
 -export_type([mfa_state/0]).
 
 -type mechanism() :: totp.
 -type totp_state() :: #{mechanism := totp, secret := binary(), first_verify_ts => integer()}.
--type mfa_state() :: totp_state().
+-type mfa_state() :: disabled | totp_state().
 
 -define(TOTP_KEY_BYTES, 20).
 -define(NO_FIRST_VERIFY_TS, 0).
+
+%% @doc Return a list of supported mechanisms
+-spec supported_mechanisms() -> [totp].
+supported_mechanisms() -> [totp].
 
 %% @doc Initialize MFA state.
 -spec init(mechanism()) -> {ok, mfa_state()}.

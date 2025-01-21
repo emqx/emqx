@@ -137,7 +137,7 @@ schema("/users/:username") ->
             parameters => sso_parameters(fields([username_in_path])),
             'requestBody' => fields([role, description]),
             responses => #{
-                200 => fields([username, role, description, backend]),
+                200 => user_fields(),
                 404 => response_schema(404)
             }
         },
@@ -179,7 +179,7 @@ schema("/users/:username/mfa") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(change_mfa),
             parameters => fields([username_in_path]),
-            'requestBody' => emqx_dashboard_schema:fields("mfa_settings"),
+            'requestBody' => emqx_dashboard_schema:mfa_fields(),
             responses => #{
                 204 => <<"MFA setting is reset">>,
                 404 => response_schema(404)
@@ -202,9 +202,26 @@ response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
 fields(user) ->
-    fields([username, role, description, backend]);
+    user_fields();
 fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
+
+user_fields() ->
+    fields([username, role, description, backend]) ++ ee_user_fields().
+
+ee_user_fields() ->
+    case emqx_release:edition() of
+        ee ->
+            [
+                {mfa,
+                    mk(
+                        enum([none, disabled] ++ emqx_dashboard_mfa:supported_mechanisms()),
+                        #{desc => ?DESC(mfa_status), example => totp}
+                    )}
+            ];
+        _ ->
+            []
+    end.
 
 field(username) ->
     {username,
@@ -417,7 +434,7 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
 
 change_mfa(delete, #{bindings := #{username := Username}}) ->
     LogMeta = #{msg => "dashboard_user_mfa_delete", username => binary_to_list(Username)},
-    case emqx_dashboard_admin:del_mfa_state(Username) of
+    case emqx_dashboard_admin:disable_mfa(Username) of
         {ok, ok} ->
             ?SLOG(info, LogMeta#{result => success}),
             {204};

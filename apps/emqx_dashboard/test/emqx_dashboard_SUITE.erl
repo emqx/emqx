@@ -208,7 +208,8 @@ t_rest_api(_Config) ->
                 <<"backend">> => <<"local">>,
                 <<"username">> => <<"admin">>,
                 <<"description">> => <<"administrator">>,
-                <<"role">> => ?ROLE_SUPERUSER
+                <<"role">> => ?ROLE_SUPERUSER,
+                <<"mfa">> => <<"none">>
             })
         ],
         get_http_data(Res0)
@@ -226,6 +227,7 @@ t_rest_api(_Config) ->
             <<"username">> => <<"usera">>,
             <<"password">> => <<"passwd_01234">>,
             <<"role">> => ?ROLE_SUPERUSER,
+            <<"mfa">> => <<"none">>,
             <<"description">> => Desc
         })
     ),

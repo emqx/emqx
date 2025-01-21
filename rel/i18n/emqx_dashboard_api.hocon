@@ -33,9 +33,6 @@ login_api.desc:
 login_api.label:
 """Get Dashboard Auth Token."""
 
-bad_mfa_token.desc:
-"""Login failed due to MFA token is not provided or invalid."""
-
 login_failed401.desc:
 """Login failed. Bad username or password"""
 
@@ -60,15 +57,6 @@ old_pwd.desc:
 
 password.desc:
 """Dashboard Password"""
-
-mfa_token.desc:
-"""Multifactor authenticaion token."""
-
-change_mfa.desc:
-"""Setup MFA for a dashboard user."""
-
-delete_mfa.desc:
-"""Delete MFA state for a dashboard user."""
 
 token.desc:
 """Dashboard Auth Token"""
@@ -101,5 +89,24 @@ backend.desc:
 
 password_expire_in_seconds.desc:
 """Time in seconds until the password expiresc."""
+
+bad_mfa_token.desc:
+"""Login failed due to MFA token is not provided or invalid."""
+
+change_mfa.desc:
+"""Setup MFA for a dashboard user."""
+
+delete_mfa.desc:
+"""Delete MFA state for a dashboard user.
+After the state is deleted, the user will have MFA explicitly disabled, to re-enabled MFA, call the `POST` method."""
+
+mfa_token.desc:
+"""Multifactor authenticaion token."""
+
+mfa_status.desc:
+"""MFA status.
+- `none`: no MFA enabled
+- `disabled`: MFA is disabled for the user
+- Otherwis: The MFA mechanism in use, e.g. `totp`"""
 
 }
