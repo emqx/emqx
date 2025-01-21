@@ -165,13 +165,13 @@ evaluate_sql_check(Check, Validation, Message) ->
             false
     catch
         throw:Reason ->
-            trace_failure(Validation, "validation_sql_check_throw", #{
+            trace_failure(Validation, validation_sql_check_throw, #{
                 validation => Name,
                 reason => Reason
             }),
             false;
         Class:Error:Stacktrace ->
-            trace_failure(Validation, "validation_sql_check_failure", #{
+            trace_failure(Validation, validation_sql_check_failure, #{
                 validation => Name,
                 kind => Class,
                 reason => Error,
@@ -194,13 +194,13 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
         emqx_schema_registry_serde:schema_check(SerdeName, Data, ExtraArgs)
     catch
         error:{serde_not_found, _} ->
-            trace_failure(Validation, "validation_schema_check_schema_not_found", #{
+            trace_failure(Validation, validation_schema_check_schema_not_found, #{
                 validation => Name,
                 schema_name => SerdeName
             }),
             false;
         Class:Error:Stacktrace ->
-            trace_failure(Validation, "validation_schema_check_failure", #{
+            trace_failure(Validation, validation_schema_check_failure, #{
                 validation => Name,
                 schema_name => SerdeName,
                 kind => Class,
@@ -221,7 +221,7 @@ run_validations(Validations, Message) ->
                     emqx_schema_validation_registry:inc_succeeded(Name),
                     {cont, Acc};
                 ignore ->
-                    trace_failure(Validation, "validation_failed", #{
+                    trace_failure(Validation, validation_failed, #{
                         validation => Name,
                         action => ignore
                     }),
@@ -229,7 +229,7 @@ run_validations(Validations, Message) ->
                     run_schema_validation_failed_hook(Message, Validation),
                     {cont, Acc};
                 FailureAction ->
-                    trace_failure(Validation, "validation_failed", #{
+                    trace_failure(Validation, validation_failed, #{
                         validation => Name,
                         action => FailureAction
                     }),
@@ -279,13 +279,13 @@ trace_failure(#{log_failure := #{level := none}} = Validation, _Msg, _Meta) ->
     } = Validation,
     ?tp(schema_validation_failed, #{log_level => none, name => _Name, action => _Action}),
     ok;
-trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) ->
+trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) when is_atom(Msg) ->
     #{
         name := _Name,
         failure_action := _Action
     } = Validation,
     ?tp(schema_validation_failed, #{log_level => Level, name => _Name, action => _Action}),
-    ?TRACE(Level, ?TRACE_TAG, Msg, Meta).
+    ?SLOG_THROTTLE(Level, #{msg => Msg, name => _Name, action => _Action}, Meta#{tag => ?TRACE_TAG}).
 
 run_schema_validation_failed_hook(Message, Validation) ->
     #{name := Name} = Validation,
