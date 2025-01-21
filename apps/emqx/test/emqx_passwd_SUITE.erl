@@ -96,7 +96,7 @@ t_hash(_) ->
     ),
     Sha512 = emqx_passwd:hash({sha512, Salt, suffix}, Password),
     true = emqx_passwd:check_pass({sha512, Salt, suffix}, Sha512, Password),
-    %% Case is ignored for comparisons.
+    %% Case is ignored when comparing hashes.
     true = emqx_passwd:check_pass({sha512, Salt, suffix}, string:uppercase(Sha512), Password),
     false = emqx_passwd:check_pass({sha512, Salt, suffix}, Sha512, WrongPassword),
     ?assertEqual(
@@ -122,7 +122,7 @@ t_hash(_) ->
     >>,
     _Pbkdf2 = emqx_passwd:hash({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Password),
     true = emqx_passwd:check_pass({pbkdf2, sha, Pbkdf2Salt, 2, 32}, Pbkdf2, Password),
-    %% Case is ignored for comparisons.
+    %% Case is ignored when comparing hashes.
     true = emqx_passwd:check_pass(
         {pbkdf2, sha, Pbkdf2Salt, 2, 32}, string:uppercase(Pbkdf2), Password
     ),
