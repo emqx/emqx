@@ -34,8 +34,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_dashboard.hrl").
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
-
 -define(HOST, "http://127.0.0.1:18083").
 
 -define(BASE_PATH, "/api/v5").
