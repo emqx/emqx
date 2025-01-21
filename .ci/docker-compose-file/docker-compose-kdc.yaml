@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   kdc:
     hostname: kdc.emqx.net

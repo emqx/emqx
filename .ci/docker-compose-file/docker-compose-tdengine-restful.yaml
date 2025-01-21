@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   tdengine_server:
     container_name: tdengine

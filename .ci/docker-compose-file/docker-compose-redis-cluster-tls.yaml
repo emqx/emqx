@@ -1,4 +1,3 @@
-version: '3.9'
 services:
 
   redis-cluster-tls-1: &redis-node
@@ -56,4 +55,3 @@ services:
       - redis-cluster-tls-4
       - redis-cluster-tls-5
       - redis-cluster-tls-6
-
