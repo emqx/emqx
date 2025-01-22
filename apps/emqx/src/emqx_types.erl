@@ -153,7 +153,7 @@
 -type share() :: #share{}.
 
 -type socktype() :: tcp | udp | ssl | proxy | atom().
--type sockstate() :: idle | running | blocked | closed.
+-type sockstate() :: idle | running | blocked | closed | read_aborted.
 -type conninfo() :: #{
     socktype := socktype(),
     sockname := peername(),
