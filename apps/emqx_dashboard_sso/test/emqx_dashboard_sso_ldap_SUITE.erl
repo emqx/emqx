@@ -306,7 +306,7 @@ ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
 
 decode_json(Data) ->
-    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    BinJson = emqx_utils_json:decode(Data),
     emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 request_without_authorization(Method, Url, Body) ->

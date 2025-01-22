@@ -148,7 +148,7 @@ parse_rule(<<"subscribe">>) ->
 parse_rule(<<"all">>) ->
     {ok, #{<<"action">> => <<"all">>}};
 parse_rule(Bin) when is_binary(Bin) ->
-    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
+    case emqx_utils_json:safe_decode(Bin) of
         {ok, Map} when is_map(Map) ->
             {ok, maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map)};
         {ok, _} ->

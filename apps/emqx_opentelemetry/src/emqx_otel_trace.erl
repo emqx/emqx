@@ -1017,17 +1017,27 @@ set_status_error(Msg) ->
 msg_attrs(_Msg = #message{flags = #{sys := true}}) ->
     #{};
 msg_attrs(Msg = #message{}) ->
-    #{
+    Attrs = #{
         'message.msgid' => emqx_guid:to_hexstr(Msg#message.id),
         'message.qos' => Msg#message.qos,
         'message.from' => Msg#message.from,
         'message.topic' => Msg#message.topic,
         'message.retain' => maps:get(retain, Msg#message.flags, false),
-        'message.pub_props' => emqx_utils_json:encode(
-            maps:get(properties, Msg#message.headers, #{})
-        ),
         'message.payload_size' => size(Msg#message.payload)
-    }.
+    },
+    msg_attr_props(Msg, Attrs).
+
+msg_attr_props(#message{headers = #{properties := Props0 = #{'User-Property' := _}}}, Acc) ->
+    Props = maps:update_with('User-Property', fun maps:from_list/1, Props0),
+    Acc#{
+        'message.pub_props' => emqx_utils_json:encode(Props)
+    };
+msg_attr_props(#message{headers = #{properties := Props = #{}}}, Acc) ->
+    Acc#{
+        'message.pub_props' => emqx_utils_json:encode(Props)
+    };
+msg_attr_props(_Msg, Acc) ->
+    Acc.
 
 %%--------------------------------------------------------------------
 %% Internal functions

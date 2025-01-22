@@ -255,7 +255,7 @@ t_configs_node(_) ->
     ?assertEqual(error, ExpType),
     ?assertMatch({{_, 404, _}, _, _}, ExpRes),
     {_, _, Body} = ExpRes,
-    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body, [return_maps])),
+    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body)),
 
     ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")),
 
@@ -298,7 +298,7 @@ t_configs_key(_Config) ->
                 }
         }
     },
-    ?assertEqual(ExpectError, emqx_utils_json:decode(Error, [return_maps])),
+    ?assertEqual(ExpectError, emqx_utils_json:decode(Error)),
     ReadOnlyConf = #{
         <<"cluster">> =>
             #{
@@ -487,7 +487,7 @@ get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
         {ok, Res} ->
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -508,8 +508,8 @@ get_configs_with_json(Node, Opts) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "application/json"}, Auth],
     case emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], Opts) of
-        {ok, {_, _, Res}} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, {_, _, Res}} -> {ok, emqx_utils_json:decode(Res)};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 
@@ -562,7 +562,7 @@ update_config(Name, Change) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_utils_json:decode(Update, [return_maps])};
+        {ok, Update} -> {ok, emqx_utils_json:decode(Update)};
         Error -> Error
     end.
 

@@ -79,7 +79,7 @@ t_permission(_) ->
             <<"role">> := ?ROLE_VIEWER,
             <<"description">> := ?ADD_DESCRIPTION
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     %% add by viewer
@@ -122,7 +122,7 @@ t_update_role(_) ->
             <<"role">> := ?ROLE_VIEWER,
             <<"description">> := ?ADD_DESCRIPTION
         },
-        emqx_utils_json:decode(Payload, [return_maps])
+        emqx_utils_json:decode(Payload)
     ),
 
     %% update role by viewer

@@ -455,19 +455,16 @@ t_send_after_enable(_) ->
     ok = emqx_telemetry:stop_reporting(),
     ok = snabbkaffe:start_trace(),
     try
-        ok = emqx_telemetry:start_reporting(),
-        Timeout = 12_000,
         ?assertMatch(
             {ok, _},
             ?wait_async_action(
                 ok = emqx_telemetry:start_reporting(),
                 #{?snk_kind := telemetry_data_reported},
-                Timeout
+                _Timeout = 12_000
             )
         ),
         receive
             {request, post, _URL, _Headers, Body} ->
-                {ok, Decoded} = emqx_utils_json:safe_decode(Body, [return_maps]),
                 ?assertMatch(
                     #{
                         <<"uuid">> := _,
@@ -493,7 +490,7 @@ t_send_after_enable(_) ->
                                 <<"delayed">> := _
                             }
                     },
-                    Decoded
+                    emqx_utils_json:decode(Body)
                 )
         after 2100 ->
             exit(telemetry_not_reported)

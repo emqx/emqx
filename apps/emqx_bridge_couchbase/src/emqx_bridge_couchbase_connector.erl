@@ -350,7 +350,7 @@ do_query(ConnResId, SQL, Args, RequestTTL, MaxRetries, ConnState) ->
     Response.
 
 maybe_decode_json(Raw) ->
-    case emqx_utils_json:safe_decode(Raw, [return_maps]) of
+    case emqx_utils_json:safe_decode(Raw) of
         {ok, JSON} ->
             JSON;
         {error, _} ->

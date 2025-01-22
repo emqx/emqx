@@ -64,7 +64,7 @@ get_alarms(AssertCount, Activated) ->
     Qs = "activated=" ++ Activated,
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, Qs, Headers),
-    Data = emqx_utils_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response),
     Meta = maps:get(<<"meta">>, Data),
     Page = maps:get(<<"page">>, Meta),
     Limit = maps:get(<<"limit">>, Meta),

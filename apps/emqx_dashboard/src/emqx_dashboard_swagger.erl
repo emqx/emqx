@@ -326,7 +326,7 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
         ApiSpec0
     ),
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    emqx_utils_json:encode(
+    emqx_utils_json:encode_proplist(
         #{
             info => SchemaInfo,
             paths => ApiSpec,

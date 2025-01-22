@@ -297,7 +297,7 @@ fetch_with_name(Xs, Name) ->
     end.
 
 maybe_decode_json(Body) ->
-    case emqx_utils_json:safe_decode(Body, [return_maps]) of
+    case emqx_utils_json:safe_decode(Body) of
         {ok, JSON} ->
             JSON;
         {error, _} ->
