@@ -20,7 +20,9 @@
 -module(emqx_persistent_session_ds_buffer).
 
 %% API:
--export([new/0, len/2, push_batch/3, pop_batch/2, iterator/1, next/1, clean_by_subid/2]).
+-export([
+    new/0, len/2, push_batch/3, pop_batch/2, iterator/1, next/1, clean_by_subid/2, drop_stream/2
+]).
 
 -export_type([t/0, item/0]).
 
@@ -94,6 +96,11 @@ clean_by_subid(SubId, Buf = #buffer{messages = MsgQs0}) ->
         MsgQs0
     ),
     Buf#buffer{messages = MsgQs}.
+
+%% @doc Delete buffered data for a particular stream.
+-spec drop_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
+drop_stream(StreamKey, Buf = #buffer{messages = Msgs}) ->
+    Buf#buffer{messages = maps:remove(StreamKey, Msgs)}.
 
 %% @doc Dequeue a batch of messages from a specified stream.
 -spec pop_batch(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->

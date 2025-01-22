@@ -83,7 +83,7 @@
 -export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([make_subtab/1, owner_tab/1, take_ownership/3, handle_recoverable_error/2]).
--export([beams_init/6, beams_add/4, beams_conclude/3, beams_n_matched/1]).
+-export([beams_init/6, beams_add/5, beams_conclude/3, beams_n_matched/1]).
 -export([shard_metrics_id/1, send_out_final_beam/4]).
 -export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
 
@@ -194,10 +194,7 @@
         %% Information about the process that created the request:
         userdata :: UserData,
         %% Iterator:
-        it :: Iterator,
-        %% Callback that filters messages that belong to the request:
-        msg_matcher :: match_messagef(),
-        deadline :: integer() | undefined
+        it :: Iterator
     }.
 
 -type sub_state() :: sub_state(_, _).
@@ -260,6 +257,7 @@
 %% Per-subscription builder state:
 -record(beam_builder_sub, {
     s :: sub_state(),
+    matcher :: fun(),
     mask :: emqx_ds_dispatch_mask:enc(),
     n_msgs :: pos_integer()
 }).
@@ -321,9 +319,22 @@
 
 -callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error(_).
 
-%% @doc This callback is used to safely advance the iterator to the position represented by the key.
+%% @doc This callback is used to safely advance the iterator to the
+%% position represented by the key.
 -callback fast_forward(dbshard(), Iterator, emqx_ds:message_key()) ->
     {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error(_).
+
+%% @doc These two callbacks are used to create the dispatch matrix of
+%% the beam.
+%%
+%% Let c_m := message_match_context(key, message),
+%% c_i := iterator_match_context(iterator[client])
+%%
+%% then dispatch_matrix[message, client] = c_i(c_m)
+-callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), emqx_types:message()) ->
+    {ok, _MatchCtxMsg}.
+
+-callback iterator_match_context(dbshard(), _Iterator) -> fun((_MatchCtxMsg) -> boolean()).
 
 %%================================================================================
 %% API functions
@@ -345,6 +356,16 @@
 start_link(DBShard, CBM) ->
     gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
 
+%% @doc Display the hieararchy of beamformer workers for the database
+%% (debug).
+-spec ls(emqx_ds:db()) -> map().
+ls(DB) ->
+    MS = {{?name({DB, '$1'}), '_', '_'}, [], ['$1']},
+    Shards = gproc:select({local, names}, [MS]),
+    maps:from_list(
+        [emqx_ds_beamformer_sup:info({DB, I}) || I <- Shards]
+    ).
+
 %% @obsolete Submit a poll request
 -spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
     ok.
@@ -361,10 +382,15 @@ make_subtab(DBShard) ->
         {heir, where(DBShard), ?heir_info}
     ]).
 
--spec take_ownership(dbshard(), ets:tid(), sub_state()) -> ok.
+-spec take_ownership(dbshard(), ets:tid(), sub_state()) -> boolean().
 take_ownership(DBShard, SubTab, SubS = #sub_state{req_id = SubRef}) ->
-    true = ets:insert_new(SubTab, SubS),
-    ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, self()}).
+    case ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, self()}) of
+        true ->
+            true = ets:insert_new(SubTab, SubS),
+            true;
+        false ->
+            false
+    end.
 
 -spec handle_recoverable_error(dbshard(), [sub_state()]) -> ok.
 handle_recoverable_error(DBShard, SubStates) ->
@@ -418,6 +444,8 @@ send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
         ReqsByNode
     ).
 
+%% @doc Create an object that is used to incrementally build
+%% destinations for the batch.
 -spec beams_init(module(), dbshard(), ets:tid(), boolean(), fun(), fun()) -> beam_builder().
 beams_init(CBM, DBShard, SubTab, Lagging, Drop, UpdateQueue) ->
     #beam_builder{
@@ -440,23 +468,54 @@ beams_n_matched(#beam_builder{per_node = PerNode}) ->
         PerNode
     ).
 
+%% @doc Add a message to the beam builder.
+%%
+%% Arguments:
+%% 1. Stream of the message
+%%
+%% 2. DS key of the message
+%%
+%% 3. The message itself
+%%
+%% 4. List of potential destinations: node where the subscriber is
+%% located + subscription id.
+%%
+%% 5. Beam builder object to be updated.
+%%
+%% This function runs message matcher callback for each destination
+%% and adds messsage to the per-node batch when at least one
+%% subscriber matches the message.
 -spec beams_add(
+    _Stream,
     emqx_ds:message_key(),
     emqx_types:message(),
     [{node(), reference()}],
     beam_builder()
 ) -> beam_builder().
 beams_add(
+    Stream,
     Key,
-    Msg = #message{topic = Topic},
+    Msg,
     Candidates,
-    BB = #beam_builder{sub_tab = SubTab, global_n_msgs = GlobalNMsgs0, per_node = PerNode0}
+    BB = #beam_builder{
+        cbm = Mod,
+        shard_id = DBShard,
+        sub_tab = SubTab,
+        global_n_msgs = GlobalNMsgs0,
+        per_node = PerNode0
+    }
 ) ->
+    %% 1. Update global message counter. It's used to check whether
+    %% the message should be added to the per-node pack or it's
+    %% already there.
     GlobalNMsgs = GlobalNMsgs0 + 1,
-    TopicTokens = emqx_topic:tokens(Topic),
+    %% 2. Create match context used to speed up updating of the
+    %% dispatch matrix.
+    {ok, MatchCtx} = Mod:message_match_context(DBShard, Stream, Key, Msg),
+    %% 3. Iterate over candidates.
     PerNode = fold_with_groups(
         fun(SubRef, NodeS) ->
-            beams_add_per_node(SubTab, GlobalNMsgs, Key, Msg, TopicTokens, SubRef, NodeS)
+            beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef, NodeS)
         end,
         #beam_builder_node{},
         Candidates,
@@ -466,79 +525,6 @@ beams_add(
         per_node = PerNode,
         global_n_msgs = GlobalNMsgs
     }.
-
--spec beams_add_per_node(
-    ets:tid(),
-    non_neg_integer(),
-    emqqx_ds:message_key(),
-    emqx_types:message(),
-    [binary()],
-    emqx_ds:sub_ref(),
-    #beam_builder_node{}
-) ->
-    #beam_builder_node{}.
-beams_add_per_node(SubTab, GlobalNMsgs, Key, Msg, TopicTokens, SubRef, NodeS0) ->
-    #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = Idx} =
-        NodeS0,
-    %% Lookup subscription's matching parameters (SubS) and
-    %% per-subscription beam builder state (BBS0). If it's not found,
-    %% set BBS0 to undefined:
-    case Subscribers of
-        #{SubRef := BBS0 = #beam_builder_sub{s = SubS}} ->
-            ok;
-        #{} ->
-            [SubS] = ets:lookup(SubTab, SubRef),
-            BBS0 = undefined
-    end,
-    #sub_state{msg_matcher = Matcher, start_key = LastSeenKey} = SubS,
-    %% Check if the messages should be delivered to the subscriber:
-    case Matcher(LastSeenKey, Key, TopicTokens, Msg) of
-        false ->
-            %% Message was rejected, ignore:
-            NodeS0;
-        true ->
-            %% Yes, this message is meant for the subscriber.
-            %%
-            %% 1. Ensure the message is added to the node's pack:
-            NodeS1 =
-                case MyGlobalN =:= GlobalNMsgs of
-                    true ->
-                        %% This message is already in the pack, as
-                        %% indicated by MyGlobalN:
-                        NodeS0;
-                    false ->
-                        %% This message is new for the node:
-                        NodeS0#beam_builder_node{
-                            global_n_msgs = GlobalNMsgs,
-                            pack = [{Key, Msg} | Pack],
-                            n_msgs = Idx + 1
-                        }
-                end,
-            %% 2. Update subscriber's state:
-            BBS =
-                case BBS0 of
-                    undefined ->
-                        %% This is the first message for subscriber.
-                        %% Initialize its state:
-                        Mask = emqx_ds_dispatch_mask:enc_push_true(
-                            Idx, emqx_ds_dispatch_mask:enc_make()
-                        ),
-                        #beam_builder_sub{
-                            s = SubS,
-                            mask = Mask,
-                            n_msgs = 1
-                        };
-                    #beam_builder_sub{mask = Mask0, n_msgs = N} ->
-                        %% Existing subscriber:
-                        Mask = emqx_ds_dispatch_mask:enc_push_true(Idx, Mask0),
-                        BBS0#beam_builder_sub{
-                            mask = Mask,
-                            n_msgs = N + 1
-                        }
-                end,
-            %% 3. Update the accumulator:
-            NodeS1#beam_builder_node{subs = Subscribers#{SubRef => BBS}}
-    end.
 
 %% @doc Update states of the subscriptions, active queues of the
 %% workers, and send out beams.
@@ -630,15 +616,6 @@ fast_forward(Mod, Shard, It, Key) ->
 -spec where(dbshard()) -> pid() | undefined.
 where(DBShard) ->
     gproc:where(?name(DBShard)).
-
-%% @doc List shards that have local beamformer process
--spec ls(emqx_ds:db()) -> [dbshard()].
-ls(DB) ->
-    MS = {{?name({DB, '$1'}), '_', '_'}, [], ['$1']},
-    Shards = gproc:select({local, names}, [MS]),
-    maps:from_list(
-        [emqx_ds_beamformer_sup:info({DB, I}) || I <- Shards]
-    ).
 
 %% @doc Look up state of a subscription
 -spec subscription_info(dbshard(), emqx_ds:sub_ref()) -> emqx_ds:sub_info() | undefined.
@@ -784,10 +761,11 @@ handle_event(
                 shard => Shard,
                 key => DSKey
             }),
-            %% Update monitor table for automatic cleanup:
+            %% Update monitor reference table:
             ets:insert(MTab, {MRef, SubId}),
             #{max_unacked := MaxUnacked} = Opts,
-            %% Create the flow control. It's a triplet of atomic
+            %% Create the flow control object, storing subscription
+            %% seqno, ack and active state. It's a triplet of atomic
             %% variables:
             FlowControl = atomics:new(3, []),
             SubState = #sub_state{
@@ -803,12 +781,14 @@ handle_event(
                 it = It,
                 msg_matcher = MsgMatcher
             },
-            %% Insert subscription state into the tables:
-            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubId}),
+            %% Store another reference to the flow control object in a
+            %% different table readable by the client during suback:
             ets:insert(fc_tab(Shard), #fctab{
                 sub_ref = SubId, max_unacked = MaxUnacked, aref = FlowControl
             }),
-            %% Schedule dispaching to the worker:
+            %% Create an entry in the owner table:
+            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubId}),
+            %% Schedule dispaching to the catchup worker:
             D = D0#d{pending = [SubState | Pending]},
             Reply = {reply, From, {ok, SubId}},
             case State of
@@ -979,6 +959,83 @@ do_dispatch(_) ->
 %% Internal functions
 %%================================================================================
 
+-spec beams_add_per_node(
+    module(),
+    dbshard(),
+    ets:tid(),
+    non_neg_integer(),
+    emqx_ds:message_key(),
+    emqx_types:message(),
+    _MatchCtx,
+    emqx_ds:sub_ref(),
+    #beam_builder_node{}
+) ->
+    #beam_builder_node{}.
+beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef, NodeS0) ->
+    #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = Idx} =
+        NodeS0,
+    %% Lookup subscription's matching parameters (SubS) and
+    %% per-subscription beam builder state (BBS0). If it's not found,
+    %% set BBS0 to undefined. Note: variables bound by this expression
+    %% are used later.
+    case Subscribers of
+        #{SubRef := BBS0 = #beam_builder_sub{matcher = Matcher, s = SubS}} ->
+            ok;
+        #{} ->
+            [SubS] = ets:lookup(SubTab, SubRef),
+            Matcher = Mod:iterator_match_context(DBShard, SubS#sub_state.it),
+            BBS0 = undefined
+    end,
+    %% Check if the messages should be delivered to the subscriber:
+    case Matcher(MatchCtx) of
+        false ->
+            %% Message was rejected, ignore:
+            NodeS0;
+        true ->
+            %% Yes, this message is meant for the subscriber.
+            %%
+            %% 1. Ensure the message is added to the node's pack:
+            NodeS1 =
+                case MyGlobalN =:= GlobalNMsgs of
+                    true ->
+                        %% This message is already in the pack, as
+                        %% indicated by MyGlobalN:
+                        NodeS0;
+                    false ->
+                        %% This message is new for the node:
+                        NodeS0#beam_builder_node{
+                            global_n_msgs = GlobalNMsgs,
+                            pack = [{Key, Msg} | Pack],
+                            n_msgs = Idx + 1
+                        }
+                end,
+            %% 2. Update subscriber's state:
+            BBS =
+                case BBS0 of
+                    undefined ->
+                        %% This is the first message for subscriber.
+                        %% Initialize its state:
+                        Mask = emqx_ds_dispatch_mask:enc_push_true(
+                            Idx, emqx_ds_dispatch_mask:enc_make()
+                        ),
+                        #beam_builder_sub{
+                            s = SubS,
+                            matcher = Matcher,
+                            mask = Mask,
+                            n_msgs = 1
+                        };
+                    #beam_builder_sub{mask = Mask0, n_msgs = N} ->
+                        %% Existing subscriber:
+                        Mask = emqx_ds_dispatch_mask:enc_push_true(Idx, Mask0),
+                        BBS0#beam_builder_sub{
+                            mask = Mask,
+                            n_msgs = N + 1
+                        }
+                end,
+            %% 3. Update the accumulator:
+            NodeS1#beam_builder_node{subs = Subscribers#{SubRef => BBS}}
+    end.
+
 -spec fc_tab(dbshard()) -> ets:tid().
 fc_tab(DBShard) ->
     #{fc_tab := TID} = gvar(DBShard),
@@ -995,7 +1052,8 @@ owner_tab(DBShard) ->
 disown_stuck_subscription(DBShard, SubTab, #sub_state{req_id = SubRef}) ->
     [SubState] = ets:take(SubTab, SubRef),
     ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, undefined}),
-    true = ets:insert_new(disowned_sub_tab(DBShard), SubState).
+    true = ets:insert_new(disowned_sub_tab(DBShard), SubState),
+    ok.
 
 -spec disowned_sub_tab(dbshard()) -> ets:tid().
 disowned_sub_tab(DBShard) ->
@@ -1193,7 +1251,7 @@ on_worker_down(InheritedSubTab) ->
 notify_down_loop('$end_of_table') ->
     ok;
 notify_down_loop({Matches, Cont}) ->
-    [Pid ! {'DOWN', Ref, process, self(), worker_crash} || {Pid, Ref} <- Matches],
+    _ = [Pid ! {'DOWN', Ref, process, self(), worker_crash} || {Pid, Ref} <- Matches],
     notify_down_loop(ets:select(Cont)).
 
 %% @doc Version of `fold' that operates on a list of elements tagged
