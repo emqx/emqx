@@ -15,6 +15,9 @@
     "Oracle table is invalid. Please check if the table exists in Oracle Database."
 ).
 
+-define(DEFAULT_ROLE, normal).
+-define(SYSDBA_ROLE, sysdba).
+
 %%====================================================================
 %% Exports
 %%====================================================================
@@ -100,9 +103,11 @@ on_start(
             undefined -> undefined;
             ServiceName0 -> emqx_utils_conv:str(ServiceName0)
         end,
+    Role = convert_role_to_integer(maps:get(role, Config, ?DEFAULT_ROLE)),
     Options = [
         {host, Host},
         {port, Port},
+        {role, Role},
         {user, emqx_utils_conv:str(User)},
         {password, maps:get(password, Config, "")},
         {sid, emqx_utils_conv:str(Sid)},
@@ -546,6 +551,16 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
                     % table does exist. Probably this inconsistency was caused by
                     % token discarding in this test query.
                     ok;
+                _ when is_map_key(<<"ORA-01400">>, OraMap) ->
+                    % ORA-01400: cannot insert NULL into (string)
+                    % There is a some type inconsistency with table definition but
+                    % table does exist. Probably this inconsistency was caused by
+                    % token discarding in this test query.
+                    ok;
+                _ when is_map_key(<<"ORA-01013">>, OraMap) ->
+                    % ORA-01013: user requested cancel of current operation
+                    % This error is returned when the query is canceled by the user.
+                    ok;
                 _ ->
                     {error, Description}
             end;
@@ -583,3 +598,8 @@ handle_batch_result([{proc_result, RetCode, Reason} | _Rest], _Acc) ->
     {error, {unrecoverable_error, {RetCode, Reason}}};
 handle_batch_result([], Acc) ->
     {ok, Acc}.
+
+convert_role_to_integer(?SYSDBA_ROLE) ->
+    1;
+convert_role_to_integer(_) ->
+    0.
