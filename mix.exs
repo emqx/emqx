@@ -187,7 +187,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.4", override: true}
-  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.3", override: true}
+  def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
   # in conflict by cowboy_swagger and cowboy
