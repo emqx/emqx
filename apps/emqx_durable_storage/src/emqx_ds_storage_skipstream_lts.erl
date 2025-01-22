@@ -40,6 +40,8 @@
     scan_stream/8,
     message_matcher/3,
     fast_forward/5,
+    message_match_context/5,
+    iterator_match_context/3,
 
     batch_events/3
 ]).
@@ -236,12 +238,12 @@ cook(_, [], Acc) ->
     lists:reverse(Acc);
 cook(S, [{Timestamp, Msg = #message{topic = Topic}} | Rest], Acc) ->
     #s{trie = Trie, threshold_fun = TFun} = S,
-    Tokens = emqx_ds:topic_words(Topic),
+    Tokens = words(Topic),
     {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
     cook(S, Rest, [?cooked_msg_op(Timestamp, Static, Varying, serialize(S, Varying, Msg)) | Acc]);
 cook(S, [{delete, #message_matcher{topic = Topic, timestamp = Timestamp}} | Rest], Acc) ->
     #s{trie = Trie} = S,
-    case emqx_ds_lts:lookup_topic_key(Trie, emqx_ds:topic_words(Topic)) of
+    case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
         {ok, {Static, Varying}} ->
             cook(S, Rest, [?cooked_msg_op(Timestamp, Static, Varying, ?cooked_delete) | Acc]);
         undefined ->
@@ -353,18 +355,26 @@ make_iterator(
 message_matcher(
     _Shard,
     #s{trie = Trie} = S,
-    #it{static_index = StaticIdx, compressed_tf = CTF0}
+    #it{static_index = StaticIdx, last_key = LastSK, compressed_tf = CTF0}
 ) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    CTF = emqx_ds:topic_words(CTF0),
+    CTF = words(CTF0),
     MHB = master_hash_bits(S, CTF),
     TF = emqx_ds_lts:decompress_topic(TopicStructure, CTF),
-    fun(LastSeenKey, MsgKey, TopicWords, #message{}) ->
-        case {match_stream_key(StaticIdx, LastSeenKey), match_stream_key(StaticIdx, MsgKey)} of
-            {LastSK, SK} when is_integer(LastSK), is_integer(SK) ->
+    fun(TopicTokens, MsgKey, _Message) ->
+        case match_stream_key(StaticIdx, MsgKey) of
+            false ->
                 ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_matcher, #{
                     static_index => StaticIdx,
-                    last_seen_key => LastSeenKey,
+                    last_seen_key => LastSK,
+                    topic_filter => TF,
+                    its => false
+                }),
+                false;
+            SK ->
+                ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_matcher, #{
+                    static_index => StaticIdx,
+                    last_seen_key => LastSK,
                     topic_filter => TF,
                     its => SK
                 }),
@@ -372,15 +382,7 @@ message_matcher(
                 %% 2^64 arithmetic, so in this context `?max_ts' means
                 %% 0.
                 (stream_key_ts(LastSK, MHB) =:= ?max_ts orelse SK > LastSK) andalso
-                    emqx_topic:match(TopicWords, TF);
-            _ ->
-                ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_matcher, #{
-                    static_index => StaticIdx,
-                    last_seen_key => LastSeenKey,
-                    topic_filter => TF,
-                    its => false
-                }),
-                false
+                    emqx_topic:match(TopicTokens, TF)
         end
     end.
 
@@ -389,9 +391,7 @@ unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
 }) ->
     MHB = master_hash_bits(S, CTF),
     DSKey = mk_master_key(StaticIdx, LSK, MHB),
-    TopicFilter = emqx_ds_lts:decompress_topic(
-        get_topic_structure(Trie, StaticIdx), emqx_ds:topic_words(CTF)
-    ),
+    TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), words(CTF)),
     {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
 
 scan_stream(
@@ -461,6 +461,38 @@ fast_forward(
             end
     end.
 
+-record(match_ctx, {compressed_topic, stream_key}).
+
+message_match_context(_Shard, GenData, Stream, MsgKey, #message{topic = Topic}) ->
+    #s{trie = Trie} = GenData,
+    #stream{static_index = StaticIdx} = Stream,
+    case match_stream_key(StaticIdx, MsgKey) of
+        false ->
+            {error, unrecoverable, mismatched_stream};
+        SK ->
+            %% Note: it's kind of wasteful to tokenize and compress
+            %% the topic that we've just decompressed during scan
+            %% stream, but trying to avoid this would complicate the
+            %% pipeline even further. Let's live with that for now.
+            Tokens = words(Topic),
+            {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+            CT = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, Tokens),
+            {ok, #match_ctx{compressed_topic = CT, stream_key = SK}}
+    end.
+
+iterator_match_context(_Shard, GenData, Iterator) ->
+    #it{last_key = LastSK, compressed_tf = CTF} = Iterator,
+    MHB = master_hash_bits(GenData, CTF),
+    CTFTokens = words(CTF),
+    fun(#match_ctx{compressed_topic = CT, stream_key = SK}) ->
+        %% ?tp(warning, ohay, #{ct => CT, ctf => CTF, sk => SK, last_sk => LastSK}),
+        %% Timestamp stored in the iterator follows modulo
+        %% 2^64 arithmetic, so in this context `?max_ts' means
+        %% 0.
+        (stream_key_ts(LastSK, MHB) =:= ?max_ts orelse SK > LastSK) andalso
+            emqx_topic:match(CT, CTFTokens)
+    end.
+
 next(ShardId = {_DB, Shard}, S, ItSeed, BatchSize, TMax, IsCurrent) ->
     init_counters(),
     PerLevelIterators = init_iterators(S, ItSeed),
@@ -490,7 +522,7 @@ lookup_message(
     S = #s{db = DB, data_cf = CF, trie = Trie},
     #message_matcher{topic = Topic, timestamp = Timestamp}
 ) ->
-    case emqx_ds_lts:lookup_topic_key(Trie, emqx_ds:topic_words(Topic)) of
+    case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
         {ok, {StaticIdx, Varying}} ->
             MHB = master_hash_bits(S, Varying),
             SK = mk_stream_key(Varying, Timestamp, MHB),
@@ -566,7 +598,7 @@ enrich(
     DSKey,
     Msg0
 ) ->
-    Tokens = emqx_ds:topic_words(Msg0#message.topic),
+    Tokens = words(Msg0#message.topic),
     Topic = emqx_topic:join(emqx_ds_lts:decompress_topic(TopicStructure, Tokens)),
     Msg0#message{
         topic = Topic,
@@ -601,7 +633,7 @@ batch_delete(S = #s{db = DB, data_cf = CF, hash_bytes = HashBytes}, It, Selector
                 {Acc, WildcardIdx + 1}
         end,
         {[], 1},
-        emqx_ds:topic_words(CompressedTF)
+        words(CompressedTF)
     ),
     KeyFamily = [{0, <<>>} | Indices],
     {ok, Batch} = rocksdb:batch(),
@@ -642,7 +674,7 @@ do_delete(CF, Batch, MHB, Static, KeyFamily, MsgKey) ->
 
 %% @doc Init iterators per level, order is important: e.g. [L1, L2, L3, L0].
 init_iterators(S, #it{static_index = Static, compressed_tf = CompressedTF}) ->
-    do_init_iterators(S, Static, emqx_ds:topic_words(CompressedTF), 1).
+    do_init_iterators(S, Static, words(CompressedTF), 1).
 
 do_init_iterators(S, Static, ['#'], WildcardLevel) ->
     do_init_iterators(S, Static, [], WildcardLevel);
@@ -689,7 +721,7 @@ start_next_loop(
         s = S,
         iters = PerLevelIterators,
         topic_structure = TopicStructure,
-        filter = emqx_ds:topic_words(CompressedTF),
+        filter = words(CompressedTF),
         max_key = stream_key(TMax + 1, 0, MHB),
         master_hash_bits = MHB
     },
@@ -1061,6 +1093,12 @@ data_cf(GenId) ->
 -spec trie_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 trie_cf(GenId) ->
     "emqx_ds_storage_skipstream_lts_trie" ++ integer_to_list(GenId).
+
+%%%%%%%% Topic encoding %%%%%%%%%%
+
+% words(L) when is_list(L) -> L;
+words(<<>>) -> [];
+words(Bin) -> emqx_topic:words(Bin).
 
 %%%%%%%% Counters %%%%%%%%%%
 

@@ -53,5 +53,6 @@
 -define(sessds_sched_subscribe, sessds_sched_subscribe).
 -define(sessds_sched_unsubscribe, sessds_sched_unsubscribe).
 -define(sessds_unexpected_ds_batch, sessds_unexpected_ds_batch).
+-define(sessds_sub_down, sessds_sub_down).
 
 -endif.

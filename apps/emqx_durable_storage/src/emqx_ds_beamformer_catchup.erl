@@ -46,9 +46,9 @@
     module :: module(),
     metrics_id,
     shard_id,
-    sub_tab :: ets:tid(),
+    sub_tab :: ets:table(),
     name,
-    queue :: ets:tid(),
+    queue :: ets:table(),
     batch_size :: non_neg_integer()
 }).
 
@@ -70,7 +70,7 @@
     ok | {error, unrecoverable, stale} | emqx_ds:error(_).
 enqueue(Worker, SubStates) ->
     try
-        gen_server:call(Worker, #enqueue_req{sub_states = SubStates})
+        gen_server:call(Worker, #enqueue_req{sub_states = SubStates}, infinity)
     catch
         exit:{timeout, _} ->
             {error, recoverable, timeout}
@@ -335,7 +335,7 @@ process_batch(_S, _Stream, _TopicFilter, [], _Candidates, Beams) ->
     Beams;
 process_batch(S, Stream, TopicFilter, [{Key, Msg} | Rest], Candidates0, Beams0) ->
     Candidates = queue_lookup(S, Stream, TopicFilter, Key) ++ Candidates0,
-    Beams = emqx_ds_beamformer:beams_add(Key, Msg, Candidates, Beams0),
+    Beams = emqx_ds_beamformer:beams_add(Stream, Key, Msg, Candidates, Beams0),
     process_batch(S, Stream, TopicFilter, Rest, Candidates, Beams).
 
 %% It's always worth trying to fulfill the oldest requests first,

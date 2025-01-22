@@ -76,15 +76,15 @@
 ]).
 
 -behaviour(emqx_ds_beamformer).
--export(
-    [
-        unpack_iterator/2,
-        high_watermark/2,
-        scan_stream/5,
-        fast_forward/3,
-        update_iterator/3
-    ]
-).
+-export([
+    unpack_iterator/2,
+    high_watermark/2,
+    scan_stream/5,
+    fast_forward/3,
+    update_iterator/3,
+    message_match_context/4,
+    iterator_match_context/2
+]).
 
 -ifdef(TEST).
 -export([test_applications/1, test_db_config/1]).
@@ -1333,6 +1333,12 @@ fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc :=
             Err
     end.
 
+message_match_context(DBShard, InnerStream, MsgKey, Message) ->
+    emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
+
+iterator_match_context(DBShard = {DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
+
 scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
     ?IF_SHARD_READY(
         DBShard,
@@ -1400,7 +1406,7 @@ clientid_size(ClientID) ->
 test_db_config(_Config) ->
     #{
         backend => builtin_raft,
-        storage => {emqx_ds_storage_reference, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{}},
         n_shards => 1,
         n_sites => 1,
         replication_factor => 3,

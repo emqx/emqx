@@ -187,8 +187,7 @@
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
 -type timer() ::
-    ?TIMER_DRAIN_INFLIGHT
-    | ?TIMER_COMMIT
+    ?TIMER_COMMIT
     | ?TIMER_RETRY_REPLAY.
 
 -type timer_state() :: reference() | undefined.
@@ -228,10 +227,11 @@
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
+    %% Flags:
+    ?TIMER_DRAIN_INFLIGHT := boolean(),
     %% Timers:
-    ?TIMER_DRAIN_INFLIGHT := timer_state(),
-    ?TIMER_COMMIT := timer_state(),
-    ?TIMER_RETRY_REPLAY := timer_state()
+    ?TIMER_RETRY_REPLAY := timer_state(),
+    ?TIMER_COMMIT := timer_state()
 }.
 
 -define(IS_REPLAY_ONGOING(REPLAY), is_list(REPLAY)).
@@ -701,6 +701,22 @@ handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     Session = commit(Session0),
     From ! Ref,
     Session;
+handle_info(
+    DOWN = {'DOWN', _, _, _, _},
+    Session = #{s := S, stream_scheduler_s := SchedS0, buf := Buf0},
+    _ClientInfo
+) ->
+    %% Handle potential subscription DS crash:
+    case emqx_persistent_session_ds_stream_scheduler:handle_down(DOWN, S, SchedS0) of
+        ignore ->
+            Session;
+        {drop_buffer, StreamKey, SchedS} ->
+            Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
+            Session#{
+                stream_scheduler_s := SchedS,
+                buffer := Buf
+            }
+    end;
 handle_info(Msg, Session, _ClientInfo) ->
     ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
     Session.
@@ -1099,7 +1115,7 @@ handle_ds_reply(
     ClientInfo
 ) ->
     #poll_reply{userdata = StreamKey} = Reply,
-    case emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, SchedS0) of
+    case emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, S, SchedS0) of
         {true, SchedS} ->
             SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
             case
@@ -1107,7 +1123,7 @@ handle_ds_reply(
                     not ?IS_REPLAY_ONGOING(Replay)
             of
                 true ->
-                    ?tp(debug, ?sessds_poll_reply, #{reply => Reply, blocked => false}),
+                    ?tp(?sessds_poll_reply, #{reply => Reply, blocked => false}),
                     %% This stream is not blocked. Add messages
                     %% directly to the inflight and set drain timer.
                     %%
@@ -1126,15 +1142,23 @@ handle_ds_reply(
                         schedule_delivery(Session)
                     );
                 false ->
-                    ?tp(debug, ?sessds_poll_reply, #{reply => Reply, blocked => true}),
+                    ?tp(?sessds_poll_reply, #{reply => Reply, blocked => true}),
                     %% This stream is blocked, add batch to the buffer
                     %% instead:
                     Buf = emqx_persistent_session_ds_buffer:push_batch(StreamKey, Reply, Buf0),
                     Session0#{buffer := Buf, stream_scheduler_s := SchedS}
             end;
         {false, SchedS} ->
-            %% FIXME: handle error
-            Session0#{stream_scheduler_s := SchedS}
+            %% Unexpected reply, no action needed:
+            Session0#{stream_scheduler_s := SchedS};
+        {drop_buffer, SchedS} ->
+            %% Scheduler detected inconsistency and requested to drop
+            %% the stream buffer:
+            Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
+            Session0#{
+                stream_scheduler_s := SchedS,
+                buffer := Buf
+            }
     end.
 
 %% @doc Remove buffered data for all streams that belong to a given
@@ -1277,7 +1301,7 @@ drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s :
         DSSubacks
     ),
     Session = ensure_state_commit_timer(
-        Session0#{inflight := Inflight, s := S, ?TIMER_DRAIN_INFLIGHT := undefined}
+        Session0#{inflight := Inflight, s := S, ?TIMER_DRAIN_INFLIGHT := false}
     ),
     {Publishes, Session}.
 
@@ -1402,7 +1426,7 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
         props => Conf,
         stream_scheduler_s => SchedS,
         replay => undefined,
-        ?TIMER_DRAIN_INFLIGHT => undefined,
+        ?TIMER_DRAIN_INFLIGHT => false,
         ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined
     }.
@@ -1417,7 +1441,7 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
 -compile({inline, schedule_delivery/1}).
 -spec schedule_delivery(session()) -> session().
-schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := undefined}) ->
+schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := false}) ->
     self() ! {timeout, true, {emqx_session, ?TIMER_DRAIN_INFLIGHT}},
     Session#{?TIMER_DRAIN_INFLIGHT := true};
 schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := true}) ->
@@ -1812,7 +1836,6 @@ maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
             error({unknown_state_id, SRS})
     end.
 
--compile({inline, ensure_timer/3}).
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
 ensure_timer(Timer, Time, Session) ->
     case Session of
@@ -1822,7 +1845,6 @@ ensure_timer(Timer, Time, Session) ->
             Session
     end.
 
--compile({inline, set_timer/3}).
 -spec set_timer(timer(), non_neg_integer(), session()) -> session().
 set_timer(Timer, Time, Session) ->
     TRef = emqx_utils:start_timer(Time, {emqx_session, Timer}),
@@ -1842,15 +1864,13 @@ commit(Session = #{s := S0}, Opts) ->
     cancel_state_commit_timer(Session#{s := S}).
 
 -spec ensure_state_commit_timer(session()) -> session().
-ensure_state_commit_timer(#{s := S, ?TIMER_COMMIT := undefined} = Session) ->
+ensure_state_commit_timer(#{s := S} = Session) ->
     case emqx_persistent_session_ds_state:is_dirty(S) of
         true ->
             ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
         false ->
             Session
-    end;
-ensure_state_commit_timer(Session) ->
-    Session.
+    end.
 
 -spec cancel_state_commit_timer(session()) -> session().
 cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->

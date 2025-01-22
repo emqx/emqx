@@ -53,6 +53,8 @@
     scan_stream/5,
     high_watermark/2,
     fast_forward/3,
+    message_match_context/4,
+    iterator_match_context/2,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -469,6 +471,12 @@ fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
         {error, _, _} = Err ->
             Err
     end.
+
+message_match_context(DBShard, InnerStream, MsgKey, Message) ->
+    emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
+
+iterator_match_context(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
 
 scan_stream(DBShard, Stream, TopicFilter, StartMsg, BatchSize) ->
     {DB, _} = DBShard,

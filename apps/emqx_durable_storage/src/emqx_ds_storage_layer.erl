@@ -45,6 +45,8 @@
     scan_stream/6,
     high_watermark/3,
     fast_forward/4,
+    message_match_context/4,
+    iterator_match_context/2,
 
     delete_next/5,
 
@@ -688,6 +690,22 @@ fast_forward(Shard, It = #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, K
                 Other ->
                     Other
             end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+message_match_context(Shard, ?stream_v2(GenId, Inner), MsgKey, Message) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:message_match_context(Shard, GenData, Inner, MsgKey, Message);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+iterator_match_context(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:iterator_match_context(Shard, GenData, Inner);
         not_found ->
             ?ERR_GEN_GONE
     end.

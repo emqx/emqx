@@ -685,7 +685,7 @@ t_fuzz(_Config) ->
         ?forall_trace(
             Cmds,
             proper_statem:commands(emqx_persistent_session_ds_fuzzer),
-            #{timetrap => 5_000 * length(Cmds)},
+            #{timetrap => 5_000 * length(Cmds) + 30_000},
             try
                 %% Print information about the run:
                 ct:pal("*** Commands:~n~s~n", [

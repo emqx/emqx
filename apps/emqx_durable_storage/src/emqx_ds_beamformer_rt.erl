@@ -46,7 +46,7 @@
     module :: module(),
     metrics_id,
     shard,
-    sub_tab :: ets:tid(),
+    sub_tab :: ets:table(),
     name,
     high_watermark :: ets:tid(),
     queue :: emqx_ds_beamformer_waitq:t(),
@@ -307,7 +307,7 @@ process_batch(
     emqx_ds_beamformer:beams_conclude(ShardId, EndKey, Beams);
 process_batch(Stream, EndKey, [{Key, Msg} | Rest], S, Beams0) ->
     Candidates = queue_search(S, Stream, Key, Msg),
-    Beams = emqx_ds_beamformer:beams_add(Key, Msg, Candidates, Beams0),
+    Beams = emqx_ds_beamformer:beams_add(Stream, Key, Msg, Candidates, Beams0),
     process_batch(Stream, EndKey, Rest, S, Beams).
 
 queue_search(#s{queue = Queue}, Stream, _MsgKey, Msg) ->
