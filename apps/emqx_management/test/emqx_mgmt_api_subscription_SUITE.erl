@@ -62,22 +62,19 @@ persistent_only_tcs() ->
     ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx,
-                "durable_sessions {\n"
-                "    enable = true\n"
-                "    renew_streams_interval = 10ms\n"
-                "}"},
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{apps, Apps} | Config].
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"renew_streams_interval">> => <<"100ms">>
+    },
+    ExtraApps = [
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard()
+    ],
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts).
 
 end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)).
+    emqx_common_test_helpers:stop_apps_ds(Config).
 
 init_per_group(persistent, Config) ->
     ClientConfig = #{

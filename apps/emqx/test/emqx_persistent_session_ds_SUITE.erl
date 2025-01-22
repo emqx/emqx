@@ -18,6 +18,12 @@
 
 -define(DURABLE_SESSION_STATE, emqx_persistent_session).
 
+-ifdef(BUILD_WITH_FDB).
+-define(SETUP_MOD, emqx_persistent_session_ds_SUITE_fdb_surrogate).
+-else.
+-define(SETUP_MOD, ?MODULE).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -31,11 +37,15 @@ all() ->
 init_per_suite(Config) ->
     try emqx_ds_test_helpers:skip_if_norepl() of
         false ->
-            TCApps = emqx_cth_suite:start(
-                app_specs(),
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [{tc_apps, TCApps} | Config];
+            DurableSessionsOpts = #{
+                <<"enable">> => true,
+                <<"renew_streams_interval">> => <<"1s">>
+            },
+            Opts = #{
+                durable_sessions_opts => DurableSessionsOpts,
+                start_emqx_conf => false
+            },
+            emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts);
         Yes ->
             Yes
     catch
@@ -44,8 +54,7 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(Config) ->
-    TCApps = ?config(tc_apps, Config),
-    emqx_cth_suite:stop(TCApps),
+    emqx_common_test_helpers:stop_apps_ds(Config),
     ok.
 
 init_per_testcase(TestCase, Config) when
@@ -55,48 +64,41 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_storage_generations;
     TestCase =:= t_new_stream_notifications
 ->
-    Cluster = cluster(#{n => 1}),
-    WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
-    ClusterOpts = #{work_dir => WorkDir},
-    NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
-    Nodes = emqx_cth_cluster:start(NodeSpecs),
-    [
-        {cluster, Cluster},
-        {node_specs, NodeSpecs},
-        {cluster_opts, ClusterOpts},
-        {nodes, Nodes},
-        {work_dir, WorkDir}
-        | Config
-    ];
+    DurableSessionsOpts = #{
+        <<"heartbeat_interval">> => <<"500ms">>,
+        <<"session_gc_interval">> => <<"1s">>,
+        <<"session_gc_batch_size">> => 2
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+    },
+    ClusterSpec = cluster(Opts#{n => 1}),
+    emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpec, Opts);
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_session_gc;
     TestCase =:= t_crashed_node_session_gc;
     TestCase =:= t_last_alive_at_cleanup
 ->
-    Opts = #{
-        n => 3,
-        roles => [core, core, core],
-        extra_emqx_conf =>
-            "\n durable_sessions {"
-            "\n   heartbeat_interval = 50ms "
-            "\n   session_gc_interval = 1s "
-            "\n   session_gc_batch_size = 2 "
-            "\n }"
+    DurableSessionsOpts = #{
+        <<"heartbeat_interval">> => <<"500ms">>,
+        <<"session_gc_interval">> => <<"1s">>,
+        <<"session_gc_batch_size">> => 2
     },
-    Cluster = cluster(Opts),
-    WorkDir = emqx_cth_suite:work_dir(TestCase, Config),
-    ClusterOpts = #{work_dir => WorkDir},
-    NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
-    Nodes = emqx_cth_cluster:start(Cluster, ClusterOpts),
-    [
-        {cluster, Cluster},
-        {node_specs, NodeSpecs},
-        {cluster_opts, ClusterOpts},
-        {nodes, Nodes},
-        {gc_interval, timer:seconds(2)},
-        {work_dir, WorkDir}
-        | Config
-    ];
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+    },
+    NodeSpecs = cluster(Opts#{n => 3}),
+    emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, Opts);
+init_per_testcase(t_session_replay_retry, Config) ->
+    %% Todo: ideally, should find a way to "phrase" this test for platform build.
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            Config;
+        Skip ->
+            Skip
+    end;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -110,16 +112,39 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_crashed_node_session_gc;
     TestCase =:= t_last_alive_at_cleanup
 ->
-    Nodes = ?config(nodes, Config),
-    emqx_common_test_helpers:call_janitor(60_000),
-    ok = emqx_cth_cluster:stop(Nodes),
     snabbkaffe:stop(),
-    emqx_cth_suite:clean_work_dir(?config(work_dir, Config)),
+    emqx_common_test_helpers:call_janitor(60_000),
+    emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
     snabbkaffe:stop(),
     ok.
+
+%%------------------------------------------------------------------------------
+%% Setup module callbacks
+%%------------------------------------------------------------------------------
+
+%% These callbacks are implemented in other repos by different modules.  Please do not
+%% "refactor" and remove these nor change their API.
+init_mock_transient_failure() ->
+    ok = emqx_ds_test_helpers:mock_rpc().
+
+mock_transient_failure() ->
+    ok = emqx_ds_test_helpers:mock_rpc_result(
+        fun
+            (_Node, emqx_ds_replication_layer, _Function, [?DURABLE_SESSION_STATE, _Shard | _]) ->
+                passthrough;
+            (_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
+                case erlang:phash2(Shard) rem 2 of
+                    0 -> unavailable;
+                    1 -> passthrough
+                end
+        end
+    ).
+
+unmock_transient_failure() ->
+    emqx_ds_test_helpers:unmock_rpc().
 
 %%------------------------------------------------------------------------------
 %% Helper functions
@@ -134,7 +159,8 @@ cluster(#{n := N} = Opts) ->
                 lists:nth(M, Roles)
         end
     end,
-    MkSpec = fun(M) -> #{role => MkRole(M), apps => app_specs(Opts)} end,
+    %% emqx is already started by test helper function
+    MkSpec = fun(M) -> #{role => MkRole(M), apps => _ExtraApps = []} end,
     lists:map(
         fun(M) ->
             Name = list_to_atom("ds_SUITE" ++ integer_to_list(M)),
@@ -142,16 +168,6 @@ cluster(#{n := N} = Opts) ->
         end,
         lists:seq(1, N)
     ).
-
-app_specs() ->
-    app_specs(_Opts = #{}).
-
-app_specs(Opts) ->
-    DefaultEMQXConf = "durable_sessions {enable = true, renew_streams_interval = 1s}",
-    ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
-    [
-        {emqx, DefaultEMQXConf ++ ExtraEMQXConf}
-    ].
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
@@ -187,8 +203,7 @@ mk_clientid(Prefix, ID) ->
 
 restart_node(Node, NodeSpec) ->
     ?tp(will_restart_node, #{}),
-    emqx_cth_cluster:restart(NodeSpec),
-    wait_nodeup(Node),
+    emqx_common_test_helpers:restart_node_ds(Node, NodeSpec),
     ?tp(restarted_node, #{}),
     ok.
 
@@ -249,7 +264,7 @@ stop_and_commit(Client) ->
 %% `end_of_stream' and doesn't violate the ordering of messages that
 %% are split into different generations.
 t_storage_generations(Config) ->
-    [Node1] = ?config(nodes, Config),
+    [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
@@ -298,7 +313,7 @@ t_storage_generations(Config) ->
 
 t_session_subscription_idempotency(Config) ->
     [Node1Spec | _] = ?config(node_specs, Config),
-    [Node1] = ?config(nodes, Config),
+    [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     SubTopicFilter = <<"t/+">>,
     ClientId = <<"myclientid">>,
@@ -357,7 +372,7 @@ t_session_subscription_idempotency(Config) ->
 %% Check that we close the iterators before deleting the iterator id entry.
 t_session_unsubscription_idempotency(Config) ->
     [Node1Spec | _] = ?config(node_specs, Config),
-    [Node1] = ?config(nodes, Config),
+    [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     SubTopicFilter = <<"t/+">>,
     ClientId = <<"myclientid">>,
@@ -429,7 +444,7 @@ t_session_unsubscription_idempotency(Config) ->
 %% This testcase verifies that the session handles update of the
 %% subscription settings by the client correctly.
 t_subscription_state_change(Config) ->
-    [Node1] = ?config(nodes, Config),
+    [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
@@ -506,7 +521,7 @@ t_subscription_state_change(Config) ->
 %% This testcase verifies the lifetimes of session's subscriptions to
 %% new stream events.
 t_new_stream_notifications(Config) ->
-    [Node1] = ?config(nodes, Config),
+    [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
     TopicFilter1 = <<"foo/+">>,
@@ -614,7 +629,7 @@ do_t_session_discard(Params) ->
             ?tp(notice, "starting", #{}),
             Client0 = start_client(#{
                 clientid => ClientId,
-                clean_start => false,
+                clean_start => true,
                 properties => #{'Session-Expiry-Interval' => 30},
                 proto_ver => v5
             }),
@@ -744,7 +759,7 @@ do_t_session_expiration(_Config, Opts) ->
     ok.
 
 t_session_gc(Config) ->
-    [Node1, _Node2, _Node3] = Nodes = ?config(nodes, Config),
+    [Node1, _Node2, _Node3] = Nodes = ?config(cluster_nodes, Config),
     [
         Port1,
         Port2,
@@ -851,7 +866,7 @@ t_session_gc(Config) ->
     ok.
 
 t_crashed_node_session_gc(Config) ->
-    [Node1, Node2 | _] = ?config(nodes, Config),
+    [Node1, Node2 | _] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ct:pal("Port: ~p", [Port]),
 
@@ -900,7 +915,7 @@ t_crashed_node_session_gc(Config) ->
     ok.
 
 t_last_alive_at_cleanup(Config) ->
-    [Node1 | _] = ?config(nodes, Config),
+    [Node1 | _] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ?check_trace(
         #{timetrap => 5_000},
@@ -943,7 +958,7 @@ t_session_replay_retry(_Config) ->
     %% Verify that the session recovers smoothly from transient errors during
     %% replay.
 
-    ok = emqx_ds_test_helpers:mock_rpc(),
+    ?SETUP_MOD:init_mock_transient_failure(),
 
     NClients = 10,
     ClientSubOpts = #{
@@ -979,31 +994,27 @@ t_session_replay_retry(_Config) ->
     ok = emqtt:stop(ClientSub),
 
     %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
-    ok = emqx_ds_test_helpers:mock_rpc_result(
-        fun
-            (_Node, emqx_ds_replication_layer, _Function, [?DURABLE_SESSION_STATE, _Shard | _]) ->
-                passthrough;
-            (_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
-                case erlang:phash2(Shard) rem 2 of
-                    0 -> unavailable;
-                    1 -> passthrough
-                end
-        end
-    ),
+    ?SETUP_MOD:mock_transient_failure(),
 
     _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
 
     Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
-    ?assert(length(Pubs1) < length(Pubs0), Pubs1),
+    ?assert(length(Pubs1) < length(Pubs0), #{
+        num_pubs1 => length(Pubs1),
+        num_pubs0 => length(Pubs0),
+        pubs1 => Pubs1,
+        pubs0 => Pubs0
+    }),
 
     %% "Recover" the shards.
-    emqx_ds_test_helpers:unmock_rpc(),
+    ?SETUP_MOD:unmock_transient_failure(),
 
     Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
     ?assertEqual(
         [maps:with([topic, payload, qos], P) || P <- Pubs0],
         [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2]
-    ).
+    ),
+    ok.
 
 %% Check that we send will messages when performing GC without relying on timers set by
 %% the channel process.

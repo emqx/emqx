@@ -28,7 +28,7 @@
 
 -include("emqx_persistent_message.hrl").
 
--define(EMQX_CONFIG, "sys_topics.sys_heartbeat_interval = 1s\n").
+-define(DURABLE_SESSION_STATE, emqx_persistent_session).
 
 %%--------------------------------------------------------------------
 %% SUITE boilerplate
@@ -42,6 +42,12 @@ all() ->
         {group, persistence_disabled},
         {group, persistence_enabled}
     ].
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
 
 %% A persistent session can be resumed in two ways:
 %%    1. The old connection process is still alive, and the session is taken
@@ -73,68 +79,87 @@ groups() ->
     ].
 
 init_per_group(persistence_disabled, Config) ->
+    DurableSessionsOpts = #{<<"enable">> => false},
+    EMQXOpts = #{
+        <<"sys_topics">> => #{
+            <<"sys_heartbeat_interval">> => <<"1s">>
+        }
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        emqx_opts => EMQXOpts,
+        start_emqx_conf => false,
+        wait_fdb_init => false
+    },
     [
-        {emqx_config, ?EMQX_CONFIG ++ "durable_sessions { enable = false }"},
+        {cth_opts, Opts},
         {persistence, false}
         | Config
     ];
 init_per_group(persistence_enabled, Config) ->
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"heartbeat_interval">> => <<"100ms">>,
+        <<"renew_streams_interval">> => <<"100ms">>,
+        <<"session_gc_interval">> => <<"2s">>
+    },
+    EMQXOpts = #{
+        <<"sys_topics">> => #{
+            <<"sys_heartbeat_interval">> => <<"1s">>
+        },
+        <<"durable_storage">> => #{
+            <<"messages">> => #{<<"backend">> => <<"builtin_local">>}
+        }
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        emqx_opts => EMQXOpts,
+        start_emqx_conf => false,
+        wait_fdb_init => [?DURABLE_SESSION_STATE]
+    },
     [
-        {emqx_config,
-            ?EMQX_CONFIG ++
-                "durable_sessions {\n"
-                "  enable = true\n"
-                "  heartbeat_interval = 100ms\n"
-                "  renew_streams_interval = 100ms\n"
-                "  session_gc_interval = 2s\n"
-                "}\n"
-                "durable_storage.messages.backend = builtin_local"},
+        {cth_opts, Opts},
         {persistence, ds}
         | Config
     ];
-init_per_group(tcp, Config) ->
-    Apps = emqx_cth_suite:start(
-        [{emqx, ?config(emqx_config, Config)}],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
+init_per_group(tcp, Config0) ->
+    CTHOpts = ?config(cth_opts, Config0),
+    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], CTHOpts),
     [
         {port, get_listener_port(tcp, default)},
-        {conn_fun, connect},
-        {group_apps, Apps}
+        {conn_fun, connect}
         | Config
     ];
-init_per_group(ws, Config) ->
-    Apps = emqx_cth_suite:start(
-        [{emqx, ?config(emqx_config, Config)}],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
+init_per_group(ws, Config0) ->
+    CTHOpts = ?config(cth_opts, Config0),
+    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], CTHOpts),
     [
         {ssl, false},
         {host, "localhost"},
         {enable_websocket, true},
         {port, get_listener_port(ws, default)},
-        {conn_fun, ws_connect},
-        {group_apps, Apps}
+        {conn_fun, ws_connect}
         | Config
     ];
-init_per_group(quic, Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx,
-                ?config(emqx_config, Config) ++
-                    "\n listeners.quic.test {"
-                    "\n   enable = true"
-                    "\n   ssl_options.verify = verify_peer"
-                    "\n }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
+init_per_group(quic, Config0) ->
+    CTHOpts0 = #{emqx_opts := EMQXOpts0} = ?config(cth_opts, Config0),
+    EMQXOpts = EMQXOpts0#{
+        <<"listeners">> => #{
+            <<"quic">> => #{
+                <<"test">> => #{
+                    <<"enable">> => true,
+                    <<"ssl_options">> => #{<<"verify">> => <<"verify_peer">>}
+                }
+            }
+        }
+    },
+    CTHOpts = CTHOpts0#{emqx_opts := EMQXOpts},
+    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], CTHOpts),
     [
         {port, get_listener_port(quic, test)},
         {conn_fun, quic_connect},
         {ssl_opts, emqx_common_test_helpers:client_mtls()},
-        {ssl, true},
-        {group_apps, Apps}
+        {ssl, true}
         | Config
     ].
 
@@ -145,7 +170,8 @@ get_listener_port(Type, Name) ->
     end.
 
 end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
-    ok = emqx_cth_suite:stop(?config(group_apps, Config));
+    emqx_common_test_helpers:stop_apps_ds(Config),
+    ok;
 end_per_group(_, _Config) ->
     catch emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.

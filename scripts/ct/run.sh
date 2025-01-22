@@ -375,7 +375,7 @@ else
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
                     -i $TTY "$ERLANG_CONTAINER" \
-                    bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+                    bash -c "make ${WHICH_APP}-ct"
     else
         # this is an ad-hoc run
         docker exec -e IS_CI="$IS_CI" \
