@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc multi-factor authenticaion interface.
+%% @doc Multifactor authentication interface.
 -module(emqx_dashboard_mfa).
 
 -export([

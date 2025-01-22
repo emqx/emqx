@@ -569,7 +569,7 @@ do_verify_mfa_token(Username, MfaToken) ->
 
 %% Initialize MFA state if there is a default MFA settings configured.
 maybe_init_mfa_state(Username) ->
-    try emqx:get_config([dashboard, default_mfa]) of
+    case emqx:get_config([dashboard, default_mfa], none) of
         none ->
             ok;
         #{mechanism := Mechanism} ->
@@ -583,9 +583,6 @@ maybe_init_mfa_state(Username) ->
                     {ok, ok} = set_mfa_state(Username, State),
                     ok
             end
-    catch
-        error:{config_not_found, _} ->
-            ok
     end.
 
 %%--------------------------------------------------------------------

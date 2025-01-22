@@ -45,7 +45,7 @@ Detailed steps are:
     - If an MFA token has never been submitted before (indicating that the Authenticator App needs to be initialized):
       - The backend verifies the password. If the password is incorrect, it returns a `401` error to indicate bad username or password. If the password is correct, the process continues.
       - A `403` error is returned, and the body like `{"code": "BAD_MFA_TOKEN", "message": {"error": "missing_mfa_token", "mechanism": "totp", "cluster": "EMQX Cluster Name", "secret": "ABCDJBSWY3DPEHPK3PXP"}}`.
-      - The Dashbaord uses this secret to generate a QR code for Authenticator App.
+      - The Dashboard uses this secret to generate a QR code for Authenticator App.
     - If an MFA token has been submitted before (indicating that the Authenticator App for generating the code is already set up):
       - The backend returns a `403` error, and the body like `{"code": "BAD_MFA_TOKEN", "message": {"error": "missing_mfa_token", "mechanism": "totp", "cluster": "EMQX Cluster Name"}` (note that no secret is provided).
       - The Dashboard displays a input box for MFA token.

@@ -101,12 +101,12 @@ delete_mfa.desc:
 After the state is deleted, the user will have MFA explicitly disabled, to re-enabled MFA, call the `POST` method."""
 
 mfa_token.desc:
-"""Multifactor authenticaion token."""
+"""Multifactor authentication token."""
 
 mfa_status.desc:
 """MFA status.
 - `none`: no MFA enabled
 - `disabled`: MFA is disabled for the user
-- Otherwis: The MFA mechanism in use, e.g. `totp`"""
+- Otherwise: The MFA mechanism in use, e.g. `totp`"""
 
 }
