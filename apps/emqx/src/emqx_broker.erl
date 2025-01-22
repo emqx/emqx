@@ -476,11 +476,16 @@ do_forward(Node, To, Delivery, sync) ->
 %% Handle message forwarding form remote nodes by
 %% `emqx_broker_proto_v1:forward/3` or
 %% `emqx_broker_proto_v1:forward_async/3`
-dispatch(Topic, Delivery = #delivery{message = _Msg}) ->
+dispatch(Topic, Delivery = #delivery{sender = _Sender, message = _Msg}) ->
     ?EXT_TRACE_WITH_PROCESS_FUN(
         msg_handle_forward,
         Delivery,
-        (emqx_otel_trace:msg_attrs(_Msg))#{'client.clientid' => _Msg#message.from},
+        (emqx_otel_trace:msg_attrs(_Msg))#{
+            'client.clientid' => _Msg#message.from,
+            %%% XXX: Pid not checked
+            'forward.from' => erlang:node(_Sender),
+            'forward.to' => node()
+        },
         fun(DeliveryWithTrace) ->
             do_dispatch(Topic, DeliveryWithTrace)
         end
