@@ -171,6 +171,9 @@
 
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
+%% Already replied with gen_server:reply/2
+-define(replied, replied).
+
 -dialyzer({no_match, [info/2]}).
 -dialyzer(
     {nowarn_function, [
@@ -538,7 +541,7 @@ handle_msg({'$gen_call', From, Req}, State) ->
             gen_server:reply(From, Reply),
             {ok, NState};
         {stop, Reason, Reply, NState} ->
-            gen_server:reply(From, Reply),
+            Reply =/= ?replied andalso gen_server:reply(From, Reply),
             stop(Reason, NState)
     end;
 handle_msg({'$gen_cast', Req}, State) ->
@@ -709,7 +712,7 @@ handle_call(_From, info, State) ->
     {reply, info(State), State};
 handle_call(_From, stats, State) ->
     {reply, stats(State), State};
-handle_call(_From, Req, State = #state{channel = Channel}) ->
+handle_call(From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
@@ -718,8 +721,18 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
         {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
             {ok, NState2} = handle_outgoing(OutPacket, NState),
+            %% Early reply don't block caller
+            MabeRelied =
+                case lists:member(Reason, [takenover, discarded]) of
+                    true ->
+                        %% reply now
+                        gen_server:reply(From, Reply),
+                        ?replied;
+                    false ->
+                        Reply
+                end,
             NState3 = graceful_shutdown_transport(Reason, NState2),
-            shutdown(Reason, Reply, NState3)
+            shutdown(Reason, MabeRelied, NState3)
     end.
 
 %%--------------------------------------------------------------------
