@@ -128,7 +128,7 @@ t_login_with_mfa_setting(_Config) ->
     ok = assert_return_code("BAD_USERNAME_OR_PWD", BadPass),
     %% expect to get a hint about missing MFA token
     ExpectTotpMissingFn = fun(IsWithSecret) ->
-        {ok, 403, Rsp} = login(LoginBody),
+        {ok, 401, Rsp} = login(LoginBody),
         #{
             <<"code">> := <<"BAD_MFA_TOKEN">>,
             <<"message">> :=
@@ -143,7 +143,7 @@ t_login_with_mfa_setting(_Config) ->
     end,
     %% expect to get a hint about bad MFA token
     ExpectBadTotpFn = fun(Body) ->
-        {ok, 403, Rsp} = login(Body),
+        {ok, 401, Rsp} = login(Body),
         #{
             <<"code">> := <<"BAD_MFA_TOKEN">>,
             <<"message">> :=
@@ -173,7 +173,7 @@ t_login_with_mfa_setting(_Config) ->
     ok = ExpectTotpMissingFn(false),
     %% login with good totp and password
     ?assertMatch({ok, 200, _}, login(LoginWithTotp)),
-    %% login again with bad password bad token should result in 403 (not 401) and 'bad_mfa_token' in message
+    %% login again with bad password bad token should result in 401 (not 401) and 'bad_mfa_token' in message
     ok = ExpectBadTotpFn(BadPwd#{<<"mfa_token">> => <<"badtoken2">>}),
     ok.
 
@@ -227,7 +227,7 @@ t_enable_by_config(_Config) ->
             <<"password">> => <<"viewer1pass">>
         },
     %% cannot login without TOTP because default MFA is configured
-    {ok, 403, Rsp1} = login(LoginBody),
+    {ok, 401, Rsp1} = login(LoginBody),
     ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
     ?assertMatch(
         #{
@@ -241,7 +241,7 @@ t_enable_by_config(_Config) ->
         },
         json_map(Rsp1)
     ),
-    {ok, 403, Rsp2} = login(LoginBody#{<<"mfa_token">> => <<"badtotp">>}),
+    {ok, 401, Rsp2} = login(LoginBody#{<<"mfa_token">> => <<"badtotp">>}),
     ?assertMatch(
         #{
             <<"code">> := <<"BAD_MFA_TOKEN">>,

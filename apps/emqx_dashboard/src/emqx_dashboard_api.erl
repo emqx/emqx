@@ -72,6 +72,7 @@ paths() ->
     ].
 
 schema("/login") ->
+    ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN],
     #{
         'operationId' => login,
         post => #{
@@ -83,8 +84,7 @@ schema("/login") ->
                 200 => fields([
                     role, token, version, license, password_expire_in_seconds
                 ]),
-                403 => emqx_dashboard_swagger:error_codes([?BAD_MFA_TOKEN], ?DESC(bad_mfa_token)),
-                401 => response_schema(401)
+                401 => emqx_dashboard_swagger:error_codes(ErrorCodes, ?DESC(login_failed401))
             },
             security => []
         }
@@ -294,7 +294,7 @@ login(post, #{body := Params}) ->
             %% check if this error was created by emqx_dashboard_mfa
             case emqx_dashboard_mfa:is_mfa_error(R) of
                 true ->
-                    {403, ?BAD_MFA_TOKEN, R};
+                    {401, ?BAD_MFA_TOKEN, R};
                 false ->
                     {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
             end

@@ -34,7 +34,7 @@ login_api.label:
 """Get Dashboard Auth Token."""
 
 login_failed401.desc:
-"""Login failed. Bad username or password"""
+"""Login failed. Bad/missing MFA token, or bad username or password"""
 
 login_failed_response400.desc:
 """Login failed. Bad username or password"""
@@ -89,9 +89,6 @@ backend.desc:
 
 password_expire_in_seconds.desc:
 """Time in seconds until the password expiresc."""
-
-bad_mfa_token.desc:
-"""Login failed due to MFA token is not provided or invalid."""
 
 change_mfa.desc:
 """Setup MFA for a dashboard user."""
