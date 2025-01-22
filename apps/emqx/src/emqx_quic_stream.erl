@@ -25,6 +25,7 @@
 -behaviour(quicer_remote_stream).
 
 -include("logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% emqx transport Callbacks
 -export([
@@ -34,6 +35,7 @@
     fast_close/1,
     shutdown/2,
     shutdown/3,
+    abort_read/2,
     ensure_ok_or_exit/2,
     send/2,
     setopts/2,
@@ -160,6 +162,19 @@ shutdown(Socket, Dir) ->
 shutdown({quic, _Conn, Stream, _Info}, read_write, Timeout) ->
     %% A graceful shutdown means both side shutdown the read and write gracefully.
     quicer:shutdown_stream(Stream, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 1, Timeout).
+
+abort_read({quic, _Conn, Stream, _Info}, Reason) ->
+    %% while waiting for write to complete, abort read.
+    %% use async to unblock the caller.
+    Flag = ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE,
+    quicer:async_shutdown_stream(
+        Stream, Flag, reason_code(Reason)
+    ).
+
+reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
+reason_code(kicked) -> ?RC_ADMINISTRATIVE_ACTION;
+reason_code(_) -> 1.
 
 -spec ensure_ok_or_exit(atom(), list(term())) -> term().
 ensure_ok_or_exit(Fun, Args = [Sock | _]) when is_atom(Fun), is_list(Args) ->
