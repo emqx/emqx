@@ -101,5 +101,5 @@ t_external_backend(_Config) ->
     ),
     ?assertEqual(
         true,
-        emqx_retainer:enabled()
+        emqx_retainer:is_started()
     ).

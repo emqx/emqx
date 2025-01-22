@@ -76,7 +76,6 @@ t_config(_Config) ->
     ?assertMatch(
         #{
             backend := _,
-            enable := _,
             max_payload_size := _,
             msg_clear_interval := _,
             msg_expiry_interval := _
@@ -84,22 +83,17 @@ t_config(_Config) ->
         ReturnConf
     ),
 
-    UpdateConf = fun(Enable) ->
-        RawConf = emqx_utils_json:decode(ConfJson),
-        UpdateJson = RawConf#{<<"enable">> := Enable},
-        {ok, UpdateResJson} = request_api(
-            put,
-            Path,
-            [],
-            auth_header_(),
-            UpdateJson
-        ),
-        UpdateRawConf = emqx_utils_json:decode(UpdateResJson),
-        ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
-    end,
-
-    UpdateConf(false),
-    UpdateConf(true).
+    RawConf = emqx_utils_json:decode(ConfJson),
+    UpdateJson = RawConf#{<<"max_payload_size">> => 54321},
+    {ok, UpdateResJson} = request_api(
+        put,
+        Path,
+        [],
+        auth_header_(),
+        UpdateJson
+    ),
+    UpdateRawConf = emqx_utils_json:decode(UpdateResJson),
+    ?assertEqual(54321, maps:get(<<"max_payload_size">>, UpdateRawConf)).
 
 t_messages1(Config) ->
     C = ?config(client, Config),
@@ -321,8 +315,7 @@ t_change_storage_type(_Config) ->
             <<"backend">> := #{
                 <<"type">> := <<"built_in_database">>,
                 <<"storage_type">> := <<"ram">>
-            },
-            <<"enable">> := true
+            }
         },
         RawConf
     ),
@@ -367,8 +360,7 @@ t_change_storage_type(_Config) ->
             <<"backend">> := #{
                 <<"type">> := <<"built_in_database">>,
                 <<"storage_type">> := <<"disc">>
-            },
-            <<"enable">> := true
+            }
         },
         UpdatedRawConf
     ),
