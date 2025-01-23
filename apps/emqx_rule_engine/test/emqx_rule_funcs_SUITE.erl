@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -1022,14 +1023,14 @@ t_map_to_entries(_) ->
     ?assertEqual([], apply_func(map_to_entries, [#{}])),
     M = #{a => 1, b => <<"b">>},
     J = <<"{\"a\":1,\"b\":\"b\"}">>,
-    ?assertEqual(
+    ?assertSameSet(
         [
             #{key => a, value => 1},
             #{key => b, value => <<"b">>}
         ],
         apply_func(map_to_entries, [M])
     ),
-    ?assertEqual(
+    ?assertSameSet(
         [
             #{key => <<"a">>, value => 1},
             #{key => <<"b">>, value => <<"b">>}
