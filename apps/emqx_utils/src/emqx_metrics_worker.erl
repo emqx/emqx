@@ -76,7 +76,11 @@
 -define(SAMPLING, 1).
 -endif.
 
--define(DEFAULT_HIST_BUCKETS, [10, 50, 250, 1_000, 5_000, 25_000, 100_000, 500_000, 2_500_000]).
+%% By default, we suppose that the histograms are used for latency measurement
+%% with millisecond precision.
+%% We provide the buckets corresponding to the intervals:
+%% =<10ms, =<100ms, =<1s, =<5s, =<30s, >30s
+-define(DEFAULT_HIST_BUCKETS, [10, 100, 1000, 5000, 30000]).
 
 -export_type([metrics/0, handler_name/0, metric_id/0, metric_spec/0]).
 
