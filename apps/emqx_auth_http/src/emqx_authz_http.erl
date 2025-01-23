@@ -176,7 +176,7 @@ parse_config(
     #{
         url := RawUrl,
         method := Method,
-        headers := Headers,
+        headers := Headers0,
         request_timeout := ReqTimeout
     } = Conf
 ) ->
@@ -192,12 +192,14 @@ parse_config(
             emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
             allowed_vars()
         ),
-    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars,
+    Headers = maps:to_list(emqx_auth_http_utils:transform_header_name(Headers0)),
+    {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(Headers),
+    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Conf#{
         method => Method,
         request_base => RequestBase,
-        headers => maps:to_list(emqx_auth_http_utils:transform_header_name(Headers)),
+        headers => HeadersTemplate,
         base_path_template => BasePathTemplate,
         base_query_template => BaseQueryTemplate,
         body_template => BodyTemplate,

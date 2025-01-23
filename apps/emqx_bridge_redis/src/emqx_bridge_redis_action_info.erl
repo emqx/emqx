@@ -33,7 +33,7 @@ schema_module() -> ?SCHEMA_MODULE.
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     Config0 = emqx_utils_maps:deep_merge(
         maps:without(
-            [<<"connector">>, <<"last_modified_at">>],
+            [<<"connector">>, <<"created_at">>, <<"last_modified_at">>],
             emqx_utils_maps:unindent(<<"parameters">>, ActionConfig)
         ),
         emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)

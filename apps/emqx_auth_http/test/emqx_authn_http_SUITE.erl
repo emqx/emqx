@@ -924,6 +924,7 @@ samples() ->
                     <<"cert_pem">> := CertPem,
                     <<"the_group">> := <<"g1">>
                 } = emqx_utils_json:decode(RawBody),
+                <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
                 <<"fake_raw_cert_to_be_base64_encoded">> = base64:decode(CertPem),
                 Req = cowboy_req:reply(
                     200,
@@ -935,7 +936,10 @@ samples() ->
             end,
             config_params => #{
                 <<"method">> => <<"post">>,
-                <<"headers">> => #{<<"content-type">> => <<"application/json">>},
+                <<"headers">> => #{
+                    <<"content-type">> => <<"application/json">>,
+                    <<"the_group">> => <<"${client_attrs.group}">>
+                },
                 <<"body">> => #{
                     <<"clientid">> => ?PH_CLIENTID,
                     <<"username">> => ?PH_USERNAME,
