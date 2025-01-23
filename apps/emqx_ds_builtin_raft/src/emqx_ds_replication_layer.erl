@@ -348,9 +348,16 @@ get_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            case ra_get_streams(DB, Shard, TopicFilter, StartTime) of
+            try ra_get_streams(DB, Shard, TopicFilter, StartTime) of
                 Streams when is_list(Streams) ->
-                    ok;
+                    lists:map(
+                        fun({RankY, StorageLayerStream}) ->
+                            RankX = Shard,
+                            Rank = {RankX, RankY},
+                            {Rank, ?stream_v2(Shard, StorageLayerStream)}
+                        end,
+                        Streams
+                    );
                 {error, Class, Reason} ->
                     ?tp(debug, ds_repl_get_streams_failed, #{
                         db => DB,
@@ -358,16 +365,18 @@ get_streams(DB, TopicFilter, StartTime) ->
                         class => Class,
                         reason => Reason
                     }),
-                    Streams = []
-            end,
-            lists:map(
-                fun({RankY, StorageLayerStream}) ->
-                    RankX = Shard,
-                    Rank = {RankX, RankY},
-                    {Rank, ?stream_v2(Shard, StorageLayerStream)}
-                end,
-                Streams
-            )
+                    []
+            catch
+                EC:Err:Stack ->
+                    ?tp(debug, ds_repl_get_streams_failed, #{
+                        db => DB,
+                        shard => Shard,
+                        class => EC,
+                        reason => Err,
+                        stack => Stack
+                    }),
+                    []
+            end
         end,
         Shards
     ).
@@ -492,8 +501,8 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
                     )
                 ),
                 case Result of
-                    {ok, SubRef} ->
-                        {ok, #sub_handle{shard = Shard, server = Server, ref = SubRef}, SubRef};
+                    {ok, MRef} ->
+                        {ok, #sub_handle{shard = Shard, server = Server, ref = MRef}, MRef};
                     Err ->
                         Err
                 end;
