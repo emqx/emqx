@@ -97,7 +97,7 @@ on_query(
     Channels = maps:get(channels, ConnectorState, #{}),
     %% Lookup the channel
     ChannelState = maps:get(ChannelId, Channels, not_found),
-    Ctx = #{message => Message},
+    Ctx = #{message => Message, action_res_id => ChannelId},
     case ChannelState of
         #{parameters := #{on_query_fn := OnQueryFn0}} ->
             OnQueryFn = emqx_bridge_v2_SUITE:unwrap_fun(OnQueryFn0),

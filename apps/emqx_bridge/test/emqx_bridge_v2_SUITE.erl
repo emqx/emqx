@@ -1408,3 +1408,163 @@ t_fallback_actions(_Config) ->
         []
     ),
     ok.
+
+%% Checks that fallback action cycles are not allowed.
+t_fallback_actions_cycles(_Config) ->
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConnectorName = ?FUNCTION_NAME,
+    ct:pal("connector config:\n  ~p", [ConnectorConfig]),
+    ?check_trace(
+        #{timetrap => 3_000},
+        begin
+            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+
+            TestPid = self(),
+            OnQueryFn = wrap_fun(fun(Ctx) ->
+                TestPid ! {query_called, Ctx},
+                {error, {unrecoverable_error, fallback_time}}
+            end),
+
+            ActionTypeBin = atom_to_binary(bridge_type()),
+            PrimaryActionName = <<"primary">>,
+            FallbackActionName = <<"fallback">>,
+            FallbackActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>},
+                <<"fallback_actions">> => [
+                    %% Fallback back to primary
+                    #{
+                        <<"kind">> => <<"action">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => PrimaryActionName
+                    },
+                    %% Fallback back to self
+                    #{
+                        <<"kind">> => <<"action">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => FallbackActionName
+                    }
+                ]
+            },
+            ct:pal("fallback action config:\n  ~p", [FallbackActionConfig]),
+
+            PrimaryActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>},
+                <<"fallback_actions">> => [
+                    %% Fallback back to self
+                    #{
+                        <<"kind">> => <<"action">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => PrimaryActionName
+                    },
+                    %% This fallback ends up falling back to primary
+                    #{
+                        <<"kind">> => <<"action">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => FallbackActionName
+                    }
+                ]
+            },
+            ct:pal("primary action config:\n  ~p", [PrimaryActionConfig]),
+
+            {ok, _} = emqx_bridge_v2:create(
+                bridge_type(), FallbackActionName, FallbackActionConfig
+            ),
+            {ok, _} = emqx_bridge_v2:create(bridge_type(), PrimaryActionName, PrimaryActionConfig),
+
+            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+                #{
+                    sql => <<"select * from \"t/a\"">>,
+                    id => atom_to_binary(?FUNCTION_NAME),
+                    actions => [
+                        emqx_bridge_resource:bridge_id(bridge_type(), PrimaryActionName)
+                    ]
+                }
+            ),
+            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+
+            ct:pal("publishing initial message"),
+            Payload = <<"payload">>,
+            Msg = emqx_message:make(<<"t/a">>, Payload),
+            emqx:publish(Msg),
+
+            ct:pal("waiting for fallback actions effects..."),
+            PrimaryResId = emqx_bridge_v2:id(bridge_type(), PrimaryActionName),
+            FallbackResId = emqx_bridge_v2:id(bridge_type(), FallbackActionName),
+            %% Should trigger the primary and fallback actions exactly one each.
+            ?assertReceive(
+                {query_called, #{action_res_id := PrimaryResId, message := #{payload := Payload}}}
+            ),
+            ?assertReceive(
+                {query_called, #{action_res_id := FallbackResId, message := #{payload := Payload}}}
+            ),
+            ?assertNotReceive({query_called, _}),
+
+            ?assertMatch(
+                #{
+                    counters :=
+                        #{
+                            'matched' := 1,
+                            'failed' := 0,
+                            'failed.exception' := 0,
+                            'failed.no_result' := 0,
+                            'passed' := 1,
+                            'actions.total' := 1,
+                            'actions.success' := 0,
+                            'actions.failed' := 1,
+                            'actions.failed.unknown' := 1,
+                            'actions.failed.out_of_service' := 0,
+                            'actions.discarded' := 0
+                        }
+                },
+                get_rule_metrics(RuleId)
+            ),
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    #{
+                        counters :=
+                            #{
+                                'matched' := 1,
+                                'success' := 0,
+                                'failed' := 1,
+                                'dropped' := 0,
+                                'received' := 0,
+                                'late_reply' := 0,
+                                'retried' := 0
+                            }
+                    },
+                    emqx_bridge_v2:get_metrics(ActionTypeBin, PrimaryActionName)
+                )
+            ),
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    #{
+                        counters :=
+                            #{
+                                'matched' := 1,
+                                'success' := 0,
+                                'failed' := 1,
+                                'dropped' := 0,
+                                'received' := 0,
+                                'late_reply' := 0,
+                                'retried' := 0
+                            }
+                    },
+                    emqx_bridge_v2:get_metrics(ActionTypeBin, FallbackActionName)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
