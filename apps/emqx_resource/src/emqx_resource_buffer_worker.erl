@@ -2599,7 +2599,14 @@ maybe_trigger_fallback_actions(_Id, _ResultContext) ->
 trigger_fallback_action(Id, #{kind := action, type := Type, name := Name}, Req, QueryOpts) ->
     try
         %% Should we log if disabled/not found? Other errors?
-        emqx_bridge_v2:send_message(Type, Name, Req, QueryOpts)
+        FallbackResId = emqx_bridge_v2:id(Type, Name),
+        case FallbackResId == Id of
+            true ->
+                %% Recursively falling back to self
+                ok;
+            false ->
+                emqx_bridge_v2:send_message(Type, Name, Req, QueryOpts)
+        end
     catch
         K:E ->
             ?SLOG_THROTTLE(
