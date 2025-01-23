@@ -281,11 +281,13 @@ trace_failure(#{log_failure := #{level := none}} = Validation, _Msg, _Meta) ->
     ok;
 trace_failure(#{log_failure := #{level := Level}} = Validation, Msg, Meta) when is_atom(Msg) ->
     #{
-        name := _Name,
-        failure_action := _Action
+        name := Name,
+        failure_action := Action
     } = Validation,
-    ?tp(schema_validation_failed, #{log_level => Level, name => _Name, action => _Action}),
-    ?SLOG_THROTTLE(Level, #{msg => Msg, name => _Name, action => _Action}, Meta#{tag => ?TRACE_TAG}).
+    ?tp(schema_validation_failed, #{log_level => Level, name => Name, action => Action}),
+    ?SLOG_THROTTLE(Level, Name, #{msg => Msg, name => Name, action => Action}, Meta#{
+        tag => ?TRACE_TAG
+    }).
 
 run_schema_validation_failed_hook(Message, Validation) ->
     #{name := Name} = Validation,

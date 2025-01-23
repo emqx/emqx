@@ -658,13 +658,15 @@ trace_failure(#{log_failure := #{level := none}} = Transformation, _Msg, _Meta) 
 trace_failure(#{log_failure := #{level := Level}} = Transformation, Msg, Meta0) when is_atom(Msg) ->
     #{
         name := Name,
-        failure_action := _Action
+        failure_action := Action
     } = Transformation,
     Meta = maps:merge(#{name => Name}, Meta0),
     ?tp(message_transformation_failed, Meta#{
-        log_level => Level, name => Name, action => _Action, message => Msg
+        log_level => Level, name => Name, action => Action, message => Msg
     }),
-    ?SLOG_THROTTLE(Level, #{msg => Msg, name => Name, action => _Action}, Meta#{tag => ?TRACE_TAG}).
+    ?SLOG_THROTTLE(Level, Name, #{msg => Msg, name => Name, action => Action}, Meta#{
+        tag => ?TRACE_TAG
+    }).
 
 run_message_transformation_failed_hook(Message, Transformation) ->
     #{name := Name} = Transformation,
