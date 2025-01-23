@@ -139,8 +139,8 @@
     parse_servers/2,
     servers_validator/2,
     servers_sc/2,
-    histogram_buckets_sc/1,
-    parse_histogram_buckets/1,
+    latency_histogram_buckets_sc/1,
+    parse_latency_histogram_buckets/1,
     convert_servers/1,
     convert_servers/2,
     mqtt_converter/2
@@ -3429,18 +3429,18 @@ parse_port(Port) ->
             {error, "bad_port_number"}
     end.
 
-histogram_buckets_sc(Meta0) ->
+latency_histogram_buckets_sc(Meta0) ->
     DefaultMeta = #{
-        default => <<"5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000">>,
-        desc => "Comma separated histogram buckets.",
-        converter => fun histogram_buckets_converter/2,
+        default => <<"10ms, 100ms, 1s, 5s, 30s">>,
+        desc => "Comma separated duration values for latency histogram buckets.",
+        converter => fun latency_histogram_buckets_converter/2,
         required => true
     },
     hoconsc:mk(string(), maps:merge(DefaultMeta, Meta0)).
 
-histogram_buckets_converter(undefined, _Opts) ->
+latency_histogram_buckets_converter(undefined, _Opts) ->
     undefined;
-histogram_buckets_converter(Buckets, #{make_serializable := true}) ->
+latency_histogram_buckets_converter(Buckets, #{make_serializable := true}) ->
     case is_list(Buckets) of
         true ->
             iolist_to_binary(
@@ -3452,25 +3452,27 @@ histogram_buckets_converter(Buckets, #{make_serializable := true}) ->
         false ->
             Buckets
     end;
-histogram_buckets_converter(Buckets, _Opts) ->
+latency_histogram_buckets_converter(Buckets, _Opts) ->
     case is_binary(Buckets) of
         true ->
-            parse_histogram_buckets(Buckets);
+            parse_latency_histogram_buckets(Buckets);
         false ->
             Buckets
     end.
 
-parse_histogram_buckets(Str) ->
+parse_latency_histogram_buckets(Str) ->
     case binary:split(Str, <<",">>, [global, trim]) of
         [] ->
             [];
         BucketsStr ->
             lists:map(
                 fun(BucketStr) ->
-                    case string:to_integer(string:trim(BucketStr)) of
-                        {Int, <<>>} when Int > 0 -> Int;
-                        {Int, <<>>} when Int =< 0 -> throw("non_positive_histogram_bucket");
-                        _ -> throw("bad_histogram_bucket")
+                    case to_duration_ms(string:trim(BucketStr)) of
+                        {ok, Duration} when Duration > 0 -> Duration;
+                        {ok, Duration} when Duration =< 0 ->
+                            throw("non_positive_latency_histogram_bucket");
+                        {error, Error} ->
+                            throw({"bad_latency_histogram_bucket", Error})
                     end
                 end,
                 BucketsStr

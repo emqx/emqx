@@ -757,14 +757,14 @@ t_latency_buckets(_Config) ->
         put,
         uri(["authentication", "settings"]),
         #{
-            <<"total_latency_metric_buckets">> => <<" 23456, 23457 ">>
+            <<"total_latency_metric_buckets">> => <<" 23456ms, 24s ">>
         }
     ),
     Hists0 = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
     ?assertMatch(
         #{
             total_latency :=
-                #{bucket_counts := [{23456, _} | _]}
+                #{bucket_counts := [{23456, _}, {24000, _} | _]}
         },
         Hists0
     ),

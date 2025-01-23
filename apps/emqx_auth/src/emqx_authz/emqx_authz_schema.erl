@@ -188,7 +188,7 @@ node_cache_fields() ->
 metrics_fields() ->
     [
         {total_latency_metric_buckets,
-            emqx_schema:histogram_buckets_sc(#{desc => ?DESC(authz_latency_buckets)})}
+            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(authz_latency_buckets)})}
     ].
 
 api_source_type() ->

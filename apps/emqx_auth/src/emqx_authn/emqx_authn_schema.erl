@@ -230,7 +230,7 @@ fields("settings") ->
                 }
             )},
         {"total_latency_metric_buckets",
-            emqx_schema:histogram_buckets_sc(#{desc => ?DESC(authn_latency_buckets)})}
+            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(authn_latency_buckets)})}
     ];
 fields("metrics_status_fields") ->
     [
