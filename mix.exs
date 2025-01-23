@@ -235,7 +235,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
 
   def common_dep(:bcrypt),
-    do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true}
+    do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
     do: {:minirest, github: "emqx/minirest", tag: "1.4.4", override: true}
