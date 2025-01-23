@@ -623,7 +623,7 @@ t_send_message_unhealthy_connector(_) ->
     _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1000}),
     ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     %% The alarm should be gone at this point
-    0 = get_bridge_v2_alarm_cnt(),
+    ?retry(100, 10, ?assertEqual(0, get_bridge_v2_alarm_cnt())),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok = emqx_connector:remove(con_type(), ConName),
