@@ -52,7 +52,14 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
         )}.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, SourceConfig) ->
-    BridgeV1Config1 = maps:without([<<"connector">>, <<"last_modified_at">>], SourceConfig),
+    BridgeV1Config1 = maps:without(
+        [
+            <<"connector">>,
+            <<"created_at">>,
+            <<"last_modified_at">>
+        ],
+        SourceConfig
+    ),
     BridgeV1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config1),
     BridgeV1Config3 =
         emqx_utils_maps:update_if_present(

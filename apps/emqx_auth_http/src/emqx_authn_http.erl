@@ -178,12 +178,13 @@ parse_config(
     {BodyVars, BodyTemplate} = emqx_authn_utils:parse_deep(
         emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
     ),
-    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars,
+    {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(maps:to_list(Headers)),
+    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         method => Method,
         path => Path,
-        headers => maps:to_list(Headers),
+        headers => HeadersTemplate,
         base_path_template => BasePathTemplate,
         base_query_template => BaseQueryTemplate,
         body_template => BodyTemplate,

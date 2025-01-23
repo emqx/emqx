@@ -863,6 +863,14 @@ fields("mqtt_quic_listener") ->
                 ?MAX_UINT(16),
                 ?DESC(fields_mqtt_quic_listener_stateless_operation_expiration_ms)
             )},
+        {"sslkeylogfile",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC(fields_mqtt_quic_listener_sslkeylogfile),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"ssl_options",
             sc(
                 ref("listener_quic_ssl_opts"),

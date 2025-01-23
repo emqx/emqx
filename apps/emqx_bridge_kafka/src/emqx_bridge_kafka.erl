@@ -538,7 +538,7 @@ fields(producer_buffer) ->
             )},
         {memory_overload_protection,
             mk(boolean(), #{
-                default => false,
+                default => true,
                 desc => ?DESC(buffer_memory_overload_protection)
             })}
     ];
