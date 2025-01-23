@@ -116,8 +116,8 @@ paths() ->
         "/authentication/:id/users/:user_id",
         "/authentication/order",
         "/authentication/settings",
-        "/authentication/settings/node_cache/status",
-        "/authentication/settings/node_cache/reset"
+        "/authentication/node_cache/status",
+        "/authentication/node_cache/reset"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -601,7 +601,7 @@ schema("/authentication/settings") ->
             }
         }
     };
-schema("/authentication/settings/node_cache/status") ->
+schema("/authentication/node_cache/status") ->
     #{
         'operationId' => authentication_node_cache_status,
         get => #{
@@ -616,7 +616,7 @@ schema("/authentication/settings/node_cache/status") ->
             }
         }
     };
-schema("/authentication/settings/node_cache/reset") ->
+schema("/authentication/node_cache/reset") ->
     #{
         'operationId' => authentication_node_cache_reset,
         post =>

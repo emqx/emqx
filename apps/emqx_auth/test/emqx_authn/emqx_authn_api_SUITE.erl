@@ -696,7 +696,7 @@ t_cache(_Config) ->
     ),
     {ok, 200, MetricsData0} = request(
         get,
-        uri(["authentication", "settings", "node_cache", "status"])
+        uri(["authentication", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
@@ -737,7 +737,7 @@ t_cache(_Config) ->
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
         get,
-        uri(["authentication", "settings", "node_cache", "status"])
+        uri(["authentication", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
@@ -748,7 +748,7 @@ t_cache(_Config) ->
 t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
-        uri(["authentication", "settings", "node_cache", "reset"])
+        uri(["authentication", "node_cache", "reset"])
     ).
 
 t_latency_buckets(_Config) ->
