@@ -88,9 +88,11 @@ check(_ConnInfo, AckProps) ->
             }),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_connections := ?ERR_MAX_UPTIME}} ->
-            ?SLOG_THROTTLE(error, #{msg => connection_rejected_due_to_max_uptime_reached}, #{
-                tag => "LICENSE"
-            }),
+            ?SLOG_THROTTLE(
+                error, #{msg => connection_rejected_due_to_trial_license_uptime_limit}, #{
+                    tag => "LICENSE"
+                }
+            ),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_connections := MaxClients}} ->
             case check_max_clients_exceeded(MaxClients) of
