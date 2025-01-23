@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_persistent_session_ds_SUITE).
 
+-feature(maybe_expr, enable).
+
 -compile(export_all).
 -compile(nowarn_export_all).
 
@@ -18,6 +20,8 @@
 
 -define(DURABLE_SESSION_STATE, emqx_persistent_session).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 -ifdef(BUILD_WITH_FDB).
 -define(SETUP_MOD, emqx_persistent_session_ds_SUITE_fdb_surrogate).
 -else.
@@ -32,28 +36,60 @@ suite() ->
     [{timetrap, {seconds, 60}}].
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, cluster},
+        {group, local}
+    ].
 
 init_per_suite(Config) ->
-    try emqx_ds_test_helpers:skip_if_norepl() of
+    case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
+        true ->
+            Config;
         false ->
-            DurableSessionsOpts = #{
-                <<"enable">> => true,
-                <<"renew_streams_interval">> => <<"1s">>
-            },
-            Opts = #{
-                durable_sessions_opts => DurableSessionsOpts,
-                start_emqx_conf => false
-            },
-            emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts);
-        Yes ->
-            Yes
-    catch
-        error:undef ->
             {skip, standalone_not_supported}
     end.
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
+    ok.
+
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    ClusterTCs = cluster_testcases(),
+    [
+        {cluster, ClusterTCs},
+        {local, AllTCs -- ClusterTCs}
+    ].
+
+%% These are test cases that spin up their own clusters, even if they have a single node.
+cluster_testcases() ->
+    [
+        t_session_subscription_idempotency,
+        t_session_unsubscription_idempotency,
+        t_subscription_state_change,
+        t_storage_generations,
+        t_new_stream_notifications,
+        t_session_gc,
+        t_crashed_node_session_gc,
+        t_last_alive_at_cleanup
+    ].
+
+init_per_group(cluster, Config) ->
+    %% Each test case sets up and tears down its cluster.
+    Config;
+init_per_group(local, Config) ->
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"renew_streams_interval">> => <<"1s">>
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        start_emqx_conf => false
+    },
+    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
+
+end_per_group(cluster, _Config) ->
+    ok;
+end_per_group(local, Config) ->
     emqx_common_test_helpers:stop_apps_ds(Config),
     ok.
 
@@ -64,6 +100,8 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_storage_generations;
     TestCase =:= t_new_stream_notifications
 ->
+    %% N.B.: these tests start a single-node cluster, so it's fine to test them with the
+    %% `builtin_local' backend.
     DurableSessionsOpts = #{
         <<"heartbeat_interval">> => <<"500ms">>,
         <<"session_gc_interval">> => <<"1s">>,
@@ -80,24 +118,32 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_crashed_node_session_gc;
     TestCase =:= t_last_alive_at_cleanup
 ->
-    DurableSessionsOpts = #{
-        <<"heartbeat_interval">> => <<"500ms">>,
-        <<"session_gc_interval">> => <<"1s">>,
-        <<"session_gc_batch_size">> => 2
-    },
-    Opts = #{
-        durable_sessions_opts => DurableSessionsOpts,
-        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
-    },
-    NodeSpecs = cluster(Opts#{n => 3}),
-    emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, Opts);
-init_per_testcase(t_session_replay_retry, Config) ->
-    %% Todo: ideally, should find a way to "phrase" this test for platform build.
-    case emqx_common_test_helpers:skip_if_platform() of
+    try emqx_ds_test_helpers:skip_if_norepl() of
         false ->
-            Config;
+            DurableSessionsOpts = #{
+                <<"heartbeat_interval">> => <<"500ms">>,
+                <<"session_gc_interval">> => <<"1s">>,
+                <<"session_gc_batch_size">> => 2
+            },
+            Opts = #{
+                durable_sessions_opts => DurableSessionsOpts,
+                work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+            },
+            NodeSpecs = cluster(Opts#{n => 3}),
+            emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, Opts);
         Skip ->
             Skip
+    catch
+        error:undef ->
+            {skip, standalone_not_supported}
+    end;
+init_per_testcase(t_session_replay_retry, Config) ->
+    maybe
+        %% Todo: ideally, should find a way to "phrase" this test for platform build.
+        false ?= emqx_common_test_helpers:skip_if_platform(),
+        %% Todo: ideally, should find a way to "phrase" this test for emqx build.
+        false ?= emqx_ds_test_helpers:skip_if_norepl(),
+        Config
     end;
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -293,7 +339,7 @@ t_storage_generations(Config) ->
             %% Create a new generation and publish messages to the new
             %% generation. We expect 1 message for topic t/1 (since it
             %% was unblocked), but NOT for t/2:
-            ok = emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB),
+            ok = ?ON(Node1, emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB)),
             timer:sleep(100),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"4">>, ?QOS_1),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"5">>, ?QOS_1),
