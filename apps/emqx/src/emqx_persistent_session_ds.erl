@@ -188,7 +188,8 @@
 
 -type timer() ::
     ?TIMER_COMMIT
-    | ?TIMER_RETRY_REPLAY.
+    | ?TIMER_RETRY_REPLAY
+    | ?TIMER_SCHEDULER_RETRY.
 
 -type timer_state() :: reference() | undefined.
 
@@ -664,6 +665,11 @@ handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
     {ok, [], commit(Session)};
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
+handle_timeout(
+    _ClientInfo, ?TIMER_SCHEDULER_RETRY, Session = #{s := S, stream_scheduler_s := SchedS0}
+) ->
+    SchedS = emqx_persistent_session_ds_stream_scheduler:handle_retry(S, SchedS0),
+    {ok, [], Session#{stream_scheduler_s := SchedS}};
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?tp(warning, ?sessds_unknown_timeout, #{timeout => Timeout}),
     {ok, [], Session}.
@@ -702,12 +708,12 @@ handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     From ! Ref,
     Session;
 handle_info(
-    DOWN = {'DOWN', _, _, _, _},
-    Session = #{s := S, stream_scheduler_s := SchedS0, buf := Buf0},
+    Msg = {'DOWN', _, _, _, _},
+    Session = #{s := S, stream_scheduler_s := SchedS0, buffer := Buf0},
     _ClientInfo
 ) ->
     %% Handle potential subscription DS crash:
-    case emqx_persistent_session_ds_stream_scheduler:handle_down(DOWN, S, SchedS0) of
+    case emqx_persistent_session_ds_stream_scheduler:handle_down(Msg, S, SchedS0) of
         ignore ->
             Session;
         {drop_buffer, StreamKey, SchedS} ->

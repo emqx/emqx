@@ -119,6 +119,7 @@
     on_enqueue/5,
     on_seqno_release/4,
     handle_down/3,
+    handle_retry/2,
     find_replay_streams/1,
     is_fully_acked/2,
     is_active_unblocked/2,
@@ -206,7 +207,10 @@
     ds_seqnos = #{} :: #{emqx_ds:sub_ref() => atomics:atomics_ref()},
     %% Block queues:
     bq1 :: blocklist(),
-    bq2 :: blocklist()
+    bq2 :: blocklist(),
+    %% Retry:
+    retry = [] :: [{subscribe, stream_key()}],
+    retry_timer :: undefined | reference()
 }).
 
 -opaque t() :: #s{}.
@@ -614,6 +618,15 @@ handle_down(DOWN, S, SchedS = #s{ds_seqnos = SeqNos}) ->
             ignore
     end.
 
+-spec handle_retry(emqx_persistent_session_ds_state:t(), t()) -> t().
+handle_retry(S, SchedS0 = #s{retry = Actions}) ->
+    SchedS = SchedS0#s{retry_timer = undefined, retry = []},
+    lists:foldl(
+        fun({subscribe, StreamKey}, Acc) -> ds_subscribe(StreamKey, S, Acc) end,
+        SchedS,
+        Actions
+    ).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -910,15 +923,25 @@ ds_subscribe(SrsID, S, SchedS = #s{ds_sub_handles = Subs, ds_seqnos = SeqNos}) -
             SchedS;
         _ ->
             #srs{it_end = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
-            %% TODO: perhaps it's better to deprecate batch_size.
-            {ok, Handle, SubRef} = emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, #{
+            %% TODO: deprecate batch_size and come up with a better name?
+            SubOpts = #{
                 max_unacked => emqx_config:get([durable_sessions, batch_size])
-            }),
-            ?tp(debug, ?sessds_sched_subscribe, #{stream => SrsID, handle => Handle, ref => SubRef}),
-            SchedS#s{
-                ds_sub_handles = Subs#{SrsID => #ds_sub{handle = Handle, sub_ref = SubRef}},
-                ds_seqnos = SeqNos#{SubRef => atomics:new(1, [])}
-            }
+            },
+            case emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, SubOpts) of
+                {ok, Handle, SubRef} ->
+                    ?tp(debug, ?sessds_sched_subscribe, #{
+                        stream => SrsID, handle => Handle, ref => SubRef
+                    }),
+                    SchedS#s{
+                        ds_sub_handles = Subs#{SrsID => #ds_sub{handle = Handle, sub_ref = SubRef}},
+                        ds_seqnos = SeqNos#{SubRef => atomics:new(1, [])}
+                    };
+                {error, recoverable, Reason} ->
+                    ?tp(debug, ?sessds_sched_subscribe_fail, #{
+                        class => recoverable, reason => Reason, stream => SrsID
+                    }),
+                    push_retry({subscribe, SrsID}, SchedS)
+            end
     end.
 
 ds_unsubscribe(SrsID, SchedS = #s{ds_sub_handles = Subs, ds_seqnos = SeqNos}) ->
@@ -1096,6 +1119,13 @@ unwatch_streams(TopicFilterBin, Ref, NewStreamSubs) ->
     }),
     emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
     maps:remove(Ref, NewStreamSubs).
+
+push_retry(Action, SchedS = #s{retry = R, retry_timer = undefined}) ->
+    %% TODO: do not hardcode, add randomness?
+    TRef = emqx_utils:start_timer(5_000, {emqx_session, ?TIMER_SCHEDULER_RETRY}),
+    SchedS#s{retry = [Action | R], retry_timer = TRef};
+push_retry(Action, SchedS = #s{retry = R}) ->
+    SchedS#s{retry = [Action | R]}.
 
 find_ds_sub(SubRef, #s{ds_sub_handles = Handles}) ->
     do_find_ds_sub(SubRef, maps:iterator(Handles)).

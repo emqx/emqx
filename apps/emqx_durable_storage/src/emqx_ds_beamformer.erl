@@ -342,7 +342,7 @@
 
 -record(sub_req, {
     client :: pid(),
-    handle :: emqx_ds:subscription_handle(),
+    mref :: reference(),
     it :: emqx_ds:ds_specific_iterator(),
     userdata,
     opts :: emqx_ds:sub_opts()
@@ -418,7 +418,8 @@ handle_recoverable_error(DBShard, SubStates) ->
 %% `event_topic_filter'.
 -spec shard_event(dbshard(), [{_Stream, emqx_ds:message_key()}]) -> ok.
 shard_event(Shard, Events) ->
-    emqx_ds_beamformer_rt:shard_event(Shard, Events).
+    %% FIXME: start order of processes
+    catch emqx_ds_beamformer_rt:shard_event(Shard, Events).
 
 %% @doc Create a beam that contains `end_of_stream' or unrecoverable
 %% error, and send it to the clients. Then delete the subscriptions.
@@ -644,7 +645,7 @@ subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked})
     is_integer(MaxUnacked), MaxUnacked > 0
 ->
     gen_statem:call(Server, #sub_req{
-        client = Client, it = It, userdata = ItKey, opts = Opts, handle = SubId
+        client = Client, it = It, userdata = ItKey, opts = Opts, mref = SubId
     }).
 
 -spec unsubscribe(dbshard(), emqx_ds:sub_ref()) -> boolean().
@@ -737,7 +738,7 @@ init([DBShard, CBM]) ->
 %% Handle subscribe call:
 handle_event(
     {call, From},
-    #sub_req{client = Client, it = It, userdata = Userdata, opts = Opts, handle = SubId},
+    #sub_req{client = Client, it = It, userdata = Userdata, opts = Opts, mref = SubRef},
     State,
     D0 = #d{
         dbshard = Shard,
@@ -756,20 +757,20 @@ handle_event(
         } ->
             MRef = monitor(process, Client),
             ?tp(beamformer_subscribe, #{
-                sub_id => SubId,
+                sub_id => SubRef,
                 mref => MRef,
                 shard => Shard,
                 key => DSKey
             }),
             %% Update monitor reference table:
-            ets:insert(MTab, {MRef, SubId}),
+            ets:insert(MTab, {MRef, SubRef}),
             #{max_unacked := MaxUnacked} = Opts,
             %% Create the flow control object, storing subscription
             %% seqno, ack and active state. It's a triplet of atomic
             %% variables:
             FlowControl = atomics:new(3, []),
             SubState = #sub_state{
-                req_id = SubId,
+                req_id = SubRef,
                 client = Client,
                 mref = MRef,
                 flowcontrol = {MaxUnacked, FlowControl},
@@ -784,13 +785,13 @@ handle_event(
             %% Store another reference to the flow control object in a
             %% different table readable by the client during suback:
             ets:insert(fc_tab(Shard), #fctab{
-                sub_ref = SubId, max_unacked = MaxUnacked, aref = FlowControl
+                sub_ref = SubRef, max_unacked = MaxUnacked, aref = FlowControl
             }),
             %% Create an entry in the owner table:
-            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubId}),
+            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubRef}),
             %% Schedule dispaching to the catchup worker:
             D = D0#d{pending = [SubState | Pending]},
-            Reply = {reply, From, {ok, SubId}},
+            Reply = {reply, From, {ok, SubRef}},
             case State of
                 ?idle ->
                     {next_state, ?busy, D, Reply};

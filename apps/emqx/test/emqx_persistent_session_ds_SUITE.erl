@@ -1185,6 +1185,66 @@ t_session_gc_will_message(_Config) ->
     ),
     ok.
 
+%% Verify that session handles restart of the shard (or the entire DB)
+%% smoothly:
+t_ds_resubscribe(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    TopicFilter = <<"t/+">>,
+    ?check_trace(
+        #{timetrap => 20_000},
+        begin
+            %% Spawn clients:
+            Pub = start_client(#{clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            Sub = start_client(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(Sub),
+            %% Monitor the session to make sure it doesn't crash during the test:
+            #{'_alive' := {true, SessPid}} = emqx_persistent_session_ds:print_session(ClientId),
+            MRef = monitor(process, SessPid),
+            %% Subscribe to the topic:
+            {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_1),
+            %% Publish some messages and wait for the sub to create
+            %% the subscription:
+            ?wait_async_action(
+                {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
+                #{?snk_kind := ?sessds_sched_subscribe}
+            ),
+            %% Collect messages:
+            [#{payload := <<"1">>}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+            %% Verify that the session noticed failure of the DB and
+            %% tried to re-subscribe, unsuccessfully at first:
+            ?tp(notice, "test: Stopping the DB", #{}),
+            ?wait_async_action(
+                ?wait_async_action(
+                    ok = emqx_ds:close_db(?PERSISTENT_MESSAGE_DB),
+                    #{?snk_kind := ?sessds_sub_down}
+                ),
+                #{?snk_kind := ?sessds_sched_subscribe_fail}
+            ),
+            %% Bring the DB back up and verify that session
+            %% successfully resubscribed:
+            ?tp(notice, "test: Restarting the DB", #{}),
+            {ok, EvtSub} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?sessds_sched_subscribe})
+            ),
+            ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, emqx_persistent_message:get_db_config()),
+            %% Publish a message to verify that session resubscribed
+            %% from the correct point:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_1),
+            ?assertMatch({ok, [_]}, snabbkaffe:receive_events(EvtSub)),
+            [#{payload := <<"2">>}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+            %% Check that the session survived through the entire
+            %% ordeal without crashing:
+            receive
+                {'DOWN', MRef, process, _, Reason} ->
+                    error(#{reason => Reason, msg => session_crashed})
+            after 1000 ->
+                ok
+            end
+        end,
+        []
+    ).
+
 %% Trace specifications:
 
 %% @doc Verify that sessions didn't terminate abnormally. Note: it's

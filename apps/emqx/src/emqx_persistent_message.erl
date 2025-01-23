@@ -22,7 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([init/0]).
--export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1]).
+-export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1, get_db_config/0]).
 
 %% Config handler
 -export([add_handler/0, pre_config_update/3]).
