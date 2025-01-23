@@ -1626,14 +1626,18 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
-handle_info({'DOWN', Ref, process, Pid, Reason}, Channel) ->
-    case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
-        [] -> {ok, Channel};
-        Msgs -> {ok, Msgs, Channel}
-    end;
-handle_info(Info, Channel = #channel{session = Session0, clientinfo = ClientInfo}) ->
+handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
-    {ok, Channel#channel{session = Session}}.
+    Channel = Channel0#channel{session = Session},
+    case Info of
+        {'DOWN', Ref, process, Pid, Reason} ->
+            case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
+                [] -> {ok, Channel};
+                Msgs -> {ok, Msgs, Channel}
+            end;
+        _ ->
+            {ok, Channel}
+    end.
 
 -ifdef(TEST).
 
