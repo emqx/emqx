@@ -43,53 +43,83 @@ roots() ->
 
 fields("retainer") ->
     [
-        {enable, sc(boolean(), enable, true, ?IMPORTANCE_NO_DOC)},
+        {enable,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(enable),
+                    default => true,
+                    deprecated => {since, "5.9.0"},
+                    importance => ?IMPORTANCE_NO_DOC
+                }
+            )},
         {msg_expiry_interval,
-            sc(
+            ?HOCON(
                 %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_ms(),
-                msg_expiry_interval,
-                <<"0s">>
+                #{
+                    desc => ?DESC(msg_expiry_interval),
+                    default => <<"0s">>
+                }
             )},
         {msg_expiry_interval_override,
-            sc(
+            ?HOCON(
                 %% not used in a `receive ... after' block, just timestamp comparison
                 hoconsc:union([disabled, emqx_schema:duration_ms()]),
-                msg_expiry_interval_override,
-                disabled
+                #{
+                    desc => ?DESC(msg_expiry_interval_override),
+                    default => disabled
+                }
             )},
-        {allow_never_expire, sc(boolean(), allow_never_expire, true)},
+        {allow_never_expire,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(allow_never_expire),
+                    default => true
+                }
+            )},
         {msg_clear_interval,
-            sc(
+            ?HOCON(
                 emqx_schema:timeout_duration_ms(),
-                msg_clear_interval,
-                <<"0s">>
+                #{
+                    desc => ?DESC(msg_clear_interval),
+                    default => <<"0s">>
+                }
             )},
         {msg_clear_limit,
-            sc(
+            ?HOCON(
                 pos_integer(),
-                msg_clear_limit,
-                50_000,
-                ?IMPORTANCE_HIDDEN
+                #{
+                    desc => ?DESC(msg_clear_limit),
+                    default => 50_000,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {flow_control,
-            sc(
+            ?HOCON(
                 ?R_REF(flow_control),
-                flow_control,
-                #{},
-                ?IMPORTANCE_HIDDEN
+                #{
+                    desc => ?DESC(flow_control),
+                    default => #{},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {max_payload_size,
-            sc(
+            ?HOCON(
                 emqx_schema:bytesize(),
-                max_payload_size,
-                <<"1MB">>
+                #{
+                    desc => ?DESC(max_payload_size),
+                    default => <<"1MB">>
+                }
             )},
         {stop_publish_clear_msg,
-            sc(
+            ?HOCON(
                 boolean(),
-                stop_publish_clear_msg,
-                false
+                #{
+                    desc => ?DESC(stop_publish_clear_msg),
+                    default => false
+                }
             )},
         {delivery_rate,
             ?HOCON(
@@ -136,45 +166,57 @@ fields(mnesia_config) ->
                 }
             )},
         {storage_type,
-            sc(
+            ?HOCON(
                 hoconsc:enum([ram, disc]),
-                mnesia_config_storage_type,
-                ram
+                #{
+                    desc => ?DESC(mnesia_config_storage_type),
+                    default => ram
+                }
             )},
         {max_retained_messages,
-            sc(
+            ?HOCON(
                 non_neg_integer(),
-                max_retained_messages,
-                0
+                #{
+                    desc => ?DESC(max_retained_messages),
+                    default => 0
+                }
             )},
         {index_specs, fun retainer_indices/1},
         {enable,
-            ?HOCON(boolean(), #{
-                desc => ?DESC(mnesia_enable),
-                importance => ?IMPORTANCE_NO_DOC,
-                required => false,
-                default => true
-            })}
+            ?HOCON(
+                boolean(), #{
+                    desc => ?DESC(mnesia_enable),
+                    importance => ?IMPORTANCE_NO_DOC,
+                    required => false,
+                    default => true
+                }
+            )}
     ];
 fields(flow_control) ->
     [
         {batch_read_number,
-            sc(
+            ?HOCON(
                 non_neg_integer(),
-                batch_read_number,
-                0
+                #{
+                    desc => ?DESC(batch_read_number),
+                    default => 0
+                }
             )},
         {batch_deliver_number,
-            sc(
+            ?HOCON(
                 non_neg_integer(),
-                batch_deliver_number,
-                0
+                #{
+                    desc => ?DESC(batch_deliver_number),
+                    default => 0
+                }
             )},
         {batch_deliver_limiter,
-            sc(
+            ?HOCON(
                 ?R_REF(emqx_limiter_schema, internal),
-                batch_deliver_limiter,
-                undefined
+                #{
+                    desc => ?DESC(batch_deliver_limiter),
+                    default => undefined
+                }
             )}
     ];
 fields(external_backends) ->
@@ -192,11 +234,6 @@ desc(_) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-sc(Type, DescId, Default) ->
-    sc(Type, DescId, Default, ?DEFAULT_IMPORTANCE).
-sc(Type, DescId, Default, Importance) ->
-    hoconsc:mk(Type, #{default => Default, desc => ?DESC(DescId), importance => Importance}).
 
 backend_config() ->
     hoconsc:mk(hoconsc:ref(?MODULE, mnesia_config), #{desc => ?DESC(backend)}).

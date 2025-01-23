@@ -130,9 +130,14 @@ topic(Start, Len) ->
     ok.
 
 if_enabled(Fun) ->
-    case emqx_retainer:enabled() of
-        true -> Fun();
-        false -> ?PRINT_MSG("Retainer is not enabled~n")
+    case emqx_retainer:is_enabled() of
+        true ->
+            case emqx_retainer:is_started() of
+                true -> Fun();
+                false -> ?PRINT_MSG("Retainer is enabled but not started~n")
+            end;
+        false ->
+            ?PRINT_MSG("Retainer is not enabled~n")
     end.
 
 if_mnesia_backend(Fun) ->

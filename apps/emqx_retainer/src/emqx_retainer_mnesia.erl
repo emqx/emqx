@@ -94,14 +94,14 @@ tables_to_backup() ->
     %% `backup_tables' is inspected to construct API docs (available table sets), and such
     %% docs are built in `emqx_conf:dump_schema', while there's no started node.
     try
-        [?TAB_MESSAGE || is_enabled()]
+        [?TAB_MESSAGE || need_handle_backup()]
     catch
         exit:{noproc, _} ->
             []
     end.
 
 on_backup_table_imported(?TAB_MESSAGE, Opts) ->
-    case is_enabled() of
+    case need_handle_backup() of
         true ->
             maybe_print("Starting reindexing retained messages ~n", [], Opts),
             Res = reindex(false, mk_status_fun(Opts)),
@@ -133,8 +133,8 @@ log_status(Done) ->
         }
     ).
 
-is_enabled() ->
-    emqx_retainer:enabled() andalso emqx_retainer:backend_module() =:= ?MODULE.
+need_handle_backup() ->
+    emqx_retainer:is_started() andalso emqx_retainer:backend_module() =:= ?MODULE.
 
 %%--------------------------------------------------------------------
 %% emqx_retainer callbacks
