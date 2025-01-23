@@ -40,7 +40,6 @@
     default_authz/0,
     authz_common_fields/1,
     sources_fields/0,
-    metrics_fields/0,
     node_cache_fields/0
 ]).
 
@@ -137,7 +136,7 @@ injected_fields(AuthzSchemaMods) ->
     }.
 
 authz_fields() ->
-    sources_fields() ++ node_cache_fields() ++ metrics_fields().
+    sources_fields() ++ node_cache_fields().
 
 sources_fields() ->
     AuthzSchemaMods = source_schema_mods(),
@@ -183,12 +182,6 @@ node_cache_fields() ->
                     default => emqx_auth_cache_schema:default_config()
                 }
             )}
-    ].
-
-metrics_fields() ->
-    [
-        {total_latency_metric_buckets,
-            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(authz_latency_buckets)})}
     ].
 
 api_source_type() ->

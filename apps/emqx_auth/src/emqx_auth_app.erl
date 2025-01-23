@@ -39,10 +39,8 @@ start(_StartType, _StartArgs) ->
     _ = emqx_conf_schema:roots(),
     {ok, Sup} = emqx_auth_sup:start_link(),
     ok = emqx_authz:init(),
-    ok = emqx_authn:init(),
     {ok, Sup}.
 
 stop(_State) ->
     ok = emqx_authn_utils:cleanup_resources(),
-    ok = emqx_authn:deinit(),
     ok = emqx_authz:deinit().

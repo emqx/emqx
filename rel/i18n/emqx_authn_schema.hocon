@@ -159,12 +159,6 @@ success.desc:
 success.label:
 """Success"""
 
-authn_latency_buckets.desc:
-"""The buckets of the total authentication latency histogram metric."""
-
-authn_latency_buckets.label:
-"""Total Authentication Latency Metric Buckets"""
-
 settings.desc:
 """Authentication global settings."""
 

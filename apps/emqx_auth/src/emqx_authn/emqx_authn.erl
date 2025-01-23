@@ -24,24 +24,12 @@
     get_enabled_authns/0,
 
     register_provider/2,
-    deregister_provider/1,
-    init/0,
-    deinit/0
+    deregister_provider/1
 ]).
 
 -export([merge_config/1, merge_config_local/2, import_config/1]).
 
 -include("emqx_authn.hrl").
-
-init() ->
-    AuthnLatencyBuckets = emqx_config:get([?CONF_SETTINGS_NS_ATOM, total_latency_metric_buckets]),
-    ok = emqx_access_control:update_latency_buckets('client.authenticate', AuthnLatencyBuckets),
-    ok = emqx_config_handler:add_handler([?CONF_SETTINGS_NS_ATOM], emqx_authn_settings_config),
-    ok.
-
-deinit() ->
-    emqx_config_handler:remove_handler([?CONF_SETTINGS_NS_ATOM]),
-    ok.
 
 fill_defaults(Config) ->
     emqx_schema:fill_defaults_for_type(emqx_authn_schema:authenticator_type(), Config).

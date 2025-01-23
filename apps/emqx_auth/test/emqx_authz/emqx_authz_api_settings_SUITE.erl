@@ -69,23 +69,12 @@ t_api(_) ->
             <<"max_size">> => 32,
             <<"ttl">> => <<"60s">>,
             <<"excludes">> => [<<"nocache/#">>]
-        },
-        <<"total_latency_metric_buckets">> => [12345, 12346]
+        }
     },
-    Settings1Get = Settings1Put#{
-        <<"total_latency_metric_buckets">> => <<"12345, 12346">>
-    },
+    Settings1Get = Settings1Put,
 
     {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1Put),
     {ok, 200, Result1} = request(get, uri(["authorization", "settings"]), []),
-    Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
-    ?assertMatch(
-        #{
-            total_latency :=
-                #{bucket_counts := [{12345, _} | _]}
-        },
-        Hists
-    ),
     ?assertEqual(Settings1Get, emqx_utils_json:decode(Result1)),
 
     #{<<"cache">> := Cache} =
@@ -96,21 +85,16 @@ t_api(_) ->
                 <<"enable">> => true,
                 <<"max_size">> => 32,
                 <<"ttl">> => <<"60s">>
-            },
-            <<"total_latency_metric_buckets">> => <<" 54321, 54322 ">>
+            }
         },
 
     Settings2Get = Settings2Put#{
-        <<"total_latency_metric_buckets">> := <<"54321, 54322">>,
         <<"cache">> := Cache#{<<"excludes">> => []}
     },
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
     ?assertEqual(Settings2Get, emqx_utils_json:decode(Result2)),
-
-    Settings3Put = maps:remove(<<"total_latency_metric_buckets">>, Settings2Put),
-    {ok, 200, _} = request(put, uri(["authorization", "settings"]), Settings3Put),
 
     ok.
 

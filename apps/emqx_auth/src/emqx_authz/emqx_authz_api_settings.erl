@@ -64,7 +64,7 @@ schema("/authorization/settings") ->
     }.
 
 ref_authz_schema() ->
-    emqx_schema:authz_fields() ++ emqx_authz_schema:metrics_fields().
+    emqx_schema:authz_fields().
 
 settings(get, _Params) ->
     {200, authorization_settings()};
@@ -72,8 +72,7 @@ settings(put, #{body := Body}) ->
     #{
         <<"no_match">> := NoMatch,
         <<"deny_action">> := DenyAction,
-        <<"cache">> := Cache,
-        <<"total_latency_metric_buckets">> := TotalLatencyMetricBucketsRaw
+        <<"cache">> := Cache
         %% We do not pass the body to emqx_conf:update_config/3 which
         %% fills the defaults. So we need to fill the defaults here
     } = emqx_schema:fill_defaults(ref_authz_schema(), Body),
@@ -87,10 +86,6 @@ settings(put, #{body := Body}) ->
     ),
     {ok, _} = emqx_authz_utils:update_config([authorization, cache], Cache),
 
-    TotalLatencyMetricBuckets = emqx_schema:parse_histogram_buckets(TotalLatencyMetricBucketsRaw),
-    {ok, _} = emqx_authz_utils:update_config(
-        [authorization, total_latency_metric_buckets], TotalLatencyMetricBuckets
-    ),
     {200, authorization_settings()}.
 
 authorization_settings() ->

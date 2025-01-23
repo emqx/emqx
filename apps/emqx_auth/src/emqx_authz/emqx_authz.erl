@@ -87,7 +87,6 @@ init() ->
     ok = register_metrics(),
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
     emqx_conf:add_handler(?ROOT_KEY, ?MODULE),
-    emqx_conf:add_handler(?ROOT_KEY ++ [total_latency_metric_buckets], ?MODULE),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize_deny, []}, ?HP_AUTHZ),
     ok = register_builtin_sources(),
     ok.
@@ -125,9 +124,7 @@ are_all_providers_registered() ->
     end.
 
 register_metrics() ->
-    ok = lists:foreach(fun emqx_metrics:ensure/1, ?METRICS),
-    AuthzLatencyBuckets = emqx_config:get(?ROOT_KEY ++ [total_latency_metric_buckets]),
-    ok = emqx_access_control:update_latency_buckets('client.authorize', AuthzLatencyBuckets).
+    ok = lists:foreach(fun emqx_metrics:ensure/1, ?METRICS).
 
 register_builtin_sources() ->
     lists:foreach(
@@ -158,7 +155,6 @@ deinit() ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, authorize_deny}),
     emqx_conf:remove_handler(?CONF_KEY_PATH),
     emqx_conf:remove_handler(?ROOT_KEY),
-    emqx_conf:remove_handler(?TOTAL_LATENCY_METRIC_BUCKETS_KEY_PATH),
     emqx_authz_utils:cleanup_resources().
 
 lookup() ->
@@ -198,8 +194,6 @@ update({?CMD_DELETE, Type}, Sources) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-pre_config_update(?TOTAL_LATENCY_METRIC_BUCKETS_KEY_PATH, Update, _OldValue, _Opts) ->
-    {ok, Update};
 pre_config_update(Path, Cmd, Sources, ClusterRpcOpts) ->
     try do_pre_config_update(Path, Cmd, Sources, ClusterRpcOpts) of
         {error, Reason} -> {error, Reason};
@@ -281,10 +275,6 @@ do_pre_config_update({?CMD_REORDER, NewSourcesOrder}, OldSources, _Opts) ->
 do_pre_config_update({Op, Source}, Sources, _Opts) ->
     throw({bad_request, #{op => Op, source => Source, sources => Sources}}).
 
-post_config_update(
-    ?TOTAL_LATENCY_METRIC_BUCKETS_KEY_PATH, _Update, AuthzLatencyBuckets, _OldConf, _AppEnvs
-) ->
-    ok = emqx_access_control:update_latency_buckets('client.authorize', AuthzLatencyBuckets);
 post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
     ok;
 post_config_update(Path, Cmd, NewSources, _OldSource, _AppEnvs) ->
@@ -332,8 +322,7 @@ do_post_config_update(?ROOT_KEY, Conf, Conf) ->
     #{sources := Sources} = Conf,
     Sources;
 do_post_config_update(?ROOT_KEY, _Conf, NewConf) ->
-    #{sources := NewSources, total_latency_metric_buckets := AuthzLatencyBuckets} = NewConf,
-    ok = emqx_access_control:update_latency_buckets('client.authorize', AuthzLatencyBuckets),
+    #{sources := NewSources} = NewConf,
     overwrite_entire_sources(NewSources).
 
 overwrite_entire_sources(Sources) ->

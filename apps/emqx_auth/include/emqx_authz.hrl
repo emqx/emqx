@@ -38,7 +38,6 @@
 
 -define(ROOT_KEY, [authorization]).
 -define(CONF_KEY_PATH, [authorization, sources]).
--define(TOTAL_LATENCY_METRIC_BUCKETS_KEY_PATH, [authorization, total_latency_metric_buckets]).
 
 %% has to be the same as the root field name defined in emqx_schema
 -define(CONF_NS, ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME).
