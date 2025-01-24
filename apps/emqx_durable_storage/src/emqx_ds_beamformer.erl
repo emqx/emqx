@@ -272,6 +272,7 @@
     pack = [] :: [{emqx_ds:message_key(), emqx_types:message()}],
     subs = #{} :: #{reference() => #beam_builder_sub{}}
 }).
+-type bbn() :: #beam_builder_node{}.
 
 %% Global builder:
 -record(beam_builder, {
@@ -991,9 +992,9 @@ do_dispatch(_) ->
     emqx_types:message(),
     _MatchCtx,
     emqx_ds:sub_ref(),
-    #beam_builder_node{}
+    bbn()
 ) ->
-    #beam_builder_node{}.
+    bbn().
 beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef, NodeS0) ->
     #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = Idx} =
         NodeS0,
