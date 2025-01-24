@@ -333,7 +333,7 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
 
 %% @doc Verify sequence number of DS subscription reply
 -spec verify_reply(#poll_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
-    {boolean() | drop_buffer, t()}.
+    {boolean() | drop_buffer, stream_key() | undefined, t()}.
 verify_reply(Reply, S, SchedS) ->
     #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = Reply,
     case SchedS#s.ds_seqnos of
@@ -341,7 +341,7 @@ verify_reply(Reply, S, SchedS) ->
             case atomics:add_get(Atomic, ?ix_seqno, Size) of
                 SeqNo ->
                     %% SeqNos match:
-                    {true, SchedS};
+                    {true, StreamKey, SchedS};
                 Other ->
                     %% SeqNos don't match, and we've just corrupted
                     %% the counter by `add_get'. Schedule
@@ -355,7 +355,7 @@ verify_reply(Reply, S, SchedS) ->
                         stuck => Reply#poll_reply.stuck,
                         lagging => Reply#poll_reply.lagging
                     }),
-                    {drop_buffer, ds_resubscribe(StreamKey, S, SchedS)}
+                    {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)}
             end;
         #{} ->
             %% We have no record of this subscription, ignore it:
@@ -368,7 +368,7 @@ verify_reply(Reply, S, SchedS) ->
                 stuck => Reply#poll_reply.stuck,
                 lagging => Reply#poll_reply.lagging
             }),
-            {false, SchedS}
+            {false, undefined, SchedS}
     end.
 
 suback(StreamKey, SeqNo, #s{ds_sub_handles = Subs}) ->

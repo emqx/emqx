@@ -53,4 +53,6 @@
 -define(DISPATCH_FLAG_STUCK, 1).
 -define(DISPATCH_FLAG_LAGGING, 2).
 
+-record(unsub_req, {id :: reference()}).
+
 -endif.

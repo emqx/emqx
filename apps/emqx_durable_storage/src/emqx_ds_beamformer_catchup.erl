@@ -127,6 +127,14 @@ handle_info(
     },
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
+handle_info(#unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}) ->
+    case ets:take(SubTab, SubId) of
+        [] ->
+            ok;
+        [SubState] ->
+            queue_drop(Queue, SubState)
+    end,
+    {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
 
