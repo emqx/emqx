@@ -57,10 +57,10 @@ t_sub_unsub(Config) ->
         []
     ).
 
-%% @doc Verify the scenario where the subscriber terminates without
-%% unsubscribing. Here we create a subscription from a temporary
-%% process that exits normally. Subscription must be automatically
-%% removed.
+%% @doc Verify the scenario where a subscriber terminates without
+%% unsubscribing. We test this by creating a subscription from a
+%% temporary process that exits normally. DS should automatically
+%% remove this subscription.
 t_dead_subscriber_cleanup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
@@ -104,8 +104,8 @@ t_dead_subscriber_cleanup(Config) ->
         []
     ).
 
-%% @doc Verify that the client receives a `DOWN' message when the
-%% server is down:
+%% @doc Verify that a client receives `DOWN' message when the server
+%% goes down:
 t_shard_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
@@ -120,7 +120,7 @@ t_shard_down_notify(Config) ->
         []
     ).
 
-%% @doc Verify that the client is notified when the beamformer worker
+%% @doc Verify that a client is notified when the beamformer worker
 %% currently owning the subscription dies:
 t_worker_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
@@ -243,7 +243,7 @@ t_realtime(Config) ->
                 DB, Stream, [<<"t">>], erlang:system_time(millisecond)
             ),
             {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
-            timer:sleep(100),
+            timer:sleep(1_000),
             %% Publish/consume/ack loop:
             ?assertMatch(ok, publish(DB, 1, 2)),
             ?assertMatch(

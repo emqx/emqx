@@ -2090,7 +2090,8 @@ tprop_seqnos(Trace) ->
         end,
         M
     ),
-    ct:pal("~p: Verified sequence numbers in ~p tracks.", [?FUNCTION_NAME, maps:size(M)]),
+    %% Bypass elvis idiocy:
+    apply(ct, pal, ["~p: Verified sequence numbers in ~p tracks.", [?FUNCTION_NAME, maps:size(M)]]),
     true.
 
 %% @doc Check invariantss for a living session

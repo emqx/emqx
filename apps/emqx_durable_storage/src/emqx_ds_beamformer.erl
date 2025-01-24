@@ -654,7 +654,7 @@ subscribe(Server, Client, SubId, It, Opts = #{max_unacked := MaxUnacked}) when
 unsubscribe(DBShard, SubId) ->
     gen_statem:call(?via(DBShard), #unsub_req{id = SubId}).
 
-%% @doc Ack batches up to the sequence number:
+%% @doc Ack payloads up to a sequence number:
 -spec suback(dbshard(), emqx_ds:sub_ref(), emqx_ds:sub_seqno()) -> ok | {error, _}.
 suback(DBShard, SubId, Acked) ->
     case ets:lookup(fc_tab(DBShard), SubId) of
@@ -682,8 +682,8 @@ suback(DBShard, SubId, Acked) ->
             {error, subscription_not_found}
     end.
 
-%% @doc This internal API notifies the beamformer that generatins have
-%% been added or removed.
+%% @doc This internal API notifies the beamformer that generations
+%% have been added or removed.
 -spec generation_event(dbshard()) -> ok.
 generation_event(DBShard) ->
     gen_statem:cast(?via(DBShard), #generation_event{}).
@@ -996,7 +996,7 @@ do_dispatch(_) ->
 ) ->
     bbn().
 beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef, NodeS0) ->
-    #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = Idx} =
+    #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = NMsgs} =
         NodeS0,
     %% Lookup subscription's matching parameters (SubS) and
     %% per-subscription beam builder state (BBS0). If it's not found,
@@ -1019,20 +1019,27 @@ beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef
             %% Yes, this message is meant for the subscriber.
             %%
             %% 1. Ensure the message is added to the node's pack:
-            NodeS1 =
-                case MyGlobalN =:= GlobalNMsgs of
-                    true ->
-                        %% This message is already in the pack, as
-                        %% indicated by MyGlobalN:
-                        NodeS0;
-                    false ->
-                        %% This message is new for the node:
-                        NodeS0#beam_builder_node{
-                            global_n_msgs = GlobalNMsgs,
-                            pack = [{Key, Msg} | Pack],
-                            n_msgs = Idx + 1
-                        }
-                end,
+            case MyGlobalN =:= GlobalNMsgs of
+                true ->
+                    %% This message is already in the pack, as
+                    %% indicated by MyGlobalN:
+                    %%
+                    %% 1.1 Do not update the pack/n_msgs:
+                    NodeS1 = NodeS0,
+                    %% 1.2 Index of this message is NMsgs - 1:
+                    Idx = NMsgs - 1;
+                false ->
+                    %% This message is new for the node.
+                    %%
+                    %% 1.1 Add message to the pack and increase n_msgs:
+                    NodeS1 = NodeS0#beam_builder_node{
+                        global_n_msgs = GlobalNMsgs,
+                        pack = [{Key, Msg} | Pack],
+                        n_msgs = NMsgs + 1
+                    },
+                    %% 1.2 Index of this message in the pack = (Nmsgs + 1) - 1:
+                    Idx = NMsgs
+            end,
             %% 2. Update subscriber's state:
             BBS =
                 case BBS0 of
