@@ -86,7 +86,9 @@ init([]) ->
 handle_continue(setup, undefined) ->
     %% start os_mon temporarily
     {ok, _} = application:ensure_all_started(os_mon),
-    %% memsup is not reliable, ignore
+    %% memsup is not reliable, on some systems, it doesn't take
+    %% buffer and cache into account that buffer and cache are
+    %% reclaimable memory.
     memsup:set_sysmem_high_watermark(1.0),
     SysHW = init_os_monitor(),
     MemRef = start_mem_check_timer(),
@@ -104,12 +106,14 @@ init_os_monitor(OS) ->
         procmem_high_watermark := PHW
     } = OS,
     set_procmem_high_watermark(PHW),
+    ok = update_memory_protect_threshold(SysHW),
     ok = update_mem_alarm_status(SysHW),
     SysHW.
 
 handle_call(get_sysmem_high_watermark, _From, #{sysmem_high_watermark := HWM} = State) ->
     {reply, HWM, State};
 handle_call({set_sysmem_high_watermark, New}, _From, #{sysmem_high_watermark := _Old} = State) ->
+    ok = update_memory_protect_threshold(New),
     ok = update_mem_alarm_status(New),
     {reply, ok, State#{sysmem_high_watermark := New}};
 handle_call(Req, _From, State) ->
@@ -242,3 +246,7 @@ do_update_mem_alarm_status(HWM0) ->
 usage_msg(Usage, What) ->
     %% divide by 1.0 to ensure float point number
     iolist_to_binary(io_lib:format("~.2f% ~p usage", [Usage / 1.0, What])).
+
+update_memory_protect_threshold(New) ->
+    LCConfig = load_ctl:get_config(),
+    load_ctl:put_config(LCConfig#{memory_threshold := New}).
