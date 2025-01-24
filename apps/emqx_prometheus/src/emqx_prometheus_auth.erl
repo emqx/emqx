@@ -18,7 +18,9 @@
 -export([
     deregister_cleanup/1,
     collect_mf/2,
-    collect_metrics/2
+    collect_metrics/2,
+    init_latency_metrics/0,
+    update_latency_metrics/1
 ]).
 
 -export([collect/1]).
@@ -532,8 +534,45 @@ users_or_rule_count(#{type := Type}) ->
 users_or_rule_count(_) ->
     #{}.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%--------------------------------------------------------------------
+%% Configuration initialization and update
+%%--------------------------------------------------------------------
+
+init_latency_metrics() ->
+    update_latency_metrics(emqx_config:get(?PROMETHEUS)).
+
+update_latency_metrics(#{latency_buckets := Buckets}) ->
+    HistGroups = [
+        {?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'},
+        {?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'}
+    ],
+    lists:foreach(
+        fun({Worker, Id}) ->
+            ok = update_histogram_buckets(Worker, Id, Buckets)
+        end,
+        HistGroups
+    );
+%% Legacy config without latency bucket setting
+update_latency_metrics(_) ->
+    ok.
+
+update_histogram_buckets(Worker, Id, Buckets) ->
+    Hists = emqx_metrics_worker:get_hists(Worker, Id),
+    ok = emqx_metrics_worker:clear_metrics(Worker, Id),
+    lists:foreach(
+        fun({Name, _}) ->
+            ok = emqx_metrics_worker:create_metrics(
+                Worker,
+                Id,
+                [{hist, Name, Buckets}]
+            )
+        end,
+        maps:to_list(Hists)
+    ).
+
+%%--------------------------------------------------------------------
 %% Helper funcs
+%%--------------------------------------------------------------------
 
 authenticator_id(Authn) ->
     emqx_authn_chains:authenticator_id(Authn).
