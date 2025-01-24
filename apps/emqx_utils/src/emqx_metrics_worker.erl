@@ -23,15 +23,18 @@
 %% API functions
 -export([
     start_link/1,
+    start_link/2,
     stop/1,
     child_spec/1,
-    child_spec/2
+    child_spec/2,
+    child_spec/3
 ]).
 
 -export([
     inc/3,
     inc/4,
     observe/4,
+    observe_hist/4,
     get/3,
     set/4,
     get_gauge/3,
@@ -42,6 +45,7 @@
     get_rate/2,
     get_slide/2,
     get_slide/3,
+    get_hists/2,
     get_counters/2,
     create_metrics/3,
     create_metrics/4,
@@ -72,16 +76,39 @@
 -define(SAMPLING, 1).
 -endif.
 
+%% By default, we suppose that the histograms are used for latency measurement
+%% with millisecond precision.
+%% We provide the buckets corresponding to the intervals:
+%% =<10ms, =<100ms, =<1s, =<5s, =<30s, >30s
+-define(DEFAULT_HIST_BUCKETS, [10, 100, 1000, 5000, 30000]).
+
 -export_type([metrics/0, handler_name/0, metric_id/0, metric_spec/0]).
 
-% Default
--type metric_type() ::
-    %% Simple counter
-    counter
-    %% Sliding window average
-    | slide.
+-type handler_name() :: atom().
+%% metric_id() is actually a resource id
+-type metric_id() :: binary() | atom().
+-type metric_name() :: atom().
+-type worker_id() :: term().
 
--type metric_spec() :: {metric_type(), atom()}.
+-type hist_bucket_spec() :: [non_neg_integer()].
+
+-type metric_full_spec() ::
+    {counter, metric_name()}
+    | {gauge, metric_name()}
+    | {slide, metric_name()}
+    | {hist, metric_name(), hist_bucket_spec()}.
+
+-type metric_spec() ::
+    metric_full_spec()
+    %% counter
+    | metric_name()
+    %% histogram with default buckets
+    | {hist, metric_name()}.
+
+-type hist() :: #{
+    buckets := hist_bucket_spec(),
+    counts := [non_neg_integer()]
+}.
 
 -type rate() :: #{
     current := float(),
@@ -92,13 +119,13 @@
     counters := #{metric_name() => integer()},
     gauges := #{metric_name() => integer()},
     slides := #{metric_name() => number()},
+    hists := #{metric_name() => hist()},
     rate := #{metric_name() => rate()}
 }.
--type handler_name() :: atom().
-%% metric_id() is actually a resource id
--type metric_id() :: binary() | atom().
--type metric_name() :: atom().
--type worker_id() :: term().
+
+-type init_metrics() ::
+    [{metric_id(), [metric_spec()], [metric_name()]}]
+    | [{metric_id(), [metric_spec()]}].
 
 -define(CntrRef(Name), {?MODULE, Name}).
 -define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
@@ -130,18 +157,34 @@
     datapoints = [] :: [#slide_datapoint{}]
 }).
 
+-record(hist, {
+    buckets :: [non_neg_integer()]
+}).
+
 -record(state, {
-    metric_ids = sets:new(),
+    name :: handler_name(),
+    metric_ids = sets:new([{version, 2}]),
     rates :: #{metric_id() => #{metric_name() => #rate{}}} | undefined,
-    slides = #{} :: #{metric_id() => #{metric_name() => #slide{}}}
+    slides = #{} :: #{metric_id() => #{metric_name() => #slide{}}},
+    hists = #{} :: #{metric_id() => #{metric_name() => #hist{}}}
 }).
 
 %% calls/casts/infos
 -record(ensure_metrics, {
     id :: metric_id(),
-    metrics :: [metric_spec() | metric_name()],
+    metrics :: [metric_full_spec()],
     rate_metrics :: [metric_name()]
 }).
+-record(create_metrics, {
+    id :: metric_id(),
+    metrics :: [metric_full_spec()],
+    rate_metrics :: [metric_name()]
+}).
+-record(delete_metrics, {id :: metric_id()}).
+-record(reset_metrics, {id :: metric_id()}).
+-record(get_rate, {id :: metric_id()}).
+-record(get_slide, {id :: metric_id(), window = undefined :: non_neg_integer() | undefined}).
+-record(get_hists, {id :: metric_id()}).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -149,32 +192,42 @@
 
 -spec child_spec(handler_name()) -> supervisor:child_spec().
 child_spec(Name) ->
-    child_spec(emqx_metrics_worker, Name).
+    child_spec(emqx_metrics_worker, Name, []).
 
+-spec child_spec(_ChildId :: term(), handler_name()) -> supervisor:child_spec().
 child_spec(ChldName, Name) ->
+    child_spec(ChldName, Name, []).
+
+-spec child_spec(_ChildId :: term(), handler_name(), init_metrics()) ->
+    supervisor:child_spec().
+child_spec(ChldName, Name, InitMetrics0) ->
+    InitMetrics = normalize_initial_metrics(InitMetrics0),
     #{
         id => ChldName,
-        start => {emqx_metrics_worker, start_link, [Name]},
+        start => {emqx_metrics_worker, start_link, [Name, InitMetrics]},
         restart => permanent,
         shutdown => 5000,
         type => worker,
         modules => [emqx_metrics_worker]
     }.
 
--spec create_metrics(handler_name(), metric_id(), [metric_spec() | metric_name()]) ->
+-spec create_metrics(handler_name(), metric_id(), [metric_spec()]) ->
     ok | {error, term()}.
 create_metrics(Name, Id, Metrics) ->
     Metrics1 = desugar(Metrics),
-    Counters = filter_counters(Metrics1),
-    create_metrics(Name, Id, Metrics1, Counters).
+    RateMetrics = filter_counters(Metrics1),
+    create_metrics(Name, Id, Metrics1, RateMetrics).
 
--spec create_metrics(handler_name(), metric_id(), [metric_spec() | metric_name()], [atom()]) ->
+-spec create_metrics(handler_name(), metric_id(), [metric_spec()], [metric_name()]) ->
     ok | {error, term()}.
 create_metrics(Name, Id, Metrics, RateMetrics) ->
     Metrics1 = desugar(Metrics),
-    gen_server:call(Name, {create_metrics, Id, Metrics1, RateMetrics}).
+    gen_server:call(
+        Name,
+        #create_metrics{id = Id, metrics = Metrics1, rate_metrics = RateMetrics}
+    ).
 
--spec ensure_metrics(handler_name(), metric_id(), [metric_spec() | metric_name()], [atom()]) ->
+-spec ensure_metrics(handler_name(), metric_id(), [metric_spec()], [metric_name()]) ->
     {ok, created | already_created} | {error, term()}.
 ensure_metrics(Name, Id, Metrics0, RateMetrics) ->
     Metrics = desugar(Metrics0),
@@ -186,11 +239,11 @@ ensure_metrics(Name, Id, Metrics0, RateMetrics) ->
 
 -spec clear_metrics(handler_name(), metric_id()) -> ok.
 clear_metrics(Name, Id) ->
-    gen_server:call(Name, {delete_metrics, Id}).
+    gen_server:call(Name, #delete_metrics{id = Id}).
 
 -spec reset_metrics(handler_name(), metric_id()) -> ok.
 reset_metrics(Name, Id) ->
-    gen_server:call(Name, {reset_metrics, Id}).
+    gen_server:call(Name, #reset_metrics{id = Id}).
 
 -spec has_metrics(handler_name(), metric_id()) -> boolean().
 has_metrics(Name, Id) ->
@@ -212,7 +265,7 @@ get(Name, Id, Metric) ->
 
 -spec get_rate(handler_name(), metric_id()) -> map().
 get_rate(Name, Id) ->
-    gen_server:call(Name, {get_rate, Id}).
+    gen_server:call(Name, #get_rate{id = Id}).
 
 -spec get_counters(handler_name(), metric_id()) -> map().
 get_counters(Name, Id) ->
@@ -225,14 +278,20 @@ get_counters(Name, Id) ->
 
 -spec get_slide(handler_name(), metric_id()) -> map().
 get_slide(Name, Id) ->
-    gen_server:call(Name, {get_slide, Id}).
+    gen_server:call(Name, #get_slide{id = Id}).
 
 %% Get the average for a specified sliding window period.
 %%
 %% It will only account for the samples recorded in the past `Window' seconds.
 -spec get_slide(handler_name(), metric_id(), non_neg_integer()) -> number().
 get_slide(Name, Id, Window) ->
-    gen_server:call(Name, {get_slide, Id, Window}).
+    gen_server:call(Name, #get_slide{id = Id, window = Window}).
+
+%% Get the incremental counters for each histogram bucket together with the
+%% total count and the sum of observations.
+-spec get_hists(handler_name(), metric_id()) -> map().
+get_hists(Name, Id) ->
+    gen_server:call(Name, #get_hists{id = Id}).
 
 -spec reset_counters(handler_name(), metric_id()) -> ok.
 reset_counters(Name, Id) ->
@@ -250,7 +309,8 @@ get_metrics(Name, Id) ->
         rate => get_rate(Name, Id),
         counters => get_counters(Name, Id),
         gauges => get_gauges(Name, Id),
-        slides => get_slide(Name, Id)
+        slides => get_slide(Name, Id),
+        hists => get_hists(Name, Id)
     }.
 
 -spec inc(handler_name(), metric_id(), atom()) -> ok.
@@ -295,6 +355,23 @@ observe(Name, Id, Metric, Val) ->
     counters:add(CRef, Index, Val),
     %% Update number of samples:
     counters:add(CRef, Index + 1, 1).
+
+-spec observe_hist(handler_name(), metric_id(), atom(), integer()) -> ok.
+observe_hist(Name, Id, Metric, Val) ->
+    #{ref := CRef, hist := Idx} = maps:get(Id, get_pterm(Name)),
+    {Index, Buckets} = maps:get(Metric, Idx),
+    %% Update sum:
+    counters:add(CRef, Index, Val),
+    %% Update bucket counter:
+    update_hist_bucket(CRef, Index + 1, Buckets, Val).
+
+update_hist_bucket(CRef, Index, [Bucket | _Rest], Val) when Val =< Bucket ->
+    counters:add(CRef, Index, 1);
+%% +Inf bucket
+update_hist_bucket(CRef, Index, [], _Val) ->
+    counters:add(CRef, Index, 1);
+update_hist_bucket(CRef, Index, [_Bucket | Rest], Val) ->
+    update_hist_bucket(CRef, Index + 1, Rest, Val).
 
 -spec set_gauge(handler_name(), metric_id(), worker_id(), metric_name(), integer()) -> ok.
 set_gauge(Name, Id, WorkerId, Metric, Val) ->
@@ -378,37 +455,50 @@ delete_gauges(Name, Id) ->
             ok
     end.
 
+-spec start_link(handler_name()) -> gen_server:start_ret().
 start_link(Name) ->
-    gen_server:start_link({local, Name}, ?MODULE, Name, []).
+    start_link(Name, []).
 
-init(Name) ->
+-spec start_link(handler_name(), init_metrics()) -> gen_server:start_ret().
+start_link(Name, InitMetrics) ->
+    gen_server:start_link({local, Name}, ?MODULE, {Name, InitMetrics}, []).
+
+%%------------------------------------------------------------------------------
+%% gen_server callbacks
+%%------------------------------------------------------------------------------
+
+init({Name, InitMetrics}) ->
     erlang:process_flag(trap_exit, true),
     %% the rate metrics
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     persistent_term:put(?CntrRef(Name), #{}),
     _ = ets:new(?GAUGE_TABLE(Name), [named_table, ordered_set, public, {write_concurrency, true}]),
-    {ok, #state{}}.
+    case handle_create_initial_metrics(#state{name = Name}, InitMetrics) of
+        {ok, State} ->
+            {ok, State};
+        {error, Reason} ->
+            {stop, Reason}
+    end.
 
-handle_call({get_rate, _Id}, _From, State = #state{rates = undefined}) ->
+handle_call(#get_rate{id = _Id}, _From, State = #state{rates = undefined}) ->
     {reply, make_rate(0, 0, 0), State};
-handle_call({get_rate, Id}, _From, State = #state{rates = Rates}) ->
+handle_call(#get_rate{id = Id}, _From, State = #state{rates = Rates}) ->
     {reply,
         case maps:get(Id, Rates, undefined) of
             undefined -> make_rate(0, 0, 0);
             RatesPerId -> format_rates_of_id(RatesPerId)
         end, State};
-handle_call({create_metrics, Id, Metrics, RateMetrics}, _From, State0) ->
+handle_call(#create_metrics{id = Id, metrics = Metrics, rate_metrics = RateMetrics}, _From, State0) ->
     {Result, State} = handle_create_metrics(State0, Id, Metrics, RateMetrics),
     {reply, Result, State};
 handle_call(#ensure_metrics{id = Id, metrics = Metrics, rate_metrics = RateMetrics}, _From, State0) ->
     {Result, State} = handle_ensure_metrics(State0, Id, Metrics, RateMetrics),
     {reply, Result, State};
 handle_call(
-    {delete_metrics, Id},
+    #delete_metrics{id = Id},
     _From,
-    State = #state{metric_ids = MIDs, rates = Rates, slides = Slides}
+    State = #state{name = Name, metric_ids = MIDs, rates = Rates, slides = Slides, hists = Hists}
 ) ->
-    Name = get_self_name(),
     delete_counters(Name, Id),
     delete_gauges(Name, Id),
     {reply, ok, State#state{
@@ -418,14 +508,15 @@ handle_call(
                 undefined -> undefined;
                 _ -> maps:remove(Id, Rates)
             end,
-        slides = maps:remove(Id, Slides)
+        slides = maps:remove(Id, Slides),
+        hists = maps:remove(Id, Hists)
     }};
 handle_call(
-    {reset_metrics, Id},
+    #reset_metrics{id = Id},
     _From,
-    State = #state{rates = Rates, slides = Slides}
+    State = #state{name = Name, rates = Rates, slides = Slides, hists = Hists}
 ) ->
-    delete_gauges(get_self_name(), Id),
+    delete_gauges(Name, Id),
     NewRates =
         case Rates of
             undefined ->
@@ -440,19 +531,35 @@ handle_call(
         end,
     SlideSpecs = [{slide, I} || I <- maps:keys(maps:get(Id, Slides, #{}))],
     NewSlides = Slides#{Id => create_slides(SlideSpecs)},
-    {reply, reset_counters(get_self_name(), Id), State#state{
+    HistsSpecs = [
+        {hist, I, Buckets}
+     || {I, #hist{buckets = Buckets}} <- maps:to_list(maps:get(Id, Hists, #{}))
+    ],
+    NewHists = Hists#{Id => create_hists(HistsSpecs)},
+    {reply, reset_counters(Name, Id), State#state{
         rates =
             NewRates,
-        slides = NewSlides
+        slides = NewSlides,
+        hists = NewHists
     }};
-handle_call({get_slide, Id}, _From, State = #state{slides = Slides}) ->
+handle_call(
+    #get_slide{id = Id, window = undefined}, _From, State = #state{name = Name, slides = Slides}
+) ->
     SlidesForID = maps:get(Id, Slides, #{}),
-    {reply, maps:map(fun(Metric, Slide) -> do_get_slide(Id, Metric, Slide) end, SlidesForID),
+    {reply, maps:map(fun(Metric, Slide) -> do_get_slide(Name, Id, Metric, Slide) end, SlidesForID),
         State};
-handle_call({get_slide, Id, Window}, _From, State = #state{slides = Slides}) ->
+handle_call(
+    #get_slide{id = Id, window = Window}, _From, State = #state{name = Name, slides = Slides}
+) ->
     SlidesForID = maps:get(Id, Slides, #{}),
     {reply,
-        maps:map(fun(Metric, Slide) -> do_get_slide(Window, Id, Metric, Slide) end, SlidesForID),
+        maps:map(
+            fun(Metric, Slide) -> do_get_slide(Name, Window, Id, Metric, Slide) end, SlidesForID
+        ),
+        State};
+handle_call(#get_hists{id = Id}, _From, State = #state{name = Name, hists = Hists}) ->
+    HistsForID = maps:get(Id, Hists, #{}),
+    {reply, maps:map(fun(Metric, Hist) -> do_get_hist(Name, Id, Metric, Hist) end, HistsForID),
         State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -463,13 +570,13 @@ handle_cast(_Msg, State) ->
 handle_info(ticking, State = #state{rates = undefined}) ->
     erlang:send_after(timer:seconds(?SAMPLING), self(), ticking),
     {noreply, State};
-handle_info(ticking, State = #state{rates = Rates0, slides = Slides0}) ->
+handle_info(ticking, State = #state{name = Name, rates = Rates0, slides = Slides0}) ->
     Rates =
         maps:map(
             fun(Id, RatesPerID) ->
                 maps:map(
                     fun(Metric, Rate) ->
-                        calculate_rate(get(get_self_name(), Id, Metric), Rate)
+                        calculate_rate(get(Name, Id, Metric), Rate)
                     end,
                     RatesPerID
                 )
@@ -481,7 +588,7 @@ handle_info(ticking, State = #state{rates = Rates0, slides = Slides0}) ->
             fun(Id, SlidesPerID) ->
                 maps:map(
                     fun(Metric, Slide) ->
-                        update_slide(Id, Metric, Slide)
+                        update_slide(Name, Id, Metric, Slide)
                     end,
                     SlidesPerID
                 )
@@ -496,8 +603,7 @@ handle_info(_Info, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{metric_ids = MIDs}) ->
-    Name = get_self_name(),
+terminate(_Reason, #state{name = Name, metric_ids = MIDs}) ->
     [delete_counters(Name, Id) || Id <- sets:to_list(MIDs)],
     persistent_term:erase(?CntrRef(Name)).
 
@@ -517,7 +623,7 @@ stop(Name) ->
 %%------------------------------------------------------------------------------
 
 create_counters(_Name, _Id, []) ->
-    error({create_counter_error, must_provide_a_list_of_metrics});
+    {error, {create_counter_error, must_provide_a_list_of_metrics}};
 create_counters(Name, Id, Metrics) ->
     %% backup the old counters
     OlderCounters = maps:with(filter_counters(Metrics), get_counters(Name, Id)),
@@ -529,9 +635,11 @@ create_counters(Name, Id, Metrics) ->
         ?CntrRef(Name),
         Counters#{Id => Indexes#{ref => CntrRef}}
     ),
-    %% Restore the old counters. Slides are not restored, since they
-    %% are periodically zeroed anyway. We do lose some samples in the
+    %% Restore the old counters. Slides/histograms are not restored,
+    %% Slides are periodically zeroed anyway. We do lose some samples in the
     %% current interval, but that's acceptable for now.
+    %% Histograms may change buckets; also is considered the histogram
+    %% consumer's responsibility to handle zeroing (like Prometheus does).
     lists:foreach(
         fun({Metric, N}) ->
             inc(Name, Id, Metric, N)
@@ -539,15 +647,28 @@ create_counters(Name, Id, Metrics) ->
         maps:to_list(OlderCounters)
     ).
 
+%% TODO
+%% better acc
 create_metric_indexes(Metrics) ->
-    create_metric_indexes(Metrics, 1, [], []).
+    create_metric_indexes(Metrics, 1, [], [], []).
 
-create_metric_indexes([], Size, Counters, Slides) ->
-    {Size, #{counter => maps:from_list(Counters), slide => maps:from_list(Slides)}};
-create_metric_indexes([{counter, Id} | Rest], Index, Counters, Slides) ->
-    create_metric_indexes(Rest, Index + 1, [{Id, Index} | Counters], Slides);
-create_metric_indexes([{slide, Id} | Rest], Index, Counters, Slides) ->
-    create_metric_indexes(Rest, Index + 2, Counters, [{Id, Index} | Slides]).
+create_metric_indexes([], Size, Counters, Slides, Hists) ->
+    {Size, #{
+        counter => maps:from_list(Counters),
+        slide => maps:from_list(Slides),
+        hist => maps:from_list(Hists)
+    }};
+create_metric_indexes([{counter, Id} | Rest], Index, Counters, Slides, Hists) ->
+    create_metric_indexes(Rest, Index + 1, [{Id, Index} | Counters], Slides, Hists);
+create_metric_indexes([{slide, Id} | Rest], Index, Counters, Slides, Hists) ->
+    create_metric_indexes(Rest, Index + 2, Counters, [{Id, Index} | Slides], Hists);
+create_metric_indexes([{hist, Id, Buckets} | Rest], Index, Counters, Slides, Hists) ->
+    %% For histogram, we need 2 additional indexes:
+    %% * one for the +Inf bucket
+    %% * one for the total sum of observations
+    create_metric_indexes(Rest, Index + length(Buckets) + 2, Counters, Slides, [
+        {Id, {Index, Buckets}} | Hists
+    ]).
 
 delete_counters(Name, Id) ->
     persistent_term:put(?CntrRef(Name), maps:remove(Id, get_pterm(Name))).
@@ -611,15 +732,15 @@ calculate_rate(CurrVal, #rate{
         tick = Tick + 1
     }.
 
-do_get_slide(Id, Metric, S = #slide{n_samples = NSamples}) ->
+do_get_slide(Name, Id, Metric, S = #slide{n_samples = NSamples}) ->
     #{
         n_samples => NSamples,
-        current => do_get_slide(2, Id, Metric, S),
-        last5m => do_get_slide(?SECS_5M, Id, Metric, S)
+        current => do_get_slide(Name, 2, Id, Metric, S),
+        last5m => do_get_slide(Name, ?SECS_5M, Id, Metric, S)
     }.
 
-do_get_slide(Window, Id, Metric, #slide{datapoints = DP0}) ->
-    Datapoint = get_slide_datapoint(Id, Metric),
+do_get_slide(Name, Window, Id, Metric, #slide{datapoints = DP0}) ->
+    Datapoint = get_slide_datapoint(Name, Id, Metric),
     {N, Sum} = get_slide_window(os:system_time(second) - Window, [Datapoint | DP0], 0, 0),
     case N > 0 of
         true -> Sum div N;
@@ -633,8 +754,7 @@ get_slide_window(StartTime, [#slide_datapoint{time = T} | _], N, S) when T < Sta
 get_slide_window(StartTime, [#slide_datapoint{samples = N, sum = S} | Rest], AccN, AccS) ->
     get_slide_window(StartTime, Rest, AccN + N, AccS + S).
 
-get_slide_datapoint(Id, Metric) ->
-    Name = get_self_name(),
+get_slide_datapoint(Name, Id, Metric) ->
     CRef = get_ref(Name, Id),
     Index = idx_metric(Name, Id, slide, Metric),
     Total = counters:get(CRef, Index),
@@ -645,10 +765,9 @@ get_slide_datapoint(Id, Metric) ->
         time = os:system_time(second)
     }.
 
-update_slide(Id, Metric, Slide0 = #slide{n_samples = NSamples, datapoints = DPs}) ->
-    Datapoint = get_slide_datapoint(Id, Metric),
+update_slide(Name, Id, Metric, Slide0 = #slide{n_samples = NSamples, datapoints = DPs}) ->
+    Datapoint = get_slide_datapoint(Name, Id, Metric),
     %% Reset counters:
-    Name = get_self_name(),
     CRef = get_ref(Name, Id),
     Index = idx_metric(Name, Id, slide, Metric),
     counters:put(CRef, Index, 0),
@@ -657,6 +776,25 @@ update_slide(Id, Metric, Slide0 = #slide{n_samples = NSamples, datapoints = DPs}
         datapoints = [Datapoint | lists:droplast(DPs)],
         n_samples = Datapoint#slide_datapoint.samples + NSamples
     }.
+
+do_get_hist(Name, Id, Metric, #hist{buckets = Buckets}) ->
+    CRef = get_ref(Name, Id),
+    {Index, _} = idx_metric(Name, Id, hist, Metric),
+    Sum = counters:get(CRef, Index),
+    {BucketCounts, TotalCount} = get_incremental_bucket_counts(CRef, Index + 1, Buckets, 0, []),
+    #{
+        bucket_counts => BucketCounts,
+        count => TotalCount,
+        sum => Sum
+    }.
+
+get_incremental_bucket_counts(CRef, Index, [], TotalAcc0, Acc) ->
+    TotalAcc = TotalAcc0 + counters:get(CRef, Index),
+    BucketCounts = lists:reverse([{infinity, TotalAcc} | Acc]),
+    {BucketCounts, TotalAcc};
+get_incremental_bucket_counts(CRef, Index, [Bucket | Rest], Total0, Acc) ->
+    Total = Total0 + counters:get(CRef, Index),
+    get_incremental_bucket_counts(CRef, Index + 1, Rest, Total, [{Bucket, Total} | Acc]).
 
 format_rates_of_id(RatesPerId) ->
     maps:map(
@@ -685,6 +823,10 @@ desugar(Metrics) ->
         fun
             (Atom) when is_atom(Atom) ->
                 {counter, Atom};
+            ({hist, Name}) ->
+                {hist, Name, ?DEFAULT_HIST_BUCKETS};
+            ({hist, Name, Buckets}) ->
+                {hist, Name, lists:sort(Buckets)};
             (Spec = {_, _}) ->
                 Spec
         end,
@@ -694,6 +836,20 @@ desugar(Metrics) ->
 filter_counters(Metrics) ->
     [K || {counter, K} <- Metrics].
 
+normalize_initial_metrics(InitMetrics) ->
+    lists:map(
+        fun
+            ({Id, Metrics0}) ->
+                Metrics = desugar(Metrics0),
+                RateMetrics = filter_counters(Metrics),
+                {Id, Metrics, RateMetrics};
+            ({Id, Metrics0, RateMetrics}) ->
+                Metrics = desugar(Metrics0),
+                {Id, Metrics, RateMetrics}
+        end,
+        InitMetrics
+    ).
+
 create_slides(Metrics) ->
     EmptyDatapoints = [
         #slide_datapoint{sum = 0, samples = 0, time = 0}
@@ -701,9 +857,11 @@ create_slides(Metrics) ->
     ],
     maps:from_list([{K, #slide{datapoints = EmptyDatapoints}} || {slide, K} <- Metrics]).
 
-get_self_name() ->
-    {registered_name, Name} = process_info(self(), registered_name),
-    Name.
+create_hists(Metrics) ->
+    maps:from_list([
+        {K, #hist{buckets = Buckets}}
+     || {hist, K, Buckets} <- Metrics
+    ]).
 
 is_superset_of(RateMetrics, Metrics) ->
     case RateMetrics -- filter_counters(Metrics) of
@@ -713,8 +871,8 @@ is_superset_of(RateMetrics, Metrics) ->
             false
     end.
 
-handle_create_metrics(State0, Id, Metrics, RateMetrics) ->
-    #state{metric_ids = MIDs0, rates = Rates0, slides = Slides0} = State0,
+handle_create_metrics(#state{name = Name} = State0, Id, Metrics, RateMetrics) ->
+    #state{metric_ids = MIDs0, rates = Rates0, slides = Slides0, hists = Hists0} = State0,
     case is_superset_of(RateMetrics, Metrics) of
         true ->
             RatesPerId = maps:from_list([{M, #rate{}} || M <- RateMetrics]),
@@ -724,25 +882,38 @@ handle_create_metrics(State0, Id, Metrics, RateMetrics) ->
                     _ -> Rates0#{Id => RatesPerId}
                 end,
             Slides = Slides0#{Id => create_slides(Metrics)},
+            Hists = Hists0#{Id => create_hists(Metrics)},
             MIDs = sets:add_element(Id, MIDs0),
             State = State0#state{
                 metric_ids = MIDs,
                 rates = Rates,
-                slides = Slides
+                slides = Slides,
+                hists = Hists
             },
-            Result = create_counters(get_self_name(), Id, Metrics),
+            Result = create_counters(Name, Id, Metrics),
             {Result, State};
         false ->
-            {{error, not_super_set_of, {RateMetrics, Metrics}}, State0}
+            {{error, {not_super_set_of, {RateMetrics, Metrics}}}, State0}
     end.
 
-handle_ensure_metrics(State0, Id, Metrics, RateMetrics) ->
-    #state{metric_ids = MIDs, rates = Rates, slides = Slides} = State0,
-    Name = get_self_name(),
+handle_create_initial_metrics(State0, []) ->
+    {ok, State0};
+handle_create_initial_metrics(State0, [{Id, Metrics, RateMetrics} | Rest]) ->
+    case handle_create_metrics(State0, Id, Metrics, RateMetrics) of
+        {ok, State1} ->
+            handle_create_initial_metrics(State1, Rest);
+        {{error, _} = Error, _State} ->
+            Error
+    end.
+
+handle_ensure_metrics(#state{name = Name} = State0, Id, Metrics, RateMetrics) ->
+    #state{metric_ids = MIDs, rates = Rates, slides = Slides, hists = Hists} = State0,
+    HasMetricId = sets:is_element(Id, MIDs),
+    %% Chech if all counters are present
     CounterKeys = filter_counters(Metrics),
     CurrentCounters = get_counters(Name, Id),
     HasAllCounters = [] =:= (CounterKeys -- maps:keys(CurrentCounters)),
-    HasMetricId = sets:is_element(Id, MIDs),
+    %% Check if all rates are present
     CurrentRates =
         %% todo: no need to have `undefined' here?
         case Rates of
@@ -750,10 +921,15 @@ handle_ensure_metrics(State0, Id, Metrics, RateMetrics) ->
             _ -> []
         end,
     HasRates = [] =:= (RateMetrics -- CurrentRates),
+    %% Check if all slides are present
     SlideKeys = [K || {slide, K} <- Metrics],
     CurrentSlides = maps:keys(maps:get(Id, Slides, #{})),
     HasSlides = [] =:= (SlideKeys -- CurrentSlides),
-    case HasMetricId andalso HasAllCounters andalso HasRates andalso HasSlides of
+    %% Check if all histograms are present
+    HistKeys = [K || {hist, K, _} <- Metrics],
+    CurrentHists = maps:keys(maps:get(Id, Hists, #{})),
+    HasHists = [] =:= (HistKeys -- CurrentHists),
+    case HasMetricId andalso HasAllCounters andalso HasRates andalso HasSlides andalso HasHists of
         true ->
             {{ok, already_created}, State0};
         false ->

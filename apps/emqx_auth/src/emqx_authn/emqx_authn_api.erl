@@ -67,9 +67,9 @@
     listener_authenticator_user/2,
     lookup_from_local_node/2,
     lookup_from_all_nodes/2,
-    authentication_cache/2,
-    authentication_cache_status/2,
-    authentication_cache_reset/2
+    authentication_settings/2,
+    authentication_node_cache_status/2,
+    authentication_node_cache_reset/2
 ]).
 
 -export([
@@ -78,7 +78,7 @@
     request_user_update_examples/0,
     response_user_examples/0,
     response_users_example/0,
-    authn_cache_example/0,
+    authn_settings_example/0,
     authn_cache_status_example/0
 ]).
 
@@ -115,9 +115,9 @@ paths() ->
         "/authentication/:id/users",
         "/authentication/:id/users/:user_id",
         "/authentication/order",
-        "/authentication_cache",
-        "/authentication_cache/status",
-        "/authentication_cache/reset"
+        "/authentication/settings",
+        "/authentication/node_cache/status",
+        "/authentication/node_cache/reset"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -163,10 +163,10 @@ fields(request_authn_order) ->
                 example => "password_based:built_in_database"
             })}
     ];
-fields(request_authn_cache) ->
-    emqx_auth_cache_schema:fields(config);
-fields(response_authn_cache) ->
-    emqx_auth_cache_schema:fields(config).
+fields(request_authn_settings) ->
+    emqx_authn_schema:fields("settings");
+fields(response_authn_settings) ->
+    emqx_authn_schema:fields("settings").
 
 schema("/authentication") ->
     #{
@@ -575,38 +575,38 @@ schema("/authentication/order") ->
             }
         }
     };
-schema("/authentication_cache") ->
+schema("/authentication/settings") ->
     #{
-        'operationId' => authentication_cache,
+        'operationId' => authentication_settings,
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => ?DESC(authentication_cache_get),
+            description => ?DESC(authentication_settings_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    ref(?MODULE, response_authn_cache),
-                    authn_cache_example()
+                    ref(?MODULE, response_authn_settings),
+                    authn_settings_example()
                 )
             }
         },
         put => #{
             tags => ?API_TAGS_GLOBAL,
-            description => ?DESC(authentication_cache_put),
+            description => ?DESC(authentication_settings_put),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                ref(?MODULE, request_authn_cache),
-                authn_cache_example()
+                ref(?MODULE, request_authn_settings),
+                authn_settings_example()
             ),
             responses => #{
-                204 => <<"Authentication cache updated">>,
+                204 => <<"Authentication settings updated">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
             }
         }
     };
-schema("/authentication_cache/status") ->
+schema("/authentication/node_cache/status") ->
     #{
-        'operationId' => authentication_cache_status,
+        'operationId' => authentication_node_cache_status,
         get => #{
             tags => ?API_TAGS_GLOBAL,
-            description => ?DESC(authentication_cache_status_get),
+            description => ?DESC(authentication_node_cache_status_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(emqx_auth_cache_schema, status),
@@ -616,12 +616,12 @@ schema("/authentication_cache/status") ->
             }
         }
     };
-schema("/authentication_cache/reset") ->
+schema("/authentication/node_cache/reset") ->
     #{
-        'operationId' => authentication_cache_reset,
+        'operationId' => authentication_node_cache_reset,
         post =>
             #{
-                description => ?DESC(authentication_cache_reset_post),
+                description => ?DESC(authentication_node_cache_reset_post),
                 responses =>
                     #{
                         204 => <<"No Content">>,
@@ -779,18 +779,18 @@ authenticators_order(put, #{body := AuthnOrder}) ->
             serialize_error(Reason)
     end.
 
-authentication_cache(get, _Params) ->
-    RawConfig = emqx:get_raw_config([authentication_cache]),
-    {200, emqx_auth_cache_schema:fill_defaults(RawConfig)};
-authentication_cache(put, #{body := Config}) ->
-    case update_config([authentication_cache], Config) of
+authentication_settings(get, _Params) ->
+    RawConfig = emqx:get_raw_config([authentication_settings]),
+    {200, emqx_authn_schema:fill_defaults(RawConfig)};
+authentication_settings(put, #{body := Config}) ->
+    case update_config([authentication_settings], Config) of
         {ok, _} ->
             {204};
         {error, Reason} ->
             serialize_error(Reason)
     end.
 
-authentication_cache_status(get, _Params) ->
+authentication_node_cache_status(get, _Params) ->
     Nodes = mria:running_nodes(),
     LookupResult = emqx_auth_cache_proto_v1:metrics(Nodes, ?AUTHN_CACHE),
     case is_ok(LookupResult) of
@@ -815,7 +815,7 @@ authentication_cache_status(get, _Params) ->
             }}
     end.
 
-authentication_cache_reset(post, _) ->
+authentication_node_cache_reset(post, _) ->
     Nodes = mria:running_nodes(),
     case is_ok(emqx_auth_cache_proto_v1:reset(Nodes, ?AUTHN_CACHE)) of
         {ok, _} ->
@@ -1698,8 +1698,8 @@ response_users_example() ->
         }
     }.
 
-authn_cache_example() ->
-    emqx_auth_cache_schema:cache_settings_example().
+authn_settings_example() ->
+    #{<<"node_cache">> => emqx_auth_cache_schema:cache_settings_example()}.
 
 authn_cache_status_example() ->
     emqx_auth_cache_schema:metrics_example().

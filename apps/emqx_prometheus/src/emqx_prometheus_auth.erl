@@ -18,7 +18,9 @@
 -export([
     deregister_cleanup/1,
     collect_mf/2,
-    collect_metrics/2
+    collect_metrics/2,
+    init_latency_metrics/0,
+    update_latency_metrics/1
 ]).
 
 -export([collect/1]).
@@ -38,6 +40,7 @@
 ]).
 
 -include("emqx_prometheus.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 -include_lib("prometheus/include/prometheus.hrl").
 
@@ -47,7 +50,8 @@
         create_mf/5,
         gauge_metric/1,
         gauge_metrics/1,
-        counter_metrics/1
+        counter_metrics/1,
+        histogram_metrics/1
     ]
 ).
 
@@ -100,6 +104,8 @@ collect_mf(?PROMETHEUS_AUTH_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, authz_metric_meta(), ?MG(authz_data, RawData)),
     ok = add_collect_family(Callback, authz_rules_count_metric_meta(), ?MG(authz_rules_count_data, RawData)),
     ok = add_collect_family(Callback, banned_count_metric_meta(), ?MG(banned_count_data, RawData)),
+    ok = add_collect_family(Callback, authn_latency_metric_meta(), ?MG(authn_latency_data, RawData)),
+    ok = add_collect_family(Callback, authz_latency_metric_meta(), ?MG(authz_latency_data, RawData)),
     ok;
 collect_mf(_, _) ->
     ok.
@@ -128,6 +134,8 @@ collect_metrics(Name, Metrics) ->
 %% behaviour
 fetch_from_local_node(Mode) ->
     {node(self()), #{
+        authn_latency_data => authn_latency_data(Mode),
+        authz_latency_data => authz_latency_data(Mode),
         authn_data => authn_data(Mode),
         authz_data => authz_data(Mode)
     }}.
@@ -142,7 +150,9 @@ fetch_cluster_consistented_data() ->
 aggre_or_zip_init_acc() ->
     #{
         authn_data => maps:from_keys(authn_metric(names), []),
-        authz_data => maps:from_keys(authz_metric(names), [])
+        authz_data => maps:from_keys(authz_metric(names), []),
+        authn_latency_data => maps:from_keys(authn_latency_metric_meta(names), []),
+        authz_latency_data => maps:from_keys(authz_latency_metric_meta(names), [])
     }.
 
 logic_sum_metrics() ->
@@ -198,7 +208,23 @@ collect_auth(K = emqx_authz_rules_count, Data) ->
 %%====================
 %% Banned
 collect_auth(emqx_banned_count, Data) ->
-    gauge_metric(Data).
+    gauge_metric(Data);
+%%====================
+%% Authn latency
+collect_auth(K = emqx_authn_latency, Data) ->
+    Hists = [
+        {Labels, BucketCounts, Count, Sum}
+     || {Labels, #{count := Count, sum := Sum, bucket_counts := BucketCounts}} <- ?MG(K, Data)
+    ],
+    histogram_metrics(Hists);
+%%====================
+%% Authz latency
+collect_auth(K = emqx_authz_latency, Data) ->
+    Hists = [
+        {Labels, BucketCounts, Count, Sum}
+     || {Labels, #{count := Count, sum := Sum, bucket_counts := BucketCounts}} <- ?MG(K, Data)
+    ],
+    histogram_metrics(Hists).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -415,6 +441,48 @@ banned_count_data() ->
     mnesia_size(?BANNED_TABLE).
 
 %%--------------------------------------------------------------------
+%% Authn latency
+%%--------------------------------------------------------------------
+
+authn_latency_metric_meta() ->
+    [
+        {emqx_authn_latency, histogram}
+    ].
+
+authn_latency_metric_meta(names) ->
+    emqx_prometheus_cluster:metric_names(authn_latency_metric_meta()).
+
+authn_latency_data(Mode) ->
+    Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    #{
+        emqx_authn_latency => [
+            {with_node_label(Mode, [{name, Name}]), Hist}
+         || {Name, Hist} <- maps:to_list(Hists)
+        ]
+    }.
+
+%%--------------------------------------------------------------------
+%% Authz latency
+%%--------------------------------------------------------------------
+
+authz_latency_metric_meta() ->
+    [
+        {emqx_authz_latency, histogram}
+    ].
+
+authz_latency_metric_meta(names) ->
+    emqx_prometheus_cluster:metric_names(authz_latency_metric_meta()).
+
+authz_latency_data(Mode) ->
+    Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
+    #{
+        emqx_authz_latency => [
+            {with_node_label(Mode, [{name, Name}]), Hist}
+         || {Name, Hist} <- maps:to_list(Hists)
+        ]
+    }.
+
+%%--------------------------------------------------------------------
 %% Collect functions
 %%--------------------------------------------------------------------
 
@@ -466,8 +534,45 @@ users_or_rule_count(#{type := Type}) ->
 users_or_rule_count(_) ->
     #{}.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%--------------------------------------------------------------------
+%% Configuration initialization and update
+%%--------------------------------------------------------------------
+
+init_latency_metrics() ->
+    update_latency_metrics(emqx_config:get(?PROMETHEUS)).
+
+update_latency_metrics(#{latency_buckets := Buckets}) ->
+    HistGroups = [
+        {?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'},
+        {?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'}
+    ],
+    lists:foreach(
+        fun({Worker, Id}) ->
+            ok = update_histogram_buckets(Worker, Id, Buckets)
+        end,
+        HistGroups
+    );
+%% Legacy config without latency bucket setting
+update_latency_metrics(_) ->
+    ok.
+
+update_histogram_buckets(Worker, Id, Buckets) ->
+    Hists = emqx_metrics_worker:get_hists(Worker, Id),
+    ok = emqx_metrics_worker:clear_metrics(Worker, Id),
+    lists:foreach(
+        fun({Name, _}) ->
+            ok = emqx_metrics_worker:create_metrics(
+                Worker,
+                Id,
+                [{hist, Name, Buckets}]
+            )
+        end,
+        maps:to_list(Hists)
+    ).
+
+%%--------------------------------------------------------------------
 %% Helper funcs
+%%--------------------------------------------------------------------
 
 authenticator_id(Authn) ->
     emqx_authn_chains:authenticator_id(Authn).

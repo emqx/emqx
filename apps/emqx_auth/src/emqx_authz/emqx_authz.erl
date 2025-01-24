@@ -31,7 +31,6 @@
 -export([
     register_source/2,
     unregister_source/1,
-    register_metrics/0,
     init/0,
     deinit/0,
     format_for_api/1,
@@ -84,10 +83,6 @@
 
 -define(METRICS, [?METRIC_SUPERUSER, ?METRIC_ALLOW, ?METRIC_DENY, ?METRIC_NOMATCH]).
 
--spec register_metrics() -> ok.
-register_metrics() ->
-    lists:foreach(fun emqx_metrics:ensure/1, ?METRICS).
-
 init() ->
     ok = register_metrics(),
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
@@ -127,6 +122,9 @@ are_all_providers_registered() ->
         {unknown_authz_source_type, _Type} ->
             false
     end.
+
+register_metrics() ->
+    ok = lists:foreach(fun emqx_metrics:ensure/1, ?METRICS).
 
 register_builtin_sources() ->
     lists:foreach(

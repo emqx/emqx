@@ -32,18 +32,7 @@
 -include("emqx_authn.hrl").
 
 fill_defaults(Config) ->
-    #{?CONF_NS_BINARY := WithDefaults} = do_fill_defaults(Config),
-    WithDefaults.
-
-do_fill_defaults(Config0) ->
-    Config = #{?CONF_NS_BINARY => Config0},
-    Schema = #{roots => [{?CONF_NS, hoconsc:mk(emqx_authn_schema:authenticator_type())}]},
-    case emqx_hocon:check(Schema, Config, #{make_serializable => true}) of
-        {ok, Checked} ->
-            Checked;
-        {error, Reason} ->
-            throw(Reason)
-    end.
+    emqx_schema:fill_defaults_for_type(emqx_authn_schema:authenticator_type(), Config).
 
 -spec get_enabled_authns() ->
     #{

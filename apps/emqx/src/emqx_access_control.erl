@@ -266,10 +266,18 @@ format_retain_flag(true) ->
 format_retain_flag(false) ->
     "R0".
 
--compile({inline, [run_hooks/3]}).
-run_hooks(Name, Args, Acc) ->
+run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.authorize' ->
     ok = emqx_metrics:inc(Name),
-    emqx_hooks:run_fold(Name, Args, Acc).
+    {Time, Value} = timer:tc(
+        fun() -> emqx_hooks:run_fold(Name, Args, Acc) end
+    ),
+    catch emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER,
+        Name,
+        total_latency,
+        erlang:convert_time_unit(Time, microsecond, millisecond)
+    ),
+    Value.
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->
