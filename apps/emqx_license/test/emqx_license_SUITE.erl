@@ -189,6 +189,33 @@ t_check_expired(_Config) ->
         emqx_license:check(#{}, #{})
     ).
 
+t_check_max_uptime_reached(_Config) ->
+    {_, License} = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20991231",
+            "1",
+            "123"
+        ]
+    ),
+
+    meck:new(emqx_license_parser_v20220101, [passthrough, no_history]),
+    meck:expect(emqx_license_parser_v20220101, max_uptime_seconds, fun(_) -> 0 end),
+
+    #{} = update(License),
+
+    meck:unload(emqx_license_parser_v20220101),
+
+    ?assertEqual(
+        {stop, {error, ?RC_QUOTA_EXCEEDED}},
+        emqx_license:check(#{}, #{})
+    ).
+
 t_check_not_loaded(_Config) ->
     ok = emqx_license_checker:purge(),
     ?assertEqual(

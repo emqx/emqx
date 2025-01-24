@@ -86,6 +86,8 @@
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
+    connection_rejected_due_to_trial_license_uptime_limit,
+    connection_rejected_due_to_max_uptime_reached,
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
