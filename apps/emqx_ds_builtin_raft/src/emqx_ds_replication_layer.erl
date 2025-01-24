@@ -1345,7 +1345,7 @@ fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc :=
 message_match_context(DBShard, InnerStream, MsgKey, Message) ->
     emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
 
-iterator_match_context(DBShard = {DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Iterator}) ->
+iterator_match_context(DBShard = {_DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Iterator}) ->
     emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
 
 scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->

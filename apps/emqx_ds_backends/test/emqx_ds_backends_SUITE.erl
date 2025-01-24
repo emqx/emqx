@@ -72,90 +72,6 @@ t_02_smoke_iterate(Config) ->
     {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
     emqx_ds_test_helpers:diff_messages(Msgs, Batch).
 
-%% A simple smoke test that verifies that poll request is fulfilled
-%% immediately when the new data is present at the time of poll
-%% request.
-t_03_smoke_poll_immediate(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            %% Store one message to create a stream:
-            Msgs1 = [message(<<"foo/bar">>, <<"0">>, 0)],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1, #{sync => true})),
-            timer:sleep(1_000),
-            %% Create the iterator:
-            StartTime = 0,
-            TopicFilter = ['#'],
-            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-            {ok, Iter1, Batch1} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-            emqx_ds_test_helpers:diff_messages(Msgs1, Batch1),
-            %% Publish some messages:
-            Msgs2 = [
-                message(<<"foo/bar">>, <<"1">>, 0),
-                message(<<"foo/bar">>, <<"2">>, 1),
-                message(<<"foo/bar">>, <<"3">>, 2)
-            ],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs2, #{sync => true})),
-            timer:sleep(1_000),
-            %% Now poll the iterator:
-            UserData = ?FUNCTION_NAME,
-            {ok, Ref} = emqx_ds:poll(DB, [{UserData, Iter1}], #{timeout => 5_000}),
-            receive
-                #poll_reply{ref = Ref, userdata = UserData, payload = Payload} ->
-                    {ok, Iter, Batch2} = Payload,
-                    emqx_ds_test_helpers:diff_messages(Msgs2, Batch2),
-                    %% Now verify that the received iterator is valid:
-                    ?assertMatch({ok, _, []}, emqx_ds:next(DB, Iter, 10))
-            after 1_000 ->
-                error(no_poll_reply)
-            end
-        end,
-        []
-    ).
-
-%% A simple test that verifies that poll request is fulfilled after
-%% new data is added to the stream
-t_04_smoke_poll_new_data(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            %% Store one message to create a stream:
-            Msgs1 = [message(<<"foo/bar">>, <<"0">>, 0)],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1, #{sync => true})),
-            timer:sleep(1_000),
-            %% Create the iterator:
-            StartTime = 0,
-            TopicFilter = ['#'],
-            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-            {ok, Iter1, Batch1} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-            emqx_ds_test_helpers:diff_messages(Msgs1, Batch1),
-            %% Now poll the iterator:
-            UserData = ?FUNCTION_NAME,
-            {ok, Ref} = emqx_ds:poll(DB, [{UserData, Iter1}], #{timeout => 5_000}),
-            %% Publish some messages:
-            Msgs2 = [
-                message(<<"foo/bar">>, <<"1">>, 0),
-                message(<<"foo/bar">>, <<"2">>, 1),
-                message(<<"foo/bar">>, <<"3">>, 2)
-            ],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs2, #{sync => true})),
-            receive
-                #poll_reply{ref = Ref, userdata = UserData, payload = Payload} ->
-                    {ok, Iter, Batch2} = Payload,
-                    emqx_ds_test_helpers:diff_messages(Msgs2, Batch2),
-                    %% Now verify that the received iterator is valid:
-                    ?assertMatch({ok, _, []}, emqx_ds:next(DB, Iter, 10))
-            after 5_000 ->
-                error(no_poll_reply)
-            end
-        end,
-        []
-    ).
-
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
 %% to the external resources, such as clients' sessions, and they
@@ -584,31 +500,6 @@ t_drop_generation_with_used_once_iterator(Config) ->
         {error, unrecoverable, generation_not_found},
         emqx_ds_test_helpers:consume_iter(DB, Iter1)
     ).
-
-%% Validate that polling the iterator from the deleted generation is
-%% handled gracefully:
-t_poll_missing_generation(Config) ->
-    %% Open the DB and push some messages to create a stream:
-    DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    Msgs = [message(<<"foo/bar">>, <<"1">>, 0)],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-    timer:sleep(1_000),
-    %% Create an iterator:
-    TopicFilter = [<<"foo">>, '+'],
-    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, 0),
-    {ok, It} = emqx_ds:make_iterator(DB, Stream, TopicFilter, 0),
-    %% Rotate generations:
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
-    emqx_ds:add_generation(DB),
-    emqx_ds:drop_generation(DB, GenId0),
-    timer:sleep(1_000),
-    [GenId1] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
-    ?assertNotEqual(GenId0, GenId1),
-    %% Poll iterator:
-    Tag = ?FUNCTION_NAME,
-    {ok, Ref} = emqx_ds:poll(DB, [{Tag, It}], #{timeout => 1_000}),
-    ?assertReceive(#poll_reply{ref = Ref, userdata = Tag, payload = {error, unrecoverable, _}}).
 
 t_make_iterator_stale_stream(Config) ->
     %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying

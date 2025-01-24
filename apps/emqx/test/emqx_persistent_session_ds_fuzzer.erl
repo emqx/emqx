@@ -211,9 +211,6 @@ message(MsgId, #{subs := Subs}) ->
         }
     ).
 
-message(S = #{message_seqno := SeqNo}) ->
-    message(SeqNo, S).
-
 publish_(S = #{message_seqno := SeqNo}) ->
     ?LET(
         BatchSize,
@@ -468,14 +465,13 @@ tprop_packet_id_history(I = #{?snk_kind := Kind}, {Acc, NFlows}) ->
 
 tprop_pid_publish(#{packet_id := undefined, qos := ?QOS_0}, Acc) ->
     Acc;
-tprop_pid_publish(#{packet_id := PID, qos := QoS, dup := Dup} = I, Acc) ->
+tprop_pid_publish(#{packet_id := PID, dup := Dup} = I, Acc) ->
     case Acc of
         #{PID := {publish, Old}} ->
             ?assert(Dup, #{
                 msg => "Duplicated message with DUP=false",
-                packet_id => PID,
                 old => Old,
-                msg => I
+                new => I
             }),
             compare_msgs(Old, I),
             Acc#{PID := {publish, I}};
@@ -484,7 +480,7 @@ tprop_pid_publish(#{packet_id := PID, qos := QoS, dup := Dup} = I, Acc) ->
                 msg => "Unexpected packet",
                 packet_id => PID,
                 old => Old,
-                msg => I
+                new => I
             });
         #{} ->
             Acc#{PID => {publish, I}}

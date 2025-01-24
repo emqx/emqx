@@ -211,6 +211,10 @@
 %% contains pids of workers that currently own the subscription.
 -record(owner_tab, {
     sub_ref :: emqx_ds:sub_ref(),
+    %% Monitor reference the process owning the subscription on the
+    %% client side:
+    mref :: reference(),
+    %% Pid of the worker owning the subscription on the DS side:
     owner :: pid() | undefined
 }).
 
@@ -347,10 +351,10 @@
     userdata,
     opts :: emqx_ds:sub_opts()
 }).
--record(unsub_req, {id :: reference()}).
 -record(wakeup_sub_req, {id :: reference()}).
 -record(generation_event, {}).
 -record(handle_recoverable_req, {sub_states :: [sub_state()]}).
+-record(disown_stuck_req, {sub_state :: sub_state()}).
 
 -spec start_link(dbshard(), module()) -> {ok, pid()}.
 start_link(DBShard, CBM) ->
@@ -788,7 +792,7 @@ handle_event(
                 sub_ref = SubRef, max_unacked = MaxUnacked, aref = FlowControl
             }),
             %% Create an entry in the owner table:
-            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubRef}),
+            ets:insert(owner_tab(Shard), #owner_tab{sub_ref = SubRef, mref = MRef}),
             %% Schedule dispaching to the catchup worker:
             D = D0#d{pending = [SubState | Pending]},
             Reply = {reply, From, {ok, SubRef}},
@@ -814,6 +818,25 @@ handle_event(
 ) ->
     {Ret, D} = remove_subscription(SubId, D0),
     {keep_state, D, {reply, From, Ret}};
+%% Handle disown request:
+handle_event(
+    cast,
+    #disown_stuck_req{sub_state = SubState},
+    _State,
+    #d{dbshard = DBShard}
+) ->
+    #sub_state{req_id = SubRef} = SubState,
+    case ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, undefined}) of
+        true ->
+            %% Subscription was found, insert it to the disowned
+            %% table:
+            true = ets:insert_new(disowned_sub_tab(DBShard), SubState),
+            ok;
+        false ->
+            %% Subscription has been removed in the meantime. Ignore.
+            ok
+    end,
+    keep_state_and_data;
 %% Handle wakeup subscription call:
 handle_event(
     {call, From},
@@ -910,6 +933,9 @@ handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, 
         _:_ ->
             {keep_state_and_data, {state_timeout, 1000, ?init_timeout}}
     end;
+handle_event(_Kind, _Event, ?initializing, _D) ->
+    %% Ignore events until fulliy initialized:
+    keep_state_and_data;
 %% Handover subscriptions to the workers:
 handle_event(state_timeout, ?schedule_timeout, _State, D0) ->
     {Success, D} = do_schedule(D0),
@@ -1052,9 +1078,7 @@ owner_tab(DBShard) ->
 -spec disown_stuck_subscription(dbshard(), ets:tid(), sub_state()) -> ok.
 disown_stuck_subscription(DBShard, SubTab, #sub_state{req_id = SubRef}) ->
     [SubState] = ets:take(SubTab, SubRef),
-    ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, undefined}),
-    true = ets:insert_new(disowned_sub_tab(DBShard), SubState),
-    ok.
+    gen_statem:cast(?via(DBShard), #disown_stuck_req{sub_state = SubState}).
 
 -spec disowned_sub_tab(dbshard()) -> ets:tid().
 disowned_sub_tab(DBShard) ->
@@ -1190,16 +1214,20 @@ do_schedule(D = #d{dbshard = DBShard, pending = Pending}) ->
     {Unmatched =:= [], D#d{pending = Unmatched}}.
 
 remove_subscription(
-    SubId, D = #d{dbshard = DBShard, stuck_sub_tab = SubTab, monitor_tab = _MTab, pending = Pending}
+    SubId, D = #d{dbshard = DBShard, stuck_sub_tab = SubTab, monitor_tab = MTab, pending = Pending}
 ) ->
     ets:delete(fc_tab(DBShard), SubId),
     ets:delete(SubTab, SubId),
     case ets:take(owner_tab(DBShard), SubId) of
-        [#owner_tab{owner = _Owner}] ->
-            %% FIXME:
-            %% demonitor(MRef, [flush]),
-            %% ets:delete(MTab, MRef),
-            %% FIXME: notify owner
+        [#owner_tab{owner = Owner, mref = MRef}] ->
+            %% Remove client monitoring:
+            demonitor(MRef, [flush]),
+            ets:delete(MTab, MRef),
+            %% Remove stuck subscription (if stuck):
+            ets:delete(disowned_sub_tab(DBShard), SubId),
+            %% Notify the worker (if not stuck):
+            is_pid(Owner) andalso
+                (Owner ! #unsub_req{id = SubId}),
             {true, D#d{pending = Pending -- [SubId]}};
         [] ->
             {false, D}

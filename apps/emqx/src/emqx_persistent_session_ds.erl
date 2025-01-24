@@ -1120,9 +1120,8 @@ handle_ds_reply(
     },
     ClientInfo
 ) ->
-    #poll_reply{userdata = StreamKey} = Reply,
     case emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, S, SchedS0) of
-        {true, SchedS} ->
+        {true, StreamKey, SchedS} ->
             SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
             case
                 emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS0, S) and
@@ -1154,10 +1153,10 @@ handle_ds_reply(
                     Buf = emqx_persistent_session_ds_buffer:push_batch(StreamKey, Reply, Buf0),
                     Session0#{buffer := Buf, stream_scheduler_s := SchedS}
             end;
-        {false, SchedS} ->
+        {false, _, SchedS} ->
             %% Unexpected reply, no action needed:
             Session0#{stream_scheduler_s := SchedS};
-        {drop_buffer, SchedS} ->
+        {drop_buffer, StreamKey, SchedS} ->
             %% Scheduler detected inconsistency and requested to drop
             %% the stream buffer:
             Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),

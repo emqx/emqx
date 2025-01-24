@@ -38,7 +38,7 @@ all() ->
     [
         {group, cluster},
         {group, local}
-    ].
+    ] ++ [tt_ds_resubscribe, tt_fuzz].
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
@@ -172,8 +172,8 @@ end_per_testcase(TestCase, Config) when
     emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
 end_per_testcase(_TestCase, _Config) ->
-    emqx_common_test_helpers:call_janitor(60_000),
     snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(60_000),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -669,15 +669,20 @@ t_new_stream_notifications(Config) ->
         ]
     ).
 
-t_fuzz(_Config) ->
-    %% NOTE: we set timeout at the lower level to capture the trace
+tt_fuzz(_Config) ->
+    %% NOTE: we set timeout at the lowest level to capture the trace
     %% and have a nicer error message.
+    %%
+    %% By default the number of tests and max_size are set to low
+    %% values to avoid blowing up CI. Hence it's recommended to
+    %% increase the max_size and numtests when doing local
+    %% development:
     ?run_prop(
         #{
             proper => #{
                 timeout => 3_000_000,
                 numtests => 10,
-                max_size => 500,
+                max_size => 100,
                 start_size => 100,
                 max_shrinks => 0
             }
@@ -1084,7 +1089,7 @@ t_last_alive_at_cleanup(Config) ->
     ),
     ok.
 
-tt_session_replay_retry(_Config) ->
+t_session_replay_retry(_Config) ->
     %% Verify that the session recovers smoothly from transient errors during
     %% replay.
 
@@ -1187,7 +1192,7 @@ t_session_gc_will_message(_Config) ->
 
 %% Verify that session handles restart of the shard (or the entire DB)
 %% smoothly:
-t_ds_resubscribe(_Config) ->
+tt_ds_resubscribe(_Config) ->
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
     TopicFilter = <<"t/+">>,
     ?check_trace(

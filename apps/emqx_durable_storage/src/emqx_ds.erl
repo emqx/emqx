@@ -497,38 +497,7 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 
-%% @doc Schedule asynchrounous long poll of the iterators and return
-%% immediately.
-%%
-%% Arguments:
-%% 1. Name of DS DB
-%% 2. List of tuples, where first element is an arbitrary tag that can
-%%    be used to identify replies, and the second one is iterator.
-%% 3. Poll options
-%%
-%% Return value: process alias that identifies the replies.
-%%
-%% Data will be sent to the caller process as messages wrapped in
-%% `#poll_reply' record:
-%% - `ref' field will be equal to the returned reference.
-%% - `userdata' field will be equal to the iterator tag.
-%% - `payload' will be of type `next_result()' or `poll_timeout' atom
-%%
-%% There are some important caveats:
-%%
-%% - Replies are sent on a best-effort basis. They may be lost for any
-%% reason. Caller must be designed to tolerate and retry missed poll
-%% replies.
-%%
-%% - There is no explicit lifetime management for poll workers. When
-%% caller dies, its poll requests survive. It's assumed that orphaned
-%% requests will naturally clean themselves out by timeout alone.
-%% Therefore, timeout must not be too long.
-%%
-%% - But not too short either: if no data arrives to the stream before
-%% timeout, the request is usually retried. This should not create a
-%% busy loop. Also DS may silently drop requests due to overload. So
-%% they should not be retried too early.
+%% @obsolete
 -spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
     ?module(DB):poll(DB, Iterators, PollOpts).
@@ -537,15 +506,34 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), 
 %% that follow `Iterator'.
 %%
 %% This function returns subscription handle that can be used to to
-%% manipulate the subscription (ack async messages and unsubscribe),
-%% as well as a monitor reference that used to detect unexpected
-%% termination of the subscription on the DS side.
+%% manipulate the subscription (ack batches and unsubscribe), as well
+%% as a monitor reference that used to detect unexpected termination
+%% of the subscription on the DS side. The same reference is included
+%% in the `#poll_reply{}' messages sent by DS to the subscriber.
 %%
-%% NOTE: Subscriptions are NOT automatically removed when subscriber
-%% encounters `{ok, end_of_stream}' or `{error, unrecoverable, _}'.
-%% Subscriber MUST explicitly call `unsubscribe' when it's done with
-%% the stream.
--spec subscribe(db(), _ItKey, iterator(), sub_opts()) -> {ok, subscription_handle(), sub_ref()}.
+%% Once subscribed, the client process will receive messages of type
+%% `#poll_reply{}':
+%%
+%% - `userdata' field just echoes the `ItKey' argument of the
+%% `subscribe' call.
+%%
+%% - `ref' field is equal to the `sub_ref()' returned by subscribe
+%% call.
+%%
+%% - `size' field is equal to the number of messages in the payload.
+%% If payload = `{ok, end_of_stream}' or `{error, _, _}' then `size' =
+%% 1.
+%%
+%% - `seqno' field contains sum of all `size's received by the
+%% subscription so far (including the current batch).
+%%
+%% - `stuck' flag is set when subscription is paused for not keeping
+%% up with the acks.
+%%
+%% - `lagging' flag is an implementation-defined indicator that the
+%% subscription is currently reading old data.
+-spec subscribe(db(), _ItKey, iterator(), sub_opts()) ->
+    {ok, subscription_handle(), sub_ref()} | error(_).
 subscribe(DB, ItKey, Iterator, SubOpts) ->
     ?module(DB):subscribe(DB, ItKey, Iterator, SubOpts).
 
@@ -553,14 +541,15 @@ subscribe(DB, ItKey, Iterator, SubOpts) ->
 unsubscribe(DB, SubRef) ->
     ?module(DB):unsubscribe(DB, SubRef).
 
-%% @doc Acknowledge processing of batch with a given sequence number.
-%% This way application can signal to DS that it is ready to process
-%% more data.
+%% @doc Acknowledge processing of a message with a given sequence
+%% number. This way client can signal to DS that it is ready to
+%% process more data. Subscriptions that do not keep up with the acks
+%% are paused.
 -spec suback(db(), subscription_handle(), non_neg_integer()) -> ok.
 suback(DB, SubRef, SeqNo) ->
     ?module(DB):suback(DB, SubRef, SeqNo).
 
-%% @doc Gen information about the subscription.
+%% @doc Get information about the subscription.
 -spec subscription_info(db(), subscription_handle()) -> sub_info() | undefined.
 subscription_info(DB, Handle) ->
     ?module(DB):subscription_info(DB, Handle).
