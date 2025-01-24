@@ -20,8 +20,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(DURABLE_SESSION_STATE, emqx_persistent_session).
-
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 -ifdef(BUILD_WITH_FDB).
