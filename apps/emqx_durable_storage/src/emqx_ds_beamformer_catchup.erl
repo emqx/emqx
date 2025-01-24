@@ -19,7 +19,7 @@
 %% internal DS indexes.
 -module(emqx_ds_beamformer_catchup).
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% API:
 -export([start_link/4, pool/1, enqueue/2]).
@@ -336,7 +336,7 @@ fulfill_batch(
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
     [{emqx_ds:message_key(), emqx_types:message()}],
-    [#sub_state{}],
+    [emqx_ds_beamformer:sub_state()],
     emqx_ds_beamformer:beam_builder()
 ) -> emqx_ds_beamformer:beam_builder().
 process_batch(_S, _Stream, _TopicFilter, [], _Candidates, Beams) ->
