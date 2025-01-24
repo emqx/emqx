@@ -28,7 +28,7 @@
     poll/3,
     delete_next/4,
 
-    subscribe/4,
+    subscribe/3,
     unsubscribe/2,
     suback/3,
     subscription_info/2,
@@ -485,9 +485,9 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
--spec subscribe(emqx_ds:db(), _UserData, iterator(), emqx_ds:sub_opts()) ->
+-spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), emqx_ds:sub_ref()} | emqx_ds:error(_).
-subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+subscribe(DB, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
     ?SHARD_RPC(
         DB,
         Shard,
@@ -497,7 +497,7 @@ subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
                 MRef = monitor(process, Server),
                 Result = ?SAFE_ERPC(
                     emqx_ds_beamformer_proto_v1:subscribe(
-                        Node, Server, self(), MRef, It, ItKey, SubOpts
+                        Node, Server, self(), MRef, It, SubOpts
                     )
                 ),
                 case Result of

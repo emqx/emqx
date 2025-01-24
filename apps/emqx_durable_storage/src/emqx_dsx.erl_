@@ -253,7 +253,7 @@ handle_info(#poll_reply{ref = Ref, payload = poll_timeout}, S0 = #s{polls = Poll
     ),
     {noreply, poll(S)};
 handle_info(
-    #poll_reply{ref = Ref, userdata = Stream, payload = Payload},
+    #poll_reply{ref = Ref, payload = Payload},
     #s{inflight = Inflight, polls = Polls0} = S0
 ) ->
     case maps:take(Stream, Polls0) of

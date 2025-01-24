@@ -190,7 +190,8 @@
 
 -record(ds_sub, {
     handle :: emqx_ds:subscription_handle(),
-    sub_ref :: reference()
+    seqno :: atomics:atomics_ref(),
+    stream_key :: stream_key()
 }).
 
 -define(ix_seqno, 1).
@@ -203,8 +204,7 @@
     %% Per-topic metadata records:
     sub_metadata = #{} :: #{emqx_types:topic() => sub_metadata()},
     %% DS subscriptions:
-    ds_sub_handles = #{} :: #{stream_key() => ds_sub()},
-    ds_seqnos = #{} :: #{emqx_ds:sub_ref() => atomics:atomics_ref()},
+    ds_subs = #{} :: #{emqx_ds:sub_ref() => ds_sub()},
     %% Block queues:
     bq1 :: blocklist(),
     bq2 :: blocklist(),
@@ -335,17 +335,16 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
 -spec verify_reply(#poll_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
     {boolean() | drop_buffer, stream_key() | undefined, t()}.
 verify_reply(Reply, S, SchedS) ->
-    #poll_reply{ref = Ref, userdata = StreamKey, size = Size, seqno = SeqNo} = Reply,
-    case SchedS#s.ds_seqnos of
-        #{Ref := Atomic} ->
+    #poll_reply{ref = Ref, size = Size, seqno = SeqNo} = Reply,
+    case SchedS#s.ds_subs of
+        #{Ref := #ds_sub{seqno = Atomic, stream_key = StreamKey}} ->
             case atomics:add_get(Atomic, ?ix_seqno, Size) of
                 SeqNo ->
                     %% SeqNos match:
                     {true, StreamKey, SchedS};
                 Other ->
                     %% SeqNos don't match, and we've just corrupted
-                    %% the counter by `add_get'. Schedule
-                    %% resubscription.
+                    %% the counter by `add_get'. Resubscribe now:
                     ?tp(warning, ?sessds_unexpected_reply, #{
                         stream => StreamKey,
                         batch_seqno => SeqNo,
@@ -360,7 +359,6 @@ verify_reply(Reply, S, SchedS) ->
         #{} ->
             %% We have no record of this subscription, ignore it:
             ?tp(warning, ?sessds_unexpected_reply, #{
-                stream => StreamKey,
                 batch_seqno => SeqNo,
                 batch_size => Size,
                 expected_seqno => undefined,
@@ -371,9 +369,9 @@ verify_reply(Reply, S, SchedS) ->
             {false, undefined, SchedS}
     end.
 
-suback(StreamKey, SeqNo, #s{ds_sub_handles = Subs}) ->
+suback(SubRef, SeqNo, #s{ds_subs = Subs}) ->
     case Subs of
-        #{StreamKey := #ds_sub{handle = Ref}} ->
+        #{SubRef := #ds_sub{handle = Ref}} ->
             emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo);
         #{} ->
             ok
@@ -596,14 +594,12 @@ is_active_unblocked(SRS, S) ->
 
 -spec handle_down({'DOWN', _, _, _, _}, emqx_persistent_session_ds_state:t(), t()) ->
     {drop_buffer, stream_key(), t()} | ignore.
-handle_down(DOWN, S, SchedS = #s{ds_seqnos = SeqNos}) ->
+handle_down(DOWN, S, SchedS = #s{ds_subs = Subs}) ->
     case DOWN of
         {'DOWN', Ref, process, Pid, Reason} ->
-            case SeqNos of
-                #{Ref := _} ->
+            case Subs of
+                #{Ref := #ds_sub{stream_key = StreamKey}} ->
                     %% Handle crash of DS subscription:
-                    %% TODO: do not try to resubscribe right away, add a cooldown period.
-                    StreamKey = find_ds_sub(Ref, SchedS),
                     ?tp(info, ?sessds_sub_down, #{
                         stream => StreamKey,
                         sub_ref => Ref,
@@ -917,24 +913,28 @@ ds_subscribe_all(Streams, S, SchedS) ->
         Streams
     ).
 
-ds_subscribe(SrsID, S, SchedS = #s{ds_sub_handles = Subs, ds_seqnos = SeqNos}) ->
-    case Subs of
-        #{SrsID := _} ->
+ds_subscribe(SrsID, S, SchedS = #s{ds_subs = Subs}) ->
+    case find_ds_sub_by_stream_id(SrsID, Subs) of
+        {_, _} ->
             SchedS;
-        _ ->
+        undefined ->
             #srs{it_end = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
             %% TODO: deprecate batch_size and come up with a better name?
             SubOpts = #{
                 max_unacked => emqx_config:get([durable_sessions, batch_size])
             },
-            case emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, SrsID, It, SubOpts) of
+            case emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, It, SubOpts) of
                 {ok, Handle, SubRef} ->
                     ?tp(debug, ?sessds_sched_subscribe, #{
                         stream => SrsID, handle => Handle, ref => SubRef
                     }),
+                    NewSub = #ds_sub{
+                        handle = Handle,
+                        stream_key = SrsID,
+                        seqno = atomics:new(1, [])
+                    },
                     SchedS#s{
-                        ds_sub_handles = Subs#{SrsID => #ds_sub{handle = Handle, sub_ref = SubRef}},
-                        ds_seqnos = SeqNos#{SubRef => atomics:new(1, [])}
+                        ds_subs = Subs#{SubRef => NewSub}
                     };
                 {error, recoverable, Reason} ->
                     ?tp(debug, ?sessds_sched_subscribe_fail, #{
@@ -944,18 +944,17 @@ ds_subscribe(SrsID, S, SchedS = #s{ds_sub_handles = Subs, ds_seqnos = SeqNos}) -
             end
     end.
 
-ds_unsubscribe(SrsID, SchedS = #s{ds_sub_handles = Subs, ds_seqnos = SeqNos}) ->
-    case Subs of
-        #{SrsID := #ds_sub{handle = Handle, sub_ref = SubRef}} ->
+ds_unsubscribe(SrsID, SchedS = #s{ds_subs = Subs}) ->
+    case find_ds_sub_by_stream_id(SrsID, Subs) of
+        {SubRef, #ds_sub{handle = Handle}} ->
             emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, Handle),
             ?tp(debug, ?sessds_sched_unsubscribe, #{
                 stream => SrsID, handle => Handle, ref => SubRef
             }),
             SchedS#s{
-                ds_sub_handles = maps:remove(SrsID, Subs),
-                ds_seqnos = maps:remove(SubRef, SeqNos)
+                ds_subs = maps:remove(SubRef, Subs)
             };
-        #{} ->
+        undefined ->
             SchedS
     end.
 
@@ -1127,18 +1126,21 @@ push_retry(Action, SchedS = #s{retry = R, retry_timer = undefined}) ->
 push_retry(Action, SchedS = #s{retry = R}) ->
     SchedS#s{retry = [Action | R]}.
 
-find_ds_sub(SubRef, #s{ds_sub_handles = Handles}) ->
-    do_find_ds_sub(SubRef, maps:iterator(Handles)).
+find_ds_sub_by_stream_id(SubRef, Subs) ->
+    Pred = fun(#ds_sub{stream_key = K}) -> SubRef =:= K end,
+    find_ds_sub(Pred, maps:iterator(Subs)).
 
-do_find_ds_sub(SubRef, It0) ->
+find_ds_sub(Predicate, It0) ->
     case maps:next(It0) of
-        {StreamKey, #ds_sub{sub_ref = SubRef}, _It} ->
-            StreamKey;
-        {_StreamKey, _, It} ->
-            do_find_ds_sub(SubRef, It);
+        {SubRef, Val, It} ->
+            case Predicate(Val) of
+                true ->
+                    {SubRef, Val};
+                false ->
+                    find_ds_sub(Predicate, It)
+            end;
         none ->
-            %% Should not happen:
-            error({subscription_not_found, SubRef})
+            undefined
     end.
 
 %%--------------------------------------------------------------------------------

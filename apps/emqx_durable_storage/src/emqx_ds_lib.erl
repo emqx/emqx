@@ -34,8 +34,9 @@
 %% API functions
 %%================================================================================
 
+%% @doc The caller will receive message of type `{reference(), Result | {error, unrecoverable, map()}'
 -spec with_worker(_UserData, module(), atom(), list()) -> {ok, reference()}.
-with_worker(UserData, Mod, Function, Args) ->
+with_worker(_UserData, Mod, Function, Args) ->
     ReplyTo = alias([reply]),
     _ = spawn_opt(
         fun() ->
@@ -50,17 +51,7 @@ with_worker(UserData, Mod, Function, Args) ->
                             stacktrace => Stack
                         }}
                 end,
-            Size =
-                case Result of
-                    {ok, _, L} ->
-                        length(L);
-                    _ ->
-                        1
-                end,
-            ReplyTo !
-                #poll_reply{
-                    userdata = UserData, ref = ReplyTo, payload = Result, seqno = Size, size = Size
-                }
+            ReplyTo ! {ReplyTo, Result}
         end,
         [link, {min_heap_size, 10000}]
     ),

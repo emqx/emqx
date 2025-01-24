@@ -193,7 +193,7 @@
 
 -type timer_state() :: reference() | undefined.
 
--record(ds_suback, {stream_key, seqno}).
+-record(ds_suback, {sub_ref, seqno}).
 
 %% TODO: Needs configuration?
 -define(TIMEOUT_RETRY_REPLAY, 1000).
@@ -1138,7 +1138,7 @@ handle_ds_reply(
                     %% problem.
                     {SRS1, SubState} = pre_enqueue_new(SRS0, S),
                     {SRS, Inflight} = enqueue_batch(
-                        StreamKey, S, Reply, SubState, SRS1, ClientInfo, Inflight0
+                        S, Reply, SubState, SRS1, ClientInfo, Inflight0
                     ),
                     Session = Session0#{inflight := Inflight, stream_scheduler_s := SchedS},
                     post_enqueue_new(
@@ -1300,8 +1300,8 @@ drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s :
     ?tp(?sessds_drain_inflight, #{}),
     {Publishes, Inflight, DSSubacks, S} = do_drain_inflight(Inflight0, S0, [], #{}),
     maps:foreach(
-        fun(Stream, SeqNo) ->
-            emqx_persistent_session_ds_stream_scheduler:suback(Stream, SeqNo, SchedS)
+        fun(SubRef, SeqNo) ->
+            emqx_persistent_session_ds_stream_scheduler:suback(SubRef, SeqNo, SchedS)
         end,
         DSSubacks
     ),
@@ -1314,9 +1314,9 @@ do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
     case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
             {lists:reverse(Acc), Inflight0, DSSubacks0, S0};
-        {{other, #ds_suback{stream_key = Key, seqno = SeqNo}}, Inflight} ->
+        {{other, #ds_suback{sub_ref = SubRef, seqno = SeqNo}}, Inflight} ->
             %% Accumulate the DS subacks:
-            DSSubacks = DSSubacks0#{Key => SeqNo},
+            DSSubacks = DSSubacks0#{SubRef => SeqNo},
             do_drain_inflight(Inflight, S0, Acc, DSSubacks);
         {{pubrel, SeqNo}, Inflight} ->
             Publish = {pubrel, seqno_to_packet_id(?QOS_2, SeqNo)},
@@ -1388,7 +1388,7 @@ do_drain_buffer_of_stream(
         {[DSReply], Buf} ->
             ?tp("sessds_drain_buffer_of_stream", #{stream => StreamKey, reply => DSReply}),
             {SRS, Inflight} = enqueue_batch(
-                StreamKey, S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
+                S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
             ),
             do_drain_buffer_of_stream(
                 StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight
@@ -1747,9 +1747,8 @@ pre_enqueue_new(SRS0 = #srs{it_end = NewItBegin}, S) ->
 %% corresponding SRS: update end iterator, batch size and the last
 %% seqnos, but do not change the begin iterator and first seqnos.
 enqueue_batch(
-    StreamKey,
     S,
-    #poll_reply{seqno = SeqNo, payload = {ok, It, Batch}, size = Size},
+    #poll_reply{ref = SubRef, seqno = SeqNo, payload = {ok, It, Batch}, size = Size},
     SubState,
     SRS0 = #srs{batch_size = BatchSize, last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
     ClientInfo,
@@ -1771,7 +1770,7 @@ enqueue_batch(
     %% sent to the wire. This way we tie pushback towards the DS to
     %% the client's speed:
     Inflight = emqx_persistent_session_ds_inflight:push(
-        {other, #ds_suback{stream_key = StreamKey, seqno = SeqNo}},
+        {other, #ds_suback{sub_ref = SubRef, seqno = SeqNo}},
         Inflight1
     ),
     SRS = SRS0#srs{
@@ -1782,9 +1781,8 @@ enqueue_batch(
     },
     {SRS, Inflight};
 enqueue_batch(
-    StreamKey,
     _S,
-    #poll_reply{seqno = SeqNo, payload = Other},
+    #poll_reply{ref = SubRef, seqno = SeqNo, payload = Other},
     _SubState,
     SRS0,
     _ClientInfo,
@@ -1802,7 +1800,7 @@ enqueue_batch(
     end,
     %% Enqueue the DS suback:
     Inflight = emqx_persistent_session_ds_inflight:push(
-        {other, #ds_suback{stream_key = StreamKey, seqno = SeqNo}},
+        {other, #ds_suback{sub_ref = SubRef, seqno = SeqNo}},
         Inflight0
     ),
     SRS = SRS0#srs{

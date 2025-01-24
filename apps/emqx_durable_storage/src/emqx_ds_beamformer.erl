@@ -80,7 +80,7 @@
 
 %% API:
 -export([start_link/2, where/1]).
--export([poll/5, subscribe/6, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
+-export([poll/5, subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([make_subtab/1, owner_tab/1, take_ownership/3, handle_recoverable_error/2]).
 -export([beams_init/6, beams_add/5, beams_conclude/3, beams_n_matched/1]).
@@ -98,7 +98,7 @@
 -export_type([
     dbshard/0,
     opts/0,
-    sub_state/0, sub_state/2,
+    sub_state/0, sub_state/1,
     beam/2, beam/0,
     return_addr/1,
     unpack_iterator_result/1,
@@ -179,7 +179,7 @@
 
 %-type poll_req_id() :: reference().
 
--type sub_state(UserData, Iterator) ::
+-type sub_state(Iterator) ::
     #sub_state{
         req_id :: reference(),
         client :: pid(),
@@ -191,13 +191,11 @@
         stream :: _Stream,
         topic_filter :: emqx_ds:topic_filter(),
         start_key :: emqx_ds:message_key(),
-        %% Information about the process that created the request:
-        userdata :: UserData,
         %% Iterator:
         it :: Iterator
     }.
 
--type sub_state() :: sub_state(_, _).
+-type sub_state() :: sub_state(_).
 
 %% Type of records stored in `fc_tab' table of gvar. This table
 %% contains references to the subscription flow control atomics.
@@ -348,7 +346,6 @@
     client :: pid(),
     mref :: reference(),
     it :: emqx_ds:ds_specific_iterator(),
-    userdata,
     opts :: emqx_ds:sub_opts()
 }).
 -record(wakeup_sub_req, {id :: reference()}).
@@ -642,14 +639,14 @@ subscription_info(DBShard, SubId) ->
     end.
 
 -spec subscribe(
-    pid(), pid(), emqx_ds:sub_ref(), emqx_ds:ds_specific_iterator(), _ItKey, emqx_ds:sub_opts()
+    pid(), pid(), emqx_ds:sub_ref(), emqx_ds:ds_specific_iterator(), emqx_ds:sub_opts()
 ) ->
     {ok, emqx_ds:sub_ref()} | emqx_ds:error(_).
-subscribe(Server, Client, SubId, It, ItKey, Opts = #{max_unacked := MaxUnacked}) when
+subscribe(Server, Client, SubId, It, Opts = #{max_unacked := MaxUnacked}) when
     is_integer(MaxUnacked), MaxUnacked > 0
 ->
     gen_statem:call(Server, #sub_req{
-        client = Client, it = It, userdata = ItKey, opts = Opts, mref = SubId
+        client = Client, it = It, opts = Opts, mref = SubId
     }).
 
 -spec unsubscribe(dbshard(), emqx_ds:sub_ref()) -> boolean().
@@ -742,7 +739,7 @@ init([DBShard, CBM]) ->
 %% Handle subscribe call:
 handle_event(
     {call, From},
-    #sub_req{client = Client, it = It, userdata = Userdata, opts = Opts, mref = SubRef},
+    #sub_req{client = Client, it = It, opts = Opts, mref = SubRef},
     State,
     D0 = #d{
         dbshard = Shard,
@@ -782,7 +779,6 @@ handle_event(
                 stream = Stream,
                 topic_filter = TF,
                 start_key = DSKey,
-                userdata = Userdata,
                 it = It,
                 msg_matcher = MsgMatcher
             },
@@ -1106,7 +1102,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
     Destinations =
         maps:fold(
             fun(SubId, #beam_builder_sub{s = SubS0, mask = MaskEncoder, n_msgs = NMsgs}, Acc) ->
-                #sub_state{client = Client, userdata = UserData, it = It0} = SubS0,
+                #sub_state{client = Client, it = It0} = SubS0,
                 ?tp(beamformer_fulfilled, #{sub_id => SubId}),
                 %% Update the iterator, start key and message
                 %% matcher for the subscription:
@@ -1139,7 +1135,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
                 end,
                 DispatchMask = emqx_ds_dispatch_mask:enc_finalize(BatchSize + 1, MaskEncoder),
                 [
-                    ?DESTINATION(Client, SubId, UserData, SeqNo, DispatchMask, Flags, It)
+                    ?DESTINATION(Client, SubId, SeqNo, DispatchMask, Flags, It)
                     | Acc
                 ]
             end,
@@ -1154,13 +1150,13 @@ send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
     Destinations = lists:map(
         fun(
             #sub_state{
-                client = Client, req_id = SubId, userdata = UserData, it = It, flowcontrol = FC
+                client = Client, req_id = SubId, it = It, flowcontrol = FC
             }
         ) ->
             {_MaxUnacked, ARef} = FC,
             SeqNo = atomics:add_get(ARef, ?fc_idx_seqno, 1),
             ets:delete(SubTab, SubId),
-            ?DESTINATION(Client, SubId, UserData, SeqNo, Mask, 0, It)
+            ?DESTINATION(Client, SubId, SeqNo, Mask, 0, It)
         end,
         Reqs
     ),
