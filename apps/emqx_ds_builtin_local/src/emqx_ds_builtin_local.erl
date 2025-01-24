@@ -43,7 +43,7 @@
     next/3,
     poll/3,
 
-    subscribe/4,
+    subscribe/3,
     unsubscribe/2,
     suback/3,
     subscription_info/2,
@@ -401,8 +401,8 @@ update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
 next(DB, Iter, N) ->
     {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
     receive
-        #poll_reply{ref = Ref, payload = Data} ->
-            Data
+        {Ref, Result} ->
+            Result
     end.
 
 -spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
@@ -428,12 +428,12 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
     ),
     {ok, ReplyTo}.
 
--spec subscribe(emqx_ds:db(), _ItKey, iterator(), emqx_ds:sub_opts()) ->
+-spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), reference()}.
-subscribe(DB, ItKey, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+subscribe(DB, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
     Server = emqx_ds_beamformer:where({DB, Shard}),
     MRef = monitor(process, Server),
-    case emqx_ds_beamformer:subscribe(Server, self(), MRef, It, ItKey, SubOpts) of
+    case emqx_ds_beamformer:subscribe(Server, self(), MRef, It, SubOpts) of
         {ok, MRef} ->
             {ok, {Shard, MRef}, MRef};
         Err = {error, _, _} ->
@@ -530,7 +530,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 delete_next(DB, Iter, Selector, N) ->
     {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
-        #poll_reply{ref = Ref, payload = Data} -> Data
+        {Ref, Result} -> Result
     end.
 
 %%================================================================================

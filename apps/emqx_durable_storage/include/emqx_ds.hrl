@@ -42,7 +42,6 @@
 
 -record(poll_reply, {
     ref :: reference(),
-    userdata,
     payload :: emqx_ds:next_result() | poll_timeout,
     seqno :: emqx_ds:sub_seqno() | undefined,
     size :: non_neg_integer(),

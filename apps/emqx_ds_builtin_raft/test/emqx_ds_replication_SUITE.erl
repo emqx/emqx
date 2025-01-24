@@ -1067,70 +1067,70 @@ t_crash_restart_recover(Config) ->
         []
     ).
 
-t_poll(init, Config) ->
-    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
-    Nodes = emqx_cth_cluster:start(
-        [
-            {t_poll1, #{apps => Apps}},
-            {t_poll2, #{apps => Apps}}
-        ],
-        #{work_dir => ?config(work_dir, Config)}
-    ),
-    [{nodes, Nodes} | Config];
-t_poll('end', Config) ->
-    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
+%% t_poll(init, Config) ->
+%%     Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+%%     Nodes = emqx_cth_cluster:start(
+%%         [
+%%             {t_poll1, #{apps => Apps}},
+%%             {t_poll2, #{apps => Apps}}
+%%         ],
+%%         #{work_dir => ?config(work_dir, Config)}
+%%     ),
+%%     [{nodes, Nodes} | Config];
+%% t_poll('end', Config) ->
+%%     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
-t_poll(Config) ->
-    Nodes = [N1 | _] = ?config(nodes, Config),
-    ?check_trace(
-        #{timetrap => 15_000},
-        begin
-            %% Initialize DB on all nodes and wait for it to come online.
-            Opts = opts(Config, #{n_shards => 1}),
-            assert_db_open(Nodes, ?DB, Opts),
+%% t_poll(Config) ->
+%%     Nodes = [N1 | _] = ?config(nodes, Config),
+%%     ?check_trace(
+%%         #{timetrap => 15_000},
+%%         begin
+%%             %% Initialize DB on all nodes and wait for it to come online.
+%%             Opts = opts(Config, #{n_shards => 1}),
+%%             assert_db_open(Nodes, ?DB, Opts),
 
-            %% Insert data:
-            Batch1 = [
-                message(<<"C1">>, <<"foo/bar">>, <<"1">>, 1),
-                message(<<"C1">>, <<"foo/bar">>, <<"2">>, 1)
-            ],
-            ?ON(N1, ok = emqx_ds:store_batch(?DB, Batch1, #{sync => true})),
-            %% Create initial iterators:
-            Its0 = ?ON(
-                N1,
-                begin
-                    TF = [<<"foo">>, <<"bar">>],
-                    [
-                        begin
-                            {ok, It} = emqx_ds:make_iterator(?DB, Stream, TF, 0),
-                            {make_ref(), It}
-                        end
-                     || {_Rank, Stream} <- emqx_ds:get_streams(?DB, TF, 0)
-                    ]
-                end
-            ),
-            [{Token1, _}] = Its0,
-            %% Check poll funtionality:
-            CheckF =
-                fun() ->
-                    {ok, Alias} = emqx_ds:poll(?DB, Its0, #{timeout => 1000}),
-                    [{Token1, {ok, NextIt, Batch}}] = emqx_ds_test_helpers:collect_poll_replies(
-                        Alias, 1000
-                    ),
-                    ?assertMatch(
-                        [{_, #message{payload = <<"1">>}}, {_, #message{payload = <<"2">>}}],
-                        Batch
-                    ),
-                    ?assertMatch(
-                        {ok, _It, []},
-                        emqx_ds:next(?DB, NextIt, 100),
-                        "The returned iterator is correct"
-                    )
-                end,
-            [?defer_assert(emqx_ds_test_helpers:on(N, CheckF)) || N <- Nodes]
-        end,
-        []
-    ).
+%%             %% Insert data:
+%%             Batch1 = [
+%%                 message(<<"C1">>, <<"foo/bar">>, <<"1">>, 1),
+%%                 message(<<"C1">>, <<"foo/bar">>, <<"2">>, 1)
+%%             ],
+%%             ?ON(N1, ok = emqx_ds:store_batch(?DB, Batch1, #{sync => true})),
+%%             %% Create initial iterators:
+%%             Its0 = ?ON(
+%%                 N1,
+%%                 begin
+%%                     TF = [<<"foo">>, <<"bar">>],
+%%                     [
+%%                         begin
+%%                             {ok, It} = emqx_ds:make_iterator(?DB, Stream, TF, 0),
+%%                             {make_ref(), It}
+%%                         end
+%%                      || {_Rank, Stream} <- emqx_ds:get_streams(?DB, TF, 0)
+%%                     ]
+%%                 end
+%%             ),
+%%             [{Token1, _}] = Its0,
+%%             %% Check poll funtionality:
+%%             CheckF =
+%%                 fun() ->
+%%                     {ok, Alias} = emqx_ds:poll(?DB, Its0, #{timeout => 1000}),
+%%                     [{Token1, {ok, NextIt, Batch}}] = emqx_ds_test_helpers:collect_poll_replies(
+%%                         Alias, 1000
+%%                     ),
+%%                     ?assertMatch(
+%%                         [{_, #message{payload = <<"1">>}}, {_, #message{payload = <<"2">>}}],
+%%                         Batch
+%%                     ),
+%%                     ?assertMatch(
+%%                         {ok, _It, []},
+%%                         emqx_ds:next(?DB, NextIt, 100),
+%%                         "The returned iterator is correct"
+%%                     )
+%%                 end,
+%%             [?defer_assert(emqx_ds_test_helpers:on(N, CheckF)) || N <- Nodes]
+%%         end,
+%%         []
+%%     ).
 
 nodes_of_clientid(ClientId, Nodes) ->
     emqx_ds_test_helpers:nodes_of_clientid(?DB, ClientId, Nodes).

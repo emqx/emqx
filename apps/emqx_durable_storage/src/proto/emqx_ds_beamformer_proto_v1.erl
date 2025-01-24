@@ -21,7 +21,7 @@
 %% API:
 -export([
     where/2,
-    subscribe/7,
+    subscribe/6,
     unsubscribe/3,
     suback_a/4,
     subscription_info/3
@@ -45,12 +45,11 @@ where(Node, DBShard) ->
     pid(),
     emqx_ds:sub_ref(),
     emqx_ds_replication_layer:iterator(),
-    _ItKey,
     emqx_ds:sub_opts()
 ) ->
     {ok, emqx_ds:sub_ref()} | emqx_ds:error(_).
-subscribe(Node, Server, Client, SubRef, It, ItKey, Opts) ->
-    erpc:call(Node, emqx_ds_beamformer, subscribe, [Server, Client, SubRef, It, ItKey, Opts]).
+subscribe(Node, Server, Client, SubRef, It, Opts) ->
+    erpc:call(Node, emqx_ds_beamformer, subscribe, [Server, Client, SubRef, It, Opts]).
 
 -spec unsubscribe(
     node(),

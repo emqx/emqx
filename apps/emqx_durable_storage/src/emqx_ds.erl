@@ -40,7 +40,7 @@
 
 %% Message replay API:
 -export([get_streams/3, make_iterator/4, next/3, poll/3]).
--export([subscribe/4, unsubscribe/2, suback/3, subscription_info/2]).
+-export([subscribe/3, unsubscribe/2, suback/3, subscription_info/2]).
 
 %% Message delete API:
 -export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
@@ -514,9 +514,6 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), 
 %% Once subscribed, the client process will receive messages of type
 %% `#poll_reply{}':
 %%
-%% - `userdata' field just echoes the `ItKey' argument of the
-%% `subscribe' call.
-%%
 %% - `ref' field is equal to the `sub_ref()' returned by subscribe
 %% call.
 %%
@@ -532,10 +529,10 @@ poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), 
 %%
 %% - `lagging' flag is an implementation-defined indicator that the
 %% subscription is currently reading old data.
--spec subscribe(db(), _ItKey, iterator(), sub_opts()) ->
+-spec subscribe(db(), iterator(), sub_opts()) ->
     {ok, subscription_handle(), sub_ref()} | error(_).
-subscribe(DB, ItKey, Iterator, SubOpts) ->
-    ?module(DB):subscribe(DB, ItKey, Iterator, SubOpts).
+subscribe(DB, Iterator, SubOpts) ->
+    ?module(DB):subscribe(DB, Iterator, SubOpts).
 
 -spec unsubscribe(db(), subscription_handle()) -> boolean().
 unsubscribe(DB, SubRef) ->

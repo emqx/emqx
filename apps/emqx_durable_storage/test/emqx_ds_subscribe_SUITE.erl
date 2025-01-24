@@ -35,7 +35,7 @@ t_sub_unsub(Config) ->
         begin
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            {ok, Handle, _MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            {ok, Handle, _MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             %% Subscription is registered:
             ?assertMatch(
                 #{},
@@ -71,7 +71,7 @@ t_dead_subscriber_cleanup(Config) ->
             Parent = self(),
             Child = spawn_link(
                 fun() ->
-                    {ok, Handle, _MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{
+                    {ok, Handle, _MRef} = emqx_ds:subscribe(DB, It, #{
                         max_unacked => 100
                     }),
                     Parent ! {ready, Handle},
@@ -113,7 +113,7 @@ t_shard_down_notify(Config) ->
         begin
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             ?assertMatch(ok, emqx_ds:close_db(DB)),
             ?assertMatch([MRef], collect_down_msgs())
         end,
@@ -129,7 +129,7 @@ t_worker_down_notify(Config) ->
         try
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             %% Inject an error that should crash the worker:
             meck:new(emqx_ds_beamformer, [passthrough, no_history]),
             meck:expect(emqx_ds_beamformer, scan_stream, fun(
@@ -168,14 +168,14 @@ t_catchup(Config) ->
             emqx_ds:add_generation(DB),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 3}),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 3}),
             %% We receive one batch and stop waiting for ack. Note:
             %% batch may contain more messages than `max_unacked',
             %% because batch size is independent.
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = true,
                         seqno = 5,
                         size = 5,
@@ -189,14 +189,14 @@ t_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
             %% Ack and receive the rest of the messages:
-            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 5)),
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 5)),
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = true,
                         seqno = 10,
                         size = 5,
@@ -210,20 +210,20 @@ t_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
             %% Ack and receive `end_of_stream':
-            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 10)),
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 10)),
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         seqno = 11,
                         size = 1,
                         payload = {ok, end_of_stream}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             )
         end,
         []
@@ -242,14 +242,14 @@ t_realtime(Config) ->
             {ok, It} = emqx_ds:make_iterator(
                 DB, Stream, [<<"t">>], erlang:system_time(millisecond)
             ),
-            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 100}),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             timer:sleep(100),
             %% Publish/consume/ack loop:
             ?assertMatch(ok, publish(DB, 1, 2)),
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = false,
                         stuck = false,
                         seqno = 2,
@@ -261,13 +261,13 @@ t_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
             ?assertMatch(ok, publish(DB, 3, 4)),
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = false,
                         stuck = false,
                         seqno = 4,
@@ -279,15 +279,15 @@ t_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
-            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 4)),
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 4)),
             %% Close the generation. The subscriber should be promptly
             %% notified:
             ?assertMatch(ok, emqx_ds:add_generation(DB)),
             ?assertMatch(
-                [#poll_reply{ref = MRef, seqno = 5, payload = {ok, end_of_stream}}],
-                recv(?FUNCTION_NAME, MRef)
+                [#poll_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],
+                recv(SubRef)
             )
         end,
         []
@@ -302,12 +302,12 @@ t_slow_sub(Config) ->
             Stream = make_stream(Config),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 3}),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 3}),
             %% Check receiving of messages published at the beginning:
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = true,
                         stuck = false,
                         seqno = 1,
@@ -318,14 +318,14 @@ t_slow_sub(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
             %% Publish more data, it should result in an event:
             ?assertMatch(ok, publish(DB, 1, 2)),
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = false,
                         stuck = true,
                         seqno = 3,
@@ -337,20 +337,20 @@ t_slow_sub(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
             %% Fill more data:
             ?assertMatch(ok, publish(DB, 3, 4)),
             %% This data should NOT be delivered to the subscriber
             %% until it acks enough messages:
-            ?assertMatch([], recv(?FUNCTION_NAME, MRef)),
+            ?assertMatch([], recv(SubRef)),
             %% Ack sequence number:
-            ?assertMatch(ok, emqx_ds:suback(DB, SRef, 3)),
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 3)),
             %% Now we get the messages:
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         lagging = true,
                         stuck = false,
                         seqno = 5,
@@ -361,7 +361,7 @@ t_slow_sub(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             )
         end,
         []
@@ -380,12 +380,12 @@ t_catchup_unrecoverable(Config) ->
             emqx_ds:add_generation(DB),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
-            {ok, SRef, MRef} = emqx_ds:subscribe(DB, ?FUNCTION_NAME, It, #{max_unacked => 3}),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 3}),
             %% Receive a batch and pause for the ack:
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         seqno = 5,
                         size = 5,
                         payload =
@@ -398,7 +398,7 @@ t_catchup_unrecoverable(Config) ->
                             ]}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             ),
             %% Drop generation:
             ?assertMatch(
@@ -407,17 +407,17 @@ t_catchup_unrecoverable(Config) ->
             ),
             ?assertMatch(ok, emqx_ds:drop_generation(DB, {<<"0">>, 1})),
             %% Ack and receive unrecoverable error:
-            emqx_ds:suback(DB, SRef, 5),
+            emqx_ds:suback(DB, Handle, 5),
             ?assertMatch(
                 [
                     #poll_reply{
-                        ref = MRef,
+                        ref = SubRef,
                         size = 1,
                         seqno = 6,
                         payload = {error, unrecoverable, generation_not_found}
                     }
                 ],
-                recv(?FUNCTION_NAME, MRef)
+                recv(SubRef)
             )
         end,
         []
@@ -426,14 +426,14 @@ t_catchup_unrecoverable(Config) ->
 %%
 
 %% @doc Recieve poll replies with given UserData:
-recv(UserData, MRef) ->
-    recv(UserData, MRef, 1000).
+recv(SubRef) ->
+    recv(SubRef, 1000).
 
-recv(UserData, MRef, Timeout) ->
+recv(SubRef, Timeout) ->
     receive
-        #poll_reply{userdata = UserData} = Msg ->
-            [Msg | recv(UserData, MRef, Timeout)];
-        {'DOWN', MRef, _, _, Reason} ->
+        #poll_reply{ref = SubRef} = Msg ->
+            [Msg | recv(SubRef, Timeout)];
+        {'DOWN', SubRef, _, _, Reason} ->
             error({unexpected_beamformer_termination, Reason})
     after Timeout ->
         []

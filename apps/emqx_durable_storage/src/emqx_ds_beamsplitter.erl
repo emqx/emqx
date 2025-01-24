@@ -36,7 +36,7 @@
 -type dispatch_mask() :: emqx_ds_dispatch_mask:encoding().
 
 -type destination() :: ?DESTINATION(
-    pid(), reference(), _UserData, emqx_ds:sub_seqno(), dispatch_mask(), flags(), _Iterator
+    pid(), reference(), emqx_ds:sub_seqno(), dispatch_mask(), flags(), _Iterator
 ).
 
 -type pack() ::
@@ -58,12 +58,11 @@ dispatch_v2(Pack, Destinations) ->
     %% is already sufficient.
     ?tp(emqx_ds_beamsplitter_dispatch, #{pack => Pack, destinations => Destinations}),
     lists:foreach(
-        fun(?DESTINATION(Client, SubRef, ItKey, SeqNo, Mask, Flags, EndIterator)) ->
+        fun(?DESTINATION(Client, SubRef, SeqNo, Mask, Flags, EndIterator)) ->
             {Size, Payload} = mk_payload(Pack, Mask, EndIterator),
             Client !
                 #poll_reply{
                     ref = SubRef,
-                    userdata = ItKey,
                     payload = Payload,
                     size = Size,
                     seqno = SeqNo,

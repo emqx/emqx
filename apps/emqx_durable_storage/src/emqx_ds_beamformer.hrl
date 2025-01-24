@@ -32,8 +32,6 @@
     stream,
     topic_filter,
     start_key,
-    %% Client-supplied subscription key that is returned verbatim:
-    userdata,
     %% Iterator:
     it,
     %% Callback that filters messages that belong to the request:
@@ -45,8 +43,8 @@
 %% shard:
 -define(pt_gvar(SHARD), {emqx_ds_beamformer_gvar, SHARD}).
 
--define(DESTINATION(CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR),
-    {CLIENT, SUBREF, ITKEY, SEQNO, MASK, FLAGS, ITERATOR}
+-define(DESTINATION(CLIENT, SUBREF, SEQNO, MASK, FLAGS, ITERATOR),
+    {CLIENT, SUBREF, SEQNO, MASK, FLAGS, ITERATOR}
 ).
 
 %% Bit flags that encode various subscription metadata:
