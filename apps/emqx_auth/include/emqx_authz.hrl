@@ -76,10 +76,26 @@
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],
             retain => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            username_re => <<"^u+$">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            clientid_re => <<"^c+$">>,
+            ipaddr => <<"192.168.1.0/24">>
         }
     ]
 }).
--define(USERNAME_RULES_EXAMPLE(EXTRA), (begin ?USERNAME_RULES_EXAMPLE end) EXTRA).
 
 -define(CLIENTID_RULES_EXAMPLE, #{
     clientid => client1,
@@ -112,10 +128,26 @@
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],
             retain => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            username_re => <<"^u+$">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            clientid_re => <<"^c+$">>,
+            ipaddr => <<"192.168.1.0/24">>
         }
     ]
 }).
--define(CLIENTID_RULES_EXAMPLE(EXTRA), (begin ?CLIENTID_RULES_EXAMPLE end) EXTRA).
 
 -define(ALL_RULES_EXAMPLE, #{
     rules => [
