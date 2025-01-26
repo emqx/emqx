@@ -384,7 +384,7 @@ client_publish(InitAttrs, ProcessFun, [Packet] = Args) ->
         end
     ).
 
-%% -compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
+-compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
 attach_outgoing(?PUBLISH_PACKET(?QOS_0), _Ctx) ->
     ok;
 attach_outgoing(?PUBLISH_PACKET(?QOS_1, PacketId), Ctx) ->
