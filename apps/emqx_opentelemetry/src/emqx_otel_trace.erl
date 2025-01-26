@@ -96,7 +96,7 @@
 ).
 
 -define(with_trace_mode(LegacyModeBody, E2EModeBody),
-    case persistent_term:get(?TRACE_MODE_KEY, undefined) of
+    case persistent_term:get(?TRACE_MODE_KEY, ?TRACE_MODE_LEGACY) of
         ?TRACE_MODE_E2E -> E2EModeBody;
         ?TRACE_MODE_LEGACY -> LegacyModeBody
     end
