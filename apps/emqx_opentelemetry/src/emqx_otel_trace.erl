@@ -151,6 +151,7 @@ set_trace_filter(#{
     %% local setting, no sampler
     persistent_term:put(?TRACE_MODE_KEY, ?TRACE_MODE_LEGACY),
     persistent_term:put(?TRACE_ALL_KEY, TraceAll),
+    _ = application:unset_env(opentelemetry, sampler),
     [];
 set_trace_filter(#{
     trace_mode := ?TRACE_MODE_E2E,
