@@ -58,7 +58,7 @@
                     true ->
                         logger:log(Level, __Data, Meta);
                     false ->
-                        ?_DO_TRACE(Level, __Msg, maps:merge(__Data, Meta))
+                        ?_DO_TRACE(maps:get(tag, Meta, Level), __Msg, maps:merge(__Data, Meta))
                 end
             end)(
                 Data
