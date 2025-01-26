@@ -319,6 +319,15 @@ fields("e2e_tracing_options") ->
                     default => false,
                     importance => ?IMPORTANCE_MEDIUM
                 }
+            )},
+        {follow_traceparent,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(follow_traceparent),
+                    default => true,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
             )}
     ].
 
