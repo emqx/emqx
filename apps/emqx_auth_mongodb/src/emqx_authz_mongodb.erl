@@ -127,8 +127,8 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
 
 parse_rule(Row) ->
     case emqx_authz_rule_raw:parse_rule(Row) of
-        {ok, {Permission, Action, Topics}} ->
-            [emqx_authz_rule:compile({Permission, all, Action, Topics})];
+        {ok, {Permission, Who, Action, Topics}} ->
+            [emqx_authz_rule:compile({Permission, Who, Action, Topics})];
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "parse_rule_error",

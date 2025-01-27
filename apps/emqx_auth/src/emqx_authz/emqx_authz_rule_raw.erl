@@ -45,11 +45,22 @@
 %%
 %%            %% true | false | all | 0 | 1 | <<"true">> | ...
 %%            %% only for pub action
-%%            <<"retain">> => true
+%%            <<"retain">> => true,
+%%
+%%            %% Optional filters.
+%%            %% Each filter should match for the rule to be appiled.
+%%            <<"clientid_re">> => <<"^client-[0-9]+$">>,
+%%            <<"username_re">> => <<"^user-[0-9]+$">>,
+%%            <<"ipaddr">> => <<"192.168.5.0/24">>
 %%        },
 %%        ...
 %%    ],
 -type rule_raw() :: #{binary() => binary() | [binary()]}.
+-type legacy_rule() :: {
+    emqx_authz_rule:permission_resolution_precompile(),
+    emqx_authz_rule:action_precompile(),
+    emqx_authz_rule:topic_precompile()
+}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -62,9 +73,9 @@ parse_and_compile_rules(Rules) ->
     lists:map(
         fun(Rule) ->
             case parse_rule(Rule) of
-                {ok, {Permission, Action, Topics}} ->
+                {ok, {Permission, Who, Action, Topics}} ->
                     try
-                        emqx_authz_rule:compile({Permission, all, Action, Topics})
+                        emqx_authz_rule:compile({Permission, Who, Action, Topics})
                     catch
                         throw:Reason ->
                             throw({bad_acl_rule, Reason})
@@ -79,6 +90,7 @@ parse_and_compile_rules(Rules) ->
 -spec parse_rule(rule_raw()) ->
     {ok, {
         emqx_authz_rule:permission_resolution_precompile(),
+        emqx_authz_rule:who_precompile(),
         emqx_authz_rule:action_precompile(),
         emqx_authz_rule:topic_precompile()
     }}
@@ -92,9 +104,10 @@ parse_rule(
     try
         Topics = validate_rule_topics(RuleRaw),
         Permission = validate_rule_permission(PermissionRaw),
+        Who = validate_rule_who(RuleRaw),
         ActionType = validate_rule_action_type(ActionTypeRaw),
         Action = validate_rule_action(ActionType, RuleRaw),
-        {ok, {Permission, Action, Topics}}
+        {ok, {Permission, Who, Action, Topics}}
     catch
         throw:{Invalid, Which} ->
             {error, #{
@@ -109,27 +122,29 @@ parse_rule(RuleRaw) ->
         explain => "missing 'permission' or 'action' field"
     }}.
 
--spec format_rule({
-    emqx_authz_rule:permission_resolution_precompile(),
-    emqx_authz_rule:action_precompile(),
-    emqx_authz_rule:topic_precompile()
-}) -> map().
-format_rule({Permission, Action, Topics}) when is_list(Topics) ->
-    maps:merge(
-        #{
-            topic => lists:map(fun format_topic/1, Topics),
-            permission => Permission
-        },
-        format_action(Action)
+-spec format_rule(emqx_authz_rule:rule() | legacy_rule()) -> map().
+format_rule({Permission, Action, Topics}) ->
+    format_rule({Permission, all, Action, Topics});
+format_rule({Permission, Who, Action, Topics}) when is_list(Topics) ->
+    merge_maps(
+        [
+            #{
+                topic => lists:map(fun format_topic/1, Topics),
+                permission => Permission
+            },
+            format_action(Action),
+            format_who(Who)
+        ]
     );
-format_rule({Permission, Action, Topic}) ->
-    maps:merge(
+format_rule({Permission, Who, Action, Topic}) ->
+    merge_maps([
         #{
             topic => format_topic(Topic),
             permission => Permission
         },
-        format_action(Action)
-    ).
+        format_action(Action),
+        format_who(Who)
+    ]).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -219,6 +234,34 @@ validate_rule_retain(null) -> ?DEFAULT_RULE_RETAIN;
 validate_rule_retain(<<"all">>) -> ?DEFAULT_RULE_RETAIN;
 validate_rule_retain(Retain) -> throw({invalid_retain, Retain}).
 
+validate_rule_who(RuleRaw) ->
+    case validate_rule_who(maps:to_list(RuleRaw), []) of
+        [] -> all;
+        [Who] -> Who;
+        WhoList -> {'and', WhoList}
+    end.
+
+validate_rule_who([], WhoList) ->
+    WhoList;
+validate_rule_who([{<<"username_re">>, UsernameReRaw} | Rest], WhoList) when
+    is_binary(UsernameReRaw)
+->
+    validate_rule_who(Rest, [{username, {re, UsernameReRaw}} | WhoList]);
+validate_rule_who([{<<"username_re">>, UsernameReRaw} | _Rest], _WhoList) ->
+    throw({invalid_username_re, UsernameReRaw});
+validate_rule_who([{<<"clientid_re">>, ClientIdReRaw} | Rest], WhoList) when
+    is_binary(ClientIdReRaw)
+->
+    validate_rule_who(Rest, [{clientid, {re, ClientIdReRaw}} | WhoList]);
+validate_rule_who([{<<"clientid_re">>, ClientIdReRaw} | _Rest], _WhoList) ->
+    throw({invalid_clientid_re, ClientIdReRaw});
+validate_rule_who([{<<"ipaddr">>, IpAddrRaw} | Rest], WhoList) when is_binary(IpAddrRaw) ->
+    validate_rule_who(Rest, [{ipaddr, binary_to_list(IpAddrRaw)} | WhoList]);
+validate_rule_who([{<<"ipaddr">>, IpAddrRaw} | _Rest], _WhoList) ->
+    throw({invalid_ipaddr, IpAddrRaw});
+validate_rule_who([_ | Rest], WhoList) ->
+    validate_rule_who(Rest, WhoList).
+
 format_action(Action) ->
     format_action(emqx_authz:feature_available(rich_actions), Action).
 
@@ -247,3 +290,13 @@ format_topic({eq, Topic}) when is_binary(Topic) ->
     <<"eq ", Topic/binary>>;
 format_topic(Topic) when is_binary(Topic) ->
     Topic.
+
+format_who(all) -> #{};
+format_who({username, {re, UsernameRe}}) -> #{username_re => UsernameRe};
+format_who({clientid, {re, ClientIdRe}}) -> #{clientid_re => ClientIdRe};
+format_who({ipaddr, IpAddr}) when is_list(IpAddr) -> #{ipaddr => list_to_binary(IpAddr)};
+format_who({'and', WhoList}) -> merge_maps(lists:map(fun format_who/1, WhoList));
+format_who(Who) -> throw({invalid_who, Who}).
+
+merge_maps(Maps) ->
+    lists:foldl(fun(Map, Acc) -> maps:merge(Acc, Map) end, #{}, Maps).

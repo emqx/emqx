@@ -20,6 +20,21 @@ clientid.desc:
 clientid.label:
 """clientid"""
 
+clientid_re.desc:
+"""ClientID regex for filtering applied rules"""
+clientid_re.label:
+"""ClientID regex"""
+
+username_re.desc:
+"""Username regex for filtering applied rules"""
+username_re.label:
+"""Username regex"""
+
+ipaddr.desc:
+"""IP address/mask for filtering applied rules"""
+ipaddr.label:
+"""IP address/mask"""
+
 fuzzy_clientid.desc:
 """Fuzzy search `clientid` as substring"""
 
