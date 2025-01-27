@@ -742,17 +742,20 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
 
     ?assert(NMsgs2 < NPubs, {NMsgs2, '<', NPubs}),
     ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
-    ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
-    NSame = NMsgs2 - NPubs2,
+    %% Once reconnected, we should receive all the published messages above (`Msgs1 ++
+    %% Msgs2'), *except* those from `Msgs1' that we acked.
+    ?assert(NMsgs2 =< NPubs - NAcked, #{msgs2 => Msgs2, n_pubs => NPubs, n_acked => NAcked}),
+    %% All messages from `Msgs1' that were not acked will be marked with `dup = true'.
+    NDup = NMsgs1 - NAcked,
     ?assert(
-        lists:all(fun(#{dup := Dup}) -> Dup end, lists:sublist(Msgs2, NSame))
+        lists:all(fun(#{dup := Dup}) -> Dup end, lists:sublist(Msgs2, NDup))
     ),
     ?assertNot(
-        lists:all(fun(#{dup := Dup}) -> Dup end, lists:nthtail(NSame, Msgs2))
+        lists:all(fun(#{dup := Dup}) -> Dup end, lists:nthtail(NDup, Msgs2))
     ),
     ?assertEqual(
-        [maps:with([packet_id, topic, payload], M) || M <- lists:nthtail(NMsgs1 - NSame, Msgs1)],
-        [maps:with([packet_id, topic, payload], M) || M <- lists:sublist(Msgs2, NSame)]
+        [maps:with([packet_id, topic, payload], M) || M <- lists:nthtail(NMsgs1 - NDup, Msgs1)],
+        [maps:with([packet_id, topic, payload], M) || M <- lists:sublist(Msgs2, NDup)]
     ),
 
     ok = disconnect_client(Client2).
