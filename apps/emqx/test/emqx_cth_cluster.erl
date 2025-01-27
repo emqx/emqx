@@ -428,7 +428,13 @@ start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
 start_apps(Node, #{apps := Apps} = Spec) ->
     SuiteOpts = suite_opts(Spec),
     AppsRest = [AppSpec || AppSpec = {App, _} <- Apps, not lists:member(App, ?APPS_CLUSTERING)],
-    _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
+    try
+        _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts])
+    catch
+        K:E:S ->
+            ct:pal("failure while starting apps on node ~s: ~p:~p\n  ~p", [Node, K, E, S]),
+            erlang:raise(K, E, S)
+    end,
     ok.
 
 suite_opts(#{work_dir := WorkDir}) ->
