@@ -126,6 +126,5 @@ verify_totp(Token, Secret) ->
 totp_error(Reason) ->
     #{
         mechanism => totp,
-        error => Reason,
-        cluster_name => emqx_sys:cluster_name()
+        error => Reason
     }.
