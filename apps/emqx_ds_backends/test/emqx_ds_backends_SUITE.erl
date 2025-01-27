@@ -25,8 +25,7 @@
 -include("../../emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-opts(Config) ->
-    proplists:get_value(ds_conf, Config).
+-define(msg_fields, [topic, from, payload]).
 
 %% A simple smoke test that verifies that opening/closing the DB
 %% doesn't crash, and not much else
@@ -70,7 +69,7 @@ t_02_smoke_iterate(Config) ->
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-    emqx_ds_test_helpers:diff_messages(Msgs, Batch).
+    emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
@@ -98,7 +97,7 @@ t_05_restart(Config) ->
     ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
     {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-    emqx_ds_test_helpers:diff_messages(Msgs, Batch).
+    emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
 t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
@@ -285,8 +284,9 @@ t_11_batch_preconditions(Config) ->
                 emqx_ds:store_batch(DB, Batch2)
             ),
             %% Now there's such message, `unless` precondition now fails:
-            ?assertEqual(
-                {error, unrecoverable, {precondition_failed, M1}},
+            ?assertMatch(
+                {error, unrecoverable,
+                    {precondition_failed, #message{topic = <<"t/a">>, payload = <<"M1">>}}},
                 emqx_ds:store_batch(DB, Batch2)
             ),
             %% On the other hand, `if` precondition now holds:
@@ -361,9 +361,10 @@ t_12_batch_precondition_conflicts(Config) ->
             WinnerBatch = lists:nth(binary_to_integer(IOwner), ConflictBatches),
             BatchMessages = lists:sort(WinnerBatch#dsbatch.operations),
             DBMessages = emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"t/#">>)),
-            ?assertEqual(
-                BatchMessages,
-                DBMessages
+            emqx_ds_test_helpers:diff_messages(
+                ?msg_fields,
+                lists:sort(BatchMessages),
+                lists:sort(DBMessages)
             )
         end,
         []
@@ -374,13 +375,34 @@ t_smoke_delete_next(Config) ->
     ?check_trace(
         begin
             ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            %% Preparation: this test verifies topic selector. To
+            %% create a stream that contains multiple topics we need a
+            %% learned wildcard:
+            ?assertMatch(
+                ok,
+                emqx_ds:store_batch(
+                    DB,
+                    [message({"foo/~p", [I]}, <<"">>, 0) || I <- lists:seq(1, 100)]
+                )
+            ),
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            [GenToDel] = [
+                GenId
+             || {GenId, #{until := Until}} <- maps:to_list(
+                    emqx_ds:list_generations_with_lifetimes(DB)
+                ),
+                is_integer(Until)
+            ],
+            ?assertMatch(ok, emqx_ds:drop_generation(DB, GenToDel)),
+            %% Actual test:
             StartTime = 0,
             TopicFilter = [<<"foo">>, '#'],
+            %% Publish messages in different topics in two batches to distinguish between the streams:
             Msgs =
                 [Msg1, _Msg2, Msg3] = [
                     message(<<"foo/bar">>, <<"1">>, 0),
-                    message(<<"foo">>, <<"2">>, 1),
-                    message(<<"bar/bar">>, <<"3">>, 2)
+                    message(<<"foo/foo">>, <<"2">>, 1),
+                    message(<<"foo/baz">>, <<"3">>, 2)
                 ],
             ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
 
@@ -388,23 +410,20 @@ t_smoke_delete_next(Config) ->
             {ok, DIter0} = emqx_ds:make_delete_iterator(DB, DStream, TopicFilter, StartTime),
 
             Selector = fun(#message{topic = Topic}) ->
-                Topic == <<"foo">>
+                Topic == <<"foo/foo">>
             end,
             {ok, DIter1, NumDeleted1} = delete(DB, DIter0, Selector, 1),
             ?assertEqual(0, NumDeleted1),
             {ok, DIter2, NumDeleted2} = delete(DB, DIter1, Selector, 1),
             ?assertEqual(1, NumDeleted2),
 
-            TopicFilterHash = ['#'],
-            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilterHash, StartTime),
-            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilterHash, StartTime),
-            ?assertEqual([Msg1, Msg3], Batch),
+            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilter, StartTime),
+            emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg1, Msg3], Batch),
 
             ok = emqx_ds:add_generation(DB),
 
-            ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1)),
-
-            ok
+            ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1))
         end,
         []
     ),
@@ -457,7 +476,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     {ok, Iter1} = emqx_ds:make_iterator(DB, Stream1, TopicFilter, StartTime),
 
     {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter1, #{batch_size => 1}),
-    emqx_ds_test_helpers:diff_messages(Msgs1, Batch).
+    emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs1, Batch).
 
 t_drop_generation_with_used_once_iterator(Config) ->
     %% This test checks how the iterator behaves when:
@@ -484,7 +503,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
     {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1),
     ?assertNotEqual(end_of_stream, Iter1),
-    emqx_ds_test_helpers:diff_messages([Msg0], [Msg || {_Key, Msg} <- Batch1]),
+    emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg0], [Msg || {_Key, Msg} <- Batch1]),
 
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
@@ -529,20 +548,409 @@ t_make_iterator_stale_stream(Config) ->
         emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime)
     ).
 
-update_data_set() ->
-    [
-        [
-            {<<"foo/bar">>, <<"1">>}
-        ],
+%% @doc This is a smoke test for `subscribe' and `unsubscribe' APIs
+t_sub_unsub(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, Handle, _MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
+            %% Subscription is registered:
+            ?assertMatch(
+                #{},
+                emqx_ds:subscription_info(DB, Handle),
+                #{ref => Handle}
+            ),
+            %% Unsubscribe and check that subscription has been
+            %% unregistered:
+            ?assertMatch(true, emqx_ds:unsubscribe(DB, Handle)),
+            ?assertMatch(
+                undefined,
+                emqx_ds:subscription_info(DB, Handle),
+                #{handle => Handle}
+            ),
+            %% Try to unsubscribe with invalid handle:
+            ?assertMatch(false, emqx_ds:unsubscribe(DB, Handle)),
+            ?assertMatch([], collect_down_msgs())
+        end,
+        []
+    ).
 
-        [
-            {<<"foo">>, <<"2">>}
-        ],
+%% @doc Verify the scenario where a subscriber terminates without
+%% unsubscribing. We test this by creating a subscription from a
+%% temporary process that exits normally. DS should automatically
+%% remove this subscription.
+t_dead_subscriber_cleanup(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            Parent = self(),
+            Child = spawn_link(
+                fun() ->
+                    {ok, Handle, _MRef} = emqx_ds:subscribe(DB, It, #{
+                        max_unacked => 100
+                    }),
+                    Parent ! {ready, Handle},
+                    receive
+                        exit -> ok
+                    end
+                end
+            ),
+            receive
+                {ready, Handle} -> ok
+            end,
+            %% Currently the process is running. Verify that the
+            %% subscription is present:
+            ?assertMatch(
+                #{},
+                emqx_ds:subscription_info(DB, Handle),
+                #{handle => Handle}
+            ),
+            %% Shutdown the child process and verify that the
+            %% subscription has been automatically removed:
+            Child ! exit,
+            timer:sleep(100),
+            ?assertMatch(false, is_process_alive(Child)),
+            ?assertMatch(
+                undefined,
+                emqx_ds:subscription_info(DB, Handle),
+                #{handle => Handle}
+            )
+        end,
+        []
+    ).
 
-        [
-            {<<"bar/bar">>, <<"3">>}
-        ]
-    ].
+%% @doc Verify that a client receives `DOWN' message when the server
+%% goes down:
+t_shard_down_notify(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
+            ?assertMatch(ok, emqx_ds:close_db(DB)),
+            ?assertMatch([MRef], collect_down_msgs())
+        end,
+        []
+    ).
+
+%% @doc Verify that a client is notified when the beamformer worker
+%% currently owning the subscription dies:
+t_worker_down_notify(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{},
+        try
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
+            %% Inject an error that should crash the worker:
+            meck:new(emqx_ds_beamformer, [passthrough, no_history]),
+            meck:expect(emqx_ds_beamformer, scan_stream, fun(
+                _Mod, _Shard, _Stream, _TopicFilter, _StartKey, _BatchSize
+            ) ->
+                error(injected)
+            end),
+            %% Publish some messages to trigger stream scan leading up
+            %% to the crash:
+            ?assertMatch(ok, publish_seq(DB, 1, 1)),
+            %% Recieve notification:
+            receive
+                {'DOWN', MRef, process, Pid, Reason} ->
+                    ?assertMatch(worker_crash, Reason),
+                    ?assert(is_pid(Pid))
+            after 5000 ->
+                error(timeout_waiting_for_down)
+            end
+        after
+            meck:unload()
+        end,
+        []
+    ).
+
+%% @doc Verify behavior of a subscription that replayes old messages.
+%% This testcase focuses on the correctness of `catchup' beamformer
+%% workers.
+t_catchup(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            %% Fill the storage and close the generation:
+            ?assertMatch(ok, publish_seq(DB, 1, 9)),
+            emqx_ds:add_generation(DB),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 3}),
+            %% We receive one batch and stop waiting for ack. Note:
+            %% batch may contain more messages than `max_unacked',
+            %% because batch size is independent.
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = true,
+                        seqno = 5,
+                        size = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"0">>}},
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}},
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            %% Ack and receive the rest of the messages:
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 5)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = true,
+                        seqno = 10,
+                        size = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"5">>}},
+                                {_, #message{payload = <<"6">>}},
+                                {_, #message{payload = <<"7">>}},
+                                {_, #message{payload = <<"8">>}},
+                                {_, #message{payload = <<"9">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            %% Ack and receive `end_of_stream':
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 10)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        seqno = 11,
+                        size = 1,
+                        payload = {ok, end_of_stream}
+                    }
+                ],
+                recv(SubRef)
+            )
+        end,
+        []
+    ).
+
+%% @doc Verify behavior of a subscription that always stays at the top
+%% of the stream. This testcase focuses on the correctness of
+%% `rt' beamformer workers.
+t_realtime(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(
+                DB, Stream, [<<"t">>], erlang:system_time(millisecond)
+            ),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
+            timer:sleep(1_000),
+            %% Publish/consume/ack loop:
+            ?assertMatch(ok, publish_seq(DB, 1, 2)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = false,
+                        stuck = false,
+                        seqno = 2,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            ?assertMatch(ok, publish_seq(DB, 3, 4)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = false,
+                        stuck = false,
+                        seqno = 4,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 4)),
+            %% Close the generation. The subscriber should be promptly
+            %% notified:
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            ?assertMatch(
+                [#poll_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],
+                recv(SubRef)
+            )
+        end,
+        []
+    ).
+
+%% @doc This testcase emulates a slow subscriber.
+t_slow_sub(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 3}),
+            %% Check receiving of messages published at the beginning:
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = true,
+                        stuck = false,
+                        seqno = 1,
+                        size = 1,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"0">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            %% Publish more data, it should result in an event:
+            ?assertMatch(ok, publish_seq(DB, 1, 2)),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = false,
+                        stuck = true,
+                        seqno = 3,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            %% Fill more data:
+            ?assertMatch(ok, publish_seq(DB, 3, 4)),
+            %% This data should NOT be delivered to the subscriber
+            %% until it acks enough messages:
+            ?assertMatch([], recv(SubRef)),
+            %% Ack sequence number:
+            ?assertMatch(ok, emqx_ds:suback(DB, Handle, 3)),
+            %% Now we get the messages:
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        lagging = true,
+                        stuck = false,
+                        seqno = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            )
+        end,
+        []
+    ).
+
+%% @doc Remove generation during catchup. The client should receive an
+%% unrecoverable error.
+t_catchup_unrecoverable(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Stream = make_stream(Config),
+            %% Fill the storage and close the generation:
+            ?assertMatch(ok, publish_seq(DB, 1, 9)),
+            emqx_ds:add_generation(DB),
+            %% Subscribe:
+            {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
+            {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 3}),
+            %% Receive a batch and pause for the ack:
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        seqno = 5,
+                        size = 5,
+                        payload =
+                            {ok, _, [
+                                {_, #message{payload = <<"0">>}},
+                                {_, #message{payload = <<"1">>}},
+                                {_, #message{payload = <<"2">>}},
+                                {_, #message{payload = <<"3">>}},
+                                {_, #message{payload = <<"4">>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef)
+            ),
+            %% Drop generation:
+            ?assertMatch(
+                #{{<<"0">>, 1} := _, {<<"0">>, 2} := _},
+                emqx_ds:list_generations_with_lifetimes(DB)
+            ),
+            ?assertMatch(ok, emqx_ds:drop_generation(DB, {<<"0">>, 1})),
+            %% Ack and receive unrecoverable error:
+            emqx_ds:suback(DB, Handle, 5),
+            ?assertMatch(
+                [
+                    #poll_reply{
+                        ref = SubRef,
+                        size = 1,
+                        seqno = 6,
+                        payload = {error, unrecoverable, generation_not_found}
+                    }
+                ],
+                recv(SubRef)
+            )
+        end,
+        []
+    ).
 
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
@@ -577,7 +985,7 @@ delete(DB, It0, Selector, BatchSize, Acc) ->
         {ok, It, 0} ->
             {ok, It, Acc};
         {ok, It, NumDeleted} ->
-            delete(DB, It, BatchSize, Selector, Acc + NumDeleted);
+            delete(DB, It, Selector, BatchSize, Acc + NumDeleted);
         {ok, end_of_stream} ->
             {ok, end_of_stream, Acc};
         Ret ->
@@ -640,12 +1048,19 @@ suite() ->
 
 init_per_testcase(TC, Config) ->
     Backend = proplists:get_value(backend, Config),
-    Apps = emqx_cth_suite:start(Backend:test_applications(Config), #{
+    AppConfig =
+        case TC of
+            _ when TC =:= t_catchup; TC =:= t_catchup_unrecoverable ->
+                #{emqx_durable_storage => #{override_env => [{poll_batch_size, 5}]}};
+            _ ->
+                #{}
+        end,
+    Apps = emqx_cth_suite:start(Backend:test_applications(AppConfig), #{
         work_dir => emqx_cth_suite:work_dir(TC, Config)
     }),
     ct:pal("Started apps: ~p", [Apps]),
     timer:sleep(1000),
-    Config ++ [{apps, Apps}].
+    [{apps, Apps}, {tc, TC} | Config].
 
 end_per_testcase(TC, Config) ->
     catch ok = emqx_ds:drop_db(TC),
@@ -654,8 +1069,9 @@ end_per_testcase(TC, Config) ->
     snabbkaffe:stop(),
     ok.
 
-emqx_ds_open_db(X1, X2) ->
-    case emqx_ds:open_db(X1, X2) of
+emqx_ds_open_db(DB, Opts) ->
+    ct:pal("Opening DB ~p with options ~p", [DB, Opts]),
+    case emqx_ds:open_db(DB, Opts) of
         ok -> timer:sleep(1000);
         Other -> Other
     end.
@@ -664,3 +1080,46 @@ backends() ->
     application:load(emqx_ds_backends),
     {ok, L} = application:get_env(emqx_ds_backends, available_backends),
     L.
+
+opts(Config) ->
+    proplists:get_value(ds_conf, Config).
+
+%% Subscription-related helper functions:
+
+%% @doc Recieve poll replies with given SubRef:
+recv(SubRef) ->
+    recv(SubRef, 1000).
+
+recv(SubRef, Timeout) ->
+    receive
+        #poll_reply{ref = SubRef} = Msg ->
+            [Msg | recv(SubRef, Timeout)];
+        {'DOWN', SubRef, _, _, Reason} ->
+            error({unexpected_beamformer_termination, Reason})
+    after Timeout ->
+        []
+    end.
+
+collect_down_msgs() ->
+    receive
+        {'DOWN', MRef, _, _, _} ->
+            [MRef | collect_down_msgs()]
+    after 100 ->
+        []
+    end.
+
+%% Fill topic "t" with some data and return the corresponding stream:
+make_stream(Config) ->
+    DB = proplists:get_value(tc, Config),
+    ?assertMatch(ok, publish_seq(DB, 0, 0)),
+    timer:sleep(100),
+    [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>], 0),
+    Stream.
+
+%% @doc Publish sequence of integers from `Start' to `End' to topic
+%% "t".
+publish_seq(DB, Start, End) ->
+    emqx_ds:store_batch(DB, [
+        emqx_message:make(<<"pub">>, <<"t">>, integer_to_binary(I))
+     || I <- lists:seq(Start, End)
+    ]).
