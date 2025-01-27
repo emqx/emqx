@@ -1415,17 +1415,17 @@ clientid_size(ClientID) ->
 test_db_config(_Config) ->
     #{
         backend => builtin_raft,
-        storage => {emqx_ds_storage_skipstream_lts, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{with_guid => true}},
         n_shards => 1,
         n_sites => 1,
         replication_factor => 3,
         replication_options => #{}
     }.
 
-test_applications(_Config) ->
+test_applications(Config) ->
     [
-        emqx_durable_storage,
-        emqx_ds_backends
+        {App, maps:get(App, Config, #{})}
+     || App <- [emqx_durable_storage, emqx_ds_backends]
     ].
 
 -endif.

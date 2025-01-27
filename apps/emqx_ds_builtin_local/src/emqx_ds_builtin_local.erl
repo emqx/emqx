@@ -592,16 +592,16 @@ timeus_to_timestamp(TimestampUs) ->
 
 -ifdef(TEST).
 
-test_applications(_Config) ->
+test_applications(Config) ->
     [
-        emqx_durable_storage,
-        emqx_ds_backends
+        {App, maps:get(App, Config, #{})}
+     || App <- [emqx_durable_storage, emqx_ds_backends]
     ].
 
 test_db_config(_Config) ->
     #{
         backend => builtin_local,
-        storage => {emqx_ds_storage_skipstream_lts, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{with_guid => true}},
         n_shards => 1
     }.
 
