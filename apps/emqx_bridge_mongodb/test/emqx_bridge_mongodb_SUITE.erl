@@ -344,7 +344,7 @@ create_bridge_http(Params) ->
             return_all => true
         })
     of
-        {ok, {{_, 201, _}, _, Body}} -> {ok, emqx_utils_json:decode(Body, [return_maps])};
+        {ok, {{_, 201, _}, _, Body}} -> {ok, emqx_utils_json:decode(Body)};
         Error -> Error
     end.
 

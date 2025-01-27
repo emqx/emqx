@@ -62,22 +62,19 @@ persistent_only_tcs() ->
     ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx,
-                "durable_sessions {\n"
-                "    enable = true\n"
-                "    renew_streams_interval = 10ms\n"
-                "}"},
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{apps, Apps} | Config].
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"renew_streams_interval">> => <<"100ms">>
+    },
+    ExtraApps = [
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard()
+    ],
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts).
 
 end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)).
+    emqx_common_test_helpers:stop_apps_ds(Config).
 
 init_per_group(persistent, Config) ->
     ClientConfig = #{
@@ -123,7 +120,7 @@ t_subscription_api(Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["subscriptions"]),
     timer:sleep(100),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path),
-    Data = emqx_utils_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response),
     Meta = maps:get(<<"meta">>, Data),
     ?assertEqual(1, maps:get(<<"page">>, Meta)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, Meta)),
@@ -349,7 +346,7 @@ t_list_with_invalid_match_topic(Config) ->
             {error, {R, _H, Body}} = emqx_mgmt_api_test_util:request_api(
                 get, path(), uri_string:compose_query(QS), Headers, [], #{return_all => true}
             ),
-            {error, {R, _H, emqx_utils_json:decode(Body, [return_maps])}}
+            {error, {R, _H, emqx_utils_json:decode(Body)}}
         end
     ),
     ok.
@@ -357,7 +354,7 @@ t_list_with_invalid_match_topic(Config) ->
 request_json(Method, Query, Headers) when is_list(Query) ->
     Qs = uri_string:compose_query(Query),
     {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(Method, path(), Qs, Headers),
-    emqx_utils_json:decode(MatchRes, [return_maps]).
+    emqx_utils_json:decode(MatchRes).
 
 path() ->
     emqx_mgmt_api_test_util:api_path(["subscriptions"]).
@@ -381,7 +378,7 @@ request(Method, Path, Params, QueryParams) ->
             {ok, {Status, Headers, Body}};
         {error, {Status, Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
@@ -396,7 +393,7 @@ request(Method, Path, Params, QueryParams) ->
     end.
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.

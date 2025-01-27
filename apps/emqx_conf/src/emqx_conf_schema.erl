@@ -86,6 +86,8 @@
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
+    connection_rejected_due_to_trial_license_uptime_limit,
+    connection_rejected_due_to_max_uptime_reached,
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
@@ -277,7 +279,7 @@ fields("cluster") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ] ++ emqx_schema_hooks:injection_point(cluster);
+    ] ++ emqx_schema_hooks:list_injection_point(cluster);
 fields(cluster_static) ->
     [
         {"seeds",
@@ -1645,7 +1647,7 @@ address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
 address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.
 
 node_role_symbols() ->
-    [core] ++ emqx_schema_hooks:injection_point('node.role').
+    [core] ++ emqx_schema_hooks:list_injection_point('node.role').
 
 validate_node_role(Role) ->
     Allowed = node_role_symbols(),

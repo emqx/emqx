@@ -81,70 +81,78 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_group(persistent_sessions = Group, Config) ->
+init_per_group(persistent_sessions, Config) ->
     case emqx_ds_test_helpers:skip_if_norepl() of
         false ->
             Port = 18083,
-            NodeSpecs = [
+            ClusterSpecs = [
                 {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
                 {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
             ],
-            Nodes = emqx_cth_cluster:start(
-                NodeSpecs,
-                #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
-            ),
-            [{cluster, Nodes} | Config];
+            DurableSessionsOpts = #{<<"enable">> => true},
+            Opts = #{durable_sessions_opts => DurableSessionsOpts},
+            emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
         Yes ->
             Yes
     end;
-init_per_group(common = Group, Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            emqx,
-            emqx_conf,
+init_per_group(common = Group, Config0) ->
+    DurableSessionsOpts = #{<<"enable">> => emqx_common_test_helpers:is_platform()},
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        work_dir => emqx_cth_suite:work_dir(Group, Config0)
+    },
+    Config = emqx_common_test_helpers:start_apps_ds(
+        Config0,
+        lists:flatten([
+            [emqx_ds_shared_sub || is_ee()],
             {emqx_retainer, ?BASE_RETAINER_CONF},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(
                 "dashboard.listeners.http { enable = true, bind = 18083 }\n"
                 "dashboard.sample_interval = 1s"
             )
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
+        ]),
+        Opts
     ),
     {ok, _} = emqx_common_test_http:create_default_app(),
-    [{apps, Apps} | Config].
+    Config.
 
 end_per_group(persistent_sessions, Config) ->
-    Cluster = ?config(cluster, Config),
-    emqx_cth_cluster:stop(Cluster),
+    emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
 end_per_group(common, Config) ->
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
+    emqx_common_test_helpers:stop_apps_ds(Config),
     ok.
 
-init_per_testcase(t_smoke_test_monitor_multiple_windows = TestCase, Config) ->
+init_per_testcase(t_smoke_test_monitor_multiple_windows = TestCase, Config0) ->
     Port = 28083,
     NodeSpecs = [
         {smoke_multiple_windows1, #{apps => cluster_node_appspec(true, Port)}},
         {smoke_multiple_windows2, #{apps => cluster_node_appspec(false, Port)}}
     ],
-    Nodes =
-        [N1 | _] = emqx_cth_cluster:start(
-            NodeSpecs,
-            #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-        ),
+    Config = emqx_common_test_helpers:start_cluster_ds(
+        Config0,
+        NodeSpecs,
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config0)}
+    ),
     ok = snabbkaffe:start_trace(),
-    [{nodes, Nodes}, {api_node, N1} | Config];
+    Config;
+init_per_testcase(t_monitor_current_shared_subscription, Config) ->
+    %% TODO: durable sessions only use emqx_ds_shared_sub, which is currenlty stubbed.
+    case emqx_common_test_helpers:skip_if_platform() of
+        false ->
+            init_per_testcase(common, Config);
+        Skip ->
+            Skip
+    end;
 init_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     ct:timetrap({seconds, 30}),
     Config.
 
 end_per_testcase(t_smoke_test_monitor_multiple_windows, Config) ->
-    Nodes = ?config(nodes, Config),
     ok = snabbkaffe:stop(),
-    ok = emqx_cth_cluster:stop(Nodes),
+    ok = emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
@@ -526,44 +534,44 @@ t_monitor_current_retained_count(_) ->
 t_monitor_current_shared_subscription(_) ->
     process_flag(trap_exit, true),
     ShareT = <<"$share/group1/t/1">>,
-    AssertFun = fun(Num) ->
+    AssertFun = fun(Num, Line) ->
         {ok, Res} = request(["monitor_current"]),
         {ok, ResNode} = request(["monitor_current", "nodes", node()]),
-        ?assertEqual(Num, maps:get(<<"shared_subscriptions">>, Res)),
-        ?assertEqual(Num, maps:get(<<"shared_subscriptions">>, ResNode)),
+        ?assertEqual(Num, maps:get(<<"shared_subscriptions">>, Res), #{line => Line}),
+        ?assertEqual(Num, maps:get(<<"shared_subscriptions">>, ResNode, #{line => Line})),
         ok
     end,
 
-    ok = AssertFun(0),
+    ok = AssertFun(0, ?LINE),
 
     ClientId1 = <<"live_conn_tests1">>,
     ClientId2 = <<"live_conn_tests2">>,
     {ok, C1} = emqtt:start_link([{clean_start, false}, {clientid, ClientId1}]),
     {ok, _} = emqtt:connect(C1),
-    _ = emqtt:subscribe(C1, {ShareT, 1}),
+    {ok, _, [1]} = emqtt:subscribe(C1, {ShareT, 1}),
 
-    ok = ?retry(100, 10, AssertFun(1)),
+    ok = ?retry(100, 10, AssertFun(1, ?LINE)),
 
     {ok, C2} = emqtt:start_link([{clean_start, true}, {clientid, ClientId2}]),
     {ok, _} = emqtt:connect(C2),
     _ = emqtt:subscribe(C2, {ShareT, 1}),
-    ok = ?retry(100, 10, AssertFun(2)),
+    ok = ?retry(100, 10, AssertFun(2, ?LINE)),
 
     _ = emqtt:unsubscribe(C2, ShareT),
-    ok = ?retry(100, 10, AssertFun(1)),
+    ok = ?retry(100, 10, AssertFun(1, ?LINE)),
     _ = emqtt:subscribe(C2, {ShareT, 1}),
-    ok = ?retry(100, 10, AssertFun(2)),
+    ok = ?retry(100, 10, AssertFun(2, ?LINE)),
 
     ok = emqtt:disconnect(C1),
     %% C1: clean_start = false, proto_ver = 3.1.1
     %% means disconnected but the session pid with a share-subscription is still alive
-    ok = ?retry(100, 10, AssertFun(2)),
+    ok = ?retry(100, 10, AssertFun(2, ?LINE)),
 
     _ = emqx_cm:kick_session(ClientId1),
-    ok = ?retry(100, 10, AssertFun(1)),
+    ok = ?retry(100, 10, AssertFun(1, ?LINE)),
 
     ok = emqtt:disconnect(C2),
-    ok = ?retry(100, 10, AssertFun(0)),
+    ok = ?retry(100, 10, AssertFun(0, ?LINE)),
     ok.
 
 t_monitor_reset(_) ->
@@ -600,7 +608,7 @@ t_monitor_api_error(_) ->
 
 %% Verifies that subscriptions from persistent sessions are correctly accounted for.
 t_persistent_session_stats(Config) ->
-    [N1, N2 | _] = ?config(cluster, Config),
+    [N1, N2 | _] = ?config(cluster_nodes, Config),
     %% pre-condition
     true = ?ON(N1, emqx_persistent_message:is_persistence_enabled()),
     Port1 = get_mqtt_port(N1, tcp),
@@ -722,7 +730,7 @@ t_persistent_session_stats(Config) ->
 %% Checks that we get consistent data when changing the requested time window for
 %% `/monitor'.
 t_smoke_test_monitor_multiple_windows(Config) ->
-    [N1, N2 | _] = ?config(nodes, Config),
+    [N1, N2 | _] = ?config(cluster_nodes, Config),
     %% pre-condition
     true = ?ON(N1, emqx_persistent_message:is_persistence_enabled()),
 
@@ -836,7 +844,7 @@ window_in_seconds({days, N}) ->
     N * 86_400.
 
 get_req_cluster(Config, Path, QS) ->
-    APINode = ?config(api_node, Config),
+    [APINode | _] = ?config(cluster_nodes, Config),
     Port = get_http_dashboard_port(APINode),
     Host = host(Port),
     Url = url(Host, Path, QS),
@@ -872,10 +880,10 @@ do_request_api(Method, Request) ->
             Code >= 200 andalso Code =< 299
         ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
-            {ok, emqx_utils_json:decode(Return, [return_maps])};
+            {ok, emqx_utils_json:decode(Return)};
         {ok, {{"HTTP/1.1", Code, _}, _, Return}} ->
             ct:pal("Resp ~p ~p~n", [Code, Return]),
-            {error, {Code, emqx_utils_json:decode(Return, [return_maps])}};
+            {error, {Code, emqx_utils_json:decode(Return)}};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -956,8 +964,6 @@ cluster_node_appspec(Enable, Port0) ->
             false -> "0"
         end,
     [
-        emqx_conf,
-        {emqx, "durable_sessions {enable = true}"},
         {emqx_retainer, ?BASE_RETAINER_CONF},
         emqx_management,
         emqx_mgmt_api_test_util:emqx_dashboard(
@@ -970,4 +976,7 @@ cluster_node_appspec(Enable, Port0) ->
     ].
 
 clean_data() ->
-    ok = emqx_dashboard_monitor:clean(-100000).
+    ok = emqx_dashboard_monitor:clean(-100_000).
+
+is_ee() ->
+    emqx_release:edition() == ee.

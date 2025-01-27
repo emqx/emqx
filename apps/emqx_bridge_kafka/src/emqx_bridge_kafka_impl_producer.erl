@@ -574,18 +574,17 @@ do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
 
 %% Wolff producer never gives up retrying
 %% so there can only be 'ok' results.
-on_kafka_ack(_Partition, Offset, {ReplyFn, Args}) when is_integer(Offset) ->
-    %% the ReplyFn is emqx_rule_runtime:inc_action_metrics/2
-    apply(ReplyFn, Args ++ [ok]);
-on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
+on_kafka_ack(_Partition, Offset, ReplyFnAndArgs) when is_integer(Offset) ->
+    %% `emqx_rule_runtime:inc_action_metrics/2' is embedded inside reply function
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, ok);
+on_kafka_ack(_Partition, buffer_overflow_discarded, ReplyFnAndArgs) ->
     %% wolff should bump the dropped_queue_full counter in handle_telemetry_event/4
-    %% so there is no need to apply the callback here
-    ok;
-on_kafka_ack(_Partition, message_too_large, {ReplyFn, Args}) ->
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, buffer_overflow});
+on_kafka_ack(_Partition, message_too_large, ReplyFnAndArgs) ->
     %% wolff should bump the message 'dropped' counter with handle_telemetry_event/4.
     %% however 'dropped' is not mapped to EMQX metrics name
     %% so we reply error here
-    apply(ReplyFn, Args ++ [{error, message_too_large}]).
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, message_too_large}).
 
 %% Note: since wolff client has its own replayq that is not managed by
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
@@ -1073,7 +1072,7 @@ merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
         [undefined] ->
             ExtHeaders;
         [MaybeJson] when is_binary(MaybeJson) ->
-            case emqx_utils_json:safe_decode(MaybeJson, [return_maps]) of
+            case emqx_utils_json:safe_decode(MaybeJson) of
                 {ok, JsonTerm} when is_map(JsonTerm) ->
                     maps:to_list(JsonTerm) ++ ExtHeaders;
                 {ok, JsonTerm} when is_list(JsonTerm) ->

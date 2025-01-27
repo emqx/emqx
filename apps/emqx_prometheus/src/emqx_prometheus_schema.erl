@@ -68,7 +68,9 @@ fields(recommend_setting) ->
                 required => false,
                 importance => ?IMPORTANCE_LOW,
                 desc => ?DESC(collectors)
-            })}
+            })},
+        {latency_buckets,
+            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(latency_buckets)})}
     ];
 fields(push_gateway) ->
     [

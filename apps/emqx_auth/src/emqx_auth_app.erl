@@ -42,12 +42,5 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
-    ok = deinitialize(),
+    ok = emqx_authn_utils:cleanup_resources(),
     ok = emqx_authz:deinit().
-
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-deinitialize() ->
-    ok = emqx_authn_utils:cleanup_resources().

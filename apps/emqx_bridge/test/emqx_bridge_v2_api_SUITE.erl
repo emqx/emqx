@@ -469,7 +469,7 @@ str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
-    case emqx_utils_json:safe_decode(B, [return_maps]) of
+    case emqx_utils_json:safe_decode(B) of
         {ok, Term} ->
             Term;
         {error, Reason} = Error ->
@@ -1359,7 +1359,7 @@ t_cascade_delete_actions(Config) ->
         uri([?ACTIONS_ROOT, BridgeID]),
         Config
     ),
-    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body, [return_maps])),
+    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body)),
     {ok, 200, [_]} = request_json(get, uri([?ACTIONS_ROOT]), Config),
     %% Cleanup
     {ok, 204, _} = request(
@@ -1404,7 +1404,7 @@ t_bad_name(Config) ->
     ),
     ?assertMatch({ok, 400, #{<<"message">> := _}}, Res),
     {ok, 400, #{<<"message">> := Msg0}} = Res,
-    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    Msg = emqx_utils_json:decode(Msg0),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
@@ -1981,9 +1981,11 @@ t_summary(Config) when is_list(Config) ->
     ?assertMatch(
         {200, [
             #{
-                <<"enabled">> := true,
+                <<"enable">> := true,
                 <<"name">> := Name,
                 <<"type">> := Type,
+                <<"description">> := _,
+                <<"created_at">> := _,
                 <<"last_modified_at">> := _,
                 <<"node_status">> := [
                     #{
@@ -2033,9 +2035,11 @@ t_summary_inconsistent(Config) when is_list(Config) ->
     ?assertMatch(
         {200, [
             #{
-                <<"enabled">> := true,
+                <<"enable">> := true,
                 <<"name">> := Name,
                 <<"type">> := Type,
+                <<"description">> := _,
+                <<"created_at">> := _,
                 <<"last_modified_at">> := _,
                 <<"node_status">> := [
                     #{

@@ -61,7 +61,7 @@ end_per_testcase(_, Config) ->
 t_nodes_api(_) ->
     NodesPath = emqx_mgmt_api_test_util:api_path(["nodes"]),
     {ok, Nodes} = emqx_mgmt_api_test_util:request_api(get, NodesPath),
-    NodesResponse = emqx_utils_json:decode(Nodes, [return_maps]),
+    NodesResponse = emqx_utils_json:decode(Nodes),
     LocalNodeInfo = hd(NodesResponse),
     Node = binary_to_atom(maps:get(<<"node">>, LocalNodeInfo), utf8),
     ?assertEqual(Node, node()),
@@ -76,7 +76,7 @@ t_nodes_api(_) ->
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
     NodeNameResponse =
-        binary_to_atom(maps:get(<<"node">>, emqx_utils_json:decode(NodeInfo, [return_maps])), utf8),
+        binary_to_atom(maps:get(<<"node">>, emqx_utils_json:decode(NodeInfo)), utf8),
     ?assertEqual(node(), NodeNameResponse),
 
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode"]),
@@ -88,7 +88,7 @@ t_nodes_api(_) ->
 t_log_path(_) ->
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
-    #{<<"log_path">> := Path} = emqx_utils_json:decode(NodeInfo, [return_maps]),
+    #{<<"log_path">> := Path} = emqx_utils_json:decode(NodeInfo),
     ?assertEqual(
         <<"log">>,
         filename:basename(Path)
@@ -98,7 +98,7 @@ t_node_stats_api(_) ->
     StatsPath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_binary(node(), utf8), "stats"]),
     SystemStats = emqx_mgmt:get_stats(),
     {ok, StatsResponse} = emqx_mgmt_api_test_util:request_api(get, StatsPath),
-    Stats = emqx_utils_json:decode(StatsResponse, [return_maps]),
+    Stats = emqx_utils_json:decode(StatsResponse),
     Fun =
         fun(Key) ->
             ?assertEqual(maps:get(Key, SystemStats), maps:get(atom_to_binary(Key, utf8), Stats))
@@ -116,7 +116,7 @@ t_node_metrics_api(_) ->
         emqx_mgmt_api_test_util:api_path(["nodes", atom_to_binary(node(), utf8), "metrics"]),
     SystemMetrics = emqx_mgmt:get_metrics(),
     {ok, MetricsResponse} = emqx_mgmt_api_test_util:request_api(get, MetricsPath),
-    Metrics = emqx_utils_json:decode(MetricsResponse, [return_maps]),
+    Metrics = emqx_utils_json:decode(MetricsResponse),
     Fun =
         fun(Key) ->
             ?assertEqual(maps:get(Key, SystemMetrics), maps:get(atom_to_binary(Key, utf8), Metrics))

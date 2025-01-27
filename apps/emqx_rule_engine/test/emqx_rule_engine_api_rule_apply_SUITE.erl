@@ -231,7 +231,7 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) 
     Log1 = binary:split(Log0, <<"\n">>, [global, trim]),
     Log2 = lists:join(<<",\n">>, Log1),
     Log3 = iolist_to_binary(["[", Log2, "]"]),
-    {ok, LogEntries} = emqx_utils_json:safe_decode(Log3, [return_maps]),
+    LogEntries = emqx_utils_json:decode(Log3),
     [#{<<"meta">> := #{<<"rule_trigger_ts">> := [RuleTriggerTime]}} | _] = LogEntries,
     [
         ?assert(lists:member(RuleTriggerTime, maps:get(<<"rule_trigger_ts">>, Meta, [])))
@@ -243,7 +243,7 @@ do_final_log_check(Action, Bin0) when is_binary(Action) ->
     %% The last line in the Bin should be the action_success entry
     Bin1 = string:trim(Bin0),
     LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
-    LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+    LastEntryJSON = emqx_utils_json:decode(LastEntry),
     %% Check that lazy formatting of the action result works correctly
     ?assertMatch(
         #{
@@ -418,7 +418,7 @@ t_apply_rule_test_format_action_failed(_Config) ->
             ?assertNotEqual(nomatch, binary:match(Bin0, [<<"action_failed">>])),
             Bin1 = string:trim(Bin0),
             LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
-            LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+            LastEntryJSON = emqx_utils_json:decode(LastEntry),
             ?assertMatch(
                 #{
                     <<"level">> := <<"debug">>,
@@ -487,7 +487,7 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
         io:format("LOG:\n~s", [Bin0]),
         Bin1 = string:trim(Bin0),
         LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
-        LastEntryJSON = emqx_utils_json:decode(LastEntry, [return_maps]),
+        LastEntryJSON = emqx_utils_json:decode(LastEntry),
         ?assertMatch(
             #{
                 <<"level">> := <<"debug">>,
@@ -511,7 +511,7 @@ out_of_service_check_fun(SendErrorMsg, Reason) ->
         ),
         %% We should have at least one entry containing Reason
         [ReasonLine | _] = find_lines_with(Bin1, Reason),
-        ReasonEntryJSON = emqx_utils_json:decode(ReasonLine, [return_maps]),
+        ReasonEntryJSON = emqx_utils_json:decode(ReasonLine),
         ?assertMatch(
             #{
                 <<"level">> := <<"debug">>,
@@ -661,7 +661,7 @@ create_rule_with_action(ActionType, ActionName, SQL) ->
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
             emqx_common_test_helpers:on_exit(fun() ->
                 emqx_rule_engine:delete_rule(RuleId)
             end),
@@ -687,7 +687,7 @@ request(Method, Path, Params) ->
             {ok, {Status, Headers, Body}};
         {error, {Status, Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
@@ -702,7 +702,7 @@ request(Method, Path, Params) ->
     end.
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.

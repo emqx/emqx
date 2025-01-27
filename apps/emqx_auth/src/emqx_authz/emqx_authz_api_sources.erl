@@ -73,7 +73,7 @@ paths() ->
     ].
 
 fields(sources) ->
-    emqx_authz_schema:api_authz_fields();
+    emqx_authz_schema:sources_fields();
 fields(position) ->
     [
         {position,

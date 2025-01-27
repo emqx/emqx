@@ -911,16 +911,16 @@ transform_result(Result) ->
     case Result of
         %% The normal reason happens when the HTTP connection times out before
         %% the request has been fully processed
+        {error, {shutdown, Reason}} ->
+            transform_result({error, Reason});
         {error, Reason} when
             Reason =:= econnrefused;
             Reason =:= timeout;
             Reason =:= normal;
-            Reason =:= {shutdown, normal};
-            Reason =:= {shutdown, closed}
+            Reason =:= closed;
+            %% {closed, "The connection was lost."}
+            element(1, Reason) =:= closed
         ->
-            {error, {recoverable_error, Reason}};
-        {error, {closed, _Message} = Reason} ->
-            %% _Message = "The connection was lost."
             {error, {recoverable_error, Reason}};
         {error, _Reason} ->
             Result;

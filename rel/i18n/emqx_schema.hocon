@@ -813,6 +813,12 @@ fields_mqtt_quic_listener_stateless_operation_expiration_ms.desc:
 fields_mqtt_quic_listener_stateless_operation_expiration_ms.label:
 """Stateless operation expiration ms"""
 
+fields_mqtt_quic_listener_sslkeylogfile.desc:
+"""Specify the path to the file on the local filesystem where the listener writes TLS session secrets for each connection, enabling decryption of the traffic. This cannot be changed at runtime."""
+
+fields_mqtt_quic_listener_sslkeylogfile.label:
+"""SSLKEYLOGFILE"""
+
 server_ssl_opts_schema_dhfile.desc:
 """Path to a file containing PEM-encoded Diffie-Hellman parameters
 to be used by the server if a cipher suite using Diffie-Hellman

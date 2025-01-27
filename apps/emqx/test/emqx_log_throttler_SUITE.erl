@@ -33,7 +33,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     %% This test suite can't be run in standalone tests (without emqx_conf)
-    case module_exists(emqx_conf) of
+    case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
         true ->
             Apps = emqx_cth_suite:start(
                 [
@@ -243,15 +243,3 @@ events(Msg, Id) ->
 
 events(N, Msg, Id) ->
     [emqx_log_throttler:allow(Msg, Id) || _ <- lists:seq(1, N)].
-
-module_exists(Mod) ->
-    case erlang:module_loaded(Mod) of
-        true ->
-            true;
-        false ->
-            case code:ensure_loaded(Mod) of
-                ok -> true;
-                {module, Mod} -> true;
-                _ -> false
-            end
-    end.

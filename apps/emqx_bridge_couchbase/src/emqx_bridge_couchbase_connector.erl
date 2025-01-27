@@ -269,7 +269,7 @@ health_check_pool_workers(ConnResId) ->
                         reason => emqx_utils:redact(Reason),
                         connector => ConnResId
                     }),
-                    ?status_disconnected
+                    {?status_disconnected, Reason}
             end
     catch
         exit:timeout ->
@@ -278,7 +278,7 @@ health_check_pool_workers(ConnResId) ->
                 reason => timeout,
                 connector => ConnResId
             }),
-            ?status_disconnected
+            {?status_disconnected, <<"Health check timeout">>}
     end.
 
 ping(ConnResId, RequestTTL) ->
@@ -292,11 +292,14 @@ ping(ConnResId, RequestTTL) ->
                     ?status_connected;
                 _ ->
                     ?tp("couchbase_bad_ping_response", #{response => Response}),
-                    ?status_disconnected
+                    Msg = iolist_to_binary(
+                        io_lib:format("Malformed ping response: ~0p", [Body0])
+                    ),
+                    {?status_disconnected, Msg}
             end;
         _ ->
             ?tp("couchbase_bad_ping_response", #{response => Response}),
-            ?status_disconnected
+            {?status_disconnected, <<"Ping returned failure">>}
     end.
 
 render_args(Context, ArgsTemplate) ->
@@ -347,24 +350,23 @@ do_query(ConnResId, SQL, Args, RequestTTL, MaxRetries, ConnState) ->
     Response.
 
 maybe_decode_json(Raw) ->
-    case emqx_utils_json:safe_decode(Raw, [return_maps]) of
+    case emqx_utils_json:safe_decode(Raw) of
         {ok, JSON} ->
             JSON;
         {error, _} ->
             Raw
     end.
 
+map_response({error, {shutdown, Reason}}) ->
+    map_response({error, Reason});
 map_response({error, Reason}) when
     Reason =:= econnrefused;
     Reason =:= timeout;
     Reason =:= normal;
-    Reason =:= {shutdown, normal};
-    Reason =:= {shutdown, closed}
+    Reason =:= closed;
+    %% {closed, "The connection was lost."}
+    element(1, Reason) =:= closed
 ->
-    ?tp("couchbase_query_error", #{reason => Reason}),
-    {error, {recoverable_error, Reason}};
-map_response({error, {closed, _Message} = Reason}) ->
-    %% _Message = "The connection was lost."
     ?tp("couchbase_query_error", #{reason => Reason}),
     {error, {recoverable_error, Reason}};
 map_response({error, Reason}) ->

@@ -179,9 +179,10 @@ summary_response_example(ConfRootKey) ->
         end,
     [
         #{
-            enabled => true,
+            enable => true,
             name => <<"my", ExName/binary>>,
             type => TypeEx,
+            created_at => 1736512728666,
             last_modified_at => 1736512728666,
             node_status => [
                 #{
@@ -729,9 +730,11 @@ fields(response_node_status) ->
     ];
 fields(response_summary) ->
     [
-        {enabled, mk(boolean(), #{})},
+        {enable, mk(boolean(), #{})},
         {name, mk(binary(), #{})},
         {type, mk(binary(), #{})},
+        {description, mk(binary(), #{})},
+        {created_at, mk(integer(), #{})},
         {last_modified_at, mk(integer(), #{})},
         {node_status, mk(array(hoconsc:ref(?MODULE, response_node_status)), #{})},
         {rules, mk(array(binary()), #{})},
@@ -1353,14 +1356,18 @@ summary_from_local_node_v7(ConfRootKey) ->
                 raw_config := RawConfig,
                 resource_data := ResourceData
             } = BridgeInfo,
+            CreatedAt = maps:get(<<"created_at">>, RawConfig, undefined),
             LastModifiedAt = maps:get(<<"last_modified_at">>, RawConfig, undefined),
+            Description = maps:get(<<"description">>, RawConfig, <<"">>),
             IsEnabled = emqx_utils_maps:deep_get([config, enable], ResourceData, true),
             maps:merge(
                 #{
                     node => node(),
                     type => Type,
                     name => Name,
-                    enabled => IsEnabled,
+                    description => Description,
+                    enable => IsEnabled,
+                    created_at => CreatedAt,
                     last_modified_at => LastModifiedAt
                 },
                 format_bridge_status_and_error(#{status => Status, error => Error})

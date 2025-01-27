@@ -20,6 +20,7 @@
 
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -60,7 +61,7 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    Settings1 = #{
+    Settings1Put = #{
         <<"no_match">> => <<"deny">>,
         <<"deny_action">> => <<"disconnect">>,
         <<"cache">> => #{
@@ -70,26 +71,30 @@ t_api(_) ->
             <<"excludes">> => [<<"nocache/#">>]
         }
     },
+    Settings1Get = Settings1Put,
 
-    {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1),
+    {ok, 200, Result1} = request(put, uri(["authorization", "settings"]), Settings1Put),
     {ok, 200, Result1} = request(get, uri(["authorization", "settings"]), []),
-    ?assertEqual(Settings1, emqx_utils_json:decode(Result1)),
+    ?assertEqual(Settings1Get, emqx_utils_json:decode(Result1)),
 
-    Settings2 = #{
-        <<"no_match">> => <<"allow">>,
-        <<"deny_action">> => <<"ignore">>,
-        <<"cache">> => #{
-            <<"enable">> => true,
-            <<"max_size">> => 32,
-            <<"ttl">> => <<"60s">>
-        }
+    #{<<"cache">> := Cache} =
+        Settings2Put = #{
+            <<"no_match">> => <<"allow">>,
+            <<"deny_action">> => <<"ignore">>,
+            <<"cache">> => #{
+                <<"enable">> => true,
+                <<"max_size">> => 32,
+                <<"ttl">> => <<"60s">>
+            }
+        },
+
+    Settings2Get = Settings2Put#{
+        <<"cache">> := Cache#{<<"excludes">> => []}
     },
 
-    {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2),
+    {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
-    Cache = maps:get(<<"cache">>, Settings2),
-    ExpectedSettings2 = Settings2#{<<"cache">> => Cache#{<<"excludes">> => []}},
-    ?assertEqual(ExpectedSettings2, emqx_utils_json:decode(Result2)),
+    ?assertEqual(Settings2Get, emqx_utils_json:decode(Result2)),
 
     ok.
 

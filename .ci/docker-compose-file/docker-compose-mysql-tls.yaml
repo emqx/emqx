@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   mysql_server_tls:
     container_name: mysql-tls
@@ -34,4 +32,3 @@ services:
       - --require-secure-transport=ON
       - --tls-version=TLSv1.2,TLSv1.3
       - --ssl-cipher=ECDHE-RSA-AES256-GCM-SHA384
-

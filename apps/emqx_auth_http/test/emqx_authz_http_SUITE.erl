@@ -338,7 +338,7 @@ t_json_body(_Config) ->
                     <<"qos">> := <<"1">>,
                     <<"retain">> := <<"false">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -392,7 +392,7 @@ t_no_rich_actions(_Config) ->
                     <<"qos">> := <<"${qos}">>,
                     <<"retain">> := <<"${retain}">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -420,6 +420,7 @@ t_placeholder_and_body(_Config) ->
                 cowboy_req:path(Req0)
             ),
 
+            <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
             {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
 
             ?assertMatch(
@@ -432,6 +433,7 @@ t_placeholder_and_body(_Config) ->
                     <<"topic">> := <<"t">>,
                     <<"action">> := <<"publish">>,
                     <<"access">> := <<"2">>,
+                    <<"the_group">> := <<"g1">>,
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT
                 },
@@ -450,10 +452,14 @@ t_placeholder_and_body(_Config) ->
                 <<"topic">> => <<"${topic}">>,
                 <<"action">> => <<"${action}">>,
                 <<"access">> => <<"${access}">>,
+                <<"the_group">> => <<"${client_attrs.group}">>,
                 <<"CN">> => ?PH_CERT_CN_NAME,
                 <<"CS">> => ?PH_CERT_SUBJECT
             },
-            <<"headers">> => #{<<"content-type">> => <<"application/x-www-form-urlencoded">>}
+            <<"headers">> => #{
+                <<"content-type">> => <<"application/x-www-form-urlencoded">>,
+                <<"the_group">> => <<"${client_attrs.group}">>
+            }
         }
     ),
 
@@ -465,6 +471,7 @@ t_placeholder_and_body(_Config) ->
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
         listener => {tcp, default},
+        client_attrs => #{<<"group">> => <<"g1">>},
         cn => ?PH_CERT_CN_NAME,
         dn => ?PH_CERT_SUBJECT
     },
@@ -639,7 +646,7 @@ t_no_value_for_placeholder(_Config) ->
                 #{
                     <<"mountpoint">> := <<"[]">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -910,4 +917,4 @@ get_status_api() ->
     Opts = #{return_all => true},
     Res0 = emqx_mgmt_api_test_util:request_api(get, Path, _QParams = [], Auth, _Body = [], Opts),
     {Status, RawBody} = emqx_mgmt_api_test_util:simplify_result(Res0),
-    {Status, emqx_utils_json:decode(RawBody, [return_maps])}.
+    {Status, emqx_utils_json:decode(RawBody)}.

@@ -370,7 +370,7 @@ request(Method, Url, QueryParams, Body) ->
     Opts = #{return_all => true},
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, {Reason, Headers, BodyR}} ->
-            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR, [return_maps])}};
+            {ok, {Reason, Headers, emqx_utils_json:decode(BodyR)}};
         Error ->
             Error
     end.
@@ -1060,14 +1060,14 @@ do_t_validations(_Config) ->
         ),
     {error, {_, _, ResRaw1}} = update_listener_via_api(ListenerId, ListenerData1),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw1} =
-        emqx_utils_json:decode(ResRaw1, [return_maps]),
+        emqx_utils_json:decode(ResRaw1),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
             <<"reason">> :=
                 <<"verify must be verify_peer when CRL check is enabled">>
         },
-        emqx_utils_json:decode(MsgRaw1, [return_maps])
+        emqx_utils_json:decode(MsgRaw1)
     ),
 
     ok.

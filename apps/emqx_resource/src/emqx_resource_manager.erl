@@ -238,7 +238,9 @@ create(ResId, Group, ResourceType, Config, Opts) ->
         false ->
             ok
     end,
-    case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
+    StartAfterCreated = maps:get(start_after_created, Opts, ?START_AFTER_CREATED),
+    AsyncStart = maps:get(async_start, Opts, false),
+    case StartAfterCreated andalso not AsyncStart of
         true ->
             wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
         false ->

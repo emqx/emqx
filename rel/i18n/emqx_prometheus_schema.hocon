@@ -100,4 +100,10 @@ legacy_vm_system_info_collector.desc:
 legacy_deprecated_setting.desc:
 """Deprecated since 5.4.0"""
 
+latency_buckets.desc:
+"""Comma separated duration values for latency histogram buckets."""
+
+latency_buckets.label:
+"""Latency Histogram Buckets"""
+
 }

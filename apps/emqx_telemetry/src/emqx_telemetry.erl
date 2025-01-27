@@ -367,11 +367,12 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
 
 report_telemetry(State0 = #state{url = URL}) ->
     {State, Data} = get_telemetry(State0),
-    case emqx_utils_json:safe_encode(Data) of
-        {ok, Bin} ->
+    try emqx_utils_json:encode_proplist(Data) of
+        Bin ->
             ok = httpc_request(post, URL, [], Bin),
-            ?tp(debug, telemetry_data_reported, #{});
-        {error, Reason} ->
+            ?tp(debug, telemetry_data_reported, #{})
+    catch
+        error:Reason ->
             %% debug? why?
             ?tp(debug, telemetry_data_encode_error, #{data => Data, reason => Reason})
     end,

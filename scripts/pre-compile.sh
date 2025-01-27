@@ -44,7 +44,3 @@ if [ "$DOWNLOAD_I18N_TRANSLATIONS" = "true" ]; then
 else
   echo -e "Skipping to download i18n translation from emqx/emqx-i18n.\nSet ${beginfmt}DOWNLOAD_I18N_TRANSLATIONS=true${endfmt} to update"
 fi
-
-# TODO
-# make sbom a build artifact
-# ./scripts/update-bom.sh "$PROFILE_STR" ./rel

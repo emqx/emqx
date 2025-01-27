@@ -198,7 +198,11 @@
         %% Whether to wait until the message storage has been acknowledged to return from
         %% `store_batch'.
         %% Default: `true'.
-        sync => boolean()
+        sync => boolean(),
+        %% Whether to store this batch as a single unit.  Currently not supported by
+        %% builtin backends.
+        %% Default: `false'.
+        atomic => boolean()
     }.
 
 %% This type specifies the backend and some generic options that

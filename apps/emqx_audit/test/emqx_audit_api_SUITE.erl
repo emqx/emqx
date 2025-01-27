@@ -106,7 +106,7 @@ t_http_api(_) ->
                 }
             ]
         },
-        emqx_utils_json:decode(Res1, [return_maps])
+        emqx_utils_json:decode(Res1)
     ),
     ok.
 
@@ -158,7 +158,7 @@ t_cli(_Config) ->
     AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
-    #{<<"data">> := Data} = emqx_utils_json:decode(Res, [return_maps]),
+    #{<<"data">> := Data} = emqx_utils_json:decode(Res),
     ?assertMatch(
         [
             #{
@@ -182,7 +182,7 @@ t_cli(_Config) ->
     ?assert(CreateAt < TimeInt + 5000000, CreateAtRaw),
     %% check cli filter
     {ok, Res1} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "from=cli", AuthHeader),
-    #{<<"data">> := Data1} = emqx_utils_json:decode(Res1, [return_maps]),
+    #{<<"data">> := Data1} = emqx_utils_json:decode(Res1),
     ?assertMatch(
         [ShowLogEntry, #{<<"operation_type">> := <<"emqx">>, <<"args">> := [<<"start">>]}],
         Data1
@@ -190,13 +190,13 @@ t_cli(_Config) ->
     {ok, Res2} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "from=erlang_console", AuthHeader
     ),
-    ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res2, [return_maps])),
+    ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res2)),
 
     %% check created_at filter microsecond
     {ok, Res3} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "gte_created_at=" ++ Time, AuthHeader
     ),
-    #{<<"data">> := Data3} = emqx_utils_json:decode(Res3, [return_maps]),
+    #{<<"data">> := Data3} = emqx_utils_json:decode(Res3),
     ?assertEqual(1, erlang:length(Data3)),
     %% check created_at filter rfc3339
     {ok, Res31} = emqx_mgmt_api_test_util:request_api(
@@ -214,7 +214,7 @@ t_cli(_Config) ->
     {ok, Res4} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "lte_created_at=" ++ Time, AuthHeader
     ),
-    #{<<"data">> := Data4} = emqx_utils_json:decode(Res4, [return_maps]),
+    #{<<"data">> := Data4} = emqx_utils_json:decode(Res4),
     ?assertEqual(Size, erlang:length(Data4)),
 
     %% check created_at filter rfc3339
@@ -232,12 +232,12 @@ t_cli(_Config) ->
     {ok, Res5} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "gte_duration_ms=0", AuthHeader
     ),
-    #{<<"data">> := Data5} = emqx_utils_json:decode(Res5, [return_maps]),
+    #{<<"data">> := Data5} = emqx_utils_json:decode(Res5),
     ?assertEqual(Size + 1, erlang:length(Data5)),
     {ok, Res6} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "lte_duration_ms=-1", AuthHeader
     ),
-    ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res6, [return_maps])),
+    ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res6)),
     ok.
 
 t_max_size(_Config) ->
@@ -250,7 +250,7 @@ t_max_size(_Config) ->
             AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
             Limit = "limit=1000",
             {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, Limit, AuthHeader),
-            #{<<"data">> := Data} = emqx_utils_json:decode(Res, [return_maps]),
+            #{<<"data">> := Data} = emqx_utils_json:decode(Res),
             erlang:length(Data)
         end,
     InitSize = SizeFun(),
@@ -307,7 +307,7 @@ kickout_clients() ->
     %% get /clients
     ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
     {ok, Clients} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
-    ClientsResponse = emqx_utils_json:decode(Clients, [return_maps]),
+    ClientsResponse = emqx_utils_json:decode(Clients),
     ClientsMeta = maps:get(<<"meta">>, ClientsResponse),
     ClientsPage = maps:get(<<"page">>, ClientsMeta),
     ClientsLimit = maps:get(<<"limit">>, ClientsMeta),
@@ -322,7 +322,7 @@ kickout_clients() ->
     {ok, 204, _} = emqx_mgmt_api_test_util:request_api_with_body(post, KickoutPath, KickoutBody),
 
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
-    ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
+    ClientsResponse2 = emqx_utils_json:decode(Clients2),
     ?assertMatch(#{<<"data">> := []}, ClientsResponse2).
 
 wait_for_dirty_write_log_done(MaxMs) ->

@@ -22,6 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([start_link/0]).
 
@@ -33,14 +34,16 @@
     page_read/3,
     page_read/4,
     retained_count/0,
-    enabled/0
+    is_enabled/0,
+    is_started/0
 ]).
 
 %% Hooks
 -export([
     on_session_subscribed/3,
     on_message_publish/1,
-    post_config_update/5
+    post_config_update/5,
+    propagated_post_config_update/5
 ]).
 
 %% Internal APIs
@@ -74,7 +77,7 @@
 -export([get_basic_usage_info/0]).
 
 -type state() :: #{
-    enable := boolean(),
+    is_started := boolean(),
     clear_timer := undefined | reference()
 }.
 
@@ -93,8 +96,8 @@
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
 
--define(DEF_EXPIRY_INTERVAL, 0).
 -define(CONTEXT_KEY, {?MODULE, context}).
+-define(UPDATE_STATUS_INTERVAL, 5000).
 
 -callback create(hocon:config()) -> backend_state().
 -callback update(backend_state(), hocon:config()) -> ok | need_recreate.
@@ -154,8 +157,32 @@ on_message_publish(Msg) ->
 %% Config API
 %%------------------------------------------------------------------------------
 
-post_config_update(_, _UpdateReq, NewConf, OldConf, _AppEnvs) ->
-    call({update_config, NewConf, OldConf}).
+post_config_update([retainer], _UpdateReq, NewConf, OldConf, _AppEnvs) ->
+    ok = call({update_config, NewConf, OldConf});
+post_config_update([mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    maybe_start(NewConf);
+post_config_update([zones, _, mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    maybe_start(NewConf).
+
+propagated_post_config_update([mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    maybe_start(NewConf);
+propagated_post_config_update(
+    [zones, _, mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs
+) ->
+    maybe_start(NewConf).
+
+%% Config update callbacks are called before the config is finally updated.
+%% So we immediately enable the retainer only if some zone enables the retained messages.
+%%
+%% When the retained messages are being disabled, it is challenging to calculate whether the retained messages
+%% will be disabled for all zones because the zones have quite complex logic of default value propagation.
+%% So, instead, we do nothing and rely on the periodical check, which will eventually stop the retainer if
+%% no one uses it.
+
+maybe_start(true) ->
+    call(start);
+maybe_start(_) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -175,7 +202,7 @@ get_expiry_time(#message{
 }) ->
     Ts + Interval * 1000;
 get_expiry_time(#message{timestamp = Ts}) ->
-    Interval = emqx_conf:get([retainer, msg_expiry_interval], ?DEF_EXPIRY_INTERVAL),
+    Interval = emqx_conf:get([retainer, msg_expiry_interval]),
     case Interval of
         0 -> 0;
         _ -> Ts + Interval
@@ -217,13 +244,19 @@ page_read(Topic, Deadline, Page, Limit) ->
         {ok, false, []}
     ).
 
--spec enabled() -> boolean().
-enabled() ->
-    call(?FUNCTION_NAME).
-
 -spec context() -> context().
 context() ->
     persistent_term:get(?CONTEXT_KEY, undefined).
+
+-spec is_started() -> boolean().
+is_started() ->
+    call(?FUNCTION_NAME).
+
+-spec is_enabled() -> boolean().
+is_enabled() ->
+    Zones = maps:keys(emqx_config:get([zones], #{})),
+    lists:any(fun is_enabled_for_zone/1, Zones) orelse
+        emqx_config:get([mqtt, retain_available]).
 
 %%------------------------------------------------------------------------------
 %% Internal APIs
@@ -261,25 +294,32 @@ with_backend(Fun) ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
+    emqx_conf:add_handler([mqtt, retain_available], ?MODULE),
+    emqx_conf:add_handler([zones, '?', mqtt, retain_available], ?MODULE),
     State = new_state(),
     RetainerConfig = emqx:get_config([retainer]),
     {ok,
-        case maps:get(enable, RetainerConfig) of
+        case is_enabled() of
             false ->
                 %% Cleanup in case of previous crash
-                disable_retainer(State);
+                stop_retainer(State);
             true ->
                 BackendConfig = enabled_backend_config(RetainerConfig),
-                enable_retainer(State, RetainerConfig, BackendConfig)
+                start_retainer(State, RetainerConfig, BackendConfig)
         end}.
 
-handle_call({update_config, NewConf, OldConf}, _, State) ->
+handle_call({update_config, _NewConf, _OldConf}, _From, #{is_started := false} = State) ->
+    {reply, ok, State};
+handle_call({update_config, NewConf, OldConf}, _From, #{is_started := true} = State) ->
     State2 = update_config(State, NewConf, OldConf),
     ok = emqx_retainer_dispatcher:refresh_limiter(NewConf),
     ok = emqx_retainer_publisher:refresh_limits(NewConf),
     {reply, ok, State2};
-handle_call(enabled, _From, State = #{enable := Enable}) ->
-    {reply, Enable, State};
+handle_call(start, _From, #{is_started := IsStarted} = State0) ->
+    State = update_status(State0, IsStarted, true),
+    {reply, ok, State};
+handle_call(is_started, _From, State = #{is_started := IsStarted}) ->
+    {reply, IsStarted, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -287,18 +327,26 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({timeout, TRef, clear_expired}, #{clear_timer := TRef} = State) ->
-    ok = start_clear_expired(),
-    Interval = emqx_conf:get([retainer, msg_clear_interval], ?DEF_EXPIRY_INTERVAL),
-    {noreply, State#{clear_timer := maybe_start_timer(Interval, clear_expired)}, hibernate};
+handle_info(
+    {timeout, TRef, clear_expired}, #{clear_timer := TRef, is_started := IsStarted} = State
+) ->
+    IsStarted andalso start_clear_expired(),
+    ClearInterval = emqx_conf:get([retainer, msg_clear_interval]),
+    {noreply, State#{clear_timer := maybe_start_timer(ClearInterval, clear_expired)}};
+handle_info(update_status, #{is_started := IsStarted} = State0) ->
+    _ = erlang:send_after(?UPDATE_STATUS_INTERVAL, self(), update_status),
+    NeedStart = is_enabled(),
+    State = update_status(State0, IsStarted, NeedStart),
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
-terminate(_Reason, #{clear_timer := ClearTimer, enable := Enable} = State) ->
+terminate(_Reason, #{is_started := IsStarted} = State) ->
     emqx_conf:remove_handler([retainer]),
-    Enable andalso disable_retainer(State),
-    _ = stop_timer(ClearTimer),
+    emqx_conf:remove_handler([mqtt, retain_available]),
+    emqx_conf:remove_handler([zones, '?', mqtt, retain_available]),
+    IsStarted andalso stop_retainer(State),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -313,10 +361,14 @@ get_stop_publish_clear_msg() ->
 
 -spec new_state() -> state().
 new_state() ->
+    _ = erlang:send_after(?UPDATE_STATUS_INTERVAL, self(), update_status),
     #{
-        enable => false,
+        is_started => false,
         clear_timer => undefined
     }.
+
+is_enabled_for_zone(Zone) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, retain_available]).
 
 -spec start_clear_expired() -> ok.
 start_clear_expired() ->
@@ -328,23 +380,7 @@ start_clear_expired() ->
     ok.
 
 -spec update_config(state(), hocon:config(), hocon:config()) -> state().
-update_config(State, NewConfig, OldConfig) ->
-    update_config(
-        maps:get(enable, NewConfig),
-        maps:get(enable, OldConfig),
-        State,
-        NewConfig,
-        OldConfig
-    ).
-
--spec update_config(boolean(), boolean(), state(), hocon:config(), hocon:config()) -> state().
-update_config(false, _, State, _, _) ->
-    disable_retainer(State);
-update_config(true, false, State, NewConfig, _) ->
-    enable_retainer(State, NewConfig, enabled_backend_config(NewConfig));
 update_config(
-    true,
-    true,
     #{clear_timer := ClearTimer} = State,
     NewConfig,
     OldConfig
@@ -366,12 +402,31 @@ update_config(
                 )
             };
         false ->
-            State2 = disable_retainer(State),
-            enable_retainer(State2, NewConfig, NewBackendConfig)
+            State2 = stop_retainer(State),
+            start_retainer(State2, NewConfig, NewBackendConfig)
     end.
 
--spec enable_retainer(state(), hocon:config(), hocon:config()) -> state().
-enable_retainer(
+-spec update_status(state(), boolean(), boolean()) -> state().
+update_status(State0, From, To) ->
+    State = do_update_status(State0, From, To),
+    ?tp(retainer_status_updated, #{from => From, to => To}),
+    State.
+
+do_update_status(State, Status, Status) ->
+    State;
+do_update_status(State, false, true) ->
+    start_retainer(State);
+do_update_status(State, true, false) ->
+    stop_retainer(State).
+
+-spec start_retainer(state()) -> state().
+start_retainer(State) ->
+    RetainerConfig = emqx:get_config([retainer]),
+    BackendConfig = enabled_backend_config(RetainerConfig),
+    start_retainer(State, RetainerConfig, BackendConfig).
+
+-spec start_retainer(state(), hocon:config(), hocon:config()) -> state().
+start_retainer(
     State,
     #{msg_clear_interval := ClearInterval} = _RetainerConfig,
     BackendConfig
@@ -380,12 +435,12 @@ enable_retainer(
     ok = emqx_retainer_sup:start_workers(),
     ok = load_hooks(),
     State#{
-        enable := true,
+        is_started := true,
         clear_timer := maybe_start_timer(ClearInterval, clear_expired)
     }.
 
--spec disable_retainer(state()) -> state().
-disable_retainer(
+-spec stop_retainer(state()) -> state().
+stop_retainer(
     #{
         clear_timer := ClearTimer
     } = State
@@ -394,7 +449,7 @@ disable_retainer(
     ok = emqx_retainer_sup:stop_workers(),
     ok = close_context(),
     State#{
-        enable := false,
+        is_started := false,
         clear_timer := stop_timer(ClearTimer)
     }.
 
@@ -410,6 +465,9 @@ maybe_start_timer(0, _) ->
 maybe_start_timer(undefined, _) ->
     undefined;
 maybe_start_timer(Ms, Content) ->
+    start_timer(Ms, Content).
+
+start_timer(Ms, Content) ->
     emqx_utils:start_timer(Ms, self(), Content).
 
 update_timer(undefined, Ms, Context) ->

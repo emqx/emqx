@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   couchbase:
     container_name: couchbase

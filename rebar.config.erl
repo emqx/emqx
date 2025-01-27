@@ -191,7 +191,7 @@ plugins() ->
         {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.2"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
-        {pc, "v1.14.0"}
+        {pc, "1.15.0"}
     ] ++
         %% test plugins are concatenated to default profile plugins
         %% otherwise rebar3 test profile runs are super slow
@@ -200,7 +200,7 @@ plugins() ->
 test_plugins() ->
     [
         {rebar3_proper, "0.12.1"},
-        {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-4"}}}
+        {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-5"}}}
     ].
 
 test_deps() ->
@@ -495,6 +495,7 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx", "bin/emqx"},
         {copy, "bin/emqx_ctl", "bin/emqx_ctl"},
         {copy, "bin/emqx_cluster_rescue", "bin/emqx_cluster_rescue"},
+        {copy, "bin/emqx_fw", "bin/emqx_fw"},
         {copy, "bin/node_dump", "bin/node_dump"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript"},
         {copy, "bin/emqx", "bin/emqx-{{release_version}}"},

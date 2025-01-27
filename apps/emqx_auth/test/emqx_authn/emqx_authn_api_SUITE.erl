@@ -21,6 +21,7 @@
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -29,7 +30,7 @@
 -define(assertAuthenticatorsMatch(Guard, Path),
     (fun() ->
         {ok, 200, Response} = request(get, uri(Path)),
-        ?assertMatch(Guard, emqx_utils_json:decode(Response, [return_maps]))
+        ?assertMatch(Guard, emqx_utils_json:decode(Response))
     end)()
 ).
 
@@ -329,20 +330,12 @@ test_authenticator(PathPrefix) ->
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http"])
     ),
-
     {ok, 200, Res} = request(
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:http", "status"])
     ),
-    {ok, RList} = emqx_utils_json:safe_decode(Res),
-    Snd = fun({_, Val}) -> Val end,
-    LookupVal = fun LookupV(List, RestJson) ->
-        case List of
-            [Name] -> Snd(lists:keyfind(Name, 1, RestJson));
-            [Name | NS] -> LookupV(NS, Snd(lists:keyfind(Name, 1, RestJson)))
-        end
-    end,
-    LookFun = fun(List) -> LookupVal(List, RList) end,
+    RMap = emqx_utils_json:decode(Res),
+    LookFun = fun(List) -> emqx_utils_maps:deep_get(List, RMap) end,
     MetricsList = [
         {<<"failed">>, 0},
         {<<"total">>, 0},
@@ -695,34 +688,34 @@ t_bcrypt_validation(_Config) ->
 t_cache(_Config) ->
     {ok, 200, CacheData0} = request(
         get,
-        uri(["authentication_cache"])
+        uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"enable">> := false},
-        emqx_utils_json:decode(CacheData0, [return_maps])
+        #{<<"node_cache">> := #{<<"enable">> := false}},
+        emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
         get,
-        uri(["authentication_cache", "status"])
+        uri(["authentication", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"count">> := 0}},
-        emqx_utils_json:decode(MetricsData0, [return_maps])
+        emqx_utils_json:decode(MetricsData0)
     ),
     {ok, 204, _} = request(
         put,
-        uri(["authentication_cache"]),
+        uri(["authentication", "settings"]),
         #{
-            <<"enable">> => true
+            <<"node_cache">> => #{<<"enable">> => true}
         }
     ),
     {ok, 200, CacheData1} = request(
         get,
-        uri(["authentication_cache"])
+        uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"enable">> := true},
-        emqx_utils_json:decode(CacheData1, [return_maps])
+        #{<<"node_cache">> := #{<<"enable">> := true}},
+        emqx_utils_json:decode(CacheData1)
     ),
 
     %% We enabled authn cache, let's create
@@ -744,18 +737,18 @@ t_cache(_Config) ->
     %% Now check the metrics, the cache should have been populated
     {ok, 200, MetricsData2} = request(
         get,
-        uri(["authentication_cache", "status"])
+        uri(["authentication", "node_cache", "status"])
     ),
     ?assertMatch(
         #{<<"metrics">> := #{<<"misses">> := #{<<"value">> := 1}}},
-        emqx_utils_json:decode(MetricsData2, [return_maps])
+        emqx_utils_json:decode(MetricsData2)
     ),
     ok.
 
 t_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
-        uri(["authentication_cache", "reset"])
+        uri(["authentication", "node_cache", "reset"])
     ).
 
 %%------------------------------------------------------------------------------

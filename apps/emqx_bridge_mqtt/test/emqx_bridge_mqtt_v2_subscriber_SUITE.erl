@@ -241,6 +241,11 @@ create_rule_and_action_http(Config, Opts) ->
         ?config(source_type, Config), <<"">>, Config, Opts
     ).
 
+update_source_api(Config, Overrides) ->
+    simplify_result(
+        emqx_bridge_v2_testlib:update_bridge_api(Config, Overrides)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -336,7 +341,7 @@ t_receive_via_rule(Config) ->
                         properties := #{'User-Property' := [{<<"key">>, <<"value">>}]}
                     }}
                 ),
-            Payload = emqx_utils_json:decode(maps:get(payload, Msg), [return_maps]),
+            Payload = emqx_utils_json:decode(maps:get(payload, Msg)),
             ?assertMatch(
                 #{
                     <<"event">> := Hookpoint,
@@ -518,7 +523,7 @@ t_static_clientids(Config) ->
             fun(#{<<"node">> := N}) -> N end,
             fun(#{<<"payload">> := P}) -> P end,
             lists:map(
-                fun(#{payload := P}) -> emqx_utils_json:decode(P, [return_maps]) end,
+                fun(#{payload := P}) -> emqx_utils_json:decode(P) end,
                 Publishes0
             )
         ),
@@ -608,4 +613,61 @@ t_no_local(Config) ->
     ?assertReceive({deliver, RemoteTopic, _}),
     ?assertNotReceive({deliver, RemoteTopic, _}),
     ?assertNotReceive({deliver, RuleTopicSubscriber, _}),
+    ok.
+
+t_shared_subscription(Config) ->
+    {201, _} = create_connector_api(Config, #{<<"pool_size">> => 1}),
+    SharedTopic1 = <<"$share/t/test/#">>,
+    {201, _} =
+        create_source_api(Config, #{
+            <<"parameters">> => #{
+                <<"topic">> => SharedTopic1
+            }
+        }),
+    RepublishTopic = <<"share/output">>,
+    {ok, _} = create_rule_and_action_http(Config, #{
+        sql => iolist_to_binary(
+            io_lib:format(
+                "select * from \"~s\"",
+                [hookpoint(Config)]
+            )
+        ),
+        overrides => #{
+            actions => [
+                #{
+                    <<"function">> => <<"republish">>,
+                    <<"args">> =>
+                        #{
+                            <<"topic">> => RepublishTopic,
+                            <<"payload">> => <<"republish_${.payload}">>,
+                            <<"qos">> => 1,
+                            <<"retain">> => false
+                        }
+                }
+            ]
+        }
+    }),
+
+    {ok, Client} = emqtt:start_link([{proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, RepublishTopic, [{qos, 1}]),
+
+    %% Check that it's working as intended.
+    PublishTopic = <<"test/1">>,
+    {ok, _} = emqtt:publish(Client, PublishTopic, <<"1">>, [{qos, 1}]),
+    ?assertReceive({publish, #{payload := <<"republish_1">>}}),
+    ?assertNotReceive({publish, _}),
+
+    %% Update the shared subscription; should still republish only one message.
+    SharedTopic2 = <<"$share/t/test/1">>,
+    {200, _} = update_source_api(Config, #{
+        <<"parameters">> => #{
+            <<"topic">> => SharedTopic2
+        }
+    }),
+
+    {ok, _} = emqtt:publish(Client, PublishTopic, <<"2">>, [{qos, 1}]),
+    ?assertReceive({publish, #{payload := <<"republish_2">>}}),
+    ?assertNotReceive({publish, _}),
+
     ok.

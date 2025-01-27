@@ -40,7 +40,7 @@ end_per_suite(Config) ->
 
 t_metrics_api(_) ->
     {ok, MetricsResponse} = request_helper("metrics?aggregate=true"),
-    MetricsFromAPI = emqx_utils_json:decode(MetricsResponse, [return_maps]),
+    MetricsFromAPI = emqx_utils_json:decode(MetricsResponse),
     AggregateMetrics = emqx_mgmt:get_metrics(),
     match_helper(AggregateMetrics, MetricsFromAPI).
 
@@ -56,7 +56,7 @@ t_metrics_api_cluster_partial_fail(_) ->
     ),
     try
         {ok, MetricsResponse} = request_helper("metrics?aggregate=false"),
-        [MetricsFromAPI] = emqx_utils_json:decode(MetricsResponse, [return_maps]),
+        [MetricsFromAPI] = emqx_utils_json:decode(MetricsResponse),
         AggregateMetrics = emqx_mgmt:get_metrics(),
         match_helper(AggregateMetrics#{node => atom_to_binary(node())}, MetricsFromAPI)
     after
@@ -85,7 +85,7 @@ t_metrics_api_cluster_bad_nodename(_) ->
 
 t_single_node_metrics_api(_) ->
     {ok, MetricsResponse} = request_helper("metrics"),
-    [MetricsFromAPI] = emqx_utils_json:decode(MetricsResponse, [return_maps]),
+    [MetricsFromAPI] = emqx_utils_json:decode(MetricsResponse),
     LocalNodeMetrics = maps:from_list(
         emqx_mgmt:get_metrics(node()) ++ [{node, to_bin(node())}]
     ),

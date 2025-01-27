@@ -139,6 +139,8 @@
     parse_servers/2,
     servers_validator/2,
     servers_sc/2,
+    latency_histogram_buckets_sc/1,
+    parse_latency_histogram_buckets/1,
     convert_servers/1,
     convert_servers/2,
     mqtt_converter/2
@@ -152,6 +154,7 @@
 
 -export([listeners/0]).
 -export([mkunion/2, mkunion/3]).
+-export([fill_defaults/2, fill_defaults_for_type/2]).
 
 -behaviour(hocon_schema).
 
@@ -226,7 +229,7 @@ roots(high) ->
             )},
         {zones, zones_field_schema()}
     ] ++
-        emqx_schema_hooks:injection_point(
+        emqx_schema_hooks:list_injection_point(
             'roots.high',
             [
                 %% NOTE: authorization schema here is only to keep emqx app pure
@@ -862,6 +865,14 @@ fields("mqtt_quic_listener") ->
                 0,
                 ?MAX_UINT(16),
                 ?DESC(fields_mqtt_quic_listener_stateless_operation_expiration_ms)
+            )},
+        {"sslkeylogfile",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC(fields_mqtt_quic_listener_sslkeylogfile),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"ssl_options",
             sc(
@@ -1901,7 +1912,7 @@ mqtt_listener(Bind) ->
                         default => <<"3s">>
                     }
                 )}
-        ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
+        ] ++ emqx_schema_hooks:list_injection_point('mqtt.listener').
 
 mqtt_parse_options() ->
     [
@@ -2332,7 +2343,7 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
-    ] ++ emqx_schema_hooks:injection_point('common_ssl_opts_schema').
+    ] ++ emqx_schema_hooks:list_injection_point('common_ssl_opts_schema').
 
 %% @doc Make schema for SSL listener options.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
@@ -3418,6 +3429,56 @@ parse_port(Port) ->
             {error, "bad_port_number"}
     end.
 
+latency_histogram_buckets_sc(Meta0) ->
+    DefaultMeta = #{
+        default => <<"10ms, 100ms, 1s, 5s, 30s">>,
+        desc => "Comma separated duration values for latency histogram buckets.",
+        converter => fun latency_histogram_buckets_converter/2,
+        required => true
+    },
+    hoconsc:mk(string(), maps:merge(DefaultMeta, Meta0)).
+
+latency_histogram_buckets_converter(undefined, _Opts) ->
+    undefined;
+latency_histogram_buckets_converter(Buckets, #{make_serializable := true}) ->
+    case is_list(Buckets) of
+        true ->
+            iolist_to_binary(
+                string:join(
+                    [integer_to_list(I) || I <- Buckets],
+                    ", "
+                )
+            );
+        false ->
+            Buckets
+    end;
+latency_histogram_buckets_converter(Buckets, _Opts) ->
+    case is_binary(Buckets) of
+        true ->
+            parse_latency_histogram_buckets(Buckets);
+        false ->
+            Buckets
+    end.
+
+parse_latency_histogram_buckets(Str) ->
+    case binary:split(Str, <<",">>, [global, trim]) of
+        [] ->
+            [];
+        BucketsStr ->
+            lists:map(
+                fun(BucketStr) ->
+                    case to_duration_ms(string:trim(BucketStr)) of
+                        {ok, Duration} when Duration > 0 -> Duration;
+                        {ok, Duration} when Duration =< 0 ->
+                            throw("non_positive_latency_histogram_bucket");
+                        {error, Error} ->
+                            throw({"bad_latency_histogram_bucket", Error})
+                    end
+                end,
+                BucketsStr
+            )
+    end.
+
 quic_feature_toggle(Desc) ->
     sc(
         %% true, false are for user facing
@@ -4090,4 +4151,23 @@ scunion(Field, Schemas, Default, {value, Value}) ->
             [Schema];
         _Error ->
             throw(#{field_name => Field, expected => maps:keys(Schemas)})
+    end.
+
+fill_defaults(Roots, RawConf) ->
+    Schema = #{roots => Roots},
+    case emqx_hocon:check(Schema, RawConf, #{make_serializable => true}) of
+        {ok, WithDefaults} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
+    end.
+
+fill_defaults_for_type(Type, RawConf) ->
+    WithRoot = #{<<"conf">> => RawConf},
+    Roots = [{conf, hoconsc:mk(Type, #{})}],
+    case fill_defaults(Roots, WithRoot) of
+        #{<<"conf">> := WithDefaults} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
     end.

@@ -22,7 +22,9 @@
     client_subscribe/3,
     client_unsubscribe/3,
     client_authn/3,
+    client_authn_backend/2,
     client_authz/3,
+    client_authz_backend/2,
 
     broker_disconnect/3,
     broker_subscribe/3,
@@ -303,6 +305,26 @@ client_authn(Packet, Attrs, ProcessFun) ->
         )
     ).
 
+-spec client_authn_backend(
+    Attrs,
+    fun(() -> Res)
+) ->
+    Res
+when
+    Attrs :: attrs(),
+    Res :: term().
+client_authn_backend(Attrs, ProcessFun) ->
+    ?with_trace_mode(
+        ProcessFun(),
+        ?with_span(
+            ?CLIENT_AUTHN_BACKEND_SPAN_NAME,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                ProcessFun()
+            end
+        )
+    ).
+
 -spec client_authz(
     Packet,
     Attrs,
@@ -321,10 +343,26 @@ client_authz(Packet, Attrs, ProcessFun) ->
             #{attributes => Attrs},
             fun(_SpanCtx) ->
                 ProcessFun(Packet)
-            %% TODO: add more attributes about: which authorizer resulted:
-            %% allow|deny|cache_hit|cache_miss
-            %% case ProcessFun(Packet) of
-            %%     xx -> xx,
+            end
+        )
+    ).
+
+-spec client_authz_backend(
+    Attrs,
+    fun(() -> Res)
+) ->
+    Res
+when
+    Attrs :: attrs(),
+    Res :: term().
+client_authz_backend(Attrs, ProcessFun) ->
+    ?with_trace_mode(
+        ProcessFun(),
+        ?with_span(
+            ?CLIENT_AUTHZ_BACKEND_SPAN_NAME,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                ProcessFun()
             end
         )
     ).
@@ -979,17 +1017,27 @@ set_status_error(Msg) ->
 msg_attrs(_Msg = #message{flags = #{sys := true}}) ->
     #{};
 msg_attrs(Msg = #message{}) ->
-    #{
+    Attrs = #{
         'message.msgid' => emqx_guid:to_hexstr(Msg#message.id),
         'message.qos' => Msg#message.qos,
         'message.from' => Msg#message.from,
         'message.topic' => Msg#message.topic,
         'message.retain' => maps:get(retain, Msg#message.flags, false),
-        'message.pub_props' => emqx_utils_json:encode(
-            maps:get(properties, Msg#message.headers, #{})
-        ),
         'message.payload_size' => size(Msg#message.payload)
-    }.
+    },
+    msg_attr_props(Msg, Attrs).
+
+msg_attr_props(#message{headers = #{properties := Props0 = #{'User-Property' := _}}}, Acc) ->
+    Props = maps:update_with('User-Property', fun maps:from_list/1, Props0),
+    Acc#{
+        'message.pub_props' => emqx_utils_json:encode(Props)
+    };
+msg_attr_props(#message{headers = #{properties := Props = #{}}}, Acc) ->
+    Acc#{
+        'message.pub_props' => emqx_utils_json:encode(Props)
+    };
+msg_attr_props(_Msg, Acc) ->
+    Acc.
 
 %%--------------------------------------------------------------------
 %% Internal functions

@@ -65,7 +65,14 @@ bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
     Config3.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    BridgeV1Config1 = maps:without([<<"connector">>, <<"last_modified_at">>], ActionConfig),
+    BridgeV1Config1 = maps:without(
+        [
+            <<"connector">>,
+            <<"created_at">>,
+            <<"last_modified_at">>
+        ],
+        ActionConfig
+    ),
     BridgeV1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config1),
     BridgeV1Config3 = maps:remove(<<"parameters">>, BridgeV1Config2),
     %% Pick out pool_size from aggregation_pool_size

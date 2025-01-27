@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   opents_server:
     container_name: opents
