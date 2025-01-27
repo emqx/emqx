@@ -25,7 +25,6 @@
     make_iterator/4,
     make_delete_iterator/4,
     next/3,
-    poll/3,
     delete_next/4,
 
     subscribe/3,
@@ -442,48 +441,6 @@ next(DB, Iter0, BatchSize) ->
         Other ->
             Other
     end.
-
--spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) ->
-    {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
-    %% Create a new alias, if not already provided:
-    case PollOpts of
-        #{reply_to := ReplyTo} ->
-            ok;
-        _ ->
-            ReplyTo = alias([explicit_unalias])
-    end,
-    %% Spawn a helper process that will notify the caller when the
-    %% poll times out:
-    _Completion = emqx_ds_lib:send_poll_timeout(ReplyTo, Timeout),
-    %% Submit poll jobs:
-    Groups = maps:groups_from_list(
-        fun({_Token, #{?tag := ?IT, ?shard := Shard}}) -> Shard end,
-        Iterators
-    ),
-    maps:foreach(
-        fun(Shard, ShardIts) ->
-            Result = ra_poll(
-                DB,
-                Shard,
-                [{{ReplyTo, Token}, It} || {Token, It} <- ShardIts],
-                PollOpts
-            ),
-            case Result of
-                ok ->
-                    ok;
-                {error, Class, Reason} ->
-                    ?tp(debug, ds_repl_poll_shard_failed, #{
-                        db => DB,
-                        shard => Shard,
-                        class => Class,
-                        reason => Reason
-                    })
-            end
-        end,
-        Groups
-    ),
-    {ok, ReplyTo}.
 
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), emqx_ds:sub_ref()} | emqx_ds:error(_).
@@ -950,14 +907,6 @@ ra_next(DB, Shard, Iter, BatchSize) ->
             Ret ->
                 Ret
         end
-    ).
-
-ra_poll(DB, Shard, Iterators, PollOpts) ->
-    ?SHARD_RPC(
-        DB,
-        Shard,
-        DestNode,
-        ?SAFE_ERPC(emqx_ds_proto_v5:poll(DestNode, node(), DB, Shard, Iterators, PollOpts))
     ).
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->

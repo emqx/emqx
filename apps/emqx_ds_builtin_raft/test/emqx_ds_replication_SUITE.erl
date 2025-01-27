@@ -865,19 +865,6 @@ t_error_mapping_replication_layer(Config) ->
     ?assert(
         length([error || {error, _, _} <- Results2]) > 0,
         Results2
-    ),
-
-    %% Calling `emqx_ds:poll/3` succeeds, but some poll requests should fail anyway.
-    {ok, SRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := ds_repl_poll_shard_failed}),
-        length(Streams0),
-        500
-    ),
-    UserData = ?FUNCTION_NAME,
-    {ok, _PollRef} = emqx_ds:poll(DB, [{UserData, I} || I <- Iterators0], #{timeout => 1_000}),
-    ?assertMatch(
-        {timeout, Events} when length(Events) > 0,
-        snabbkaffe:receive_events(SRef)
     ).
 
 %% This testcase verifies the behavior of `store_batch' operation

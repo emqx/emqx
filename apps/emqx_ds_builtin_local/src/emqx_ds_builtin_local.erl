@@ -41,7 +41,6 @@
 
     update_iterator/3,
     next/3,
-    poll/3,
 
     subscribe/3,
     unsubscribe/2,
@@ -399,34 +398,11 @@ update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
+    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_next, [DB, Iter, N]),
     receive
         {Ref, Result} ->
             Result
     end.
-
--spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
-    %% Create a new alias, if not already provided:
-    case PollOpts of
-        #{reply_to := ReplyTo} ->
-            ok;
-        _ ->
-            ReplyTo = alias([explicit_unalias])
-    end,
-    %% Spawn a helper process that will notify the caller when the
-    %% poll times out:
-    emqx_ds_lib:send_poll_timeout(ReplyTo, Timeout),
-    %% Submit poll jobs:
-    lists:foreach(
-        fun({ItKey, It = #{?tag := ?IT, ?shard := Shard}}) ->
-            ShardId = {DB, Shard},
-            ReturnAddr = {ReplyTo, ItKey},
-            emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
-        end,
-        Iterators
-    ),
-    {ok, ReplyTo}.
 
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), reference()}.
@@ -528,7 +504,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
 delete_next(DB, Iter, Selector, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
+    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
         {Ref, Result} -> Result
     end.

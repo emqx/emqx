@@ -39,7 +39,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3, poll/3]).
+-export([get_streams/3, make_iterator/4, next/3]).
 -export([subscribe/3, unsubscribe/2, suback/3, subscription_info/2]).
 
 %% Message delete API:
@@ -190,9 +190,10 @@
 -type delete_next_result(DeleteIterator) ::
     {ok, DeleteIterator, non_neg_integer()} | {ok, end_of_stream} | {error, term()}.
 
--type delete_next_result() :: delete_next_result(delete_iterator()).
-
+%% obsolete
 -type poll_iterators() :: [{_UserData, iterator()}].
+
+-type delete_next_result() :: delete_next_result(delete_iterator()).
 
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
@@ -273,6 +274,7 @@
     atomic_batches => boolean()
 }.
 
+%% obsolete
 -type poll_opts() ::
     #{
         %% Expire poll request after this timeout
@@ -348,8 +350,6 @@
     make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
-
--callback poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
 
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
@@ -496,11 +496,6 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
-
-%% @obsolete
--spec poll(db(), poll_iterators(), poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{timeout := Timeout}) when is_integer(Timeout), Timeout > 0 ->
-    ?module(DB):poll(DB, Iterators, PollOpts).
 
 %% @doc "Multi-poll" API: subscribe current process to the messages
 %% that follow `Iterator'.
