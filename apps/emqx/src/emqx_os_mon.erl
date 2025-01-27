@@ -141,7 +141,7 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
         %% 0 or 0.0
         Busy when Busy == 0 ->
             ok;
-        Busy when Busy > CPUHighWatermark ->
+        Busy when is_number(Busy) andalso Busy > CPUHighWatermark ->
             _ = emqx_alarm:activate(
                 high_cpu_usage,
                 #{
@@ -151,7 +151,7 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
                 },
                 usage_msg(Busy, cpu)
             );
-        Busy when Busy < CPULowWatermark ->
+        Busy when is_number(Busy) andalso Busy < CPULowWatermark ->
             ok = emqx_alarm:ensure_deactivated(
                 high_cpu_usage,
                 #{
@@ -162,6 +162,7 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
                 usage_msg(Busy, cpu)
             );
         _Busy ->
+            %% {error, timeout} ...
             ok
     end,
     Ref = start_cpu_check_timer(),
