@@ -97,29 +97,19 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_storage_generations;
     TestCase =:= t_new_stream_notifications
 ->
-    %% Todo: un-skip `t_storage_generations' after we discover the issue.
-    %% Context: At the time of writing, at `90cb15ed' this test was already inadvertently
-    %% adding a new generation to the master CT node, but clients were connected to a
-    %% remote peer.  After not starting the apps on the master CT node, adding the
-    %% generation to the remote peer made this TC stop passing.
-    case TestCase =:= t_storage_generations of
-        true ->
-            {skip, temp_skip_broken_test};
-        false ->
-            %% N.B.: these tests start a single-node cluster, so it's fine to test them with the
-            %% `builtin_local' backend.
-            DurableSessionsOpts = #{
-                <<"heartbeat_interval">> => <<"500ms">>,
-                <<"session_gc_interval">> => <<"1s">>,
-                <<"session_gc_batch_size">> => 2
-            },
-            Opts = #{
-                durable_sessions_opts => DurableSessionsOpts,
-                work_dir => emqx_cth_suite:work_dir(TestCase, Config)
-            },
-            ClusterSpec = cluster(Opts#{n => 1}),
-            emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpec, Opts)
-    end;
+    %% N.B.: these tests start a single-node cluster, so it's fine to test them with the
+    %% `builtin_local' backend.
+    DurableSessionsOpts = #{
+        <<"heartbeat_interval">> => <<"500ms">>,
+        <<"session_gc_interval">> => <<"1s">>,
+        <<"session_gc_batch_size">> => 2
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+    },
+    ClusterSpec = cluster(Opts#{n => 1}),
+    emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpec, Opts);
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_session_gc;
     TestCase =:= t_crashed_node_session_gc;
@@ -169,9 +159,10 @@ end_per_testcase(TestCase, Config) when
     emqx_common_test_helpers:call_janitor(60_000),
     emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(TestCase, Config) ->
     snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(60_000),
+    emqx_cth_suite:clean_work_dir(emqx_cth_suite:work_dir(TestCase, Config)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -353,6 +344,7 @@ t_storage_generations(Config) ->
             {ok, _} = emqtt:connect(Pub),
             %% Publish 3 messages. Subscriber receives them, but
             %% doesn't ack them initially.
+            ?tp(notice, "test: Publish first batch", #{}),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
             [
                 #{packet_id := PI1, payload := <<"1">>}
@@ -364,24 +356,30 @@ t_storage_generations(Config) ->
                 #{packet_id := PI3, payload := <<"3">>}
             ] = emqx_common_test_helpers:wait_publishes(2, 5_000),
             %% Ack the first message. It transfers "t/1" stream into
-            %% ready state where it will be polled.
+            %% ready state.
+            ?tp(notice, "test: PUBACK", #{packet_id => PI1}),
             ok = emqtt:puback(Sub, PI1),
             %% Create a new generation and publish messages to the new
-            %% generation. We expect 1 message for topic t/1 (since it
-            %% was unblocked), but NOT for t/2:
+            %% generation:
+            ?tp(notice, "test: Add generation", #{}),
             ok = ?ON(Node1, emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB)),
-            timer:sleep(100),
+            ?tp(notice, "test: Publish second batch", #{}),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"4">>, ?QOS_1),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"5">>, ?QOS_1),
-            [
-                #{packet_id := PI4, payload := <<"4">>}
-            ] = emqx_common_test_helpers:wait_publishes(2, 5_000),
-            %% Ack the rest of messages, it should unblock 5th
-            %% message:
+            %% Since there is one unacked stream for t/2 in the first
+            %% generation, session should NOT advance generation just
+            %% yet, and we should not see the new publishes:
+            ?assertMatch([], emqx_common_test_helpers:wait_publishes(1, 1_000)),
+            %% Now ack the rest of the messages. It should unblock the
+            %% second stream and advance the generation:
+            ?tp(notice, "test: PUBACK", #{packet_id => PI2}),
             ok = emqtt:puback(Sub, PI2),
+            ?tp(notice, "test: PUBACK", #{packet_id => PI3}),
             ok = emqtt:puback(Sub, PI3),
-            ok = emqtt:puback(Sub, PI4),
-            [#{packet_id := _PI5}] = emqx_common_test_helpers:wait_publishes(1, 5_000)
+            [
+                #{topic := <<"t/1">>, payload := <<"4">>},
+                #{topic := <<"t/2">>, payload := <<"5">>}
+            ] = emqx_common_test_helpers:wait_publishes(2, 5_000)
         end,
         [fun check_stream_state_transitions/1]
     ),

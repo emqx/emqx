@@ -410,8 +410,7 @@ on_enqueue(false, Key, SRS, S0, SchedS0) ->
             %% batch at the end of a stream, that contained only QoS0
             %% messages. Since no acks are expected for this batch, we
             %% should attempt to advance generation now:
-            ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => r}),
-            on_stream_unblock(Key, SRS, S0, SchedS)
+            on_stream_unblock(Key, r, SRS, S0, SchedS)
     end.
 
 -spec on_seqno_release(
@@ -425,7 +424,7 @@ on_seqno_release(?QOS_1, SnQ1, S, SchedS0 = #s{bq1 = PrimaryTab0, bq2 = Secondar
         {false, Key, PrimaryTab} ->
             %% It was BQ1:
             Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
-            on_stream_unblock(Key, Srs, S, SchedS0#s{bq1 = PrimaryTab});
+            on_stream_unblock(Key, bq1, Srs, S, SchedS0#s{bq1 = PrimaryTab});
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
             ?tp(?sessds_stream_state_trans, #{
@@ -443,7 +442,7 @@ on_seqno_release(?QOS_2, SnQ2, S, SchedS0 = #s{bq2 = PrimaryTab0, bq1 = Secondar
         {false, Key, PrimaryTab} ->
             %% It was BQ2:
             Srs = emqx_persistent_session_ds_state:get_stream(Key, S),
-            on_stream_unblock(Key, Srs, S, SchedS0#s{bq2 = PrimaryTab});
+            on_stream_unblock(Key, bq2, Srs, S, SchedS0#s{bq2 = PrimaryTab});
         {true, Key, PrimaryTab} ->
             %% It was BQ12:
             ?tp(?sessds_stream_state_trans, #{
@@ -472,18 +471,20 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
             {StillBlocked, StreamKey, PrimaryTab}
     end.
 
--spec on_stream_unblock(stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()) ->
+-spec on_stream_unblock(stream_key(), state(), srs(), emqx_persistent_session_ds_state:t(), t()) ->
     {[stream_key(), ...], emqx_persistent_session_ds_state:t(), t()}.
-on_stream_unblock(Key = {SubId, _}, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0) ->
+on_stream_unblock(
+    Key = {SubId, _}, PrevState, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0
+) ->
     %% We've reached end of the stream. We might advance generation
     %% now:
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => bx, eos => true}),
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => PrevState, eos => true}),
     {Keys, S, SchedS} = renew_streams_for_x(S0, SubId, RankX, SchedS0),
     %% TODO: Reporting this key as unblocked for compatibility with
     %% shared_sub. This should not be needed.
     {[Key | Keys], S, SchedS};
-on_stream_unblock(Key, _SRS, S, SchedS) ->
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => bx}),
+on_stream_unblock(Key, PrevState, _SRS, S, SchedS) ->
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => PrevState}),
     {[Key], S, SchedS}.
 
 %% @doc Batch operation to clean up historical streams.
@@ -1074,7 +1075,7 @@ make_iterator(TopicFilter, Subscription, RankX, RankY, Stream, S) ->
             %% such, re-creation of iterators should be triggered by
             %% some event. Currently we just restart the session
             %% should we encounter one in hope that it will recover.
-            ?SLOG(info, #{
+            ?SLOG(warning, #{
                 msg => "failed_to_initialize_stream_iterator",
                 stream => Stream,
                 class => Class,
