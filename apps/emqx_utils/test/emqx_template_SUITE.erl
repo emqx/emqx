@@ -84,7 +84,7 @@ t_render_this(_) ->
     ?assertEqual(ok, emqx_template:validate(["."], Template)),
     ?assertEqual(
         % NOTE: order of the keys in the JSON object depends on the JSON encoder
-        <<"this:{\"b\":[1,2,3],\"a\":\"a\"} / also:{\"b\":[1,2,3],\"a\":\"a\"}">>,
+        <<"this:{\"a\":\"a\",\"b\":[1,2,3]} / also:{\"a\":\"a\",\"b\":[1,2,3]}">>,
         render_strict_string(Template, Context)
     ).
 

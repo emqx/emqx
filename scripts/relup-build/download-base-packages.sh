@@ -7,7 +7,6 @@ set -euo pipefail
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
-ROOT_DIR="$(pwd)"
 
 PROFILE="${1:-emqx-enterprise}"
 export PROFILE
@@ -29,40 +28,43 @@ case $PROFILE in
         ;;
 esac
 
-SYSTEM="$(./scripts/get-distro.sh)"
-case "$SYSTEM" in
-    windows*)
-        echo "NOTE: no_relup_for_windows"
-        exit 0
-        ;;
-    macos*)
-        SHASUM="shasum -a 256"
-        ;;
-    *)
-        SHASUM="sha256sum"
-        ;;
-esac
+## Unreachable currently, since relup is not supported
 
-BASE_VERSIONS="$("${ROOT_DIR}"/scripts/relup-build/base-vsns.sh "$EDITION" | xargs echo -n)"
+# ROOT_DIR="$(pwd)"
+# SYSTEM="$(./scripts/get-distro.sh)"
+# case "$SYSTEM" in
+#     windows*)
+#         echo "NOTE: no_relup_for_windows"
+#         exit 0
+#         ;;
+#     macos*)
+#         SHASUM="shasum -a 256"
+#         ;;
+#     *)
+#         SHASUM="sha256sum"
+#         ;;
+# esac
 
-fullvsn() {
-    env PKG_VSN="$1" "${ROOT_DIR}"/pkg-vsn.sh "$PROFILE" --long
-}
+# BASE_VERSIONS="$("${ROOT_DIR}"/scripts/relup-build/base-vsns.sh "$EDITION" | xargs echo -n)"
 
-mkdir -p _upgrade_base
-pushd _upgrade_base >/dev/null
-for tag in ${BASE_VERSIONS}; do
-    filename="$PROFILE-$(fullvsn "${tag#[e|v]}").tar.gz"
-    url="https://packages.emqx.io/$S3DIR/$tag/$filename"
-    echo "downloading ${filename} ..."
-    ## if the file does not exist (not downloaded yet)
-    ## and there is such a package to downlaod
-    if [ ! -f "$filename" ] && curl -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
-        curl -L -o "${filename}" "${url}"
-        curl -L -o "${filename}.sha256" "${url}.sha256"
-        ## https://askubuntu.com/questions/1202208/checking-sha256-checksum
-        echo "$(cat "${filename}.sha256")  ${filename}" | $SHASUM -c || exit 1
-    fi
-done
+# fullvsn() {
+#     env PKG_VSN="$1" "${ROOT_DIR}"/pkg-vsn.sh "$PROFILE" --long
+# }
 
-popd >/dev/null
+# mkdir -p _upgrade_base
+# pushd _upgrade_base >/dev/null
+# for tag in ${BASE_VERSIONS}; do
+#     filename="$PROFILE-$(fullvsn "${tag#[e|v]}").tar.gz"
+#     url="https://packages.emqx.io/$S3DIR/$tag/$filename"
+#     echo "downloading ${filename} ..."
+#     ## if the file does not exist (not downloaded yet)
+#     ## and there is such a package to downlaod
+#     if [ ! -f "$filename" ] && curl -I -m 10 -o /dev/null -s -w "%{http_code}" "${url}" | grep -q -oE "^[23]+" ; then
+#         curl -L -o "${filename}" "${url}"
+#         curl -L -o "${filename}.sha256" "${url}.sha256"
+#         ## https://askubuntu.com/questions/1202208/checking-sha256-checksum
+#         echo "$(cat "${filename}.sha256")  ${filename}" | $SHASUM -c || exit 1
+#     fi
+# done
+
+# popd >/dev/null
