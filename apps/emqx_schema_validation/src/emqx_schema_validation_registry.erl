@@ -105,15 +105,17 @@ matching_validations(Topic) ->
             fun(M) ->
                 case emqx_topic_index:get_record(M, ?VALIDATION_TOPIC_INDEX) of
                     [Name] ->
-                        [Name];
+                        Pos = emqx_topic_index:get_id(M),
+                        [{Pos, Name}];
                     _ ->
                         []
                 end
             end,
             emqx_topic_index:matches(Topic, ?VALIDATION_TOPIC_INDEX, [unique])
         ),
+    Validations1 = lists:keysort(1, Validations0),
     lists:flatmap(
-        fun(Name) ->
+        fun({_Pos, Name}) ->
             case lookup(Name) of
                 {ok, Validation} ->
                     [Validation];
@@ -121,7 +123,7 @@ matching_validations(Topic) ->
                     []
             end
         end,
-        Validations0
+        Validations1
     ).
 
 -spec metrics_worker_spec() -> supervisor:child_spec().
