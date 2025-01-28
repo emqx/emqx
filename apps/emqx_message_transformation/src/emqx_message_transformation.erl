@@ -39,7 +39,7 @@
 
 -record(trace_failure_context, {
     transformation :: transformation(),
-    tag :: string(),
+    tag :: atom(),
     context :: map()
 }).
 -type trace_failure_context() :: #trace_failure_context{}.
@@ -199,7 +199,7 @@ eval_operation(Operation, Transformation, Context) ->
             {error, Reason} ->
                 FailureContext = #trace_failure_context{
                     transformation = Transformation,
-                    tag = "transformation_eval_operation_failure",
+                    tag = transformation_eval_operation_failure,
                     context = #{reason => Reason}
                 },
                 {error, FailureContext};
@@ -211,7 +211,7 @@ eval_operation(Operation, Transformation, Context) ->
         Class:Error:Stacktrace ->
             FailureContext1 = #trace_failure_context{
                 transformation = Transformation,
-                tag = "transformation_eval_operation_exception",
+                tag = transformation_eval_operation_exception,
                 context = #{
                     kind => Class,
                     reason => Error,
@@ -332,7 +332,7 @@ do_run_transformations(Transformations, Message) ->
                 {cont, MessageAcc};
             {FailureAction, TraceFailureContext} ->
                 trace_failure_from_context(TraceFailureContext),
-                trace_failure(Transformation, "transformation_failed", #{
+                trace_failure(Transformation, transformation_failed, #{
                     transformation => Name,
                     action => FailureAction
                 }),
@@ -352,7 +352,7 @@ do_run_transformations(Transformations, Message) ->
                     %% responsible for getting the right encoding.
                     emqx_message_transformation_registry:inc_failed(LastTransformationName),
                     #{failure_action := FailureAction} = LastTransformation,
-                    trace_failure(LastTransformation, "transformation_bad_encoding", #{
+                    trace_failure(LastTransformation, transformation_bad_encoding, #{
                         action => FailureAction,
                         explain => <<"final payload must be encoded as a binary">>
                     }),
@@ -453,7 +453,7 @@ decode(Payload, #{type := json}, Transformation) when is_binary(Payload) ->
         {error, Reason} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_decode_failed",
+                tag = payload_decode_failed,
                 context = #{
                     decoder => json,
                     reason => Reason
@@ -468,7 +468,7 @@ decode(Payload, #{type := avro, schema := SerdeName}, Transformation) when is_bi
         error:{serde_not_found, _} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_decode_schema_not_found",
+                tag = payload_decode_schema_not_found,
                 context = #{
                     decoder => avro,
                     schema_name => SerdeName
@@ -478,7 +478,7 @@ decode(Payload, #{type := avro, schema := SerdeName}, Transformation) when is_bi
         Class:Error:Stacktrace ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_decode_schema_failure",
+                tag = payload_decode_schema_failure,
                 context = #{
                     decoder => avro,
                     schema_name => SerdeName,
@@ -498,7 +498,7 @@ decode(
         error:{serde_not_found, _} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_decode_schema_not_found",
+                tag = payload_decode_schema_not_found,
                 context = #{
                     decoder => protobuf,
                     schema_name => SerdeName,
@@ -509,7 +509,7 @@ decode(
         throw:{schema_decode_error, ExtraContext} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_decode_error",
+                tag = payload_decode_error,
                 context = ExtraContext#{
                     decoder => protobuf,
                     schema_name => SerdeName,
@@ -520,7 +520,7 @@ decode(
         Class:Error:Stacktrace ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_decode_schema_failure",
+                tag = payload_decode_schema_failure,
                 context = #{
                     decoder => protobuf,
                     schema_name => SerdeName,
@@ -547,7 +547,7 @@ decode(NotABinary, #{} = Decoder, Transformation) ->
         ),
     TraceFailureContext = #trace_failure_context{
         transformation = Transformation,
-        tag = "payload_decode_failed",
+        tag = payload_decode_failed,
         context = Context
     },
     {error, TraceFailureContext}.
@@ -561,7 +561,7 @@ encode(Payload, #{type := json}, Transformation) ->
         {error, Reason} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_encode_failed",
+                tag = payload_encode_failed,
                 context = #{
                     encoder => json,
                     reason => Reason
@@ -576,7 +576,7 @@ encode(Payload, #{type := avro, schema := SerdeName}, Transformation) ->
         error:{serde_not_found, _} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_encode_schema_not_found",
+                tag = payload_encode_schema_not_found,
                 context = #{
                     encoder => avro,
                     schema_name => SerdeName
@@ -586,7 +586,7 @@ encode(Payload, #{type := avro, schema := SerdeName}, Transformation) ->
         Class:Error:Stacktrace ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_encode_schema_failure",
+                tag = payload_encode_schema_failure,
                 context = #{
                     encoder => avro,
                     schema_name => SerdeName,
@@ -606,7 +606,7 @@ encode(
         error:{serde_not_found, _} ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_encode_schema_failure",
+                tag = payload_encode_schema_failure,
                 context = #{
                     encoder => protobuf,
                     schema_name => SerdeName,
@@ -617,7 +617,7 @@ encode(
         Class:Error:Stacktrace ->
             TraceFailureContext = #trace_failure_context{
                 transformation = Transformation,
-                tag = "payload_encode_schema_failure",
+                tag = payload_encode_schema_failure,
                 context = #{
                     encoder => protobuf,
                     schema_name => SerdeName,
@@ -646,7 +646,7 @@ trace_failure_context_to_map(
         context = Context
     }
 ) ->
-    Context#{msg => list_to_binary(Tag)}.
+    Context#{msg => Tag}.
 
 trace_failure(#{log_failure := #{level := none}} = Transformation, _Msg, _Meta) ->
     #{
@@ -655,16 +655,18 @@ trace_failure(#{log_failure := #{level := none}} = Transformation, _Msg, _Meta) 
     } = Transformation,
     ?tp(message_transformation_failed, _Meta#{log_level => none, name => _Name, message => _Msg}),
     ok;
-trace_failure(#{log_failure := #{level := Level}} = Transformation, Msg, Meta0) ->
+trace_failure(#{log_failure := #{level := Level}} = Transformation, Msg, Meta0) when is_atom(Msg) ->
     #{
         name := Name,
-        failure_action := _Action
+        failure_action := Action
     } = Transformation,
     Meta = maps:merge(#{name => Name}, Meta0),
     ?tp(message_transformation_failed, Meta#{
-        log_level => Level, name => Name, action => _Action, message => Msg
+        log_level => Level, name => Name, action => Action, message => Msg
     }),
-    ?TRACE(Level, ?TRACE_TAG, Msg, Meta).
+    ?SLOG_THROTTLE(Level, Name, #{msg => Msg, name => Name, action => Action}, Meta#{
+        tag => ?TRACE_TAG
+    }).
 
 run_message_transformation_failed_hook(Message, Transformation) ->
     #{name := Name} = Transformation,

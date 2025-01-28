@@ -187,7 +187,11 @@ schedule_refresh(PeriodMs) ->
     ?tp(log_throttler_sched_refresh, #{new_period_ms => PeriodMs}),
     erlang:send_after(PeriodMs, ?MODULE, refresh).
 
-new_throttler(unrecoverable_resource_error = Msg) ->
+new_throttler(Msg) when
+    Msg =:= unrecoverable_resource_error;
+    Msg =:= validation_failed;
+    Msg =:= transformation_failed
+->
     new_throttler(Msg, #{});
 new_throttler(Msg) ->
     new_throttler(Msg, ?NEW_SEQ).

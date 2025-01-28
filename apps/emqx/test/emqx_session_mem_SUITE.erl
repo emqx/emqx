@@ -467,10 +467,14 @@ t_enqueue(_) ->
     ?assertEqual(3, emqx_session_mem:info(mqueue_len, Session1)),
     Session2 = emqx_session_mem:enqueue(
         clientinfo(),
-        emqx_session:enrich_delivers(clientinfo(), [delivery(?QOS_1, <<"drop">>)], Session1),
+        emqx_session:enrich_delivers(clientinfo(), [delivery(?QOS_1, <<"t3">>)], Session1),
         Session1
     ),
-    ?assertEqual(3, emqx_session_mem:info(mqueue_len, Session2)).
+    ?assertEqual(3, emqx_session_mem:info(mqueue_len, Session2)),
+    {Msgs, _} = emqx_session_mem:info({mqueue_msgs, #{position => none, limit => 10}}, Session2),
+    %% mqueue is fifo, drop t0.
+    ?assertMatch([<<"t1">>, <<"t2">>, <<"t3">>], lists:map(fun emqx_message:topic/1, Msgs)),
+    ?assertEqual(1, emqx_session_mem:info(mqueue_dropped, Session2)).
 
 t_enqueue_qos0(_) ->
     Session = session(#{mqueue => mqueue(#{store_qos0 => false})}),

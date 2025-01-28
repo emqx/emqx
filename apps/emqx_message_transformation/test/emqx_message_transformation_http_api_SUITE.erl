@@ -1445,7 +1445,7 @@ t_protobuf_bad_chain(_Config) ->
                     E
                  || #{
                         ?snk_kind := message_transformation_failed,
-                        message := "payload_decode_schema_failure",
+                        message := payload_decode_schema_failure,
                         reason := function_clause
                     } = E <- Trace
                 ]
@@ -1473,7 +1473,7 @@ t_protobuf_bad_chain(_Config) ->
                     E
                  || #{
                         ?snk_kind := message_transformation_failed,
-                        message := "payload_decode_error"
+                        message := payload_decode_error
                     } = E <- Trace
                 ]
             ),
@@ -1740,8 +1740,8 @@ t_final_payload_must_be_binary(_Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [
-                    #{message := "transformation_bad_encoding"},
-                    #{message := "transformation_bad_encoding"}
+                    #{message := transformation_bad_encoding},
+                    #{message := transformation_bad_encoding}
                 ],
                 ?of_kind(message_transformation_failed, Trace)
             ),

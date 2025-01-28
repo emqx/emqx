@@ -491,7 +491,7 @@ cal_rate(
 cal_rate_(Key, {Now, Last, TDelta, Res}) ->
     NewValue = maps:get(Key, Now),
     LastValue = maps:get(Key, Last),
-    Rate = ((NewValue - LastValue) * 1000) div TDelta,
+    Rate = round((NewValue - LastValue) * 1000 / TDelta),
     RateKey = maps:get(Key, ?DELTA_SAMPLER_RATE_MAP),
     {Now, Last, TDelta, Res#{RateKey => Rate}}.
 
