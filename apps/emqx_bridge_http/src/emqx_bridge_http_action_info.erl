@@ -52,7 +52,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     %% Move parameters to the top level
     ParametersMap1 = maps:get(<<"parameters">>, BridgeV1Config1, #{}),
     ParametersMap2 = maps:without([<<"path">>, <<"headers">>], ParametersMap1),
-    BridgeV1Config2 = maps:remove(<<"parameters">>, BridgeV1Config1),
+    BridgeV1Config2 = maps:without([<<"parameters">>, <<"fallback_actions">>], BridgeV1Config1),
     BridgeV1Config3 = emqx_utils_maps:deep_merge(BridgeV1Config2, ParametersMap2),
     BridgeV1Config4 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config3),
 

@@ -30,4 +30,34 @@ This option should always be `true` if possible; the default value `false` is on
 undefined_vars_as_null.label:
 """Undefined Vars as Null"""
 
+  fallback_actions {
+    label: "Fallback Actions"
+    desc: """List of fallback actions that will be triggered if a query to this action fails."""
+  }
+
+  fallback_action_kind {
+    label: "Kind"
+    desc: """Fallback kind."""
+  }
+
+  fallback_action_action {
+    label: "Fallback Action"
+    desc: """A fallback Action that will be triggered if a query to this action fails.  The same message context that triggered the primary action will be sent unmodified to the fallbacks."""
+  }
+
+  fallback_action_action_type {
+    label: "Type"
+    desc: """Fallback Action type."""
+  }
+
+  fallback_action_action_name {
+    label: "Name"
+    desc: """Fallback Action name."""
+  }
+
+  fallback_action_republish {
+    label: "Republish"
+    desc: """Republish fallback action.  Works the same way as the Republish rule action from Rule Engine."""
+  }
+
 }

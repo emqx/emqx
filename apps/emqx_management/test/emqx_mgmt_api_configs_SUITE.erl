@@ -372,6 +372,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                             <<"enable">> := true,
                             <<"created_at">> := _,
                             <<"last_modified_at">> := _,
+                            <<"fallback_actions">> := [],
                             <<"parameters">> :=
                                 #{
                                     <<"body">> := <<"{\"value\": \"${value}\"}">>,

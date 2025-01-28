@@ -68,7 +68,7 @@
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
 
 -ifdef(TEST).
--export([stop/2]).
+-export([stop/2, summarize_query_mode/2]).
 -endif.
 
 %%------------------------------------------------------------------------------
@@ -525,6 +525,35 @@ get_query_mode(RequestResId, ResourceData, QueryOpts) ->
             {ok, sync} -> sync;
             {ok, Kind} -> error({bad_query_kind, Kind})
         end,
+    #{
+        is_simple := IsSimple,
+        has_internal_buffer := HasInternalBuffer,
+        requested_query_kind := RequestedQueryKind,
+        resource_query_mode := ResourceQueryMode
+    } = summarize_query_mode(ResourceQueryMode, RequestedQueryKind),
+    case {RequestedQueryKind, ResourceQueryMode} of
+        {undefined, _} ->
+            ResourceQueryMode;
+        {async, _} when HasInternalBuffer ->
+            simple_async_internal_buffer;
+        {sync, _} when HasInternalBuffer ->
+            simple_sync_internal_buffer;
+        {async, _} when IsSimple ->
+            simple_async;
+        {sync, _} when IsSimple ->
+            simple_sync;
+        {_, _} ->
+            RequestedQueryKind
+    end.
+
+-spec summarize_query_mode(resource_query_mode(), query_kind() | undefined) ->
+    #{
+        is_simple := boolean(),
+        has_internal_buffer := boolean(),
+        requested_query_kind := query_kind() | undefined,
+        resource_query_mode := resource_query_mode()
+    }.
+summarize_query_mode(ResourceQueryMode, RequestedQueryKind) ->
     HasInternalBuffer =
         case ResourceQueryMode of
             simple_sync_internal_buffer ->
@@ -543,20 +572,12 @@ get_query_mode(RequestResId, ResourceData, QueryOpts) ->
             _ ->
                 false
         end,
-    case {RequestedQueryKind, ResourceQueryMode} of
-        {undefined, _} ->
-            ResourceQueryMode;
-        {async, _} when HasInternalBuffer ->
-            simple_async_internal_buffer;
-        {sync, _} when HasInternalBuffer ->
-            simple_sync_internal_buffer;
-        {async, _} when IsSimple ->
-            simple_async;
-        {sync, _} when IsSimple ->
-            simple_sync;
-        {_, _} ->
-            RequestedQueryKind
-    end.
+    #{
+        is_simple => IsSimple,
+        has_internal_buffer => HasInternalBuffer,
+        requested_query_kind => RequestedQueryKind,
+        resource_query_mode => ResourceQueryMode
+    }.
 
 get_error(_ResId, #{error := {unhealthy_target, _} = Error} = _ResourceData) ->
     Error;
@@ -2114,3 +2135,175 @@ ensure_channel_metrics_exist(Data) ->
         end,
         emqx_resource:call_get_channels(Data#data.id, Data#data.mod)
     ).
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+all_query_kinds() ->
+    [sync, async].
+
+all_resource_query_modes() ->
+    [
+        simple_sync_internal_buffer,
+        simple_async_internal_buffer,
+        simple_sync,
+        simple_async,
+        sync,
+        async
+    ].
+
+%% {Resource Query Mode, Requested Query Kind, Resulting Query Mode}
+expected_query_mode_cases() ->
+    [
+        {simple_sync_internal_buffer, sync, simple_sync_internal_buffer},
+        {simple_sync_internal_buffer, async, simple_async_internal_buffer},
+        {simple_async_internal_buffer, sync, simple_sync_internal_buffer},
+        {simple_async_internal_buffer, async, simple_async_internal_buffer},
+        {simple_sync, sync, simple_sync},
+        {simple_sync, async, simple_async},
+        {simple_async, sync, simple_sync},
+        {simple_async, async, simple_async},
+        {sync, sync, sync},
+        {sync, async, async},
+        {async, sync, sync},
+        {async, async, async}
+    ].
+
+title(Fmt, Args) ->
+    iolist_to_binary(io_lib:format(Fmt, Args)).
+
+%% If request query kind is unspecified, use the channel query mode or the connector query
+%% mode, in that order.
+get_query_mode_unspecified_with_chan_query_mode_test_() ->
+    RequestResId = <<"action:atype:aname:connector:ctype:cname">>,
+    MkCases = fun(ChanQM, ConnQM) ->
+        ResourceDataWithChan = #{
+            added_channels => #{RequestResId => #{query_mode => ChanQM}}, query_mode => ConnQM
+        },
+        QueryOpts = #{},
+        [
+            {
+                title("with chan, chan qm = ~s, conn qm = ~s", [ChanQM, ConnQM]),
+                ?_assertEqual(ChanQM, get_query_mode(RequestResId, ResourceDataWithChan, QueryOpts))
+            }
+        ]
+    end,
+    lists:flatten(
+        [
+            MkCases(ChanQM, ConnQM)
+         || ChanQM <- all_resource_query_modes(),
+            ConnQM <- all_resource_query_modes()
+        ]
+    ).
+
+%% If request query kind is unspecified, use the channel query mode or the connector query
+%% mode, in that order.
+get_query_mode_unspecified_without_chan_query_mode_test_() ->
+    RequestResId = <<"action:atype:aname:connector:ctype:cname">>,
+    MkCases = fun(ConnQM) ->
+        ResourceDataWithChanNoQM = #{added_chanels => #{RequestResId => #{}}, query_mode => ConnQM},
+        ResourceDataWithoutChan = #{added_chanels => #{}, query_mode => ConnQM},
+        QueryOpts = #{},
+        [
+            {
+                title("with chan but no qm, conn qm = ~s", [ConnQM]),
+                ?_assertEqual(
+                    ConnQM, get_query_mode(RequestResId, ResourceDataWithChanNoQM, QueryOpts)
+                )
+            },
+            {
+                title("without chan, conn qm = ~s", [ConnQM]),
+                ?_assertEqual(
+                    ConnQM, get_query_mode(RequestResId, ResourceDataWithoutChan, QueryOpts)
+                )
+            }
+        ]
+    end,
+    lists:flatten(
+        [
+            MkCases(ConnQM)
+         || ConnQM <- all_resource_query_modes()
+        ]
+    ).
+
+get_query_mode_with_chan_query_mode_test_() ->
+    RequestResId = <<"action:atype:aname:connector:ctype:cname">>,
+    [
+        {
+            title(
+                "conn qm = ~s, chan qm = ~s, requested query kind = ~s",
+                [ConnQM, ChanQM, RequestedQueryKind]
+            ),
+            ?_test(begin
+                ResourceDataWithChan = #{
+                    added_channels => #{RequestResId => #{query_mode => ChanQM}},
+                    query_mode => ConnQM
+                },
+                QueryOpts = #{query_mode => RequestedQueryKind},
+                ?_assertEqual(
+                    ExpectedQM, get_query_mode(RequestResId, ResourceDataWithChan, QueryOpts)
+                )
+            end)
+        }
+     || ConnQM <- all_resource_query_modes(),
+        {ChanQM, RequestedQueryKind, ExpectedQM} <- expected_query_mode_cases()
+    ].
+
+get_query_mode_without_chan_query_mode_test_() ->
+    RequestResId = <<"action:atype:aname:connector:ctype:cname">>,
+    lists:flatten([
+        [
+            {
+                title(
+                    "with chan but no qm, conn qm = ~s, requested query kind = ~s",
+                    [ConnQM, RequestedQueryKind]
+                ),
+                ?_test(begin
+                    ResourceDataWithChanNoQM = #{added_chanels => #{}, query_mode => ConnQM},
+                    QueryOpts = #{query_mode => RequestedQueryKind},
+                    ?_assertEqual(
+                        ExpectedQM,
+                        get_query_mode(RequestResId, ResourceDataWithChanNoQM, QueryOpts)
+                    )
+                end)
+            },
+            {
+                title(
+                    "without chan, conn qm = ~s, requested query kind = ~s",
+                    [ConnQM, RequestedQueryKind]
+                ),
+                ?_test(begin
+                    ResourceDataWithChanNoQM = #{
+                        added_chanels => #{RequestResId => #{}}, query_mode => ConnQM
+                    },
+                    QueryOpts = #{query_mode => RequestedQueryKind},
+                    ?_assertEqual(
+                        ExpectedQM,
+                        get_query_mode(RequestResId, ResourceDataWithChanNoQM, QueryOpts)
+                    )
+                end)
+            }
+        ]
+     || {ConnQM, RequestedQueryKind, ExpectedQM} <- expected_query_mode_cases()
+    ]).
+
+%% Checks that using a query mode as a query kind is wrong.
+get_query_mode_bad_query_kinds_test_() ->
+    RequestResId = <<"action:atype:aname:connector:ctype:cname">>,
+    ResourceDataWithChan = #{added_channels => #{RequestResId => #{query_mode => sync}}},
+    BadQueryKinds = all_resource_query_modes() -- all_query_kinds(),
+    [
+        {
+            title("bad query kind = ~s", [BadQueryKind]),
+            ?_assertError(
+                {bad_query_kind, BadQueryKind},
+                get_query_mode(RequestResId, ResourceDataWithChan, #{query_mode => BadQueryKind})
+            )
+        }
+     || BadQueryKind <- BadQueryKinds
+    ].
+
+-endif.

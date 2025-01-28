@@ -743,6 +743,10 @@ nested_put(Alias, Val, Columns0) ->
     Columns = ensure_decoded_payload(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
+inc_action_metrics(_TraceCtx, #{is_fallback := true}) ->
+    ok;
+inc_action_metrics(TraceCtx, #{result := Result}) ->
+    inc_action_metrics(TraceCtx, Result);
 inc_action_metrics(TraceCtx, Result) ->
     SavedMetaData = logger:get_process_metadata(),
     try
