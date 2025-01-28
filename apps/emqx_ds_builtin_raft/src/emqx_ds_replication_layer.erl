@@ -1231,7 +1231,6 @@ reset_bytes_need_release() ->
 tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
-    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, timestamp => Timestamp}),
     handle_custom_event(DBShard, Timestamp, ra_tick).
 
 assign_timestamps(true, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->

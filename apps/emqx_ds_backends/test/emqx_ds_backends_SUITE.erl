@@ -378,22 +378,7 @@ t_smoke_delete_next(Config) ->
             %% Preparation: this test verifies topic selector. To
             %% create a stream that contains multiple topics we need a
             %% learned wildcard:
-            ?assertMatch(
-                ok,
-                emqx_ds:store_batch(
-                    DB,
-                    [message({"foo/~p", [I]}, <<"">>, 0) || I <- lists:seq(1, 100)]
-                )
-            ),
-            ?assertMatch(ok, emqx_ds:add_generation(DB)),
-            [GenToDel] = [
-                GenId
-             || {GenId, #{until := Until}} <- maps:to_list(
-                    emqx_ds:list_generations_with_lifetimes(DB)
-                ),
-                is_integer(Until)
-            ],
-            ?assertMatch(ok, emqx_ds:drop_generation(DB, GenToDel)),
+            create_wildcard(DB, <<"foo">>),
             %% Actual test:
             StartTime = 0,
             TopicFilter = [<<"foo">>, '#'],
@@ -664,7 +649,7 @@ t_worker_down_notify(Config) ->
             end),
             %% Publish some messages to trigger stream scan leading up
             %% to the crash:
-            ?assertMatch(ok, publish_seq(DB, 1, 1)),
+            publish_seq(DB, <<"t">>, 1, 1),
             %% Recieve notification:
             receive
                 {'DOWN', MRef, process, Pid, Reason} ->
@@ -690,7 +675,7 @@ t_catchup(Config) ->
             ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             Stream = make_stream(Config),
             %% Fill the storage and close the generation:
-            ?assertMatch(ok, publish_seq(DB, 1, 9)),
+            publish_seq(DB, <<"t">>, 1, 9),
             emqx_ds:add_generation(DB),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
@@ -772,7 +757,7 @@ t_realtime(Config) ->
             {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             timer:sleep(1_000),
             %% Publish/consume/ack loop:
-            ?assertMatch(ok, publish_seq(DB, 1, 2)),
+            publish_seq(DB, <<"t">>, 1, 2),
             ?assertMatch(
                 [
                     #poll_reply{
@@ -790,7 +775,7 @@ t_realtime(Config) ->
                 ],
                 recv(SubRef)
             ),
-            ?assertMatch(ok, publish_seq(DB, 3, 4)),
+            publish_seq(DB, <<"t">>, 3, 4),
             ?assertMatch(
                 [
                     #poll_reply{
@@ -819,6 +804,50 @@ t_realtime(Config) ->
         end,
         []
     ).
+
+%% @doc This testcase verifies that multiple clients can consume
+%% messages from a topics with injected wildcards in parallel:
+t_subscribe_wildcard(Config) ->
+    DB = ?FUNCTION_NAME,
+    Topics = [<<"t/1">>, <<"t/2">>, <<"t/3">>],
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            create_wildcard(DB, <<"t">>),
+            %% Insert some data before starting the clients to test catchup:
+            Expect1 = [publish_seq(DB, Topic, 0, 9) || Topic <- Topics],
+            %% Start a mix of clients subscribing to both wildcard and concrete topics:
+            [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>, '#'], 0),
+            Clients = [
+                begin
+                    {ok, It} = emqx_ds:make_iterator(DB, Stream, emqx_topic:words(Topic), 0),
+                    {ok, _Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
+                    #{topic => Topic, sub_ref => SubRef, it => It}
+                end
+             || Topic <- [<<"t/#">> | Topics],
+                _Duplicate <- [1, 2]
+            ],
+            %% They should get the old messages immediately:
+            ?assertMatch(N when N > 0, verify_receive(lists:append(Expect1), Clients)),
+            %% Verify realtime delivery flow:
+            Expect2 = [publish_seq(DB, Topic, 10, 20) || Topic <- Topics],
+            ?assertMatch(N when N > 0, verify_receive(lists:append(Expect2), Clients))
+        end,
+        []
+    ).
+
+verify_receive(_Messages, []) ->
+    0;
+verify_receive(Messages, [#{topic := TF, sub_ref := SubRef} | Rest]) ->
+    Expected = [Msg || #message{topic = T} = Msg <- Messages, emqx_topic:match(T, TF)],
+    Got = [
+        Msg
+     || #poll_reply{payload = {ok, _It, Msgs}} <- recv(SubRef),
+        Msg <- Msgs
+    ],
+    emqx_ds_test_helpers:diff_messages(?msg_fields, Expected, Got),
+    length(Expected) + verify_receive(Messages, Rest).
 
 %% @doc This testcase emulates a slow subscriber.
 t_slow_sub(Config) ->
@@ -849,7 +878,7 @@ t_slow_sub(Config) ->
                 recv(SubRef)
             ),
             %% Publish more data, it should result in an event:
-            ?assertMatch(ok, publish_seq(DB, 1, 2)),
+            publish_seq(DB, <<"t">>, 1, 2),
             ?assertMatch(
                 [
                     #poll_reply{
@@ -868,7 +897,7 @@ t_slow_sub(Config) ->
                 recv(SubRef)
             ),
             %% Fill more data:
-            ?assertMatch(ok, publish_seq(DB, 3, 4)),
+            publish_seq(DB, <<"t">>, 3, 4),
             %% This data should NOT be delivered to the subscriber
             %% until it acks enough messages:
             ?assertMatch([], recv(SubRef)),
@@ -905,7 +934,7 @@ t_catchup_unrecoverable(Config) ->
             ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             Stream = make_stream(Config),
             %% Fill the storage and close the generation:
-            ?assertMatch(ok, publish_seq(DB, 1, 9)),
+            publish_seq(DB, <<"t">>, 1, 9),
             emqx_ds:add_generation(DB),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
@@ -1111,15 +1140,37 @@ collect_down_msgs() ->
 %% Fill topic "t" with some data and return the corresponding stream:
 make_stream(Config) ->
     DB = proplists:get_value(tc, Config),
-    ?assertMatch(ok, publish_seq(DB, 0, 0)),
+    publish_seq(DB, <<"t">>, 0, 0),
     timer:sleep(100),
     [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>], 0),
     Stream.
 
-%% @doc Publish sequence of integers from `Start' to `End' to topic
-%% "t".
-publish_seq(DB, Start, End) ->
-    emqx_ds:store_batch(DB, [
-        emqx_message:make(<<"pub">>, <<"t">>, integer_to_binary(I))
+%% @doc Publish sequence of integers from `Start' to `End' to a topic:
+publish_seq(DB, Topic, Start, End) ->
+    Batch = [
+        emqx_message:make(<<"pub">>, Topic, integer_to_binary(I))
      || I <- lists:seq(Start, End)
-    ]).
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Batch)),
+    Batch.
+
+%% @doc Create a learned wildcard for a given topic prefix:
+create_wildcard(DB, Prefix) ->
+    %% Introduce enough topics to learn the wildcard:
+    ?assertMatch(
+        ok,
+        emqx_ds:store_batch(
+            DB,
+            [message({"~s/~p", [Prefix, I]}, <<"">>, 0) || I <- lists:seq(1, 100)]
+        )
+    ),
+    %% Rotate generations; new one should inherit learned wildcards:
+    ?assertMatch(ok, emqx_ds:add_generation(DB)),
+    [GenToDel] = [
+        GenId
+     || {GenId, #{until := Until}} <- maps:to_list(
+            emqx_ds:list_generations_with_lifetimes(DB)
+        ),
+        is_integer(Until)
+    ],
+    ?assertMatch(ok, emqx_ds:drop_generation(DB, GenToDel)).
