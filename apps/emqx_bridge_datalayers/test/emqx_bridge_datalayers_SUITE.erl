@@ -205,6 +205,7 @@ datalayers_connector_config(Name, DatalayersHost, DatalayersPort, Config) ->
             "connectors.datalayers.~s {\n"
             "  enable = true\n"
             "  server = \"~s:~b\"\n"
+            "  max_inactive = 10s\n"
             "  parameters {\n"
             "    driver_type = influxdb_v1\n"
             "    database = mqtt\n"

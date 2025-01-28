@@ -409,6 +409,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                                     <<"Authorization">> => <<"Bearer redacted">>,
                                     <<"content-type">> => <<"application/json">>
                                 },
+                            <<"max_inactive">> => <<"10s">>,
                             <<"pool_size">> => 4,
                             <<"pool_type">> => <<"random">>,
                             <<"resource_opts">> =>

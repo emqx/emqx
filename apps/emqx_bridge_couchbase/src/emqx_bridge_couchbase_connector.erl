@@ -46,6 +46,7 @@
 
 -type connector_config() :: #{
     connect_timeout := pos_integer(),
+    max_inactive := pos_integer(),
     password := emqx_secret:t(binary()),
     pipelining := pos_integer(),
     pool_size := pos_integer(),
@@ -97,6 +98,7 @@ on_start(ConnResId, ConnConfig) ->
         connect_timeout := ConnectTimeout,
         password := Password,
         pipelining := Pipelining,
+        max_inactive := MaxInactive,
         pool_size := PoolSize,
         username := Username
     } = ConnConfig,
@@ -124,6 +126,7 @@ on_start(ConnResId, ConnConfig) ->
         {pool_size, PoolSize},
         {transport, Transport},
         {transport_opts, TransportOpts},
+        {max_inactive, MaxInactive},
         {enable_pipelining, Pipelining}
     ],
     case ehttpc_sup:start_pool(ConnResId, PoolOpts) of

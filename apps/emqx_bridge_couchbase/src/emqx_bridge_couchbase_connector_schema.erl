@@ -61,6 +61,7 @@ fields(connector_config) ->
                 default => <<"15s">>, desc => ?DESC("connect_timeout")
             })},
         {pipelining, mk(pos_integer(), #{default => 100, desc => ?DESC("pipelining")})},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
         {username, mk(binary(), #{required => true, desc => ?DESC("username")})},
         {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}

@@ -305,6 +305,7 @@ aggregated_action_config(Overrides0) ->
                     <<"stage">> => ?STAGE,
                     <<"pipe_user">> => ?PIPE_USER,
                     <<"connect_timeout">> => <<"5s">>,
+                    <<"max_inactive">> => <<"10s">>,
                     <<"pipelining">> => 100,
                     <<"pool_size">> => 1,
                     <<"max_retries">> => 3

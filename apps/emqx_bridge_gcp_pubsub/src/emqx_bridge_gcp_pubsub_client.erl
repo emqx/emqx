@@ -31,6 +31,7 @@
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
+    max_inactive := non_neg_integer(),
     resource_opts := #{atom() => term()},
     service_account_json := service_account_json(),
     any() => term()
@@ -62,6 +63,7 @@
 ]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
+-define(DEFAULT_MAX_INACTIVE, 10_000).
 
 %%-------------------------------------------------------------------------------------------------
 %% API
@@ -94,6 +96,7 @@ start(
         {pool_size, PoolSize},
         {transport, Transport},
         {transport_opts, NTransportOpts},
+        {max_inactive, maps:get(max_inactive, Config, ?DEFAULT_MAX_INACTIVE)},
         {enable_pipelining, maps:get(pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
     #{
