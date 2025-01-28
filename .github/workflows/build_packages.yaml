@@ -189,12 +189,14 @@ jobs:
 
   snap:
     runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}"]
-    matrix:
-      profile:
-        - ${{ inputs.profile }}
-      arch:
-        - amd64
-        - arm64
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - ${{ inputs.profile }}
+        arch:
+          - amd64
+          - arm64
 
     defaults:
       run:
