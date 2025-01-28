@@ -767,16 +767,15 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     %% but it's an easy number to pick.
     NPubs = NPubs1 + NPubs2,
 
-    Msgs2 = receive_messages(NPubs, _Timeout = 2000),
+    Msgs2 = receive_messages(NPubs),
     NMsgs2 = length(Msgs2),
 
     ct:pal("Msgs2 = ~p", [Msgs2]),
 
     ?assert(NMsgs2 < NPubs, {NMsgs2, '<', NPubs}),
     ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
-    %% Once reconnected, we should receive all the published messages above (`Msgs1 ++
-    %% Msgs2'), *except* those from `Msgs1' that we acked.
-    ?assert(NMsgs2 =< NPubs - NAcked, #{msgs2 => Msgs2, n_pubs => NPubs, n_acked => NAcked}),
+    %% Should receive all yet unacked messages.
+    ?assert(NMsgs2 >= NPubs - NAcked, #{msgs2 => Msgs2, n_pubs => NPubs, n_acked => NAcked}),
     %% All messages from `Msgs1' that were not acked will be marked with `dup = true'.
     NDup = NMsgs1 - NAcked,
     ?assert(
