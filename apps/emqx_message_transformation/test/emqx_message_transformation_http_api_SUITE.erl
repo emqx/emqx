@@ -2041,3 +2041,19 @@ t_non_binary_input_for_decoder(_Config) ->
         end
     ),
     ok.
+
+%% Checks that index/config order is indeed preserved when we have "many" (> 32)
+%% transformations.
+t_many_transformations_order(_Config) ->
+    Names = lists:map(
+        fun(N) ->
+            Name = integer_to_binary(50 - N),
+            Transformation = transformation(Name, [dummy_operation()]),
+            {201, _} = insert(Transformation),
+            Name
+        end,
+        lists:seq(1, 50)
+    ),
+    Topic = <<"t/a">>,
+    ?assertIndexOrder(Names, Topic),
+    ok.
