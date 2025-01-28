@@ -106,13 +106,15 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
-    start(NodeSpecs).
+    StartOpts = get_start_opts(ClusterOpts),
+    emqx_common_test_helpers:clear_screen(),
+    perform(start, NodeSpecs, StartOpts).
 
 start(NodeSpecs) ->
     emqx_common_test_helpers:clear_screen(),
-    perform(start, NodeSpecs).
+    perform(start, NodeSpecs, _StartOpts = #{}).
 
-perform(Act, NodeSpecs) ->
+perform(Act, NodeSpecs, Opts) ->
     ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS),
@@ -130,7 +132,8 @@ perform(Act, NodeSpecs) ->
     end,
     % 3. Start applications after cluster is formed
     % Cluster-joins are complete, so they shouldn't restart in the background anymore.
-    _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
+    StartTimeout = maps:get(start_apps_timeout, Opts, ?TIMEOUT_APPS_START_MS),
+    _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, StartTimeout),
     Nodes = [Node || #{name := Node} <- NodeSpecs],
     %% 4. Wait for the nodes to cluster
     _Ok = WaitClustered andalso wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS),
@@ -172,9 +175,12 @@ restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
     ok = stop(Nodes),
-    perform(restart, NodeSpecs);
+    perform(restart, NodeSpecs, _Opts = #{});
 restart(NodeSpec = #{}) ->
     restart([NodeSpec]).
+
+get_start_opts(ClusterOpts) ->
+    maps:with([start_apps_timeout], ClusterOpts).
 
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
