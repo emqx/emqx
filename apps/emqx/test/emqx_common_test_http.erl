@@ -57,9 +57,9 @@ request_api(Method, Url, QueryParams, Auth, Body, HttpOpts) ->
     Request =
         case Body of
             [] ->
-                {NewUrl, [Auth]};
+                {NewUrl, [Auth || is_tuple(Auth)]};
             _ ->
-                {NewUrl, [Auth], "application/json", emqx_utils_json:encode(Body)}
+                {NewUrl, [Auth || is_tuple(Auth)], "application/json", emqx_utils_json:encode(Body)}
         end,
     do_request_api(Method, Request, HttpOpts).
 

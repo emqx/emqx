@@ -34,8 +34,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_dashboard.hrl").
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
-
 -define(HOST, "http://127.0.0.1:18083").
 
 -define(BASE_PATH, "/api/v5").
@@ -210,7 +208,8 @@ t_rest_api(_Config) ->
                 <<"backend">> => <<"local">>,
                 <<"username">> => <<"admin">>,
                 <<"description">> => <<"administrator">>,
-                <<"role">> => ?ROLE_SUPERUSER
+                <<"role">> => ?ROLE_SUPERUSER,
+                <<"mfa">> => <<"none">>
             })
         ],
         get_http_data(Res0)
@@ -228,6 +227,7 @@ t_rest_api(_Config) ->
             <<"username">> => <<"usera">>,
             <<"password">> => <<"passwd_01234">>,
             <<"role">> => ?ROLE_SUPERUSER,
+            <<"mfa">> => <<"none">>,
             <<"description">> => Desc
         })
     ),

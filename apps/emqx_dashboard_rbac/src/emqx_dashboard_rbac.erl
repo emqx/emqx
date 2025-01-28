@@ -68,11 +68,17 @@ check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish/bulk">>, _) ->
 %% everyone should allow to logout
 check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/logout">>, _) ->
     true;
-%% viewer should allow to change self password,
+%% viewer should allow to change self password and (re)setup multi-factor auth for self,
 %% superuser should allow to change any user
 check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/users/", SubPath/binary>>, Username) ->
     case binary:split(SubPath, <<"/">>, [global]) of
         [Username, <<"change_pwd">>] -> true;
+        [Username, <<"mfa">>] -> true;
+        _ -> false
+    end;
+check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username) ->
+    case binary:split(SubPath, <<"/">>, [global]) of
+        [Username, <<"mfa">>] -> true;
         _ -> false
     end;
 check_rbac(_, _, _, _) ->
