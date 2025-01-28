@@ -353,7 +353,10 @@ cluster(TC, Config) ->
             {node_name(TC, core, 2), #{role => core, apps => apps_spec(18086, TC)}},
             {node_name(TC, replicant, 1), #{role => replicant, apps => apps_spec(18087, TC)}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(TC, Config),
+            start_apps_timeout => 60_000
+        }
     ),
     Nodes.
 
