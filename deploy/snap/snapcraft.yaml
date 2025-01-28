@@ -1,6 +1,6 @@
 name: emqx
-base: core22
-version: '5.8.4'
+base: $SNAP_BASE
+version: $EMQX_VERSION
 summary: The most scalable open-source MQTT broker
 description: |
   EMQX is the world's most scalable open-source MQTT broker with a high performance that connects 100M+ IoT devices in 1 cluster, while maintaining 1M message per second throughput and sub-millisecond latency.
@@ -37,6 +37,6 @@ apps:
 parts:
   emqx:
     plugin: dump
-    source: https://github.com/emqx/emqx/releases/download/v5.8.4/emqx-5.8.4-ubuntu22.04-arm64.tar.gz
+    source: $PACKAGE_SOURCE
     stage-packages:
       - libsasl2-2
