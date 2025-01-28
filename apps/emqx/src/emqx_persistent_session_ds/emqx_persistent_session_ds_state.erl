@@ -28,6 +28,7 @@
 -module(emqx_persistent_session_ds_state).
 
 -feature(maybe_expr, enable).
+-compile(inline).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
@@ -53,9 +54,9 @@
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
 -export([new_id/1]).
--export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, n_streams/1]).
+-export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, fold_streams/4, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
--export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
+-export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3, fold_ranks/4]).
 -export([
     get_subscription_state/2,
     cold_get_subscription_state/2,
@@ -979,9 +980,43 @@ put_stream(Key, Val, Rec) ->
 del_stream(Key, Rec) ->
     gen_del(?streams, Key, Rec).
 
--spec fold_streams(fun(), Acc, t()) -> Acc.
+-spec fold_streams(
+    fun(
+        (
+            emqx_persistent_session_ds_stream_scheduler:stream_key(),
+            emqx_persistent_session_ds:stream_state(),
+            Acc
+        ) -> Acc
+    ),
+    Acc,
+    t()
+) -> Acc.
 fold_streams(Fun, Acc, Rec) ->
     gen_fold(?streams, Fun, Acc, Rec).
+
+%% @doc Fold streams for a specific subscription id:
+-spec fold_streams(
+    emqx_persistent_session_ds:subscription_id(),
+    fun((_StreamId, emqx_persistent_session_ds:stream_state(), Acc) -> Acc),
+    Acc,
+    t()
+) -> Acc.
+fold_streams(SubId, Fun, Acc0, Rec) ->
+    %% TODO: find some way to avoid full scan. Is it worth storing
+    %% data as map of maps?
+    gen_fold(
+        ?streams,
+        fun({SID, StreamId}, Val, Acc) ->
+            case SID of
+                SubId ->
+                    Fun(StreamId, Val, Acc);
+                _ ->
+                    Acc
+            end
+        end,
+        Acc0,
+        Rec
+    ).
 
 -spec n_streams(t()) -> non_neg_integer().
 n_streams(Rec) ->
@@ -1016,6 +1051,29 @@ del_rank(Key, Rec) ->
 -spec fold_ranks(fun(), Acc, t()) -> Acc.
 fold_ranks(Fun, Acc, Rec) ->
     gen_fold(?ranks, Fun, Acc, Rec).
+
+%% @doc Fold ranks for a specific subscription ID
+-spec fold_ranks(
+    emqx_persistent_session_ds:subscription_id(),
+    fun((emqx_ds:rank_x(), emqx_ds:rank_y(), Acc) -> Acc),
+    Acc,
+    t()
+) -> Acc.
+fold_ranks(SubId, Fun, Acc0, Rec) ->
+    %% TODO: find some way to avoid full scan.
+    gen_fold(
+        ?ranks,
+        fun({SID, RankX}, Val, Acc) ->
+            case SID of
+                SubId ->
+                    Fun(RankX, Val, Acc);
+                _ ->
+                    Acc
+            end
+        end,
+        Acc0,
+        Rec
+    ).
 
 %%
 
@@ -1251,20 +1309,14 @@ gen_fold(Field, Fun, Acc, Rec) ->
 -ifdef(STORE_STATE_IN_DS).
 gen_put(Field, Key, Val, Rec0) ->
     check_sequence(Rec0),
-    Rec1 = add_to_checksum(Field, Key, Rec0),
-    maps:update_with(
-        Field,
-        fun(PMap) -> pmap_put(Key, Val, PMap) end,
-        Rec1#{?set_dirty}
-    ).
+    Rec = add_to_checksum(Field, Key, Rec0),
+    #{Field := Pmap} = Rec,
+    Rec#{Field := pmap_put(Key, Val, Pmap), ?set_dirty}.
 -else.
 gen_put(Field, Key, Val, Rec) ->
     check_sequence(Rec),
-    maps:update_with(
-        Field,
-        fun(PMap) -> pmap_put(Key, Val, PMap) end,
-        Rec#{?set_dirty}
-    ).
+    #{Field := Pmap} = Rec,
+    Rec#{Field := pmap_put(Key, Val, Pmap), ?set_dirty}.
 -endif.
 
 -ifdef(STORE_STATE_IN_DS).
@@ -1564,12 +1616,15 @@ pmap_size(#pmap{table = Table, cache = Cache}) ->
 cache_from_list(_Table, L) ->
     maps:from_list(L).
 
+-compile({inline, cache_get/3}).
 cache_get(_Table, K, Cache) ->
     maps:get(K, Cache, undefined).
 
+-compile({inline, cache_put/4}).
 cache_put(_Table, K, V, Cache) ->
     maps:put(K, V, Cache).
 
+-compile({inline, cache_remove/3}).
 cache_remove(_Table, K, Cache) ->
     maps:remove(K, Cache).
 

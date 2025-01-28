@@ -1531,10 +1531,16 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     ClusterOpts = #{work_dir => WorkDir},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
-    [{cluster_nodes, Nodes}, {node_specs, NodeSpecs} | Config].
+    [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
 
 stop_cluster_ds(Config) ->
-    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)).
+    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)),
+    case proplists:get_value(work_dir, Config) of
+        undefined ->
+            ok;
+        WorkDir ->
+            emqx_cth_suite:clean_work_dir(WorkDir)
+    end.
 
 restart_node_ds(Node, NodeSpec) ->
     emqx_cth_cluster:restart(NodeSpec),
