@@ -58,4 +58,7 @@
     subref :: emqx_ds_new_streams:watch()
 }).
 
+-define(err_rec(E), {error, recoverable, E}).
+-define(err_unrec(E), {error, unrecoverable, E}).
+
 -endif.

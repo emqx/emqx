@@ -428,7 +428,7 @@ shard_event(Shard, Events) ->
 -spec send_out_final_beam(
     dbshard(),
     ets:tid(),
-    {ok, end_of_stream} | {error, unrecoverable, _},
+    {ok, end_of_stream} | ?err_unrec(_),
     [sub_state()]
 ) ->
     ok.
@@ -607,7 +607,7 @@ high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
 -spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | {error, unrecoverable, has_data | old_key} | emqx_ds:error(_).
+    {ok, Iterator} | ?err_unrec(has_data | old_key) | emqx_ds:error(_).
 fast_forward(Mod, Shard, It, Key) ->
     Mod:fast_forward(Shard, It, Key).
 
@@ -803,7 +803,7 @@ handle_event(
             {keep_state_and_data, {reply, From, Err}}
     catch
         EC:Reason:Stack ->
-            Error = {error, unrecoverable, {EC, Reason, Stack}},
+            Error = ?err_unrec({EC, Reason, Stack}),
             {keep_state_and_data, {reply, From, Error}}
     end;
 %% Handle unsubscribe call:
@@ -890,7 +890,7 @@ handle_event(
         emqx_ds_beamformer_unknown_event,
         #{event_type => call, state => State, data => Data, from => From, event => Call}
     ),
-    {keep_state_and_data, {reply, From, {error, unrecoverable, {unknown_call, Call}}}};
+    {keep_state_and_data, {reply, From, ?err_unrec({unknown_call, Call})}};
 %% Handle down event:
 handle_event(
     info,

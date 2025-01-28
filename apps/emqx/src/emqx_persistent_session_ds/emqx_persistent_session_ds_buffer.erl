@@ -58,6 +58,7 @@
 new() ->
     #buffer{}.
 
+%% @doc Return an iterator for scanning through streams that have data.
 iterator(#buffer{messages = Msgs}) ->
     maps:iterator(Msgs).
 
@@ -69,8 +70,7 @@ next(It) ->
             none
     end.
 
-%% @doc Enqueue a batch of messages. Return new queue and the number
-%% of batches currently buffered in the stream
+%% @doc Enqueue a batch of messages.
 -spec push_batch(emqx_persistent_session_ds_stream_scheduler:stream_key(), item(), t()) -> t().
 push_batch(StreamId, Item, Buf = #buffer{messages = MsgQs}) ->
     case MsgQs of

@@ -177,7 +177,7 @@ connect_(S) ->
         range(1, 32),
         begin
             DynamicOpts = #{
-                properies => #{'Receive-Maximum' => ReceiveMaximum}
+                properties => #{'Receive-Maximum' => ReceiveMaximum}
             },
             Opts = emqx_utils_maps:deep_merge(static_client_opts(), DynamicOpts),
             {call, ?MODULE, connect, [S, Opts]}
@@ -397,7 +397,7 @@ print_cmds(L) ->
                     )
                  || Msg <- Batch
                 ],
-                io_lib:format("  publish(~s)~n", [pprint_args(Args)]);
+                io_lib:format("  publish(~n    ~s~n  )~n", [pprint_msgs(Args)]);
             ({set, _, {call, ?MODULE, Fun, _}}) when Fun =:= consume; Fun =:= disconnect ->
                 io_lib:format("  ~p(...)~n", [Fun]);
             %% Generic command pretty-printer:
@@ -414,6 +414,9 @@ print_cmds(L) ->
         end
      || I <- L
     ].
+
+pprint_msgs(Msgs) ->
+    lists:join(",\n    ", [io_lib:format("~0p", [I]) || I <- Msgs]).
 
 pprint_args(Args) ->
     lists:join(", ", [io_lib:format("~0p", [I]) || I <- Args]).

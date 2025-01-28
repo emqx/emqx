@@ -327,11 +327,6 @@ queue_search(#s{queue = Queue}, Stream, _MsgKey, Msg) ->
 queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID, client = Client}) ->
     emqx_ds_beamformer_waitq:delete(Stream, TF, {node(Client), ID}, Queue).
 
-%% queue_update(Queue) ->
-%%     fun(_NextKey, Req = #sub_state{stream = Stream, topic_filter = TF, req_id = ReqId}) ->
-%%         emqx_ds_beamformer_waitq:insert(Stream, TF, ReqId, Req, Queue)
-%%     end.
-
 high_watermark(Stream, S = #s{high_watermark = Tab}) ->
     case ets:lookup(Tab, Stream) of
         [{_, HWM}] ->

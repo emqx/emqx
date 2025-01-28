@@ -346,14 +346,14 @@ process_batch(S, Stream, TopicFilter, [{Key, Msg} | Rest], Candidates0, Beams0) 
     Beams = emqx_ds_beamformer:beams_add(Stream, Key, Msg, Candidates, Beams0),
     process_batch(S, Stream, TopicFilter, Rest, Candidates, Beams).
 
-%% It's always worth trying to fulfill the oldest requests first,
-%% because they have a better chance of producing a batch that
-%% overlaps with other pending requests.
+%% It's always worth trying to fulfill the most laggy subscriptions
+%% first, because they have a better chance of producing a batch that
+%% overlaps with other similar subscriptions.
 %%
-%% This function implements a heuristic that tries to find such poll
-%% request. It simply compares the keys (and nothing else) within a
-%% small sample of pending polls, and picks request with the smallest
-%% key as the starting point.
+%% This function implements a heuristic that tries to find such
+%% subscription. It picks elements with the smallest key (and,
+%% accidentally, the smallest stream, topic filter, etc., which is
+%% irrelevent here) as the starting point.
 -spec find_older_request(ets:tid()) ->
     {emqx_ds:stream(), emqx_ds:topic_filter(), emqx_ds:message_key()} | undefined.
 find_older_request(Tab) ->
@@ -378,13 +378,9 @@ ensure_fulfill_loop() ->
 queue_new() ->
     ets:new(old_polls, [ordered_set, private, {keypos, 1}]).
 
-queue_push(
-    Queue, #sub_state{
-        req_id = Ref, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
-    }
-) ->
-    ?tp(beamformer_push_replay, #{req_id => Ref}),
-    ets:insert(Queue, {?queue_elem(Stream, TF, Key, node(Pid), Ref)}).
+queue_push(Queue, SubState) ->
+    ?tp(beamformer_push_catchup, #{req_id => SubState#sub_state.req_id}),
+    ets:insert(Queue, {queue_key(SubState)}).
 
 %% @doc Get all requests that await data with given stream, topic
 %% filter (exact) and start key.
@@ -409,13 +405,8 @@ drop(Queue, SubTab, Sub = #sub_state{req_id = SubRef}) ->
     ets:delete(SubTab, SubRef),
     queue_drop(Queue, Sub).
 
-queue_drop(
-    Queue, #sub_state{
-        req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
-    }
-) ->
-    %% logger:warning(#{drop_req => {Stream, TF, Key, Ref}, tab => ets:tab2list(Queue)}),
-    ets:delete(Queue, ?queue_elem(Stream, TF, Key, node(Pid), SubRef)).
+queue_drop(Queue, SubState) ->
+    ets:delete(Queue, queue_key(SubState)).
 
 queue_update(Queue, OldReq, Req) ->
     %% logger:warning(#{old => OldReq, new => Req}),
@@ -427,3 +418,8 @@ report_metrics(_Metrics, 0) ->
 report_metrics(Metrics, NFulfilled) ->
     emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled).
+
+queue_key(#sub_state{
+    req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
+}) ->
+    ?queue_elem(Stream, TF, Key, node(Pid), SubRef).

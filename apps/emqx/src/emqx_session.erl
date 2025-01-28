@@ -508,7 +508,8 @@ enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     %%
     %% - When No Local(NL) = 1, set `nl' to `true'
     %%
-    %% - Retain as Published (RAP): clear `retain' flag, unless RAP = 1
+    %% - Retain as Published (RAP): clear `retain' flag of a retained
+    %% message, unless RAP = 1
     Flags =
         case Headers0 of
             #{retained := true} when RAP =/= 1, NL =:= 1 ->
@@ -529,7 +530,7 @@ enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
             _ ->
                 case Headers0 of
                     #{properties := Properties} ->
-                        Headers0#{properties => Properties#{'Subscription-Identifier' => SubId}};
+                        Headers0#{properties := Properties#{'Subscription-Identifier' => SubId}};
                     #{} ->
                         Headers0#{properties => #{'Subscription-Identifier' => SubId}}
                 end

@@ -1228,7 +1228,7 @@ reset_bytes_need_release() ->
     erlang:put(?pd_ra_bytes_need_release, 0).
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
-tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
+tick(TimeMs, #{db_shard := DBShard, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
     handle_custom_event(DBShard, Timestamp, ra_tick).

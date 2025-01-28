@@ -301,7 +301,7 @@ commit_batch(
             ok ->
                 ok;
             {error, {error, Reason}} ->
-                {error, unrecoverable, {rocksdb, Reason}}
+                ?err_unrec({rocksdb, Reason})
         end
     after
         rocksdb:release_batch(Batch)
@@ -331,7 +331,7 @@ get_delete_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
 
 make_iterator(_Shard, _State, _Stream, _TopicFilter, TS) when TS >= ?max_ts ->
-    {error, unrecoverable, "Timestamp is too large"};
+    ?err_unrec("Timestamp is too large");
 make_iterator(
     _Shard,
     S = #s{trie = Trie},
@@ -426,7 +426,7 @@ make_delete_iterator(Shard, Data, Stream, TopicFilter, StartTime) ->
 update_iterator(_Shard, _Data, OldIter, DSKey) ->
     case match_stream_key(OldIter#it.static_index, DSKey) of
         false ->
-            {error, unrecoverable, "Invalid datastream key"};
+            ?err_unrec("Invalid datastream key");
         StreamKey ->
             {ok, OldIter#it{last_key = StreamKey}}
     end.
@@ -440,9 +440,9 @@ fast_forward(
 ) ->
     case match_stream_key(It0#it.static_index, DSKey) of
         false ->
-            {error, unrecoverable, <<"Invalid datastream key">>};
+            ?err_unrec(<<"Invalid datastream key">>);
         FastForwardTo when FastForwardTo > TMax ->
-            {error, recoverble, <<"Key is too far in the future">>};
+            ?err_unrec(<<"Key is too far in the future">>);
         FastForwardTo when FastForwardTo =< TS0 ->
             %% The new position is earlier than the current position.
             %% We keep the original position to prevent duplication of
@@ -453,7 +453,7 @@ fast_forward(
         FastForwardTo ->
             case next(ShardId, S, It0, 1, TMax, true) of
                 {ok, #it{last_key = NextTS}, [_]} when NextTS =< FastForwardTo ->
-                    {error, unrecoverable, has_data};
+                    ?err_unrec(has_data);
                 {ok, It, _} ->
                     {ok, It};
                 Err ->
@@ -468,7 +468,7 @@ message_match_context(_Shard, GenData, Stream, MsgKey, #message{topic = Topic}) 
     #stream{static_index = StaticIdx} = Stream,
     case match_stream_key(StaticIdx, MsgKey) of
         false ->
-            {error, unrecoverable, mismatched_stream};
+            ?err_unrec(mismatched_stream);
         SK ->
             %% Note: it's kind of wasteful to tokenize and compress
             %% the topic that we've just decompressed during scan
@@ -535,7 +535,7 @@ lookup_message(
                 not_found ->
                     not_found;
                 {error, Reason} ->
-                    {error, unrecoverable, {rocksdb, Reason}}
+                    ?err_unrec({rocksdb, Reason})
             end;
         undefined ->
             not_found
@@ -655,7 +655,7 @@ batch_delete(S = #s{db = DB, data_cf = CF, hash_bytes = HashBytes}, It, Selector
             ok ->
                 {ok, It, Ndeleted, length(KVs)};
             {error, {error, Reason}} ->
-                {error, unrecoverable, {rocksdb, Reason}}
+                ?err_unrec({rocksdb, Reason})
         end
     after
         rocksdb:release_batch(Batch)

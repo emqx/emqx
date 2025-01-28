@@ -570,13 +570,15 @@ t_fuzz(_Config) ->
     %% values to avoid blowing up CI. Hence it's recommended to
     %% increase the max_size and numtests when doing local
     %% development:
+    NTests = 10,
+    MaxSize = 100,
     ?run_prop(
         #{
             proper => #{
                 timeout => 3_000_000,
-                numtests => 10,
-                max_size => 100,
-                start_size => 100,
+                numtests => NTests,
+                max_size => MaxSize,
+                start_size => MaxSize,
                 max_shrinks => 0
             }
         },

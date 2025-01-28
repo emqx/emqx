@@ -120,7 +120,7 @@ make_nextf(Stream, Tab) ->
 %% Tests
 %%================================================================================
 
--ifdef(TEST_FIXME).
+-ifdef(TEST).
 
 topic_match_test() ->
     Tab = new(),
@@ -136,36 +136,36 @@ topic_match_test() ->
     insert(S3, [<<"foo">>, <<"1">>], 7, {val, 7}, Tab),
 
     ?assertEqual(
-        [{val, 1}],
-        lists:sort(matches(s1, [<<"foo">>, <<"2">>], Tab))
+        [1],
+        lists:sort(matching_keys(s1, [<<"foo">>, <<"2">>], Tab))
     ),
     ?assertEqual(
-        [{val, 4}],
-        lists:sort(matches(s2, [<<"foo">>, <<"2">>], Tab))
+        [4],
+        lists:sort(matching_keys(s2, [<<"foo">>, <<"2">>], Tab))
     ),
     ?assertEqual(
-        [{val, 1}, {val, 2}],
-        lists:sort(matches(s1, [<<"foo">>, <<"bar">>], Tab))
+        [1, 2],
+        lists:sort(matching_keys(s1, [<<"foo">>, <<"bar">>], Tab))
     ),
     ?assertEqual(
-        [{val, 4}, {val, 5}],
-        lists:sort(matches(s2, [<<"foo">>, <<"bar">>], Tab))
+        [4, 5],
+        lists:sort(matching_keys(s2, [<<"foo">>, <<"bar">>], Tab))
     ),
     ?assertEqual(
         [],
-        matches(s3, [<<"foo">>, <<"bar">>], Tab)
+        matching_keys(s3, [<<"foo">>, <<"bar">>], Tab)
     ),
     ?assertEqual(
-        [{val, 3}],
-        matches(s1, [<<"1">>, <<"2">>], Tab)
+        [3],
+        matching_keys(s1, [<<"1">>, <<"2">>], Tab)
     ),
     ?assertEqual(
-        [{val, 6}],
-        matches(s2, [<<"1">>, <<"2">>], Tab)
+        [6],
+        matching_keys(s2, [<<"1">>, <<"2">>], Tab)
     ),
     ?assertEqual(
-        [{val, 7}],
-        matches(S3, [<<"foo">>, <<"1">>], Tab)
+        [7],
+        matching_keys(S3, [<<"foo">>, <<"1">>], Tab)
     ).
 
 -endif.
