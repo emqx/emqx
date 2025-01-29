@@ -612,7 +612,8 @@ t_fuzz(_Config) ->
                 fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
                 fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1,
                 fun no_abnormal_session_terminate/1,
-                fun check_stream_state_transitions/1
+                fun check_stream_state_transitions/1,
+                fun no_abnormal_worker_terminate/1
                 | emqx_persistent_session_ds:trace_specs()
             ]
         )
@@ -1184,6 +1185,9 @@ no_abnormal_session_terminate(Trace) ->
         end,
         Trace
     ).
+
+no_abnormal_worker_terminate(Trace) ->
+    ?assertMatch([], ?of_kind(emqx_ds_abnormal_process_terminate, Trace)).
 
 check_stream_state_transitions(Trace) ->
     %% Check sequence of state transitions for each stream replay

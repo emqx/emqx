@@ -385,13 +385,8 @@ make_subtab(DBShard) ->
 
 -spec take_ownership(dbshard(), ets:tid(), sub_state()) -> boolean().
 take_ownership(DBShard, SubTab, SubS = #sub_state{req_id = SubRef}) ->
-    case ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, self()}) of
-        true ->
-            true = ets:insert_new(SubTab, SubS),
-            true;
-        false ->
-            false
-    end.
+    true = ets:insert_new(SubTab, SubS),
+    ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, self()}).
 
 -spec handle_recoverable_error(dbshard(), [sub_state()]) -> ok.
 handle_recoverable_error(DBShard, SubStates) ->
@@ -710,6 +705,7 @@ callback_mode() ->
 
 init([DBShard, CBM]) ->
     process_flag(trap_exit, true),
+    logger:update_process_metadata(#{dbshard => DBShard}),
     gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), hash, [{auto_size, true}]),
     gproc_pool:new(emqx_ds_beamformer_rt:pool(DBShard), hash, [{auto_size, true}]),
     logger:debug(#{
@@ -964,10 +960,11 @@ handle_event(EventType, Event, State, Data) ->
     ),
     keep_state_and_data.
 
-terminate(_Reason, _State, #d{dbshard = DBShard}) ->
+terminate(Reason, _State, #d{dbshard = DBShard}) ->
     gproc_pool:force_delete(emqx_ds_beamformer_rt:pool(DBShard)),
     gproc_pool:force_delete(emqx_ds_beamformer_catchup:pool(DBShard)),
-    persistent_term:erase(?pt_gvar(DBShard)).
+    persistent_term:erase(?pt_gvar(DBShard)),
+    emqx_ds_lib:terminate(?MODULE, Reason, #{}).
 
 %%================================================================================
 %% Internal exports

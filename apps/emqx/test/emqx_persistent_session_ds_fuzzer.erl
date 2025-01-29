@@ -569,15 +569,15 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
          %% disables takeover. This condition should be removed when
          %% takeover is fixed.
          [{1,  connect_(S)}                     || not Conn] ++
-         [{1,  {call, ?MODULE, add_generation, []}},
+         [{2,  {call, ?MODULE, add_generation, []}},
           %% Publish some messages occasionally even when there are no
           %% subs:
-          {1,  publish_(S)}
+          {2,  publish_(S)}
          ],
     %% Commands that are executed when client is connected:
     Connected =
-        [{5,  publish_(S)}                      || HasSubs] ++
-        [{10, {call, ?MODULE, consume, [S]}}    || HasData and HasSubs] ++
+        [{5,  publish_(S)}                      || HasSubs and not HasData] ++
+        [{5,  {call, ?MODULE, consume, [S]}}    || HasData and HasSubs] ++
         [
          {1,  {call, ?MODULE, disconnect, [S]}},
          {1,  unsubscribe_()},

@@ -107,6 +107,7 @@ seal_generation(DBShard, Rank) ->
 
 init([CBM, DBShard, Name, _Opts]) ->
     process_flag(trap_exit, true),
+    logger:update_process_metadata(#{dbshard => DBShard, name => Name}),
     Pool = pool(DBShard),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
@@ -186,7 +187,8 @@ terminate(Reason, #s{shard = ShardId, name = Name, sub_tab = SubTab}) ->
             ets:delete(SubTab);
         _ ->
             ok
-    end.
+    end,
+    emqx_ds_lib:terminate(?MODULE, Reason, #{}).
 
 %%================================================================================
 %% Internal exports

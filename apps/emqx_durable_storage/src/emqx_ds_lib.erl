@@ -19,7 +19,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %% API:
--export([with_worker/3]).
+-export([with_worker/3, terminate/3]).
 
 %% internal exports:
 -export([]).
@@ -56,6 +56,12 @@ with_worker(Mod, Function, Args) ->
         [link, {min_heap_size, 10000}]
     ),
     {ok, ReplyTo}.
+
+-spec terminate(module(), _Reason, map()) -> ok.
+terminate(Module, Reason, Misc) when Reason =:= shutdown; Reason =:= normal ->
+    ?tp(emqx_ds_process_terminate, Misc#{module => Module, reason => Reason});
+terminate(Module, Reason, Misc) ->
+    ?tp(warning, emqx_ds_abnormal_process_terminate, Misc#{module => Module, reason => Reason}).
 
 %%================================================================================
 %% Internal exports

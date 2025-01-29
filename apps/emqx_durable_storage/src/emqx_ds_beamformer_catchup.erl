@@ -76,12 +76,7 @@
 -spec enqueue(pid(), [emqx_ds_beamformer:sub_state()]) ->
     ok | {error, unrecoverable, stale} | emqx_ds:error(_).
 enqueue(Worker, SubStates) ->
-    try
-        gen_server:call(Worker, #enqueue_req{sub_states = SubStates}, infinity)
-    catch
-        exit:{timeout, _} ->
-            {error, recoverable, timeout}
-    end.
+    gen_server:call(Worker, #enqueue_req{sub_states = SubStates}, infinity).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
@@ -97,6 +92,7 @@ pool(Shard) ->
 
 init([CBM, ShardId, Name, _Opts]) ->
     process_flag(trap_exit, true),
+    logger:update_process_metadata(#{dbshard => ShardId, name => Name}),
     %% Attach this worker to the pool:
     gproc_pool:add_worker(pool(ShardId), Name),
     gproc_pool:connect_worker(pool(ShardId), Name),
@@ -154,7 +150,8 @@ terminate(Reason, #s{sub_tab = SubTab, shard_id = ShardId, name = Name}) ->
             ets:delete(SubTab);
         _ ->
             ok
-    end.
+    end,
+    emqx_ds_lib:terminate(?MODULE, Reason, #{}).
 
 %%================================================================================
 %% Internal exports
@@ -444,6 +441,7 @@ report_metrics(Metrics, NFulfilled) ->
     emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled).
 
+-compile({inline, queue_key/1}).
 queue_key(#sub_state{
     req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
 }) ->
