@@ -15,6 +15,7 @@ export EMQX_EE_DASHBOARD_VERSION ?= e1.8.5
 
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
+export QUICER_TLS_VER ?= sys
 
 -include default-profile.mk
 PROFILE ?= emqx

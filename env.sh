@@ -6,4 +6,3 @@ export EMQX_BUILDER=ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-
 export EMQX_DOCKER_BUILD_FROM=ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-debian12
 export EMQX_DOCKER_RUN_FROM=debian:12-slim
 export QUICER_DOWNLOAD_FROM_RELEASE=1
-export QUICER_TLS_VER=sys
