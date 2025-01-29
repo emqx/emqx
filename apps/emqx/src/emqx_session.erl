@@ -500,7 +500,7 @@ enrich_message(
     [];
 enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     %% https://www.erlang.org/doc/system/maps.html#using-maps-as-an-alternative-to-records
-    Default = #{nl => undefined, qos => undefined, rap => undefined, subid => undefined},
+    Default = #{nl => 0, qos => undefined, rap => 0, subid => undefined},
     #{nl := NL, qos := SubQoS, rap := RAP, subid := SubId} = maps:merge(Default, SubOpts),
     #message{flags = Flags0, headers = Headers0, qos = PubQoS} = MsgIn,
     %% Update flags of the packet according to the subscription
@@ -508,18 +508,23 @@ enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     %%
     %% - When No Local(NL) = 1, set `nl' to `true'
     %%
-    %% - Retain as Published (RAP): clear `retain' flag of a retained
-    %% message, unless RAP = 1
-    Flags =
+    %% - Retain as Published (RAP): clear `retain' flag, unless RAP =
+    %% 1 or `retained' header = `true'.
+    KeepRetain =
         case Headers0 of
-            #{retained := true} when RAP =/= 1, NL =:= 1 ->
-                Flags0#{retain => false, nl => true};
-            #{retained := true} when RAP =/= 1 ->
-                Flags0#{retain => false};
-            _ when NL =:= 1 ->
+            #{retained := true} -> true;
+            _ -> RAP =:= 1
+        end,
+    Flags =
+        case NL of
+            1 when KeepRetain ->
                 Flags0#{nl => true};
+            1 ->
+                Flags0#{nl => true, retain => false};
+            _ when KeepRetain ->
+                Flags0;
             _ ->
-                Flags0
+                Flags0#{retain => false}
         end,
     %% Add `Subscription-Identifier' if it's specified for the
     %% subscription:
@@ -784,7 +789,47 @@ enrich_no_local_test_() ->
             )
         ]}.
 
-%% This testcase verifies that enrich function clears `retain' flag:
+%% This testcase verifies that enrich function clear `retain' flag:
+enrich_clear_retain_flag_test() ->
+    ClientInfo = #{clientid => <<"client">>},
+    MsgIn = emqx_message:set_flag(
+        my_awesome_flag,
+        emqx_message:set_flag(
+            retain,
+            emqx_message:make(<<"client2">>, 1, <<"topic">>, <<"payload">>)
+        )
+    ),
+    [Msg1] = enrich_message(ClientInfo, MsgIn, #{}, false),
+    ?assertMatch(
+        false,
+        emqx_message:get_flag(retain, Msg1),
+        "Retain flag should not be cleared"
+    ),
+    ?assertMatch(
+        true,
+        emqx_message:get_flag(my_awesome_flag, Msg1),
+        "Other flags are preserved"
+    ),
+    ?assertMatch(
+        false,
+        emqx_message:get_flag(nl, Msg1),
+        "Other flags are preserved"
+    ),
+    %% Now with nl
+    [Msg2] = enrich_message(ClientInfo, MsgIn, #{nl => 1}, false),
+    ?assertMatch(
+        false,
+        emqx_message:get_flag(retain, Msg2),
+        "Retain flag should be cleared"
+    ),
+    ?assertMatch(
+        true,
+        emqx_message:get_flag(nl, Msg2),
+        "nl flag should be inherited from the subscription"
+    ).
+
+%% This testcase verifies that enrich function doesn't clear `retain'
+%% flag when retained header is set:
 enrich_retain_as_published1_test() ->
     ClientInfo = #{clientid => <<"client">>},
     MsgIn = emqx_message:set_flag(
@@ -800,9 +845,9 @@ enrich_retain_as_published1_test() ->
     ),
     [Msg1] = enrich_message(ClientInfo, MsgIn, #{}, false),
     ?assertMatch(
-        false,
+        true,
         emqx_message:get_flag(retain, Msg1),
-        "Retain flag should be cleared when rap is not set for the subscription"
+        "Retain flag should not be cleared when retained header is true"
     ),
     ?assertMatch(
         true,
@@ -818,17 +863,12 @@ enrich_retain_as_published1_test() ->
         #{retained := true},
         emqx_message:get_headers(Msg1)
     ),
-    ?assertMatch(
-        [Msg1],
-        enrich_message(ClientInfo, MsgIn, #{rap => 0}, false),
-        "rap => 0 is the default"
-    ),
     %% Now with nl
     [Msg2] = enrich_message(ClientInfo, MsgIn, #{nl => 1}, false),
     ?assertMatch(
-        false,
+        true,
         emqx_message:get_flag(retain, Msg2),
-        "Retain flag should be cleared when rap is not set for the subscription"
+        "Retain flag should not be cleared when retained header is true"
     ),
     ?assertMatch(
         true,

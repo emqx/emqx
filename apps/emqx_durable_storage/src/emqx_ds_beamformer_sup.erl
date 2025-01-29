@@ -54,7 +54,7 @@ start_link(CBM, ShardId, Opts) ->
 info(DBShard = {_, Shard}) ->
     case gproc:where(?SUP(DBShard)) of
         undefined ->
-            {DBShard, down};
+            {Shard, down};
         Pid ->
             child_status({Shard, Pid, supervisor, [?MODULE]})
     end.
