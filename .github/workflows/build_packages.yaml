@@ -234,22 +234,22 @@ jobs:
         export PACKAGE_SOURCE="_packages/${PROFILE}/${PROFILE}-${EMQX_VERSION}-ubuntu22.04-$ARCH.tar.gz"
         export SNAP_BASE=core22
 
-        envsubst '${EMQX_VERSION},${PACKAGE_SOURCE},${SNAP_BASE}' < deploy/snap/snapcraft.yaml > ./snapcraft.yaml
+        envsubst '${PROFILE},${EMQX_VERSION},${PACKAGE_SOURCE},${SNAP_BASE}' < deploy/snap/snapcraft.yaml > ./snapcraft.yaml
         snapcraft --use-lxd
 
     - name: Test snap
       run: |
         sudo snap install "${PROFILE}_${EMQX_VERSION}_${ARCH}.snap" --dangerous
-        sudo snap start emqx
+        sudo snap start "${PROFILE}"
         for i in {1..30}; do
-          sudo snap logs emqx | grep -q "${EMQX_VERSION} is running now!" && break
+          sudo snap logs "${PROFILE}" | grep -q "${EMQX_VERSION} is running now!" && break
           sleep 1
         done
         if [ $i -eq 30 ]; then
-          sudo snap logs emqx
+          sudo snap logs "${PROFILE}"
           exit 1
         fi
-        sudo snap remove emqx
+        sudo snap remove "${PROFILE}"
 
     - name: Upload Snap as an artifact
       if: success()

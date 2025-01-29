@@ -1,4 +1,4 @@
-name: emqx
+name: $PROFILE
 base: $SNAP_BASE
 version: $EMQX_VERSION
 summary: The most scalable open-source MQTT broker
