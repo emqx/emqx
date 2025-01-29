@@ -290,7 +290,7 @@
     #{
         %% Maximum number of unacked batches before subscription is
         %% considered overloaded and removed from the active queues:
-        max_unacked := non_neg_integer()
+        max_unacked := pos_integer()
     }.
 
 -type sub_info() ::

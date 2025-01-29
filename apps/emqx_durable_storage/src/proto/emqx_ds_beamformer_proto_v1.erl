@@ -44,7 +44,7 @@ where(Node, DBShard) ->
     pid(),
     pid(),
     emqx_ds:sub_ref(),
-    emqx_ds_replication_layer:iterator(),
+    _Iterator,
     emqx_ds:sub_opts()
 ) ->
     {ok, emqx_ds:sub_ref()} | emqx_ds:error(_).

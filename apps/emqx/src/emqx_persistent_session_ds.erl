@@ -106,13 +106,6 @@
 %% internal export used by session GC process
 -export([destroy_session/1]).
 
-%% Remove me later (satisfy checks for an unused BPAPI)
--export([
-    do_open_iterator/3,
-    do_ensure_iterator_closed/1,
-    do_ensure_all_iterators_closed/1
-]).
-
 -export([print_session/1, seqno_diff/4]).
 
 -ifdef(TEST).
@@ -1084,26 +1077,6 @@ set_clientinfo(ClientInfo0, S) ->
     %% Remove unnecessary fields from the clientinfo:
     ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
     emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
-
-%%--------------------------------------------------------------------
-%% RPC targets (v1)
-%%--------------------------------------------------------------------
-
-%% RPC target.
--spec do_open_iterator(emqx_types:words(), emqx_ds:time(), emqx_ds:iterator_id()) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _Reason}.
-do_open_iterator(_TopicFilter, _StartMS, _IteratorID) ->
-    {error, not_implemented}.
-
-%% RPC target.
--spec do_ensure_iterator_closed(emqx_ds:iterator_id()) -> ok.
-do_ensure_iterator_closed(_IteratorID) ->
-    ok.
-
-%% RPC target.
--spec do_ensure_all_iterators_closed(id()) -> ok.
-do_ensure_all_iterators_closed(_DSSessionID) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Normal replay:
