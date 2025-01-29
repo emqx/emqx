@@ -377,18 +377,18 @@ fields(action_resource_opts) ->
     action_resource_opts_fields(_Overrides = []);
 fields(source_resource_opts) ->
     source_resource_opts_fields(_Overrides = []);
-fields(fallback_action_action) ->
+fields(fallback_action_reference) ->
     [
-        {kind, mk(action, #{required => true, desc => ?DESC("fallback_action_kind")})},
+        {kind, mk(reference, #{required => true, desc => ?DESC("fallback_action_kind")})},
         {type,
             mk(
                 hoconsc:union(?MODULE:registered_action_types()),
-                #{required => true, desc => ?DESC("fallback_action_action_type")}
+                #{required => true, desc => ?DESC("fallback_action_reference_type")}
             )},
         {name,
             mk(
                 binary(),
-                #{required => true, desc => ?DESC("fallback_action_action_name")}
+                #{required => true, desc => ?DESC("fallback_action_reference_name")}
             )}
     ];
 fields(fallback_action_republish) ->
@@ -430,8 +430,8 @@ desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(source_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
-desc(fallback_action_action) ->
-    ?DESC("fallback_action_action");
+desc(fallback_action_reference) ->
+    ?DESC("fallback_action_reference");
 desc(fallback_action_republish) ->
     ?DESC("fallback_action_republish");
 desc(_) ->
@@ -569,7 +569,7 @@ common_action_fields() ->
                     emqx_schema:mkunion(
                         kind,
                         #{
-                            <<"action">> => ref(?MODULE, fallback_action_action),
+                            <<"reference">> => ref(?MODULE, fallback_action_reference),
                             <<"republish">> => ref(?MODULE, fallback_action_republish)
                         }
                     )

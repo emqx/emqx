@@ -73,7 +73,7 @@
     fallback_actions => []
 }.
 -type fallback_action() ::
-    #{kind := action, type := _, name := _}
+    #{kind := reference, type := _, name := _}
     | #{kind := republish, args := map()}
     %% Used only for testing
     | fun((map()) -> any()).

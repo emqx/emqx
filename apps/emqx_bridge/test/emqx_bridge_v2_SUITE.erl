@@ -1365,7 +1365,7 @@ t_fallback_actions(_Config) ->
                 <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
                 <<"fallback_actions">> => [
                     #{
-                        <<"kind">> => <<"action">>,
+                        <<"kind">> => <<"reference">>,
                         <<"type">> => ActionTypeBin,
                         <<"name">> => FallbackActionName
                     },
@@ -1437,13 +1437,13 @@ t_fallback_actions_cycles(_Config) ->
                 <<"fallback_actions">> => [
                     %% Fallback back to primary
                     #{
-                        <<"kind">> => <<"action">>,
+                        <<"kind">> => <<"reference">>,
                         <<"type">> => ActionTypeBin,
                         <<"name">> => PrimaryActionName
                     },
                     %% Fallback back to self
                     #{
-                        <<"kind">> => <<"action">>,
+                        <<"kind">> => <<"reference">>,
                         <<"type">> => ActionTypeBin,
                         <<"name">> => FallbackActionName
                     }
@@ -1458,13 +1458,13 @@ t_fallback_actions_cycles(_Config) ->
                 <<"fallback_actions">> => [
                     %% Fallback back to self
                     #{
-                        <<"kind">> => <<"action">>,
+                        <<"kind">> => <<"reference">>,
                         <<"type">> => ActionTypeBin,
                         <<"name">> => PrimaryActionName
                     },
                     %% This fallback ends up falling back to primary
                     #{
-                        <<"kind">> => <<"action">>,
+                        <<"kind">> => <<"reference">>,
                         <<"type">> => ActionTypeBin,
                         <<"name">> => FallbackActionName
                     }

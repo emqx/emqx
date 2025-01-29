@@ -40,17 +40,17 @@ undefined_vars_as_null.label:
     desc: """Fallback kind."""
   }
 
-  fallback_action_action {
+  fallback_action_reference {
     label: "Fallback Action"
     desc: """A fallback Action that will be triggered if a query to this action fails.  The same message context that triggered the primary action will be sent unmodified to the fallbacks."""
   }
 
-  fallback_action_action_type {
+  fallback_action_reference_type {
     label: "Type"
     desc: """Fallback Action type."""
   }
 
-  fallback_action_action_name {
+  fallback_action_reference_name {
     label: "Name"
     desc: """Fallback Action name."""
   }

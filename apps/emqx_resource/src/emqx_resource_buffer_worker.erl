@@ -2596,7 +2596,7 @@ maybe_trigger_fallback_actions(_Id, _ResultContext) ->
     %% Todo: Log a warning when this is called with a batch to signal bug?
     ok.
 
-trigger_fallback_action(Id, #{kind := action, type := Type, name := Name}, Req, QueryOpts) ->
+trigger_fallback_action(Id, #{kind := reference, type := Type, name := Name}, Req, QueryOpts) ->
     try
         %% Should we log if disabled/not found? Other errors?
         FallbackResId = emqx_bridge_v2:id(Type, Name),
@@ -2615,7 +2615,7 @@ trigger_fallback_action(Id, #{kind := action, type := Type, name := Name}, Req, 
                 #{
                     msg => failed_to_trigger_fallback_action,
                     primary_action_resource_id => Id,
-                    fallback_kind => action,
+                    fallback_kind => reference,
                     fallback_type => Type,
                     fallback_name => Name,
                     reason => {K, E}
