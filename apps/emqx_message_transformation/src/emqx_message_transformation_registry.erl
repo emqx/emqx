@@ -109,15 +109,17 @@ matching_transformations(Topic) ->
             fun(M) ->
                 case emqx_topic_index:get_record(M, ?TRANSFORMATION_TOPIC_INDEX) of
                     [Name] ->
-                        [Name];
+                        Pos = emqx_topic_index:get_id(M),
+                        [{Pos, Name}];
                     _ ->
                         []
                 end
             end,
             emqx_topic_index:matches(Topic, ?TRANSFORMATION_TOPIC_INDEX, [unique])
         ),
+    Transformations1 = lists:keysort(1, Transformations0),
     lists:flatmap(
-        fun(Name) ->
+        fun({_Pos, Name}) ->
             case lookup(Name) of
                 {ok, Transformation} ->
                     [Transformation];
@@ -125,7 +127,7 @@ matching_transformations(Topic) ->
                     []
             end
         end,
-        Transformations0
+        Transformations1
     ).
 
 -spec metrics_worker_spec() -> supervisor:child_spec().
