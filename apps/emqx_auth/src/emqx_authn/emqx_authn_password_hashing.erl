@@ -84,20 +84,30 @@ fields(bcrypt) ->
     [{name, sc(bcrypt, #{required => true, desc => "BCRYPT password hashing."})}];
 fields(pbkdf2) ->
     [
-        {name, sc(pbkdf2, #{required => true, desc => "PBKDF2 password hashing."})},
+        {name,
+            sc(
+                pbkdf2, #{
+                    required => true,
+                    desc =>
+                        "PBKDF2 password hashing. "
+                        "Hashes are computed according to the PKCS #5 standard, and represented as "
+                        "hexadecimal strings."
+                }
+            )},
         {mac_fun,
             sc(
                 hoconsc:enum([md4, md5, ripemd160, sha, sha224, sha256, sha384, sha512]),
                 #{
                     required => true,
                     desc =>
-                        "Specifies mac_fun for PBKDF2 hashing algorithm and md4, md5, ripemd160 are no longer supported since 5.8.3"
+                        "Specifies which HMAC function to use in PBKDF2 algorithm. "
+                        "Note that `md4`, `md5`, `ripemd160` are no longer supported since 5.8.3."
                 }
             )},
         {iterations,
             sc(
                 pos_integer(),
-                #{required => true, desc => "Iteration count for PBKDF2 hashing algorithm."}
+                #{required => true, desc => "Number of iterations of PBKDF2 algorithm."}
             )},
         {dk_length, fun dk_length/1}
     ];
@@ -150,7 +160,7 @@ dk_length(type) ->
 dk_length(required) ->
     false;
 dk_length(desc) ->
-    "Derived length for PBKDF2 hashing algorithm. If not specified, "
+    "Derived key length for PBKDF2 hashing algorithm, in bytes. If not specified, "
     "calculated automatically based on `mac_fun`.";
 dk_length(_) ->
     undefined.
