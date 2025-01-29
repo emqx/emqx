@@ -283,7 +283,7 @@
     queue_drop :: fun(),
     queue_update :: fun(),
     global_n_msgs = 0 :: non_neg_integer(),
-    per_node = #{} :: #{node => #beam_builder_node{}}
+    per_node = #{} :: #{node() => #beam_builder_node{}}
 }).
 
 -opaque beam_builder() :: #beam_builder{}.
@@ -292,11 +292,10 @@
 %% Callbacks
 %%================================================================================
 
+%% @obsolete
 -type match_messagef() :: fun(
     (
-        _LastSeenKey :: emqx_ds:message_key(),
         _MessageKey :: emqx_ds:message_key(),
-        _TopicTokens :: [binary()],
         emqx_types:message()
     ) -> boolean()
 ).

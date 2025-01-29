@@ -1262,7 +1262,7 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
 %% Init/cleanup
 
 start_cluster(TestCase, Config0, ClusterOpts) ->
-    %% N.B.: these tests start a single-node cluster, so it's fine to test them with the
+    %% N.B.: some of the tests start a single-node cluster, so it's fine to test them with the
     %% `builtin_local' backend.
     DurableSessionsOpts = #{
         <<"heartbeat_interval">> => <<"500ms">>,

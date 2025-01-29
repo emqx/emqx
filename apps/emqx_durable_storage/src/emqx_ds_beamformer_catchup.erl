@@ -14,9 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc This type of beamformer worker takes care of fulfilling the
-%% poll requests data committed long time ago. It utilizes the
-%% internal DS indexes.
+%% @doc This type of beamformer worker serves lagging subscriptions.
+%% It utilizes the internal DS indexes.
 -module(emqx_ds_beamformer_catchup).
 
 -behaviour(gen_server).
@@ -42,6 +41,18 @@
 %% Type declarations
 %%================================================================================
 
+-record(enqueue_req, {sub_states}).
+-define(fulfill_loop, beamformer_fulfill_loop).
+-define(housekeeping_loop, housekeeping_loop).
+
+-define(queue_key(STREAM, TF, STARTKEY, DESTNODE, SUBREF),
+    {STREAM, TF, STARTKEY, DESTNODE, SUBREF}
+).
+
+-type queue_key() :: ?queue_key(
+    emqx_ds:stream(), emqx_ds:topic_filter(), emqx_ds:message_key(), node(), emqx_ds:sub_ref()
+).
+
 -record(s, {
     module :: module(),
     metrics_id,
@@ -49,18 +60,14 @@
     sub_tab :: ets:table(),
     name,
     queue :: ets:table(),
-    batch_size :: non_neg_integer()
+    batch_size :: non_neg_integer(),
+    %% This field points at the approximate position of the last
+    %% fulfilled request. It's used to rotate through subscriptions to
+    %% make fulfillment more fair:
+    last_served :: ?queue_key(emqx_ds:stream(), _TF, _Key, _Node, _SubRef) | undefined
 }).
 
 -type s() :: #s{}.
-
--record(enqueue_req, {sub_states}).
--define(fulfill_loop, beamformer_fulfill_loop).
--define(housekeeping_loop, housekeeping_loop).
-
--define(queue_elem(STREAM, TF, STARTKEY, DESTNODE, SUBREF),
-    {STREAM, TF, STARTKEY, DESTNODE, SUBREF}
-).
 
 %%================================================================================
 %% API functions
@@ -121,7 +128,7 @@ handle_info(?fulfill_loop, S0) ->
 handle_info(
     ?housekeeping_loop, S0 = #s{}
 ) ->
-    %% Reload configuration according from environment variables:
+    %% Reload configuration
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
@@ -177,17 +184,16 @@ do_enqueue(SubStates, #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue, me
     emqx_ds_builtin_metrics:set_pendingq_len(Metrics, ets:info(Queue, size)),
     ensure_fulfill_loop().
 
-fulfill(S = #s{queue = Queue}) ->
+fulfill(S0 = #s{queue = Queue}) ->
     %% debug_pending(S),
-    %% TODO: rotate through streams, try to be more fair.
-    case find_older_request(Queue) of
+    case find_older_request(Queue, S0) of
         undefined ->
-            S;
-        {Stream, TopicFilter, StartKey} ->
+            S0#s{last_served = undefined};
+        ?queue_key(Stream, TopicFilter, StartKey, _DestNode, _SubRef) ->
             ?tp(emqx_ds_beamformer_fulfill_old, #{
                 stream => Stream, topic => TopicFilter, start_key => StartKey
             }),
-            do_fulfill(S, Stream, TopicFilter, StartKey),
+            S = do_fulfill(S0, Stream, TopicFilter, StartKey),
             ensure_fulfill_loop(),
             S
     end.
@@ -208,7 +214,12 @@ do_fulfill(
     case emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, TopicFilter, StartKey, BatchSize) of
         {ok, EndKey, []} ->
             %% Empty batch? Try to move request to the RT queue:
-            move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey);
+            move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey),
+            %% `move_to_realtime' function consumes elements from the
+            %% queue, making it unnecessary to update `last_served'
+            %% explicitly. The same applies to other clauses that
+            %% return `S' unchanged.
+            S;
         {ok, EndKey, Batch} ->
             fulfill_batch(S, Stream, TopicFilter, StartKey, EndKey, Batch);
         {error, recoverable, Err} ->
@@ -217,7 +228,8 @@ do_fulfill(
                 emqx_ds_beamformer_fulfill_fail,
                 #{shard => DBShard, recoverable => true, error => Err}
             ),
-            handle_recoverable(S, lookup_subs(S, Stream, TopicFilter, StartKey));
+            handle_recoverable(S, lookup_subs(S, Stream, TopicFilter, StartKey)),
+            S;
         Other ->
             Pack =
                 case Other of
@@ -232,7 +244,8 @@ do_fulfill(
             %% Pack requests into beams and send out:
             emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
             %% Remove requests from the queue to avoid repeated failure:
-            queue_drop_all(Queue, Stream, TopicFilter, StartKey)
+            queue_drop_all(Queue, Stream, TopicFilter, StartKey),
+            S
     end.
 
 -spec move_to_realtime(
@@ -297,7 +310,7 @@ move_to_realtime(
     emqx_ds:message_key(),
     emqx_ds:message_key(),
     [{emqx_ds:message_key(), emqx_types:message()}]
-) -> ok.
+) -> s().
 fulfill_batch(
     S = #s{shard_id = ShardId, sub_tab = SubTab, metrics_id = Metrics, module = CBM, queue = Queue},
     Stream,
@@ -329,7 +342,12 @@ fulfill_batch(
         ),
     report_metrics(Metrics, emqx_ds_beamformer:beams_n_matched(BeamMaker)),
     %% Send out the replies:
-    ok = emqx_ds_beamformer:beams_conclude(ShardId, EndKey, BeamMaker).
+    ok = emqx_ds_beamformer:beams_conclude(ShardId, EndKey, BeamMaker),
+    %% Update last served. Note: topic filter is a list; according to
+    %% the Erlang term order, any binary is greater than the list, so
+    %% the following construct forces the worker to move to the next
+    %% stream:
+    S#s{last_served = ?queue_key(Stream, <<>>, undefined, undefined, undefined)}.
 
 -spec process_batch(
     s(),
@@ -347,21 +365,28 @@ process_batch(S, Stream, TopicFilter, [{Key, Msg} | Rest], Candidates0, Beams0) 
     process_batch(S, Stream, TopicFilter, Rest, Candidates, Beams).
 
 %% It's always worth trying to fulfill the most laggy subscriptions
-%% first, because they have a better chance of producing a batch that
-%% overlaps with other similar subscriptions.
+%% first, because they have a better chance of producing a batch
+%% overlapping with other similar subscriptions.
 %%
 %% This function implements a heuristic that tries to find such
 %% subscription. It picks elements with the smallest key (and,
-%% accidentally, the smallest stream, topic filter, etc., which is
+%% incidentally, the smallest stream, topic filter, etc., which is
 %% irrelevent here) as the starting point.
--spec find_older_request(ets:tid()) ->
-    {emqx_ds:stream(), emqx_ds:topic_filter(), emqx_ds:message_key()} | undefined.
-find_older_request(Tab) ->
+-spec find_older_request(ets:tid(), s()) ->
+    queue_key() | undefined.
+find_older_request(Tab, #s{last_served = undefined}) ->
     case ets:first(Tab) of
         '$end_of_table' ->
             undefined;
-        ?queue_elem(Stream, TF, StartKey, _Node, _Ref) ->
-            {Stream, TF, StartKey}
+        Key ->
+            Key
+    end;
+find_older_request(Tab, S = #s{last_served = PrevKey}) ->
+    case ets:next(Tab, PrevKey) of
+        '$end_of_table' ->
+            find_older_request(Tab, S#s{last_served = undefined});
+        Key ->
+            Key
     end.
 
 -spec ensure_fulfill_loop() -> ok.
@@ -385,7 +410,7 @@ queue_push(Queue, SubState) ->
 %% @doc Get all requests that await data with given stream, topic
 %% filter (exact) and start key.
 queue_lookup(#s{queue = Queue}, Stream, TopicFilter, StartKey) ->
-    MS = {{?queue_elem(Stream, TopicFilter, StartKey, '$1', '$2')}, [], [{{'$1', '$2'}}]},
+    MS = {{?queue_key(Stream, TopicFilter, StartKey, '$1', '$2')}, [], [{{'$1', '$2'}}]},
     ets:select(Queue, [MS]).
 
 %% @doc Lookup requests and enrich them with the data from the
@@ -399,7 +424,7 @@ lookup_subs(S = #s{sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
     ).
 
 queue_drop_all(Queue, Stream, TopicFilter, StartKey) ->
-    ets:match_delete(Queue, {?queue_elem(Stream, TopicFilter, StartKey, '_', '_')}).
+    ets:match_delete(Queue, {?queue_key(Stream, TopicFilter, StartKey, '_', '_')}).
 
 drop(Queue, SubTab, Sub = #sub_state{req_id = SubRef}) ->
     ets:delete(SubTab, SubRef),
@@ -422,4 +447,4 @@ report_metrics(Metrics, NFulfilled) ->
 queue_key(#sub_state{
     req_id = SubRef, stream = Stream, topic_filter = TF, start_key = Key, client = Pid
 }) ->
-    ?queue_elem(Stream, TF, Key, node(Pid), SubRef).
+    ?queue_key(Stream, TF, Key, node(Pid), SubRef).
