@@ -2580,6 +2580,10 @@ maybe_trigger_fallback_actions(Id, #{
     ]
 }) ->
     QueryOpts0 = maps:with([?reply_to], RequestContext),
+    %% We want to run all fallback actions in parallel and we don't care about their
+    %% results, so we impose the request query kind `async' here.  Note that the request
+    %% query kind is independent from the resource query mode, which could be `sync' on
+    %% its own.
     QueryOpts = QueryOpts0#{
         ?is_fallback => true,
         query_mode => async,

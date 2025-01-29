@@ -744,6 +744,8 @@ nested_put(Alias, Val, Columns0) ->
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
 inc_action_metrics(_TraceCtx, #{is_fallback := true}) ->
+    %% If this is the result of running a fallback action, we don't want to bump any
+    %% metrics from the rule containing the primary action that triggered this.
     ok;
 inc_action_metrics(TraceCtx, #{result := Result}) ->
     inc_action_metrics(TraceCtx, Result);
