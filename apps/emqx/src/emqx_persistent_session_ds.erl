@@ -1578,7 +1578,7 @@ update_seqno(
         {ok, Inflight} when Track =:= pubrec ->
             S = put_seqno(SeqNoKey, SeqNo, S0),
             Session = Session0#{inflight := Inflight, s := S},
-            {ok, Msg, Session};
+            {ok, Msg, schedule_delivery(Session)};
         {ok, Inflight1} ->
             {UblockedStreams, S1, SchedS} =
                 emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
@@ -1601,18 +1601,16 @@ update_seqno(
                     [] ->
                         Session1;
                     [_ | _] ->
-                        schedule_delivery(
-                            lists:foldl(
-                                fun(StreamKey, SessionAcc) ->
-                                    ?tp(?sessds_unblock_stream, #{key => StreamKey}),
-                                    drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
-                                end,
-                                Session1,
-                                UblockedStreams
-                            )
+                        lists:foldl(
+                            fun(StreamKey, SessionAcc) ->
+                                ?tp(?sessds_unblock_stream, #{key => StreamKey}),
+                                drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
+                            end,
+                            Session1,
+                            UblockedStreams
                         )
                 end,
-            {ok, Msg, Session};
+            {ok, Msg, schedule_delivery(Session)};
         {error, undefined = _Expected} ->
             {error, ?RC_PROTOCOL_ERROR};
         {error, Expected} ->
