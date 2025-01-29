@@ -270,8 +270,8 @@ ipop(Q = #iqueue{head = Hd, head_end = HdEnd}) when Hd < HdEnd ->
     %% Head interval is not empty. Consume a value from it:
     {{value, Hd}, Q#iqueue{head = Hd + 1}};
 ipop(Q = #iqueue{head_end = End, tail_end = End}) ->
-    %% Head interval is fully consumed, and it's overlaps with the
-    %% tail interval. It means the queue is empty:
+    %% Head interval is fully consumed, and it overlaps with the tail
+    %% interval. It means the queue is empty:
     {empty, Q};
 ipop(Q = #iqueue{head = Hd0, tail = Tl, tail_end = TlEnd, queue = IQ0}) ->
     %% Head interval is fully consumed, and it doesn't overlap with

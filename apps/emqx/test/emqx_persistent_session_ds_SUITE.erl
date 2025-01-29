@@ -206,6 +206,47 @@ stop_and_commit(Client) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+%% This testcase verifies that a durable session can publish messages
+%% to other sessions:
+t_smoke_publish(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_smoke_publish(_Config) ->
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Start memory session:
+            Mem = start_client(#{
+                clientid => <<"t_smoke_publish_mem">>,
+                clean_start => true,
+                properties => #{'Session-Expiry-Interval' => 0},
+                proto_ver => v5
+            }),
+            {ok, _} = emqtt:connect(Mem),
+            %% Start durable session:
+            Durable = start_client(#{
+                clientid => <<"t_smoke_publish_durable">>,
+                clean_start => true,
+                properties => #{'Session-Expiry-Interval' => 30},
+                proto_ver => v5
+            }),
+            {ok, _} = emqtt:connect(Durable),
+            %% Subscribe both clients to a topic:
+            {ok, _, _} = emqtt:subscribe(Mem, <<"t/#">>, qos2),
+            {ok, _, _} = emqtt:subscribe(Durable, <<"t/#">>, qos2),
+            %% Publish a message via durable client:
+            emqtt:publish(Durable, <<"t/1">>, <<"hello">>),
+            %% Both clients should receive the message:
+            ?assertMatch(
+                [
+                    #{client_pid := Mem, payload := <<"hello">>, topic := <<"t/1">>},
+                    #{client_pid := Durable, payload := <<"hello">>, topic := <<"t/1">>}
+                ],
+                emqx_common_test_helpers:wait_publishes(2, 5_000)
+            )
+        end,
+        []
+    ).
+
 %% This testcase verifies session's behavior related to generation
 %% rotation in the message storage.
 %%
@@ -558,6 +599,60 @@ t_new_stream_notifications(Config) ->
             end,
             fun check_stream_state_transitions/1
         ]
+    ).
+
+%% This testcase verifies that session handles removal of generations
+%% pending for replay gracefully.
+t_replay_deleted_generation(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_replay_deleted_generation(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    TopicFilter = <<"t/#">>,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Start subscriber for the first time:
+            Sub0 = start_client(#{clientid => ClientId, auto_ack => never}),
+            {ok, _} = emqtt:connect(Sub0),
+            {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter, qos2),
+            %% Start publisher:
+            Pub = start_client(#{clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            %% Publish some messages, client receives them but doesn't ack:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
+            {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"2">>, ?QOS_2),
+            [
+                #{packet_id := PI1, payload := <<"1">>, topic := <<"t/1">>},
+                #{packet_id := PI2, payload := <<"2">>, topic := <<"t/2">>}
+            ] = lists:sort(emqx_common_test_helpers:wait_publishes(2, 5_000)),
+            %% Disconnect the subscriber and rotate the generations:
+            ok = emqtt:stop(Sub0),
+            ?assertMatch(ok, emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB)),
+            _ = [
+                ok = emqx_ds:drop_generation(?PERSISTENT_MESSAGE_DB, GenId)
+             || {GenId, #{until := Until}} <- maps:to_list(
+                    emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB)
+                ),
+                is_integer(Until)
+            ],
+            %% Reconnect the client:
+            Sub1 = start_client(#{clientid => ClientId, auto_ack => never, clean_start => false}),
+            {ok, SnkSub} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?sessds_replay_unrecoverable_error}), 2, infinity
+            ),
+            {ok, _} = emqtt:connect(Sub1),
+            {ok, _} = snabbkaffe:receive_events(SnkSub),
+            %% Verify that it receives new messages from the topic:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"3">>, ?QOS_1),
+            {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"4">>, ?QOS_2),
+            [
+                #{packet_id := PI3, payload := <<"3">>, topic := <<"t/1">>},
+                #{packet_id := PI4, payload := <<"4">>, topic := <<"t/2">>}
+            ] = lists:sort(emqx_common_test_helpers:wait_publishes(2, 5_000)),
+            ?assertNotEqual(PI1, PI3),
+            ?assertNotEqual(PI2, PI4)
+        end,
+        []
     ).
 
 t_fuzz(init, Config) ->

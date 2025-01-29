@@ -937,7 +937,12 @@ ds_subscribe(SrsID, S, SchedS = #s{ds_subs = Subs}) ->
                     SchedS#s{
                         ds_subs = Subs#{SubRef => NewSub}
                     };
-                {error, recoverable, Reason} ->
+                ?err_unrec(Reason) ->
+                    ?tp(warning, ?sessds_sched_subscribe_fail, #{
+                        class => unrecoverable, reason => Reason, stream => SrsID
+                    }),
+                    SchedS;
+                ?err_rec(Reason) ->
                     ?tp(debug, ?sessds_sched_subscribe_fail, #{
                         class => recoverable, reason => Reason, stream => SrsID
                     }),
