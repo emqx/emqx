@@ -1445,7 +1445,7 @@ t_protobuf_bad_chain(_Config) ->
                     E
                  || #{
                         ?snk_kind := message_transformation_failed,
-                        message := "payload_decode_schema_failure",
+                        message := payload_decode_schema_failure,
                         reason := function_clause
                     } = E <- Trace
                 ]
@@ -1473,7 +1473,7 @@ t_protobuf_bad_chain(_Config) ->
                     E
                  || #{
                         ?snk_kind := message_transformation_failed,
-                        message := "payload_decode_error"
+                        message := payload_decode_error
                     } = E <- Trace
                 ]
             ),
@@ -1740,8 +1740,8 @@ t_final_payload_must_be_binary(_Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [
-                    #{message := "transformation_bad_encoding"},
-                    #{message := "transformation_bad_encoding"}
+                    #{message := transformation_bad_encoding},
+                    #{message := transformation_bad_encoding}
                 ],
                 ?of_kind(message_transformation_failed, Trace)
             ),
@@ -2040,4 +2040,20 @@ t_non_binary_input_for_decoder(_Config) ->
             ok
         end
     ),
+    ok.
+
+%% Checks that index/config order is indeed preserved when we have "many" (> 32)
+%% transformations.
+t_many_transformations_order(_Config) ->
+    Names = lists:map(
+        fun(N) ->
+            Name = integer_to_binary(50 - N),
+            Transformation = transformation(Name, [dummy_operation()]),
+            {201, _} = insert(Transformation),
+            Name
+        end,
+        lists:seq(1, 50)
+    ),
+    Topic = <<"t/a">>,
+    ?assertIndexOrder(Names, Topic),
     ok.

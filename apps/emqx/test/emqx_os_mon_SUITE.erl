@@ -48,7 +48,8 @@ init_per_testcase(t_sys_mem_check_alarm, Config) ->
                 sysmem_high_watermark => 0.51,
                 %% 200ms
                 mem_check_interval => 200
-            });
+            }),
+            assert_mem_protect_follows_sysmem_high_watermark();
         false ->
             ok
     end,
@@ -108,6 +109,7 @@ do_sys_mem_check_disable(_Config) ->
     ?assertEqual(true, is_reference(MemRef0), MemRef0),
     emqx_config:put([sysmon, os, mem_check_interval], 1000),
     emqx_os_mon:update(emqx_config:get([sysmon, os])),
+    assert_mem_protect_follows_sysmem_high_watermark(),
     MemRef1 = maps:get(mem_time_ref, sys:get_state(emqx_os_mon)),
     ?assertEqual(true, is_reference(MemRef1), {MemRef0, MemRef1}),
     ?assertNotEqual(MemRef0, MemRef1),
@@ -216,4 +218,10 @@ t_cpu_check_alarm(_) ->
                 emqx_vm_mon_SUITE:is_existing(high_cpu_usage, emqx_alarm:get_alarms(activated))
             )
         end
+    ).
+
+assert_mem_protect_follows_sysmem_high_watermark() ->
+    ?assertEqual(
+        emqx_os_mon:get_sysmem_high_watermark(),
+        maps:get(memory_threshold, load_ctl:get_config())
     ).
