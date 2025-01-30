@@ -1553,13 +1553,13 @@ update_seqno(
             Session = Session0#{inflight := Inflight, s := S},
             {ok, Msg, schedule_delivery(Session)};
         {ok, Inflight1} ->
-            {UblockedStreams, S1, SchedS} =
+            {UnblockedStreams, S1, SchedS} =
                 emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
                     QoS, SeqNo, S0, SchedS0
                 ),
             S2 = put_seqno(SeqNoKey, SeqNo, S1),
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S2, SharedSubS0, UblockedStreams
+                S2, SharedSubS0, UnblockedStreams
             ),
             Session1 = Session0#{
                 inflight := Inflight1,
@@ -1570,19 +1570,14 @@ update_seqno(
             %% Dump stream messages that have been stored in the
             %% buffer while the stream was blocked into the inflight:
             Session =
-                case UblockedStreams of
-                    [] ->
-                        Session1;
-                    [_ | _] ->
-                        lists:foldl(
-                            fun(StreamKey, SessionAcc) ->
-                                ?tp(?sessds_unblock_stream, #{key => StreamKey}),
-                                drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
-                            end,
-                            Session1,
-                            UblockedStreams
-                        )
-                end,
+                lists:foldl(
+                    fun(StreamKey, SessionAcc) ->
+                        ?tp(?sessds_unblock_stream, #{key => StreamKey}),
+                        drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
+                    end,
+                    Session1,
+                    UnblockedStreams
+                ),
             {ok, Msg, schedule_delivery(Session)};
         {error, undefined = _Expected} ->
             {error, ?RC_PROTOCOL_ERROR};
