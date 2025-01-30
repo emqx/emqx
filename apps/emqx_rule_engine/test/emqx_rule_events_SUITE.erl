@@ -65,8 +65,8 @@ t_event_name_topic_conversion(_) ->
     Zip = lists:zip(Events, Topics),
     lists:foreach(
         fun({Event, Topic}) ->
-            ?assertEqual(Event, emqx_rule_events:event_name(Topic)),
-            ?assertEqual(Topic, emqx_rule_events:event_topic(Event))
+            ?assertEqual(Event, emqx_rule_events:event_name(Topic), #{topic => Topic}),
+            ?assertEqual(Topic, emqx_rule_events:event_topic(Event), #{event => Event})
         end,
         Zip
     ).

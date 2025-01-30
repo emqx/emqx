@@ -38,6 +38,8 @@
 %%-----------------------------------------------------------------------------
 
 -define(HOOKPOINTS, [
+    'alarm.activated',
+    'alarm.deactivated',
     'client.connect',
     'client.connack',
     'client.connected',
@@ -80,6 +82,19 @@
 ]).
 
 -type rule_engine_conf() :: #{event_topic := emqx_types:topic()}.
+-type alarm_activated_context() :: #{
+    name := binary(),
+    details := map(),
+    message := binary(),
+    activated_at := integer()
+}.
+-type alarm_deactivated_context() :: #{
+    name := binary(),
+    details := map(),
+    message := binary(),
+    activated_at := integer(),
+    deactivated_at := integer()
+}.
 -type transformation_context() :: #{name := binary()}.
 -type validation_context() :: #{name := binary()}.
 
@@ -92,6 +107,12 @@
 %% after the mandatory ones.
 %%
 %% By default, callbacks are executed in the channel process context.
+
+-callback 'alarm.activated'(alarm_activated_context(), rule_engine_conf()) ->
+    callback_result().
+
+-callback 'alarm.deactivated'(alarm_deactivated_context(), rule_engine_conf()) ->
+    callback_result().
 
 -callback 'client.connect'(emqx_types:conninfo(), Props) ->
     fold_callback_result(Props)
