@@ -193,7 +193,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
   # in conflict by cowboy_swagger and cowboy
-  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true}
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx-1", override: true}
 
   def common_dep(:ehttpc),
     do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.0", override: true}
