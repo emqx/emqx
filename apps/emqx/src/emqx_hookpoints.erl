@@ -79,6 +79,10 @@
     'session.takeovered'
 ]).
 
+-type rule_engine_conf() :: #{event_topic := emqx_types:topic()}.
+-type transformation_context() :: #{name := binary()}.
+-type validation_context() :: #{name := binary()}.
+
 %%-----------------------------------------------------------------------------
 %% Callbacks
 %%-----------------------------------------------------------------------------
@@ -185,7 +189,14 @@ when
 -callback 'message.dropped'(emqx_types:message(), #{node => node()}, _Reason :: atom()) ->
     callback_result().
 
--callback 'schema.validation_failed'(emqx_types:message(), #{node => node()}, _Ctx :: map()) ->
+-callback 'message.transformation_failed'(
+    emqx_types:message(), transformation_context(), rule_engine_conf()
+) ->
+    callback_result().
+
+-callback 'schema.validation_failed'(
+    emqx_types:message(), validation_context(), rule_engine_conf()
+) ->
     callback_result().
 
 -callback 'message.delivered'(emqx_types:clientinfo(), Msg) -> fold_callback_result(Msg) when
