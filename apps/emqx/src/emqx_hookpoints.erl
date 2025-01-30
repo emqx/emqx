@@ -81,7 +81,6 @@
     'session.takeovered'
 ]).
 
--type rule_engine_conf() :: #{event_topic := emqx_types:topic()}.
 -type alarm_activated_context() :: #{
     name := binary(),
     details := map(),
@@ -108,10 +107,10 @@
 %%
 %% By default, callbacks are executed in the channel process context.
 
--callback 'alarm.activated'(alarm_activated_context(), rule_engine_conf()) ->
+-callback 'alarm.activated'(alarm_activated_context()) ->
     callback_result().
 
--callback 'alarm.deactivated'(alarm_deactivated_context(), rule_engine_conf()) ->
+-callback 'alarm.deactivated'(alarm_deactivated_context()) ->
     callback_result().
 
 -callback 'client.connect'(emqx_types:conninfo(), Props) ->
@@ -210,14 +209,10 @@ when
 -callback 'message.dropped'(emqx_types:message(), #{node => node()}, _Reason :: atom()) ->
     callback_result().
 
--callback 'message.transformation_failed'(
-    emqx_types:message(), transformation_context(), rule_engine_conf()
-) ->
+-callback 'message.transformation_failed'(emqx_types:message(), transformation_context()) ->
     callback_result().
 
--callback 'schema.validation_failed'(
-    emqx_types:message(), validation_context(), rule_engine_conf()
-) ->
+-callback 'schema.validation_failed'(emqx_types:message(), validation_context()) ->
     callback_result().
 
 -callback 'message.delivered'(emqx_types:clientinfo(), Msg) -> fold_callback_result(Msg) when
