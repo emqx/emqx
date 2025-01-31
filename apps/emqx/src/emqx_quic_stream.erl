@@ -174,7 +174,7 @@ abort_read({quic, _Conn, Stream, _Info}, Reason) ->
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
 reason_code(kicked) -> ?RC_ADMINISTRATIVE_ACTION;
-reason_code(_) -> 1.
+reason_code(_) -> ?RC_UNSPECIFIED_ERROR.
 
 -spec ensure_ok_or_exit(atom(), list(term())) -> term().
 ensure_ok_or_exit(Fun, Args = [Sock | _]) when is_atom(Fun), is_list(Args) ->

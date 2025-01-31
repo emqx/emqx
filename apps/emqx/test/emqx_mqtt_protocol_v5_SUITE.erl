@@ -24,7 +24,11 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-ifndef(BUILD_WITHOUT_QUIC).
+%% Please our CI
 -include_lib("quicer/include/quicer.hrl").
+-endif.
 
 -import(lists, [nth/2]).
 
@@ -210,6 +214,7 @@ t_connect_clean_start(Config) ->
 
     process_flag(trap_exit, false).
 
+-ifndef(BUILD_WITHOUT_QUIC).
 t_connect_clean_start_unresp_old_client(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ClientID = atom_to_binary(?FUNCTION_NAME),
@@ -238,6 +243,13 @@ t_connect_clean_start_unresp_old_client(Config) ->
     {ok, _} = emqtt:ConnFun(Client2),
     waiting_client_process_exit(Client1),
     process_flag(trap_exit, false).
+
+close_quic_conn_silently(quic_connect, Client) ->
+    %% simulate a unresponsive client that server doesn't know it is disconnected
+    {quic, Conn, _Stream} = proplists:get_value(socket, emqtt:info(Client)),
+    _ = quicer:shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0, 10),
+    ok.
+-endif.
 
 t_connect_will_message(Config) ->
     ConnFun = ?config(conn_fun, Config),
@@ -1073,9 +1085,3 @@ t_share_subscribe_no_local(Config) ->
     end,
 
     process_flag(trap_exit, false).
-
-close_quic_conn_silently(quic_connect, Client) ->
-    %% simulate a unresponsive client that server doesn't know it is disconnected
-    {quic, Conn, _Stream} = proplists:get_value(socket, emqtt:info(Client)),
-    _ = quicer:shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0, 10),
-    ok.
