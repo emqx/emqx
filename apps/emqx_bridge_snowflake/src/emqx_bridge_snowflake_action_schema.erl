@@ -115,7 +115,10 @@ fields(direct_parameters) ->
     [{mode, mk(direct, #{required => true, desc => ?DESC("direct_mode")})}];
 fields(aggregation) ->
     [
-        emqx_connector_aggregator_schema:container(),
+        emqx_connector_aggregator_schema:container(#{
+            supported_types => [<<"csv">>],
+            default => <<"csv">>
+        }),
         {time_interval,
             hoconsc:mk(
                 emqx_schema:duration_s(),

@@ -1,6 +1,6 @@
 {application, emqx_connector_aggregator, [
     {description, "EMQX Enterprise Connector Data Aggregator"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {registered, []},
     {applications, [
         kernel,
