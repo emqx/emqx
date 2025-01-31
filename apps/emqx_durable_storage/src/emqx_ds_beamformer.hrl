@@ -22,9 +22,6 @@
     req_id,
     %% PID of the subscribing process:
     client,
-    %% Monitor reference that we use for monitoring the client. It's
-    %% kept in the record for cleanup during normal unsubscribe:
-    mref,
     %% Flow control:
     flowcontrol,
     %%
@@ -35,8 +32,7 @@
     %% Iterator:
     it,
     %% Callback that filters messages that belong to the request:
-    msg_matcher,
-    deadline
+    msg_matcher
 }).
 
 %% Persistent term used to store various global information about the

@@ -16,7 +16,7 @@
 -module(emqx_ds_beamsplitter).
 
 %% API:
--export([dispatch_v2/2]).
+-export([dispatch_v2/4]).
 
 %% internal exports:
 -export([]).
@@ -50,13 +50,14 @@
 
 %% @doc Note: first version of dispatch was implemented in
 %% `emqx_ds_beamformer' module
--spec dispatch_v2(Pack, Destinations) -> ok when
+-spec dispatch_v2(emqx_ds:db(), Pack, Destinations, map()) -> ok when
     Pack :: pack(),
     Destinations :: [destination()].
-dispatch_v2(Pack, Destinations) ->
+dispatch_v2(DB, Pack, Destinations, _Misc) ->
     %% TODO: paralellize fanout? Perhaps sharding messages in the DB
     %% is already sufficient.
     ?tp(emqx_ds_beamsplitter_dispatch, #{pack => Pack, destinations => Destinations}),
+    T0 = erlang:monotonic_time(microsecond),
     lists:foreach(
         fun(?DESTINATION(Client, SubRef, SeqNo, Mask, Flags, EndIterator)) ->
             {Size, Payload} = mk_payload(Pack, Mask, EndIterator),
@@ -71,7 +72,12 @@ dispatch_v2(Pack, Destinations) ->
                 }
         end,
         Destinations
-    ).
+    ),
+    emqx_ds_builtin_metrics:observe_beamsplitter_fanout_time(
+        emqx_ds_builtin_metrics:metric_id([{db, DB}]),
+        erlang:monotonic_time(microsecond) - T0
+    ),
+    ok.
 
 %%================================================================================
 %% Internal exports

@@ -100,7 +100,7 @@ init([CBM, ShardId, Name, _Opts]) ->
         module = CBM,
         shard_id = ShardId,
         sub_tab = emqx_ds_beamformer:make_subtab(ShardId),
-        metrics_id = emqx_ds_beamformer:shard_metrics_id(ShardId),
+        metrics_id = emqx_ds_beamformer:metrics_id(ShardId, catchup),
         name = Name,
         queue = queue_new(),
         batch_size = emqx_ds_beamformer:cfg_batch_size()
@@ -122,12 +122,15 @@ handle_info(?fulfill_loop, S0) ->
     S = fulfill(S0),
     {noreply, S};
 handle_info(
-    ?housekeeping_loop, S0 = #s{}
+    ?housekeeping_loop,
+    S0 = #s{metrics_id = Metrics, name = Name, queue = Queue}
 ) ->
-    %% Reload configuration
+    %% Reload configuration:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
+    %% Update metrics:
+    emqx_ds_builtin_metrics:set_subs_count(Metrics, Name, ets:info(Queue, size)),
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(#unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}) ->
@@ -170,7 +173,9 @@ handle_recoverable(#s{sub_tab = SubTab, queue = Queue, shard_id = DBShard}, Subs
         Subs
     ).
 
-do_enqueue(SubStates, #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue, metrics_id = Metrics}) ->
+do_enqueue(SubStates, #s{
+    shard_id = DBShard, sub_tab = SubTab, queue = Queue
+}) ->
     lists:foreach(
         fun(SubS) ->
             queue_push(Queue, SubS),
@@ -178,10 +183,9 @@ do_enqueue(SubStates, #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue, me
         end,
         SubStates
     ),
-    emqx_ds_builtin_metrics:set_pendingq_len(Metrics, ets:info(Queue, size)),
     ensure_fulfill_loop().
 
-fulfill(S0 = #s{queue = Queue}) ->
+fulfill(S0 = #s{queue = Queue, metrics_id = Metrics}) ->
     %% debug_pending(S),
     case find_older_request(Queue, S0) of
         undefined ->
@@ -190,7 +194,10 @@ fulfill(S0 = #s{queue = Queue}) ->
             ?tp(emqx_ds_beamformer_fulfill_old, #{
                 stream => Stream, topic => TopicFilter, start_key => StartKey
             }),
+            T0 = erlang:monotonic_time(microsecond),
             S = do_fulfill(S0, Stream, TopicFilter, StartKey),
+            T1 = erlang:monotonic_time(microsecond),
+            emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(Metrics, T1 - T0),
             ensure_fulfill_loop(),
             S
     end.
@@ -208,7 +215,14 @@ do_fulfill(
     TopicFilter,
     StartKey
 ) ->
-    case emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, TopicFilter, StartKey, BatchSize) of
+    T0 = erlang:monotonic_time(microsecond),
+    ScanResult = emqx_ds_beamformer:scan_stream(
+        CBM, DBShard, Stream, TopicFilter, StartKey, BatchSize
+    ),
+    emqx_ds_builtin_metrics:observe_beamformer_scan_time(
+        Metrics, erlang:monotonic_time(microsecond) - T0
+    ),
+    case ScanResult of
         {ok, EndKey, []} ->
             %% Empty batch? Try to move request to the RT queue:
             move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey),
@@ -438,7 +452,7 @@ queue_update(Queue, OldReq, Req) ->
 report_metrics(_Metrics, 0) ->
     ok;
 report_metrics(Metrics, NFulfilled) ->
-    emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
+    emqx_ds_builtin_metrics:inc_beams_sent(Metrics, NFulfilled),
     emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled).
 
 -compile({inline, queue_key/1}).

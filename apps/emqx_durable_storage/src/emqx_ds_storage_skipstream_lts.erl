@@ -485,7 +485,6 @@ iterator_match_context(_Shard, GenData, Iterator) ->
     MHB = master_hash_bits(GenData, CTF),
     CTFTokens = words(CTF),
     fun(#match_ctx{compressed_topic = CT, stream_key = SK}) ->
-        %% ?tp(warning, ohay, #{ct => CT, ctf => CTF, sk => SK, last_sk => LastSK}),
         %% Timestamp stored in the iterator follows modulo
         %% 2^64 arithmetic, so in this context `?max_ts' means
         %% 0.

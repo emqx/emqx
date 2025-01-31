@@ -115,7 +115,7 @@ init([CBM, DBShard, Name, _Opts]) ->
         module = CBM,
         shard = DBShard,
         sub_tab = emqx_ds_beamformer:make_subtab(DBShard),
-        metrics_id = emqx_ds_beamformer:shard_metrics_id(DBShard),
+        metrics_id = emqx_ds_beamformer:metrics_id(DBShard, rt),
         name = Name,
         high_watermark = ets:new(high_watermark, [ordered_set, private]),
         queue = emqx_ds_beamformer_waitq:new(),
@@ -134,7 +134,7 @@ handle_cast(#seal_event{rank = Rank}, S = #s{queue = Queue}) ->
     %% Currently generation seal events are treated as stream events,
     %% for each known stream that has the matching rank:
     Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
-    [process_stream_event(false, Stream, S) || Stream <- Streams],
+    _ = [process_stream_event(false, Stream, S) || Stream <- Streams],
     {noreply, S};
 handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
     ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
@@ -155,12 +155,15 @@ handle_cast(_Cast, S) ->
     {noreply, S}.
 
 handle_info(
-    ?housekeeping_loop, S0
+    ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
 ) ->
     %% Reload configuration according from environment variables:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
+    %% Report metrics:
+    PQLen = emqx_ds_beamformer_waitq:size(Queue),
+    emqx_ds_builtin_metrics:set_subs_count(Metrics, Name, PQLen),
     %% Continue the loop:
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
@@ -208,7 +211,7 @@ do_enqueue(
         rank = Rank,
         client = Client
     },
-    S = #s{shard = Shard, queue = Queue, metrics_id = Metrics, module = CBM, sub_tab = SubTab}
+    S = #s{shard = Shard, queue = Queue, module = CBM, sub_tab = SubTab}
 ) ->
     case high_watermark(Stream, S) of
         {ok, HighWatermark} ->
@@ -219,9 +222,6 @@ do_enqueue(
                     }),
                     emqx_ds_beamformer_waitq:insert(Stream, TF, {node(Client), ReqId}, Rank, Queue),
                     emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
-                    %% Report metrics:
-                    PQLen = emqx_ds_beamformer_waitq:size(Queue),
-                    emqx_ds_builtin_metrics:set_waitq_len(Metrics, PQLen),
                     ok;
                 {error, unrecoverable, has_data} ->
                     ?tp(info, beamformer_push_rt_downgrade, #{
@@ -253,14 +253,20 @@ process_stream_event(
     Stream,
     S = #s{
         shard = DBShard,
+        metrics_id = Metrics,
         module = CBM,
         batch_size = BatchSize,
         queue = Queue,
         sub_tab = SubTab
     }
 ) ->
+    T0 = erlang:monotonic_time(microsecond),
     {ok, StartKey} = high_watermark(Stream, S),
-    case emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, ['#'], StartKey, BatchSize) of
+    ScanResult = emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, ['#'], StartKey, BatchSize),
+    emqx_ds_builtin_metrics:observe_beamformer_scan_time(
+        Metrics, erlang:monotonic_time(microsecond) - T0
+    ),
+    case ScanResult of
         {ok, LastKey, []} ->
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream
@@ -299,7 +305,10 @@ process_stream_event(
             ),
             emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
             emqx_ds_beamformer_waitq:del_stream(Stream, Queue)
-    end.
+    end,
+    emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
+        Metrics, erlang:monotonic_time(microsecond) - T0
+    ).
 
 process_batch(
     _Stream,
@@ -312,7 +321,7 @@ process_batch(
     NFulfilled = emqx_ds_beamformer:beams_n_matched(Beams),
     NFulfilled > 0 andalso
         begin
-            emqx_ds_builtin_metrics:inc_poll_requests_fulfilled(Metrics, NFulfilled),
+            emqx_ds_builtin_metrics:inc_beams_sent(Metrics, NFulfilled),
             emqx_ds_builtin_metrics:observe_sharing(Metrics, NFulfilled)
         end,
     %% Send data:

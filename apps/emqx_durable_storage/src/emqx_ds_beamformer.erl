@@ -84,13 +84,13 @@
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
 -export([make_subtab/1, owner_tab/1, take_ownership/3, handle_recoverable_error/2]).
 -export([beams_init/6, beams_add/5, beams_conclude/3, beams_n_matched/1]).
--export([shard_metrics_id/1, send_out_final_beam/4]).
+-export([metrics_id/2, send_out_final_beam/4]).
 -export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
 
 %% internal exports:
 -export([do_dispatch/1]).
-%% Testing/debugging:
--export([ls/1, subscription_info/2]).
+%% Debugging/monitoring:
+-export([ls/0, ls/1, subscription_info/2]).
 
 %% Behavior callbacks:
 -export([callback_mode/0, init/1, terminate/3, handle_event/4]).
@@ -108,7 +108,6 @@
 ]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
--include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include("emqx_ds.hrl").
 -include("emqx_ds_beamformer.hrl").
@@ -183,7 +182,6 @@
     #sub_state{
         req_id :: reference(),
         client :: pid(),
-        mref :: reference(),
         %% Flow control:
         flowcontrol :: flowcontrol(),
         %%
@@ -356,6 +354,13 @@
 -spec start_link(dbshard(), module()) -> {ok, pid()}.
 start_link(DBShard, CBM) ->
     gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
+
+%% @doc Display all `{DB, Shard}' pairs for beamformers running on the
+%% node:
+-spec ls() -> [dbshard()].
+ls() ->
+    MS = {{?name({'$1', '$2'}), '_', '_'}, [], [{{'$1', '$2'}}]},
+    gproc:select({local, names}, [MS]).
 
 %% @doc Display the hieararchy of beamformer workers for the database
 %% (debug).
@@ -538,8 +543,8 @@ beams_conclude(DBShard, NextKey, BB = #beam_builder{per_node = PerNode}) ->
         PerNode
     ).
 
-shard_metrics_id({DB, Shard}) ->
-    emqx_ds_builtin_metrics:shard_metric_id(DB, Shard).
+metrics_id({DB, Shard}, Type) ->
+    emqx_ds_builtin_metrics:metric_id([{db, DB}, {shard, Shard}, {type, Type}]).
 
 %% @doc In case this is a multishot subscription with a parent get
 %% batch seqno and a whether to keep the request in the queue or
@@ -688,6 +693,7 @@ generation_event(DBShard) ->
 
 -record(d, {
     dbshard :: dbshard(),
+    metrics_id,
     stuck_sub_tab :: ets:tid(),
     cbm :: module(),
     monitor_tab = ets:tid(),
@@ -703,9 +709,10 @@ generation_event(DBShard) ->
 callback_mode() ->
     [handle_event_function, state_enter].
 
-init([DBShard, CBM]) ->
+init([DBShard = {DB, Shard}, CBM]) ->
     process_flag(trap_exit, true),
     logger:update_process_metadata(#{dbshard => DBShard}),
+    emqx_ds_builtin_metrics:init_for_beamformer(DB, Shard),
     gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), hash, [{auto_size, true}]),
     gproc_pool:new(emqx_ds_beamformer_rt:pool(DBShard), hash, [{auto_size, true}]),
     logger:debug(#{
@@ -724,6 +731,7 @@ init([DBShard, CBM]) ->
     MTab = ets:new(beamformer_monitor_tab, [private, set]),
     {ok, ?initializing, #d{
         dbshard = DBShard,
+        metrics_id = emqx_ds_builtin_metrics:metric_id([{db, DB}]),
         cbm = CBM,
         monitor_tab = MTab,
         stuck_sub_tab = StuckSubTab,
@@ -769,7 +777,6 @@ handle_event(
             SubState = #sub_state{
                 req_id = SubRef,
                 client = Client,
-                mref = MRef,
                 flowcontrol = {MaxUnacked, FlowControl},
                 rank = Rank,
                 stream = Stream,
@@ -815,11 +822,12 @@ handle_event(
     cast,
     #disown_stuck_req{sub_state = SubState},
     _State,
-    #d{dbshard = DBShard}
+    #d{dbshard = DBShard, metrics_id = Metrics}
 ) ->
     #sub_state{req_id = SubRef} = SubState,
     case ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, undefined}) of
         true ->
+            emqx_ds_builtin_metrics:inc_subs_stuck_total(Metrics),
             %% Subscription was found, insert it to the disowned
             %% table:
             true = ets:insert_new(disowned_sub_tab(DBShard), SubState),
@@ -834,11 +842,12 @@ handle_event(
     {call, From},
     #wakeup_sub_req{id = SubId},
     State,
-    D0 = #d{pending = Pending, stuck_sub_tab = Tab}
+    D0 = #d{pending = Pending, stuck_sub_tab = Tab, metrics_id = Metrics}
 ) ->
     case ets:take(Tab, SubId) of
         [SubS = #sub_state{flowcontrol = {_MaxUnacked, ARef}}] ->
             atomics:put(ARef, ?fc_idx_stuck, 0),
+            emqx_ds_builtin_metrics:inc_subs_unstuck_total(Metrics),
             Reply = {reply, From, ok},
             D = D0#d{pending = [SubS | Pending]},
             case State of
@@ -1233,7 +1242,7 @@ remove_subscription(
             {false, D}
     end.
 
-send_out(DBShard, Node, Pack, Destinations) ->
+send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
     ?tp(debug, beamformer_out, #{
         dest_node => Node,
         destinations => Destinations
@@ -1242,18 +1251,15 @@ send_out(DBShard, Node, Pack, Destinations) ->
         Node ->
             %% TODO: this may block the worker. Introduce a separate
             %% worker for local fanout?
-            emqx_ds_beamsplitter:dispatch_v2(Pack, Destinations);
+            emqx_ds_beamsplitter:dispatch_v2(DB, Pack, Destinations, #{});
         _ ->
-            emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, Pack, Destinations)
+            emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, DB, Pack, Destinations, #{})
     end.
 
 -compile({inline, gvar/1}).
 -spec gvar(dbshard()) -> gvar().
 gvar(DBShard) ->
     persistent_term:get(?pt_gvar(DBShard)).
-
-%% subtab(Shard) ->
-%%     persistent_term:get(?subtid(Shard)).
 
 make_fctab() ->
     ets:new(emqx_ds_beamformer_flow_control_tab, [

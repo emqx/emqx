@@ -57,20 +57,22 @@
 -define(DS_SKIPSTREAM_LTS_FUTURE, emqx_ds_storage_skipstream_lts_future).
 -define(DS_SKIPSTREAM_LTS_EOS, emqx_ds_storage_skipstream_lts_end_of_stream).
 
-%%%% Poll metrics:
-%% Total number of incoming poll requests:
--define(DS_POLL_REQUESTS, emqx_ds_poll_requests).
-%% Number of fulfilled requests:
--define(DS_POLL_REQUESTS_FULFILLED, emqx_ds_poll_requests_fulfilled).
-%% Number of requests dropped due to OLP:
--define(DS_POLL_REQUESTS_DROPPED, emqx_ds_poll_requests_dropped).
-%% Number of requests that expired while waiting for new messages:
--define(DS_POLL_REQUESTS_EXPIRED, emqx_ds_poll_requests_expired).
+%%%% Metrics related to subscription:
+%% Number of active subscriptions:
+-define(DS_SUBS, emqx_ds_subs).
+%% Total number of beams sent by all workers:
+-define(DS_SUBS_BEAMS_SENT_TOTAL, emqx_ds_subs_beams_sent_total).
 %% Measure of "beam coherence": average number of requests fulfilled
 %% by a single beam:
--define(DS_POLL_REQUEST_SHARING, emqx_ds_poll_request_sharing).
-
--define(DS_POLL_WAITING_QUEUE_LEN, emqx_ds_poll_waitq_len).
--define(DS_POLL_PENDING_QUEUE_LEN, emqx_ds_poll_pendingq_len).
+-define(DS_SUBS_REQUEST_SHARING, emqx_ds_subs_request_sharing).
+%% Number of subscription stuck/unstuck events:
+-define(DS_SUBS_STUCK_TOTAL, emqsx_ds_subs_stuck_total).
+-define(DS_SUBS_UNSTUCK_TOTAL, emqsx_ds_subs_unstuck_total).
+%% Sliding average of time spent fulfilling requests per worker type (μs):
+-define(DS_SUBS_FULFILL_TIME, emqx_ds_subs_fulfill_time).
+%% Sliding average of time spent scanning the DB (μs):
+-define(DS_SUBS_SCAN_TIME, emqx_ds_subs_scan_time).
+%% Sliding average of time spent splitting the beam:
+-define(DS_SUBS_FANOUT_TIME, emqx_ds_subs_fanout_time).
 
 -endif.
