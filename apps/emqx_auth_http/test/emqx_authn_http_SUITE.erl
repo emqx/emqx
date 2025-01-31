@@ -22,6 +22,7 @@
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -218,9 +219,9 @@ t_authenticate_path_placeholders(_Config) ->
         end
     ),
 
-    Credentials = ?CREDENTIALS#{
+    Credentials = ?MAPPEND(?CREDENTIALS, #{
         username => <<"us er">>
-    },
+    }),
 
     AuthConfig = maps:merge(
         raw_http_auth_config(),
@@ -430,11 +431,11 @@ t_node_cache(_Config) ->
     ok = emqx_authn_http_test_server:set_handler(Handler),
 
     %% We authenticate twice, the second time should be cached
-    Credentials = ?CREDENTIALS#{
+    Credentials = ?MAPPEND(?CREDENTIALS, #{
         clientid => <<"clientid">>,
         username => <<"username">>,
         password => <<"password">>
-    },
+    }),
     ?assertMatch(
         ?EXCEPTION_ALLOW,
         emqx_access_control:authenticate(Credentials)
