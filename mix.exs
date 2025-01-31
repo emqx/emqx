@@ -150,7 +150,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:ranch),
       # in conflict by grpc and eetcd
       common_dep(:gpb),
-      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
+      common_dep(:hackney),
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
@@ -206,6 +206,10 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.7.1", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
+
+  def common_dep(:hackney),
+    do: {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
+
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1", override: true}
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.3.10", override: true}
