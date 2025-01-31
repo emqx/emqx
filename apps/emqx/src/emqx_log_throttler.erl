@@ -189,6 +189,7 @@ schedule_refresh(PeriodMs) ->
 
 new_throttler(Msg) when
     Msg =:= unrecoverable_resource_error;
+    Msg =:= failed_to_trigger_fallback_action;
     Msg =:= validation_failed;
     Msg =:= transformation_failed
 ->
