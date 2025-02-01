@@ -57,7 +57,7 @@
     module :: module(),
     metrics_id,
     shard_id,
-    sub_tab :: ets:table(),
+    sub_tab :: emqx_ds_beamformer:sub_tab(),
     name,
     queue :: ets:table(),
     batch_size :: non_neg_integer(),
@@ -134,10 +134,10 @@ handle_info(
     erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(#unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}) ->
-    case ets:take(SubTab, SubId) of
-        [] ->
+    case emqx_ds_beamformer:sub_tab_take(SubTab, SubId) of
+        undefined ->
             ok;
-        [SubState] ->
+        {ok, SubState} ->
             queue_drop(Queue, SubState)
     end,
     {noreply, S};
@@ -147,13 +147,7 @@ handle_info(_Info, S) ->
 terminate(Reason, #s{sub_tab = SubTab, shard_id = ShardId, name = Name}) ->
     gproc_pool:disconnect_worker(pool(ShardId), Name),
     gproc_pool:remove_worker(pool(ShardId), Name),
-    %% Should the master to deal with the remaining subscriptions?
-    case Reason of
-        shutdown ->
-            ets:delete(SubTab);
-        _ ->
-            ok
-    end,
+    emqx_ds_beamformer:on_worker_down(SubTab, Reason),
     emqx_ds_lib:terminate(?MODULE, Reason, #{}).
 
 %%================================================================================
@@ -427,9 +421,9 @@ queue_lookup(#s{queue = Queue}, Stream, TopicFilter, StartKey) ->
 %% @doc Lookup requests and enrich them with the data from the
 %% subscription registry:
 lookup_subs(S = #s{sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
-    lists:flatmap(
+    lists:map(
         fun({_Node, ReqId}) ->
-            ets:lookup(Subs, ReqId)
+            emqx_ds_beamformer:sub_tab_lookup(Subs, ReqId)
         end,
         queue_lookup(S, Stream, TopicFilter, StartKey)
     ).
@@ -438,7 +432,7 @@ queue_drop_all(Queue, Stream, TopicFilter, StartKey) ->
     ets:match_delete(Queue, {?queue_key(Stream, TopicFilter, StartKey, '_', '_')}).
 
 drop(Queue, SubTab, Sub = #sub_state{req_id = SubRef}) ->
-    ets:delete(SubTab, SubRef),
+    emqx_ds_beamformer:sub_tab_delete(SubTab, SubRef),
     queue_drop(Queue, Sub).
 
 queue_drop(Queue, SubState) ->

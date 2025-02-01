@@ -82,7 +82,16 @@
 -export([start_link/2, where/1]).
 -export([poll/5, subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
--export([make_subtab/1, owner_tab/1, take_ownership/3, handle_recoverable_error/2]).
+-export([
+    make_subtab/1,
+    take_ownership/3,
+    sub_tab_update/2,
+    sub_tab_delete/2,
+    sub_tab_lookup/2,
+    sub_tab_take/2,
+    on_worker_down/2
+]).
+-export([owner_tab/1, handle_recoverable_error/2]).
 -export([beams_init/6, beams_add/5, beams_conclude/3, beams_n_matched/1]).
 -export([metrics_id/2, send_out_final_beam/4]).
 -export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
@@ -104,7 +113,8 @@
     unpack_iterator_result/1,
     event_topic/0,
     stream_scan_return/0,
-    beam_builder/0
+    beam_builder/0,
+    sub_tab/0
 ]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -249,7 +259,7 @@
     cbm := module(),
     fc_tab := ets:tid(),
     owner_tab := ets:tid(),
-    stuck_sub_tab := ets:tid()
+    stuck_sub_tab := sub_tab()
 }.
 
 %% Beam builder:
@@ -275,7 +285,7 @@
 %% Global builder:
 -record(beam_builder, {
     cbm :: module(),
-    sub_tab :: ets:tid(),
+    sub_tab :: sub_tab(),
     lagging :: boolean(),
     shard_id :: _Shard,
     queue_drop :: fun(),
@@ -285,6 +295,8 @@
 }).
 
 -opaque beam_builder() :: #beam_builder{}.
+
+-opaque sub_tab() :: ets:tid().
 
 %%================================================================================
 %% Callbacks
@@ -379,7 +391,7 @@ poll(_Node, _ReturnAddr, _Shard, _Iterator, #{timeout := _Timeout}) ->
     ok.
 
 %% @doc Create a local subscription registry
--spec make_subtab(dbshard()) -> ok.
+-spec make_subtab(dbshard()) -> sub_tab().
 make_subtab(DBShard) ->
     ets:new(emqx_ds_beamformer_sub_tab, [
         set,
@@ -388,10 +400,48 @@ make_subtab(DBShard) ->
         {heir, where(DBShard), ?heir_info}
     ]).
 
--spec take_ownership(dbshard(), ets:tid(), sub_state()) -> boolean().
+-spec take_ownership(dbshard(), sub_tab(), sub_state()) -> boolean().
 take_ownership(DBShard, SubTab, SubS = #sub_state{req_id = SubRef}) ->
-    true = ets:insert_new(SubTab, SubS),
+    sub_tab_update(SubTab, SubS),
     ets:update_element(owner_tab(DBShard), SubRef, {#owner_tab.owner, self()}).
+
+-spec sub_tab_update(sub_tab(), sub_state()) -> ok.
+sub_tab_update(SubTab, SubS = #sub_state{req_id = _SubRef}) ->
+    ets:insert(SubTab, SubS),
+    ok.
+
+-spec sub_tab_delete(sub_tab(), emqx_ds:sub_ref()) -> ok.
+sub_tab_delete(SubTab, SubRef) ->
+    ets:delete(SubTab, SubRef),
+    ok.
+
+-spec sub_tab_lookup(sub_tab(), emqx_ds:sub_ref()) -> sub_state().
+sub_tab_lookup(SubTab, SubRef) ->
+    case ets:lookup(SubTab, SubRef) of
+        [SubS] ->
+            SubS;
+        [] ->
+            error({not_found, SubRef})
+    end.
+
+-spec sub_tab_take(sub_tab(), emqx_ds:sub_ref()) -> {ok, sub_state()} | undefined.
+sub_tab_take(SubTab, SubRef) ->
+    case ets:take(SubTab, SubRef) of
+        [SubS] ->
+            {ok, SubS};
+        [] ->
+            undefined
+    end.
+
+%% @doc This function must be called by the worker when it terminates.
+-spec on_worker_down(sub_tab(), _ExitReason) -> ok.
+on_worker_down(SubTab, Reason) ->
+    case Reason of
+        shutdown ->
+            ets:delete(SubTab);
+        _ ->
+            ok
+    end.
 
 -spec handle_recoverable_error(dbshard(), [sub_state()]) -> ok.
 handle_recoverable_error(DBShard, SubStates) ->
@@ -426,7 +476,7 @@ shard_event(Shard, Events) ->
 %% error, and send it to the clients. Then delete the subscriptions.
 -spec send_out_final_beam(
     dbshard(),
-    ets:tid(),
+    sub_tab(),
     {ok, end_of_stream} | ?err_unrec(_),
     [sub_state()]
 ) ->
@@ -448,7 +498,7 @@ send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
 
 %% @doc Create an object that is used to incrementally build
 %% destinations for the batch.
--spec beams_init(module(), dbshard(), ets:tid(), boolean(), fun(), fun()) -> beam_builder().
+-spec beams_init(module(), dbshard(), sub_tab(), boolean(), fun(), fun()) -> beam_builder().
 beams_init(CBM, DBShard, SubTab, Lagging, Drop, UpdateQueue) ->
     #beam_builder{
         cbm = CBM,
@@ -549,7 +599,7 @@ metrics_id({DB, Shard}, Type) ->
 %% @doc In case this is a multishot subscription with a parent get
 %% batch seqno and a whether to keep the request in the queue or
 %% remove it:
--spec keep_and_seqno(ets:tid(), sub_state(), pos_integer()) ->
+-spec keep_and_seqno(sub_tab(), sub_state(), pos_integer()) ->
     {boolean(), emqx_ds:sub_seqno() | undefined}.
 keep_and_seqno(_SubTab, #sub_state{flowcontrol = FC}, Nmsgs) ->
     try
@@ -1011,7 +1061,7 @@ beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef
         #{SubRef := BBS0 = #beam_builder_sub{matcher = Matcher, s = SubS}} ->
             ok;
         #{} ->
-            [SubS] = ets:lookup(SubTab, SubRef),
+            SubS = sub_tab_lookup(SubTab, SubRef),
             Matcher = Mod:iterator_match_context(DBShard, SubS#sub_state.it),
             BBS0 = undefined
     end,
@@ -1086,7 +1136,7 @@ owner_tab(DBShard) ->
 %% the worker when it drops the subscription from its active queue:
 -spec disown_stuck_subscription(dbshard(), ets:tid(), sub_state()) -> ok.
 disown_stuck_subscription(DBShard, SubTab, #sub_state{req_id = SubRef}) ->
-    [SubState] = ets:take(SubTab, SubRef),
+    {ok, SubState} = sub_tab_take(SubTab, SubRef),
     gen_statem:cast(?via(DBShard), #disown_stuck_req{sub_state = SubState}).
 
 -spec disowned_sub_tab(dbshard()) -> ets:tid().
@@ -1122,7 +1172,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
                 {ok, It} = update_iterator(CBM, DBShard, It0, NextKey),
                 %% Update the subscription state:
                 SubS = SubS0#sub_state{it = It, start_key = NextKey},
-                ets:insert(SubTab, SubS),
+                sub_tab_update(SubTab, SubS),
                 %% Update sequence number and check if the
                 %% subscription should remain active:
                 {Active, SeqNo} = keep_and_seqno(SubTab, SubS0, NMsgs),
@@ -1168,7 +1218,7 @@ send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
         ) ->
             {_MaxUnacked, ARef} = FC,
             SeqNo = atomics:add_get(ARef, ?fc_idx_seqno, 1),
-            ets:delete(SubTab, SubId),
+            sub_tab_delete(SubTab, SubId),
             ?DESTINATION(Client, SubId, SeqNo, Mask, 0, It)
         end,
         Reqs
@@ -1226,7 +1276,7 @@ remove_subscription(
     SubId, D = #d{dbshard = DBShard, stuck_sub_tab = SubTab, monitor_tab = MTab, pending = Pending}
 ) ->
     ets:delete(fc_tab(DBShard), SubId),
-    ets:delete(SubTab, SubId),
+    sub_tab_delete(SubTab, SubId),
     case ets:take(owner_tab(DBShard), SubId) of
         [#owner_tab{owner = Owner, mref = MRef}] ->
             %% Remove client monitoring:

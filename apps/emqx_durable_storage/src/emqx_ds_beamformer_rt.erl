@@ -46,7 +46,7 @@
     module :: module(),
     metrics_id,
     shard,
-    sub_tab :: ets:table(),
+    sub_tab :: emqx_ds_beamformer:sub_tab(),
     name,
     high_watermark :: ets:tid(),
     queue :: emqx_ds_beamformer_waitq:t(),
@@ -170,10 +170,10 @@ handle_info(
 handle_info(
     #unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}
 ) ->
-    case ets:take(SubTab, SubId) of
-        [] ->
+    case emqx_ds_beamformer:sub_tab_take(SubTab, SubId) of
+        undefined ->
             ok;
-        [SubS] ->
+        {ok, SubS} ->
             queue_drop(Queue, SubS)
     end,
     {noreply, S};
@@ -184,13 +184,7 @@ terminate(Reason, #s{shard = ShardId, name = Name, sub_tab = SubTab}) ->
     Pool = pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
-    %% Should the master to deal with the remaining subscriptions?
-    case Reason of
-        shutdown ->
-            ets:delete(SubTab);
-        _ ->
-            ok
-    end,
+    emqx_ds_beamformer:on_worker_down(SubTab, Reason),
     emqx_ds_lib:terminate(?MODULE, Reason, #{}).
 
 %%================================================================================
@@ -248,7 +242,15 @@ do_enqueue(
             {error, unrecoverable, unknown_stream}
     end.
 
-process_stream_event(
+process_stream_event(RetryOnEmpty, Stream, S) ->
+    T0 = erlang:monotonic_time(microsecond),
+    do_process_stream_event(RetryOnEmpty, Stream, S),
+    emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
+        S#s.metrics_id,
+        erlang:monotonic_time(microsecond) - T0
+    ).
+
+do_process_stream_event(
     _RetryOnEmpty,
     Stream,
     S = #s{
@@ -260,8 +262,8 @@ process_stream_event(
         sub_tab = SubTab
     }
 ) ->
-    T0 = erlang:monotonic_time(microsecond),
     {ok, StartKey} = high_watermark(Stream, S),
+    T0 = erlang:monotonic_time(microsecond),
     ScanResult = emqx_ds_beamformer:scan_stream(CBM, DBShard, Stream, ['#'], StartKey, BatchSize),
     emqx_ds_builtin_metrics:observe_beamformer_scan_time(
         Metrics, erlang:monotonic_time(microsecond) - T0
@@ -286,7 +288,7 @@ process_stream_event(
             ),
             process_batch(Stream, LastKey, Batch, S, Beams),
             set_high_watermark(Stream, LastKey, S),
-            process_stream_event(false, Stream, S);
+            do_process_stream_event(false, Stream, S);
         {error, recoverable, _Err} ->
             %% FIXME:
             exit(retry);
@@ -299,16 +301,13 @@ process_stream_event(
                         Other
                 end,
             Ids = emqx_ds_beamformer_waitq:matching_keys(Stream, ['#'], Queue),
-            MatchReqs = lists:flatmap(
-                fun({_Node, SubId}) -> ets:lookup(SubTab, SubId) end,
+            MatchReqs = lists:map(
+                fun({_Node, SubId}) -> emqx_ds_beamformer:sub_tab_lookup(SubTab, SubId) end,
                 Ids
             ),
             emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
             emqx_ds_beamformer_waitq:del_stream(Stream, Queue)
-    end,
-    emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
-        Metrics, erlang:monotonic_time(microsecond) - T0
-    ).
+    end.
 
 process_batch(
     _Stream,

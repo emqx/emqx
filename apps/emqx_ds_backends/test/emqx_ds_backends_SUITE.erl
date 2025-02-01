@@ -568,7 +568,7 @@ t_sub_unsub(Config) ->
 %% unsubscribing. We test this by creating a subscription from a
 %% temporary process that exits normally. DS should automatically
 %% remove this subscription.
-t_dead_subscriber_cleanup(Config) ->
+t_sub_dead_subscriber_cleanup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
@@ -614,7 +614,7 @@ t_dead_subscriber_cleanup(Config) ->
 
 %% @doc Verify that a client receives `DOWN' message when the server
 %% goes down:
-t_shard_down_notify(Config) ->
+t_sub_shard_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
@@ -631,7 +631,7 @@ t_shard_down_notify(Config) ->
 
 %% @doc Verify that a client is notified when the beamformer worker
 %% currently owning the subscription dies:
-t_worker_down_notify(Config) ->
+t_sub_worker_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{},
@@ -667,7 +667,7 @@ t_worker_down_notify(Config) ->
 %% @doc Verify behavior of a subscription that replayes old messages.
 %% This testcase focuses on the correctness of `catchup' beamformer
 %% workers.
-t_catchup(Config) ->
+t_sub_catchup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
@@ -743,7 +743,7 @@ t_catchup(Config) ->
 %% @doc Verify behavior of a subscription that always stays at the top
 %% of the stream. This testcase focuses on the correctness of
 %% `rt' beamformer workers.
-t_realtime(Config) ->
+t_sub_realtime(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
@@ -807,7 +807,7 @@ t_realtime(Config) ->
 
 %% @doc This testcase verifies that multiple clients can consume
 %% messages from a topics with injected wildcards in parallel:
-t_subscribe_wildcard(Config) ->
+t_sub_wildcard(Config) ->
     DB = ?FUNCTION_NAME,
     Topics = [<<"t/1">>, <<"t/2">>, <<"t/3">>],
     ?check_trace(
@@ -850,7 +850,7 @@ verify_receive(Messages, [#{topic := TF, sub_ref := SubRef} | Rest]) ->
     length(Expected) + verify_receive(Messages, Rest).
 
 %% @doc This testcase emulates a slow subscriber.
-t_slow_sub(Config) ->
+t_sub_slow(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
@@ -926,7 +926,7 @@ t_slow_sub(Config) ->
 
 %% @doc Remove generation during catchup. The client should receive an
 %% unrecoverable error.
-t_catchup_unrecoverable(Config) ->
+t_sub_catchup_unrecoverable(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
@@ -1077,9 +1077,11 @@ suite() ->
 
 init_per_testcase(TC, Config) ->
     Backend = proplists:get_value(backend, Config),
+    %% TODO: add a nicer way to deal with transient configuration. It
+    %% should be possible to pass options like this to `open_db':
     AppConfig =
         case TC of
-            _ when TC =:= t_catchup; TC =:= t_catchup_unrecoverable ->
+            _ when TC =:= t_sub_catchup; TC =:= t_sub_catchup_unrecoverable ->
                 #{emqx_durable_storage => #{override_env => [{poll_batch_size, 5}]}};
             _ ->
                 #{}
