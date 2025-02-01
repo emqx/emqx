@@ -14,7 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc
+%% @doc This module implements a "realtime" beamformer worker serving
+%% subscriptions that reached end of the stream.
 -module(emqx_ds_beamformer_rt).
 
 -feature(maybe_expr, enable).

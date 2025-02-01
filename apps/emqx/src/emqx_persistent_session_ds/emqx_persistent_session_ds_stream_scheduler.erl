@@ -745,7 +745,7 @@ renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0}) ->
                 Subscription ->
                     TopicFilter = emqx_topic:words(TopicFilterBin),
                     #sub_metadata{pending_streams = Cache} = SubS0,
-                    #{RankX := Pending0} = Cache,
+                    Pending0 = maps:get(RankX, Cache, []),
                     {NewSRSIds, S, Pending} = do_renew_streams_for_x(
                         S0, TopicFilter, Subscription, RankX, Pending0
                     ),
