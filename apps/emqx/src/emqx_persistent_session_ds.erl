@@ -1420,7 +1420,7 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
 -compile({inline, schedule_delivery/1}).
 -spec schedule_delivery(session()) -> session().
 schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := false}) ->
-    self() ! {timeout, true, {emqx_session, ?TIMER_DRAIN_INFLIGHT}},
+    self() ! {timeout, make_ref(), {emqx_session, ?TIMER_DRAIN_INFLIGHT}},
     Session#{?TIMER_DRAIN_INFLIGHT := true};
 schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := true}) ->
     Session.
