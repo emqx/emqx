@@ -990,7 +990,11 @@ t_publish_many_while_client_is_gone(Config) ->
     ct:pal("Msgs3 = ~p", [Msgs3]),
     ?assertMatch(
         [<<"M10">>, <<"M11">>, <<"M12">>],
-        [I || #{payload := I} <- Msgs3]
+        [
+            I
+         || #{payload := I, client_pid := C3} <- Msgs3,
+            C3 =:= Client3
+        ]
     ),
 
     ok = disconnect_client(Client3).
