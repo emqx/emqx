@@ -8,8 +8,6 @@
 
 -export([admins/1]).
 
--import(emqx_dashboard_cli, [bin/1, print_error/1]).
-
 admins(["add", Username, Password]) ->
     admins(["add", Username, Password, ""]);
 admins(["add", Username, Password, Desc]) ->
@@ -44,13 +42,39 @@ admins(["del", Username, BackendName]) ->
         {error, Reason} ->
             print_error(Reason)
     end;
+admins(["mfa", Username, "disable" | _]) ->
+    case emqx_dashboard_admin:disable_mfa(bin(Username)) of
+        {ok, ok} ->
+            ok;
+        {error, Reason} ->
+            print_error(Reason)
+    end;
+admins(["mfa", Username, Action]) ->
+    admins(["mfa", Username, Action, "totp"]);
+admins(["mfa", Username, "enable", Mechanism0]) ->
+    try emqx_dashboard_mfa:mechanism(bin(Mechanism0)) of
+        Mechanism ->
+            case emqx_dashboard_admin:enable_mfa(bin(Username), Mechanism) of
+                ok ->
+                    emqx_ctl:print("ok~n");
+                {error, Reason} ->
+                    print_error(Reason)
+            end
+    catch
+        throw:unsupported_mfa_mechanism ->
+            print_error(<<"Unsupported MFA mechanism">>)
+    end;
 admins(_) ->
     emqx_ctl:usage(
         [
             {"admins add <Username> <Password> <Description> <Role>", "Add dashboard user"},
             {"admins passwd <Username> <Password>", "Reset dashboard user password"},
             {"admins del <Username> <Backend>",
-                "Delete dashboard user, <Backend> can be omitted, the default value is 'local'"}
+                "Delete dashboard user, <Backend> can be omitted, the default value is 'local'"},
+            {"admins mfa <Username> disable", "disable Multi-factor authentication for the user"},
+            {"admins mfa <Username> enable [<Mechanism>]",
+                "Enable Multi-factor authentication. "
+                "Default mechanism is 'totp' (Authenticator App)"}
         ]
     ).
 
@@ -64,3 +88,8 @@ delete_user(Username) ->
         {error, Reason} ->
             print_error(Reason)
     end.
+
+bin(X) -> iolist_to_binary(X).
+
+print_error(X) ->
+    emqx_dashboard_cli:print_error(X).

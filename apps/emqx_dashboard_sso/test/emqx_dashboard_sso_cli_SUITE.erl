@@ -22,7 +22,7 @@
     )
 ).
 
-all() -> [t_add, t_passwd, t_del].
+all() -> [t_add, t_passwd, t_del, t_mfa].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -39,7 +39,17 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-t_add(_) ->
+init_per_testcase(Case, Config) ->
+    ?MODULE:Case({init, Config}).
+
+end_per_testcase(Case, Config) ->
+    ?MODULE:Case({'end', Config}).
+
+t_add({init, Config}) ->
+    Config;
+t_add({'end', _Config}) ->
+    ok;
+t_add(_Config) ->
     admins(["add", "user1", "password1"]),
     admins(["add", "user2", "password2", "user2"]),
     admins(["add", "user3", "password3", "user3", ?ROLE_VIEWER]),
@@ -81,6 +91,10 @@ t_add(_) ->
     ),
     ok.
 
+t_passwd({init, Config}) ->
+    Config;
+t_passwd({'end', _Config}) ->
+    ok;
 t_passwd(_) ->
     [#?ADMIN{pwdhash = Old}] = emqx_dashboard_admin:lookup_user(<<"user1">>),
     admins(["passwd", "user1", "newpassword1"]),
@@ -88,6 +102,10 @@ t_passwd(_) ->
     ?assertNotEqual(Old, New),
     ok.
 
+t_del({init, Config}) ->
+    Config;
+t_del({'end', _Config}) ->
+    ok;
 t_del(_) ->
     admins(["del", "user1"]),
     ?assertEqual([], emqx_dashboard_admin:lookup_user(<<"user1">>)),
@@ -106,3 +124,42 @@ t_del(_) ->
     admins(["del", "user4", ldap]),
     ?assertEqual([], emqx_dashboard_admin:lookup_user(?SSO_USERNAME(ldap, <<"user4">>))),
     ok.
+
+t_mfa({init, Config}) ->
+    meck:new(emqx_dashboard_cli, [passthrough, no_history, no_link]),
+    meck:expect(emqx_dashboard_cli, print_error, fun(X) -> {print_error, X} end),
+    meck:expect(emqx_ctl, usage, fun(_X) -> print_usage end),
+    Config;
+t_mfa({'end', _Config}) ->
+    meck:unload(emqx_dashboard_cli);
+t_mfa(_) ->
+    Username = "usermfa1",
+    ?assertEqual(print_usage, admins(["mfa"])),
+    ?assertEqual(print_usage, admins(["mfa", Username])),
+    ?assertMatch(
+        {print_error, <<"username_not_found">>}, admins(["mfa", "unknownuser1", "enable"])
+    ),
+    ?assertMatch(
+        {print_error, <<"username_not_found">>}, admins(["mfa", "unknownuser1", "disable"])
+    ),
+    ok = admins(["add", Username, "password1"]),
+    [#?ADMIN{}] = emqx_dashboard_admin:lookup_user(bin(Username)),
+    ?assertEqual({error, no_mfa_state}, emqx_dashboard_admin:get_mfa_state(bin(Username))),
+    ok = admins(["mfa", Username, "disable"]),
+    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(bin(Username))),
+    ok = admins(["mfa", Username, "enable"]),
+    ?assertMatch(
+        {print_error, <<"MFA is already enabled using 'totp'">>},
+        admins(["mfa", Username, "enable", "totp"])
+    ),
+    ok = admins(["mfa", Username, "disable"]),
+    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(bin(Username))),
+    %% disable again should be ok
+    ?assertEqual({ok, disabled}, emqx_dashboard_admin:get_mfa_state(bin(Username))),
+    ?assertMatch(
+        {print_error, <<"Unsupported MFA mechanism">>},
+        admins(["mfa", Username, "enable", "no-such-mechanism"])
+    ),
+    ok.
+
+bin(X) -> iolist_to_binary(X).

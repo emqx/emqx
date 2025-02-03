@@ -40,6 +40,7 @@
     lookup_user/1,
     change_password_trusted/2,
     change_password/3,
+    enable_mfa/2,
     all_users/0,
     check/2,
     check/3
@@ -142,7 +143,7 @@ get_mfa_state(Username) ->
         [#?ADMIN{extra = #{mfa_state := S}}] ->
             {ok, S};
         [_] ->
-            {error, no_mfa_sate};
+            {error, no_mfa_state};
         [] ->
             {error, username_not_found}
     end.
@@ -175,6 +176,23 @@ disable_mfa2(Username) ->
             Extra = Admin#?ADMIN.extra,
             ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => disabled}})
     end.
+
+%% @doc Enable MFA state.
+%% Return error if it's already enabled.
+enable_mfa(Username, Mechanism) ->
+    case get_mfa_enabled_state(Username) of
+        {ok, #{mechanism := Mechanism0}} ->
+            {error, binfmt("MFA is already enabled using '~p'", [Mechanism0])};
+        {error, username_not_found} ->
+            {error, <<"username_not_found">>};
+        {error, _} ->
+            reinit_mfa(Username, Mechanism)
+    end.
+
+reinit_mfa(Username, Mechanism) ->
+    {ok, State} = emqx_dashboard_mfa:init(Mechanism),
+    {ok, ok} = set_mfa_state(Username, State),
+    ok.
 
 %% @doc Set MFA state.
 set_mfa_state(Username, MfaState) ->
@@ -579,9 +597,7 @@ maybe_init_mfa_state(Username) ->
                     %% or explicitly disabled
                     ok;
                 _ ->
-                    {ok, State} = emqx_dashboard_mfa:init(Mechanism),
-                    {ok, ok} = set_mfa_state(Username, State),
-                    ok
+                    reinit_mfa(Username, Mechanism)
             end
     end.
 
@@ -618,6 +634,9 @@ destroy_token_by_username(Username, Token) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+binfmt(Fmt, Args) ->
+    iolist_to_binary(io_lib:format(Fmt, Args)).
+
 default_username() ->
     binenv(default_username).
 

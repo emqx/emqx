@@ -20,6 +20,7 @@
 -export([
     init/1,
     verify/2,
+    mechanism/1,
     make_token_missing_error/1,
     is_mfa_error/1,
     is_need_setup_error/1,
@@ -34,6 +35,11 @@
 
 -define(TOTP_KEY_BYTES, 20).
 -define(NO_FIRST_VERIFY_TS, 0).
+
+%% @doc Translate binary format mechanism name to atom.
+-spec mechanism(binary()) -> mechanism().
+mechanism(<<"totp">>) -> totp;
+mechanism(_X) -> throw(unsupported_mfa_mechanism).
 
 %% @doc Return a list of supported mechanisms
 -spec supported_mechanisms() -> [totp].
