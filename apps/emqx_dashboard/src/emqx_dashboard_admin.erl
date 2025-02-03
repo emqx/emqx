@@ -103,7 +103,7 @@ backup_tables() -> {<<"dashboard_users">>, [?ADMIN]}.
 
 -spec add_default_user() -> {ok, map() | empty | default_user_exists} | {error, any()}.
 add_default_user() ->
-    add_default_user(binenv(default_username), binenv(default_password)).
+    add_default_user(binenv(default_username), default_password()).
 
 %%--------------------------------------------------------------------
 %% API
@@ -441,6 +441,11 @@ destroy_token_by_username(Username, Token) ->
 %%--------------------------------------------------------------------
 default_username() ->
     binenv(default_username).
+
+default_password() ->
+    RawWrapped = emqx_conf:get([dashboard, default_password], <<"">>),
+    Raw = emqx_secret:unwrap(RawWrapped),
+    iolist_to_binary(Raw).
 
 binenv(Key) ->
     iolist_to_binary(emqx_conf:get([dashboard, Key], "")).
