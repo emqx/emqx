@@ -701,7 +701,12 @@ subscribe(Server, Client, SubId, It, Opts = #{max_unacked := MaxUnacked}) when
 
 -spec unsubscribe(dbshard(), emqx_ds:sub_ref()) -> boolean().
 unsubscribe(DBShard, SubId) ->
-    gen_statem:call(?via(DBShard), #unsub_req{id = SubId}).
+    try
+        gen_statem:call(?via(DBShard), #unsub_req{id = SubId})
+    catch
+        exit:{noproc, _} ->
+            false
+    end.
 
 %% @doc Ack payloads up to a sequence number:
 -spec suback(dbshard(), emqx_ds:sub_ref(), emqx_ds:sub_seqno()) -> ok | {error, _}.
