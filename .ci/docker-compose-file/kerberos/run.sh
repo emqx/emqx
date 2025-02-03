@@ -43,5 +43,14 @@ for fn in /var/log/kerberos/* ; do
   cat "$fn"
 done
 
+if [ -n "${DOCKER_USER}" ] && [ "${DOCKER_USER}" != "root" ] ; then
+echo "===== Changing keytabs ownership"
+chown "${DOCKER_USER}" /var/lib/secret/erlang.keytab
+chown "${DOCKER_USER}" /var/lib/secret/kafka.keytab
+chown "${DOCKER_USER}" /var/lib/secret/krb_authn_cli.keytab
+chown "${DOCKER_USER}" /var/lib/secret/rig.keytab
+ls -la /var/lib/secret
+fi
+
 echo "===== STARTING KDC"
 /usr/sbin/krb5kdc -n

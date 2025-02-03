@@ -350,7 +350,6 @@ if [ "$DOCKER_USER" != "root" ]; then
           openssl rand -base64 -hex 16 > /.erlang.cookie && \
           chown $DOCKER_USER /.erlang.cookie && \
           chmod 0400 /.erlang.cookie && \
-          chown -R $DOCKER_USER /var/lib/secret && \
           $INSTALL_SQLSERVER_ODBC && \
           $INSTALL_SNOWFLAKE_ODBC" || true
 fi

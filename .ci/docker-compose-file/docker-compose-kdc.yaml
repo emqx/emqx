@@ -16,4 +16,6 @@ services:
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
       - ./kerberos/run.sh:/usr/bin/run.sh
+    environment:
+      - DOCKER_USER
     command: run.sh
