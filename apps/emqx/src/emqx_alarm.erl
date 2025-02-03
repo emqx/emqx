@@ -423,7 +423,8 @@ do_actions(deactivate, Alarm = #deactivated_alarm{name = Name}, [log | More]) ->
     do_actions(deactivate, Alarm, More);
 do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
-    {ok, Payload} = emqx_utils_json:safe_encode(normalize(Alarm)),
+    NormalizedAlarm = normalize(Alarm),
+    {ok, Payload} = emqx_utils_json:safe_encode(NormalizedAlarm),
     Message = emqx_message:make(
         ?MODULE,
         0,
@@ -433,6 +434,15 @@ do_actions(Operation, Alarm, [publish | More]) ->
         #{properties => #{'Content-Type' => <<"application/json">>}}
     ),
     _ = emqx_broker:safe_publish(Message),
+    _ =
+        case Operation of
+            activate ->
+                ActivatedAlarmContext = to_activated_alarm_context(NormalizedAlarm),
+                emqx_hooks:run('alarm.activated', [ActivatedAlarmContext]);
+            deactivate ->
+                DeactivatedAlarmContext = to_deactivated_alarm_context(NormalizedAlarm),
+                emqx_hooks:run('alarm.deactivated', [DeactivatedAlarmContext])
+        end,
     do_actions(Operation, Alarm, More).
 
 topic(activate) ->
@@ -470,10 +480,21 @@ normalize(#deactivated_alarm{
         activated => false
     }.
 
+normalize_message(Name, <<"">>) when is_binary(Name) ->
+    Name;
 normalize_message(Name, <<"">>) ->
-    list_to_binary(io_lib:format("~p", [Name]));
+    iolist_to_binary(io_lib:format("~p", [Name]));
 normalize_message(_Name, Message) ->
     Message.
+
+to_activated_alarm_context(NormalizedAlarm) ->
+    Ctx0 = maps:with([name, details, message, activate_at], NormalizedAlarm),
+    emqx_utils_maps:rename(activate_at, activated_at, Ctx0).
+
+to_deactivated_alarm_context(NormalizedAlarm) ->
+    Ctx0 = maps:with([name, details, message, activate_at, deactivate_at], NormalizedAlarm),
+    Ctx1 = emqx_utils_maps:rename(activate_at, activated_at, Ctx0),
+    emqx_utils_maps:rename(deactivate_at, deactivated_at, Ctx1).
 
 safe_call(Req) ->
     try
