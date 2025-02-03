@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -149,6 +150,11 @@ source_from({v1, Id}) ->
     <<"\"$bridges/", Id/binary, "\" ">>;
 source_from({v2, Id}) ->
     <<"\"$sources/", Id/binary, "\" ">>.
+
+spy_action(Selected, Envs, #{pid := TestPidBin}) ->
+    TestPid = list_to_pid(binary_to_list(TestPidBin)),
+    TestPid ! {rule_called, #{selected => Selected, envs => Envs}},
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -618,4 +624,71 @@ t_create_rule_with_null_id(_Config) ->
         {200, #{<<"data">> := [_, _]}},
         list_rules([])
     ),
+    ok.
+
+%% Smoke tests for `$events/alarm_activated' and `$events/alarm_deactivated'.
+t_alarm_events(_Config) ->
+    TestPidBin = list_to_binary(pid_to_list(self())),
+    {201, _} = create_rule(#{
+        <<"id">> => <<"alarms">>,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"$events/alarm_activated\", ">>,
+            <<" \"$events/alarm_deactivated\" ">>
+        ]),
+        <<"actions">> => [
+            #{
+                <<"function">> => <<?MODULE_STRING, ":spy_action">>,
+                <<"args">> => #{<<"pid">> => TestPidBin}
+            }
+        ]
+    }),
+    AlarmName = <<"some_alarm">>,
+    Details = #{more => details},
+    Message = [<<"some">>, $\s | [<<"io">>, "list"]],
+    emqx_alarm:activate(AlarmName, Details, Message),
+    ?assertReceive(
+        {rule_called, #{
+            selected :=
+                #{
+                    message := <<"some iolist">>,
+                    details := #{more := details},
+                    name := AlarmName,
+                    activated_at := _,
+                    event := 'alarm.activated'
+                }
+        }}
+    ),
+
+    %% Activating an active alarm shouldn't trigger the event again.
+    emqx_alarm:activate(AlarmName, Details, Message),
+    emqx_alarm:activate(AlarmName, Details),
+    emqx_alarm:activate(AlarmName),
+    emqx_alarm:safe_activate(AlarmName, Details, Message),
+    ?assertNotReceive({rule_called, _}),
+
+    DeactivateMessage = <<"deactivating">>,
+    DeactivateDetails = #{new => details},
+    emqx_alarm:deactivate(AlarmName, DeactivateDetails, DeactivateMessage),
+    ?assertReceive(
+        {rule_called, #{
+            selected :=
+                #{
+                    message := DeactivateMessage,
+                    details := DeactivateDetails,
+                    name := AlarmName,
+                    activated_at := _,
+                    deactivated_at := _,
+                    event := 'alarm.deactivated'
+                }
+        }}
+    ),
+
+    %% Deactivating an inactive alarm shouldn't trigger the event again.
+    emqx_alarm:deactivate(AlarmName),
+    emqx_alarm:deactivate(AlarmName, Details),
+    emqx_alarm:deactivate(AlarmName, Details, Message),
+    emqx_alarm:safe_deactivate(AlarmName),
+    ?assertNotReceive({rule_called, _}),
+
     ok.

@@ -1,7 +1,7 @@
 ## depends on kafka; see `./docker-file-compose-kafka.yaml`.
 services:
   confluent_schema_registry: &cpsr
-    image: public.ecr.aws/ews-network/confluentinc/cp-schema-registry:7.5.1
+    image: confluentinc/cp-schema-registry:7.5.1
     container_name: confluent_schema_registry
     restart: always
     depends_on:
