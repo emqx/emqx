@@ -1184,7 +1184,7 @@ do_publish(
                 Channel
             );
         {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ok = metrics_inc(Ctx, 'packets.publish.dropped'),
+            ok = metrics_inc(Ctx, 'messages.dropped.receive_maximum'),
             handle_out(puback, {TopicId, MsgId, ?SN_RC_CONGESTION}, Channel)
     end.
 

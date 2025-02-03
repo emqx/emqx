@@ -652,7 +652,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             ),
             case QoS of
                 ?QOS_0 ->
-                    ok = emqx_metrics:inc('packets.publish.dropped'),
+                    ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
                     {ok, NChannel};
                 ?QOS_1 ->
                     handle_out(puback, {PacketId, Rc}, NChannel);
@@ -741,7 +741,7 @@ do_publish(
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ok = emqx_metrics:inc('packets.publish.dropped'),
+            ok = emqx_metrics:inc('messages.dropped.receive_maximum'),
             handle_out(disconnect, RC, Channel)
     end.
 
