@@ -757,6 +757,7 @@ t_sub_realtime(Config) ->
             {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             timer:sleep(1_000),
             %% Publish/consume/ack loop:
+            ?tp(notice, test_publish_first_batch, #{}),
             publish_seq(DB, <<"t">>, 1, 2),
             ?assertMatch(
                 [
@@ -776,6 +777,7 @@ t_sub_realtime(Config) ->
                 recv(SubRef, 2),
                 #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
+            ?tp(notice, test_publish_second_batch, #{}),
             publish_seq(DB, <<"t">>, 3, 4),
             ?assertMatch(
                 [
@@ -798,6 +800,7 @@ t_sub_realtime(Config) ->
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 4)),
             %% Close the generation. The subscriber should be promptly
             %% notified:
+            ?tp(notice, test_rotate_generations, #{}),
             ?assertMatch(ok, emqx_ds:add_generation(DB)),
             ?assertMatch(
                 [#poll_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],

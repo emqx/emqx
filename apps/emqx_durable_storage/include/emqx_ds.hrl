@@ -42,7 +42,7 @@
 
 -record(poll_reply, {
     ref :: reference(),
-    payload :: emqx_ds:next_result() | poll_timeout,
+    payload :: emqx_ds:next_result(),
     seqno :: emqx_ds:sub_seqno() | undefined,
     size :: non_neg_integer(),
     %% Set to `true' when the subscription becomes inactive due to

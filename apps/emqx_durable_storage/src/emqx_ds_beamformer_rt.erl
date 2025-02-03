@@ -85,9 +85,9 @@ start_link(Mod, ShardId, Name, Opts) ->
 shard_event(Shard, Events) ->
     Pool = pool(Shard),
     lists:foreach(
-        fun(Event = Stream) ->
+        fun(Stream) ->
             Worker = gproc_pool:pick_worker(Pool, Stream),
-            Worker ! #shard_event{event = Event}
+            Worker ! stream_event(Stream)
         end,
         Events
     ).
@@ -255,7 +255,7 @@ process_stream_event(RetryOnEmpty, Stream, S) ->
     ).
 
 do_process_stream_event(
-    _RetryOnEmpty,
+    RetryOnEmpty,
     Stream,
     S = #s{
         shard = DBShard,
@@ -275,8 +275,15 @@ do_process_stream_event(
     case ScanResult of
         {ok, LastKey, []} ->
             ?tp(beamformer_rt_batch, #{
-                shard => DBShard, from => StartKey, to => LastKey, stream => Stream
+                shard => DBShard, from => StartKey, to => LastKey, stream => Stream, empty => true
             }),
+            %% Race condition: event arrived before the data became
+            %% available. Retry later:
+            RetryOnEmpty andalso
+                begin
+                    ?tp(debug, beamformer_rt_retry_event, #{stream => Stream}),
+                    erlang:send_after(10, self(), stream_event(Stream))
+                end,
             set_high_watermark(Stream, LastKey, S);
         {ok, LastKey, Batch} ->
             ?tp(beamformer_rt_batch, #{
@@ -374,3 +381,7 @@ flush_similar_events(E = #shard_event{}) ->
     after 0 ->
         ok
     end.
+
+-compile({inline, stream_event/1}).
+stream_event(Stream) ->
+    #shard_event{event = Stream}.
