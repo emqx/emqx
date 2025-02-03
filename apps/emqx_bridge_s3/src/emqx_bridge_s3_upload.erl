@@ -119,17 +119,9 @@ fields(s3_aggregated_upload_parameters) ->
                         desc => ?DESC(s3_aggregated_upload_mode)
                     }
                 )},
-            {container,
-                hoconsc:mk(
-                    emqx_schema:mkunion(type, #{
-                        <<"csv">> => ?REF(s3_aggregated_container_csv)
-                    }),
-                    #{
-                        required => true,
-                        default => #{<<"type">> => <<"csv">>},
-                        desc => ?DESC(s3_aggregated_container)
-                    }
-                )},
+            emqx_connector_aggregator_schema:container(#{
+                meta => #{desc => ?DESC(s3_aggregated_container)}
+            }),
             {aggregation,
                 hoconsc:mk(
                     ?REF(s3_aggregation),
@@ -306,6 +298,8 @@ normalize_headers(Headers) ->
 
 mk_container_headers(#{type := csv}) ->
     #{"content-type" => "text/csv"};
+mk_container_headers(#{type := json_lines}) ->
+    #{"content-type" => "application/jsonl"};
 mk_container_headers(#{}) ->
     #{}.
 
