@@ -43,7 +43,8 @@
     peername/1,
     sockname/1,
     peercert/1,
-    peersni/1
+    peersni/1,
+    wait_for_close/1
 ]).
 -include_lib("quicer/include/quicer.hrl").
 -include_lib("emqx/include/emqx_quic.hrl").
@@ -149,15 +150,29 @@ fast_close({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
     ok;
 fast_close({quic, _Conn, Stream, _Info}) ->
     %% Force flush, cutoff time 3s
-    _ = quicer:shutdown_stream(Stream, 3000),
+    _ = quicer:shutdown_stream(Stream, ?QUIC_SAFE_TIMEOUT),
     %% @FIXME Since we shutdown the control stream, we shutdown the connection as well
     %% *BUT* Msquic does not flush the send buffer if we shutdown the connection after
     %% gracefully shutdown the stream.
     % quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok.
 
+-spec wait_for_close(quicer:stream_handle()) -> ok.
+wait_for_close(Stream) ->
+    receive
+        %% We are expecting peer to close the stream
+        {quic, Evtname, Stream, _} when
+            Evtname =:= peer_send_shutdown orelse
+                Evtname =:= peer_send_aborted orelse
+                Evtname =:= stream_closed
+        ->
+            ok
+    after ?QUIC_SAFE_TIMEOUT ->
+        ok
+    end.
+
 shutdown(Socket, Dir) ->
-    shutdown(Socket, Dir, 3000).
+    shutdown(Socket, Dir, ?QUIC_SAFE_TIMEOUT).
 
 shutdown({quic, _Conn, Stream, _Info}, read_write, Timeout) ->
     %% A graceful shutdown means both side shutdown the read and write gracefully.

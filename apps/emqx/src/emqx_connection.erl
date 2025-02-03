@@ -1312,17 +1312,7 @@ wait_for_quic_stream_close(
         sockstate = read_aborted
     }
 ) ->
-    receive
-        %% We are expecting peer to close the stream
-        {quic, Evtname, Stream, _} when
-            Evtname =:= peer_send_shutdown orelse
-                Evtname =:= peer_send_aborted orelse
-                Evtname =:= stream_closed
-        ->
-            ok
-    after 3000 ->
-        ok
-    end,
+    ok = emqx_quic_stream:wait_for_close(Stream),
     State#state{sockstate = closed}.
 %%--------------------------------------------------------------------
 %% For CT tests
