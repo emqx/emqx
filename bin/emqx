@@ -669,10 +669,6 @@ current_script_version() {
   fi
 }
 
-parse_semver() {
-    echo "$1" | tr '.|-' ' '
-}
-
 max_version_of() {
   local vsn1="$1"
   local vsn2="$2"
@@ -858,6 +854,7 @@ generate_config() {
 }
 
 # check if a PID is defunct
+# shellcheck disable=SC2317 # call in func `is_down()`
 is_defunct() {
     local PID="$1"
     ps -fp "$PID" | $GREP -q 'defunct'

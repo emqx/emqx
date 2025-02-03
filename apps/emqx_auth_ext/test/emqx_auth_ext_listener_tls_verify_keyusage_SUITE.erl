@@ -299,7 +299,12 @@ t_conn_fail_client_keyusage_unmatch(Config) ->
         1000
     ),
     %% Then connecion should fail.
-    fail_when_no_ssl_alert(Socket, handshake_failure),
+    %% NOTE
+    %% The alert is now `unsupported_certificate` because SSL handshake now rejects
+    %% certificates w/o `clientAuth` extKeyUsage by itself, before evaluating
+    %% `VerifyFun`.
+    %% See https://github.com/erlang/otp/pull/9130 for details.
+    fail_when_no_ssl_alert(Socket, unsupported_certificate),
     ok = ssl:close(Socket).
 
 t_conn_fail_client_keyusage_incomplete(Config) ->

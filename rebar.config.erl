@@ -15,8 +15,8 @@ do(Dir, CONFIG) ->
     end.
 
 assert_otp() ->
-    Oldest = 25,
-    Latest = 26,
+    Oldest = 26,
+    Latest = 27,
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < Oldest orelse OtpRelease > Latest of
         true ->
@@ -173,7 +173,7 @@ project_app_dirs() ->
 
 project_app_dirs(Edition, RelType) ->
     IsEnterprise = is_enterprise(Edition),
-    ExcludedApps = excluded_apps(RelType),
+    ExcludedApps = unavailable_apps(RelType),
     UmbrellaApps = [
         Path
      || Path <- filelib:wildcard("apps/*"),
@@ -336,6 +336,7 @@ relx(Vsn, RelType, PkgType, Edition) ->
         {sys_config, false},
         {vm_args, false},
         {release, {emqx, Vsn}, relx_apps(RelType, Edition)},
+        {exclude_apps, excluded_apps(RelType)},
         {tar_hooks, [
             "scripts/rel/cleanup-release-package.sh",
             "scripts/rel/macos-sign-binaries.sh",
@@ -443,17 +444,17 @@ relx_apps(ReleaseType, Edition) ->
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
-    ExcludedApps = excluded_apps(ReleaseType),
+    UnavailableApps = unavailable_apps(ReleaseType),
     Apps =
-        ([App || App <- SystemApps, not lists:member(App, ExcludedApps)] ++
+        [App || App <- SystemApps, not lists:member(App, UnavailableApps)] ++
             %% EMQX starts the DB and the business applications:
-            [{App, load} || App <- DBApps, not lists:member(App, ExcludedApps)] ++
+            [{App, load} || App <- DBApps, not lists:member(App, UnavailableApps)] ++
             [emqx_machine] ++
-            [{App, load} || App <- BusinessApps, not lists:member(App, ExcludedApps)]),
+            [{App, load} || App <- BusinessApps, not lists:member(App, UnavailableApps)],
     Apps.
 
-excluded_apps(standard) ->
-    OptionalApps = [
+unavailable_apps(standard) ->
+    AppAvailability = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
         {observer, is_app(observer)},
@@ -464,15 +465,22 @@ excluded_apps(standard) ->
         {emqx_fdb_management, false},
         {emqx_event_history, false}
     ],
-    [App || {App, false} <- OptionalApps];
-excluded_apps(platform) ->
-    OptionalApps = [
+    [App || {App, false} <- AppAvailability];
+unavailable_apps(platform) ->
+    AppAvailability = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
         {observer, is_app(observer)},
         {mnesia_rocksdb, is_rocksdb_supported()}
     ],
-    [App || {App, false} <- OptionalApps].
+    [App || {App, false} <- AppAvailability].
+
+excluded_apps(_) ->
+    [
+        %% Pulled in as an _optional application_ for `observer` (as of OTP-27.2)
+        %% Exclude as it needs a bunch of extra libraries installed on the host system.
+        wx
+    ].
 
 is_app(Name) ->
     case application:load(Name) of
@@ -594,8 +602,9 @@ dialyzer(Config) ->
 
     AppNames = app_names(),
     KnownApps = [Name || Name <- AppsToAnalyse, lists:member(Name, AppNames)],
+    UnavailableApps = unavailable_apps(standard),
     ExcludedApps = excluded_apps(standard),
-    AppsToExclude = ExcludedApps ++ (AppNames -- KnownApps),
+    AppsToExclude = UnavailableApps ++ ExcludedApps ++ (AppNames -- KnownApps),
 
     Extra =
         [system_monitor, tools] ++

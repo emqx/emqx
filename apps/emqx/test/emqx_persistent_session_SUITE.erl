@@ -188,6 +188,7 @@ end_per_testcase(TestCase, Config) ->
         true -> ?MODULE:TestCase('end', Config);
         false -> ok
     end,
+    snabbkaffe:stop(),
     Config.
 
 preconfig_per_testcase(TestCase, Config) ->
@@ -1410,7 +1411,9 @@ t_sys_message_delivery(Config) ->
     ?assertMatch(
         [#{topic := SysTopic, qos := 0, retain := false, payload := _Uptime3}],
         receive_messages(1)
-    ).
+    ),
+
+    ok = emqtt:disconnect(Client2).
 
 t_client_replies_pubrec_when_qos1(Config) ->
     Host = "127.0.0.1",

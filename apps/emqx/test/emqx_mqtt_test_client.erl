@@ -102,10 +102,13 @@ puback(Pid, PacketId, ReasonCode, Properties) ->
     send(Pid, Packet).
 
 receive_packet() ->
+    receive_packet(5_000).
+
+receive_packet(Timeout) ->
     receive
         {packet, Packet} ->
             {ok, Packet}
-    after 1000 ->
+    after Timeout ->
         timeout
     end.
 
