@@ -87,7 +87,7 @@ shard_event(Shard, Events) ->
     lists:foreach(
         fun(Event = Stream) ->
             Worker = gproc_pool:pick_worker(Pool, Stream),
-            gen_server:cast(Worker, #shard_event{event = Event})
+            Worker ! #shard_event{event = Event}
         end,
         Events
     ).
@@ -137,9 +137,15 @@ handle_cast(#seal_event{rank = Rank}, S = #s{queue = Queue}) ->
     Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
     _ = [process_stream_event(false, Stream, S) || Stream <- Streams],
     {noreply, S};
-handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
+handle_cast(_Cast, S) ->
+    {noreply, S}.
+
+handle_info(E = #shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) ->
     ?tp(info, beamformer_rt_event, #{event => Event, shard => Shard}),
-    %% FIXME: make a proper event wrapper
+    %% Before processing an event, clear the mailbox from the matching
+    %% events to avoid repeatedly hammering the DB:
+    flush_similar_events(E),
+    %% TODO: make a proper event wrapper?
     Stream = Event,
     _ =
         case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
@@ -152,9 +158,6 @@ handle_cast(#shard_event{event = Event}, S = #s{shard = Shard, queue = Queue}) -
                 update_high_watermark(Stream, S)
         end,
     {noreply, S};
-handle_cast(_Cast, S) ->
-    {noreply, S}.
-
 handle_info(
     ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
 ) ->
@@ -364,3 +367,10 @@ update_high_watermark(Stream, S = #s{module = CBM, shard = Shard}) ->
 set_high_watermark(Stream, LastSeenKey, #s{high_watermark = Tab}) ->
     ?tp(debug, beamformer_rt_set_high_watermark, #{stream => Stream, key => LastSeenKey}),
     ets:insert(Tab, {Stream, LastSeenKey}).
+
+flush_similar_events(E = #shard_event{}) ->
+    receive
+        E -> flush_similar_events(E)
+    after 0 ->
+        ok
+    end.
