@@ -700,7 +700,7 @@ t_sub_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 5)
             ),
             %% Ack and receive the rest of the messages:
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 5)),
@@ -721,7 +721,7 @@ t_sub_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 5)
             ),
             %% Ack and receive `end_of_stream':
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 10)),
@@ -734,7 +734,7 @@ t_sub_catchup(Config) ->
                         payload = {ok, end_of_stream}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 1)
             )
         end,
         []
@@ -773,7 +773,7 @@ t_sub_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef),
+                recv(SubRef, 2),
                 #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
             publish_seq(DB, <<"t">>, 3, 4),
@@ -792,7 +792,7 @@ t_sub_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef),
+                recv(SubRef, 2),
                 #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 4)),
@@ -801,7 +801,7 @@ t_sub_realtime(Config) ->
             ?assertMatch(ok, emqx_ds:add_generation(DB)),
             ?assertMatch(
                 [#poll_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],
-                recv(SubRef),
+                recv(SubRef, 1),
                 #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             )
         end,
@@ -846,7 +846,7 @@ verify_receive(Messages, [#{topic := TF, sub_ref := SubRef} | Rest]) ->
     Expected = [Msg || #message{topic = T} = Msg <- Messages, emqx_topic:match(T, TF)],
     Got = [
         Msg
-     || #poll_reply{payload = {ok, _It, Msgs}} <- recv(SubRef),
+     || #poll_reply{payload = {ok, _It, Msgs}} <- recv(SubRef, length(Expected)),
         Msg <- Msgs
     ],
     emqx_ds_test_helpers:diff_messages(?msg_fields, Expected, Got),
@@ -878,7 +878,8 @@ t_sub_slow(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 1),
+                #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
             %% Publish more data, it should result in an event:
             publish_seq(DB, <<"t">>, 1, 2),
@@ -897,13 +898,14 @@ t_sub_slow(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 2),
+                #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
             %% Fill more data:
             publish_seq(DB, <<"t">>, 3, 4),
             %% This data should NOT be delivered to the subscriber
             %% until it acks enough messages:
-            ?assertMatch([], recv(SubRef)),
+            ?assertMatch([], recv(SubRef, 1)),
             %% Ack sequence number:
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 3)),
             %% Now we get the messages:
@@ -921,7 +923,8 @@ t_sub_slow(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 2),
+                #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             )
         end,
         []
@@ -959,7 +962,7 @@ t_sub_catchup_unrecoverable(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 5)
             ),
             %% Drop generation:
             ?assertMatch(
@@ -978,7 +981,7 @@ t_sub_catchup_unrecoverable(Config) ->
                         payload = {error, unrecoverable, generation_not_found}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef, 1)
             )
         end,
         []
@@ -1121,15 +1124,18 @@ opts(Config) ->
 %% Subscription-related helper functions:
 
 %% @doc Recieve poll replies with given SubRef:
-recv(SubRef) ->
-    recv(SubRef, 5000).
+recv(SubRef, N) ->
+    recv(SubRef, N, 5000).
 
-recv(SubRef, Timeout) ->
+recv(_SubRef, 0, _Timeout) ->
+    [];
+recv(SubRef, N, Timeout) ->
     T0 = erlang:monotonic_time(millisecond),
     receive
-        #poll_reply{ref = SubRef} = Msg ->
+        #poll_reply{ref = SubRef, size = Size} = Msg ->
             T1 = erlang:monotonic_time(millisecond),
-            [Msg | recv(SubRef, Timeout - (T1 - T0))];
+            NextTimeout = max(0, Timeout - (T1 - T0)),
+            [Msg | recv(SubRef, N - Size, NextTimeout)];
         {'DOWN', SubRef, _, _, Reason} ->
             error({unexpected_beamformer_termination, Reason})
     after Timeout ->
