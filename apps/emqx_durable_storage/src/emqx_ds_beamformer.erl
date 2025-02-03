@@ -695,9 +695,14 @@ subscription_info(DBShard, SubId) ->
 subscribe(Server, Client, SubId, It, Opts = #{max_unacked := MaxUnacked}) when
     is_integer(MaxUnacked), MaxUnacked > 0
 ->
-    gen_statem:call(Server, #sub_req{
-        client = Client, it = It, opts = Opts, mref = SubId
-    }).
+    try
+        gen_statem:call(Server, #sub_req{
+            client = Client, it = It, opts = Opts, mref = SubId
+        })
+    catch
+        exit:{noproc, _} ->
+            {error, recoverable, beamformer_down}
+    end.
 
 -spec unsubscribe(dbshard(), emqx_ds:sub_ref()) -> boolean().
 unsubscribe(DBShard, SubId) ->
