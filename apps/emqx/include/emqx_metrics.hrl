@@ -45,9 +45,6 @@
     %% PUBLISH failed for auth error
     {counter, 'packets.publish.auth_error',
         <<"Number of received PUBLISH packets with failed the Authorization check">>},
-    %% PUBLISH(QoS2) packets dropped
-    {counter, 'packets.publish.dropped',
-        <<"Number of messages discarded due to the receiving limit">>},
     %% PUBACK packets received
     {counter, 'packets.puback.received', <<"Number of received PUBACK packet">>},
     %% PUBACK packets sent
@@ -161,6 +158,12 @@
     %% Messages dropped
     {counter, 'messages.dropped.no_subscribers',
         <<"Number of messages dropped due to no subscribers">>},
+    %% Messages dropped - quota exceeded
+    {counter, 'messages.dropped.quota_exceeded',
+        <<"Number of messages dropped due to quota being exceeded">>},
+    %% Messages dropped - receive maximum
+    {counter, 'messages.dropped.receive_maximum',
+        <<"Number of messages dropped due to receive maximum being reached">>},
     %% Messages forward
     {counter, 'messages.forward', <<"Number of messages forwarded to other nodes">>},
     %% Messages delayed
