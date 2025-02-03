@@ -773,7 +773,8 @@ t_sub_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef),
+                #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
             publish_seq(DB, <<"t">>, 3, 4),
             ?assertMatch(
@@ -791,7 +792,8 @@ t_sub_realtime(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef)
+                recv(SubRef),
+                #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             ),
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 4)),
             %% Close the generation. The subscriber should be promptly
@@ -799,7 +801,8 @@ t_sub_realtime(Config) ->
             ?assertMatch(ok, emqx_ds:add_generation(DB)),
             ?assertMatch(
                 [#poll_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],
-                recv(SubRef)
+                recv(SubRef),
+                #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             )
         end,
         []
@@ -1119,12 +1122,14 @@ opts(Config) ->
 
 %% @doc Recieve poll replies with given SubRef:
 recv(SubRef) ->
-    recv(SubRef, 1000).
+    recv(SubRef, 5000).
 
 recv(SubRef, Timeout) ->
+    T0 = erlang:monotonic_time(millisecond),
     receive
         #poll_reply{ref = SubRef} = Msg ->
-            [Msg | recv(SubRef, Timeout)];
+            T1 = erlang:monotonic_time(millisecond),
+            [Msg | recv(SubRef, Timeout - (T1 - T0))];
         {'DOWN', SubRef, _, _, Reason} ->
             error({unexpected_beamformer_termination, Reason})
     after Timeout ->
