@@ -15,6 +15,8 @@
 
 -module(emqx_resource_SUITE).
 
+-feature(maybe_expr, enable).
+
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -22,6 +24,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource_buffer_worker_internal.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
@@ -35,18 +38,38 @@
     ?tp(notice, MSG, #{})
 end).
 
+-define(fallback_actions, fallback_actions).
+
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All0 = emqx_common_test_helpers:all(?MODULE),
+    All = All0 -- matrix_cases(),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    Groups ++ All.
+
+matrix_cases() ->
+    lists:filter(
+        fun(TestCase) ->
+            maybe
+                true ?= erlang:function_exported(?MODULE, TestCase, 0),
+                {matrix, true} ?= proplists:lookup(matrix, ?MODULE:TestCase()),
+                true
+            else
+                _ -> false
+            end
+        end,
+        emqx_common_test_helpers:all(?MODULE)
+    ).
 
 groups() ->
-    [].
+    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
 
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
     ct:timetrap({seconds, 30}),
     emqx_connector_demo:set_callback_mode(always_sync),
     snabbkaffe:start_trace(),
+    ct:print(asciiart:visible($%, "~s", [TestCase])),
     Config.
 
 end_per_testcase(_, _Config) ->
@@ -268,11 +291,14 @@ t_batch_query_counter(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource, register => true},
+        #{
+            name => test_resource,
+            register => true,
+            force_query_mode => sync
+        },
         #{
             batch_size => BatchSize,
-            batch_time => 100,
-            query_mode => sync
+            batch_time => 100
         }
     ),
 
@@ -370,7 +396,7 @@ t_query_counter_async_callback(_) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
 
     Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
-    Insert = fun(Tab, Result) ->
+    Insert = fun(Tab, #{result := Result}) ->
         ets:insert(Tab, {make_ref(), Result})
     end,
     ReqOpts = #{async_reply_fun => {Insert, [Tab0]}},
@@ -378,9 +404,12 @@ t_query_counter_async_callback(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource, register => true},
         #{
-            query_mode => async,
+            name => test_resource,
+            register => true,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             inflight_window => 1000000
         }
@@ -449,7 +478,7 @@ t_query_counter_async_inflight(_) ->
     on_exit(fun() -> telemetry:detach(?FUNCTION_NAME) end),
 
     Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
-    Insert0 = fun(Tab, Ref, Result) ->
+    Insert0 = fun(Tab, Ref, #{result := Result}) ->
         ct:pal("inserting ~p", [{Ref, Result}]),
         ets:insert(Tab, {Ref, Result})
     end,
@@ -459,9 +488,12 @@ t_query_counter_async_inflight(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource, register => true},
         #{
-            query_mode => async,
+            name => test_resource,
+            register => true,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             inflight_window => WindowSize,
             worker_pool_size => 1,
@@ -492,7 +524,7 @@ t_query_counter_async_inflight(_) ->
 
     tap_metrics(?LINE),
     %% send query now will fail because the resource is blocked.
-    Insert = fun(Tab, Ref, Result) ->
+    Insert = fun(Tab, Ref, #{result := Result}) ->
         ct:pal("inserting ~p", [{Ref, Result}]),
         ets:insert(Tab, {Ref, Result}),
         ?tp(tmp_query_inserted, #{})
@@ -631,7 +663,7 @@ t_query_counter_async_inflight_batch(_) ->
     on_exit(fun() -> telemetry:detach(?FUNCTION_NAME) end),
 
     Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
-    Insert0 = fun(Tab, Ref, Result) ->
+    Insert0 = fun(Tab, Ref, #{result := Result}) ->
         ct:pal("inserting ~p", [{Ref, Result}]),
         ets:insert(Tab, {Ref, Result})
     end,
@@ -642,9 +674,12 @@ t_query_counter_async_inflight_batch(_) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource, register => true},
         #{
-            query_mode => async,
+            name => test_resource,
+            register => true,
+            force_query_mode => async
+        },
+        #{
             batch_size => BatchSize,
             batch_time => 100,
             inflight_window => WindowSize,
@@ -705,7 +740,7 @@ t_query_counter_async_inflight_batch(_) ->
 
     tap_metrics(?LINE),
     %% send query now will fail because the resource is blocked.
-    Insert = fun(Tab, Ref, Result) ->
+    Insert = fun(Tab, Ref, #{result := Result}) ->
         ct:pal("inserting ~p", [{Ref, Result}]),
         ets:insert(Tab, {Ref, Result}),
         ?tp(tmp_query_inserted, #{})
@@ -1321,9 +1356,11 @@ t_retry_batch(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 5,
             batch_time => 100,
             worker_pool_size => 1,
@@ -1672,9 +1709,11 @@ t_retry_async_inflight(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             worker_pool_size => 1,
             metrics_flush_interval => 50,
@@ -1716,9 +1755,11 @@ t_retry_async_inflight_full(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => ?FUNCTION_NAME},
         #{
-            query_mode => async,
+            name => ?FUNCTION_NAME,
+            force_query_mode => async
+        },
+        #{
             inflight_window => AsyncInflightWindow,
             batch_size => 1,
             worker_pool_size => 1,
@@ -1740,7 +1781,11 @@ t_retry_async_inflight_full(_Config) ->
                             For = (ResumeInterval div 4) + rand:uniform(ResumeInterval div 4),
                             {sleep_before_reply, For}
                         end,
-                        #{async_reply_fun => {fun(Res) -> ct:pal("Res = ~p", [Res]) end, []}}
+                        #{
+                            async_reply_fun => {
+                                fun(#{result := Res}) -> ct:pal("Res = ~p", [Res]) end, []
+                            }
+                        }
                     ),
                     #{?snk_kind := buffer_worker_flush_but_inflight_full},
                     ResumeInterval * 2
@@ -1779,9 +1824,11 @@ t_async_reply_multi_eval(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => ?FUNCTION_NAME},
         #{
-            query_mode => async,
+            name => ?FUNCTION_NAME,
+            force_query_mode => async
+        },
+        #{
             inflight_window => AsyncInflightWindow,
             batch_size => 3,
             batch_time => 10,
@@ -1828,9 +1875,11 @@ t_retry_async_inflight_batch(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 2,
             batch_time => 200,
             worker_pool_size => 1,
@@ -1875,9 +1924,11 @@ t_async_pool_worker_death(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             worker_pool_size => NumBufferWorkers,
             metrics_refresh_interval => 50,
@@ -1885,7 +1936,7 @@ t_async_pool_worker_death(_Config) ->
         }
     ),
     Tab0 = ets:new(?FUNCTION_NAME, [bag, public]),
-    Insert0 = fun(Tab, Ref, Result) ->
+    Insert0 = fun(Tab, Ref, #{result := Result}) ->
         ct:pal("inserting ~p", [{Ref, Result}]),
         ets:insert(Tab, {Ref, Result})
     end,
@@ -2001,9 +2052,11 @@ t_expiration_async_before_sending(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             worker_pool_size => 1,
             metrics_flush_interval => 50,
@@ -2018,9 +2071,11 @@ t_expiration_async_batch_before_sending(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
@@ -2099,9 +2154,11 @@ t_expiration_sync_before_sending_partial_batch(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => sync,
+            name => test_resource,
+            force_query_mode => sync
+        },
+        #{
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
@@ -2118,9 +2175,11 @@ t_expiration_async_before_sending_partial_batch(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 2,
             batch_time => 100,
             worker_pool_size => 1,
@@ -2275,9 +2334,11 @@ t_expiration_async_after_reply(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             worker_pool_size => 1,
             resume_interval => 1_000
@@ -2292,9 +2353,11 @@ t_expiration_async_batch_after_reply(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 3,
             batch_time => 100,
             worker_pool_size => 1,
@@ -2417,9 +2480,11 @@ t_expiration_batch_all_expired_after_reply(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 3,
             batch_time => 100,
             worker_pool_size => 1,
@@ -2779,9 +2844,11 @@ t_recursive_flush(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 1,
             worker_pool_size => 1
         }
@@ -2794,9 +2861,11 @@ t_recursive_flush_batch(_Config) ->
         ?ID,
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
-        #{name => test_resource},
         #{
-            query_mode => async,
+            name => test_resource,
+            force_query_mode => async
+        },
+        #{
             batch_size => 2,
             batch_time => 10_000,
             worker_pool_size => 1
@@ -2849,8 +2918,11 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
-                #{name => test_resource},
-                DefaultOpts#{query_mode => async}
+                #{
+                    name => test_resource,
+                    force_query_mode => async
+                },
+                DefaultOpts
             ),
             ?tp_span(
                 async_query_sync_driver,
@@ -2874,8 +2946,11 @@ t_call_mode_uncoupled_from_query_mode(_Config) ->
                 ?ID,
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
-                #{name => test_resource},
-                DefaultOpts#{query_mode => sync}
+                #{
+                    name => test_resource,
+                    force_query_mode => sync
+                },
+                DefaultOpts
             ),
             ?tp_span(
                 sync_query_async_driver,
@@ -3183,7 +3258,7 @@ t_non_blocking_channel_health_check(_Config) ->
                 ),
             ChanId = <<"chan">>,
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel(
                     ?ID,
                     ChanId,
                     #{health_check_delay => 500}
@@ -3271,9 +3346,7 @@ t_resource_and_channel_health_check_race(_Config) ->
             },
             {ok, Agent} = emqx_utils_agent:start_link(AgentState0),
             ConnName = <<"cname">>,
-            %% Needs to have this form to satifisfy internal, implicit requirements of
-            %% `emqx_resource_cache'.
-            ConnResId = <<"connector:ctype:", ConnName/binary>>,
+            ConnResId = connector_res_id(ConnName),
             {ok, _} =
                 create(
                     ConnResId,
@@ -3288,11 +3361,9 @@ t_resource_and_channel_health_check_race(_Config) ->
                         start_timeout => 100
                     }
                 ),
-            %% Needs to have this form to satifisfy internal, implicit requirements of
-            %% `emqx_resource_cache'.
-            ChanId = <<"action:atype:aname:", ConnResId/binary>>,
+            ChanId = action_res_id(ConnResId),
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel(
                     ConnResId,
                     ChanId,
                     #{resource_opts => #{health_check_interval => 100}}
@@ -3435,6 +3506,388 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Happy path smoke test for fallback actions.
+t_fallback_actions() ->
+    [{matrix, true}].
+t_fallback_actions(matrix) ->
+    [
+        [sync, always_sync, no_batch],
+        [sync, always_sync, batch],
+        [async, async_if_possible, no_batch],
+        [async, async_if_possible, batch],
+        [simple_sync, async_if_possible, no_batch],
+        [simple_async, async_if_possible, no_batch],
+        [simple_sync_internal_buffer, async_if_possible, no_batch],
+        [simple_async_internal_buffer, async_if_possible, no_batch]
+    ];
+t_fallback_actions(Config) when is_list(Config) ->
+    [ChanQueryMode, CallbackMode, ShouldBatch] =
+        group_path(Config, [sync, always_sync, no_batch]),
+    ?check_trace(
+        #{timetrap => 6_000},
+        begin
+            ConnName = <<"fallback">>,
+            Ctx = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch
+            ),
+
+            %% Sync
+            ct:pal("sync query mode"),
+            Results1 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            lists:foreach(
+                fun(Res) ->
+                    ?assertEqual({error, {unrecoverable_error, fallback_time}}, Res)
+                end,
+                Results1
+            ),
+
+            %% Async
+            ct:pal("async query mode"),
+            Results2 = fallback_send_many(async, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            lists:foreach(
+                fun(Res) ->
+                    ?assertEqual({error, {unrecoverable_error, fallback_time}}, Res)
+                end,
+                Results2
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_fallback_actions_overflow() ->
+    [{matrix, true}].
+t_fallback_actions_overflow(matrix) ->
+    [
+        [sync, always_sync, no_batch],
+        [sync, always_sync, batch],
+        [async, async_if_possible, no_batch],
+        [async, async_if_possible, batch]
+    ];
+t_fallback_actions_overflow(Config) when is_list(Config) ->
+    [ChanQueryMode, CallbackMode, ShouldBatch] =
+        group_path(Config, [sync, always_sync, no_batch]),
+    ?check_trace(
+        begin
+            ConnName = <<"fallback_overflow">>,
+            %% Always overflows
+            Opts = #{
+                chan_resource_opts_override => #{
+                    max_buffer_bytes => 0,
+                    buffer_seg_bytes => 0
+                }
+            },
+            Ctx0 = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts
+            ),
+            Ctx = Ctx0#{assert_expected_callmode => false},
+            Results = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            lists:foreach(
+                fun(Res) ->
+                    ?assertEqual({error, buffer_overflow}, Res)
+                end,
+                Results
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_fallback_actions_overflow_internal_buffer() ->
+    [{matrix, true}].
+t_fallback_actions_overflow_internal_buffer(matrix) ->
+    [[simple_sync_internal_buffer], [simple_async_internal_buffer]];
+t_fallback_actions_overflow_internal_buffer(Config) when is_list(Config) ->
+    [ChanQueryMode] = group_path(Config, [simple_sync_internal_buffer]),
+    ShouldBatch = no_batch,
+    CallbackMode = async_if_possible,
+    ?check_trace(
+        begin
+            ConnName = <<"fallback_overflow_internal_buffer">>,
+            Opts = #{
+                fallback_fn => fun(#{reply_fn := ReplyFn}) ->
+                    Pid = apply_after(
+                        100,
+                        fun() ->
+                            emqx_resource:apply_reply_fun(ReplyFn, {error, buffer_overflow})
+                        end
+                    ),
+                    {ok, Pid}
+                end
+            },
+            Ctx0 = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts
+            ),
+            Ctx = Ctx0#{assert_expected_callmode => true},
+
+            ct:pal("sync query kind"),
+            fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+
+            ct:pal("async query kind"),
+            fallback_send_many(async, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Sync queries for internal buffer resources use async version under the
+            %% hood.
+            case ChanQueryMode of
+                simple_sync_internal_buffer ->
+                    ?assertMatch([_], ?of_kind(simple_sync_internal_buffer_query, Trace));
+                simple_async_internal_buffer ->
+                    ok
+            end,
+            ?assertMatch([_, _], ?of_kind(simple_async_internal_buffer_query, Trace)),
+            ?assertMatch([_, _], ?of_kind("buffer_worker_internal_buffer_async_overflow", Trace)),
+            ok
+        end
+    ),
+    ok.
+
+%% Tests that fallback actions are triggered when (all) requests expire.
+t_fallback_actions_expired() ->
+    [{matrix, true}].
+t_fallback_actions_expired(matrix) ->
+    [
+        [sync, always_sync, no_batch],
+        [sync, always_sync, batch],
+        [async, async_if_possible, no_batch],
+        [async, async_if_possible, batch]
+    ];
+t_fallback_actions_expired(Config) when is_list(Config) ->
+    [ChanQueryMode, CallbackMode, ShouldBatch] =
+        group_path(Config, [sync, always_sync, no_batch]),
+    ?check_trace(
+        begin
+            ConnName = <<"fallback_expired">>,
+            Ctx0 = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch
+            ),
+            %% Always expires
+            QueryOpts = #{timeout => 0},
+            Ctx = Ctx0#{
+                assert_expected_callmode => false,
+                query_opts => QueryOpts
+            },
+            %% Async so we may set a `reply_to' that receives late replies and expired
+            %% results.
+            Results = fallback_send_many(async, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            lists:foreach(
+                fun(Res) ->
+                    ?assertEqual({error, request_expired}, Res)
+                end,
+                Results
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Tests that fallback actions are triggered when a batch request partially expires
+%% before actually calling the resource.
+t_fallback_actions_partially_expired_batch_before() ->
+    [{matrix, true}].
+t_fallback_actions_partially_expired_batch_before(matrix) ->
+    [
+        [sync, always_sync],
+        [async, async_if_possible]
+    ];
+t_fallback_actions_partially_expired_batch_before(Config) when is_list(Config) ->
+    [ChanQueryMode, CallbackMode] =
+        group_path(Config, [sync, always_sync]),
+    ShouldBatch = batch,
+    ?check_trace(
+        begin
+            ConnName = <<"fallback_expired_batch_before">>,
+            Ctx0 =
+                #{n_reqs := NReqs} = fallback_actions_basic_setup(
+                    ConnName, ChanQueryMode, CallbackMode, ShouldBatch
+                ),
+            NReqsToTimeout = 7,
+            AdjustQueryOptsFn = fun(#{req_n := N}, QueryOpts) ->
+                case N > NReqsToTimeout of
+                    true -> QueryOpts;
+                    false -> QueryOpts#{timeout => 0}
+                end
+            end,
+            Ctx = Ctx0#{
+                assert_expected_callmode => false,
+                adjust_query_opts => AdjustQueryOptsFn,
+                fallback_fn => fun(_Ctx) -> ok end
+            },
+            %% Async so we may set a `reply_to' that receives late replies and expired
+            %% results.
+            Results = fallback_send_many(async, Ctx),
+            %% Requests 8, 9, ... will succeed
+            assert_all_queries_triggered_fallbacks(Ctx#{n_reqs := NReqsToTimeout}),
+            lists:foreach(
+                fun
+                    ({N, Res}) when N =< NReqsToTimeout ->
+                        ?assertEqual({error, request_expired}, Res);
+                    ({_N, Res}) ->
+                        ?assertEqual(ok, Res)
+                end,
+                lists:enumerate(Results)
+            ),
+            {NReqs, NReqsToTimeout}
+        end,
+        fun({NReqs, NReqsToTimeout}, Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        expired := Expired,
+                        not_expired := NotExpired
+                    }
+                ] when
+                    length(Expired) =:= NReqsToTimeout andalso
+                        length(NotExpired) =:= NReqs - NReqsToTimeout,
+                ?of_kind(buffer_worker_flush_potentially_partial, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Tests that fallback actions are triggered when a (batch) request partially expires
+%% after calling the resource and receiving a too late async reply.
+t_fallback_actions_late_reply() ->
+    [{matrix, true}].
+t_fallback_actions_late_reply(matrix) ->
+    [
+        [batch],
+        [no_batch]
+    ];
+t_fallback_actions_late_reply(Config) when is_list(Config) ->
+    [ShouldBatch] =
+        group_path(Config, [batch]),
+    ChanQueryMode = async,
+    CallbackMode = async_if_possible,
+    ?check_trace(
+        begin
+            ConnName = <<"fallback_expired_batch_late">>,
+            Ctx0 =
+                #{
+                    n_reqs := NReqs,
+                    chan_resource_opts := #{batch_time := BatchTime}
+                } = fallback_actions_basic_setup(
+                    ConnName, ChanQueryMode, CallbackMode, ShouldBatch
+                ),
+            NReqsToTimeout = min(7, NReqs),
+            Timeout = max(round(BatchTime * 1.2), 100),
+            AdjustQueryOptsFn = fun(#{req_n := N}, QueryOpts) ->
+                case N > NReqsToTimeout of
+                    true ->
+                        QueryOpts#{timeout => infinity};
+                    false ->
+                        QueryOpts#{timeout => Timeout}
+                end
+            end,
+            Ctx = Ctx0#{
+                assert_expected_callmode => false,
+                adjust_query_opts => AdjustQueryOptsFn,
+                fallback_fn => fun(#{req_n := N}) ->
+                    case N =:= 1 of
+                        true ->
+                            %% Make one request hold the batch so others may expire
+                            ct:sleep(Timeout * 2);
+                        false ->
+                            ok
+                    end,
+                    ok
+                end
+            },
+            %% Async so we may set a `reply_to' that receives late replies and expired
+            %% results.
+            Results = fallback_send_many(async, Ctx),
+            %% Requests 8, 9, ... will succeed
+            assert_all_queries_triggered_fallbacks(Ctx#{n_reqs := NReqsToTimeout}),
+            lists:foreach(
+                fun
+                    ({N, Res}) when N =< NReqsToTimeout ->
+                        ?assertEqual({error, late_reply}, Res);
+                    ({_N, Res}) ->
+                        ?assertEqual(ok, Res)
+                end,
+                lists:enumerate(Results)
+            ),
+            {NReqs, NReqsToTimeout}
+        end,
+        fun({NReqs, NReqsToTimeout}, Trace) ->
+            NSuccess = NReqs - NReqsToTimeout,
+            case ShouldBatch of
+                batch ->
+                    ?assertMatch(
+                        [
+                            #{
+                                inflight_count := 1,
+                                num_inflight_messages := NSuccess
+                            }
+                        ],
+                        ?of_kind(handle_async_reply_partially_expired, Trace)
+                    );
+                no_batch ->
+                    ?assertMatch([_], ?of_kind(handle_async_reply_expired, Trace))
+            end,
+            ok
+        end
+    ),
+    ok.
+
+t_fallback_actions_expired_internal_buffer() ->
+    [{matrix, true}].
+t_fallback_actions_expired_internal_buffer(matrix) ->
+    [[simple_sync_internal_buffer], [simple_async_internal_buffer]];
+t_fallback_actions_expired_internal_buffer(Config) when is_list(Config) ->
+    [ChanQueryMode] = group_path(Config, [simple_sync_internal_buffer]),
+    ShouldBatch = no_batch,
+    CallbackMode = async_if_possible,
+    ?check_trace(
+        begin
+            ConnName = <<"fallback_expired_internal_buffer">>,
+            Opts = #{
+                fallback_fn => fun(_Ctx) -> {error, request_expired} end
+            },
+            Ctx0 = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts
+            ),
+            Ctx = Ctx0#{assert_expected_callmode => true},
+
+            ct:pal("sync query kind"),
+            fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+
+            ct:pal("async query kind"),
+            fallback_send_many(async, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% Sync queries for internal buffer resources use async version under the
+            %% hood.
+            case ChanQueryMode of
+                simple_sync_internal_buffer ->
+                    ?assertMatch([_], ?of_kind(simple_sync_internal_buffer_query, Trace));
+                simple_async_internal_buffer ->
+                    ok
+            end,
+            ?assertMatch([_, _], ?of_kind(simple_async_internal_buffer_query, Trace)),
+            ?assertMatch([_, _], ?of_kind("buffer_worker_internal_buffer_async_expired", Trace)),
+            ok
+        end
     ),
     ok.
 
@@ -3707,3 +4160,259 @@ log_consistency_prop(Trace) ->
     ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
     ?assertEqual([], ?of_kind("inconsistent_cache", Trace)),
     ok.
+
+connector_res_id(Name) ->
+    %% Needs to have this form to satifisfy internal, implicit requirements of
+    %% `emqx_resource_cache'.
+    <<"connector:ctype:", Name/binary>>.
+
+action_res_id(ConnResId) ->
+    %% Needs to have this form to satifisfy internal, implicit requirements of
+    %% `emqx_resource_cache'.
+    <<"action:atype:aname:", ConnResId/binary>>.
+
+add_channel(ConnResId, ChanId, Config) ->
+    ok = emqx_resource:create_metrics(ChanId),
+    on_exit(fun() -> emqx_resource:clear_metrics(ChanId) end),
+    ResourceOpts = emqx_resource:fetch_creation_opts(Config),
+    on_exit(fun() -> emqx_resource_buffer_worker_sup:stop_workers(ChanId, ResourceOpts) end),
+    ok = emqx_resource_buffer_worker_sup:start_workers(ChanId, ResourceOpts),
+    emqx_resource_manager:add_channel(ConnResId, ChanId, Config).
+
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+fallback_actions_batch_opts(no_batch) ->
+    #{
+        resource_opts => #{batch_time => 0, batch_size => 1},
+        n_reqs => 1
+    };
+fallback_actions_batch_opts(batch) ->
+    #{
+        resource_opts => #{batch_time => 100, batch_size => 100},
+        n_reqs => 10
+    }.
+
+fallback_action_query(ConnResId, ChanId, FallbackFn, Ctx, #{query_mode := async} = QueryOpts0) ->
+    AdjustQueryOptsFn = maps:get(adjust_query_opts, Ctx, fun(_Ctx, QO) -> QO end),
+    Alias = alias([reply]),
+    ReplyTo = {
+        fun(ReplyCallerContext) ->
+            Alias ! {Alias, ReplyCallerContext}
+        end,
+        [],
+        #{reply_dropped => true}
+    },
+    QueryOpts1 = maps:merge(
+        #{connector_resource_id => ConnResId},
+        QueryOpts0#{reply_to => ReplyTo}
+    ),
+    QueryOpts = AdjustQueryOptsFn(Ctx, QueryOpts1),
+    Req = #{q => ask, fn => FallbackFn, ctx => Ctx},
+    ct:pal("~p sending query\n  ~p", [self(), #{query_opts => QueryOpts, ctx => Ctx}]),
+    Res = emqx_resource:query(
+        ChanId,
+        {ChanId, Req},
+        QueryOpts
+    ),
+    case Res of
+        ok ->
+            ok;
+        {async_return, {ok, _Pid}} ->
+            %% Simple async queries do not massage the returned value to stip the
+            %% `{async_return, _}' tag.
+            ok
+    end,
+    ct:pal("~p waiting for reply", [self()]),
+    receive
+        {Alias, ReplyCallerContext} ->
+            ct:pal("~p received async reply:\n  ~p", [self(), ReplyCallerContext]),
+            case ReplyCallerContext of
+                #{result := Result} ->
+                    Result;
+                Result ->
+                    %% If expired, it's a simple tuple
+                    Result
+            end
+    after 1_000 -> ct:fail("~p timed out waiting for reply", [self()])
+    end;
+fallback_action_query(ConnResId, ChanId, FallbackFn, Ctx, #{query_mode := sync} = QueryOpts0) ->
+    AdjustQueryOptsFn = maps:get(adjust_query_opts, Ctx, fun(QO) -> QO end),
+    QueryOpts1 = maps:merge(
+        #{connector_resource_id => ConnResId},
+        QueryOpts0
+    ),
+    QueryOpts = AdjustQueryOptsFn(QueryOpts1),
+    Req = #{q => ask, fn => FallbackFn, ctx => Ctx},
+    ct:pal("~p sending query\n  ~p", [self(), #{query_opts => QueryOpts, ctx => Ctx}]),
+    emqx_resource:query(
+        ChanId,
+        {ChanId, Req},
+        QueryOpts
+    ).
+
+fallback_query_wait_async(N, RequestQueryKind, QueryOpts, Ctx) ->
+    #{
+        conn_res_id := ConnResId,
+        chan_id := ChanId,
+        mk_event_matcher := MkEventMatcher,
+        fallback_fn := FallbackFn
+    } = Ctx,
+    AssertExpectedCallMode = maps:get(assert_expected_callmode, Ctx, true),
+    ReqCtx = Ctx#{req_n => N},
+    case AssertExpectedCallMode of
+        true ->
+            ct:pal("~p sending request ~b", [self(), N]),
+            EventMatcher = MkEventMatcher(RequestQueryKind),
+            {Result, {ok, _}} =
+                snabbkaffe:wait_async_action(
+                    fun() ->
+                        fallback_action_query(
+                            ConnResId, ChanId, FallbackFn, ReqCtx, QueryOpts#{
+                                query_mode => RequestQueryKind
+                            }
+                        )
+                    end,
+                    EventMatcher,
+                    infinity
+                );
+        false ->
+            Result = fallback_action_query(
+                ConnResId, ChanId, FallbackFn, ReqCtx, QueryOpts#{
+                    query_mode => RequestQueryKind
+                }
+            )
+    end,
+    ct:pal("~p received reply ~b:\n  ~p", [self(), N, Result]),
+    Result.
+
+fallback_send_many(RequestQueryKind, Ctx) ->
+    #{n_reqs := NReqs} = Ctx,
+    BaseQueryOpts = maps:get(base_query_opts, Ctx),
+    QueryOpts0 = maps:get(query_opts, Ctx, #{}),
+    QueryOpts = emqx_utils_maps:deep_merge(BaseQueryOpts, QueryOpts0),
+    Results = emqx_utils:pmap(
+        fun(N) ->
+            fallback_query_wait_async(N, RequestQueryKind, QueryOpts, Ctx)
+        end,
+        lists:seq(1, NReqs)
+    ),
+    Results.
+
+assert_all_queries_triggered_fallbacks(Ctx) ->
+    #{n_reqs := NReqs} = Ctx,
+    lists:foreach(
+        fun(N) ->
+            ?assertReceive(
+                {fallback_called, #{n := 1, request := #{ctx := #{req_n := N}}}}
+            ),
+            ?assertReceive({fallback_called, #{n := 2, request := #{ctx := #{req_n := N}}}})
+        end,
+        lists:seq(1, NReqs)
+    ),
+    ?assertNotReceive({fallback_called, _}),
+    ok.
+
+merge_maps(Maps) ->
+    lists:foldl(fun emqx_utils_maps:deep_merge/2, #{}, Maps).
+
+%% Poor man's `timer:apply_after', prior to OTP 27.
+apply_after(Time, Fn) ->
+    spawn(fun() ->
+        timer:sleep(Time),
+        Fn()
+    end).
+
+fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch) ->
+    fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, _Opts = #{}).
+
+fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts) ->
+    ChanResourceOptsOverride = maps:get(chan_resource_opts_override, Opts, #{}),
+    emqx_connector_demo:set_callback_mode(CallbackMode),
+    #{
+        resource_opts := ResourceOpts0,
+        n_reqs := NReqs
+    } = fallback_actions_batch_opts(ShouldBatch),
+    MkEventMatcher = fun(RequestQueryKind) ->
+        QMSummary = emqx_resource_manager:summarize_query_mode(ChanQueryMode, RequestQueryKind),
+        case {ShouldBatch, CallbackMode, QMSummary} of
+            {no_batch, always_sync, _} ->
+                ?match_event(#{?snk_kind := call_query});
+            {batch, always_sync, _} ->
+                ?match_event(#{?snk_kind := call_batch_query});
+            {no_batch, async_if_possible, #{is_simple := false, has_internal_buffer := false}} ->
+                ?match_event(#{?snk_kind := call_query_async});
+            {batch, async_if_possible, #{is_simple := false, has_internal_buffer := false}} ->
+                ?match_event(#{?snk_kind := call_batch_query_async});
+            {no_batch, async_if_possible, #{has_internal_buffer := true}} ->
+                ?match_event(#{?snk_kind := call_query_async});
+            {no_batch, async_if_possible, #{is_simple := true, requested_query_kind := sync}} ->
+                ?match_event(#{?snk_kind := call_query});
+            {no_batch, async_if_possible, #{is_simple := true, requested_query_kind := async}} ->
+                ?match_event(#{?snk_kind := call_query_async})
+        end
+    end,
+    ConnResId = connector_res_id(ConnName),
+    {ok, _} =
+        create(
+            ConnResId,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            #{name => test_resource},
+            #{
+                health_check_interval => 100,
+                start_timeout => 100
+            }
+        ),
+    ChanId = action_res_id(ConnResId),
+    ChanResourceOpts = merge_maps([
+        #{
+            health_check_interval => 100,
+            worker_pool_size => 1
+        },
+        ResourceOpts0,
+        ChanResourceOptsOverride
+    ]),
+    ok =
+        add_channel(
+            ConnResId,
+            ChanId,
+            #{
+                force_query_mode => ChanQueryMode,
+                resource_opts => ChanResourceOpts
+            }
+        ),
+    FallbackFn = maps:get(
+        fallback_fn,
+        Opts,
+        fun(_Ctx) ->
+            {error, {unrecoverable_error, fallback_time}}
+        end
+    ),
+    TestPid = self(),
+    FallbackAction = fun(Ctx) ->
+        ct:pal("fallback triggered:\n  ~p", [Ctx]),
+        TestPid ! {fallback_called, Ctx},
+        ok
+    end,
+    MkFallback = fun(N) -> fun(Ctx) -> FallbackAction(Ctx#{n => N}) end end,
+    QueryOpts = #{
+        ?fallback_actions => [
+            MkFallback(1),
+            MkFallback(2)
+        ]
+    },
+    #{
+        base_query_opts => QueryOpts,
+        mk_fallback => MkFallback,
+        fallback_action => FallbackAction,
+        conn_res_id => ConnResId,
+        chan_id => ChanId,
+        mk_event_matcher => MkEventMatcher,
+        chan_resource_opts => ChanResourceOpts,
+        n_reqs => NReqs,
+        fallback_fn => FallbackFn
+    }.

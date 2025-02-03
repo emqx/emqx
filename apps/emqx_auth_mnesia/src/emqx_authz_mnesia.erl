@@ -34,10 +34,18 @@
 
 -type rule() :: {
     emqx_authz_rule:permission_resolution_precompile(),
+    emqx_authz_rule:who_precompile(),
     emqx_authz_rule:action_precompile(),
     emqx_authz_rule:topic_precompile()
 }.
--type rules() :: [rule()].
+
+-type legacy_rule() :: {
+    emqx_authz_rule:permission_resolution_precompile(),
+    emqx_authz_rule:action_precompile(),
+    emqx_authz_rule:topic_precompile()
+}.
+
+-type rules() :: [rule() | legacy_rule()].
 
 -record(emqx_acl, {
     who :: ?ACL_TABLE_ALL | {?ACL_TABLE_USERNAME, binary()} | {?ACL_TABLE_CLIENTID, binary()},
@@ -111,18 +119,9 @@ authorize(
     #{type := built_in_database}
 ) ->
     Rules =
-        case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Clientid}) of
-            [] -> [];
-            [#emqx_acl{rules = Rules0}] when is_list(Rules0) -> Rules0
-        end ++
-            case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_USERNAME, Username}) of
-                [] -> [];
-                [#emqx_acl{rules = Rules1}] when is_list(Rules1) -> Rules1
-            end ++
-            case mnesia:dirty_read(?ACL_TABLE, ?ACL_TABLE_ALL) of
-                [] -> [];
-                [#emqx_acl{rules = Rules2}] when is_list(Rules2) -> Rules2
-            end,
+        read_rules({?ACL_TABLE_CLIENTID, Clientid}) ++
+            read_rules({?ACL_TABLE_USERNAME, Username}) ++
+            read_rules(?ACL_TABLE_ALL),
     do_authorize(Client, PubSub, Topic, Rules).
 
 %%--------------------------------------------------------------------
@@ -143,14 +142,11 @@ init_tables() ->
 %% @doc Update authz rules
 -spec store_rules(who(), rules()) -> ok.
 store_rules({username, Username}, Rules) ->
-    Record = #emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = normalize_rules(Rules)},
-    mria:dirty_write(Record);
+    do_store_rules({?ACL_TABLE_USERNAME, Username}, normalize_rules(Rules));
 store_rules({clientid, Clientid}, Rules) ->
-    Record = #emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = normalize_rules(Rules)},
-    mria:dirty_write(Record);
+    do_store_rules({?ACL_TABLE_CLIENTID, Clientid}, normalize_rules(Rules));
 store_rules(all, Rules) ->
-    Record = #emqx_acl{who = ?ACL_TABLE_ALL, rules = normalize_rules(Rules)},
-    mria:dirty_write(Record).
+    do_store_rules(?ACL_TABLE_ALL, normalize_rules(Rules)).
 
 %% @doc Clean all authz rules for (username & clientid & all)
 -spec purge_rules() -> ok.
@@ -204,14 +200,25 @@ record_count() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+read_rules(Key) ->
+    case mnesia:dirty_read(?ACL_TABLE, Key) of
+        [] -> [];
+        [#emqx_acl{rules = Rules}] when is_list(Rules) -> Rules;
+        Other -> error({invalid_rules, Key, Other})
+    end.
+
+do_store_rules(Who, Rules) ->
+    Record = #emqx_acl{who = Who, rules = Rules},
+    mria:dirty_write(Record).
+
 normalize_rules(Rules) ->
     lists:flatmap(fun normalize_rule/1, Rules).
 
 normalize_rule(RuleRaw) ->
     case emqx_authz_rule_raw:parse_rule(RuleRaw) of
         %% For backward compatibility
-        {ok, {Permission, Action, TopicFilters}} ->
-            [{Permission, Action, TopicFilter} || TopicFilter <- TopicFilters];
+        {ok, {Permission, Who, Action, TopicFilters}} ->
+            [{Permission, Who, Action, TopicFilter} || TopicFilter <- TopicFilters];
         {error, Reason} ->
             error(Reason)
     end.
@@ -224,9 +231,14 @@ do_get_rules(Key) ->
 
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [{Permission, Action, TopicFilter} | Tail]) ->
-    Rule = emqx_authz_rule:compile(Permission, all, Action, [TopicFilter]),
-    case emqx_authz_rule:match(Client, PubSub, Topic, Rule) of
+do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
+    CompliledRule = compile_rule(Rule),
+    case emqx_authz_rule:match(Client, PubSub, Topic, CompliledRule) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)
     end.
+
+compile_rule({Permission, Who, Action, TopicFilter}) ->
+    emqx_authz_rule:compile(Permission, Who, Action, [TopicFilter]);
+compile_rule({Permission, Action, TopicFilter}) ->
+    emqx_authz_rule:compile(Permission, all, Action, [TopicFilter]).

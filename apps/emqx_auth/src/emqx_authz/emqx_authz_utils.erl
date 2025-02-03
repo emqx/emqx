@@ -138,19 +138,17 @@ content_type(Headers) when is_list(Headers) ->
         <<"application/json">>
     ).
 
--define(RAW_RULE_KEYS, [<<"permission">>, <<"action">>, <<"topic">>, <<"qos">>, <<"retain">>]).
-
 -spec parse_rule_from_row([binary()], [binary()] | map()) ->
     {ok, emqx_authz_rule:rule()} | {error, term()}.
 parse_rule_from_row(_ColumnNames, RuleMap = #{}) ->
     case emqx_authz_rule_raw:parse_rule(RuleMap) of
-        {ok, {Permission, Action, Topics}} ->
-            {ok, emqx_authz_rule:compile({Permission, all, Action, Topics})};
+        {ok, {Permission, Who, Action, Topics}} ->
+            {ok, emqx_authz_rule:compile({Permission, Who, Action, Topics})};
         {error, Reason} ->
             {error, Reason}
     end;
 parse_rule_from_row(ColumnNames, Row) ->
-    RuleMap = maps:with(?RAW_RULE_KEYS, maps:from_list(lists:zip(ColumnNames, to_list(Row)))),
+    RuleMap = maps:from_list(lists:zip(ColumnNames, to_list(Row))),
     parse_rule_from_row(ColumnNames, RuleMap).
 
 vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->

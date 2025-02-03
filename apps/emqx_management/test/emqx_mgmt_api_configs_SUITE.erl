@@ -372,6 +372,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                             <<"enable">> := true,
                             <<"created_at">> := _,
                             <<"last_modified_at">> := _,
+                            <<"fallback_actions">> := [],
                             <<"parameters">> :=
                                 #{
                                     <<"body">> := <<"{\"value\": \"${value}\"}">>,
@@ -409,6 +410,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                                     <<"Authorization">> => <<"Bearer redacted">>,
                                     <<"content-type">> => <<"application/json">>
                                 },
+                            <<"max_inactive">> => <<"10s">>,
                             <<"pool_size">> => 4,
                             <<"pool_type">> => <<"random">>,
                             <<"resource_opts">> =>

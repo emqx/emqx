@@ -88,6 +88,7 @@ fields(connector_config) ->
                     desc => ?DESC("max_retries")
                 }
             )},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         {request_timeout,
             sc(
                 emqx_schema:timeout_duration_ms(),

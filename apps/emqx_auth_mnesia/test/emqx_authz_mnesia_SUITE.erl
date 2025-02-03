@@ -112,6 +112,52 @@ t_authz(_Config) ->
     test_authz(
         allow,
         allow,
+        {{clientid, <<"clientid">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"t">>,
+            <<"clientid_re">> => <<"ent+">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {{clientid, <<"clientid">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"t">>,
+            <<"clientid_re">> => <<"X+">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {{clientid, <<"clientid">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"t">>,
+            <<"clientid_re">> => <<"ent+">>,
+            <<"username_re">> => <<"user+">>,
+            <<"ipaddr">> => <<"127.0.0.0/24">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {{clientid, <<"clientid">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"t">>,
+            <<"ipaddr">> => <<"127.0.1.0/24">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -225,6 +271,23 @@ t_normalize_rules(_Config) ->
                 }
             ]
         )
+    ).
+
+t_legacy_rules(_Config) ->
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+
+    ok = emqx_authz_mnesia:do_store_rules(
+        %% {?ACL_TABLE_USERNAME, <<"username">>}
+        {1, <<"username">>},
+        [
+            %% Legacy 3-tuple format without `who' field
+            {allow, {publish, [{qos, [0, 1, 2]}, {retain, all}]}, <<"t">>}
+        ]
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_destroy(_Config) ->

@@ -388,6 +388,30 @@ fields(rule_item) ->
                     desc => ?DESC(retain),
                     default => ?DEFAULT_RULE_RETAIN
                 }
+            )},
+        {clientid_re,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(clientid_re),
+                    example => <<"client[0-9]+">>
+                }
+            )},
+        {username_re,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(username_re),
+                    example => <<"user[0-9]+">>
+                }
+            )},
+        {ipaddr,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(ipaddr),
+                    example => <<"192.168.1.0/24">>
+                }
             )}
     ];
 fields(clientid) ->

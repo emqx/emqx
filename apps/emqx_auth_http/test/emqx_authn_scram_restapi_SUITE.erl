@@ -366,6 +366,7 @@ raw_config() ->
         <<"mechanism">> => <<"scram">>,
         <<"backend">> => <<"http">>,
         <<"enable">> => <<"true">>,
+        <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://127.0.0.1:34333/user">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME},

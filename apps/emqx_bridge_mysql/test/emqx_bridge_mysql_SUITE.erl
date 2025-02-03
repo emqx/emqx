@@ -294,7 +294,7 @@ query_resource_async(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     Ref = alias([reply]),
-    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
         timeout => 500, async_reply_fun => {AsyncReplyFun, []}
     }),

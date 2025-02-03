@@ -566,9 +566,10 @@ enqueue(ClientInfo, Msgs, Session) when is_list(Msgs) ->
 
 enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q}) ->
     {Dropped, NQ} = emqx_mqueue:in(Msg, Q),
+    NewSession = Session#session{mqueue = NQ},
     case Dropped of
         undefined ->
-            Session#session{mqueue = NQ};
+            NewSession;
         _Msg ->
             NQInfo = emqx_mqueue:info(NQ),
             Reason =
@@ -580,7 +581,7 @@ enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q
                 ClientInfo,
                 {dropped, Dropped, #{reason => Reason, logctx => #{queue => NQInfo}}}
             ),
-            Session
+            NewSession
     end.
 
 maybe_ack(Msg) ->

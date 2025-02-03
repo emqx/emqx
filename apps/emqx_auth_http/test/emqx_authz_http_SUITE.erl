@@ -878,6 +878,7 @@ raw_http_authz_config() ->
     #{
         <<"enable">> => <<"true">>,
         <<"type">> => <<"http">>,
+        <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
