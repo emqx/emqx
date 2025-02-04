@@ -82,7 +82,15 @@
 -endif.
 
 -if(?EMQX_RELEASE_EDITION == ee).
--export([basic_trace_attrs/1]).
+-import(emqx_external_trace, [
+    connect_attrs/2,
+    basic_attrs/1,
+    topic_attrs/1,
+    authn_attrs/1,
+    sub_authz_attrs/1,
+    disconnect_attrs/2
+]).
+
 -else.
 -endif.
 
@@ -167,6 +175,7 @@
 
 -define(LIMITER_ROUTING, message_routing).
 -define(chan_terminating, chan_terminating).
+-define(normal, normal).
 -define(RAND_CLIENTID_BYTES, 16).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
@@ -256,7 +265,7 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 -spec init(emqx_types:conninfo(), opts()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, PeerPort} = PeerName,
+        peername := {PeerHost, _PeerPort} = PeerName,
         sockname := {_Host, SockPort}
     },
     #{
@@ -283,7 +292,6 @@ init(
             %% We copy peername to clientinfo because some event contexts only have access
             %% to client info (e.g.: authn/authz).
             peername => PeerName,
-            peerport => PeerPort,
             sockport => SockPort,
             clientid => undefined,
             username => undefined,
@@ -371,13 +379,12 @@ handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_connect,
-        Packet,
-        connect_trace_attrs(Packet, Channel),
-        fun(PacketWithTrace) ->
-            process_connect(PacketWithTrace, Channel)
-        end
+    ?EXT_TRACE_CLIENT_CONNECT(
+        ?EXT_TRACE_ATTR(connect_attrs(Packet, Channel)),
+        fun(NPacket) ->
+            process_connect(NPacket, Channel)
+        end,
+        [Packet]
     );
 %% TODO: trace CONNECT with AUTH
 handle_in(
@@ -435,11 +442,10 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
 handle_in(?PUBLISH_PACKET(_QoS, _Topic, _PacketId) = Packet, Channel) ->
     case emqx_packet:check(Packet) of
         ok ->
-            ?EXT_TRACE_WITH_PROCESS_FUN(
-                client_publish,
-                Packet,
-                (basic_trace_attrs(Channel))#{'message.topic' => _Topic},
-                fun(PacketWithTrace) -> process_publish(PacketWithTrace, Channel) end
+            ?EXT_TRACE_CLIENT_PUBLISH(
+                ?EXT_TRACE_ATTR((basic_attrs(Channel))#{'message.topic' => _Topic}),
+                fun(NPacket) -> process_publish(NPacket, Channel) end,
+                [Packet]
             );
         {error, ReasonCode} ->
             handle_out(disconnect, ReasonCode, Channel)
@@ -448,58 +454,52 @@ handle_in(
     ?PACKET(?PUBACK) = Packet,
     Channel
 ) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_puback,
-        Packet,
-        basic_trace_attrs(Channel),
-        fun(PacketWithTrace) -> process_puback(PacketWithTrace, Channel) end
+    ?EXT_TRACE_CLIENT_PUBACK(
+        ?EXT_TRACE_ATTR(basic_attrs(Channel)),
+        fun(NPacket) -> process_puback(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(
     ?PACKET(?PUBREC) = Packet,
     Channel
 ) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_pubrec,
-        Packet,
-        basic_trace_attrs(Channel),
-        fun(PacketWithTrace) -> process_pubrec(PacketWithTrace, Channel) end
+    ?EXT_TRACE_CLIENT_PUBREC(
+        ?EXT_TRACE_ATTR(basic_attrs(Channel)),
+        fun(NPacket) -> process_pubrec(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(
     ?PACKET(?PUBREL) = Packet,
     Channel
 ) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_pubrel,
-        Packet,
-        basic_trace_attrs(Channel),
-        fun(PacketWithTrace) -> process_pubrel(PacketWithTrace, Channel) end
+    ?EXT_TRACE_CLIENT_PUBREL(
+        ?EXT_TRACE_ATTR(basic_attrs(Channel)),
+        fun(NPacket) -> process_pubrel(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(
     ?PACKET(?PUBCOMP) = Packet,
     Channel
 ) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_pubcomp,
-        Packet,
-        basic_trace_attrs(Channel),
-        fun(PacketWithTrace) -> process_pubcomp(PacketWithTrace, Channel) end
+    ?EXT_TRACE_CLIENT_PUBCOMP(
+        ?EXT_TRACE_ATTR(basic_attrs(Channel)),
+        fun(NPacket) -> process_pubcomp(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(?SUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters0) = Packet, Channel) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_subscribe,
-        Packet,
-        maps:merge(basic_trace_attrs(Channel), topic_filters_attrs(Packet)),
-        fun(PacketWithTrace) -> process_subscribe(PacketWithTrace, Channel) end
+    ?EXT_TRACE_CLIENT_SUBSCRIBE(
+        ?EXT_TRACE_ATTR(maps:merge(basic_attrs(Channel), topic_attrs(Packet))),
+        fun(NPacket) -> process_subscribe(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(
     Packet = ?UNSUBSCRIBE_PACKET(_PacketId, _Properties, _TopicFilters),
     Channel
 ) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_unsubscribe,
-        Packet,
-        maps:merge(basic_trace_attrs(Channel), topic_filters_attrs(Packet)),
-        fun(PacketWithTrace) -> process_unsubscribe(PacketWithTrace, Channel) end
+    ?EXT_TRACE_CLIENT_UNSUBSCRIBE(
+        ?EXT_TRACE_ATTR(maps:merge(basic_attrs(Channel), topic_attrs(Packet))),
+        fun(NPacket) -> process_unsubscribe(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = Keepalive}) ->
     {ok, NKeepalive} = emqx_keepalive:check(Keepalive),
@@ -509,18 +509,19 @@ handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,
     Channel
 ) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_disconnect,
-        Packet,
-        (basic_trace_attrs(Channel))#{
+    ?EXT_TRACE_CLIENT_DISCONNECT(
+        ?EXT_TRACE_ATTR((basic_attrs(Channel))#{
             'client.proto_name' => info(proto_name, Channel),
             'client.proto_ver' => info(proto_ver, Channel),
             'client.is_bridge' => info(is_bridge, Channel),
             'client.sockname' => emqx_utils:ntoa(info(sockname, Channel)),
             'client.peername' => emqx_utils:ntoa(info(peername, Channel)),
-            'client.disconnect.reason_code' => emqx_packet:info(reason_code, _PktVar)
-        },
-        fun(PacketWithTrace) -> process_disconnect(PacketWithTrace, Channel) end
+            'client.disconnect.reason' =>
+                emqx_reason_codes:name(emqx_packet:info(reason_code, _PktVar)),
+            'client.disconnect.reason_desc' => undefined
+        }),
+        fun(NPacket) -> process_disconnect(NPacket, Channel) end,
+        [Packet]
     );
 handle_in(?AUTH_PACKET(), Channel) ->
     handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
@@ -651,7 +652,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             ),
             case QoS of
                 ?QOS_0 ->
-                    ok = emqx_metrics:inc('packets.publish.dropped'),
+                    ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
                     {ok, NChannel};
                 ?QOS_1 ->
                     handle_out(puback, {PacketId, Rc}, NChannel);
@@ -740,7 +741,7 @@ do_publish(
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ok = emqx_metrics:inc('packets.publish.dropped'),
+            ok = emqx_metrics:inc('messages.dropped.receive_maximum'),
             handle_out(disconnect, RC, Channel)
     end.
 
@@ -1092,6 +1093,49 @@ maybe_update_expiry_interval(
 maybe_update_expiry_interval(_Properties, Channel) ->
     Channel.
 
+process_kick(
+    Channel = #channel{
+        conn_state = ConnState,
+        conninfo = #{proto_ver := ProtoVer},
+        session = Session
+    }
+) ->
+    emqx_session:destroy(Session),
+    Channel0 = maybe_publish_will_msg(kicked, Channel),
+    Channel1 =
+        case ConnState of
+            connected -> ensure_disconnected(kicked, Channel0);
+            _ -> Channel0
+        end,
+    case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
+        true ->
+            shutdown(
+                kicked,
+                ok,
+                ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
+                Channel1
+            );
+        _ ->
+            shutdown(kicked, ok, Channel1)
+    end.
+
+process_maybe_shutdown(
+    Reason,
+    Channel =
+        #channel{
+            clientinfo = ClientInfo,
+            conninfo = ConnInfo,
+            session = Session
+        }
+) ->
+    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
+    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
+    Channel2 = Channel1#channel{session = Session1},
+    case maybe_shutdown(Reason, Intent, Channel2) of
+        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
+        Shutdown -> Shutdown
+    end.
+
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
 %%--------------------------------------------------------------------
@@ -1129,10 +1173,9 @@ handle_deliver(
     {ok, {event, updated}, Channel#channel{session = NSession}};
 handle_deliver(Delivers, Channel) ->
     Delivers1 =
-        ?EXT_TRACE_ANY(
-            broker_publish,
-            Delivers,
-            basic_trace_attrs(Channel)
+        ?EXT_TRACE_BROKER_PUBLISH(
+            basic_attrs(Channel),
+            Delivers
         ),
     do_handle_deliver(Delivers1, Channel).
 
@@ -1276,34 +1319,30 @@ handle_out(publish, Publishes, Channel) ->
     {ok, ?REPLY_OUTGOING(Packets), NChannel};
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION_START(
-            outgoing,
-            ?PUBACK_PACKET(PacketId, ReasonCode),
-            basic_trace_attrs(Channel)
+        ?EXT_TRACE_OUTGOING_START(
+            basic_attrs(Channel),
+            ?PUBACK_PACKET(PacketId, ReasonCode)
         ),
         Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION_START(
-            outgoing,
-            ?PUBREC_PACKET(PacketId, ReasonCode),
-            basic_trace_attrs(Channel)
+        ?EXT_TRACE_OUTGOING_START(
+            basic_attrs(Channel),
+            ?PUBREC_PACKET(PacketId, ReasonCode)
         ),
         Channel};
 handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION_START(
-            outgoing,
-            ?PUBREL_PACKET(PacketId, ReasonCode),
-            basic_trace_attrs(Channel)
+        ?EXT_TRACE_OUTGOING_START(
+            basic_attrs(Channel),
+            ?PUBREL_PACKET(PacketId, ReasonCode)
         ),
         Channel};
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok,
-        ?EXT_TRACE_WITH_ACTION_START(
-            outgoing,
-            ?PUBCOMP_PACKET(PacketId, ReasonCode),
-            basic_trace_attrs(Channel)
+        ?EXT_TRACE_OUTGOING_START(
+            basic_attrs(Channel),
+            ?PUBCOMP_PACKET(PacketId, ReasonCode)
         ),
         Channel};
 handle_out(suback, {PacketId, ReasonCodes}, Channel = ?IS_MQTT_V5) ->
@@ -1413,35 +1452,29 @@ return_sub_unsub_ack(Packet, Channel) ->
     {reply, Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), channel()}
     | {shutdown, Reason :: term(), Reply :: term(), emqx_types:packet(), channel()}.
-handle_call(
-    kick,
-    Channel = #channel{
-        conn_state = ConnState,
-        conninfo = #{proto_ver := ProtoVer},
-        session = Session
-    }
-) ->
-    emqx_session:destroy(Session),
-    Channel0 = maybe_publish_will_msg(kicked, Channel),
-    Channel1 =
-        case ConnState of
-            connected -> ensure_disconnected(kicked, Channel0);
-            _ -> Channel0
-        end,
-    case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
-        true ->
-            shutdown(
-                kicked,
-                ok,
-                ?DISCONNECT_PACKET(?RC_ADMINISTRATIVE_ACTION),
-                Channel1
-            );
-        _ ->
-            shutdown(kicked, ok, Channel1)
-    end;
+handle_call(kick, Channel = #channel{conn_state = ConnState}) when
+    ConnState =/= disconnected
+->
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), disconnect_attrs(kick, Channel))
+        ),
+        fun() -> process_kick(Channel) end,
+        []
+    );
+handle_call(kick, Channel) ->
+    process_kick(Channel);
 handle_call(discard, Channel) ->
-    Channel0 = maybe_publish_will_msg(discarded, Channel),
-    disconnect_and_shutdown(discarded, ok, Channel0);
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), disconnect_attrs(discard, Channel))
+        ),
+        fun() ->
+            Channel0 = maybe_publish_will_msg(discarded, Channel),
+            disconnect_and_shutdown(discarded, ok, Channel0)
+        end,
+        []
+    );
 %% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     reply(Session, Channel#channel{takeover = true});
@@ -1453,22 +1486,40 @@ handle_call(
         conninfo = #{clientid := ClientId}
     }
 ) ->
-    %% NOTE
-    %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    ok = emqx_session_mem:takeover(Session),
-    %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
-    ?tp(
-        debug,
-        emqx_channel_takeover_end,
-        #{clientid => ClientId}
-    ),
-    Channel0 = maybe_publish_will_msg(takenover, Channel),
-    disconnect_and_shutdown(takenover, AllPendings, Channel0);
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), disconnect_attrs(takeover, Channel))
+        ),
+        fun() ->
+            %% NOTE
+            %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
+            ok = emqx_session_mem:takeover(Session),
+            %% TODO: Should not drain deliver here (side effect)
+            Delivers = emqx_utils:drain_deliver(),
+            AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
+            ?tp(
+                debug,
+                emqx_channel_takeover_end,
+                #{clientid => ClientId}
+            ),
+            Channel0 = maybe_publish_will_msg(takenover, Channel),
+            disconnect_and_shutdown(takenover, AllPendings, Channel0)
+        end,
+        []
+    );
 handle_call(takeover_kick, Channel) ->
-    Channel0 = maybe_publish_will_msg(takenover, Channel),
-    disconnect_and_shutdown(takenover, ok, Channel0);
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(
+                basic_attrs(Channel), disconnect_attrs(takeover_kick, Channel)
+            )
+        ),
+        fun() ->
+            Channel0 = maybe_publish_will_msg(takenover, Channel),
+            disconnect_and_shutdown(takenover, ok, Channel0)
+        end,
+        []
+    );
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 handle_call(
@@ -1503,49 +1554,83 @@ handle_call(Req, Channel) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 
 handle_info({subscribe, TopicFilters}, Channel) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        broker_subscribe,
-        [],
-        maps:merge(basic_trace_attrs(Channel), topic_filters_attrs({subscribe, TopicFilters})),
-        fun([]) ->
+    ?EXT_TRACE_BROKER_SUBSCRIBE(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), topic_attrs({subscribe, TopicFilters}))
+        ),
+        fun() ->
             NTopicFilters = enrich_subscribe(TopicFilters, Channel),
             {_TopicFiltersWithRC, NChannel} = post_process_subscribe(NTopicFilters, Channel),
             {ok, NChannel}
-        end
+        end,
+        []
     );
 handle_info({unsubscribe, TopicFilters}, Channel) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        broker_unsubscribe,
-        [],
-        maps:merge(basic_trace_attrs(Channel), topic_filters_attrs({unsubscribe, TopicFilters})),
-        fun([]) ->
+    ?EXT_TRACE_BROKER_UNSUBSCRIBE(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), topic_attrs({unsubscribe, TopicFilters}))
+        ),
+        fun() ->
             {_RC, NChannel} = post_process_unsubscribe(TopicFilters, #{}, Channel),
             {ok, NChannel}
-        end
+        end,
+        []
     );
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = idle}) ->
-    shutdown(Reason, Channel);
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = connecting}) ->
-    shutdown(Reason, Channel);
 handle_info(
-    {sock_closed, Reason},
-    Channel =
-        #channel{
-            conn_state = ConnState,
-            clientinfo = ClientInfo,
-            conninfo = ConnInfo,
-            session = Session
-        }
+    {sock_closed, ?normal},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = #{clientid := ClientId}
+    }
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
-    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
-    Channel2 = Channel1#channel{session = Session1},
-    case maybe_shutdown(Reason, Intent, Channel2) of
-        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
-        Shutdown -> Shutdown
-    end;
+    %% `normal`, aka `?RC_SUCCES`, disconnect(by client's DISCONNECT packet) and close socket
+    %% already traced `client.disconnect`, no need to trace `broker.disconnect`
+    ?tp(sock_closed_normal, #{clientid => ClientId, conn_state => ConnState}),
+    process_maybe_shutdown(normal, Channel);
+handle_info(
+    {sock_closed, Reason},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = #{clientid := ClientId}
+    }
+) when
+    ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
+->
+    %% Socket closed when `connected` or `reauthenticating`
+    ?tp(sock_closed_with_other_reason, #{clientid => ClientId, conn_state => ConnState}),
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(
+                (basic_attrs(Channel))#{},
+                disconnect_attrs(sock_closed, Channel)
+            )
+        ),
+        fun() -> process_maybe_shutdown(Reason, Channel) end,
+        []
+    );
+handle_info(
+    {sock_closed, Reason},
+    Channel = #channel{
+        conn_state = ConnState,
+        clientinfo = #{clientid := ClientId}
+    }
+) when
+    ConnState =:= idle orelse
+        ConnState =:= connecting
+->
+    ?tp(sock_closed_when_idle_or_connecting, #{clientid => ClientId, conn_state => ConnState}),
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(
+                (basic_attrs(Channel))#{},
+                disconnect_attrs(sock_closed, Channel)
+            )
+        ),
+        fun() -> shutdown(Reason, Channel) end,
+        []
+    );
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     %% This can happen as a race:
     %% EMQX closes socket and marks 'disconnected' but 'tcp_closed' or 'ssl_closed'
@@ -2082,15 +2167,15 @@ authenticate(?PACKET(?AUTH) = Packet, Channel) ->
     process_authenticate(Packet, Channel);
 authenticate(Packet, Channel) ->
     %% Authenticate by CONNECT Packet
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_authn,
-        Packet,
-        #{
-            'client.clientid' => info(clientid, Channel),
-            'client.username' => info(username, Channel)
-        },
-        fun(PacketWithTrace) ->
-            Res = process_authenticate(PacketWithTrace, Channel),
+    ?EXT_TRACE_CLIENT_AUTHN(
+        ?EXT_TRACE_ATTR(
+            #{
+                'client.clientid' => info(clientid, Channel),
+                'client.username' => info(username, Channel)
+            }
+        ),
+        fun(NPacket) ->
+            Res = process_authenticate(NPacket, Channel),
             ?EXT_TRACE_ADD_ATTRS(authn_attrs(Res)),
             case Res of
                 {ok, _, _} -> ?EXT_TRACE_SET_STATUS_OK();
@@ -2098,9 +2183,9 @@ authenticate(Packet, Channel) ->
                 {continue, _, _} -> ok;
                 {error, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
             end,
-            %% TODO: which authenticator is used
             Res
-        end
+        end,
+        [Packet]
     ).
 
 process_authenticate(
@@ -2354,13 +2439,14 @@ authz_action(#message{qos = QoS}) ->
 %% Check Pub Authorization
 
 check_pub_authz(Packet, Channel) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_authz,
-        Packet,
-        (basic_trace_attrs(Channel))#{'authz.action_type' => publish},
-        fun(PacketWithTrace) ->
-            _Res = do_check_pub_authz(PacketWithTrace, Channel)
-        end
+    ?EXT_TRACE_CLIENT_AUTHZ(
+        ?EXT_TRACE_ATTR(
+            (basic_attrs(Channel))#{'authz.action_type' => publish}
+        ),
+        fun(NPacket) ->
+            _Res = do_check_pub_authz(NPacket, Channel)
+        end,
+        [Packet]
     ).
 
 do_check_pub_authz(
@@ -2416,13 +2502,10 @@ check_subscribe(SubPkt, _Channel) ->
 %% Check Sub Authorization
 
 check_sub_authzs(Packet, Channel) ->
-    ?EXT_TRACE_WITH_PROCESS_FUN(
-        client_authz,
-        Packet,
-        (basic_trace_attrs(Channel))#{'authz.action_type' => subscribe},
-        fun(PacketWithTrace) ->
-            _Res = do_check_sub_authzs(PacketWithTrace, Channel)
-        end
+    ?EXT_TRACE_CLIENT_AUTHZ(
+        ?EXT_TRACE_ATTR((basic_attrs(Channel))#{'authz.action_type' => subscribe}),
+        fun(NPacket) -> _Res = do_check_sub_authzs(NPacket, Channel) end,
+        [Packet]
     ).
 
 do_check_sub_authzs(
@@ -2439,13 +2522,13 @@ do_check_sub_authzs(
     DenyAction = emqx:get_config([authorization, deny_action], ignore),
     case {HasAuthzDeny, DenyAction} of
         {true, disconnect} ->
-            ?EXT_TRACE_ADD_ATTRS((subscribe_authz_result_attrs(CheckResult))#{
+            ?EXT_TRACE_ADD_ATTRS((sub_authz_attrs(CheckResult))#{
                 'authz.deny_action' => disconnect
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
             {error, {disconnect, ?RC_NOT_AUTHORIZED}, Channel};
         {true, ignore} ->
-            ?EXT_TRACE_ADD_ATTRS((subscribe_authz_result_attrs(CheckResult))#{
+            ?EXT_TRACE_ADD_ATTRS((sub_authz_attrs(CheckResult))#{
                 'authz.deny_action' => ignore
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
@@ -2905,7 +2988,6 @@ maybe_publish_will_msg(
     case is_durable_session(Channel0) andalso Reason =:= ?chan_terminating of
         false ->
             ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
-
             Channel = publish_will_msg(Channel0),
             remove_willmsg(Channel);
         true ->
@@ -3028,7 +3110,7 @@ prepare_will_message_for_publishing(
 %%--------------------------------------------------------------------
 %% Disconnect Reason
 
-disconnect_reason(?RC_SUCCESS) -> normal;
+disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
@@ -3163,123 +3245,6 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
-
-%%--------------------------------------------------------------------
-%% External Trace Helpers
-%%--------------------------------------------------------------------
-
-%% Client Channel info not be available before `process_connect/2`
-%% The initial attrs should be extracted from packet and update them during `process_connect/2`
--if(?EMQX_RELEASE_EDITION == ee).
-
-connect_trace_attrs(
-    ?PACKET(?CONNECT, #mqtt_packet_connect{
-        proto_name = ProtoName,
-        proto_ver = ProtoVer,
-        is_bridge = IsBridge,
-        clean_start = CleanStart,
-        will_flag = WillFlag,
-        will_qos = WillQos,
-        will_retain = WillRetain,
-        keepalive = KeepAlive,
-        properties = Properties,
-        clientid = ClientId,
-        will_props = WillProps,
-        will_topic = WillTopic,
-        will_payload = _,
-        username = Username,
-        password = _
-    }),
-    Channel
-) ->
-    #{
-        'client.clientid' => ClientId,
-        'client.username' => Username,
-        'client.proto_name' => ProtoName,
-        'client.proto_ver' => ProtoVer,
-        'client.is_bridge' => IsBridge,
-        'client.clean_start' => CleanStart,
-        'client.will_flag' => WillFlag,
-        'client.will_qos' => WillQos,
-        'client.will_retain' => WillRetain,
-        'client.keepalive' => KeepAlive,
-        'client.conn_props' => emqx_utils_json:encode(Properties),
-        'client.will_props' => emqx_utils_json:encode(WillProps),
-        'client.will_topic' => WillTopic,
-        'client.sockname' => emqx_utils:ntoa(info(sockname, Channel)),
-        'client.peername' => emqx_utils:ntoa(info(peername, Channel))
-    }.
-
-basic_trace_attrs(Channel) ->
-    #{
-        'client.clientid' => info(clientid, Channel),
-        'client.username' => info(username, Channel)
-    }.
-
-topic_filters_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
-    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{
-        'client.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
-        'client.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
-    };
-topic_filters_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
-    {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{'client.unsubscribe.topics' => emqx_utils_json:encode(TFs)};
-topic_filters_attrs({subscribe, TopicFilters}) ->
-    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
-    #{
-        'broker.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
-        'broker.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
-    };
-topic_filters_attrs({unsubscribe, TopicFilters}) ->
-    {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
-    #{'broker.unsubscribe.topics' => emqx_utils_json:encode(TFs)}.
-
-do_topic_filters_attrs(subscribe, TopicFilters) ->
-    {_TFs, _SubOpts} = lists:foldl(
-        fun({Topic, SubOpts}, {AccTFs, AccSubOpts}) ->
-            {[emqx_topic:maybe_format_share(Topic) | AccTFs], [SubOpts | AccSubOpts]}
-        end,
-        {[], []},
-        TopicFilters
-    );
-do_topic_filters_attrs(unsubscribe, TopicFilters) ->
-    TFs = [
-        emqx_topic:maybe_format_share(Name)
-     || Name <- TopicFilters
-    ],
-    {TFs, undefined}.
-
-authn_attrs({continue, _Properties, _Channel}) ->
-    %% TODO
-    #{};
-authn_attrs({ok, _Properties, Channel}) ->
-    #{
-        'client.connect.authn.result' => ok,
-        'client.connect.authn.is_superuser' => info(is_superuser, Channel),
-        'client.connect.authn.expire_at' => info(expire_at, Channel)
-    };
-authn_attrs({error, _Reason}) ->
-    #{
-        'client.connect.authn.result' => error,
-        'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
-    }.
-
-subscribe_authz_result_attrs(CheckResult) ->
-    {TFs, AuthZRCs} = lists:foldl(
-        fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
-            {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
-        end,
-        {[], []},
-        CheckResult
-    ),
-    #{
-        'authz.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
-        'authz.subscribe.reason_codes' => emqx_utils_json:encode(lists:reverse(AuthZRCs))
-    }.
-
--else.
--endif.
 
 %%--------------------------------------------------------------------
 %% For CT tests

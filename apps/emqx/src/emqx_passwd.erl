@@ -66,7 +66,7 @@ check_pass(Algo, Hash, Password) ->
 
 do_check_pass({pbkdf2, MacFun, Salt, Iterations, DKLength}, PasswordHash, Password) ->
     HashPasswd = pbkdf2(MacFun, Password, Salt, Iterations, DKLength),
-    compare_secure(hex(HashPasswd), PasswordHash);
+    compare_secure_caseless(hex(HashPasswd), PasswordHash);
 do_check_pass({bcrypt, Salt}, PasswordHash, Password) ->
     case bcrypt:hashpw(Password, Salt) of
         {ok, HashPasswd} ->
@@ -76,7 +76,7 @@ do_check_pass({bcrypt, Salt}, PasswordHash, Password) ->
     end;
 do_check_pass({_SimpleHash, _Salt, _SaltPosition} = HashParams, PasswordHash, Password) ->
     Hash = hash(HashParams, Password),
-    compare_secure(Hash, PasswordHash).
+    compare_secure_caseless(Hash, PasswordHash).
 
 -spec hash(hash_params(), password()) -> password_hash().
 hash({pbkdf2, MacFun, Salt, Iterations, DKLength}, Password) when Iterations > 0 ->
@@ -115,6 +115,11 @@ hash_data(sha512, Data) when is_binary(Data) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+compare_secure_caseless(X, Y) when is_binary(X), is_binary(Y) ->
+    compare_secure_caseless(binary_to_list(X), binary_to_list(Y));
+compare_secure_caseless(X, Y) ->
+    compare_secure(string:lowercase(X), string:lowercase(Y)).
 
 compare_secure(X, Y) when is_binary(X), is_binary(Y) ->
     compare_secure(binary_to_list(X), binary_to_list(Y));

@@ -39,6 +39,10 @@
     content_type/1
 ]).
 
+-export([
+    cached_simple_sync_query/3
+]).
+
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
 }).
@@ -112,7 +116,7 @@ parse_http_resp_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     end;
 parse_http_resp_body(<<"application/json", _/binary>>, Body) ->
     try
-        result(emqx_utils_json:decode(Body, [return_maps]))
+        result(emqx_utils_json:decode(Body))
     catch
         _:_ -> error
     end;
@@ -134,19 +138,17 @@ content_type(Headers) when is_list(Headers) ->
         <<"application/json">>
     ).
 
--define(RAW_RULE_KEYS, [<<"permission">>, <<"action">>, <<"topic">>, <<"qos">>, <<"retain">>]).
-
 -spec parse_rule_from_row([binary()], [binary()] | map()) ->
     {ok, emqx_authz_rule:rule()} | {error, term()}.
 parse_rule_from_row(_ColumnNames, RuleMap = #{}) ->
     case emqx_authz_rule_raw:parse_rule(RuleMap) of
-        {ok, {Permission, Action, Topics}} ->
-            {ok, emqx_authz_rule:compile({Permission, all, Action, Topics})};
+        {ok, {Permission, Who, Action, Topics}} ->
+            {ok, emqx_authz_rule:compile({Permission, Who, Action, Topics})};
         {error, Reason} ->
             {error, Reason}
     end;
 parse_rule_from_row(ColumnNames, Row) ->
-    RuleMap = maps:with(?RAW_RULE_KEYS, maps:from_list(lists:zip(ColumnNames, to_list(Row)))),
+    RuleMap = maps:from_list(lists:zip(ColumnNames, to_list(Row))),
     parse_rule_from_row(ColumnNames, RuleMap).
 
 vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
@@ -155,6 +157,9 @@ vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
         qos => Qos,
         retain => maps:get(retain, Action, false)
     }.
+
+cached_simple_sync_query(CacheKey, ResourceID, Query) ->
+    emqx_auth_utils:cached_simple_sync_query(?AUTHZ_CACHE, CacheKey, ResourceID, Query).
 
 %%--------------------------------------------------------------------
 %% Internal functions

@@ -141,7 +141,7 @@ create_rule_http(RuleParams, Overrides) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
             {ok, Res};
         Error ->
@@ -376,7 +376,7 @@ receive_published(Line) ->
             maps:update_with(
                 payload,
                 fun(Raw) ->
-                    case emqx_utils_json:safe_decode(Raw, [return_maps]) of
+                    case emqx_utils_json:safe_decode(Raw) of
                         {ok, Decoded} -> Decoded;
                         {error, _} -> Raw
                     end

@@ -146,6 +146,7 @@ roots() ->
 fields("connector") ->
     [
         {server, server()},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         {pool_size,
             mk(
                 integer(),

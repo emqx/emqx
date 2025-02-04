@@ -18,6 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -36,7 +37,7 @@ init_per_suite(Config) ->
             {emqx_conf,
                 "authorization.cache { enable = false },"
                 "authorization.no_match = deny,"
-                "authorization.sources = [{type = built_in_database, max_rules = 5}]"},
+                "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
             emqx,
             emqx_auth,
             emqx_auth_mnesia,
@@ -134,7 +135,7 @@ t_api(_) ->
         request(
             put,
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            ?USERNAME_RULES_EXAMPLE(#{rules => []})
+            ?MAPPEND(?USERNAME_RULES_EXAMPLE, #{rules => []})
         ),
 
     %% check length limit
@@ -227,7 +228,7 @@ t_api(_) ->
         request(
             put,
             uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            ?CLIENTID_RULES_EXAMPLE(#{rules => []})
+            ?MAPPEND(?CLIENTID_RULES_EXAMPLE, #{rules => []})
         ),
 
     {ok, 400, _} =

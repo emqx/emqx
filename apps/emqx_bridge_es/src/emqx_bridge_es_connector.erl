@@ -113,8 +113,9 @@ roots() ->
     [{config, #{type => ?R_REF(config)}}].
 
 fields(config) ->
+    UnsupportedFields = [url, request, retry_interval, headers],
     lists:filter(
-        fun({K, _}) -> not lists:member(K, [url, request, retry_interval, headers]) end,
+        fun({K, _}) -> not lists:member(K, UnsupportedFields) end,
         emqx_bridge_http_schema:fields("config_connector")
     ) ++
         fields("connection_fields");

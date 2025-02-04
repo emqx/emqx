@@ -41,18 +41,26 @@ description() ->
     "AuthZ with Redis".
 
 create(#{cmd := CmdStr} = Source) ->
-    CmdTemplate = parse_cmd(CmdStr),
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
-    Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
+    Source#{
+        annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
+        cmd_template => CmdTemplate
+    }.
 
 update(#{cmd := CmdStr} = Source) ->
-    CmdTemplate = parse_cmd(CmdStr),
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, cmd_template => CmdTemplate}
+            Source#{
+                annotations => #{id => Id, cache_key_template => CacheKeyTemplate},
+                cmd_template => CmdTemplate
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -64,12 +72,13 @@ authorize(
     Topic,
     #{
         cmd_template := CmdTemplate,
-        annotations := #{id := ResourceID}
+        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
-    case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
+    case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
         {error, Reason} ->
@@ -139,7 +148,7 @@ parse_rule(<<"subscribe">>) ->
 parse_rule(<<"all">>) ->
     {ok, #{<<"action">> => <<"all">>}};
 parse_rule(Bin) when is_binary(Bin) ->
-    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
+    case emqx_utils_json:safe_decode(Bin) of
         {ok, Map} when is_map(Map) ->
             {ok, maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map)};
         {ok, _} ->

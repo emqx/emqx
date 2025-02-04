@@ -32,93 +32,274 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
--define(with_provider(IfRegistered, IfNotRegistered),
+-define(get_provider(), persistent_term:get(?PROVIDER, undefined)).
+
+-define(no_provider(Any), Any).
+-define(no_provider(ProcessFun, ProcessFunArgs), erlang:apply(ProcessFun, ProcessFunArgs)).
+
+-define(apply_provider(M, F, A), erlang:apply(M, F, A)).
+
+-define(with_provider_call(
+    Callback,
+    CallbackArgs,
+    IfNoProvider
+),
     fun() ->
-        case persistent_term:get(?PROVIDER, undefined) of
+        case ?get_provider() of
             undefined ->
-                IfNotRegistered;
+                ?no_provider(IfNoProvider);
             Provider ->
-                Provider:IfRegistered
+                ?apply_provider(Provider, Callback, CallbackArgs)
         end
     end()
 ).
 
--define(EXT_TRACE_ANY(FuncName, Any, Attrs),
-    ?with_provider(
-        FuncName(Any, Attrs),
-        Any
-    )
+-define(with_provider_action(
+    Callback,
+    Attrs,
+    Action,
+    Any
+),
+    fun() ->
+        case ?get_provider() of
+            undefined ->
+                ?no_provider(Any);
+            Provider ->
+                ?apply_provider(Provider, Callback, [Attrs, Action, Any])
+        end
+    end()
+).
+
+-define(with_provider_apply_process_fun(
+    Callback,
+    Attrs,
+    ProcessFun,
+    ProcessFunArgs
+),
+    fun() ->
+        case ?get_provider() of
+            undefined ->
+                ?no_provider(ProcessFun, ProcessFunArgs);
+            Provider ->
+                ?apply_provider(Provider, Callback, [Attrs, ProcessFun, ProcessFunArgs])
+        end
+    end()
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs),
-    ?with_provider(add_span_attrs(Attrs), ok)
+    ?with_provider_call(add_span_attrs, [Attrs], ok)
 ).
 
 -define(EXT_TRACE_ADD_ATTRS(Attrs, Ctx),
-    ?with_provider(add_span_attrs(Attrs, Ctx), ok)
+    ?with_provider_call(add_span_attrs, [Attrs, Ctx], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_OK(),
-    ?with_provider(
-        set_status_ok(),
-        ok
-    )
+    ?with_provider_call(set_status_ok, [], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_ERROR(),
-    ?with_provider(
-        set_status_error(),
-        ok
-    )
+    ?with_provider_call(set_status_error, [], ok)
 ).
 
 -define(EXT_TRACE_SET_STATUS_ERROR(Msg),
-    ?with_provider(
-        set_status_error(Msg),
-        ok
-    )
+    ?with_provider_call(set_status_error, [Msg], ok)
 ).
 
--define(EXT_TRACE_WITH_ACTION_START(FuncName, Any, Attrs),
-    ?with_provider(
-        FuncName(?EXT_TRACE_START, Any, Attrs),
-        Any
-    )
+-define(EXT_TRACE_ATTR(_Expr_), begin
+    _Expr_
+end).
+
+-define(EXT_TRACE_CLIENT_CONNECT(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_connect, Attrs, Fun, FunArgs)
 ).
 
--define(EXT_TRACE_WITH_ACTION_STOP(FuncName, Any, Attrs),
-    ?with_provider(
-        FuncName(?EXT_TRACE_STOP, Any, Attrs),
-        ok
-    )
+-define(EXT_TRACE_CLIENT_DISCONNECT(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_disconnect, Attrs, Fun, FunArgs)
 ).
 
--define(EXT_TRACE_WITH_PROCESS_FUN(FuncName, Any, Attrs, ProcessFun),
-    ?with_provider(
-        FuncName(Any, Attrs, ProcessFun),
-        ProcessFun(Any)
-    )
+-define(EXT_TRACE_CLIENT_SUBSCRIBE(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_subscribe, Attrs, Fun, FunArgs)
 ).
 
--type event_name() :: opentelemetry:event_name().
+-define(EXT_TRACE_CLIENT_UNSUBSCRIBE(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_unsubscribe, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHN(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_authn, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHN_BACKEND(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_authn_backend, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHZ(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_authz, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHZ_BACKEND(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_authz_backend, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_DISCONNECT(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(broker_disconnect, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_SUBSCRIBE(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(broker_subscribe, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_UNSUBSCRIBE(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(broker_unsubscribe, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBLISH(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_publish, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBACK(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_puback, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBREC(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_pubrec, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBREL(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_pubrel, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBCOMP(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(client_pubcomp, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_MSG_ROUTE(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(msg_route, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_MSG_FORWARD(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(msg_forward, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_MSG_HANDLE_FORWARD(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(msg_handle_forward, Attrs, Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_PUBLISH(Attrs, Delivers),
+    ?with_provider_action(broker_publish, Attrs, ?EXT_TRACE_START, Delivers)
+).
+
+-define(EXT_TRACE_OUTGOING_START(Attrs, Packet),
+    ?with_provider_action(outgoing, Attrs, ?EXT_TRACE_START, Packet)
+).
+
+-define(EXT_TRACE_OUTGOING_STOP(Attrs, Packets),
+    ?with_provider_action(outgoing, Attrs, ?EXT_TRACE_STOP, Packets)
+).
 
 -else.
 
--define(EXT_TRACE_ANY(_FuncName, Any, _Attrs), Any).
 -define(EXT_TRACE_ADD_ATTRS(_Attrs), ok).
 -define(EXT_TRACE_ADD_ATTRS(_Attrs, _Ctx), ok).
 -define(EXT_TRACE_SET_STATUS_OK(), ok).
 -define(EXT_TRACE_SET_STATUS_ERROR(), ok).
 -define(EXT_TRACE_SET_STATUS_ERROR(_), ok).
--define(EXT_TRACE_WITH_ACTION_START(_FuncName, Any, _Attrs), Any).
--define(EXT_TRACE_WITH_ACTION_STOP(_FuncName, Any, _Attrs), ok).
--define(EXT_TRACE_WITH_PROCESS_FUN(_FuncName, Any, _Attrs, ProcessFun), ProcessFun(Any)).
 
+-define(EXT_TRACE_ATTR(_Expr_),
+    ok
+).
+
+-define(EXT_TRACE_CLIENT_CONNECT(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_DISCONNECT(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_SUBSCRIBE(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_UNSUBSCRIBE(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHN(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHN_BACKEND(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHZ(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_AUTHZ_BACKEND(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_DISCONNECT(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_SUBSCRIBE(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_UNSUBSCRIBE(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBLISH(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBACK(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBREC(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBREL(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_CLIENT_PUBCOMP(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_MSG_ROUTE(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_MSG_FORWARD(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_MSG_HANDLE_FORWARD(_Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
+).
+
+-define(EXT_TRACE_BROKER_PUBLISH(_Attrs, Delivers),
+    Delivers
+).
+
+-define(EXT_TRACE_OUTGOING_START(_Attrs, Packet),
+    Packet
+).
+
+-define(EXT_TRACE_OUTGOING_STOP(_Attrs, Packets),
+    ok
+).
+
+%% EMQX_RELEASE_EDITION check end
 -endif.
 
-%% --------------------------------------------------------------------
-%% types
-
--type attrs() :: #{atom() => _}.
-
+%% EMQX_EXT_TRACE_HRL check end
 -endif.

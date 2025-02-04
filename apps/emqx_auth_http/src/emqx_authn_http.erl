@@ -18,6 +18,7 @@
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -behaviour(emqx_authn_provider).
 
@@ -76,13 +77,17 @@ authenticate(
     #{
         resource_id := ResourceId,
         method := Method,
-        request_timeout := RequestTimeout
+        request_timeout := RequestTimeout,
+        cache_key_template := CacheKeyTemplate
     } = State
 ) ->
     case generate_request(Credential, State) of
         {ok, Request} ->
-            Response = emqx_resource:simple_sync_query(
-                ResourceId, {Method, Request, RequestTimeout}
+            CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+            Response = emqx_authn_utils:cached_simple_sync_query(
+                CacheKey,
+                ResourceId,
+                {Method, Request, RequestTimeout}
             ),
             ?TRACE_AUTHN_PROVIDER("http_response", #{
                 request => request_for_log(Credential, State),
@@ -166,18 +171,24 @@ parse_config(
     } = Config
 ) ->
     {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
+    {BasePathVars, BasePathTemplate} = emqx_authn_utils:parse_str(Path),
+    {BaseQueryVars, BaseQueryTemplate} = emqx_authn_utils:parse_deep(
+        cow_qs:parse_qs(Query)
+    ),
+    {BodyVars, BodyTemplate} = emqx_authn_utils:parse_deep(
+        emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
+    ),
+    {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(maps:to_list(Headers)),
+    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         method => Method,
         path => Path,
-        headers => maps:to_list(Headers),
-        base_path_template => emqx_authn_utils:parse_str(Path),
-        base_query_template => emqx_authn_utils:parse_deep(
-            cow_qs:parse_qs(Query)
-        ),
-        body_template =>
-            emqx_authn_utils:parse_deep(
-                emqx_utils_maps:binary_key_map(maps:get(body, Config, #{}))
-            ),
+        headers => HeadersTemplate,
+        base_path_template => BasePathTemplate,
+        base_query_template => BaseQueryTemplate,
+        body_template => BodyTemplate,
+        cache_key_template => CacheKeyTemplate,
         request_timeout => RequestTimeout,
         url => RawUrl
     },
@@ -302,7 +313,7 @@ safely_parse_body(ContentType, Body) ->
     end.
 
 parse_body(<<"application/json", _/binary>>, Body) ->
-    {ok, emqx_utils_json:decode(Body, [return_maps])};
+    {ok, emqx_utils_json:decode(Body)};
 parse_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
     NBody = maps:from_list(cow_qs:parse_qs(Body)),
     {ok, NBody};

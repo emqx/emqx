@@ -82,8 +82,24 @@ parse_config(
             is_superuser_attribute => IsSuperuserAttr
         }
     });
-parse_config(Config) ->
-    maps:with([query_timeout, method], Config).
+parse_config(
+    #{base_dn := BaseDN, filter := Filter, query_timeout := QueryTimeout, method := Method}
+) ->
+    PasswordVars =
+        case Method of
+            #{bind_password := Password} -> emqx_auth_template:placeholder_vars_from_str(Password);
+            _ -> []
+        end,
+    BaseDNVars = emqx_auth_template:placeholder_vars_from_str(BaseDN),
+    FilterVars = emqx_auth_template:placeholder_vars_from_str(Filter),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(
+        BaseDNVars ++ FilterVars ++ PasswordVars
+    ),
+    #{
+        query_timeout => QueryTimeout,
+        method => Method,
+        cache_key_template => CacheKeyTemplate
+    }.
 
 filter_placeholders(#{base_dn := BaseDN0, filter := Filter0} = Config0) ->
     BaseDN = emqx_auth_template:escape_disallowed_placeholders_str(

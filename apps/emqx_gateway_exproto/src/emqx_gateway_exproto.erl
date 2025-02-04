@@ -204,15 +204,22 @@ start_grpc_client_channel(
     case maps:get(enable, SSLOpts, false) of
         false ->
             SvrAddr = compose_http_uri(http, Host, Port),
-            grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});
+            ClientOpts = #{
+                gun_opts => #{
+                    %% NOTE: Disable retries by default, emulating 0.6.x behavior.
+                    retry => 0
+                }
+            },
+            grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts);
         true ->
             SSLOpts1 = [{nodelay, true} | emqx_tls_lib:to_client_opts(SSLOpts)],
             ClientOpts = #{
-                gun_opts =>
-                    #{
-                        transport => ssl,
-                        transport_opts => SSLOpts1
-                    }
+                gun_opts => #{
+                    transport => ssl,
+                    tls_opts => SSLOpts1,
+                    %% NOTE: Disable retries by default, emulating 0.6.x behavior.
+                    retry => 0
+                }
             },
             SvrAddr = compose_http_uri(https, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts)

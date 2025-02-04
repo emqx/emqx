@@ -70,7 +70,7 @@
         max_records := pos_integer()
     },
     container := #{
-        type := csv,
+        type := csv | json_lines,
         column_order => [string()]
     },
     min_part_size := emqx_schema:bytesize(),
@@ -128,19 +128,10 @@ on_start(InstId, Config) ->
 
 -spec on_stop(_InstanceId :: resource_id(), state()) ->
     ok.
-on_stop(InstId, _State = #{pool_name := PoolName}) ->
-    case ehttpc_sup:stop_pool(PoolName) of
-        ok ->
-            ?tp(s3_bridge_stopped, #{instance_id => InstId}),
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "s3_connector_http_pool_stop_fail",
-                pool_name => PoolName,
-                reason => Reason
-            }),
-            ok
-    end.
+on_stop(_InstId, _State = #{pool_name := PoolName}) ->
+    Res = emqx_s3_client_http:stop_pool(PoolName),
+    ?tp(s3_bridge_stopped, #{instance_id => _InstId}),
+    Res.
 
 -spec on_get_status(_InstanceId :: resource_id(), state()) ->
     health_check_status().

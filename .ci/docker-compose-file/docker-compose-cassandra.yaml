@@ -1,5 +1,3 @@
-version: '3.9'
-
 x-cassandra: &cassandra
   restart: always
   image: public.ecr.aws/docker/library/cassandra:${CASSANDRA_TAG:-3.11}

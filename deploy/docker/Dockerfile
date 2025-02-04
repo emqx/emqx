@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.4-2:1.15.7-26.2.5.2-2-debian12
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.4-4:1.17.3-27.2-2-debian12
 ARG RUN_FROM=debian:12-slim
 ARG SOURCE_TYPE=src # tgz
 
@@ -50,7 +50,7 @@ COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 
 RUN set -eu; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
+    apt-get install -y --no-install-recommends ca-certificates procps curl $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
     rm -rf /var/lib/apt/lists/*; \
     groupadd -r -g 1000 emqx; \
     useradd -r -m -u 1000 -g emqx emqx;

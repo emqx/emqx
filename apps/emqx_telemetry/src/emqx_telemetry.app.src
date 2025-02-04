@@ -1,6 +1,6 @@
 {application, emqx_telemetry, [
     {description, "Report telemetry data for EMQX Opensource edition"},
-    {vsn, "0.2.0"},
+    {vsn, "0.2.1"},
     {registered, [emqx_telemetry_sup, emqx_telemetry]},
     {mod, {emqx_telemetry_app, []}},
     {applications, [

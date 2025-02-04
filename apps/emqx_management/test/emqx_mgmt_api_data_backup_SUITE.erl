@@ -349,13 +349,20 @@ request(Method, NodePort, PathParts, QueryList, Body, Auth) ->
 cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
         [
-            {api_data_backup_core1, #{role => core, apps => apps_spec(18085, TC)}},
-            {api_data_backup_core2, #{role => core, apps => apps_spec(18086, TC)}},
-            {api_data_backup_replicant, #{role => replicant, apps => apps_spec(18087, TC)}}
+            {node_name(TC, core, 1), #{role => core, apps => apps_spec(18085, TC)}},
+            {node_name(TC, core, 2), #{role => core, apps => apps_spec(18086, TC)}},
+            {node_name(TC, replicant, 1), #{role => replicant, apps => apps_spec(18087, TC)}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(TC, Config),
+            start_apps_timeout => 60_000
+        }
     ),
     Nodes.
+
+node_name(TC, Role, N) ->
+    NameBin = io_lib:format("api_data_backup_~s_~s~b", [TC, Role, N]),
+    binary_to_atom(iolist_to_binary(NameBin)).
 
 auth_header(Node) ->
     {ok, API} = erpc:call(Node, emqx_common_test_http, create_default_app, []),

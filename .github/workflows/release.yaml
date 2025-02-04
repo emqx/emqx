@@ -122,3 +122,13 @@ jobs:
           push "amazon/2" "packages/$PROFILE-$VERSION-amzn2-arm64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-amd64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
+
+      - name: Upload to snap store
+        env:
+          PROFILE: ${{ steps.profile.outputs.profile }}
+          VERSION: ${{ steps.profile.outputs.version }}
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: |
+          sudo snap install snapcraft --classic
+          snapcraft upload "packages/${PROFILE}/${PROFILE}_${VERSION}_amd64.snap" --release=stable
+          snapcraft upload "packages/${PROFILE}/${PROFILE}_${VERSION}_arm64.snap" --release=stable

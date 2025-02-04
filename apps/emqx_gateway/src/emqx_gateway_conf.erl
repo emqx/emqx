@@ -208,7 +208,7 @@ listeners(GwName0) ->
     ),
     Listeners = emqx_utils_maps:jsonable_map(
         emqx_utils_maps:deep_get(
-            [<<"gateway">>, GwName, <<"listeners">>], RawConf
+            [<<"gateway">>, GwName, <<"listeners">>], RawConf, #{}
         )
     ),
     convert_listeners(GwName, Listeners).

@@ -72,51 +72,6 @@ prop_consistency() ->
         end
     ).
 
--ifdef(STORE_STATE_IN_DS).
-%% Verifies that our internal keys generated for stream keys preserve the order relation
-%% between them.
-stream_order_internal_keys_proper_test_() ->
-    Props = [prop_stream_order_internal_keys()],
-    Opts = [{numtests, 100}, {to_file, user}, {max_size, 100}],
-    {timeout, 300, [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}.
-
-prop_stream_order_internal_keys() ->
-    ?FORALL(
-        {Id, Streams0},
-        {session_id(), list({non_neg_integer(), value_gen(), stream_state()})},
-        try
-            init(),
-            Streams = lists:uniq(Streams0),
-            StreamKeys = [{R, S} || {R, S, _SS} <- Streams],
-            ExpectedRanks = lists:sort([R || {R, _S, _SS} <- Streams]),
-            S = lists:foldl(
-                fun({R, S, SS}, Acc) ->
-                    emqx_persistent_session_ds_state:put_stream({R, S}, SS, Acc)
-                end,
-                emqx_persistent_session_ds_state:create_new(Id),
-                Streams
-            ),
-            RevRanks = emqx_persistent_session_ds_state:fold_streams(
-                fun({R, _S}, _SS, Acc) -> [R | Acc] end,
-                [],
-                S
-            ),
-            Ranks = lists:reverse(RevRanks),
-            ?WHENFAIL(
-                io:format(
-                    user,
-                    "Expected ranks:\n  ~p\nRanks:\n  ~p\nStream keys:\n  ~p\n",
-                    [ExpectedRanks, Ranks, StreamKeys]
-                ),
-                ExpectedRanks =:= Ranks
-            )
-        after
-            clean()
-        end
-    ).
-%% -ifdef(STORE_STATE_IN_DS).
--endif.
-
 %%================================================================================
 %% Generators
 %%================================================================================
@@ -354,7 +309,8 @@ initial_state() ->
 %%================================================================================
 
 create_new(SessionId) ->
-    put_state(SessionId, emqx_persistent_session_ds_state:create_new(SessionId)).
+    S = emqx_persistent_session_ds_state:create_new(SessionId),
+    put_state(SessionId, emqx_persistent_session_ds_state:commit(S, #{new => true})).
 
 delete(SessionId) ->
     emqx_persistent_session_ds_state:delete(SessionId),
@@ -364,7 +320,7 @@ commit(SessionId) ->
     put_state(SessionId, emqx_persistent_session_ds_state:commit(get_state(SessionId))).
 
 reopen(SessionId) ->
-    _ = emqx_persistent_session_ds_state:commit(get_state(SessionId)),
+    _ = emqx_persistent_session_ds_state:commit(get_state(SessionId), #{terminate => true}),
     {ok, S} = emqx_persistent_session_ds_state:open(SessionId),
     put_state(SessionId, S).
 

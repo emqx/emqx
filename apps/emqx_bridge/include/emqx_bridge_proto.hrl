@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,25 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_authn_authz_metrics_sup).
+-ifndef(EMQX_BRIDGE_PROTO_HRL).
+-define(EMQX_BRIDGE_PROTO_HRL, true).
 
--behaviour(supervisor).
+-define(MAX_SUPPORTED_PROTO_VERSION, 7).
 
--export([start_link/0]).
-
--export([init/1]).
-
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    AuthnMetrics = emqx_metrics_worker:child_spec(emqx_authn_metrics, authn_metrics),
-    AuthzMetrics = emqx_metrics_worker:child_spec(emqx_authz_metrics, authz_metrics),
-    {ok,
-        {
-            {one_for_one, 10, 100},
-            [
-                AuthnMetrics,
-                AuthzMetrics
-            ]
-        }}.
+-endif.

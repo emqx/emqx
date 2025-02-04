@@ -80,7 +80,7 @@ reset_all_global_metrics() ->
     ).
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.
@@ -94,7 +94,7 @@ request(Method, Path, Params) ->
             {ok, {Status, Headers, Body}};
         {error, {Status, Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
@@ -1550,4 +1550,20 @@ t_republish_action_failure(_Config) ->
         end,
         []
     ),
+    ok.
+
+%% Checks that index/config order is indeed preserved when we have "many" (> 32)
+%% validations.
+t_many_validations_order(_Config) ->
+    Names = lists:map(
+        fun(N) ->
+            Name = integer_to_binary(50 - N),
+            Validation = validation(Name, [sql_check()]),
+            {201, _} = insert(Validation),
+            Name
+        end,
+        lists:seq(1, 50)
+    ),
+    Topic = <<"t/a">>,
+    ?assertIndexOrder(Names, Topic),
     ok.

@@ -709,11 +709,15 @@ do_query_with_enabled_config(
     BridgeType, BridgeName, Message, QueryOpts0, Config
 ) ->
     ConnectorName = maps:get(connector, Config),
+    FallbackActions = maps:get(fallback_actions, Config, []),
     ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
     ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
         query_opts(BridgeType, Config),
-        QueryOpts0#{connector_resource_id => ConnectorResId}
+        QueryOpts0#{
+            connector_resource_id => ConnectorResId,
+            fallback_actions => FallbackActions
+        }
     ),
     BridgeV2Id = id(BridgeType, BridgeName),
     case Message of
@@ -961,7 +965,7 @@ parse_id(Id) ->
             #{kind => action, type => Type, name => Name};
         [<<"source">>, Type, Name | _] ->
             #{kind => source, type => Type, name => Name};
-        _X ->
+        _ ->
             error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
     end.
 
@@ -1104,16 +1108,19 @@ pre_config_update([ConfRootKey, _Type, _Name], Oper, undefined) when
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
     {error, bridge_not_found};
-pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction) when
+pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction0) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
+    OldAction = ensure_last_modified_at(OldAction0),
     {ok, OldAction#{<<"enable">> => operation_to_enable(Oper)}};
 %% Updates a single action from a specific HTTP API.
 %% If the connector is not found, the update operation fails.
-pre_config_update([ConfRootKey, Type, Name], Conf = #{}, _OldConf) when
+pre_config_update([ConfRootKey, Type, Name], Conf0 = #{}, _OldConf) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
+    Conf1 = ensure_created_at(Conf0),
+    Conf = ensure_last_modified_at(Conf1),
     convert_from_connector(ConfRootKey, Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
@@ -1994,7 +2001,9 @@ convert_from_connectors(ConfRootKey, Conf) ->
     maps:map(
         fun(ActionType, Actions) ->
             maps:map(
-                fun(ActionName, Action) ->
+                fun(ActionName, Action0) ->
+                    Action1 = ensure_created_at(Action0),
+                    Action = ensure_last_modified_at(Action1),
                     case convert_from_connector(ConfRootKey, ActionType, ActionName, Action) of
                         {ok, NewAction} -> NewAction;
                         {error, _} -> Action
@@ -2021,6 +2030,14 @@ convert_from_connector(ConfRootKey, Type, Name, Action = #{<<"connector">> := Co
                 conf_root_key => ConfRootKey
             }}
     end.
+
+ensure_last_modified_at(RawConfig) ->
+    RawConfig#{<<"last_modified_at">> => now_ms()}.
+
+ensure_created_at(RawConfig) when is_map_key(<<"created_at">>, RawConfig) ->
+    RawConfig;
+ensure_created_at(RawConfig) ->
+    RawConfig#{<<"created_at">> => now_ms()}.
 
 get_connector_info(ConnectorNameBin, BridgeType) ->
     case to_connector(ConnectorNameBin, BridgeType) of
@@ -2059,3 +2076,6 @@ alarm_connector_not_found(ActionType, ActionName, ConnectorName) ->
         },
         <<"connector not found">>
     ).
+
+now_ms() ->
+    erlang:system_time(millisecond).

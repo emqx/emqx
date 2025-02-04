@@ -22,8 +22,55 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
+
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
+
+app_specs() ->
+    [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge,
+        emqx_rule_engine
+    ].
+
+init_per_testcase(_TestCase, Config) ->
+    %% Setting up mocks for fake connector and bridge V2
+    setup_mocks(),
+    ets:new(fun_table_name(), [named_table, public]),
+    %% Create a fake connector
+    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ets:delete(fun_table_name()),
+    emqx_common_test_helpers:call_janitor(),
+    delete_all_bridges_and_connectors(),
+    meck:unload(),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
 
 con_mod() ->
     emqx_bridge_v2_test_connector.
@@ -61,6 +108,17 @@ fields(connector_config) ->
         {on_start_fun, hoconsc:mk(typerefl:binary(), #{})},
         {on_get_status_fun, hoconsc:mk(typerefl:binary(), #{})},
         {on_add_channel_fun, hoconsc:mk(typerefl:binary(), #{})}
+    ];
+fields(action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        hoconsc:mk(hoconsc:ref(?MODULE, action_parameters), #{})
+    );
+fields(action_parameters) ->
+    [
+        {send_to, hoconsc:mk(atom(), #{required => false})},
+        {is_conf_for_connected, hoconsc:mk(boolean(), #{required => false})},
+        {on_query_fn, hoconsc:mk(binary(), #{required => false})},
+        {on_get_channel_status_fun, hoconsc:mk(binary(), #{required => false})}
     ].
 
 con_config() ->
@@ -81,7 +139,7 @@ bridge_schema(Opts) ->
         {
             Type,
             hoconsc:mk(
-                hoconsc:map(name, typerefl:map()),
+                hoconsc:map(name, hoconsc:ref(?MODULE, action)),
                 #{
                     desc => <<"Test Bridge Config">>,
                     required => false
@@ -94,7 +152,7 @@ bridge_config() ->
     #{
         <<"connector">> => atom_to_binary(con_name()),
         <<"enable">> => true,
-        <<"send_to">> => registered_process_name(),
+        <<"parameters">> => #{<<"send_to">> => registered_process_name()},
         <<"resource_opts">> => #{
             <<"resume_interval">> => 100
         }
@@ -129,7 +187,17 @@ setup_mocks() ->
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, con_mod()),
 
     catch meck:new(emqx_bridge_v2_schema, MeckOpts),
-    meck:expect(emqx_bridge_v2_schema, fields, 1, bridge_schema()),
+    meck:expect(emqx_bridge_v2_schema, fields, fun(Struct) ->
+        case Struct of
+            actions ->
+                bridge_schema();
+            sources ->
+                bridge_schema();
+            _ ->
+                meck:passthrough([Struct])
+        end
+    end),
+    meck:expect(emqx_bridge_v2_schema, registered_action_types, 0, [bridge_type()]),
 
     catch meck:new(emqx_bridge_v2, MeckOpts),
     BridgeType = bridge_type(),
@@ -144,57 +212,8 @@ setup_mocks() ->
     meck:expect(emqx_bridge_v2, is_bridge_v2_type, fun(Type) -> Type =:= BridgeType end),
     ok.
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
-    ok.
-
-app_specs() ->
-    [
-        emqx,
-        emqx_conf,
-        emqx_connector,
-        emqx_bridge,
-        emqx_rule_engine
-    ].
-
-init_per_testcase(_TestCase, Config) ->
-    %% Setting up mocks for fake connector and bridge V2
-    setup_mocks(),
-    ets:new(fun_table_name(), [named_table, public]),
-    %% Create a fake connector
-    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
-    Config.
-
-end_per_testcase(_TestCase, _Config) ->
-    ets:delete(fun_table_name()),
-    delete_all_bridges_and_connectors(),
-    meck:unload(),
-    emqx_common_test_helpers:call_janitor(),
-    ok.
-
 delete_all_bridges_and_connectors() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing bridge ~p", [{Type, Name}]),
-            emqx_bridge_v2:remove(Type, Name)
-        end,
-        emqx_bridge_v2:list()
-    ),
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing connector ~p", [{Type, Name}]),
-            emqx_connector:remove(Type, Name)
-        end,
-        emqx_connector:list()
-    ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     update_root_config(#{}),
     ok.
 
@@ -215,6 +234,40 @@ update_root_config(RootConf) ->
 
 update_root_connectors_config(RootConf) ->
     emqx_conf:update([connectors], RootConf, #{override_to => cluster}).
+
+wait_until(Fun) ->
+    wait_until(Fun, 5000).
+
+wait_until(Fun, Timeout) when Timeout >= 0 ->
+    case Fun() of
+        true ->
+            ok;
+        false ->
+            IdleTime = 100,
+            timer:sleep(IdleTime),
+            wait_until(Fun, Timeout - IdleTime)
+    end;
+wait_until(_, _) ->
+    ct:fail("Wait until event did not happen").
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+get_rule_metrics(RuleId) ->
+    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
+
+get_bridge_v2_alarm_cnt() ->
+    Alarms = emqx_alarm:get_alarms(activated),
+    FilterFun = fun
+        (#{name := S}) when is_binary(S) -> string:find(S, "action") =/= nomatch;
+        (_) -> false
+    end,
+    length(lists:filter(FilterFun, Alarms)).
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 t_create_remove(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
@@ -281,12 +334,12 @@ t_create_dry_run_fail_get_channel_status(_) ->
     Fun1 = wrap_fun(fun() ->
         {error, Msg}
     end),
-    Conf1 = (bridge_config())#{on_get_channel_status_fun => Fun1},
+    Conf1 = (bridge_config())#{parameters => #{on_get_channel_status_fun => Fun1}},
     {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
     Fun2 = wrap_fun(fun() ->
         throw(Msg)
     end),
-    Conf2 = (bridge_config())#{on_get_channel_status_fun => Fun2},
+    Conf2 = (bridge_config())#{parameters => #{on_get_channel_status_fun => Fun2}},
     {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
     ok.
 
@@ -318,7 +371,9 @@ t_manual_health_check(_) ->
 
 t_manual_health_check_exception(_) ->
     Conf = (bridge_config())#{
-        <<"on_get_channel_status_fun">> => wrap_fun(fun() -> throw(my_error) end)
+        <<"parameters">> => #{
+            <<"on_get_channel_status_fun">> => wrap_fun(fun() -> throw(my_error) end)
+        }
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
@@ -330,7 +385,9 @@ t_manual_health_check_exception(_) ->
 
 t_manual_health_check_exception_error(_) ->
     Conf = (bridge_config())#{
-        <<"on_get_channel_status_fun">> => wrap_fun(fun() -> error(my_error) end)
+        <<"parameters">> => #{
+            <<"on_get_channel_status_fun">> => wrap_fun(fun() -> error(my_error) end)
+        }
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
@@ -342,7 +399,9 @@ t_manual_health_check_exception_error(_) ->
 
 t_manual_health_check_error(_) ->
     Conf = (bridge_config())#{
-        <<"on_get_channel_status_fun">> => wrap_fun(fun() -> {error, my_error} end)
+        <<"parameters">> => #{
+            <<"on_get_channel_status_fun">> => wrap_fun(fun() -> {error, my_error} end)
+        }
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
@@ -357,12 +416,7 @@ t_send_message(_) ->
     %% Register name for this process
     register(registered_process_name(), self()),
     _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{}),
-    receive
-        <<"my_msg">> ->
-            ok
-    after 10000 ->
-        ct:fail("Failed to receive message")
-    end,
+    ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge).
 
@@ -398,12 +452,7 @@ t_send_message_through_rule(_) ->
     Payload = <<"hello">>,
     Msg = emqx_message:make(ClientId, 0, <<"t/a">>, Payload),
     emqx:publish(Msg),
-    receive
-        #{payload := Payload} ->
-            ok
-    after 10000 ->
-        ct:fail("Failed to receive message")
-    end,
+    ?assertReceive({query_called, #{message := #{payload := Payload}}}),
     ?assertMatch(
         #{
             counters :=
@@ -489,12 +538,7 @@ t_send_message_through_local_topic(_) ->
     Payload = <<"hej">>,
     Msg = emqx_message:make(ClientId, 0, TopicName, Payload),
     emqx:publish(Msg),
-    receive
-        #{payload := Payload} ->
-            ok
-    after 10000 ->
-        ct:fail("Failed to receive message")
-    end,
+    ?assertReceive({query_called, #{message := #{payload := Payload}}}),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), BridgeName),
     ok.
@@ -506,18 +550,17 @@ t_send_message_unhealthy_channel(_) ->
         ets:lookup_element(OnGetStatusResponseETS, status_value, 2)
     end),
     Name = my_test_bridge,
-    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => OnGetStatusFun},
+    Conf = emqx_utils_maps:deep_merge(
+        bridge_config(),
+        #{
+            <<"parameters">> => #{<<"on_get_channel_status_fun">> => OnGetStatusFun}
+        }
+    ),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), Name, Conf),
     %% Register name for this process
     register(registered_process_name(), self()),
     _ = emqx_bridge_v2:send_message(bridge_type(), Name, <<"my_msg">>, #{timeout => 1}),
-    receive
-        Any ->
-            ct:pal("Received message: ~p", [Any]),
-            ct:fail("Should not get message here")
-    after 1 ->
-        ok
-    end,
+    ?assertNotReceive({query_called, _}),
     %% Sending should work again after the channel is healthy
     ets:insert(OnGetStatusResponseETS, {status_value, connected}),
     ?retry(
@@ -534,12 +577,7 @@ t_send_message_unhealthy_channel(_) ->
         <<"my_msg">>,
         #{}
     ),
-    receive
-        <<"my_msg">> ->
-            ok
-    after 10000 ->
-        ct:fail("Failed to receive message")
-    end,
+    ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge).
 
@@ -574,13 +612,7 @@ t_send_message_unhealthy_connector(_) ->
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     register(registered_process_name(), self()),
     _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 100}),
-    receive
-        Any ->
-            ct:pal("Received message: ~p", [Any]),
-            ct:fail("Should not get message here")
-    after 10 ->
-        ok
-    end,
+    ?assertNotReceive({query_called, _}),
     %% We should have one alarm
     1 = get_bridge_v2_alarm_cnt(),
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -589,14 +621,9 @@ t_send_message_unhealthy_connector(_) ->
     ets:insert(ResponseETS, {on_get_status_value, connected}),
 
     _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1000}),
-    receive
-        <<"my_msg">> ->
-            ok
-    after 1000 ->
-        ct:fail("Failed to receive message")
-    end,
+    ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     %% The alarm should be gone at this point
-    0 = get_bridge_v2_alarm_cnt(),
+    ?retry(100, 10, ?assertEqual(0, get_bridge_v2_alarm_cnt())),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok = emqx_connector:remove(con_type(), ConName),
@@ -682,8 +709,10 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
 
 t_unhealthy_channel_alarm(_) ->
     Conf = (bridge_config())#{
-        <<"on_get_channel_status_fun">> =>
-            wrap_fun(fun() -> {error, my_error} end)
+        <<"parameters">> => #{
+            <<"on_get_channel_status_fun">> =>
+                wrap_fun(fun() -> {error, my_error} end)
+        }
     },
     0 = get_bridge_v2_alarm_cnt(),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
@@ -691,14 +720,6 @@ t_unhealthy_channel_alarm(_) ->
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     0 = get_bridge_v2_alarm_cnt(),
     ok.
-
-get_bridge_v2_alarm_cnt() ->
-    Alarms = emqx_alarm:get_alarms(activated),
-    FilterFun = fun
-        (#{name := S}) when is_binary(S) -> string:find(S, "action") =/= nomatch;
-        (_) -> false
-    end,
-    length(lists:filter(FilterFun, Alarms)).
 
 t_load_no_matching_connector(_Config) ->
     Conf = bridge_config(),
@@ -791,7 +812,7 @@ t_load_config_success(_Config) ->
     ),
 
     %% update
-    RootConf1 = #{BridgeTypeBin => #{BridgeNameBin => Conf#{<<"some_key">> => <<"new_value">>}}},
+    RootConf1 = #{BridgeTypeBin => #{BridgeNameBin => Conf#{<<"description">> => <<"new_value">>}}},
     ?assertMatch(
         {ok, _},
         update_root_config(RootConf1)
@@ -800,7 +821,7 @@ t_load_config_success(_Config) ->
         {ok, #{
             type := BridgeTypeBin,
             name := BridgeNameBin,
-            raw_config := #{<<"some_key">> := <<"new_value">>},
+            raw_config := #{<<"description">> := <<"new_value">>},
             resource_data := #{}
         }},
         emqx_bridge_v2:lookup(BridgeType, BridgeName)
@@ -880,9 +901,8 @@ t_update_concurrent_health_check(_Config) ->
             ChannelId,
             #{channels := Channels}
         ) ->
-            #{
-                is_conf_for_connected := Connected
-            } = maps:get(ChannelId, Channels),
+            #{parameters := #{is_conf_for_connected := Connected}} =
+                maps:get(ChannelId, Channels),
             case Connected of
                 true ->
                     connected;
@@ -891,14 +911,17 @@ t_update_concurrent_health_check(_Config) ->
             end
         end
     ),
-    BaseConf = (bridge_config())#{
-        is_conf_for_connected => false
-    },
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, BaseConf)),
+    BaseConf0 = bridge_config(),
+    ConfFor = fun(Val) ->
+        emqx_utils_maps:deep_put(
+            [<<"parameters">>, <<"is_conf_for_connected">>], BaseConf0, Val
+        )
+    end,
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, ConfFor(true))),
     SetStatusConnected =
         fun
             (true) ->
-                Conf = BaseConf#{is_conf_for_connected => true},
+                Conf = ConfFor(true),
                 %% Update the config
                 ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
                 ?assertMatch(
@@ -906,7 +929,7 @@ t_update_concurrent_health_check(_Config) ->
                     emqx_bridge_v2:health_check(bridge_type(), my_test_bridge)
                 );
             (false) ->
-                Conf = BaseConf#{is_conf_for_connected => false},
+                Conf = ConfFor(false),
                 %% Update the config
                 ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
                 ?assertMatch(
@@ -1049,7 +1072,7 @@ t_lookup_status_when_connecting(_Config) ->
     ActionName = my_test_action,
     ChanStatusFun = wrap_fun(fun() -> ?status_disconnected end),
     ActionConfig = (bridge_config())#{
-        <<"on_get_channel_status_fun">> => ChanStatusFun,
+        <<"parameters">> => #{<<"on_get_channel_status_fun">> => ChanStatusFun},
         <<"connector">> => atom_to_binary(ConnectorName)
     },
     ct:pal("action config:\n  ~p", [ActionConfig]),
@@ -1098,10 +1121,16 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
 
             ActionName = my_test_action,
             ChanStatusFun = wrap_fun(fun() -> ?status_disconnected end),
-            ActionConfig = (bridge_config())#{
-                <<"on_get_channel_status_fun">> => ChanStatusFun,
-                <<"connector">> => atom_to_binary(ConnectorName)
-            },
+            ActionConfig =
+                emqx_utils_maps:deep_merge(
+                    bridge_config(),
+                    #{
+                        <<"connector">> => atom_to_binary(ConnectorName),
+                        <<"parameters">> => #{
+                            <<"on_get_channel_status_fun">> => ChanStatusFun
+                        }
+                    }
+                ),
             ct:pal("action config:\n  ~p", [ActionConfig]),
 
             meck:new(con_mod(), [passthrough, no_history, non_strict]),
@@ -1231,26 +1260,311 @@ t_query_uses_action_query_mode(_Config) ->
     ),
     ok.
 
-%% Helper Functions
+t_async_load_config_cli(_Config) ->
+    ResponseETS = ets:new(response_ets, [public]),
+    ets:insert(ResponseETS, {on_start_value, hang}),
+    TestPid = self(),
+    OnStartFun = wrap_fun(fun(_Conf) ->
+        case ets:lookup_element(ResponseETS, on_start_value, 2) of
+            hang ->
+                persistent_term:put({?MODULE, res_pid}, self()),
+                TestPid ! hanging,
+                receive
+                    go ->
+                        ets:insert(ResponseETS, {on_start_value, continue})
+                end;
+            continue ->
+                ok
+        end,
+        {ok, connector_state}
+    end),
+    on_exit(fun() ->
+        case persistent_term:get({?MODULE, res_pid}, undefined) of
+            undefined ->
+                ct:fail("resource didn't start");
+            ResPid ->
+                ResPid ! go,
+                ok
+        end
+    end),
 
-wait_until(Fun) ->
-    wait_until(Fun, 5000).
+    ConnectorType = con_type(),
+    ConnectorName = atom_to_binary(?FUNCTION_NAME),
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100},
+        <<"on_start_fun">> => OnStartFun
+    }),
+    %% Make the resource stuck while starting
+    spawn_link(fun() ->
+        {ok, _} = emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig)
+    end),
+    receive
+        hanging ->
+            ok
+    after 1_000 ->
+        ct:fail("connector not started and stuck")
+    end,
 
-wait_until(Fun, Timeout) when Timeout >= 0 ->
-    case Fun() of
-        true ->
-            ok;
-        false ->
-            IdleTime = 100,
-            timer:sleep(IdleTime),
-            wait_until(Fun, Timeout - IdleTime)
-    end;
-wait_until(_, _) ->
-    ct:fail("Wait until event did not happen").
+    ActionType = bridge_type(),
+    ActionName = ConnectorName,
+    ActionConfig = bridge_config(),
 
-bin(Bin) when is_binary(Bin) -> Bin;
-bin(Str) when is_list(Str) -> list_to_binary(Str);
-bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+    SourceType = bridge_type(),
+    SourceName = ConnectorName,
+    SourceConfig = bridge_config(),
 
-get_rule_metrics(RuleId) ->
-    emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
+    RawConfig = #{
+        <<"actions">> => #{ActionType => #{ActionName => ActionConfig}},
+        <<"sources">> => #{SourceType => #{SourceName => SourceConfig}}
+    },
+    ConfigToLoadBin = iolist_to_binary(hocon_pp:do(RawConfig, #{})),
+    ct:pal("loading config..."),
+    ct:timetrap(5_000),
+    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
+    ct:pal("config loaded"),
+
+    ok.
+
+%% Happy path smoke tests for fallback actions.
+t_fallback_actions(_Config) ->
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConnectorName = ?FUNCTION_NAME,
+    ct:pal("connector config:\n  ~p", [ConnectorConfig]),
+    ?check_trace(
+        #{timetrap => 3_000},
+        begin
+            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+
+            FallbackActionName = <<"my_fallback">>,
+            FallbackActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName)
+            },
+            ct:pal("fallback action config:\n  ~p", [FallbackActionConfig]),
+
+            OnQueryFn = wrap_fun(fun(_Ctx) ->
+                {error, {unrecoverable_error, fallback_time}}
+            end),
+
+            RepublishTopic = <<"republish/fallback">>,
+            RepublishArgs = #{
+                <<"topic">> => RepublishTopic,
+                <<"qos">> => 1,
+                <<"retain">> => false,
+                <<"payload">> => <<"${payload}">>,
+                <<"mqtt_properties">> => #{},
+                <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+                <<"direct_dispatch">> => false
+            },
+
+            ActionName = my_test_action,
+            ActionTypeBin = atom_to_binary(bridge_type()),
+            ActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => FallbackActionName
+                    },
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => RepublishArgs
+                    }
+                ]
+            },
+            ct:pal("action config:\n  ~p", [ActionConfig]),
+
+            {ok, _} = emqx_bridge_v2:create(
+                bridge_type(), FallbackActionName, FallbackActionConfig
+            ),
+            {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+
+            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+                #{
+                    sql => <<"select * from \"t/a\"">>,
+                    id => atom_to_binary(?FUNCTION_NAME),
+                    actions => [
+                        emqx_bridge_resource:bridge_id(bridge_type(), ActionName)
+                    ]
+                }
+            ),
+            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+
+            ct:pal("publishing initial message"),
+            register(registered_process_name(), self()),
+            emqx:subscribe(RepublishTopic, #{qos => 1}),
+            Payload = <<"payload">>,
+            Msg = emqx_message:make(<<"t/a">>, Payload),
+            emqx:publish(Msg),
+            ct:pal("waiting for fallback actions effects..."),
+            ?assertReceive({query_called, #{message := #{payload := Payload}}}),
+            ?assertReceive({deliver, RepublishTopic, #message{payload = Payload}}),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that fallback action cycles are not allowed.
+t_fallback_actions_cycles(_Config) ->
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConnectorName = ?FUNCTION_NAME,
+    ct:pal("connector config:\n  ~p", [ConnectorConfig]),
+    ?check_trace(
+        #{timetrap => 3_000},
+        begin
+            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+
+            TestPid = self(),
+            OnQueryFn = wrap_fun(fun(Ctx) ->
+                TestPid ! {query_called, Ctx},
+                {error, {unrecoverable_error, fallback_time}}
+            end),
+
+            ActionTypeBin = atom_to_binary(bridge_type()),
+            PrimaryActionName = <<"primary">>,
+            FallbackActionName = <<"fallback">>,
+            FallbackActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>},
+                <<"fallback_actions">> => [
+                    %% Fallback back to primary
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => PrimaryActionName
+                    },
+                    %% Fallback back to self
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => FallbackActionName
+                    }
+                ]
+            },
+            ct:pal("fallback action config:\n  ~p", [FallbackActionConfig]),
+
+            PrimaryActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>},
+                <<"fallback_actions">> => [
+                    %% Fallback back to self
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => PrimaryActionName
+                    },
+                    %% This fallback ends up falling back to primary
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => FallbackActionName
+                    }
+                ]
+            },
+            ct:pal("primary action config:\n  ~p", [PrimaryActionConfig]),
+
+            {ok, _} = emqx_bridge_v2:create(
+                bridge_type(), FallbackActionName, FallbackActionConfig
+            ),
+            {ok, _} = emqx_bridge_v2:create(bridge_type(), PrimaryActionName, PrimaryActionConfig),
+
+            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+                #{
+                    sql => <<"select * from \"t/a\"">>,
+                    id => atom_to_binary(?FUNCTION_NAME),
+                    actions => [
+                        emqx_bridge_resource:bridge_id(bridge_type(), PrimaryActionName)
+                    ]
+                }
+            ),
+            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+
+            ct:pal("publishing initial message"),
+            Payload = <<"payload">>,
+            Msg = emqx_message:make(<<"t/a">>, Payload),
+            emqx:publish(Msg),
+
+            ct:pal("waiting for fallback actions effects..."),
+            PrimaryResId = emqx_bridge_v2:id(bridge_type(), PrimaryActionName),
+            FallbackResId = emqx_bridge_v2:id(bridge_type(), FallbackActionName),
+            %% Should trigger the primary and fallback actions exactly one each.
+            ?assertReceive(
+                {query_called, #{action_res_id := PrimaryResId, message := #{payload := Payload}}}
+            ),
+            ?assertReceive(
+                {query_called, #{action_res_id := FallbackResId, message := #{payload := Payload}}}
+            ),
+            ?assertNotReceive({query_called, _}),
+
+            ?assertMatch(
+                #{
+                    counters :=
+                        #{
+                            'matched' := 1,
+                            'failed' := 0,
+                            'failed.exception' := 0,
+                            'failed.no_result' := 0,
+                            'passed' := 1,
+                            'actions.total' := 1,
+                            'actions.success' := 0,
+                            'actions.failed' := 1,
+                            'actions.failed.unknown' := 1,
+                            'actions.failed.out_of_service' := 0,
+                            'actions.discarded' := 0
+                        }
+                },
+                get_rule_metrics(RuleId)
+            ),
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    #{
+                        counters :=
+                            #{
+                                'matched' := 1,
+                                'success' := 0,
+                                'failed' := 1,
+                                'dropped' := 0,
+                                'received' := 0,
+                                'late_reply' := 0,
+                                'retried' := 0
+                            }
+                    },
+                    emqx_bridge_v2:get_metrics(ActionTypeBin, PrimaryActionName)
+                )
+            ),
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    #{
+                        counters :=
+                            #{
+                                'matched' := 1,
+                                'success' := 0,
+                                'failed' := 1,
+                                'dropped' := 0,
+                                'received' := 0,
+                                'late_reply' := 0,
+                                'retried' := 0
+                            }
+                    },
+                    emqx_bridge_v2:get_metrics(ActionTypeBin, FallbackActionName)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.

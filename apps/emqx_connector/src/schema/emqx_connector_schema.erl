@@ -57,7 +57,12 @@
     resource_opts_ref/3
 ]).
 
+-export([ehttpc_max_inactive_sc/0]).
+
 -export([examples/1]).
+
+-type http_method() :: get | post | put.
+-type schema_example_map() :: #{atom() => term()}.
 
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.
@@ -598,8 +603,15 @@ resource_opts_fields(Overrides) ->
         emqx_resource_schema:create_opts(Overrides)
     ).
 
--type http_method() :: get | post | put.
--type schema_example_map() :: #{atom() => term()}.
+ehttpc_max_inactive_sc() ->
+    {max_inactive,
+        mk(
+            emqx_schema:timeout_duration_ms(),
+            #{
+                default => <<"10s">>,
+                desc => ?DESC("ehttpc_max_inactive")
+            }
+        )}.
 
 -spec connector_values(http_method(), atom(), schema_example_map()) -> schema_example_map().
 connector_values(Method, Type, ConnectorValues) ->

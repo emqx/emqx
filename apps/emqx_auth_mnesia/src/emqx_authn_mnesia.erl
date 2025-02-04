@@ -500,7 +500,7 @@ reader_fn(Filename0, Data) ->
     case filename:extension(to_binary(Filename0)) of
         <<".json">> ->
             %% Example: data/user-credentials.json
-            case emqx_utils_json:safe_decode(Data, [return_maps]) of
+            case emqx_utils_json:safe_decode(Data) of
                 {ok, List} when is_list(List) ->
                     emqx_utils_stream:list(List);
                 {ok, _} ->

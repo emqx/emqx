@@ -553,7 +553,7 @@ err_msg(Msg) ->
 encode_nested_error(RuleError, Reason) when is_tuple(Reason) ->
     encode_nested_error(RuleError, element(1, Reason));
 encode_nested_error(RuleError, Reason) ->
-    case emqx_utils_json:safe_encode([{RuleError, Reason}]) of
+    case emqx_utils_json:safe_encode(#{RuleError => Reason}) of
         {ok, Json} ->
             Json;
         _ ->

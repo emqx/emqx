@@ -81,7 +81,7 @@
         mode := aggregated,
         aggregation := #{
             %% TODO: other containers
-            container := #{type := csv},
+            container := #{type := csv | json_lines},
             time_interval := pos_integer(),
             max_records := pos_integer()
         },
@@ -122,6 +122,7 @@
         action := binary(),
         blob := emqx_template:t(),
         container := string(),
+        content_type := binary(),
         min_block_size := pos_integer(),
         max_block_size := pos_integer(),
         driver_state := driver_state()
@@ -135,6 +136,7 @@
     buffer := transfer_buffer(),
     buffer_size := non_neg_integer(),
     container := container(),
+    content_type := binary(),
     max_block_size := pos_integer(),
     min_block_size := pos_integer(),
     next_block := queue:queue(iolist()),
@@ -266,17 +268,15 @@ on_batch_query(_ConnResId, [{Tag, Data0} | Rest], #{installed_actions := Install
 %% Driver calls
 %%------------------------------------------------------------------------------
 
-do_create_block_blob(DriverState, Container, Blob) ->
-    %% TODO: check container type before setting content type
-    Opts = [{content_type, "text/csv"}],
+do_create_block_blob(DriverState, Container, Blob, ContentType) ->
+    Opts = [{content_type, binary_to_list(ContentType)}],
     erlazure:put_block_blob(DriverState, Container, Blob, <<>>, Opts).
 
 do_append_data(DriverState, Container, Blob, BlockId, IOData) ->
     erlazure:put_block(DriverState, Container, Blob, BlockId, IOData, []).
 
-do_put_block_list(DriverState, Container, Blob, BlockRefs) ->
-    %% TODO: check container type before setting content type
-    Opts = [{req_opts, [{headers, [{"x-ms-blob-content-type", "text/csv"}]}]}],
+do_put_block_list(DriverState, Container, Blob, BlockRefs, ContentType) ->
+    Opts = [{req_opts, [{headers, [{"x-ms-blob-content-type", binary_to_list(ContentType)}]}]}],
     erlazure:put_block_list(DriverState, Container, Blob, BlockRefs, Opts).
 
 do_put_block_blob(DriverState, Container, Blob, IOData) ->
@@ -303,6 +303,7 @@ init_transfer_state(Buffer, Opts) ->
             action := ActionName,
             blob := BlobTemplate,
             container := Container,
+            content_type := ContentType,
             max_block_size := MaxBlockSize,
             min_block_size := MinBlockSize,
             driver_state := DriverState
@@ -314,6 +315,7 @@ init_transfer_state(Buffer, Opts) ->
         buffer => [],
         buffer_size => 0,
         container => Container,
+        content_type => ContentType,
         max_block_size => MaxBlockSize,
         min_block_size => MinBlockSize,
         next_block => queue:new(),
@@ -356,12 +358,13 @@ process_write(TransferState0 = #{started := false}) ->
     #{
         driver_state := DriverState,
         blob := Blob,
-        container := Container
+        container := Container,
+        content_type := ContentType
     } = TransferState0,
     %% TODO
     %% Possible optimization: if the whole buffer fits the 5000 MiB `put_block_blob'
     %% limit, we could upload the whole thing here.
-    case do_create_block_blob(DriverState, Container, Blob) of
+    case do_create_block_blob(DriverState, Container, Blob, ContentType) of
         {ok, _} ->
             TransferState = TransferState0#{started := true},
             process_write(TransferState);
@@ -403,6 +406,7 @@ process_complete(TransferState) ->
         buffer := Buffer,
         buffer_size := BufferSize,
         container := Container,
+        content_type := ContentType,
         num_blocks := NumBlocks0,
         driver_state := DriverState
     } = TransferState,
@@ -416,7 +420,7 @@ process_complete(TransferState) ->
                 NumBlocks0
         end,
     BlockRefs = [{block_id(N), latest} || N <- lists:seq(0, NumBlocks - 1)],
-    case do_put_block_list(DriverState, Container, Blob, BlockRefs) of
+    case do_put_block_list(DriverState, Container, Blob, BlockRefs, ContentType) of
         {ok, _} ->
             {ok, #{num_blocks => NumBlocks}};
         {error, Reason} ->
@@ -483,7 +487,7 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
         parameters := #{
             mode := Mode = aggregated,
             aggregation := #{
-                container := ContainerOpts,
+                container := #{type := ContainerType} = ContainerOpts,
                 max_records := MaxRecords,
                 time_interval := TimeInterval
             },
@@ -501,10 +505,12 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
         time_interval => TimeInterval,
         work_dir => work_dir(Type, Name)
     },
+    ContentType = content_type(ContainerType),
     TransferOpts = #{
         action => Name,
         blob => Blob,
         container => ContainerName,
+        content_type => ContentType,
         max_block_size => MaxBlockSize,
         min_block_size => MinBlockSize,
         driver_state => DriverState
@@ -680,3 +686,7 @@ check_container_accessible(DriverState, Container) ->
 block_id(N) ->
     NumDigits = 32,
     list_to_binary(string:pad(integer_to_list(N), NumDigits, leading, $0)).
+
+content_type(csv) -> <<"text/csv">>;
+content_type(json_lines) -> <<"application/jsonl">>;
+content_type(_) -> <<"application/octet-stream">>.

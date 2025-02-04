@@ -308,7 +308,7 @@ do_verify(_JWT, [], _VerifyClaims) ->
 do_verify(JWT, [JWK | More], VerifyClaims) ->
     try jose_jws:verify(JWK, JWT) of
         {true, Payload, _JWT} ->
-            Claims0 = emqx_utils_json:decode(Payload, [return_maps]),
+            Claims0 = emqx_utils_json:decode(Payload),
             Claims = try_convert_to_num(Claims0, [<<"exp">>, <<"nbf">>]),
             case verify_claims(Claims, VerifyClaims) of
                 ok ->
@@ -389,7 +389,7 @@ handle_verify_claims(VerifyClaims) ->
 handle_verify_claims([], Acc) ->
     Acc;
 handle_verify_claims([{Name, Expected0} | More], Acc) ->
-    Expected1 = emqx_auth_template:parse_str(Expected0, ?ALLOWED_VARS),
+    {_, Expected1} = emqx_auth_template:parse_str(Expected0, ?ALLOWED_VARS),
     handle_verify_claims(More, [{Name, Expected1} | Acc]).
 
 binary_to_number(Bin) ->

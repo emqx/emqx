@@ -297,7 +297,7 @@ fields(kafka_producer) ->
     %% Schema used by bridges V1.
     connector_config_fields() ++ producer_opts(v1);
 fields(kafka_producer_action) ->
-    emqx_bridge_v2_schema:common_fields() ++ producer_opts(action);
+    emqx_bridge_v2_schema:common_action_fields() ++ producer_opts(action);
 fields(kafka_consumer) ->
     connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->
@@ -529,7 +529,7 @@ fields(producer_buffer) ->
         {per_partition_limit,
             mk(
                 emqx_schema:bytesize(),
-                #{default => <<"2GB">>, desc => ?DESC(buffer_per_partition_limit)}
+                #{default => <<"256MB">>, desc => ?DESC(buffer_per_partition_limit)}
             )},
         {segment_bytes,
             mk(
@@ -538,7 +538,7 @@ fields(producer_buffer) ->
             )},
         {memory_overload_protection,
             mk(boolean(), #{
-                default => false,
+                default => true,
                 desc => ?DESC(buffer_memory_overload_protection)
             })}
     ];

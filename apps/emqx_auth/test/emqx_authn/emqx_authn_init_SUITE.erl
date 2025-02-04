@@ -38,6 +38,14 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+init_per_suite(Config) ->
+    emqx_access_control:set_default_authn_restrictive(),
+    Config.
+
+end_per_suite(Config) ->
+    emqx_access_control:set_default_authn_permissive(),
+    Config.
+
 init_per_testcase(_Case, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -60,7 +68,7 @@ end_per_testcase(_Case, Config) ->
 
 t_initialize(_Config) ->
     ?assertMatch(
-        {ok, _},
+        {error, not_authorized},
         emqx_access_control:authenticate(?CLIENTINFO)
     ),
     ok = application:start(emqx_auth),

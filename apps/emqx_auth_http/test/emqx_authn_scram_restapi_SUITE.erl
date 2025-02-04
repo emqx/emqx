@@ -28,10 +28,8 @@
 
 all() ->
     case emqx_release:edition() of
-        ce ->
-            [];
-        _ ->
-            emqx_common_test_helpers:all(?MODULE)
+        ce -> [];
+        ee -> emqx_common_test_helpers:all(?MODULE)
     end.
 
 init_per_suite(Config) ->
@@ -368,6 +366,7 @@ raw_config() ->
         <<"mechanism">> => <<"scram">>,
         <<"backend">> => <<"http">>,
         <<"enable">> => <<"true">>,
+        <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://127.0.0.1:34333/user">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME},

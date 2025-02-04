@@ -61,6 +61,7 @@
     license_type/1,
     expiry_date/1,
     max_connections/1,
+    max_uptime_seconds/1,
     is_business_critical/1
 ]).
 
@@ -88,6 +89,8 @@
 -callback expiry_date(license_data()) -> calendar:date().
 
 -callback max_connections(license_data()) -> non_neg_integer().
+
+-callback max_uptime_seconds(license_data()) -> non_neg_integer() | infinity.
 
 %%--------------------------------------------------------------------
 %% API
@@ -146,6 +149,10 @@ license_type(#{module := Module, data := LicenseData}) ->
 -spec expiry_date(license()) -> calendar:date().
 expiry_date(#{module := Module, data := LicenseData}) ->
     Module:expiry_date(LicenseData).
+
+-spec max_uptime_seconds(license()) -> non_neg_integer() | infinity.
+max_uptime_seconds(#{module := Module, data := LicenseData}) ->
+    Module:max_uptime_seconds(LicenseData).
 
 -spec max_connections(license()) -> non_neg_integer().
 max_connections(#{module := Module, data := LicenseData}) ->

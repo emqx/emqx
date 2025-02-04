@@ -31,21 +31,22 @@ all() ->
         {group, mnesia_without_indices},
         {group, mnesia_with_indices},
         {group, mnesia_reindex},
-        {group, test_disable_then_start},
+        {group, index_agnostic},
         {group, disabled}
     ].
 
 groups() ->
     [
-        {mnesia_without_indices, [sequence], common_tests()},
-        {mnesia_with_indices, [sequence], common_tests()},
+        {mnesia_without_indices, [sequence], index_related_tests()},
+        {mnesia_with_indices, [sequence], index_related_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
-        {test_disable_then_start, [sequence], [t_disable_then_start]},
+        {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
         {disabled, [t_disabled]}
     ].
 
-common_tests() ->
-    emqx_common_test_helpers:all(?MODULE) -- [t_reindex, t_disable_then_start, t_disabled].
+index_related_tests() ->
+    emqx_common_test_helpers:all(?MODULE) --
+        [t_reindex, t_disable_then_start, t_disabled, t_start_stop_on_setting_change].
 
 %% erlfmt-ignore
 -define(BASE_CONF, <<"
@@ -70,8 +71,8 @@ retainer {
 
 %% erlfmt-ignore
 -define(DISABLED_CONF, <<"
-retainer {
-  enable = false
+mqtt {
+  retain_available = false
 }
 ">>).
 
@@ -92,8 +93,10 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_testcase(t_disabled, Config) ->
+    snabbkaffe:start_trace(),
     Config;
 init_per_testcase(_TestCase, Config) ->
+    snabbkaffe:start_trace(),
     case ?config(index, Config) of
         false ->
             mnesia:clear_table(?TAB_INDEX_META);
@@ -105,22 +108,28 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_disabled, _Config) ->
+    snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
+    snabbkaffe:stop(),
     reset_rates_to_default(),
     ok.
 
-app_spec() ->
+emqx_retainer_app_spec() ->
     {emqx_retainer, ?BASE_CONF}.
 
-app_spec(disabled) ->
-    {emqx_retainer, ?DISABLED_CONF};
-app_spec(_) ->
-    {emqx_retainer, ?BASE_CONF}.
+emqx_conf_app_spec(disabled) ->
+    {emqx_conf, ?DISABLED_CONF};
+emqx_conf_app_spec(_) ->
+    emqx_conf.
 
 start_apps(Group, Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, app_spec(Group)],
+        [
+            emqx,
+            emqx_conf_app_spec(Group),
+            emqx_retainer_app_spec()
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
@@ -906,22 +915,68 @@ t_get_basic_usage_info(_Config) ->
 %%
 %% stop/start in enable/disable state
 t_disable_then_start(_Config) ->
-    emqx_retainer:update_config(#{<<"enable">> => false}),
-    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    %% Disable retainer by config
+    set_retain_available(false),
+    ?assertWaitEvent(
+        erlang:send(emqx_retainer, update_status),
+        #{?snk_kind := retainer_status_updated},
+        5000
+    ),
+    ?assertNot(is_retainer_started()),
     ok = application:stop(emqx_retainer),
-    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ?assertNot(is_retainer_started()),
     ok = application:ensure_started(emqx_retainer),
-    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
-    emqx_retainer:update_config(#{<<"enable">> => true}),
-    ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ?assertNot(is_retainer_started()),
+    set_retain_available(true),
+    ?assert(is_retainer_started()),
     ok = application:stop(emqx_retainer),
-    ?assertEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ?assertNot(is_retainer_started()),
     ok = application:ensure_started(emqx_retainer),
-    ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
+    ?assert(is_retainer_started()),
+    ok.
+
+t_start_stop_on_setting_change(_Config) ->
+    emqx_conf:update([zones], #{}, #{override_to => cluster}),
+    set_retain_available(false),
+    ?assertWaitEvent(
+        erlang:send(emqx_retainer, update_status),
+        #{?snk_kind := retainer_status_updated},
+        5000
+    ),
+    %% No zones and retainer is disabled, so it should not be started
+    ?assertNot(is_retainer_started()),
+
+    %% Enable retainer by default
+    set_retain_available(true),
+    ?assert(is_retainer_started()),
+
+    %% Disable by default and enable in zone
+    set_retain_available(false),
+    ?assertWaitEvent(
+        erlang:send(emqx_retainer, update_status),
+        #{?snk_kind := retainer_status_updated},
+        5000
+    ),
+    ?assertNot(is_retainer_started()),
+    set_retain_available_for_zone(default, true),
+    ?assert(is_retainer_started()),
+
+    %% Enable by default and disable explicitly in zones, the retainer should still be started
+    set_retain_available(true),
+    ?assert(is_retainer_started()),
+    set_retain_available_for_zone(default, false),
+    set_retain_available_for_zone(zone1, false),
+    ?assertWaitEvent(
+        erlang:send(emqx_retainer, update_status),
+        #{?snk_kind := retainer_status_updated},
+        5000
+    ),
+    ?assert(is_retainer_started()),
     ok.
 
 t_disabled(_Config) ->
-    ?assertEqual(false, emqx_retainer:enabled()),
+    ?assertNot(emqx_retainer:is_started()),
+    ?assertNot(emqx_retainer:is_enabled()),
     ?assertEqual(ok, emqx_retainer:clean()),
     ?assertEqual({ok, false, []}, emqx_retainer:page_read(undefined, 1, 100)).
 
@@ -1196,3 +1251,22 @@ publish_messages(C1, Count) ->
         end,
         lists:seq(1, Count)
     ).
+
+set_retain_available(Enabled) ->
+    RawConf0 = emqx_config:get_raw([mqtt]),
+    RawConf = maps:put(<<"retain_available">>, Enabled, RawConf0),
+    emqx_conf:update([mqtt], RawConf, #{override_to => cluster}).
+
+set_retain_available_for_zone(Zone, Enabled) ->
+    RawZoneConf0 = emqx_config:get_raw([zones]),
+    RawZoneConf = emqx_utils_maps:deep_put(
+        [atom_to_binary(Zone), <<"mqtt">>, <<"retain_available">>],
+        RawZoneConf0,
+        Enabled
+    ),
+    emqx_conf:update([zones], RawZoneConf, #{override_to => cluster}).
+
+is_retainer_started() ->
+    %% We indirectly check the actual state of the retainer by checking
+    %% if the dispatcher has any active workers.
+    gproc_pool:active_workers(emqx_retainer_dispatcher) /= [].

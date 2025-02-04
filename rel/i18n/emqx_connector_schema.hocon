@@ -67,4 +67,10 @@ connector_actions.desc:
 
 connector_actions.label:
 """Actions"""
+
+ehttpc_max_inactive {
+  label: "Max Inactive"
+  desc: """Maximum amount of time without any activity that the HTTP driver will wait before attempting to reconnect."""
+}
+
 }

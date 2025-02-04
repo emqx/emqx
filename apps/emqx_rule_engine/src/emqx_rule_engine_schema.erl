@@ -207,13 +207,15 @@ fields("republish_args") ->
 fields("republish_mqtt_properties") ->
     [
         {'Payload-Format-Indicator',
-            ?HOCON(binary(), #{required => false, desc => ?DESC('Payload-Format-Indicator')})},
+            ?HOCON(binary(), #{required => false, desc => ?DESC("republish_mqtt_properties_prop")})},
         {'Message-Expiry-Interval',
-            ?HOCON(binary(), #{required => false, desc => ?DESC('Message-Expiry-Interval')})},
-        {'Content-Type', ?HOCON(binary(), #{required => false, desc => ?DESC('Content-Type')})},
-        {'Response-Topic', ?HOCON(binary(), #{required => false, desc => ?DESC('Response-Topic')})},
+            ?HOCON(binary(), #{required => false, desc => ?DESC("republish_mqtt_properties_prop")})},
+        {'Content-Type',
+            ?HOCON(binary(), #{required => false, desc => ?DESC("republish_mqtt_properties_prop")})},
+        {'Response-Topic',
+            ?HOCON(binary(), #{required => false, desc => ?DESC("republish_mqtt_properties_prop")})},
         {'Correlation-Data',
-            ?HOCON(binary(), #{required => false, desc => ?DESC('Correlation-Data')})}
+            ?HOCON(binary(), #{required => false, desc => ?DESC("republish_mqtt_properties_prop")})}
     ].
 
 desc("rule_engine") ->
@@ -228,6 +230,8 @@ desc("user_provided_function") ->
     ?DESC("desc_user_provided_function");
 desc("republish_args") ->
     ?DESC("desc_republish_args");
+desc("republish_mqtt_properties") ->
+    ?DESC("republish_args_mqtt_properties");
 desc(_) ->
     undefined.
 

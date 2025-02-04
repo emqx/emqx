@@ -24,6 +24,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -254,6 +255,25 @@ connect_client(Node) ->
     on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
+
+get_stats_http() ->
+    {200, Res} = emqx_bridge_v2_testlib:get_stats_http(),
+    lists:foldl(
+        fun(#{<<"node">> := N} = R, Acc) -> Acc#{N => R} end,
+        #{},
+        Res
+    ).
+
+get_emqtt_clients(PoolName) ->
+    lists:filtermap(
+        fun({_Id, Worker}) ->
+            case ecpool_worker:client(Worker) of
+                {ok, Client} -> {true, Client};
+                _ -> false
+            end
+        end,
+        ecpool:workers(PoolName)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -487,4 +507,153 @@ t_forward_user_properties(Config) ->
         [{<<"k1">>, <<"v1">>}, {<<"k2">>, <<"v2">>}],
         UserProps1
     ),
+    ok.
+
+%% Verifies that `emqtt' clients automatically try to reconnect once disconnected.
+t_reconnect(Config) ->
+    PoolSize = 3,
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(Config, #{
+                <<"pool_size">> => PoolSize
+            }),
+            NBin = atom_to_binary(node()),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
+                    get_stats_http()
+                )
+            ),
+            ClientIds0 = emqx_cm:all_client_ids(),
+            ClientIds = lists:droplast(ClientIds0),
+            ChanPids0 = emqx_cm:all_channels(),
+            ChanPids = lists:droplast(ChanPids0),
+            lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
+            ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
+            {204, _} = emqx_bridge_v2_testlib:kick_clients_http(ClientIds),
+            DownPids = emqx_utils:drain_down(PoolSize - 1),
+            ?assertEqual(lists:sort(ChanPids), lists:sort(DownPids)),
+            %% Recovery
+            ct:pal("clients kicked; waiting for recovery..."),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    #{NBin := #{<<"live_connections.count">> := PoolSize}},
+                    get_stats_http()
+                )
+            ),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+            ?assertEqual(PoolSize, length(ecpool:workers(ConnResId))),
+            ?retry(500, 40, ?assertEqual(PoolSize, length(get_emqtt_clients(ConnResId)))),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Smoke integration test to check that fallback action are triggered.  This Action is
+%% chosen for this test because it uses the conventional builtin buffer.
+t_fallback_actions(Config) ->
+    {201, _} = create_connector_api(Config, _Overrides = #{}),
+    RepublishTopic = <<"republish/fallback">>,
+    RepublishArgs = #{
+        <<"topic">> => RepublishTopic,
+        <<"qos">> => 1,
+        <<"retain">> => false,
+        <<"payload">> => <<"${payload}">>,
+        <<"mqtt_properties">> => #{},
+        <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+        <<"direct_dispatch">> => false
+    },
+    {201, _} =
+        create_action_api(
+            Config,
+            #{
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => RepublishArgs
+                    }
+                ],
+                %% Simple way to make the requests fail: make the buffer overflow
+                <<"resource_opts">> => #{
+                    <<"max_buffer_bytes">> => <<"0B">>,
+                    <<"buffer_seg_bytes">> => <<"0B">>
+                }
+            }
+        ),
+    RuleTopic = <<"fallback/actions">>,
+    {ok, _} = create_rule_and_action_http(
+        Config,
+        RuleTopic,
+        #{}
+    ),
+    {ok, C} = emqtt:start_link(#{proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C, RepublishTopic, 1),
+    Payload = emqx_utils_json:encode(#{
+        <<"k">> => <<"aaaaaaaaaaaaaaaaa">>
+    }),
+    {ok, _} = emqtt:publish(C, RuleTopic, Payload, [{qos, ?QOS_1}]),
+    ?assertReceive({publish, #{topic := RepublishTopic, payload := Payload}}),
+    ok.
+
+%% Checks that we can start a node with a config with a republish action (essentially,
+%% `emqx_config:init_load' accepts it).g
+t_fallback_actions_load_config(Config) ->
+    ConnectorType = ?config(connector_type, Config),
+    ConnectorName = ?config(connector_name, Config),
+    ConnectorConfig = ?config(connector_config, Config),
+    ActionType = ?config(action_type, Config),
+    ActionName = ?config(action_name, Config),
+    ActionConfig0 = ?config(action_config, Config),
+    RepublishTopic = <<"republish/fallback">>,
+    RepublishArgs = #{
+        <<"topic">> => RepublishTopic,
+        <<"qos">> => 1,
+        <<"retain">> => false,
+        <<"payload">> => <<"${payload}">>,
+        <<"mqtt_properties">> => #{},
+        <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+        <<"direct_dispatch">> => false
+    },
+    ActionConfig = emqx_utils_maps:deep_merge(
+        ActionConfig0,
+        #{
+            <<"fallback_actions">> => [
+                #{
+                    <<"kind">> => <<"republish">>,
+                    <<"args">> => RepublishArgs
+                }
+            ],
+            %% Simple way to make the requests fail: make the buffer overflow
+            <<"resource_opts">> => #{
+                <<"max_buffer_bytes">> => <<"0B">>,
+                <<"buffer_seg_bytes">> => <<"0B">>
+            }
+        }
+    ),
+    Hocon = #{
+        <<"connectors">> => #{ConnectorType => #{ConnectorName => ConnectorConfig}},
+        <<"actions">> => #{ActionType => #{ActionName => ActionConfig}}
+    },
+    AppSpecs = [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge_mqtt,
+        {emqx_bridge, #{config => Hocon}},
+        emqx_rule_engine,
+        emqx_management
+    ],
+    %% Simply successfully starting the nodes is enough.
+    Nodes = emqx_cth_cluster:start(
+        [{bridge_fallback_actions, #{role => core, apps => AppSpecs}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    ok = emqx_cth_cluster:stop(Nodes),
     ok.

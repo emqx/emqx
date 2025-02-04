@@ -185,6 +185,30 @@ t_auth_expire(_) ->
     with_connection(ConnectWithExpire),
     meck:unload(emqx_access_control).
 
+t_auth_failed(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {error, not_authenticated}
+        end
+    ),
+
+    %% restart gateway to clear the shutdown count history
+    emqx_gateway:stop(stomp),
+    emqx_gateway:start(stomp),
+
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"1000,2000">>),
+        {ok, Frame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, Frame),
+
+        ListenerId = {'stomp:tcp:default', 61613},
+        ?assertEqual([{not_authenticated, 1}], esockd:get_shutdown_count(ListenerId))
+    end),
+    meck:unload(emqx_access_control).
+
 %% Client does not send a heartbeat, server will close the connection
 t_heartbeat(_) ->
     %% Test heart beat
@@ -993,6 +1017,9 @@ t_rest_clientid_info(_) ->
             StompClient
         ),
 
+        %% assert keepalive
+        ?assertEqual(10, maps:get(keepalive, StompClient)),
+
         %% sub & unsub
         {200, []} = request(get, ClientPath ++ "/subscriptions"),
         ok = send_subscribe_frame(Sock, 0, <<"/queue/foo">>),
@@ -1258,7 +1285,7 @@ get_field(body, #stomp_frame{body = Body}) ->
     Body.
 
 send_connection_frame(Sock, Username, Password) ->
-    send_connection_frame(Sock, Username, Password, <<"0,0">>).
+    send_connection_frame(Sock, Username, Password, <<"10000,10000">>).
 
 send_connection_frame(Sock, Username, Password, Heartbeat) ->
     Headers =

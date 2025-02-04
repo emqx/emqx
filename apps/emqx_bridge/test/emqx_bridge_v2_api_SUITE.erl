@@ -62,6 +62,7 @@
 -define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(ACTION_TYPE_STR, "kafka_producer").
 -define(ACTION_TYPE, <<?ACTION_TYPE_STR>>).
+-define(ACTION_TYPE_2, ?SOURCE_TYPE).
 -define(KAFKA_BRIDGE(Name, Connector), ?RESOURCE(Name, ?ACTION_TYPE)#{
     <<"connector">> => Connector,
     <<"kafka">> => #{
@@ -117,13 +118,11 @@
     emqx_auth,
     emqx_management,
     emqx_connector,
-    {emqx_bridge, "actions {}"},
-    {emqx_rule_engine, "rule_engine { rules {} }"}
+    emqx_bridge,
+    emqx_rule_engine
 ]).
 
--define(APPSPEC_DASHBOARD,
-    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-).
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -158,14 +157,19 @@ end_per_suite(_Config) ->
 
 init_per_group(cluster = Name, Config) ->
     Nodes = [NodePrimary | _] = mk_cluster(Name, Config),
-    init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
+    [{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config];
 init_per_group(cluster_later_join = Name, Config) ->
     Nodes = [NodePrimary | _] = mk_cluster(Name, Config, #{join_to => undefined}),
-    init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
+    Fun = fun() -> ?ON(NodePrimary, emqx_mgmt_api_test_util:auth_header_()) end,
+    emqx_bridge_v2_testlib:set_auth_header_getter(Fun),
+    [{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config];
 init_per_group(single = Group, Config) ->
-    WorkDir = filename:join(?config(priv_dir, Config), Group),
-    Apps = emqx_cth_suite:start(?APPSPECS ++ [?APPSPEC_DASHBOARD], #{work_dir => WorkDir}),
-    init_api([{group, single}, {group_apps, Apps}, {node, node()} | Config]);
+    WorkDir = work_dir_random_suffix(Group, Config),
+    Apps = emqx_cth_suite:start(
+        ?APPSPECS ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
+        #{work_dir => WorkDir}
+    ),
+    [{group, single}, {group_apps, Apps}, {node, node()} | Config];
 init_per_group(actions, Config) ->
     [
         {bridge_kind, action},
@@ -183,29 +187,26 @@ init_per_group(sources, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
-init_api(Config) ->
-    Node = ?config(node, Config),
-    {ok, ApiKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
-    [{api_key, ApiKey} | Config].
-
 mk_cluster(Name, Config) ->
     mk_cluster(Name, Config, #{}).
 
 mk_cluster(Name, Config, Opts) ->
-    Node1Apps = ?APPSPECS ++ [?APPSPEC_DASHBOARD],
+    Node1Apps = ?APPSPECS ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
     Node2Apps = ?APPSPECS,
+    WorkDir = work_dir_random_suffix(Name, Config),
     emqx_cth_cluster:start(
         [
             {emqx_bridge_v2_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
             {emqx_bridge_v2_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Name, Config)}
+        #{work_dir => WorkDir}
     ).
 
 end_per_group(Group, Config) when
     Group =:= cluster;
     Group =:= cluster_later_join
 ->
+    emqx_bridge_v2_testlib:clear_auth_header_getter(),
     ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_group(single, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)),
@@ -217,6 +218,7 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_start_action_or_source_with_disabled_connector;
     TestCase =:= t_action_types
 ->
+    setup_auth_header_fn(Config),
     case ?config(cluster_nodes, Config) of
         undefined ->
             init_mocks();
@@ -253,6 +255,7 @@ init_per_testcase(TestCase, Config) when
         | Config
     ];
 init_per_testcase(TestCase, Config) ->
+    setup_auth_header_fn(Config),
     case ?config(cluster_nodes, Config) of
         undefined ->
             init_mocks();
@@ -290,12 +293,28 @@ end_per_testcase(_TestCase, Config) ->
 skip_connector_creation_test_cases() ->
     [
         t_connector_dependencies,
-        t_kind_dependencies
+        t_kind_dependencies,
+        t_summary,
+        t_summary_inconsistent
     ].
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+work_dir_random_suffix(Name0, CTConfig) ->
+    Name = iolist_to_binary([emqx_utils_conv:bin(Name0), emqx_utils:rand_id(5)]),
+    WorkDir = emqx_cth_suite:work_dir(Name, CTConfig),
+    binary_to_list(WorkDir).
+
+setup_auth_header_fn(Config) ->
+    case ?config(cluster_nodes, Config) of
+        undefined ->
+            ok;
+        [N1 | _] ->
+            Fun = fun() -> ?ON(N1, emqx_mgmt_api_test_util:auth_header_()) end,
+            emqx_bridge_v2_testlib:set_auth_header_getter(Fun)
+    end.
 
 -define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 init_mocks() ->
@@ -389,8 +408,8 @@ request(Method, URL, Config) ->
 request(Method, {operation, Type, Op, BridgeID}, Body, Config) ->
     URL = operation_path(Type, Op, BridgeID, Config),
     request(Method, URL, Body, Config);
-request(Method, URL, Body, Config) ->
-    AuthHeader = emqx_common_test_http:auth_header(?config(api_key, Config)),
+request(Method, URL, Body, _Config) ->
+    AuthHeader = emqx_bridge_v2_testlib:auth_header(),
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
     emqx_mgmt_api_test_util:request_api(Method, URL, [], AuthHeader, Body, Opts).
 
@@ -450,7 +469,7 @@ str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
-    case emqx_utils_json:safe_decode(B, [return_maps]) of
+    case emqx_utils_json:safe_decode(B) of
         {ok, Term} ->
             Term;
         {error, Reason} = Error ->
@@ -690,6 +709,43 @@ create_source_rule2(SourceType, SourceName) ->
         }
     },
     emqx_bridge_v2_testlib:create_rule_and_action_http(SourceType, RuleTopic, Config, Opts).
+
+summary_scenarios_setup(Config) ->
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    Name = <<"summary">>,
+    ConnectorName = <<"summary">>,
+    case Kind of
+        actions ->
+            %% This particular connector type serves both MQTT actions and sources.
+            ConnectorType = ?SOURCE_CONNECTOR_TYPE,
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_connector_api([
+                    {connector_config, source_connector_create_config(#{})},
+                    {connector_name, ConnectorName},
+                    {connector_type, ConnectorType}
+                ]),
+            Type = ?ACTION_TYPE_2,
+            CreateConfig = mqtt_action_create_config(#{<<"connector">> => ConnectorName}),
+            {201, _} = create_action_api(Name, Type, CreateConfig),
+            Summarize = fun emqx_bridge_v2_testlib:summarize_actions_api/0;
+        sources ->
+            ConnectorType = ?SOURCE_CONNECTOR_TYPE,
+            {ok, {{_, 201, _}, _, _}} =
+                emqx_bridge_v2_testlib:create_connector_api([
+                    {connector_config, source_connector_create_config(#{})},
+                    {connector_name, ConnectorName},
+                    {connector_type, ConnectorType}
+                ]),
+            Type = ?SOURCE_TYPE,
+            CreateConfig = source_create_config(#{<<"connector">> => ConnectorName}),
+            {201, _} = create_source_api(Name, Type, CreateConfig),
+            Summarize = fun emqx_bridge_v2_testlib:summarize_sources_api/0
+    end,
+    #{
+        type => Type,
+        name => Name,
+        summarize => Summarize
+    }.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1192,116 +1248,6 @@ do_start_bridge(TestType, Config) ->
     {ok, 404, _} = request(post, {operation, TestType, start, <<"webhook:cptn_hook">>}, Config),
     ok.
 
-%% t_start_stop_inconsistent_bridge_node(Config) ->
-%%     start_stop_inconsistent_bridge(node, Config).
-
-%% t_start_stop_inconsistent_bridge_cluster(Config) ->
-%%     start_stop_inconsistent_bridge(cluster, Config).
-
-%% start_stop_inconsistent_bridge(Type, Config) ->
-%%     Node = ?config(node, Config),
-
-%%     erpc:call(Node, fun() ->
-%%         meck:new(emqx_bridge_resource, [passthrough, no_link]),
-%%         meck:expect(
-%%             emqx_bridge_resource,
-%%             stop,
-%%             fun
-%%                 (_, <<"bridge_not_found">>) -> {error, not_found};
-%%                 (BridgeType, Name) -> meck:passthrough([BridgeType, Name])
-%%             end
-%%         )
-%%     end),
-
-%%     emqx_common_test_helpers:on_exit(fun() ->
-%%         erpc:call(Node, fun() ->
-%%             meck:unload([emqx_bridge_resource])
-%%         end)
-%%     end),
-
-%%     {ok, 201, _Bridge} = request(
-%%         post,
-%%         uri([?ROOT]),
-%%         ?KAFKA_BRIDGE(<<"bridge_not_found">>),
-%%         Config
-%%     ),
-%%     {ok, 503, _} = request(
-%%         post, {operation, Type, stop, <<"kafka:bridge_not_found">>}, Config
-%%     ).
-
-%% [TODO] This is a mess, need to clarify what the actual behavior needs to be
-%% like.
-%% t_enable_disable_bridges(Config) ->
-%%     %% assert we there's no bridges at first
-%%     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
-
-%%     Name = ?BRIDGE_NAME,
-%%     ?assertMatch(
-%%         {ok, 201, #{
-%%             <<"type">> := ?BRIDGE_TYPE,
-%%             <<"name">> := Name,
-%%             <<"enable">> := true,
-%%             <<"status">> := <<"connected">>,
-%%             <<"node_status">> := [_ | _]
-%%         }},
-%%         request_json(
-%%             post,
-%%             uri([?ROOT]),
-%%             ?KAFKA_BRIDGE(Name),
-%%             Config
-%%         )
-%%     ),
-%%     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, Name),
-%%     %% disable it
-%%     meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connecting),
-%%     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), Config),
-%%     ?assertMatch(
-%%         {ok, 200, #{<<"status">> := <<"stopped">>}},
-%%         request_json(get, uri([?ROOT, BridgeID]), Config)
-%%     ),
-%%     %% enable again
-%%     meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connected),
-%%     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), Config),
-%%     ?assertMatch(
-%%         {ok, 200, #{<<"status">> := <<"connected">>}},
-%%         request_json(get, uri([?ROOT, BridgeID]), Config)
-%%     ),
-%%     %% enable an already started bridge
-%%     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), Config),
-%%     ?assertMatch(
-%%         {ok, 200, #{<<"status">> := <<"connected">>}},
-%%         request_json(get, uri([?ROOT, BridgeID]), Config)
-%%     ),
-%%     %% disable it again
-%%     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), Config),
-
-%%     %% bad param
-%%     {ok, 404, _} = request(put, enable_path(foo, BridgeID), Config),
-%%     {ok, 404, _} = request(put, enable_path(true, "foo"), Config),
-%%     {ok, 404, _} = request(put, enable_path(true, "webhook:foo"), Config),
-
-%%     {ok, 400, Res} = request(post, {operation, node, start, BridgeID}, <<>>, fun json/1, Config),
-%%     ?assertEqual(
-%%         #{
-%%             <<"code">> => <<"BAD_REQUEST">>,
-%%             <<"message">> => <<"Forbidden operation, bridge not enabled">>
-%%         },
-%%         Res
-%%     ),
-%%     {ok, 400, Res} = request(
-%%         post, {operation, cluster, start, BridgeID}, <<>>, fun json/1, Config
-%%     ),
-
-%%     %% enable a stopped bridge
-%%     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), Config),
-%%     ?assertMatch(
-%%         {ok, 200, #{<<"status">> := <<"connected">>}},
-%%         request_json(get, uri([?ROOT, BridgeID]), Config)
-%%     ),
-%%     %% delete the bridge
-%%     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),
-%%     {ok, 200, []} = request_json(get, uri([?ROOT]), Config).
-
 t_bridges_probe(matrix) ->
     [
         [single, actions]
@@ -1413,7 +1359,7 @@ t_cascade_delete_actions(Config) ->
         uri([?ACTIONS_ROOT, BridgeID]),
         Config
     ),
-    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body, [return_maps])),
+    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body)),
     {ok, 200, [_]} = request_json(get, uri([?ACTIONS_ROOT]), Config),
     %% Cleanup
     {ok, 204, _} = request(
@@ -1458,7 +1404,7 @@ t_bad_name(Config) ->
     ),
     ?assertMatch({ok, 400, #{<<"message">> := _}}, Res),
     {ok, 400, #{<<"message">> := Msg0}} = Res,
-    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    Msg = emqx_utils_json:decode(Msg0),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
@@ -2015,5 +1961,104 @@ do_t_thrown_messages(sources, _Config, ConnectorName) ->
             Type,
             UpdateConfig
         )
+    ),
+    ok.
+
+t_summary(matrix) ->
+    [
+        [single, actions],
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
+    ];
+t_summary(Config) when is_list(Config) ->
+    Opts = summary_scenarios_setup(Config),
+    #{
+        summarize := Summarize,
+        name := Name,
+        type := Type
+    } = Opts,
+    ?assertMatch(
+        {200, [
+            #{
+                <<"enable">> := true,
+                <<"name">> := Name,
+                <<"type">> := Type,
+                <<"description">> := _,
+                <<"created_at">> := _,
+                <<"last_modified_at">> := _,
+                <<"node_status">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"connected">>,
+                        <<"status_reason">> := <<"">>
+                    }
+                    | _
+                ],
+                <<"rules">> := [],
+                <<"status">> := <<"connected">>,
+                <<"status_reason">> := <<"">>
+            }
+        ]},
+        Summarize()
+    ),
+    ok.
+
+t_summary_inconsistent(matrix) ->
+    [
+        [cluster, actions],
+        [cluster, sources]
+    ];
+t_summary_inconsistent(Config) when is_list(Config) ->
+    Opts = summary_scenarios_setup(Config),
+    [_N1, N2 | _] = ?config(cluster_nodes, Config),
+    ?ON(N2, begin
+        ok = meck:new(emqx_bridge_v2_api, [no_history, passthrough, no_link]),
+        ok = meck:expect(emqx_bridge_v2_api, summary_from_local_node_v7, fun(ConfRootKey) ->
+            Res = meck:passthrough([ConfRootKey]),
+            lists:map(
+                fun(R) ->
+                    R#{
+                        status := disconnected,
+                        status_reason := <<"mocked failure">>
+                    }
+                end,
+                Res
+            )
+        end)
+    end),
+    #{
+        summarize := Summarize,
+        name := Name,
+        type := Type
+    } = Opts,
+    ?assertMatch(
+        {200, [
+            #{
+                <<"enable">> := true,
+                <<"name">> := Name,
+                <<"type">> := Type,
+                <<"description">> := _,
+                <<"created_at">> := _,
+                <<"last_modified_at">> := _,
+                <<"node_status">> := [
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"mocked failure">>
+                    },
+                    #{
+                        <<"node">> := _,
+                        <<"status">> := <<"connected">>,
+                        <<"status_reason">> := <<"">>
+                    }
+                    | _
+                ],
+                <<"rules">> := [],
+                <<"status">> := <<"inconsistent">>,
+                <<"status_reason">> := <<"mocked failure">>
+            }
+        ]},
+        Summarize()
     ),
     ok.

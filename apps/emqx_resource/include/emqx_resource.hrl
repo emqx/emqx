@@ -63,12 +63,20 @@
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
+    %% Set only by actions that use internal buffering (Kafka, Pulsar).
+    internal_buffer => boolean(),
     reply_to => reply_fun(),
     %% Called `query_mode' due to legacy reasons...
     query_mode => query_kind(),
     connector_resource_id => resource_id(),
-    is_fallback => boolean()
+    is_fallback => boolean(),
+    fallback_actions => []
 }.
+-type fallback_action() ::
+    #{kind := reference, type := _, name := _}
+    | #{kind := republish, args := map()}
+    %% Used only for testing
+    | fun((map()) -> any()).
 -type resource_data() :: #{
     id := resource_id(),
     mod := module(),

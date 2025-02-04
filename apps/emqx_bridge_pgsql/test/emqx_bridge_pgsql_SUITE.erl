@@ -280,7 +280,7 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 
@@ -308,7 +308,7 @@ query_resource_async(Config, Request, Opts) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
     Ref = alias([reply]),
-    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     Timeout = maps:get(timeout, Opts, 500),
     Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
         timeout => Timeout,

@@ -187,6 +187,7 @@ connector_config(Overrides, Config) ->
             <<"pool_size">> => 2,
             <<"pool_type">> => <<"random">>,
             <<"enable_pipelining">> => 100,
+            <<"max_inactive">> => <<"10s">>,
             <<"ssl">> => #{
                 <<"enable">> => true,
                 <<"hibernate_after">> => <<"5s">>,

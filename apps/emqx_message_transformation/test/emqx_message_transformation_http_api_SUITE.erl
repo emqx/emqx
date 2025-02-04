@@ -81,7 +81,7 @@ reset_all_global_metrics() ->
     ).
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.
@@ -95,7 +95,7 @@ request(Method, Path, Params) ->
             {ok, {Status, Headers, Body}};
         {error, {Status, Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
@@ -653,7 +653,7 @@ t_smoke_test_2(_Config) ->
             },
             <<"content_type">> := <<"application/json">>
         } when is_integer(PRAt),
-        emqx_utils_json:decode(Payload0, [return_maps])
+        emqx_utils_json:decode(Payload0)
     ),
     %% Reconnect with an username.
     emqtt:stop(C1),
@@ -683,7 +683,7 @@ t_smoke_test_2(_Config) ->
             },
             <<"content_type">> := <<"application/json">>
         } when is_integer(PRAt),
-        emqx_utils_json:decode(Payload1, [return_maps])
+        emqx_utils_json:decode(Payload1)
     ),
     ok.
 
@@ -1445,7 +1445,7 @@ t_protobuf_bad_chain(_Config) ->
                     E
                  || #{
                         ?snk_kind := message_transformation_failed,
-                        message := "payload_decode_schema_failure",
+                        message := payload_decode_schema_failure,
                         reason := function_clause
                     } = E <- Trace
                 ]
@@ -1473,7 +1473,7 @@ t_protobuf_bad_chain(_Config) ->
                     E
                  || #{
                         ?snk_kind := message_transformation_failed,
-                        message := "payload_decode_error"
+                        message := payload_decode_error
                     } = E <- Trace
                 ]
             ),
@@ -1740,8 +1740,8 @@ t_final_payload_must_be_binary(_Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [
-                    #{message := "transformation_bad_encoding"},
-                    #{message := "transformation_bad_encoding"}
+                    #{message := transformation_bad_encoding},
+                    #{message := transformation_bad_encoding}
                 ],
                 ?of_kind(message_transformation_failed, Trace)
             ),
@@ -1943,7 +1943,7 @@ t_dryrun_transformation(_Config) ->
                     <<"flags">> := #{<<"dup">> := false, <<"retain">> := true},
                     <<"user">> := Username
                 },
-                emqx_utils_json:decode(EncPayloadRes1, [return_maps])
+                emqx_utils_json:decode(EncPayloadRes1)
             ),
 
             %% Bad input: fails to decode
@@ -2040,4 +2040,20 @@ t_non_binary_input_for_decoder(_Config) ->
             ok
         end
     ),
+    ok.
+
+%% Checks that index/config order is indeed preserved when we have "many" (> 32)
+%% transformations.
+t_many_transformations_order(_Config) ->
+    Names = lists:map(
+        fun(N) ->
+            Name = integer_to_binary(50 - N),
+            Transformation = transformation(Name, [dummy_operation()]),
+            {201, _} = insert(Transformation),
+            Name
+        end,
+        lists:seq(1, 50)
+    ),
+    Topic = <<"t/a">>,
+    ?assertIndexOrder(Names, Topic),
     ok.

@@ -22,6 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
 
 %%--------------------------------------------------------------------
@@ -91,7 +92,7 @@ t_legacy_prometheus_api(_) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
     OldConf = emqx:get_raw_config([prometheus]),
-    Conf = emqx_utils_json:decode(Response, [return_maps]),
+    Conf = emqx_utils_json:decode(Response),
     %% Always return new config.
     ?assertMatch(
         #{
@@ -129,7 +130,7 @@ t_legacy_prometheus_api(_) ->
     },
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
-    Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
+    Conf2 = emqx_utils_json:decode(Response2),
     ?assertEqual(NewConf, Conf2),
 
     EnvCollectors = env_collectors(),
@@ -186,7 +187,7 @@ t_prometheus_api(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
-    Conf = emqx_utils_json:decode(Response, [return_maps]),
+    Conf = emqx_utils_json:decode(Response),
     ?assertMatch(
         #{
             <<"push_gateway">> := #{},
@@ -222,7 +223,7 @@ t_prometheus_api(_) ->
     },
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
-    Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
+    Conf2 = emqx_utils_json:decode(Response2),
     ?assertMatch(NewConf, Conf2),
 
     EnvCollectors = env_collectors(),
@@ -277,6 +278,67 @@ t_prometheus_api(_) ->
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
         emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)
+    ),
+    ok.
+
+t_prometheus_auth_api_aggregated(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth?mode=all_nodes_aggregated"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+
+    %% Provide some predefined metrics
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate', total_latency, 100
+    ),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize', total_latency, 100
+    ),
+
+    %% Pretend we have 3 nodes
+    meck:new(mria, [passthrough, no_history]),
+    meck:expect(mria, running_nodes, fun() -> [node(), node(), node()] end),
+
+    %% Get the same single observation duplicated across 3 nodes
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+    ?assert(
+        lists:member(
+            "emqx_authn_latency_count{name=\"total_latency\"} 3",
+            string:split(Response, "\n", all)
+        )
+    ),
+    ?assert(
+        lists:member(
+            "emqx_authz_latency_count{name=\"total_latency\"} 3",
+            string:split(Response, "\n", all)
+        )
+    ),
+    meck:unload(mria),
+    ok.
+
+t_prometheus_auth_api(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "auth"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate'),
+    emqx_metrics_worker:reset_metrics(?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize'),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authenticate', total_latency, 100
+    ),
+    emqx_metrics_worker:observe_hist(
+        ?ACCESS_CONTROL_METRICS_WORKER, 'client.authorize', total_latency, 100
+    ),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+    ?assert(
+        lists:member(
+            "emqx_authn_latency_count{name=\"total_latency\"} 1",
+            string:split(Response, "\n", all)
+        )
+    ),
+    ?assert(
+        lists:member(
+            "emqx_authz_latency_count{name=\"total_latency\"} 1",
+            string:split(Response, "\n", all)
+        )
     ),
     ok.
 
@@ -427,6 +489,8 @@ t_listener_shutdown_count(_Config) ->
             ExpectedLines
         )
     end,
+    %% Verify that disabling unrelated listener does not affect anything.
+    ok = emqx_listeners:stop_listener('ssl:default'),
     PromClientStatsNode = get_stats(prometheus, ?PROM_DATA_MODE__NODE),
     ExpectedLines1 = [
         iolist_to_binary(
@@ -465,21 +529,49 @@ t_listener_shutdown_count(_Config) ->
     AssertExpectedLines(ExpectedLines2, PromClientStatsUnagg),
     ok.
 
+t_latency_metrics(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+    Conf = emqx_utils_json:decode(Response, [return_maps]),
+
+    NewConf = Conf#{
+        <<"latency_buckets">> => <<"13ms, 123s">>
+    },
+    {ok, _} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
+
+    lists:foreach(
+        fun(Id) ->
+            Hists = emqx_metrics_worker:get_hists(?ACCESS_CONTROL_METRICS_WORKER, Id),
+            lists:foreach(
+                fun({_Name, Value}) ->
+                    ?assertMatch(
+                        #{bucket_counts := [{13, 0}, {123000, 0}, {infinity, 0}]},
+                        Value
+                    )
+                end,
+                maps:to_list(Hists)
+            )
+        end,
+        ['client.authenticate', 'client.authorize']
+    ).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
 accept_json_header() ->
     [{"accept", "application/json"}].
 
 request_stats(Headers, Auth) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
-    Data = emqx_utils_json:decode(Response, [return_maps]),
+    Data = emqx_utils_json:decode(Response),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
     ok = meck:expect(mria_rlog, backend, fun() -> rlog end),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Internal Functions
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 env_collectors() ->
     do_env_collectors(application:get_env(prometheus, collectors, []), []).
@@ -505,7 +597,7 @@ get_stats(Format, Mode) ->
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, QueryString, Headers),
     case Format of
         json ->
-            emqx_utils_json:decode(Response, [return_maps]);
+            emqx_utils_json:decode(Response);
         prometheus ->
             Response
     end.

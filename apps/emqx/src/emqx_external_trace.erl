@@ -15,116 +15,89 @@
 %%--------------------------------------------------------------------
 -module(emqx_external_trace).
 
+-include("emqx_mqtt.hrl").
 -include("emqx_external_trace.hrl").
--include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% Legacy
 -type channel_info() :: #{atom() => _}.
 -export_type([channel_info/0]).
 
+%% e2e traces
+-type init_attrs() :: attrs().
+-type attrs() :: #{atom() => _}.
+-type t_fun() :: function().
+-type t_args() :: list().
+-type t_res() :: any().
+
+-export_type([
+    init_attrs/0,
+    attrs/0,
+    t_fun/0,
+    t_args/0,
+    t_res/0
+]).
+
 %% --------------------------------------------------------------------
 %% Trace in Rich mode callbacks
 
 %% Client Connect/Disconnect
--callback client_connect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_connect(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_disconnect(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_disconnect(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_subscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_subscribe(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_unsubscribe(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_unsubscribe(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_authn(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_authn(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_authz(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_authn_backend(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback broker_disconnect(Any, InitAttrs, fun((Any) -> Res)) -> Res when
-    Any :: any(),
-    InitAttrs :: attrs(),
-    Res :: any().
+-callback client_authz(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback broker_subscribe(Any, InitAttrs, fun((Any) -> Res)) -> Res when
-    Any :: any(),
-    InitAttrs :: attrs(),
-    Res :: any().
+-callback client_authz_backend(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback broker_unsubscribe(Any, InitAttrs, fun((Any) -> Res)) -> Res when
-    Any :: any(),
-    InitAttrs :: attrs(),
-    Res :: any().
+-callback broker_disconnect(init_attrs(), t_fun(), t_args()) -> t_res().
+
+-callback broker_subscribe(init_attrs(), t_fun(), t_args()) -> t_res().
+
+-callback broker_unsubscribe(init_attrs(), t_fun(), t_args()) -> t_res().
 
 %% Message Processing Spans
 %% PUBLISH(form Publisher) -> ROUTE -> FORWARD(optional) -> DELIVER(to Subscribers)
--callback client_publish(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_publish(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_puback(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_puback(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_pubrec(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_pubrec(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_pubrel(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_pubrel(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback client_pubcomp(Packet, InitAttrs, fun((Packet) -> Res)) -> Res when
-    Packet :: emqx_types:packet(),
-    InitAttrs :: attrs(),
-    Res :: term().
+-callback client_pubcomp(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback msg_route(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    InitAttrs :: attrs(),
-    Delivery :: emqx_types:delivery(),
-    Res :: term().
+-callback msg_route(init_attrs(), t_fun(), t_args()) -> t_res().
 
 %% @doc Trace message forwarding
-%% The span `message.forward` always starts in the publisher process and ends in the subscriber process.
+%% The span `message.forward' always starts in the publisher process and ends in the subscriber process.
 %% They are logically two unrelated processes. So the SpanCtx always need to be propagated.
--callback msg_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    InitAttrs :: attrs(),
-    Delivery :: emqx_types:delivery(),
-    Res :: term().
+-callback msg_forward(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback msg_handle_forward(Delivery, InitAttrs, fun((Delivery) -> Res)) -> Res when
-    InitAttrs :: attrs(),
-    Delivery :: emqx_types:delivery(),
-    Res :: term().
+-callback msg_handle_forward(init_attrs(), t_fun(), t_args()) -> t_res().
 
--callback broker_publish(list(Deliver), Attrs) -> list(Deliver) when
-    Deliver :: emqx_types:deliver(),
-    Attrs :: attrs().
+%% for broker_publish and outgoing, the process_fun is not needed
+%% They Process Ctx in deliver/packet
+-callback broker_publish(
+    attrs(),
+    TraceAction :: ?EXT_TRACE_START,
+    list(Deliver)
+) -> list(Deliver) when
+    Deliver :: emqx_types:deliver().
 
--callback outgoing(TraceAction, Packet, Attrs) -> Res when
+-callback outgoing(
+    attrs(),
     TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
-    Packet :: emqx_types:packet(),
-    Attrs :: attrs(),
-    Res :: term().
+    Packet :: emqx_types:packet()
+) -> Res :: t_res().
 
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
@@ -142,22 +115,19 @@
 
 -callback set_status_error(unicode:unicode_binary()) -> ok.
 
--optional_callbacks(
-    [
-        add_span_attrs/1,
-        add_span_attrs/2,
-        set_status_ok/0,
-        set_status_error/0,
-        set_status_error/1,
-        client_authn/3,
-        client_authz/3
-    ]
-).
-
 -export([
     provider/0,
     register_provider/1,
     unregister_provider/1
+]).
+
+-export([
+    connect_attrs/2,
+    basic_attrs/1,
+    topic_attrs/1,
+    authn_attrs/1,
+    sub_authz_attrs/1,
+    disconnect_attrs/2
 ]).
 
 %%--------------------------------------------------------------------
@@ -186,6 +156,143 @@ unregister_provider(Module) ->
 -spec provider() -> module() | undefined.
 provider() ->
     persistent_term:get(?PROVIDER, undefined).
+
+%%--------------------------------------------------------------------
+%% Trace Attrs Helper
+%%--------------------------------------------------------------------
+
+%% Client Channel info not be available before `process_connect/2`
+%% The initial attrs should be extracted from packet and update them during `process_connect/2`
+connect_attrs(
+    ?PACKET(?CONNECT, #mqtt_packet_connect{
+        proto_name = ProtoName,
+        proto_ver = ProtoVer,
+        is_bridge = IsBridge,
+        clean_start = CleanStart,
+        will_flag = WillFlag,
+        will_qos = WillQos,
+        will_retain = WillRetain,
+        keepalive = KeepAlive,
+        properties = Properties,
+        clientid = ClientId,
+        will_props = WillProps,
+        will_topic = WillTopic,
+        will_payload = _,
+        username = Username,
+        password = _
+    }),
+    Channel
+) ->
+    #{
+        'client.clientid' => ClientId,
+        'client.username' => Username,
+        'client.proto_name' => ProtoName,
+        'client.proto_ver' => ProtoVer,
+        'client.is_bridge' => IsBridge,
+        'client.clean_start' => CleanStart,
+        'client.will_flag' => WillFlag,
+        'client.will_qos' => WillQos,
+        'client.will_retain' => WillRetain,
+        'client.keepalive' => KeepAlive,
+        'client.conn_props' => emqx_utils_json:encode(Properties),
+        'client.will_props' => emqx_utils_json:encode(WillProps),
+        'client.will_topic' => WillTopic,
+        'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
+        'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel))
+    }.
+
+basic_attrs(Channel) ->
+    #{
+        'client.clientid' => emqx_channel:info(clientid, Channel),
+        'client.username' => emqx_channel:info(username, Channel)
+    }.
+
+topic_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
+    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
+    #{
+        'client.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'client.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+    };
+topic_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
+    {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
+    #{'client.unsubscribe.topics' => emqx_utils_json:encode(TFs)};
+topic_attrs({subscribe, TopicFilters}) ->
+    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
+    #{
+        'broker.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'broker.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+    };
+topic_attrs({unsubscribe, TopicFilters}) ->
+    {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
+    #{'broker.unsubscribe.topics' => emqx_utils_json:encode(TFs)}.
+
+do_topic_filters_attrs(subscribe, TopicFilters) ->
+    {_TFs, _SubOpts} = lists:foldl(
+        fun({Topic, SubOpts}, {AccTFs, AccSubOpts}) ->
+            {[emqx_topic:maybe_format_share(Topic) | AccTFs], [SubOpts | AccSubOpts]}
+        end,
+        {[], []},
+        TopicFilters
+    );
+do_topic_filters_attrs(unsubscribe, TopicFilters) ->
+    TFs = [
+        emqx_topic:maybe_format_share(Name)
+     || Name <- TopicFilters
+    ],
+    {TFs, undefined}.
+
+authn_attrs({continue, _Properties, _Channel}) ->
+    %% TODO
+    #{};
+authn_attrs({ok, _Properties, Channel}) ->
+    #{
+        'client.connect.authn.result' => ok,
+        'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
+        'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
+    };
+authn_attrs({error, _Reason}) ->
+    #{
+        'client.connect.authn.result' => error,
+        'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
+    }.
+
+sub_authz_attrs(CheckResult) ->
+    {TFs, AuthZRCs} = lists:foldl(
+        fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
+            {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
+        end,
+        {[], []},
+        CheckResult
+    ),
+    #{
+        'authz.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
+        'authz.subscribe.reason_codes' => emqx_utils_json:encode(lists:reverse(AuthZRCs))
+    }.
+
+-define(ext_trace_disconnect_reason(Reason),
+    ?ext_trace_disconnect_reason(Reason, undefined)
+).
+
+-define(ext_trace_disconnect_reason(Reason, Description), #{
+    'client.proto_name' => emqx_channel:info(proto_name, Channel),
+    'client.proto_ver' => emqx_channel:info(proto_ver, Channel),
+    'client.is_bridge' => emqx_channel:info(is_bridge, Channel),
+    'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
+    'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel)),
+    'client.disconnect.reason' => Reason,
+    'client.disconnect.reason_desc' => Description
+}).
+
+disconnect_attrs(kick, Channel) ->
+    ?ext_trace_disconnect_reason(kicked);
+disconnect_attrs(discard, Channel) ->
+    ?ext_trace_disconnect_reason(discarded);
+disconnect_attrs(takeover, Channel) ->
+    ?ext_trace_disconnect_reason(takenover);
+disconnect_attrs(takeover_kick, Channel) ->
+    ?ext_trace_disconnect_reason(takenover_kick);
+disconnect_attrs(sock_closed, Channel) ->
+    ?ext_trace_disconnect_reason(sock_closed).
 
 %%--------------------------------------------------------------------
 %% Internal functions

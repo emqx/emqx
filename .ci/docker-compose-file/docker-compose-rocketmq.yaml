@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   mqnamesrv:
     image: apache/rocketmq:4.9.4
@@ -9,12 +7,12 @@ services:
     volumes:
       - ./rocketmq/logs:/opt/logs
       - ./rocketmq/store:/opt/store
-    command: ./mqnamesrv 
+    command: ./mqnamesrv
     networks:
       - emqx_bridge
 
   mqbroker:
-    image: apache/rocketmq:4.9.4 
+    image: apache/rocketmq:4.9.4
     container_name: rocketmq_broker
 #    ports:
 #      - 10909:10909

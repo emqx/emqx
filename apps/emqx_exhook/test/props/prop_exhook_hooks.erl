@@ -578,13 +578,14 @@ from_conninfo(ConnInfo) ->
     }.
 
 from_clientinfo(ClientInfo) ->
+    {PeerHost, PeerPort} = maps:get(peername, ClientInfo),
     #{
         node => nodestr(),
         clientid => maps:get(clientid, ClientInfo),
         username => option(maps:get(username, ClientInfo, <<>>)),
         password => option(maps:get(password, ClientInfo, <<>>)),
-        peerhost => ntoa(maps:get(peerhost, ClientInfo)),
-        peerport => maps:get(peerport, ClientInfo),
+        peerhost => ntoa(PeerHost),
+        peerport => PeerPort,
         sockport => maps:get(sockport, ClientInfo),
         protocol => stringfy(maps:get(protocol, ClientInfo)),
         mountpoint => option(maps:get(mountpoint, ClientInfo, <<>>)),

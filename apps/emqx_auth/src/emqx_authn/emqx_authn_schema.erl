@@ -17,6 +17,7 @@
 -module(emqx_authn_schema).
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_authn.hrl").
 -include("emqx_authn_chains.hrl").
@@ -35,13 +36,15 @@
     roots/0,
     tags/0,
     fields/1,
+    desc/1,
     authenticator_type/0,
     authenticator_type/1,
     authenticator_type_without/1,
     authenticator_type_without/2,
     mechanism/1,
     backend/1,
-    namespace/0
+    namespace/0,
+    fill_defaults/1
 ]).
 
 -export([
@@ -91,6 +94,9 @@ injected_fields(AuthnSchemaMods) ->
 
 tags() ->
     [<<"Authentication">>].
+
+fill_defaults(Config) ->
+    emqx_schema:fill_defaults_for_type(?R_REF("settings"), Config).
 
 authenticator_type() ->
     authenticator_type(?DEFAULT_SCHEMA_KIND).
@@ -160,7 +166,15 @@ global_auth_fields() ->
                 default => [],
                 validator => validator(),
                 importance => ?IMPORTANCE_LOW
-            })}
+            })},
+        {authentication_settings,
+            ?HOCON(
+                ?R_REF("settings"),
+                #{
+                    desc => ?DESC(settings),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
     ].
 
 mqtt_listener_auth_fields() ->
@@ -204,6 +218,18 @@ enable(importance) -> ?IMPORTANCE_NO_DOC;
 enable(desc) -> ?DESC(?FUNCTION_NAME);
 enable(_) -> undefined.
 
+fields("settings") ->
+    [
+        {"node_cache",
+            ?HOCON(
+                ?R_REF(emqx_auth_cache_schema, config),
+                #{
+                    desc => ?DESC(authentication_cache),
+                    importance => ?IMPORTANCE_LOW,
+                    default => emqx_auth_cache_schema:default_config()
+                }
+            )}
+    ];
 fields("metrics_status_fields") ->
     [
         {"resource_metrics", ?HOCON(?R_REF("resource_metrics"), #{desc => ?DESC("metrics")})},
@@ -256,6 +282,11 @@ common_field() ->
         {"rate_max", ?HOCON(float(), #{desc => ?DESC("rate_max")})},
         {"rate_last5m", ?HOCON(float(), #{desc => ?DESC("rate_last5m")})}
     ].
+
+desc("settings") ->
+    "Global settings for authentication";
+desc(_) ->
+    undefined.
 
 validator() ->
     Validations = lists:flatmap(

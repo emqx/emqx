@@ -106,7 +106,7 @@ t_api(Config) ->
     ok.
 
 get_sources(Result) ->
-    maps:get(<<"sources">>, emqx_utils_json:decode(Result, [return_maps])).
+    maps:get(<<"sources">>, emqx_utils_json:decode(Result)).
 
 mk_cluster_spec(Opts) ->
     Apps = [

@@ -34,11 +34,34 @@ t_parse_ok(_Config) ->
     lists:foreach(
         fun({Expected, RuleRaw}) ->
             _ = emqx_authz:set_feature_available(rich_actions, true),
+            ct:pal("Raw rule: ~p~nExpected: ~p~n", [RuleRaw, Expected]),
             ?assertEqual({ok, Expected}, emqx_authz_rule_raw:parse_rule(RuleRaw)),
             _ = emqx_authz:set_feature_available(rich_actions, false),
             ?assertEqual({ok, simple_rule(Expected)}, emqx_authz_rule_raw:parse_rule(RuleRaw))
         end,
         ok_cases()
+    ).
+
+t_composite_who(_Config) ->
+    {ok, {allow, {'and', Who}, {all, [{qos, [0, 1, 2]}, {retain, all}]}, []}} =
+        emqx_authz_rule_raw:parse_rule(
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"topics">> => [],
+                <<"action">> => <<"all">>,
+                <<"clientid_re">> => <<"^x+$">>,
+                <<"username_re">> => <<"^x+$">>,
+                <<"ipaddr">> => <<"192.168.1.0/24">>
+            }
+        ),
+
+    ?assertEqual(
+        [
+            {clientid, {re, <<"^x+$">>}},
+            {ipaddr, "192.168.1.0/24"},
+            {username, {re, <<"^x+$">>}}
+        ],
+        lists:sort(Who)
     ).
 
 t_parse_error(_Config) ->
@@ -84,7 +107,7 @@ t_format(_Config) ->
             topic => [<<"a/b/c">>]
         },
         emqx_authz_rule_raw:format_rule(
-            {allow, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]}
+            {allow, all, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]}
         )
     ),
     ?assertEqual(
@@ -94,14 +117,65 @@ t_format(_Config) ->
             topic => [<<"a/b/c">>]
         },
         emqx_authz_rule_raw:format_rule(
-            {allow, publish, [<<"a/b/c">>]}
+            {allow, all, publish, [<<"a/b/c">>]}
+        )
+    ),
+    ?assertEqual(
+        #{
+            action => all,
+            permission => allow,
+            topic => [],
+            ipaddr => <<"192.168.1.0/24">>,
+            username_re => <<"^u+$">>,
+            clientid_re => <<"^c+$">>
+        },
+        emqx_authz_rule_raw:format_rule(
+            {
+                allow,
+                {'and', [
+                    {clientid, {re, <<"^c+$">>}},
+                    {ipaddr, "192.168.1.0/24"},
+                    {username, {re, <<"^u+$">>}}
+                ]},
+                all,
+                []
+            }
+        )
+    ),
+    ?assertEqual(
+        #{
+            action => all,
+            permission => allow,
+            topic => [],
+            username_re => <<"^u+$">>
+        },
+        emqx_authz_rule_raw:format_rule(
+            {
+                allow,
+                {username, {re, <<"^u+$">>}},
+                all,
+                []
+            }
+        )
+    ),
+    %% Legacy rule (without `who' field)
+    ?assertEqual(
+        #{
+            action => subscribe,
+            permission => allow,
+            qos => [1, 2],
+            retain => true,
+            topic => [<<"a/b/c">>]
+        },
+        emqx_authz_rule_raw:format_rule(
+            {allow, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]}
         )
     ).
 
 t_format_no_rich_action(_Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, false),
 
-    Rule = {allow, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]},
+    Rule = {allow, all, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]},
 
     ?assertEqual(
         #{action => subscribe, permission => allow, topic => [<<"a/b/c">>]},
@@ -115,7 +189,7 @@ t_format_no_rich_action(_Config) ->
 ok_cases() ->
     [
         {
-            {allow, {publish, [{qos, [0, 1, 2]}, {retain, all}]}, [<<"a/b/c">>]},
+            {allow, all, {publish, [{qos, [0, 1, 2]}, {retain, all}]}, [<<"a/b/c">>]},
             #{
                 <<"permission">> => <<"allow">>,
                 <<"topic">> => <<"a/b/c">>,
@@ -123,7 +197,7 @@ ok_cases() ->
             }
         },
         {
-            {deny, {subscribe, [{qos, [1, 2]}]}, [{eq, <<"a/b/c">>}]},
+            {deny, all, {subscribe, [{qos, [1, 2]}]}, [{eq, <<"a/b/c">>}]},
             #{
                 <<"permission">> => <<"deny">>,
                 <<"topic">> => <<"eq a/b/c">>,
@@ -133,7 +207,7 @@ ok_cases() ->
             }
         },
         {
-            {allow, {publish, [{qos, [0, 1, 2]}, {retain, all}]}, [<<"a">>, <<"b">>]},
+            {allow, all, {publish, [{qos, [0, 1, 2]}, {retain, all}]}, [<<"a">>, <<"b">>]},
             #{
                 <<"permission">> => <<"allow">>,
                 <<"topics">> => [<<"a">>, <<"b">>],
@@ -141,11 +215,38 @@ ok_cases() ->
             }
         },
         {
-            {allow, {all, [{qos, [0, 1, 2]}, {retain, all}]}, []},
+            {allow, all, {all, [{qos, [0, 1, 2]}, {retain, all}]}, []},
             #{
                 <<"permission">> => <<"allow">>,
                 <<"topics">> => [],
                 <<"action">> => <<"all">>
+            }
+        },
+        {
+            {allow, {ipaddr, "192.168.1.0/24"}, {all, [{qos, [0, 1, 2]}, {retain, all}]}, []},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"topics">> => [],
+                <<"action">> => <<"all">>,
+                <<"ipaddr">> => <<"192.168.1.0/24">>
+            }
+        },
+        {
+            {allow, {username, {re, <<"^x+$">>}}, {all, [{qos, [0, 1, 2]}, {retain, all}]}, []},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"topics">> => [],
+                <<"action">> => <<"all">>,
+                <<"username_re">> => <<"^x+$">>
+            }
+        },
+        {
+            {allow, {clientid, {re, <<"^x+$">>}}, {all, [{qos, [0, 1, 2]}, {retain, all}]}, []},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"topics">> => [],
+                <<"action">> => <<"all">>,
+                <<"clientid_re">> => <<"^x+$">>
             }
         },
         %% Retain
@@ -272,7 +373,7 @@ error_rich_action_cases() ->
     ].
 
 expected_rule_with_qos_retain(QoS, Retain) ->
-    {allow, {publish, [{qos, QoS}, {retain, Retain}]}, []}.
+    {allow, all, {publish, [{qos, QoS}, {retain, Retain}]}, []}.
 
 rule_with_raw_qos_retain(Overrides) ->
     maps:merge(base_raw_rule(), Overrides).
@@ -284,5 +385,5 @@ base_raw_rule() ->
         <<"action">> => <<"publish">>
     }.
 
-simple_rule({Pemission, {Action, _Opts}, Topics}) ->
-    {Pemission, Action, Topics}.
+simple_rule({Pemission, Who, {Action, _Opts}, Topics}) ->
+    {Pemission, Who, Action, Topics}.

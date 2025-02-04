@@ -294,8 +294,8 @@ get_blob(BlobName, Config) ->
 get_and_decode_event(BlobName, Config) ->
     maps:update_with(
         <<"payload">>,
-        fun(Raw) -> emqx_utils_json:decode(Raw, [return_maps]) end,
-        emqx_utils_json:decode(get_blob(BlobName, Config), [return_maps])
+        fun(Raw) -> emqx_utils_json:decode(Raw) end,
+        emqx_utils_json:decode(get_blob(BlobName, Config))
     ).
 
 list_committed_blocks(Config) ->
@@ -436,6 +436,104 @@ t_aggreg_upload(Config) ->
                     [_TS3, <<"C3">>, T3, P3, <<>> | _]
                 ]},
                 erl_csv:decode(Content)
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Smoke test for using JSON Lines container type.
+t_aggreg_upload_json_lines(Config0) ->
+    ActionName = ?config(action_name, Config0),
+    AggregId = aggreg_id(ActionName),
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, action_config, fun(Old) ->
+        Cfg = emqx_utils_maps:deep_put(
+            [<<"parameters">>, <<"aggregation">>, <<"container">>, <<"type">>],
+            Old,
+            <<"json_lines">>
+        ),
+        emqx_utils_maps:deep_remove(
+            [<<"parameters">>, <<"aggregation">>, <<"container">>, <<"column_order">>],
+            Cfg
+        )
+    end),
+    ?check_trace(
+        #{timetrap => timer:seconds(30)},
+        begin
+            ActionNameString = unicode:characters_to_list(ActionName),
+            NodeString = atom_to_list(node()),
+            %% Create a bridge with the sample configuration.
+            ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
+            {ok, _Rule} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(
+                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                        sql => <<
+                            "SELECT"
+                            "  *,"
+                            "  strlen(payload) as psize,"
+                            "  unix_ts_to_rfc3339(publish_received_at, 'millisecond') as publish_received_at"
+                            "  FROM 'abs/#'"
+                        >>
+                    }
+                ),
+            Messages = lists:map(fun mk_message/1, [
+                {<<"C1">>, T1 = <<"abs/a/b/c">>, P1 = <<"{\"hello\":\"world\"}">>},
+                {<<"C2">>, T2 = <<"abs/foo/bar">>, P2 = <<"baz">>},
+                {<<"C3">>, T3 = <<"abs/t/42">>, P3 = <<"">>},
+                %% Won't match rule filter
+                {<<"C4">>, <<"t/42">>, <<"won't appear in results">>}
+            ]),
+            ok = publish_messages(Messages),
+            %% Wait until the delivery is completed.
+            ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
+            %% Check the uploaded objects.
+            _Uploads =
+                [#cloud_blob{name = BlobName, properties = UploadProps}] = list_blobs(Config),
+            ?assertMatch(#{content_type := "application/jsonl"}, maps:from_list(UploadProps)),
+            ?assertMatch(
+                [ActionNameString, NodeString, _Datetime, _Seq = "0"],
+                string:split(BlobName, "/", all)
+            ),
+            Content = get_blob(BlobName, Config),
+            %% Verify that column order is respected.
+            ?assertMatch(
+                [
+                    #{
+                        <<"client_attrs">> := _,
+                        <<"clientid">> := <<"C1">>,
+                        <<"event">> := _,
+                        <<"flags">> := #{},
+                        <<"id">> := _,
+                        <<"metadata">> := #{},
+                        <<"node">> := _,
+                        <<"payload">> := P1,
+                        <<"peerhost">> := _,
+                        <<"peername">> := _,
+                        <<"psize">> := _,
+                        <<"pub_props">> := #{},
+                        <<"publish_received_at">> := _,
+                        <<"qos">> := 0,
+                        <<"timestamp">> := _,
+                        <<"topic">> := T1,
+                        <<"username">> := _
+                    },
+                    #{
+                        <<"clientid">> := <<"C2">>,
+                        <<"payload">> := P2,
+                        <<"psize">> := _,
+                        <<"publish_received_at">> := _,
+                        <<"topic">> := T2
+                    },
+                    #{
+                        <<"clientid">> := <<"C3">>,
+                        <<"payload">> := P3,
+                        <<"psize">> := 0,
+                        <<"publish_received_at">> := _,
+                        <<"topic">> := T3
+                    }
+                ],
+                emqx_connector_aggreg_json_lines_tests:decode(Content)
             ),
             ok
         end,

@@ -499,8 +499,8 @@ t_update_validation_error_message(Config) when is_list(Config) ->
     Result1 = request(put, NewPath, [], WrongConf1, #{return_all => true}),
     ?assertMatch({error, {{_, 400, _}, _Headers, _Body}}, Result1),
     {error, {{_, _Code, _}, _Headers, Body1}} = Result1,
-    #{<<"message">> := RawMsg1} = emqx_utils_json:decode(Body1, [return_maps]),
-    Msg1 = emqx_utils_json:decode(RawMsg1, [return_maps]),
+    #{<<"message">> := RawMsg1} = emqx_utils_json:decode(Body1),
+    Msg1 = emqx_utils_json:decode(RawMsg1),
     %% No confusing union type errors.
     ?assertNotMatch(#{<<"mismatches">> := _}, Msg1),
     ?assertMatch(
@@ -531,7 +531,7 @@ request(Method, Url, QueryParams, Body) ->
 request(Method, Url, QueryParams, Body, Opts) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
-        {ok, Res} -> emqx_utils_json:decode(Res, [return_maps]);
+        {ok, Res} -> emqx_utils_json:decode(Res);
         Error -> Error
     end.
 

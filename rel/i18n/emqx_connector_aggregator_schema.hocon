@@ -16,4 +16,9 @@ container_csv_column_order.desc:
 """Event fields that will be ordered first as columns in the resulting CSV file.<br/>
 Regardless of this setting, resulting CSV will contain all the fields of aggregated events, but all the columns not explicitly mentioned here will be ordered after the ones listed here in the lexicographical order."""
 
+container_json_lines.label:
+"""JSON Lines container"""
+container_json_lines.desc:
+  """Records (events) will be aggregated and uploaded as a [JSON Lines](https://jsonlines.org/) file."""
+
 }

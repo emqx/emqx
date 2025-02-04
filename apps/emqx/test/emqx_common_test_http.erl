@@ -75,7 +75,7 @@ do_request_api(Method, Request, HttpOpts) ->
     end.
 
 get_http_data(ResponseBody) ->
-    emqx_utils_json:decode(ResponseBody, [return_maps]).
+    emqx_utils_json:decode(ResponseBody).
 
 auth_header(#{api_key := ApiKey, api_secret := Secret}) ->
     auth_header(binary_to_list(ApiKey), binary_to_list(Secret)).

@@ -268,12 +268,12 @@ action_convert_from_connector(ActionOrBridgeType, ConnectorConfig, ActionConfig)
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     Merged = emqx_utils_maps:deep_merge(
         maps:without(
-            [<<"connector">>],
+            [<<"connector">>, <<"created_at">>, <<"last_modified_at">>],
             emqx_utils_maps:unindent(<<"parameters">>, ActionConfig)
         ),
         emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
     ),
-    maps:without([<<"description">>], Merged).
+    maps:without([<<"description">>, <<"fallback_actions">>], Merged).
 
 has_custom_bridge_v1_config_to_connector_config(ActionOrBridgeType) ->
     Module = get_action_info_module(ActionOrBridgeType),

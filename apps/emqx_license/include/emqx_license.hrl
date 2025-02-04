@@ -39,4 +39,6 @@
 -define(EXPIRED_DAY, -90).
 
 -define(ERR_EXPIRED, expired).
+-define(ERR_MAX_UPTIME, max_uptime_reached).
+
 -endif.

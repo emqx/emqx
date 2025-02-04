@@ -386,7 +386,7 @@ t_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults, [return_maps])
+        emqx_utils_json:decode(ImportedResults)
     ),
 
     CSVFileName = filename:join([Dir, <<"test/data/user-credentials.csv">>]),
@@ -398,7 +398,7 @@ t_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults2, [return_maps])
+        emqx_utils_json:decode(ImportedResults2)
     ),
 
     {204, _} = request(delete, "/gateways/stomp/authentication"),
@@ -407,7 +407,7 @@ t_authn_data_mgmt(_) ->
 
 t_listeners_tcp(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
-    {404, _} = request(get, "/gateways/stomp/listeners"),
+    {200, []} = request(get, "/gateways/stomp/listeners"),
     LisConf = #{
         name => <<"def">>,
         type => <<"tcp">>,
@@ -436,7 +436,7 @@ t_listeners_tcp(_) ->
 
 t_listeners_max_conns(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
-    {404, _} = request(get, "/gateways/stomp/listeners"),
+    {200, []} = request(get, "/gateways/stomp/listeners"),
     LisConf = #{
         name => <<"def">>,
         type => <<"tcp">>,
@@ -603,7 +603,7 @@ t_listeners_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults, [return_maps])
+        emqx_utils_json:decode(ImportedResults)
     ),
 
     CSVFileName = filename:join([Dir, <<"test/data/user-credentials.csv">>]),
@@ -615,7 +615,7 @@ t_listeners_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults2, [return_maps])
+        emqx_utils_json:decode(ImportedResults2)
     ),
 
     ok.

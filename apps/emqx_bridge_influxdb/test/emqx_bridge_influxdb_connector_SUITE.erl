@@ -219,6 +219,7 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
 influxdb_connector_config(Host, Port, SslEnabled, Verify) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
     ConnectorConf = #{
+        <<"max_inactive">> => <<"10s">>,
         <<"parameters">> => #{
             <<"influxdb_type">> => <<"influxdb_api_v2">>,
             <<"bucket">> => <<"mqtt">>,

@@ -73,6 +73,7 @@ end_per_testcase(t_bad_response, Config) ->
     end_per_testcase(common, Config);
 end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
+    ok = emqx_authz_test_lib:enable_node_cache(false),
     try
         ok = emqx_authz_http_test_server:stop()
     catch
@@ -337,7 +338,7 @@ t_json_body(_Config) ->
                     <<"qos">> := <<"1">>,
                     <<"retain">> := <<"false">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -391,7 +392,7 @@ t_no_rich_actions(_Config) ->
                     <<"qos">> := <<"${qos}">>,
                     <<"retain">> := <<"${retain}">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -419,6 +420,7 @@ t_placeholder_and_body(_Config) ->
                 cowboy_req:path(Req0)
             ),
 
+            <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
             {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
 
             ?assertMatch(
@@ -431,6 +433,7 @@ t_placeholder_and_body(_Config) ->
                     <<"topic">> := <<"t">>,
                     <<"action">> := <<"publish">>,
                     <<"access">> := <<"2">>,
+                    <<"the_group">> := <<"g1">>,
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT
                 },
@@ -449,10 +452,14 @@ t_placeholder_and_body(_Config) ->
                 <<"topic">> => <<"${topic}">>,
                 <<"action">> => <<"${action}">>,
                 <<"access">> => <<"${access}">>,
+                <<"the_group">> => <<"${client_attrs.group}">>,
                 <<"CN">> => ?PH_CERT_CN_NAME,
                 <<"CS">> => ?PH_CERT_SUBJECT
             },
-            <<"headers">> => #{<<"content-type">> => <<"application/x-www-form-urlencoded">>}
+            <<"headers">> => #{
+                <<"content-type">> => <<"application/x-www-form-urlencoded">>,
+                <<"the_group">> => <<"${client_attrs.group}">>
+            }
         }
     ),
 
@@ -464,6 +471,7 @@ t_placeholder_and_body(_Config) ->
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
         listener => {tcp, default},
+        client_attrs => #{<<"group">> => <<"g1">>},
         cn => ?PH_CERT_CN_NAME,
         dn => ?PH_CERT_SUBJECT
     },
@@ -638,7 +646,7 @@ t_no_value_for_placeholder(_Config) ->
                 #{
                     <<"mountpoint">> := <<"[]">>
                 },
-                emqx_utils_json:decode(RawBody, [return_maps])
+                emqx_utils_json:decode(RawBody)
             ),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
         end,
@@ -662,6 +670,69 @@ t_no_value_for_placeholder(_Config) ->
     ?assertEqual(
         allow,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+t_node_cache(_Config) ->
+    ok = setup_handler_and_config(
+        fun(#{path := Path} = Req, State) ->
+            case {Path, cowboy_req:match_qs([username, cn], Req)} of
+                {<<"/authz/clientid">>, #{username := <<"username">>, cn := <<"cn">>}} ->
+                    {ok, ?AUTHZ_HTTP_RESP(allow, Req), State};
+                _ ->
+                    {ok, ?AUTHZ_HTTP_RESP(deny, Req), State}
+            end
+        end,
+        #{
+            <<"method">> => <<"get">>,
+            <<"url">> => <<"http://127.0.0.1:33333/authz/${clientid}?username=${username}">>,
+            <<"body">> => #{<<"cn">> => <<"${cert_common_name}">>}
+        }
+    ),
+    ok = emqx_authz_test_lib:enable_node_cache(true),
+
+    %% We authorize twice, the second time should be cached
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        zone => default,
+        listener => {tcp, default},
+        cn => <<"cn">>,
+        dn => <<"dn">>
+    },
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ),
+    %% Now change a var in each interpolated part, the cache should NOT be hit
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo#{cn => <<"cn2">>}, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            ClientInfo#{clientid => <<"clientid2">>}, ?AUTHZ_PUBLISH, <<"t">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            ClientInfo#{username => <<"username2">>}, ?AUTHZ_PUBLISH, <<"t">>
+        )
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 4}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
 
 t_disallowed_placeholders_preserved(_Config) ->
@@ -807,6 +878,7 @@ raw_http_authz_config() ->
     #{
         <<"enable">> => <<"true">>,
         <<"type">> => <<"http">>,
+        <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
         <<"url">> => <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
@@ -846,4 +918,4 @@ get_status_api() ->
     Opts = #{return_all => true},
     Res0 = emqx_mgmt_api_test_util:request_api(get, Path, _QParams = [], Auth, _Body = [], Opts),
     {Status, RawBody} = emqx_mgmt_api_test_util:simplify_result(Res0),
-    {Status, emqx_utils_json:decode(RawBody, [return_maps])}.
+    {Status, emqx_utils_json:decode(RawBody)}.

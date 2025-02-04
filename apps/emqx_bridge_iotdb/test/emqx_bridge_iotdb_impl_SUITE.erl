@@ -337,6 +337,7 @@ connector_config(TestCase, Name, Config) ->
                     "connectors.~s.~s {\n"
                     "  enable = true\n"
                     "  base_url = \"~s\"\n"
+                    "     max_inactive = 10s\n"
                     "  iotdb_version = \"~s\"\n"
                     "  authentication = {\n"
                     "     username = \"root\"\n"
@@ -361,7 +362,6 @@ parse_connector_and_check(ConfigString, ConnectorType, Name) ->
     parse_and_check(
         ConfigString, emqx_connector_schema, <<"connectors">>, ConnectorType, Name
     ).
-%%    emqx_utils_maps:safe_atom_key_map(Config).
 
 parse_and_check(ConfigString, SchemaMod, RootKey, Type0, Name) ->
     Type = to_bin(Type0),

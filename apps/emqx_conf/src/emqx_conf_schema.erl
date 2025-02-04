@@ -86,6 +86,8 @@
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
+    connection_rejected_due_to_trial_license_uptime_limit,
+    connection_rejected_due_to_max_uptime_reached,
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
@@ -93,9 +95,12 @@
     handle_resource_metrics_failed,
     socket_receive_paused_by_rate_limit,
     unrecoverable_resource_error,
+    failed_to_trigger_fallback_action,
     retain_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
-    retain_failed_for_payload_size_exceeded_limit
+    retain_failed_for_payload_size_exceeded_limit,
+    validation_failed,
+    transformation_failed
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).
@@ -277,7 +282,7 @@ fields("cluster") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ] ++ emqx_schema_hooks:injection_point(cluster);
+    ] ++ emqx_schema_hooks:list_injection_point(cluster);
 fields(cluster_static) ->
     [
         {"seeds",
@@ -1645,7 +1650,7 @@ address_type(IP) when tuple_size(IP) =:= 4 -> ipv4;
 address_type(IP) when tuple_size(IP) =:= 8 -> ipv6.
 
 node_role_symbols() ->
-    [core] ++ emqx_schema_hooks:injection_point('node.role').
+    [core] ++ emqx_schema_hooks:list_injection_point('node.role').
 
 validate_node_role(Role) ->
     Allowed = node_role_symbols(),

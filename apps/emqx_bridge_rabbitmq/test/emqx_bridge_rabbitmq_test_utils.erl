@@ -7,7 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -126,17 +125,11 @@ setup_rabbit_mq_exchange_and_queue(Host, Port, UseTLS) ->
     }.
 
 end_per_group(_Group, Config) ->
-    #{
-        connection := Connection,
-        channel := Channel
-    } = get_channel_connection(Config),
+    #{channel := Channel} = get_channel_connection(Config),
     amqp_channel:call(Channel, #'queue.purge'{queue = rabbit_mq_queue()}),
     Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
-    %% Close the channel
-    ok = amqp_channel:close(Channel),
-    %% Close the connection
-    ok = amqp_connection:close(Connection).
+    %% Stops AMQP channels and clients as well.
+    emqx_cth_suite:stop(Apps).
 
 rabbit_mq_host() ->
     list_to_binary(os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq")).
@@ -207,7 +200,7 @@ receive_message_from_rabbitmq(Config) ->
             #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
                 amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
             Payload = Content#amqp_msg.payload,
-            case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+            case emqx_utils_json:safe_decode(Payload) of
                 {ok, Msg} -> Msg;
                 {error, _} -> ?assert(false, {"Failed to decode the message", Payload})
             end

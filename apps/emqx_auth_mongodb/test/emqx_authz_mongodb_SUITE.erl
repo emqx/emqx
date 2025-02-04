@@ -83,6 +83,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
+    ok = emqx_authz_test_lib:enable_node_cache(false),
     ok = reset_samples(),
     ok = mc_worker_api:disconnect(?MONGO_CLIENT).
 
@@ -99,6 +100,53 @@ run_test(Case, UseLegacyProtocol) ->
     ok = setup_source_data(Case),
     ok = setup_authz_source(Case#{use_legacy_protocol => UseLegacyProtocol}),
     ok = emqx_authz_test_lib:run_checks(Case).
+
+t_node_cache(_Config) ->
+    ok = emqx_authz_test_lib:reset_node_cache(),
+    Case = #{
+        name => cache_publish,
+        records => [
+            #{
+                <<"username">> => <<"username">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"a">>,
+                <<"permission">> => <<"allow">>
+            }
+        ],
+        filter => #{<<"username">> => <<"${username}">>},
+        client_info => #{username => <<"username">>},
+        use_legacy_protocol => <<"auto">>,
+        checks => []
+    },
+    ok = setup_source_data(Case),
+    ok = setup_authz_source(Case),
+    ok = emqx_authz_test_lib:enable_node_cache(true),
+
+    %% Subscribe to twice, should hit cache the second time
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>},
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        }
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ),
+
+    %% Change variable, should miss cache
+    emqx_authz_test_lib:run_checks(
+        Case#{
+            checks => [{deny, ?AUTHZ_PUBLISH, <<"a">>}],
+            client_info => #{username => <<"username2">>}
+        }
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 2}},
+        emqx_auth_cache:metrics(?AUTHZ_CACHE)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Cases

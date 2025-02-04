@@ -48,7 +48,7 @@
 
 -define(LICENSE_TAB, emqx_license).
 
--type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED}.
+-type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME}.
 -type license() :: emqx_license_parser:license().
 -type fetcher() :: fun(() -> {ok, license()} | {error, term()}).
 
@@ -101,23 +101,25 @@ init([LicenseFetcher, CheckInterval]) ->
             ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
                 set, protected, named_table, {read_concurrency, true}
             ]),
-            ok = print_warnings(check_license(License)),
             State0 = ensure_check_license_timer(#{
                 check_license_interval => CheckInterval,
-                license => License
+                license => License,
+                start_time => erlang:monotonic_time(seconds)
             }),
             State1 = ensure_refresh_timer(State0),
             State = ensure_check_expiry_timer(State1),
+            ok = print_warnings(check_license(State)),
             {ok, State};
         {error, Reason} ->
             {stop, Reason}
     end.
 
-handle_call({update, License}, _From, #{license := Old} = State) ->
+handle_call({update, License}, _From, #{license := Old} = State0) ->
     ok = expiry_early_alarm(License),
-    State1 = ensure_refresh_timer(State),
+    State1 = ensure_refresh_timer(State0),
     ok = log_new_license(Old, License),
-    {reply, check_license(License), State1#{license => License}};
+    State2 = State1#{license => License},
+    {reply, check_license(State2), State2};
 handle_call(dump, _From, #{license := License} = State) ->
     Dump0 = emqx_license_parser:dump(License),
     %% resolve the current dynamic limit
@@ -136,8 +138,8 @@ handle_call(_Req, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(check_license, #{license := License} = State) ->
-    #{} = check_license(License),
+handle_info(check_license, State) ->
+    #{} = check_license(State),
     NewState = ensure_check_license_timer(State),
     ?tp(emqx_license_checked, #{}),
     {noreply, NewState};
@@ -214,29 +216,37 @@ cancel_timer(State, Key) ->
             ok
     end.
 
-check_license(License) ->
+check_license(#{license := License, start_time := StartTime} = _State) ->
     DaysLeft = days_left(License),
     IsOverdue = is_overdue(License, DaysLeft),
-    NeedRestriction = IsOverdue,
-    #{max_connections := MaxConn} = Limits = limits(License, NeedRestriction),
+    IsMaxUptimeReached = is_max_uptime_reached(License, StartTime),
+    #{max_connections := MaxConn} =
+        Limits = limits(License, #{
+            is_overdue => IsOverdue,
+            is_max_uptime_reached => IsMaxUptimeReached
+        }),
     true = apply_limits(Limits),
     #{
-        warn_evaluation => warn_evaluation(License, NeedRestriction, MaxConn),
+        warn_evaluation => warn_evaluation(License, IsOverdue, MaxConn),
         warn_expiry => {(DaysLeft < 0), -DaysLeft}
     }.
 
 warn_evaluation(License, false, MaxConn) ->
     {emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER, MaxConn};
-warn_evaluation(_License, _NeedRestrict, _Limits) ->
+warn_evaluation(_License, _IsOverdue, _MaxConn) ->
     false.
 
-limits(License, false) ->
-    #{
-        max_connections => get_max_connections(License)
-    };
-limits(_License, true) ->
+limits(_License, #{is_overdue := true}) ->
     #{
         max_connections => ?ERR_EXPIRED
+    };
+limits(_License, #{is_max_uptime_reached := true}) ->
+    #{
+        max_connections => ?ERR_MAX_UPTIME
+    };
+limits(License, #{}) ->
+    #{
+        max_connections => get_max_connections(License)
     }.
 
 %% @doc Return the max_connections limit defined in license.
@@ -270,6 +280,17 @@ is_overdue(License, DaysLeft) ->
 
     small_customer_overdue(CType, DaysLeft) orelse
         non_official_license_overdue(Type, DaysLeft).
+
+is_max_uptime_reached(License, StartTime) ->
+    case emqx_license_parser:max_uptime_seconds(License) of
+        infinity ->
+            false;
+        MaxUptimeSeconds when is_integer(MaxUptimeSeconds) ->
+            seconds_from_start(StartTime) >= MaxUptimeSeconds
+    end.
+
+seconds_from_start(StartTime) ->
+    erlang:monotonic_time(seconds) - StartTime.
 
 %% small customers overdue 90 days after license expiry date
 small_customer_overdue(?SMALL_CUSTOMER, DaysLeft) -> DaysLeft < ?EXPIRED_DAY;

@@ -22,6 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 -import(emqx_utils, [redact/1]).
@@ -35,7 +36,8 @@
     check_api_schema/2,
     paths/0,
     schema/1,
-    namespace/0
+    namespace/0,
+    fields/1
 ]).
 
 %% API callbacks : actions
@@ -48,6 +50,7 @@
     '/actions/:id/:operation'/2,
     '/nodes/:node/actions/:id/:operation'/2,
     '/actions_probe'/2,
+    '/actions_summary'/2,
     '/action_types'/2
 ]).
 %% API callbacks : sources
@@ -60,6 +63,7 @@
     '/sources/:id/:operation'/2,
     '/nodes/:node/sources/:id/:operation'/2,
     '/sources_probe'/2,
+    '/sources_summary'/2,
     '/source_types'/2
 ]).
 
@@ -68,7 +72,8 @@
     lookup_from_local_node/2,
     get_metrics_from_local_node/2,
     lookup_from_local_node_v6/3,
-    get_metrics_from_local_node_v6/3
+    get_metrics_from_local_node_v6/3,
+    summary_from_local_node_v7/1
 ]).
 
 -define(BPAPI_NAME, emqx_bridge).
@@ -114,6 +119,7 @@ paths() ->
         "/actions/:id/metrics",
         "/actions/:id/metrics/reset",
         "/actions_probe",
+        "/actions_summary",
         "/action_types",
         %%=============
         %% Sources
@@ -128,6 +134,7 @@ paths() ->
         "/sources/:id/metrics",
         "/sources/:id/metrics/reset",
         "/sources_probe",
+        "/sources_summary",
         "/source_types"
     ].
 
@@ -163,6 +170,32 @@ bridge_info_array_example(Method, ConfRootKey) ->
         fun(#{value := Config}) -> Config end,
         maps:values(bridge_info_examples(Method, ConfRootKey))
     ).
+
+summary_response_example(ConfRootKey) ->
+    {TypeEx, ExName} =
+        case ConfRootKey of
+            ?ROOT_KEY_SOURCES -> {<<"source_type">>, <<"Source">>};
+            ?ROOT_KEY_ACTIONS -> {<<"action_type">>, <<"Action">>}
+        end,
+    [
+        #{
+            enable => true,
+            name => <<"my", ExName/binary>>,
+            type => TypeEx,
+            created_at => 1736512728666,
+            last_modified_at => 1736512728666,
+            node_status => [
+                #{
+                    node => <<"emqx@127.0.0.1">>,
+                    status => <<"connected">>,
+                    status_reason => <<"">>
+                }
+            ],
+            rules => [<<"rule1">>, <<"rule2">>],
+            status => <<"connected">>,
+            status_reason => <<"">>
+        }
+    ].
 
 param_path_id() ->
     {id,
@@ -425,6 +458,21 @@ schema("/actions_probe") ->
             }
         }
     };
+schema("/actions_summary") ->
+    #{
+        'operationId' => '/actions_summary',
+        get => #{
+            tags => [<<"actions">>],
+            summary => <<"Summarize actions">>,
+            description => ?DESC("actions_summary"),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    array(hoconsc:ref(?MODULE, response_summary)),
+                    summary_response_example(?ROOT_KEY_ACTIONS)
+                )
+            }
+        }
+    };
 schema("/action_types") ->
     #{
         'operationId' => '/action_types',
@@ -637,6 +685,21 @@ schema("/sources_probe") ->
             }
         }
     };
+schema("/sources_summary") ->
+    #{
+        'operationId' => '/sources_summary',
+        get => #{
+            tags => [<<"sources">>],
+            summary => <<"Summarize sources">>,
+            description => ?DESC("sources_summary"),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    array(hoconsc:ref(?MODULE, response_summary)),
+                    summary_response_example(?ROOT_KEY_SOURCES)
+                )
+            }
+        }
+    };
 schema("/source_types") ->
     #{
         'operationId' => '/source_types',
@@ -658,6 +721,26 @@ schema("/source_types") ->
             }
         }
     }.
+
+fields(response_node_status) ->
+    [
+        {node, mk(binary(), #{})},
+        {status, mk(binary(), #{})},
+        {status_reason, mk(binary(), #{})}
+    ];
+fields(response_summary) ->
+    [
+        {enable, mk(boolean(), #{})},
+        {name, mk(binary(), #{})},
+        {type, mk(binary(), #{})},
+        {description, mk(binary(), #{})},
+        {created_at, mk(integer(), #{})},
+        {last_modified_at, mk(integer(), #{})},
+        {node_status, mk(array(hoconsc:ref(?MODULE, response_node_status)), #{})},
+        {rules, mk(array(binary()), #{})},
+        {status, mk(binary(), #{})},
+        {status_reason, mk(binary(), #{})}
+    ].
 
 %%------------------------------------------------------------------------------
 
@@ -735,6 +818,9 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 '/actions_probe'(post, Request) ->
     handle_probe(?ROOT_KEY_ACTIONS, Request).
 
+'/actions_summary'(get, _Request) ->
+    handle_summary(?ROOT_KEY_ACTIONS).
+
 '/action_types'(get, _Request) ->
     ?OK(emqx_bridge_v2_schema:action_types()).
 %%================================================================================
@@ -776,6 +862,9 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 '/sources_probe'(post, Request) ->
     handle_probe(?ROOT_KEY_SOURCES, Request).
 
+'/sources_summary'(get, _Request) ->
+    handle_summary(?ROOT_KEY_SOURCES).
+
 '/source_types'(get, _Request) ->
     ?OK(emqx_bridge_v2_schema:source_types()).
 
@@ -792,6 +881,16 @@ handle_list(ConfRootKey) ->
                 [format_resource(ConfRootKey, Data, Node) || Data <- Bridges]
              || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
+            ?OK(zip_bridges(ConfRootKey, AllBridges));
+        {error, Reason} ->
+            ?INTERNAL_ERROR(Reason)
+    end.
+
+handle_summary(ConfRootKey) ->
+    Nodes = nodes_supporting_bpapi_version(7),
+    NodeReplies = emqx_bridge_proto_v7:v2_list_summary_v7(Nodes, ConfRootKey),
+    case is_ok(NodeReplies) of
+        {ok, AllBridges} ->
             ?OK(zip_bridges(ConfRootKey, AllBridges));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
@@ -1130,7 +1229,7 @@ do_bpapi_call_vsn(Version, Call, Args) ->
 is_supported_version(Version, Call) ->
     lists:member(Version, supported_versions(Call)).
 
-supported_versions(_Call) -> bpapi_version_range(6, 6).
+supported_versions(_Call) -> bpapi_version_range(6, ?MAX_SUPPORTED_PROTO_VERSION).
 
 %% [From, To] (inclusive on both ends)
 bpapi_version_range(From, To) ->
@@ -1244,6 +1343,38 @@ get_metrics_from_local_node(ActionType, ActionName) ->
 %% RPC Target
 get_metrics_from_local_node_v6(ConfRootKey, Type, Name) ->
     format_metrics(emqx_bridge_v2:get_metrics(ConfRootKey, Type, Name)).
+
+%% RPC Target
+summary_from_local_node_v7(ConfRootKey) ->
+    lists:map(
+        fun(BridgeInfo) ->
+            #{
+                type := Type,
+                name := Name,
+                status := Status,
+                error := Error,
+                raw_config := RawConfig,
+                resource_data := ResourceData
+            } = BridgeInfo,
+            CreatedAt = maps:get(<<"created_at">>, RawConfig, undefined),
+            LastModifiedAt = maps:get(<<"last_modified_at">>, RawConfig, undefined),
+            Description = maps:get(<<"description">>, RawConfig, <<"">>),
+            IsEnabled = emqx_utils_maps:deep_get([config, enable], ResourceData, true),
+            maps:merge(
+                #{
+                    node => node(),
+                    type => Type,
+                    name => Name,
+                    description => Description,
+                    enable => IsEnabled,
+                    created_at => CreatedAt,
+                    last_modified_at => LastModifiedAt
+                },
+                format_bridge_status_and_error(#{status => Status, error => Error})
+            )
+        end,
+        emqx_bridge_v2:list(ConfRootKey)
+    ).
 
 %% resource
 format_resource(

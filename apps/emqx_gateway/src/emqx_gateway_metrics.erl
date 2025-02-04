@@ -59,7 +59,7 @@ inc(GwName, Name) ->
 
 -spec inc(gateway_name(), atom(), integer()) -> ok.
 inc(GwName, Name, Oct) ->
-    ets:update_counter(tabname(GwName), Name, {2, Oct}, {Name, 0}),
+    _ = ets:update_counter(tabname(GwName), Name, {2, Oct}, {Name, 0}),
     ok.
 
 -spec dec(gateway_name(), atom()) -> ok.

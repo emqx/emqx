@@ -27,6 +27,8 @@
 -define(CONF_NS_ATOM, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 -define(CONF_NS_BINARY, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
+-define(CONF_SETTINGS_NS_ATOM, authentication_settings).
+
 -type authenticator_id() :: binary().
 
 -define(AUTHN_RESOURCE_GROUP, <<"authn">>).
@@ -45,5 +47,7 @@
     ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
+
+-define(AUTHN_CACHE, emqx_authn_cache).
 
 -endif.

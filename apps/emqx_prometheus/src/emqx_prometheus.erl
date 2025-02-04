@@ -398,7 +398,6 @@ emqx_collect(K = emqx_packets_publish_sent, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_inuse, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_error, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_auth_error, D) -> counter_metrics(?MG(K, D));
-emqx_collect(K = emqx_packets_publish_dropped, D) -> counter_metrics(?MG(K, D));
 %% puback
 emqx_collect(K = emqx_packets_puback_received, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_puback_sent, D) -> counter_metrics(?MG(K, D));
@@ -442,6 +441,8 @@ emqx_collect(K = emqx_messages_publish, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_expired, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_no_subscribers, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_dropped_quota_exceeded, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_dropped_receive_maximum, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_forward, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_retained, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delayed, D) -> counter_metrics(?MG(K, D));
@@ -706,7 +707,7 @@ listener_shutdown_counts(Mode) ->
         ),
     #{emqx_client_disconnected_reason => Data}.
 
-get_listener_shutdown_counts_with_labels({Id, #{bind := Bind}}, Mode) ->
+get_listener_shutdown_counts_with_labels({Id, #{bind := Bind, running := true}}, Mode) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     AddLabels = fun({Reason, Count}) ->
         Labels = [
@@ -721,7 +722,9 @@ get_listener_shutdown_counts_with_labels({Id, #{bind := Bind}}, Mode) ->
             [];
         Counts ->
             lists:map(AddLabels, Counts)
-    end.
+    end;
+get_listener_shutdown_counts_with_labels({_Id, #{running := false}}, _Mode) ->
+    [].
 
 %%==========
 %% Durable Storage
@@ -763,7 +766,6 @@ emqx_packet_metric_meta() ->
         {emqx_packets_publish_inuse, counter, 'packets.publish.inuse'},
         {emqx_packets_publish_error, counter, 'packets.publish.error'},
         {emqx_packets_publish_auth_error, counter, 'packets.publish.auth_error'},
-        {emqx_packets_publish_dropped, counter, 'packets.publish.dropped'},
         %% puback
         {emqx_packets_puback_received, counter, 'packets.puback.received'},
         {emqx_packets_puback_sent, counter, 'packets.puback.sent'},
@@ -810,6 +812,8 @@ message_metric_meta() ->
         {emqx_messages_dropped, counter, 'messages.dropped'},
         {emqx_messages_dropped_expired, counter, 'messages.dropped.await_pubrel_timeout'},
         {emqx_messages_dropped_no_subscribers, counter, 'messages.dropped.no_subscribers'},
+        {emqx_messages_dropped_quota_exceeded, counter, 'messages.dropped.quota_exceeded'},
+        {emqx_messages_dropped_receive_maximum, counter, 'messages.dropped.receive_maximum'},
         {emqx_messages_forward, counter, 'messages.forward'},
         {emqx_messages_retained, counter, 'messages.retained'},
         {emqx_messages_delayed, counter, 'messages.delayed'},

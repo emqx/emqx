@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   pulsar:
     container_name: pulsar

@@ -155,7 +155,7 @@ t_node_status(_Config) ->
             <<"backend">> := _,
             <<"role">> := <<"core">>
         },
-        jsx:decode(JSON)
+        emqx_utils_json:decode(JSON)
     ).
 
 t_open_ports_check(Config) ->
