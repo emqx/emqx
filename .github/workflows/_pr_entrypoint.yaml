@@ -52,28 +52,27 @@ jobs:
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
 
     steps:
+      - name: Install prerequisites
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: >
+          apt-get update -qy &&
+            apt-get install -qy gitlint shellcheck shelltestrunner
       - uses: actions/checkout@d632683dd7b4114ad314bca15554477dd762a938 # v4.2.0
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
       - name: Work around https://github.com/actions/checkout/issues/766
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run gitlint
         env:
           BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           AFTER_REF: ${{ github.sha }}
-        run: |
-          pip install --require-hashes -r .ci/gitlint.requirements.txt
-          gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
+        run: gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
       - name: Run shellcheck
-        run: |
-          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
-          ./scripts/shellcheck.sh
+        run: ./scripts/shellcheck.sh
       - name: Run shell tests
-        run: |
-          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
-          scripts/shelltest/run_tests.sh
+        run: scripts/shelltest/run_tests.sh
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.6.25

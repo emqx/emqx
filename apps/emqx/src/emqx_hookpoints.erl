@@ -39,6 +39,8 @@
 %%-----------------------------------------------------------------------------
 
 -define(HOOKPOINTS, [
+    'alarm.activated',
+    'alarm.deactivated',
     'client.connect',
     'client.connack',
     'client.connected',
@@ -80,6 +82,22 @@
     'session.takeovered'
 ]).
 
+-type alarm_activated_context() :: #{
+    name := binary(),
+    details := map(),
+    message := binary(),
+    activated_at := integer()
+}.
+-type alarm_deactivated_context() :: #{
+    name := binary(),
+    details := map(),
+    message := binary(),
+    activated_at := integer(),
+    deactivated_at := integer()
+}.
+-type transformation_context() :: #{name := binary()}.
+-type validation_context() :: #{name := binary()}.
+
 %%-----------------------------------------------------------------------------
 %% Callbacks
 %%-----------------------------------------------------------------------------
@@ -89,6 +107,12 @@
 %% after the mandatory ones.
 %%
 %% By default, callbacks are executed in the channel process context.
+
+-callback 'alarm.activated'(alarm_activated_context()) ->
+    callback_result().
+
+-callback 'alarm.deactivated'(alarm_deactivated_context()) ->
+    callback_result().
 
 -callback 'client.connect'(emqx_types:conninfo(), Props) ->
     fold_callback_result(Props)
@@ -186,7 +210,10 @@ when
 -callback 'message.dropped'(emqx_types:message(), #{node => node()}, _Reason :: atom()) ->
     callback_result().
 
--callback 'schema.validation_failed'(emqx_types:message(), #{node => node()}, _Ctx :: map()) ->
+-callback 'message.transformation_failed'(emqx_types:message(), transformation_context()) ->
+    callback_result().
+
+-callback 'schema.validation_failed'(emqx_types:message(), validation_context()) ->
     callback_result().
 
 -callback 'message.delivered'(emqx_types:clientinfo(), Msg) -> fold_callback_result(Msg) when

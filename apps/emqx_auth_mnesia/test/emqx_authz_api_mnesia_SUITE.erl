@@ -18,6 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -134,7 +135,7 @@ t_api(_) ->
         request(
             put,
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            ?USERNAME_RULES_EXAMPLE#{rules => []}
+            ?MAPPEND(?USERNAME_RULES_EXAMPLE, #{rules => []})
         ),
 
     %% check length limit
@@ -227,7 +228,7 @@ t_api(_) ->
         request(
             put,
             uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            ?CLIENTID_RULES_EXAMPLE#{rules => []}
+            ?MAPPEND(?CLIENTID_RULES_EXAMPLE, #{rules => []})
         ),
 
     {ok, 400, _} =

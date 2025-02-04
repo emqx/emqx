@@ -70,7 +70,7 @@
         max_records := pos_integer()
     },
     container := #{
-        type := csv,
+        type := csv | json_lines,
         column_order => [string()]
     },
     min_part_size := emqx_schema:bytesize(),

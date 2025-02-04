@@ -218,13 +218,13 @@ create_bridge(Config, Overrides) ->
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
     ConnectorConfig = ?config(connector_config, Config),
-    ct:pal("creating connector with config: ~p, ~p, ~p", [
+    ct:pal("creating connector with config: ~p, ~p\n  ~p", [
         ConnectorType, ConnectorName, ConnectorConfig
     ]),
     {ok, _} =
         emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
 
-    ct:pal("creating bridge with config: ~p", [BridgeConfig]),
+    ct:pal("creating bridge with config:\n  ~p", [BridgeConfig]),
     emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig).
 
 get_ct_config_with_fallback(Config, [Key]) ->

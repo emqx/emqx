@@ -468,7 +468,7 @@ reserved_idx('packets.disconnect.received') -> 45;
 reserved_idx('packets.disconnect.sent') -> 46;
 reserved_idx('packets.auth.received') -> 47;
 reserved_idx('packets.auth.sent') -> 48;
-reserved_idx('packets.publish.dropped') -> 49;
+%% reserved_idx('packets.publish.dropped') -> 49; %% deprecated; new metrics may use this index.
 %% Reserved indices of message's metrics
 reserved_idx('messages.received') -> 100;
 reserved_idx('messages.sent') -> 101;
@@ -483,11 +483,11 @@ reserved_idx('messages.dropped') -> 109;
 reserved_idx('messages.dropped.await_pubrel_timeout') -> 110;
 reserved_idx('messages.dropped.no_subscribers') -> 111;
 reserved_idx('messages.forward') -> 112;
-%% reserved_idx('messages.retained') -> 113; %% keep the index, new metrics can use this
+reserved_idx('messages.dropped.quota_exceeded') -> 113;
 reserved_idx('messages.delayed') -> 114;
 reserved_idx('messages.delivered') -> 115;
 reserved_idx('messages.acked') -> 116;
-%% reserved_idx('delivery.expired') -> 117; %% have never used
+reserved_idx('messages.dropped.receive_maximum') -> 117;
 reserved_idx('delivery.dropped') -> 118;
 reserved_idx('delivery.dropped.no_local') -> 119;
 reserved_idx('delivery.dropped.too_large') -> 120;

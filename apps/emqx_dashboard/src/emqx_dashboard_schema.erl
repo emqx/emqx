@@ -268,12 +268,12 @@ default_username('readOnly') -> true;
 default_username(importance) -> ?IMPORTANCE_HIDDEN;
 default_username(_) -> undefined.
 
-default_password(type) -> binary();
+default_password(type) -> emqx_schema_secret:secret();
 default_password(default) -> <<"public">>;
 default_password(required) -> true;
 default_password('readOnly') -> true;
 default_password(sensitive) -> true;
-default_password(converter) -> fun emqx_schema:password_converter/2;
+default_password(converter) -> fun password_converter/2;
 default_password(desc) -> ?DESC(default_password);
 default_password(importance) -> ?IMPORTANCE_LOW;
 default_password(_) -> undefined.
@@ -320,6 +320,13 @@ convert_ssl_layout(Conf = #{}, _Opts) ->
     SslOpts = maps:with(Keys, Conf),
     Conf1 = maps:without(Keys, Conf),
     Conf1#{<<"ssl_options">> => SslOpts}.
+
+password_converter(undefined, _HoconOpts) ->
+    undefined;
+password_converter(I, HoconOpts) when is_integer(I) ->
+    password_converter(integer_to_binary(I), HoconOpts);
+password_converter(X, HoconOpts) ->
+    emqx_schema_secret:convert_secret(X, HoconOpts).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 

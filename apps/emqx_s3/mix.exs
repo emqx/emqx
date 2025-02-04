@@ -29,9 +29,9 @@ defmodule EMQXS3.MixProject do
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       UMP.common_dep(:gproc),
-      UMP.common_dep(:ehttpc),
+      UMP.common_dep(:hackney),
       {:erlcloud, github: "emqx/erlcloud", tag: "3.7.0.3"},
-      {:emqx_bridge_http, in_umbrella: true, runtime: false}
+      {:emqx_bridge_http, in_umbrella: true, runtime: false},
     ]
   end
 
