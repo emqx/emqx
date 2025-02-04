@@ -533,7 +533,7 @@ t_aggreg_upload_json_lines(Config0) ->
                         <<"topic">> := T3
                     }
                 ],
-                emqx_connector_aggreg_json_lines_tests:decode(Content)
+                emqx_connector_aggreg_json_lines_test_utils:decode(Content)
             ),
             ok
         end,

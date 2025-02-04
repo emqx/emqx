@@ -21,15 +21,7 @@ fill_close(Records, JSONL) ->
     iolist_to_binary([Output, Trailer]).
 
 decode(Binary) ->
-    do_decode(Binary, []).
-
-do_decode(Binary, Acc) ->
-    case jiffy:decode(Binary, [return_maps, return_trailer]) of
-        {has_trailer, Term, Rest} ->
-            do_decode(Rest, [Term | Acc]);
-        Term ->
-            lists:reverse([Term | Acc])
-    end.
+    emqx_connector_aggreg_json_lines_test_utils:decode(Binary).
 
 roundtrip(Records, JSONL) ->
     Binary = fill_close(Records, JSONL),
