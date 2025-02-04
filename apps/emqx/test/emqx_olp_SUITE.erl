@@ -40,8 +40,7 @@ init_per_testcase(_, Config) ->
         true -> ok;
         false -> ct:fail("runq_flagman is not up")
     end,
-    LCConf = load_ctl:get_config(),
-    ok = load_ctl:put_config(LCConf#{
+    ok = load_ctl:put_config(#{
         ?RUNQ_MON_F0 => true,
         ?RUNQ_MON_F1 => 5,
         ?RUNQ_MON_F2 => 1,

@@ -86,9 +86,7 @@ init([]) ->
 handle_continue(setup, undefined) ->
     %% start os_mon temporarily
     {ok, _} = application:ensure_all_started(os_mon),
-    %% memsup is not reliable, on some systems, it doesn't take
-    %% buffer and cache into account that buffer and cache are
-    %% reclaimable memory.
+    %% memsup is not reliable, ignore
     memsup:set_sysmem_high_watermark(1.0),
     SysHW = init_os_monitor(),
     MemRef = start_mem_check_timer(),
@@ -106,14 +104,12 @@ init_os_monitor(OS) ->
         procmem_high_watermark := PHW
     } = OS,
     set_procmem_high_watermark(PHW),
-    ok = update_memory_protect_threshold(SysHW),
     ok = update_mem_alarm_status(SysHW),
     SysHW.
 
 handle_call(get_sysmem_high_watermark, _From, #{sysmem_high_watermark := HWM} = State) ->
     {reply, HWM, State};
 handle_call({set_sysmem_high_watermark, New}, _From, #{sysmem_high_watermark := _Old} = State) ->
-    ok = update_memory_protect_threshold(New),
     ok = update_mem_alarm_status(New),
     {reply, ok, State#{sysmem_high_watermark := New}};
 handle_call(Req, _From, State) ->
@@ -141,7 +137,7 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
         %% 0 or 0.0
         Busy when Busy == 0 ->
             ok;
-        Busy when is_number(Busy) andalso Busy > CPUHighWatermark ->
+        Busy when Busy > CPUHighWatermark ->
             _ = emqx_alarm:activate(
                 high_cpu_usage,
                 #{
@@ -151,7 +147,7 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
                 },
                 usage_msg(Busy, cpu)
             );
-        Busy when is_number(Busy) andalso Busy < CPULowWatermark ->
+        Busy when Busy < CPULowWatermark ->
             ok = emqx_alarm:ensure_deactivated(
                 high_cpu_usage,
                 #{
@@ -162,7 +158,6 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
                 usage_msg(Busy, cpu)
             );
         _Busy ->
-            %% {error, timeout} ...
             ok
     end,
     Ref = start_cpu_check_timer(),
@@ -247,7 +242,3 @@ do_update_mem_alarm_status(HWM0) ->
 usage_msg(Usage, What) ->
     %% divide by 1.0 to ensure float point number
     iolist_to_binary(io_lib:format("~.2f% ~p usage", [Usage / 1.0, What])).
-
-update_memory_protect_threshold(New) ->
-    LCConfig = load_ctl:get_config(),
-    load_ctl:put_config(LCConfig#{memory_threshold := New}).
