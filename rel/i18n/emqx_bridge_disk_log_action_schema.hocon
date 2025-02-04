@@ -1,0 +1,21 @@
+emqx_bridge_disk_log_action_schema {
+  disk_log.label:
+  """Append to Log File"""
+  disk_log.desc:
+  """Action that takes incoming events and appends them to local rotating log files in JSON lines format."""
+
+  action_parameters.label:
+  """Disk Log action parameters"""
+  action_parameters.desc:
+  """Set of parameters for the action."""
+
+  write_mode.label:
+  """Write Mode"""
+  write_mode.desc:
+  """Whether to write logs synchronously or asynchronously to disk."""
+
+  template.label:
+  """Content"""
+  template.desc:
+  """Content of the JSON object to be written. Supports templates."""
+}

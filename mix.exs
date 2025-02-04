@@ -386,6 +386,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_azure_blob_storage,
       :emqx_bridge_couchbase,
       :emqx_bridge_snowflake,
+      :emqx_bridge_disk_log,
       :emqx_schema_registry,
       :emqx_schema_validation,
       :emqx_message_transformation,

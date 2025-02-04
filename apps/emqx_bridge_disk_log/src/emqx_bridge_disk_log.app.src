@@ -1,0 +1,15 @@
+{application, emqx_bridge_disk_log, [
+    {description, "EMQX Enterprise Disk Log Bridge"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    %% {mod, {emqx_bridge_disk_log_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.
