@@ -27,7 +27,7 @@
     supported_mechanisms/0
 ]).
 
--export_type([mfa_state/0]).
+-export_type([mfa_state/0, mechanism/0]).
 
 -type mechanism() :: totp.
 -type totp_state() :: #{mechanism := totp, secret := binary(), first_verify_ts => integer()}.

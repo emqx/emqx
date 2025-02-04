@@ -74,6 +74,13 @@
 -export([unsafe_update_user/1]).
 -endif.
 
+-export_type([
+    dashboard_sso_backend/0,
+    dashboard_username/0,
+    dashboard_user_role/0,
+    emqx_admin/0
+]).
+
 -type emqx_admin() :: #?ADMIN{}.
 
 -define(USERNAME_ALREADY_EXISTS_ERROR, <<"username_already_exists">>).
@@ -211,8 +218,8 @@ set_mfa_state2(Username, MfaState) ->
 %% 0-9 or A-Z or a-z or $_
 legal_username(<<>>) ->
     {error, <<"Username cannot be empty">>};
-legal_username(UserName) ->
-    case re:run(UserName, "^[_a-zA-Z0-9]*$", [{capture, none}]) of
+legal_username(Username) ->
+    case re:run(Username, "^[_a-zA-Z0-9]*$", [{capture, none}]) of
         nomatch ->
             {error, <<
                 "Bad Username."

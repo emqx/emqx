@@ -23,12 +23,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--import(hoconsc, [
-    mk/2,
-    array/1,
-    enum/1
-]).
-
 -export([
     api_spec/0,
     fields/1,
@@ -454,6 +448,15 @@ change_mfa(post, #{bindings := #{username := Username}, body := Settings}) ->
             ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
             {404, ?USER_NOT_FOUND, <<"User not found">>}
     end.
+
+mk(Type, Props) ->
+    hoconsc:mk(Type, Props).
+
+array(Type) ->
+    hoconsc:array(Type).
+
+enum(Symbols) ->
+    hoconsc:enum(Symbols).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 field_filter(_) ->
