@@ -22,7 +22,7 @@
     )
 ).
 
-all() -> [t_add, t_passwd, t_del, t_mfa].
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
