@@ -89,15 +89,18 @@
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
+    failed_to_fetch_crl_on_the_fly,
     failed_to_retain_message,
+    fetched_crl_on_the_fly,
+    fetching_crl_on_the_fly,
     handle_resource_metrics_failed,
-    socket_receive_paused_by_rate_limit,
-    unrecoverable_resource_error,
+    retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
-    retain_failed_for_payload_size_exceeded_limit,
-    validation_failed,
-    transformation_failed
+    socket_receive_paused_by_rate_limit,
+    transformation_failed,
+    unrecoverable_resource_error,
+    validation_failed
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).

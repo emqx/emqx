@@ -65,6 +65,8 @@
 -include_lib("ssl/src/ssl_internal.hrl").
 -include_lib("public_key/include/public_key.hrl").
 
+-include("logger.hrl").
+
 -behaviour(ssl_crl_cache_api).
 
 -export_type([crl_src/0, uri/0]).
@@ -205,6 +207,7 @@ http_lookup(URL, Rest, CRLDbInfo, Timeout) ->
     end.
 
 http_get(URL, Rest, CRLDbInfo, Timeout) ->
+    ?SLOG_THROTTLE(debug, #{msg => fetching_crl_on_the_fly, url => URL}),
     case emqx_crl_cache:http_get(URL, Timeout) of
         {ok, {_Status, _Headers, Body}} ->
             case Body of
@@ -220,19 +223,31 @@ http_get(URL, Rest, CRLDbInfo, Timeout) ->
                         Pem
                     ),
                     emqx_crl_cache:register_der_crls(URL, CRLs),
+                    ?SLOG_THROTTLE(debug, #{msg => fetched_crl_on_the_fly, url => URL}),
                     CRLs;
                 _ ->
                     try public_key:der_decode('CertificateList', Body) of
                         _ ->
                             CRLs = [Body],
                             emqx_crl_cache:register_der_crls(URL, CRLs),
+                            ?SLOG_THROTTLE(debug, #{msg => fetched_crl_on_the_fly, url => URL}),
                             CRLs
                     catch
                         _:_ ->
+                            ?SLOG_THROTTLE(warning, #{
+                                msg => failed_to_fetch_crl_on_the_fly,
+                                reason => <<"invalid DER file">>,
+                                url => URL
+                            }),
                             get_crls(Rest, CRLDbInfo)
                     end
             end;
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?SLOG_THROTTLE(warning, #{
+                msg => failed_to_fetch_crl_on_the_fly,
+                reason => Reason,
+                url => URL
+            }),
             get_crls(Rest, CRLDbInfo)
     end.
 
