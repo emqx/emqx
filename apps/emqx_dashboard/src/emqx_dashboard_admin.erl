@@ -199,6 +199,7 @@ enable_mfa(Username, Mechanism) ->
 reinit_mfa(Username, Mechanism) ->
     {ok, State} = emqx_dashboard_mfa:init(Mechanism),
     {ok, ok} = set_mfa_state(Username, State),
+    _ = emqx_dashboard_token:destroy_by_username(Username),
     ok.
 
 %% @doc Set MFA state.
