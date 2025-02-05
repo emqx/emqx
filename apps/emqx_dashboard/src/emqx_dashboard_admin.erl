@@ -511,64 +511,56 @@ check(_, undefined, _) ->
 check(Username, Password, MfaToken) ->
     case lookup_user(Username) of
         [#?ADMIN{pwdhash = PwdHash} = User] ->
-            PasswordFn = fun() ->
-                case verify_hash(Password, PwdHash) of
-                    ok -> {ok, User};
-                    error -> {error, <<"password_error">>}
-                end
-            end,
-            MfaVerifyResult = verify_mfa_token(Username, MfaToken),
-            check_mfa(MfaVerifyResult, PasswordFn);
+            IsPwdOk = (ok =:= verify_hash(Password, PwdHash)),
+            MfaVerifyResult = verify_mfa_token(Username, MfaToken, IsPwdOk),
+            check_mfa_pwd(MfaVerifyResult, IsPwdOk, User);
         [] ->
             {error, <<"username_not_found">>}
     end.
 
-check_mfa(ok, PasswordFn) ->
-    %% MFA token is OK
-    PasswordFn();
-check_mfa({error, MfaError}, PasswordFn) ->
+check_mfa_pwd(ok, true, User) ->
+    {ok, User};
+check_mfa_pwd(ok, false, _User) ->
+    {error, <<"password_error">>};
+check_mfa_pwd({error, MfaError}, IsPwdOk, _User) ->
     %% MFA error
     case emqx_dashboard_mfa:is_need_setup_error(MfaError) of
-        true ->
-            %% MFA needs setup, need to ensure password is OK.
+        true when not IsPwdOk ->
+            %% MFA needs setup, but password is NOT OK,
+            %% return password check result.
+            %% Because only valid login can trigger MFA initialization.
             %% Meaning: before MFA is setup, this user is still
             %% vulnerable to brute-force attack (like no MFA).
-            case PasswordFn() of
-                {ok, _} ->
-                    %% password is OK
-                    %% Return the error which includes MFA setup
-                    %% secret or other context
-                    {error, MfaError};
-                {error, Reason} ->
-                    %% Return password error
-                    {error, Reason}
-            end;
-        false ->
-            %% Other errors, e.g.
-            %% - MFA is setup, but token is not provided
-            %% - Token is prvoided but stale
+            {error, <<"password_error">>};
+        _ ->
+            %% - MFA needs setup (password is OK)
+            %% - MFA is setup, but token is NOT provided
+            %% - MFA is setup, but bad token prvoided
             {error, MfaError}
     end.
 
-verify_mfa_token(_Username, ?TRUSTED_MFA_TOKEN) ->
+verify_mfa_token(_Username, ?TRUSTED_MFA_TOKEN, _IsPwdOk) ->
     %% e.g. when handing change_pwd request which is authenticated
     %% by bearer token
     ok;
-verify_mfa_token(Username, MfaToken) ->
-    ok = maybe_init_mfa_state(Username),
-    do_verify_mfa_token(Username, MfaToken).
+verify_mfa_token(Username, MfaToken, IsPwdOk) ->
+    ok = maybe_init_mfa_state(Username, IsPwdOk),
+    do_verify_mfa_token(Username, MfaToken, IsPwdOk).
 
-do_verify_mfa_token(Username, MfaToken) when ?IS_NO_MFA_TOKEN(MfaToken) ->
+do_verify_mfa_token(Username, MfaToken, _IsPwdOk) when ?IS_NO_MFA_TOKEN(MfaToken) ->
     %% MFA token is not provided
     case get_mfa_enabled_state(Username) of
         {ok, State} ->
             %% Expected to receive MFA token, but not provided
+            %% Disregard IsPwdOk because we do not want to return
+            %% password_error when token is missing (so the to protect from
+            %% brute password being forced)
             {error, emqx_dashboard_mfa:make_token_missing_error(State)};
         _ ->
             %% No MFA state, proceed to password check
             ok
     end;
-do_verify_mfa_token(Username, MfaToken) ->
+do_verify_mfa_token(Username, MfaToken, IsPwdOk) ->
     %% MFA token is provided
     case get_mfa_enabled_state(Username) of
         {ok, State} ->
@@ -577,16 +569,19 @@ do_verify_mfa_token(Username, MfaToken) ->
                 ok ->
                     %% Token is ok, no state change
                     ok;
-                {ok, NewState} ->
-                    %% Token is ok, state changed, should update db
+                {ok, _NewState} when not IsPwdOk ->
+                    %% Bad password, ignore state change
+                    ok;
+                {ok, NewState} when IsPwdOk ->
+                    %% Token is ok, state changed, should update DB if password is OK
                     {ok, ok} = set_mfa_state(Username, NewState),
                     ok;
                 {error, Reason} ->
-                    %% token is not ok
+                    %% Token is not OK
                     {error, Reason}
             end;
         _ ->
-            %% No MFA enabled, but provided with a token
+            %% MFA is not enabled, but provided with a token
             %% Can happen if MFA is disabled for this user but the
             %% dashboad is still providing a token for some reason,
             %% proceed to password check
@@ -594,7 +589,7 @@ do_verify_mfa_token(Username, MfaToken) ->
     end.
 
 %% Initialize MFA state if there is a default MFA settings configured.
-maybe_init_mfa_state(Username) ->
+maybe_init_mfa_state(Username, true) ->
     case emqx:get_config([dashboard, default_mfa], none) of
         none ->
             ok;
@@ -607,7 +602,10 @@ maybe_init_mfa_state(Username) ->
                 _ ->
                     reinit_mfa(Username, Mechanism)
             end
-    end.
+    end;
+maybe_init_mfa_state(_Username, false) ->
+    %% do nothing
+    ok.
 
 %%--------------------------------------------------------------------
 %% token

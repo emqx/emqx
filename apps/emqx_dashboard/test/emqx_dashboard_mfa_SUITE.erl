@@ -166,13 +166,14 @@ t_login_with_mfa_setting(_Config) ->
     %% secret is still presented after a failed login with bad token
     ok = ExpectTotpMissingFn(true),
     %% try to login with good TOTP but bad password
-    %% this should mark the TOTP setup complete,
-    %% hence EMQX should no longer return secret
-    {ok, 401, _} = login(BadPwdWithTotp),
-    %% assert no secret in response
-    ok = ExpectTotpMissingFn(false),
+    %% this should return bad password error
+    {ok, 401, BadPass2} = login(BadPwdWithTotp),
+    ok = assert_return_code("BAD_USERNAME_OR_PWD", BadPass2),
+    ok = ExpectTotpMissingFn(true),
     %% login with good totp and password
     ?assertMatch({ok, 200, _}, login(LoginWithTotp)),
+    %% once MFA is setup, it should no longer send back TOTP secret.
+    ok = ExpectTotpMissingFn(false),
     %% login again with bad password bad token should result in 401 (not 401) and 'bad_mfa_token' in message
     ok = ExpectBadTotpFn(BadPwd#{<<"mfa_token">> => <<"badtoken2">>}),
     ok.
