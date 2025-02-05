@@ -207,7 +207,7 @@ http_lookup(URL, Rest, CRLDbInfo, Timeout) ->
     end.
 
 http_get(URL, Rest, CRLDbInfo, Timeout) ->
-    ?SLOG_THROTTLE(debug, #{msg => fetching_crl_on_the_fly, url => URL}),
+    ?SLOG(debug, #{msg => fetching_crl, cache_miss => true, url => URL}),
     case emqx_crl_cache:http_get(URL, Timeout) of
         {ok, {_Status, _Headers, Body}} ->
             case Body of
@@ -223,19 +223,20 @@ http_get(URL, Rest, CRLDbInfo, Timeout) ->
                         Pem
                     ),
                     emqx_crl_cache:register_der_crls(URL, CRLs),
-                    ?SLOG_THROTTLE(debug, #{msg => fetched_crl_on_the_fly, url => URL}),
+                    ?SLOG(debug, #{msg => fetched_crl, cache_miss => true, url => URL}),
                     CRLs;
                 _ ->
                     try public_key:der_decode('CertificateList', Body) of
                         _ ->
                             CRLs = [Body],
                             emqx_crl_cache:register_der_crls(URL, CRLs),
-                            ?SLOG_THROTTLE(debug, #{msg => fetched_crl_on_the_fly, url => URL}),
+                            ?SLOG(debug, #{msg => fetched_crl, cache_miss => true, url => URL}),
                             CRLs
                     catch
                         _:_ ->
                             ?SLOG_THROTTLE(warning, #{
-                                msg => failed_to_fetch_crl_on_the_fly,
+                                msg => failed_to_fetch_crl,
+                                cache_miss => true,
                                 reason => <<"invalid DER file">>,
                                 url => URL
                             }),
@@ -244,7 +245,8 @@ http_get(URL, Rest, CRLDbInfo, Timeout) ->
             end;
         {error, Reason} ->
             ?SLOG_THROTTLE(warning, #{
-                msg => failed_to_fetch_crl_on_the_fly,
+                msg => failed_to_fetch_crl,
+                cache_miss => true,
                 reason => Reason,
                 url => URL
             }),
