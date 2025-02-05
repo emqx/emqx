@@ -1813,4 +1813,10 @@ socket_tcp_keepalive.label:
     - Review the subscriptions that clients are doing, for example, try to compact topic filters;
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
   }
+
+config_backup_interval.label:
+"""Config Backup Interval"""
+config_backup_interval.desc:
+"""Interval at which backups to `cluster.hocon` are made.  Even if multiple configuration updates are made withing this interval, only one backup will be made with the current configuration."""
+
 }

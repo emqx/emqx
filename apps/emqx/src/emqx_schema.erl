@@ -195,15 +195,9 @@
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
 
-%% To satisfy elvis...
--export_type([
-    server_parse_option/0,
-    parsed_server/0,
-    timeout_duration/0,
-    timeout_duration_s/0,
-    timeout_duration_ms/0
-]).
-
+%% Some types are already exported by typerefl macros, but elvis is incapable of seeing
+%% that.
+-elvis([{elvis_style, export_used_types, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
 
 -define(BIT(Bits), (1 bsl (Bits))).
@@ -344,6 +338,15 @@ roots(low) ->
             sc(
                 ref("banned"),
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {config_backup_interval,
+            sc(
+                timeout_duration_ms(),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("config_backup_interval"),
+                    default => <<"30s">>
+                }
             )}
     ].
 
