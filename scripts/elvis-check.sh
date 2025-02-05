@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-elvis_version='1.1.0-emqx-2'
+elvis_version='3.2.6-emqx-1'
 
 base="${1:-}"
 repo="${2:-emqx/emqx}"
