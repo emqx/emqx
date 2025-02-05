@@ -195,6 +195,15 @@
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
 
+%% To satisfy elvis...
+-export_type([
+    server_parse_option/0,
+    parsed_server/0,
+    timeout_duration/0,
+    timeout_duration_s/0,
+    timeout_duration_ms/0
+]).
+
 -elvis([{elvis_style, god_modules, disable}]).
 
 -define(BIT(Bits), (1 bsl (Bits))).
