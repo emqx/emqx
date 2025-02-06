@@ -36,6 +36,8 @@
 %% and can be changed by the communitiy.
 -define(HP_LICENSE, 2000).
 
+-define(IS_CLIENTID_TO_BE_ASSIGENED(X), (X =:= <<>> orelse X =:= undefined)).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -80,13 +82,13 @@ exec_config_update(Param) ->
 %% emqx_hooks
 %%------------------------------------------------------------------------------
 
-check(_ConnInfo, AckProps) ->
+check(#{clientid := ClientId}, AckProps) ->
     case emqx_license_checker:limits() of
         {ok, #{max_connections := ?ERR_EXPIRED}} ->
             ?SLOG(error, #{msg => "connection_rejected_due_to_license_expired"}, #{tag => "LICENSE"}),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_connections := MaxClients}} ->
-            case check_max_clients_exceeded(MaxClients) of
+            case is_max_clients_exceeded(MaxClients) andalso is_new_client(ClientId) of
                 true ->
                     ?SLOG_THROTTLE(
                         error,
@@ -172,7 +174,17 @@ do_update(NewConf, _PrevConf) ->
     #{<<"key">> := NewKey} = NewConf,
     do_update({key, NewKey}, NewConf).
 
-check_max_clients_exceeded(MaxClients) ->
+%% Return 'true' if it is a client new to the cluster.
+%% A client is new when it cannot be found in session registry.
+is_new_client(ClientId) when ?IS_CLIENTID_TO_BE_ASSIGENED(ClientId) ->
+    %% no client ID provided, yet to be randomly assigned,
+    %% so it must be new
+    true;
+is_new_client(ClientId) ->
+    %% it's a new client if no live session is found
+    [] =:= emqx_cm:lookup_channels(ClientId).
+
+is_max_clients_exceeded(MaxClients) ->
     emqx_license_resources:cached_connection_count() > MaxClients * 1.1.
 
 read_license(#{key := Content}) ->

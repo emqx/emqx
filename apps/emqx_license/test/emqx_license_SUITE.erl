@@ -61,94 +61,41 @@ t_update_value(_Config) ->
     ).
 
 t_check_exceeded(_Config) ->
-    {_, License} = mk_license(
-        [
-            "220111",
-            "0",
-            "10",
-            "Foo",
-            "contact@foo.com",
-            "bar",
-            "20220111",
-            "100000",
-            "10"
-        ]
-    ),
+    License = mk_license(),
     #{} = update(License),
-
-    Pids = lists:map(
-        fun(_) ->
-            {ok, C} = emqtt:start_link(),
-            {ok, _} = emqtt:connect(C),
-            C
-        end,
-        lists:seq(1, 12)
-    ),
+    ClientIdFn = fun(I) -> bin(["c-", i2l(?LINE), "-", i2l(I)]) end,
+    Pids = lists:map(fun(I) -> connect([{clientid, ClientIdFn(I)}]) end, lists:seq(1, 12)),
     sync_cache(),
-    ?assertEqual(
-        {stop, {error, ?RC_QUOTA_EXCEEDED}},
-        emqx_license:check(#{}, #{})
-    ),
+    ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()),
+    ClientId1 = ClientIdFn(1),
+    ClientId9 = ClientIdFn(9),
+    ?assertEqual({ok, #{}}, check(#{clientid => ClientId1})),
+    ?assertEqual({ok, #{}}, check(#{clientid => ClientId9})),
     ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids).
 
 t_check_exceeded_non_clean(_Config) ->
     ?assertEqual(0, emqx_cm:get_sessions_count()),
-    {_, License} = mk_license(
-        [
-            "220111",
-            "0",
-            "10",
-            "Foo",
-            "contact@foo.com",
-            "bar",
-            "20220111",
-            "100000",
-            "10"
-        ]
-    ),
+    License = mk_license(),
     #{} = update(License),
     Properties = #{'Session-Expiry-Interval' => 10},
     IDs = [iolist_to_binary(["test-client-", integer_to_list(I)]) || I <- lists:seq(1, 12)],
     Pids = lists:map(
-        fun(Id) ->
-            {ok, C} = emqtt:start_link([{clientid, Id}, {proto_ver, v5}, {properties, Properties}]),
-            {ok, _} = emqtt:connect(C),
-            C
-        end,
-        IDs
+        fun(Id) -> connect([{clientid, Id}, {proto_ver, v5}, {properties, Properties}]) end, IDs
     ),
     sync_cache(),
-    ?assertEqual(
-        {stop, {error, ?RC_QUOTA_EXCEEDED}},
-        emqx_license:check(#{}, #{})
-    ),
+    ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()),
     ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids),
     %% wait until all clients disconnected
     ?retry(100, 50, ?assertEqual(0, emqx_cm:get_connected_client_count())),
     ?assertEqual(12, emqx_cm:get_sessions_count()),
     %% continue to expect quota exceeded
-    ?assertEqual(
-        {stop, {error, ?RC_QUOTA_EXCEEDED}},
-        emqx_license:check(#{}, #{})
-    ),
+    ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()),
     lists:foreach(fun emqx_cm:kick_session/1, IDs),
     ?retry(100, 50, ?assertEqual(0, emqx_cm:get_sessions_count())),
     ok.
 
 t_check_ok(_Config) ->
-    {_, License} = mk_license(
-        [
-            "220111",
-            "0",
-            "10",
-            "Foo",
-            "contact@foo.com",
-            "bar",
-            "20220111",
-            "100000",
-            "10"
-        ]
-    ),
+    License = mk_license(),
     #{} = update(License),
 
     Pids = lists:map(
@@ -159,10 +106,7 @@ t_check_ok(_Config) ->
         end,
         lists:seq(1, 11)
     ),
-    ?assertEqual(
-        {ok, #{}},
-        emqx_license:check(#{}, #{})
-    ),
+    ?assertEqual({ok, #{}}, check()),
     ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids).
 
 t_check_expired(_Config) ->
@@ -184,17 +128,11 @@ t_check_expired(_Config) ->
     ),
     #{} = update(License),
 
-    ?assertEqual(
-        {stop, {error, ?RC_QUOTA_EXCEEDED}},
-        emqx_license:check(#{}, #{})
-    ).
+    ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()).
 
 t_check_not_loaded(_Config) ->
     ok = emqx_license_checker:purge(),
-    ?assertEqual(
-        {stop, {error, ?RC_QUOTA_EXCEEDED}},
-        emqx_license:check(#{}, #{})
-    ).
+    ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()).
 
 t_import_config(_Config) ->
     %% Import to default license
@@ -230,6 +168,23 @@ t_import_config(_Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
+%% Make a test license valid for 100,000 days with max connections 10
+mk_license() ->
+    {_, License} = mk_license(
+        [
+            "220111",
+            "0",
+            "10",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            "20220111",
+            "100000",
+            "10"
+        ]
+    ),
+    License.
+
 mk_license(Fields) ->
     EncodedLicense = emqx_license_test_lib:make_license(Fields),
     {ok, License} = emqx_license_parser:parse(
@@ -249,3 +204,21 @@ sync_cache() ->
     %% force sync with the process
     _ = sys:get_state(whereis(emqx_license_resources)),
     ok.
+
+i2l(I) -> integer_to_list(I).
+bin(X) -> iolist_to_binary(X).
+
+check() ->
+    check(#{clientid => <<>>}).
+
+check(ConnInfo) ->
+    emqx_license:check(ConnInfo, #{}).
+
+connect() ->
+    connect([]).
+
+connect(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    unlink(C),
+    {ok, _} = emqtt:connect(C),
+    C.
