@@ -700,3 +700,18 @@ t_smoke_batch(Config) when is_list(Config) ->
         end
     ),
     ok.
+
+%% Checks that we're able to use disk log paths with unicode characters in it.
+t_unicode_paths(Config) ->
+    #{<<"filepath">> := Filepath0} = ?config(connector_config, Config),
+    Filepath = filename:join(Filepath0, <<"àéïõç🙈哈哈"/utf8>>),
+    ?assertMatch(
+        {201, #{
+            <<"filepath">> := Filepath,
+            <<"status">> := <<"connected">>
+        }},
+        create_connector_api(Config, #{<<"filepath">> => Filepath}),
+        #{filepath => Filepath}
+    ),
+    ?assert(filelib:is_file(Filepath)),
+    ok.

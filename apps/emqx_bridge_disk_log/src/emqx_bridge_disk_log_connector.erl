@@ -211,15 +211,17 @@ do_open_log(ConnResId, ConnConfig) ->
         max_file_number := MaxFileNumber
     } = ConnConfig,
     ok = emqx_resource:allocate_resource(ConnResId, ?disk_log, ConnResId),
+    Filepath = unicode:characters_to_list(FilepathBin, utf8),
     ArgL = [
         {name, ConnResId},
-        {file, binary_to_list(FilepathBin)},
+        {file, Filepath},
         {type, rotate},
         {format, external},
         {size, {MaxFileSize, MaxFileNumber}},
         {repair, false}
     ],
     maybe
+        true ?= is_list(Filepath) orelse {error, <<"Bad filepath">>},
         {ok, _} ?= disk_log:open(ArgL),
         maybe_rotate(ConnResId, ConnConfig),
         ok
