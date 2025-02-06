@@ -816,7 +816,7 @@ handle_out(
         {outgoing, connected_frame(Headers)},
         {event, connected}
     ],
-    {ok, Replies, ensure_heartbeart_timer(Channel)};
+    {ok, Replies, ensure_heartbeat_timer(Channel)};
 handle_out(receipt, undefined, Channel) ->
     {ok, Channel};
 handle_out(receipt, ReceiptId, Channel) ->
@@ -1339,7 +1339,7 @@ ensure_clean_trans_timer(Channel = #channel{transaction = Trans}) ->
 reverse_heartbeats({Cx, Cy}) ->
     iolist_to_binary(io_lib:format("~w,~w", [Cy, Cx])).
 
-ensure_heartbeart_timer(Channel = #channel{clientinfo = ClientInfo}) ->
+ensure_heartbeat_timer(Channel = #channel{clientinfo = ClientInfo}) ->
     Heartbeat = maps:get(heartbeat, ClientInfo),
     ensure_timer(
         [incoming_timer, outgoing_timer],

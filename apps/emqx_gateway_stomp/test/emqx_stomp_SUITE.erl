@@ -210,7 +210,7 @@ t_auth_failed(_) ->
     meck:unload(emqx_access_control).
 
 t_heartbeat(_) ->
-    %% Test heart beat
+    %% Test heartbeat
     with_connection(fun(Sock) ->
         gen_tcp:send(
             Sock,
