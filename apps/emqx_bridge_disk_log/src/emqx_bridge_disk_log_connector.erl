@@ -33,7 +33,7 @@
 ]).
 
 -ifdef(TEST).
--export([flush/1]).
+-export([flush/1, get_wrap_logs/2]).
 -endif.
 
 -elvis([{elvis_style, export_used_types, disable}]).
@@ -45,13 +45,19 @@
 %% Allocatable resources
 -define(disk_log, disk_log).
 
+-define(filepath, filepath).
 -define(installed_actions, installed_actions).
 
 -define(template, template).
 -define(write_mode, write_mode).
 
--type connector_config() :: #{}.
+-type connector_config() :: #{
+    filepath := binary(),
+    max_file_size := pos_integer(),
+    max_file_number := pos_integer()
+}.
 -type connector_state() :: #{
+    ?filepath := binary(),
     ?installed_actions := #{action_resource_id() => action_state()}
 }.
 
@@ -86,13 +92,16 @@ callback_mode() ->
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
+    #{filepath := FilepathBin} = ConnConfig,
     maybe
         ok ?= do_open_log(ConnResId, ConnConfig),
-        ConnState = #{?installed_actions => #{}},
+        ConnState = #{
+            ?filepath => FilepathBin,
+            ?installed_actions => #{}
+        },
         {ok, ConnState}
     else
-        {error, Reason} ->
-            {error, emqx_utils:explain_posix(Reason)}
+        Error -> map_start_error(Error)
     end.
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
@@ -103,13 +112,12 @@ on_stop(ConnResId, _ConnState) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
-on_get_status(ConnResId, _State) ->
+on_get_status(ConnResId, #{?filepath := Filepath} = _ConnState) ->
     case disk_log:info(ConnResId) of
         {error, no_such_log} ->
             ?status_disconnected;
-        Info when is_list(Info) ->
-            {file, Filepath} = lists:keyfind(file, 1, Info),
-            check_file_status(Filepath, ConnResId)
+        LogInfo when is_list(LogInfo) ->
+            check_file_status(Filepath, LogInfo, ConnResId)
     end.
 
 -spec on_get_channels(connector_resource_id()) ->
@@ -215,13 +223,14 @@ do_open_log(ConnResId, ConnConfig) ->
     ArgL = [
         {name, ConnResId},
         {file, Filepath},
-        {type, rotate},
+        {type, wrap},
         {format, external},
         {size, {MaxFileSize, MaxFileNumber}},
         {repair, false}
     ],
     maybe
         true ?= is_list(Filepath) orelse {error, <<"Bad filepath">>},
+        ok ?= filelib:ensure_dir(FilepathBin),
         {ok, _} ?= disk_log:open(ArgL),
         maybe_rotate(ConnResId, ConnConfig),
         ok
@@ -288,6 +297,7 @@ do_write_log(ConnResId, ActionResId, _ConnState, ActionState, Data) when is_list
             async ->
                 disk_log:balog_terms(ConnResId, Terms)
         end,
+    ?tp("disk_log_connector_wrote_terms", #{}),
     map_error(Res).
 
 render_log(Template, Data) ->
@@ -307,12 +317,21 @@ render_var(_Name, undefined) ->
 render_var(_Name, Value) ->
     emqx_utils_json:encode(Value).
 
-check_file_status(Filepath, ConnResId) ->
+check_file_status(Filepath, LogInfo, ConnResId) ->
     maybe
+        [Current | _] ?= get_wrap_logs(Filepath, LogInfo),
         {ok, #file_info{access = read_write}} ?=
-            file:read_file_info(Filepath),
+            file:read_file_info(Current),
         ?status_connected
     else
+        [] ->
+            Msg = <<"Current log file not found">>,
+            ?SLOG(warning, #{
+                msg => "failed_to_get_disk_log_file_info",
+                reason => Msg,
+                connector_resource_id => ConnResId
+            }),
+            {?status_disconnected, Msg};
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_get_disk_log_file_info",
@@ -339,6 +358,43 @@ check_file_status(Filepath, ConnResId) ->
                 )
             ),
             {?status_disconnected, Msg}
+    end.
+
+%% Gets all logs (including current file) in reverse chronological order.
+get_wrap_logs(Filepath, LogInfo) ->
+    Wildcard = unicode:characters_to_list(iolist_to_binary([Filepath, ".*"]), utf8),
+    Files0 = filelib:wildcard(Wildcard),
+    Files1 = lists:filter(
+        fun(File) ->
+            (not lists:suffix(".siz", File)) andalso (not lists:suffix(".idx", File))
+        end,
+        Files0
+    ),
+    Files2 = lists:map(
+        fun(File) ->
+            {ok, #file_info{mtime = MAt}} = file:read_file_info(File, [{time, posix}]),
+            %% If a rotation has just happened, two or more files may have the same
+            %% modified timestamp.  We choose the current file based on the log info, if
+            %% available
+            case is_current_file(File, LogInfo) of
+                true ->
+                    %% In Erlang term order, atoms will be greater than any integer.
+                    {current, File};
+                false ->
+                    {MAt, File}
+            end
+        end,
+        Files1
+    ),
+    Files = lists:keysort(1, Files2),
+    lists:reverse(lists:map(fun({_MAt, File}) -> File end, Files)).
+
+is_current_file(File, LogInfo) ->
+    case lists:keyfind(current_file, 1, LogInfo) of
+        {current_file, N} ->
+            lists:suffix("." ++ integer_to_list(N), File);
+        _ ->
+            false
     end.
 
 release_allocated_resources(ConnResId) ->
@@ -373,3 +429,10 @@ log_when_error(Fun, Log) ->
 
 map_error(ok) -> ok;
 map_error({error, Reason}) -> {error, {unrecoverable_error, Reason}}.
+
+map_start_error({error, {file_error, _Filepath, Reason}}) ->
+    {error, emqx_utils:explain_posix(Reason)};
+map_start_error({error, Reason}) ->
+    {error, emqx_utils:explain_posix(Reason)};
+map_start_error(Error) ->
+    Error.

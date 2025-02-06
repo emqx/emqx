@@ -114,6 +114,8 @@ init_per_testcase(TestCase, Config) ->
     ActionConfig = action_config(#{<<"connector">> => ConnectorName}),
     on_exit(fun() -> file:del_dir_r(Filepath) end),
     on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0),
+    ok = snabbkaffe:start_trace(),
+    ct:timetrap({seconds, 30}),
     [
         {bridge_kind, action},
         {connector_type, ?CONNECTOR_TYPE},
@@ -126,8 +128,8 @@ init_per_testcase(TestCase, Config) ->
     ].
 
 end_per_testcase(_TestCase, _Config) ->
-    snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
+    ok = snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -202,6 +204,20 @@ get_connector_api(TCConfig) ->
         emqx_bridge_v2_testlib:get_connector_api(ConnectorType, ConnectorName)
     ).
 
+disable_connector_api(TCConfig) ->
+    ConnectorType = ?config(connector_type, TCConfig),
+    ConnectorName = ?config(connector_name, TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:disable_connector_api(ConnectorType, ConnectorName)
+    ).
+
+enable_connector_api(TCConfig) ->
+    ConnectorType = ?config(connector_type, TCConfig),
+    ConnectorName = ?config(connector_name, TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:enable_connector_api(ConnectorType, ConnectorName)
+    ).
+
 create_action_api(TCConfig) ->
     create_action_api(TCConfig, _Overrides = #{}).
 
@@ -227,42 +243,72 @@ get_filepath_from_config(TCConfig) ->
     ).
 
 read_current_log(TCConfig) ->
-    Filepath = get_filepath_from_config(TCConfig),
+    Current = get_current_wrap_log(TCConfig),
     maybe
-        {ok, Contents} ?= file:read_file(Filepath),
+        {ok, Contents} ?= file:read_file(Current),
         ct:pal("raw contents:\n  ~p", [Contents]),
         emqx_connector_aggreg_json_lines_test_utils:decode(Contents)
     end.
 
+get_current_wrap_log(TCConfig) ->
+    Filepath = get_filepath_from_config(TCConfig),
+    ConnResId = connector_resource_id(TCConfig),
+    LogInfo = disk_log:info(ConnResId),
+    [Current | _] = emqx_bridge_disk_log_connector:get_wrap_logs(Filepath, LogInfo),
+    Current.
+
 list_rotated_logs(TCConfig) ->
     Filepath = get_filepath_from_config(TCConfig),
     Wildcard = binary_to_list(iolist_to_binary([Filepath, ".*"])),
-    Contents = filelib:wildcard(Wildcard),
+    Contents0 = filelib:wildcard(Wildcard),
+    Contents1 = filter_wrap_logs(Contents0),
+    Contents = Contents1 -- [get_current_wrap_log(TCConfig)],
     lists:map(fun erlang:list_to_binary/1, Contents).
 
+filter_wrap_logs(Files) ->
+    lists:filter(
+        fun(File) ->
+            not lists:suffix(".siz", File) and not lists:suffix(".idx", File)
+        end,
+        Files
+    ).
+
 %% Rotated logs sorted from newest to oldest.
-zcat_rotated_logs(TCConfig) ->
+read_rotated_logs(TCConfig) ->
     Filepath = get_filepath_from_config(TCConfig),
     Dir = filename:dirname(Filepath),
-    Wildcard = binary_to_list(iolist_to_binary([Filepath, ".*"])),
     Contents0 =
         lists:map(
             fun(File) ->
                 Path = filename:join(Dir, File),
                 MAt = filelib:last_modified(Path),
                 {ok, Content0} = file:read_file(Path),
-                Content1 = zlib:gunzip(Content0),
-                Content = emqx_connector_aggreg_json_lines_test_utils:decode(Content1),
+                Content = emqx_connector_aggreg_json_lines_test_utils:decode(Content0),
                 {MAt, Content}
             end,
-            filelib:wildcard(Wildcard)
+            list_rotated_logs(TCConfig)
         ),
     Contents1 = lists:keysort(1, Contents0),
     lists:map(fun({_MAt, C}) -> C end, lists:reverse(Contents1)).
 
+connector_resource_id(TCConfig) ->
+    ConnectorType = ?config(connector_type, TCConfig),
+    ConnectorName = ?config(connector_name, TCConfig),
+    emqx_connector_resource:resource_id(ConnectorType, ConnectorName).
+
 publish(Topic, Payload) ->
     Message = emqx_message:make(Topic, Payload),
     emqx:publish(Message).
+
+publish_and_flush(TCConfig, Topic, Payload) ->
+    {_, {ok, _}} =
+        ?wait_async_action(
+            publish(Topic, Payload),
+            #{?snk_kind := "disk_log_connector_wrote_terms"}
+        ),
+    ConnResId = connector_resource_id(TCConfig),
+    ok = emqx_bridge_disk_log_connector:flush(ConnResId),
+    ok.
 
 %% Since we run test suites in CI as `root', it's though to create a file/dir which cannot
 %% be read by the current user...
@@ -345,9 +391,12 @@ t_smoke(matrix) ->
     [[sync], [async]];
 t_smoke(Config) when is_list(Config) ->
     [WriteMode] = group_path(Config, [sync]),
-    ?assertMatch({201, _}, create_connector_api(Config)),
     ?assertMatch(
-        {201, _},
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(Config)
+    ),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
         create_action_api(
             Config,
             #{<<"parameters">> => #{<<"write_mode">> => atom_to_binary(WriteMode)}}
@@ -403,7 +452,10 @@ t_rotation(Config) when is_list(Config) ->
         {201, _},
         create_connector_api(
             Config,
-            #{<<"max_file_size">> => <<(integer_to_binary(MaxSize))/binary, "B">>}
+            #{
+                <<"max_file_size">> => <<(integer_to_binary(MaxSize))/binary, "B">>,
+                <<"max_file_number">> => 3
+            }
         )
     ),
     ?assertMatch(
@@ -429,9 +481,17 @@ t_rotation(Config) when is_list(Config) ->
     %% Now, it should trigger a rotation
     Payload2 = <<"b">>,
     publish(RuleTopic, Payload2),
-    ?retry(500, 10, ?assertMatch([Payload2], read_current_log(Config))),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            [Payload2],
+            read_current_log(Config),
+            #{payload2 => Payload2}
+        )
+    ),
     ?assertMatch([_], list_rotated_logs(Config)),
-    ?assertMatch([[Payload1]], zcat_rotated_logs(Config)),
+    ?assertMatch([[Payload1]], read_rotated_logs(Config)),
 
     %% Current log only has `"b"\n' (4 bytes).
     CurrentBytes = 4,
@@ -444,7 +504,7 @@ t_rotation(Config) when is_list(Config) ->
     publish(RuleTopic, Payload3),
     ?retry(500, 10, ?assertMatch([Payload2, Payload3], read_current_log(Config))),
     ?assertMatch([_], list_rotated_logs(Config)),
-    ?assertMatch([[Payload1]], zcat_rotated_logs(Config)),
+    ?assertMatch([[Payload1]], read_rotated_logs(Config)),
 
     %% Any extra data should trigger a rotation
     Payload4 = <<"2">>,
@@ -453,7 +513,7 @@ t_rotation(Config) when is_list(Config) ->
     ?assertMatch([_, _], list_rotated_logs(Config)),
     ?assertMatch(
         [[Payload2, Payload3], [Payload1]],
-        zcat_rotated_logs(Config),
+        read_rotated_logs(Config),
         #{payload2 => Payload2, payload3 => Payload3}
     ),
 
@@ -465,7 +525,7 @@ t_rotation(Config) when is_list(Config) ->
     ?assertMatch([_, _], list_rotated_logs(Config)),
     ?assertMatch(
         [[Payload4], [Payload2, Payload3]],
-        zcat_rotated_logs(Config),
+        read_rotated_logs(Config),
         #{payload2 => Payload2, payload3 => Payload3, payload4 => Payload4}
     ),
 
@@ -473,7 +533,6 @@ t_rotation(Config) when is_list(Config) ->
 
 %% Checks that different templates are each correctly encoded as JSONs.
 t_templates(Config) when is_list(Config) ->
-    ConnectorName = ?config(connector_name, Config),
     {201, _} = create_connector_api(Config),
     {201, _} = create_action_api(Config),
     RuleTopic = <<"templates">>,
@@ -540,7 +599,6 @@ t_templates(Config) when is_list(Config) ->
             }
         }
     ],
-    ConnResId = emqx_connector_resource:resource_id(?CONNECTOR_TYPE_BIN, ConnectorName),
     lists:foreach(
         fun(Case) ->
             #{template := Template, expected := Expected} = Case,
@@ -548,8 +606,7 @@ t_templates(Config) when is_list(Config) ->
                 Config,
                 #{<<"parameters">> => #{<<"template">> => Template}}
             ),
-            publish(RuleTopic, GeneralPayload),
-            ok = emqx_bridge_disk_log_connector:flush(ConnResId),
+            publish_and_flush(Config, RuleTopic, GeneralPayload),
             ?retry(
                 500,
                 10,
@@ -572,16 +629,17 @@ t_filepath_wrong_permissions() ->
 t_filepath_wrong_permissions(Config) when is_list(Config) ->
     N = start_peer(?FUNCTION_NAME, Config),
     ?ON(N, begin
-        {201, #{<<"filepath">> := Filepath}} = create_connector_api(Config),
+        {201, _} = create_connector_api(Config),
         {201, _} = create_action_api(Config),
         ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config)),
-        {ok, FileInfo} = file:read_file_info(Filepath),
+        Current = get_current_wrap_log(Config),
+        {ok, FileInfo} = file:read_file_info(Current),
         %% Make file not writable nor readable
         if_root(
-            make_unreadable_mock_fn(Filepath),
+            make_unreadable_mock_fn(Current),
             fun() ->
-                on_exit(fun() -> file:write_file_info(Filepath, FileInfo) end),
-                ok = file:write_file_info(Filepath, FileInfo#file_info{mode = 8#000})
+                on_exit(fun() -> file:write_file_info(Current, FileInfo) end),
+                ok = file:write_file_info(Current, FileInfo#file_info{mode = 8#000})
             end
         ),
         ?retry(
@@ -713,7 +771,7 @@ t_unicode_paths(Config) ->
         create_connector_api(Config, #{<<"filepath">> => Filepath}),
         #{filepath => Filepath}
     ),
-    ?assert(filelib:is_file(Filepath)),
+    ?assert(filelib:is_file(get_current_wrap_log(Config))),
     ok.
 
 %% We must not allow the same filepath to be used in multiple disk log connectors.
@@ -732,4 +790,64 @@ t_duplicated_filepaths(Config) ->
         }},
         create_connector_api([{connector_name, <<"dup">>} | Config])
     ),
+    ok.
+
+%% Checks that the same log file can be reopened.
+t_reopen_log(Config) ->
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(
+            Config,
+            #{
+                <<"max_file_size">> => <<"100B">>,
+                <<"max_file_number">> => 2
+            }
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_action_api(
+            Config,
+            #{<<"parameters">> => #{<<"template">> => <<"${.payload}">>}}
+        ),
+    RuleTopic = <<"reopen">>,
+    {ok, _} = create_rule(Config, RuleTopic),
+
+    %% Write some initial data; should not rotate yet.
+    Payload1 = binary:copy(<<"a">>, 50),
+    publish_and_flush(Config, RuleTopic, Payload1),
+    ?retry(500, 10, ?assertMatch([Payload1], read_current_log(Config))),
+    ?assertMatch([], list_rotated_logs(Config)),
+
+    %% Now we re-open the log by restarting the connector.  Contents should be unaltered
+    %% (save for a potentially new extra newline)
+    {204, _} = disable_connector_api(Config),
+    {204, _} = enable_connector_api(Config),
+    ?assertMatch([Payload1], read_current_log(Config)),
+    ?assertMatch([], list_rotated_logs(Config)),
+    %% A small new term shouldn't prompt a rotation either.
+    Payload2 = binary:copy(<<"b">>, 30),
+    publish_and_flush(Config, RuleTopic, Payload2),
+    ?retry(500, 10, ?assertMatch([Payload1, Payload2], read_current_log(Config))),
+    ?assertMatch([], list_rotated_logs(Config)),
+    %% Now it should trigger a rotation.
+    Payload3 = binary:copy(<<"c">>, 50),
+    publish_and_flush(Config, RuleTopic, Payload3),
+    ?retry(500, 10, ?assertMatch([Payload3], read_current_log(Config))),
+    ?assertMatch([_], list_rotated_logs(Config)),
+    ?assertMatch([[Payload1, Payload2]], read_rotated_logs(Config)),
+
+    %% Reopen again.
+    {204, _} = disable_connector_api(Config),
+    {204, _} = enable_connector_api(Config),
+    ?assertMatch([Payload3], read_current_log(Config)),
+    ?assertMatch([[Payload1, Payload2]], read_rotated_logs(Config)),
+    %% Provoke another rotation; should wrap to the first file.
+    Payload4 = binary:copy(<<"d">>, 100),
+    publish_and_flush(Config, RuleTopic, Payload4),
+    ?retry(500, 10, ?assertMatch([Payload4], read_current_log(Config))),
+    ?assertMatch([_], list_rotated_logs(Config)),
+    ?assertMatch([[Payload3]], read_rotated_logs(Config)),
+
+    {204, _} = disable_connector_api(Config),
+    {204, _} = enable_connector_api(Config),
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config)),
+
     ok.
