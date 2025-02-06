@@ -92,6 +92,7 @@ t_add(_Config) ->
     ok.
 
 t_passwd({init, Config}) ->
+    admins(["add", "user1", "password1"]),
     Config;
 t_passwd({'end', _Config}) ->
     ok;
