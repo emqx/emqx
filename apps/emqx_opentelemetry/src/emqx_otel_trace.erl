@@ -80,6 +80,7 @@
 
 -define(TRACE_MODE_KEY, {?MODULE, trace_mode}).
 -define(TRACE_ALL_KEY, {?MODULE, trace_all}).
+-define(TRACE_FOLLOW_TRACEPARENT_KEY, {?MODULE, follow_traceparent}).
 -define(SHOULD_TRACE_ALL, persistent_term:get(?TRACE_ALL_KEY, false)).
 
 -define(with_process_fun_apply(SpanName, Attrs, ProcessFun, Args),
@@ -96,7 +97,7 @@
 ).
 
 -define(with_trace_mode(LegacyModeBody, E2EModeBody),
-    case persistent_term:get(?TRACE_MODE_KEY, undefined) of
+    case persistent_term:get(?TRACE_MODE_KEY, ?TRACE_MODE_LEGACY) of
         ?TRACE_MODE_E2E -> E2EModeBody;
         ?TRACE_MODE_LEGACY -> LegacyModeBody
     end
@@ -151,12 +152,17 @@ set_trace_filter(#{
     %% local setting, no sampler
     persistent_term:put(?TRACE_MODE_KEY, ?TRACE_MODE_LEGACY),
     persistent_term:put(?TRACE_ALL_KEY, TraceAll),
+    _ = application:unset_env(opentelemetry, sampler),
     [];
 set_trace_filter(#{
     trace_mode := ?TRACE_MODE_E2E,
     e2e_tracing_options := E2EOpts
 }) ->
     persistent_term:put(?TRACE_MODE_KEY, ?TRACE_MODE_E2E),
+    persistent_term:put(
+        ?TRACE_FOLLOW_TRACEPARENT_KEY,
+        maps:get(follow_traceparent, E2EOpts, true)
+    ),
     [{sampler, {emqx_otel_sampler, E2EOpts}}].
 
 -spec stop() -> ok.
@@ -174,11 +180,11 @@ stop() ->
     Args :: emqx_external_trace:t_args()
 ) ->
     Res :: emqx_external_trace:t_res().
-client_connect(InitAttrs, ProcessFun, Args) ->
+client_connect(InitAttrs, ProcessFun, [Packet] = Args) ->
     ?with_trace_mode(
         erlang:apply(ProcessFun, Args),
         begin
-            RootCtx = otel_ctx:new(),
+            RootCtx = e2e_mode_root_ctx(Packet),
             SpanCtx = otel_tracer:start_span(
                 RootCtx,
                 ?current_tracer,
@@ -202,11 +208,11 @@ client_connect(InitAttrs, ProcessFun, Args) ->
     Args :: emqx_external_trace:t_args()
 ) ->
     Res :: emqx_external_trace:t_res().
-client_disconnect(InitAttrs, ProcessFun, Args) ->
+client_disconnect(InitAttrs, ProcessFun, [Packet] = Args) ->
     ?with_trace_mode(
         erlang:apply(ProcessFun, Args),
         begin
-            RootCtx = otel_ctx:new(),
+            RootCtx = e2e_mode_root_ctx(Packet),
             SpanCtx = otel_tracer:start_span(
                 RootCtx,
                 ?current_tracer,
@@ -230,11 +236,11 @@ client_disconnect(InitAttrs, ProcessFun, Args) ->
     Args :: emqx_external_trace:t_args()
 ) ->
     Res :: emqx_external_trace:t_res().
-client_subscribe(InitAttrs, ProcessFun, Args) ->
+client_subscribe(InitAttrs, ProcessFun, [Packet] = Args) ->
     ?with_trace_mode(
         erlang:apply(ProcessFun, Args),
         begin
-            RootCtx = otel_ctx:new(),
+            RootCtx = e2e_mode_root_ctx(Packet),
             SpanCtx = otel_tracer:start_span(
                 RootCtx,
                 ?current_tracer,
@@ -258,11 +264,11 @@ client_subscribe(InitAttrs, ProcessFun, Args) ->
     Args :: emqx_external_trace:t_args()
 ) ->
     Res :: emqx_external_trace:t_res().
-client_unsubscribe(InitAttrs, ProcessFun, Args) ->
+client_unsubscribe(InitAttrs, ProcessFun, [Packet] = Args) ->
     ?with_trace_mode(
         erlang:apply(ProcessFun, Args),
         begin
-            RootCtx = otel_ctx:new(),
+            RootCtx = e2e_mode_root_ctx(Packet),
             SpanCtx = otel_tracer:start_span(
                 RootCtx,
                 ?current_tracer,
@@ -358,7 +364,7 @@ client_publish(InitAttrs, ProcessFun, [Packet] = Args) ->
         ),
         begin
             %% XXX: should trace for durable sessions?
-            RootCtx = otel_ctx:new(),
+            RootCtx = e2e_mode_root_ctx(Packet),
             SpanCtx = otel_tracer:start_span(
                 RootCtx,
                 ?current_tracer,
@@ -384,7 +390,7 @@ client_publish(InitAttrs, ProcessFun, [Packet] = Args) ->
         end
     ).
 
-%% -compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
+-compile({inline, [attach_outgoing/2, erase_outgoing/1]}).
 attach_outgoing(?PUBLISH_PACKET(?QOS_0), _Ctx) ->
     ok;
 attach_outgoing(?PUBLISH_PACKET(?QOS_1, PacketId), Ctx) ->
@@ -578,7 +584,7 @@ outgoing(Attrs, ?EXT_TRACE_STOP, Any) ->
     ChannelInfo :: emqx_external_trace:channel_info(),
     Res :: term().
 trace_process_publish(Packet, ChannelInfo, ProcessFun) ->
-    case maybe_init_ctx(Packet) of
+    case legacy_mode_root_ctx(Packet) of
         false ->
             ProcessFun(Packet);
         RootCtx ->
@@ -996,18 +1002,26 @@ packets_list(Packets) when is_list(Packets) ->
 packets_list(Packet) ->
     [Packet].
 
-maybe_init_ctx(#mqtt_packet{variable = Packet}) ->
-    case should_trace_packet(Packet) of
+legacy_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
+    case should_trace_packet(PktVar) of
         true ->
-            Ctx = extract_traceparent_from_packet(Packet),
+            Ctx = extract_traceparent_from_packet(PktVar),
             should_trace_context(Ctx) andalso Ctx;
         false ->
             false
     end.
 
-extract_traceparent_from_packet(Packet) ->
+e2e_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
+    case persistent_term:get(?TRACE_FOLLOW_TRACEPARENT_KEY, true) of
+        true ->
+            extract_traceparent_from_packet(PktVar);
+        false ->
+            otel_ctx:new()
+    end.
+
+extract_traceparent_from_packet(PktVar) ->
     Ctx = otel_ctx:new(),
-    case emqx_packet:info(properties, Packet) of
+    case emqx_packet:info(properties, PktVar) of
         #{?USER_PROPERTY := UserProps} ->
             otel_propagator_text_map:extract_to(Ctx, UserProps);
         _ ->

@@ -297,6 +297,7 @@ tlog
 tls
 TLS
 tlsv
+traceparent
 travis
 trie
 ttl
