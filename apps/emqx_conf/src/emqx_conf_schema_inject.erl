@@ -90,5 +90,7 @@ shared_subs(ce) ->
     [].
 
 %% Add more schemas here.
+customized(ee) ->
+    [emqx_bridge_disk_log_connector_schema];
 customized(_Edition) ->
     [].

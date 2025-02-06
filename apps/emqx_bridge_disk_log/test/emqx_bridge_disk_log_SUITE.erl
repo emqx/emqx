@@ -715,3 +715,21 @@ t_unicode_paths(Config) ->
     ),
     ?assert(filelib:is_file(Filepath)),
     ok.
+
+%% We must not allow the same filepath to be used in multiple disk log connectors.
+t_duplicated_filepaths(Config) ->
+    ?assertMatch({201, _}, create_connector_api(Config)),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> :=
+                    <<
+                        "disk_log connectors must not use the same filepath; "
+                        "connectors with duplicate filepaths: dup,t_duplicated_filepaths"
+                    >>
+            }
+        }},
+        create_connector_api([{connector_name, <<"dup">>} | Config])
+    ),
+    ok.

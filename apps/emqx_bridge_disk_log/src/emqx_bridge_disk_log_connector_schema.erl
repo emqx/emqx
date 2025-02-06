@@ -24,8 +24,13 @@
     connector_examples/1
 ]).
 
+%% `emqx_schema_hooks' API
+-export([injected_fields/0]).
+
 %% API
--export([]).
+-export([
+    unique_filepath_validator/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -115,11 +120,60 @@ connector_example(put) ->
     }.
 
 %%------------------------------------------------------------------------------
+%% `emqx_schema_hooks' API
+%%------------------------------------------------------------------------------
+
+injected_fields() ->
+    #{
+        'connectors.validators' => [fun ?MODULE:unique_filepath_validator/1]
+    }.
+
+%%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+unique_filepath_validator(#{?CONNECTOR_TYPE_BIN := DiskLogConnectors}) when
+    map_size(DiskLogConnectors) > 0
+->
+    FilepathsToConnectors =
+        maps:groups_from_list(
+            fun({_Name, #{<<"filepath">> := Filepath}}) -> Filepath end,
+            fun({Name, _Config}) -> Name end,
+            maps:to_list(DiskLogConnectors)
+        ),
+    Duplicated0 = maps:filter(fun(_, Vs) -> length(Vs) > 1 end, FilepathsToConnectors),
+    Duplicated = maps:values(Duplicated0),
+    case Duplicated of
+        [] ->
+            ok;
+        [_ | _] ->
+            DuplicatedFormatted = format_duplicated_name_groups(Duplicated),
+            Msg =
+                iolist_to_binary(
+                    io_lib:format(
+                        "disk_log connectors must not use the same filepath;"
+                        " connectors with duplicate filepaths: ~s",
+                        [DuplicatedFormatted]
+                    )
+                ),
+            {error, Msg}
+    end;
+unique_filepath_validator(_X) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+format_duplicated_name_groups(DuplicatedNameGroups) ->
+    lists:join(
+        $;,
+        lists:map(
+            fun(NameGroup) ->
+                lists:join($,, lists:sort(NameGroup))
+            end,
+            DuplicatedNameGroups
+        )
+    ).
