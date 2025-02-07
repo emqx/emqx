@@ -468,9 +468,9 @@ add_stream_to_session(
                 stream => Stream,
                 sub_id => SubId
             }),
-            S1 = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
-            {_NewStreamIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-                _IsReplay = false, Key, NewSRS, S1, SchedS0
+            S = emqx_persistent_session_ds_state:put_stream(Key, NewSRS, S0),
+            SchedS = emqx_persistent_session_ds_stream_scheduler:on_shared_stream_add(
+                Key, S, SchedS0
             ),
             {S, SchedS};
         false ->
@@ -479,13 +479,12 @@ add_stream_to_session(
 
 handle_revoke_stream(
     #{subscription_id := SubscriptionId, stream := Stream} = _Event,
-    S0,
+    S,
     SchedS0,
     SharedS
 ) ->
-    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-        SubscriptionId, Stream, S0, SchedS0
-    ),
+    Key = {SubscriptionId, Stream},
+    SchedS = emqx_persistent_session_ds_stream_scheduler:on_shared_stream_revoke(Key, SchedS0),
     {S, SchedS, SharedS}.
 
 %%--------------------------------------------------------------------

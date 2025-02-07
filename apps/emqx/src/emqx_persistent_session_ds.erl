@@ -684,7 +684,7 @@ handle_info(
         s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
     },
     schedule_delivery(Session);
-handle_info(AsyncReply = #poll_reply{}, Session, ClientInfo) ->
+handle_info(AsyncReply = #ds_sub_reply{}, Session, ClientInfo) ->
     handle_ds_reply(AsyncReply, Session, ClientInfo);
 handle_info(
     #new_stream_event{subref = Ref},
@@ -872,11 +872,11 @@ on_enqueue(
     SRS,
     Session = #{s := S0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0}
 ) ->
-    {ReadyStreams, S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+    {UnblockedStreams, S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
         IsReplay, StreamKey, SRS, S0, SchedS0
     ),
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-        S1, SharedSubS0, ReadyStreams
+        S1, SharedSubS0, UnblockedStreams
     ),
     Session#{s := S, stream_scheduler_s := SchedS, shared_sub_s := SharedSubS}.
 
@@ -1417,7 +1417,6 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
 %% - New messages (durable or transient) are enqueued
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
--compile({inline, schedule_delivery/1}).
 -spec schedule_delivery(session()) -> session().
 schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := false}) ->
     self() ! {timeout, make_ref(), {emqx_session, ?TIMER_DRAIN_INFLIGHT}},
@@ -1504,7 +1503,6 @@ update_dup(QoS, New, S) ->
             S
     end.
 
--compile({inline, put_seqno/3}).
 put_seqno(Key, Val, S) ->
     ?tp_ignore_side_effects_in_prod(?sessds_put_seqno, #{
         track => Key,
@@ -1714,7 +1712,7 @@ pre_enqueue_new(SRS0 = #srs{it_end = NewItBegin}, S) ->
 %% seqnos, but do not change the begin iterator and first seqnos.
 enqueue_batch(
     S,
-    #poll_reply{ref = SubRef, seqno = SeqNo, payload = {ok, It, Batch}, size = Size},
+    #ds_sub_reply{ref = SubRef, seqno = SeqNo, payload = {ok, It, Batch}, size = Size},
     SubState,
     SRS0 = #srs{batch_size = BatchSize, last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
     ClientInfo,
@@ -1748,7 +1746,7 @@ enqueue_batch(
     {SRS, Inflight};
 enqueue_batch(
     _S,
-    #poll_reply{ref = SubRef, seqno = SeqNo, payload = Other},
+    #ds_sub_reply{ref = SubRef, seqno = SeqNo, payload = Other},
     _SubState,
     SRS0,
     _ClientInfo,

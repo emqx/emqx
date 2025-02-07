@@ -62,7 +62,7 @@ dispatch_v2(DB, Pack, Destinations, _Misc) ->
         fun(?DESTINATION(Client, SubRef, SeqNo, Mask, Flags, EndIterator)) ->
             {Size, Payload} = mk_payload(Pack, Mask, EndIterator),
             Client !
-                #poll_reply{
+                #ds_sub_reply{
                     ref = SubRef,
                     payload = Payload,
                     size = Size,

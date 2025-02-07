@@ -40,7 +40,7 @@
     filters = #{}
 }).
 
--record(poll_reply, {
+-record(ds_sub_reply, {
     ref :: reference(),
     payload :: emqx_ds:next_result(),
     seqno :: emqx_ds:sub_seqno() | undefined,

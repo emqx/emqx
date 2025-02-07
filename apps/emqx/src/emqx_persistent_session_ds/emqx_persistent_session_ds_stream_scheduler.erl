@@ -114,6 +114,8 @@
     on_subscribe/4,
     on_unsubscribe/4,
     on_new_stream_event/3,
+    on_shared_stream_add/3,
+    on_shared_stream_revoke/2,
     verify_reply/3,
     suback/3,
     on_enqueue/5,
@@ -331,11 +333,19 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             {[], S0, SchedS0}
     end.
 
+-spec on_shared_stream_add(stream_key(), emqx_persistent_session_ds_state:t(), t()) -> t().
+on_shared_stream_add(StreamKey, S, SchedS) ->
+    ds_subscribe(StreamKey, S, SchedS).
+
+-spec on_shared_stream_revoke(stream_key(), t()) -> t().
+on_shared_stream_revoke(StreamKey, SchedS) ->
+    ds_unsubscribe(StreamKey, SchedS).
+
 %% @doc Verify sequence number of DS subscription reply
--spec verify_reply(#poll_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
+-spec verify_reply(#ds_sub_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
     {boolean() | drop_buffer, stream_key() | undefined, t()}.
 verify_reply(Reply, S, SchedS) ->
-    #poll_reply{ref = Ref, size = Size, seqno = SeqNo} = Reply,
+    #ds_sub_reply{ref = Ref, size = Size, seqno = SeqNo} = Reply,
     case SchedS#s.ds_subs of
         #{Ref := #ds_sub{seqno = Atomic, stream_key = StreamKey}} ->
             case atomics:add_get(Atomic, ?ix_seqno, Size) of
@@ -351,8 +361,8 @@ verify_reply(Reply, S, SchedS) ->
                         batch_size => Size,
                         expected_seqno => Other,
                         sub_ref => Ref,
-                        stuck => Reply#poll_reply.stuck,
-                        lagging => Reply#poll_reply.lagging
+                        stuck => Reply#ds_sub_reply.stuck,
+                        lagging => Reply#ds_sub_reply.lagging
                     }),
                     {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)}
             end;
@@ -363,8 +373,8 @@ verify_reply(Reply, S, SchedS) ->
                 batch_size => Size,
                 expected_seqno => undefined,
                 sub_ref => Ref,
-                stuck => Reply#poll_reply.stuck,
-                lagging => Reply#poll_reply.lagging
+                stuck => Reply#ds_sub_reply.stuck,
+                lagging => Reply#ds_sub_reply.lagging
             }),
             {false, undefined, SchedS}
     end.
@@ -473,6 +483,9 @@ check_block_status(PrimaryTab0, SecondaryTab, PrimaryKey, SecondaryIdx) ->
 
 -spec on_stream_unblock(stream_key(), state(), srs(), emqx_persistent_session_ds_state:t(), t()) ->
     {[stream_key(), ...], emqx_persistent_session_ds_state:t(), t()}.
+on_stream_unblock(Key, PrevState, #srs{unsubscribed = true}, S, SchedS) ->
+    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => PrevState, unsubcribed => true}),
+    {[Key], S, SchedS};
 on_stream_unblock(
     Key = {SubId, _}, PrevState, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0
 ) ->
@@ -540,16 +553,23 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}
 ) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 on_unsubscribe(
-    TopicFilterBin, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, sub_metadata = Subs}
+    Topic, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, sub_metadata = Subs}
 ) ->
-    #{TopicFilterBin := SubS} = Subs,
-    #sub_metadata{new_streams_watch = Ref} = SubS,
-    %% Unsubscribe from new stream notifications:
-    Watches = unwatch_streams(TopicFilterBin, Ref, Watches0),
-    SchedS1 = SchedS0#s{
-        new_stream_subs = Watches,
-        sub_metadata = maps:remove(TopicFilterBin, Subs)
-    },
+    SchedS1 =
+        case Topic of
+            TopicFilterBin when is_binary(TopicFilterBin) ->
+                #{TopicFilterBin := SubS} = Subs,
+                #sub_metadata{new_streams_watch = Ref} = SubS,
+                %% Unsubscribe from new stream notifications:
+                Watches = unwatch_streams(TopicFilterBin, Ref, Watches0),
+                SchedS0#s{
+                    new_stream_subs = Watches,
+                    sub_metadata = maps:remove(TopicFilterBin, Subs)
+                };
+            #share{} ->
+                %% Metadata for shared topics is managed elsewhere:
+                SchedS0
+        end,
     %% NOTE: this function only marks streams for deletion, but
     %% it doesn't outright delete them.
     %%
@@ -568,10 +588,12 @@ on_unsubscribe(
     %% _new_ batches from it. Actual deletion is done by `gc', when it
     %% detects that all in-flight messages from the stream have been
     %% acked by the client.
+    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
+    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
     emqx_persistent_session_ds_state:fold_streams(
         SubId,
         fun(Stream, SRS, {SAcc, SchedSAcc}) ->
-            unsubscribe_stream({SubId, Stream}, SRS, SAcc, SchedSAcc)
+            unsubscribe_stream(Comm1, Comm2, {SubId, Stream}, SRS, SAcc, SchedSAcc)
         end,
         {S0, SchedS1},
         S0
@@ -843,13 +865,14 @@ get_streams(TopicFilter, StartTime) ->
         L
     ).
 
-%% @doc Set `unsubscribed' flag and remove stream from the buckets
-unsubscribe_stream(Key, SRS0 = #srs{}, S, SchedS) ->
+%% @doc Set `unsubscribed' flag to SRS and remove DS subscription
+unsubscribe_stream(Comm1, Comm2, Key, SRS0 = #srs{}, S, SchedS) ->
     SRS = SRS0#srs{unsubscribed = true},
-    ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => x}),
+    is_fully_acked(Comm1, Comm2, SRS) andalso
+        ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => x}),
     {
         emqx_persistent_session_ds_state:put_stream(Key, SRS, S),
-        bq_drop(Key, SRS, ds_unsubscribe(Key, SchedS))
+        ds_unsubscribe(Key, SchedS)
     }.
 
 maybe_drop_stream(CommQos1, CommQos2, Key, SRS = #srs{unsubscribed = true}, S) ->
@@ -954,6 +977,7 @@ ds_unsubscribe(SrsID, SchedS = #s{ds_subs = Subs}) ->
     case find_ds_sub_by_stream_id(SrsID, Subs) of
         {SubRef, #ds_sub{handle = Handle}} ->
             emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, Handle),
+            flush_sub_ref(SubRef),
             ?tp(debug, ?sessds_sched_unsubscribe, #{
                 stream => SrsID, handle => Handle, ref => SubRef
             }),
@@ -967,6 +991,15 @@ ds_unsubscribe(SrsID, SchedS = #s{ds_subs = Subs}) ->
 ds_resubscribe(SrsID, S, SchedS) ->
     ds_subscribe(SrsID, S, ds_unsubscribe(SrsID, SchedS)).
 
+%% @doc Remove all messages sent for the given DS subscription from
+%% the process mailbox.
+flush_sub_ref(SubRef) ->
+    receive
+        #ds_sub_reply{ref = SubRef} -> flush_sub_ref(SubRef)
+    after 0 ->
+        ok
+    end.
+
 %%--------------------------------------------------------------------------------
 %% SRS FSM
 %%--------------------------------------------------------------------------------
@@ -974,8 +1007,6 @@ ds_resubscribe(SrsID, S, SchedS) ->
 -spec derive_state(
     emqx_persistent_session_ds:seqno(), emqx_persistent_session_ds:seqno(), srs()
 ) -> state().
-derive_state(_, _, #srs{unsubscribed = true}) ->
-    u;
 derive_state(Comm1, Comm2, SRS) ->
     case is_fully_replayed(Comm1, Comm2, SRS) of
         true ->
@@ -1019,24 +1050,6 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
 -spec block_of_srs(stream_key(), srs()) -> block().
 block_of_srs(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}) ->
     #block{id = Key, last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}.
-
-%% @doc Remove stream from the block queues:
--spec bq_drop(stream_key(), srs(), t()) -> t().
-bq_drop(Key, #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2}, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
-    S#s{
-        bq1 = gb_tree_remove(Key, SN1, BQ1),
-        bq2 = gb_tree_remove(Key, SN2, BQ2)
-    }.
-
-gb_tree_remove(Key, SN, BQ0) ->
-    case gb_trees:take_any(SN, BQ0) of
-        {#block{id = Key}, BQ} ->
-            BQ;
-        {#block{}, _} ->
-            BQ0;
-        error ->
-            BQ0
-    end.
 
 %%--------------------------------------------------------------------------------
 %% Misc.
@@ -1101,8 +1114,8 @@ compare_streams(
             A1 < B1
     end.
 
-is_fully_replayed(Comm1, Comm2, S = #srs{it_end = It}) ->
-    It =:= end_of_stream andalso is_fully_acked(Comm1, Comm2, S).
+is_fully_replayed(Comm1, Comm2, S = #srs{it_end = It, unsubscribed = Unsubscribed}) ->
+    ((It =:= end_of_stream) or Unsubscribed) andalso is_fully_acked(Comm1, Comm2, S).
 
 is_fully_acked(Comm1, Comm2, SRS) ->
     is_track_acked(?QOS_1, Comm1, SRS) andalso
@@ -1161,7 +1174,8 @@ find_ds_sub(Predicate, It0) ->
     boolean().
 runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
     invariant_new_stream_subscriptions(ModelState, SchedS) and
-        invariant_active_streams_y_ranks(S).
+        invariant_active_streams_y_ranks(S) and
+        invariant_ds_subscriptions(S, SchedS).
 
 -spec offline_state_invariants(
     emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}
@@ -1191,40 +1205,40 @@ invariant_new_stream_subscriptions(#{subs := Subs}, #s{
     ),
     true.
 
-%% %% Verify that each active stream has a DS subscription:
-%% invariant_ds_subscriptions(#{streams := Streams}, #s{ds_subs = DSSubs}) ->
-%%     ActiveStreams = maps:fold(
-%%         fun(StreamId, SRS, Acc) ->
-%%             case SRS#srs.it_end =/= end_of_stream of
-%%                 true ->
-%%                     [StreamId | Acc];
-%%                 false ->
-%%                     Acc
-%%             end
-%%         end,
-%%         [],
-%%         Streams
-%%     ),
-%%     ?defer_assert(
-%%         ?assertEqual(
-%%             lists:sort(ActiveStreams),
-%%             lists:sort(maps:keys(DSSubs)),
-%%             "There's a 1:1 relationship between active streams and DS subscriptions"
-%%         )
-%%     ),
-%%     %% maps:foreach(
-%%     %%     fun(StreamId, #ds_sub{handle = Handle}) ->
-%%     %%         ?defer_assert(
-%%     %%             ?assertMatch(
-%%     %%                 #{},
-%%     %%                 emqx_ds:subscription_info(?PERSISTENT_MESSAGE_DB, Handle),
-%%     %%                 #{msg => "Every DS subscription is active", id => StreamId}
-%%     %%             )
-%%     %%         )
-%%     %%     end,
-%%     %%     DSSubs
-%%     %% ),
-%%     true.
+%% Verify that each active stream has a DS subscription:
+invariant_ds_subscriptions(#{streams := Streams}, #s{ds_subs = DSSubs}) ->
+    ActiveStreams = maps:fold(
+        fun(StreamId, #srs{it_end = ItEnd, unsubscribed = IsUnsub}, Acc) ->
+            case (ItEnd =/= end_of_stream) and (not IsUnsub) of
+                true ->
+                    [StreamId | Acc];
+                false ->
+                    Acc
+            end
+        end,
+        [],
+        Streams
+    ),
+    ?defer_assert(
+        ?assertEqual(
+            lists:sort(ActiveStreams),
+            lists:sort([K || #ds_sub{stream_key = K} <- maps:values(DSSubs)]),
+            "There's a 1:1 relationship between active streams and DS subscriptions"
+        )
+    ),
+    maps:foreach(
+        fun(StreamId, #ds_sub{handle = Handle}) ->
+            ?defer_assert(
+                ?assertMatch(
+                    #{},
+                    emqx_ds:subscription_info(?PERSISTENT_MESSAGE_DB, Handle),
+                    #{msg => "Every DS subscription is active", id => StreamId}
+                )
+            )
+        end,
+        DSSubs
+    ),
+    true.
 
 %% Verify that all active streams belong to the same generation:
 invariant_active_streams_y_ranks(#{streams := StreamMap}) ->

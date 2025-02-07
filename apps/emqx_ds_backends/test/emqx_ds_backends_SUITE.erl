@@ -685,7 +685,7 @@ t_sub_catchup(Config) ->
             %% because batch size is independent.
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = true,
                         seqno = 5,
@@ -706,7 +706,7 @@ t_sub_catchup(Config) ->
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 5)),
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = true,
                         seqno = 10,
@@ -727,7 +727,7 @@ t_sub_catchup(Config) ->
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 10)),
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         seqno = 11,
                         size = 1,
@@ -761,7 +761,7 @@ t_sub_realtime(Config) ->
             publish_seq(DB, <<"t">>, 1, 2),
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = false,
                         stuck = false,
@@ -781,7 +781,7 @@ t_sub_realtime(Config) ->
             publish_seq(DB, <<"t">>, 3, 4),
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = false,
                         stuck = false,
@@ -803,7 +803,7 @@ t_sub_realtime(Config) ->
             ?tp(notice, test_rotate_generations, #{}),
             ?assertMatch(ok, emqx_ds:add_generation(DB)),
             ?assertMatch(
-                [#poll_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],
+                [#ds_sub_reply{ref = SubRef, seqno = 5, payload = {ok, end_of_stream}}],
                 recv(SubRef, 1),
                 #{sub_info => emqx_ds:subscription_info(DB, Handle)}
             )
@@ -849,7 +849,7 @@ verify_receive(Messages, [#{topic := TF, sub_ref := SubRef} | Rest]) ->
     Expected = [Msg || #message{topic = T} = Msg <- Messages, emqx_topic:match(T, TF)],
     Got = [
         Msg
-     || #poll_reply{payload = {ok, _It, Msgs}} <- recv(SubRef, length(Expected)),
+     || #ds_sub_reply{payload = {ok, _It, Msgs}} <- recv(SubRef, length(Expected)),
         Msg <- Msgs
     ],
     emqx_ds_test_helpers:diff_messages(?msg_fields, Expected, Got),
@@ -869,7 +869,7 @@ t_sub_slow(Config) ->
             %% Check receiving of messages published at the beginning:
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = true,
                         stuck = false,
@@ -888,7 +888,7 @@ t_sub_slow(Config) ->
             publish_seq(DB, <<"t">>, 1, 2),
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = false,
                         stuck = true,
@@ -914,7 +914,7 @@ t_sub_slow(Config) ->
             %% Now we get the messages:
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         lagging = true,
                         stuck = false,
@@ -951,7 +951,7 @@ t_sub_catchup_unrecoverable(Config) ->
             %% Receive a batch and pause for the ack:
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         seqno = 5,
                         size = 5,
@@ -977,7 +977,7 @@ t_sub_catchup_unrecoverable(Config) ->
             emqx_ds:suback(DB, Handle, 5),
             ?assertMatch(
                 [
-                    #poll_reply{
+                    #ds_sub_reply{
                         ref = SubRef,
                         size = 1,
                         seqno = 6,
@@ -1135,7 +1135,7 @@ recv(_SubRef, 0, _Timeout) ->
 recv(SubRef, N, Timeout) ->
     T0 = erlang:monotonic_time(millisecond),
     receive
-        #poll_reply{ref = SubRef, size = Size} = Msg ->
+        #ds_sub_reply{ref = SubRef, size = Size} = Msg ->
             T1 = erlang:monotonic_time(millisecond),
             NextTimeout = max(0, Timeout - (T1 - T0)),
             [Msg | recv(SubRef, N - Size, NextTimeout)];
