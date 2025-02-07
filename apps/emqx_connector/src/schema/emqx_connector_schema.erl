@@ -452,12 +452,28 @@ tags() ->
 roots() ->
     case fields(connectors) of
         [] ->
+            %% TODO: drop this clause and check
             [
                 {connectors,
-                    ?HOCON(hoconsc:map(name, typerefl:map()), #{importance => ?IMPORTANCE_LOW})}
+                    ?HOCON(
+                        hoconsc:map(name, typerefl:map()),
+                        #{
+                            importance => ?IMPORTANCE_LOW,
+                            validator => fun validator/1
+                        }
+                    )}
             ];
         _ ->
-            [{connectors, ?HOCON(?R_REF(connectors), #{importance => ?IMPORTANCE_LOW})}]
+            [
+                {connectors,
+                    ?HOCON(
+                        ?R_REF(connectors),
+                        #{
+                            importance => ?IMPORTANCE_LOW,
+                            validator => fun validator/1
+                        }
+                    )}
+            ]
     end.
 
 fields(connectors) ->
@@ -668,6 +684,23 @@ node_name() ->
 
 status() ->
     hoconsc:enum([connected, disconnected, connecting, inconsistent]).
+
+validator(ConnectorsRoot) ->
+    ValidatorFns = emqx_schema_hooks:list_injection_point('connectors.validators', []),
+    emqx_utils:foldl_while(
+        fun(Fn, _Acc) ->
+            case Fn(ConnectorsRoot) of
+                ok ->
+                    {cont, ok};
+                true ->
+                    {cont, ok};
+                Error ->
+                    {halt, Error}
+            end
+        end,
+        ok,
+        ValidatorFns
+    ).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").

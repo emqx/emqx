@@ -83,6 +83,8 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_clickhouse_connector_info,
         emqx_bridge_confluent_producer_connector_info,
         emqx_bridge_couchbase_connector_info,
+        emqx_bridge_datalayers_connector_info,
+        emqx_bridge_disk_log_connector_info,
         emqx_bridge_dynamo_connector_info,
         emqx_bridge_es_connector_info,
         emqx_bridge_gcp_pubsub_consumer_connector_info,
@@ -110,8 +112,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_syskeeper_connector_info,
         emqx_bridge_syskeeper_proxy_connector_info,
         emqx_bridge_tdengine_connector_info,
-        emqx_bridge_timescale_connector_info,
-        emqx_bridge_datalayers_connector_info
+        emqx_bridge_timescale_connector_info
     ].
 -else.
 hard_coded_connector_info_modules_ee() ->

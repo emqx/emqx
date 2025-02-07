@@ -95,6 +95,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_clickhouse_action_info,
         emqx_bridge_confluent_producer_action_info,
         emqx_bridge_couchbase_action_info,
+        emqx_bridge_disk_log_action_info,
         emqx_bridge_dynamo_action_info,
         emqx_bridge_es_action_info,
         emqx_bridge_gcp_pubsub_consumer_action_info,
