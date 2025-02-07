@@ -196,7 +196,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx-1", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.0", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.1", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "1.1.2", override: true}
 
@@ -231,7 +231,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
-  def common_dep(:observer_cli), do: {:observer_cli, "1.8.0"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.8.2"}
 
   def common_dep(:jose),
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
