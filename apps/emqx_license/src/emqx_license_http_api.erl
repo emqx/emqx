@@ -115,7 +115,7 @@ sample_license_info_response() ->
         email => "contact@foo.com",
         expiry => false,
         expiry_at => "2295-10-27",
-        max_connections => 10,
+        max_sessions => 10,
         start_at => "2022-01-11",
         type => "trial"
     }.
@@ -125,8 +125,7 @@ error_msg(Code, Msg) ->
 
 %% read license info
 '/license'(get, _Params) ->
-    License = maps:from_list(emqx_license_checker:dump()),
-    {200, License};
+    {200, license_info()};
 %% set/update license
 '/license'(post, #{body := #{<<"key">> := Key}}) ->
     case emqx_license:update_key(Key) of
@@ -142,8 +141,7 @@ error_msg(Code, Msg) ->
             {400, error_msg(?BAD_REQUEST, <<"Bad license key">>)};
         {ok, _} ->
             ?SLOG(info, #{msg => "updated_license_key"}, #{tag => "LICENSE"}),
-            License = maps:from_list(emqx_license_checker:dump()),
-            {200, License}
+            {200, license_info()}
     end;
 '/license'(post, _Params) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
@@ -189,3 +187,6 @@ get_setting() ->
         false ->
             maps:remove(<<"dynamic_max_connections">>, Result)
     end.
+
+license_info() ->
+    maps:from_list(emqx_license_checker:dump()).

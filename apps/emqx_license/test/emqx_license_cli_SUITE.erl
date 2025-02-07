@@ -70,8 +70,12 @@ t_conf_update(_Config) ->
         },
         emqx:get_config([license])
     ),
+    Dump = maps:from_list(emqx_license_checker:dump()),
     ?assertMatch(
-        #{max_connections := 123},
-        maps:from_list(emqx_license_checker:dump())
+        #{
+            max_connections := 123,
+            max_sessions := 123
+        },
+        Dump
     ),
     ok.
