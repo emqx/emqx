@@ -6,7 +6,7 @@
     {modules, []},
     {registered, [emqx_dashboard_sup]},
     {applications, [
-        kernel, stdlib, mnesia, minirest, emqx, emqx_ctl, emqx_bridge_http
+        kernel, stdlib, mnesia, minirest, pot, emqx, emqx_ctl, emqx_bridge_http
     ]},
     {mod, {emqx_dashboard_app, []}},
     {env, []},
