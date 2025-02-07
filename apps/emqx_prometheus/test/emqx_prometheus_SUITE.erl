@@ -29,7 +29,7 @@ prometheus {
     push_gateway_server = \"http://127.0.0.1:9091\"
     interval = \"1s\"
     headers = { Authorization = \"some-authz-tokens\"}
-    job_name = \"${name}~${host}\"
+    job_name = \"${cluster_name}~${name}~${host}\"
     enable = true
     vm_dist_collector = disabled
     mnesia_collector = disabled
@@ -58,7 +58,7 @@ prometheus {
                     <<"enable">> => true,
                     <<"headers">> => #{<<"Authorization">> => <<"some-authz-tokens">>},
                     <<"interval">> => <<"1s">>,
-                    <<"job_name">> => <<"${name}~${host}">>,
+                    <<"job_name">> => <<"${cluster_name}~${name}~${host}">>,
                     <<"url">> => <<"http://127.0.0.1:9091">>
                 }
         }
@@ -184,7 +184,7 @@ t_assert_push(_) ->
     Self = self(),
     AssertPush = fun(Method, Req = {Url, Headers, ContentType, _Data}, HttpOpts, Opts) ->
         ?assertEqual(post, Method),
-        ?assertMatch("http://127.0.0.1:9091/metrics/job/test~127.0.0.1", Url),
+        ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
         ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
         ?assertEqual("text/plain", ContentType),
         Self ! pass,
