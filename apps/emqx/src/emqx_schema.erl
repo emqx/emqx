@@ -345,7 +345,7 @@ roots(low) ->
                 #{
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC("config_backup_interval"),
-                    default => <<"30s">>
+                    default => <<"5m">>
                 }
             )}
     ].
