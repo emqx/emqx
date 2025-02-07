@@ -470,7 +470,11 @@ handle_recoverable_error(DBShard, SubStates) ->
 -spec shard_event(dbshard(), [{_Stream, emqx_ds:message_key()}]) -> ok.
 shard_event(Shard, Events) ->
     %% FIXME: start order of processes
-    catch emqx_ds_beamformer_rt:shard_event(Shard, Events).
+    try
+        emqx_ds_beamformer_rt:shard_event(Shard, Events)
+    catch
+        _:_ -> ok
+    end.
 
 %% @doc Create a beam that contains `end_of_stream' or unrecoverable
 %% error, and send it to the clients. Then delete the subscriptions.
@@ -483,8 +487,8 @@ shard_event(Shard, Events) ->
     ok.
 send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
     ReqsByNode = maps:groups_from_list(
-        fun(#sub_state{client = PID}) ->
-            node(PID)
+        fun(#sub_state{client = Pid}) ->
+            node(Pid)
         end,
         Reqs
     ),
@@ -513,8 +517,8 @@ beams_init(CBM, DBShard, SubTab, Lagging, Drop, UpdateQueue) ->
 -spec beams_n_matched(beam_builder()) -> non_neg_integer().
 beams_n_matched(#beam_builder{per_node = PerNode}) ->
     maps:fold(
-        fun(_SubId, #beam_builder_node{subs = Subs}, Acc) ->
-            Acc + maps:size(Subs)
+        fun(_SubId, #beam_builder_node{subs = Subscribers}, Acc) ->
+            Acc + maps:size(Subscribers)
         end,
         0,
         PerNode
@@ -601,10 +605,10 @@ metrics_id({DB, Shard}, Type) ->
 %% remove it:
 -spec keep_and_seqno(sub_tab(), sub_state(), pos_integer()) ->
     {boolean(), emqx_ds:sub_seqno() | undefined}.
-keep_and_seqno(_SubTab, #sub_state{flowcontrol = FC}, Nmsgs) ->
+keep_and_seqno(_SubTab, #sub_state{flowcontrol = FC}, NMsgs) ->
     try
         {MaxUnacked, ARef} = FC,
-        SeqNo = atomics:add_get(ARef, ?fc_idx_seqno, Nmsgs),
+        SeqNo = atomics:add_get(ARef, ?fc_idx_seqno, NMsgs),
         Acked = atomics:get(ARef, ?fc_idx_acked),
         IsActive = is_sub_active(SeqNo, Acked, MaxUnacked),
         (not IsActive) andalso
@@ -1102,7 +1106,7 @@ beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef
                         pack = [{Key, Msg} | Pack],
                         n_msgs = NMsgs + 1
                     },
-                    %% 1.2 Index of this message in the pack = (Nmsgs + 1) - 1:
+                    %% 1.2 Index of this message in the pack = (NMsgs + 1) - 1:
                     Idx = NMsgs
             end,
             %% 2. Update subscriber's state:
@@ -1165,7 +1169,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
     #beam_builder_node{
         n_msgs = BatchSize,
         pack = PackRev,
-        subs = Subs
+        subs = Subscribers
     } = BeamMakerNode,
     Flags0 =
         case IsLagging of
@@ -1213,7 +1217,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
                 ]
             end,
             [],
-            Subs
+            Subscribers
         ),
     %% Send the beam to the destination node:
     send_out(DBShard, Node, lists:reverse(PackRev), Destinations).

@@ -380,8 +380,8 @@ stats(Session) ->
 
 %% Used by management API
 -spec print_session(emqx_types:clientid()) -> map() | undefined.
-print_session(ClientId) ->
-    case try_get_live_session(ClientId) of
+print_session(ClientID) ->
+    case try_get_live_session(ClientID) of
         {Pid, SessionState} ->
             maps:update_with(
                 s, fun emqx_persistent_session_ds_state:format/1, SessionState#{
@@ -389,7 +389,7 @@ print_session(ClientId) ->
                 }
             );
         not_found ->
-            case emqx_persistent_session_ds_state:print_session(ClientId) of
+            case emqx_persistent_session_ds_state:print_session(ClientID) of
                 undefined ->
                     undefined;
                 S ->
@@ -502,7 +502,7 @@ get_subscription(TopicFilter, #{s := S}) ->
     | {error, emqx_types:reason_code()}.
 publish(
     PacketId,
-    Msg = #message{qos = ?QOS_2, timestamp = Ts},
+    Msg = #message{qos = ?QOS_2, timestamp = TS},
     Session = #{s := S0}
 ) ->
     case is_awaiting_full(Session) of
@@ -510,9 +510,9 @@ publish(
             case emqx_persistent_session_ds_state:get_awaiting_rel(PacketId, S0) of
                 undefined ->
                     Results = emqx_broker:publish(Msg),
-                    S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, Ts, S0),
+                    S = emqx_persistent_session_ds_state:put_awaiting_rel(PacketId, TS, S0),
                     {ok, Results, ensure_state_commit_timer(Session#{s := S})};
-                _Ts ->
+                _TS ->
                     {error, ?RC_PACKET_IDENTIFIER_IN_USE}
             end;
         true ->
@@ -544,8 +544,8 @@ do_expire(ClientInfo, Session = #{s := S0, props := Props}) ->
     AwaitRelTimeout = maps:get(await_rel_timeout, Props),
     ExpiredPacketIds =
         emqx_persistent_session_ds_state:fold_awaiting_rel(
-            fun(PacketId, Ts, Acc) ->
-                Age = Now - Ts,
+            fun(PacketId, TS, Acc) ->
+                Age = Now - TS,
                 case Age > AwaitRelTimeout of
                     true ->
                         [PacketId | Acc];
@@ -806,26 +806,26 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
         it_begin = ItBegin,
         batch_size = BatchSize,
         sub_state_id = SSID,
-        first_seqno_qos1 = FirstSeqnoQos1,
-        first_seqno_qos2 = FirstSeqnoQos2
+        first_seqno_qos1 = FirstSeqNoQos1,
+        first_seqno_qos2 = FirstSeqNoQos2
     } = SRS,
     %% TODO: should we handle end_of_stream here?
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize) of
         {ok, ItEnd, Batch} ->
             SubState = emqx_persistent_session_ds_state:get_subscription_state(SSID, S0),
-            {Inflight, LastSeqnoQos1, LastSeqnoQos2} =
+            {Inflight, LastSeqNoQos1, LastSeqNoQos2} =
                 process_batch(
                     true,
                     S0,
                     SubState,
                     ClientInfo,
-                    FirstSeqnoQos1,
-                    FirstSeqnoQos2,
+                    FirstSeqNoQos1,
+                    FirstSeqNoQos2,
                     Batch,
                     Inflight0
                 ),
             check_replay_consistency(
-                StreamKey, SRS, ItEnd, Batch, LastSeqnoQos1, LastSeqnoQos2, Session0
+                StreamKey, SRS, ItEnd, Batch, LastSeqNoQos1, LastSeqNoQos2, Session0
             ),
             Session = on_enqueue(true, StreamKey, SRS, Session0#{inflight := Inflight}),
             {ok, SRS, Session};
@@ -833,7 +833,7 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
             Error
     end.
 
-check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqnoQos2, Session) ->
+check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqNoQos1, LastSeqNoQos2, Session) ->
     #srs{last_seqno_qos1 = EQ1, last_seqno_qos2 = EQ2, batch_size = EBS} = SRS,
     %% TODO: Also check the end iterator? This is currently impossible
     %% because iterator returned by `scan_stream' (a call used by
@@ -844,8 +844,8 @@ check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqno
     %% to be) harmless.
     case length(Batch) of
         EBS when
-            EQ1 =:= LastSeqnoQos1,
-            EQ2 =:= LastSeqnoQos2
+            EQ1 =:= LastSeqNoQos1,
+            EQ2 =:= LastSeqNoQos2
         ->
             ok;
         BatchSize ->
@@ -856,8 +856,8 @@ check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqnoQos1, LastSeqno
                     stream => StreamKey,
                     srs => SRS,
                     batch_size => BatchSize,
-                    q1 => LastSeqnoQos1,
-                    q2 => LastSeqnoQos2,
+                    q1 => LastSeqNoQos1,
+                    q2 => LastSeqNoQos2,
                     sess => Session
                 }
             )
@@ -911,12 +911,12 @@ terminate(Reason, Session = #{s := S0, id := Id}) ->
 -spec list_client_subscriptions(emqx_types:clientid()) ->
     {node() | undefined, [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}]}
     | {error, not_found}.
-list_client_subscriptions(ClientId) ->
+list_client_subscriptions(ClientID) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
             %% TODO: this is not the most optimal implementation, since it
             %% should be possible to avoid reading extra data (streams, etc.)
-            case print_session(ClientId) of
+            case print_session(ClientID) of
                 Sess = #{s := #{subscriptions := Subs, subscription_states := SStates}} ->
                     Node =
                         case Sess of
@@ -945,10 +945,10 @@ list_client_subscriptions(ClientId) ->
 
 -spec get_client_subscription(emqx_types:clientid(), topic_filter() | share_topic_filter()) ->
     subscription() | undefined.
-get_client_subscription(ClientId, #share{} = ShareTopicFilter) ->
-    emqx_persistent_session_ds_shared_subs:cold_get_subscription(ClientId, ShareTopicFilter);
-get_client_subscription(ClientId, TopicFilter) ->
-    emqx_persistent_session_ds_subs:cold_get_subscription(ClientId, TopicFilter).
+get_client_subscription(ClientID, #share{} = ShareTopicFilter) ->
+    emqx_persistent_session_ds_shared_subs:cold_get_subscription(ClientID, ShareTopicFilter);
+get_client_subscription(ClientID, TopicFilter) ->
+    emqx_persistent_session_ds_subs:cold_get_subscription(ClientID, TopicFilter).
 
 %%--------------------------------------------------------------------
 %% Session tables operations
@@ -961,8 +961,8 @@ create_tables() ->
 -endif.
 
 %% @doc Force commit of the transient state to persistent storage
-sync(ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
+sync(ClientID) ->
+    case emqx_cm:lookup_channels(ClientID) of
         [Pid] ->
             Ref = monitor(process, Pid),
             Pid ! #req_sync{from = self(), ref = Ref},
@@ -994,21 +994,21 @@ open_session_state(
     NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer},
     MaybeWillMsg
 ) ->
-    NowMS = now_ms(),
+    NowMs = now_ms(),
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
             LastAliveAt = get_last_alive_at(S0),
-            case NowMS >= LastAliveAt + EI of
+            case NowMs >= LastAliveAt + EI of
                 true ->
                     session_drop(SessionId, expired),
                     false;
                 false ->
-                    ?tp(?sessds_open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
+                    ?tp(?sessds_open_session, #{ei => EI, now => NowMs, laa => LastAliveAt}),
                     %% New connection being established; update the
                     %% existing data:
                     S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
-                    S2 = init_last_alive_at(NowMS, S1),
+                    S2 = init_last_alive_at(NowMs, S1),
                     S3 = emqx_persistent_session_ds_state:set_peername(
                         maps:get(peername, NewConnInfo), S2
                     ),
@@ -1163,7 +1163,7 @@ clear_buffer(SubId, Session = #{buffer := Buf}) ->
 %% Enrich messages according to the subscription options and assign
 %% sequence number to each message, later to be used for packet ID
 %% generation:
-process_batch(IsReplay, S, SubState, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Batch, Inflight) ->
+process_batch(IsReplay, S, SubState, ClientInfo, FirstSeqNoQos1, FirstSeqNoQos2, Batch, Inflight) ->
     Ctx = #ctx{
         is_replay = IsReplay,
         clientinfo = ClientInfo,
@@ -1174,25 +1174,25 @@ process_batch(IsReplay, S, SubState, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2,
         dup2 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S),
         rec = emqx_persistent_session_ds_state:get_seqno(?rec, S)
     },
-    do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, Batch, Inflight).
+    do_process_batch(Ctx, FirstSeqNoQos1, FirstSeqNoQos2, Batch, Inflight).
 
-do_process_batch(_Ctx, LastSeqnoQos1, LastSeqnoQos2, [], Inflight) ->
-    {Inflight, LastSeqnoQos1, LastSeqnoQos2};
-do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, [{_DSMsgKey, Msg0} | Batch], Inflight0) ->
+do_process_batch(_Ctx, LastSeqNoQos1, LastSeqNoQos2, [], Inflight) ->
+    {Inflight, LastSeqNoQos1, LastSeqNoQos2};
+do_process_batch(Ctx, FirstSeqNoQos1, FirstSeqNoQos2, [{_DSMsgKey, Msg0} | Batch], Inflight0) ->
     #ctx{clientinfo = ClientInfo, substate = SubState} = Ctx,
     #{upgrade_qos := UpgradeQoS, subopts := SubOpts} = SubState,
     case emqx_session:enrich_message(ClientInfo, Msg0, SubOpts, UpgradeQoS) of
         [Msg = #message{qos = QoS}] ->
             case QoS of
                 ?QOS_0 ->
-                    SeqNoQos1 = FirstSeqnoQos1,
-                    SeqNoQos2 = FirstSeqnoQos2;
+                    SeqNoQos1 = FirstSeqNoQos1,
+                    SeqNoQos2 = FirstSeqNoQos2;
                 ?QOS_1 ->
-                    SeqNoQos1 = inc_seqno(?QOS_1, FirstSeqnoQos1),
-                    SeqNoQos2 = FirstSeqnoQos2;
+                    SeqNoQos1 = inc_seqno(?QOS_1, FirstSeqNoQos1),
+                    SeqNoQos2 = FirstSeqNoQos2;
                 ?QOS_2 ->
-                    SeqNoQos1 = FirstSeqnoQos1,
-                    SeqNoQos2 = inc_seqno(?QOS_2, FirstSeqnoQos2)
+                    SeqNoQos1 = FirstSeqNoQos1,
+                    SeqNoQos2 = inc_seqno(?QOS_2, FirstSeqNoQos2)
             end,
             Inflight =
                 case QoS of
@@ -1230,7 +1230,7 @@ do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, [{_DSMsgKey, Msg0} | Batch
                 end,
             do_process_batch(Ctx, SeqNoQos1, SeqNoQos2, Batch, Inflight);
         [] ->
-            do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, Batch, Inflight0)
+            do_process_batch(Ctx, FirstSeqNoQos1, FirstSeqNoQos2, Batch, Inflight0)
     end.
 
 %%--------------------------------------------------------------------
@@ -1238,7 +1238,7 @@ do_process_batch(Ctx, FirstSeqnoQos1, FirstSeqnoQos2, [{_DSMsgKey, Msg0} | Batch
 %%--------------------------------------------------------------------
 
 enqueue_transient(
-    _ClientInfo, Msg = #message{qos = Qos}, Session = #{inflight := Inflight0, s := S0}
+    _ClientInfo, Msg = #message{qos = QoS}, Session = #{inflight := Inflight0, s := S0}
 ) ->
     %% TODO: Such messages won't be retransmitted, should the session
     %% reconnect before transient messages are acked.
@@ -1249,7 +1249,7 @@ enqueue_transient(
     %% queued messages. Since streams in this DB are exclusive to the
     %% session, messages from the queue can be dropped as soon as they
     %% are acked.
-    case Qos of
+    case QoS of
         ?QOS_0 ->
             S = S0,
             Inflight = emqx_persistent_session_ds_inflight:push({undefined, Msg}, Inflight0);
@@ -1298,9 +1298,9 @@ do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
             case Msg#message.qos of
                 ?QOS_0 ->
                     do_drain_inflight(Inflight, S0, [{undefined, Msg} | Acc], DSSubacks0);
-                Qos ->
-                    S = update_dup(Qos, SeqNo, S0),
-                    Publish = {seqno_to_packet_id(Qos, SeqNo), Msg},
+                QoS ->
+                    S = update_dup(QoS, SeqNo, S0),
+                    Publish = {seqno_to_packet_id(QoS, SeqNo), Msg},
                     do_drain_inflight(Inflight, S, [Publish | Acc], DSSubacks0)
             end
     end.
@@ -1449,8 +1449,8 @@ commit_interval() ->
 
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.
-try_get_live_session(ClientId) ->
-    case emqx_cm:lookup_channels(local, ClientId) of
+try_get_live_session(ClientID) ->
+    case emqx_cm:lookup_channels(local, ClientID) of
         [Pid] ->
             try
                 #{channel := ChanState} = emqx_connection:get_state(Pid),
@@ -1622,16 +1622,16 @@ packet_id_to_seqno(PacketId, S) ->
     end.
 
 -spec inc_seqno(?QOS_1 | ?QOS_2, seqno()) -> emqx_types:packet_id().
-inc_seqno(Qos, SeqNo) ->
-    NextSeqno = SeqNo + 1,
-    case seqno_to_packet_id(Qos, NextSeqno) of
+inc_seqno(QoS, SeqNo) ->
+    NextSeqNo = SeqNo + 1,
+    case seqno_to_packet_id(QoS, NextSeqNo) of
         0 ->
             %% We skip sequence numbers that lead to PacketId = 0 to
             %% simplify math. Note: it leads to occasional gaps in the
             %% sequence numbers.
-            NextSeqno + 1;
+            NextSeqNo + 1;
         _ ->
-            NextSeqno
+            NextSeqNo
     end.
 
 %% Note: we use the most significant bit to store the QoS.
@@ -1643,9 +1643,9 @@ seqno_to_packet_id(?QOS_2, SeqNo) ->
 packet_id_to_qos(PacketId) ->
     PacketId bsr ?EPOCH_BITS + 1.
 
-seqno_diff(Qos, A, B, S) ->
+seqno_diff(QoS, A, B, S) ->
     seqno_diff(
-        Qos,
+        QoS,
         emqx_persistent_session_ds_state:get_seqno(A, S),
         emqx_persistent_session_ds_state:get_seqno(B, S)
     ).
@@ -1719,7 +1719,7 @@ enqueue_batch(
     Inflight0
 ) ->
     %% Enqueue messages:
-    {Inflight1, LastSeqnoQos1, LastSeqnoQos2} =
+    {Inflight1, LastSeqNoQos1, LastSeqNoQos2} =
         process_batch(
             false,
             S,
@@ -1740,8 +1740,8 @@ enqueue_batch(
     SRS = SRS0#srs{
         it_end = It,
         batch_size = BatchSize + Size,
-        last_seqno_qos1 = LastSeqnoQos1,
-        last_seqno_qos2 = LastSeqnoQos2
+        last_seqno_qos1 = LastSeqNoQos1,
+        last_seqno_qos2 = LastSeqNoQos2
     },
     {SRS, Inflight};
 enqueue_batch(
@@ -1912,11 +1912,11 @@ next_seqno_gen() ->
 %% erlfmt-ignore
 packet_id_to_seqno_prop() ->
     ?FORALL(
-        {Qos, NextSeqNo}, {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
+        {QoS, NextSeqNo}, {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
         ?FORALL(
             ExpectedSeqNo, seqno_gen(NextSeqNo),
             begin
-                PacketId = seqno_to_packet_id(Qos, ExpectedSeqNo),
+                PacketId = seqno_to_packet_id(QoS, ExpectedSeqNo),
                 SeqNo = packet_id_to_seqno(PacketId, NextSeqNo),
                 ?WHENFAIL(
                     begin
@@ -1930,14 +1930,14 @@ packet_id_to_seqno_prop() ->
 
 inc_seqno_prop() ->
     ?FORALL(
-        {Qos, SeqNo},
+        {QoS, SeqNo},
         {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
         begin
-            NewSeqNo = inc_seqno(Qos, SeqNo),
-            PacketId = seqno_to_packet_id(Qos, NewSeqNo),
+            NewSeqNo = inc_seqno(QoS, SeqNo),
+            PacketId = seqno_to_packet_id(QoS, NewSeqNo),
             ?WHENFAIL(
                 begin
-                    io:format(user, " *** QoS = ~p~n", [Qos]),
+                    io:format(user, " *** QoS = ~p~n", [QoS]),
                     io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
                     io:format(user, " *** PacketId = ~p~n", [PacketId])
                 end,
@@ -1948,16 +1948,16 @@ inc_seqno_prop() ->
 
 seqno_diff_prop() ->
     ?FORALL(
-        {Qos, SeqNo, N},
+        {QoS, SeqNo, N},
         {oneof([?QOS_1, ?QOS_2]), next_seqno_gen(), range(0, 100)},
         ?IMPLIES(
-            seqno_to_packet_id(Qos, SeqNo) > 0,
+            seqno_to_packet_id(QoS, SeqNo) > 0,
             begin
-                NewSeqNo = apply_n_times(N, fun(A) -> inc_seqno(Qos, A) end, SeqNo),
-                Diff = seqno_diff(Qos, NewSeqNo, SeqNo),
+                NewSeqNo = apply_n_times(N, fun(A) -> inc_seqno(QoS, A) end, SeqNo),
+                Diff = seqno_diff(QoS, NewSeqNo, SeqNo),
                 ?WHENFAIL(
                     begin
-                        io:format(user, " *** QoS = ~p~n", [Qos]),
+                        io:format(user, " *** QoS = ~p~n", [QoS]),
                         io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
                         io:format(user, " *** N : ~p == ~p~n", [N, Diff])
                     end,
@@ -1974,8 +1974,8 @@ seqno_proper_test_() ->
         {setup,
             fun() ->
                 meck:new(emqx_persistent_session_ds_state, [no_history]),
-                ok = meck:expect(emqx_persistent_session_ds_state, get_seqno, fun(_Track, Seqno) ->
-                    Seqno
+                ok = meck:expect(emqx_persistent_session_ds_state, get_seqno, fun(_Track, SeqNo) ->
+                    SeqNo
                 end)
             end,
             fun(_) ->

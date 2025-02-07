@@ -439,8 +439,8 @@ compose_errors(ErrAcc, _Err) ->
 
 ensure_timer(S = #s{tref = undefined}) ->
     Interval = get_config(S, flush_interval),
-    Tref = erlang:send_after(Interval, self(), ?flush),
-    S#s{tref = Tref};
+    TRef = erlang:send_after(Interval, self(), ?flush),
+    S#s{tref = TRef};
 ensure_timer(S) ->
     S.
 

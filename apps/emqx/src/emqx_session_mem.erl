@@ -564,7 +564,7 @@ enqueue(ClientInfo, Msgs, Session) when is_list(Msgs) ->
         Msgs
     ).
 
-enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q}) ->
+enqueue_msg(ClientInfo, #message{qos = QoS} = Msg, Session = #session{mqueue = Q}) ->
     {Dropped, NQ} = emqx_mqueue:in(Msg, Q),
     NewSession = Session#session{mqueue = NQ},
     case Dropped of
@@ -574,7 +574,7 @@ enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q
             NQInfo = emqx_mqueue:info(NQ),
             Reason =
                 case NQInfo of
-                    #{store_qos0 := false} when QOS =:= ?QOS_0 -> qos0_msg;
+                    #{store_qos0 := false} when QoS =:= ?QOS_0 -> qos0_msg;
                     _ -> queue_full
                 end,
             _ = emqx_session_events:handle_event(
@@ -646,7 +646,8 @@ retry_delivery(
     Now,
     Session = #session{retry_interval = Interval, inflight = Inflight}
 ) ->
-    case (Age = age(Now, Ts)) >= Interval of
+    Age = age(Now, Ts),
+    case Age >= Interval of
         true ->
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
             retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});

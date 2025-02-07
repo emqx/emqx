@@ -90,7 +90,7 @@
     clientinfo :: emqx_types:clientinfo(),
     %% MQTT Session
     session :: option(emqx_session:t()),
-    %% Keepalive
+    %% KeepAlive
     keepalive :: option(emqx_keepalive:keepalive()),
     %% MQTT Will Msg
     will_msg :: option(emqx_types:message()),
@@ -206,8 +206,8 @@ info({session, Info}, #channel{session = Session}) ->
     emqx_utils:maybe_apply(fun(S) -> emqx_session:info(Info, S) end, Session);
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
-info(keepalive, #channel{keepalive = Keepalive}) ->
-    emqx_utils:maybe_apply(fun emqx_keepalive:info/1, Keepalive);
+info(keepalive, #channel{keepalive = KeepAlive}) ->
+    emqx_utils:maybe_apply(fun emqx_keepalive:info/1, KeepAlive);
 info(will_msg, #channel{will_msg = undefined}) ->
     undefined;
 info(will_msg, #channel{will_msg = WillMsg}) ->
@@ -480,9 +480,9 @@ handle_in(
         fun(NPacket) -> process_unsubscribe(NPacket, Channel) end,
         [Packet]
     );
-handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = Keepalive}) ->
-    {ok, NKeepalive} = emqx_keepalive:check(Keepalive),
-    NChannel = Channel#channel{keepalive = NKeepalive},
+handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = KeepAlive}) ->
+    {ok, NKeepAlive} = emqx_keepalive:check(KeepAlive),
+    NChannel = Channel#channel{keepalive = NKeepAlive},
     {ok, ?PACKET(?PINGRESP), reset_timer(keepalive, NChannel)};
 handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,
@@ -1504,15 +1504,15 @@ handle_call(list_authz_cache, Channel) ->
 handle_call(
     {keepalive, Interval},
     Channel = #channel{
-        keepalive = Keepalive,
+        keepalive = KeepAlive,
         conninfo = ConnInfo,
         clientinfo = #{zone := Zone}
     }
 ) ->
     ClientId = info(clientid, Channel),
-    NKeepalive = emqx_keepalive:update(Zone, Interval, Keepalive),
+    NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
-    NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
+    NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
@@ -1675,11 +1675,11 @@ handle_timeout(
 handle_timeout(
     _TRef,
     keepalive,
-    Channel = #channel{keepalive = Keepalive}
+    Channel = #channel{keepalive = KeepAlive}
 ) ->
-    case emqx_keepalive:check(Keepalive) of
-        {ok, NKeepalive} ->
-            NChannel = Channel#channel{keepalive = NKeepalive},
+    case emqx_keepalive:check(KeepAlive) of
+        {ok, NKeepAlive} ->
+            NChannel = Channel#channel{keepalive = NKeepAlive},
             {ok, reset_timer(keepalive, NChannel)};
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
@@ -1799,8 +1799,8 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
             Channel#channel{timers = NTimers}
     end.
 
-interval(keepalive, #channel{keepalive = Keepalive}) ->
-    emqx_keepalive:info(check_interval, Keepalive);
+interval(keepalive, #channel{keepalive = KeepAlive}) ->
+    emqx_keepalive:info(check_interval, KeepAlive);
 interval(retry_delivery, #channel{session = Session}) ->
     emqx_session:info(retry_interval, Session);
 interval(expire_awaiting_rel, #channel{session = Session}) ->
@@ -1850,7 +1850,7 @@ enrich_conninfo(
         proto_name = ProtoName,
         proto_ver = ProtoVer,
         clean_start = CleanStart,
-        keepalive = Keepalive,
+        keepalive = KeepAlive,
         properties = ConnProps,
         clientid = ClientId,
         username = Username
@@ -1865,7 +1865,7 @@ enrich_conninfo(
         proto_name => ProtoName,
         proto_ver => ProtoVer,
         clean_start => CleanStart,
-        keepalive => Keepalive,
+        keepalive => KeepAlive,
         clientid => ClientId,
         username => Username,
         conn_props => ConnProps,
@@ -2686,7 +2686,7 @@ enrich_connack_caps(AckProps, _Channel) ->
 enrich_server_keepalive(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
     case get_mqtt_conf(Zone, server_keepalive) of
         disabled -> AckProps;
-        Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
+        KeepAlive -> AckProps#{'Server-Keep-Alive' => KeepAlive}
     end;
 enrich_server_keepalive(AckProps, _Channel) ->
     AckProps.
@@ -2779,7 +2779,7 @@ init_alias_maximum(_ConnPkt, _ClientInfo) ->
     undefined.
 
 %%--------------------------------------------------------------------
-%% Ensure Keepalive
+%% Ensure KeepAlive
 
 %% MQTT 5
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel = #channel{conninfo = ConnInfo}) ->
@@ -2818,8 +2818,8 @@ ensure_keepalive_timer(
             undefined ->
                 emqx_pd:get_counter(recv_pkt)
         end,
-    Keepalive = emqx_keepalive:init(Zone, Val, Interval),
-    ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
+    KeepAlive = emqx_keepalive:init(Zone, Val, Interval),
+    ensure_timer(keepalive, Channel#channel{keepalive = KeepAlive}).
 
 clear_keepalive(Channel = #channel{timers = Timers}) ->
     case maps:get(keepalive, Timers, undefined) of

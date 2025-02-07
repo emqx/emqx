@@ -160,11 +160,11 @@ terminate(Reason, #s{sub_tab = SubTab, shard_id = ShardId, name = Name}) ->
 
 %% Temporary remove requests from the active queue and notify the
 %% parent about reschedule.
-handle_recoverable(#s{sub_tab = SubTab, queue = Queue, shard_id = DBShard}, Subs) ->
-    ok = emqx_ds_beamformer:handle_recoverable_error(DBShard, Subs),
+handle_recoverable(#s{sub_tab = SubTab, queue = Queue, shard_id = DBShard}, Subscribers) ->
+    ok = emqx_ds_beamformer:handle_recoverable_error(DBShard, Subscribers),
     lists:foreach(
         fun(SubS) -> drop(Queue, SubTab, SubS) end,
-        Subs
+        Subscribers
     ).
 
 do_enqueue(SubStates, #s{
@@ -420,10 +420,10 @@ queue_lookup(#s{queue = Queue}, Stream, TopicFilter, StartKey) ->
 
 %% @doc Lookup requests and enrich them with the data from the
 %% subscription registry:
-lookup_subs(S = #s{sub_tab = Subs}, Stream, TopicFilter, StartKey) ->
+lookup_subs(S = #s{sub_tab = SubTab}, Stream, TopicFilter, StartKey) ->
     lists:map(
         fun({_Node, ReqId}) ->
-            emqx_ds_beamformer:sub_tab_lookup(Subs, ReqId)
+            emqx_ds_beamformer:sub_tab_lookup(SubTab, ReqId)
         end,
         queue_lookup(S, Stream, TopicFilter, StartKey)
     ).

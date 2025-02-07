@@ -232,7 +232,7 @@ delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now, IsCurr
     end.
 
 lookup_message(_ShardId, S = #s{db = DB, cf = CF}, #message_matcher{timestamp = TS, topic = Topic}) ->
-    case rocksdb:get(DB, CF, db_key(S, TS, Topic), _ReadOpts = []) of
+    case rocksdb:get(DB, CF, db_key(S, TS, Topic), []) of
         {ok, Val} ->
             decode_message(Val);
         not_found ->
@@ -286,16 +286,16 @@ batch_events(_Shard, _, _Messages) ->
 
 do_next(_, _, _, _, 0, Key, Acc) ->
     {Key, Acc};
-do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
-    case rocksdb:iterator_move(IT, Action) of
+do_next(TopicFilter, StartTime, It, Action, NLeft, Key0, Acc) ->
+    case rocksdb:iterator_move(It, Action) of
         {ok, Key = <<TS:64, _TopicHashOpt/bytes>>, Blob} ->
             Msg = #message{topic = Topic} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
             case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
                 true ->
-                    do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
+                    do_next(TopicFilter, StartTime, It, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
                 false ->
-                    do_next(TopicFilter, StartTime, IT, next, NLeft, Key, Acc)
+                    do_next(TopicFilter, StartTime, It, next, NLeft, Key, Acc)
             end;
         {error, invalid_iterator} ->
             {Key0, Acc}
@@ -305,9 +305,9 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
 do_delete_next(_, _, _, _, _, _, _, 0, Key, Acc) ->
     {Key, Acc};
 do_delete_next(
-    TopicFilter, StartTime, DB, CF, IT, Action, Selector, NLeft, Key0, {AccDel, AccIter}
+    TopicFilter, StartTime, DB, CF, It, Action, Selector, NLeft, Key0, {AccDel, AccIter}
 ) ->
-    case rocksdb:iterator_move(IT, Action) of
+    case rocksdb:iterator_move(It, Action) of
         {ok, Key, Blob} ->
             Msg = #message{topic = Topic, timestamp = TS} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
@@ -321,7 +321,7 @@ do_delete_next(
                                 StartTime,
                                 DB,
                                 CF,
-                                IT,
+                                It,
                                 next,
                                 Selector,
                                 NLeft - 1,
@@ -334,7 +334,7 @@ do_delete_next(
                                 StartTime,
                                 DB,
                                 CF,
-                                IT,
+                                It,
                                 next,
                                 Selector,
                                 NLeft - 1,
@@ -348,7 +348,7 @@ do_delete_next(
                         StartTime,
                         DB,
                         CF,
-                        IT,
+                        It,
                         next,
                         Selector,
                         NLeft,

@@ -526,7 +526,7 @@ lookup_message(
             MHB = master_hash_bits(S, Varying),
             SK = mk_stream_key(Varying, Timestamp, MHB),
             DSKey = mk_master_key(StaticIdx, SK, MHB),
-            case rocksdb:get(DB, CF, DSKey, _ReadOpts = []) of
+            case rocksdb:get(DB, CF, DSKey, []) of
                 {ok, Val} ->
                     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
                     Msg = deserialize(S, Val),
@@ -920,10 +920,10 @@ match_key_prefix(StaticIdx, 0, <<>>, Key) ->
             false
     end;
 match_key_prefix(StaticIdx, Idx, Hash, Key) when Idx > 0 ->
-    Tsz = byte_size(StaticIdx),
+    TSz = byte_size(StaticIdx),
     Hsz = byte_size(Hash),
     case Key of
-        <<StaticIdx:Tsz/binary, Idx:?wcb, Hash:Hsz/binary, StreamKey/binary>> ->
+        <<StaticIdx:TSz/binary, Idx:?wcb, Hash:Hsz/binary, StreamKey/binary>> ->
             StreamKey;
         _ ->
             false
@@ -1020,9 +1020,9 @@ restore_trie(Shard, StaticIdxBytes, DB, CF) ->
         push_lts_persist_op(Key, Val),
         ok
     end,
-    {ok, IT} = rocksdb:iterator(DB, CF, []),
+    {ok, It} = rocksdb:iterator(DB, CF, []),
     try
-        Dump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
+        Dump = read_persisted_trie(It, rocksdb:iterator_move(It, first)),
         TrieOpts = #{
             persist_callback => PersistCallback,
             static_key_bytes => StaticIdxBytes,
@@ -1032,7 +1032,7 @@ restore_trie(Shard, StaticIdxBytes, DB, CF) ->
         notify_new_streams(Shard, Trie, Dump),
         Trie
     after
-        rocksdb:iterator_close(IT)
+        rocksdb:iterator_close(It)
     end.
 
 %% Send notifications about new streams:
@@ -1073,12 +1073,12 @@ pop_lts_persist_ops() ->
             L
     end.
 
-read_persisted_trie(IT, {ok, KeyB, ValB}) ->
+read_persisted_trie(It, {ok, KeyB, ValB}) ->
     [
         {binary_to_term(KeyB), binary_to_term(ValB)}
-        | read_persisted_trie(IT, rocksdb:iterator_move(IT, next))
+        | read_persisted_trie(It, rocksdb:iterator_move(It, next))
     ];
-read_persisted_trie(_IT, {error, invalid_iterator}) ->
+read_persisted_trie(_It, {error, invalid_iterator}) ->
     [].
 
 %%%%%%%% Column families %%%%%%%%%%
