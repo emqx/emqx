@@ -94,17 +94,17 @@ t_license_info(_Config) ->
     Res = request(get, uri(["license"]), []),
     ?assertMatch({ok, 200, _}, Res),
     {ok, 200, Payload} = Res,
-    ?assertEqual(
+    ?assertMatch(
         #{
-            <<"customer">> => <<"Foo">>,
-            <<"customer_type">> => 10,
-            <<"deployment">> => <<"bar-deployment">>,
-            <<"email">> => <<"contact@foo.com">>,
-            <<"expiry">> => false,
-            <<"expiry_at">> => <<"2295-10-27">>,
-            <<"max_connections">> => 100,
-            <<"start_at">> => <<"2022-01-11">>,
-            <<"type">> => <<"trial">>
+            <<"customer">> := <<"Foo">>,
+            <<"customer_type">> := 10,
+            <<"deployment">> := <<"bar-deployment">>,
+            <<"email">> := <<"contact@foo.com">>,
+            <<"expiry">> := false,
+            <<"expiry_at">> := <<"2295-10-27">>,
+            <<"max_sessions">> := 100,
+            <<"start_at">> := <<"2022-01-11">>,
+            <<"type">> := <<"trial">>
         },
         emqx_utils_json:decode(Payload, [return_maps])
     ),
@@ -132,17 +132,17 @@ t_license_upload_key_success(_Config) ->
     ),
     ?assertMatch({ok, 200, _}, Res),
     {ok, 200, Payload} = Res,
-    ?assertEqual(
+    ?assertMatch(
         #{
-            <<"customer">> => <<"Foo">>,
-            <<"customer_type">> => 10,
-            <<"deployment">> => <<"bar-deployment">>,
-            <<"email">> => <<"contact@foo.com">>,
-            <<"expiry">> => false,
-            <<"expiry_at">> => <<"2295-10-27">>,
-            <<"max_connections">> => 999,
-            <<"start_at">> => <<"2022-01-11">>,
-            <<"type">> => <<"trial">>
+            <<"customer">> := <<"Foo">>,
+            <<"customer_type">> := 10,
+            <<"deployment">> := <<"bar-deployment">>,
+            <<"email">> := <<"contact@foo.com">>,
+            <<"expiry">> := false,
+            <<"expiry_at">> := <<"2295-10-27">>,
+            <<"max_sessions">> := 999,
+            <<"start_at">> := <<"2022-01-11">>,
+            <<"type">> := <<"trial">>
         },
         emqx_utils_json:decode(Payload, [return_maps])
     ),
