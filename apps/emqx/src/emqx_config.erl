@@ -660,79 +660,8 @@ cluster_dot_hocon_header() ->
         "# To persist configs in this file, copy the content to etc/base.hocon.\n"
     ].
 
-%% @private This is the same human-readable timestamp format as
-%% hocon-cli generated app.<time>.config file name.
-now_time() ->
-    Ts = os:system_time(millisecond),
-    {{Y, M, D}, {HH, MM, SS}} = calendar:system_time_to_local_time(Ts, millisecond),
-    Res = io_lib:format(
-        "~0p.~2..0b.~2..0b.~2..0b.~2..0b.~2..0b.~3..0b",
-        [Y, M, D, HH, MM, SS, Ts rem 1000]
-    ),
-    lists:flatten(Res).
-
-%% @private Backup the current config to a file with a timestamp suffix and
-%% then save the new config to the config file.
 backup_and_write(Path, Content) ->
-    %% this may fail, but we don't care
-    %% e.g. read-only file system
-    _ = filelib:ensure_dir(Path),
-    TmpFile = Path ++ ".tmp",
-    case file:write_file(TmpFile, Content) of
-        ok ->
-            backup_and_replace(Path, TmpFile);
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_save_conf_file",
-                hint =>
-                    "The updated cluster config is not saved on this node, please check the file system.",
-                filename => TmpFile,
-                reason => Reason
-            }),
-            %% e.g. read-only, it's not the end of the world
-            ok
-    end.
-
-backup_and_replace(Path, TmpPath) ->
-    Backup = Path ++ "." ++ now_time() ++ ".bak",
-    case file:rename(Path, Backup) of
-        ok ->
-            ok = file:rename(TmpPath, Path),
-            ok = prune_backup_files(Path);
-        {error, enoent} ->
-            %% not created yet
-            ok = file:rename(TmpPath, Path);
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_backup_conf_file",
-                filename => Backup,
-                reason => Reason
-            }),
-            ok
-    end.
-
-prune_backup_files(Path) ->
-    Files0 = filelib:wildcard(Path ++ ".*"),
-    Re = "\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{3}\\.bak$",
-    Files = lists:filter(fun(F) -> re:run(F, Re) =/= nomatch end, Files0),
-    Sorted = lists:reverse(lists:sort(Files)),
-    {_Keeps, Deletes} = lists:split(min(?MAX_KEEP_BACKUP_CONFIGS, length(Sorted)), Sorted),
-    lists:foreach(
-        fun(F) ->
-            case file:delete(F) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "failed_to_delete_backup_conf_file",
-                        filename => F,
-                        reason => Reason
-                    }),
-                    ok
-            end
-        end,
-        Deletes
-    ).
+    emqx_config_backup_manager:backup_and_write(Path, Content).
 
 add_handlers() ->
     ok = emqx_config_logger:add_handler(),
