@@ -114,6 +114,14 @@
 
 -type shard_metrics_id() :: binary().
 
+-define(CATCH(BODY),
+    try
+        BODY
+    catch
+        _:_ -> ok
+    end
+).
+
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 -elvis([{elvis_style, no_if_expression, disable}]).
 
@@ -167,95 +175,95 @@ init_for_beamformer(DB, Shard) ->
 %% @doc Increase the number of successfully flushed batches
 -spec inc_buffer_batches(shard_metrics_id()) -> ok.
 inc_buffer_batches(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES)).
 
 %% @doc Increase the number of time the buffer worker had to retry
 %% flushing the batch
 -spec inc_buffer_batches_retry(shard_metrics_id()) -> ok.
 inc_buffer_batches_retry(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_RETRY).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_RETRY)).
 
 %% @doc Increase the number of time the buffer worker encountered an
 %% unrecoverable error while trying to flush the batch
 -spec inc_buffer_batches_failed(shard_metrics_id()) -> ok.
 inc_buffer_batches_failed(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_FAILED).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BATCHES_FAILED)).
 
 %% @doc Increase the number of messages successfully saved to the shard
 -spec inc_buffer_messages(shard_metrics_id(), non_neg_integer()) -> ok.
 inc_buffer_messages(Id, NMessages) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_MESSAGES, NMessages).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_MESSAGES, NMessages)).
 
 %% @doc Increase the number of messages successfully saved to the shard
 -spec inc_buffer_bytes(shard_metrics_id(), non_neg_integer()) -> ok.
 inc_buffer_bytes(Id, NMessages) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BYTES, NMessages).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_BUFFER_BYTES, NMessages)).
 
 %% @doc Add a sample of elapsed time spent flushing the buffer to the
 %% backend (in microseconds)
 -spec observe_buffer_flush_time(shard_metrics_id(), non_neg_integer()) -> ok.
 observe_buffer_flush_time(Id, FlushTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_FLUSH_TIME, FlushTime).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_FLUSH_TIME, FlushTime)).
 
 %% @doc Add a sample of latency induced by the buffer (milliseconds).
 %% Latency is calculated as difference between timestamp of the oldest
 %% message in the flushed batch and current time.
 -spec observe_buffer_latency(shard_metrics_id(), non_neg_integer()) -> ok.
 observe_buffer_latency(Id, FlushTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_LATENCY, FlushTime).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_LATENCY, FlushTime)).
 
 -spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 observe_store_batch_time({DB, _}, StoreTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_STORE_BATCH_TIME, StoreTime).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_STORE_BATCH_TIME, StoreTime)).
 
 %% @doc Add a sample of elapsed time spent waiting for a batch
 %% `emqx_ds_replication_layer:next'
 -spec observe_next_time(emqx_ds:db(), non_neg_integer()) -> ok.
 observe_next_time(DB, NextTime) ->
-    catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_BUILTIN_NEXT_TIME, NextTime).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_BUILTIN_NEXT_TIME, NextTime)).
 
 observe_sharing(Id, Sharing) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_REQUEST_SHARING, Sharing).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_REQUEST_SHARING, Sharing)).
 
 %% @doc Set number of subscribers handled by the `rt' beamformer workers:
 set_subs_count(Id, Worker, Len) ->
-    emqx_metrics_worker:set_gauge(?WORKER, Id, Worker, ?DS_SUBS, Len).
+    ?CATCH(emqx_metrics_worker:set_gauge(?WORKER, Id, Worker, ?DS_SUBS, Len)).
 
 inc_beams_sent(Id, N) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_BEAMS_SENT_TOTAL, N).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_BEAMS_SENT_TOTAL, N)).
 
 inc_subs_stuck_total(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_STUCK_TOTAL, 1).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_STUCK_TOTAL, 1)).
 
 inc_subs_unstuck_total(Id) ->
-    catch emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_UNSTUCK_TOTAL, 1).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_UNSTUCK_TOTAL, 1)).
 
 %% @doc Add a sample of elapsed time spent forming and casting a beam
 observe_beamformer_fulfill_time(Id, Time) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_FULFILL_TIME, Time).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_FULFILL_TIME, Time)).
 
 %% @doc Add a sample of elapsed time spent scanning the DB stream
 observe_beamformer_scan_time(Id, Time) ->
-    catch emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_SCAN_TIME, Time).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_SCAN_TIME, Time)).
 
 observe_beamsplitter_fanout_time(DB, Time) ->
-    catch emqx_metrics_worker:observe(?WORKER, DB, ?DS_SUBS_FANOUT_TIME, Time).
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_SUBS_FANOUT_TIME, Time)).
 
 -spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_SEEK_COUNTER, Inc).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_SEEK_COUNTER, Inc)).
 
 -spec inc_lts_next_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_next_counter({DB, _}, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_NEXT_COUNTER, Inc).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_NEXT_COUNTER, Inc)).
 
 -spec inc_lts_collision_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
 inc_lts_collision_counter({DB, _}, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_COLLISION_COUNTER, Inc).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_COLLISION_COUNTER, Inc)).
 
 -spec collect_shard_counter(emqx_ds_storage_layer:shard_id(), atom(), non_neg_integer()) -> ok.
 collect_shard_counter({DB, _}, Key, Inc) ->
-    catch emqx_metrics_worker:inc(?WORKER, DB, Key, Inc).
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, Key, Inc)).
 
 prometheus_meta() ->
     lists:map(
