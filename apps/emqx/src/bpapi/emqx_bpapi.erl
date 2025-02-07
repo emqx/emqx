@@ -87,13 +87,7 @@ supported_version(API) ->
 -spec supported_apis(node()) -> [{api(), api_version()}].
 supported_apis(Node) ->
     try
-        %% Make dialyzer happy...
-        MS = erlang:make_tuple(
-            record_info(size, ?TAB),
-            '_',
-            [{1, ?TAB}, {#?TAB.key, {Node, '$1'}}, {#?TAB.version, '$2'}]
-        ),
-        lists:flatten(ets:match(?TAB, MS))
+        lists:flatten(ets:match(?TAB, {?TAB, {Node, '$1'}, '$2'}))
     catch
         error:badarg ->
             []
