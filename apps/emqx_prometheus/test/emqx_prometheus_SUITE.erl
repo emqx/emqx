@@ -182,11 +182,12 @@ t_collector_no_crash_test(_) ->
 
 t_assert_push(_) ->
     Self = self(),
-    AssertPush = fun(Method, Req = {Url, Headers, ContentType, _Data}, HttpOpts, Opts) ->
+    AssertPush = fun(Method, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
         ?assertEqual(post, Method),
         ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
         ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
         ?assertEqual("text/plain", ContentType),
+        ?assertEqual(true, assert_push_gateway_data(Data)),
         Self ! pass,
         meck:passthrough([Method, Req, HttpOpts, Opts])
     end,
@@ -263,3 +264,24 @@ init(Req0, Opts) ->
 some_pem_path() ->
     Dir = code:lib_dir(emqx_prometheus, test),
     _Path = filename:join([Dir, "data", "cert.crt"]).
+
+assert_push_gateway_data(Data) ->
+    assert_push_gateway_data(
+        [
+            <<"emqx_authn_enable">>,
+            <<"emqx_authz_enable">>,
+            <<"emqx_rules_count">>,
+            <<"emqx_actions_count">>,
+            <<"emqx_connectors_count">>
+        ],
+        Data
+    ).
+assert_push_gateway_data([], _Data) ->
+    true;
+assert_push_gateway_data([Keyword | Keywords], Data) ->
+    case re:run(Data, Keyword, [{capture, none}, global]) of
+        match ->
+            assert_push_gateway_data(Keywords, Data);
+        nomatch ->
+            {false, Keyword}
+    end.
