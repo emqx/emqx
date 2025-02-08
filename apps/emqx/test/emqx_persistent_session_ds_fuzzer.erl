@@ -97,8 +97,8 @@
     %%    State of the session predicted by the model:
     conn_opts := map() | undefined,
     subs := #{emqx_types:topic() => sub_opts()},
-    %%    Used to assign timestamps to the messages:
-    message_seqno := emqx_ds:time(),
+    %%    Counter used to create unique message payloads:
+    message_seqno := integer(),
     %%    %% State of the client connection predicted by the model:
     connected := boolean(),
     %%    Set to `true' when new messages are published, and reset to
@@ -185,7 +185,7 @@ connect_(S) ->
     ).
 
 %% @doc Proper generator that creates a message in one of the topics.
-message(MsgId, #{subs := Subs}) ->
+message(MsgSeqNo, #{subs := Subs}) ->
     %% Create bias towards topics that the session is subscribed to:
     TopicFreq = [{5, maps:keys(Subs)}, {1, ?topics}],
     Topics = [{Freq, T} || {Freq, Topics} <- TopicFreq, T <- Topics],
@@ -207,7 +207,7 @@ message(MsgId, #{subs := Subs}) ->
             %% generator and do it later in the action:
             timestamp = undefined,
             %% Message payload is unique:
-            payload = <<Topic/binary, " ", From/binary, " ", (integer_to_binary(MsgId))/binary>>
+            payload = <<Topic/binary, " ", From/binary, " ", (integer_to_binary(MsgSeqNo))/binary>>
         }
     ).
 
