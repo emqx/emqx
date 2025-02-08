@@ -170,6 +170,20 @@ t_compile(_) ->
         )
     ),
 
+    ?assertEqual(
+        {allow, {client_attr, <<"a1">>, {eq, <<"v1">>}}, all, [[<<"topic">>, <<"test">>]]},
+        emqx_authz_rule:compile(
+            {allow, {client_attr, "a1", "v1"}, all, ["topic/test"]}
+        )
+    ),
+
+    ?assertMatch(
+        {allow, {client_attr, <<"a2">>, {re_pattern, _, _, _, _}}, all, [[<<"topic">>, <<"test">>]]},
+        emqx_authz_rule:compile(
+            {allow, {client_attr, "a2", {re, "v2.*"}}, all, ["topic/test"]}
+        )
+    ),
+
     ok.
 
 t_compile_ce(_Config) ->
@@ -707,6 +721,32 @@ t_invalid_rule(_) ->
         emqx_authz_rule:compile({allow, who, all, ["topic/test"]})
     ).
 
+t_match_client_attr(_) ->
+    Topic = <<"test/topic">>,
+    RuleFn = fun(AttrName, AttrValue) ->
+        emqx_authz_rule:compile(
+            {allow, {'and', [{client, "c1"}, {client_attr, AttrName, AttrValue}]}, publish, [Topic]}
+        )
+    end,
+    ClientInfoFn = fun(AttrName, AttrValue) ->
+        client_info(#{clientid => <<"c1">>, client_attrs => #{bin(AttrName) => bin(AttrValue)}})
+    end,
+    Action = #{action_type => publish, qos => 0, retain => false},
+    MatchFn = fun(RuleAttrName, RuleAttrValue, AttrName, AttrValue) ->
+        ClientInfo = ClientInfoFn(AttrName, AttrValue),
+        Rule = RuleFn(RuleAttrName, RuleAttrValue),
+        emqx_authz_rule:match(ClientInfo, Action, Topic, Rule)
+    end,
+
+    ?assertEqual({matched, allow}, MatchFn("a1", "v1", "a1", "v1")),
+    ?assertEqual(nomatch, MatchFn("a1", "v1", "a1", "v2")),
+    ?assertEqual(nomatch, MatchFn("a1", "v1", "a2", "v1")),
+    ?assertEqual({matched, allow}, MatchFn("a1", {re, "v1"}, "a1", "v1")),
+    ?assertEqual({matched, allow}, MatchFn("a1", {re, "^abc.+"}, "a1", "abcd")),
+    ?assertEqual(nomatch, MatchFn("a1", {re, "^abc.+"}, "a1", "abc")),
+    ?assertEqual(nomatch, MatchFn("a1", {re, "^abc.+"}, "a2", "abcd")),
+    ok.
+
 t_matches(_) ->
     ?assertEqual(
         {matched, allow},
@@ -748,3 +788,5 @@ client_info() ->
 
 client_info(Overrides) ->
     maps:merge(?CLIENT_INFO_BASE, Overrides).
+
+bin(X) -> iolist_to_binary(X).
