@@ -180,7 +180,7 @@ opts(#{push_gateway := #{url := Url, job_name := JobName} = PushGateway}) ->
     maps:put(url, join_url(Url, JobName), PushGateway).
 
 join_url(Url, JobName0) ->
-    ClusterName = atom_to_binary(emqx:get_config([cluster, name])),
+    ClusterName = atom_to_binary(emqx:get_config([cluster, name], emqxcl)),
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     % NOTE: allowing errors here to keep rough backward compatibility
     {JobName1, Errors} = emqx_template:render(

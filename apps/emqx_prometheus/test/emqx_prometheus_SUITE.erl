@@ -94,6 +94,12 @@ init_per_group(new_config, Config) ->
                 {emqx_license, "license.key = default"}
              || emqx_release:edition() == ee
             ],
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_http,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_auth,
             {emqx_prometheus, #{config => config(default)}},
             emqx_management
         ]),
@@ -108,6 +114,12 @@ init_per_group(legacy_config, Config) ->
                 {emqx_license, "license.key = default"}
              || emqx_release:edition() == ee
             ],
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_http,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_auth,
             {emqx_prometheus, #{config => config(legacy)}},
             emqx_management
         ]),
