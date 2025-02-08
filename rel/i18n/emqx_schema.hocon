@@ -1792,7 +1792,7 @@ socket_tcp_keepalive.label:
 """TCP keepalive options"""
 
   sysmon_mnesia_tm_mailbox_size_alarm_threshold {
-    label: "Size Alarm"
+    label: "Mnesia TM Mailbox Size Alarm"
     desc: """~
     The threshold above which an alarm is raised for the mailbox size of the mnesia transaction manager.  This process handles all transactions in EMQX's internal database mnesia.
 
@@ -1804,7 +1804,7 @@ socket_tcp_keepalive.label:
   }
 
   sysmon_broker_pool_mailbox_size_alarm_threshold {
-    label: "Size Alarm"
+    label: "Broker Pool Mailbox Size Alarm"
     desc: """~
     The threshold above which an alarm is raised for the maximum mailbox size among the broker pool workers.  Broker pool workers handle adding and removing subscriptions, and replication of routing information.
 
@@ -1813,6 +1813,42 @@ socket_tcp_keepalive.label:
     - Review the subscriptions that clients are doing, for example, try to compact topic filters;
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
   }
+
+sysmon_overall_mailbox_size_monitor_enable.desc:
+"""Enable monitoring of processes with mailboxes exceeding the specified threshold."""
+
+sysmon_overall_mailbox_size_monitor_enable.label:
+"""Overall Mailbox Size Alarm"""
+
+sysmon_overall_mailbox_size_monitor_max_procs.desc:
+"""~
+Maximum number of processes with mailboxes exceeding 0 to monitor.
+Information about these processes can be retrieved as emqx metrics by Prometheus, and they will be included in the alarms when a process's mailbox exceeds the specified threshold.~"""
+
+sysmon_overall_mailbox_size_monitor_max_procs.label:
+"""Max Processes to Monitor"""
+
+sysmon_overall_mailbox_size_monitor_alarm_threshold.desc:
+"""~
+When the mailbox size of an Erlang process exceeds this threshold, an alarm is raised.
+Setting this value to 0 will disable the alarm feature.~"""
+
+sysmon_overall_mailbox_size_monitor_alarm_threshold.label:
+"""Alarm Threshold"""
+
+sysmon_overall_mailbox_size_monitor_alarm_top_n_procs.desc:
+"""~
+The maximum number of Erlang processes with non-zero mailboxes to include in the alarm information.~"""
+
+sysmon_overall_mailbox_size_monitor_alarm_top_n_procs.label:
+"""Proc Num in Alarm"""
+
+sysmon_overall_mailbox_size_monitor_alarm_try_peek_first_n_msgs.desc:
+"""~
+When the mailbox of a process is not too long, try to peek the first N messages in the mailbox and include them in the alarm information.~"""
+
+sysmon_overall_mailbox_size_monitor_alarm_try_peek_first_n_msgs.label:
+"""First N Messages in Alarm"""
 
 config_backup_interval.label:
 """Config Backup Interval"""

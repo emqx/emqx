@@ -1498,6 +1498,11 @@ fields("sysmon") ->
                     default => 500,
                     desc => ?DESC("sysmon_broker_pool_mailbox_size_alarm_threshold")
                 }
+            )},
+        {"overall_mailbox_size_monitor",
+            sc(
+                ref("sysmon_overall_mailbox_size_monitor"),
+                #{}
             )}
     ];
 fields("sysmon_vm") ->
@@ -1692,6 +1697,49 @@ fields("sysmon_top") ->
                     mapping => "system_monitor.db_name",
                     default => <<"postgres">>,
                     desc => ?DESC(sysmon_top_db_name)
+                }
+            )}
+    ];
+fields("sysmon_overall_mailbox_size_monitor") ->
+    [
+        {"enable",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(sysmon_overall_mailbox_size_monitor_enable)
+                }
+            )},
+        {"max_procs",
+            sc(
+                range(1, 1000),
+                #{
+                    default => 100,
+                    desc => ?DESC(sysmon_overall_mailbox_size_monitor_max_procs)
+                }
+            )},
+        {"alarm_threshold",
+            sc(
+                range(0, inf),
+                #{
+                    default => 100,
+                    desc => ?DESC(sysmon_overall_mailbox_size_monitor_alarm_threshold)
+                }
+            )},
+        {"alarm_top_n_procs",
+            sc(
+                range(1, 1000),
+                #{
+                    default => 5,
+                    desc => ?DESC(sysmon_overall_mailbox_size_monitor_alarm_top_n_procs)
+                }
+            )},
+        {"alarm_try_peek_first_n_msgs",
+            sc(
+                range(1, 1000),
+                #{
+                    default => 2,
+                    desc => ?DESC(sysmon_overall_mailbox_size_monitor_alarm_try_peek_first_n_msgs)
                 }
             )}
     ];
@@ -2207,6 +2255,9 @@ desc("sysmon_top") ->
     "This part of the configuration is responsible for monitoring\n"
     " the Erlang processes in the VM. This information can be sent to an external\n"
     " PostgreSQL database. This feature is inactive unless the PostgreSQL sink is configured.";
+desc("sysmon_overall_mailbox_size_monitor") ->
+    "This part of the configuration is responsible for monitoring\n"
+    " and alarming the Erlang processes whose mailboxes exceed a specified threshold.";
 desc("alarm") ->
     "Settings for the alarms.";
 desc("trace") ->
