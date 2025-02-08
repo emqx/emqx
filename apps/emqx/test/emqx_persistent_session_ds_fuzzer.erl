@@ -31,6 +31,7 @@
 
 %% Commands:
 -export([
+    initial_state/1,
     connect/2,
     disconnect/1,
     publish/1,
@@ -91,15 +92,21 @@
         qos := emqx_types:qos()
     }.
 
+-type tc_conf() :: #{}.
+
 %% erlfmt-ignore
 -type s() :: #{
     %% Symbolic fields (known at the generation time):
+    %%    Static testcase config carried over from the
+    %%    `initial_state/1' call, that allows to customize behavior
+    %%    of the fuzzer:
+    tc_conf := tc_conf(),
     %%    State of the session predicted by the model:
     conn_opts := map() | undefined,
     subs := #{emqx_types:topic() => sub_opts()},
     %%    Counter used to create unique message payloads:
     message_seqno := integer(),
-    %%    %% State of the client connection predicted by the model:
+    %% State of the client connection predicted by the model:
     connected := boolean(),
     %%    Set to `true' when new messages are published, and reset to
     %%    `false' by `consume' action (used to avoid generating
@@ -112,7 +119,7 @@
     conninfo := conninfo() | undefined | _Symbolic
 }.
 
--type model_state() :: s() | undefined.
+-type model_state() :: s() | {init, tc_conf()}.
 
 %%%%% Trace point kinds:
 -define(sessds_test_connect, sessds_test_connect).
@@ -558,8 +565,8 @@ compare_msgs(Expect, Got) ->
 %%--------------------------------------------------------------------
 
 %% erlfmt-ignore
-command(undefined) ->
-    connect_(undefined);
+command(S = {init, _}) ->
+    connect_(S);
 command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
     HasSubs = maps:size(Subs) > 0,
     %% Commands that are executed in any state:
@@ -590,11 +597,16 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
 
 -spec initial_state() -> model_state().
 initial_state() ->
-    undefined.
+    initial_state(#{}).
+
+-spec initial_state(tc_conf()) -> model_state().
+initial_state(Conf) ->
+    {init, Conf}.
 
 %% Initial connection:
-next_state(undefined, Ret, {call, ?MODULE, connect, [_, Opts]}) ->
+next_state({init, TCConf}, Ret, {call, ?MODULE, connect, [_, Opts]}) ->
     #{
+        tc_conf => TCConf,
         conn_opts => Opts,
         subs => #{},
         message_seqno => 0,
@@ -681,7 +693,7 @@ check_processes(#{connected := true, conninfo := #{client_pid := CPid, session_p
             false
         end.
 
-check_session_metadata(undefined) ->
+check_session_metadata({init, _}) ->
     case emqx_persistent_session_ds_state:print_session(?clientid) of
         undefined ->
             true;

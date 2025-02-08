@@ -667,6 +667,7 @@ t_fuzz(_Config) ->
     %% development:
     NTests = 10,
     MaxSize = 100,
+    NCommandsFactor = 1,
     ?run_prop(
         #{
             proper => #{
@@ -679,7 +680,13 @@ t_fuzz(_Config) ->
         },
         ?forall_trace(
             Cmds,
-            proper_statem:commands(emqx_persistent_session_ds_fuzzer),
+            proper_statem:more_commands(
+                NCommandsFactor,
+                proper_statem:commands(
+                    emqx_persistent_session_ds_fuzzer,
+                    emqx_persistent_session_ds_fuzzer:initial_state(#{})
+                )
+            ),
             #{timetrap => 5_000 * length(Cmds) + 30_000},
             try
                 %% Print information about the run:
