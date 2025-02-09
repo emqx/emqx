@@ -18,7 +18,7 @@
 }.
 
 -type state() :: term().
--type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_types:share().
 
 -type opts() :: #{
     session_id := session_id()

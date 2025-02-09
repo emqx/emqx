@@ -34,7 +34,7 @@
 -type options() :: #{
     session_id := emqx_persistent_session_ds:id(),
     id := emqx_ds_shared_sub_proto:borrower_id(),
-    share_topic_filter := emqx_persistent_session_ds:share_topic_filter(),
+    share_topic_filter := emqx_types:share(),
     send_after := fun((non_neg_integer(), term()) -> reference())
 }.
 
@@ -118,7 +118,7 @@
 
 -type t() :: #{
     session_id := emqx_persistent_session_ds:id(),
-    share_topic_filter := emqx_persistent_session_ds:share_topic_filter(),
+    share_topic_filter := emqx_types:share(),
     id := emqx_persistent_session_ds:id(),
     send_after := fun((non_neg_integer(), term()) -> reference()),
 

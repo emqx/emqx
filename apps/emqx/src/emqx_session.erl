@@ -204,7 +204,7 @@
 -callback get_subscription(emqx_types:topic(), t()) ->
     emqx_types:subopts() | undefined.
 
--callback subscribe(emqx_types:topic(), emqx_types:subopts(), t()) ->
+-callback subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subopts(), t()) ->
     {ok, t()} | {error, emqx_types:reason_code()}.
 
 -callback unsubscribe(emqx_types:topic(), t()) ->

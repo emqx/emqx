@@ -35,7 +35,7 @@
 -behaviour(emqx_persistent_session_ds_shared_subs_agent).
 
 -type subscription() :: emqx_persistent_session_ds_shared_subs_agent:subscription().
--type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_types:share().
 -type subscription_id() :: emqx_persistent_session_ds_shared_subs_agent:subscription_id().
 
 -type options() :: #{
@@ -97,8 +97,8 @@ pre_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
     case ?dq_config(enable) of
         true ->
             %% TODO: Weird to have side effects in function with this name.
-            TS = emqx_message:timestamp_now(),
-            case emqx_ds_shared_sub_queue:declare(Group, Topic, TS, _StartTime = TS) of
+            TS = StartTime = emqx_message:timestamp_now(),
+            case emqx_ds_shared_sub_queue:declare(Group, Topic, TS, StartTime) of
                 {ok, _} ->
                     ok;
                 exists ->

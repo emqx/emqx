@@ -55,7 +55,7 @@
 -type t() :: #{
     agent := emqx_persistent_session_ds_shared_subs_agent:t()
 }.
--type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_types:share().
 -type opts() :: #{
     session_id := emqx_persistent_session_ds:id()
 }.
@@ -207,7 +207,8 @@ update_subscription(
     emqx_persistent_session_ds_stream_scheduler:t(),
     t()
 ) ->
-    {ok, emqx_persistent_session_ds_state:t(), t(), emqx_persistent_session_ds:subscription()}
+    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds_stream_scheduler:t(), t(),
+        emqx_persistent_session_ds:subscription()}
     | {error, emqx_types:reason_code()}.
 on_unsubscribe(
     SessionId, ShareTopicFilter, S0, SchedS0, #{agent := Agent0} = SharedSubS0
@@ -522,6 +523,8 @@ cold_get_subscription(SessionId, ShareTopicFilter) ->
 %% Generic helpers
 %%--------------------------------------------------------------------
 
+-spec lookup(emqx_types:share(), emqx_persistent_session_ds_state:t()) ->
+    emqx_persistent_session_ds:subscription() | undefined.
 lookup(ShareTopicFilter, S) ->
     case emqx_persistent_session_ds_state:get_subscription(ShareTopicFilter, S) of
         Sub = #{current_state := SStateId} ->

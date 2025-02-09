@@ -69,7 +69,7 @@
 %%    \
 %%     `--(`on_unsubscribe') --> *U*
 %%
-%% Upon receiving a `poll_reply' for a *ready* stream, the session
+%% Upon receiving a `ds_sub_reply' for a *ready* stream, the session
 %% assigns QoS and sequence numbers to the messages according to its
 %% own logic, then enqueues the batch into the inflight. It
 %% subsequently passes the updated SRS back to the scheduler, where it
@@ -93,15 +93,17 @@
 %% QoS track and sequence number equal to the SRS's last sequence
 %% number for the track:
 %%
-%% *BQX* --(`?MODULE:on_seqno_release(?QOS_X, LastSeqNoX)')--> *R* --> ...
-%%      \
-%%       `--(`on_unsubscribe')--> *U*
+%%                                                          .-> *R* --> ...
+%%                                                         /
+%% *BQX* --(`?MODULE:on_seqno_release(?QOS_X, LastSeqNoX)')
+%%                                                         \
+%%                                                          `-->*U*
 %%
 %% *BQ12* is handled like this:
 %%
 %%        .--(`on_seqno_release(?QOS_1, LastSeqNo1)')--> *BQ2* --> ...
 %%       /
-%% *BQ12*--(`on_unsubscribe')--> *U*
+%% *BQ12*
 %%       \
 %%        `--(`on_seqno_release(?QOS_2, LastSeqNo2)')--> *BQ1* --> ...
 %%
@@ -513,7 +515,7 @@ gc(S) ->
 
 -spec on_subscribe(
     emqx_types:topic(),
-    emqx_persistent_session_ds:subscription(),
+    emqx_persistent_session_ds_subs:subscription(),
     emqx_persistent_session_ds_state:t(),
     t()
 ) ->
@@ -539,7 +541,7 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}
 %%
 %% 3. Remove streams from the buckets
 -spec on_unsubscribe(
-    emqx_types:topic(),
+    emqx_persistent_session_ds:topic_filter(),
     emqx_persistent_session_ds:subscription_id(),
     emqx_persistent_session_ds_state:t(),
     t()

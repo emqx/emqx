@@ -122,7 +122,6 @@
     seqno/0,
     timestamp/0,
     topic_filter/0,
-    share_topic_filter/0,
     subscription_id/0,
     subscription/0,
     session/0,
@@ -134,8 +133,7 @@
 %% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
 %% an atom, in theory (?).
 -type id() :: binary().
--type share_topic_filter() :: #share{}.
--type topic_filter() :: emqx_types:topic() | share_topic_filter().
+-type topic_filter() :: emqx_types:topic() | emqx_types:share().
 
 %% Subscription and subscription states:
 %%
@@ -195,7 +193,7 @@
     %% Client ID
     id := id(),
     %% Configuration:
-    props := map(),
+    props := #{upgrade_qos := boolean(), max_subscriptions := _, _ => _},
     %% Persistent state:
     s := emqx_persistent_session_ds_state:t(),
     %% Shared subscription state:
@@ -403,9 +401,6 @@ print_session(ClientID) ->
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
-%% Suppress warnings about clauses handling unimplemented results
-%% of `emqx_persistent_session_ds_shared_subs:on_subscribe/3`
--dialyzer({nowarn_function, subscribe/3}).
 -spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 subscribe(
@@ -436,9 +431,6 @@ subscribe(
             Error
     end.
 
-%% Suppress warnings about clauses handling unimplemented results
-%% of `emqx_persistent_session_ds_shared_subs:on_unsubscribe/4`
--dialyzer({nowarn_function, unsubscribe/2}).
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
@@ -447,8 +439,7 @@ unsubscribe(
         id := SessionId,
         s := S0,
         shared_sub_s := SharedSubS0,
-        stream_scheduler_s := SchedS0,
-        buffer := Buf0
+        stream_scheduler_s := SchedS0
     }
 ) ->
     case
@@ -457,11 +448,10 @@ unsubscribe(
         )
     of
         {ok, S, SchedS, SharedSubS, SubOpts = #{id := SubId}} ->
-            Buf = emqx_persistent_session_ds_buffer:clean_by_subid(SubId, Buf0),
             Session = Session0#{
-                s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS, buffer := Buf
+                s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
             },
-            {ok, commit(Session), SubOpts};
+            {ok, commit(clear_buffer(SubId, Session)), SubOpts};
         Error = {error, _} ->
             Error
     end;
@@ -943,7 +933,7 @@ list_client_subscriptions(ClientID) ->
             {error, not_found}
     end.
 
--spec get_client_subscription(emqx_types:clientid(), topic_filter() | share_topic_filter()) ->
+-spec get_client_subscription(emqx_types:clientid(), topic_filter()) ->
     subscription() | undefined.
 get_client_subscription(ClientID, #share{} = ShareTopicFilter) ->
     emqx_persistent_session_ds_shared_subs:cold_get_subscription(ClientID, ShareTopicFilter);

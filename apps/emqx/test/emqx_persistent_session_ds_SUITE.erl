@@ -1349,7 +1349,6 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
         {bq2, u} -> ok;
         {bq2, r} -> ok;
         %% BQ12
-        {bq12, u} -> ok;
         {bq12, bq1} -> ok;
         {bq12, bq2} -> ok;
         %% U

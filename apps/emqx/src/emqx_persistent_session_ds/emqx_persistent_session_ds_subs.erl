@@ -113,7 +113,7 @@ fold_private_subscriptions(Fun, Acc, S) ->
     emqx_types:subopts(),
     emqx_persistent_session_ds:session()
 ) ->
-    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:subscription()}
+    {ok, emqx_persistent_session_ds_state:t(), subscription()}
     | {error, ?RC_QUOTA_EXCEEDED}.
 on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) ->
     #{upgrade_qos := UpgradeQoS, max_subscriptions := MaxSubscriptions} = Props,
