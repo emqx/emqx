@@ -51,6 +51,8 @@
     oracle_host_options/0
 ]).
 
+-export_type([state/0]).
+
 -define(ORACLE_DEFAULT_PORT, 1521).
 -define(SYNC_QUERY_MODE, no_handover).
 -define(DEFAULT_POOL_SIZE, 8).
@@ -277,23 +279,23 @@ on_batch_query(
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(TypeOrKey, SQLOrData, Params, #{
-    params_tokens := ParamsTokens, prepare_sql := PrepareSql
+    params_tokens := ParamsTokens, prepare_sql := PrepareSQL
 }) ->
     Key = to_bin(TypeOrKey),
     case maps:get(Key, ParamsTokens, undefined) of
         undefined ->
             {SQLOrData, Params};
         Tokens ->
-            case maps:get(Key, PrepareSql, undefined) of
+            case maps:get(Key, PrepareSQL, undefined) of
                 undefined ->
                     {SQLOrData, Params};
-                Sql ->
-                    {Sql, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
+                SQL ->
+                    {SQL, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
             end
     end.
 
-on_sql_query(InstId, ChannelID, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
-    emqx_trace:rendered_action_template(ChannelID, #{
+on_sql_query(InstId, ChannelId, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
+    emqx_trace:rendered_action_template(ChannelId, #{
         type => Type,
         apply_mode => ApplyMode,
         name_or_sql => NameOrSQL,

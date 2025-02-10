@@ -1627,8 +1627,8 @@ validate_dns_cluster_strategy(_Other, _Type, _Name) ->
 
 is_ip_addr(Host, Type) ->
     case inet:parse_address(Host) of
-        {ok, Ip} ->
-            AddrType = address_type(Ip),
+        {ok, IP} ->
+            AddrType = address_type(IP),
             case
                 (AddrType =:= ipv4 andalso Type =:= a) orelse
                     (AddrType =:= ipv6 andalso Type =:= aaaa)
@@ -1640,7 +1640,7 @@ is_ip_addr(Host, Type) ->
                         explain => "Node name address " ++ atom_to_list(AddrType) ++
                             " is incompatible with DNS record type " ++ atom_to_list(Type),
                         record_type => Type,
-                        address_type => address_type(Ip)
+                        address_type => address_type(IP)
                     })
             end;
         _ ->

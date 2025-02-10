@@ -46,6 +46,8 @@
     handle_info/2
 ]).
 
+-export_type([limits/0, license/0, fetcher/0]).
+
 -define(LICENSE_TAB, emqx_license).
 
 -type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME}.

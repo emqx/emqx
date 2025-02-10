@@ -80,13 +80,9 @@
 -export([set_field/3]).
 
 -export_type([
+    state/0,
     parser/0
 ]).
-
--import(
-    emqx_utils,
-    [start_timer/2]
-).
 
 -record(state, {
     %% TCP/TLS Transport
@@ -155,7 +151,7 @@
     next :: check_succ_handler()
 }).
 
--type state() :: #state{}.
+-opaque state() :: #state{}.
 -type pending_req() :: #pending_req{}.
 
 -define(ACTIVE_N, 10).
@@ -1371,6 +1367,10 @@ wait_for_quic_stream_close(
 ) ->
     ok = emqx_quic_stream:wait_for_close(Stream),
     State#state{sockstate = closed}.
+
+start_timer(Time, Msg) ->
+    emqx_utils:start_timer(Time, Msg).
+
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------

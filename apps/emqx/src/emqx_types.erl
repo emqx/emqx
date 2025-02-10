@@ -16,6 +16,8 @@
 
 -module(emqx_types).
 
+-elvis([{elvis_style, private_data_types, disable}]).
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("types.hrl").

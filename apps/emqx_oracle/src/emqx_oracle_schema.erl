@@ -35,7 +35,7 @@ fields(config) ->
 
 server() ->
     Meta = #{desc => ?DESC(?REF_MODULE, "server")},
-    emqx_schema:servers_sc(Meta, (?REF_MODULE):oracle_host_options()).
+    emqx_schema:servers_sc(Meta, emqx_oracle:oracle_host_options()).
 
 sid(type) -> binary();
 sid(desc) -> ?DESC(?REF_MODULE, "sid");
