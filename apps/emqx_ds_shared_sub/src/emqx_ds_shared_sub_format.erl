@@ -86,4 +86,4 @@ format_key_value(stream, Stream) ->
 format_key_value(progress, Progress) ->
     format_progress(Progress);
 format_key_value(_Key, Value) ->
-    Value.
+    format_deep(Value).

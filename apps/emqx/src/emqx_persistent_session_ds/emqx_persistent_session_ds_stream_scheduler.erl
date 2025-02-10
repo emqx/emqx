@@ -117,7 +117,7 @@
     on_unsubscribe/4,
     on_new_stream_event/3,
     on_shared_stream_add/3,
-    on_shared_stream_revoke/2,
+    on_shared_stream_revoke/3,
     verify_reply/3,
     suback/3,
     on_enqueue/5,
@@ -338,9 +338,17 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
 on_shared_stream_add(StreamKey, S, SchedS) ->
     ds_subscribe(StreamKey, S, SchedS).
 
--spec on_shared_stream_revoke(stream_key(), t()) -> t().
-on_shared_stream_revoke(StreamKey, SchedS) ->
-    ds_unsubscribe(StreamKey, SchedS).
+-spec on_shared_stream_revoke(stream_key(), emqx_persistent_session_ds_state:t(), t()) ->
+    {emqx_persistent_session_ds_state:t(), t()}.
+on_shared_stream_revoke(StreamKey, S, SchedS) ->
+    case emqx_persistent_session_ds_state:get_stream(StreamKey, S) of
+        undefined ->
+            {S, SchedS};
+        SRS ->
+            Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+            Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+            unsubscribe_stream(Comm1, Comm2, StreamKey, SRS, S, SchedS)
+    end.
 
 %% @doc Verify sequence number of DS subscription reply
 -spec verify_reply(#ds_sub_reply{}, emqx_persistent_session_ds_state:t(), t()) ->

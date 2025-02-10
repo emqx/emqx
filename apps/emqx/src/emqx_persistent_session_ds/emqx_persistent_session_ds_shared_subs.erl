@@ -480,12 +480,14 @@ add_stream_to_session(
 
 handle_revoke_stream(
     #{subscription_id := SubscriptionId, stream := Stream} = _Event,
-    S,
+    S0,
     SchedS0,
     SharedS
 ) ->
     Key = {SubscriptionId, Stream},
-    SchedS = emqx_persistent_session_ds_stream_scheduler:on_shared_stream_revoke(Key, SchedS0),
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_shared_stream_revoke(
+        Key, S0, SchedS0
+    ),
     {S, SchedS, SharedS}.
 
 %%--------------------------------------------------------------------
