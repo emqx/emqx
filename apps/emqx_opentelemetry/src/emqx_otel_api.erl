@@ -103,6 +103,8 @@ otel_config_example() ->
         },
         traces => #{
             enable => true,
+            max_queue_size => 2048,
+            scheduled_delay => "5s",
             filter => #{
                 trace_all => false,
                 trace_mode => legacy,
