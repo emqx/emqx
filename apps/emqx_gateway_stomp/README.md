@@ -28,4 +28,4 @@ gateway.stomp {
 > Configuring the gateway via emqx.conf requires changes on a per-node basis,
 > but configuring it via Dashboard or the HTTP API will take effect across the cluster.
 
-More documentations: [Stomp Gateway](https://www.emqx.io/docs/en/v5.0/gateway/stomp.html)
+More documentations: [Stomp Gateway](https://www.emqx.io/docs/en/latest/gateway/stomp.html)

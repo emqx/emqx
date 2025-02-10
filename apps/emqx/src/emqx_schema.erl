@@ -2909,7 +2909,7 @@ validate_max_packet_size(_SizStr) ->
 %% This is for backward compatibility.
 %% We used to allow setting 256MB, but in fact the limit is one byte less.
 convert_max_packet_size(<<"256MB">>, _) ->
-    ?MAX_INT_MQTT_PACKET_SIZE;
+    iolist_to_binary([integer_to_list(?MAX_INT_MQTT_PACKET_SIZE), "B"]);
 convert_max_packet_size(X, _) ->
     X.
 

@@ -87,6 +87,10 @@ groups() ->
         {group, trace_legacy_mode},
         {group, trace_e2e_mode}
     ],
+    E2ETraceGroups = [
+        {group, e2e_with_traceparent},
+        {group, e2e_no_traceparent}
+    ],
     LegacyModeTraceCases = [
         t_trace,
         t_trace_disabled,
@@ -118,7 +122,9 @@ groups() ->
         {traces, TraceGroups},
         {metrics, MetricsGroups},
         {trace_legacy_mode, LegacyModeTraceCases},
-        {trace_e2e_mode, E2EModeTraceCases}
+        {trace_e2e_mode, E2ETraceGroups},
+        {e2e_with_traceparent, E2EModeTraceCases},
+        {e2e_no_traceparent, E2EModeTraceCases}
     ].
 
 init_per_suite(Config) ->
@@ -154,13 +160,25 @@ init_per_group(tls = Group, Config) ->
 init_per_group(trace_legacy_mode = Group, Config) ->
     [
         {otel_trace_mode, legacy},
-        {group_feature, Group}
+        {trace_mode_group_name, Group}
         | Config
     ];
 init_per_group(trace_e2e_mode = Group, Config) ->
     [
         {otel_trace_mode, e2e},
-        {group_feature, Group}
+        {trace_mode_group_name, Group}
+        | Config
+    ];
+init_per_group(e2e_with_traceparent = Group, Config) ->
+    [
+        {otel_follow_traceparent, true},
+        {traceparent_group_name, Group}
+        | Config
+    ];
+init_per_group(e2e_no_traceparent = Group, Config) ->
+    [
+        {otel_follow_traceparent, false},
+        {traceparent_group_name, Group}
         | Config
     ];
 init_per_group(Group, Config) ->
@@ -442,10 +460,15 @@ t_e2e_connect_disconnect(Config) ->
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
     MqttHostPort = mqtt_host_port(),
-    ClientId = client_id(Config),
-    Conn = connect(MqttHostPort, ClientId),
+    ClientId = e2e_client_id(Config),
+
+    WithTraceparent = ?config(otel_follow_traceparent, Config),
+    ConnectTraceParent = traceparent(true),
+    DisconnectTraceParent = traceparent(true),
+
+    Conn = connect(MqttHostPort, ClientId, props(WithTraceparent, ConnectTraceParent)),
     timer:sleep(500),
-    _ = disconnect_conn(Conn),
+    _ = emqtt:disconnect(Conn, ?RC_SUCCESS, props(WithTraceparent, DisconnectTraceParent)),
     ?assertEqual(
         ok,
         emqx_common_test_helpers:wait_for(
@@ -460,7 +483,6 @@ t_e2e_connect_disconnect(Config) ->
                         <<"cluster.id">> => <<"emqxcl">>
                     }
                 ),
-                ct:pal("ConnectTraces: ~p~n", [ConnectTraces]),
 
                 %% only one traces for client current `ClientId`
                 1 = length(ConnectTraces),
@@ -474,9 +496,13 @@ t_e2e_connect_disconnect(Config) ->
                 #{
                     <<"spanID">> := ClientConnect_SpanID,
                     <<"traceID">> := ClientConnect_TraceID,
-                    %% No refs for root span
-                    <<"references">> := []
+                    <<"references">> := Refs1
                 } = ClientConnect_Span,
+
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs1),
+                true = trace_id_assert(
+                    WithTraceparent, ClientConnect_TraceID, trace_id(ConnectTraceParent)
+                ),
 
                 %% `client.authn` span
                 #{
@@ -500,9 +526,22 @@ t_e2e_connect_disconnect(Config) ->
                         <<"cluster.id">> => <<"emqxcl">>
                     }
                 ),
-                %% one normal disconnected
-                ct:pal("DisConnectTraces: ~p~n", [DisconnectTraces]),
-                1 = length(DisconnectTraces),
+
+                [#{<<"spans">> := DisconnectSpans}] = DisconnectTraces,
+
+                [ClientDisconnect_Span] = filter_spans(<<"client.disconnect">>, DisconnectSpans),
+
+                %% `client.disconnect` span
+                #{
+                    <<"traceID">> := ClientDisconnect_TraceID,
+                    <<"references">> := Refs2
+                } = ClientDisconnect_Span,
+
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs2),
+                true = trace_id_assert(
+                    WithTraceparent, ClientDisconnect_TraceID, trace_id(DisconnectTraceParent)
+                ),
+
                 true
             end,
             10_000
@@ -515,7 +554,7 @@ t_e2e_abnormal_disconnect(Config) ->
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
     MqttHostPort = mqtt_host_port(),
-    ClientId = client_id(Config),
+    ClientId = e2e_client_id(Config),
     Conn = connect(MqttHostPort, ClientId),
     timer:sleep(500),
     _ = stop_conn(Conn),
@@ -552,12 +591,17 @@ t_e2e_cilent_sub_unsub(Config) ->
     QoS = ?QOS_2,
 
     MqttHostPort = mqtt_host_port(),
-    ClientId = client_id(Config),
+    ClientId = e2e_client_id(Config),
+
+    WithTraceparent = ?config(otel_follow_traceparent, Config),
+    SubTraceParent = traceparent(true),
+    UnsubTraceParent = traceparent(true),
+
     Conn = connect(MqttHostPort, ClientId),
     timer:sleep(500),
-    {ok, _, [QoS]} = emqtt:subscribe(Conn, Topic, QoS),
+    {ok, _, [QoS]} = emqtt:subscribe(Conn, props(WithTraceparent, SubTraceParent), Topic, QoS),
     timer:sleep(500),
-    {ok, _, _} = emqtt:unsubscribe(Conn, Topic),
+    {ok, _, _} = emqtt:unsubscribe(Conn, props(WithTraceparent, UnsubTraceParent), Topic),
     _ = disconnect_conn(Conn),
     ?assertEqual(
         ok,
@@ -579,7 +623,6 @@ t_e2e_cilent_sub_unsub(Config) ->
                         <<"cluster.id">> => <<"emqxcl">>
                     }
                 ),
-                ct:pal("SubTraces: ~p~n", [SubscribeTraces]),
 
                 %% only one traces for client current `ClientId`
                 1 = length(SubscribeTraces),
@@ -593,9 +636,13 @@ t_e2e_cilent_sub_unsub(Config) ->
                 #{
                     <<"spanID">> := ClientSubscribe_SpanID,
                     <<"traceID">> := ClientSubscribe_TraceID,
-                    %% No refs for root span
-                    <<"references">> := []
+                    <<"references">> := Refs1
                 } = ClientSubscribe_Span,
+
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs1),
+                true = trace_id_assert(
+                    WithTraceparent, ClientSubscribe_TraceID, trace_id(SubTraceParent)
+                ),
 
                 #{
                     <<"tags">> := ClientAuthZ_Tags,
@@ -626,8 +673,21 @@ t_e2e_cilent_sub_unsub(Config) ->
                         <<"cluster.id">> => <<"emqxcl">>
                     }
                 ),
-                ct:pal("UnsubTraces: ~p~n", [UnsubscribeTraces]),
-                1 = length(SubscribeTraces),
+
+                [#{<<"spans">> := UnsubscribeSpans}] = UnsubscribeTraces,
+
+                [ClientUnsubscribe_Span] = filter_spans(<<"client.unsubscribe">>, UnsubscribeSpans),
+
+                %% `client.unsubscribe` span
+                #{
+                    <<"traceID">> := ClientUnsubscribe_TraceID,
+                    <<"references">> := Refs2
+                } = ClientUnsubscribe_Span,
+
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs2),
+                true = trace_id_assert(
+                    WithTraceparent, ClientUnsubscribe_TraceID, trace_id(UnsubTraceParent)
+                ),
 
                 true
             end,
@@ -660,7 +720,7 @@ t_e2e_cilent_publish_qos0(Config) ->
     QoS = ?QOS_0,
 
     MqttHostPort = mqtt_host_port(),
-    BaseClientId = client_id(Config),
+    BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
     Conn1 = connect(MqttHostPort, ClientId1),
@@ -706,7 +766,6 @@ t_e2e_cilent_publish_qos0(Config) ->
                 %%         │
                 %% 5.      └─ `broker.publish` (ClientId2)
 
-                %% lists:sort(fun(ClientId1, ClientId2) -> true; (_, _) -> false end, Spans)
                 [?MATCH_ROOT_SPAN(SpanID1, TraceID)] = F(<<"client.publish">>, Spans),
                 [?MATCH_SUB_SPAN(_SpanID2, SpanID1, _)] = F(<<"client.authz">>, Spans),
                 [?MATCH_SUB_SPAN(SpanID3, SpanID1, _)] = F(<<"message.route">>, Spans),
@@ -729,7 +788,7 @@ t_e2e_cilent_publish_qos1(Config) ->
     QoS = ?QOS_1,
 
     MqttHostPort = mqtt_host_port(),
-    BaseClientId = client_id(Config),
+    BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
     Conn1 = connect(MqttHostPort, ClientId1),
@@ -804,7 +863,7 @@ t_e2e_cilent_publish_qos2(Config) ->
     QoS = ?QOS_2,
 
     MqttHostPort = mqtt_host_port(),
-    BaseClientId = client_id(Config),
+    BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
     Conn1 = connect(MqttHostPort, ClientId1),
@@ -901,7 +960,7 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     QoS = ?QOS_2,
 
-    BaseClientId = client_id(Config),
+    BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
     ClientId3 = <<BaseClientId/binary, "-3">>,
@@ -1030,11 +1089,6 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
 %%------------------------------------------------------------------------------
 
 %% TODO: Update msg_trace_level to test qos upgrade/downgrade
-%% emqx_utils_maps:deep_put(
-%%     [<<"traces">>, <<"filter">>, <<"e2e_tracing_options">>], OtelConf, #{
-%%         <<"msg_trace_level">> => 0 | 1 | 2
-%%     }
-%% ),
 enabled_e2e_trace_conf_all(TcConfig) ->
     OtelConf = enabled_trace_conf(TcConfig),
     emqx_utils_maps:deep_put(
@@ -1066,8 +1120,14 @@ filter_conf(TcConfig) ->
 
 filter_conf(legacy, _TcConfig) ->
     #{<<"trace_mode">> => legacy};
-filter_conf(e2e, _TcConfig) ->
-    #{<<"trace_mode">> => e2e}.
+filter_conf(e2e, TcConfig) ->
+    #{
+        <<"trace_mode">> => e2e,
+        <<"e2e_tracing_options">> => e2e_tracing_opts(TcConfig)
+    }.
+
+e2e_tracing_opts(TcConfig) ->
+    #{<<"follow_traceparent">> => ?config(otel_follow_traceparent, TcConfig)}.
 
 span_node(#{<<"processID">> := ProcId}, Procs) ->
     #{ProcId := #{<<"tags">> := ProcTags}} = Procs,
@@ -1087,15 +1147,6 @@ filter_traces(TraceId, Traces) ->
 
 filter_spans(OpName, Spans) ->
     lists:filter(fun(#{<<"operationName">> := Name}) -> Name =:= OpName end, Spans).
-
-filter_spans_with_sort_by_start_time(OpName, Spans) ->
-    lists:sort(
-        fun
-            (#{<<"startTime">> := S}, #{<<"startTime">> := L}) when S =< L -> true;
-            (_, _) -> false
-        end,
-        filter_spans(OpName, Spans)
-    ).
 
 sort_spans_by_key_sequence(TagKeyName, KeySeq, OpName, Spans) ->
     NSpans = filter_spans(OpName, Spans),
@@ -1156,8 +1207,23 @@ search_jaeger_traces(JaegerBaseURL, SpanName, Tags) ->
             Err
     end.
 
+props(true, TraceParent) ->
+    props(TraceParent);
+props(false, _) ->
+    #{}.
+
 props(TraceParent) ->
     #{'User-Property' => [{<<"traceparent">>, TraceParent}]}.
+
+refs_length_with_traceparent(true) ->
+    1;
+refs_length_with_traceparent(false) ->
+    0.
+
+trace_id_assert(true, TraceId1, TraceId2) ->
+    TraceId1 =:= TraceId2;
+trace_id_assert(false, _, _) ->
+    true.
 
 traceparent(IsSampled) ->
     TraceId = otel_id_generator:generate_trace_id(),
@@ -1171,23 +1237,28 @@ traceparent(IsSampled) ->
         end,
     <<"00-", TraceIdHexStr/binary, "-", SpanIdHexStr/binary, "-", TraceFlags/binary>>.
 
-client_id(Config) ->
+e2e_client_id(Config) ->
     Rand = rand:uniform(1000),
     iolist_to_binary(
-        io_lib:format("~s.~s.~s.~B", [
+        io_lib:format("~s.~s.~s.~s.~B", [
             ?config(group_conn_type, Config),
-            ?config(group_feature, Config),
+            ?config(trace_mode_group_name, Config),
+            ?config(traceparent_group_name, Config),
             ?config(tc, Config),
             Rand
         ])
     ).
 
 connect({Host, Port}, ClientId) ->
+    connect({Host, Port}, ClientId, #{}).
+
+connect({Host, Port}, ClientId, Props) ->
     {ok, ConnPid} = emqtt:start_link([
         {proto_ver, v5},
         {host, Host},
         {port, Port},
-        {clientid, ClientId}
+        {clientid, ClientId},
+        {properties, Props}
     ]),
     {ok, _} = emqtt:connect(ConnPid),
     ConnPid.
