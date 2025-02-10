@@ -62,7 +62,7 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
         {tcp, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {tcp_beam_framing, [], TCs},
+        {tcp_beam_framing, [], TCs -- [t_connect_clean_start_unresp_old_client]},
         {ws, [], TCs -- [t_connect_clean_start_unresp_old_client]},
         {quic, [], TCs}
     ].
