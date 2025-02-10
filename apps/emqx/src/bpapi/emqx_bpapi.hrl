@@ -21,8 +21,10 @@
 -define(multicall, multicall).
 
 -record(?TAB, {
-    key :: {node() | ?multicall, emqx_bpapi:api()},
-    version :: emqx_bpapi:api_version()
+    %% {node() | ?multicall, emqx_bpapi:api()},
+    key,
+    %% emqx_bpapi:api_version()
+    version
 }).
 
 -endif.

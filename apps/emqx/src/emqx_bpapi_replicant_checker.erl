@@ -1,0 +1,99 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+-module(emqx_bpapi_replicant_checker).
+
+%% @doc This process monitors whether the BPAPI entries for the current replicant node are
+%% lost due to connecting to a new core node which has no memory of the replicant, and
+%% re-announces its BPAPIs if necessary.
+%% This process is only started on replicants.
+
+-feature(maybe_expr, enable).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+
+-include_lib("emqx/src/bpapi/emqx_bpapi.hrl").
+
+%% API
+-export([
+    start_link/0
+]).
+
+%% `gen_server' API
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2
+]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+start_link() ->
+    gen_server:start_link(?MODULE, [], []).
+
+%%------------------------------------------------------------------------------
+%% `gen_server' API
+%%------------------------------------------------------------------------------
+
+init(_) ->
+    case mria_config:whoami() of
+        replicant ->
+            {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
+            State = #{},
+            {ok, State};
+        _ ->
+            ignore
+    end.
+
+handle_call(Call, _From, State) ->
+    {reply, {error, {unknown_call, Call}}, State}.
+
+handle_cast(_Cast, State) ->
+    {noreply, State}.
+
+handle_info({mnesia_table_event, {delete, {schema, ?TAB}, _TId}}, State) ->
+    %% Replicant is probably connecting to a core and will bootstrap this table soon.
+    {noreply, State};
+handle_info({mnesia_table_event, {write, {schema, ?TAB, _Def}, _TId}}, State) ->
+    %% Replicant has connected to a core and is possibly bootstrap this table.
+    %% We can wait for it to be ready and then reannounce our BPAPI, if needed.
+    maybe_reannounce_bpapis(),
+    {noreply, State};
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+maybe_reannounce_bpapis() ->
+    ok = mria:wait_for_tables([?TAB]),
+    case emqx_bpapi:supported_apis(node()) of
+        [_ | _] ->
+            %% There are entries; we assume they are correct.
+            ok;
+        [] ->
+            %% Probably joined a core node that has no recollection of us; reannounce.
+            emqx_bpapi:announce(node(), emqx),
+            ?tp(warning, "bpapi_replicant_checker_reannounced", #{})
+    end.
