@@ -154,7 +154,7 @@ t_check_max_uptime_reached(_Config) ->
 
     ?assertEqual(
         {stop, {error, ?RC_QUOTA_EXCEEDED}},
-        emqx_license:check(#{}, #{})
+        emqx_license:check(#{clientid => <<>>}, #{})
     ).
 
 t_check_not_loaded(_Config) ->
