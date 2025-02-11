@@ -149,7 +149,7 @@ fields("otel_traces") ->
                 #{
                     default => 2048,
                     desc => ?DESC(max_queue_size),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {exporting_timeout,

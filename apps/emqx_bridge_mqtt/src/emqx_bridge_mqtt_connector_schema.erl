@@ -38,10 +38,6 @@
     connector_examples/1
 ]).
 
--import(emqx_schema, [mk_duration/2]).
-
--import(hoconsc, [mk/2, ref/2]).
-
 -define(CONNECTOR_TYPE, mqtt).
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
@@ -377,8 +373,50 @@ parse_server(Str) ->
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS),
     {Host, Port}.
 
-connector_examples(_Method) ->
-    [#{}].
+connector_examples(Method) ->
+    [
+        #{
+            <<"mqtt">> => #{
+                summary => <<"MQTT Connector">>,
+                value => connector_example(Method)
+            }
+        }
+    ].
+
+connector_example(get) ->
+    maps:merge(
+        connector_example(put),
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        }
+    );
+connector_example(post) ->
+    maps:merge(
+        connector_example(put),
+        #{
+            type => atom_to_binary(?CONNECTOR_TYPE),
+            name => <<"my_connector">>
+        }
+    );
+connector_example(put) ->
+    #{
+        enable => true,
+        description => <<"My connector">>,
+        pool_size => 3,
+        proto_ver => <<"v5">>,
+        server => <<"127.0.0.1:1883">>,
+        resource_opts => #{
+            health_check_interval => <<"45s">>,
+            start_after_created => true,
+            start_timeout => <<"5s">>
+        }
+    }.
 
 static_clientid_validator([]) ->
     ok;
@@ -438,3 +476,12 @@ static_clientid_validate_clientids_length(Ids) ->
         false ->
             ok
     end.
+
+mk_duration(Desc, Opts) ->
+    emqx_schema:mk_duration(Desc, Opts).
+
+mk(Type, Opts) ->
+    hoconsc:mk(Type, Opts).
+
+ref(SchemaModule, StructName) ->
+    hoconsc:ref(SchemaModule, StructName).
