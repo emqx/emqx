@@ -38,10 +38,6 @@
     connector_examples/1
 ]).
 
--import(emqx_schema, [mk_duration/2]).
-
--import(hoconsc, [mk/2, ref/2]).
-
 -define(CONNECTOR_TYPE, mqtt).
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
@@ -480,3 +476,12 @@ static_clientid_validate_clientids_length(Ids) ->
         false ->
             ok
     end.
+
+mk_duration(Desc, Opts) ->
+    emqx_schema:mk_duration(Desc, Opts).
+
+mk(Type, Opts) ->
+    hoconsc:mk(Type, Opts).
+
+ref(SchemaModule, StructName) ->
+    hoconsc:ref(SchemaModule, StructName).
