@@ -204,6 +204,9 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
         ?MG(stats_data_cluster_consistented, RawData)
     ),
     ok = add_collect_family(Callback, vm_metric_meta(), ?MG(vm_data, RawData)),
+    ok = add_collect_family(
+        Callback, mailbox_size_top_n_metric_meta(), ?MG(mailbox_size_top_n, RawData)
+    ),
     ok = add_collect_family(Callback, cluster_metric_meta(), ?MG(cluster_data, RawData)),
 
     ok = add_collect_family(Callback, emqx_packet_metric_meta(), ?MG(emqx_packet_data, RawData)),
@@ -245,11 +248,12 @@ maybe_collect_ds_data(Mode) ->
 %% @private
 collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
+    VmData = maps:merge(?MG(vm_data, RawData), ?MG(mailbox_size_top_n, RawData)),
     (maybe_license_collect_json_data(RawData))#{
         stats => collect_stats_json_data(
             ?MG(stats_data, RawData), ?MG(stats_data_cluster_consistented, RawData)
         ),
-        metrics => collect_vm_json_data(?MG(vm_data, RawData)),
+        metrics => collect_vm_json_data(VmData),
         packets => collect_json_data(?MG(emqx_packet_data, RawData)),
         messages => collect_json_data(?MG(emqx_message_data, RawData)),
         delivery => collect_json_data(?MG(emqx_delivery_data, RawData)),
@@ -280,6 +284,7 @@ fetch_from_local_node(Mode) ->
     {node(), (maybe_collect_ds_data(Mode))#{
         stats_data => stats_data(Mode),
         vm_data => vm_data(Mode),
+        mailbox_size_top_n => mailbox_size_top_n_data(Mode),
         cluster_data => cluster_data(Mode),
         %% Metrics
         emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta(), Mode),
@@ -304,6 +309,7 @@ aggre_or_zip_init_acc() ->
     (maybe_add_ds_meta())#{
         stats_data => meta_to_init_from(stats_metric_meta()),
         vm_data => meta_to_init_from(vm_metric_meta()),
+        mailbox_size_top_n => meta_to_init_from(mailbox_size_top_n_metric_meta()),
         cluster_data => meta_to_init_from(cluster_metric_meta()),
         emqx_packet_data => meta_to_init_from(emqx_packet_metric_meta()),
         emqx_message_data => meta_to_init_from(message_metric_meta()),
@@ -367,6 +373,7 @@ emqx_collect(K = emqx_vm_total_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_used_memory, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_mnesia_tm_mailbox_size, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_vm_broker_pool_max_mailbox_size, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_vm_mailbox_size_top_n, D) -> gauge_metrics(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Cluster Info
 emqx_collect(K = emqx_cluster_nodes_running, D) -> gauge_metrics(?MG(K, D));
@@ -599,7 +606,7 @@ stats_data(Mode) ->
     Stats = emqx_stats:getstats(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Stats)}]}
+            AccIn#{Name => [{with_common_labels(Mode, []), ?C(MetricKAtom, Stats)}]}
         end,
         #{},
         stats_metric_meta()
@@ -635,18 +642,48 @@ vm_data(Mode) ->
     VmStats = emqx_mgmt:vm_stats(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            Labels =
-                case Mode of
-                    ?PROM_DATA_MODE__NODE ->
-                        [];
-                    _ ->
-                        [{node, node(self())}]
-                end,
+            Labels = with_common_labels(Mode, [], non_node_aggregatable),
             AccIn#{Name => [{Labels, ?C(MetricKAtom, VmStats)}]}
         end,
         #{},
         vm_metric_meta()
     ).
+
+mailbox_size_top_n_metric_meta() ->
+    [
+        {emqx_vm_mailbox_size_top_n, gauge, 'mailbox_size_top_n'}
+    ].
+
+mailbox_size_top_n_data(Mode) ->
+    lists:foldl(
+        fun({Name, _Type, _MetricKAtom}, AccIn) ->
+            DataFun = fun() -> get_mailbox_size_top_n_metrics(Mode) end,
+            AccIn#{
+                Name => catch_all(DataFun)
+            }
+        end,
+        #{},
+        mailbox_size_top_n_metric_meta()
+    ).
+
+get_mailbox_size_top_n_metrics(Mode) ->
+    CommonLabels = with_common_labels(Mode, [], non_node_aggregatable),
+    case emqx_broker_mon:get_mailbox_size_top_n() of
+        [] ->
+            [{CommonLabels, 0}];
+        TopNProcs ->
+            [
+                {proc_labels(Pid, ProcName, Meta, CommonLabels), QLen}
+             || {Pid, ProcName, QLen, Meta} <- TopNProcs
+            ]
+    end.
+
+proc_labels(Pid, ProcName, Meta, CommonLabels) ->
+    [
+        {proc_name, ProcName},
+        {pid, iolist_to_binary(pid_to_list(Pid))}
+        | CommonLabels
+    ] ++ maps:to_list(Meta).
 
 %%========================================
 %% Cluster
@@ -658,11 +695,8 @@ cluster_metric_meta() ->
         {emqx_cluster_nodes_stopped, gauge, undefined}
     ].
 
-cluster_data(node) ->
-    Labels = [],
-    do_cluster_data(Labels);
-cluster_data(_) ->
-    Labels = [{node, node(self())}],
+cluster_data(Mode) ->
+    Labels = with_common_labels(Mode, [], non_node_aggregatable),
     do_cluster_data(Labels).
 
 do_cluster_data(Labels) ->
@@ -687,7 +721,7 @@ emqx_metric_data(MetricNameTypeKeyL, Mode, Acc) ->
             ({_Name, _Type, undefined}, AccIn) ->
                 AccIn;
             ({Name, _Type, MetricKAtom}, AccIn) ->
-                AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Metrics)}]}
+                AccIn#{Name => [{with_common_labels(Mode, []), ?C(MetricKAtom, Metrics)}]}
         end,
         Acc,
         MetricNameTypeKeyL
@@ -715,7 +749,7 @@ get_listener_shutdown_counts_with_labels({Id, #{bind := Bind, running := true}},
             {listener_name, Name},
             {reason, Reason}
         ],
-        {with_node_label(Mode, Labels), Count}
+        {with_common_labels(Mode, Labels), Count}
     end,
     case emqx_listeners:shutdown_count(Id, Bind) of
         {error, _} ->
@@ -1082,11 +1116,7 @@ mria_metric_meta(replicant) ->
     ].
 
 cluster_rpc_data(Mode) ->
-    Labels =
-        case Mode of
-            ?PROM_DATA_MODE__NODE -> [];
-            _ -> [{node, node(self())}]
-        end,
+    Labels = with_common_labels(Mode, [], non_node_aggregatable),
     DataFun = fun() -> emqx_cluster_rpc:get_current_tnx_id() end,
     #{
         emqx_conf_sync_txid => [{Labels, catch_all(DataFun)}]
@@ -1114,13 +1144,7 @@ mria_data(Role, Mode) ->
     ).
 
 get_shard_metrics(Mode, MetricK) ->
-    Labels =
-        case Mode of
-            node ->
-                [];
-            _ ->
-                [{node, node(self())}]
-        end,
+    Labels = with_common_labels(Mode, [], non_node_aggregatable),
     [
         {[{shard, Shard} | Labels], get_shard_metric(MetricK, Shard)}
      || Shard <- mria_schema:shards(), Shard =/= undefined
@@ -1225,11 +1249,16 @@ meta_to_init_from(Meta) ->
 metrics_name(MetricsAll) ->
     [Name || {Name, _, _} <- MetricsAll].
 
-with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
+with_common_labels(Mode, Labels) ->
+    with_common_labels(Mode, Labels, node_aggregatable).
+
+with_common_labels(?PROM_DATA_MODE__NODE, Labels, _) ->
     Labels;
-with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
+with_common_labels(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels, node_aggregatable) ->
     Labels;
-with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
+with_common_labels(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels, non_node_aggregatable) ->
+    [{node, node(self())} | Labels];
+with_common_labels(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels, _) ->
     [{node, node(self())} | Labels].
 
 %%--------------------------------------------------------------------

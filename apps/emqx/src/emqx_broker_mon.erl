@@ -40,8 +40,6 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--type proc_name() :: binary().
-
 -define(PT_KEY, {?MODULE, atomics}).
 -define(mnesia_tm_mailbox, mnesia_tm_mailbox).
 -define(broker_pool_max_mailbox, broker_pool_max_mailbox).
@@ -87,7 +85,7 @@ get_broker_pool_max_mailbox_size() ->
             atomics:get(Atomics, Idx)
     end.
 
--spec get_mailbox_size_top_n() -> [{proc_name(), non_neg_integer()}].
+-spec get_mailbox_size_top_n() -> [{binary(), non_neg_integer()}].
 get_mailbox_size_top_n() ->
     ets:tab2list(?MAILBOX_LEN_TAB).
 
@@ -213,11 +211,25 @@ update_broker_pool_max_mailbox_size(State) ->
 update_top_n_mailbox_procs(ProcsInfo) ->
     ets:delete_all_objects(?MAILBOX_LEN_TAB),
     lists:foreach(
-        fun({_Pid, QLen, ProcName}) ->
-            ets:insert(?MAILBOX_LEN_TAB, {ProcName, QLen})
+        fun({Pid, QLen, ProcName}) ->
+            ets:insert(?MAILBOX_LEN_TAB, {Pid, ProcName, QLen, make_proc_meta_data(Pid)})
         end,
         ProcsInfo
     ).
+
+make_proc_meta_data(Pid) ->
+    case erlang:process_info(Pid, dictionary) of
+        undefined ->
+            #{};
+        {dictionary, Dict} ->
+            LoggerProcMeta = proplists:get_value('$logger_metadata$', Dict, #{}),
+            emqx_utils_maps:jsonable_map(
+                LoggerProcMeta,
+                fun(K, V) ->
+                    {emqx_utils_conv:bin(K), emqx_utils_conv:bin(V)}
+                end
+            )
+    end.
 
 non_zero_mailbox_procs(TopN) ->
     [
@@ -225,6 +237,8 @@ non_zero_mailbox_procs(TopN) ->
      || {Pid, QLen, _} <- recon:proc_count(message_queue_len, TopN), QLen > 0
     ].
 
+make_top_n_mailbox_alarm_msg([]) ->
+    <<"some processes are overloaded">>;
 make_top_n_mailbox_alarm_msg(ProcsInfo) ->
     [
         <<"some processes are overloaded, overloaded procs:">>,
@@ -317,22 +331,19 @@ format_proc_info(Pid, normal) when is_pid(Pid) ->
             undefined
     end.
 
--spec proc_name(pid()) -> proc_name().
+-spec proc_name(pid()) -> binary().
 proc_name(Pid) ->
     case erlang:process_info(Pid, [registered_name, initial_call, dictionary]) of
         [{registered_name, Name} | _] when is_atom(Name), Name =/= undefined ->
             atom_to_binary(Name);
         [{registered_name, _Name}, {initial_call, Init}, {dictionary, Dict}] ->
             case get_label(Pid) of
-                undefined -> wrap_pid(init_call(Init, Dict), Pid);
-                Label -> wrap_pid(Label, Pid)
+                undefined -> init_call(Init, Dict);
+                Label -> Label
             end;
         _ ->
-            wrap_pid("unknown", Pid)
+            <<"undefined">>
     end.
-
-wrap_pid(Name, Pid) ->
-    iolist_to_binary([Name, "(", pid_to_list(Pid), ")"]).
 
 reg_name(Name) when is_atom(Name) -> Name;
 reg_name(_) -> undefined.
