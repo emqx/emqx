@@ -83,7 +83,7 @@
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
--elvis([{elvis_style, dont_repeat_yourself, disable}]).
+-elvis([{elvis_style, dont_repeat_yourself, disable}, {elvis_style, no_catch_expressions, disable}]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
