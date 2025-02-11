@@ -1280,15 +1280,20 @@ high_watermark(DBShard = {DB, Shard}, Stream) ->
     emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
 
 fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key) ->
-    Now = current_timestamp(DB, Shard),
-    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
-        {ok, end_of_stream} ->
-            {ok, end_of_stream};
-        {ok, Inner} ->
-            {ok, It#{?enc := Inner}};
-        {error, _, _} = Err ->
-            Err
-    end.
+    ?IF_SHARD_READY(
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+                {ok, end_of_stream} ->
+                    {ok, end_of_stream};
+                {ok, Inner} ->
+                    {ok, It#{?enc := Inner}};
+                {error, _, _} = Err ->
+                    Err
+            end
+        end
+    ).
 
 message_match_context(DBShard, InnerStream, MsgKey, Message) ->
     emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).

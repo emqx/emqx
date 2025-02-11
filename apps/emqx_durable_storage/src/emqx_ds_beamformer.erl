@@ -763,7 +763,7 @@ generation_event(DBShard) ->
     monitor_tab = ets:tid(),
     %% List of subscription IDs waiting for dispatching to the
     %% worker:
-    pending = [] :: [reference()],
+    pending = [] :: [sub_state()],
     %% Generation cache:
     generations :: #{emqx_ds:generation_rank() => emqx_ds:generation_info()}
 }).
@@ -1265,20 +1265,25 @@ do_schedule(D = #d{dbshard = DBShard, pending = Pending}) ->
         end,
         Pending
     ),
-    %% Dispatch the events to the workers and collect the requests
-    %% that couldn't be dispatched:
+    %% Dispatch the subscribtions to the workers and collect ones that
+    %%  couldn't be dispatched for later retry:
     Unmatched = maps:fold(
-        fun(Worker, Reqs, Unmatched) ->
+        fun(Worker, Reqs, UnmatchedAcc) ->
             case emqx_ds_beamformer_catchup:enqueue(Worker, Reqs) of
                 ok ->
-                    Unmatched;
+                    UnmatchedAcc;
                 Error ->
+                    %% TODO: currently enqueue cannot fail due to
+                    %% infinite timeout. However, sync call with an
+                    %% infinite timeout is a temporary solution. There
+                    %% should be a async ownership transfer protocol
+                    %% that doesn't block the caller.
                     ?tp(
                         error,
                         emqx_ds_beamformer_delegate_error,
                         #{shard => DBShard, worker => Worker, error => Error}
                     ),
-                    Reqs ++ Unmatched
+                    Reqs ++ UnmatchedAcc
             end
         end,
         [],
@@ -1301,10 +1306,16 @@ remove_subscription(
             %% Notify the worker (if not stuck):
             is_pid(Owner) andalso
                 (Owner ! #unsub_req{id = SubId}),
-            {true, D#d{pending = Pending -- [SubId]}};
+            {true, D#d{pending = drop_from_pending(SubId, Pending)}};
         [] ->
             {false, D}
     end.
+
+drop_from_pending(SubId, Pending) ->
+    lists:filter(
+        fun(#sub_state{req_id = Id}) -> Id =/= SubId end,
+        Pending
+    ).
 
 send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
     ?tp(debug, beamformer_out, #{

@@ -316,7 +316,7 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
         #{Ref := TopicFilterBin} ->
             #{TopicFilterBin := SubS0} = SubsMetadata,
             ?tp(?sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
-            TopicFilter = emqx_topic:words(TopicFilterBin),
+            TopicFilter = emqx_ds:topic_words(TopicFilterBin),
             Subscription =
                 #{start_time := StartTime} = emqx_persistent_session_ds_state:get_subscription(
                     TopicFilterBin, S0

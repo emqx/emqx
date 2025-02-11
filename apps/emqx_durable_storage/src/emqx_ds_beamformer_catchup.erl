@@ -289,6 +289,11 @@ move_to_realtime(
                     %% immediately (is it a good idea?):
                     ok;
                 {error, recoverable, Error} ->
+                    %% TODO: currently enqueue cannot fail due to
+                    %% infinite timeout. However, sync call with an
+                    %% infinite timeout is a temporary solution. There
+                    %% should be a async ownership transfer protocol
+                    %% that doesn't block the caller.
                     ?tp(
                         warning,
                         emqx_ds_beamformer_move_to_rt_fail,

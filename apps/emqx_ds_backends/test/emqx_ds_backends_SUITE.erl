@@ -547,7 +547,7 @@ t_sub_unsub(Config) ->
             ?assertMatch(
                 #{},
                 emqx_ds:subscription_info(DB, Handle),
-                #{ref => Handle}
+                #{handle => Handle}
             ),
             %% Unsubscribe and check that subscription has been
             %% unregistered:
