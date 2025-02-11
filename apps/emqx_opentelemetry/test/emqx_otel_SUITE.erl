@@ -32,7 +32,8 @@
     t_e2e_cilent_publish_qos0/1,
     t_e2e_cilent_publish_qos1/1,
     t_e2e_cilent_publish_qos2/1,
-    t_e2e_cilent_publish_qos2_with_forward/1
+    t_e2e_cilent_publish_qos2_with_forward/1,
+    t_e2e_cilent_borker_publish_whitelist/1
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -104,7 +105,8 @@ groups() ->
         t_e2e_cilent_publish_qos0,
         t_e2e_cilent_publish_qos1,
         t_e2e_cilent_publish_qos2,
-        t_e2e_cilent_publish_qos2_with_forward
+        t_e2e_cilent_publish_qos2_with_forward,
+        t_e2e_cilent_borker_publish_whitelist
     ],
     %% TODO: Add metrics test cases
     MetricsGroups = [
@@ -189,7 +191,8 @@ end_per_group(_Group, _Config) ->
 
 init_per_testcase(TC, Config) when
     TC =:= t_distributed_trace orelse
-        TC =:= t_e2e_cilent_publish_qos2_with_forward
+        TC =:= t_e2e_cilent_publish_qos2_with_forward orelse
+        TC =:= t_e2e_cilent_borker_publish_whitelist
 ->
     Cluster = cluster(TC, Config),
     [{tc, TC}, {cluster, Cluster} | Config];
@@ -199,7 +202,8 @@ init_per_testcase(TC, Config) ->
 
 end_per_testcase(TC, Config) when
     TC =:= t_distributed_trace orelse
-        TC =:= t_e2e_cilent_publish_qos2_with_forward
+        TC =:= t_e2e_cilent_publish_qos2_with_forward orelse
+        TC =:= t_e2e_cilent_borker_publish_whitelist
 ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     emqx_config:delete_override_conf_files(),
@@ -1075,6 +1079,97 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
                 [?MATCH_SUB_SPAN(SpanID20, SpanID1, _)] = F1(<<"broker.pubrec">>, Spans),
                 [?MATCH_SUB_SPAN(SpanID21, SpanID20, _)] = F1(<<"client.pubrel">>, Spans),
                 [?MATCH_SUB_SPAN(_SpanID22, SpanID21, _)] = F1(<<"broker.pubcomp">>, Spans),
+                true
+            end,
+            10_000
+        )
+    ),
+
+    _ = disconnect_conns([Conn1, Conn2, Conn3]),
+    ok.
+
+t_e2e_cilent_borker_publish_whitelist(Config) ->
+    [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
+
+    OtelConf0 = enabled_e2e_trace_conf_all(Config),
+    %% set sample ratio to zero to test span `broker.publish` by whitelist
+    OtelConf =
+        emqx_utils_maps:deep_put(
+            [<<"traces">>, <<"filter">>, <<"e2e_tracing_options">>, <<"sample_ratio">>],
+            OtelConf0,
+            0.0
+        ),
+    ct:pal("OtelConf0: ~p~n", [OtelConf0]),
+    ct:pal("OtelConf: ~p~n", [OtelConf]),
+    {ok, _} = rpc:call(
+        Core1,
+        emqx_conf,
+        update,
+        [?CONF_PATH, OtelConf, #{override_to => cluster}]
+    ),
+
+    Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    PubQoS = ?QOS_2,
+
+    BaseClientId = e2e_client_id(Config),
+    ClientId1 = <<BaseClientId/binary, "-1">>,
+    ClientId2 = <<BaseClientId/binary, "-2">>,
+    ClientId3 = <<BaseClientId/binary, "-3">>,
+
+    ok = rpc:call(Core1, emqx_otel_sampler, store_rule, [clientid, ClientId2]),
+    ok = rpc:call(Core1, emqx_otel_sampler, store_rule, [clientid, ClientId3]),
+
+    Conn1 = connect(mqtt_host_port(Core1), ClientId1),
+    {ok, _, [PubQoS]} = emqtt:subscribe(Conn1, Topic, PubQoS),
+    Conn2 = connect(mqtt_host_port(Core2), ClientId2),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Conn2, Topic, ?QOS_1),
+    Conn3 = connect(mqtt_host_port(Repl), ClientId3),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Conn3, Topic, ?QOS_2),
+
+    timer:sleep(50),
+    {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, PubQoS),
+
+    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+
+    timer:sleep(200),
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := BrokerPublishTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    "broker.publish",
+                    #{<<"client.clientid">> => ClientId2}
+                ),
+                %% ct:pal("SubTraces: ~p~n", [BrokerPublishTraces]),
+
+                [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = BrokerPublishTraces,
+                6 = length(Spans),
+                %% Note: Ignoring spans and sorting by time may cause order problems
+                %% due to asynchronous requests. Manually sort by span name directly
+                %% The following two `broker.publish` both have parent span, but not sampled here
+                %%
+                %% 1.  ├─`broker.publish` (ClientId2)
+                %% 2.  │   └─ `client.puback`
+                %%     │
+                %% 3.  └─`broker.publish` (ClientId3)
+                %% 4.     └─ `client.pubrec`
+                %% 5.         └─ `broker.pubrel`
+                %% 6.             └─ `client.pubcomp`
+
+                [
+                    ?MATCH_SUB_SPAN(SpanID1, _, TraceID),
+                    ?MATCH_SUB_SPAN(SpanID3, _, TraceID)
+                ] = F(<<"broker.publish">>, Spans),
+
+                [?MATCH_SUB_SPAN(_SpanID2, SpanID1, _)] = F(<<"client.puback">>, Spans),
+
+                [?MATCH_SUB_SPAN(SpanID4, SpanID3, _)] = F(<<"client.pubrec">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID5, SpanID4, _)] = F(<<"broker.pubrel">>, Spans),
+                [?MATCH_SUB_SPAN(_SpanID6, SpanID5, _)] = F(<<"client.pubcomp">>, Spans),
+
                 true
             end,
             10_000
