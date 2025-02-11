@@ -530,6 +530,106 @@ t_ssl_clear(_) ->
     ?assertMatch({error, enoent}, list_pem_dir(SvrName)),
     ok.
 
+t_format_props(_) ->
+    ?assertMatch(
+        [{on_provider_loaded, #{broker := _Broker}}],
+        emqx_exhook_demo_svr:flush()
+    ),
+
+    %% connect
+    ClientId = <<"exhook_format_props">>,
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {port, 1883},
+        {username, <<"gooduser">>},
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{
+            'User-Property' => [{<<"k1">>, <<"v1">>}],
+            'Session-Expiry-Interval' => 100
+        }}
+    ]),
+    %% assert the connect/connack props
+    {ok, _} = emqtt:connect(C),
+    Events1 = get_props_from_events(
+        [on_client_connect, on_client_connack],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            %% assert the requested props
+            {on_client_connect, #{
+                props := [#{name := <<"Session-Expiry-Interval">>, value := <<"100">>}],
+                user_props := [#{name := <<"k1">>, value := <<"v1">>}]
+            }},
+            %% broker will modify/add some props
+            {on_client_connack, #{props := _, user_props := []}}
+        ],
+        Events1
+    ),
+    %% assert the subscribe props
+    SubReqProps = #{
+        'Subscription-Identifier' => 1,
+        'User-Property' => [{<<"k2">>, <<"v2">>}]
+    },
+    {ok, _, _} = emqtt:subscribe(C, SubReqProps, <<"t/a">>, qos0),
+    Events2 = get_props_from_events(
+        [on_client_subscribe],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            {on_client_subscribe, #{
+                props := [#{name := <<"Subscription-Identifier">>, value := <<"1">>}],
+                user_props := [#{name := <<"k2">>, value := <<"v2">>}]
+            }}
+        ],
+        Events2
+    ),
+    %% assert the unsubscribe props
+    UnsubReqProps = #{
+        'Subscription-Identifier' => 1,
+        'User-Property' => [{<<"k3">>, <<"v3">>}]
+    },
+    {ok, _, _} = emqtt:unsubscribe(C, UnsubReqProps, <<"t/a">>),
+    Events3 = get_props_from_events(
+        [on_client_unsubscribe],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            {on_client_unsubscribe, #{
+                props := [#{name := <<"Subscription-Identifier">>, value := <<"1">>}],
+                user_props := [#{name := <<"k3">>, value := <<"v3">>}]
+            }}
+        ],
+        Events3
+    ),
+    %% assert the publish props
+    PubReqProps = #{
+        'Message-Expiry-Interval' => 300,
+        'User-Property' => [{<<"k4">>, <<"v4">>}]
+    },
+    ok = emqtt:publish(C, <<"t/a">>, PubReqProps, <<"payload">>, []),
+    timer:sleep(500),
+    Events4 = get_props_from_events(
+        [on_message_publish],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            {on_message_publish, #{
+                props := [#{name := <<"Message-Expiry-Interval">>, value := <<"300">>}],
+                user_props := [#{name := <<"k4">>, value := <<"v4">>}]
+            }}
+        ],
+        Events4
+    ),
+    timer:sleep(100),
+    emqtt:stop(C),
+    timer:sleep(100),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Cases Helpers
 %%--------------------------------------------------------------------
@@ -587,3 +687,16 @@ cert_file(Name) ->
 shuffle(List) ->
     Sorted = lists:sort(lists:map(fun(L) -> {rand:uniform(), L} end, List)),
     lists:map(fun({_, L}) -> L end, Sorted).
+
+get_props_from_events(Names, Events) ->
+    lists:filtermap(
+        fun({Name, Req}) ->
+            case lists:member(Name, Names) of
+                true ->
+                    {true, {Name, maps:with([props, user_props], Req)}};
+                false ->
+                    false
+            end
+        end,
+        Events
+    ).

@@ -20,9 +20,9 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
-%% The exhook proto version should be fixed as `v2` in EMQX v5.x
+%% The exhook proto version should be fixed as `v3` in EMQX v5.x
 %% to make sure the exhook proto version is compatible
--define(PB_CLIENT_MOD, emqx_exhook_v_2_hook_provider_client).
+-define(PB_CLIENT_MOD, emqx_exhook_v_3_hook_provider_client).
 
 %% Load/Unload
 -export([

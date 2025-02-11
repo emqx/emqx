@@ -76,17 +76,21 @@
 %%--------------------------------------------------------------------
 
 on_client_connect(ConnInfo, Props) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         conninfo => conninfo(ConnInfo),
-        props => properties(Props)
+        user_props => UserProps,
+        props => SystemProps
     },
     cast('client.connect', Req).
 
 on_client_connack(ConnInfo, Rc, Props) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         conninfo => conninfo(ConnInfo),
         result_code => stringfy(Rc),
-        props => properties(Props)
+        user_props => UserProps,
+        props => SystemProps
     },
     cast('client.connack', Req).
 
@@ -165,17 +169,21 @@ on_client_authorize(ClientInfo, Action, Topic, Result) ->
     end.
 
 on_client_subscribe(ClientInfo, Props, TopicFilters) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         clientinfo => clientinfo(ClientInfo),
-        props => properties(Props),
+        user_props => UserProps,
+        props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
     cast('client.subscribe', Req).
 
 on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         clientinfo => clientinfo(ClientInfo),
-        props => properties(Props),
+        user_props => UserProps,
+        props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
     cast('client.unsubscribe', Req).
@@ -230,7 +238,13 @@ on_session_terminated(ClientInfo, Reason, _SessInfo) ->
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
 on_message_publish(Message) ->
-    Req = #{message => message(Message)},
+    Props = emqx_message:get_header(properties, Message),
+    {UserProps, SystemProps} = format_props(Props),
+    Req = #{
+        message => message(Message),
+        user_props => UserProps,
+        props => SystemProps
+    },
     case
         call_fold(
             'message.publish',
@@ -274,9 +288,17 @@ on_message_acked(ClientInfo, Message) ->
 %%--------------------------------------------------------------------
 %% Types
 
-properties(undefined) ->
-    [];
-properties(M) when is_map(M) ->
+format_props(undefined) ->
+    {[], []};
+format_props(M) when is_map(M) ->
+    case maps:take('User-Property', M) of
+        error ->
+            {[], props(M)};
+        {UserProps, SystemProps} ->
+            {user_props(UserProps), props(SystemProps)}
+    end.
+
+props(M) when is_map(M) ->
     maps:fold(
         fun(K, V, Acc) ->
             [
@@ -289,6 +311,14 @@ properties(M) when is_map(M) ->
         end,
         [],
         M
+    ).
+
+user_props(UserProps) when is_list(UserProps) ->
+    lists:map(
+        fun({K, V}) ->
+            #{name => stringfy(K), value => stringfy(V)}
+        end,
+        UserProps
     ).
 
 conninfo(
