@@ -73,7 +73,8 @@ prop_client_connect() ->
                 #{
                     props => properties(ConnProps),
                     conninfo => from_conninfo(ConnInfo),
-                    meta => Meta
+                    meta => Meta,
+                    user_props => []
                 },
             ?assertEqual(Expected, Resp),
             true
@@ -92,7 +93,8 @@ prop_client_connack() ->
                     props => properties(AckProps),
                     result_code => atom_to_binary(Rc, utf8),
                     conninfo => from_conninfo(ConnInfo),
-                    meta => Meta
+                    meta => Meta,
+                    user_props => []
                 },
             ?assertEqual(Expected, Resp),
             true
@@ -222,7 +224,8 @@ prop_client_subscribe() ->
                     props => properties(SubProps),
                     topic_filters => topicfilters(TopicTab),
                     clientinfo => from_clientinfo(ClientInfo),
-                    meta => Meta
+                    meta => Meta,
+                    user_props => []
                 },
             ?assertEqual(Expected, Resp),
             true
@@ -241,7 +244,8 @@ prop_client_unsubscribe() ->
                     props => properties(UnSubProps),
                     topic_filters => topicfilters(TopicTab),
                     clientinfo => from_clientinfo(ClientInfo),
-                    meta => Meta
+                    meta => Meta,
+                    user_props => []
                 },
             ?assertEqual(Expected, Resp),
             true
@@ -413,7 +417,9 @@ prop_message_publish() ->
                     Expected =
                         #{
                             message => from_message(Msg),
-                            meta => Meta
+                            meta => Meta,
+                            props => [],
+                            user_props => []
                         },
                     ?assertEqual(Expected, Resp)
             end,
