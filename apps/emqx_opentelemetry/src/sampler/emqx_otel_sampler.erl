@@ -195,6 +195,29 @@ should_sample(
         with_cluster_id(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     };
+%% Msg deliver to Subscriber
+%% The publisher is not in the whitelist, but the subscriber is, sampling is still required
+should_sample(
+    Ctx,
+    TraceId,
+    _Links,
+    ?BROKER_PUBLISH_SPAN_NAME = SpanName,
+    _SpanKind,
+    Attributes,
+    Opts
+) ->
+    Desicion =
+        %% sampled by parent span
+        parent_sampled(otel_tracer:current_span_ctx(Ctx)) orelse
+            %% matched whitelist rule
+            decide_by_match_rule(Attributes, Opts) orelse
+            %% then decide by traceid ratio
+            decide_by_traceid_ratio(TraceId, SpanName, Opts),
+    {
+        decide(Desicion),
+        with_cluster_id(Opts),
+        otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
+    };
 %% None Root Span, decide by Parent or Publish Response Tracing Level
 should_sample(
     Ctx,
@@ -253,7 +276,10 @@ event_enabled(SpanName, #{client_subscribe_unsubscribe := Boolean}) when
         SpanName =:= ?BROKER_UNSUBSCRIBE_SPAN_NAME
 ->
     Boolean;
-event_enabled(?CLIENT_PUBLISH_SPAN_NAME, #{client_messaging := Boolean}) ->
+event_enabled(SpanName, #{client_messaging := Boolean}) when
+    SpanName =:= ?CLIENT_PUBLISH_SPAN_NAME orelse
+        SpanName =:= ?BROKER_PUBLISH_SPAN_NAME
+->
     Boolean.
 
 do_decide_by_traceid_ratio(_, false, _) ->
