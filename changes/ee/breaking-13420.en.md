@@ -1,1 +1,0 @@
-Added a schema validation that prevents configuring an empty set of topic filters for a Schema Validation.  Any such configurations will have to define at least one topic filter to be valid.  Such configurations, though, are probably very rare, as a Schema Validation with empty topics is essentially the same as having no validation at all.
