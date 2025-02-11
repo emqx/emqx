@@ -83,14 +83,12 @@
 
 -type cache_key() :: term() | fun(() -> term()).
 -type name() :: atom().
--type config_path() :: emqx_config:runtime_config_key_path().
 -type callback() :: fun(() -> {cache | nocache, term()}).
-
--type metrics_worker() :: emqx_metrics_worker:handler_name().
 
 -export_type([
     name/0,
-    cache_key/0
+    cache_key/0,
+    callback/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -104,11 +102,21 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec start_link(name(), config_path(), metrics_worker()) -> {ok, pid()}.
+-spec start_link(
+    name(),
+    emqx_config:runtime_config_key_path(),
+    emqx_metrics_worker:handler_name()
+) ->
+    {ok, pid()}.
 start_link(Name, ConfigPath, MetricsWorker) ->
     gen_server:start_link(?MODULE, [Name, ConfigPath, MetricsWorker], []).
 
--spec child_spec(name(), config_path(), metrics_worker()) -> supervisor:child_spec().
+-spec child_spec(
+    name(),
+    emqx_config:runtime_config_key_path(),
+    emqx_metrics_worker:handler_name()
+) ->
+    supervisor:child_spec().
 child_spec(Name, ConfigPath, MetricsWorker) ->
     #{
         id => {?MODULE, Name},
