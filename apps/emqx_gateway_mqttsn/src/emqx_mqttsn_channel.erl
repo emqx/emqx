@@ -397,7 +397,7 @@ process_connect(
             ClientInfo,
             ConnInfo,
             SessFun,
-            _SessMod = emqx_mqttsn_session
+            emqx_mqttsn_session
         )
     of
         {ok, #{
@@ -506,13 +506,13 @@ handle_in(
                     ok
             end,
             shutdown(normal, Channel);
-        {error, Rc} ->
+        {error, RC} ->
             ?tp(info, ignore_negative_qos, #{
                 topic_id => TopicId,
                 msg_id => MsgId,
-                return_code => Rc
+                return_code => RC
             }),
-            PubAck = ?SN_PUBACK_MSG(TopicId, MsgId, Rc),
+            PubAck = ?SN_PUBACK_MSG(TopicId, MsgId, RC),
             shutdown(normal, PubAck, Channel)
     end;
 handle_in(
@@ -1542,8 +1542,8 @@ handle_out(publish, Publishes, Channel) ->
     ),
     {Replies2, NChannel2} = goto_asleep_if_buffered_msgs_sent(NChannel),
     {ok, Replies1 ++ Replies2, NChannel2};
-handle_out(puback, {TopicId, MsgId, Rc}, Channel) ->
-    {ok, {outgoing, ?SN_PUBACK_MSG(TopicId, MsgId, Rc)}, Channel};
+handle_out(puback, {TopicId, MsgId, RC}, Channel) ->
+    {ok, {outgoing, ?SN_PUBACK_MSG(TopicId, MsgId, RC)}, Channel};
 handle_out(pubrec, MsgId, Channel) ->
     {ok, {outgoing, ?SN_PUBREC_MSG(?SN_PUBREC, MsgId)}, Channel};
 handle_out(pubrel, MsgId, Channel) ->
@@ -2244,8 +2244,8 @@ reset_timer(Name, Time, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
-interval(keepalive, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(check_interval, KeepAlive);
+interval(keepalive, #channel{keepalive = Keepalive}) ->
+    emqx_keepalive:info(check_interval, Keepalive);
 interval(retry_delivery, #channel{session = Session}) ->
     emqx_mqttsn_session:info(retry_interval, Session);
 interval(expire_awaiting_rel, #channel{session = Session}) ->
