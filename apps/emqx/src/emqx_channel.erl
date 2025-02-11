@@ -223,6 +223,7 @@ info(session_state, #channel{session = Session}) ->
 info(impl, #channel{session = Session}) ->
     emqx_session:info(impl, Session).
 
+-spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
