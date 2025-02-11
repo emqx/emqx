@@ -649,10 +649,12 @@ handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
 handle_timeout(
-    _ClientInfo, ?TIMER_SCHEDULER_RETRY, Session = #{s := S, stream_scheduler_s := SchedS0}
+    _ClientInfo, ?TIMER_SCHEDULER_RETRY, Session = #{s := S0, stream_scheduler_s := SchedS0}
 ) ->
-    SchedS = emqx_persistent_session_ds_stream_scheduler:handle_retry(S, SchedS0),
-    {ok, [], Session#{stream_scheduler_s := SchedS}};
+    {_NewStreams, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:handle_retry(
+        S0, SchedS0
+    ),
+    {ok, [], Session#{stream_scheduler_s := SchedS, s := S}};
 handle_timeout(_ClientInfo, Timeout, Session) ->
     ?tp(warning, ?sessds_unknown_timeout, #{timeout => Timeout}),
     {ok, [], Session}.

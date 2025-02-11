@@ -42,6 +42,7 @@
 -define(sessds_unblock_stream, sessds_unblock_stream).
 -define(sessds_unexpected_stream_notification, sessds_unexpected_stream_notification).
 -define(sessds_sched_new_stream_event, sessds_sched_new_stream_event).
+-define(sessds_retry_renew_streams, sessds_retry_renew_streams).
 -define(sessds_sched_watch_streams, sessds_sched_watch_streams).
 -define(sessds_sched_unwatch_streams, sessds_sched_unwatch_streams).
 -define(sessds_sched_renew_streams, sessds_sched_renew_streams).

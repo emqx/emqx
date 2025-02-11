@@ -212,7 +212,7 @@
     bq1 :: block_queue(),
     bq2 :: block_queue(),
     %% Retry:
-    retry = [] :: [{subscribe, stream_key()}],
+    retry = [] :: [{subscribe, stream_key()} | {renew_streams, reference()}],
     retry_timer :: undefined | reference()
 }).
 
@@ -322,13 +322,21 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
                     TopicFilterBin, S0
                 ),
             %% Renew streams:
-            StreamMap = get_streams(TopicFilter, StartTime),
-            {NewSRSIds, S, SubS} = renew_streams(S0, TopicFilter, Subscription, StreamMap, SubS0),
-            %% Update state:
-            SchedS = ds_subscribe_all(NewSRSIds, S, SchedS0#s{
-                sub_metadata = SubsMetadata#{TopicFilterBin := SubS}
-            }),
-            {NewSRSIds, S, SchedS};
+            try
+                StreamMap = get_streams(TopicFilter, StartTime),
+                {NewSRSIds, S, SubS} = renew_streams(
+                    S0, TopicFilter, Subscription, StreamMap, SubS0
+                ),
+                %% Update state:
+                SchedS = ds_subscribe_all(NewSRSIds, S, SchedS0#s{
+                    sub_metadata = SubsMetadata#{TopicFilterBin := SubS}
+                }),
+                {NewSRSIds, S, SchedS}
+            catch
+                EC:Err:Stack ->
+                    ?tp(info, ?sessds_retry_renew_streams, #{EC => Err, stack => Stack}),
+                    {[], S0, push_retry({renew_streams, Ref}, SchedS0)}
+            end;
         _ ->
             ?tp(warning, ?sessds_unexpected_stream_notification, #{ref => Ref}),
             {[], S0, SchedS0}
@@ -640,12 +648,17 @@ handle_down(DOWN, S, SchedS = #s{ds_subs = Subs}) ->
             ignore
     end.
 
--spec handle_retry(emqx_persistent_session_ds_state:t(), t()) -> t().
-handle_retry(S, SchedS0 = #s{retry = Actions}) ->
-    SchedS = SchedS0#s{retry_timer = undefined, retry = []},
+-spec handle_retry(emqx_persistent_session_ds_state:t(), t()) -> ret().
+handle_retry(S0, SchedS0 = #s{retry = Actions}) ->
     lists:foldl(
-        fun({subscribe, StreamKey}, Acc) -> ds_subscribe(StreamKey, S, Acc) end,
-        SchedS,
+        fun
+            ({subscribe, StreamKey}, {NewStreamAcc, SAcc, SchedSAcc}) ->
+                {NewStreamAcc, SAcc, ds_subscribe(StreamKey, SAcc, SchedSAcc)};
+            ({renew_streams, Ref}, {NewStreamAcc, SAcc, SchedSAcc}) ->
+                {NewStreams, S, SchedS} = on_new_stream_event(Ref, SAcc, SchedSAcc),
+                {NewStreams ++ NewStreamAcc, S, SchedS}
+        end,
+        {[], S0, SchedS0#s{retry_timer = undefined, retry = []}},
         Actions
     ).
 
