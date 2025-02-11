@@ -16,6 +16,8 @@
 
 -module(emqx_types).
 
+-elvis([{elvis_style, private_data_types, disable}]).
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("types.hrl").
@@ -153,7 +155,7 @@
 -type share() :: #share{}.
 
 -type socktype() :: tcp | udp | ssl | proxy | atom().
--type sockstate() :: idle | running | blocked | closed.
+-type sockstate() :: idle | running | blocked | closed | read_aborted.
 -type conninfo() :: #{
     socktype := socktype(),
     sockname := peername(),

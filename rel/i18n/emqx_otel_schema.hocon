@@ -92,16 +92,20 @@ sample_ratio.desc:
 sample_ratio.label: "Sampling Ratio"
 
 client_connect_disconnect.desc:
-"""Enable/disable background tracing for all clients' connect/disconnect events at the configured sample ratio."""
+"""Enable/Disable background tracing for all clients' connect/disconnect events at the configured sample ratio."""
 client_connect_disconnect.label: "Trace Client Connect/Disconnect"
 
 client_subscribe_unsubscribe.desc:
-"""Enable/disable background tracing for all clients' subscribe/unsubscribe at the configured sample ratio."""
+"""Enable/Disable background tracing for all clients' subscribe/unsubscribe at the configured sample ratio."""
 client_subscribe_unsubscribe.label: "Trace Client Subscribe/Unsubscribe"
 
 client_messaging.desc:
-"""Enable/disable background messaging events for all clients at the configured sample ratio and trace-level."""
+"""Enable/Disable background messaging events for all clients at the configured sample ratio and trace-level."""
 client_messaging.label: "Trace Messaging Events"
+
+follow_traceparent.desc:
+"""Enable/Disable, Whether to follow the traceparent passed in by the client through User-Property."""
+follow_traceparent.label: "Follow Traceparent"
 
 clientid_match_rules_max.desc: """Maximum length of the whitelist for clientid matching."""
 clientid_match_rules_max.label: "Maximum Number of Client ID Match Whitelist"

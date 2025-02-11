@@ -46,6 +46,8 @@
     handle_info/2
 ]).
 
+-export_type([limits/0, license/0, fetcher/0]).
+
 -define(LICENSE_TAB, emqx_license).
 
 -type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME}.
@@ -125,7 +127,7 @@ handle_call(dump, _From, #{license := License} = State) ->
     %% resolve the current dynamic limit
     MaybeDynamic = get_max_connections(License),
     Dump = lists:keyreplace(max_connections, 1, Dump0, {max_connections, MaybeDynamic}),
-    {reply, Dump, State};
+    {reply, max_sessions(Dump), State};
 handle_call(expiry_epoch, _From, #{license := License} = State) ->
     ExpiryEpoch = date_to_expiry_epoch(emqx_license_parser:expiry_date(License)),
     {reply, ExpiryEpoch, State};
@@ -332,3 +334,10 @@ print_expiry_warning(#{warn_expiry := {true, Days}}) ->
     io:format(?EXPIRY_LOG, [Days]);
 print_expiry_warning(_) ->
     ok.
+
+%% Add max_sessions but not replace max_connections for backward compatibility
+%% TODO(5.9): change max_connections to max_sessions
+max_sessions(InfoList) ->
+    {_, Max} = lists:keyfind(max_connections, 1, InfoList),
+    %% keep max_sessions to the end
+    InfoList ++ [{max_sessions, Max}].

@@ -15,6 +15,9 @@
     "Oracle table is invalid. Please check if the table exists in Oracle Database."
 ).
 
+-define(DEFAULT_ROLE, normal).
+-define(SYSDBA_ROLE, sysdba).
+
 %%====================================================================
 %% Exports
 %%====================================================================
@@ -47,6 +50,8 @@
 -export([
     oracle_host_options/0
 ]).
+
+-export_type([state/0]).
 
 -define(ORACLE_DEFAULT_PORT, 1521).
 -define(SYNC_QUERY_MODE, no_handover).
@@ -100,9 +105,11 @@ on_start(
             undefined -> undefined;
             ServiceName0 -> emqx_utils_conv:str(ServiceName0)
         end,
+    Role = convert_role_to_integer(maps:get(role, Config, ?DEFAULT_ROLE)),
     Options = [
         {host, Host},
         {port, Port},
+        {role, Role},
         {user, emqx_utils_conv:str(User)},
         {password, maps:get(password, Config, "")},
         {sid, emqx_utils_conv:str(Sid)},
@@ -272,23 +279,23 @@ on_batch_query(
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(TypeOrKey, SQLOrData, Params, #{
-    params_tokens := ParamsTokens, prepare_sql := PrepareSql
+    params_tokens := ParamsTokens, prepare_sql := PrepareSQL
 }) ->
     Key = to_bin(TypeOrKey),
     case maps:get(Key, ParamsTokens, undefined) of
         undefined ->
             {SQLOrData, Params};
         Tokens ->
-            case maps:get(Key, PrepareSql, undefined) of
+            case maps:get(Key, PrepareSQL, undefined) of
                 undefined ->
                     {SQLOrData, Params};
-                Sql ->
-                    {Sql, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
+                SQL ->
+                    {SQL, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
             end
     end.
 
-on_sql_query(InstId, ChannelID, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
-    emqx_trace:rendered_action_template(ChannelID, #{
+on_sql_query(InstId, ChannelId, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
+    emqx_trace:rendered_action_template(ChannelId, #{
         type => Type,
         apply_mode => ApplyMode,
         name_or_sql => NameOrSQL,
@@ -546,6 +553,16 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
                     % table does exist. Probably this inconsistency was caused by
                     % token discarding in this test query.
                     ok;
+                _ when is_map_key(<<"ORA-01400">>, OraMap) ->
+                    % ORA-01400: cannot insert NULL into (string)
+                    % There is a some type inconsistency with table definition but
+                    % table does exist. Probably this inconsistency was caused by
+                    % token discarding in this test query.
+                    ok;
+                _ when is_map_key(<<"ORA-01013">>, OraMap) ->
+                    % ORA-01013: user requested cancel of current operation
+                    % This error is returned when the query is canceled by the user.
+                    ok;
                 _ ->
                     {error, Description}
             end;
@@ -583,3 +600,8 @@ handle_batch_result([{proc_result, RetCode, Reason} | _Rest], _Acc) ->
     {error, {unrecoverable_error, {RetCode, Reason}}};
 handle_batch_result([], Acc) ->
     {ok, Acc}.
+
+convert_role_to_integer(?SYSDBA_ROLE) ->
+    1;
+convert_role_to_integer(_) ->
+    0.

@@ -17,4 +17,10 @@ emqx_oracle {
     label = "Oracle Database Service Name"
   }
 
+  role {
+    desc = "Select which role to use to link to the Oracle database.<br/>"
+           "- <code>normal</code>: Does not use any special roles<br/>"
+           "- <code>sysdba</code>: System database administrator role with advanced privileges"
+    label = "Role"
+  }
 }

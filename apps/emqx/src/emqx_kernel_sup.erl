@@ -41,7 +41,8 @@ init([]) ->
             child_spec(emqx_ocsp_cache, worker),
             child_spec(emqx_crl_cache, worker),
             child_spec(emqx_tls_lib_sup, supervisor),
-            child_spec(emqx_log_throttler, worker)
+            child_spec(emqx_log_throttler, worker),
+            child_spec(emqx_bpapi_replicant_checker, worker)
         ]
     }}.
 

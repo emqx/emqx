@@ -91,16 +91,17 @@
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
+    failed_to_fetch_crl,
     failed_to_retain_message,
-    handle_resource_metrics_failed,
-    socket_receive_paused_by_rate_limit,
-    unrecoverable_resource_error,
     failed_to_trigger_fallback_action,
+    handle_resource_metrics_failed,
+    retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
-    retain_failed_for_payload_size_exceeded_limit,
-    validation_failed,
-    transformation_failed
+    socket_receive_paused_by_rate_limit,
+    transformation_failed,
+    unrecoverable_resource_error,
+    validation_failed
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).
@@ -1626,8 +1627,8 @@ validate_dns_cluster_strategy(_Other, _Type, _Name) ->
 
 is_ip_addr(Host, Type) ->
     case inet:parse_address(Host) of
-        {ok, Ip} ->
-            AddrType = address_type(Ip),
+        {ok, IP} ->
+            AddrType = address_type(IP),
             case
                 (AddrType =:= ipv4 andalso Type =:= a) orelse
                     (AddrType =:= ipv6 andalso Type =:= aaaa)
@@ -1639,7 +1640,7 @@ is_ip_addr(Host, Type) ->
                         explain => "Node name address " ++ atom_to_list(AddrType) ++
                             " is incompatible with DNS record type " ++ atom_to_list(Type),
                         record_type => Type,
-                        address_type => address_type(Ip)
+                        address_type => address_type(IP)
                     })
             end;
         _ ->

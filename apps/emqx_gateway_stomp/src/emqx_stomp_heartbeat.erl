@@ -27,7 +27,7 @@
     interval/2
 ]).
 
--export_type([heartbeat/0]).
+-export_type([heartbeat/0, name/0]).
 
 -record(heartbeater, {interval, statval, repeat}).
 
@@ -86,19 +86,26 @@ check(
         NewVal =/= OldVal ->
             {ok, HrtBter#heartbeater{statval = NewVal, repeat = 0}};
         Repeat < 1 ->
+            %% Allow the first check to pass
+            %% This is to compensate network latency etc for the heartbeat.
+            %% On average (normal distribution of the timing of when check
+            %% happen during the heartbeat interval), it allows the connection
+            %% to idle for 1.5x heartbeat interval.
             {ok, HrtBter#heartbeater{repeat = Repeat + 1}};
         true ->
             {error, timeout}
     end.
 
+%% @doc Call this when heartbeat is receved or sent.
 -spec reset(name(), pos_integer(), heartbeat()) ->
     heartbeat().
 reset(Name, NewVal, HrtBt) ->
     HrtBter = maps:get(Name, HrtBt),
     HrtBt#{Name => reset(NewVal, HrtBter)}.
 
+%% Set counter back to zero (the initial state)
 reset(NewVal, HrtBter) ->
-    HrtBter#heartbeater{statval = NewVal, repeat = 1}.
+    HrtBter#heartbeater{statval = NewVal, repeat = 0}.
 
 -spec info(heartbeat()) -> map().
 info(HrtBt) ->

@@ -80,13 +80,9 @@
 -export([set_field/3]).
 
 -export_type([
+    state/0,
     parser/0
 ]).
-
--import(
-    emqx_utils,
-    [start_timer/2]
-).
 
 -record(state, {
     %% TCP/TLS Transport
@@ -155,7 +151,7 @@
     next :: check_succ_handler()
 }).
 
--type state() :: #state{}.
+-opaque state() :: #state{}.
 -type pending_req() :: #pending_req{}.
 
 -define(ACTIVE_N, 10).
@@ -1246,6 +1242,8 @@ activate_socket(State) ->
 
 close_socket(State = #state{sockstate = closed}) ->
     State;
+close_socket(State = #state{transport = emqx_quic_stream, sockstate = read_aborted}) ->
+    wait_for_quic_stream_close(State);
 close_socket(State = #state{transport = Transport, socket = Socket}) ->
     ok = Transport:fast_close(Socket),
     State#state{sockstate = closed}.
@@ -1343,17 +1341,35 @@ set_tcp_keepalive({Type, Id}) ->
 
 -spec graceful_shutdown_transport(atom(), state()) -> state().
 graceful_shutdown_transport(
-    kicked,
+    Reason,
     S = #state{
         transport = emqx_quic_stream,
         socket = Socket
     }
-) ->
-    _ = emqx_quic_stream:shutdown(Socket, read_write, 1000),
-    S#state{sockstate = closed};
+) when Reason =:= takenover; Reason =:= kicked; Reason =:= discarded ->
+    _ = emqx_quic_stream:abort_read(Socket, Reason),
+    S#state{sockstate = read_aborted};
 graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = Socket}) ->
     _ = Transport:shutdown(Socket, read_write),
     S#state{sockstate = closed}.
+
+%% @doc wait for stream close or stream read shutdown complete
+%%      this also ensures write shutdown are completed.
+%%      see emqx_quic_stream:abort_read/2
+%% @end
+-spec wait_for_quic_stream_close(state()) -> state().
+wait_for_quic_stream_close(
+    State = #state{
+        transport = emqx_quic_stream,
+        socket = {quic, _Conn, Stream, _},
+        sockstate = read_aborted
+    }
+) ->
+    ok = emqx_quic_stream:wait_for_close(Stream),
+    State#state{sockstate = closed}.
+
+start_timer(Time, Msg) ->
+    emqx_utils:start_timer(Time, Msg).
 
 %%--------------------------------------------------------------------
 %% For CT tests

@@ -22,16 +22,6 @@
 
 -behaviour(minirest_api).
 
--import(hoconsc, [mk/2, ref/1, ref/2]).
-
--import(
-    emqx_gateway_http,
-    [
-        return_http_error/2,
-        with_gateway/2
-    ]
-).
-
 %% minirest/dashboard_swagger behaviour callbacks
 -export([
     api_spec/0,
@@ -517,6 +507,18 @@ listener_schema() ->
         ref(?MODULE, wss_listener)
     ]).
 
+mk(Schema, Opts) ->
+    hoconsc:mk(Schema, Opts).
+
+ref(StructName) ->
+    hoconsc:ref(StructName).
+
+ref(Module, StructName) ->
+    hoconsc:ref(Module, StructName).
+
+return_http_error(Code, Name) ->
+    emqx_gateway_http:return_http_error(Code, Name).
+
 %%--------------------------------------------------------------------
 %% examples
 
@@ -911,6 +913,30 @@ examples_update_gateway_confs() ->
                             #{bind => <<"9100">>},
                         handler =>
                             #{address => <<"http://127.0.0.1:9001">>}
+                    }
+            },
+        jt808_gateway =>
+            #{
+                summary => <<"A simple JT808 gateway config">>,
+                value =>
+                    #{
+                        enable => true,
+                        enable_stats => true,
+                        mountpoint => <<"">>,
+                        idle_timeout => <<"30s">>,
+                        retry_interval => <<"8s">>,
+                        max_retry_times => 3,
+                        message_queue_len => 10,
+                        frame => #{
+                            max_length => 65535
+                        },
+                        proto => #{
+                            auth => #{
+                                allow_anonymous => true
+                            },
+                            up_topic => <<"jt808/up/${clientid}/up">>,
+                            dn_topic => <<"jt808/dn/${clientid}/dn">>
+                        }
                     }
             },
         gbt32960_gateway =>

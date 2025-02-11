@@ -68,20 +68,23 @@ t_dump(_Config) ->
 
     #{} = emqx_license_checker:update(License),
 
-    ?assertEqual(
-        [
-            {customer, <<"Foo">>},
-            {email, <<"contact@foo.com">>},
-            {deployment, <<"bar">>},
-            {max_connections, 10},
-            {start_at, <<"2022-01-11">>},
-            {expiry_at, <<"2295-10-27">>},
-            {type, <<"trial">>},
-            {customer_type, 10},
-            {expiry, false}
-        ],
-        emqx_license_checker:dump()
+    ?assertMatch(
+        #{
+            customer := <<"Foo">>,
+            email := <<"contact@foo.com">>,
+            deployment := <<"bar">>,
+            max_sessions := 10,
+            start_at := <<"2022-01-11">>,
+            expiry_at := <<"2295-10-27">>,
+            type := <<"trial">>,
+            customer_type := 10,
+            expiry := false
+        },
+        license_info()
     ).
+
+license_info() ->
+    maps:from_list(emqx_license_checker:dump()).
 
 t_update(_Config) ->
     License = mk_license(

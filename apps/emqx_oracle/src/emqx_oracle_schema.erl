@@ -23,14 +23,19 @@ roots() ->
 
 fields(config) ->
     Fields =
-        [{server, server()}, {sid, fun sid/1}, {service_name, fun service_name/1}] ++
+        [
+            {server, server()},
+            {sid, fun sid/1},
+            {service_name, fun service_name/1},
+            {role, fun role/1}
+        ] ++
             adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
             emqx_connector_schema_lib:prepare_statement_fields(),
     proplists:delete(database, Fields).
 
 server() ->
     Meta = #{desc => ?DESC(?REF_MODULE, "server")},
-    emqx_schema:servers_sc(Meta, (?REF_MODULE):oracle_host_options()).
+    emqx_schema:servers_sc(Meta, emqx_oracle:oracle_host_options()).
 
 sid(type) -> binary();
 sid(desc) -> ?DESC(?REF_MODULE, "sid");
@@ -41,6 +46,12 @@ service_name(type) -> binary();
 service_name(desc) -> ?DESC(?REF_MODULE, "service_name");
 service_name(required) -> false;
 service_name(_) -> undefined.
+
+role(type) -> hoconsc:enum([normal, sysdba]);
+role(default) -> normal;
+role(desc) -> ?DESC(?REF_MODULE, "role");
+role(required) -> false;
+role(_) -> undefined.
 
 adjust_fields(Fields) ->
     lists:map(
