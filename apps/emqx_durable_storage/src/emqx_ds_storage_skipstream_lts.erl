@@ -433,31 +433,35 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
 
 fast_forward(
     ShardId,
-    S,
-    It0 = #it{last_key = TS0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
-    DSKey,
+    S = #s{master_hash_bits = MHB},
+    It0 = #it{last_key = LastSeenKey0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
+    FFToKey,
     TMax
 ) ->
-    case match_stream_key(It0#it.static_index, DSKey) of
+    case match_stream_key(It0#it.static_index, FFToKey) of
         false ->
             ?err_unrec(<<"Invalid datastream key">>);
-        FastForwardTo when FastForwardTo > TMax ->
-            ?err_unrec(<<"Key is too far in the future">>);
-        FastForwardTo when FastForwardTo =< TS0 ->
-            %% The new position is earlier than the current position.
-            %% We keep the original position to prevent duplication of
-            %% messages. De-duplication is performed by
-            %% `message_matcher' callback that filters out messages
-            %% with TS older than the iterator's.
-            {ok, It0};
-        FastForwardTo ->
-            case next(ShardId, S, It0, 1, TMax, true) of
-                {ok, #it{last_key = NextTS}, [_]} when NextTS =< FastForwardTo ->
-                    ?err_unrec(has_data);
-                {ok, It, _} ->
-                    {ok, It};
-                Err ->
-                    Err
+        FFToStreamKey ->
+            LastSeenTS = stream_key_ts(LastSeenKey0, MHB),
+            case stream_key_ts(FFToStreamKey, MHB) of
+                FFToTimestamp when FFToTimestamp > TMax ->
+                    ?err_unrec(<<"Key is too far in the future">>);
+                FFToTimestamp when FFToTimestamp =< LastSeenTS ->
+                    %% The new position is earlier than the current position.
+                    %% We keep the original position to prevent duplication of
+                    %% messages. De-duplication is performed by
+                    %% `message_matcher' callback that filters out messages
+                    %% with TS older than the iterator's.
+                    {ok, It0};
+                _FFToTimestamp ->
+                    case next(ShardId, S, It0, 1, TMax, true) of
+                        {ok, #it{last_key = LastSeenKey}, [_]} when LastSeenKey =< FFToKey ->
+                            ?err_unrec(has_data);
+                        {ok, It, _} ->
+                            {ok, It};
+                        Err ->
+                            Err
+                    end
             end
     end.
 
