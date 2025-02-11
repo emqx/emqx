@@ -1182,6 +1182,12 @@ rocksdb_open(Shard, Options) ->
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
+        %% Info log file management:
+        %%    Maximal log files:
+        {keep_log_file_num, 10},
+        %%    Create a new log file when the old one exceeds:
+        %%    `max_log_file_size' (1MB):
+        {max_log_file_size, 16#100000},
         %% NOTE
         %% With WAL-less writes, it's important to have CFs flushed atomically.
         %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
