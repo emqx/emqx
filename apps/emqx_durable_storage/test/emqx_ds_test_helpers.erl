@@ -461,13 +461,3 @@ consume_iter_with(NextFun, It0, Opts) ->
         {error, Class, Reason} ->
             error({error, Class, Reason})
     end.
-
-collect_poll_replies(Alias, Timeout) ->
-    receive
-        #poll_reply{payload = poll_timeout, ref = Alias} ->
-            [];
-        #poll_reply{userdata = ItRef, payload = Reply, ref = Alias} ->
-            [{ItRef, Reply} | collect_poll_replies(Alias, Timeout)]
-    after Timeout ->
-        []
-    end.

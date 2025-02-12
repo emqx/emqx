@@ -910,6 +910,7 @@ t_publish_many_while_client_is_gone(Config) ->
         PubRels1
     ),
 
+    ct:pal("Disconnecting..."),
     ok = disconnect_client(Client1),
     maybe_kill_connection_process(ClientId, Config),
 
@@ -921,6 +922,7 @@ t_publish_many_while_client_is_gone(Config) ->
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
 
+    ct:pal("Reconnecting..."),
     {ok, Client2} = emqtt:start_link([{clean_start, false} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client2),
 
@@ -973,11 +975,13 @@ t_publish_many_while_client_is_gone(Config) ->
     ),
 
     %% Ensure that PUBCOMPs are propagated to the channel.
+    ct:pal("Disconnecting..."),
     pong = emqtt:ping(Client2),
     %% Reconnect for the last time
     ok = disconnect_client(Client2),
     maybe_kill_connection_process(ClientId, Config),
 
+    ct:pal("Reconnecting..."),
     {ok, Client3} = emqtt:start_link([{clean_start, false} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client3),
 
@@ -986,7 +990,11 @@ t_publish_many_while_client_is_gone(Config) ->
     ct:pal("Msgs3 = ~p", [Msgs3]),
     ?assertMatch(
         [<<"M10">>, <<"M11">>, <<"M12">>],
-        [I || #{payload := I} <- Msgs3]
+        [
+            I
+         || #{payload := I, client_pid := C3} <- Msgs3,
+            C3 =:= Client3
+        ]
     ),
 
     ok = disconnect_client(Client3).

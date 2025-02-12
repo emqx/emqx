@@ -8,17 +8,15 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/src/emqx_persistent_session_ds/session_internals.hrl").
 
 -include("emqx_persistent_message.hrl").
-
--import(emqx_common_test_helpers, [on_exit/1]).
-
--define(DURABLE_SESSION_STATE, emqx_persistent_session).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -32,14 +30,8 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
-suite() ->
-    [{timetrap, {seconds, 60}}].
-
 all() ->
-    [
-        {group, cluster},
-        {group, local}
-    ].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
@@ -52,129 +44,22 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-groups() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE),
-    ClusterTCs = cluster_testcases(),
-    [
-        {cluster, ClusterTCs},
-        {local, AllTCs -- ClusterTCs}
-    ].
-
-%% These are test cases that spin up their own clusters, even if they have a single node.
-cluster_testcases() ->
-    [
-        t_session_subscription_idempotency,
-        t_session_unsubscription_idempotency,
-        t_subscription_state_change,
-        t_storage_generations,
-        t_new_stream_notifications,
-        t_session_gc,
-        t_crashed_node_session_gc,
-        t_last_alive_at_cleanup
-    ].
-
-init_per_group(cluster, Config) ->
-    %% Each test case sets up and tears down its cluster.
-    Config;
-init_per_group(local, Config) ->
-    DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"renew_streams_interval">> => <<"1s">>
-    },
-    Opts = #{
-        durable_sessions_opts => DurableSessionsOpts,
-        start_emqx_conf => false
-    },
-    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
-
-end_per_group(cluster, _Config) ->
-    ok;
-end_per_group(local, Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok.
-
-init_per_testcase(TestCase, Config) when
-    TestCase =:= t_session_subscription_idempotency;
-    TestCase =:= t_session_unsubscription_idempotency;
-    TestCase =:= t_subscription_state_change;
-    TestCase =:= t_storage_generations;
-    TestCase =:= t_new_stream_notifications
-->
-    %% Todo: un-skip `t_storage_generations' after we discover the issue.
-    %% Context: At the time of writing, at `90cb15ed' this test was already inadvertently
-    %% adding a new generation to the master CT node, but clients were connected to a
-    %% remote peer.  After not starting the apps on the master CT node, adding the
-    %% generation to the remote peer made this TC stop passing.
-    case TestCase =:= t_storage_generations of
-        true ->
-            {skip, temp_skip_broken_test};
-        false ->
-            %% N.B.: these tests start a single-node cluster, so it's fine to test them with the
-            %% `builtin_local' backend.
-            DurableSessionsOpts = #{
-                <<"heartbeat_interval">> => <<"500ms">>,
-                <<"session_gc_interval">> => <<"1s">>,
-                <<"session_gc_batch_size">> => 2
-            },
-            Opts = #{
-                durable_sessions_opts => DurableSessionsOpts,
-                work_dir => emqx_cth_suite:work_dir(TestCase, Config)
-            },
-            ClusterSpec = cluster(Opts#{n => 1}),
-            emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpec, Opts)
-    end;
-init_per_testcase(TestCase, Config) when
-    TestCase =:= t_session_gc;
-    TestCase =:= t_crashed_node_session_gc;
-    TestCase =:= t_last_alive_at_cleanup
-->
-    try emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            DurableSessionsOpts = #{
-                <<"heartbeat_interval">> => <<"500ms">>,
-                <<"session_gc_interval">> => <<"1s">>,
-                <<"session_gc_batch_size">> => 2
-            },
-            Opts = #{
-                durable_sessions_opts => DurableSessionsOpts,
-                work_dir => emqx_cth_suite:work_dir(TestCase, Config)
-            },
-            NodeSpecs = cluster(Opts#{n => 3}),
-            emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, Opts);
-        Skip ->
-            Skip
-    catch
-        error:undef ->
-            {skip, standalone_not_supported}
-    end;
 init_per_testcase(t_session_replay_retry, Config) ->
     maybe
         %% Todo: ideally, should find a way to "phrase" this test for platform build.
         false ?= emqx_common_test_helpers:skip_if_platform(),
         %% Todo: ideally, should find a way to "phrase" this test for emqx build.
         false ?= emqx_ds_test_helpers:skip_if_norepl(),
-        Config
+        t_session_replay_retry(init, Config)
     end;
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(TestCase, Config) ->
+    ?MODULE:TestCase(init, Config).
 
-end_per_testcase(TestCase, Config) when
-    TestCase =:= t_session_subscription_idempotency;
-    TestCase =:= t_session_unsubscription_idempotency;
-    TestCase =:= t_subscription_state_change;
-    TestCase =:= t_session_gc;
-    TestCase =:= t_storage_generations;
-    TestCase =:= t_new_stream_notifications;
-    TestCase =:= t_crashed_node_session_gc;
-    TestCase =:= t_last_alive_at_cleanup
-->
+end_per_testcase(TestCase, Config) ->
     snabbkaffe:stop(),
+    _ = [Fun() || {cleanup, Fun} <- Config],
     emqx_common_test_helpers:call_janitor(60_000),
-    emqx_common_test_helpers:stop_cluster_ds(Config),
-    ok;
-end_per_testcase(_TestCase, _Config) ->
-    emqx_common_test_helpers:call_janitor(60_000),
-    snabbkaffe:stop(),
+    emqx_cth_suite:clean_work_dir(emqx_cth_suite:work_dir(TestCase, Config)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -246,7 +131,7 @@ start_client(Opts0 = #{}) ->
     ?tp(notice, "starting client", Opts),
     {ok, Client} = emqtt:start_link(maps:to_list(Opts)),
     unlink(Client),
-    on_exit(fun() -> catch emqtt:stop(Client) end),
+    emqx_common_test_helpers:on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
 
 start_connect_client(Opts = #{}) ->
@@ -285,15 +170,23 @@ list_all_pubranges(Node) ->
     erpc:call(Node, emqx_persistent_session_ds, list_all_pubranges, []).
 
 session_open(Node, ClientId) ->
-    ClientInfo = #{},
+    ClientInfo = #{clientid => ClientId},
     ConnInfo = #{peername => {undefined, undefined}, proto_name => <<"MQTT">>, proto_ver => 5},
     WillMsg = undefined,
-    erpc:call(
+    Conf = #{
+        max_subscriptions => infinity,
+        max_awaiting_rel => infinity,
+        upgrade_qos => false,
+        retry_interval => 10,
+        await_rel_timeout => infinity
+    },
+    {_, Sess, _} = erpc:call(
         Node,
         emqx_persistent_session_ds,
-        session_open,
-        [ClientId, ClientInfo, ConnInfo, WillMsg]
-    ).
+        open,
+        [ClientInfo, ConnInfo, WillMsg, Conf]
+    ),
+    Sess.
 
 force_last_alive_at(ClientId, Time) ->
     {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
@@ -305,7 +198,7 @@ stop_and_commit(Client) ->
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:stop(Client),
-            #{?snk_kind := persistent_session_ds_terminate}
+            #{?snk_kind := ?sessds_terminate}
         ),
     ok.
 
@@ -313,12 +206,55 @@ stop_and_commit(Client) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+%% This testcase verifies that a durable session can publish messages
+%% to other sessions:
+t_smoke_publish(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_smoke_publish(_Config) ->
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Start memory session:
+            Mem = start_client(#{
+                clientid => <<"t_smoke_publish_mem">>,
+                clean_start => true,
+                properties => #{'Session-Expiry-Interval' => 0},
+                proto_ver => v5
+            }),
+            {ok, _} = emqtt:connect(Mem),
+            %% Start durable session:
+            Durable = start_client(#{
+                clientid => <<"t_smoke_publish_durable">>,
+                clean_start => true,
+                properties => #{'Session-Expiry-Interval' => 30},
+                proto_ver => v5
+            }),
+            {ok, _} = emqtt:connect(Durable),
+            %% Subscribe both clients to a topic:
+            {ok, _, _} = emqtt:subscribe(Mem, <<"t/#">>, qos2),
+            {ok, _, _} = emqtt:subscribe(Durable, <<"t/#">>, qos2),
+            %% Publish a message via durable client:
+            emqtt:publish(Durable, <<"t/1">>, <<"hello">>),
+            %% Both clients should receive the message:
+            ?assertMatch(
+                [
+                    #{client_pid := Mem, payload := <<"hello">>, topic := <<"t/1">>},
+                    #{client_pid := Durable, payload := <<"hello">>, topic := <<"t/1">>}
+                ],
+                emqx_common_test_helpers:wait_publishes(2, 5_000)
+            )
+        end,
+        []
+    ).
+
 %% This testcase verifies session's behavior related to generation
 %% rotation in the message storage.
 %%
 %% This testcase verifies (on the surface level) that session handles
 %% `end_of_stream' and doesn't violate the ordering of messages that
 %% are split into different generations.
+t_storage_generations(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
 t_storage_generations(Config) ->
     [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
@@ -336,37 +272,49 @@ t_storage_generations(Config) ->
             {ok, _} = emqtt:connect(Pub),
             %% Publish 3 messages. Subscriber receives them, but
             %% doesn't ack them initially.
+            ?tp(notice, "test: Publish first batch", #{}),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
-            [#{packet_id := PI1}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+            [
+                #{packet_id := PI1, payload := <<"1">>}
+            ] = emqx_common_test_helpers:wait_publishes(1, 5_000),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"2">>, ?QOS_1),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"3">>, ?QOS_1),
-            [#{packet_id := PI2}, #{packet_id := PI3}] = emqx_common_test_helpers:wait_publishes(
-                2, 5_000
-            ),
+            [
+                #{packet_id := PI2, payload := <<"2">>},
+                #{packet_id := PI3, payload := <<"3">>}
+            ] = emqx_common_test_helpers:wait_publishes(2, 5_000),
             %% Ack the first message. It transfers "t/1" stream into
-            %% ready state where it will be polled.
+            %% ready state.
+            ?tp(notice, "test: PUBACK", #{packet_id => PI1}),
             ok = emqtt:puback(Sub, PI1),
             %% Create a new generation and publish messages to the new
-            %% generation. We expect 1 message for topic t/1 (since it
-            %% was unblocked), but NOT for t/2:
+            %% generation:
+            ?tp(notice, "test: Add generation", #{}),
             ok = ?ON(Node1, emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB)),
-            timer:sleep(100),
+            ?tp(notice, "test: Publish second batch", #{}),
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"4">>, ?QOS_1),
             {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"5">>, ?QOS_1),
-            [#{packet_id := PI4, payload := <<"4">>}] = emqx_common_test_helpers:wait_publishes(
-                2, 5_000
-            ),
-            %% Ack the rest of messages, it should unblock 5th
-            %% message:
+            %% Since there is one unacked stream for t/2 in the first
+            %% generation, session should NOT advance generation just
+            %% yet, and we should not see the new publishes:
+            ?assertMatch([], emqx_common_test_helpers:wait_publishes(1, 1_000)),
+            %% Now ack the rest of the messages. It should unblock the
+            %% second stream and advance the generation:
+            ?tp(notice, "test: PUBACK", #{packet_id => PI2}),
             ok = emqtt:puback(Sub, PI2),
+            ?tp(notice, "test: PUBACK", #{packet_id => PI3}),
             ok = emqtt:puback(Sub, PI3),
-            ok = emqtt:puback(Sub, PI4),
-            [#{packet_id := _PI5}] = emqx_common_test_helpers:wait_publishes(1, 5_000)
+            [
+                #{topic := <<"t/1">>, payload := <<"4">>},
+                #{topic := <<"t/2">>, payload := <<"5">>}
+            ] = emqx_common_test_helpers:wait_publishes(2, 5_000)
         end,
         [fun check_stream_state_transitions/1]
     ),
     ok.
 
+t_session_subscription_idempotency(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
 t_session_subscription_idempotency(Config) ->
     [Node1Spec | _] = ?config(node_specs, Config),
     [Node1] = ?config(cluster_nodes, Config),
@@ -415,17 +363,22 @@ t_session_subscription_idempotency(Config) ->
 
             ok
         end,
-        fun(_Trace) ->
-            Session = session_open(Node1, ClientId),
-            ?assertMatch(
-                #{SubTopicFilter := #{}},
-                emqx_session:info(subscriptions, Session)
-            )
-        end
+        [
+            fun(_Trace) ->
+                Session = session_open(Node1, ClientId),
+                ?assertMatch(
+                    #{SubTopicFilter := #{}},
+                    emqx_session:info(subscriptions, Session)
+                )
+            end,
+            fun check_stream_state_transitions/1
+        ]
     ),
     ok.
 
 %% Check that we close the iterators before deleting the iterator id entry.
+t_session_unsubscription_idempotency(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
 t_session_unsubscription_idempotency(Config) ->
     [Node1Spec | _] = ?config(node_specs, Config),
     [Node1] = ?config(cluster_nodes, Config),
@@ -486,32 +439,34 @@ t_session_unsubscription_idempotency(Config) ->
 
             ok = stop_and_commit(Client1)
         end,
-        fun(_Trace) ->
-            Session = session_open(Node1, ClientId),
-            ?assertEqual(
-                #{},
-                emqx_session:info(subscriptions, Session)
-            ),
-            ok
-        end
+        [
+            fun(_Trace) ->
+                Session = session_open(Node1, ClientId),
+                ?assertEqual(
+                    #{},
+                    emqx_session:info(subscriptions, Session)
+                ),
+                ok
+            end,
+            fun check_stream_state_transitions/1
+        ]
     ),
     ok.
 
 %% This testcase verifies that the session handles update of the
 %% subscription settings by the client correctly.
+t_subscription_state_change(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
 t_subscription_state_change(Config) ->
     [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    %% Helper function that forces session to perform stream renewal.
-    %% In the current implementation it also causes garbage collection
-    %% of session states:
+    %% Helper function that forces session to perform garbage
+    %% collection. In the current implementation it happens before
+    %% session state is synced to the DB:
     WaitGC = fun() ->
-        ?wait_async_action(
-            emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-            #{?snk_kind := sessds_renew_streams, ?snk_meta := #{clientid := ClientId}}
-        )
+        erpc:call(Node1, emqx_persistent_session_ds, sync, [ClientId])
     end,
     %% Helper function that gets runtime state of the session:
     GetS = fun() ->
@@ -537,7 +492,7 @@ t_subscription_state_change(Config) ->
             %% to happen. At which point the session should keep 2
             %% subscription states, one being marked as obsolete:
             {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_2),
-            WaitGC(),
+            ok = WaitGC(),
             #{subscriptions := Subs2, subscription_states := SStates2} = GetS(),
             #{TopicFilter := #{current_state := SSID2}} = Subs2,
             ?assertNotEqual(SSID1, SSID2),
@@ -556,7 +511,7 @@ t_subscription_state_change(Config) ->
             %% Verify that QoS of subscription has been updated:
             [#{packet_id := _PI2, qos := ?QOS_2, topic := <<"t/1">>, payload := <<"2">>}] =
                 emqx_common_test_helpers:wait_publishes(1, 5_000),
-            WaitGC(),
+            ok = WaitGC(),
             #{subscriptions := Subs3, subscription_states := SStates3, streams := Streams3} = GetS(),
             ?assertEqual(Subs3, Subs2),
             %% Verify that the old substate (SSID1) was deleted:
@@ -564,6 +519,7 @@ t_subscription_state_change(Config) ->
                 [{SSID2, _}],
                 maps:to_list(SStates3),
                 #{
+                    subs => Subs3,
                     streams => Streams3,
                     ssid1 => SSID1,
                     ssid2 => SSID2,
@@ -571,17 +527,17 @@ t_subscription_state_change(Config) ->
                 }
             )
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ).
 
 %% This testcase verifies the lifetimes of session's subscriptions to
 %% new stream events.
+t_new_stream_notifications(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
 t_new_stream_notifications(Config) ->
     [Node1] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    TopicFilter1 = <<"foo/+">>,
-    TopicFilter2 = <<"bar">>,
     ?check_trace(
         #{timetrap => 30_000},
         begin
@@ -591,18 +547,18 @@ t_new_stream_notifications(Config) ->
             %% 1. Sessions should start watching streams when they
             %% subscribe to the topics:
             ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter1, ?QOS_1),
-                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter1}
+                {ok, _, _} = emqtt:subscribe(Sub0, <<"foo/+">>, ?QOS_1),
+                #{?snk_kind := ?sessds_sched_watch_streams, topic_filter := [<<"foo">>, '+']}
             ),
             ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter2, ?QOS_1),
-                #{?snk_kind := sessds_watch_streams, topic_filter := TopicFilter2}
+                {ok, _, _} = emqtt:subscribe(Sub0, <<"bar">>, ?QOS_1),
+                #{?snk_kind := ?sessds_sched_watch_streams, topic_filter := [<<"bar">>]}
             ),
             %% 2. Sessions should re-subscribe to the events after
             %% reconnect:
             emqtt:disconnect(Sub0),
             {ok, SNKsub} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := sessds_watch_streams}),
+                ?match_event(#{?snk_kind := ?sessds_sched_watch_streams}),
                 2,
                 timer:seconds(10)
             ),
@@ -611,40 +567,163 @@ t_new_stream_notifications(Config) ->
             %% Verify that both subscriptions have been renewed:
             {ok, EventsAfterRestart} = snabbkaffe:receive_events(SNKsub),
             ?assertMatch(
-                [<<"bar">>, <<"foo/+">>],
+                [[<<"bar">>], [<<"foo">>, '+']],
                 lists:sort(?projection(topic_filter, EventsAfterRestart))
             ),
             %% Verify that stream notifications are handled:
             ?wait_async_action(
                 emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"bar">>]),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"bar">>}
+                #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"bar">>]}
             ),
             ?wait_async_action(
                 emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"foo">>, <<"1">>]),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+                #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"foo">>, '+']}
             ),
             %% Verify that new stream subscriptions are removed when
             %% session unsubscribes from a topic:
             ?wait_async_action(
-                emqtt:unsubscribe(Sub1, TopicFilter2),
-                #{?snk_kind := sessds_unwatch_streams, topic_filter := <<"bar">>}
+                emqtt:unsubscribe(Sub1, <<"bar">>),
+                #{?snk_kind := ?sessds_sched_unwatch_streams, topic_filter := [<<"bar">>]}
             ),
             %% But the rest of subscriptions are still active:
             ?wait_async_action(
                 emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-                #{?snk_kind := sessds_renew_streams, topic_filter := <<"foo/+">>}
+                #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"foo">>, '+']}
             )
         end,
-        fun(Trace) ->
-            ?assertMatch(
-                [], ?of_kind(sessds_new_stream_notification_for_undefined_subscription, Trace)
-            ),
-            ?assertMatch(
-                [], ?of_kind(sessds_unexpected_stream_notification, Trace)
-            )
-        end
+        [
+            fun(Trace) ->
+                ?assertMatch(
+                    [], ?of_kind(?sessds_unexpected_stream_notification, Trace)
+                )
+            end,
+            fun check_stream_state_transitions/1
+        ]
     ).
 
+%% This testcase verifies that session handles removal of generations
+%% pending for replay gracefully.
+t_replay_deleted_generation(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_replay_deleted_generation(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    TopicFilter = <<"t/#">>,
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Start subscriber for the first time:
+            Sub0 = start_client(#{clientid => ClientId, auto_ack => never}),
+            {ok, _} = emqtt:connect(Sub0),
+            {ok, _, _} = emqtt:subscribe(Sub0, TopicFilter, qos2),
+            %% Start publisher:
+            Pub = start_client(#{clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            %% Publish some messages, client receives them but doesn't ack:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
+            {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"2">>, ?QOS_2),
+            [
+                #{packet_id := PI1, payload := <<"1">>, topic := <<"t/1">>},
+                #{packet_id := PI2, payload := <<"2">>, topic := <<"t/2">>}
+            ] = lists:sort(emqx_common_test_helpers:wait_publishes(2, 5_000)),
+            %% Disconnect the subscriber and rotate the generations:
+            ok = emqtt:stop(Sub0),
+            ?assertMatch(ok, emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB)),
+            _ = [
+                ok = emqx_ds:drop_generation(?PERSISTENT_MESSAGE_DB, GenId)
+             || {GenId, #{until := Until}} <- maps:to_list(
+                    emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB)
+                ),
+                is_integer(Until)
+            ],
+            %% Reconnect the client:
+            Sub1 = start_client(#{clientid => ClientId, auto_ack => never, clean_start => false}),
+            {ok, SnkSub} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?sessds_replay_unrecoverable_error}), 2, infinity
+            ),
+            {ok, _} = emqtt:connect(Sub1),
+            {ok, _} = snabbkaffe:receive_events(SnkSub),
+            %% Verify that it receives new messages from the topic:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"3">>, ?QOS_1),
+            {ok, _} = emqtt:publish(Pub, <<"t/2">>, <<"4">>, ?QOS_2),
+            [
+                #{packet_id := PI3, payload := <<"3">>, topic := <<"t/1">>},
+                #{packet_id := PI4, payload := <<"4">>, topic := <<"t/2">>}
+            ] = lists:sort(emqx_common_test_helpers:wait_publishes(2, 5_000)),
+            ?assertNotEqual(PI1, PI3),
+            ?assertNotEqual(PI2, PI4)
+        end,
+        []
+    ).
+
+t_fuzz(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_fuzz(_Config) ->
+    %% NOTE: we set timeout at the lowest level to capture the trace
+    %% and have a nicer error message.
+    %%
+    %% By default the number of tests and max_size are set to low
+    %% values to avoid blowing up CI. Hence it's recommended to
+    %% increase the max_size and numtests when doing local
+    %% development:
+    NTests = 10,
+    MaxSize = 100,
+    NCommandsFactor = 1,
+    ?run_prop(
+        #{
+            proper => #{
+                timeout => 3_000_000,
+                numtests => NTests,
+                max_size => MaxSize,
+                start_size => MaxSize,
+                max_shrinks => 0
+            }
+        },
+        ?forall_trace(
+            Cmds,
+            proper_statem:more_commands(
+                NCommandsFactor,
+                proper_statem:commands(
+                    emqx_persistent_session_ds_fuzzer,
+                    emqx_persistent_session_ds_fuzzer:initial_state(#{})
+                )
+            ),
+            #{timetrap => 5_000 * length(Cmds) + 30_000},
+            try
+                %% Print information about the run:
+                ct:pal("*** Commands:~n~s~n", [
+                    emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
+                ]),
+                %% Initialize the system:
+                ok = emqx_persistent_message:init(),
+                emqx_persistent_session_ds_fuzzer:cleanup(),
+                %% Run test:
+                {_History, State, Result} = proper_statem:run_commands(
+                    emqx_persistent_session_ds_fuzzer, Cmds
+                ),
+                ct:log(info, "*** Model state:~n  ~p~n", [State]),
+                ct:log(info, "*** Session state:~n  ~p~n", [
+                    emqx_persistent_session_ds_fuzzer:sut_state()
+                ]),
+                ct:log("*** Result:~n  ~p~n", [Result]),
+                Result =:= ok orelse error(Result)
+            after
+                ok = emqx_persistent_session_ds_fuzzer:cleanup(),
+                ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)
+            end,
+            [
+                fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
+                fun emqx_persistent_session_ds_fuzzer:tprop_qos12_delivery/1,
+                fun no_abnormal_session_terminate/1,
+                fun check_stream_state_transitions/1,
+                fun no_abnormal_worker_terminate/1
+                | emqx_persistent_session_ds:trace_specs()
+            ]
+        )
+    ),
+    snabbkaffe:stop().
+
+t_session_discard_persistent_to_non_persistent(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
 t_session_discard_persistent_to_non_persistent(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Params = #{
@@ -659,6 +738,8 @@ t_session_discard_persistent_to_non_persistent(_Config) ->
     },
     do_t_session_discard(Params).
 
+t_session_discard_persistent_to_persistent(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
 t_session_discard_persistent_to_persistent(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Params = #{
@@ -723,11 +804,13 @@ do_t_session_discard(Params) ->
 
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
-t_session_expiration1(Config) ->
+t_session_expiration1(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_session_expiration1(_Config) ->
     %% This testcase verifies that the properties passed in the
     %% CONNECT packet are respected by the GC process:
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -739,9 +822,11 @@ t_session_expiration1(Config) ->
             {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}}
         ]
     },
-    do_t_session_expiration(Config, Opts).
+    do_t_session_expiration(Opts).
 
-t_session_expiration2(Config) ->
+t_session_expiration2(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_session_expiration2(_Config) ->
     %% This testcase updates the expiry interval for the session in
     %% the _DISCONNECT_ packet. This setting should be respected by GC
     %% process:
@@ -756,9 +841,9 @@ t_session_expiration2(Config) ->
             {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}}
         ]
     },
-    do_t_session_expiration(Config, Opts).
+    do_t_session_expiration(Opts).
 
-do_t_session_expiration(_Config, Opts) ->
+do_t_session_expiration(Opts) ->
     %% Sequence is a list of pairs of properties passed through the
     %% CONNECT and for the DISCONNECT for each session:
     #{
@@ -810,10 +895,12 @@ do_t_session_expiration(_Config, Opts) ->
             emqtt:disconnect(Client2, ?RC_NORMAL_DISCONNECTION, ThirdDisconn),
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
+t_session_gc(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 3}).
 t_session_gc(Config) ->
     [Node1, _Node2, _Node3] = Nodes = ?config(cluster_nodes, Config),
     [
@@ -883,7 +970,7 @@ t_session_gc(Config) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqtt:stop(Client2),
-                    #{?snk_kind := terminate}
+                    #{?snk_kind := ?sessds_terminate}
                 )
             ),
             ?tp(notice, "disconnected client1", #{}),
@@ -891,7 +978,7 @@ t_session_gc(Config) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqtt:stop(Client3),
-                    #{?snk_kind := terminate}
+                    #{?snk_kind := ?sessds_terminate}
                 )
             ),
             ?tp(notice, "disconnected client2", #{}),
@@ -921,6 +1008,8 @@ t_session_gc(Config) ->
     ),
     ok.
 
+t_crashed_node_session_gc(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 3}).
 t_crashed_node_session_gc(Config) ->
     [Node1, Node2 | _] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
@@ -966,10 +1055,12 @@ t_crashed_node_session_gc(Config) ->
             ct:sleep(100),
             ?assertMatch([], list_all_sessions(Node2), sessions)
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
+t_last_alive_at_cleanup(init, Config) ->
+    start_cluster(?FUNCTION_NAME, Config, #{n => 3}).
 t_last_alive_at_cleanup(Config) ->
     [Node1 | _] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
@@ -1006,14 +1097,15 @@ t_last_alive_at_cleanup(Config) ->
                 )
             )
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
+%% Verify that the session recovers smoothly from transient errors during
+%% replay.
+t_session_replay_retry(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
 t_session_replay_retry(_Config) ->
-    %% Verify that the session recovers smoothly from transient errors during
-    %% replay.
-
     ?SETUP_MOD:init_mock_transient_failure(),
 
     NClients = 10,
@@ -1074,6 +1166,8 @@ t_session_replay_retry(_Config) ->
 
 %% Check that we send will messages when performing GC without relying on timers set by
 %% the channel process.
+t_session_gc_will_message(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
 t_session_gc_will_message(_Config) ->
     ?check_trace(
         #{timetrap => 10_000},
@@ -1107,11 +1201,95 @@ t_session_gc_will_message(_Config) ->
 
             ok
         end,
-        []
+        [fun check_stream_state_transitions/1]
     ),
     ok.
 
+%% Verify that session handles restart of the shard (or the entire DB)
+%% smoothly:
+t_ds_resubscribe(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_ds_resubscribe(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    TopicFilter = <<"t/+">>,
+    ?check_trace(
+        #{timetrap => 20_000},
+        begin
+            %% Spawn clients:
+            Pub = start_client(#{clientid => mk_clientid(?FUNCTION_NAME, pub)}),
+            {ok, _} = emqtt:connect(Pub),
+            Sub = start_client(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(Sub),
+            %% Monitor the session to make sure it doesn't crash during the test:
+            #{'_alive' := {true, SessPid}} = emqx_persistent_session_ds:print_session(ClientId),
+            MRef = monitor(process, SessPid),
+            %% Subscribe to the topic:
+            {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_1),
+            %% Publish some messages and wait for the sub to create
+            %% the subscription:
+            ?wait_async_action(
+                {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
+                #{?snk_kind := ?sessds_sched_subscribe}
+            ),
+            %% Collect messages:
+            [#{payload := <<"1">>}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+            %% Verify that the session noticed failure of the DB and
+            %% tried to re-subscribe, unsuccessfully at first:
+            ?tp(notice, "test: Stopping the DB", #{}),
+            ?wait_async_action(
+                ?wait_async_action(
+                    ok = emqx_ds:close_db(?PERSISTENT_MESSAGE_DB),
+                    #{?snk_kind := ?sessds_sub_down}
+                ),
+                #{?snk_kind := ?sessds_sched_subscribe_fail}
+            ),
+            %% Bring the DB back up and verify that session
+            %% successfully resubscribed:
+            ?tp(notice, "test: Restarting the DB", #{}),
+            {ok, EvtSub} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := ?sessds_sched_subscribe})
+            ),
+            ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, emqx_persistent_message:get_db_config()),
+            %% Publish a message to verify that session resubscribed
+            %% from the correct point:
+            {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_1),
+            ?assertMatch({ok, [_]}, snabbkaffe:receive_events(EvtSub)),
+            [#{payload := <<"2">>}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+            %% Check that the session survived through the entire
+            %% ordeal without crashing:
+            receive
+                {'DOWN', MRef, process, _, Reason} ->
+                    error(#{reason => Reason, msg => session_crashed})
+            after 1000 ->
+                ok
+            end
+        end,
+        []
+    ).
+
 %% Trace specifications:
+
+%% @doc Verify that sessions didn't terminate abnormally. Note: it's
+%% not part of emqx_persistent_session_ds:trace_props because,
+%% strictly speaking, in the real world session may be terminated for
+%% many reasons.
+no_abnormal_session_terminate(Trace) ->
+    lists:foreach(
+        fun
+            (#{?snk_kind := ?sessds_terminate} = E) ->
+                case E of
+                    #{reason := takenover} -> ok;
+                    #{reason := kicked} -> ok;
+                    #{reason := {shutdown, tcp_closed}} -> ok
+                end;
+            (_) ->
+                ok
+        end,
+        Trace
+    ).
+
+no_abnormal_worker_terminate(Trace) ->
+    ?assertMatch([], ?of_kind(emqx_ds_abnormal_process_terminate, Trace)).
 
 check_stream_state_transitions(Trace) ->
     %% Check sequence of state transitions for each stream replay
@@ -1121,7 +1299,7 @@ check_stream_state_transitions(Trace) ->
         fun(#{to := To}) -> To end,
         ?of_kind(sessds_stream_state_trans, Trace)
     ),
-    ?assert(maps:size(Groups) > 0),
+    ct:pal("~p: Verified state transitions of ~p streams.", [?FUNCTION_NAME, maps:size(Groups)]),
     maps:foreach(
         fun(StreamId, Transitions) ->
             check_stream_state_transitions(StreamId, Transitions, void)
@@ -1151,18 +1329,19 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
     %% See FSM in emqx_persistent_session_ds_stream_scheduler.erl:
     case {State, To} of
         {void, r} -> ok;
-        %% R
-        {r, p} -> ok;
-        {r, u} -> ok;
+        {void, p} -> ok;
         %% P
         {p, r} -> ok;
-        {p, s} -> ok;
-        %% S
-        {s, r} -> ok;
-        {s, u} -> ok;
-        {s, bq1} -> ok;
-        {s, bq2} -> ok;
-        {s, bq12} -> ok;
+        {p, u} -> ok;
+        %% This is allowed since list of pending streams is rebuilt
+        %% from scratch every time:
+        {p, p} -> ok;
+        %% R
+        {r, bq1} -> ok;
+        {r, bq2} -> ok;
+        {r, bq12} -> ok;
+        {r, u} -> ok;
+        {r, r} -> ok;
         %% BQ1
         {bq1, u} -> ok;
         {bq1, r} -> ok;
@@ -1170,9 +1349,10 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
         {bq2, u} -> ok;
         {bq2, r} -> ok;
         %% BQ12
-        {bq12, u} -> ok;
         {bq12, bq1} -> ok;
         {bq12, bq2} -> ok;
+        %% U
+        {u, u} -> ok;
         _ ->
             error(#{
                 kind => invalid_state_transition,
@@ -1183,3 +1363,43 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
             })
     end,
     check_stream_state_transitions(StreamId, Rest, To).
+
+%% Init/cleanup
+
+start_cluster(TestCase, Config0, ClusterOpts) ->
+    %% N.B.: some of the tests start a single-node cluster, so it's fine to test them with the
+    %% `builtin_local' backend.
+    DurableSessionsOpts = #{
+        <<"heartbeat_interval">> => <<"500ms">>,
+        <<"session_gc_interval">> => <<"1s">>,
+        <<"session_gc_batch_size">> => 2
+    },
+    Opts = emqx_utils_maps:deep_merge(ClusterOpts, #{
+        durable_sessions_opts => DurableSessionsOpts,
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
+    }),
+    ClusterSpec = cluster(Opts),
+    Config = emqx_common_test_helpers:start_cluster_ds(Config0, ClusterSpec, Opts),
+    Cleanup =
+        fun() ->
+            emqx_common_test_helpers:stop_cluster_ds(Config)
+        end,
+    [{cleanup, Cleanup} | Config].
+
+start_local(TestCase, Config0) ->
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"renew_streams_interval">> => <<"1s">>
+    },
+    Opts = #{
+        durable_sessions_opts => DurableSessionsOpts,
+        start_emqx_conf => false,
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
+    },
+    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], Opts),
+    Cleanup =
+        fun() ->
+            ct:pal("Stopping apps ~p", [Config]),
+            emqx_common_test_helpers:stop_apps_ds(Config)
+        end,
+    [{cleanup, Cleanup} | Config].

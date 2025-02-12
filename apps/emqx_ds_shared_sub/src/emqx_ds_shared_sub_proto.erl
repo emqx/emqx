@@ -15,7 +15,7 @@
     reference()
 ).
 -type leader() :: pid().
--type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_types:share().
 -type leader_stream_progress() :: #{
     stream := emqx_ds:stream(),
     progress := emqx_persistent_session_ds_shared_subs:progress()

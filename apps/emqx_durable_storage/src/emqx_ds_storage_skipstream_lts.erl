@@ -39,6 +39,9 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
+    fast_forward/5,
+    message_match_context/5,
+    iterator_match_context/3,
 
     batch_events/3
 ]).
@@ -61,6 +64,7 @@
 -endif.
 
 -elvis([{elvis_style, nesting_level, disable}]).
+-elvis([{elvis_style, no_if_expression, disable}]).
 
 %%================================================================================
 %% Type declarations
@@ -297,7 +301,7 @@ commit_batch(
             ok ->
                 ok;
             {error, {error, Reason}} ->
-                {error, unrecoverable, {rocksdb, Reason}}
+                ?err_unrec({rocksdb, Reason})
         end
     after
         rocksdb:release_batch(Batch)
@@ -312,8 +316,8 @@ batch_events(
         fun
             (?cooked_msg_op(_Timestamp, _Static, _Varying, ?cooked_delete), Acc) ->
                 Acc;
-            (?cooked_msg_op(_Timestamp, Static, Varying, _ValBlob), Acc) ->
-                maps:put({Static, Varying}, 1, Acc)
+            (?cooked_msg_op(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+                maps:put(#stream{static_index = Static}, 1, Acc)
         end,
         #{},
         Payloads
@@ -327,7 +331,7 @@ get_delete_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     get_streams(Trie, TopicFilter).
 
 make_iterator(_Shard, _State, _Stream, _TopicFilter, TS) when TS >= ?max_ts ->
-    {error, unrecoverable, "Timestamp is too large"};
+    ?err_unrec("Timestamp is too large");
 make_iterator(
     _Shard,
     S = #s{trie = Trie},
@@ -357,7 +361,7 @@ message_matcher(
     CTF = words(CTF0),
     MHB = master_hash_bits(S, CTF),
     TF = emqx_ds_lts:decompress_topic(TopicStructure, CTF),
-    fun(MsgKey, #message{topic = Topic}) ->
+    fun(TopicTokens, MsgKey, _Message) ->
         case match_stream_key(StaticIdx, MsgKey) of
             false ->
                 ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_matcher, #{
@@ -378,16 +382,30 @@ message_matcher(
                 %% 2^64 arithmetic, so in this context `?max_ts' means
                 %% 0.
                 (stream_key_ts(LastSK, MHB) =:= ?max_ts orelse SK > LastSK) andalso
-                    emqx_topic:match(words(Topic), TF)
+                    emqx_topic:match(TopicTokens, TF)
         end
     end.
 
-unpack_iterator(_Shard, S, #it{static_index = StaticIdx, compressed_tf = CTF, last_key = LSK}) ->
+unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
+    static_index = StaticIdx, compressed_tf = CTF, last_key = LSK
+}) ->
     MHB = master_hash_bits(S, CTF),
     DSKey = mk_master_key(StaticIdx, LSK, MHB),
-    {StaticIdx, words(CTF), DSKey, stream_key_ts(LSK, MHB)}.
+    TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), words(CTF)),
+    {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
 
-scan_stream(Shard, S, StaticIdx, Varying, LastSeenKey, BatchSize, TMax, IsCurrent) ->
+scan_stream(
+    Shard,
+    S = #s{trie = Trie},
+    #stream{static_index = StaticIdx},
+    TopicFilter,
+    LastSeenKey,
+    BatchSize,
+    TMax,
+    IsCurrent
+) ->
+    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+    Varying = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
     ItSeed = #it{
         static_index = StaticIdx,
         compressed_tf = emqx_topic:join(Varying),
@@ -408,9 +426,74 @@ make_delete_iterator(Shard, Data, Stream, TopicFilter, StartTime) ->
 update_iterator(_Shard, _Data, OldIter, DSKey) ->
     case match_stream_key(OldIter#it.static_index, DSKey) of
         false ->
-            {error, unrecoverable, "Invalid datastream key"};
+            ?err_unrec("Invalid datastream key");
         StreamKey ->
             {ok, OldIter#it{last_key = StreamKey}}
+    end.
+
+fast_forward(
+    ShardId,
+    S = #s{master_hash_bits = MHB},
+    It0 = #it{last_key = LastSeenKey0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
+    FFToKey,
+    TMax
+) ->
+    case match_stream_key(It0#it.static_index, FFToKey) of
+        false ->
+            ?err_unrec(<<"Invalid datastream key">>);
+        FFToStreamKey ->
+            LastSeenTS = stream_key_ts(LastSeenKey0, MHB),
+            case stream_key_ts(FFToStreamKey, MHB) of
+                FFToTimestamp when FFToTimestamp > TMax ->
+                    ?err_unrec(<<"Key is too far in the future">>);
+                FFToTimestamp when FFToTimestamp =< LastSeenTS ->
+                    %% The new position is earlier than the current position.
+                    %% We keep the original position to prevent duplication of
+                    %% messages. De-duplication is performed by
+                    %% `message_matcher' callback that filters out messages
+                    %% with TS older than the iterator's.
+                    {ok, It0};
+                _FFToTimestamp ->
+                    case next(ShardId, S, It0, 1, TMax, true) of
+                        {ok, #it{last_key = LastSeenKey}, [_]} when LastSeenKey =< FFToKey ->
+                            ?err_unrec(has_data);
+                        {ok, It, _} ->
+                            {ok, It};
+                        Err ->
+                            Err
+                    end
+            end
+    end.
+
+-record(match_ctx, {compressed_topic, stream_key}).
+
+message_match_context(_Shard, GenData, Stream, MsgKey, #message{topic = Topic}) ->
+    #s{trie = Trie} = GenData,
+    #stream{static_index = StaticIdx} = Stream,
+    case match_stream_key(StaticIdx, MsgKey) of
+        false ->
+            ?err_unrec(mismatched_stream);
+        SK ->
+            %% Note: it's kind of wasteful to tokenize and compress
+            %% the topic that we've just decompressed during scan
+            %% stream, but trying to avoid this would complicate the
+            %% pipeline even further. Let's live with that for now.
+            Tokens = words(Topic),
+            {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+            CT = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, Tokens),
+            {ok, #match_ctx{compressed_topic = CT, stream_key = SK}}
+    end.
+
+iterator_match_context(_Shard, GenData, Iterator) ->
+    #it{last_key = LastSK, compressed_tf = CTF} = Iterator,
+    MHB = master_hash_bits(GenData, CTF),
+    CTFTokens = words(CTF),
+    fun(#match_ctx{compressed_topic = CT, stream_key = SK}) ->
+        %% Timestamp stored in the iterator follows modulo
+        %% 2^64 arithmetic, so in this context `?max_ts' means
+        %% 0.
+        (stream_key_ts(LastSK, MHB) =:= ?max_ts orelse SK > LastSK) andalso
+            emqx_topic:match(CT, CTFTokens)
     end.
 
 next(ShardId = {_DB, Shard}, S, ItSeed, BatchSize, TMax, IsCurrent) ->
@@ -447,7 +530,7 @@ lookup_message(
             MHB = master_hash_bits(S, Varying),
             SK = mk_stream_key(Varying, Timestamp, MHB),
             DSKey = mk_master_key(StaticIdx, SK, MHB),
-            case rocksdb:get(DB, CF, DSKey, _ReadOpts = []) of
+            case rocksdb:get(DB, CF, DSKey, []) of
                 {ok, Val} ->
                     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
                     Msg = deserialize(S, Val),
@@ -455,7 +538,7 @@ lookup_message(
                 not_found ->
                     not_found;
                 {error, Reason} ->
-                    {error, unrecoverable, {rocksdb, Reason}}
+                    ?err_unrec({rocksdb, Reason})
             end;
         undefined ->
             not_found
@@ -575,7 +658,7 @@ batch_delete(S = #s{db = DB, data_cf = CF, hash_bytes = HashBytes}, It, Selector
             ok ->
                 {ok, It, Ndeleted, length(KVs)};
             {error, {error, Reason}} ->
-                {error, unrecoverable, {rocksdb, Reason}}
+                ?err_unrec({rocksdb, Reason})
         end
     after
         rocksdb:release_batch(Batch)
@@ -596,6 +679,8 @@ do_delete(CF, Batch, MHB, Static, KeyFamily, MsgKey) ->
 init_iterators(S, #it{static_index = Static, compressed_tf = CompressedTF}) ->
     do_init_iterators(S, Static, words(CompressedTF), 1).
 
+do_init_iterators(S, Static, ['#'], WildcardLevel) ->
+    do_init_iterators(S, Static, [], WildcardLevel);
 do_init_iterators(S, Static, ['+' | TopicFilter], WildcardLevel) ->
     %% Ignore wildcard levels in the topic filter because it has no value to index '+'
     do_init_iterators(S, Static, TopicFilter, WildcardLevel + 1);
@@ -839,10 +924,10 @@ match_key_prefix(StaticIdx, 0, <<>>, Key) ->
             false
     end;
 match_key_prefix(StaticIdx, Idx, Hash, Key) when Idx > 0 ->
-    Tsz = byte_size(StaticIdx),
+    TSz = byte_size(StaticIdx),
     Hsz = byte_size(Hash),
     case Key of
-        <<StaticIdx:Tsz/binary, Idx:?wcb, Hash:Hsz/binary, StreamKey/binary>> ->
+        <<StaticIdx:TSz/binary, Idx:?wcb, Hash:Hsz/binary, StreamKey/binary>> ->
             StreamKey;
         _ ->
             false
@@ -939,9 +1024,9 @@ restore_trie(Shard, StaticIdxBytes, DB, CF) ->
         push_lts_persist_op(Key, Val),
         ok
     end,
-    {ok, IT} = rocksdb:iterator(DB, CF, []),
+    {ok, It} = rocksdb:iterator(DB, CF, []),
     try
-        Dump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
+        Dump = read_persisted_trie(It, rocksdb:iterator_move(It, first)),
         TrieOpts = #{
             persist_callback => PersistCallback,
             static_key_bytes => StaticIdxBytes,
@@ -951,7 +1036,7 @@ restore_trie(Shard, StaticIdxBytes, DB, CF) ->
         notify_new_streams(Shard, Trie, Dump),
         Trie
     after
-        rocksdb:iterator_close(IT)
+        rocksdb:iterator_close(It)
     end.
 
 %% Send notifications about new streams:
@@ -992,12 +1077,12 @@ pop_lts_persist_ops() ->
             L
     end.
 
-read_persisted_trie(IT, {ok, KeyB, ValB}) ->
+read_persisted_trie(It, {ok, KeyB, ValB}) ->
     [
         {binary_to_term(KeyB), binary_to_term(ValB)}
-        | read_persisted_trie(IT, rocksdb:iterator_move(IT, next))
+        | read_persisted_trie(It, rocksdb:iterator_move(It, next))
     ];
-read_persisted_trie(_IT, {error, invalid_iterator}) ->
+read_persisted_trie(_It, {error, invalid_iterator}) ->
     [].
 
 %%%%%%%% Column families %%%%%%%%%%

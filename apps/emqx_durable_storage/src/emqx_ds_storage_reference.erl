@@ -47,6 +47,8 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
+    fast_forward/5,
+
     batch_events/3
 ]).
 
@@ -168,6 +170,10 @@ update_iterator(_Shard, _Data, OldIter, DSKey) ->
         last_seen_message_key = DSKey
     }}.
 
+fast_forward(_ShardId, _S, It0, DSKey, _TMax) ->
+    %% FIXME:
+    {ok, It0#it{last_seen_message_key = DSKey}}.
+
 next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize, _Now, IsCurrent) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,
     {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
@@ -226,7 +232,7 @@ delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now, IsCurr
     end.
 
 lookup_message(_ShardId, S = #s{db = DB, cf = CF}, #message_matcher{timestamp = TS, topic = Topic}) ->
-    case rocksdb:get(DB, CF, db_key(S, TS, Topic), _ReadOpts = []) of
+    case rocksdb:get(DB, CF, db_key(S, TS, Topic), []) of
         {ok, Val} ->
             decode_message(Val);
         not_found ->
@@ -253,24 +259,26 @@ scan_stream(Shard, S, _Stream, TopicFilter, LastSeenKey, BatchSize, TMax, IsCurr
     end.
 
 message_matcher(_Shard, _S, #it{
-    start_time = StartTime, topic_filter = TF, last_seen_message_key = LSK
+    start_time = StartTime, topic_filter = TF
 }) ->
-    fun(MsgKey = <<TS:64>>, #message{topic = Topic}) ->
-        MsgKey > LSK andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
+    fun(LastSeenKey, MsgKey = <<TS:64>>, _TopicWords, #message{topic = Topic}) ->
+        MsgKey > LastSeenKey andalso TS >= StartTime andalso emqx_topic:match(Topic, TF)
     end.
 
-batch_events(_Shard, _, Messages) ->
-    Topics = lists:foldl(
-        fun
-            ({_TS, #message{topic = Topic}}, Acc) ->
-                Acc#{Topic => 1};
-            ({delete, _Msg}, Acc) ->
-                Acc
-        end,
-        #{},
-        Messages
-    ),
-    [{#stream{}, T} || T <- maps:keys(Topics)].
+batch_events(_Shard, _, _Messages) ->
+    %% FIXME:
+    [#stream{}].
+%% Topics = lists:foldl(
+%%     fun
+%%         ({_TS, #message{topic = Topic}}, Acc) ->
+%%             Acc#{Topic => 1};
+%%         ({delete, _Msg}, Acc) ->
+%%             Acc
+%%     end,
+%%     #{},
+%%     Messages
+%% ),
+%% [#stream{} || T <- maps:keys(Topics)].
 
 %%================================================================================
 %% Internal functions
@@ -278,16 +286,16 @@ batch_events(_Shard, _, Messages) ->
 
 do_next(_, _, _, _, 0, Key, Acc) ->
     {Key, Acc};
-do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
-    case rocksdb:iterator_move(IT, Action) of
+do_next(TopicFilter, StartTime, It, Action, NLeft, Key0, Acc) ->
+    case rocksdb:iterator_move(It, Action) of
         {ok, Key = <<TS:64, _TopicHashOpt/bytes>>, Blob} ->
             Msg = #message{topic = Topic} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
             case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
                 true ->
-                    do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
+                    do_next(TopicFilter, StartTime, It, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
                 false ->
-                    do_next(TopicFilter, StartTime, IT, next, NLeft, Key, Acc)
+                    do_next(TopicFilter, StartTime, It, next, NLeft, Key, Acc)
             end;
         {error, invalid_iterator} ->
             {Key0, Acc}
@@ -297,9 +305,9 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
 do_delete_next(_, _, _, _, _, _, _, 0, Key, Acc) ->
     {Key, Acc};
 do_delete_next(
-    TopicFilter, StartTime, DB, CF, IT, Action, Selector, NLeft, Key0, {AccDel, AccIter}
+    TopicFilter, StartTime, DB, CF, It, Action, Selector, NLeft, Key0, {AccDel, AccIter}
 ) ->
-    case rocksdb:iterator_move(IT, Action) of
+    case rocksdb:iterator_move(It, Action) of
         {ok, Key, Blob} ->
             Msg = #message{topic = Topic, timestamp = TS} = decode_message(Blob),
             TopicWords = emqx_topic:words(Topic),
@@ -313,7 +321,7 @@ do_delete_next(
                                 StartTime,
                                 DB,
                                 CF,
-                                IT,
+                                It,
                                 next,
                                 Selector,
                                 NLeft - 1,
@@ -326,7 +334,7 @@ do_delete_next(
                                 StartTime,
                                 DB,
                                 CF,
-                                IT,
+                                It,
                                 next,
                                 Selector,
                                 NLeft - 1,
@@ -340,7 +348,7 @@ do_delete_next(
                         StartTime,
                         DB,
                         CF,
-                        IT,
+                        It,
                         next,
                         Selector,
                         NLeft,

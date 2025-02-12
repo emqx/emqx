@@ -144,15 +144,14 @@ init([CBM, CBMOptions, DB, Shard]) ->
     process_flag(trap_exit, true),
     process_flag(message_queue_data, off_heap),
     logger:update_process_metadata(#{domain => [emqx, ds, buffer, DB]}),
-    MetricsId = emqx_ds_builtin_metrics:shard_metric_id(DB, Shard),
-    ok = emqx_ds_builtin_metrics:init_for_shard(MetricsId),
+    ok = emqx_ds_builtin_metrics:init_for_buffer(DB, Shard),
     {ok, CallbackS} = CBM:init_buffer(DB, Shard, CBMOptions),
     S = #s{
         callback_module = CBM,
         callback_state = CallbackS,
         db = DB,
         shard = Shard,
-        metrics_id = MetricsId,
+        metrics_id = emqx_ds_builtin_metrics:metric_id([{db, DB}, {shard, Shard}]),
         queue = queue:new()
     },
     persistent_term:put(?cbm(DB), {CBM, CBMOptions}),
@@ -440,8 +439,8 @@ compose_errors(ErrAcc, _Err) ->
 
 ensure_timer(S = #s{tref = undefined}) ->
     Interval = get_config(S, flush_interval),
-    Tref = erlang:send_after(Interval, self(), ?flush),
-    S#s{tref = Tref};
+    TRef = erlang:send_after(Interval, self(), ?flush),
+    S#s{tref = TRef};
 ensure_timer(S) ->
     S.
 

@@ -44,13 +44,13 @@ child_spec() ->
 
 -spec leader_wanted(
     emqx_ds_shared_sub_proto:borrower_id(),
-    emqx_persistent_session_ds:share_topic_filter()
+    emqx_types:share()
 ) -> ok.
 leader_wanted(BorrowerId, ShareTopic) ->
     {ok, Pid} = ensure_elector_started(ShareTopic),
     emqx_ds_shared_sub_proto:send_to_leader(Pid, ?borrower_connect(BorrowerId, ShareTopic)).
 
--spec ensure_elector_started(emqx_persistent_session_ds:share_topic_filter()) ->
+-spec ensure_elector_started(emqx_types:share()) ->
     {ok, pid()}.
 ensure_elector_started(ShareTopic) ->
     case start_elector(ShareTopic) of
@@ -60,7 +60,7 @@ ensure_elector_started(ShareTopic) ->
             {ok, Pid}
     end.
 
--spec start_elector(emqx_persistent_session_ds:share_topic_filter()) ->
+-spec start_elector(emqx_types:share()) ->
     supervisor:startchild_ret().
 start_elector(ShareTopic) ->
     supervisor:start_child(?MODULE, #{

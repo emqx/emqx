@@ -19,7 +19,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %% API:
--export([with_worker/4, send_poll_timeout/2]).
+-export([with_worker/3, terminate/3]).
 
 %% internal exports:
 -export([]).
@@ -34,8 +34,9 @@
 %% API functions
 %%================================================================================
 
--spec with_worker(_UserData, module(), atom(), list()) -> {ok, reference()}.
-with_worker(UserData, Mod, Function, Args) ->
+%% @doc The caller will receive message of type `{reference(), Result | {error, unrecoverable, map()}'
+-spec with_worker(module(), atom(), list()) -> {ok, reference()}.
+with_worker(Mod, Function, Args) ->
     ReplyTo = alias([reply]),
     _ = spawn_opt(
         fun() ->
@@ -50,24 +51,17 @@ with_worker(UserData, Mod, Function, Args) ->
                             stacktrace => Stack
                         }}
                 end,
-            ReplyTo ! #poll_reply{userdata = UserData, ref = ReplyTo, payload = Result}
+            ReplyTo ! {ReplyTo, Result}
         end,
         [link, {min_heap_size, 10000}]
     ),
     {ok, ReplyTo}.
 
--spec send_poll_timeout(reference(), timeout()) -> ok.
-send_poll_timeout(ReplyTo, Timeout) ->
-    _ = spawn(
-        fun() ->
-            receive
-            after Timeout + 10 ->
-                ?tp(emqx_ds_poll_timeout_send, #{reply_to => ReplyTo}),
-                ReplyTo ! #poll_reply{ref = ReplyTo, payload = poll_timeout}
-            end
-        end
-    ),
-    ok.
+-spec terminate(module(), _Reason, map()) -> ok.
+terminate(Module, Reason, Misc) when Reason =:= shutdown; Reason =:= normal ->
+    ?tp(emqx_ds_process_terminate, Misc#{module => Module, reason => Reason});
+terminate(Module, Reason, Misc) ->
+    ?tp(warning, emqx_ds_abnormal_process_terminate, Misc#{module => Module, reason => Reason}).
 
 %%================================================================================
 %% Internal exports

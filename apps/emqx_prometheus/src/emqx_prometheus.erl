@@ -527,13 +527,16 @@ emqx_collect(K = ?DS_SKIPSTREAM_LTS_HIT, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SKIPSTREAM_LTS_MISS, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SKIPSTREAM_LTS_FUTURE, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SKIPSTREAM_LTS_EOS, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS_FULFILLED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS_DROPPED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS_EXPIRED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_WAITING_QUEUE_LEN, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_PENDING_QUEUE_LEN, D) -> gauge_metrics(?MG(K, D, [])).
+%% DS beamformer:
+emqx_collect(K = ?DS_SUBS_FANOUT_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_STUCK_TOTAL, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_UNSTUCK_TOTAL, D) -> counter_metrics(?MG(K, D, []));
+%% DS beamformer worker:
+emqx_collect(K = ?DS_SUBS, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_BEAMS_SENT_TOTAL, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_FULFILL_TIME, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_SCAN_TIME, D) -> counter_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators

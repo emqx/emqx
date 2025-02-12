@@ -85,4 +85,8 @@
 }).
 -define(shared_sub_message, #shared_sub_message{}).
 
+-define(TIMER_SCHEDULER_RETRY, timer_scheduler_retry).
+
+-include_lib("emqx/src/emqx_tracepoints.hrl").
+
 -endif.

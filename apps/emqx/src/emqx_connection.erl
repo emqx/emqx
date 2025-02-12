@@ -931,43 +931,41 @@ handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res.
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->
-    send(lists:map(serialize_and_inc_stats_fun(State), Packets), State);
+    send([serialize_and_inc_stats(State, Packet) || Packet <- Packets], State);
 do_handle_outgoing(Packet, State) ->
-    send((serialize_and_inc_stats_fun(State))(Packet), State).
+    send(serialize_and_inc_stats(State, Packet), State).
 
-serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
-    fun(Packet) ->
-        try emqx_frame:serialize_pkt(Packet, Serialize) of
-            <<>> ->
-                ?LOG(warning, #{
-                    msg => "packet_is_discarded",
-                    reason => "frame_is_too_large",
-                    packet => emqx_packet:format(Packet, hidden)
-                }),
-                ok = emqx_metrics:inc('delivery.dropped.too_large'),
-                ok = emqx_metrics:inc('delivery.dropped'),
-                ok = inc_outgoing_stats({error, message_too_large}),
-                <<>>;
-            Data ->
-                ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-                ok = inc_outgoing_stats(Packet),
-                Data
-        catch
-            %% Maybe Never happen.
-            throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
-                ?LOG(info, #{
-                    reason => Reason,
-                    input_packet => Packet
-                }),
-                erlang:error({?FRAME_SERIALIZE_ERROR, Reason});
-            error:Reason:Stacktrace ->
-                ?LOG(error, #{
-                    input_packet => Packet,
-                    exception => Reason,
-                    stacktrace => Stacktrace
-                }),
-                erlang:error(?FRAME_SERIALIZE_ERROR)
-        end
+serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
+    try emqx_frame:serialize_pkt(Packet, Serialize) of
+        <<>> ->
+            ?LOG(warning, #{
+                msg => "packet_is_discarded",
+                reason => "frame_is_too_large",
+                packet => emqx_packet:format(Packet, hidden)
+            }),
+            ok = emqx_metrics:inc('delivery.dropped.too_large'),
+            ok = emqx_metrics:inc('delivery.dropped'),
+            ok = inc_outgoing_stats({error, message_too_large}),
+            <<>>;
+        Data ->
+            ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
+            ok = inc_outgoing_stats(Packet),
+            Data
+    catch
+        %% Maybe Never happen.
+        throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
+            ?LOG(info, #{
+                reason => Reason,
+                input_packet => Packet
+            }),
+            erlang:error({?FRAME_SERIALIZE_ERROR, Reason});
+        error:Reason:Stacktrace ->
+            ?LOG(error, #{
+                input_packet => Packet,
+                exception => Reason,
+                stacktrace => Stacktrace
+            }),
+            erlang:error(?FRAME_SERIALIZE_ERROR)
     end.
 
 %%--------------------------------------------------------------------

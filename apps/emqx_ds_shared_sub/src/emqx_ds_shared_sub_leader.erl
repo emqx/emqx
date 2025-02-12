@@ -27,7 +27,7 @@
     terminate/2
 ]).
 
--type share_topic_filter() :: emqx_persistent_session_ds:share_topic_filter().
+-type share_topic_filter() :: emqx_types:share().
 -type group_id() :: share_topic_filter().
 -type borrower_id() :: emqx_ds_shared_sub_proto:borrower_id().
 

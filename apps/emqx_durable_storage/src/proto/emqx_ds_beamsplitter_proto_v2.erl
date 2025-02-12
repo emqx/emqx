@@ -13,31 +13,37 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_ds_beamsplitter_proto_v1).
+-module(emqx_ds_beamsplitter_proto_v2).
 
 -behavior(emqx_bpapi).
 -include_lib("emqx_utils/include/bpapi.hrl").
 
 %% API:
--export([dispatch/2]).
+-export([dispatch/6]).
 
 %% behavior callbacks:
--export([introduced_in/0, deprecated_since/0]).
+-export([introduced_in/0]).
 
 %%================================================================================
 %% API functions
 %%================================================================================
 
--spec dispatch(node(), emqx_ds_beamformer:beam()) -> true.
-dispatch(Node, Beam) ->
-    emqx_rpc:cast(Node, emqx_ds_beamformer, do_dispatch, [Beam]).
+-spec dispatch(
+    _SerializationToken,
+    node(),
+    emqx_ds:db(),
+    emqx_ds_beamsplitter:pack(),
+    [emqx_ds_beamsplitter:destination()],
+    map()
+) -> true.
+dispatch(SerializationToken, Node, DB, Pack, Destinations, Misc) ->
+    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v2, [
+        DB, Pack, Destinations, Misc
+    ]).
 
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 introduced_in() ->
-    "5.8.0".
-
-deprecated_since() ->
     "5.9.0".

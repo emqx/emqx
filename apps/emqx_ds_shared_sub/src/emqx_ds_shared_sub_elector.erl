@@ -43,7 +43,7 @@ start_link(ShareTopic) ->
 %%--------------------------------------------------------------------
 
 -record(follower, {
-    topic :: emqx_persistent_session_ds:share_topic_filter(),
+    topic :: emqx_types:share(),
     leader :: pid(),
     alive_until :: non_neg_integer()
 }).
@@ -75,7 +75,8 @@ handle_event(state_timeout, invalidate, follower, _Data) ->
 
 elect(ShareTopic, TS) ->
     StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopic),
-    case emqx_ds_shared_sub_store:claim_leadership(StoreID, _Leader = self(), TS) of
+    Leader = self(),
+    case emqx_ds_shared_sub_store:claim_leadership(StoreID, Leader, TS) of
         {ok, LeaderClaim} ->
             %% Become the leader.
             ?tp(debug, shared_sub_elector_becomes_leader, #{
