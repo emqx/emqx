@@ -81,28 +81,6 @@
 ]).
 -endif.
 
--if(?EMQX_RELEASE_EDITION == ee).
--import(emqx_external_trace, [
-    connect_attrs/2,
-    basic_attrs/1,
-    topic_attrs/1,
-    authn_attrs/1,
-    sub_authz_attrs/1,
-    disconnect_attrs/2
-]).
-
--else.
--endif.
-
--import(
-    emqx_utils,
-    [
-        run_fold/3,
-        pipeline/3,
-        maybe_apply/2
-    ]
-).
-
 -export_type([channel/0, opts/0, conn_state/0, reply/0, replies/0]).
 
 -record(channel, {
@@ -136,7 +114,7 @@
     pendings :: list()
 }).
 
--type channel() :: #channel{}.
+-opaque channel() :: #channel{}.
 
 -type opts() :: #{
     zone := atom(),
@@ -223,13 +201,13 @@ info(username, #channel{clientinfo = ClientInfo}) ->
 info(is_bridge, #channel{clientinfo = ClientInfo}) ->
     maps:get(is_bridge, ClientInfo, undefined);
 info(session, #channel{session = Session}) ->
-    maybe_apply(fun emqx_session:info/1, Session);
+    emqx_utils:maybe_apply(fun emqx_session:info/1, Session);
 info({session, Info}, #channel{session = Session}) ->
-    maybe_apply(fun(S) -> emqx_session:info(Info, S) end, Session);
+    emqx_utils:maybe_apply(fun(S) -> emqx_session:info(Info, S) end, Session);
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
 info(keepalive, #channel{keepalive = Keepalive}) ->
-    maybe_apply(fun emqx_keepalive:info/1, Keepalive);
+    emqx_utils:maybe_apply(fun emqx_keepalive:info/1, Keepalive);
 info(will_msg, #channel{will_msg = undefined}) ->
     undefined;
 info(will_msg, #channel{will_msg = WillMsg}) ->
@@ -245,6 +223,7 @@ info(session_state, #channel{session = Session}) ->
 info(impl, #channel{session = Session}) ->
     emqx_session:info(impl, Session).
 
+-spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
@@ -274,7 +253,7 @@ init(
         listener := {Type, Listener}
     } = Opts
 ) ->
-    Peercert = maps:get(peercert, ConnInfo, undefined),
+    PeerCert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint =
         case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
@@ -283,7 +262,7 @@ init(
         end,
     ListenerId = emqx_listeners:listener_id(Type, Listener),
     ClientInfo = set_peercert_infos(
-        Peercert,
+        PeerCert,
         #{
             zone => Zone,
             listener => ListenerId,
@@ -332,15 +311,15 @@ set_peercert_infos(NoSSL, ClientInfo, _) when
     NoSSL =:= undefined
 ->
     ClientInfo#{username => undefined};
-set_peercert_infos(Peercert, ClientInfo, Zone) ->
-    {DN, CN} = {esockd_peercert:subject(Peercert), esockd_peercert:common_name(Peercert)},
+set_peercert_infos(PeerCert, ClientInfo, Zone) ->
+    {DN, CN} = {esockd_peercert:subject(PeerCert), esockd_peercert:common_name(PeerCert)},
     PeercetAs = fun(Key) ->
         case get_mqtt_conf(Zone, Key) of
             cn -> CN;
             dn -> DN;
-            crt -> Peercert;
-            pem when is_binary(Peercert) -> base64:encode(Peercert);
-            md5 when is_binary(Peercert) -> emqx_passwd:hash_data(md5, Peercert);
+            crt -> PeerCert;
+            pem when is_binary(PeerCert) -> base64:encode(PeerCert);
+            md5 when is_binary(PeerCert) -> emqx_passwd:hash_data(md5, PeerCert);
             _ -> undefined
         end
     end,
@@ -537,7 +516,7 @@ handle_in(Packet, Channel) ->
 
 process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
     case
-        pipeline(
+        emqx_utils:pipeline(
             [
                 fun overload_protection/2,
                 fun enrich_conninfo/2,
@@ -606,7 +585,7 @@ post_process_connect(
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     case
-        pipeline(
+        emqx_utils:pipeline(
             [
                 fun check_quota_exceeded/2,
                 fun process_alias/2,
@@ -894,7 +873,7 @@ after_message_acked(ClientInfo, Msg, PubAckProps) ->
 %%--------------------------------------------------------------------
 
 process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilters0), Channel0) ->
-    Pipe = pipeline(
+    Pipe = emqx_utils:pipeline(
         [
             fun check_subscribe/2,
             fun enrich_subscribe/2,
@@ -1280,7 +1259,7 @@ handle_frame_error(
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = ConnInfo}) ->
-    AckProps = run_fold(
+    AckProps = emqx_utils:run_fold(
         [
             fun enrich_connack_caps/2,
             fun enrich_server_keepalive/2,
@@ -1525,13 +1504,13 @@ handle_call(list_authz_cache, Channel) ->
 handle_call(
     {keepalive, Interval},
     Channel = #channel{
-        keepalive = KeepAlive,
+        keepalive = Keepalive,
         conninfo = ConnInfo,
         clientinfo = #{zone := Zone}
     }
 ) ->
     ClientId = info(clientid, Channel),
-    NKeepalive = emqx_keepalive:update(Zone, Interval, KeepAlive),
+    NKeepalive = emqx_keepalive:update(Zone, Interval, Keepalive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
@@ -1816,8 +1795,8 @@ clean_timer(Name, Channel = #channel{timers = Timers}) ->
             Channel#channel{timers = NTimers}
     end.
 
-interval(keepalive, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(check_interval, KeepAlive);
+interval(keepalive, #channel{keepalive = Keepalive}) ->
+    emqx_keepalive:info(check_interval, Keepalive);
 interval(retry_delivery, #channel{session = Session}) ->
     emqx_session:info(retry_interval, Session);
 interval(expire_awaiting_rel, #channel{session = Session}) ->
@@ -1934,7 +1913,7 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %% Enrich Client Info
 
 enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
-    Pipe = pipeline(
+    Pipe = emqx_utils:pipeline(
         [
             fun set_username/2,
             fun set_bridge_mode/2,
@@ -2020,9 +1999,8 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
                         #{
                             msg => "client_attr_rednered_to_empty_string",
                             set_as_attr => Name
-                        }#{
-                            clientid => ClientId
-                        }
+                        },
+                        #{clientid => ClientId}
                     ),
                     Acc;
                 {ok, Value} ->
@@ -2622,7 +2600,7 @@ enrich_subscribe(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters), Channel)
     {ok, ?SUBSCRIBE_PACKET(PacketId, Properties, NTopicFilters), Channel}.
 
 do_enrich_subscribe(Properties, TopicFilters, Channel) ->
-    _NTopicFilters = run_fold(
+    _NTopicFilters = emqx_utils:run_fold(
         [
             %% TODO: do try catch with reason code here
             fun(TFs, _) -> parse_raw_topic_filters(TFs) end,
@@ -3245,6 +3223,26 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+connect_attrs(Packet, Channel) ->
+    emqx_external_trace:connect_attrs(Packet, Channel).
+
+basic_attrs(Channel) ->
+    emqx_external_trace:basic_attrs(Channel).
+
+topic_attrs(Packet) ->
+    emqx_external_trace:topic_attrs(Packet).
+
+authn_attrs(AuthResult) ->
+    emqx_external_trace:authn_attrs(AuthResult).
+
+sub_authz_attrs(AuthzResult) ->
+    emqx_external_trace:sub_authz_attrs(AuthzResult).
+
+disconnect_attrs(Reason, Channel) ->
+    emqx_external_trace:disconnect_attrs(Reason, Channel).
+-endif.
 
 %%--------------------------------------------------------------------
 %% For CT tests

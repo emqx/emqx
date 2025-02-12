@@ -39,16 +39,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
 
--import(
-    prometheus_model_helpers,
-    [
-        create_mf/5,
-        gauge_metric/1,
-        gauge_metrics/1,
-        counter_metrics/1
-    ]
-).
-
 %% APIs
 -export([start_link/1, info/0]).
 
@@ -273,7 +263,7 @@ add_collect_family(Callback, MetricWithType, Data) ->
     ok.
 
 add_collect_family(Name, Data, Callback, Type) ->
-    Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
+    Callback(prometheus_model_helpers:create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
 %% behaviour
 fetch_from_local_node(Mode) ->
@@ -1242,3 +1232,15 @@ do_start() ->
 %% deprecated_since 5.0.10, remove this when 5.1.x
 do_stop() ->
     emqx_prometheus_sup:stop_child(?APP).
+
+%%--------------------------------------------------------------------
+%% prometheus_model_helpers proxy
+%%
+gauge_metric(Metric) ->
+    prometheus_model_helpers:gauge_metric(Metric).
+
+gauge_metrics(Values) ->
+    prometheus_model_helpers:gauge_metrics(Values).
+
+counter_metrics(Specs) ->
+    prometheus_model_helpers:counter_metrics(Specs).
