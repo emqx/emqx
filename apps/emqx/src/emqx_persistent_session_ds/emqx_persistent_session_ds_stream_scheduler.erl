@@ -690,7 +690,7 @@ init_for_subscription(
     SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata}
 ) ->
     #{id := SubId, start_time := StartTime} = Subscription,
-    TopicFilter = emqx_topic:words(TopicFilterBin),
+    TopicFilter = emqx_ds:topic_words(TopicFilterBin),
     %% Start watching the streams immediately:
     NewStreamsWatch = watch_streams(TopicFilter),
     %% Create the initial record for subscription:
@@ -781,7 +781,7 @@ renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0}) ->
                 undefined ->
                     {[], S0, SchedS0};
                 Subscription ->
-                    TopicFilter = emqx_topic:words(TopicFilterBin),
+                    TopicFilter = emqx_ds:topic_words(TopicFilterBin),
                     #sub_metadata{pending_streams = Cache} = SubS0,
                     Pending0 = maps:get(RankX, Cache, []),
                     {NewSRSIds, S, Pending} = do_renew_streams_for_x(
@@ -1147,7 +1147,7 @@ watch_streams(TopicFilter) ->
 
 unwatch_streams(TopicFilterBin, Ref, NewStreamSubs) ->
     ?tp(debug, ?sessds_sched_unwatch_streams, #{
-        topic_filter => emqx_topic:words(TopicFilterBin), ref => Ref
+        topic_filter => emqx_ds:topic_words(TopicFilterBin), ref => Ref
     }),
     emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
     maps:remove(Ref, NewStreamSubs).
