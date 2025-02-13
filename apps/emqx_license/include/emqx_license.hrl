@@ -39,4 +39,7 @@
 -define(EXPIRED_DAY, -90).
 
 -define(ERR_EXPIRED, expired).
+
+-define(DEFAULT_TRIAL_SESSIONS_LIMIT, 25).
+
 -endif.
