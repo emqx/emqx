@@ -27,6 +27,10 @@
 
 -export([namespace/0, roots/0, fields/1]).
 
+-ifdef(TEST).
+-export([event_to_event_type/1]).
+-endif.
+
 -type tag() :: rule_creation | rule_test | rule_engine | rule_apply_test.
 
 -spec check_params(map(), tag()) -> {ok, map()} | {error, term()}.
@@ -355,6 +359,27 @@ fields("ctx_message_transformation_failed") ->
         {"event", event_sc(Event)},
         {"transformation", sc(binary(), #{desc => ?DESC("event_transformation")})}
         | msg_event_common_fields()
+    ];
+fields("ctx_alarm_activated") ->
+    Event = 'alarm.activated',
+    [
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
+        {"name", sc(binary(), #{desc => ?DESC("alarm_name")})},
+        {"message", sc(binary(), #{desc => ?DESC("alarm_message")})},
+        {"details", sc(map(), #{desc => ?DESC("alarm_details")})},
+        {"activated_at", sc(integer(), #{desc => ?DESC("alarm_activated_at")})}
+    ];
+fields("ctx_alarm_deactivated") ->
+    Event = 'alarm.deactivated',
+    [
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
+        {"name", sc(binary(), #{desc => ?DESC("alarm_name")})},
+        {"message", sc(binary(), #{desc => ?DESC("alarm_message")})},
+        {"details", sc(map(), #{desc => ?DESC("alarm_details")})},
+        {"activated_at", sc(integer(), #{desc => ?DESC("alarm_activated_at")})},
+        {"deactivated_at", sc(integer(), #{desc => ?DESC("alarm_deactivated_at")})}
     ].
 
 rule_input_message_context() ->
@@ -383,7 +408,9 @@ rule_test_context_refs() ->
         ref("ctx_bridge_mqtt"),
         ref("ctx_delivery_dropped"),
         ref("ctx_schema_validation_failed"),
-        ref("ctx_message_transformation_failed")
+        ref("ctx_message_transformation_failed"),
+        ref("ctx_alarm_activated"),
+        ref("ctx_alarm_deactivated")
     ].
 
 rule_test_context_union(Refs) ->
