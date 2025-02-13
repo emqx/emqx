@@ -358,28 +358,72 @@ fields("ctx_message_transformation_failed") ->
 rule_input_message_context() ->
     {"context",
         sc(
-            hoconsc:union([
-                ref("ctx_pub"),
-                ref("ctx_sub"),
-                ref("ctx_unsub"),
-                ref("ctx_delivered"),
-                ref("ctx_acked"),
-                ref("ctx_dropped"),
-                ref("ctx_connected"),
-                ref("ctx_disconnected"),
-                ref("ctx_connack"),
-                ref("ctx_check_authz_complete"),
-                ref("ctx_check_authn_complete"),
-                ref("ctx_bridge_mqtt"),
-                ref("ctx_delivery_dropped"),
-                ref("ctx_schema_validation_failed"),
-                ref("ctx_message_transformation_failed")
-            ]),
+            hoconsc:union(rule_test_context_union(rule_test_context_refs())),
             #{
                 desc => ?DESC("test_context"),
                 default => #{}
             }
         )}.
+
+rule_test_context_refs() ->
+    [
+        ref("ctx_pub"),
+        ref("ctx_sub"),
+        ref("ctx_unsub"),
+        ref("ctx_delivered"),
+        ref("ctx_acked"),
+        ref("ctx_dropped"),
+        ref("ctx_connected"),
+        ref("ctx_disconnected"),
+        ref("ctx_connack"),
+        ref("ctx_check_authz_complete"),
+        ref("ctx_check_authn_complete"),
+        ref("ctx_bridge_mqtt"),
+        ref("ctx_delivery_dropped"),
+        ref("ctx_schema_validation_failed"),
+        ref("ctx_message_transformation_failed")
+    ].
+
+rule_test_context_union(Refs) ->
+    Index = lists:foldl(
+        fun(?R_REF(?MODULE, Struct) = Ref, Acc) ->
+            {"event_type", Sc} = lists:keyfind("event_type", 1, fields(Struct)),
+            Type = hocon_schema:field_schema(Sc, type),
+            Acc#{atom_to_binary(Type) => Ref}
+        end,
+        #{},
+        Refs
+    ),
+    fun
+        (all_union_members) ->
+            maps:values(Index);
+        ({value, V}) ->
+            case V of
+                #{<<"event_type">> := T} ->
+                    do_find_event_type(T, Index);
+                #{event_type := T0} ->
+                    T = emqx_utils_conv:bin(T0),
+                    do_find_event_type(T, Index);
+                _ ->
+                    throw(#{
+                        field_name => event_type,
+                        value => undefined,
+                        reason => <<"unknown event type">>
+                    })
+            end
+    end.
+
+do_find_event_type(T, Index) ->
+    case maps:find(T, Index) of
+        error ->
+            throw(#{
+                field_name => event_type,
+                value => T,
+                reason => <<"unknown event type">>
+            });
+        {ok, Ref} ->
+            [Ref]
+    end.
 
 qos() ->
     {"qos", sc(emqx_schema:qos(), #{desc => ?DESC("event_qos")})}.
