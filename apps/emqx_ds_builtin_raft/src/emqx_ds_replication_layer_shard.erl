@@ -65,32 +65,68 @@
 start_link(DB, Shard, Opts) ->
     gen_server:start_link(?MODULE, {DB, Shard, Opts}, []).
 
+%% @doc Return a list of servers comprising a shard, according to the information
+%% in the DB metadata storage.
+%% Note that this indicates which servers _should_ be members of respective Ra
+%% cluster, but may at times be out-of-sync with the actual Ra cluster membership.
 -spec shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> [server()].
 shard_servers(DB, Shard) ->
     ReplicaSet = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
-    [shard_server(DB, Shard, Site) || Site <- ReplicaSet].
+    shard_servers(DB, Shard, ReplicaSet).
 
+shard_servers(DB, Shard, [Site | Rest]) ->
+    case shard_server(DB, Shard, Site) of
+        Server when is_tuple(Server) ->
+            [Server | shard_servers(DB, Shard, Rest)];
+        undefined ->
+            shard_servers(DB, Shard, Rest)
+    end;
+shard_servers(_DB, _Shard, []) ->
+    [].
+
+%% @doc Return a term identifying a server for the shard located on specified site.
 -spec shard_server(
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
     emqx_ds_replication_layer_meta:site()
-) -> server().
+) -> server() | undefined.
 shard_server(DB, Shard, Site) ->
-    {server_name(DB, Shard, Site), emqx_ds_replication_layer_meta:node(Site)}.
+    case emqx_ds_replication_layer_meta:node(Site) of
+        Node when Node =/= undefined ->
+            {server_name(DB, Shard, Site), Node};
+        undefined ->
+            undefined
+    end.
 
+%% @doc Return a term identifying a local server for the shard.
 -spec local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> server().
 local_server(DB, Shard) ->
     {server_name(DB, Shard, local_site()), node()}.
 
 cluster_name(DB, Shard) ->
-    iolist_to_binary(io_lib:format("~s_~s", [DB, Shard])).
+    DBBin = atom_to_binary(DB),
+    <<DBBin/binary, "_", Shard/binary>>.
 
 server_name(DB, Shard, Site) ->
+    %% NOTE
+    %% Site is redundant as part of server name, keeping for backward / rolling upgrade
+    %% compatibility.
     DBBin = atom_to_binary(DB),
     binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
 
 %%
 
+%% @doc Return list of servers for the shard, taking into account runtime information
+%% about leadership and cluster connectivity.
+%% * `Order` is `leader_preferred`
+%%    Result will contain the known leader first, then rest of shard servers. If unknown,
+%%    order is unspecified. Use when request is meant to reach the leader, e.g. Ra
+%%    command.
+%% * `Order` is `local_preferred`
+%%    Return list of servers, where the local replica (if exists) is the first element.
+%%    Note: result is _NOT_ shuffled. This can be bad for the load balancing, but it
+%%    makes results more deterministic. Caller that doesn't care about that can shuffle
+%%    the results by itself.
 -spec servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), Order) -> [server()] when
     Order :: leader_preferred | local_preferred | undefined.
 servers(DB, Shard, leader_preferred) ->
@@ -101,7 +137,6 @@ servers(DB, Shard, _Order = undefined) ->
     get_shard_servers(DB, Shard).
 
 get_servers_leader_preferred(DB, Shard) ->
-    %% NOTE: Contact last known leader first, then rest of shard servers.
     ClusterName = get_cluster_name(DB, Shard),
     case ra_leaderboard:lookup_leader(ClusterName) of
         Leader when Leader /= undefined ->
@@ -112,11 +147,6 @@ get_servers_leader_preferred(DB, Shard) ->
     end.
 
 get_servers_local_preferred(DB, Shard) ->
-    %% Return list of servers, where the local replica (if exists) is
-    %% the first element. Note: result is _NOT_ shuffled. This can be
-    %% bad for the load balancing, but it makes results more
-    %% deterministic. Caller that doesn't care about that can shuffle
-    %% the results by itself.
     ClusterName = get_cluster_name(DB, Shard),
     case ra_leaderboard:lookup_members(ClusterName) of
         undefined ->
