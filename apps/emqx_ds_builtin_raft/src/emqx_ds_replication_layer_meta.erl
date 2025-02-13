@@ -127,7 +127,6 @@
     %% Sites that should contain the data when the cluster is in the
     %% stable state (no nodes are being added or removed from it):
     target_set :: [site()] | undefined,
-    % target_set :: [transition() | site()] | undefined,
     misc = #{} :: map()
 }).
 
@@ -338,13 +337,22 @@ node(Site) ->
             undefined
     end.
 
--spec forget_site(site()) -> ok | {error, _}.
+-spec forget_site(site()) -> ok | {error, _Reason}.
 forget_site(Site) ->
-    case mnesia:dirty_read(?NODE_TAB, Site) of
+    maybe
+        [Record] ?= mnesia:dirty_read(?NODE_TAB, Site),
+        false ?= node_status(Record#?NODE_TAB.node),
+        %% Node is lost, proceed.
+        transaction(fun ?MODULE:forget_site_trans/1, [Record])
+    else
         [] ->
             {error, nonexistent_site};
-        [Record] ->
-            transaction(fun ?MODULE:forget_site_trans/1, [Record])
+        running ->
+            {error, site_online};
+        stopped ->
+            %% Node is stopped, reject the request.
+            %% If it's gone, it should leave the cluster first.
+            {error, site_temporarily_offline}
     end.
 
 %%===============================================================================
@@ -608,7 +616,7 @@ claim_transition_trans(DB, Shard, Trans) ->
             [] ->
                 mnesia:abort({nonexistent_shard, {DB, Shard}})
         end,
-    case mnesia:read(?TRANSITION_TAB, {DB, Shard}, write) of
+    case shard_transition_trans(ShardRecord) of
         [#?TRANSITION_TAB{transition = Trans}] ->
             ok;
         [#?TRANSITION_TAB{transition = Conflict}] ->
@@ -673,6 +681,9 @@ db_config_trans(DB, LockType) ->
 db_shards_trans(DB) ->
     mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write).
 
+shard_transition_trans(#?SHARD_TAB{shard = DBShard}) ->
+    mnesia:read(?TRANSITION_TAB, DBShard, write).
+
 -spec drop_db_trans(emqx_ds:db()) -> ok.
 drop_db_trans(DB) ->
     mnesia:delete({?META_TAB, DB}),
@@ -693,13 +704,31 @@ claim_site_trans(Site, Node) ->
 
 -spec forget_site_trans(_Record :: tuple()) -> ok.
 forget_site_trans(Record = #?NODE_TAB{site = Site}) ->
+    %% Safeguards.
     DBs = mnesia:all_keys(?META_TAB),
-    SiteDBs = [DB || DB <- DBs, S <- list_db_target_sites(db_shards_trans(DB)), S == Site],
+    %% 1. Compute which DBs has this site as a replica for any of the shards.
+    SiteDBs = lists:usort([DB || DB <- DBs, S <- list_db_sites(db_shards_trans(DB)), S == Site]),
+    %% 2. Compute which DBs has this site in a membership transition, for any of the shards.
+    SiteTargetDBs = lists:usort([
+        DB
+     || DB <- DBs,
+        ShardRecord <- db_shards_trans(DB),
+        {_, S} <- compute_transitions(ShardRecord, shard_transition_trans(ShardRecord)),
+        S == Site
+    ]),
     case SiteDBs of
-        [] ->
-            mnesia:delete_object(?NODE_TAB, Record, write);
+        [] when SiteTargetDBs == [] ->
+            Safeguard = ok;
         [_ | _] ->
-            mnesia:abort({member_of_replica_sets, SiteDBs})
+            Safeguard = {member_of_replica_sets, SiteDBs};
+        [] ->
+            Safeguard = {member_of_target_sets, SiteTargetDBs}
+    end,
+    case Safeguard of
+        ok ->
+            mnesia:delete_object(?NODE_TAB, Record, write);
+        _Otherwise ->
+            mnesia:abort(Safeguard)
     end.
 
 node_sites(Node) ->
