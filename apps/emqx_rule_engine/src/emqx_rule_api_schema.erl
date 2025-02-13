@@ -33,9 +33,20 @@
 check_params(Params, Tag) ->
     BTag = atom_to_binary(Tag),
     Opts = #{atom_key => true, required => false},
-    try hocon_tconf:check_plain(?MODULE, #{BTag => Params}, Opts, [Tag]) of
+    SchemaMod = ?MODULE,
+    try hocon_tconf:check_plain(SchemaMod, #{BTag => Params}, Opts, [Tag]) of
         #{Tag := Checked} -> {ok, Checked}
     catch
+        throw:{SchemaMod, [Reason]} ->
+            ?SLOG(
+                info,
+                #{
+                    msg => "check_rule_params_failed",
+                    reason => Reason
+                },
+                #{tag => ?TAG}
+            ),
+            {error, Reason};
         throw:Reason ->
             ?SLOG(
                 info,
