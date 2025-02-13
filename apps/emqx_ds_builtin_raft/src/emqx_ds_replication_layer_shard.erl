@@ -12,6 +12,7 @@
 %% Static server configuration
 -export([
     shard_servers/2,
+    known_shard_servers/2,
     shard_server/3,
     local_server/2
 ]).
@@ -83,6 +84,12 @@ shard_servers(DB, Shard, [Site | Rest]) ->
     end;
 shard_servers(_DB, _Shard, []) ->
     [].
+
+%% @doc Return a list of servers comprising a shard, according to the information
+%% in the DB metadata storage, but excluding any servers residing on nodes not
+%% considered to be in the cluster.
+known_shard_servers(DB, Shard) ->
+    [Server || Server <- shard_servers(DB, Shard), is_server_known(Server)].
 
 %% @doc Return a term identifying a server for the shard located on specified site.
 -spec shard_server(
@@ -183,6 +190,9 @@ filter_online(Servers) ->
 is_server_online({_Name, Node}) ->
     Node == node() orelse lists:member(Node, nodes()).
 
+is_server_known({_Name, Node}) ->
+    mria:is_node_in_cluster(Node).
+
 get_cluster_name(DB, Shard) ->
     memoize(fun cluster_name/2, [DB, Shard]).
 
@@ -243,13 +253,16 @@ try_servers([], _Fun, _Args) ->
 -spec add_local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     ok | emqx_ds:error(_Reason).
 add_local_server(DB, Shard) ->
+    ShardServers = known_shard_servers(DB, Shard),
+    add_local_server(DB, Shard, ShardServers).
+
+add_local_server(DB, Shard, ShardServers = [_ | _]) ->
     %% NOTE
     %% Adding local server as "promotable" member to the cluster, which means
     %% that it won't affect quorum until it is promoted to a voter, which in
     %% turn happens when the server has caught up sufficiently with the log.
     %% We also rely on this "membership" to understand when the server's
     %% ready.
-    ShardServers = shard_servers(DB, Shard),
     LocalServer = local_server(DB, Shard),
     case server_info(uid, LocalServer) of
         UID when is_binary(UID) ->
@@ -272,7 +285,13 @@ add_local_server(DB, Shard) ->
             ok;
         Error ->
             {error, recoverable, Error}
-    end.
+    end;
+add_local_server(_DB, _Shard, _ShardServers = []) ->
+    %% NOTE
+    %% No active servers to ask to accept us. The most likely situation when this
+    %% happens is when all existing shard servers are owned by "lost" nodes, i.e.
+    %% those nodes that has (abnormally) left the cluster.
+    ok.
 
 %% @doc Remove a local server from the shard cluster and clean up on-disk data.
 %% It's required to have the local server running before calling this function.
@@ -297,7 +316,10 @@ drop_local_server(DB, Shard) ->
 -spec remove_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), server()) ->
     ok | emqx_ds:error(_Reason).
 remove_server(DB, Shard, Server) ->
-    ShardServers = shard_servers(DB, Shard),
+    ShardServers = known_shard_servers(DB, Shard),
+    remove_server(Server, ShardServers).
+
+remove_server(Server, ShardServers = [_ | _]) ->
     Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
     case try_servers(ShardServers, fun ra:remove_member/3, [Server, Timeout]) of
         {ok, _, _Leader} ->
@@ -306,7 +328,11 @@ remove_server(DB, Shard, Server) ->
             ok;
         Error ->
             {error, recoverable, Error}
-    end.
+    end;
+remove_server(_Server, _ShardServers = []) ->
+    %% NOTE
+    %% No active servers to ask to remove us.
+    ok.
 
 -spec server_info
     (readiness, server()) -> ready | {unready, _Details} | unknown;
@@ -468,7 +494,7 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
 start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
-    Servers = shard_servers(DB, Shard),
+    Servers = known_shard_servers(DB, Shard),
     MutableConfig = #{tick_timeout => 100},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
