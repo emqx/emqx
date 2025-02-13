@@ -96,9 +96,24 @@
     retain_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
+    %% ==== message transformation/validation ====
     transformation_failed,
-    unrecoverable_resource_error,
-    validation_failed
+    transformation_eval_operation_failure,
+    transformation_eval_operation_exception,
+    payload_encode_failed,
+    payload_decode_failed,
+    payload_decode_schema_not_found,
+    payload_encode_schema_not_found,
+    payload_decode_schema_failure,
+    payload_encode_schema_failure,
+    payload_decode_error,
+    validation_failed,
+    validation_sql_check_throw,
+    validation_sql_check_failure,
+    validation_schema_check_schema_not_found,
+    validation_schema_check_failure,
+    %% ==== message transformation/validation end ====
+    unrecoverable_resource_error
 ]).
 
 -define(DEFAULT_RPC_PORT, 5369).
