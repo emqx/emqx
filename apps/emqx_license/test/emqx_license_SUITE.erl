@@ -12,6 +12,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(LIMIT, 10).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -60,11 +62,17 @@ t_update_value(_Config) ->
         emqx_license:update_key(LicenseValue)
     ).
 
-t_check_exceeded(_Config) ->
-    License = mk_license(),
+t_check_exceeded_25(_Config) ->
+    check_exceeded(25, 25).
+
+t_check_exceeded_26(_Config) ->
+    check_exceeded(26, erlang:round(26 * 1.1)).
+
+check_exceeded(LimitInLicense, Limit) ->
+    License = mk_license(integer_to_list(LimitInLicense)),
     #{} = update(License),
-    ClientIdFn = fun(I) -> bin(["c-", i2l(?LINE), "-", i2l(I)]) end,
-    Pids = lists:map(fun(I) -> connect([{clientid, ClientIdFn(I)}]) end, lists:seq(1, 12)),
+    ClientIdFn = fun(I) -> bin(["c-", i2l(I), "-of-", i2l(Limit)]) end,
+    Pids = lists:map(fun(I) -> connect([{clientid, ClientIdFn(I)}]) end, lists:seq(1, Limit)),
     sync_cache(),
     ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()),
     ClientId1 = ClientIdFn(1),
@@ -78,7 +86,7 @@ t_check_exceeded_non_clean(_Config) ->
     License = mk_license(),
     #{} = update(License),
     Properties = #{'Session-Expiry-Interval' => 10},
-    IDs = [iolist_to_binary(["test-client-", integer_to_list(I)]) || I <- lists:seq(1, 12)],
+    IDs = [iolist_to_binary(["test-client-", integer_to_list(I)]) || I <- lists:seq(1, ?LIMIT)],
     Pids = lists:map(
         fun(Id) -> connect([{clientid, Id}, {proto_ver, v5}, {properties, Properties}]) end, IDs
     ),
@@ -87,7 +95,7 @@ t_check_exceeded_non_clean(_Config) ->
     ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids),
     %% wait until all clients disconnected
     ?retry(100, 50, ?assertEqual(0, emqx_cm:get_connected_client_count())),
-    ?assertEqual(12, emqx_cm:get_sessions_count()),
+    ?assertEqual(?LIMIT, emqx_cm:get_sessions_count()),
     %% continue to expect quota exceeded
     ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()),
     lists:foreach(fun emqx_cm:kick_session/1, IDs),
@@ -104,7 +112,7 @@ t_check_ok(_Config) ->
             ?assertMatch({I, {ok, _}}, {I, emqtt:connect(C)}),
             C
         end,
-        lists:seq(1, 11)
+        lists:seq(1, ?LIMIT)
     ),
     ?assertEqual({ok, #{}}, check()),
     ok = lists:foreach(fun(Pid) -> emqtt:stop(Pid) end, Pids).
@@ -122,7 +130,9 @@ t_check_expired(_Config) ->
             "bar",
             %% Expired long ago
             "20211101",
+            % days
             "10",
+            % sessions
             "10"
         ]
     ),
@@ -170,6 +180,16 @@ t_import_config(_Config) ->
 
 %% Make a test license valid for 100,000 days with max connections 10
 mk_license() ->
+    mk_license(integer_to_list(?LIMIT)).
+
+mk_license([[_ | _] | _] = Fields) ->
+    EncodedLicense = emqx_license_test_lib:make_license(Fields),
+    {ok, License} = emqx_license_parser:parse(
+        EncodedLicense,
+        emqx_license_test_lib:public_key_pem()
+    ),
+    {EncodedLicense, License};
+mk_license(Limit) ->
     {_, License} = mk_license(
         [
             "220111",
@@ -179,19 +199,12 @@ mk_license() ->
             "contact@foo.com",
             "bar",
             "20220111",
+            % days
             "100000",
-            "10"
+            Limit
         ]
     ),
     License.
-
-mk_license(Fields) ->
-    EncodedLicense = emqx_license_test_lib:make_license(Fields),
-    {ok, License} = emqx_license_parser:parse(
-        EncodedLicense,
-        emqx_license_test_lib:public_key_pem()
-    ),
-    {EncodedLicense, License}.
 
 update(License) ->
     Result = emqx_license_checker:update(License),
