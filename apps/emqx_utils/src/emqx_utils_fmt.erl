@@ -34,9 +34,9 @@
     | {subcolumns, [[table_cell_simple()]]}
     | {group, [[table_cell()]]}.
 
--type table_props() :: #{}.
--type column_props() :: #{}.
--type cell_props() :: #{}.
+-type table_props() :: #{_ => _}.
+-type column_props() :: #{align => left | right}.
+-type cell_props() :: #{padc => char(), delimiter => string(), _ => _}.
 
 -type formatted_cell() :: unicode:chardata() | {unicode:chardata(), cell_props()}.
 
