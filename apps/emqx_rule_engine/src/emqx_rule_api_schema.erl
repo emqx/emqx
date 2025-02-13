@@ -344,6 +344,7 @@ fields("ctx_schema_validation_failed") ->
     Event = 'schema.validation_failed',
     [
         {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"validation", sc(binary(), #{desc => ?DESC("event_validation")})}
         | msg_event_common_fields()
     ];
@@ -351,6 +352,7 @@ fields("ctx_message_transformation_failed") ->
     Event = 'message.transformation_failed',
     [
         {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"transformation", sc(binary(), #{desc => ?DESC("event_transformation")})}
         | msg_event_common_fields()
     ].
