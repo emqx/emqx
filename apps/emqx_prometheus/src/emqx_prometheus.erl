@@ -144,7 +144,7 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 push_to_push_gateway(Url, Headers) when is_list(Headers) ->
-    Data = prometheus_text_format:format(?PROMETHEUS_DEFAULT_REGISTRY),
+    Data = push_metrics_data(),
     case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
         {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
@@ -157,6 +157,10 @@ push_to_push_gateway(Url, Headers) when is_list(Headers) ->
             }),
             failed
     end.
+
+push_metrics_data() ->
+    Rows = [prometheus_text_format:format(Registry) || Registry <- ?PROMETHEUS_ALL_REGISTRIES],
+    iolist_to_binary(Rows).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -176,11 +180,12 @@ opts(#{push_gateway := #{url := Url, job_name := JobName} = PushGateway}) ->
     maps:put(url, join_url(Url, JobName), PushGateway).
 
 join_url(Url, JobName0) ->
+    ClusterName = atom_to_binary(emqx:get_config([cluster, name], emqxcl)),
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     % NOTE: allowing errors here to keep rough backward compatibility
     {JobName1, Errors} = emqx_template:render(
         emqx_template:parse(JobName0),
-        #{<<"name">> => Name, <<"host">> => Ip}
+        #{<<"name">> => Name, <<"host">> => Ip, <<"cluster_name">> => ClusterName}
     ),
     _ =
         Errors == [] orelse

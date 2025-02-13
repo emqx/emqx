@@ -110,7 +110,7 @@ t_legacy_prometheus_api(_) ->
                     <<"enable">> := true,
                     <<"headers">> := #{<<"Authorization">> := <<"some-authz-tokens">>},
                     <<"interval">> := <<"1s">>,
-                    <<"job_name">> := <<"${name}~${host}">>,
+                    <<"job_name">> := <<"${cluster_name}~${name}~${host}">>,
                     <<"url">> := <<"http://127.0.0.1:9091">>
                 }
         },

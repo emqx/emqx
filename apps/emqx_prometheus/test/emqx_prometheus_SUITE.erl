@@ -29,7 +29,7 @@ prometheus {
     push_gateway_server = \"http://127.0.0.1:9091\"
     interval = \"1s\"
     headers = { Authorization = \"some-authz-tokens\"}
-    job_name = \"${name}~${host}\"
+    job_name = \"${cluster_name}~${name}~${host}\"
     enable = true
     vm_dist_collector = disabled
     mnesia_collector = disabled
@@ -58,7 +58,7 @@ prometheus {
                     <<"enable">> => true,
                     <<"headers">> => #{<<"Authorization">> => <<"some-authz-tokens">>},
                     <<"interval">> => <<"1s">>,
-                    <<"job_name">> => <<"${name}~${host}">>,
+                    <<"job_name">> => <<"${cluster_name}~${name}~${host}">>,
                     <<"url">> => <<"http://127.0.0.1:9091">>
                 }
         }
@@ -94,6 +94,12 @@ init_per_group(new_config, Config) ->
                 {emqx_license, "license.key = default"}
              || emqx_release:edition() == ee
             ],
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_http,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_auth,
             {emqx_prometheus, #{config => config(default)}},
             emqx_management
         ]),
@@ -108,6 +114,12 @@ init_per_group(legacy_config, Config) ->
                 {emqx_license, "license.key = default"}
              || emqx_release:edition() == ee
             ],
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_http,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_auth,
             {emqx_prometheus, #{config => config(legacy)}},
             emqx_management
         ]),
@@ -182,11 +194,12 @@ t_collector_no_crash_test(_) ->
 
 t_assert_push(_) ->
     Self = self(),
-    AssertPush = fun(Method, Req = {Url, Headers, ContentType, _Data}, HttpOpts, Opts) ->
+    AssertPush = fun(Method, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
         ?assertEqual(post, Method),
-        ?assertMatch("http://127.0.0.1:9091/metrics/job/test~127.0.0.1", Url),
+        ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
         ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
         ?assertEqual("text/plain", ContentType),
+        ?assertEqual(true, assert_push_gateway_data(Data)),
         Self ! pass,
         meck:passthrough([Method, Req, HttpOpts, Opts])
     end,
@@ -263,3 +276,24 @@ init(Req0, Opts) ->
 some_pem_path() ->
     Dir = code:lib_dir(emqx_prometheus, test),
     _Path = filename:join([Dir, "data", "cert.crt"]).
+
+assert_push_gateway_data(Data) ->
+    assert_push_gateway_data(
+        [
+            <<"emqx_authn_enable">>,
+            <<"emqx_authz_enable">>,
+            <<"emqx_rules_count">>,
+            <<"emqx_actions_count">>,
+            <<"emqx_connectors_count">>
+        ],
+        Data
+    ).
+assert_push_gateway_data([], _Data) ->
+    true;
+assert_push_gateway_data([Keyword | Keywords], Data) ->
+    case re:run(Data, Keyword, [{capture, none}, global]) of
+        match ->
+            assert_push_gateway_data(Keywords, Data);
+        nomatch ->
+            {false, Keyword}
+    end.
