@@ -950,38 +950,76 @@ max_packet_size_test_() ->
         hocon_tconf:check_plain(Sc, Hocon, #{}, [mqtt])
     end,
     [
-        {"one byte less than 256MB", fun() ->
-            ?assertMatch(
+        {"one byte less than 256MB",
+            ?_assertMatch(
                 #{<<"mqtt">> := #{<<"max_packet_size">> := 268435455}},
                 Check(<<"mqtt.max_packet_size = 256MB">>)
-            )
-        end},
-        {"default value", fun() ->
-            ?assertMatch(
+            )},
+        {"default value",
+            ?_assertMatch(
                 #{<<"mqtt">> := #{<<"max_packet_size">> := 1048576}},
                 Check(<<"mqtt.max_packet_size = null">>)
-            )
-        end},
-        {"1KB is 1024 bytes", fun() ->
-            ?assertMatch(
+            )},
+        {"1KB is 1024 bytes",
+            ?_assertMatch(
                 #{<<"mqtt">> := #{<<"max_packet_size">> := 1024}},
                 Check(<<"mqtt.max_packet_size = 1KB">>)
-            )
-        end},
-        {"257MB is not allowed", fun() ->
-            ?assertThrow(
+            )},
+        {"257MB is not allowed",
+            ?_assertThrow(
                 {emqx_schema, [
                     #{reason := #{cause := max_mqtt_packet_size_too_large, maximum := 268435455}}
                 ]},
                 Check(<<"mqtt.max_packet_size = 257MB">>)
-            )
-        end},
-        {"0 is not allowed", fun() ->
-            ?assertThrow(
+            )},
+        {"0 is not allowed",
+            ?_assertThrow(
                 {emqx_schema, [
                     #{reason := #{cause := max_mqtt_packet_size_too_small, minimum := 1}}
                 ]},
                 Check(<<"mqtt.max_packet_size = 0">>)
-            )
-        end}
+            )}
+    ].
+
+max_heap_size_test_() ->
+    WordSize = erlang:system_info(wordsize),
+    MaxWords = 128 * 1024 * 1024 * 1024 div WordSize,
+    DefaultWords = 32 * 1024 * 1024 div WordSize,
+    Sc = emqx_schema,
+    Check = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(Sc, Hocon, #{}, [force_shutdown])
+    end,
+    [
+        {"equal to default of 128GB",
+            ?_assertMatch(
+                #{<<"force_shutdown">> := #{<<"max_heap_size">> := MaxWords}},
+                Check(<<"force_shutdown.max_heap_size = 128GB">>)
+            )},
+        {"default value",
+            ?_assertMatch(
+                #{<<"force_shutdown">> := #{<<"max_heap_size">> := DefaultWords}},
+                Check(<<"force_shutdown.max_heap_size = null">>)
+            )},
+        {"divides by the wordsize",
+            ?_test(begin
+                Expected = 1024 div WordSize,
+                ?assertMatch(
+                    #{<<"force_shutdown">> := #{<<"max_heap_size">> := Expected}},
+                    Check(<<"force_shutdown.max_heap_size = 1KB">>),
+                    #{expected => Expected}
+                )
+            end)},
+        {"129GB is not allowed",
+            ?_assertThrow(
+                {emqx_schema, [
+                    #{reason := #{cause := max_heap_size_too_large, maximum := MaxWords}}
+                ]},
+                Check(<<"force_shutdown.max_heap_size = 129GB">>)
+            )},
+        {"0 is allowed",
+            ?_assertMatch(
+                #{<<"force_shutdown">> := #{<<"max_heap_size">> := 0}},
+                Check(<<"force_shutdown.max_heap_size = 0KB">>)
+            )}
     ].
