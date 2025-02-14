@@ -90,5 +90,7 @@ shared_subs(ce) ->
     [].
 
 %% Add more schemas here.
-customized(_Edition) ->
+customized(ee) ->
+    [];
+customized(ce) ->
     [].
