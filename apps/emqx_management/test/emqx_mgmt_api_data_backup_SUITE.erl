@@ -34,6 +34,7 @@
 -define(backup_path(_Config_, _BackupName_),
     filename:join(?config(data_dir, _Config_), _BackupName_)
 ).
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 all() ->
     case emqx_cth_suite:skip_if_oss() of
@@ -140,6 +141,49 @@ t_export_cloud(Config) ->
     Resp = export_cloud_backup(?NODE1_PORT, Auth),
     {200, #{<<"filename">> := Filepath}} = Resp,
     {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
+    ok.
+
+%% Simple smoke test for exporting a subset of config root keys and tables via the CLI.
+t_export_cloud_ctl(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    %% Need to explicitly load the commands because they are loaded by `emqx_machine'...
+    ?ON(N1, emqx_mgmt_cli:load()),
+    ok = ?ON(N1, meck:new(emqx_ctl, [no_link, passthrough])),
+    RootKeys = [
+        <<"connectors">>,
+        <<"actions">>,
+        <<"sources">>,
+        <<"rule_engine">>,
+        <<"schema_registry">>
+    ],
+    TableSets = [
+        <<"banned">>,
+        <<"builtin_authn">>,
+        <<"builtin_authz">>
+    ],
+    RootKeysArg = lists:join($,, RootKeys),
+    TableSetsArg = lists:join($,, TableSets),
+    ?ON(
+        N1,
+        emqx_ctl:run_command([
+            "data", "export", "--root-keys", RootKeysArg, "--table-sets", TableSetsArg
+        ])
+    ),
+    {ok, [BackupFile]} = ?ON(N1, file:list_dir(filename:join([emqx:data_dir(), "backup"]))),
+    ?ON(N1, emqx_ctl:run_command(["data", "import", BackupFile])),
+    History = ?ON(N1, meck:history(emqx_ctl)),
+    ?ON(N1, meck:unload(emqx_ctl)),
+    OutputMsgs = [Fmt || {_Pid, {emqx_ctl, print, [Fmt | _]}, _Res} <- History],
+    ?assertMatch(
+        [_],
+        [1 || "Data has been successfully exported" ++ _ <- OutputMsgs],
+        #{output => OutputMsgs}
+    ),
+    ?assertMatch(
+        [_],
+        [1 || "Data has been imported successfully" ++ _ <- OutputMsgs],
+        #{output => OutputMsgs}
+    ),
     ok.
 
 %% Checks returned error when one or more invalid table set names are given to the export
@@ -422,7 +466,10 @@ test_case_specific_apps_spec(TC) when
         emqx_modules,
         emqx_bridge
     ];
-test_case_specific_apps_spec(t_export_cloud) ->
+test_case_specific_apps_spec(TestCase) when
+    TestCase =:= t_export_cloud;
+    TestCase =:= t_export_cloud_ctl
+->
     [
         emqx_auth,
         emqx_auth_mnesia,
