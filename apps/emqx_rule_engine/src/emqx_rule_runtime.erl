@@ -418,7 +418,7 @@ handle_action(RuleId, ActId, Selected, Envs) ->
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
         throw:{failed, unhealthy_target} ->
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unhealthy_target'),
+            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
             trace_action(ActId, "action_failed", #{reason => unhealthy_target}, error);
         Err:Reason:ST ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
