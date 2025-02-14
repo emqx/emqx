@@ -350,8 +350,8 @@ print_status(Nodes, Shards, Transitions) ->
         io:format(
             "(!) ATTENTION~n"
             "(!) One or more shards have replica set where majority of replicas are gone.~n"
-            "(!) Membership changes are compromised, pending transition are likely to never finish.~n"
-            "(!) Please take necessary steps to deal with lost sites, e.g. `emqx ds ctl forget <...>`.~n"
+            "(!) Membership changes are compromised, pending transitions may never finish.~n"
+            "(!) Please take necessary steps to deal with lost sites.~n"
             "(!) Prepare for the possibility of data loss.~n"
         ),
     ok.
