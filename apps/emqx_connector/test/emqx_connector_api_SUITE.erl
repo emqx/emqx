@@ -139,7 +139,8 @@ groups() ->
     SingleOnlyTests = [
         t_connectors_probe,
         t_fail_delete_with_action,
-        t_actions_field
+        t_actions_field,
+        t_update_with_failed_validation
     ],
     ClusterOnlyTests = [
         t_inconsistent_state
@@ -971,6 +972,52 @@ t_inconsistent_state(Config) ->
         )
     ),
 
+    ok.
+
+%% Checks that we return a readable error when we attempt to update a connector and its
+%% validation fails.
+t_update_with_failed_validation(Config) ->
+    Params = ?KAFKA_CONNECTOR(?CONNECTOR_NAME),
+    ?assertMatch(
+        {ok, 201, _},
+        request_json(
+            post,
+            uri(["connectors"]),
+            Params,
+            Config
+        )
+    ),
+    BadParams0 = emqx_utils_maps:deep_merge(
+        Params,
+        #{<<"bootstrap_hosts">> => <<"a:b:123:a">>}
+    ),
+    BadParams = maps:without([<<"type">>, <<"name">>], BadParams0),
+    ConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, ?CONNECTOR_NAME),
+    %% Has to be a validator that returns `{error, _}' instead of throwing stuff.
+    on_exit(fun() -> meck:unload() end),
+    ok = meck:new(emqx_schema, [passthrough]),
+    MockedError = <<"mocked negative validator response">>,
+    ok = meck:expect(emqx_schema, servers_validator, fun(_, _) ->
+        fun(_) ->
+            {error, MockedError}
+        end
+    end),
+    {ok, 400, ResBin} = request(
+        put,
+        uri(["connectors", ConnectorID]),
+        BadParams,
+        Config
+    ),
+    #{<<"message">> := MessageBin} = emqx_utils_json:decode(ResBin),
+    ct:pal("error message:\n  ~s", [MessageBin]),
+    Message = emqx_utils_json:decode(MessageBin),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := MockedError
+        },
+        Message
+    ),
     ok.
 
 %%% helpers
