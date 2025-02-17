@@ -18,14 +18,20 @@
 
 -behaviour(esockd_generic_limiter).
 
--define(LIMITER_CONNECTION, max_conn).
-
 %% API
--export([new_create_options/1, create/1, delete/1, consume/2]).
+-export([
+    create_options/1, create/1, delete/1, consume/2
+]).
 
 -type create_options() :: #{
+    limiter_client := emqx_limiter_client:t()
+}.
+
+%% esockd_generic_limiter:limiter() subtype
+-type state() :: #{
     module := ?MODULE,
-    limiter := emqx_limiter_container:container()
+    name := ?MODULE,
+    limiter_client := emqx_limiter_client:t()
 }.
 
 -define(PAUSE_INTERVAL, 100).
@@ -34,25 +40,28 @@
 %%  API
 %%--------------------------------------------------------------------
 
--spec new_create_options(emqx_limiter_container:container()) -> create_options().
-new_create_options(Container) ->
-    #{module => ?MODULE, limiter => Container}.
+-spec create_options(emqx_limiter_client:t()) -> create_options().
+create_options(LimiterClient) ->
+    #{limiter_client => LimiterClient}.
 
--spec create(create_options()) -> esockd_generic_limiter:limiter().
-create(#{module := ?MODULE, limiter := _Container} = Opts) ->
-    Opts.
+-spec create(create_options()) -> state().
+create(#{limiter_client := LimiterClient}) ->
+    #{
+        module => ?MODULE,
+        name => ?MODULE,
+        limiter_client => LimiterClient
+    }.
 
-delete(_GLimiter) ->
+-spec delete(state()) -> ok.
+delete(_State) ->
     ok.
 
-consume(Token, #{limiter := Container} = GLimiter) ->
-    case emqx_limiter_container:check([{?LIMITER_CONNECTION, Token}], Container) of
-        {true, Container2} ->
-            {ok, GLimiter#{limiter := Container2}};
-        {false, Container2} ->
-            {pause, ?PAUSE_INTERVAL, GLimiter#{limiter := Container2}}
+-spec consume(non_neg_integer(), state()) ->
+    {ok, state()} | {pause, non_neg_integer(), state()}.
+consume(Amount, #{limiter_client := LimiterClient0} = State) ->
+    case emqx_limiter_client:try_consume(LimiterClient0, Amount) of
+        {true, LimiterClient} ->
+            {ok, State#{limiter_client := LimiterClient}};
+        {false, LimiterClient} ->
+            {pause, ?PAUSE_INTERVAL, State#{limiter_client := LimiterClient}}
     end.
-
-%%--------------------------------------------------------------------
-%%  Internal functions
-%%--------------------------------------------------------------------

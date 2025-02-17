@@ -254,6 +254,7 @@ start_listener(ListenerId) ->
 -spec start_listener(listener_type(), atom(), map()) -> ok | {error, term()}.
 start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
     ListenerId = listener_id(Type, Name),
+    ok = emqx_limiter:create_listener_limiters(ListenerId, Conf),
     case do_start_listener(Type, Name, ListenerId, Conf) of
         {ok, {skipped, Reason}} when
             Reason =:= quic_app_missing
@@ -278,6 +279,7 @@ start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
             {error, {already_started, Pid}};
         {error, Reason} ->
             ?tp(listener_not_started, #{type => Type, bind => Bind, status => {error, Reason}}),
+            ok = emqx_limiter:delete_listener_limiters(ListenerId),
             BindStr = format_bind(Bind),
             ?ELOG(
                 "Failed to start listener ~ts on ~ts: ~0p.~n",
@@ -320,6 +322,7 @@ update_listener(Type, Name, #{enable := false}, Conf = #{enable := true}) ->
 update_listener(Type, Name, OldConf, NewConf) ->
     case do_update_listener(Type, Name, OldConf, NewConf) of
         ok ->
+            ok = emqx_limiter:update_listener_limiters(listener_id(Type, Name), NewConf),
             ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
             ok;
         {skip, Error} when Type =:= quic ->
@@ -354,6 +357,7 @@ stop_listener(Type, Name, #{bind := Bind} = Conf) ->
     ok = unregister_ocsp_stapling_refresh(Type, Name),
     case do_stop_listener(Type, Id, Conf) of
         ok ->
+            ok = emqx_limiter:delete_listener_limiters(Id),
             console_print(
                 "Listener ~ts on ~ts stopped.~n",
                 [Id, format_bind(Bind)]
@@ -591,17 +595,11 @@ perform_listener_change(stop, {Type, Name, Conf}) ->
 
 esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
     Zone = zone(Opts0),
-    Limiter = limiter(Opts0),
     PacketTcpOpts = choose_packet_opts(Opts0),
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
-    Opts2 =
-        case emqx_limiter_container:create_by_names([?LIMITER_CONNECTION], Opts0, Zone) of
-            undefined ->
-                Opts1;
-            ConnLimiter ->
-                Opts1#{limiter => emqx_esockd_limiter:new_create_options(ConnLimiter)}
-        end,
-    Opts3 = Opts2#{
+    ESockdLimiter = emqx_limiter:create_esockd_limiter_client(Zone, ListenerId),
+    Opts2 = Opts1#{
+        limiter => ESockdLimiter,
         access_rules => esockd_access_rules(maps:get(access_rules, Opts0, [])),
         tune_fun => {emqx_olp, backoff_new_conn, [Zone]},
         connection_mfargs =>
@@ -609,7 +607,6 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
                 #{
                     listener => {Type, Name},
                     zone => Zone,
-                    limiter => Limiter,
                     enable_authn => enable_authn(Opts0)
                 }
             ]}
@@ -618,7 +615,7 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
     maps:to_list(
         case Type of
             tcp ->
-                Opts3#{
+                Opts2#{
                     tcp_options => TcpOpts
                 };
             ssl ->
@@ -627,7 +624,7 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
                 OptsWithRootFun = inject_root_fun(OptsWithSNI),
                 OptsWithVerifyFun = inject_verify_fun(OptsWithRootFun),
                 SSLOpts = ssl_opts(OptsWithVerifyFun),
-                Opts3#{
+                Opts2#{
                     ssl_options => SSLOpts,
                     tcp_options => TcpOpts
                 }
@@ -640,7 +637,6 @@ ws_opts(Type, ListenerName, Opts) ->
         {WsPath, emqx_ws_connection, #{
             zone => zone(Opts),
             listener => {Type, ListenerName},
-            limiter => limiter(Opts),
             enable_authn => enable_authn(Opts)
         }}
     ],
@@ -776,9 +772,6 @@ parse_listener_id(Id) ->
 
 zone(Opts) ->
     maps:get(zone, Opts, undefined).
-
-limiter(Opts) ->
-    emqx_limiter:filter_limiter_fields([?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN], Opts).
 
 diff_confs(NewConfs, OldConfs) ->
     emqx_utils:diff_lists(

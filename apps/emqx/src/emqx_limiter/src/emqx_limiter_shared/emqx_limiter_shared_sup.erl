@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_limiter_allocator_sup).
+-module(emqx_limiter_shared_sup).
 
 -behaviour(supervisor).
 
@@ -42,50 +42,4 @@ init([]) ->
         intensity => 10,
         period => 3600
     },
-    {ok, {SupFlags, child_specs()}}.
-
-%%--------------------------------------------------------------------
-%%  Internal functions
-%%--------------------------------------------------------------------
-
-child_spec(Zone) ->
-    #{
-        id => Zone,
-        start => {emqx_limiter_allocator, start_link, [Zone]},
-        restart => transient,
-        shutdown => 5000,
-        type => worker,
-        modules => [emqx_limiter_allocator]
-    }.
-
-child_specs() ->
-    Zones = maps:keys(emqx_config:get([zones])),
-    lists:foldl(
-        fun(Zone, Acc) ->
-            case has_limiter(Zone) of
-                true ->
-                    [child_spec(Zone) | Acc];
-                _ ->
-                    Acc
-            end
-        end,
-        [child_spec(emqx_limiter:default_allocator())],
-        Zones
-    ).
-
-has_limiter(Zone) ->
-    case emqx_config:get_zone_conf(Zone, [mqtt, limiter], undefined) of
-        undefined ->
-            false;
-        Cfg ->
-            has_any_limiters_configured(Cfg)
-    end.
-
-has_any_limiters_configured(Cfg) ->
-    Names = emqx_limiter_schema:mqtt_limiter_names(),
-    lists:any(
-        fun(Name) ->
-            emqx_limiter:get_config(Name, Cfg) =/= undefined
-        end,
-        Names
-    ).
+    {ok, {SupFlags, []}}.

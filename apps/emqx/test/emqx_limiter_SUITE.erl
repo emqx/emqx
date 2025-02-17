@@ -57,7 +57,7 @@ init_config() ->
 %% Test Cases Bucket Level
 %%--------------------------------------------------------------------
 t_check(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("1000/s"),
+    {ok, Rate} = to_rate("1000/s"),
     P1 = emqx_limiter_private:create(#{rate => Rate, burst => 0}),
     {R1, P2} = emqx_limiter:check(1000, P1),
     {R2, P3} = emqx_limiter:check(100, P2),
@@ -82,7 +82,7 @@ t_check(_) ->
     ok.
 
 t_restore(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("1000/s"),
+    {ok, Rate} = to_rate("1000/s"),
     P1 = emqx_limiter_private:create(#{rate => Rate, burst => 0}),
     {R1, P2} = emqx_limiter:check(1000, P1),
     P3 = emqx_limiter:restore(100, P2),
@@ -103,7 +103,7 @@ t_restore(_) ->
     ok.
 
 t_capacity(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("2000/s"),
+    {ok, Rate} = to_rate("2000/s"),
     ?assertMatch(#{capacity := 2000}, emqx_limiter_private:create(#{rate => Rate, burst => 0})),
     ok.
 
@@ -151,8 +151,8 @@ t_create_with_types(_) ->
     ok.
 
 t_check_container(_) ->
-    {ok, MRate} = emqx_limiter_schema:to_rate("1000/s"),
-    {ok, BRate} = emqx_limiter_schema:to_rate("500/s"),
+    {ok, MRate} = to_rate("1000/s"),
+    {ok, BRate} = to_rate("500/s"),
     C = emqx_limiter_container:create_by_names(
         [messages, bytes],
         #{
@@ -180,37 +180,38 @@ t_check_container(_) ->
 %%--------------------------------------------------------------------
 
 t_schema_unit(_) ->
-    M = emqx_limiter_schema,
-    ?assertEqual(limiter, M:namespace()),
+    ?assertEqual(limiter, emqx_limiter_schema:namespace()),
 
     %% infinity
-    ?assertEqual({ok, infinity}, M:to_rate(" infinity ")),
+    ?assertEqual({ok, infinity}, to_rate(" infinity ")),
 
     %% xMB
-    ?assertMatch({ok, _}, M:to_rate("100")),
-    ?assertMatch({ok, _}, M:to_rate("  100   ")),
-    ?assertMatch({ok, _}, M:to_rate("100MB")),
+    ?assertMatch({ok, _}, to_rate("100")),
+    ?assertMatch({ok, _}, to_rate("  100   ")),
+    ?assertMatch({ok, _}, to_rate("100MB")),
 
     %% xMB/s
-    ?assertMatch({ok, _}, M:to_rate("100/s")),
-    ?assertMatch({ok, _}, M:to_rate("100MB/s")),
+    ?assertMatch({ok, _}, to_rate("100/s")),
+    ?assertMatch({ok, _}, to_rate("100MB/s")),
 
     %% xMB/ys
-    ?assertMatch({ok, _}, M:to_rate("100/10s")),
-    ?assertMatch({ok, _}, M:to_rate("100MB/10s")),
+    ?assertMatch({ok, _}, to_rate("100/10s")),
+    ?assertMatch({ok, _}, to_rate("100MB/10s")),
 
-    ?assertMatch({error, _}, M:to_rate("infini")),
-    ?assertMatch({error, _}, M:to_rate("0")),
-    ?assertMatch({error, _}, M:to_rate("MB")),
-    ?assertMatch({error, _}, M:to_rate("10s")),
-    ?assertMatch({error, _}, M:to_rate("100MB/")),
-    ?assertMatch({error, _}, M:to_rate("100MB/xx")),
-    ?assertMatch({error, _}, M:to_rate("100MB/1")),
-    ?assertMatch({error, _}, M:to_rate("100/10x")),
+    ?assertMatch({error, _}, to_rate("infini")),
+    ?assertMatch({error, _}, to_rate("0")),
+    ?assertMatch({error, _}, to_rate("MB")),
+    ?assertMatch({error, _}, to_rate("10s")),
+    ?assertMatch({error, _}, to_rate("100MB/")),
+    ?assertMatch({error, _}, to_rate("100MB/xx")),
+    ?assertMatch({error, _}, to_rate("100MB/1")),
+    ?assertMatch({error, _}, to_rate("100/10x")),
 
-    ?assertEqual({ok, infinity}, M:to_capacity("infinity")),
-    ?assertEqual({ok, 100}, M:to_capacity("100")),
-    ?assertEqual({ok, 100 * 1024}, M:to_capacity("100KB")),
-    ?assertEqual({ok, 100 * 1024 * 1024}, M:to_capacity("100MB")),
-    ?assertEqual({ok, 100 * 1024 * 1024 * 1024}, M:to_capacity("100GB")),
     ok.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+to_rate(Str) ->
+    emqx_limiter_schema:to_rate(Str).
