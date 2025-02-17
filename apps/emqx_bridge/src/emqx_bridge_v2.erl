@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
@@ -106,7 +108,7 @@
 
 -export([
     post_config_update/5,
-    pre_config_update/3
+    pre_config_update/4
 ]).
 
 %% Data backup
@@ -1133,31 +1135,31 @@ config_key_path_leaf_sources() ->
     [?ROOT_KEY_SOURCES, '?', '?'].
 
 %% enable or disable action
-pre_config_update([ConfRootKey, _Type, _Name], Oper, undefined) when
+pre_config_update([ConfRootKey, _Type, _Name], Oper, undefined, _ClusterRPCOpts) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
     {error, bridge_not_found};
-pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction0) when
+pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction0, ClusterRPCOpts) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
-    OldAction = ensure_last_modified_at(OldAction0),
+    OldAction = if_not_replicating(ClusterRPCOpts, OldAction0, fun ensure_last_modified_at/1),
     {ok, OldAction#{<<"enable">> => operation_to_enable(Oper)}};
 %% Updates a single action from a specific HTTP API.
 %% If the connector is not found, the update operation fails.
-pre_config_update([ConfRootKey, Type, Name], Conf0 = #{}, _OldConf) when
+pre_config_update([ConfRootKey, Type, Name], Conf0 = #{}, _OldConf, ClusterRPCOpts) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    Conf1 = ensure_created_at(Conf0),
-    Conf = ensure_last_modified_at(Conf1),
+    Conf1 = if_not_replicating(ClusterRPCOpts, Conf0, fun ensure_created_at/1),
+    Conf = if_not_replicating(ClusterRPCOpts, Conf1, fun ensure_last_modified_at/1),
     convert_from_connector(ConfRootKey, Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
-pre_config_update([ConfRootKey], Conf = #{}, _OldConfs) when
+pre_config_update([ConfRootKey], Conf = #{}, _OldConfs, ClusterRPCOpts) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    {ok, convert_from_connectors(ConfRootKey, Conf)}.
+    {ok, convert_from_connectors(ConfRootKey, Conf, ClusterRPCOpts)}.
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
@@ -2027,13 +2029,15 @@ referenced_connectors_exist(BridgeType, ConnectorNameBin, BridgeName) ->
             ok
     end.
 
-convert_from_connectors(ConfRootKey, Conf) ->
+convert_from_connectors(ConfRootKey, Conf, ClusterRPCOpts) ->
     maps:map(
         fun(ActionType, Actions) ->
             maps:map(
                 fun(ActionName, Action0) ->
-                    Action1 = ensure_created_at(Action0),
-                    Action = ensure_last_modified_at(Action1),
+                    Action1 = if_not_replicating(ClusterRPCOpts, Action0, fun ensure_created_at/1),
+                    Action = if_not_replicating(
+                        ClusterRPCOpts, Action1, fun ensure_last_modified_at/1
+                    ),
                     case convert_from_connector(ConfRootKey, ActionType, ActionName, Action) of
                         {ok, NewAction} -> NewAction;
                         {error, _} -> Action
@@ -2068,6 +2072,16 @@ ensure_created_at(RawConfig) when is_map_key(<<"created_at">>, RawConfig) ->
     RawConfig;
 ensure_created_at(RawConfig) ->
     RawConfig#{<<"created_at">> => now_ms()}.
+
+%% We don't want to bump `created_at' and `last_modified_at' if we are only replicating
+%% config changes.
+if_not_replicating(ClusterRPCOpts, DefaultIfReplicating, Fn) ->
+    maybe
+        #{kind := ?KIND_INITIATE} ?= ClusterRPCOpts,
+        Fn(DefaultIfReplicating)
+    else
+        _ -> DefaultIfReplicating
+    end.
 
 get_connector_info(ConnectorNameBin, BridgeType) ->
     case to_connector(ConnectorNameBin, BridgeType) of
