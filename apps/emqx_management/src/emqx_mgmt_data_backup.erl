@@ -53,7 +53,10 @@
 -compile(nowarn_export_all).
 -endif.
 
--elvis([{elvis_style, invalid_dynamic_call, disable}]).
+-elvis([
+    {elvis_style, invalid_dynamic_call, disable},
+    {elvis_style, no_catch_expressions, disable}
+]).
 
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/logger.hrl").

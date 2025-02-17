@@ -241,8 +241,8 @@ data_export(post, #{body := Params}) ->
     maybe
         ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
         {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
-        {ok, #{filename := FileName} = File} ?= emqx_mgmt_data_backup:export(Opts),
-        {200, File#{filename => filename:basename(FileName)}}
+        {ok, #{filename := Filename} = File} ?= emqx_mgmt_data_backup:export(Opts),
+        {200, File#{filename => filename:basename(Filename)}}
     else
         {error, {unknown_root_keys, UnknownKeys}} ->
             Msg = iolist_to_binary([
@@ -264,14 +264,14 @@ data_export(post, #{body := Params}) ->
             {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
-data_import(post, #{body := #{<<"filename">> := FileName} = Body}) ->
+data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
     case safe_parse_node(Body) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
             response(
-                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, FileName, infinity)
+                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity)
             )
     end.
 
@@ -289,8 +289,8 @@ core_node(FileNode) ->
     end.
 
 data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
-    [{FileName, FileContent} | _] = maps:to_list(maps:without([type], File)),
-    case emqx_mgmt_data_backup:upload(FileName, FileContent) of
+    [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
+    case emqx_mgmt_data_backup:upload(Filename, FileContent) of
         ok ->
             {204};
         {error, Reason} ->

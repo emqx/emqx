@@ -1900,19 +1900,17 @@ bridge_v1_id_to_connector_resource_id(BridgeId) ->
     bridge_v1_id_to_connector_resource_id(?ROOT_KEY_ACTIONS, BridgeId).
 
 bridge_v1_id_to_connector_resource_id(ConfRootKey, BridgeId) ->
-    case binary:split(BridgeId, <<":">>) of
-        [Type, Name] ->
-            BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
-            ConnectorName =
-                case lookup_conf(ConfRootKey, BridgeV2Type, Name) of
-                    #{connector := Con} ->
-                        Con;
-                    {error, Reason} ->
-                        throw(Reason)
-                end,
-            ConnectorType = bin(connector_type(BridgeV2Type)),
-            <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>
-    end.
+    [Type, Name] = binary:split(BridgeId, <<":">>),
+    BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
+    ConnectorName =
+        case lookup_conf(ConfRootKey, BridgeV2Type, Name) of
+            #{connector := Con} ->
+                Con;
+            {error, Reason} ->
+                throw(Reason)
+        end,
+    ConnectorType = bin(connector_type(BridgeV2Type)),
+    <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>.
 
 bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
     case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of
