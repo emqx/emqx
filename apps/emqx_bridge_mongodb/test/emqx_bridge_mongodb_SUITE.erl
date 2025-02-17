@@ -329,7 +329,7 @@ create_bridge(Config, Overrides) ->
     MongoConfig0 = ?config(mongo_config, Config),
     MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
     ct:pal("creating ~p bridge with config:\n ~p", [Type, MongoConfig]),
-    emqx_bridge:create(Type, Name, MongoConfig).
+    emqx_bridge_testlib:create_bridge_api(Type, Name, MongoConfig).
 
 delete_bridge(Config) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
@@ -344,8 +344,13 @@ create_bridge_http(Params) ->
             return_all => true
         })
     of
-        {ok, {{_, 201, _}, _, Body}} -> {ok, emqx_utils_json:decode(Body, [return_maps])};
-        Error -> Error
+        {ok, {{_, 201, _}, _, Body}} ->
+            #{<<"type">> := Type0, <<"name">> := Name} = Params,
+            Type = emqx_action_info:bridge_v1_type_to_action_type(Type0),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Body, [return_maps])};
+        Error ->
+            Error
     end.
 
 clear_db(Config) ->

@@ -53,7 +53,7 @@ end_per_group(Group, Config) ->
 
 create_bridge(Name, Config) ->
     BridgeConfig = rabbitmq_config(Config),
-    {ok, _} = emqx_bridge:create(?TYPE, Name, BridgeConfig),
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(?TYPE, Name, BridgeConfig),
     emqx_bridge_resource:bridge_id(?TYPE, Name).
 
 delete_bridge(Name) ->

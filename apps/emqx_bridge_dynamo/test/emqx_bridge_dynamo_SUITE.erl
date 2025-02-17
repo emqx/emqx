@@ -272,7 +272,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(dynamo_name, Config),
     DynamoConfig0 = ?config(dynamo_config, Config),
     DynamoConfig = emqx_utils_maps:deep_merge(DynamoConfig0, Overrides),
-    emqx_bridge:create(BridgeType, Name, DynamoConfig).
+    create_bridge_http(DynamoConfig#{<<"type">> => BridgeType, <<"name">> => Name}).
 
 delete_all_bridges() ->
     lists:foreach(
@@ -286,8 +286,12 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        Error -> Error
+        {ok, Res} ->
+            #{<<"type">> := Type, <<"name">> := Name} = Params,
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error ->
+            Error
     end.
 
 update_bridge_http(#{<<"type">> := Type, <<"name">> := Name} = Config) ->
@@ -295,8 +299,11 @@ update_bridge_http(#{<<"type">> := Type, <<"name">> := Name} = Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeID]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Config) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        Error -> Error
+        {ok, Res} ->
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error ->
+            Error
     end.
 
 get_bridge_http(#{<<"type">> := Type, <<"name">> := Name}) ->

@@ -270,7 +270,7 @@ create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
 
 create_bridge(Config, Overrides) ->
-    emqx_bridge_v2_testlib:create_bridge(Config, Overrides).
+    emqx_bridge_v2_testlib:create_bridge_api(Config, Overrides).
 
 delete_all_rules() ->
     lists:foreach(

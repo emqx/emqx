@@ -718,6 +718,7 @@ t_unhealthy_channel_alarm(_) ->
     },
     0 = get_bridge_v2_alarm_cnt(),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    ok = emqx_bridge_v2_testlib:kickoff_action_health_check(bridge_type(), my_test_bridge),
     1 = get_bridge_v2_alarm_cnt(),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     0 = get_bridge_v2_alarm_cnt(),

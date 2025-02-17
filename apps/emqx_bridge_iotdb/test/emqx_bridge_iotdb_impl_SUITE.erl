@@ -438,7 +438,7 @@ t_extract_device_id_from_rule_engine_message(Config) ->
     Message = emqx_message:make(RuleTopic, emqx_utils_json:encode(Payload)),
     ?check_trace(
         begin
-            {ok, _} = emqx_bridge_v2_testlib:create_bridge(Config),
+            {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
             SQL = <<
                 "SELECT\n"
                 "  payload.measurement, payload.data_type, payload.value, payload.device_id\n"
@@ -488,7 +488,7 @@ t_on_get_status(Config) ->
 
 t_device_id(Config) ->
     %% Create without device_id configured
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
     ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     ?retry(
@@ -543,8 +543,10 @@ t_device_id(Config) ->
 t_template(Config) ->
     %% Create without data  configured
     ?assertMatch(
-        {error, #{reason := empty_array_not_allowed}}, emqx_bridge_v2_testlib:create_bridge(Config)
+        {error, #{reason := empty_array_not_allowed}},
+        emqx_bridge_v2_testlib:create_bridge(Config)
     ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
 
     TemplateDeviceId = <<"root.deviceWithTemplate">>,
     DeviceId = <<"root.deviceWithoutTemplate">>,
@@ -553,7 +555,7 @@ t_template(Config) ->
 
     %% reconfigure with data template
     {ok, _} =
-        emqx_bridge_v2_testlib:create_bridge(Config, #{
+        emqx_bridge_v2_testlib:create_bridge_api(Config, #{
             <<"parameters">> => #{
                 <<"device_id">> => TemplateDeviceId,
                 <<"data">> => [

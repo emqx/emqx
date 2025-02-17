@@ -319,7 +319,7 @@ on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->
         false -> ?status_disconnected
     end;
 on_get_status(ConnResId, #{health_check_agent := Agent}) ->
-    case get_agent_health_check_action(Agent, resource_health_check) of
+    case get_agent_action(Agent, resource_health_check) of
         {ask, Pid} ->
             Alias = alias([reply]),
             Pid ! {waiting_health_check_result, Alias, resource, ConnResId},
@@ -340,9 +340,32 @@ on_get_status(_InstId, #{pid := Pid}) ->
 on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
     ConnSt = emqx_utils_maps:deep_put([channels, ChanId], ConnSt0, ChanCfg),
     do_add_channel(ConnResId, ChanId, ChanCfg),
+    ?tp(added_channel, #{}),
     {ok, ConnSt}.
 
+on_remove_channel(ConnResId, #{remove_channel_agent := Agent} = ConnSt0, ChanId) ->
+    case get_agent_action(Agent, remove_channel) of
+        {ask, Pid} ->
+            Alias = alias([reply]),
+            Pid ! {waiting_remove_channel_result, Alias, ConnResId, ChanId},
+            receive
+                {Alias, continue} ->
+                    do_on_remove_channel(ConnResId, ConnSt0, ChanId);
+                {Alias, Result} ->
+                    Result
+            end;
+        {notify, Pid, {error, _} = Result} ->
+            Pid ! {attempted_to_remove_channel, ConnResId, ChanId},
+            Result;
+        continue ->
+            do_on_remove_channel(ConnResId, ConnSt0, ChanId);
+        {error, _} = Result ->
+            Result
+    end;
 on_remove_channel(ConnResId, ConnSt0, ChanId) ->
+    do_on_remove_channel(ConnResId, ConnSt0, ChanId).
+
+do_on_remove_channel(ConnResId, ConnSt0, ChanId) ->
     ConnSt = emqx_utils_maps:deep_remove([channels, ChanId], ConnSt0),
     do_remove_channel(ConnResId, ChanId),
     {ok, ConnSt}.
@@ -351,7 +374,7 @@ on_get_channels(ConnResId) ->
     persistent_term:get(?PT_CHAN_KEY(ConnResId), []).
 
 on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
-    case get_agent_health_check_action(Agent, channel_health_check) of
+    case get_agent_action(Agent, channel_health_check) of
         {ask, Pid} ->
             Alias = alias([reply]),
             Pid ! {waiting_health_check_result, Alias, channel, ConnResId, ChanId},
@@ -543,7 +566,7 @@ do_remove_channel(ConnResId, ChanId) ->
     Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
     persistent_term:put(?PT_CHAN_KEY(ConnResId), proplists:delete(ChanId, Chans)).
 
-get_agent_health_check_action(Agent, Key) ->
+get_agent_action(Agent, Key) ->
     emqx_utils_agent:get_and_update(Agent, fun(Old) ->
         case Old of
             #{Key := [Action]} ->

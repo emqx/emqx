@@ -40,7 +40,7 @@ make_bridge(Config) ->
         name => Name,
         type => Type
     }),
-    {ok, _} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         Type,
         Name,
         BridgeConfig

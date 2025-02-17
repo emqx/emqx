@@ -45,6 +45,7 @@
     '/connectors_probe'/2
 ]).
 
+%% RPC targets
 -export([lookup_from_local_node/2]).
 
 -define(CONNECTOR_NOT_ENABLED,
@@ -456,6 +457,7 @@ lookup_from_all_nodes(ConnectorType, ConnectorName, SuccCode) ->
             ?INTERNAL_ERROR(Reason)
     end.
 
+%% RPC Target
 lookup_from_local_node(ConnectorType, ConnectorName) ->
     case emqx_connector:lookup(ConnectorType, ConnectorName) of
         {ok, Res} -> {ok, format_resource(Res, node())};

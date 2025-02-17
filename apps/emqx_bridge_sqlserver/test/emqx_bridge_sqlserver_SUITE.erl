@@ -537,7 +537,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(sqlserver_name, Config),
     SSConfig0 = ?config(sqlserver_config, Config),
     SSConfig = emqx_utils_maps:deep_merge(SSConfig0, Overrides),
-    emqx_bridge:create(BridgeType, Name, SSConfig).
+    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, SSConfig).
 
 delete_bridge(Config) ->
     BridgeType = ?config(sqlserver_bridge_type, Config),
@@ -548,8 +548,12 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        Error -> Error
+        {ok, Res} ->
+            #{<<"type">> := Type, <<"name">> := Name} = Params,
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error ->
+            Error
     end.
 
 send_message(Config, Payload) ->

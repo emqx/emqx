@@ -98,13 +98,13 @@ end_per_testcase(_TestCase, _Config) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------
 
-check_send_message_with_action(Topic, ActionName, ConnectorName, Expect) ->
+check_send_message_with_action(Topic, ActionName, ConnectorName, Expect, Line) ->
     send_message(Topic),
     %% ######################################
     %% Check if message is sent to es
     %% ######################################
     timer:sleep(500),
-    check_action_metrics(ActionName, ConnectorName, Expect).
+    check_action_metrics(ActionName, ConnectorName, Expect, Line).
 
 send_message(Topic) ->
     Now = emqx_utils_calendar:now_to_rfc3339(microsecond),
@@ -118,7 +118,7 @@ send_message(Topic) ->
     ok = emqtt:publish(Client, Topic, Payload, [{qos, 0}]),
     ok.
 
-check_action_metrics(ActionName, ConnectorName, Expect) ->
+check_action_metrics(ActionName, ConnectorName, Expect, Line) ->
     ActionId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
     ?retry(
         300,
@@ -132,7 +132,7 @@ check_action_metrics(ActionName, ConnectorName, Expect) ->
                 queuing => emqx_resource_metrics:queuing_get(ActionId),
                 dropped => emqx_resource_metrics:dropped_get(ActionId)
             },
-            {ActionName, ConnectorName, ActionId}
+            #{test_line => Line}
         )
     ).
 
@@ -196,14 +196,27 @@ connector_config(Overrides, Config) ->
     emqx_utils_maps:deep_merge(Defaults, Overrides).
 
 create_connector(Name, Config) ->
-    Res = emqx_connector:create(?TYPE, Name, Config),
-    on_exit(fun() -> emqx_connector:remove(?TYPE, Name) end),
-    Res.
+    emqx_bridge_v2_testlib:create_connector_api([
+        {connector_type, ?TYPE},
+        {connector_name, Name},
+        {connector_config, Config}
+    ]).
 
 create_action(Name, Config) ->
-    Res = emqx_bridge_v2:create(?TYPE, Name, Config),
-    on_exit(fun() -> emqx_bridge_v2:remove(?TYPE, Name) end),
-    Res.
+    emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, action},
+        {action_type, ?TYPE},
+        {action_name, Name},
+        {action_config, Config}
+    ]).
+
+update_action(Name, Config) ->
+    emqx_bridge_v2_testlib:update_bridge_api([
+        {bridge_kind, action},
+        {action_type, ?TYPE},
+        {action_name, Name},
+        {action_config, Config}
+    ]).
 
 action_api_spec_props_for_get() ->
     #{
@@ -220,9 +233,9 @@ action_api_spec_props_for_get() ->
 t_create_remove_list(Config) ->
     [] = emqx_bridge_v2:list(),
     ConnectorConfig = connector_config(Config),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
+    {ok, _} = create_connector(test_connector, ConnectorConfig),
     ActionConfig = action(<<"test_connector">>),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_action_1, ActionConfig),
+    {ok, _} = create_action(test_action_1, ActionConfig),
     [ActionInfo] = emqx_bridge_v2:list(),
     #{
         name := <<"test_action_1">>,
@@ -230,7 +243,7 @@ t_create_remove_list(Config) ->
         raw_config := _,
         status := connected
     } = ActionInfo,
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_action_2, ActionConfig),
+    {ok, _} = create_action(test_action_2, ActionConfig),
     2 = length(emqx_bridge_v2:list()),
     ok = emqx_bridge_v2:remove(?TYPE, test_action_1),
     1 = length(emqx_bridge_v2:list()),
@@ -242,9 +255,9 @@ t_create_remove_list(Config) ->
 %% Test sending a message to a bridge V2
 t_create_message(Config) ->
     ConnectorConfig = connector_config(Config),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector2, ConnectorConfig),
+    {ok, _} = create_connector(test_connector2, ConnectorConfig),
     ActionConfig = action(<<"test_connector2">>),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_action_1, ActionConfig),
+    {ok, _} = create_action(test_action_1, ActionConfig),
     Rule = #{
         id => <<"rule:t_es">>,
         sql => <<"SELECT\n  *\nFROM\n  \"es/#\"">>,
@@ -254,7 +267,7 @@ t_create_message(Config) ->
     {ok, _} = emqx_rule_engine:create_rule(Rule),
     %% Use the action to send a message
     Expect = #{match => 1, success => 1, dropped => 0, failed => 0, queuing => 0},
-    check_send_message_with_action(<<"es/1">>, test_action_1, test_connector2, Expect),
+    check_send_message_with_action(<<"es/1">>, test_action_1, test_connector2, Expect, ?LINE),
     %% Create a few more bridges with the same connector and test them
     ActionNames1 =
         lists:foldl(
@@ -262,7 +275,7 @@ t_create_message(Config) ->
                 Seq = integer_to_binary(I),
                 ActionNameStr = "test_action_" ++ integer_to_list(I),
                 ActionName = list_to_atom(ActionNameStr),
-                {ok, _} = emqx_bridge_v2:create(?TYPE, ActionName, ActionConfig),
+                {ok, _} = create_action(ActionName, ActionConfig),
                 Rule1 = #{
                     id => <<"rule:t_es", Seq/binary>>,
                     sql => <<"SELECT\n  *\nFROM\n  \"es/", Seq/binary, "\"">>,
@@ -271,7 +284,7 @@ t_create_message(Config) ->
                 },
                 {ok, _} = emqx_rule_engine:create_rule(Rule1),
                 Topic = <<"es/", Seq/binary>>,
-                check_send_message_with_action(Topic, ActionName, test_connector2, Expect),
+                check_send_message_with_action(Topic, ActionName, test_connector2, Expect, ?LINE),
                 [ActionName | Acc]
             end,
             [],
@@ -296,7 +309,7 @@ t_create_message(Config) ->
 
 t_update_message(Config) ->
     ConnectorConfig = connector_config(Config),
-    {ok, _} = emqx_connector:create(?TYPE, update_connector, ConnectorConfig),
+    {ok, _} = create_connector(update_connector, ConnectorConfig),
     ActionConfig0 = action(<<"update_connector">>),
     DocId = emqx_guid:to_hexstr(emqx_guid:gen()),
     ActionConfig1 = ActionConfig0#{
@@ -308,7 +321,7 @@ t_update_message(Config) ->
             <<"doc">> => <<"${payload.doc}">>
         }
     },
-    {ok, _} = emqx_bridge_v2:create(?TYPE, update_action, ActionConfig1),
+    {ok, _} = create_action(update_action, ActionConfig1),
     Rule = #{
         id => <<"rule:t_es_1">>,
         sql => <<"SELECT\n  *\nFROM\n  \"es/#\"">>,
@@ -318,7 +331,7 @@ t_update_message(Config) ->
     {ok, _} = emqx_rule_engine:create_rule(Rule),
     %% failed to update a nonexistent doc
     Expect0 = #{match => 1, success => 0, dropped => 0, failed => 1, queuing => 0},
-    check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect0),
+    check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect0, ?LINE),
     %% doc_as_upsert to insert a new doc
     ActionConfig2 = ActionConfig1#{
         <<"parameters">> => #{
@@ -330,9 +343,9 @@ t_update_message(Config) ->
             <<"max_retries">> => 0
         }
     },
-    {ok, _} = emqx_bridge_v2:create(?TYPE, update_action, ActionConfig2),
+    {ok, _} = update_action(update_action, ActionConfig2),
     Expect1 = #{match => 1, success => 1, dropped => 0, failed => 0, queuing => 0},
-    check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect1),
+    check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect1, ?LINE),
     %% update without doc, use msg as default
     ActionConfig3 = ActionConfig1#{
         <<"parameters">> => #{
@@ -342,9 +355,9 @@ t_update_message(Config) ->
             <<"max_retries">> => 0
         }
     },
-    {ok, _} = emqx_bridge_v2:create(?TYPE, update_action, ActionConfig3),
+    {ok, _} = update_action(update_action, ActionConfig3),
     Expect2 = #{match => 1, success => 1, dropped => 0, failed => 0, queuing => 0},
-    check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect2),
+    check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect2, ?LINE),
     %% Clean
     ok = emqx_bridge_v2:remove(?TYPE, update_action),
     emqx_connector:remove(?TYPE, update_connector),
@@ -360,8 +373,8 @@ t_update_message(Config) ->
 t_health_check(Config) ->
     BridgeV2Config = action(<<"test_connector3">>),
     ConnectorConfig = connector_config(Config),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector3, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge_v2, BridgeV2Config),
+    {ok, _} = create_connector(test_connector3, ConnectorConfig),
+    {ok, _} = create_action(test_bridge_v2, BridgeV2Config),
     #{status := connected} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist

@@ -250,7 +250,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(greptimedb_name, Config),
     GreptimedbConfig0 = ?config(greptimedb_config, Config),
     GreptimedbConfig = emqx_utils_maps:deep_merge(GreptimedbConfig0, Overrides),
-    emqx_bridge:create(Type, Name, GreptimedbConfig).
+    emqx_bridge_testlib:create_bridge_api(Type, Name, GreptimedbConfig).
 
 delete_bridge(Config) ->
     Type = greptimedb_type_bin(?config(greptimedb_type, Config)),

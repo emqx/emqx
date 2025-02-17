@@ -257,7 +257,7 @@ create_bridge(Config, KinesisConfigOverrides, Removes) ->
     KinesisConfig1 = emqx_utils_maps:deep_merge(KinesisConfig0, KinesisConfigOverrides),
     KinesisConfig = emqx_utils_maps:deep_remove(Removes, KinesisConfig1),
     ct:pal("creating bridge: ~p", [KinesisConfig]),
-    Res = emqx_bridge:create(TypeBin, Name, KinesisConfig),
+    Res = emqx_bridge_testlib:create_bridge_api(TypeBin, Name, KinesisConfig),
     ct:pal("bridge creation result: ~p", [Res]),
     Res.
 

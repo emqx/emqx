@@ -322,7 +322,12 @@ create_connector(Name, Config) ->
     Res.
 
 create_action(Name, Config) ->
-    Res = emqx_bridge_v2:create(?TYPE, Name, Config),
+    Res = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, action},
+        {action_type, ?TYPE},
+        {action_name, Name},
+        {action_config, Config}
+    ]),
     on_exit(fun() -> emqx_bridge_v2:remove(?TYPE, Name) end),
     Res.
 
@@ -404,14 +409,14 @@ t_create_remove_list(_) ->
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
     Config = bridge_v2_config(<<"test_connector">>),
-    {ok, _Config} = emqx_bridge_v2:create(?TYPE, test_bridge_v2, Config),
+    {ok, _Config} = create_action(test_bridge_v2, Config),
     [BridgeV2Info] = emqx_bridge_v2:list(),
     #{
         name := <<"test_bridge_v2">>,
         type := <<"kafka_producer">>,
         raw_config := _RawConfig
     } = BridgeV2Info,
-    {ok, _Config2} = emqx_bridge_v2:create(?TYPE, test_bridge_v2_2, Config),
+    {ok, _Config2} = create_action(test_bridge_v2_2, Config),
     2 = length(emqx_bridge_v2:list()),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     1 = length(emqx_bridge_v2:list()),
@@ -425,7 +430,7 @@ t_send_message(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector2">>),
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, test_connector2, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge_v2_1, BridgeV2Config),
+    {ok, _} = create_action(test_bridge_v2_1, BridgeV2Config),
     %% Use the bridge to send a message
     check_send_message_with_bridge(test_bridge_v2_1),
     %% Create a few more bridges with the same connector and test them
@@ -435,7 +440,7 @@ t_send_message(_) ->
     ],
     lists:foreach(
         fun(BridgeName) ->
-            {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, BridgeV2Config),
+            {ok, _} = create_action(BridgeName, BridgeV2Config),
             check_send_message_with_bridge(BridgeName)
         end,
         BridgeNames1
@@ -468,7 +473,7 @@ t_health_check(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector3">>),
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, test_connector3, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge_v2, BridgeV2Config),
+    {ok, _} = create_action(test_bridge_v2, BridgeV2Config),
     #{status := connected} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist
@@ -480,7 +485,7 @@ t_local_topic(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector">>),
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge, BridgeV2Config),
+    {ok, _} = create_action(test_bridge, BridgeV2Config),
     %% Send a message to the local topic
     Payload = <<"local_topic_payload">>,
     Offset = resolve_kafka_offset(),
@@ -495,7 +500,7 @@ t_message_too_large(_) ->
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, test_connector4, ConnectorConfig),
     BridgeName = test_bridge4,
-    {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, BridgeV2Config),
+    {ok, _} = create_action(BridgeName, BridgeV2Config),
     BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),
     TooLargePayload = iolist_to_binary(lists:duplicate(100, 100)),
     ?assertEqual(0, emqx_resource_metrics:failed_get(BridgeV2Id)),
@@ -523,7 +528,7 @@ t_unknown_topic(_Config) ->
     ),
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, ConnectorName, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, BridgeV2Config),
+    {ok, _} = create_action(BridgeName, BridgeV2Config),
     Payload = <<"will be dropped">>,
     emqx:publish(emqx_message:make(<<"kafka_t/local">>, Payload)),
     BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),

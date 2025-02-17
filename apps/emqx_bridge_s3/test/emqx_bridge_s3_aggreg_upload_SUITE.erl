@@ -415,7 +415,7 @@ t_aggreg_pending_upload_restart(Config) ->
     BridgeName = ?config(bridge_name, Config),
     AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
-    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
     %% Send few large messages that will require multipart upload.
     %% Ensure that they span multiple batch queries.
     Payload = iolist_to_binary(lists:duplicate(128 * 1024, "PAYLOAD!")),
@@ -425,7 +425,7 @@ t_aggreg_pending_upload_restart(Config) ->
     {ok, #{key := ObjectKey}} =
         ?block_until(#{?snk_kind := s3_client_multipart_started, bucket := Bucket}),
     %% Stop the bridge.
-    {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
+    {204, _} = emqx_bridge_v2_testlib:disable_kind_api(action, ?BRIDGE_TYPE, BridgeName),
     %% Verify that pending uploads have been gracefully aborted.
     %% NOTE: Minio does not support multipart upload listing w/o prefix.
     ?assertEqual(
@@ -433,7 +433,7 @@ t_aggreg_pending_upload_restart(Config) ->
         emqx_bridge_s3_test_helpers:list_pending_uploads(Bucket, ObjectKey)
     ),
     %% Restart the bridge.
-    {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
+    {204, _} = emqx_bridge_v2_testlib:enable_kind_api(action, ?BRIDGE_TYPE, BridgeName),
     %% Wait until the delivery is completed.
     {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
     %% Check that delivery contains all the messages.

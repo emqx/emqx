@@ -285,7 +285,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(cassa_name, Config),
     BridgeConfig0 = ?config(cassa_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    emqx_bridge:create(BridgeType, Name, BridgeConfig).
+    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, BridgeConfig).
 
 delete_bridge(Config) ->
     BridgeType = ?config(cassa_bridge_type, Config),
@@ -296,8 +296,12 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        Error -> Error
+        {ok, Res} ->
+            #{<<"type">> := Type, <<"name">> := Name} = Params,
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error ->
+            Error
     end.
 
 bridges_probe_http(Params) ->
@@ -841,13 +845,14 @@ t_update_action_sql(Config) ->
             "insert into mqtt_msg_test2(topic, qos, payload, bad_col_name) "
             "values (${topic}, ${qos}, ${payload}, ${timestamp})"
         >>,
-    {ok, Body} =
+    {ok, _} =
         emqx_bridge_testlib:update_bridge_api(
             Config,
             #{
                 <<"cql">> => BadSQL
             }
         ),
+    {ok, Body} = emqx_bridge_testlib:get_bridge_api(Config),
     ?assertMatch(#{<<"status">> := <<"connecting">>}, Body),
     Error1 = maps:get(<<"status_reason">>, Body),
     case re:run(Error1, <<"Undefined column name bad_col_name">>, [{capture, none}]) of

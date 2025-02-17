@@ -94,7 +94,8 @@ init_per_suite(Config0) ->
             emqx_bridge_kafka,
             emqx_bridge,
             emqx_rule_engine,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -103,7 +104,6 @@ init_per_suite(Config0) ->
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
-    emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
@@ -118,12 +118,6 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     delete_all_bridges(),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_) ->
     ok.
 
 %%------------------------------------------------------------------------------
@@ -249,10 +243,6 @@ http_get_bridges(UrlPath, Name0) ->
 kafka_bridge_rest_api_helper(Config) ->
     BridgeType = ?BRIDGE_TYPE,
     BridgeName = "my_kafka_bridge",
-    BridgeID = emqx_bridge_resource:bridge_id(
-        list_to_binary(BridgeType),
-        list_to_binary(BridgeName)
-    ),
     UrlEscColon = "%3A",
     BridgesProbeParts = ["bridges_probe"],
     BridgeIdUrlEnc = BridgeType ++ UrlEscColon ++ BridgeName,
@@ -277,9 +267,10 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertEqual([], http_get_bridges(BridgesParts, BridgeName)),
         %% Create new Kafka bridge
         KafkaTopic = test_topic_one_partition(),
+        Name = <<"my_kafka_bridge">>,
         CreateBodyTmp = #{
             <<"type">> => <<?BRIDGE_TYPE>>,
-            <<"name">> => <<"my_kafka_bridge">>,
+            <<"name">> => Name,
             <<"bootstrap_hosts">> => iolist_to_binary(maps:get(<<"bootstrap_hosts">>, Config)),
             <<"enable">> => true,
             <<"authentication">> => maps:get(<<"authentication">>, Config),
@@ -294,27 +285,26 @@ kafka_bridge_rest_api_helper(Config) ->
             }
         },
         CreateBody = CreateBodyTmp#{<<"ssl">> => maps:get(<<"ssl">>, Config)},
-        {ok, 201, _Data} = http_post(BridgesParts, CreateBody),
+        {ok, _} = emqx_bridge_testlib:create_bridge_api(<<?BRIDGE_TYPE>>, Name, CreateBody),
         %% Check that the new bridge is in the list of bridges
         ?assertMatch([#{<<"type">> := <<"kafka">>}], http_get_bridges(BridgesParts, BridgeName)),
+
         %% Probe should work
         %% no extra atoms should be created when probing
+        {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
         AtomsBefore = erlang:system_info(atom_count),
         {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
+        {ok, 204, _X} = http_post(BridgesProbeParts, CreateBody),
         AtomsAfter = erlang:system_info(atom_count),
         ?assertEqual(AtomsBefore, AtomsAfter),
-        {ok, 204, _X} = http_post(BridgesProbeParts, CreateBody),
+
         %% Create a rule that uses the bridge
-        {ok, 201, Rule} = http_post(
-            ["rules"],
-            #{
-                <<"name">> => <<"kafka_bridge_rest_api_helper_rule">>,
-                <<"enable">> => true,
-                <<"actions">> => [BridgeID],
-                <<"sql">> => <<"SELECT * from \"kafka_bridge_topic/#\"">>
-            }
-        ),
-        #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule, [return_maps]),
+        {ok, #{<<"id">> := RuleId}} =
+            emqx_bridge_v2_testlib:create_rule_and_action_http(
+                ?BRIDGE_TYPE,
+                <<"kafka_bridge_topic/#">>,
+                [{action_name, Name}]
+            ),
         BridgeV2Id = emqx_bridge_v2:id(
             list_to_binary(?BRIDGE_TYPE_V2),
             list_to_binary(BridgeName)
@@ -363,6 +353,7 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertEqual(0, emqx_resource_metrics:retried_success_get(BridgeV2Id)),
         % %% Perform operations
         {ok, 204, _} = http_put(BridgesPartsOpDisable, #{}),
+        ok = kickoff_action_health_check(Name),
         %% Success counter should be reset
         ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
         emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
@@ -373,6 +364,7 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.discarded')),
         {ok, 204, _} = http_put(BridgesPartsOpDisable, #{}),
         {ok, 204, _} = http_put(BridgesPartsOpEnable, #{}),
+        ok = kickoff_action_health_check(Name),
         ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
         %% Success counter should increase but
         emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
@@ -381,11 +373,13 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertEqual(2, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
         {ok, 204, _} = http_put(BridgesPartsOpEnable, #{}),
         {ok, 204, _} = http_post(BridgesPartsOpStop, #{}),
+        ok = kickoff_action_health_check(Name),
         %% TODO: This is a bit tricky with the compatibility layer. Currently one
         %% can send a message even to a stopped channel. How shall we handle this?
         ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
         {ok, 204, _} = http_post(BridgesPartsOpStop, #{}),
         {ok, 204, _} = http_post(BridgesPartsOpRestart, #{}),
+        ok = kickoff_action_health_check(Name),
         %% Success counter should increase
         timer:sleep(500),
         emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
@@ -393,13 +387,7 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertEqual(1, emqx_resource_metrics:success_get(BridgeV2Id)),
         ?assertEqual(3, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success'))
     after
-        %% Cleanup
-        % this delete should not be necessary beause of the also_delete_dep_actions flag
-        % {ok, 204, _} = http_delete(["rules", RuleId]),
-        {ok, 204, _} = http_delete(BridgesPartsIdDeleteAlsoActions),
-        Remain = http_get_bridges(BridgesParts, BridgeName),
-        delete_all_bridges(),
-        ?assertEqual([], Remain)
+        delete_all_bridges()
     end,
     ok.
 
@@ -445,7 +433,7 @@ t_failed_creation_then_fix(Config) ->
         "ssl" => #{}
     }),
     %% creates, but fails to start producers
-    {ok, #{config := _WrongConfigAtom1}} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         list_to_atom(Type), list_to_atom(Name), WrongConf
     ),
     %% before throwing, it should cleanup the client process.  we
@@ -457,8 +445,12 @@ t_failed_creation_then_fix(Config) ->
         ?assertEqual([], supervisor:which_children(wolff_producers_sup))
     ),
     %% must succeed with correct config
-    {ok, #{config := _ValidConfigAtom1}} = emqx_bridge:create(
-        list_to_atom(Type), list_to_atom(Name), ValidConf
+    {ok, _} = emqx_bridge_testlib:update_bridge_api(
+        [
+            {bridge_type, Type},
+            {bridge_name, Name},
+            {bridge_config, ValidConf}
+        ]
     ),
     Time = erlang:unique_integer(),
     BinTime = integer_to_binary(Time),
@@ -504,7 +496,7 @@ t_custom_timestamp(_Config) ->
         Conf0,
         <<"123">>
     ),
-    {ok, _} = emqx_bridge:create(list_to_atom(Type), list_to_atom(Name), Conf),
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(list_to_atom(Type), list_to_atom(Name), Conf),
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     ct:pal("base offset before testing ~p", [Offset]),
     Time = erlang:unique_integer(),
@@ -546,7 +538,7 @@ t_nonexistent_topic(_Config) ->
         },
         "ssl" => #{}
     }),
-    {ok, #{config := _ValidConfigAtom1}} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         erlang:list_to_atom(Type), erlang:list_to_atom(Name), Conf
     ),
     % TODO: make sure the user facing APIs for Bridge V1 also get this error
@@ -604,7 +596,7 @@ t_send_message_with_headers(Config) ->
         "query_mode" => Mode,
         "ssl" => #{}
     }),
-    {ok, _} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         list_to_atom(Type), list_to_atom(Name), Conf
     ),
     ResourceId = emqx_bridge_resource:resource_id(bin(Type), bin(Name)),
@@ -830,7 +822,7 @@ t_wrong_headers_from_message(Config) ->
         "query_mode" => Mode,
         "ssl" => #{}
     }),
-    {ok, _} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         list_to_atom(Type), list_to_atom(Name), Conf
     ),
     ResourceId = emqx_bridge_resource:resource_id(bin(Type), bin(Name)),
@@ -922,7 +914,7 @@ test_publish(HostsString, BridgeConfig, _CtConfig) ->
         },
         BridgeConfig
     ),
-    {ok, _} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         <<?BRIDGE_TYPE>>, list_to_binary(Name), Conf
     ),
     Partition = 0,
@@ -1218,18 +1210,7 @@ json(Data) ->
     Jsx.
 
 delete_all_bridges() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ok = emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ),
-    %% at some point during the tests, sometimes `emqx_bridge:list()'
-    %% returns an empty list, but `emqx:get_config([bridges])' returns
-    %% a bunch of orphan test bridges...
-    lists:foreach(fun emqx_resource:remove_local/1, emqx_resource:list_instances()),
-    emqx_config:put([bridges], #{}),
-    ok.
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
 
 bin_map(Map) ->
     maps:from_list([
@@ -1246,3 +1227,7 @@ group_path(Config) ->
         Path ->
             tl(Path)
     end.
+
+kickoff_action_health_check(Name) ->
+    ActionType = emqx_bridge_lib:upgrade_type(<<?BRIDGE_TYPE>>),
+    emqx_bridge_v2_testlib:kickoff_action_health_check(ActionType, Name).
