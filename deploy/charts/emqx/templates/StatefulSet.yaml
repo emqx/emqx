@@ -132,7 +132,7 @@ spec:
                 apiVersion: v1
                 fieldPath: metadata.name
           - name: EMQX_HOST
-            value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+            value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env
