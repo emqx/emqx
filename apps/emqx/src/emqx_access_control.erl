@@ -271,12 +271,17 @@ run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.a
     {Time, Value} = timer:tc(
         fun() -> emqx_hooks:run_fold(Name, Args, Acc) end
     ),
-    catch emqx_metrics_worker:observe_hist(
-        ?ACCESS_CONTROL_METRICS_WORKER,
-        Name,
-        total_latency,
-        erlang:convert_time_unit(Time, microsecond, millisecond)
-    ),
+    try
+        emqx_metrics_worker:observe_hist(
+            ?ACCESS_CONTROL_METRICS_WORKER,
+            Name,
+            total_latency,
+            erlang:convert_time_unit(Time, microsecond, millisecond)
+        )
+    catch
+        _:_ ->
+            ok
+    end,
     Value.
 
 -compile({inline, [inc_authz_metrics/1]}).
