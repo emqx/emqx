@@ -1316,3 +1316,83 @@ t_async_load_config_cli(_Config) ->
     ct:pal("config loaded"),
 
     ok.
+
+%% Checks that we do not enqueue messages for actions that are yet to be installed.
+%%
+%% In particular, since we default in the last instance to use `sync' query mode if it
+%% can't find the action in the installed channels map, if the connector resource module
+%% doesn't implement `query_mode/1' and `QueryOpts' don't explicitly define a query mode.
+%%
+%% So, it could have the somewhat surprising effect of making a blocking call when one
+%% expects to call an async, not-yet-installed, action
+t_send_message_to_not_yet_installed_channel(_Config) ->
+    ResponseETS = ets:new(response_ets, [public]),
+    ets:insert(ResponseETS, {on_start_value, hang}),
+    TestPid = self(),
+    OnGetStatusFun = wrap_fun(fun() -> connecting end),
+    OnStartFun = wrap_fun(fun(_Conf) ->
+        case ets:lookup_element(ResponseETS, on_start_value, 2) of
+            hang ->
+                persistent_term:put({?MODULE, res_pid}, self()),
+                TestPid ! hanging,
+                receive
+                    go ->
+                        ets:insert(ResponseETS, {on_start_value, continue})
+                end;
+            continue ->
+                ok
+        end,
+        {ok, connector_state}
+    end),
+    on_exit(fun() ->
+        case persistent_term:get({?MODULE, res_pid}, undefined) of
+            undefined ->
+                ct:fail("resource didn't start");
+            ResPid ->
+                ResPid ! go,
+                ok
+        end
+    end),
+
+    %% This is needed because `on_start' will hang, hence there'll be no resource state,
+    %% and the test connector module has a clause to always return `connected' if the
+    %% state doesn't match a particular map.
+    on_exit(fun emqx_bridge_v2_test_connector:clear_permanent_state/0),
+    emqx_bridge_v2_test_connector:set_permanent_state(connecting),
+
+    ConnectorType = con_type(),
+    ConnectorName = atom_to_binary(?FUNCTION_NAME),
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100},
+        <<"on_get_status_fun">> => OnGetStatusFun,
+        <<"on_start_fun">> => OnStartFun
+    }),
+    %% Make the resource stuck while starting
+    spawn_link(fun() ->
+        {ok, _} = emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig)
+    end),
+    receive
+        hanging ->
+            ok
+    after 1_000 ->
+        ct:fail("connector not started and stuck")
+    end,
+
+    ActionType = bridge_type(),
+    ActionName = ConnectorName,
+    ActionConfig = bridge_config(),
+
+    {ok, _} = emqx_bridge_v2:create(ActionType, ActionName, ActionConfig),
+
+    %% Created and in the config, but the channel is not yet added as the resource process
+    %% is hanging.
+    Req = #{should_not => be_called},
+    QueryOpts = #{},
+    %% If this is called synchronously, could hang for a while
+    ct:pal("sending message"),
+    ?assertMatch(
+        {error, bridge_not_found},
+        emqx_bridge_v2:send_message(ActionType, ActionName, Req, QueryOpts)
+    ),
+
+    ok.

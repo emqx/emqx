@@ -32,6 +32,14 @@
     on_get_channel_status/3
 ]).
 
+-export([set_permanent_state/1, clear_permanent_state/0]).
+
+set_permanent_state(State) ->
+    persistent_term:put({?MODULE, state}, State).
+
+clear_permanent_state() ->
+    persistent_term:erase({?MODULE, state}).
+
 query_mode(_Config) ->
     sync.
 
@@ -122,7 +130,7 @@ on_get_status(
     _InstId,
     _State
 ) ->
-    connected.
+    persistent_term:get({?MODULE, state}, connected).
 
 on_get_channel_status(
     _ResId,
