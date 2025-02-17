@@ -93,8 +93,8 @@ event_names() ->
 %% for documentation purposes
 event_topics_enum() ->
     [
-        '$events/alarm_activated',
-        '$events/alarm_deactivated',
+        '$events/sys/alarm_activated',
+        '$events/sys/alarm_deactivated',
         '$events/client_connected',
         '$events/client_disconnected',
         '$events/client_connack',
@@ -895,14 +895,14 @@ event_info_alarm_activated() ->
         'alarm.activated',
         {<<"alarm activated">>, <<""/utf8>>},
         {<<"alarm activated">>, <<""/utf8>>},
-        <<"SELECT * FROM \"$events/alarm_activated\" ">>
+        <<"SELECT * FROM \"$events/sys/alarm_activated\" ">>
     ).
 event_info_alarm_deactivated() ->
     event_info_common(
         'alarm.deactivated',
         {<<"alarm deactivated">>, <<""/utf8>>},
         {<<"alarm deactivated">>, <<""/utf8>>},
-        <<"SELECT * FROM \"$events/alarm_deactivated\" ">>
+        <<"SELECT * FROM \"$events/sys/alarm_deactivated\" ">>
     ).
 event_info_message_deliver() ->
     event_info_common(
@@ -1449,8 +1449,8 @@ ntoa(IpOrIpPort) ->
     iolist_to_binary(emqx_utils:ntoa(IpOrIpPort)).
 
 event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
-event_name(<<"$events/alarm_activated">>) -> 'alarm.activated';
-event_name(<<"$events/alarm_deactivated">>) -> 'alarm.deactivated';
+event_name(<<"$events/sys/alarm_activated">>) -> 'alarm.activated';
+event_name(<<"$events/sys/alarm_deactivated">>) -> 'alarm.deactivated';
 event_name(<<"$events/client_connected">>) -> 'client.connected';
 event_name(<<"$events/client_disconnected">>) -> 'client.disconnected';
 event_name(<<"$events/client_connack">>) -> 'client.connack';
@@ -1467,8 +1467,8 @@ event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
 event_topic(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
-event_topic('alarm.activated') -> <<"$events/alarm_activated">>;
-event_topic('alarm.deactivated') -> <<"$events/alarm_deactivated">>;
+event_topic('alarm.activated') -> <<"$events/sys/alarm_activated">>;
+event_topic('alarm.deactivated') -> <<"$events/sys/alarm_deactivated">>;
 event_topic('client.connected') -> <<"$events/client_connected">>;
 event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
 event_topic('client.connack') -> <<"$events/client_connack">>;
