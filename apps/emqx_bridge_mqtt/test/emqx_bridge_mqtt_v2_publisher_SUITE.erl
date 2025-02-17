@@ -554,6 +554,40 @@ t_reconnect(Config) ->
     ),
     ok.
 
+%% Verifies we validate duplicate clientids amongst different connectors as well, to avoid
+%% dumb mistakes like reusing the same clientid multiple times.
+t_duplicate_static_clientids_different_connectors(Config) ->
+    NodeBin = atom_to_binary(node()),
+    {201, _} = create_connector_api(Config, #{
+        <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [<<"1">>]}]
+    }),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> :=
+                    <<
+                        "distinct mqtt connectors must not use the same static clientids;"
+                        " connectors with duplicate static clientids: ",
+                        _/binary
+                    >>
+            }
+        }},
+        create_connector_api([{connector_name, <<"another">>} | Config], #{
+            <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [<<"1">>]}]
+        })
+    ),
+    %% Using a different host is fine (different IPs and hostnames may still lead to the
+    %% same cluster, it's a best effort check)
+    ?assertMatch(
+        {201, _},
+        create_connector_api([{connector_name, <<"another">>} | Config], #{
+            <<"server">> => <<"a-different-host:1883">>,
+            <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [<<"1">>]}]
+        })
+    ),
+    ok.
+
 %% Smoke integration test to check that fallback action are triggered.  This Action is
 %% chosen for this test because it uses the conventional builtin buffer.
 t_fallback_actions(Config) ->

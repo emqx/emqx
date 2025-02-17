@@ -156,6 +156,10 @@ spy_action(Selected, Envs, #{pid := TestPidBin}) ->
     TestPid ! {rule_called, #{selected => Selected, envs => Envs}},
     ok.
 
+event_type(EventTopic) ->
+    EventAtom = emqx_rule_events:event_name(EventTopic),
+    emqx_rule_api_schema:event_to_event_type(EventAtom).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -546,6 +550,42 @@ do_t_rule_test_smoke(#{input := Input, expected := #{code := ExpectedCode}} = Ca
                 resp_body => Body
             }}
     end.
+
+%% Checks that each event is recognized by `/rule_test' and the examples are valid.
+t_rule_test_examples(_Config) ->
+    AllEventInfos = emqx_rule_events:event_info(),
+    Failures = lists:filtermap(
+        fun
+            (#{event := <<"$bridges/mqtt:*">>}) ->
+                %% Currently, our frontend doesn't support simulating source events.
+                false;
+            (EventInfo) ->
+                #{
+                    sql_example := SQL,
+                    test_columns := TestColumns,
+                    event := EventTopic
+                } = EventInfo,
+                EventType = event_type(EventTopic),
+                Context = lists:foldl(
+                    fun
+                        ({Field, [ExampleValue, _Description]}, Acc) ->
+                            Acc#{Field => ExampleValue};
+                        ({Field, ExampleValue}, Acc) ->
+                            Acc#{Field => ExampleValue}
+                    end,
+                    #{<<"event_type">> => EventType},
+                    TestColumns
+                ),
+                Case = #{
+                    expected => #{code => 200},
+                    input => #{<<"context">> => Context, <<"sql">> => SQL}
+                },
+                do_t_rule_test_smoke(Case)
+        end,
+        AllEventInfos
+    ),
+    ?assertEqual([], Failures),
+    ok.
 
 %% Tests filtering the rule list by used actions and/or sources.
 t_filter_by_source_and_action(_Config) ->

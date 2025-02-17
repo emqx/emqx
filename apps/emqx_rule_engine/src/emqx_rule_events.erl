@@ -946,7 +946,7 @@ event_info_client_disconnected() ->
         'client.disconnected',
         {<<"client disconnected">>, <<"连接断开"/utf8>>},
         {<<"client disconnected">>, <<"连接断开"/utf8>>},
-        <<"SELECT * FROM \"$events/client_disconnected\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/client_disconnected\"">>
     ).
 event_info_client_connack() ->
     event_info_common(

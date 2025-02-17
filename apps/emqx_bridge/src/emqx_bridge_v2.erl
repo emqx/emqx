@@ -371,7 +371,7 @@ check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
             false -> []
         end,
     case
-        emqx_bridge_lib:maybe_withdraw_rule_action(
+        maybe_withdraw_rule_action(
             ConfRootKey,
             BridgeType,
             BridgeName,
@@ -387,6 +387,40 @@ check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
 %%--------------------------------------------------------------------
 %% Helpers for CRUD API
 %%--------------------------------------------------------------------
+
+maybe_withdraw_rule_action(ConfRootKey, BridgeType, BridgeName, DeleteDeps) ->
+    BridgeIds = emqx_bridge_lib:external_ids(ConfRootKey, BridgeType, BridgeName),
+    DeleteActions = lists:member(rule_actions, DeleteDeps),
+    GetFn =
+        case ConfRootKey of
+            ?ROOT_KEY_ACTIONS ->
+                fun emqx_rule_engine:get_rule_ids_by_bridge_action/1;
+            ?ROOT_KEY_SOURCES ->
+                fun emqx_rule_engine:get_rule_ids_by_bridge_source/1
+        end,
+    maybe_withdraw_rule_action_loop(BridgeIds, DeleteActions, GetFn).
+
+maybe_withdraw_rule_action_loop([], _DeleteActions, _GetFn) ->
+    ok;
+maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions, GetFn) ->
+    case GetFn(BridgeId) of
+        [] ->
+            maybe_withdraw_rule_action_loop(More, DeleteActions, GetFn);
+        RuleIds when DeleteActions ->
+            lists:foreach(
+                fun(R) ->
+                    emqx_rule_engine:ensure_action_removed(R, BridgeId)
+                end,
+                RuleIds
+            ),
+            maybe_withdraw_rule_action_loop(More, DeleteActions, GetFn);
+        RuleIds ->
+            {error, #{
+                reason => rules_depending_on_this_bridge,
+                bridge_id => BridgeId,
+                rule_ids => RuleIds
+            }}
+    end.
 
 list_with_lookup_fun(ConfRootName, LookupFun) ->
     maps:fold(

@@ -2878,16 +2878,12 @@ to_atom(Bin) when is_binary(Bin) ->
     binary_to_atom(Bin, utf8).
 
 validate_heap_size(Siz) when is_integer(Siz) ->
-    MaxSiz =
-        case erlang:system_info(wordsize) of
-            % arch_64
-            8 -> (1 bsl 59) - 1;
-            % arch_32
-            4 -> (1 bsl 27) - 1
-        end,
+    WordSize = erlang:system_info(wordsize),
+    %% 128 GB
+    MaxSiz = (128 * 1024 * 1024 * 1024) div WordSize,
     case Siz > MaxSiz of
         true ->
-            {error, #{reason => max_heap_size_too_large, maximum => MaxSiz}};
+            {error, #{cause => max_heap_size_too_large, maximum => MaxSiz}};
         false ->
             ok
     end;

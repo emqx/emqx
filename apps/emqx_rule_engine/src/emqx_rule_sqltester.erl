@@ -212,10 +212,6 @@ is_test_runtime_env() ->
 
 %% Most events have the original `topic' input, but their own topic (i.e.: `$events/...')
 %% is different from `topic'.
-get_in_topic(#{event_type := schema_validation_failed}) ->
-    <<"$events/schema_validation_failed">>;
-get_in_topic(#{event_type := message_transformation_failed}) ->
-    <<"$events/message_transformation_failed">>;
 get_in_topic(Context) ->
     case maps:find(event_topic, Context) of
         {ok, EventTopic} ->
