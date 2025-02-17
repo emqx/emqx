@@ -101,7 +101,7 @@
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
-    quota :: emqx_limiter_container:container(),
+    quota :: emqx_limiter_client_container:container(),
     %% Timers
     timers :: #{atom() => disabled | option(reference())},
     %% Conn State
@@ -150,9 +150,6 @@
 -define(IS_COMMON_SESSION_TIMER(N),
     ((N == retry_delivery) orelse (N == expire_awaiting_rel))
 ).
-
--define(LIMITER_BYTES_IN, bytes).
--define(LIMITER_MESSAGE_IN, messages).
 
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
@@ -251,7 +248,6 @@ init(
     },
     #{
         zone := Zone,
-        limiter := LimiterCfg,
         listener := {Type, Listener}
     } = Opts
 ) ->
@@ -286,8 +282,7 @@ init(
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
 
-    LimiterNames = [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN],
-    Limiter = emqx_limiter_container:create_by_names(LimiterNames, LimiterCfg, Zone),
+    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
 
     #channel{
         conninfo = NConnInfo,
@@ -2349,7 +2344,7 @@ packing_alias(Packet, Channel) ->
 check_quota_exceeded(
     ?PUBLISH_PACKET(_QoS, _Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
 ) ->
-    {Result, Quota2} = emqx_limiter_container:check(
+    {Result, Quota2} = emqx_limiter_client_container:try_consume(
         [{bytes, erlang:byte_size(Payload)}, {messages, 1}], Quota
     ),
     NChann = Chann#channel{quota = Quota2},

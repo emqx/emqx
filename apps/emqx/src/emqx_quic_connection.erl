@@ -166,7 +166,6 @@ new_stream(
         streams := Streams,
         stream_opts := SOpts,
         zone := Zone,
-        limiter := Limiter,
         parse_state := PS,
         channel := Channel,
         serialize := Serialize,
@@ -178,8 +177,6 @@ new_stream(
     SOpts1 = SOpts#{
         is_local => false,
         zone => Zone,
-        % unused
-        limiter => Limiter,
         parse_state => PS,
         channel => Channel,
         serialize => Serialize,
