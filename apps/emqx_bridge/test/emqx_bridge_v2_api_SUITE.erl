@@ -2062,3 +2062,49 @@ t_summary_inconsistent(Config) when is_list(Config) ->
         Summarize()
     ),
     ok.
+
+%% Checks that we can delete an action/source when a source/action with the same name and
+%% connector is referenced by a rule.
+t_delete_when_dual_has_dependencies(matrix) ->
+    [
+        [single, actions],
+        [single, sources]
+    ];
+t_delete_when_dual_has_dependencies(Config) when is_list(Config) ->
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    %% This particular source type happens to serve both actions and sources
+    ConnectorType = ?SOURCE_CONNECTOR_TYPE,
+    ConnectorName = <<"c">>,
+    {ok, {{_, 201, _}, _, _}} =
+        emqx_bridge_v2_testlib:create_connector_api([
+            {connector_config, source_connector_create_config(#{})},
+            {connector_name, ConnectorName},
+            {connector_type, ConnectorType}
+        ]),
+    ActionName = <<"same_name">>,
+    ActionType = ?SOURCE_TYPE,
+    ActionConfig = mqtt_action_create_config(#{<<"connector">> => ConnectorName}),
+    {201, _} = create_action_api(ActionName, ActionType, ActionConfig),
+    SourceName = ActionName,
+    SourceType = ?SOURCE_TYPE,
+    SourceConfig = source_create_config(#{<<"connector">> => ConnectorName}),
+    {201, _} = create_source_api(SourceName, SourceType, SourceConfig),
+
+    %% We'll use `Kind' to choose which kind will have dependencies.
+    %% We then attempt to delete the kind which is dual to `Kind'.
+    case Kind of
+        actions ->
+            {ok, _} = create_action_rule(ActionType, ActionName),
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:delete_kind_api(source, SourceType, SourceName)
+            );
+        sources ->
+            {ok, _} = create_source_rule1(SourceType, SourceName),
+            ?assertMatch(
+                {204, _},
+                emqx_bridge_v2_testlib:delete_kind_api(action, ActionType, ActionName)
+            )
+    end,
+
+    ok.

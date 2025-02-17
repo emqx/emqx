@@ -4,6 +4,7 @@
 
 -module(emqx_license_schema).
 
+-include("emqx_license.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -133,4 +134,4 @@ default(connection_high_watermark) ->
     <<"80%">>;
 default(dynamic_max_connections) ->
     %Must match the value encoded in default license.
-    25.
+    ?DEFAULT_TRIAL_SESSIONS_LIMIT.

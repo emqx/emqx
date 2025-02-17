@@ -41,4 +41,6 @@
 -define(ERR_EXPIRED, expired).
 -define(ERR_MAX_UPTIME, max_uptime_reached).
 
+-define(DEFAULT_TRIAL_SESSIONS_LIMIT, 25).
+
 -endif.

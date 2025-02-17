@@ -239,10 +239,10 @@ field_filename(IsRequired, Meta) ->
 
 data_export(post, #{body := Params}) ->
     maybe
-        ok ?= validate_export_root_keys(Params),
-        {ok, Opts} ?= parse_export_request(Params),
-        {ok, #{filename := FileName} = File} ?= emqx_mgmt_data_backup:export(Opts),
-        {200, File#{filename => filename:basename(FileName)}}
+        ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
+        {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
+        {ok, #{filename := Filename} = File} ?= emqx_mgmt_data_backup:export(Opts),
+        {200, File#{filename => filename:basename(Filename)}}
     else
         {error, {unknown_root_keys, UnknownKeys}} ->
             Msg = iolist_to_binary([
@@ -264,14 +264,14 @@ data_export(post, #{body := Params}) ->
             {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
-data_import(post, #{body := #{<<"filename">> := FileName} = Body}) ->
+data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
     case safe_parse_node(Body) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
             response(
-                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, FileName, infinity)
+                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity)
             )
     end.
 
@@ -289,8 +289,8 @@ core_node(FileNode) ->
     end.
 
 data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
-    [{FileName, FileContent} | _] = maps:to_list(maps:without([type], File)),
-    case emqx_mgmt_data_backup:upload(FileName, FileContent) of
+    [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
+    case emqx_mgmt_data_backup:upload(Filename, FileContent) of
         ok ->
             {204};
         {error, Reason} ->
@@ -325,44 +325,6 @@ data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string :=
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-parse_export_request(Params) ->
-    Opts0 = #{},
-    Opts1 =
-        maybe
-            {ok, Keys0} ?= maps:find(<<"root_keys">>, Params),
-            Keys = lists:usort(Keys0),
-            Transform = fun(RawConf) ->
-                maps:with(Keys, RawConf)
-            end,
-            Opts0#{raw_conf_transform => Transform}
-        else
-            error -> Opts0
-        end,
-    maybe
-        {ok, TableSetNames0} ?= maps:find(<<"table_sets">>, Params),
-        TableSetNames = lists:usort(TableSetNames0),
-        {ok, Filter} ?= emqx_mgmt_data_backup:compile_mnesia_table_filter(TableSetNames),
-        {ok, Opts1#{mnesia_table_filter => Filter}}
-    else
-        error ->
-            {ok, Opts1};
-        {error, InvalidSetNames0} ->
-            InvalidSetNames = lists:sort(InvalidSetNames0),
-            {error, {bad_table_sets, InvalidSetNames}}
-    end.
-
-validate_export_root_keys(Params) ->
-    RootKeys0 = maps:get(<<"root_keys">>, Params, []),
-    RootKeys = lists:usort(RootKeys0),
-    RootNames = emqx_config:get_root_names(),
-    UnknownKeys = RootKeys -- RootNames,
-    case UnknownKeys of
-        [] ->
-            ok;
-        [_ | _] ->
-            {error, {unknown_root_keys, UnknownKeys}}
-    end.
 
 get_or_delete_file(get, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:read_file(Node, Filename, infinity);

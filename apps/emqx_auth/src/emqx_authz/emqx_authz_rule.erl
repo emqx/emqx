@@ -43,17 +43,17 @@
 -type re_pattern() :: tuple().
 
 -type who_condition() ::
-    ipaddress()
+    all
     | username()
     | clientid()
+    | client_attr()
+    | ipaddress()
     | {'and', [who_condition()]}
-    | {'or', [who_condition()]}
-    | all.
--type ipaddress() ::
-    {ipaddr, esockd_cidr:cidr()}
-    | {ipaddrs, list(esockd_cidr:cidr())}.
+    | {'or', [who_condition()]}.
+-type ipaddress() :: {ipaddr, esockd_cidr:cidr_string()} | {ipaddrs, [esockd_cidr:cidr_string()]}.
 -type username() :: {username, binary() | re_pattern()}.
 -type clientid() :: {clientid, binary() | re_pattern()}.
+-type client_attr() :: {client_attr, Name :: binary(), Value :: binary() | re_pattern()}.
 
 -type action_condition() ::
     subscribe
@@ -264,6 +264,11 @@ compile_who({clientid, {re, Clientid}}) ->
     end;
 compile_who({clientid, Clientid}) ->
     {clientid, {eq, bin(Clientid)}};
+compile_who({client_attr, Name, {re, Attr}}) ->
+    {ok, MP} = re:compile(bin(Attr)),
+    {client_attr, bin(Name), MP};
+compile_who({client_attr, Name, Attr}) ->
+    {client_attr, bin(Name), {eq, bin(Attr)}};
 compile_who({ipaddr, CIDR}) ->
     {ipaddr, esockd_cidr:parse(CIDR, true)};
 compile_who({ipaddrs, CIDRs}) ->
@@ -366,17 +371,16 @@ match_who(#{username := undefined}, {username, _}) ->
 match_who(#{username := Username}, {username, {eq, Username}}) ->
     true;
 match_who(#{username := Username}, {username, {re_pattern, _, _, _, _} = MP}) ->
-    case re:run(Username, MP) of
-        {match, _} -> true;
-        _ -> false
-    end;
+    is_re_match(Username, MP);
 match_who(#{clientid := Clientid}, {clientid, {eq, Clientid}}) ->
     true;
 match_who(#{clientid := Clientid}, {clientid, {re_pattern, _, _, _, _} = MP}) ->
-    case re:run(Clientid, MP) of
-        {match, _} -> true;
-        _ -> false
-    end;
+    is_re_match(Clientid, MP);
+match_who(#{client_attrs := Attrs}, {client_attr, Name, {eq, Value}}) ->
+    maps:get(Name, Attrs, undefined) =:= Value;
+match_who(#{client_attrs := Attrs}, {client_attr, Name, {re_pattern, _, _, _, _} = MP}) ->
+    Value = maps:get(Name, Attrs, undefined),
+    is_binary(Value) andalso is_re_match(Value, MP);
 match_who(#{peerhost := undefined}, {ipaddr, _CIDR}) ->
     false;
 match_who(#{peerhost := IpAddress}, {ipaddr, CIDR}) ->
@@ -408,6 +412,12 @@ match_who(ClientInfo, {'or', Principals}) when is_list(Principals) ->
     );
 match_who(_, _) ->
     false.
+
+is_re_match(Value, Pattern) ->
+    case re:run(Value, Pattern) of
+        {match, _} -> true;
+        _ -> false
+    end.
 
 match_topics(_ClientInfo, _Topic, []) ->
     false;

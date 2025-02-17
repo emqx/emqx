@@ -109,7 +109,7 @@ t_ctx_acked(_) ->
         username => <<"u_emqx_2">>
     },
 
-    Expected = with_node_timestampe([from_clientid, from_username, topic, qos], Context),
+    Expected = with_node_timestamp([from_clientid, from_username, topic, qos], Context),
 
     do_test(SQL, Context, Expected).
 
@@ -128,7 +128,7 @@ t_ctx_droped(_) ->
         username => <<"u_emqx">>
     },
 
-    Expected = with_node_timestampe([reason, topic, qos], Context),
+    Expected = with_node_timestamp([reason, topic, qos], Context),
     do_test(SQL, Context, Expected).
 
 t_ctx_connected(_) ->
@@ -318,7 +318,7 @@ test_rule_params(Sql, Context) ->
         }
     }.
 
-with_node_timestampe(Keys, Context) ->
+with_node_timestamp(Keys, Context) ->
     check_result(Keys, [node, timestamp], Context).
 
 check_result(Keys, Exists, Context) ->

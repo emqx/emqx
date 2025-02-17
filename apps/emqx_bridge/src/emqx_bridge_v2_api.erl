@@ -1353,13 +1353,12 @@ summary_from_local_node_v7(ConfRootKey) ->
                 name := Name,
                 status := Status,
                 error := Error,
-                raw_config := RawConfig,
-                resource_data := ResourceData
+                raw_config := RawConfig
             } = BridgeInfo,
             CreatedAt = maps:get(<<"created_at">>, RawConfig, undefined),
             LastModifiedAt = maps:get(<<"last_modified_at">>, RawConfig, undefined),
             Description = maps:get(<<"description">>, RawConfig, <<"">>),
-            IsEnabled = emqx_utils_maps:deep_get([config, enable], ResourceData, true),
+            IsEnabled = maps:get(<<"enable">>, RawConfig, true),
             maps:merge(
                 #{
                     node => node(),

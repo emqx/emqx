@@ -674,7 +674,7 @@ trace_type(_, _, _) -> error.
 
 listeners([]) ->
     lists:foreach(
-        fun({ID, Conf}) ->
+        fun({Id, Conf}) ->
             Bind = maps:get(bind, Conf),
             Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
@@ -683,17 +683,17 @@ listeners([]) ->
             case Running of
                 true ->
                     CurrentConns =
-                        case emqx_listeners:current_conns(ID, Bind) of
+                        case emqx_listeners:current_conns(Id, Bind) of
                             {error, _} -> [];
                             CC -> [{current_conn, CC}]
                         end,
                     MaxConn =
-                        case emqx_listeners:max_conns(ID, Bind) of
+                        case emqx_listeners:max_conns(Id, Bind) of
                             {error, _} -> [];
                             MC -> [{max_conns, MC}]
                         end,
                     ShutdownCount =
-                        case emqx_listeners:shutdown_count(ID, Bind) of
+                        case emqx_listeners:shutdown_count(Id, Bind) of
                             {error, _} -> [];
                             SC -> [{shutdown_count, SC}]
                         end;
@@ -710,7 +710,7 @@ listeners([]) ->
                     {enbale, Enable},
                     {running, Running}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
-            emqx_ctl:print("~ts~n", [ID]),
+            emqx_ctl:print("~ts~n", [Id]),
             lists:foreach(fun indent_print/1, Info)
         end,
         emqx_listeners:list()
@@ -867,10 +867,24 @@ olp(_) ->
 %%--------------------------------------------------------------------
 %% @doc data Command
 
-data(["export"]) ->
-    case emqx_mgmt_data_backup:export(?DATA_BACKUP_OPTS) of
-        {ok, #{filename := Filename}} ->
-            emqx_ctl:print("Data has been successfully exported to ~s.~n", [Filename]);
+data(["export" | Args]) ->
+    maybe
+        {ok, Opts} ?= parse_data_export_args(Args),
+        {ok, #{filename := Filename}} ?= emqx_mgmt_data_backup:export(Opts),
+        emqx_ctl:print("Data has been successfully exported to ~s.~n", [Filename])
+    else
+        {error, {unknown_root_keys, UnknownKeys}} ->
+            Msg = iolist_to_binary([
+                <<"Invalid root keys: ">>,
+                lists:join(<<", ">>, UnknownKeys)
+            ]),
+            emqx_ctl:print(Msg);
+        {error, {bad_table_sets, InvalidSetNames}} ->
+            Msg = iolist_to_binary([
+                <<"Invalid table sets: ">>,
+                lists:join(<<", ">>, InvalidSetNames)
+            ]),
+            emqx_ctl:print(Msg);
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
@@ -892,18 +906,42 @@ data(["import", Filename]) ->
 data(_) ->
     emqx_ctl:usage([
         {"data import <File>", "Import data from the specified tar archive file"},
-        {"data export", "Export data"}
+        {
+            "data export \\\n"
+            "  [--root-keys key1,key2,key3] \\\n"
+            "  [--table-sets set1,set2,set3]",
+            "Export data"
+        }
     ]).
+
+parse_data_export_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_data_export_args(Args, #{}),
+        emqx_mgmt_data_backup:parse_export_request(Collected)
+    end.
+
+collect_data_export_args([], Acc) ->
+    {ok, Acc};
+collect_data_export_args(["--root-keys", RootKeysJoined | Rest], Acc) ->
+    RootKeysStr = string:tokens(RootKeysJoined, [$,]),
+    RootKeys = lists:map(fun list_to_binary/1, RootKeysStr),
+    collect_data_export_args(Rest, Acc#{<<"root_keys">> => RootKeys});
+collect_data_export_args(["--table-sets", TableSetsJoined | Rest], Acc) ->
+    TableSetsStr = string:tokens(TableSetsJoined, [$,]),
+    TableSets = lists:map(fun list_to_binary/1, TableSetsStr),
+    collect_data_export_args(Rest, Acc#{<<"table_sets">> => TableSets});
+collect_data_export_args(Args, _Acc) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
 
 %%--------------------------------------------------------------------
 %% @doc Durable storage command
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
-ds(CMD) ->
+ds(Cmd) ->
     case emqx_mgmt_api_ds:is_enabled() of
         true ->
-            do_ds(CMD);
+            do_ds(Cmd);
         false ->
             emqx_ctl:usage([{"ds", "Durable storage is disabled"}])
     end.
@@ -970,7 +1008,7 @@ do_ds(_) ->
 
 -else.
 
-ds(_CMD) ->
+ds(_Cmd) ->
     emqx_ctl:usage([{"ds", "DS CLI is not available in this edition of EMQX"}]).
 
 -endif.

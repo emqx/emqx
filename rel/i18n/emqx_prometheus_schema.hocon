@@ -9,6 +9,7 @@ interval.desc:
 
 job_name.desc:
 """Job Name that is pushed to the Push Gateway. Available variables:<br/>
+- ${cluster_name}: Name of EMQX cluster.<br/>
 - ${name}: Name of EMQX node.<br/>
 - ${host}: Host name of EMQX node.<br/>
 For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <code>name</code>
