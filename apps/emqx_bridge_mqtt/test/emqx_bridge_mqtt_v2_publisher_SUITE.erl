@@ -576,4 +576,13 @@ t_duplicate_static_clientids_different_connectors(Config) ->
             <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [<<"1">>]}]
         })
     ),
+    %% Using a different host is fine (different IPs and hostnames may still lead to the
+    %% same cluster, it's a best effort check)
+    ?assertMatch(
+        {201, _},
+        create_connector_api([{connector_name, <<"another">>} | Config], #{
+            <<"server">> => <<"a-different-host:1883">>,
+            <<"static_clientids">> => [#{<<"node">> => NodeBin, <<"ids">> => [<<"1">>]}]
+        })
+    ),
     ok.

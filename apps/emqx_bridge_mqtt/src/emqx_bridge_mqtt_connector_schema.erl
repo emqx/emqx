@@ -385,15 +385,16 @@ injected_fields() ->
 unique_static_clientid_validator(#{<<"mqtt">> := MQTTConnectors}) ->
     StaticClientIdsToNames0 =
         [
-            {ClientId, Name}
-         || {Name, #{<<"static_clientids">> := CIdMappings}} <- maps:to_list(MQTTConnectors),
+            {{ClientId, Server}, Name}
+         || {Name, #{<<"static_clientids">> := CIdMappings, <<"server">> := Server}} <-
+                maps:to_list(MQTTConnectors),
             #{<<"ids">> := ClientIds} <- CIdMappings,
             ClientId <- ClientIds
         ],
     StaticClientIdsToNames =
         maps:groups_from_list(
-            fun({CId, _Name}) -> CId end,
-            fun({_CId, Name}) -> Name end,
+            fun({CIdServer, _Name}) -> CIdServer end,
+            fun({_CIdServer, Name}) -> Name end,
             StaticClientIdsToNames0
         ),
     Duplicated0 = maps:filter(fun(_, Vs) -> length(Vs) > 1 end, StaticClientIdsToNames),
