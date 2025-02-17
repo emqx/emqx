@@ -1166,7 +1166,7 @@ validate_header(?CONNECT, 0, 0, 0) -> ok;
 validate_header(?CONNACK, 0, 0, 0) -> ok;
 validate_header(?PUBLISH, 0, ?QOS_0, _) -> ok;
 validate_header(?PUBLISH, _, ?QOS_1, _) -> ok;
-validate_header(?PUBLISH, 0, ?QOS_2, _) -> ok;
+validate_header(?PUBLISH, _, ?QOS_2, _) -> ok;
 validate_header(?PUBACK, 0, 0, 0) -> ok;
 validate_header(?PUBREC, 0, 0, 0) -> ok;
 validate_header(?PUBREL, 0, 1, 0) -> ok;
