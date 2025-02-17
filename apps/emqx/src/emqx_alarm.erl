@@ -60,7 +60,8 @@
 
 %% Internal exports
 -export([
-    do_start_worker/0
+    do_start_worker/0,
+    worker_loop/0
 ]).
 
 -record(activated_alarm, {
@@ -538,8 +539,16 @@ start_worker() ->
     proc_lib:start_link(?MODULE, do_start_worker, []).
 
 do_start_worker() ->
+    set_label(<<"alarm_event_worker">>),
     ok = proc_lib:init_ack(self()),
-    worker_loop().
+    ?MODULE:worker_loop().
+
+%% Drop check after OTP 26 is dropped.
+-if(OTP_RELEASE >= 27).
+set_label(Label) -> proc_lib:set_label(Label).
+-else.
+set_label(_Label) -> ok.
+-endif.
 
 send_job_to_worker(Mod, Fn, Args, State0) ->
     #{?worker := WorkerPid} = State0,
@@ -554,11 +563,11 @@ worker_loop() ->
             catch
                 Kind:Error:Stacktrace ->
                     ?SLOG(warning, #{
-                        msg => "alarm_failed_to_run_job",
+                        msg => "failed_to_trigger_alarm_event",
                         mfa => {Mod, Fn, Args},
                         reason => {Kind, Error},
                         stacktrace => Stacktrace
                     })
             end,
-            worker_loop()
+            ?MODULE:worker_loop()
     end.
