@@ -28,6 +28,7 @@ schemas(Edition) ->
         authn(Edition) ++
         authz() ++
         shared_subs(Edition) ++
+        bridges(Edition) ++
         customized(Edition).
 
 mria(ce) ->
@@ -89,6 +90,11 @@ shared_subs(ee) ->
 shared_subs(ce) ->
     [].
 
+bridges(ee) ->
+    [] ++ bridges(ce);
+bridges(ce) ->
+    [emqx_bridge_mqtt_connector_schema].
+
 %% Add more schemas here.
-customized(_Edition) ->
+customized(_) ->
     [].
