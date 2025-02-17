@@ -164,13 +164,13 @@ set_default_auth_result(Result) ->
 -spec pre_hook_authenticate(emqx_types:clientinfo()) ->
     ok | continue | {error, not_authorized}.
 pre_hook_authenticate(#{enable_authn := false}) ->
-    ?TRACE_RESULT("pre_hook_authenticate", ok, enable_authn_false);
+    ?TRACE_RESULT("PRE_HOOK_AUTHN", ok, authentication_not_enabled);
 pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
     case is_username_defined(Credential) of
         true ->
             continue;
         false ->
-            ?TRACE_RESULT("pre_hook_authenticate", {error, not_authorized}, enable_authn_false)
+            ?TRACE_RESULT("PRE_HOOK_AUTHN", {error, not_authorized}, quick_deny_anonymous)
     end;
 pre_hook_authenticate(_) ->
     continue.
