@@ -168,6 +168,12 @@ sql_insert_template_for_bridge() ->
 sql_insert_template_with_nested_token_for_bridge() ->
     "INSERT INTO mqtt_test(topic, msgid, payload, retain) VALUES (${topic}, ${id}, ${payload.msg}, ${retain})".
 
+sql_insert_template_with_large_value() ->
+    "INSERT INTO mqtt_test(topic, msgid, payload, retain) VALUES (${topic}, ${id}, ${payload}, ${id})".
+
+sql_insert_template_with_null_value() ->
+    "INSERT INTO mqtt_test(topic, msgid, payload, retain) VALUES (${topic}, ${id}, ${payload.nullkey}, ${retain})".
+
 sql_insert_template_with_inconsistent_datatype() ->
     "INSERT INTO mqtt_test(topic, msgid, payload, retain) VALUES (${topic}, ${id}, ${payload}, ${flags})".
 
@@ -601,6 +607,13 @@ t_probe_with_nested_tokens(Config) ->
     ),
     ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0).
 
+t_probe_with_large_value(Config) ->
+    ProbeRes0 = probe_bridge_api(
+        Config,
+        #{<<"sql">> => sql_insert_template_with_large_value()}
+    ),
+    ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0).
+
 t_message_with_nested_tokens(Config) ->
     BridgeId = bridge_id(Config),
     ResourceId = resource_id(Config),
@@ -644,6 +657,56 @@ t_message_with_nested_tokens(Config) ->
         _Attempts = 20,
         ?assertMatch(
             {ok, [{result_set, [<<"PAYLOAD">>], _, [[Data]]}]},
+            emqx_resource:simple_sync_query(
+                ResourceId, {query, "SELECT payload FROM mqtt_test"}
+            )
+        )
+    ),
+    ok.
+
+t_message_with_null_value(Config) ->
+    BridgeId = bridge_id(Config),
+    ResourceId = resource_id(Config),
+    Name = ?config(oracle_name, Config),
+    reset_table(Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{
+            <<"sql">> => sql_insert_template_with_null_value()
+        })
+    ),
+    %% Since the connection process is async, we give it some time to
+    %% stabilize and avoid flakiness.
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        ?assertMatch(
+            #{status := connected},
+            emqx_bridge_v2:health_check(
+                ?BRIDGE_TYPE_BIN,
+                Name
+            )
+        )
+    ),
+    MsgId = erlang:unique_integer(),
+    %% no nullkey in payload
+    Params = #{
+        topic => ?config(mqtt_topic, Config),
+        id => MsgId,
+        payload => emqx_utils_json:encode(#{}),
+        retain => false
+    },
+    emqx_bridge:send_message(BridgeId, Params),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        ?assertMatch(
+            {ok, [{result_set, [<<"PAYLOAD">>], _, [[null]]}]},
             emqx_resource:simple_sync_query(
                 ResourceId, {query, "SELECT payload FROM mqtt_test"}
             )
