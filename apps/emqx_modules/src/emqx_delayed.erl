@@ -107,9 +107,23 @@
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
--define(MAX_INTERVAL, 4294967).
+%% 42949670s (about 497 days) is 10x the maximum interval for Erlang timer.
+%% If the number is greater than this, it is considered to be a timestamp
+%% at which the message is scheduled for publish, but the timestamp cannot
+%% be 42949670 seconds earlier or later than the current system time.
+-define(MAX_INTERVAL, 42949670).
 -define(FORMAT_FUN, {?MODULE, format_delayed}).
 -define(NOW, erlang:system_time(milli_seconds)).
+
+-ifndef(TEST).
+%% Force the timer to expire at least once a day.
+%% So to allow the next message publish interval to be greater
+%% than 4294967 (Erlang's timer interval limit).
+-define(MIN_TIMER_INTERVAL, timer:seconds(86400)).
+-else.
+%% During test, expire every 2 seconds.
+-define(MIN_TIMER_INTERVAL, timer:seconds(2)).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -143,7 +157,7 @@ on_message_publish(
             Timestamp ->
                 %% Check malicious timestamp?
                 Internal = Timestamp - erlang:round(Ts / 1000),
-                case Internal > ?MAX_INTERVAL of
+                case abs(Internal) > ?MAX_INTERVAL of
                     true -> error(invalid_delayed_timestamp);
                     false -> {Timestamp * 1000, Internal}
                 end
@@ -444,7 +458,7 @@ ensure_publish_timer(_Key, State) ->
     State.
 
 ensure_publish_timer(Ts, Now, State) ->
-    Interval = max(1, Ts - Now),
+    Interval = min(?MIN_TIMER_INTERVAL, max(1, Ts - Now)),
     TRef = emqx_utils:start_timer(Interval, do_publish),
     State#{publish_timer := TRef, publish_at := Now + Interval}.
 
