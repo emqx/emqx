@@ -79,6 +79,7 @@ groups() ->
             t_serialize_parse_qos0_publish,
             t_serialize_parse_qos1_publish,
             t_serialize_parse_qos2_publish,
+            t_serialize_parse_with_dup_flag,
             t_serialize_parse_publish_v5
         ]},
         {puback, [parallel], [
@@ -452,6 +453,39 @@ t_serialize_parse_qos2_publish(_) ->
     ),
     %% strict_mode = false
     _ = parse_serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 0, <<>>), #{strict_mode => false}).
+
+t_serialize_parse_with_dup_flag(_) ->
+    Packet = fun(Dup, QoS) ->
+        #mqtt_packet{
+            header = #mqtt_packet_header{
+                type = ?PUBLISH,
+                dup = Dup,
+                qos = QoS,
+                retain = false
+            },
+            variable = #mqtt_packet_publish{
+                topic_name = <<"a/b/c">>,
+                packet_id = 1
+            },
+            payload = <<"haha">>
+        }
+    end,
+
+    %% no invalid flag check for serializing now
+    InvalidQoS0Packet = Packet(true, ?QOS_0),
+    ?ASSERT_FRAME_THROW(bad_frame_header, parse_serialize(InvalidQoS0Packet)),
+
+    QoS1_Dup = Packet(true, ?QOS_1),
+    ?assertEqual(QoS1_Dup, parse_serialize(QoS1_Dup)),
+
+    QoS1_NoDup = Packet(false, ?QOS_1),
+    ?assertEqual(QoS1_NoDup, parse_serialize(QoS1_NoDup)),
+
+    QoS2_Dup = Packet(true, ?QOS_2),
+    ?assertEqual(QoS2_Dup, parse_serialize(QoS2_Dup)),
+
+    QoS2_NoDup = Packet(false, ?QOS_2),
+    ?assertEqual(QoS2_NoDup, parse_serialize(QoS2_NoDup)).
 
 t_serialize_parse_publish_v5(_) ->
     Props = #{
