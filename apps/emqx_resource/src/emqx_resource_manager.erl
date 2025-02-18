@@ -498,14 +498,54 @@ get_query_mode_and_last_error(RequestResId, Opts = #{connector_resource_id := Re
 get_query_mode_and_last_error(RequestResId, Opts) ->
     do_get_query_mode_error(RequestResId, RequestResId, Opts).
 
-do_get_query_mode_error(ResId, RequestResId, Opts) ->
-    case emqx_resource_manager:lookup_cached(ResId) of
-        {ok, _Group, ResourceData} ->
-            QM = get_query_mode(RequestResId, ResourceData, Opts),
-            Error = get_error(RequestResId, ResourceData),
-            {ok, {QM, Error}};
-        {error, not_found} ->
-            {error, not_found}
+-spec do_get_query_mode_error(
+    connector_resource_id(),
+    action_resource_id() | connector_resource_id(),
+    query_opts()
+) ->
+    {ok, {query_mode(), LastError}}
+    | {error, not_found}
+when
+    LastError ::
+        unhealthy_target
+        | {unhealthy_target, binary()}
+        | channel_status_map()
+        | term().
+do_get_query_mode_error(ResId, RequestResId, QueryOpts) ->
+    maybe
+        {ok, _Group, ResourceData} ?= emqx_resource_manager:lookup_cached(ResId),
+        ok ?= validate_action_is_installed(ResourceData, ResId, RequestResId),
+        QM = get_query_mode(RequestResId, ResourceData, QueryOpts),
+        Error = get_error(RequestResId, ResourceData),
+        {ok, {QM, Error}}
+    end.
+
+validate_action_is_installed(_ResourceData, ConnResId, ConnResId) ->
+    %% Request and underlying resource ids are equal, so someone is calling the connector
+    %% without an action.
+    ok;
+validate_action_is_installed(ResourceData, _ConnResId, ActionResId) ->
+    case ResourceData of
+        #{added_channels := #{ActionResId := #{error := Error}}} ->
+            %% Note: we don't compare to `?not_added_yet' using
+            %% `channel_status_is_channel_added' because this is using the external API to
+            %% get the status, which massages this value.
+            case Error of
+                not_added_yet ->
+                    %% We treat this case as a race (even if it's a slow one) while
+                    %% creating the action: it's already present in the config, but still
+                    %% absent from the resource state.
+                    {error, bridge_not_found};
+                {not_added_yet, _} ->
+                    {error, bridge_not_found};
+                _ ->
+                    ok
+            end;
+        _ ->
+            %% We treat this case as a race (even if it's a slow one) while creating the
+            %% action: it's already present in the config, but still absent from the
+            %% resource state.
+            {error, bridge_not_found}
     end.
 
 -spec get_query_mode(resource_id(), resource_data(), query_opts()) ->
@@ -1832,7 +1872,7 @@ status_to_error(_) ->
 
 %% Compatibility
 external_error(?not_added_yet) -> not_added_yet;
-external_error(?add_channel_failed(Reason)) -> external_error(Reason);
+external_error(?add_channel_failed(Reason)) -> {not_added_yet, external_error(Reason)};
 external_error({error, Reason}) -> Reason;
 external_error(Other) -> Other.
 
