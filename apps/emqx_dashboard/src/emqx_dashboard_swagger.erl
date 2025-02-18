@@ -702,9 +702,13 @@ trans_required(Spec, _, _) -> Spec.
 trans_description(Spec, Hocon, Options) ->
     Desc =
         case desc_struct(Hocon) of
-            undefined -> undefined;
-            ?DESC(_, _) = Struct -> get_i18n(<<"desc">>, Struct, undefined, Options);
-            Text -> to_bin(Text)
+            undefined ->
+                undefined;
+            ?DESC(_, _) = Struct ->
+                get_i18n(<<"desc">>, Struct, undefined, Options);
+            Text ->
+                io:format(user, "Missing-api-translation: ~s~n", [Text]),
+                to_bin(Text)
         end,
     case Desc =:= undefined of
         true ->

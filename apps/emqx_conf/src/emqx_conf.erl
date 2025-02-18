@@ -510,6 +510,7 @@ make_desc_resolver(Lang) ->
         ({desc, Namespace, Id}) ->
             emqx_dashboard_desc_cache:lookup(Lang, Namespace, Id, desc);
         (Desc) ->
+            io:format("Missing-cfg-translation: ~s~n", [Desc]),
             unicode:characters_to_binary(Desc)
     end.
 
