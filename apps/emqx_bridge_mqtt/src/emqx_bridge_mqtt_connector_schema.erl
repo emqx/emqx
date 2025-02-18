@@ -45,10 +45,6 @@
     unique_static_clientid_validator/1
 ]).
 
--import(emqx_schema, [mk_duration/2]).
-
--import(hoconsc, [mk/2, ref/2]).
-
 -define(CONNECTOR_TYPE, mqtt).
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
@@ -146,6 +142,10 @@ fields("server_configs") ->
                 }
             )},
         {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"160s">>})},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_s(), #{
+                default => <<"10s">>, desc => ?DESC("connect_timeout")
+            })},
         {retry_interval,
             mk_duration(
                 "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "
@@ -527,6 +527,15 @@ static_clientid_validate_clientids_length(Ids) ->
         false ->
             ok
     end.
+
+mk_duration(Desc, Opts) ->
+    emqx_schema:mk_duration(Desc, Opts).
+
+mk(Type, Opts) ->
+    hoconsc:mk(Type, Opts).
+
+ref(SchemaModule, StructName) ->
+    hoconsc:ref(SchemaModule, StructName).
 
 format_duplicated_name_groups(DuplicatedNameGroups) ->
     lists:join(

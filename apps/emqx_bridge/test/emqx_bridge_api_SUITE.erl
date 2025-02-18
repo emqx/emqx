@@ -825,10 +825,12 @@ do_start_stop_bridges(Type, Config) ->
     %% Connecting to this endpoint should always timeout
     BadServer = iolist_to_binary(io_lib:format("localhost:~B", [ListenPort])),
     BadName = <<"bad_", (atom_to_binary(Type))/binary>>,
+    MQTTBridgeConf0 = ?MQTT_BRIDGE(BadServer, BadName),
+    MQTTBridgeConf = MQTTBridgeConf0#{<<"connect_timeout">> => <<"30s">>},
     CreateRes0 = request_json(
         post,
         uri(["bridges"]),
-        ?MQTT_BRIDGE(BadServer, BadName),
+        MQTTBridgeConf,
         Config
     ),
     ?assertMatch(
