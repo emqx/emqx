@@ -42,6 +42,12 @@ push_gateway_url.desc:
 push_gateway_enable.desc:
 """Enable or disable Pushgateway"""
 
+clear_metrics_before_push.desc:
+"""Clear metrics before pushing to Pushgateway.<br/>
+Because Pushgateway retains the last value of a metric after it has been removed,
+this can cause Prometheus to fail to reflect the removal of these metrics when scraping them.<br/>
+The default behavior is set to true, meaning that emqx will clean up all metrics of this job in Pushgateway before each metric push."""
+
 mnesia_collector.desc:
 """Collects Mnesia metrics mainly using <code> mnesia:system_info/1 </code>"""
 

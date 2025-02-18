@@ -195,12 +195,16 @@ t_collector_no_crash_test(_) ->
 t_assert_push(_) ->
     Self = self(),
     AssertPush = fun(Method, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
-        ?assertEqual(post, Method),
         ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
         ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
         ?assertEqual("text/plain", ContentType),
-        ?assertEqual(true, assert_push_gateway_data(Data)),
-        Self ! pass,
+        case Method of
+            delete ->
+                ok;
+            post ->
+                ?assertEqual(true, assert_push_gateway_data(Data)),
+                Self ! pass
+        end,
         meck:passthrough([Method, Req, HttpOpts, Opts])
     end,
     meck:expect(httpc, request, AssertPush),

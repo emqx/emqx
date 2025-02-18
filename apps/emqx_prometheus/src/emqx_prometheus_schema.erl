@@ -119,6 +119,14 @@ fields(push_gateway) ->
                     required => false,
                     desc => ?DESC(job_name)
                 }
+            )},
+        {clear_metrics_before_push,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(clear_metrics_before_push)
+                }
             )}
     ];
 fields(collectors) ->

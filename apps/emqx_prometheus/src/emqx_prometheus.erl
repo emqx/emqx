@@ -132,6 +132,12 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer, opts := Opts}) ->
     #{interval := Interval, headers := Headers, url := Server} = Opts,
+    case maps:get(clear_metrics_before_push, Opts, true) of
+        true ->
+            clear_to_push_gateway(Server, Headers);
+        false ->
+            ok
+    end,
     PushRes = push_to_push_gateway(Server, Headers),
     NewTimer = ensure_timer(Interval),
     NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
@@ -142,6 +148,20 @@ handle_info({update, Conf}, State = #{timer := Timer}) ->
     handle_continue(Conf, State);
 handle_info(_Msg, State) ->
     {noreply, State}.
+
+clear_to_push_gateway(Url, Headers) when is_list(Headers) ->
+    case httpc:request(delete, {Url, Headers}, ?HTTP_OPTIONS, []) of
+        {ok, {{"HTTP/1.1", 202, _}, _, _}} ->
+            ok;
+        Error ->
+            ?SLOG(error, #{
+                msg => "delete_to_push_gateway_failed",
+                error => Error,
+                url => Url,
+                headers => Headers
+            }),
+            failed
+    end.
 
 push_to_push_gateway(Url, Headers) when is_list(Headers) ->
     Data = push_metrics_data(),
@@ -174,10 +194,22 @@ ensure_timer(Interval) ->
 %%--------------------------------------------------------------------
 %% prometheus callbacks
 %%--------------------------------------------------------------------
-opts(#{interval := Interval, headers := Headers, job_name := JobName, push_gateway_server := Url}) ->
-    #{interval => Interval, headers => Headers, url => join_url(Url, JobName)};
+opts(
+    Conf = #{
+        interval := Interval, headers := Headers, job_name := JobName, push_gateway_server := Url
+    }
+) ->
+    #{
+        interval => Interval,
+        headers => Headers,
+        url => join_url(Url, JobName),
+        clear_metrics_before_push => ?MG(clear_metrics_before_push, Conf, true)
+    };
 opts(#{push_gateway := #{url := Url, job_name := JobName} = PushGateway}) ->
-    maps:put(url, join_url(Url, JobName), PushGateway).
+    PushGateway#{
+        url => join_url(Url, JobName),
+        clear_metrics_before_push => ?MG(clear_metrics_before_push, PushGateway, true)
+    }.
 
 join_url(Url, JobName0) ->
     ClusterName = atom_to_binary(emqx:get_config([cluster, name], emqxcl)),

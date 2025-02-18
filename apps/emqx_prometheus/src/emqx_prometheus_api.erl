@@ -338,7 +338,8 @@ recommend_setting_example() ->
                 interval => <<"15s">>,
                 url => <<"http://127.0.0.1:9091">>,
                 headers => #{<<"Authorization">> => <<"Basic YWRtaW46Y2JraG55eWd5QDE=">>},
-                job_name => <<"${name}/instance/${name}~${host}">>
+                job_name => <<"${name}/instance/${name}~${host}">>,
+                clear_metrics_before_push => true
             },
             collectors => #{
                 vm_dist => <<"disabled">>,
