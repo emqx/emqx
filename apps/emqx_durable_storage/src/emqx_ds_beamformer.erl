@@ -415,13 +415,13 @@ sub_tab_delete(SubTab, SubRef) ->
     ets:delete(SubTab, SubRef),
     ok.
 
--spec sub_tab_lookup(sub_tab(), emqx_ds:sub_ref()) -> sub_state().
+-spec sub_tab_lookup(sub_tab(), emqx_ds:sub_ref()) -> {ok, sub_state()} | undefined.
 sub_tab_lookup(SubTab, SubRef) ->
     case ets:lookup(SubTab, SubRef) of
         [SubS] ->
-            SubS;
+            {ok, SubS};
         [] ->
-            error({not_found, SubRef})
+            undefined
     end.
 
 -spec sub_tab_take(sub_tab(), emqx_ds:sub_ref()) -> {ok, sub_state()} | undefined.
@@ -1075,7 +1075,7 @@ beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef
         #{SubRef := BBS0 = #beam_builder_sub{matcher = Matcher, s = SubS}} ->
             ok;
         #{} ->
-            SubS = sub_tab_lookup(SubTab, SubRef),
+            {ok, SubS} = sub_tab_lookup(SubTab, SubRef),
             Matcher = Mod:iterator_match_context(DBShard, SubS#sub_state.it),
             BBS0 = undefined
     end,
