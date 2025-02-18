@@ -26,13 +26,13 @@
 
 -behaviour(emqx_limiter_client).
 
+-include("logger.hrl").
+
 %% API
 -export([
     create_group/2,
     update_group_configs/2,
     delete_group/1,
-    list_groups/0,
-
     connect/1
 ]).
 
@@ -75,10 +75,6 @@ delete_group(Group) ->
         end,
     ok = unregister_group(Group).
 
--spec list_groups() -> [emqx_limiter:group()].
-list_groups() ->
-    emqx_limiter_registry:list_groups(?MODULE).
-
 -spec update_group_configs(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
     ok | no_return().
 update_group_configs(Group, LimiterConfigs) ->
@@ -114,14 +110,32 @@ connect({Group, Name}) ->
 %%--------------------------------------------------------------------
 
 -spec try_consume(client_state(), non_neg_integer()) -> {boolean(), client_state()}.
-try_consume({Group, Name}, Amount) ->
-    case emqx_limiter_bucket_registry:find_bucket({Group, Name}) of
-        undefined ->
-            %% Treat as unlimited
-            {true, {Group, Name}};
-        #{counter := Counter, index := Index} ->
-            Result = try_consume(Counter, Index, Amount),
-            {Result, {Group, Name}}
+try_consume(LimiterId = _State, Amount) ->
+    Options = emqx_limiter_registry:get_limiter_options(LimiterId),
+    ?SLOG(warning, #{
+        limiter_id => LimiterId,
+        msg => "limiter_shared_try_consume",
+        options => Options
+    }),
+    case Options of
+        #{capacity := infinity} ->
+            {true, LimiterId};
+        _ ->
+            Bucket = emqx_limiter_bucket_registry:find_bucket(LimiterId),
+            ?SLOG(warning, #{
+                limiter_id => LimiterId,
+                msg => "limiter_shared_try_consume",
+                bucket => Bucket,
+                amount => Amount
+            }),
+            case Bucket of
+                undefined ->
+                    %% Treat as unlimited
+                    {true, LimiterId};
+                #{counter := Counter, index := Index} ->
+                    Result = try_consume(Counter, Index, Amount),
+                    {Result, LimiterId}
+            end
     end.
 
 -spec put_back(client_state(), non_neg_integer()) -> ok.

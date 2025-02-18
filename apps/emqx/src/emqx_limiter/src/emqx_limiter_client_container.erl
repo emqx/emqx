@@ -50,7 +50,7 @@ try_consume_from_clients(Container, [], _Consumed) ->
 try_consume_from_clients(Container, [{Name, Amount} | Rest], Consumed) ->
     case Container of
         #{Name := Client} ->
-            case emqx_limiter_client:consume(Client, Amount) of
+            case emqx_limiter_client:try_consume(Client, Amount) of
                 {true, NewClient} ->
                     try_consume_from_clients(Container#{Name => NewClient}, Rest, [
                         {Name, Amount} | Consumed

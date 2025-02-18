@@ -2345,7 +2345,7 @@ check_quota_exceeded(
     ?PUBLISH_PACKET(_QoS, _Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
 ) ->
     {Result, Quota2} = emqx_limiter_client_container:try_consume(
-        [{bytes, erlang:byte_size(Payload)}, {messages, 1}], Quota
+        Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
     ),
     NChann = Chann#channel{quota = Quota2},
 
