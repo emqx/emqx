@@ -88,7 +88,7 @@ fields("listeners") ->
             ?HOCON(
                 ?R_REF("http"),
                 #{
-                    desc => "TCP listeners",
+                    desc => ?DESC("http_listener_settings"),
                     required => {false, recursively}
                 }
             )},
@@ -96,7 +96,7 @@ fields("listeners") ->
             ?HOCON(
                 ?R_REF("https"),
                 #{
-                    desc => "SSL listeners",
+                    desc => ?DESC("ssl_listener_settings"),
                     required => {false, recursively},
                     converter => fun ?MODULE:https_converter/2
                 }

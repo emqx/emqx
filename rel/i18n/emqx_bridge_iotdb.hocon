@@ -121,4 +121,25 @@ action_parameters.desc:
 action_parameters.label:
 """Parameters"""
 
+action_resource_opts.desc:
+"""Action resource options"""
+
+action_resource_opts.label:
+"""Action Resource Options"""
+
+creation_opts.desc:
+"""Creation options"""
+
+creation_opts.label:
+"""Creation Options"""
+
+desc_config_get.desc:
+"""Get configuration for IoTDB."""
+
+desc_config_put.desc:
+"""Update configuration for IoTDB."""
+
+desc_config_post.desc:
+"""Create configuration for IoTDB."""
+
 }
