@@ -22,6 +22,7 @@
     start_link/0,
     register_group/3,
     unregister_group/1,
+    find_group/1,
     list_groups/0,
     connect/1,
     get_limiter_options/1
@@ -71,7 +72,7 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec register_group(group(), module(), #{name() => emqx_limiter:options()}) -> ok | no_return().
+-spec register_group(group(), module(), [{name(), emqx_limiter:options()}]) -> ok | no_return().
 register_group(Group, Module, LimiterOptions) ->
     case
         gen_server:call(?MODULE, #register_group{
@@ -91,6 +92,15 @@ unregister_group(Group) ->
 -spec list_groups() -> [group()].
 list_groups() ->
     gen_server:call(?MODULE, #list_groups{}).
+
+-spec find_group(group()) -> {module(), [{name(), emqx_limiter:options()}]} | undefined.
+find_group(Group) ->
+    case persistent_term:get(?PT_KEY(Group), undefined) of
+        undefined ->
+            undefined;
+        #group{module = Module, limiter_options = LimiterOptions} ->
+            {Module, maps:to_list(LimiterOptions)}
+    end.
 
 -spec connect(limiter_id()) -> emqx_limiter_client:t().
 connect({Group, _Name} = LimiterId) ->

@@ -17,7 +17,6 @@
 %% @doc Registry for shared limiter buckets.
 
 -module(emqx_limiter_bucket_registry).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 

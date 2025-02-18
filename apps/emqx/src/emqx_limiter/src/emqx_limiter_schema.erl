@@ -120,7 +120,7 @@ mqtt_limiter_names() ->
 
 to_rate(Str) ->
     case parse_rate(Str) of
-        {ok, 0} ->
+        {ok, {0, _}} ->
             {error, {invalid_rate, Str}};
         {ok, Rate} ->
             {ok, Rate};
@@ -158,15 +158,17 @@ do_parse_rate("infinity") ->
     {ok, infinity};
 do_parse_rate(Str) ->
     Regex = """
+        ^
         # Capacity with optional unit
         (\d+)(kb|mb|gb|)
-        # Interval with unit
+        # Optional interval with required unit
         (?: 
             /(\d*)([mshd]{1,2})
         )?
+        $
     """,
-    {ok, MP} = re:compile(Regex),
-    case re:run(Str, MP, [{capture, all_but_first, list, extended}]) of
+    {ok, MP} = re:compile(Regex, [extended]),
+    case re:run(Str, MP, [{capture, all_but_first, list}]) of
         {match, [Capacity, CapacityUnit]} ->
             do_parse_rate(Capacity, CapacityUnit, "1", "s");
         {match, [Capacity, CapacityUnit, Interval, IntervalUnit]} ->
@@ -185,16 +187,16 @@ do_parse_rate(CapacityStr, CapacityUnitStr, IntervalStr, IntervalUnitStr) ->
 capacity_from_str(ValueStr, UnitStr) ->
     case unit_scale(UnitStr) of
         {ok, Scale} ->
-            %% ValueStr is \d+, so this is safe
-            {ok, 1000 * erlang:list_to_integer(ValueStr) * Scale};
+            %% ValueStr is \d+, so converting to integer is safe
+            {ok, erlang:list_to_integer(ValueStr) * Scale};
         error ->
             {error, {invalid_unit, UnitStr}}
     end.
 
-unit_scale("") -> 1;
-unit_scale("kb") -> ?KILOBYTE;
-unit_scale("mb") -> ?KILOBYTE * ?KILOBYTE;
-unit_scale("gb") -> ?KILOBYTE * ?KILOBYTE * ?KILOBYTE;
+unit_scale("") -> {ok, 1};
+unit_scale("kb") -> {ok, ?KILOBYTE};
+unit_scale("mb") -> {ok, ?KILOBYTE * ?KILOBYTE};
+unit_scale("gb") -> {ok, ?KILOBYTE * ?KILOBYTE * ?KILOBYTE};
 unit_scale(_) -> error.
 
 interval_from_str("", UnitStr) ->

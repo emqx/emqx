@@ -212,10 +212,10 @@ fields(flow_control) ->
             )},
         {batch_deliver_limiter,
             ?HOCON(
-                number(),
+                emqx_limiter_schema:rate_type(),
                 #{
                     desc => ?DESC(batch_deliver_limiter),
-                    default => 0
+                    default => <<"1000/s">>
                 }
             )}
     ];
@@ -279,31 +279,34 @@ check_duplicate(List) ->
         true -> ok
     end.
 
-retainer_converter(#{<<"deliver_rate">> := Delivery} = Conf, Opts) ->
-    Conf1 = maps:remove(<<"deliver_rate">>, Conf),
-    retainer_converter(Conf1#{<<"delivery_rate">> => Delivery}, Opts);
-retainer_converter(Conf, Opts) ->
-    convert_delivery_rate(Conf, Opts).
+retainer_converter(Conf0, _Opts) ->
+    Conf1 = rename_delivery_rate(Conf0),
+    convert_delivery_rate(Conf1).
 
-convert_delivery_rate(#{<<"delivery_rate">> := <<"infinity">>} = Conf, _Opts) ->
+rename_delivery_rate(#{<<"deliver_rate">> := Delivery} = Conf) ->
+    Conf1 = maps:remove(<<"deliver_rate">>, Conf),
+    Conf1#{<<"delivery_rate">> => Delivery};
+rename_delivery_rate(Conf) ->
+    Conf.
+
+convert_delivery_rate(#{<<"delivery_rate">> := <<"infinity">>} = Conf) ->
     FlowControl0 = maps:get(<<"flow_control">>, Conf, #{}),
     FlowControl1 = FlowControl0#{
         <<"batch_read_number">> => 0,
         <<"batch_deliver_number">> => 0
     },
     Conf#{<<"flow_control">> => FlowControl1};
-convert_delivery_rate(#{<<"delivery_rate">> := RateStr} = Conf, _Opts) ->
-    {ok, RateNum} = emqx_limiter_schema:to_rate(RateStr),
-    Capacity = emqx_limiter:calc_capacity(RateNum),
+convert_delivery_rate(#{<<"delivery_rate">> := RateStr} = Conf) ->
+    {ok, {Capacity, _Interval}} = emqx_limiter_schema:to_rate(RateStr),
     FlowControl0 = maps:get(<<"flow_control">>, Conf, #{}),
     FlowControl1 = FlowControl0#{
-        <<"batch_read_number">> => Capacity,
-        <<"batch_deliver_number">> => Capacity,
+        <<"batch_read_number">> => maps:get(<<"batch_read_number">>, FlowControl0, Capacity),
+        <<"batch_deliver_number">> => maps:get(<<"batch_deliver_number">>, FlowControl0, Capacity),
         %% Set the maximum delivery rate per session
-        <<"batch_deliver_limiter">> => RateNum
+        <<"batch_deliver_limiter">> => RateStr
     },
     Conf#{<<"flow_control">> => FlowControl1};
-convert_delivery_rate(Conf, _Opts) ->
+convert_delivery_rate(Conf) ->
     Conf.
 
 validate_backends_enabled(Config) ->

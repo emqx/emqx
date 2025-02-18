@@ -24,7 +24,8 @@
 ]).
 
 -type create_options() :: #{
-    limiter_client := emqx_limiter_client:t()
+    limiter_client := emqx_limiter_client:t(),
+    module := ?MODULE
 }.
 
 %% esockd_generic_limiter:limiter() subtype
@@ -42,8 +43,11 @@
 
 -spec create_options(emqx_limiter_client:t()) -> create_options().
 create_options(LimiterClient) ->
-    #{limiter_client => LimiterClient}.
+    #{limiter_client => LimiterClient, module => ?MODULE}.
 
+%% NOTE
+%% All the state we need is passed as the options
+%% so we just keep it almost as is.
 -spec create(create_options()) -> state().
 create(#{limiter_client := LimiterClient}) ->
     #{

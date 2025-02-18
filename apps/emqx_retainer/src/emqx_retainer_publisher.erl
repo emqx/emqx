@@ -23,6 +23,9 @@
 
 -module(emqx_retainer_publisher).
 
+%% TODO
+%% Just use emqx_limiter_shared
+
 -behaviour(gen_server).
 
 -include("emqx_retainer.hrl").
@@ -201,8 +204,8 @@ max_publish_rate(#{max_publish_rate := MaxPublishRate}) ->
     case MaxPublishRate of
         infinity ->
             infinity;
-        Rate ->
-            round(Rate * ?REFILL_INTERVAL)
+        {Capacity, Interval} ->
+            round(Capacity * ?REFILL_INTERVAL / Interval)
     end.
 
 with_limiter(Fun) ->

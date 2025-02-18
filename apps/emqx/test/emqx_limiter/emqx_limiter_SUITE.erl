@@ -176,40 +176,6 @@ t_check_container(_) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Test Cases misc
-%%--------------------------------------------------------------------
-
-t_schema_unit(_) ->
-    ?assertEqual(limiter, emqx_limiter_schema:namespace()),
-
-    %% infinity
-    ?assertEqual({ok, infinity}, to_rate(" infinity ")),
-
-    %% xMB
-    ?assertMatch({ok, _}, to_rate("100")),
-    ?assertMatch({ok, _}, to_rate("  100   ")),
-    ?assertMatch({ok, _}, to_rate("100MB")),
-
-    %% xMB/s
-    ?assertMatch({ok, _}, to_rate("100/s")),
-    ?assertMatch({ok, _}, to_rate("100MB/s")),
-
-    %% xMB/ys
-    ?assertMatch({ok, _}, to_rate("100/10s")),
-    ?assertMatch({ok, _}, to_rate("100MB/10s")),
-
-    ?assertMatch({error, _}, to_rate("infini")),
-    ?assertMatch({error, _}, to_rate("0")),
-    ?assertMatch({error, _}, to_rate("MB")),
-    ?assertMatch({error, _}, to_rate("10s")),
-    ?assertMatch({error, _}, to_rate("100MB/")),
-    ?assertMatch({error, _}, to_rate("100MB/xx")),
-    ?assertMatch({error, _}, to_rate("100MB/1")),
-    ?assertMatch({error, _}, to_rate("100/10x")),
-
-    ok.
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 

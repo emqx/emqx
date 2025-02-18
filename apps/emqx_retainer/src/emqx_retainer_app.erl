@@ -18,39 +18,17 @@
 
 -behaviour(application).
 
--include("emqx_retainer.hrl").
-
 -export([
     start/2,
     stop/1
 ]).
 
-%% For testing
--export([
-    init_buckets/0,
-    delete_buckets/0
-]).
-
 start(_Type, _Args) ->
     ok = emqx_retainer_cli:load(),
-    init_buckets(),
+    emqx_retainer_limiter:create(),
     emqx_retainer_sup:start_link().
 
 stop(_State) ->
     ok = emqx_retainer_cli:unload(),
-    delete_buckets(),
+    emqx_retainer_limiter:delete(),
     ok.
-
-init_buckets() ->
-    case emqx:get_config([retainer, flow_control, batch_deliver_limiter], 0) of
-        0 ->
-            ok;
-        undefined ->
-            ok;
-        Rate ->
-            Cfg = #{rate => Rate, burst => 0},
-            emqx_limiter_allocator:add_bucket(?DISPATCHER_LIMITER_ID, Cfg)
-    end.
-
-delete_buckets() ->
-    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID).

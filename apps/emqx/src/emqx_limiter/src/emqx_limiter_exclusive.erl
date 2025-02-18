@@ -29,7 +29,6 @@
 -export([
     create_group/2,
     delete_group/1,
-    list_groups/0,
     update_group_configs/2
 ]).
 
@@ -63,10 +62,6 @@ create_group(Group, LimiterConfigs) ->
 -spec delete_group(emqx_limiter:group()) -> ok.
 delete_group(Group) ->
     ok = unregister_group(Group).
-
--spec list_groups() -> [emqx_limiter:group()].
-list_groups() ->
-    emqx_limiter_registry:list_groups(?MODULE).
 
 -spec update_group_configs(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
     ok.

@@ -109,10 +109,11 @@ handle_info(Info, State) ->
     ?SLOG(error, #{msg => "emqx_limiter_allocator_unexpected_info", info => Info}),
     {noreply, State}.
 
-terminate(_Reason, #{name := Name, buckets := Buckets} = _State) ->
+terminate(_Reason, #{group := Group, buckets := Buckets} = _State) ->
     maps:foreach(
         fun(LimiterName, _) ->
-            emqx_limiter_bucket_registry:delete_bucket(Name, LimiterName)
+            LimiterId = {Group, LimiterName},
+            emqx_limiter_bucket_registry:delete_bucket(LimiterId)
         end,
         Buckets
     ),
@@ -123,12 +124,12 @@ terminate(_Reason, #{name := Name, buckets := Buckets} = _State) ->
 %%--------------------------------------------------------------------
 
 create_buckets(State, LimiterNames) ->
-    Buckets = lists:foldl(
+    {_, Buckets} = lists:foldl(
         fun(LimiterName, {Index, BucketsAcc}) ->
             Bucket = create_bucket(
                 State, LimiterName, Index
             ),
-            BucketsAcc#{LimiterName => Bucket}
+            {Index + 1, BucketsAcc#{LimiterName => Bucket}}
         end,
         {1, #{}},
         LimiterNames
@@ -137,9 +138,16 @@ create_buckets(State, LimiterNames) ->
 
 create_bucket(#{group := Group, counter := Counter}, LimiterName, Index) ->
     LimiterId = {Group, LimiterName},
-    #{capacity := Capacity} = get_limiter_options(LimiterId),
+    _Options = #{capacity := Capacity} = get_limiter_options(LimiterId),
     ok = set_initial_tokens(Counter, Index, Capacity),
-    ok = emqx_limiter_bucket_registry:insert_bucket(LimiterId, #{counter => Counter, index => Index}),
+    BucketRef = #{counter => Counter, index => Index},
+    ?SLOG(warning, #{
+        msg => "emqx_limiter_allocator_create_bucket",
+        limiter_id => LimiterId,
+        bucket_ref => BucketRef,
+        options => _Options
+    }),
+    ok = emqx_limiter_bucket_registry:insert_bucket(LimiterId, BucketRef),
     #{
         counter => Counter,
         index => Index,
@@ -192,7 +200,7 @@ alloc_bucket(
             Inc = Elapsed * Capacity / Interval + Correction,
             Inc2 = erlang:floor(Inc),
             Correction2 = Inc - Inc2,
-            add_tokens(Bucket, Inc2),
+            add_tokens(Bucket, Capacity, Inc2),
             Bucket#{correction := Correction2}
     end.
 
@@ -201,19 +209,19 @@ set_initial_tokens(_Counter, _Ix, infinity) ->
 set_initial_tokens(Counter, Ix, Capacity) ->
     counters:put(Counter, Ix, Capacity).
 
-add_tokens(_, 0) ->
+add_tokens(_Bucket, _Capacity, 0) ->
     ok;
-add_tokens(#{counter := Counter, index := Index, capacity := Capacity}, Tokens) ->
+add_tokens(#{counter := Counter, index := Index}, Capacity, Tokens) ->
     Val = counters:get(Counter, Index),
-    case erlang:min(Capacity, Val + Tokens) - Val of
-        Inc when Inc > 0 ->
-            counters:put(Counter, Index, Inc + Val);
-        _ ->
-            ok
+    case Val + Tokens > Capacity of
+        true ->
+            counters:put(Counter, Index, Capacity);
+        false ->
+            counters:add(Counter, Index, Tokens)
     end.
 
 get_limiter_options(LimiterId) ->
-    case emqx_limiter_registry:get_options(LimiterId) of
+    case emqx_limiter_registry:get_limiter_options(LimiterId) of
         undefined ->
             error({limiter_not_found, LimiterId});
         Options ->
