@@ -26,6 +26,7 @@
 
 -define(RETAINER_LIMITER_GROUP, emqx_retainer).
 -define(DISPATCHER_LIMITER_NAME, dispatcher).
+-define(PUBLISHER_LIMITER_NAME, publisher).
 
 -define(DISPATCHER_POOL, emqx_retainer_dispatcher).
 

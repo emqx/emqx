@@ -45,4 +45,8 @@ limiter_configs() ->
             Rate ->
                 emqx_limiter:config_from_rate(Rate)
         end,
-    [{?DISPATCHER_LIMITER_NAME, DispatcherLimiterConfig}].
+    PublisherLimiterConfig = emqx_limiter:config(max_publish, emqx_config:get([retainer])),
+    [
+        {?DISPATCHER_LIMITER_NAME, DispatcherLimiterConfig},
+        {?PUBLISHER_LIMITER_NAME, PublisherLimiterConfig}
+    ].
