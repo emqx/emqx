@@ -18,6 +18,7 @@
 -export([
     maybe_withdraw_rule_action/3,
     maybe_withdraw_rule_action/4,
+    external_ids/3,
     upgrade_type/1,
     downgrade_type/2,
     get_conf/2,

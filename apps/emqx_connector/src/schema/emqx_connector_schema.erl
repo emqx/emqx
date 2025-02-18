@@ -450,6 +450,7 @@ tags() ->
 -dialyzer({nowarn_function, roots/0}).
 
 roots() ->
+    %% TODO: drop this clause and check
     case fields(connectors) of
         [] ->
             %% TODO: drop this clause and check

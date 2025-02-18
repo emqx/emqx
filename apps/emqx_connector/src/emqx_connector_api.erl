@@ -27,6 +27,7 @@
 %% Swagger specs from hocon schema
 -export([
     api_spec/0,
+    check_api_schema/2,
     paths/0,
     schema/1,
     namespace/0
@@ -69,7 +70,30 @@
 namespace() -> "connector".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun ?MODULE:check_api_schema/2}).
+
+check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} = Metadata) ->
+    ConnectorId = emqx_utils_maps:deep_get([bindings, id], Request),
+    try emqx_connector_resource:parse_connector_id(ConnectorId, #{atom_name => false}) of
+        {ConnectorType, _ConnectorName} ->
+            %% Since we know the connector type, we refine the schema to get more decent
+            %% error messages.
+            {_, Ref} = emqx_connector_info:api_schema(ConnectorType, atom_to_list(Method)),
+            Schema = hoconsc:mk(Ref),
+            emqx_dashboard_swagger:filter_check_request(
+                Request, refine_api_schema(Schema, Metadata)
+            )
+    catch
+        throw:#{reason := Reason} ->
+            ?NOT_FOUND(<<"Invalid connector id, ", Reason/binary>>)
+    end;
+check_api_schema(Request, Metadata) ->
+    emqx_dashboard_swagger:filter_check_request(Request, Metadata).
+
+refine_api_schema(Schema, Metadata = #{path := Path, method := Method}) ->
+    Spec = maps:get(Method, schema(Path)),
+    SpecRefined = Spec#{'requestBody' => Schema},
+    Metadata#{apispec => SpecRefined}.
 
 paths() ->
     [
