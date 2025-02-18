@@ -17,13 +17,25 @@
 -module(emqx_limiter).
 
 -export([
-    init/0,
+    init/0
+]).
+
+%% Zone limiter management
+-export([
     create_zone_limiters/0,
     update_zone_limiters/0,
-    delete_zone_limiters/0,
+    delete_zone_limiters/0
+]).
+
+%% Listener limiter management
+-export([
     create_listener_limiters/2,
     update_listener_limiters/2,
-    delete_listener_limiters/1,
+    delete_listener_limiters/1
+]).
+
+%% API for limiter clients (channel, esockd)
+-export([
     create_esockd_limiter_client/2,
     create_channel_client_container/2
 ]).
@@ -32,7 +44,15 @@
 -export([
     add_handler/0,
     remove_handler/0,
+    post_config_update/5,
     propagated_post_config_update/5
+]).
+
+%%  Config helpers
+-export([
+    config_unlimited/0,
+    config_from_rps/1,
+    config_from_rate/1
 ]).
 
 -export_type([zone/0, group/0, name/0, id/0, options/0]).
@@ -121,8 +141,38 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler([mqtt, limiter]),
     ok.
 
-propagated_post_config_update([mqtt, retain_available], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
+post_config_update([mqtt, limiter], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
     update_zone_limiters().
+
+propagated_post_config_update([mqtt, limiter], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
+    update_zone_limiters().
+
+%%--------------------------------------------------------------------
+%% Config helpers
+%%--------------------------------------------------------------------
+
+config_unlimited() ->
+    #{
+        capacity => infinity
+    }.
+
+config_from_rps(RPS) ->
+    #{
+        capacity => RPS,
+        interval => 1000,
+        burst_capacity => RPS,
+        burst_interval => 1000
+    }.
+
+config_from_rate(infinity) ->
+    config_unlimited();
+config_from_rate({Capacity, Interval}) ->
+    #{
+        capacity => Capacity,
+        interval => Interval,
+        burst_capacity => Capacity,
+        burst_interval => Interval
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions

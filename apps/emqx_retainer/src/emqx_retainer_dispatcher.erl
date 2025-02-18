@@ -26,7 +26,6 @@
 -export([
     start_link/2,
     dispatch/1,
-    refresh_limiter/0,
     wait_dispatch_complete/1,
     worker/0
 ]).
@@ -59,16 +58,6 @@ dispatch(Topic) ->
 -spec dispatch(topic(), pid()) -> ok.
 dispatch(Topic, Pid) ->
     cast({dispatch, Pid, Topic}).
-
--spec refresh_limiter() -> ok.
-refresh_limiter() ->
-    Workers = gproc_pool:active_workers(?POOL),
-    lists:foreach(
-        fun({_, Pid}) ->
-            gen_server:cast(Pid, ?FUNCTION_NAME)
-        end,
-        Workers
-    ).
 
 -spec wait_dispatch_complete(timeout()) -> ok.
 wait_dispatch_complete(Timeout) ->
@@ -112,9 +101,6 @@ handle_call(Req, _From, State) ->
 handle_cast({dispatch, Pid, Topic}, #{limiter := Limiter} = State) ->
     {ok, Limiter2} = dispatch(Pid, Topic, Limiter),
     {noreply, State#{limiter := Limiter2}};
-handle_cast(refresh_limiter, State) ->
-    Limiter = get_limiter(),
-    {noreply, State#{limiter := Limiter}};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -209,11 +195,11 @@ deliver_in_batches([], _BatchSize, _Pid, _Topic, Limiter) ->
     {true, Limiter};
 deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
     {BatchActualSize, Batch, RestMsgs} = take(BatchSize, Msgs),
-    case emqx_limiter:check(BatchActualSize, Limiter0) of
+    case emqx_limiter_client:try_consume(BatchActualSize, Limiter0) of
         {true, Limiter1} ->
             ok = deliver_to_client(Batch, Pid, Topic),
             deliver_in_batches(RestMsgs, BatchSize, Pid, Topic, Limiter1);
-        {false, _Limiter1} = Drop ->
+        {false, _NLimiter1} = Drop ->
             ?SLOG(debug, #{
                 msg => "retained_message_dropped",
                 reason => "reached_ratelimit",
@@ -254,9 +240,5 @@ take(N, [H | T], Count, Acc) ->
     take(N - 1, T, Count + 1, [H | Acc]).
 
 get_limiter() ->
-    case emqx_limiter_bucket_registry:find_bucket(?DISPATCHER_LIMITER_ID) of
-        undefined ->
-            undefined;
-        {ok, Ref} ->
-            emqx_limiter_shared:create(Ref)
-    end.
+    LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
+    emqx_limiter_registry:connect(LimiterId).
