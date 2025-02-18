@@ -16,6 +16,8 @@
 
 -module(emqx_limiter).
 
+-include("logger.hrl").
+
 -export([
     init/0
 ]).
@@ -50,6 +52,7 @@
 
 %%  Config helpers
 -export([
+    config/2,
     config_unlimited/0,
     config_from_rps/1,
     config_from_rate/1
@@ -96,6 +99,10 @@ create_zone_limiters() ->
     ).
 
 update_zone_limiters() ->
+    ?SLOG(warning, #{
+        msg => "update_zone_limiters",
+        zones => maps:keys(emqx_config:get([zones]))
+    }),
     lists:foreach(
         fun(Zone) ->
             update_zone_limiters(Zone)
@@ -240,13 +247,13 @@ create_client_container(ZoneName, ListenerId, Names) ->
 %% ```
 %% means that the limiter `x` has a rate of 10 tokens per 1000ms and a burst of 100 each 5 minutes.
 %%
-%% The `get_config(x, Config)` function will return limiter config
+%% The `config(x, Config)` function will return limiter config
 %%  `#{capacity => 10, burst_capacity => 110, interval => 1000, burst_interval => 30000}`.
 %%
 %% If the limiter `x` is not configured, the function will return unlimited limiter config
 %%  `#{capacity => infinity}`.
--spec get_config(emqx_limiter:name(), emqx_config:config()) -> emqx_limiter:options().
-get_config(Name, Config) ->
+-spec config(emqx_limiter:name(), emqx_config:config()) -> emqx_limiter:options().
+config(Name, Config) ->
     RateKey = to_rate_key(Name),
     case Config of
         #{RateKey := {Capacity, Interval}} ->
@@ -264,18 +271,20 @@ get_config(Name, Config) ->
             }
     end.
 
+%% NOTE
+%% all limiter names are predefined, so we ignore atom leakage threat
 to_rate_key(Name) ->
     NameStr = emqx_utils_conv:str(Name),
-    list_to_existing_atom(NameStr ++ "_rate").
+    list_to_atom(NameStr ++ "_rate").
 
 to_burst_key(Name) ->
     NameStr = emqx_utils_conv:str(Name),
-    list_to_existing_atom(NameStr ++ "_burst").
+    list_to_atom(NameStr ++ "_burst").
 
 config_limiters(Config) ->
     lists:map(
         fun(Name) ->
-            {Name, get_config(Name, Config)}
+            {Name, config(Name, Config)}
         end,
         emqx_limiter_schema:mqtt_limiter_names()
     ).

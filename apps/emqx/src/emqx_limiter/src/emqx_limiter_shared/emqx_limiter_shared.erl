@@ -81,7 +81,13 @@ update_group_configs(Group, LimiterConfigs) ->
     case emqx_limiter_registry:find_group(Group) of
         undefined ->
             error({group_not_found, Group});
-        {_Module, _OtherLimiterConfigs} ->
+        {_Module, OldLimiterConfigs} ->
+            ?SLOG(warning, #{
+                msg => "update_group_configs",
+                group => Group,
+                old_limiter_configs => OldLimiterConfigs,
+                limiter_configs => LimiterConfigs
+            }),
             ok = register_group(Group, LimiterConfigs),
             ok = emqx_limiter_allocator:update(Group)
     end.
@@ -109,34 +115,32 @@ connect({Group, Name}) ->
 %% emqx_limiter_client callbacks
 %%--------------------------------------------------------------------
 
--spec try_consume(client_state(), non_neg_integer()) -> {boolean(), client_state()}.
-try_consume(LimiterId = _State, Amount) ->
+-spec try_consume(client_state(), non_neg_integer()) -> boolean().
+try_consume(LimiterId, Amount) ->
     Options = emqx_limiter_registry:get_limiter_options(LimiterId),
-    ?SLOG(warning, #{
-        limiter_id => LimiterId,
-        msg => "limiter_shared_try_consume",
-        options => Options
-    }),
-    case Options of
-        #{capacity := infinity} ->
-            {true, LimiterId};
-        _ ->
-            Bucket = emqx_limiter_bucket_registry:find_bucket(LimiterId),
-            ?SLOG(warning, #{
-                limiter_id => LimiterId,
-                msg => "limiter_shared_try_consume",
-                bucket => Bucket,
-                amount => Amount
-            }),
-            case Bucket of
-                undefined ->
-                    %% Treat as unlimited
-                    {true, LimiterId};
-                #{counter := Counter, index := Index} ->
-                    Result = try_consume(Counter, Index, Amount),
-                    {Result, LimiterId}
-            end
-    end.
+    Result =
+        case Options of
+            #{capacity := infinity} ->
+                true;
+            _ ->
+                Bucket = emqx_limiter_bucket_registry:find_bucket(LimiterId),
+                case Bucket of
+                    undefined ->
+                        %% Treat as unlimited
+                        true;
+                    #{counter := Counter, index := Index} ->
+                        {AvailableTokens, Res} = try_consume(Counter, Index, Amount),
+                        ?SLOG(warning, #{
+                            limiter_id => LimiterId,
+                            msg => "limiter_shared_try_consume",
+                            options => Options,
+                            available_tokens => AvailableTokens,
+                            result => Res
+                        }),
+                        Res
+                end
+        end,
+    Result.
 
 -spec put_back(client_state(), non_neg_integer()) -> ok.
 put_back({Group, Name}, Amount) ->
@@ -165,9 +169,9 @@ try_consume(Counter, Index, Amount) ->
     case counters:get(Counter, Index) of
         AvailableTokens when AvailableTokens >= Amount ->
             counters:sub(Counter, Index, Amount),
-            true;
-        _ ->
-            false
+            {AvailableTokens, true};
+        AvailableTokens ->
+            {AvailableTokens, false}
     end.
 
 put_back(Counter, Index, Amount) ->

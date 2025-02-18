@@ -106,7 +106,7 @@ try_consume(
     #{tokens := Tokens0, last_time := LastTime} = State0,
     Amount,
     #{capacity := Capacity, interval := Interval} = _LimiterOptions
-) when Amount =< Tokens0 ->
+) when Amount > Tokens0 ->
     case now_ms_monotonic() of
         Now when Now < LastTime + ?MINIMUM_INTERVAL ->
             {false, State0};

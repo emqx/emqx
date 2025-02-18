@@ -191,17 +191,25 @@ alloc_bucket(
     Now = now_ms_monotonic(),
     Elapsed = Now - LastTime,
     Val = counters:get(Counter, Index),
-    case get_limiter_options(LimiterId) of
+    Options = get_limiter_options(LimiterId),
+    case Options of
         #{capacity := infinity} ->
             Bucket;
         #{capacity := Capacity} when Val >= Capacity ->
-            Bucket;
+            Bucket#{last_alloc_time => Now};
         #{capacity := Capacity, interval := Interval} ->
             Inc = Elapsed * Capacity / Interval + Correction,
             Inc2 = erlang:floor(Inc),
             Correction2 = Inc - Inc2,
-            add_tokens(Bucket, Capacity, Inc2),
-            Bucket#{correction := Correction2}
+            ?SLOG(warning, #{
+                limiter_id => LimiterId,
+                msg => "limiter_shared_add_tokens",
+                val => Val,
+                tokens => Inc2,
+                options => Options
+            }),
+            add_tokens(Bucket, Val, Capacity, Inc2),
+            Bucket#{correction := Correction2, last_alloc_time => Now}
     end.
 
 set_initial_tokens(_Counter, _Ix, infinity) ->
@@ -209,10 +217,7 @@ set_initial_tokens(_Counter, _Ix, infinity) ->
 set_initial_tokens(Counter, Ix, Capacity) ->
     counters:put(Counter, Ix, Capacity).
 
-add_tokens(_Bucket, _Capacity, 0) ->
-    ok;
-add_tokens(#{counter := Counter, index := Index}, Capacity, Tokens) ->
-    Val = counters:get(Counter, Index),
+add_tokens(#{counter := Counter, index := Index}, Val, Capacity, Tokens) ->
     case Val + Tokens > Capacity of
         true ->
             counters:put(Counter, Index, Capacity);
