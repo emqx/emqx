@@ -44,14 +44,7 @@ put_back(Clients, Amount) ->
 consume_from_clients([], _Amount, ClientsConsumed) ->
     {true, lists:reverse(ClientsConsumed)};
 consume_from_clients([Client | Rest], Amount, ClientsConsumed) ->
-    Res = emqx_limiter_client:try_consume(Client, Amount),
-    ?SLOG(warning, #{
-        msg => "limiter_composite_try_consume",
-        res => Res,
-        client => Client,
-        amount => Amount
-    }),
-    case Res of
+    case emqx_limiter_client:try_consume(Client, Amount) of
         {true, NewClient} ->
             consume_from_clients(Rest, Amount, [NewClient | ClientsConsumed]);
         {false, NewClient} ->

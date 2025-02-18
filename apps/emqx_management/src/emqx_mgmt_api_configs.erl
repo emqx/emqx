@@ -313,6 +313,8 @@ global_zone_configs(put, #{body := Body}, _Req) ->
             {#{}, #{}},
             Body
         ),
+    %% TODO: introduce a hook?
+    ok = emqx_limiter:update_zone_limiters(),
     case maps:size(Res) =:= maps:size(Body) of
         true -> {200, Res};
         false -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Error)}}
