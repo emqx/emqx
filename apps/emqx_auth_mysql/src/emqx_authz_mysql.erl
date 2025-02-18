@@ -25,7 +25,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -46,9 +45,6 @@
     ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
-
-description() ->
-    "AuthZ with Mysql".
 
 create(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_auth_utils:parse_sql(SQL, '?', ?ALLOWED_VARS),

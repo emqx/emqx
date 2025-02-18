@@ -23,7 +23,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -44,9 +43,6 @@
     ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
-
-description() ->
-    "AuthZ with Redis".
 
 create(#{cmd := CmdStr} = Source) ->
     CmdTemplate = parse_cmd(CmdStr),

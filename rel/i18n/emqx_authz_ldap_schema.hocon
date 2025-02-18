@@ -24,4 +24,8 @@ query_timeout.desc:
 query_timeout.label:
 """Query Timeout"""
 
+ldap_struct.desc: "LDAP Authorization settings"
+
+ldap_struct.label: "LDAP authorization"
+
 }

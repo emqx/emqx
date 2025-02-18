@@ -25,7 +25,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -46,9 +45,6 @@
     ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
-
-description() ->
-    "AuthZ with PostgreSQL".
 
 create(#{query := SQL0} = Source) ->
     {SQL, PlaceHolders} = emqx_auth_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
