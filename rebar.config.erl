@@ -36,7 +36,7 @@ assert_otp() ->
     end.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.11"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.2.3"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.
@@ -189,7 +189,7 @@ project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
 
 plugins() ->
     [
-        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.2"}}},
+        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.3"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
         {pc, "1.15.0"}

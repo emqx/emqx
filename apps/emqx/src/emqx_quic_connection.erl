@@ -123,7 +123,8 @@ new_conn(
             ),
             receive
                 {CtrlPid, stream_acceptor_ready} ->
-                    ok = quicer:async_handshake(Conn),
+                    %% Apply latest config during handshake
+                    ok = quicer:async_handshake(Conn, S),
                     {ok, S#{conn := Conn, ctrl_pid := CtrlPid}};
                 {'EXIT', _Pid, _Reason} ->
                     {stop, stream_accept_error, S}
@@ -264,7 +265,13 @@ handle_call(
         %% we dont care about the return val here.
         %% note, this is only used after control stream pass the validation. The data streams
         %%       that are called here are assured to be inactived (data processing hasn't been started).
-        catch emqx_quic_data_stream:activate_data(OwnerPid, ActivateData)
+        try emqx_quic_data_stream:activate_data(OwnerPid, ActivateData) of
+            _ ->
+                ok
+        catch
+            _:_ ->
+                ok
+        end
      || {OwnerPid, _Stream} <- Streams
     ],
     {reply, ok, S#{
