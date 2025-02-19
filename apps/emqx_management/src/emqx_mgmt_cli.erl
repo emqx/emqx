@@ -869,7 +869,8 @@ olp(_) ->
 
 data(["export" | Args]) ->
     maybe
-        {ok, Opts} ?= parse_data_export_args(Args),
+        {ok, Opts0} ?= parse_data_export_args(Args),
+        Opts = maps:merge(?DATA_BACKUP_OPTS, Opts0),
         {ok, #{filename := Filename}} ?= emqx_mgmt_data_backup:export(Opts),
         emqx_ctl:print("Data has been successfully exported to ~s.~n", [Filename])
     else
