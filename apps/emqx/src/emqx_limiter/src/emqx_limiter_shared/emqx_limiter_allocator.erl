@@ -249,25 +249,29 @@ now_ms_monotonic() ->
 %% even if the interval or capacity has changed. The allocation will be corrected in the next tick.
 %%
 ensure_timers(#{buckets := Buckets} = State) ->
-    ensure_timers(State, maps:keys(Buckets)).
+    do_ensure_timers(State, maps:keys(Buckets) -- scheduled_names(State)).
 
-ensure_timers(State, []) ->
+ensure_timers(State, Names) ->
+    do_ensure_timers(State, Names -- scheduled_names(State)).
+
+do_ensure_timers(State, []) ->
     State;
-ensure_timers(#{timers := Timers0, group := Group} = State, [Name | Names]) ->
+do_ensure_timers(#{timers := Timers0, group := Group} = State, [Name | Names]) ->
     LimiterId = {Group, Name},
     case get_limiter_options(LimiterId) of
         #{capacity := infinity} ->
-            ensure_timers(State, Names);
+            do_ensure_timers(State, Names);
         #{interval := Interval} ->
-            case Timers0 of
-                #{Interval := IntervalNames0} ->
-                    IntervalNames = [Name | IntervalNames0],
-                    Timers = Timers0#{Interval => IntervalNames};
-                _ ->
-                    _ = erlang:send_after(Interval, self(), {tick_alloc_event, Interval}),
-                    Timers = Timers0#{Interval => [Name]}
-            end,
-            ensure_timers(State#{timers => Timers}, Names)
+            Timers =
+                case Timers0 of
+                    #{Interval := IntervalNames0} ->
+                        IntervalNames = [Name | IntervalNames0],
+                        Timers0#{Interval => IntervalNames};
+                    _ ->
+                        _ = erlang:send_after(Interval, self(), {tick_alloc_event, Interval}),
+                        Timers0#{Interval => [Name]}
+                end,
+            do_ensure_timers(State#{timers => Timers}, Names)
     end.
 
 handle_timer(#{timers := Timers0} = State0, Interval) ->
@@ -275,3 +279,6 @@ handle_timer(#{timers := Timers0} = State0, Interval) ->
     State1 = State0#{timers => Timers},
     State2 = alloc_tokens(State1, Names),
     ensure_timers(State2, Names).
+
+scheduled_names(#{timers := Timers}) ->
+    lists:append(maps:values(Timers)).

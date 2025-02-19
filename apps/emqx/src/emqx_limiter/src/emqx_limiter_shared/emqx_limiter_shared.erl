@@ -27,6 +27,7 @@
 -behaviour(emqx_limiter_client).
 
 -include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
 -export([
@@ -59,10 +60,10 @@
     {emqx_limiter:name(), emqx_limiter:options()}
 ]) -> ok | {error, term()}.
 create_group(Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
-    ok = register_group(Group, LimiterConfigs),
     {Names, _} = lists:unzip(LimiterConfigs),
+    ok = register_group(Group, LimiterConfigs),
     ChildSpec = child_spec(Group, Names),
-    supervisor:start_child(emqx_limiter_shared_sup, ChildSpec).
+    start_child(emqx_limiter_shared_sup, ChildSpec).
 
 -spec delete_group(emqx_limiter:group()) -> ok | {error, term()}.
 delete_group(Group) ->
@@ -118,37 +119,35 @@ connect({Group, Name}) ->
 -spec try_consume(client_state(), non_neg_integer()) -> boolean().
 try_consume(LimiterId, Amount) ->
     Options = emqx_limiter_registry:get_limiter_options(LimiterId),
-    Result =
-        case Options of
-            #{capacity := infinity} ->
-                true;
-            _ ->
-                Bucket = emqx_limiter_bucket_registry:find_bucket(LimiterId),
-                case Bucket of
-                    undefined ->
-                        %% Treat as unlimited
-                        true;
-                    #{counter := Counter, index := Index} ->
-                        {AvailableTokens, Res} = try_consume(Counter, Index, Amount),
-                        ?SLOG(warning, #{
-                            limiter_id => LimiterId,
-                            msg => "limiter_shared_try_consume",
-                            options => Options,
-                            available_tokens => AvailableTokens,
-                            result => Res
-                        }),
-                        Res
-                end
-        end,
-    Result.
+    case Options of
+        #{capacity := infinity} ->
+            true;
+        _ ->
+            Bucket = emqx_limiter_bucket_registry:find_bucket(LimiterId),
+            case Bucket of
+                undefined ->
+                    %% Treat as unlimited
+                    true;
+                #{counter := Counter, index := Index} ->
+                    {_AvailableTokens, Result} = try_consume(Counter, Index, Amount),
+                    ?tp(limiter_shared_try_consume, #{
+                        limiter_id => LimiterId,
+                        amount => Amount,
+                        available_tokens => _AvailableTokens,
+                        result => Result
+                    }),
+                    Result
+            end
+    end.
 
--spec put_back(client_state(), non_neg_integer()) -> ok.
-put_back({Group, Name}, Amount) ->
-    case emqx_limiter_bucket_registry:find_bucket({Group, Name}) of
+-spec put_back(client_state(), non_neg_integer()) -> client_state().
+put_back(LimiterId = State, Amount) ->
+    case emqx_limiter_bucket_registry:find_bucket(LimiterId) of
         undefined ->
-            ok;
+            State;
         #{counter := Counter, index := Index} ->
-            put_back(Counter, Index, Amount)
+            ok = put_back(Counter, Index, Amount),
+            State
     end.
 
 %%--------------------------------------------------------------------
@@ -164,6 +163,14 @@ unregister_group(Group) ->
 %%--------------------------------------------------------------------
 %%  Internal functions
 %%--------------------------------------------------------------------
+
+start_child(Sup, ChildSpec) ->
+    case supervisor:start_child(Sup, ChildSpec) of
+        {ok, _} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
 
 try_consume(Counter, Index, Amount) ->
     case counters:get(Counter, Index) of
