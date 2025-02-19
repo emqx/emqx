@@ -41,7 +41,7 @@
 -export([start/1, start/2, restart/1]).
 -export([stop/1, stop_node/1]).
 
--export([start_bare_nodes/1, start_bare_nodes/2]).
+-export([start_bare_nodes/1, start_bare_nodes/2, join_cluster/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
