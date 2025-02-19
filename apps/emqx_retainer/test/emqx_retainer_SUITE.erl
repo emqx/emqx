@@ -1211,15 +1211,11 @@ is_retainer_started() ->
     gproc_pool:active_workers(emqx_retainer_dispatcher) /= [].
 
 remove_delivery_rate() ->
-    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID),
     emqx_retainer:update_config(#{
         <<"delivery_rate">> => <<"infinity">>
     }).
 
 reset_delivery_rate_to_default() ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("1000/s"),
-    emqx_limiter_allocator:delete_bucket(?DISPATCHER_LIMITER_ID),
-    emqx_limiter_allocator:add_bucket(?DISPATCHER_LIMITER_ID, #{rate => Rate, burst => 0}),
     emqx_retainer:update_config(#{
         <<"delivery_rate">> => <<"1000/s">>
     }).

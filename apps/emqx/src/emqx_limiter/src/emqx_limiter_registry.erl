@@ -74,6 +74,7 @@ start_link() ->
 
 -spec register_group(group(), module(), [{name(), emqx_limiter:options()}]) -> ok | no_return().
 register_group(Group, Module, LimiterOptions) ->
+    ok = assert_unique_names(LimiterOptions),
     case
         gen_server:call(?MODULE, #register_group{
             group = Group, module = Module, limiter_options = maps:from_list(LimiterOptions)
@@ -193,4 +194,13 @@ ensure_same_limiters(#group{limiter_options = OldLimiterOptions}, #register_grou
             ok;
         false ->
             {error, {different_limiter_names, {old, OldLimiterNames}, {new, NewLimiterNames}}}
+    end.
+
+assert_unique_names(LimiterOptions) ->
+    {Names, _} = lists:unzip(LimiterOptions),
+    case Names -- lists:usort(Names) of
+        [] ->
+            ok;
+        Duplicates ->
+            error({duplicate_names, Duplicates})
     end.
