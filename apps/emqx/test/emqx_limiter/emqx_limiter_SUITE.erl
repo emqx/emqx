@@ -21,163 +21,158 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
-
--define(BASE_CONF, <<"">>).
-
--define(ALLOCATOR_NAME, emqx_limiter:default_allocator()).
--define(ZONE, ?ALLOCATOR_NAME).
+-include_lib("asserts.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
+
+-define(EMQX_CONFIG, #{
+    <<"listeners">> => #{
+        <<"tcp">> => #{
+            <<"default">> => #{
+                <<"acceptors">> => 1
+            }
+        }
+    }
+}).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    ok = load_conf(),
+    Config.
+end_per_suite(_Config) ->
+    ok.
+
+init_per_testcase(TestCase, Config) ->
+    erlang:process_flag(trap_exit, true),
+    Apps = emqx_cth_suite:start([{emqx, ?EMQX_CONFIG}], #{
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+    }),
+    snabbkaffe:start_trace(),
     [{apps, Apps} | Config].
 
-end_per_suite(Config) ->
+end_per_testcase(_TestCase, Config) ->
+    snabbkaffe:stop(),
     emqx_cth_suite:stop(?config(apps, Config)).
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
-
-end_per_testcase(_TestCase, Config) ->
-    Config.
-
-load_conf() ->
-    emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
-
-init_config() ->
-    emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF).
-
 %%--------------------------------------------------------------------
-%% Test Cases Bucket Level
+%% Tests
 %%--------------------------------------------------------------------
-t_check(_) ->
-    {ok, Rate} = to_rate("1000/s"),
-    P1 = emqx_limiter_private:create(#{rate => Rate, burst => 0}),
-    {R1, P2} = emqx_limiter:check(1000, P1),
-    {R2, P3} = emqx_limiter:check(100, P2),
-    timer:sleep(150),
-    {R3, _} = emqx_limiter:check(100, P3),
-    ?assertEqual(true, R1),
-    ?assertEqual(false, R2),
-    ?assertEqual(true, R3),
 
-    emqx_limiter_allocator:add_bucket(t_check, #{rate => Rate, burst => 0}),
-    {ok, Ref} = emqx_limiter_bucket_registry:find_bucket(t_check),
-    S1 = emqx_limiter_shared:create(Ref),
-    {SR1, S2} = emqx_limiter:check(1000, S1),
-    {SR2, S3} = emqx_limiter:check(100, S2),
-    timer:sleep(150),
-    {SR3, _} = emqx_limiter:check(100, S3),
-    ?assertEqual(true, SR1),
-    ?assertEqual(false, SR2),
-    ?assertEqual(true, SR3),
+t_max_conn_listener(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_listener(max_conn_rate, <<"2/500ms">>),
+            ct:sleep(550),
+            spawn_connector()
+        end,
+        #{?snk_kind := esockd_limiter_consume_pause},
+        10_000
+    ).
 
-    emqx_limiter_allocator:delete_bucket(t_check),
-    ok.
+t_max_conn_zone(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_zone(max_conn_rate, <<"2/500ms">>),
+            ct:sleep(550),
+            spawn_connector()
+        end,
+        #{?snk_kind := esockd_limiter_consume_pause},
+        10_000
+    ).
 
-t_restore(_) ->
-    {ok, Rate} = to_rate("1000/s"),
-    P1 = emqx_limiter_private:create(#{rate => Rate, burst => 0}),
-    {R1, P2} = emqx_limiter:check(1000, P1),
-    P3 = emqx_limiter:restore(100, P2),
-    {R3, _} = emqx_limiter:check(100, P3),
-    ?assertEqual(true, R1),
-    ?assertEqual(true, R3),
+t_max_message_rate_listener(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_listener(messages_rate, <<"2/500ms">>),
+            ct:sleep(550),
+            spawn_publisher(100)
+        end,
+        #{?snk_kind := limiter_exclusive_try_consume, result := false},
+        10_000
+    ).
 
-    emqx_limiter_allocator:add_bucket(t_check, #{rate => 100, burst => 0}),
-    {ok, Ref} = emqx_limiter_bucket_registry:find_bucket(t_check),
-    S1 = emqx_limiter_shared:create(Ref),
-    {SR1, S2} = emqx_limiter:check(1000, S1),
-    S3 = emqx_limiter:restore(100, S2),
-    {SR3, _} = emqx_limiter:check(100, S3),
-    ?assertEqual(true, SR1),
-    ?assertEqual(true, SR3),
+t_max_message_rate_zone(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_zone(messages_rate, <<"2/500ms">>),
+            ct:sleep(550),
+            spawn_publisher(100)
+        end,
+        #{?snk_kind := limiter_shared_try_consume, result := false},
+        10_000
+    ).
 
-    emqx_limiter_allocator:delete_bucket(t_check),
-    ok.
+t_bytes_rate_listener(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_listener(bytes_rate, <<"5kb/1m">>),
+            ct:sleep(550),
+            spawn_publisher(100)
+        end,
+        #{?snk_kind := limiter_exclusive_try_consume, result := false},
+        10_000
+    ).
 
-t_capacity(_) ->
-    {ok, Rate} = to_rate("2000/s"),
-    ?assertMatch(#{capacity := 2000}, emqx_limiter_private:create(#{rate => Rate, burst => 0})),
-    ok.
-
-%%--------------------------------------------------------------------
-%% Test Cases container
-%%--------------------------------------------------------------------
-t_create_with_undefined(_) ->
-    ?assertEqual(undefined, emqx_limiter_container:create_by_names([messages], undefined, ?ZONE)).
-
-t_create_with_empty(_) ->
-    ?assertEqual(undefined, emqx_limiter_container:create_by_names([messages], #{}, ?ZONE)).
-
-t_create_with_private_only(_) ->
-    C = emqx_limiter_container:create_by_names([messages], #{messages_rate => 1}, ?ZONE),
-    #{messages := MList} = C,
-    ?assertEqual(1, erlang:length(MList)),
-    ok.
-
-t_create_with_shard_only(_) ->
-    emqx_limiter_allocator:add_bucket(messages, #{rate => 100, burst => 0}),
-    C = emqx_limiter_container:create_by_names([messages], #{}, ?ZONE),
-    #{messages := MList} = C,
-    ?assertEqual(1, erlang:length(MList)),
-    emqx_limiter_allocator:delete_bucket(messages),
-    ok.
-
-t_create_with_both(_) ->
-    emqx_limiter_allocator:add_bucket(messages, #{rate => 100, burst => 0}),
-    C = emqx_limiter_container:create_by_names([messages], #{messages_rate => 1}, ?ZONE),
-    #{messages := MList} = C,
-    ?assertEqual(2, erlang:length(MList)),
-    emqx_limiter_allocator:delete_bucket(messages),
-    ok.
-
-t_create_with_types(_) ->
-    emqx_limiter_allocator:add_bucket(messages, #{rate => 100, burst => 0}),
-    C = emqx_limiter_container:create_by_names(
-        [messages, bytes], #{messages_rate => 1, bytes_rate => 1}, ?ZONE
-    ),
-    #{messages := MList} = C,
-    ?assertEqual(2, erlang:length(MList)),
-    #{bytes := BList} = C,
-    ?assertEqual(1, erlang:length(BList)),
-    emqx_limiter_allocator:delete_bucket(messages),
-    ok.
-
-t_check_container(_) ->
-    {ok, MRate} = to_rate("1000/s"),
-    {ok, BRate} = to_rate("500/s"),
-    C = emqx_limiter_container:create_by_names(
-        [messages, bytes],
-        #{
-            messages_rate => MRate,
-            bytes_rate => BRate
-        },
-        ?ZONE
-    ),
-    {R1, C1} = emqx_limiter_container:check([{messages, 1000}, {bytes, 500}], C),
-    {R2, C2} = emqx_limiter_container:check([{messages, 10}, {bytes, 10}], C1),
-    timer:sleep(100),
-    {R3, C3} = emqx_limiter_container:check([{messages, 100}, {bytes, 50}], C2),
-    {R4, C4} = emqx_limiter_container:check([{messages, 10}, {bytes, 10}], C3),
-    timer:sleep(100),
-    {R5, _C5} = emqx_limiter_container:check([{messages, 110}, {bytes, 50}], C4),
-    ?assertEqual(true, R1),
-    ?assertEqual(false, R2),
-    ?assertEqual(true, R3),
-    ?assertEqual(false, R4),
-    ?assertEqual(false, R5),
-    ok.
+t_bytes_rate_zone(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_zone(bytes_rate, <<"5kb/1m">>),
+            ct:sleep(550),
+            spawn_publisher(100)
+        end,
+        #{?snk_kind := limiter_shared_try_consume, result := false},
+        10_000
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-to_rate(Str) ->
-    emqx_limiter_schema:to_rate(Str).
+set_limiter_for_zone(Key, Value) ->
+    KeyBin = atom_to_binary(Key, utf8),
+    MqttConf0 = emqx_config:fill_defaults(#{<<"mqtt">> => emqx:get_raw_config([<<"mqtt">>])}),
+    MqttConf1 = emqx_utils_maps:deep_put([<<"mqtt">>, <<"limiter">>, KeyBin], MqttConf0, Value),
+    {ok, _} = emqx:update_config([mqtt], maps:get(<<"mqtt">>, MqttConf1)),
+    ok = emqx_limiter:update_zone_limiters().
+
+set_limiter_for_listener(Key, Value) ->
+    KeyBin = atom_to_binary(Key, utf8),
+    emqx:update_config(
+        [listeners, tcp, default],
+        {update, #{
+            KeyBin => Value
+        }}
+    ),
+    ok.
+
+spawn_connector() ->
+    spawn_link(fun() ->
+        run_connector()
+    end).
+
+run_connector() ->
+    {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
+    case emqtt:connect(C) of
+        {ok, _} ->
+            {ok, _} = emqtt:publish(C, <<"test">>, <<"a">>, 1),
+            ok = emqtt:stop(C);
+        {error, _Reason} ->
+            ok
+    end,
+    ct:sleep(10),
+    run_connector().
+
+spawn_publisher(PayloadSize) ->
+    spawn_link(fun() ->
+        {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
+        {ok, _} = emqtt:connect(C),
+        run_publisher(C, PayloadSize)
+    end).
+
+run_publisher(C, PayloadSize) ->
+    _ = emqtt:publish(C, <<"test">>, binary:copy(<<"a">>, PayloadSize), 1),
+    ct:sleep(10),
+    run_publisher(C, PayloadSize).

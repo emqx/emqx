@@ -26,6 +26,8 @@
 
 -behaviour(emqx_limiter_client).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([
     create_group/2,
     delete_group/1,
@@ -49,8 +51,6 @@
     last_time := millisecond()
 }.
 
--define(MINIMUM_INTERVAL, 10).
-
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
@@ -70,10 +70,11 @@ update_group_configs(Group, LimiterConfigs) ->
 
 -spec connect(emqx_limiter:id()) -> emqx_limiter_client:t().
 connect({_Group, _Name} = LimiterId) ->
+    InitialTokens = initial_tokens(emqx_limiter_registry:get_limiter_options(LimiterId)),
     State = #{
         limiter_id => LimiterId,
-        tokens => 0,
-        last_time => 0
+        tokens => InitialTokens,
+        last_time => now_ms_monotonic()
     },
     emqx_limiter_client:new(?MODULE, State).
 
@@ -82,11 +83,15 @@ connect({_Group, _Name} = LimiterId) ->
 %%--------------------------------------------------------------------
 
 -spec try_consume(state(), number()) -> {boolean(), state()}.
-try_consume(#{tokens := Tokens} = State, Amount) when Amount =< Tokens ->
-    {true, State#{tokens := Tokens - Amount}};
-try_consume(#{limiter_id := LimiterId} = State, Amount) ->
+try_consume(#{limiter_id := LimiterId} = State0, Amount) ->
     LimiterOptions = emqx_limiter_registry:get_limiter_options(LimiterId),
-    try_consume(State, Amount, LimiterOptions).
+    {Result, State1} = try_consume(State0, Amount, LimiterOptions),
+    ?tp(limiter_exclusive_try_consume, #{
+        limiter_id => LimiterId,
+        amount => Amount,
+        result => Result
+    }),
+    {Result, State1}.
 
 -spec put_back(state(), number()) -> state().
 put_back(#{tokens := Tokens} = State, Amount) ->
@@ -96,21 +101,24 @@ put_back(#{tokens := Tokens} = State, Amount) ->
 %%  Internal functions
 %%--------------------------------------------------------------------
 
-try_consume(State, _Amount, undefined) ->
-    {true, State};
-try_consume(State, _Amount, #{capacity := infinity}) ->
-    {true, State};
 %% TODO
 %% handle burst_capacity
+try_consume(State, _Amount, #{capacity := infinity}) ->
+    {true, State};
+try_consume(#{tokens := Tokens} = State, Amount, _Setting) when Amount =< Tokens ->
+    {true, State#{tokens := Tokens - Amount}};
 try_consume(
     #{tokens := Tokens0, last_time := LastTime} = State0,
     Amount,
     #{capacity := Capacity, interval := Interval} = _LimiterOptions
 ) when Amount > Tokens0 ->
     case now_ms_monotonic() of
-        Now when Now < LastTime + ?MINIMUM_INTERVAL ->
+        Now when Now < LastTime + Interval ->
             {false, State0};
         Now ->
+            %% NOTE
+            %% This calculation are mostly redundant now, because
+            %% the capacity is equal to the max capacity
             Inc = Capacity * (Now - LastTime) / Interval,
             Tokens = erlang:min(Capacity, Tokens0 + Inc),
             State1 = State0#{last_time := Now, tokens := Tokens},
@@ -130,3 +138,6 @@ unregister_group(Group) ->
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
+
+initial_tokens(#{capacity := infinity}) -> 0;
+initial_tokens(#{capacity := Capacity}) when is_integer(Capacity) -> Capacity.
