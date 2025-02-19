@@ -163,6 +163,7 @@ connector_config(Overrides) ->
         <<"pool_size">> => 3,
         <<"proto_ver">> => <<"v5">>,
         <<"clean_start">> => true,
+        <<"connect_timeout">> => <<"5s">>,
         <<"server">> => <<"127.0.0.1:1883">>,
         <<"resource_opts">> => #{
             <<"health_check_interval">> => <<"1s">>,
