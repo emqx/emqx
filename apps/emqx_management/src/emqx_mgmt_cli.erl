@@ -879,13 +879,13 @@ data(["export" | Args]) ->
                 <<"Invalid root keys: ">>,
                 lists:join(<<", ">>, UnknownKeys)
             ]),
-            emqx_ctl:print(Msg);
+            emqx_ctl:print([Msg, $\n]);
         {error, {bad_table_sets, InvalidSetNames}} ->
             Msg = iolist_to_binary([
                 <<"Invalid table sets: ">>,
                 lists:join(<<", ">>, InvalidSetNames)
             ]),
-            emqx_ctl:print(Msg);
+            emqx_ctl:print([Msg, $\n]);
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
