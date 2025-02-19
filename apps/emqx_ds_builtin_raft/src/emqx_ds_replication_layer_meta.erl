@@ -12,6 +12,8 @@
 -feature(maybe_expr, enable).
 -compile(inline).
 
+-export([print_status/3]).
+
 -behaviour(gen_server).
 
 %% API:
@@ -758,8 +760,11 @@ db_config_trans(DB, LockType) ->
 db_shards_trans(DB) ->
     mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write).
 
-shard_transition_trans(#?SHARD_TAB{shard = DBShard}) ->
-    mnesia:read(?TRANSITION_TAB, DBShard, write).
+shard_transition_trans(ShardRecord) ->
+    shard_transition_trans(ShardRecord, write).
+
+shard_transition_trans(#?SHARD_TAB{shard = DBShard}, LockType) ->
+    mnesia:read(?TRANSITION_TAB, DBShard, LockType).
 
 -spec drop_db_trans(emqx_ds:db()) -> ok.
 drop_db_trans(DB) ->
@@ -769,7 +774,7 @@ drop_db_trans(DB) ->
 
 -spec claim_site_trans(site(), node()) -> ok.
 claim_site_trans(Site, Node) ->
-    case node_sites(Node) of
+    case node_sites_trans(Node) of
         [] ->
             mnesia:write(#?NODE_TAB{site = Site, node = Node});
         [#?NODE_TAB{site = Site}] ->
@@ -782,34 +787,41 @@ claim_site_trans(Site, Node) ->
 -spec forget_site_trans(_Record :: tuple()) -> ok.
 forget_site_trans(Record = #?NODE_TAB{site = Site}) ->
     %% Safeguards.
-    DBs = mnesia:all_keys(?META_TAB),
+    SiteShards = site_shards_trans(Site),
     %% 1. Compute which DBs has this site as a replica for any of the shards.
-    SiteDBs = lists:usort([DB || DB <- DBs, S <- list_db_sites(db_shards_trans(DB)), S == Site]),
+    SiteDBs = lists:usort([DB || {current, {DB, _Shard}} <- SiteShards]),
     %% 2. Compute which DBs has this site in a membership transition, for any of the shards.
-    SiteTargetDBs = lists:usort([
-        DB
-     || DB <- DBs,
-        ShardRecord <- db_shards_trans(DB),
-        {_, S} <- compute_transitions(ShardRecord, shard_transition_trans(ShardRecord)),
-        S == Site
-    ]),
+    SiteTargetDBs = lists:usort([DB || {target, {DB, _Shard}} <- SiteShards]),
     case SiteDBs of
         [] when SiteTargetDBs == [] ->
-            Safeguard = ok;
-        [_ | _] ->
-            Safeguard = {member_of_replica_sets, SiteDBs};
-        [] ->
-            Safeguard = {member_of_target_sets, SiteTargetDBs}
-    end,
-    case Safeguard of
-        ok ->
             mnesia:delete_object(?NODE_TAB, Record, write);
-        _Otherwise ->
-            mnesia:abort(Safeguard)
+        [_ | _] ->
+            mnesia:abort({member_of_replica_sets, SiteDBs});
+        [] ->
+            mnesia:abort({member_of_target_sets, SiteTargetDBs})
     end.
+
+site_shards_trans(Site) ->
+    ShardRecords = all_shards_trans(),
+    Current = [
+        {current, R#?SHARD_TAB.shard}
+     || R <- ShardRecords,
+        S <- get_shard_sites(R),
+        S == Site
+    ],
+    Target = [
+        {target, R#?SHARD_TAB.shard}
+     || R <- ShardRecords,
+        {_T, S} <- pending_transitions(R, shard_transition_trans(R, read)),
+        S == Site
+    ],
+    Current ++ Target.
 
 node_sites(Node) ->
     mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
+
+node_sites_trans(Node) ->
+    mnesia:match_object(?NODE_TAB, ?NODE_PAT(Node), write).
 
 all_nodes() ->
     mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()).
@@ -819,6 +831,9 @@ all_shards() ->
 
 all_transitions() ->
     mnesia:dirty_match_object(?TRANSITION_TAB, ?TRANSITION_PAT('_')).
+
+all_shards_trans() ->
+    mnesia:match_object(?SHARD_TAB, ?SHARD_PAT('_'), read).
 
 %%================================================================================
 %% Internal functions
