@@ -108,8 +108,13 @@
 -define(KAFKA_BRIDGE(Name), ?KAFKA_BRIDGE(Name, ?CONNECTOR_NAME)).
 
 -define(APPSPECS, [
+    {emqx, #{
+        before_start => fun(App, AppConfig) ->
+            ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+            emqx_cth_suite:inhibit_config_loader(App, AppConfig)
+        end
+    }},
     emqx_conf,
-    emqx,
     emqx_auth,
     emqx_connector,
     emqx_bridge,
@@ -140,7 +145,8 @@ groups() ->
         t_connectors_probe,
         t_fail_delete_with_action,
         t_actions_field,
-        t_update_with_failed_validation
+        t_update_with_failed_validation,
+        t_create_with_failed_root_validation
     ],
     ClusterOnlyTests = [
         t_inconsistent_state
@@ -285,6 +291,26 @@ clear_resources(_) ->
         end,
         emqx_connector:list()
     ).
+
+%% `emqx_schema_hooks' callback
+injected_fields() ->
+    #{
+        'connectors.validators' => [fun ?MODULE:dummy_validator/1]
+    }.
+
+dummy_validator(RootRawConf) ->
+    case persistent_term:get({?MODULE, validator}, undefined) of
+        Fn when is_function(Fn, 1) ->
+            Fn(RootRawConf);
+        _ ->
+            ok
+    end.
+
+set_validator(Fn) when is_function(Fn, 1) ->
+    persistent_term:put({?MODULE, validator}, Fn).
+
+clear_validator() ->
+    persistent_term:erase({?MODULE, validator}).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -1015,6 +1041,34 @@ t_update_with_failed_validation(Config) ->
         #{
             <<"kind">> := <<"validation_error">>,
             <<"reason">> := MockedError
+        },
+        Message
+    ),
+    ok.
+
+%% Checks that we return a readable error when we attempt to create a connector and a
+%% global, root validation fails.
+t_create_with_failed_root_validation(Config) ->
+    on_exit(fun clear_validator/0),
+    ErrorMsg = <<"mocked root error">>,
+    set_validator(fun(_RootConf) -> {error, ErrorMsg} end),
+    Params = ?KAFKA_CONNECTOR(?CONNECTOR_NAME),
+    {ok, 400, #{<<"message">> := MsgBin}} =
+        request_json(
+            post,
+            uri(["connectors"]),
+            Params,
+            Config
+        ),
+    Message = emqx_utils_json:decode(MsgBin),
+    %% `value' shouldn't contain the whole connectors map, as it may be huge.  We focus on
+    %% the config that was part of the request.
+    ?assertMatch(
+        #{
+            <<"reason">> := ErrorMsg,
+            <<"kind">> := <<"validation_error">>,
+            <<"path">> := <<"connectors">>,
+            <<"value">> := #{<<"bootstrap_hosts">> := _}
         },
         Message
     ),

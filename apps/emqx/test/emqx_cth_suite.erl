@@ -76,6 +76,8 @@
 -export([merge_appspec/2]).
 -export([merge_config/2]).
 
+-export([inhibit_config_loader/2]).
+
 %% "Unofficial" `emqx_config_handler' and `emqx_conf' APIs
 -export([schema_module/0, upgrade_raw_conf/1]).
 
