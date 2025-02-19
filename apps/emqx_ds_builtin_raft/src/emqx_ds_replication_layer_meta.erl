@@ -306,7 +306,7 @@ print_status(Nodes, Shards, Transitions) ->
     PendingTransitions = lists:filtermap(
         fun(Record = #?SHARD_TAB{shard = DBShard}) ->
             ClaimedTs = [T || T = #?TRANSITION_TAB{shard = S} <- Transitions, S == DBShard],
-            case compute_transitions(Record, ClaimedTs) of
+            case pending_transitions(Record, ClaimedTs) of
                 [] -> false;
                 ShardTransitions -> {true, {DBShard, ShardTransitions}}
             end
@@ -351,7 +351,8 @@ print_status(Nodes, Shards, Transitions) ->
                 format_shard(DBShard),
                 {group, [
                     {subcolumns, [
-                        format_replicas(RS, Nodes), format_transitions(ShardTransitions)
+                        format_replicas(RS, Nodes),
+                        format_transitions(ShardTransitions, Nodes)
                     ]}
                 ]}
             ]
@@ -388,13 +389,13 @@ site_status(Site, Nodes) ->
     [Node] = [N || #?NODE_TAB{site = S, node = N} <- Nodes, S == Site],
     node_status(Node).
 
-format_transitions(Transitions) ->
-    [format_transition(T) || T <- Transitions].
+format_transitions(Transitions, Nodes) ->
+    [format_transition(T, Nodes) || T <- Transitions].
 
-format_transition({add, Site}) ->
-    ["+ ", Site];
-format_transition({del, Site}) ->
-    ["- ", Site].
+format_transition({add, Site}, Nodes) ->
+    ["+ ", format_replica(Site, Nodes)];
+format_transition({del, Site}, Nodes) ->
+    ["- ", format_replica(Site, Nodes)].
 
 format_node_status(Status) ->
     case Status of
@@ -482,7 +483,7 @@ replica_set_transitions(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
         [Record] ->
             PendingTransitions = mnesia:dirty_read(?TRANSITION_TAB, {DB, Shard}),
-            compute_transitions(Record, PendingTransitions);
+            pending_transitions(Record, PendingTransitions);
         [] ->
             undefined
     end.
@@ -698,7 +699,7 @@ claim_transition_trans(DB, Shard, Trans) ->
         [#?TRANSITION_TAB{transition = Conflict}] ->
             mnesia:abort({conflict, Conflict});
         [] ->
-            case compute_transitions(ShardRecord) of
+            case compute_transition_plan(ShardRecord) of
                 [Trans | _] ->
                     mnesia:write(#?TRANSITION_TAB{shard = {DB, Shard}, transition = Trans});
                 Expected ->
@@ -955,20 +956,39 @@ compute_allocation(Shards, Sites, Opts) ->
     ),
     Allocation.
 
-compute_transitions(Shard, []) ->
-    compute_transitions(Shard);
-compute_transitions(Shard, [#?TRANSITION_TAB{transition = Trans}]) ->
-    [Trans | lists:delete(Trans, compute_transitions(Shard))].
+pending_transitions(ShardRecord, PendingTransitions) ->
+    prepend_pending_transitions(compute_transition_plan(ShardRecord), PendingTransitions).
 
-compute_transitions(#?SHARD_TAB{target_set = TargetSet, replica_set = ReplicaSet}) ->
-    do_compute_transitions(TargetSet, ReplicaSet).
+prepend_pending_transitions(Transitions, []) ->
+    Transitions;
+prepend_pending_transitions(Transitions, [#?TRANSITION_TAB{transition = Trans}]) ->
+    [Trans | lists:delete(Trans, Transitions)].
 
-do_compute_transitions(undefined, _ReplicaSet) ->
+compute_transition_plan(#?SHARD_TAB{target_set = TargetSet, replica_set = ReplicaSet}) ->
+    compute_transition_plan(TargetSet, ReplicaSet).
+
+compute_transition_plan(undefined, _ReplicaSet) ->
     [];
-do_compute_transitions(TargetSet, ReplicaSet) ->
-    Additions = TargetSet -- ReplicaSet,
-    Deletions = ReplicaSet -- TargetSet,
-    intersperse([{add, S} || S <- Additions], [{del, S} || S <- Deletions]).
+compute_transition_plan(TargetSet, ReplicaSet) ->
+    SitesAdded = TargetSet -- ReplicaSet,
+    SitesDeleted = ReplicaSet -- TargetSet,
+    SitesLost = sites(lost),
+    SitesDeletedLost = [S || S <- SitesDeleted, lists:member(S, SitesLost)],
+    Additions = [{add, S} || S <- SitesAdded],
+    Deletions = [{del, S} || S <- SitesDeleted -- SitesDeletedLost],
+    LostDeletions = [{del, S} || S <- SitesDeletedLost],
+    lists:append([
+        %% 1. We need to remove lost replicas first.
+        %%    They don't contribute to availability and redundancy anyway, and pose
+        %%    a risk to make any further additions inoperable, depending on if quorum
+        %%    is reachable or not.
+        LostDeletions,
+        %% 2. We need to alternate additions and deletions, starting from additions
+        %%    (if any). This way we won't compromise redundancy, and on the other hand
+        %%    won't temporarily increase quorum size and replication factor too much
+        %%    to effectively compromise availability.
+        intersperse(Additions, Deletions)
+    ]).
 
 %% @doc Apply a transition to a list of sites, preserving sort order.
 -spec apply_transition(transition(), [site()]) -> [site()].
