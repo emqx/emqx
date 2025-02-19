@@ -93,7 +93,7 @@ handle_call(_Call, _From, State) ->
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
 handle_cast(#trigger_transitions{}, State) ->
-    {noreply, handle_pending_transitions(State), ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, handle_pending_transitions(State)};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -104,16 +104,17 @@ handle_cast(_Cast, State) ->
         | {'EXIT', pid(), _Reason}.
 handle_info({timeout, _TRef, allocate}, State) ->
     {noreply, handle_allocate_shards(State)};
+handle_info({timeout, _TRef0, fallback}, State) ->
+    _TRef = restart_fallback_timer(),
+    {noreply, handle_pending_transitions(State)};
 handle_info({changed, {shard, DB, Shard}}, State = #{db := DB}) ->
-    {noreply, handle_shard_changed(Shard, State), ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, handle_shard_changed(Shard, State)};
 handle_info({changed, _}, State) ->
-    {noreply, State, ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, State};
 handle_info({'EXIT', Pid, Reason}, State) ->
-    {noreply, handle_exit(Pid, Reason, State), ?TRIGGER_PENDING_TIMEOUT};
-handle_info(timeout, State) ->
-    {noreply, handle_pending_transitions(State), ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, handle_exit(Pid, Reason, State)};
 handle_info(_Info, State) ->
-    {noreply, State, ?TRIGGER_PENDING_TIMEOUT}.
+    {noreply, State}.
 
 -spec terminate(_Reason, state()) -> _Ok.
 terminate(_Reason, State = #{db := DB, shards := Shards}) ->
@@ -132,6 +133,7 @@ handle_allocate_shards(State0) ->
             %% Subscribe to shard changes and trigger any yet unhandled transitions.
             ok = subscribe_db_changes(State),
             ok = trigger_transitions(self()),
+            _TRef = start_fallback_timer(),
             State;
         {error, Data} ->
             _ = logger:notice(
@@ -149,6 +151,17 @@ subscribe_db_changes(#{db := DB}) ->
 
 unsubscribe_db_changes(_State) ->
     emqx_ds_replication_layer_meta:unsubscribe(self()).
+
+start_fallback_timer() ->
+    %% NOTE
+    %% Adding random initial delay to reduce chances that different nodes will
+    %% act on some transitions roughly at the same moment.
+    Timeout = ?TRIGGER_PENDING_TIMEOUT,
+    InitialTimeout = Timeout + round(Timeout * rand:uniform()),
+    erlang:start_timer(InitialTimeout, self(), fallback).
+
+restart_fallback_timer() ->
+    erlang:start_timer(?TRIGGER_PENDING_TIMEOUT, self(), fallback).
 
 %%
 
