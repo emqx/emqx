@@ -81,6 +81,7 @@ for f in \
         liberocksdb.so \
         libquicer_nif.so \
         libquicer_nif*.dylib \
+        libmsquic*.dylib \
         odbcserver \
         otp_test_engine.so \
         sasl_auth.so \
