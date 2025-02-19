@@ -22,7 +22,9 @@
     allocate_shards/1,
     replica_set/2,
     sites/0,
+    sites/1,
     node/1,
+    node_status/1,
     this_site/0,
     forget_site/1,
     print_status/0
@@ -146,7 +148,7 @@
 -type update_cluster_result() ::
     {ok, unchanged | [site()]}
     | {error, {nonexistent_db, emqx_ds:db()}}
-    | {error, {nonexistent_sites, [site()]}}
+    | {error, {nonexistent_sites | lost_sites, [site()]}}
     | {error, {too_few_sites, [site()]}}
     | {error, _}.
 
@@ -243,9 +245,21 @@ allocate_shards(DB) ->
             {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}}
     end.
 
+%% @doc List all sites.
 -spec sites() -> [site()].
 sites() ->
-    [R#?NODE_TAB.site || R <- mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT())].
+    sites(all).
+
+%% @doc List sites.
+%% * `all`: all sites.
+%% * `lost`: sites that are no longer considered part of the cluster.
+-spec sites(all | lost) -> [site()].
+sites(all) ->
+    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
+    [S || #?NODE_TAB{site = S} <- Recs];
+sites(lost) ->
+    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
+    [S || #?NODE_TAB{site = S, node = N} <- Recs, node_status(N) == false].
 
 -spec node(site()) -> node() | undefined.
 node(Site) ->
@@ -255,6 +269,10 @@ node(Site) ->
         [] ->
             undefined
     end.
+
+-spec node_status(node()) -> running | stopped | false.
+node_status(Node) ->
+    mria:cluster_status(Node).
 
 -spec forget_site(site()) -> ok | {error, _Reason}.
 forget_site(Site) ->
@@ -392,9 +410,6 @@ format_node_marker(Status) ->
         false -> " (!)"
     end.
 
-node_status(Node) ->
-    mria:cluster_status(Node).
-
 print_table(Header, Rows) ->
     io:put_chars(emqx_utils_fmt:table(Header, Rows)).
 
@@ -457,7 +472,7 @@ modify_db_sites(DB, Transitions) ->
 -spec db_sites(emqx_ds:db()) -> [site()].
 db_sites(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
-    list_db_sites(Recs).
+    list_sites(Recs).
 
 %% @doc List the sequence of transitions that should be conducted in order to
 %% bring the set of replicas for a DB shard in line with the target set.
@@ -622,13 +637,26 @@ allocate_shards_trans(DB) ->
 -spec assign_db_sites_trans(emqx_ds:db(), [site()]) -> {ok, [site()]}.
 assign_db_sites_trans(DB, Sites) ->
     Opts = db_config_trans(DB),
-    case [S || S <- Sites, mnesia:read(?NODE_TAB, S, read) == []] of
-        [] when length(Sites) == 0 ->
+    case length(Sites) of
+        0 ->
             mnesia:abort({too_few_sites, Sites});
+        _ ->
+            ok
+    end,
+    SiteRecords = [R || S <- Sites, R <- mnesia:read(?NODE_TAB, S, read)],
+    NonexistentSites = [S || S <- Sites, not lists:keymember(S, #?NODE_TAB.site, SiteRecords)],
+    case NonexistentSites of
         [] ->
             ok;
-        NonexistentSites ->
+        [_ | _] ->
             mnesia:abort({nonexistent_sites, NonexistentSites})
+    end,
+    LostSites = [S || #?NODE_TAB{site = S, node = N} <- SiteRecords, node_status(N) == false],
+    case LostSites of
+        [] ->
+            ok;
+        [_ | _] ->
+            mnesia:abort({lost_sites, LostSites})
     end,
     %% TODO
     %% Optimize reallocation. The goals are:
@@ -647,7 +675,7 @@ assign_db_sites_trans(DB, Sites) ->
 -spec modify_db_sites_trans(emqx_ds:db(), [transition()]) -> {ok, unchanged | [site()]}.
 modify_db_sites_trans(DB, Modifications) ->
     Shards = db_shards_trans(DB),
-    Sites0 = list_db_target_sites(Shards),
+    Sites0 = list_target_sites(Shards),
     Sites = lists:foldl(fun apply_transition/2, Sites0, Modifications),
     case Sites of
         Sites0 ->
@@ -889,12 +917,13 @@ forget_node(Node) ->
     end.
 
 %% @doc Returns sorted list of sites shards are replicated across.
--spec list_db_sites([_Shard]) -> [site()].
-list_db_sites(Shards) ->
+-spec list_sites([_Shard]) -> [site()].
+list_sites(Shards) ->
     flatmap_sorted_set(fun get_shard_sites/1, Shards).
 
--spec list_db_target_sites([_Shard]) -> [site()].
-list_db_target_sites(Shards) ->
+%% @doc Returns sorted list of sites shards are _going to be_ replicated across.
+-spec list_target_sites([_Shard]) -> [site()].
+list_target_sites(Shards) ->
     flatmap_sorted_set(fun get_shard_target_sites/1, Shards).
 
 -spec get_shard_sites(_Shard) -> [site()].
