@@ -910,7 +910,8 @@ data(_) ->
         {
             "data export \\\n"
             "  [--root-keys key1,key2,key3] \\\n"
-            "  [--table-sets set1,set2,set3]",
+            "  [--table-sets set1,set2,set3] \\\n"
+            "  [--dir out_dir]",
             "Export data"
         }
     ]).
@@ -932,6 +933,8 @@ collect_data_export_args(["--table-sets", TableSetsJoined | Rest], Acc) ->
     TableSetsStr = string:tokens(TableSetsJoined, [$,]),
     TableSets = lists:map(fun list_to_binary/1, TableSetsStr),
     collect_data_export_args(Rest, Acc#{<<"table_sets">> => TableSets});
+collect_data_export_args(["--dir", OutDir | Rest], Acc) ->
+    collect_data_export_args(Rest, Acc#{<<"out_dir">> => OutDir});
 collect_data_export_args(Args, _Acc) ->
     {error, io_lib:format("unknown arguments: ~p", [Args])}.
 

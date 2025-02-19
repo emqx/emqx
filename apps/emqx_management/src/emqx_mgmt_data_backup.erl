@@ -216,7 +216,8 @@ validate_export_root_keys(Params) ->
     end.
 
 parse_export_request(Params) ->
-    Opts0 = #{},
+    OutDir = maps:get(<<"out_dir">>, Params, undefined),
+    Opts0 = emqx_utils_maps:put_if(#{}, out_dir, OutDir, OutDir /= undefined),
     Opts1 =
         maybe
             {ok, Keys0} ?= maps:find(<<"root_keys">>, Params),
@@ -443,7 +444,8 @@ prepare_new_backup(Opts) ->
             [Y, M, D, HH, MM, SS, Ts rem 1000]
         )
     ),
-    BackupName = ?backup_path(BackupBaseName),
+    BackupDir = maps:get(out_dir, Opts, root_backup_dir()),
+    BackupName = filename:join(BackupDir, BackupBaseName),
     BackupTarName = ?tar(BackupName),
     maybe_print("Exporting data to ~p...~n", [BackupTarName], Opts),
     {ok, TarDescriptor} = ?fmt_tar_err(erl_tar:open(BackupTarName, [write, compressed])),
