@@ -279,7 +279,7 @@ add_local_server(DB, Shard, ShardServers = [_ | _]) ->
             }
     end,
     Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
-    case try_servers(ShardServers, fun ra:add_member/3, [ServerRecord, Timeout]) of
+    case try_servers(ShardServers, fun ra:add_confirm_member/3, [ServerRecord, Timeout]) of
         {ok, _, _Leader} ->
             ok;
         {error, _Server, already_member} ->
@@ -322,7 +322,7 @@ remove_server(DB, Shard, Server) ->
 
 remove_server(Server, ShardServers = [_ | _]) ->
     Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
-    case try_servers(ShardServers, fun ra:remove_member/3, [Server, Timeout]) of
+    case try_servers(ShardServers, fun ra:remove_confirm_member/3, [Server, Timeout]) of
         {ok, _, _Leader} ->
             ok;
         {error, _Server, not_member} ->
