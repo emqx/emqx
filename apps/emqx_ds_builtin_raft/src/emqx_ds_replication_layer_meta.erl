@@ -218,10 +218,10 @@ shard_info(DB, Shard) ->
             ReplicaSet = maps:from_list([
                 begin
                     Status =
-                        case mria:cluster_status(?MODULE:node(I)) of
+                        case node_status(?MODULE:node(I)) of
                             running -> up;
                             stopped -> down;
-                            false -> down
+                            lost -> lost
                         end,
                     ReplInfo = #{status => Status},
                     {I, ReplInfo}
@@ -261,7 +261,7 @@ sites(all) ->
     [S || #?NODE_TAB{site = S} <- Recs];
 sites(lost) ->
     Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
-    [S || #?NODE_TAB{site = S, node = N} <- Recs, node_status(N) == false].
+    [S || #?NODE_TAB{site = S, node = N} <- Recs, node_status(N) == lost].
 
 -spec node(site()) -> node() | undefined.
 node(Site) ->
@@ -272,15 +272,18 @@ node(Site) ->
             undefined
     end.
 
--spec node_status(node()) -> running | stopped | false.
+-spec node_status(node()) -> running | stopped | lost.
 node_status(Node) ->
-    mria:cluster_status(Node).
+    case mria:cluster_status(Node) of
+        false -> lost;
+        Status -> Status
+    end.
 
 -spec forget_site(site()) -> ok | {error, _Reason}.
 forget_site(Site) ->
     maybe
         [Record] ?= mnesia:dirty_read(?NODE_TAB, Site),
-        false ?= node_status(Record#?NODE_TAB.node),
+        lost ?= node_status(Record#?NODE_TAB.node),
         %% Node is lost, proceed.
         transaction(fun ?MODULE:forget_site_trans/1, [Record])
     else
@@ -336,7 +339,7 @@ print_status(Nodes, Shards, Transitions) ->
          || #?NODE_TAB{site = Site, node = Node} <- Nodes
         ]
     ),
-    NodesLost = [Node || #?NODE_TAB{node = Node} <- Nodes, node_status(Node) == false],
+    NodesLost = [Node || #?NODE_TAB{node = Node} <- Nodes, node_status(Node) == lost],
     NodesLost =/= [] andalso
         io:format(
             "(!) ATTENTION~n"
@@ -365,14 +368,14 @@ print_status(Nodes, Shards, Transitions) ->
     TransitionsStuck = [
         DBShard
      || #?SHARD_TAB{shard = DBShard, replica_set = RS} <- Shards,
-        RSLost <- [[Site || Site <- RS, site_status(Site, Nodes) == false]],
+        RSLost <- [[Site || Site <- RS, site_status(Site, Nodes) == lost]],
         length(RSLost) * 2 >= length(RS)
     ],
     TransitionsStuck =/= [] andalso
         io:format(
             "(!) ATTENTION~n"
-            "(!) One or more shards have replica set where majority of replicas are gone.~n"
-            "(!) Membership changes are compromised, pending transitions may never finish.~n"
+            "(!) One or more shards have replica sets where majority of replicas are gone.~n"
+            "(!) Membership changes are compromised.~n"
             "(!) Please take necessary steps to deal with lost sites.~n"
             "(!) Prepare for the possibility of data loss.~n"
         ),
@@ -403,14 +406,14 @@ format_node_status(Status) ->
     case Status of
         running -> "    up";
         stopped -> "(x) down";
-        false -> "(!) LOST"
+        lost -> "(!) LOST"
     end.
 
 format_node_marker(Status) ->
     case Status of
         running -> "";
         stopped -> " (x)";
-        false -> " (!)"
+        lost -> " (!)"
     end.
 
 print_table(Header, Rows) ->
@@ -654,7 +657,7 @@ assign_db_sites_trans(DB, Sites) ->
         [_ | _] ->
             mnesia:abort({nonexistent_sites, NonexistentSites})
     end,
-    LostSites = [S || #?NODE_TAB{site = S, node = N} <- SiteRecords, node_status(N) == false],
+    LostSites = [S || #?NODE_TAB{site = S, node = N} <- SiteRecords, node_status(N) == lost],
     case LostSites of
         [] ->
             ok;

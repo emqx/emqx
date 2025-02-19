@@ -305,7 +305,7 @@ fields(db_site) ->
             )},
         {status,
             mk(
-                enum([up, joining]),
+                enum([up, down, lost]),
                 #{desc => <<"Status of the replica">>}
             )}
     ].
