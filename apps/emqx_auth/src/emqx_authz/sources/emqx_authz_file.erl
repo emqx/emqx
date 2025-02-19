@@ -27,7 +27,6 @@
 
 %% APIs
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -48,9 +47,6 @@
 %%------------------------------------------------------------------------------
 %% Authz Source Callbacks
 %%------------------------------------------------------------------------------
-
-description() ->
-    "AuthZ with static rules".
 
 create(#{path := Path} = Source) ->
     {ok, Rules} = validate(Path),

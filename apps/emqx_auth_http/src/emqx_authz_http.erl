@@ -24,7 +24,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -60,9 +59,6 @@
     ?VAR_QOS,
     ?VAR_RETAIN
 ]).
-
-description() ->
-    "AuthZ with http".
 
 create(Config) ->
     NConfig = parse_config(Config),
