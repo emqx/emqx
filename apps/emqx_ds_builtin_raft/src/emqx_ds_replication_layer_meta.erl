@@ -42,6 +42,7 @@
     join_db_site/2,
     leave_db_site/2,
     assign_db_sites/2,
+    modify_db_sites/2,
     replica_set_transitions/2,
     claim_transition/3,
     update_replica_set/3,
@@ -446,6 +447,11 @@ leave_db_site(DB, Site) ->
 -spec assign_db_sites(emqx_ds:db(), [site()]) -> update_cluster_result().
 assign_db_sites(DB, Sites) ->
     transaction(fun ?MODULE:assign_db_sites_trans/2, [DB, Sites]).
+
+%% @doc Assign a set of sites to the DB for replication.
+-spec modify_db_sites(emqx_ds:db(), [transition()]) -> update_cluster_result().
+modify_db_sites(DB, Transitions) ->
+    transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, Transitions]).
 
 %% @doc List the sites the DB is replicated across.
 -spec db_sites(emqx_ds:db()) -> [site()].
