@@ -34,6 +34,7 @@
     add_local_server/2,
     drop_local_server/2,
     remove_server/3,
+    forget_server/3,
     server_info/2
 ]).
 
@@ -334,6 +335,77 @@ remove_server(_Server, _ShardServers = []) ->
     %% No active servers to ask to remove us.
     ok.
 
+%% @doc Make shard cluster "forget" a remote server residing on a "lost" site.
+%% This is UNSAFE as it works directly with Ra log, and is designed to get out of
+%% situations where quorum is unlikely to ever recover.
+-spec forget_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), server()) ->
+    ok | emqx_ds:error(_Reason).
+forget_server(DB, Shard, Server) ->
+    ShardServers = shard_servers(DB, Shard),
+    KnownShardServers = known_shard_servers(DB, Shard),
+    IsMember = lists:member(Server, ShardServers),
+    IsKnownMember = lists:member(Server, KnownShardServers),
+    IsQuorumReachable = length(KnownShardServers) * 2 > length(ShardServers),
+    case IsMember of
+        true when not IsKnownMember andalso not IsQuorumReachable ->
+            force_forget_server(Server, KnownShardServers);
+        true when IsKnownMember ->
+            {error, unrecoverable, server_known};
+        true when IsQuorumReachable ->
+            {error, unrecoverable, quorum_still_reachable};
+        false ->
+            %% Nothing to do.
+            ok
+    end.
+
+force_forget_server(Server, ShardServers = [_ | _]) ->
+    %% NOTE
+    %% We need to contact all known shard servers to understand which one of them
+    %% has the most recent log entry, meaning it has the best chance to win leader
+    %% election once we make it "forget" the server. Since we're assuming that the
+    %% quorum is currently unreachable, it seems fine to just ask them for their
+    %% current status first: there should be no new log entry between this and the
+    %% subsequent log-write operation.
+    Overviews = [{S, O} || S <- ShardServers, O <- [ra_overview(S)], map_size(O) > 0],
+    UnavailableServers = ShardServers -- [S || {S, _} <- Overviews],
+    case UnavailableServers of
+        %% NOTE
+        %% Proceed only if all known servers respond. We can't risk a "down" replica
+        %% having higher log index, as it may just refuse votes later.
+        [] ->
+            %% Find the highest-term-index server among known servers.
+            {Candidate, _Overview} = lists:foldl(
+                fun(SO = {_, Overview}, SOAcc = {_, OAcc}) ->
+                    case ra_overview_termidx(Overview) > ra_overview_termidx(OAcc) of
+                        true -> SO;
+                        false -> SOAcc
+                    end
+                end,
+                hd(Overviews),
+                tl(Overviews)
+            ),
+            Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
+            case ra_server_proc:force_forget_member(Candidate, Server, Timeout) of
+                ok ->
+                    ?tp(emqx_ds_replshard_forgot_member, #{
+                        server => Candidate,
+                        forgot => Server
+                    }),
+                    ok;
+                {error, not_member} ->
+                    ok;
+                timeout ->
+                    {error, recoverable, {timeout, Candidate}}
+            end;
+        Unavailable ->
+            {error, recoverable, {member_overview_unavailable, Unavailable}}
+    end;
+force_forget_server(_Server, []) ->
+    %% NOTE
+    %% No active servers to ask to forget it. Shouldn't end up here anyway, this
+    %% situation will likely be handled by `add_local_server/3` first.
+    ok.
+
 -spec server_info
     (readiness, server()) -> ready | {unready, _Details} | unknown;
     (leader, server()) -> server() | unknown;
@@ -390,6 +462,11 @@ ra_overview(Server) ->
         _Error ->
             #{}
     end.
+
+ra_overview_termidx(Overview) ->
+    Term = maps:get(current_term, Overview, 0),
+    Idx = maps:get(commit_index, Overview, -1),
+    {Term, Idx}.
 
 %%
 
