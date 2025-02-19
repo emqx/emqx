@@ -917,6 +917,7 @@ data(_) ->
 parse_data_export_args(Args) ->
     maybe
         {ok, Collected} ?= collect_data_export_args(Args, #{}),
+        ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Collected),
         emqx_mgmt_data_backup:parse_export_request(Collected)
     end.
 
