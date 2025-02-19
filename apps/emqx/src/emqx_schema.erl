@@ -2833,7 +2833,8 @@ validate_heap_size(Siz) when is_integer(Siz) ->
     MaxSiz = (128 * 1024 * 1024 * 1024) div WordSize,
     case Siz > MaxSiz of
         true ->
-            {error, #{cause => max_heap_size_too_large, maximum => MaxSiz}};
+            %% Turn back into bytesize for error message...
+            {error, #{cause => max_heap_size_too_large, maximum => MaxSiz * WordSize}};
         false ->
             ok
     end;
