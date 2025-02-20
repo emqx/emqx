@@ -869,7 +869,8 @@ olp(_) ->
 
 data(["export" | Args]) ->
     maybe
-        {ok, Opts} ?= parse_data_export_args(Args),
+        {ok, Opts0} ?= parse_data_export_args(Args),
+        Opts = maps:merge(?DATA_BACKUP_OPTS, Opts0),
         {ok, #{filename := Filename}} ?= emqx_mgmt_data_backup:export(Opts),
         emqx_ctl:print("Data has been successfully exported to ~s.~n", [Filename])
     else
@@ -878,13 +879,13 @@ data(["export" | Args]) ->
                 <<"Invalid root keys: ">>,
                 lists:join(<<", ">>, UnknownKeys)
             ]),
-            emqx_ctl:print(Msg);
+            emqx_ctl:print([Msg, $\n]);
         {error, {bad_table_sets, InvalidSetNames}} ->
             Msg = iolist_to_binary([
                 <<"Invalid table sets: ">>,
                 lists:join(<<", ">>, InvalidSetNames)
             ]),
-            emqx_ctl:print(Msg);
+            emqx_ctl:print([Msg, $\n]);
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
@@ -909,7 +910,8 @@ data(_) ->
         {
             "data export \\\n"
             "  [--root-keys key1,key2,key3] \\\n"
-            "  [--table-sets set1,set2,set3]",
+            "  [--table-sets set1,set2,set3] \\\n"
+            "  [--dir out_dir]",
             "Export data"
         }
     ]).
@@ -917,6 +919,7 @@ data(_) ->
 parse_data_export_args(Args) ->
     maybe
         {ok, Collected} ?= collect_data_export_args(Args, #{}),
+        ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Collected),
         emqx_mgmt_data_backup:parse_export_request(Collected)
     end.
 
@@ -930,6 +933,8 @@ collect_data_export_args(["--table-sets", TableSetsJoined | Rest], Acc) ->
     TableSetsStr = string:tokens(TableSetsJoined, [$,]),
     TableSets = lists:map(fun list_to_binary/1, TableSetsStr),
     collect_data_export_args(Rest, Acc#{<<"table_sets">> => TableSets});
+collect_data_export_args(["--dir", OutDir | Rest], Acc) ->
+    collect_data_export_args(Rest, Acc#{<<"out_dir">> => OutDir});
 collect_data_export_args(Args, _Acc) ->
     {error, io_lib:format("unknown arguments: ~p", [Args])}.
 
