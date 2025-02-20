@@ -114,8 +114,7 @@ check_connector(Conf) when is_map(Conf) ->
 %%===========================================================================
 
 confluent_producer_connector_test_() ->
-    %% ensure this module is loaded when testing only this file
-    _ = emqx_bridge_enterprise:module_info(),
+    emqx_utils:interactive_load(emqx_bridge_enterprise),
     BaseConf = parse(confluent_producer_connector_hocon()),
     Override = fun(Cfg) ->
         emqx_utils_maps:deep_merge(
@@ -167,8 +166,7 @@ confluent_producer_connector_test_() ->
     ].
 
 confluent_producer_action_test_() ->
-    %% ensure this module is loaded when testing only this file
-    _ = emqx_bridge_enterprise:module_info(),
+    emqx_utils:interactive_load(emqx_bridge_enterprise),
     BaseConf = parse(confluent_producer_action_hocon()),
     [
         {"base config",

@@ -296,7 +296,7 @@ call_hocon() {
     erl_code="
         {ok, _} = application:ensure_all_started(hocon), \
         try
-          mnesia_hook:module_info()
+          mnesia_hook:module_info(module)
         catch _:_->
           io:format(standard_error, \"Force setting DB backend to 'mnesia', and 'role' to 'core'~n\", []),
           os:putenv(\"EMQX_NODE__DB_BACKEND\", \"mnesia\"),

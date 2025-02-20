@@ -104,7 +104,7 @@ get_roots(Mod) ->
 
 has_roots(Mod) ->
     try
-        _ = Mod:module_info(),
+        Mod:module_info(module),
         erlang:function_exported(Mod, roots, 0) andalso
             Mod:roots() =/= []
     catch
