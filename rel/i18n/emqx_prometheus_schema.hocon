@@ -42,11 +42,11 @@ push_gateway_url.desc:
 push_gateway_enable.desc:
 """Enable or disable Pushgateway"""
 
-clear_metrics_before_push.desc:
-"""Clear metrics before pushing to Pushgateway.<br/>
-Because Pushgateway retains the last value of a metric after it has been removed,
-this can cause Prometheus to fail to reflect the removal of these metrics when scraping them.<br/>
-The default behavior is set to true, meaning that emqx will clean up all metrics of this job in Pushgateway before each metric push."""
+push_gateway_method.desc:
+"""The HTTP Method of pushing metrics to Pushgateway. Available options:<br/>
+ - <code>put</code>: All metrics with the grouping key specified in the URL are replaced by the metrics pushed with PUT.<br/>
+ - <code>post</code>: POST works exactly like the PUT method but only metrics with the same name as the newly pushed metrics are replaced.<br/>
+The default value is <code>put</code>."""
 
 mnesia_collector.desc:
 """Collects Mnesia metrics mainly using <code> mnesia:system_info/1 </code>"""

@@ -194,19 +194,14 @@ t_collector_no_crash_test(_) ->
 
 t_assert_push(_) ->
     Self = self(),
-    AssertPush = fun
-        (delete, Req = {Url, Headers}, HttpOpts, Opts) ->
-            ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
-            ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
-            meck:passthrough([delete, Req, HttpOpts, Opts]),
-            ok;
-        (post, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
-            ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
-            ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
-            ?assertEqual("text/plain", ContentType),
-            ?assertEqual(true, assert_push_gateway_data(Data)),
-            Self ! pass,
-            meck:passthrough([post, Req, HttpOpts, Opts])
+    AssertPush = fun(Method, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
+        ?assertEqual(put, Method),
+        ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
+        ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
+        ?assertEqual("text/plain", ContentType),
+        ?assertEqual(true, assert_push_gateway_data(Data)),
+        Self ! pass,
+        meck:passthrough([Method, Req, HttpOpts, Opts])
     end,
     meck:expect(httpc, request, AssertPush),
     Conf = emqx_prometheus_config:conf(),
@@ -264,7 +259,7 @@ stop_mock_pushgateway() ->
 init(Req0, Opts) ->
     Method = cowboy_req:method(Req0),
     Headers = cowboy_req:headers(Req0),
-    ?assertEqual(<<"POST">>, Method),
+    ?assertEqual(<<"PUT">>, Method),
     ?assertMatch(
         #{
             <<"authorization">> := <<"some-authz-tokens">>,

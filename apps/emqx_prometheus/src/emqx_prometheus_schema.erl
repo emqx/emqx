@@ -82,6 +82,15 @@ fields(push_gateway) ->
                     desc => ?DESC(push_gateway_enable)
                 }
             )},
+        {method,
+            ?HOCON(
+                hoconsc:enum([put, post]),
+                #{
+                    default => put,
+                    required => true,
+                    desc => ?DESC(push_gateway_method)
+                }
+            )},
         {url,
             ?HOCON(
                 string(),
@@ -118,14 +127,6 @@ fields(push_gateway) ->
                     default => <<"${name}/instance/${name}~${host}">>,
                     required => false,
                     desc => ?DESC(job_name)
-                }
-            )},
-        {clear_metrics_before_push,
-            ?HOCON(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(clear_metrics_before_push)
                 }
             )}
     ];
