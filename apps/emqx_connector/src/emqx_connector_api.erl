@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_api).
 
+-feature(maybe_expr, enable).
+
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
@@ -491,7 +493,10 @@ do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode
             PreOrPostConfigUpdate =:= post_config_update
         ->
             ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)));
-        {error, Reason} when is_map(Reason) ->
+        {error, Reason0} when is_map(Reason0) ->
+            %% When root validators fail, the returned value is the whole config root.  We
+            %% focus down to the config from the request to avoid returning a huge map.
+            Reason = maybe_focus_on_request_connector(Reason0, ConnectorType, ConnectorName),
             ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)))
     end.
 
@@ -827,3 +832,11 @@ maybe_unwrap(RpcMulticallResult) ->
 
 redact(Term) ->
     emqx_utils:redact(Term).
+
+maybe_focus_on_request_connector(Reason0, Type, Name) ->
+    case Reason0 of
+        #{value := #{Type := #{Name := Val}}} ->
+            Reason0#{value := Val};
+        _ ->
+            Reason0
+    end.

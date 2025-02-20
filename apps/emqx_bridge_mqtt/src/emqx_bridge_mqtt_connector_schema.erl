@@ -142,6 +142,10 @@ fields("server_configs") ->
                 }
             )},
         {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"160s">>})},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_s(), #{
+                default => <<"10s">>, desc => ?DESC("connect_timeout")
+            })},
         {retry_interval,
             mk_duration(
                 "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "

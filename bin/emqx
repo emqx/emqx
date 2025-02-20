@@ -346,7 +346,7 @@ COMPATIBILITY_CHECK='
 
     end,
     try
-        mnesia_hook:module_info(),
+        mnesia_hook:module_info(module),
         io:format("MNESIA_OK~n", [])
     catch
         _ : _ ->

@@ -336,6 +336,7 @@ recommend_setting_example() ->
             enable_basic_auth => false,
             push_gateway => #{
                 interval => <<"15s">>,
+                method => put,
                 url => <<"http://127.0.0.1:9091">>,
                 headers => #{<<"Authorization">> => <<"Basic YWRtaW46Y2JraG55eWd5QDE=">>},
                 job_name => <<"${name}/instance/${name}~${host}">>

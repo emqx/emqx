@@ -52,7 +52,7 @@ fields(ldap) ->
         emqx_ldap:fields(config).
 
 desc(ldap) ->
-    emqx_authz_ldap:description();
+    ?DESC("ldap_struct");
 desc(_) ->
     undefined.
 

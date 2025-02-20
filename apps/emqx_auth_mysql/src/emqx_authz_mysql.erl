@@ -25,7 +25,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -38,9 +37,6 @@
 -endif.
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
-
-description() ->
-    "AuthZ with Mysql".
 
 create(#{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
@@ -78,7 +74,7 @@ authorize(
     Topic,
     #{
         annotations := #{
-            id := ResourceID,
+            id := ResourceId,
             tmpl_token := TmplToken,
             cache_key_template := CacheKeyTemplate
         }
@@ -89,7 +85,7 @@ authorize(
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
-            CacheKey, ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}
+            CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, RenderParams}
         )
     of
         {ok, ColumnNames, Rows} ->
@@ -100,7 +96,7 @@ authorize(
                 reason => Reason,
                 tmpl_token => TmplToken,
                 params => RenderParams,
-                resource_id => ResourceID
+                resource_id => ResourceId
             }),
             nomatch
     end.

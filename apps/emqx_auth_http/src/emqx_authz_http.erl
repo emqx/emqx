@@ -24,7 +24,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -62,9 +61,6 @@
     ?VAR_RETAIN
 ]).
 
-description() ->
-    "AuthZ with http".
-
 create(Config) ->
     #{annotations := Annotations} = NConfig = parse_config(Config),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
@@ -91,7 +87,7 @@ authorize(
     Topic,
     #{
         type := http,
-        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate},
+        annotations := #{id := ResourceId, cache_key_template := CacheKeyTemplate},
         method := Method,
         request_timeout := RequestTimeout
     } = Config
@@ -102,7 +98,7 @@ authorize(
             CacheKey = emqx_auth_template:cache_key(Values, CacheKeyTemplate),
             Response = emqx_authz_utils:cached_simple_sync_query(
                 CacheKey,
-                ResourceID,
+                ResourceId,
                 {Method, Request, RequestTimeout}
             ),
             case Response of
@@ -134,7 +130,7 @@ authorize(
                     ?tp(authz_http_request_failure, #{error => Reason}),
                     ?SLOG(error, #{
                         msg => "http_server_query_failed",
-                        resource => ResourceID,
+                        resource => ResourceId,
                         reason => Reason
                     }),
                     ignore

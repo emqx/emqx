@@ -23,7 +23,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -36,9 +35,6 @@
 -endif.
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
-
-description() ->
-    "AuthZ with Redis".
 
 create(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
@@ -72,13 +68,13 @@ authorize(
     Topic,
     #{
         cmd_template := CmdTemplate,
-        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
+        annotations := #{id := ResourceId, cache_key_template := CacheKeyTemplate}
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
-    case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceID, {cmd, Cmd}) of
+    case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceId, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
         {error, Reason} ->
@@ -86,7 +82,7 @@ authorize(
                 msg => "query_redis_error",
                 reason => Reason,
                 cmd => Cmd,
-                resource_id => ResourceID
+                resource_id => ResourceId
             }),
             nomatch
     end.

@@ -36,7 +36,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -61,9 +60,6 @@
 %%------------------------------------------------------------------------------
 %% AuthZ Callbacks
 %%------------------------------------------------------------------------------
-
-description() ->
-    "AuthZ with LDAP".
 
 create(Source0) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
@@ -90,13 +86,13 @@ authorize(
     Topic,
     #{
         query_timeout := QueryTimeout,
-        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate} = Annotations
+        annotations := #{id := ResourceId, cache_key_template := CacheKeyTemplate} = Annotations
     }
 ) ->
     Attrs = select_attrs(Action, Annotations),
     CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate, Attrs),
     Result = emqx_authz_utils:cached_simple_sync_query(
-        CacheKey, ResourceID, {query, Client, Attrs, QueryTimeout}
+        CacheKey, ResourceId, {query, Client, Attrs, QueryTimeout}
     ),
     case Result of
         {ok, []} ->
@@ -107,7 +103,7 @@ authorize(
             ?SLOG(error, #{
                 msg => "ldap_query_failed",
                 reason => emqx_utils:redact(Reason),
-                resource_id => ResourceID
+                resource_id => ResourceId
             }),
             nomatch
     end.
