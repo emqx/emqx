@@ -12,7 +12,7 @@
 
 main(_) ->
     try
-        _ = hocon:module_info()
+        _ = hocon:module_info(module)
     catch
         _:_ ->
             fail("hocon module not found, please make sure the project is compiled")

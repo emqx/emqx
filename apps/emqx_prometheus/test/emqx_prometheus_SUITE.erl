@@ -201,7 +201,7 @@ t_collector_no_crash_test(_) ->
 t_assert_push(_) ->
     Self = self(),
     AssertPush = fun(Method, Req = {Url, Headers, ContentType, Data}, HttpOpts, Opts) ->
-        ?assertEqual(post, Method),
+        ?assertEqual(put, Method),
         ?assertMatch("http://127.0.0.1:9091/metrics/job/emqxcl~test~127.0.0.1", Url),
         ?assertEqual([{"Authorization", "some-authz-tokens"}], Headers),
         ?assertEqual("text/plain", ContentType),
@@ -265,7 +265,7 @@ stop_mock_pushgateway() ->
 init(Req0, Opts) ->
     Method = cowboy_req:method(Req0),
     Headers = cowboy_req:headers(Req0),
-    ?assertEqual(<<"POST">>, Method),
+    ?assertEqual(<<"PUT">>, Method),
     ?assertMatch(
         #{
             <<"authorization">> := <<"some-authz-tokens">>,

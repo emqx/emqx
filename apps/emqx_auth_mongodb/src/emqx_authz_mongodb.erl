@@ -97,13 +97,13 @@ authorize(
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
     annotations := #{
-        skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate
+        skip := Skip, limit := Limit, id := ResourceId, cache_key_template := CacheKeyTemplate
     }
 }) ->
     Options = #{skip => Skip, limit => Limit},
     CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
     Result = emqx_authz_utils:cached_simple_sync_query(
-        CacheKey, ResourceID, {find, Collection, RenderedFilter, Options}
+        CacheKey, ResourceId, {find, Collection, RenderedFilter, Options}
     ),
     case Result of
         {error, Reason} ->
@@ -113,7 +113,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
                 collection => Collection,
                 filter => RenderedFilter,
                 options => Options,
-                resource_id => ResourceID
+                resource_id => ResourceId
             }),
             nomatch;
         {ok, Rows} ->

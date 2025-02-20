@@ -70,8 +70,8 @@ tr_config(bootstrap_hosts, Hosts) ->
     emqx_bridge_kafka_impl:hosts(Hosts);
 tr_config(authentication, Auth) ->
     emqx_bridge_kafka_impl:sasl(Auth);
-tr_config(ssl, Ssl) ->
-    ssl(Ssl);
+tr_config(ssl, SSL) ->
+    ssl(SSL);
 tr_config(socket_opts, Opts) ->
     emqx_bridge_kafka_impl:socket_opts(Opts);
 tr_config(_Key, Value) ->

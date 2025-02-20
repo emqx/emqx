@@ -906,8 +906,13 @@ base62(I) -> $0 + I - 52.
 %% once loaded, it's cheap for subsequent calls.
 %% NOTE: For non-existing modules, this call is not as effective!
 interactive_load(Module) ->
-    _ = catch apply(Module, module_info, [module]),
-    ok.
+    try
+        _ = apply(Module, module_info, [module]),
+        ok
+    catch
+        _:_ ->
+            ok
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
