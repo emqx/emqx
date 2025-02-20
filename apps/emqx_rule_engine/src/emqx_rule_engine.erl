@@ -481,14 +481,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
 
-with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt, Fun) ->
+with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt0, Fun) ->
+    CreatedAt = emqx_utils_maps:deep_get([metadata, created_at], Params, CreatedAt0),
+    LastModifiedAt = emqx_utils_maps:deep_get([metadata, last_modified_at], Params, CreatedAt),
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Rule0 = #{
                 id => RuleId,
                 name => maps:get(name, Params, <<"">>),
                 created_at => CreatedAt,
-                updated_at => now_ms(),
+                updated_at => LastModifiedAt,
                 sql => Sql,
                 actions => parse_actions(Actions),
                 description => maps:get(description, Params, ""),

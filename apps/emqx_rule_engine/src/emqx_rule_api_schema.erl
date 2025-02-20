@@ -97,6 +97,14 @@ fields("rule_info") ->
                     desc => ?DESC("ri_created_at"),
                     example => "2021-12-01T15:00:43.153+08:00"
                 }
+            )},
+        {"last_modified_at",
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC("ri_last_modified_at"),
+                    example => "2021-12-24T15:00:44.153+08:00"
+                }
             )}
     ] ++ fields("rule_creation");
 fields("rule_metrics") ->
