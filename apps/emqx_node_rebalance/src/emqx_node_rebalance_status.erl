@@ -141,7 +141,9 @@ donor_rebalance(Status, Node) ->
             {state, maps:get(state, Status)},
             {coordinator_node, maps:get(coordinator_node, Status)},
             {connection_eviction_rate, maps:get(conn_evict_rate, Opts)},
+            {connection_eviction_rpc_timeout, maps:get(conn_evict_rpc_timeout, Opts)},
             {session_eviction_rate, maps:get(sess_evict_rate, Opts)},
+            {session_eviction_rpc_timeout, maps:get(sess_evict_rpc_timeout, Opts)},
             {recipients, maps:get(recipients, Status)},
             {stats, CurrentStats}
         ] ++
@@ -162,7 +164,9 @@ coordinator_rebalance(Status) ->
             {state, maps:get(state, Status)},
             {coordinator_node, maps:get(coordinator_node, Status)},
             {connection_eviction_rate, maps:get(conn_evict_rate, Opts)},
+            {connection_eviction_rpc_timeout, maps:get(conn_evict_rpc_timeout, Opts)},
             {session_eviction_rate, maps:get(sess_evict_rate, Opts)},
+            {session_eviction_rpc_timeout, maps:get(sess_evict_rpc_timeout, Opts)},
             {recipients, maps:get(recipients, Status)},
             {donors, maps:get(donors, Status)}
         ] ++
@@ -231,8 +235,12 @@ format_local_status_field({coordinator_node, Node}) ->
     io_lib:format("Coordinator node: ~p~n", [Node]);
 format_local_status_field({connection_eviction_rate, ConnEvictRate}) ->
     io_lib:format("Connection eviction rate: ~p connections/second~n", [ConnEvictRate]);
+format_local_status_field({connection_eviction_rpc_timeout, ConnEvictRpcTimeout}) ->
+    io_lib:format("Connection eviction RPC timeout: ~p seconds~n", [ConnEvictRpcTimeout]);
 format_local_status_field({session_eviction_rate, SessEvictRate}) ->
     io_lib:format("Session eviction rate: ~p sessions/second~n", [SessEvictRate]);
+format_local_status_field({session_eviction_rpc_timeout, SessEvictRpcTimeout}) ->
+    io_lib:format("Session eviction RPC timeout: ~p seconds~n", [SessEvictRpcTimeout]);
 format_local_status_field({purge_rate, PurgeRate}) ->
     io_lib:format("Purge rate: ~p sessions/second~n", [PurgeRate]);
 format_local_status_field({connection_goal, ConnGoal}) ->

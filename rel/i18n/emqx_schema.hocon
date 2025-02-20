@@ -563,6 +563,17 @@ fields_tcp_opts_buffer.desc:
 fields_tcp_opts_buffer.label:
 """TCP user-space buffer"""
 
+fields_mqtt_opts_parse_unit.desc:
+"""This setting specifies the level of granularity for data processed during MQTT framing, determining how frames are extracted and parsed from a byte stream:
+
+- `chunk`: Frames are processed at the transport layer packet level. This method uses raw byte chunks as the parsing unit, requiring the application logic to assemble and interpret MQTT frames. The size of each chunk non-deterministically depends on factors such as transmission speed, socket buffer size, and other kernel settings.
+- `frame`: Frames are processed as complete MQTT messages. This method ensures that only fully-formed MQTT frames are delivered to the application logic for further handling. In most of the cases, it offers better performance than the `chunk` option.
+
+Note, the choice of `parse_unit` affects the interpretation of the `active_n` setting: it defines either the number of raw byte chunks or complete MQTT messages are delivered to the connection process."""
+
+fields_mqtt_opts_parse_unit.label:
+"""MQTT Message Parse Unit"""
+
 server_ssl_opts_schema_honor_cipher_order.desc:
 """An important security setting. If this setting is enabled, the server will prioritize the cipher suites it prefers most from the list of cipher suites supported by the client, thus ignoring the client's preferences.
 
@@ -1768,6 +1779,18 @@ See the documentation for details on each field.
 Each row in the rest of this file must contain the same number of columns as the header line,
 and column can be omitted then its value will be `undefined`."""
 
+socket_tcp_keepalive.desc:
+"""Enable TCP keepalive.
+The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
+ - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
+ - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
+ - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
+For example "240,30,5" means: EMQX will start sending probes after the connection is idle for 240 seconds, and the probes are sent every 30 seconds until a response is received, if it misses 5 consecutive responses, the connection should be closed.
+Default: 'none'"""
+
+socket_tcp_keepalive.label:
+"""TCP keepalive options"""
+
   sysmon_mnesia_tm_mailbox_size_alarm_threshold {
     label: "Size Alarm"
     desc: """~
@@ -1790,5 +1813,10 @@ and column can be omitted then its value will be `undefined`."""
     - Review the subscriptions that clients are doing, for example, try to compact topic filters;
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
   }
+
+config_backup_interval.label:
+"""Config Backup Interval"""
+config_backup_interval.desc:
+"""Interval at which backups to `cluster.hocon` are made.  Even if multiple configuration updates are made withing this interval, only one backup will be made with the current configuration."""
 
 }

@@ -33,7 +33,6 @@
     handle_cast/2,
     handle_info/2,
     format_status/1,
-    format_status/2,
     terminate/2
 ]).
 
@@ -177,10 +176,6 @@ handle_info(_Msg, State) ->
 
 format_status(Status = #{state := State}) ->
     Status#{state => censor_secrets(State)}.
-
-format_status(_Opt, [_PDict, State0]) ->
-    State = censor_secrets(State0),
-    [{data, [{"State", State}]}].
 
 terminate(_Reason, State) ->
     #{resource_id := ResourceId, table := TId} = State,

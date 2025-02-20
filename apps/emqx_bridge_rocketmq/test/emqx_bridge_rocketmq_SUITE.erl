@@ -240,7 +240,7 @@ create_bridge_http(Params) ->
         {ok, Res} ->
             #{<<"type">> := Type, <<"name">> := Name} = Params,
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.

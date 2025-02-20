@@ -20,9 +20,9 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
-%% The exhook proto version should be fixed as `v2` in EMQX v5.x
+%% The exhook proto version should be fixed as `v3` in EMQX v5.x
 %% to make sure the exhook proto version is compatible
--define(PB_CLIENT_MOD, emqx_exhook_v_2_hook_provider_client).
+-define(PB_CLIENT_MOD, emqx_exhook_v_3_hook_provider_client).
 
 %% Load/Unload
 -export([
@@ -83,7 +83,7 @@
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
--elvis([{elvis_style, dont_repeat_yourself, disable}]).
+-elvis([{elvis_style, dont_repeat_yourself, disable}, {elvis_style, no_catch_expressions, disable}]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
@@ -130,17 +130,20 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
     end.
 
 %% @private
-channel_opts(Opts = #{url := URL, socket_options := SockOptsT}) ->
-    ClientOpts = maps:merge(
-        #{pool_size => erlang:system_info(schedulers)},
-        Opts
-    ),
-    SockOpts = maps:to_list(SockOptsT),
+channel_opts(Opts = #{url := URL, socket_options := SockOpts}) ->
+    ClientOpts = #{
+        pool_size => maps:get(pool_size, Opts, erlang:system_info(schedulers))
+    },
+    GunOpts = #{
+        transport => tcp,
+        tcp_opts => maps:to_list(SockOpts),
+        %% NOTE: Disable retries by default, emulating 0.6.x behavior.
+        retry => 0
+    },
     case uri_string:parse(URL) of
         #{scheme := <<"http">>, host := Host, port := Port} ->
             NClientOpts = ClientOpts#{
-                gun_opts =>
-                    #{transport_opts => SockOpts}
+                gun_opts => GunOpts
             },
             {ok, {format_http_uri("http", Host, Port), NClientOpts}};
         #{scheme := <<"https">>, host := Host, port := Port} ->
@@ -160,11 +163,10 @@ channel_opts(Opts = #{url := URL, socket_options := SockOptsT}) ->
                         )
                 end,
             NClientOpts = ClientOpts#{
-                gun_opts =>
-                    #{
-                        transport => ssl,
-                        transport_opts => SockOpts ++ SslOpts
-                    }
+                gun_opts => GunOpts#{
+                    transport => ssl,
+                    tls_opts => SslOpts
+                }
             },
             {ok, {format_http_uri("https", Host, Port), NClientOpts}};
         Error ->

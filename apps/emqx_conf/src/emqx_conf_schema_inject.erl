@@ -91,7 +91,8 @@ shared_subs(ce) ->
     [].
 
 bridges(ee) ->
-    [] ++ bridges(ce);
+    [emqx_bridge_disk_log_connector_schema] ++
+        bridges(ce);
 bridges(ce) ->
     [emqx_bridge_mqtt_connector_schema].
 

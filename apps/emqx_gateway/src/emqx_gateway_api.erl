@@ -22,16 +22,6 @@
 
 -behaviour(minirest_api).
 
--import(hoconsc, [mk/2, ref/1, ref/2]).
-
--import(
-    emqx_gateway_http,
-    [
-        return_http_error/2,
-        with_gateway/2
-    ]
-).
-
 %% minirest/dashboard_swagger behaviour callbacks
 -export([
     api_spec/0,
@@ -516,6 +506,18 @@ listener_schema() ->
         ref(?MODULE, ws_listener),
         ref(?MODULE, wss_listener)
     ]).
+
+mk(Schema, Opts) ->
+    hoconsc:mk(Schema, Opts).
+
+ref(StructName) ->
+    hoconsc:ref(StructName).
+
+ref(Module, StructName) ->
+    hoconsc:ref(Module, StructName).
+
+return_http_error(Code, Name) ->
+    emqx_gateway_http:return_http_error(Code, Name).
 
 %%--------------------------------------------------------------------
 %% examples

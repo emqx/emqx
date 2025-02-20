@@ -617,7 +617,7 @@ process_complete(TransferState0) ->
         } = TransferState,
         case insert_files_request(StagedFiles, HTTPPool, HTTPClientConfig) of
             {ok, 200, _, Body} ->
-                {ok, emqx_utils_json:decode(Body, [return_maps])};
+                {ok, emqx_utils_json:decode(Body)};
             Res ->
                 ?tp("snowflake_insert_files_request_failed", #{response => Res}),
                 %% TODO: retry?
@@ -655,6 +655,7 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
             pipelining := Pipelining,
             pool_size := PoolSize,
             max_retries := MaxRetries,
+            max_inactive := MaxInactive,
             proxy := ProxyConfig0
         },
         resource_opts := #{request_ttl := RequestTTL}
@@ -703,6 +704,7 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
                 {pool_size, PoolSize},
                 {transport, tls},
                 {transport_opts, TransportOpts},
+                {max_inactive, MaxInactive},
                 {enable_pipelining, Pipelining}
             ],
     case ehttpc_sup:start_pool(ActionResId, PoolOpts) of
@@ -930,7 +932,7 @@ insert_report_request(HTTPPool, Opts, HTTPClientConfig) ->
     Response = ?MODULE:do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries),
     case Response of
         {ok, 200, _Headers, Body0} ->
-            Body = emqx_utils_json:decode(Body0, [return_maps]),
+            Body = emqx_utils_json:decode(Body0),
             {ok, Body};
         _ ->
             {error, Response}
@@ -1055,7 +1057,7 @@ check_snowpipe_user_permission(HTTPPool, ODBCPool, ActionState) ->
             ok;
         {error, {ok, 401, _, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, JSON} -> JSON;
                     {error, _} -> Body0
                 end,
@@ -1097,7 +1099,7 @@ try_get_jwt_failure_details(ODBCPool, ActionResId, RespBody) ->
         {ok, RequestId} ?= get_jwt_error_request_id(Msg),
         {selected, [_ColHeader], [{Val}]} ?= get_login_failure_details(ODBCPool, RequestId),
         true ?= is_list(Val) orelse {error, {not_string, Val}},
-        {ok, Data} ?= emqx_utils_json:safe_decode(Val, [return_maps]),
+        {ok, Data} ?= emqx_utils_json:safe_decode(Val),
         #{failure_details => Data}
     else
         Err ->

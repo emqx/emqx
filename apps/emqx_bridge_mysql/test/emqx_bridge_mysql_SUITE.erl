@@ -29,7 +29,7 @@
 -define(MYSQL_PASSWORD, "public").
 -define(MYSQL_POOL_SIZE, 4).
 
--define(WORKER_POOL_SIZE, 4).
+-define(WORKER_POOL_SIZE, 1).
 
 -define(ACTION_TYPE, mysql).
 
@@ -218,7 +218,7 @@ mysql_config(BridgeType, Config) ->
             "    inflight_window = 100\n"
             "    max_buffer_bytes = 256MB\n"
             "    buffer_mode = memory_only\n"
-            "    batch_time = 0\n"
+            "    batch_time = 100ms\n"
             "    metrics_flush_interval = 5s\n"
             "    buffer_seg_bytes = 10MB\n"
             "    start_after_created = true\n"
@@ -272,7 +272,7 @@ create_bridge_http(Params) ->
         {ok, Res} ->
             #{<<"type">> := Type, <<"name">> := Name} = Params,
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -298,7 +298,7 @@ query_resource_async(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     Ref = alias([reply]),
-    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
         timeout => 500, async_reply_fun => {AsyncReplyFun, []}
     }),
@@ -380,7 +380,7 @@ create_rule_and_action_http(Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
             {ok, Res};
         Error ->
@@ -392,7 +392,7 @@ request_api_status(BridgeId) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader) of
         {ok, Res0} ->
-            #{<<"status">> := Status} = _Res = emqx_utils_json:decode(Res0, [return_maps]),
+            #{<<"status">> := Status} = _Res = emqx_utils_json:decode(Res0),
             {ok, binary_to_existing_atom(Status)};
         Error ->
             Error
@@ -888,18 +888,11 @@ t_table_removed(Config) ->
     ),
     ok.
 
-t_nested_payload_template(Config) ->
+init_nested_payload_template(SQL, Config) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     Value = integer_to_binary(erlang:unique_integer()),
-    {ok, _} = create_bridge(
-        Config,
-        #{
-            <<"sql">> =>
-                "INSERT INTO mqtt_test(payload, arrived) "
-                "VALUES (${payload.value}, FROM_UNIXTIME(${timestamp}/1000))"
-        }
-    ),
+    {ok, _} = create_bridge(Config, #{<<"sql">> => SQL}),
     {ok, #{<<"from">> := [Topic]}} = create_rule_and_action_http(Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     ?retry(
@@ -910,16 +903,43 @@ t_nested_payload_template(Config) ->
     %% send message via rule action
     Payload = emqx_utils_json:encode(#{value => Value}),
     Message = emqx_message:make(Topic, Payload),
+    {Value, Message}.
+
+t_nested_payload_template_1(Config) ->
+    SQL = <<
+        "INSERT INTO mqtt_test(payload, arrived) "
+        "VALUES (${payload.value}, FROM_UNIXTIME(${timestamp}/1000))"
+    >>,
+    {Value, Message} = init_nested_payload_template(SQL, Config),
     {_, {ok, _}} =
         ?wait_async_action(
             emqx:publish(Message),
             #{?snk_kind := mysql_connector_query_return},
             10_000
         ),
-    ?assertEqual(
-        {ok, [<<"payload">>], [[Value]]},
-        connect_and_get_payload(Config)
-    ),
+    SelectResult = connect_and_get_payload(Config),
+    ?assertEqual({ok, [<<"payload">>], [[Value]]}, SelectResult),
+    ok.
+
+t_nested_payload_template_2(Config) ->
+    SQL = <<
+        "INSERT INTO mqtt_test(payload, arrived) "
+        "VALUES (${payload.value}, FROM_UNIXTIME(${timestamp}/1000)) "
+        "ON DUPLICATE KEY UPDATE arrived=NOW()"
+    >>,
+    MsgCnt = 20,
+    {Value, Message} = init_nested_payload_template(SQL, Config),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            [emqx:publish(Message) || _ <- lists:seq(1, MsgCnt)],
+            #{?snk_kind := mysql_connector_query_return},
+            10_000
+        ),
+    timer:sleep(1000),
+    {ok, [<<"payload">>], Results} = connect_and_get_payload(Config),
+    ct:pal("-----value: ~p, results: ~p", [Value, Results]),
+    ?assert(length(Results) >= MsgCnt),
+    ?assert(lists:all(fun([V]) -> V == Value end, Results)),
     ok.
 
 t_batch_update_is_forbidden(Config) ->

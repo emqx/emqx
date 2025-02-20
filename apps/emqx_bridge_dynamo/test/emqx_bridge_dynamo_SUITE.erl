@@ -289,7 +289,7 @@ create_bridge_http(Params) ->
         {ok, Res} ->
             #{<<"type">> := Type, <<"name">> := Name} = Params,
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -301,7 +301,7 @@ update_bridge_http(#{<<"type">> := Type, <<"name">> := Name} = Config) ->
     case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Config) of
         {ok, Res} ->
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -311,7 +311,7 @@ get_bridge_http(#{<<"type">> := Type, <<"name">> := Name}) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeID]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 

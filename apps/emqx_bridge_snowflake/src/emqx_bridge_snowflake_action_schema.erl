@@ -85,6 +85,7 @@ fields(aggreg_parameters) ->
         {pipelining, mk(pos_integer(), #{default => 100, desc => ?DESC("pipelining")})},
         {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
         {max_retries, mk(non_neg_integer(), #{default => 3, desc => ?DESC("max_retries")})},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         {max_block_size,
             mk(
                 emqx_schema:bytesize(),
@@ -114,7 +115,10 @@ fields(direct_parameters) ->
     [{mode, mk(direct, #{required => true, desc => ?DESC("direct_mode")})}];
 fields(aggregation) ->
     [
-        emqx_connector_aggregator_schema:container(),
+        emqx_connector_aggregator_schema:container(#{
+            supported_types => [<<"csv">>],
+            default => <<"csv">>
+        }),
         {time_interval,
             hoconsc:mk(
                 emqx_schema:duration_s(),

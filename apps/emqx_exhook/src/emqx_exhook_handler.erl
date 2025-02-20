@@ -61,14 +61,6 @@
     request_meta/0
 ]).
 
--import(
-    emqx_exhook,
-    [
-        cast/2,
-        call_fold/3
-    ]
-).
-
 -elvis([{elvis_style, god_modules, disable}]).
 
 %%--------------------------------------------------------------------
@@ -76,30 +68,34 @@
 %%--------------------------------------------------------------------
 
 on_client_connect(ConnInfo, Props) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         conninfo => conninfo(ConnInfo),
-        props => properties(Props)
+        user_props => UserProps,
+        props => SystemProps
     },
-    cast('client.connect', Req).
+    emqx_exhook:cast('client.connect', Req).
 
 on_client_connack(ConnInfo, Rc, Props) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         conninfo => conninfo(ConnInfo),
         result_code => stringfy(Rc),
-        props => properties(Props)
+        user_props => UserProps,
+        props => SystemProps
     },
-    cast('client.connack', Req).
+    emqx_exhook:cast('client.connack', Req).
 
 on_client_connected(ClientInfo, _ConnInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('client.connected', Req).
+    emqx_exhook:cast('client.connected', Req).
 
 on_client_disconnected(ClientInfo, Reason, _ConnInfo) ->
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         reason => stringfy(Reason)
     },
-    cast('client.disconnected', Req).
+    emqx_exhook:cast('client.disconnected', Req).
 
 on_client_authenticate(ClientInfo, AuthResult) ->
     %% XXX: Bool is missing more information about the atom of the result
@@ -115,7 +111,7 @@ on_client_authenticate(ClientInfo, AuthResult) ->
     },
 
     case
-        call_fold(
+        emqx_exhook:call_fold(
             'client.authenticate',
             Req,
             fun merge_responsed_bool/2
@@ -147,7 +143,7 @@ on_client_authorize(ClientInfo, Action, Topic, Result) ->
         result => Bool
     },
     case
-        call_fold(
+        emqx_exhook:call_fold(
             'client.authorize',
             Req,
             fun merge_responsed_bool/2
@@ -165,20 +161,24 @@ on_client_authorize(ClientInfo, Action, Topic, Result) ->
     end.
 
 on_client_subscribe(ClientInfo, Props, TopicFilters) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         clientinfo => clientinfo(ClientInfo),
-        props => properties(Props),
+        user_props => UserProps,
+        props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    cast('client.subscribe', Req).
+    emqx_exhook:cast('client.subscribe', Req).
 
 on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
+    {UserProps, SystemProps} = format_props(Props),
     Req = #{
         clientinfo => clientinfo(ClientInfo),
-        props => properties(Props),
+        user_props => UserProps,
+        props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    cast('client.unsubscribe', Req).
+    emqx_exhook:cast('client.unsubscribe', Req).
 
 %%--------------------------------------------------------------------
 %% Session
@@ -186,7 +186,7 @@ on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
 
 on_session_created(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('session.created', Req).
+    emqx_exhook:cast('session.created', Req).
 
 on_session_subscribed(ClientInfo, Topic, SubOpts) ->
     Req = #{
@@ -194,7 +194,7 @@ on_session_subscribed(ClientInfo, Topic, SubOpts) ->
         topic => emqx_topic:maybe_format_share(Topic),
         subopts => subopts(SubOpts)
     },
-    cast('session.subscribed', Req).
+    emqx_exhook:cast('session.subscribed', Req).
 
 on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
     Req = #{
@@ -202,26 +202,26 @@ on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
         topic => emqx_topic:maybe_format_share(Topic)
         %% no subopts when unsub
     },
-    cast('session.unsubscribed', Req).
+    emqx_exhook:cast('session.unsubscribed', Req).
 
 on_session_resumed(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('session.resumed', Req).
+    emqx_exhook:cast('session.resumed', Req).
 
 on_session_discarded(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('session.discarded', Req).
+    emqx_exhook:cast('session.discarded', Req).
 
 on_session_takenover(ClientInfo, _SessInfo) ->
     Req = #{clientinfo => clientinfo(ClientInfo)},
-    cast('session.takenover', Req).
+    emqx_exhook:cast('session.takenover', Req).
 
 on_session_terminated(ClientInfo, Reason, _SessInfo) ->
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         reason => stringfy(Reason)
     },
-    cast('session.terminated', Req).
+    emqx_exhook:cast('session.terminated', Req).
 
 %%--------------------------------------------------------------------
 %% Message
@@ -230,9 +230,15 @@ on_session_terminated(ClientInfo, Reason, _SessInfo) ->
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
 on_message_publish(Message) ->
-    Req = #{message => message(Message)},
+    Props = emqx_message:get_header(properties, Message),
+    {UserProps, SystemProps} = format_props(Props),
+    Req = #{
+        message => message(Message),
+        user_props => UserProps,
+        props => SystemProps
+    },
     case
-        call_fold(
+        emqx_exhook:call_fold(
             'message.publish',
             Req,
             fun emqx_exhook_handler:merge_responsed_message/2
@@ -251,7 +257,7 @@ on_message_dropped(Message, _By, Reason) ->
         message => message(Message),
         reason => stringfy(Reason)
     },
-    cast('message.dropped', Req).
+    emqx_exhook:cast('message.dropped', Req).
 
 on_message_delivered(_ClientInfo, #message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
@@ -260,7 +266,7 @@ on_message_delivered(ClientInfo, Message) ->
         clientinfo => clientinfo(ClientInfo),
         message => message(Message)
     },
-    cast('message.delivered', Req).
+    emqx_exhook:cast('message.delivered', Req).
 
 on_message_acked(_ClientInfo, #message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
@@ -269,14 +275,22 @@ on_message_acked(ClientInfo, Message) ->
         clientinfo => clientinfo(ClientInfo),
         message => message(Message)
     },
-    cast('message.acked', Req).
+    emqx_exhook:cast('message.acked', Req).
 
 %%--------------------------------------------------------------------
 %% Types
 
-properties(undefined) ->
-    [];
-properties(M) when is_map(M) ->
+format_props(undefined) ->
+    {[], []};
+format_props(M) when is_map(M) ->
+    case maps:take('User-Property', M) of
+        error ->
+            {[], props(M)};
+        {UserProps, SystemProps} ->
+            {user_props(UserProps), props(SystemProps)}
+    end.
+
+props(M) when is_map(M) ->
     maps:fold(
         fun(K, V, Acc) ->
             [
@@ -291,11 +305,19 @@ properties(M) when is_map(M) ->
         M
     ).
 
+user_props(UserProps) when is_list(UserProps) ->
+    lists:map(
+        fun({K, V}) ->
+            #{name => stringfy(K), value => stringfy(V)}
+        end,
+        UserProps
+    ).
+
 conninfo(
     ConnInfo =
         #{
             clientid := ClientId,
-            peername := {Peerhost, PeerPort},
+            peername := {PeerHost, PeerPort},
             sockname := {_, SockPort}
         }
 ) ->
@@ -307,7 +329,7 @@ conninfo(
         node => stringfy(node()),
         clientid => ClientId,
         username => option(Username),
-        peerhost => ntoa(Peerhost),
+        peerhost => ntoa(PeerHost),
         peerport => PeerPort,
         sockport => SockPort,
         proto_name => ProtoName,

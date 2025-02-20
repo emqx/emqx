@@ -350,7 +350,6 @@ if [ "$DOCKER_USER" != "root" ]; then
           openssl rand -base64 -hex 16 > /.erlang.cookie && \
           chown $DOCKER_USER /.erlang.cookie && \
           chmod 0400 /.erlang.cookie && \
-          chown -R $DOCKER_USER /var/lib/secret && \
           $INSTALL_SQLSERVER_ODBC && \
           $INSTALL_SNOWFLAKE_ODBC" || true
 fi
@@ -375,7 +374,7 @@ else
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
                     -i $TTY "$ERLANG_CONTAINER" \
-                    bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+                    bash -c "make ${WHICH_APP}-ct"
     else
         # this is an ad-hoc run
         docker exec -e IS_CI="$IS_CI" \

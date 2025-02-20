@@ -71,9 +71,9 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     _ = apply_rule(Rule, Columns, Envs),
     ok.
 
-apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
+apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
     PrevProcessMetadata = logger:get_process_metadata(),
-    set_process_trace_metadata(RuleID, Columns),
+    set_process_trace_metadata(RuleId, Columns),
     trace_rule_sql(
         "rule_activated",
         #{
@@ -81,14 +81,14 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
         },
         debug
     ),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'matched'),
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched'),
     clear_rule_payload(),
     try
-        do_apply_rule(Rule, add_metadata(Columns, #{rule_id => RuleID}), Envs)
+        do_apply_rule(Rule, add_metadata(Columns, #{rule_id => RuleId}), Envs)
     catch
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
-            ok = metrics_inc_exception(RuleID),
+            ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "SELECT_clause_exception",
                 #{
@@ -98,7 +98,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {match_conditions_error, Error} ->
-            ok = metrics_inc_exception(RuleID),
+            ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "WHERE_clause_exception",
                 #{
@@ -108,7 +108,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {select_and_collect_error, Error} ->
-            ok = metrics_inc_exception(RuleID),
+            ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "FOREACH_clause_exception",
                 #{
@@ -118,7 +118,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {match_incase_error, Error} ->
-            ok = metrics_inc_exception(RuleID),
+            ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "INCASE_clause_exception",
                 #{
@@ -128,7 +128,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
             ),
             {error, Reason};
         Class:Error:StkTrace ->
-            ok = metrics_inc_exception(RuleID),
+            ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "apply_rule_failed",
                 #{
@@ -143,15 +143,15 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
         reset_logger_process_metadata(PrevProcessMetadata)
     end.
 
-set_process_trace_metadata(RuleID, #{clientid := ClientID} = Columns) ->
+set_process_trace_metadata(RuleId, #{clientid := ClientID} = Columns) ->
     logger:update_process_metadata(#{
         clientid => ClientID,
-        rule_id => RuleID,
+        rule_id => RuleId,
         rule_trigger_ts => [rule_trigger_time(Columns)]
     });
-set_process_trace_metadata(RuleID, Columns) ->
+set_process_trace_metadata(RuleId, Columns) ->
     logger:update_process_metadata(#{
-        rule_id => RuleID,
+        rule_id => RuleId,
         rule_trigger_ts => [rule_trigger_time(Columns)]
     }).
 
@@ -494,7 +494,7 @@ do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) -
     inc_action_metrics(IncCtx, Result),
     Result.
 
-do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
+do_handle_action_get_trace_inc_metrics_context(RuleId, Action) ->
     case {emqx_trace:list(), logger:get_process_metadata()} of
         {[], #{stop_action_after_render := true}} ->
             %% Even if there is no trace we still need to pass
@@ -505,7 +505,7 @@ do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
                     stop_action_after_render => true
                 },
                 #{
-                    rule_id => RuleID,
+                    rule_id => RuleId,
                     action_id => Action
                 }
             };
@@ -513,7 +513,7 @@ do_handle_action_get_trace_inc_metrics_context(RuleID, Action) ->
             %% As a performance/memory optimization, we don't create any trace
             %% context if there are no trace patterns.
             {undefined, #{
-                rule_id => RuleID,
+                rule_id => RuleId,
                 action_id => Action
             }};
         {_List, TraceMeta} ->
@@ -531,13 +531,13 @@ do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta
         end,
     case TraceMeta of
         #{
-            rule_id := RuleID,
+            rule_id := RuleId,
             clientid := ClientID,
             rule_trigger_ts := Timestamp
         } ->
             maps:merge(
                 #{
-                    rule_id => RuleID,
+                    rule_id => RuleId,
                     clientid => ClientID,
                     action_id => Action,
                     rule_trigger_ts => Timestamp
@@ -545,12 +545,12 @@ do_handle_action_get_trace_inc_metrics_context_unconditionally(Action, TraceMeta
                 StopAfterRenderMap
             );
         #{
-            rule_id := RuleID,
+            rule_id := RuleId,
             rule_trigger_ts := Timestamp
         } ->
             maps:merge(
                 #{
-                    rule_id => RuleID,
+                    rule_id => RuleId,
                     action_id => Action,
                     rule_trigger_ts => Timestamp
                 },
@@ -731,7 +731,7 @@ cache_payload(DecodedP) ->
 
 safe_decode_and_cache(MaybeJson) ->
     try
-        cache_payload(emqx_utils_json:decode(MaybeJson, [return_maps]))
+        cache_payload(emqx_utils_json:decode(MaybeJson))
     catch
         _:_ -> error({decode_json_failed, MaybeJson})
     end.
@@ -743,6 +743,12 @@ nested_put(Alias, Val, Columns0) ->
     Columns = ensure_decoded_payload(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
+inc_action_metrics(_TraceCtx, #{is_fallback := true}) ->
+    %% If this is the result of running a fallback action, we don't want to bump any
+    %% metrics from the rule containing the primary action that triggered this.
+    ok;
+inc_action_metrics(TraceCtx, #{result := Result}) ->
+    inc_action_metrics(TraceCtx, Result);
 inc_action_metrics(TraceCtx, Result) ->
     SavedMetaData = logger:get_process_metadata(),
     try

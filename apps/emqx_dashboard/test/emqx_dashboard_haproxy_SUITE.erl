@@ -55,7 +55,7 @@ t_status(_Config) ->
         [binary, {active, false}, {packet, raw}]
     ),
     ok = gen_tcp:send(Socket, ranch_proxy_header:header(ProxyInfo)),
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
     ok = gen_tcp:send(
         Socket,
         "GET /status HTTP/1.1\r\n"

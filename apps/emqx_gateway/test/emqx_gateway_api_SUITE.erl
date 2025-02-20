@@ -376,8 +376,8 @@ t_authn_data_mgmt(_) ->
         ["gateways", "stomp", "authentication", "import_users"]
     ),
 
-    Dir = code:lib_dir(emqx_auth, test),
-    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
+    Dir = code:lib_dir(emqx_auth),
+    JSONFileName = filename:join([Dir, <<"test/data/user-credentials.json">>]),
     {ok, JSONData} = file:read_file(JSONFileName),
     {ok, 200, ImportedResults} = emqx_dashboard_api_test_helpers:multipart_formdata_request(
         ImportUri, [], [
@@ -386,10 +386,10 @@ t_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults, [return_maps])
+        emqx_utils_json:decode(ImportedResults)
     ),
 
-    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
+    CSVFileName = filename:join([Dir, <<"test/data/user-credentials.csv">>]),
     {ok, CSVData} = file:read_file(CSVFileName),
     {ok, 200, ImportedResults2} = emqx_dashboard_api_test_helpers:multipart_formdata_request(
         ImportUri, [], [
@@ -398,7 +398,7 @@ t_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults2, [return_maps])
+        emqx_utils_json:decode(ImportedResults2)
     ),
 
     {204, _} = request(delete, "/gateways/stomp/authentication"),
@@ -593,8 +593,8 @@ t_listeners_authn_data_mgmt(_) ->
         ["gateways", "stomp", "listeners", "stomp:tcp:def", "authentication", "import_users"]
     ),
 
-    Dir = code:lib_dir(emqx_auth, test),
-    JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
+    Dir = code:lib_dir(emqx_auth),
+    JSONFileName = filename:join([Dir, <<"test/data/user-credentials.json">>]),
     {ok, JSONData} = file:read_file(JSONFileName),
     {ok, 200, ImportedResults} = emqx_dashboard_api_test_helpers:multipart_formdata_request(
         ImportUri, [], [
@@ -603,10 +603,10 @@ t_listeners_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults, [return_maps])
+        emqx_utils_json:decode(ImportedResults)
     ),
 
-    CSVFileName = filename:join([Dir, <<"data/user-credentials.csv">>]),
+    CSVFileName = filename:join([Dir, <<"test/data/user-credentials.csv">>]),
     {ok, CSVData} = file:read_file(CSVFileName),
     {ok, 200, ImportedResults2} = emqx_dashboard_api_test_helpers:multipart_formdata_request(
         ImportUri, [], [
@@ -615,7 +615,7 @@ t_listeners_authn_data_mgmt(_) ->
     ),
     ?assertMatch(
         #{<<"total">> := 2, <<"success">> := 2},
-        emqx_utils_json:decode(ImportedResults2, [return_maps])
+        emqx_utils_json:decode(ImportedResults2)
     ),
 
     ok.

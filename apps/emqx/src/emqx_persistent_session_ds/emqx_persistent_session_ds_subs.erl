@@ -25,13 +25,13 @@
 
 %% API:
 -export([
-    open/1,
     fold_private_subscriptions/3,
     on_subscribe/3,
-    on_unsubscribe/4,
+    on_unsubscribe/3,
     on_session_drop/2,
     gc/1,
     lookup/2,
+    find_by_subid/2,
     to_map/1
 ]).
 
@@ -40,11 +40,22 @@
     cold_get_subscription/2
 ]).
 
--export_type([subscription_state_id/0, subscription/0, subscription_state/0, new_stream_subs/0]).
+-ifdef(TEST).
+-export([
+    state_invariants/2
+]).
+-endif.
+
+-export_type([subscription_state_id/0, subscription/0, subscription_state/0]).
 
 -include("session_internals.hrl").
 -include("emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+
+-ifdef(TEST).
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-endif.
 
 %%================================================================================
 %% Type declarations
@@ -74,26 +85,16 @@
         _ => _
     },
     %% Optional field that is added when subscription state becomes
-    %% outdated:
-    superseded_by => subscription_state_id()
+    %% outdated (note: do not use the value, as GC may delete
+    %% subscription states referenced by `superseded_by'):
+    superseded_by => subscription_state_id(),
+    %% Optional field used by shared subscriptions:
+    share_topic_filter => #share{}
 }.
-
--type new_stream_subs() :: #{emqx_ds_new_streams:watch() => emqx_types:topic()}.
 
 %%================================================================================
 %% API functions
 %%================================================================================
-
--spec open(emqx_persistent_session_ds_state:t()) -> new_stream_subs().
-open(S) ->
-    %% Receive notifications about new streams for the topic filter:
-    fold_private_subscriptions(
-        fun(TopicFilterBin, _Sub, Acc) ->
-            Acc#{watch_streams(TopicFilterBin) => TopicFilterBin}
-        end,
-        #{},
-        S
-    ).
 
 %% @doc Fold over non-shared subscriptions:
 fold_private_subscriptions(Fun, Acc, S) ->
@@ -112,11 +113,9 @@ fold_private_subscriptions(Fun, Acc, S) ->
     emqx_types:subopts(),
     emqx_persistent_session_ds:session()
 ) ->
-    {ok, emqx_persistent_session_ds_state:t(), new_stream_subs()}
+    {ok, emqx_persistent_session_ds_state:t(), subscription()}
     | {error, ?RC_QUOTA_EXCEEDED}.
-on_subscribe(TopicFilter, SubOpts, #{
-    id := SessionId, s := S0, props := Props, new_stream_subs := NewStreamSubs
-}) ->
+on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) ->
     #{upgrade_qos := UpgradeQoS, max_subscriptions := MaxSubscriptions} = Props,
     case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
         undefined ->
@@ -144,7 +143,7 @@ on_subscribe(TopicFilter, SubOpts, #{
                     ?tp(persistent_session_ds_subscription_added, #{
                         topic_filter => TopicFilter, session => SessionId
                     }),
-                    {ok, gc(S), NewStreamSubs#{watch_streams(TopicFilter) => TopicFilter}};
+                    {ok, gc(S), Subscription};
                 false ->
                     {error, ?RC_QUOTA_EXCEEDED}
             end;
@@ -153,7 +152,7 @@ on_subscribe(TopicFilter, SubOpts, #{
             case emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0) of
                 SState ->
                     %% Client resubscribed with the same parameters:
-                    {ok, gc(S0), NewStreamSubs};
+                    {ok, gc(S0), Sub0};
                 OldSState ->
                     %% Subsription parameters changed:
                     {SStateId, S1} = emqx_persistent_session_ds_state:new_id(S0),
@@ -165,7 +164,7 @@ on_subscribe(TopicFilter, SubOpts, #{
                     ),
                     Sub = Sub0#{current_state := SStateId},
                     S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Sub, S3),
-                    {ok, gc(S), NewStreamSubs}
+                    {ok, gc(S), Sub}
             end
     end.
 
@@ -173,13 +172,11 @@ on_subscribe(TopicFilter, SubOpts, #{
 -spec on_unsubscribe(
     emqx_persistent_session_ds:id(),
     emqx_persistent_session_ds:topic_filter(),
-    emqx_persistent_session_ds_state:t(),
-    new_stream_subs()
+    emqx_persistent_session_ds_state:t()
 ) ->
-    {ok, emqx_persistent_session_ds_state:t(), new_stream_subs(),
-        emqx_persistent_session_ds:subscription()}
+    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:subscription()}
     | {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
-on_unsubscribe(SessionId, TopicFilter, S0, NewStreamSubs) ->
+on_unsubscribe(SessionId, TopicFilter, S0) ->
     case lookup(TopicFilter, S0) of
         undefined ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED};
@@ -194,15 +191,15 @@ on_unsubscribe(SessionId, TopicFilter, S0, NewStreamSubs) ->
             ),
             _ = emqx_external_broker:delete_persistent_route(TopicFilter, SessionId),
             S = emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0),
-            {ok, gc(S), unwatch_streams(TopicFilter, NewStreamSubs), Subscription}
+            {ok, gc(S), Subscription}
     end.
 
 -spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
 on_session_drop(SessionId, S0) ->
     _ = fold_private_subscriptions(
         fun(TopicFilter, _Subscription, S) ->
-            case on_unsubscribe(SessionId, TopicFilter, S, #{}) of
-                {ok, S1, _, _} -> S1;
+            case on_unsubscribe(SessionId, TopicFilter, S) of
+                {ok, S1, _} -> S1;
                 _ -> S
             end
         end,
@@ -264,6 +261,33 @@ lookup(TopicFilter, S) ->
             undefined
     end.
 
+%% @doc Lookup subscription by its ID:
+-spec find_by_subid(
+    emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
+) ->
+    {emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds:subscription()}
+    | undefined.
+find_by_subid(SubId, S) ->
+    %% TODO: implement generic find function for emqx_persistent_session_ds_state
+    try
+        emqx_persistent_session_ds_state:fold_subscriptions(
+            fun(TF, Sub = #{id := I}, Acc) ->
+                case I of
+                    SubId ->
+                        throw({found, TF, Sub});
+                    _ ->
+                        Acc
+                end
+            end,
+            [],
+            S
+        ),
+        undefined
+    catch
+        {found, TF, Sub} ->
+            {TF, Sub}
+    end.
+
 %% @doc Convert active subscriptions to a map, for information
 %% purpose:
 -spec to_map(emqx_persistent_session_ds_state:t()) -> map().
@@ -298,28 +322,35 @@ cold_get_subscription(SessionId, Topic) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-watch_streams(TopicFilterBin) ->
-    {ok, Ref} = emqx_ds_new_streams:watch(
-        ?PERSISTENT_MESSAGE_DB, emqx_topic:words(TopicFilterBin)
-    ),
-    ?tp(debug, sessds_watch_streams, #{topic_filter => TopicFilterBin, ref => Ref}),
-    Ref.
+%%================================================================================
+%% Test
+%%================================================================================
 
-unwatch_streams(TopicFilter, NewStreamSubs) ->
-    try
-        maps:foreach(
-            fun(Ref, TF) ->
-                case TF of
-                    TopicFilter -> throw({found, Ref});
-                    _ -> ok
+-ifdef(TEST).
+
+-spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) -> boolean().
+state_invariants(#{subs := ModelSubs}, #{s := S}) ->
+    #{subscriptions := Subs, subscription_states := SStates} = S,
+    ?defer_assert(
+        ?assertEqual(
+            lists:sort(maps:keys(ModelSubs)),
+            lists:sort(maps:keys(Subs)),
+            "There should be 1:1 relationship between model and session's subscriptions"
+        )
+    ),
+    %% Verify that QoS of the current subscription state matches the model QoS:
+    maps:foreach(
+        fun(TopicFilter, #{qos := ExpectedQoS}) ->
+            ?defer_assert(
+                begin
+                    #{TopicFilter := #{current_state := SSId}} = Subs,
+                    #{SSId := SubState} = SStates,
+                    #{subopts := #{qos := ExpectedQoS}} = SubState
                 end
-            end,
-            NewStreamSubs
-        ),
-        NewStreamSubs
-    catch
-        {found, Ref} ->
-            ?tp(debug, sessds_unwatch_streams, #{topic_filter => TopicFilter, ref => Ref}),
-            emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
-            maps:remove(Ref, NewStreamSubs)
-    end.
+            )
+        end,
+        ModelSubs
+    ),
+    true.
+
+-endif.

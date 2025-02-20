@@ -44,13 +44,14 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, #{
+            emqx,
+            emqx_conf,
+            {emqx_retainer, #{
+                config => ?BASE_CONF,
                 before_start => fun() ->
                     ok = emqx_schema_hooks:inject_from_modules([emqx_retainer_dummy])
                 end
-            }},
-            emqx_conf,
-            {emqx_retainer, ?BASE_CONF}
+            }}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -100,5 +101,5 @@ t_external_backend(_Config) ->
     ),
     ?assertEqual(
         true,
-        emqx_retainer:enabled()
+        emqx_retainer:is_started()
     ).

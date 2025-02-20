@@ -8,8 +8,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
 
--import(hoconsc, [ref/2]).
-
 -export([
     api_spec/0,
     paths/0,
@@ -84,7 +82,7 @@ get_raw() ->
 
 otel_config_schema() ->
     emqx_dashboard_swagger:schema_with_example(
-        ref(emqx_otel_schema, "opentelemetry"),
+        hoconsc:ref(emqx_otel_schema, "opentelemetry"),
         otel_config_example()
     ).
 

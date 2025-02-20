@@ -46,6 +46,9 @@
     peersni/1,
     wait_for_close/1
 ]).
+
+-export_type([cb_ret/0, cb_data/0, connection_handle/0, stream_handle/0, socket_info/0]).
+
 -include_lib("quicer/include/quicer.hrl").
 -include_lib("emqx/include/emqx_quic.hrl").
 

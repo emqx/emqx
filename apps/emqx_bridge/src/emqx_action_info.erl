@@ -95,6 +95,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_clickhouse_action_info,
         emqx_bridge_confluent_producer_action_info,
         emqx_bridge_couchbase_action_info,
+        emqx_bridge_disk_log_action_info,
         emqx_bridge_dynamo_action_info,
         emqx_bridge_es_action_info,
         emqx_bridge_gcp_pubsub_consumer_action_info,
@@ -273,7 +274,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
         ),
         emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
     ),
-    maps:without([<<"description">>], Merged).
+    maps:without([<<"description">>, <<"fallback_actions">>], Merged).
 
 has_custom_bridge_v1_config_to_connector_config(ActionOrBridgeType) ->
     Module = get_action_info_module(ActionOrBridgeType),

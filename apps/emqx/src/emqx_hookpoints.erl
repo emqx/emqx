@@ -30,7 +30,8 @@
     default_hookpoints/0,
     register_hookpoints/0,
     register_hookpoints/1,
-    verify_hookpoint/1
+    verify_hookpoint/1,
+    registered_hookpoints/0
 ]).
 
 %%-----------------------------------------------------------------------------
@@ -271,15 +272,11 @@ register_hookpoints(HookPoints) when is_map(HookPoints) ->
 -spec verify_hookpoint(registered_hookpoint() | binary()) -> ok | no_return().
 verify_hookpoint(HookPoint) when is_binary(HookPoint) -> ok;
 verify_hookpoint(HookPoint) ->
-    case maps:find(HookPoint, registered_hookpoints()) of
-        {ok, valid} -> ok;
-        {ok, deprecated} -> ?SLOG(warning, #{msg => deprecated_hookpoint, hookpoint => HookPoint});
-        error -> error({invalid_hookpoint, HookPoint})
+    case maps:get(HookPoint, registered_hookpoints(), invalid) of
+        valid -> ok;
+        deprecated -> ?SLOG(warning, #{msg => deprecated_hookpoint, hookpoint => HookPoint});
+        invalid -> error({invalid_hookpoint, HookPoint})
     end.
-
-%%-----------------------------------------------------------------------------
-%% Internal API
-%%-----------------------------------------------------------------------------
 
 -spec registered_hookpoints() -> #{registered_hookpoint() => registered_hookpoint_status()}.
 registered_hookpoints() ->

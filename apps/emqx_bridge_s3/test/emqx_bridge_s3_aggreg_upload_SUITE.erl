@@ -53,11 +53,10 @@ init_per_suite(Config) ->
             emqx_bridge,
             emqx_rule_engine,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    {ok, _} = emqx_common_test_http:create_default_app(),
     [
         {apps, Apps},
         {proxy_host, ProxyHost},
@@ -258,6 +257,68 @@ t_aggreg_upload(Config) ->
             [_TS3, <<"C3">>, T3, P3, <<>> | _]
         ]},
         erl_csv:decode(Content)
+    ).
+
+%% Smoke test for using JSON Lines container type.
+t_aggreg_upload_json_lines(Config0) ->
+    Bucket = ?config(s3_bucket, Config0),
+    BridgeName = ?config(bridge_name, Config0),
+    AggregId = aggreg_id(BridgeName),
+    BridgeNameString = unicode:characters_to_list(BridgeName),
+    NodeString = atom_to_list(node()),
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, bridge_config, fun(Old) ->
+        Cfg = emqx_utils_maps:deep_put(
+            [<<"parameters">>, <<"container">>, <<"type">>],
+            Old,
+            <<"json_lines">>
+        ),
+        emqx_utils_maps:deep_remove(
+            [<<"parameters">>, <<"container">>, <<"column_order">>],
+            Cfg
+        )
+    end),
+    %% Create a bridge with the sample configuration.
+    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    %% Prepare some sample messages that look like Rule SQL productions.
+    MessageEvents = lists:map(fun mk_message_event/1, [
+        {<<"C1">>, T1 = <<"a/b/c">>, P1 = <<"{\"hello\":\"world\"}">>},
+        {<<"C2">>, T2 = <<"foo/bar">>, P2 = <<"baz">>},
+        {<<"C3">>, T3 = <<"t/42">>, P3 = <<"">>}
+    ]),
+    ok = send_messages(BridgeName, MessageEvents),
+    %% Wait until the delivery is completed.
+    ?block_until(#{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}),
+    %% Check the uploaded objects.
+    _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
+    ?assertMatch(
+        [BridgeNameString, NodeString, _Datetime, _Seq = "0"],
+        string:split(Key, "/", all)
+    ),
+    Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
+    ?assertMatch(
+        #{content_type := "application/jsonl", "x-amz-meta-version" := "42"},
+        Upload
+    ),
+    %% Verify that column order is respected.
+    ?assertMatch(
+        [
+            #{
+                <<"clientid">> := <<"C1">>,
+                <<"payload">> := P1,
+                <<"topic">> := T1
+            },
+            #{
+                <<"clientid">> := <<"C2">>,
+                <<"payload">> := P2,
+                <<"topic">> := T2
+            },
+            #{
+                <<"clientid">> := <<"C3">>,
+                <<"payload">> := P3,
+                <<"topic">> := T3
+            }
+        ],
+        emqx_connector_aggreg_json_lines_test_utils:decode(Content)
     ).
 
 t_aggreg_upload_rule(Config) ->

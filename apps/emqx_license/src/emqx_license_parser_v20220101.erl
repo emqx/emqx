@@ -11,6 +11,7 @@
 
 -define(DIGEST_TYPE, sha256).
 -define(LICENSE_VERSION, <<"220111">>).
+-define(MAX_EVALUATION_UPTIME_DAYS, 30).
 
 %% This is the earliest license start date for version 220111
 %% in theory it should  be the same as ?LICENSE_VERSION (20220111),
@@ -25,7 +26,8 @@
     customer_type/1,
     license_type/1,
     expiry_date/1,
-    max_connections/1
+    max_connections/1,
+    max_uptime_seconds/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -93,6 +95,14 @@ expiry_date(#{date_start := DateStart, days := Days}) ->
     calendar:gregorian_days_to_date(
         calendar:date_to_gregorian_days(DateStart) + Days
     ).
+
+max_uptime_seconds(License) ->
+    case customer_type(License) of
+        ?EVALUATION_CUSTOMER ->
+            ?MAX_EVALUATION_UPTIME_DAYS * 24 * 60 * 60;
+        _ ->
+            infinity
+    end.
 
 max_connections(#{max_connections := MaxConns}) ->
     MaxConns.

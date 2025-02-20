@@ -281,6 +281,7 @@ make_connector_config(Config) ->
     #{
         <<"enable">> => true,
         <<"url">> => iolist_to_binary(io_lib:format("http://localhost:~p", [Port])),
+        <<"max_inactive">> => <<"10s">>,
         <<"headers">> => #{},
         <<"pool_type">> => <<"hash">>,
         <<"pool_size">> => 1,

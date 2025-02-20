@@ -1199,15 +1199,14 @@ auth_header_() ->
     auth_header_(<<"admin">>, <<"public">>).
 
 auth_header_(Username, Password) ->
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
-    Jsx.
+    emqx_utils_json:decode(Data).
 
 delete_all_bridges() ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().

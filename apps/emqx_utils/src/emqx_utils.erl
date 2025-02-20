@@ -64,7 +64,6 @@
     diff_lists/3,
     merge_lists/3,
     flattermap/2,
-    tcp_keepalive_opts/4,
     format/1,
     format/2,
     format_mfal/2,
@@ -547,26 +546,6 @@ safe_to_existing_atom(Atom, _Encoding) when is_atom(Atom) ->
     {ok, Atom};
 safe_to_existing_atom(_Any, _Encoding) ->
     {error, invalid_type}.
-
--spec tcp_keepalive_opts(term(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
-    {ok, [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}]}
-    | {error, {unsupported_os, term()}}.
-tcp_keepalive_opts({unix, linux}, Idle, Interval, Probes) ->
-    {ok, [
-        {keepalive, true},
-        {raw, 6, 4, <<Idle:32/native>>},
-        {raw, 6, 5, <<Interval:32/native>>},
-        {raw, 6, 6, <<Probes:32/native>>}
-    ]};
-tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
-    {ok, [
-        {keepalive, true},
-        {raw, 6, 16#10, <<Idle:32/native>>},
-        {raw, 6, 16#101, <<Interval:32/native>>},
-        {raw, 6, 16#102, <<Probes:32/native>>}
-    ]};
-tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
-    {error, {unsupported_os, OS}}.
 
 format(Term) ->
     unicode:characters_to_binary(io_lib:format("~0tp", [Term])).

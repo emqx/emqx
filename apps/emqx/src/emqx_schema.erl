@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_schema).
+-feature(maybe_expr, enable).
 
 -dialyzer(no_return).
 -dialyzer(no_match).
@@ -103,7 +104,9 @@
     ensure_unicode_path/2,
     validate_server_ssl_opts/1,
     validate_tcp_keepalive/1,
-    parse_tcp_keepalive/1
+    parse_tcp_keepalive/1,
+    tcp_keepalive_opts/1,
+    tcp_keepalive_opts/4
 ]).
 
 -export([qos/0]).
@@ -136,6 +139,8 @@
     parse_servers/2,
     servers_validator/2,
     servers_sc/2,
+    latency_histogram_buckets_sc/1,
+    parse_latency_histogram_buckets/1,
     convert_servers/1,
     convert_servers/2,
     mqtt_converter/2
@@ -149,6 +154,7 @@
 
 -export([listeners/0]).
 -export([mkunion/2, mkunion/3]).
+-export([fill_defaults/2, fill_defaults_for_type/2]).
 
 -behaviour(hocon_schema).
 
@@ -189,6 +195,9 @@
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
 
+%% Some types are already exported by typerefl macros, but elvis is incapable of seeing
+%% that.
+-elvis([{elvis_style, export_used_types, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
 
 -define(BIT(Bits), (1 bsl (Bits))).
@@ -329,6 +338,15 @@ roots(low) ->
             sc(
                 ref("banned"),
                 #{importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {config_backup_interval,
+            sc(
+                timeout_duration_ms(),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("config_backup_interval"),
+                    default => <<"5m">>
+                }
             )}
     ].
 
@@ -577,6 +595,7 @@ fields("crl_cache") ->
     ];
 fields("mqtt_tcp_listener") ->
     mqtt_listener(1883) ++
+        mqtt_parse_options() ++
         [
             {"tcp_options",
                 sc(
@@ -586,6 +605,7 @@ fields("mqtt_tcp_listener") ->
         ];
 fields("mqtt_ssl_listener") ->
     mqtt_listener(8883) ++
+        mqtt_parse_options() ++
         [
             {"tcp_options",
                 sc(
@@ -1906,6 +1926,19 @@ mqtt_listener(Bind) ->
                 )}
         ] ++ emqx_schema_hooks:list_injection_point('mqtt.listener').
 
+mqtt_parse_options() ->
+    [
+        {"parse_unit",
+            sc(
+                hoconsc:enum([chunk, frame]),
+                #{
+                    default => <<"chunk">>,
+                    desc => ?DESC(fields_mqtt_opts_parse_unit),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
+    ].
+
 access_rules_converter(AccessRules) ->
     DeepRules =
         lists:foldr(
@@ -2659,22 +2692,37 @@ mk_duration(Desc, OverrideMeta) ->
 
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_integer(I) -> {ok, I};
-        _ -> to_integer(Str)
+        D when is_integer(D) ->
+            {ok, D};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid duration"}
+            end
     end.
 
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_number(I) -> {ok, ceiling(I / 1000)};
-        _ -> to_integer(Str)
+        D when is_number(D) ->
+            {ok, ceiling(D / 1000)};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid duration"}
+            end
     end.
 
--spec to_duration_ms(Input) -> {ok, integer()} | {error, Input} when
+-spec to_duration_ms(Input) -> {ok, integer()} | {error, string()} when
     Input :: string() | binary().
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
-        I when is_number(I) -> {ok, ceiling(I)};
-        _ -> to_integer(Str)
+        D when is_number(D) ->
+            {ok, ceiling(D)};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid duration"}
+            end
     end.
 
 -spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
@@ -2694,28 +2742,26 @@ to_timeout_duration_s(Str) ->
 
 do_to_timeout_duration(Str, Fn, Max, Unit) ->
     case Fn(Str) of
-        {ok, I} ->
-            case I =< Max of
-                true ->
-                    {ok, I};
-                false ->
-                    Msg = lists:flatten(
-                        io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
-                    ),
-                    throw(#{
-                        schema_module => ?MODULE,
-                        message => Msg,
-                        kind => validation_error
-                    })
-            end;
+        {ok, I} when I =< Max ->
+            {ok, I};
+        {ok, _} ->
+            Msg = lists:flatten(
+                io_lib:format("timeout value too large (max: ~b ~s)", [Max, Unit])
+            ),
+            {error, Msg};
         Err ->
             Err
     end.
 
 to_bytesize(Str) ->
     case hocon_postprocess:bytesize(Str) of
-        I when is_integer(I) -> {ok, I};
-        _ -> to_integer(Str)
+        BS when is_integer(BS) ->
+            {ok, BS};
+        _ ->
+            case to_integer(Str) of
+                {ok, I} -> {ok, I};
+                {error, _} -> {error, "Not a valid bytesize"}
+            end
     end.
 
 to_wordsize(Str) ->
@@ -2759,10 +2805,13 @@ to_url(Str) ->
 
 to_json_binary(Str) ->
     case emqx_utils_json:safe_decode(Str) of
-        {ok, _} ->
-            {ok, unicode:characters_to_binary(Str)};
-        Error ->
-            Error
+        {ok, _} -> {ok, unicode:characters_to_binary(Str)};
+        {error, {_Pos, truncated_json}} -> {error, "Truncated JSON value"};
+        {error, {_Pos, invalid_literal}} -> {error, "Invalid JSON literal"};
+        {error, {_Pos, invalid_number}} -> {error, "Invalid JSON number"};
+        {error, {_Pos, invalid_string}} -> {error, "Invalid JSON string"};
+        {error, {_Pos, invalid_json}} -> {error, "Invalid JSON"};
+        Error -> Error
     end.
 
 to_template(Str) ->
@@ -2781,13 +2830,14 @@ to_ip_port(Str) ->
     case split_ip_port(Str) of
         {"", Port} ->
             %% this is a local address
-            {ok, parse_port(Port)};
+            parse_port(Port);
         {MaybeIp, Port} ->
-            PortVal = parse_port(Port),
-            case inet:parse_address(MaybeIp) of
-                {ok, IpTuple} ->
-                    {ok, {IpTuple, PortVal}};
-                _ ->
+            maybe
+                {ok, PortVal} ?= parse_port(Port),
+                {ok, IpTuple} ?= inet:parse_address(MaybeIp),
+                {ok, {IpTuple, PortVal}}
+            else
+                {error, _} ->
                     {error, bad_ip_port}
             end;
         _ ->
@@ -2816,7 +2866,7 @@ split_ip_port(Str0) ->
 
 to_erl_cipher_suite(Str) ->
     case ssl:str_to_suite(Str) of
-        {error, Reason} -> error({invalid_cipher, Reason});
+        {error, Reason} -> {error, {invalid_cipher, Reason}};
         Cipher -> Cipher
     end.
 
@@ -2866,6 +2916,40 @@ validate_keepalive_multiplier(Multiplier) when
     ok;
 validate_keepalive_multiplier(_Multiplier) ->
     {error, #{reason => keepalive_multiplier_out_of_range, min => 1, max => 65535}}.
+
+%% @doc Translate TCP keea-alive string config value into raw TCP options.
+-spec tcp_keepalive_opts(string() | binary()) ->
+    [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}].
+tcp_keepalive_opts(None) when None =:= "none"; None =:= <<"none">> ->
+    [];
+tcp_keepalive_opts(KeepAlive) ->
+    {Idle, Interval, Probes} = parse_tcp_keepalive(KeepAlive),
+    case tcp_keepalive_opts(os:type(), Idle, Interval, Probes) of
+        {ok, Opts} ->
+            Opts;
+        {error, {unsupported_os, _OS}} ->
+            []
+    end.
+
+-spec tcp_keepalive_opts(term(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
+    {ok, [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}]}
+    | {error, {unsupported_os, term()}}.
+tcp_keepalive_opts({unix, linux}, Idle, Interval, Probes) ->
+    {ok, [
+        {keepalive, true},
+        {raw, 6, 4, <<Idle:32/native>>},
+        {raw, 6, 5, <<Interval:32/native>>},
+        {raw, 6, 6, <<Probes:32/native>>}
+    ]};
+tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
+    {ok, [
+        {keepalive, true},
+        {raw, 6, 16#10, <<Idle:32/native>>},
+        {raw, 6, 16#101, <<Interval:32/native>>},
+        {raw, 6, 16#102, <<Probes:32/native>>}
+    ]};
+tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
+    {error, {unsupported_os, OS}}.
 
 validate_tcp_keepalive(Value) ->
     case unicode:characters_to_binary(Value) of
@@ -3202,7 +3286,7 @@ check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
     #{
         scheme => check_scheme(Scheme, Opts),
         hostname => check_hostname(Hostname),
-        port => parse_port(Port)
+        port => parse_port_(Port)
     };
 check_server_parts([Scheme, "//" ++ Hostname], Context) ->
     #{
@@ -3237,13 +3321,13 @@ check_server_parts([Hostname, Port], Context) ->
         false ->
             #{
                 hostname => check_hostname(Hostname),
-                port => parse_port(Port)
+                port => parse_port_(Port)
             };
         true ->
             #{
                 scheme => DefaultScheme,
                 hostname => check_hostname(Hostname),
-                port => parse_port(Port)
+                port => parse_port_(Port)
             }
     end;
 check_server_parts([Hostname], Context) ->
@@ -3332,21 +3416,76 @@ convert_hocon_map_host_port(Map) ->
         hocon_maps:flatten(Map, #{})
     ).
 
-is_port_number(Port) ->
-    try
-        _ = parse_port(Port),
-        true
-    catch
-        _:_ ->
-            false
+is_port_number(Str) ->
+    {Status, _} = parse_port(Str),
+    Status == ok.
+
+parse_port_(Str) ->
+    case parse_port(Str) of
+        {ok, Port} -> Port;
+        {error, Reason} -> throw(Reason)
     end.
 
 parse_port(Port) ->
     case string:to_integer(string:strip(Port)) of
-        {P, ""} when P < 0 -> throw("port_number_must_be_positive");
-        {P, ""} when P > 65535 -> throw("port_number_too_large");
-        {P, ""} -> P;
-        _ -> throw("bad_port_number")
+        {P, ""} when P < 0 ->
+            {error, "port_number_must_be_positive"};
+        {P, ""} when P > 65535 ->
+            {error, "port_number_too_large"};
+        {P, ""} ->
+            {ok, P};
+        _ ->
+            {error, "bad_port_number"}
+    end.
+
+latency_histogram_buckets_sc(Meta0) ->
+    DefaultMeta = #{
+        default => <<"10ms, 100ms, 1s, 5s, 30s">>,
+        desc => "Comma separated duration values for latency histogram buckets.",
+        converter => fun latency_histogram_buckets_converter/2,
+        required => true
+    },
+    hoconsc:mk(string(), maps:merge(DefaultMeta, Meta0)).
+
+latency_histogram_buckets_converter(undefined, _Opts) ->
+    undefined;
+latency_histogram_buckets_converter(Buckets, #{make_serializable := true}) ->
+    case is_list(Buckets) of
+        true ->
+            iolist_to_binary(
+                string:join(
+                    [integer_to_list(I) || I <- Buckets],
+                    ", "
+                )
+            );
+        false ->
+            Buckets
+    end;
+latency_histogram_buckets_converter(Buckets, _Opts) ->
+    case is_binary(Buckets) of
+        true ->
+            parse_latency_histogram_buckets(Buckets);
+        false ->
+            Buckets
+    end.
+
+parse_latency_histogram_buckets(Str) ->
+    case binary:split(Str, <<",">>, [global, trim]) of
+        [] ->
+            [];
+        BucketsStr ->
+            lists:map(
+                fun(BucketStr) ->
+                    case to_duration_ms(string:trim(BucketStr)) of
+                        {ok, Duration} when Duration > 0 -> Duration;
+                        {ok, Duration} when Duration =< 0 ->
+                            throw("non_positive_latency_histogram_bucket");
+                        {error, Error} ->
+                            throw({"bad_latency_histogram_bucket", Error})
+                    end
+                end,
+                BucketsStr
+            )
     end.
 
 quic_feature_toggle(Desc) ->
@@ -4021,4 +4160,23 @@ scunion(Field, Schemas, Default, {value, Value}) ->
             [Schema];
         _Error ->
             throw(#{field_name => Field, expected => maps:keys(Schemas)})
+    end.
+
+fill_defaults(Roots, RawConf) ->
+    Schema = #{roots => Roots},
+    case emqx_hocon:check(Schema, RawConf, #{make_serializable => true}) of
+        {ok, WithDefaults} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
+    end.
+
+fill_defaults_for_type(Type, RawConf) ->
+    WithRoot = #{<<"conf">> => RawConf},
+    Roots = [{conf, hoconsc:mk(Type, #{})}],
+    case fill_defaults(Roots, WithRoot) of
+        #{<<"conf">> := WithDefaults} ->
+            WithDefaults;
+        {error, Reason} ->
+            throw(Reason)
     end.

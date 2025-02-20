@@ -105,7 +105,7 @@ t_authenticate(_Config) ->
 
     ok = emqx_config:put([mqtt, idle_timeout], 500),
 
-    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+    {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
@@ -119,7 +119,7 @@ t_authenticate(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+    ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     %% Intentional sleep to trigger idle timeout for the connection not yet authenticated
     ok = ct:sleep(1000),
@@ -147,7 +147,7 @@ t_authenticate(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
+    ok = emqx_mqtt_test_client:send(Pid, AuthContinuePacket),
 
     ?CONNACK_PACKET(
         ?RC_SUCCESS,
@@ -166,7 +166,7 @@ t_authenticate_bad_props(_Config) ->
 
     init_auth(Username, Password, Algorithm),
 
-    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+    {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ConnectPacket = ?CONNECT_PACKET(
         #mqtt_packet_connect{
@@ -177,7 +177,7 @@ t_authenticate_bad_props(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+    ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
@@ -188,7 +188,7 @@ t_authenticate_bad_username(_Config) ->
 
     init_auth(Username, Password, Algorithm),
 
-    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+    {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = sasl_auth_scram:client_first_message(<<"badusername">>),
 
@@ -202,7 +202,7 @@ t_authenticate_bad_username(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+    ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
@@ -213,7 +213,7 @@ t_authenticate_bad_password(_Config) ->
 
     init_auth(Username, Password, Algorithm),
 
-    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+    {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
@@ -227,7 +227,7 @@ t_authenticate_bad_password(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+    ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?AUTH_PACKET(
         ?RC_CONTINUE_AUTHENTICATION,
@@ -252,7 +252,7 @@ t_authenticate_bad_password(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
+    ok = emqx_mqtt_test_client:send(Pid, AuthContinuePacket),
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
@@ -331,7 +331,7 @@ t_update_user_keys(_Config) ->
 
     ok = emqx_config:put([mqtt, idle_timeout], 500),
 
-    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+    {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
@@ -345,7 +345,7 @@ t_update_user_keys(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+    ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?AUTH_PACKET(
         ?RC_CONTINUE_AUTHENTICATION,
@@ -370,7 +370,7 @@ t_update_user_keys(_Config) ->
         }
     ),
 
-    ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
+    ok = emqx_mqtt_test_client:send(Pid, AuthContinuePacket),
 
     ?CONNACK_PACKET(
         ?RC_SUCCESS,

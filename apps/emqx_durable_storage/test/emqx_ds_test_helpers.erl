@@ -22,6 +22,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(ON(NODE, BODY),
     emqx_ds_test_helpers:on(NODE, fun() -> BODY end)
@@ -459,14 +460,4 @@ consume_iter_with(NextFun, It0, Opts) ->
             {ok, Eos, []};
         {error, Class, Reason} ->
             error({error, Class, Reason})
-    end.
-
-collect_poll_replies(Alias, Timeout) ->
-    receive
-        #poll_reply{payload = poll_timeout, ref = Alias} ->
-            [];
-        #poll_reply{userdata = ItRef, payload = Reply, ref = Alias} ->
-            [{ItRef, Reply} | collect_poll_replies(Alias, Timeout)]
-    after Timeout ->
-        []
     end.

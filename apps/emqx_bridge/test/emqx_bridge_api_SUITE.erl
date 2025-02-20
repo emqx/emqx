@@ -616,7 +616,7 @@ t_check_dependent_actions_on_delete(Config) ->
     {ok, 400, Body} = request(
         delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions=false", Config
     ),
-    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body, [return_maps])),
+    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body)),
     %% delete the rule first
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), Config),
     %% then delete the bridge is OK
@@ -1470,7 +1470,7 @@ t_create_with_bad_name(Config) ->
             BadBridgeParams,
             Config
         ),
-    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    Msg = emqx_utils_json:decode(Msg0),
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
@@ -1575,11 +1575,11 @@ str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
-    emqx_utils_json:decode(B, [return_maps]).
+    emqx_utils_json:decode(B).
 
 data_file(Name) ->
-    Dir = code:lib_dir(emqx_bridge, test),
-    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Dir = code:lib_dir(emqx_bridge),
+    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
     Bin.
 
 cert_file(Name) ->

@@ -808,7 +808,10 @@ cluster(TC, Config) ->
             {data_backup_core2, #{role => core, apps => apps_to_start()}},
             {data_backup_replicant, #{role => replicant, apps => apps_to_start()}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(TC, Config),
+            start_apps_timeout => 60_000
+        }
     ),
     Nodes.
 

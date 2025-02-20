@@ -39,18 +39,21 @@
 
 -type permission_resolution() :: allow | deny.
 
+%% re:mp()
+-type re_pattern() :: tuple().
+
 -type who_condition() ::
     all
     | username()
     | clientid()
     | client_attr()
     | ipaddress()
-    | {'and', [ipaddress() | username() | clientid()]}
-    | {'or', [ipaddress() | username() | clientid()]}.
+    | {'and', [who_condition()]}
+    | {'or', [who_condition()]}.
 -type ipaddress() :: {ipaddr, esockd_cidr:cidr_string()} | {ipaddrs, [esockd_cidr:cidr_string()]}.
--type username() :: {username, binary() | {re, binary()}}.
--type clientid() :: {clientid, binary() | {re, binary()}}.
--type client_attr() :: {client_attr, Name :: binary(), Value :: binary() | {re, binary()}}.
+-type username() :: {username, binary() | re_pattern()}.
+-type clientid() :: {clientid, binary() | re_pattern()}.
+-type client_attr() :: {client_attr, Name :: binary(), Value :: binary() | re_pattern()}.
 
 -type action_condition() ::
     subscribe
@@ -93,7 +96,18 @@
 
 -type permission_resolution_precompile() :: permission_resolution().
 
--type who_precompile() :: who_condition().
+-type ip_address_precompile() ::
+    {ipaddr, esockd_cidr:cidr_string()} | {ipaddrs, list(esockd_cidr:cidr_string())}.
+-type username_precompile() :: {username, binary()} | {username, {re, iodata()}}.
+-type clientid_precompile() :: {clientid, binary()} | {clientid, {re, iodata()}}.
+
+-type who_precompile() ::
+    ip_address_precompile()
+    | username_precompile()
+    | clientid_precompile()
+    | {'and', [who_precompile()]}
+    | {'or', [who_precompile()]}
+    | all.
 
 -type subscribe_option_precompile() :: {qos, qos() | [qos()]}.
 -type publish_option_precompile() :: {qos, qos() | [qos()]} | {retain, retain_condition()}.
@@ -116,6 +130,7 @@
 
 -export_type([
     permission_resolution_precompile/0,
+    who_precompile/0,
     action_precompile/0,
     topic_precompile/0,
     rule_precompile/0
@@ -234,15 +249,19 @@ compile_who(all) ->
 compile_who({user, Username}) ->
     compile_who({username, Username});
 compile_who({username, {re, Username}}) ->
-    {ok, MP} = re:compile(bin(Username)),
-    {username, MP};
+    case re:compile(bin(Username)) of
+        {ok, MP} -> {username, MP};
+        {error, Reason} -> throw({invalid_username_re, Reason})
+    end;
 compile_who({username, Username}) ->
     {username, {eq, bin(Username)}};
 compile_who({client, Clientid}) ->
     compile_who({clientid, Clientid});
 compile_who({clientid, {re, Clientid}}) ->
-    {ok, MP} = re:compile(bin(Clientid)),
-    {clientid, MP};
+    case re:compile(bin(Clientid)) of
+        {ok, MP} -> {clientid, MP};
+        {error, Reason} -> throw({invalid_clientid_re, Reason})
+    end;
 compile_who({clientid, Clientid}) ->
     {clientid, {eq, bin(Clientid)}};
 compile_who({client_attr, Name, {re, Attr}}) ->
@@ -271,7 +290,7 @@ compile_topic(<<"eq ", Topic/binary>>) ->
 compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
-    Template = emqx_auth_utils:parse_str(Topic, ?ALLOWED_VARS),
+    {_, Template} = emqx_auth_template:parse_str(Topic, ?ALLOWED_VARS),
     case emqx_template:is_const(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}
@@ -418,7 +437,7 @@ match_topic(Topic, TopicFilter) ->
 
 render_topic(Topic, ClientInfo) ->
     try
-        bin(emqx_auth_utils:render_strict(Topic, ClientInfo))
+        bin(emqx_auth_template:render_strict(Topic, ClientInfo))
     catch
         error:Reason ->
             ?SLOG(debug, #{

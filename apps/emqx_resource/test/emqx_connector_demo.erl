@@ -25,6 +25,7 @@
 %% callbacks of behaviour emqx_resource
 -export([
     resource_type/0,
+    query_mode/1,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -64,6 +65,11 @@ register(default) -> false;
 register(_) -> undefined.
 
 resource_type() -> demo.
+
+query_mode(#{force_query_mode := QM} = _Config) ->
+    QM;
+query_mode(Config) ->
+    emqx_utils_maps:deep_get([resource_opts, query_mode], Config, sync).
 
 callback_mode() ->
     persistent_term:get(?CM_KEY).
@@ -189,7 +195,17 @@ on_query(_InstId, {sleep_before_reply, For}, #{pid := Pid}) ->
 on_query(_InstId, {sync_sleep_before_reply, SleepFor}, _State) ->
     %% This simulates a slow sync call
     timer:sleep(SleepFor),
-    {ok, slept}.
+    {ok, slept};
+on_query(_InstId, {_ChanId, #{q := ask, fn := _, ctx := _}} = Query, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, Query},
+    receive
+        {ReqRef, Result} ->
+            Result
+    after 1_000 ->
+        {error, timeout}
+    end.
 
 on_query_async(_InstId, block, ReplyFun, #{pid := Pid}) ->
     Pid ! {block, ReplyFun},
@@ -215,11 +231,13 @@ on_query_async(_InstId, {individual_reply, IsSuccess}, ReplyFun, #{pid := Pid}) 
 on_query_async(_InstId, {sleep_before_reply, For}, ReplyFun, #{pid := Pid}) ->
     ?tp(connector_demo_sleep, #{mode => async, for => For}),
     Pid ! {{sleep_before_reply, For}, ReplyFun},
+    {ok, Pid};
+on_query_async(_InstId, {_ChanId, #{q := ask, fn := _, ctx := _}} = Query, ReplyFun, #{pid := Pid}) ->
+    Pid ! {Query, ReplyFun},
     {ok, Pid}.
 
 on_batch_query(InstId, BatchReq, State) ->
-    %% Requests can be either 'get_counter' or 'inc_counter', but
-    %% cannot be mixed.
+    %% Requests of different types cannot be mixed.
     case hd(BatchReq) of
         {inc_counter, _} ->
             batch_inc_counter(sync, InstId, BatchReq, State);
@@ -229,6 +247,8 @@ on_batch_query(InstId, BatchReq, State) ->
             batch_big_payload(sync, InstId, BatchReq, State);
         {individual_reply, _IsSuccess} ->
             batch_individual_reply(sync, InstId, BatchReq, State);
+        {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
+            batch_ask_reply(sync, InstId, BatchReq, State);
         {random_reply, Num} ->
             %% async batch retried
             make_random_reply(Num)
@@ -247,6 +267,8 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             batch_big_payload({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {individual_reply, _IsSuccess} ->
             batch_individual_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
+            batch_ask_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {random_reply, Num} ->
             %% only take the first Num in the batch should be random enough
             Pid ! {{random_reply, Num}, ReplyFunAndArgs},
@@ -299,6 +321,26 @@ batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
     Pid = spawn(fun() ->
         Results = lists:map(
             fun(Req = {individual_reply, _}) -> on_query(InstId, Req, State) end,
+            Batch
+        ),
+        apply_reply(ReplyFunAndArgs, Results)
+    end),
+    {ok, Pid}.
+
+batch_ask_reply(sync, InstId, Batch, State) ->
+    emqx_utils:pmap(
+        fun(Req = {_ChanId, #{q := ask, fn := _, ctx := _}}) ->
+            on_query(InstId, Req, State)
+        end,
+        Batch,
+        infinity
+    );
+batch_ask_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
+    Pid = spawn(fun() ->
+        Results = lists:map(
+            fun(Req = {_ChanId, #{q := ask, fn := _, ctx := _}}) ->
+                on_query(InstId, Req, State)
+            end,
             Batch
         ),
         apply_reply(ReplyFunAndArgs, Results)
@@ -517,11 +559,23 @@ counter_loop(
                 State;
             {{FromPid, ReqRef}, {sleep_before_reply, _} = SleepQ} ->
                 FromPid ! {ReqRef, handle_query(sync, SleepQ, Status)},
+                State;
+            {{_ChanId, #{q := ask, fn := _, ctx := _}} = Query, ReplyFun} ->
+                apply_reply(ReplyFun, handle_query(async, Query, Status, #{reply_fn => ReplyFun})),
+                State;
+            {{FromPid, ReqRef}, {_ChanId, #{q := ask, fn := _, ctx := _}} = Query} ->
+                FromPid ! {ReqRef, handle_query(sync, Query, Status)},
                 State
         end,
     counter_loop(NewState).
 
-handle_query(Mode, {sleep_before_reply, For} = Query, Status) ->
+handle_query(Mode, Query, Status) ->
+    handle_query(Mode, Query, Status, _Opts = #{}).
+
+handle_query(Mode, {ChanId, #{q := ask, fn := Fn, ctx := Ctx}}, Status, Opts) ->
+    ReplyFn = maps:get(reply_fn, Opts, undefined),
+    Fn(Ctx#{id => ChanId, mode => Mode, status => Status, reply_fn => ReplyFn});
+handle_query(Mode, {sleep_before_reply, For} = Query, Status, _Opts) ->
     ok = timer:sleep(For),
     Result =
         case Status of

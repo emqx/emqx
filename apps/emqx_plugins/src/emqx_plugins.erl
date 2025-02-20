@@ -1445,7 +1445,7 @@ backup_and_write_hocon_bin(NameVsn, HoconBin) ->
     end.
 
 backup_and_replace(Path, TmpPath) ->
-    Backup = Path ++ "." ++ now_time() ++ ".bak",
+    Backup = Path ++ "." ++ emqx_utils_calendar:now_time(millisecond) ++ ".bak",
     case file:rename(Path, Backup) of
         ok ->
             ok = file:rename(TmpPath, Path),
@@ -1581,17 +1581,6 @@ running_apps() ->
         end,
         application:which_applications(infinity)
     ).
-
-%% @private This is the same human-readable timestamp format as
-%% hocon-cli generated app.<time>.config file name.
-now_time() ->
-    Ts = os:system_time(millisecond),
-    {{Y, M, D}, {HH, MM, SS}} = calendar:system_time_to_local_time(Ts, millisecond),
-    Res = io_lib:format(
-        "~0p.~2..0b.~2..0b.~2..0b.~2..0b.~2..0b.~3..0b",
-        [Y, M, D, HH, MM, SS, Ts rem 1000]
-    ),
-    lists:flatten(Res).
 
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);

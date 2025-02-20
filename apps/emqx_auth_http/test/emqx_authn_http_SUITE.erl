@@ -22,6 +22,7 @@
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
@@ -34,6 +35,7 @@
     username => <<"plain">>,
     password => <<"plain">>,
     peerhost => {127, 0, 0, 1},
+    peerport => 12345,
     listener => 'tcp:default',
     protocol => mqtt,
     cert_subject => <<"cert_subject_data">>,
@@ -97,7 +99,6 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -106,6 +107,8 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    _ = emqx_auth_cache:reset(?AUTHN_CACHE),
+    ok = emqx_authn_test_lib:enable_node_cache(false),
     ok = emqx_authn_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
@@ -216,9 +219,9 @@ t_authenticate_path_placeholders(_Config) ->
         end
     ),
 
-    Credentials = ?CREDENTIALS#{
+    Credentials = ?MAPPEND(?CREDENTIALS, #{
         username => <<"us er">>
-    },
+    }),
 
     AuthConfig = maps:merge(
         raw_http_auth_config(),
@@ -249,7 +252,7 @@ t_no_value_for_placeholder(_Config) ->
             <<"cert_subject">> := <<"">>,
             <<"cert_common_name">> := <<"">>,
             <<"cert_pem">> := <<"">>
-        } = emqx_utils_json:decode(RawBody, [return_maps]),
+        } = emqx_utils_json:decode(RawBody),
         Req = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
@@ -399,6 +402,69 @@ t_update(_Config) ->
     ?assertMatch(
         ?EXCEPTION_ALLOW,
         emqx_access_control:authenticate(?CREDENTIALS)
+    ).
+
+t_node_cache(_Config) ->
+    Config = maps:merge(
+        raw_http_auth_config(),
+        #{
+            <<"method">> => <<"get">>,
+            <<"url">> => <<"http://127.0.0.1:32333/auth/${clientid}?username=${username}">>,
+            <<"body">> => #{<<"password">> => <<"${password}">>}
+        }
+    ),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    ok = emqx_authn_test_lib:enable_node_cache(true),
+    Handler = fun(#{path := Path} = Req0, State) ->
+        Req =
+            case {Path, cowboy_req:match_qs([username, password], Req0)} of
+                {<<"/auth/clientid">>, #{username := <<"username">>, password := <<"password">>}} ->
+                    cowboy_req:reply(204, Req0);
+                _ ->
+                    cowboy_req:reply(403, Req0)
+            end,
+        {ok, Req, State}
+    end,
+    ok = emqx_authn_http_test_server:set_handler(Handler),
+
+    %% We authenticate twice, the second time should be cached
+    Credentials = ?MAPPEND(?CREDENTIALS, #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        password => <<"password">>
+    }),
+    ?assertMatch(
+        ?EXCEPTION_ALLOW,
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        ?EXCEPTION_ALLOW,
+        emqx_access_control:authenticate(Credentials)
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 1}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
+    ),
+
+    %% Now change a var in each interpolated part, the cache should NOT be hit
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(Credentials#{username => <<"username2">>})
+    ),
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(Credentials#{password => <<"password2">>})
+    ),
+    ?assertMatch(
+        ?EXCEPTION_DENY,
+        emqx_access_control:authenticate(Credentials#{clientid => <<"clientid2">>})
+    ),
+    ?assertMatch(
+        #{hits := #{value := 1}, misses := #{value := 4}},
+        emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
 t_is_superuser(_Config) ->
@@ -578,14 +644,14 @@ t_auth_expire(_Config) ->
         {create_authenticator, ?GLOBAL, Config}
     ),
     ExpireSec = 3,
-    WaitTime = timer:seconds(ExpireSec + 1),
+    ExpireMSec = timer:seconds(ExpireSec),
     Tests = [
         {<<"ok-to-connect-but-expire-on-pub">>, erlang:system_time(second) + ExpireSec, fun(C) ->
             {ok, _} = emqtt:connect(C),
             receive
                 {'DOWN', _Ref, process, C, Reason} ->
                     ?assertMatch({shutdown, {disconnected, ?RC_NOT_AUTHORIZED, _}}, Reason)
-            after WaitTime ->
+            after round(ExpireMSec * 1.5) ->
                 error(timeout)
             end
         end},
@@ -635,7 +701,7 @@ test_auth_expire({Username, _ExpireTime, TestFn}) ->
     try
         TestFn(C)
     after
-        [ok = emqtt:disconnect(C) || is_process_alive(C)]
+        catch emqtt:stop(C)
     end.
 
 test_acl({allow, Topic}, C) ->
@@ -660,6 +726,7 @@ raw_http_auth_config() ->
 
         <<"backend">> => <<"http">>,
         <<"method">> => <<"get">>,
+        <<"max_inactive">> => <<"10s">>,
         <<"url">> => <<"http://127.0.0.1:32333/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
@@ -778,7 +845,7 @@ samples() ->
                 #{
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>
-                } = emqx_utils_json:decode(RawBody, [return_maps]),
+                } = emqx_utils_json:decode(RawBody),
                 Req = cowboy_req:reply(
                     200,
                     #{<<"content-type">> => <<"application/json">>},
@@ -801,7 +868,7 @@ samples() ->
                 #{
                     <<"username">> := <<"plain">>,
                     <<"password">> := <<"plain">>
-                } = emqx_utils_json:decode(RawBody, [return_maps]),
+                } = emqx_utils_json:decode(RawBody),
                 <<"application/json">> = cowboy_req:header(<<"content-type">>, Req0),
                 Req = cowboy_req:reply(
                     200,
@@ -853,11 +920,12 @@ samples() ->
                     <<"password">> := <<"plain">>,
                     <<"clientid">> := <<"clienta">>,
                     <<"peerhost">> := <<"127.0.0.1">>,
+                    <<"peerport">> := <<"12345">>,
                     <<"cert_subject">> := <<"cert_subject_data">>,
                     <<"cert_common_name">> := <<"cert_common_name_data">>,
                     <<"cert_pem">> := CertPem,
                     <<"the_group">> := <<"g1">>
-                } = emqx_utils_json:decode(RawBody, [return_maps]),
+                } = emqx_utils_json:decode(RawBody),
                 <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
                 <<"fake_raw_cert_to_be_base64_encoded">> = base64:decode(CertPem),
                 Req = cowboy_req:reply(
@@ -879,6 +947,7 @@ samples() ->
                     <<"username">> => ?PH_USERNAME,
                     <<"password">> => ?PH_PASSWORD,
                     <<"peerhost">> => ?PH_PEERHOST,
+                    <<"peerport">> => ?PH_PEERPORT,
                     <<"cert_subject">> => ?PH_CERT_SUBJECT,
                     <<"cert_common_name">> => ?PH_CERT_CN_NAME,
                     <<"cert_pem">> => ?PH_CERT_PEM,

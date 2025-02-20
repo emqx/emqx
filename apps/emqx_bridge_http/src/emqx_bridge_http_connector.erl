@@ -59,6 +59,7 @@
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
+-define(DEFAULT_MAX_INACTIVE, 10_000).
 
 -define(READACT_REQUEST_NOTE, "the request body is redacted due to security reasons").
 
@@ -114,6 +115,7 @@ fields(config) ->
                     desc => ?DESC("enable_pipelining")
                 }
             )},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         {request,
             hoconsc:mk(
                 ref("request"),
@@ -227,6 +229,7 @@ on_start(
         {pool_size, PoolSize},
         {transport, Transport},
         {transport_opts, NTransportOpts},
+        {max_inactive, maps:get(max_inactive, Config, ?DEFAULT_MAX_INACTIVE)},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
 
@@ -911,16 +914,16 @@ transform_result(Result) ->
     case Result of
         %% The normal reason happens when the HTTP connection times out before
         %% the request has been fully processed
+        {error, {shutdown, Reason}} ->
+            transform_result({error, Reason});
         {error, Reason} when
             Reason =:= econnrefused;
             Reason =:= timeout;
             Reason =:= normal;
-            Reason =:= {shutdown, normal};
-            Reason =:= {shutdown, closed}
+            Reason =:= closed;
+            %% {closed, "The connection was lost."}
+            element(1, Reason) =:= closed
         ->
-            {error, {recoverable_error, Reason}};
-        {error, {closed, _Message} = Reason} ->
-            %% _Message = "The connection was lost."
             {error, {recoverable_error, Reason}};
         {error, _Reason} ->
             Result;

@@ -19,7 +19,7 @@ desc_builtin_action_republish.label:
 """Republish Configuration"""
 
 desc_republish_args.desc:
-"""The arguments of the built-in 'republish' action.One can use variables in the args.
+"""The arguments of the built-in 'republish' action. One can use variables in the args.
 The variables are selected by the rule. For example, if the rule SQL is defined as following:
 <code>
     SELECT clientid, qos, payload FROM "t/1"
@@ -112,6 +112,9 @@ Placeholders like <code>${.payload.content_type}</code> may be used."""
 
 republish_args_mqtt_properties.label:
 """MQTT Properties"""
+
+republish_mqtt_properties_prop.desc:
+"""An MQTT property that can be set while republishing."""
 
 republish_args_direct_dispatch.desc:
 """Enable direct dispatch to subscribers without initiating a new message publish event.

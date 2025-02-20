@@ -35,19 +35,27 @@ t_copy_conf_override_on_restarts(Config) ->
     ),
 
     %% 1. Start all nodes
+    ct:pal("starting cluster"),
     Nodes = start_cluster(Cluster),
     try
+        ct:pal("checking state"),
         assert_config_load_done(Nodes),
 
         %% 2. Stop each in order.
+        ct:pal("stopping cluster"),
         stop_cluster(Nodes),
 
         %% 3. Restart nodes in the same order.  This should not
         %% crash and eventually all nodes should be ready.
+        ct:pal("restarting cluster"),
         restart_cluster_async(Cluster),
 
-        timer:sleep(15000),
+        ct:pal("waiting for stabilization"),
+        PrevFlag = process_flag(trap_exit, true),
+        wait_emqx_conf_started(Nodes, 35_000),
+        process_flag(trap_exit, PrevFlag),
 
+        ct:pal("checking state"),
         assert_config_load_done(Nodes),
 
         ok
@@ -256,3 +264,33 @@ sort_highest_uptime(Nodes) ->
 get_node_uptime(Node) ->
     {Milliseconds, _} = erpc:call(Node, erlang, statistics, [wall_clock]),
     Milliseconds.
+
+now_ms() ->
+    erlang:system_time(millisecond).
+
+wait_emqx_conf_started([], _RemainingTime) ->
+    ok;
+wait_emqx_conf_started(Nodes, RemainingTime) when RemainingTime =< 0 ->
+    error({timed_out_waiting_for_emqx_conf, #{remaining_nodes => Nodes}});
+wait_emqx_conf_started([Node | Nodes], RemainingTime0) ->
+    T0 = now_ms(),
+    try erpc:call(Node, application, which_applications, [1_000]) of
+        StartedApps ->
+            case lists:keyfind(emqx_conf, 1, StartedApps) of
+                {emqx_conf, _, _} ->
+                    T1 = now_ms(),
+                    wait_emqx_conf_started(Nodes, RemainingTime0 - (T1 - T0));
+                false ->
+                    ct:sleep(200),
+                    T1 = now_ms(),
+                    wait_emqx_conf_started([Node | Nodes], RemainingTime0 - (T1 - T0))
+            end
+    catch
+        exit:{timeout, _} ->
+            T1 = now_ms(),
+            wait_emqx_conf_started([Node | Nodes], RemainingTime0 - (T1 - T0));
+        error:{erpc, noconnection} ->
+            ct:sleep(200),
+            T1 = now_ms(),
+            wait_emqx_conf_started([Node | Nodes], RemainingTime0 - (T1 - T0))
+    end.

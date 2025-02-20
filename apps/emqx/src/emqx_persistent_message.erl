@@ -22,7 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 -export([init/0]).
--export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1]).
+-export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1, get_db_config/0]).
 
 %% Config handler
 -export([add_handler/0, pre_config_update/3]).
@@ -71,7 +71,9 @@ force_ds(Zone) ->
 
 -ifdef(STORE_STATE_IN_DS).
 initialize_session_ds_state() ->
-    Config = emqx_ds_schema:db_config([durable_storage, sessions]),
+    {ok, Config0} = emqx_schema_hooks:value_injection_point('durable_storage.sessions'),
+    Config1 = emqx_ds_schema:db_config([durable_storage, sessions]),
+    Config = emqx_utils_maps:deep_merge(Config0, Config1),
     ok = emqx_persistent_session_ds_state:open_db(Config).
 %% ELSE ifdef(STORE_STATE_IN_DS).
 -else.

@@ -76,7 +76,6 @@ t_config(_Config) ->
     ?assertMatch(
         #{
             backend := _,
-            enable := _,
             max_payload_size := _,
             msg_clear_interval := _,
             msg_expiry_interval := _
@@ -84,22 +83,17 @@ t_config(_Config) ->
         ReturnConf
     ),
 
-    UpdateConf = fun(Enable) ->
-        RawConf = emqx_utils_json:decode(ConfJson, [return_maps]),
-        UpdateJson = RawConf#{<<"enable">> := Enable},
-        {ok, UpdateResJson} = request_api(
-            put,
-            Path,
-            [],
-            auth_header_(),
-            UpdateJson
-        ),
-        UpdateRawConf = emqx_utils_json:decode(UpdateResJson, [return_maps]),
-        ?assertEqual(Enable, maps:get(<<"enable">>, UpdateRawConf))
-    end,
-
-    UpdateConf(false),
-    UpdateConf(true).
+    RawConf = emqx_utils_json:decode(ConfJson),
+    UpdateJson = RawConf#{<<"max_payload_size">> => 54321},
+    {ok, UpdateResJson} = request_api(
+        put,
+        Path,
+        [],
+        auth_header_(),
+        UpdateJson
+    ),
+    UpdateRawConf = emqx_utils_json:decode(UpdateResJson),
+    ?assertEqual(54321, maps:get(<<"max_payload_size">>, UpdateRawConf)).
 
 t_messages1(Config) ->
     C = ?config(client, Config),
@@ -314,15 +308,14 @@ t_lookup_and_delete(Config) ->
 t_change_storage_type(_Config) ->
     Path = api_path(["mqtt", "retainer"]),
     {ok, ConfJson} = request_api(get, Path),
-    RawConf = emqx_utils_json:decode(ConfJson, [return_maps]),
+    RawConf = emqx_utils_json:decode(ConfJson),
     %% pre-conditions
     ?assertMatch(
         #{
             <<"backend">> := #{
                 <<"type">> := <<"built_in_database">>,
                 <<"storage_type">> := <<"ram">>
-            },
-            <<"enable">> := true
+            }
         },
         RawConf
     ),
@@ -361,14 +354,13 @@ t_change_storage_type(_Config) ->
         auth_header_(),
         ChangedConf
     ),
-    UpdatedRawConf = emqx_utils_json:decode(UpdateResJson, [return_maps]),
+    UpdatedRawConf = emqx_utils_json:decode(UpdateResJson),
     ?assertMatch(
         #{
             <<"backend">> := #{
                 <<"type">> := <<"built_in_database">>,
                 <<"storage_type">> := <<"disc">>
-            },
-            <<"enable">> := true
+            }
         },
         UpdatedRawConf
     ),
@@ -446,7 +438,7 @@ t_retained_sys_messages(_Config) ->
 %%--------------------------------------------------------------------
 
 decode_json(Data) ->
-    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    BinJson = emqx_utils_json:decode(Data),
     emqx_utils_maps:unsafe_atom_key_map(BinJson).
 
 raw_systopic_conf() ->

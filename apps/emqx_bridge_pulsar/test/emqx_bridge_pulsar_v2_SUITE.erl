@@ -359,7 +359,7 @@ flush_consumed() ->
     end.
 
 try_decode_json(Payload) ->
-    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+    case emqx_utils_json:safe_decode(Payload) of
         {error, _} ->
             Payload;
         {ok, JSON} ->

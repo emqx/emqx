@@ -40,14 +40,25 @@
     filters = #{}
 }).
 
--record(poll_reply, {
+-record(ds_sub_reply, {
     ref :: reference(),
-    userdata,
-    payload :: emqx_ds:next_result() | poll_timeout
+    payload :: emqx_ds:next_result(),
+    seqno :: emqx_ds:sub_seqno() | undefined,
+    size :: non_neg_integer(),
+    %% Set to `true' when the subscription becomes inactive due to
+    %% falling behind on acks:
+    stuck :: boolean() | undefined,
+    %% Currently set to `true' when the subscription was fulfilled by
+    %% the `catchup' worker and `false' when it's fulfilled by the RT
+    %% worker:
+    lagging :: boolean() | undefined
 }).
 
 -record(new_stream_event, {
-    subref :: reference()
+    subref :: emqx_ds_new_streams:watch()
 }).
+
+-define(err_rec(E), {error, recoverable, E}).
+-define(err_unrec(E), {error, unrecoverable, E}).
 
 -endif.

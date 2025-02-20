@@ -2,7 +2,7 @@
 {application, emqx_ds_builtin_local, [
     {description, "A DS backend that stores all data locally and thus doesn't support clustering."},
     % strict semver, bump manually!
-    {vsn, "0.2.1"},
+    {vsn, "0.2.2"},
     {modules, []},
     {registered, []},
     {applications, [kernel, stdlib, gproc, mria, rocksdb, emqx_durable_storage, emqx_utils]},

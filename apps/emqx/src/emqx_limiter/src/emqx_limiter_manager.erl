@@ -49,9 +49,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
-    terminate/2,
-    code_change/3,
-    format_status/2
+    terminate/2
 ]).
 
 -type limiter_id() :: emqx_limiter_schema:limiter_id().
@@ -242,37 +240,6 @@ handle_info(Info, State) ->
 terminate(_Reason, _State) ->
     emqx_config_handler:remove_handler([limiter]),
     ok.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Convert process state when code is changed
-%% @end
-%%--------------------------------------------------------------------
--spec code_change(
-    OldVsn :: term() | {down, term()},
-    State :: term(),
-    Extra :: term()
-) ->
-    {ok, NewState :: term()}
-    | {error, Reason :: term()}.
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called for changing the form and appearance
-%% of gen_server status when it is returned from sys:get_status/1,2
-%% or when it appears in termination error logs.
-%% @end
-%%--------------------------------------------------------------------
--spec format_status(
-    Opt :: normal | terminate,
-    Status :: list()
-) -> Status :: term().
-format_status(_Opt, Status) ->
-    Status.
 
 %%--------------------------------------------------------------------
 %%  Internal functions

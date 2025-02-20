@@ -86,11 +86,14 @@
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
+    connection_rejected_due_to_trial_license_uptime_limit,
+    connection_rejected_due_to_max_uptime_reached,
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
     failed_to_fetch_crl,
     failed_to_retain_message,
+    failed_to_trigger_fallback_action,
     handle_resource_metrics_failed,
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
@@ -1424,13 +1427,16 @@ log_handler_common_confs(Handler, Default) ->
     ].
 
 crash_dump_file_default() ->
-    case os:getenv("EMQX_LOG_DIR") of
-        false ->
-            %% testing, or running emqx app as deps
-            <<"log/erl_crash.dump">>;
-        Dir ->
-            unicode:characters_to_binary(filename:join([Dir, "erl_crash.dump"]), utf8)
-    end.
+    File = "erl_crash." ++ emqx_utils_calendar:now_time(second) ++ ".dump",
+    LogDir =
+        case os:getenv("EMQX_LOG_DIR") of
+            false ->
+                %% testing, or running emqx app as deps
+                "log";
+            Dir ->
+                Dir
+        end,
+    unicode:characters_to_binary(filename:join([LogDir, File]), utf8).
 
 %% utils
 -spec conf_get(string() | [string()], hocon:config()) -> term().
@@ -1636,8 +1642,8 @@ validate_dns_cluster_strategy(_Other, _Type, _Name) ->
 
 is_ip_addr(Host, Type) ->
     case inet:parse_address(Host) of
-        {ok, Ip} ->
-            AddrType = address_type(Ip),
+        {ok, IP} ->
+            AddrType = address_type(IP),
             case
                 (AddrType =:= ipv4 andalso Type =:= a) orelse
                     (AddrType =:= ipv6 andalso Type =:= aaaa)
@@ -1649,7 +1655,7 @@ is_ip_addr(Host, Type) ->
                         explain => "Node name address " ++ atom_to_list(AddrType) ++
                             " is incompatible with DNS record type " ++ atom_to_list(Type),
                         record_type => Type,
-                        address_type => address_type(Ip)
+                        address_type => address_type(IP)
                     })
             end;
         _ ->

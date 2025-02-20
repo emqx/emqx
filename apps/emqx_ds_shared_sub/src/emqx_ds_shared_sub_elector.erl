@@ -43,7 +43,7 @@ start_link(ShareTopic) ->
 %%--------------------------------------------------------------------
 
 -record(follower, {
-    topic :: emqx_persistent_session_ds:share_topic_filter(),
+    topic :: emqx_types:share(),
     leader :: pid(),
     alive_until :: non_neg_integer()
 }).
@@ -60,9 +60,11 @@ init(Elect = {elect, _ShareTopic}) ->
 
 handle_event(internal, {elect, ShareTopic}, electing, _) ->
     elect(ShareTopic, _TS = emqx_message:timestamp_now());
-handle_event(info, ?agent_connect_leader_match(Agent, Metadata, _ShareTopic), follower, Data) ->
+handle_event(
+    info, ?borrower_connect_match(_BorrowerId, _ShareTopic) = ConnectMessage, follower, Data
+) ->
     %% NOTE: Redirecting to the known leader.
-    ok = connect_leader(Agent, Metadata, Data),
+    ok = connect_leader(ConnectMessage, Data),
     keep_state_and_data;
 handle_event(state_timeout, invalidate, follower, _Data) ->
     {stop, {shutdown, invalidate}}.
@@ -73,7 +75,8 @@ handle_event(state_timeout, invalidate, follower, _Data) ->
 
 elect(ShareTopic, TS) ->
     StoreID = emqx_ds_shared_sub_store:mk_id(ShareTopic),
-    case emqx_ds_shared_sub_store:claim_leadership(StoreID, _Leader = self(), TS) of
+    Leader = self(),
+    case emqx_ds_shared_sub_store:claim_leadership(StoreID, Leader, TS) of
         {ok, LeaderClaim} ->
             %% Become the leader.
             ?tp(debug, shared_sub_elector_becomes_leader, #{
@@ -113,5 +116,5 @@ elect(ShareTopic, TS) ->
             {stop, StopReason}
     end.
 
-connect_leader(Agent, AgentMetadata, #follower{topic = ShareTopic, leader = Pid}) ->
-    emqx_ds_shared_sub_proto:agent_connect_leader(Pid, Agent, AgentMetadata, ShareTopic).
+connect_leader(ConnectMessage, #follower{leader = Pid}) ->
+    emqx_ds_shared_sub_proto:send_to_leader(Pid, ConnectMessage).

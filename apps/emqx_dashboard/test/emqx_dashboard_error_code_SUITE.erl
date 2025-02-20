@@ -110,7 +110,7 @@ request(Url) ->
         {ok, {{"HTTP/1.1", Code, _}, _, Return}} when
             Code >= 200 andalso Code =< 299
         ->
-            {ok, emqx_utils_json:decode(Return, [return_maps])};
+            {ok, emqx_utils_json:decode(Return)};
         {ok, {Reason, _, _}} ->
             {error, Reason}
     end.

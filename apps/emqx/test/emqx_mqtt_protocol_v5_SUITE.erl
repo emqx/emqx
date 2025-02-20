@@ -53,6 +53,7 @@
 all() ->
     [
         {group, tcp},
+        {group, tcp_beam_framing},
         {group, ws},
         {group, quic}
     ].
@@ -61,6 +62,7 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
         {tcp, [], TCs -- [t_connect_clean_start_unresp_old_client]},
+        {tcp_beam_framing, [], TCs -- [t_connect_clean_start_unresp_old_client]},
         {ws, [], TCs -- [t_connect_clean_start_unresp_old_client]},
         {quic, [], TCs}
     ].
@@ -68,6 +70,12 @@ groups() ->
 init_per_group(tcp, Config) ->
     Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
     [{conn_type, tcp}, {port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+init_per_group(tcp_beam_framing, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = frame }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
@@ -166,6 +174,19 @@ t_basic_test(Config) ->
     {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
     {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
     ?assertEqual(3, length(receive_messages(3))),
+    ok = emqtt:disconnect(C).
+
+t_basic_large_packets(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(2, ?TOPICS),
+    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 20), 1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 200), 1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 2000), 1),
+    {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"PACKET">>, 20000), 1),
+    ?assertEqual(4, length(receive_messages(4))),
     ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------

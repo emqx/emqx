@@ -79,10 +79,10 @@
 %% Export for CT
 -export([set_field/3]).
 
--import(
-    emqx_utils,
-    [start_timer/2]
-).
+-export_type([
+    state/0,
+    parser/0
+]).
 
 -record(state, {
     %% TCP/TLS Transport
@@ -95,8 +95,8 @@
     sockname :: emqx_types:peername(),
     %% Sock State
     sockstate :: emqx_types:sockstate(),
-    parse_state :: emqx_frame:parse_state(),
-    %% Serialize options
+    %% Packet parser / serializer
+    parser :: parser(),
     serialize :: emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
@@ -132,6 +132,13 @@
     extra = []
 }).
 
+-type parser() ::
+    %% Special, slightly better optimized "complete-frames" parser.
+    %% Expected to be enabled when `{packet, mqtt}` is used for MQTT framing.
+    {frame, emqx_frame:parse_state_initial()}
+    %% Bytestream parser.
+    | _Stream :: emqx_frame:parse_state().
+
 -record(retry, {
     types :: list(limiter_type()),
     data :: any(),
@@ -144,10 +151,10 @@
     next :: check_succ_handler()
 }).
 
--type state() :: #state{}.
+-opaque state() :: #state{}.
 -type pending_req() :: #pending_req{}.
 
--define(ACTIVE_N, 100).
+-define(ACTIVE_N, 10).
 
 -define(INFO_KEYS, [
     socktype,
@@ -268,7 +275,7 @@ async_set_keepalive(Idle, Interval, Probes) ->
     async_set_keepalive(os:type(), self(), Idle, Interval, Probes).
 
 async_set_keepalive(OS, Pid, Idle, Interval, Probes) ->
-    case emqx_utils:tcp_keepalive_opts(OS, Idle, Interval, Probes) of
+    case emqx_schema:tcp_keepalive_opts(OS, Idle, Interval, Probes) of
         {ok, Options} ->
             async_set_socket_options(Pid, Options);
         {error, {unsupported_os, OS}} ->
@@ -336,7 +343,7 @@ init_state(
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    ParseState = emqx_frame:initial_parse_state(FrameOpts),
+    Parser = init_parser(Transport, Socket, FrameOpts),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
@@ -358,7 +365,7 @@ init_state(
         sockname = Sockname,
         sockstate = idle,
         limiter = Limiter,
-        parse_state = ParseState,
+        parser = Parser,
         serialize = Serialize,
         channel = Channel,
         gc_state = GcState,
@@ -611,14 +618,15 @@ handle_msg(
     {event, connected},
     State = #state{
         channel = Channel,
+        parser = Parser,
         serialize = Serialize,
-        parse_state = PS,
         quic_conn_ss = QSS
     }
 ) ->
     QSS =/= undefined andalso
         emqx_quic_connection:activate_data_streams(
-            maps:get(conn_pid, QSS), {PS, Serialize, Channel}
+            maps:get(conn_pid, QSS),
+            {get_parser_state(Parser), Serialize, Channel}
         ),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
@@ -775,7 +783,7 @@ when_bytes_in(Oct, Data, State) ->
         bin => binary_to_list(binary:encode_hex(Data)),
         type => "hex"
     }),
-    {Packets, NState} = parse_incoming(Data, [], State),
+    {Packets, NState} = parse_incoming(Data, State),
     Len = erlang:length(Packets),
     check_limiter(
         [{Oct, ?LIMITER_BYTES_IN}, {Len, ?LIMITER_MESSAGE_IN}],
@@ -794,37 +802,88 @@ next_incoming_msgs(Packets, Msgs, State) ->
     Msgs2 = lists:foldl(Fun, Msgs, Packets),
     {ok, Msgs2, State}.
 
-parse_incoming(<<>>, Packets, State) ->
-    {Packets, State};
-parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
-    try emqx_frame:parse(Data, ParseState) of
-        {more, NParseState} ->
-            {Packets, State#state{parse_state = NParseState}};
-        {ok, Packet, Rest, NParseState} ->
-            NState = State#state{parse_state = NParseState},
-            parse_incoming(Rest, [Packet | Packets], NState)
+parse_incoming(Data, State = #state{parser = Parser}) ->
+    try
+        run_parser(Data, Parser, State)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
             ?LOG(info, #{
                 msg => "frame_parse_error",
                 reason => Reason,
-                at_state => emqx_frame:describe_state(ParseState),
-                input_bytes => Data,
-                parsed_packets => Packets
+                at_state => describe_parser_state(Parser),
+                input_bytes => Data
             }),
-            NState = enrich_state(Reason, State),
-            {[{frame_error, Reason} | Packets], NState};
+            NState = update_state_on_parse_error(Parser, Reason, State),
+            {[{frame_error, Reason}], NState};
         error:Reason:Stacktrace ->
             ?LOG(error, #{
                 msg => "frame_parse_failed",
-                at_state => emqx_frame:describe_state(ParseState),
+                at_state => describe_parser_state(Parser),
                 input_bytes => Data,
-                parsed_packets => Packets,
                 reason => Reason,
                 stacktrace => Stacktrace
             }),
-            {[{frame_error, Reason} | Packets], State}
+            {[{frame_error, Reason}], State}
     end.
+
+init_parser(Transport, Socket, FrameOpts) ->
+    {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
+    case lists:keyfind(packet, 1, SocketOpts) of
+        {packet, mqtt} ->
+            %% Enable whole-frame packet parser.
+            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+        _Otherwise ->
+            %% Go with regular streaming parser.
+            emqx_frame:initial_parse_state(FrameOpts)
+    end.
+
+update_state_on_parse_error(
+    ParseState0,
+    #{proto_ver := ProtoVer, parse_state := ParseState},
+    State
+) ->
+    Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
+    case ParseState0 of
+        {frame, _Options} -> NParseState = {frame, ParseState};
+        _StreamParseState -> NParseState = ParseState
+    end,
+    State#state{serialize = Serialize, parser = NParseState};
+update_state_on_parse_error(_, _, State) ->
+    State.
+
+run_parser(Data, {frame, Options}, State) ->
+    run_frame_parser(Data, Options, State);
+run_parser(Data, ParseState, State) ->
+    run_stream_parser(Data, [], ParseState, State).
+
+-compile({inline, [run_stream_parser/4]}).
+run_stream_parser(<<>>, Acc, NParseState, State) ->
+    {Acc, State#state{parser = NParseState}};
+run_stream_parser(Data, Acc, ParseState, State) ->
+    case emqx_frame:parse(Data, ParseState) of
+        {Packet, Rest, NParseState} ->
+            run_stream_parser(Rest, [Packet | Acc], NParseState, State);
+        {more, NParseState} ->
+            {Acc, State#state{parser = NParseState}}
+    end.
+
+-compile({inline, [run_frame_parser/3]}).
+run_frame_parser(Data, Options, State) ->
+    case emqx_frame:parse_complete(Data, Options) of
+        Packet when is_tuple(Packet) ->
+            {[Packet], State};
+        [Packet, NOptions] ->
+            NState = State#state{parser = {frame, NOptions}},
+            {[Packet], NState}
+    end.
+
+describe_parser_state(ParseState) ->
+    emqx_frame:describe_state(ParseState).
+
+get_parser_state({frame, Options}) ->
+    Options;
+get_parser_state(ParseState) ->
+    ParseState.
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -872,43 +931,41 @@ handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res.
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->
-    send(lists:map(serialize_and_inc_stats_fun(State), Packets), State);
+    send([serialize_and_inc_stats(State, Packet) || Packet <- Packets], State);
 do_handle_outgoing(Packet, State) ->
-    send((serialize_and_inc_stats_fun(State))(Packet), State).
+    send(serialize_and_inc_stats(State, Packet), State).
 
-serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
-    fun(Packet) ->
-        try emqx_frame:serialize_pkt(Packet, Serialize) of
-            <<>> ->
-                ?LOG(warning, #{
-                    msg => "packet_is_discarded",
-                    reason => "frame_is_too_large",
-                    packet => emqx_packet:format(Packet, hidden)
-                }),
-                ok = emqx_metrics:inc('delivery.dropped.too_large'),
-                ok = emqx_metrics:inc('delivery.dropped'),
-                ok = inc_outgoing_stats({error, message_too_large}),
-                <<>>;
-            Data ->
-                ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-                ok = inc_outgoing_stats(Packet),
-                Data
-        catch
-            %% Maybe Never happen.
-            throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
-                ?LOG(info, #{
-                    reason => Reason,
-                    input_packet => Packet
-                }),
-                erlang:error({?FRAME_SERIALIZE_ERROR, Reason});
-            error:Reason:Stacktrace ->
-                ?LOG(error, #{
-                    input_packet => Packet,
-                    exception => Reason,
-                    stacktrace => Stacktrace
-                }),
-                erlang:error(?FRAME_SERIALIZE_ERROR)
-        end
+serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
+    try emqx_frame:serialize_pkt(Packet, Serialize) of
+        <<>> ->
+            ?LOG(warning, #{
+                msg => "packet_is_discarded",
+                reason => "frame_is_too_large",
+                packet => emqx_packet:format(Packet, hidden)
+            }),
+            ok = emqx_metrics:inc('delivery.dropped.too_large'),
+            ok = emqx_metrics:inc('delivery.dropped'),
+            ok = inc_outgoing_stats({error, message_too_large}),
+            <<>>;
+        Data ->
+            ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
+            ok = inc_outgoing_stats(Packet),
+            Data
+    catch
+        %% Maybe Never happen.
+        throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
+            ?LOG(info, #{
+                reason => Reason,
+                input_packet => Packet
+            }),
+            erlang:error({?FRAME_SERIALIZE_ERROR, Reason});
+        error:Reason:Stacktrace ->
+            ?LOG(error, #{
+                input_packet => Packet,
+                exception => Reason,
+                stacktrace => Stacktrace
+            }),
+            erlang:error(?FRAME_SERIALIZE_ERROR)
     end.
 
 %%--------------------------------------------------------------------
@@ -1267,12 +1324,6 @@ inc_counter(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),
     ok.
 
-enrich_state(#{parse_state := NParseState}, State) ->
-    Serialize = emqx_frame:serialize_opts(NParseState),
-    State#state{parse_state = NParseState, serialize = Serialize};
-enrich_state(_, State) ->
-    State.
-
 set_tcp_keepalive({quic, _Listener}) ->
     ok;
 set_tcp_keepalive({Type, Id}) ->
@@ -1314,6 +1365,10 @@ wait_for_quic_stream_close(
 ) ->
     ok = emqx_quic_stream:wait_for_close(Stream),
     State#state{sockstate = closed}.
+
+start_timer(Time, Msg) ->
+    emqx_utils:start_timer(Time, Msg).
+
 %%--------------------------------------------------------------------
 %% For CT tests
 %%--------------------------------------------------------------------

@@ -5,6 +5,7 @@
 -module(emqx_test_tls_certs_helper).
 -export([
     gen_ca/2,
+    gen_ca/3,
     gen_host_cert/3,
     gen_host_cert/4,
 
@@ -41,40 +42,51 @@ emqx_start_listener(Name, ssl, Port, #{ssl_options := SslOptions} = Opts0) ->
 %% TLS certs
 %%-------------------------------------------------------------------------------
 gen_ca(Path, Name) ->
+    gen_ca(Path, Name, _Opts = #{}).
+
+gen_ca(Path, Name, Opts) ->
+    KeyType = maps:get(key_type, Opts, ec),
     %% Generate ca.pem and ca.key which will be used to generate certs
     %% for hosts server and clients
-    ECKeyFile = eckey_name(Path),
-    filelib:ensure_dir(ECKeyFile),
-    os:cmd("openssl ecparam -name secp256r1 > " ++ ECKeyFile),
+    BaseKeyFile = base_key_name(Path),
+    filelib:ensure_dir(BaseKeyFile),
+    case KeyType of
+        ec ->
+            cmd("openssl ecparam -name secp256r1 > " ++ BaseKeyFile);
+        rsa ->
+            cmd("openssl genrsa 2048 > " ++ BaseKeyFile)
+    end,
     Cmd = lists:flatten(
         io_lib:format(
             "openssl req -new -x509 -nodes "
-            "-newkey ec:~s "
+            "-newkey ~s "
             "-keyout ~s -out ~s -days 3650 "
             "-addext basicConstraints=CA:TRUE "
             "-subj \"/C=SE/O=TEST CA\"",
             [
-                ECKeyFile,
+                new_key_param(KeyType, BaseKeyFile),
                 ca_key_name(Path, Name),
                 ca_cert_name(Path, Name)
             ]
         )
     ),
-    os:cmd(Cmd).
+    cmd(Cmd).
 
 ca_cert_name(Path, Name) ->
     filename(Path, "~s.pem", [Name]).
 ca_key_name(Path, Name) ->
     filename(Path, "~s.key", [Name]).
 
-eckey_name(Path) ->
-    filename(Path, "ec.key", []).
+base_key_name(Path) ->
+    filename(Path, "base.key", []).
 
 gen_host_cert(H, CaName, Path) ->
     gen_host_cert(H, CaName, Path, #{}).
 
 gen_host_cert(H, CaName, Path, Opts) ->
-    ECKeyFile = eckey_name(Path),
+    BaseKeyFile = base_key_name(Path),
+    %% KeyType :: ec | rsa | dsa.
+    KeyType = maps:get(key_type, Opts, ec),
     CN = str(H),
     HKey = filename(Path, "~s.key", [H]),
     HCSR = filename(Path, "~s.csr", [H]),
@@ -99,8 +111,8 @@ gen_host_cert(H, CaName, Path, Opts) ->
         [maps:get(ext, Opts, ""), CN]
     ),
 
-    CSR_Cmd = csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR, CN),
-    CSR_Cmd2 = csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR2, CN),
+    CSR_Cmd = csr_cmd(PasswordArg, BaseKeyFile, KeyType, HKey, HCSR, CN),
+    CSR_Cmd2 = csr_cmd(PasswordArg, BaseKeyFile, KeyType, HKey, HCSR2, CN),
 
     CERT_Cmd = cert_sign_cmd(
         HEXT, HCSR, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM
@@ -109,10 +121,10 @@ gen_host_cert(H, CaName, Path, Opts) ->
     CERT_Cmd2 = cert_sign_cmd(
         HEXT, HCSR2, ca_cert_name(Path, CaName), ca_key_name(Path, CaName), HPEM2
     ),
-    ct:pal(os:cmd(CSR_Cmd)),
-    ct:pal(os:cmd(CSR_Cmd2)),
-    ct:pal(os:cmd(CERT_Cmd)),
-    ct:pal(os:cmd(CERT_Cmd2)),
+    cmd(CSR_Cmd),
+    cmd(CSR_Cmd2),
+    cmd(CERT_Cmd),
+    cmd(CERT_Cmd2),
     file:delete(HEXT).
 
 cert_sign_cmd(ExtFile, CSRFile, CACert, CAKey, OutputCert) ->
@@ -132,18 +144,25 @@ cert_sign_cmd(ExtFile, CSRFile, CACert, CAKey, OutputCert) ->
         )
     ).
 
-csr_cmd(PasswordArg, ECKeyFile, HKey, HCSR, CN) ->
+csr_cmd(PasswordArg, BaseKeyFile, KeyType, HKey, HCSR, CN) ->
+    %% KeyType :: ec | rsa | dsa.
+    NewKeyParam = new_key_param(KeyType, BaseKeyFile),
     lists:flatten(
         io_lib:format(
-            "openssl req -new ~s -newkey ec:~s "
+            "openssl req -new ~s -newkey ~s "
             "-keyout ~s -out ~s "
             "-addext \"subjectAltName=DNS:~s\" "
             "-addext basicConstraints=CA:TRUE "
             "-addext keyUsage=digitalSignature,keyAgreement,keyCertSign "
             "-subj \"/C=SE/O=TEST/CN=~s\"",
-            [PasswordArg, ECKeyFile, HKey, HCSR, CN, CN]
+            [PasswordArg, NewKeyParam, HKey, HCSR, CN, CN]
         )
     ).
+
+new_key_param(ec, ParamsFile) ->
+    io_lib:format("ec:~s", [ParamsFile]);
+new_key_param(rsa, _ParamsFile) ->
+    "rsa:2048".
 
 filename(Path, F, A) ->
     filename:join(Path, str(io_lib:format(F, A))).
@@ -233,7 +252,7 @@ generate_tls_certs(Config) ->
     gen_host_cert("client2", "intermediate2", DataDir),
 
     %% Build bundles below
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p ~p > ~p", [
             filename:join(DataDir, "client2.pem"),
             filename:join(DataDir, "intermediate2.pem"),
@@ -241,56 +260,56 @@ generate_tls_certs(Config) ->
             filename:join(DataDir, "client2-complete-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "client2.pem"),
             filename:join(DataDir, "intermediate2.pem"),
             filename:join(DataDir, "client2-intermediate2-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "client2.pem"),
             filename:join(DataDir, "root.pem"),
             filename:join(DataDir, "client2-root-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "server1.pem"),
             filename:join(DataDir, "intermediate1.pem"),
             filename:join(DataDir, "server1-intermediate1-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "intermediate1.pem"),
             filename:join(DataDir, "server1.pem"),
             filename:join(DataDir, "intermediate1-server1-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "intermediate1_renewed.pem"),
             filename:join(DataDir, "root.pem"),
             filename:join(DataDir, "intermediate1_renewed-root-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "intermediate2.pem"),
             filename:join(DataDir, "intermediate2_renewed.pem"),
             filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "intermediate1.pem"),
             filename:join(DataDir, "root.pem"),
             filename:join(DataDir, "intermediate1-root-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p ~p > ~p", [
             filename:join(DataDir, "root.pem"),
             filename:join(DataDir, "intermediate2.pem"),
@@ -298,10 +317,43 @@ generate_tls_certs(Config) ->
             filename:join(DataDir, "all-CAcerts-bundle.pem")
         ])
     ),
-    os:cmd(
+    cmd(
         io_lib:format("cat ~p ~p > ~p", [
             filename:join(DataDir, "intermediate2.pem"),
             filename:join(DataDir, "intermediate1.pem"),
             filename:join(DataDir, "two-intermediates-bundle.pem")
         ])
     ).
+
+cmd(Cmd) ->
+    ct:pal("Running:\n  ~s", [Cmd]),
+    Port = erlang:open_port({spawn, Cmd}, [binary, exit_status]),
+    try
+        ok = wait_cmd_down(Port)
+    after
+        close_port(Port)
+    end.
+
+wait_cmd_down(Port) ->
+    receive
+        {Port, {data, Bin}} ->
+            ct:pal("~s", [Bin]),
+            wait_cmd_down(Port);
+        {Port, {exit_status, Status}} ->
+            case Status of
+                0 -> ok;
+                _ -> {error, Status}
+            end
+    after 1_000 ->
+        ct:pal("still waiting for command response..."),
+        wait_cmd_down(Port)
+    end.
+
+close_port(Port) ->
+    try
+        _ = erlang:port_close(Port),
+        ok
+    catch
+        error:badarg ->
+            ok
+    end.

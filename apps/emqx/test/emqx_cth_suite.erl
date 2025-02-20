@@ -114,21 +114,21 @@
     | fun((appname(), appspec_opts()) -> R).
 
 -type appspec_opts() :: #{
-    %% 1. Enable loading application config
+    %% 1. Perform anything right before starting the application
+    %% If not defined or set to `false`, this step will be skipped.
+    %% Merging amounts to redefining.
+    before_start => hookfun(_) | false,
+
+    %% 2. Enable loading application config
     %% If not defined or set to `false`, this step will be skipped.
     %% If application is missing a schema module, this step will fail.
     %% Merging amounts to appending, unless `false` is used, then merge result is also `false`.
     config => iodata() | config() | emqx_config:raw_config() | false,
 
-    %% 2. Override the application environment
+    %% 3. Override the application environment
     %% If not defined or set to `false`, this step will be skipped.
     %% Merging amounts to appending, unless `false` is used, then merge result is `[]`.
     override_env => [{atom(), term()}] | false,
-
-    %% 3. Perform anything right before starting the application
-    %% If not defined or set to `false`, this step will be skipped.
-    %% Merging amounts to redefining.
-    before_start => hookfun(_) | false,
 
     %% 4. Starting the application
     %% If not defined or set to `true`, `application:ensure_all_started/1` is used.
@@ -223,9 +223,9 @@ init_spec(Config) when is_list(Config); is_binary(Config) ->
 
 start_appspec(App, StartOpts) ->
     _ = log_appspec(App, StartOpts),
+    _ = maybe_before_start(App, StartOpts),
     _ = maybe_configure_app(App, StartOpts),
     _ = maybe_override_env(App, StartOpts),
-    _ = maybe_before_start(App, StartOpts),
     case maybe_start(App, StartOpts) of
         {ok, Started} ->
             ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
@@ -341,14 +341,6 @@ default_appspec(emqx, SuiteOpts) ->
         % overwrite everything with a default configuration.
         before_start => fun inhibit_config_loader/2
     };
-default_appspec(emqx_auth, _SuiteOpts) ->
-    #{
-        config => #{
-            % NOTE
-            % Disable default authorization sources (i.e. acl.conf file rules).
-            authorization => #{sources => []}
-        }
-    };
 default_appspec(emqx_conf, SuiteOpts) ->
     Config = #{
         node => #{
@@ -357,7 +349,6 @@ default_appspec(emqx_conf, SuiteOpts) ->
             data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
         }
     },
-    SharedApps = maps:get(emqx_conf_shared_apps, SuiteOpts, [emqx, emqx_auth]),
     % NOTE
     % Since `emqx_conf_schema` manages config for a lot of applications, it's good to include
     % their defaults as well.
@@ -366,7 +357,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
             emqx_utils_maps:deep_merge(Acc, default_config(App, SuiteOpts))
         end,
         Config,
-        SharedApps
+        [emqx]
     ),
     #{
         config => SharedConfig,
@@ -387,14 +378,14 @@ default_appspec(emqx_dashboard, _SuiteOpts) ->
             true = emqx_dashboard_listener:is_ready(infinity)
         end
     };
-default_appspec(emqx_schema_registry, _SuiteOpts) ->
-    #{schema_mod => emqx_schema_registry_schema, config => #{}};
-default_appspec(emqx_schema_validation, _SuiteOpts) ->
-    #{schema_mod => emqx_schema_validation_schema, config => #{}};
-default_appspec(emqx_message_transformation, _SuiteOpts) ->
-    #{schema_mod => emqx_message_transformation_schema, config => #{}};
-default_appspec(emqx_ds_shared_sub, _SuiteOpts) ->
-    #{schema_mod => emqx_ds_shared_sub_schema, config => #{}};
+default_appspec(App, _SuiteOpts) when
+    App == emqx_schema_registry;
+    App == emqx_schema_validation;
+    App == emqx_message_transformation;
+    App == emqx_ds_shared_sub
+->
+    %% NOTE: Start those apps with default configuration.
+    #{config => #{}};
 default_appspec(_, _) ->
     #{}.
 

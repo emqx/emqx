@@ -194,8 +194,8 @@ connect_attrs(
         'client.will_qos' => WillQos,
         'client.will_retain' => WillRetain,
         'client.keepalive' => KeepAlive,
-        'client.conn_props' => emqx_utils_json:encode(Properties),
-        'client.will_props' => emqx_utils_json:encode(WillProps),
+        'client.conn_props' => json_encode_proplist(Properties),
+        'client.will_props' => json_encode(WillProps),
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
         'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel))
@@ -210,21 +210,21 @@ basic_attrs(Channel) ->
 topic_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
     {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
     #{
-        'client.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
-        'client.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+        'client.subscribe.topics' => json_encode(lists:reverse(TFs)),
+        'client.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
     };
 topic_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
     {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{'client.unsubscribe.topics' => emqx_utils_json:encode(TFs)};
+    #{'client.unsubscribe.topics' => json_encode(TFs)};
 topic_attrs({subscribe, TopicFilters}) ->
     {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
     #{
-        'broker.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
-        'broker.subscribe.sub_opts' => emqx_utils_json:encode(lists:reverse(SubOpts))
+        'broker.subscribe.topics' => json_encode(lists:reverse(TFs)),
+        'broker.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
     };
 topic_attrs({unsubscribe, TopicFilters}) ->
     {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
-    #{'broker.unsubscribe.topics' => emqx_utils_json:encode(TFs)}.
+    #{'broker.unsubscribe.topics' => json_encode(TFs)}.
 
 do_topic_filters_attrs(subscribe, TopicFilters) ->
     {_TFs, _SubOpts} = lists:foldl(
@@ -265,8 +265,8 @@ sub_authz_attrs(CheckResult) ->
         CheckResult
     ),
     #{
-        'authz.subscribe.topics' => emqx_utils_json:encode(lists:reverse(TFs)),
-        'authz.subscribe.reason_codes' => emqx_utils_json:encode(lists:reverse(AuthZRCs))
+        'authz.subscribe.topics' => json_encode(lists:reverse(TFs)),
+        'authz.subscribe.reason_codes' => json_encode(lists:reverse(AuthZRCs))
     }.
 
 -define(ext_trace_disconnect_reason(Reason),
@@ -306,3 +306,10 @@ is_valid_provider(Module) ->
         fun({F, A}) -> erlang:function_exported(Module, F, A) end,
         ?MODULE:behaviour_info(callbacks) -- ?MODULE:behaviour_info(optional_callbacks)
     ).
+
+json_encode(Term) ->
+    emqx_utils_json:encode(Term).
+
+%% Properties is a map which may include 'User-Property' of key-value pairs
+json_encode_proplist(Properties) ->
+    emqx_utils_json:encode_proplist(Properties).

@@ -44,6 +44,7 @@
     ?VAR_USERNAME,
     ?VAR_CLIENTID,
     ?VAR_PEERHOST,
+    ?VAR_PEERPORT,
     ?VAR_PROTONAME,
     ?VAR_MOUNTPOINT,
     ?VAR_TOPIC,
@@ -61,20 +62,20 @@
 ]).
 
 create(Config) ->
-    NConfig = parse_config(Config),
+    #{annotations := Annotations} = NConfig = parse_config(Config),
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceId,
         emqx_bridge_http_connector,
         NConfig
     ),
-    NConfig#{annotations => #{id => ResourceId}}.
+    NConfig#{annotations => Annotations#{id => ResourceId}}.
 
 update(Config) ->
-    NConfig = parse_config(Config),
+    #{annotations := Annotations} = NConfig = parse_config(Config),
     case emqx_authz_utils:update_resource(emqx_bridge_http_connector, NConfig) of
         {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> NConfig#{annotations => #{id => Id}}
+        {ok, Id} -> NConfig#{annotations => Annotations#{id => Id}}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -86,14 +87,21 @@ authorize(
     Topic,
     #{
         type := http,
-        annotations := #{id := ResourceID},
+        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate},
         method := Method,
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    case generate_request(Action, Topic, Client, Config) of
+    Values = client_vars(Client, Action, Topic),
+    case emqx_auth_http_utils:generate_request(Config, Values) of
         {ok, Request} ->
-            case emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
+            CacheKey = emqx_auth_template:cache_key(Values, CacheKeyTemplate),
+            Response = emqx_authz_utils:cached_simple_sync_query(
+                CacheKey,
+                ResourceID,
+                {Method, Request, RequestTimeout}
+            ),
+            case Response of
                 {ok, 204, _Headers} ->
                     {matched, allow};
                 {ok, 200, Headers, Body} ->
@@ -168,30 +176,34 @@ parse_config(
         request_timeout := ReqTimeout
     } = Conf
 ) ->
-    {RequestBase, Path, Query} = emqx_auth_utils:parse_url(RawUrl),
+    Annotations = maps:get(annotations, Conf, #{}),
+    {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
+    {BasePathVars, BasePathTemplate} = emqx_auth_template:parse_str(Path, allowed_vars()),
+    {BaseQueryVars, BaseQueryTemplate} = emqx_auth_template:parse_deep(
+        cow_qs:parse_qs(Query),
+        allowed_vars()
+    ),
+    {BodyVars, BodyTemplate} =
+        emqx_auth_template:parse_deep(
+            emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
+            allowed_vars()
+        ),
     Headers = maps:to_list(emqx_auth_http_utils:transform_header_name(Headers0)),
+    {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(Headers),
+    Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Conf#{
         method => Method,
         request_base => RequestBase,
-        headers => emqx_authn_utils:parse_deep(Headers),
-        base_path_template => emqx_auth_utils:parse_str(Path, allowed_vars()),
-        base_query_template => emqx_auth_utils:parse_deep(
-            cow_qs:parse_qs(Query),
-            allowed_vars()
-        ),
-        body_template =>
-            emqx_auth_utils:parse_deep(
-                emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
-                allowed_vars()
-            ),
+        headers => HeadersTemplate,
+        base_path_template => BasePathTemplate,
+        base_query_template => BaseQueryTemplate,
+        body_template => BodyTemplate,
         request_timeout => ReqTimeout,
+        annotations => Annotations#{cache_key_template => CacheKeyTemplate},
         %% pool_type default value `random`
         pool_type => random
     }.
-
-generate_request(Action, Topic, Client, Config) ->
-    Values = client_vars(Client, Action, Topic),
-    emqx_auth_utils:generate_request(Config, Values).
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),

@@ -150,7 +150,6 @@ bytes_metrics() ->
         'packets.publish.inuse',
         'packets.publish.error',
         'packets.publish.auth_error',
-        'packets.publish.dropped',
         'packets.puback.received',
         'packets.puback.sent',
         'packets.puback.inuse',

@@ -34,6 +34,9 @@
     republish/3
 ]).
 
+%% Internal exports
+-export([pre_process_args/3]).
+
 -optional_callbacks([pre_process_action_args/2]).
 
 -callback pre_process_action_args(FuncName :: atom(), action_fun_args()) -> action_fun_args().
@@ -330,14 +333,13 @@ render_pub_props(UserPropertiesTemplate, Selected, Env) ->
 -define(BADPROP(K, REASON, ENV, DATA),
     ?SLOG(
         debug,
-        DATA#{
+        ?MAPPEND(DATA, #{
+            tag => ?TAG,
             msg => "bad_mqtt_property_value_ignored",
             rule_id => emqx_utils_maps:deep_get([metadata, rule_id], ENV, undefined),
             reason => REASON,
             property => K
-        }#{
-            tag => ?TAG
-        }
+        })
     )
 ).
 

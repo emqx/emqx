@@ -2,211 +2,159 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Asynchronous messages between shared sub agent and shared sub leader
-%% These messages are instantiated on the receiver's side, so they do not
-%% travel over the network.
+%% Borrower messages sent to the leader.
+%% Leader talks to many Borrowers, `borrower_id` field is used to identify the sender.
 
-%% NOTE
-%% We do not need any kind of request/response identification,
-%% because the protocol is fully event-based.
-
-%% agent messages, sent from agent side to the leader
-
--define(agent_connect_leader_msg, 1).
--define(agent_update_stream_states_msg, 2).
--define(agent_connect_leader_timeout_msg, 3).
--define(agent_renew_stream_lease_timeout_msg, 4).
--define(agent_disconnect_msg, 5).
-
-%% message keys (used used not to send atoms over the network)
--define(agent_msg_type, 1).
--define(agent_msg_agent, 2).
--define(agent_msg_share_topic_filter, 3).
--define(agent_msg_agent_metadata, 4).
--define(agent_msg_stream_states, 5).
--define(agent_msg_version, 6).
--define(agent_msg_version_old, 7).
--define(agent_msg_version_new, 8).
-
-%% Agent messages sent to the leader.
-%% Leader talks to many agents, `agent` field is used to identify the sender.
-
--define(agent_connect_leader(Agent, AgentMetadata, ShareTopicFilter), #{
-    ?agent_msg_type => ?agent_connect_leader_msg,
-    ?agent_msg_share_topic_filter => ShareTopicFilter,
-    ?agent_msg_agent_metadata => AgentMetadata,
-    ?agent_msg_agent => Agent
+-define(borrower_connect(FromBorrowerId, ShareTopicFilter), #{
+    message_type => borrower_connect,
+    from_borrower_id => FromBorrowerId,
+    share_topic_filter => ShareTopicFilter
 }).
 
--define(agent_connect_leader_match(Agent, AgentMetadata, ShareTopicFilter), #{
-    ?agent_msg_type := ?agent_connect_leader_msg,
-    ?agent_msg_share_topic_filter := ShareTopicFilter,
-    ?agent_msg_agent_metadata := AgentMetadata,
-    ?agent_msg_agent := Agent
+-define(borrower_connect_match(FromBorrowerId, ShareTopicFilter), #{
+    message_type := borrower_connect,
+    from_borrower_id := FromBorrowerId,
+    share_topic_filter := ShareTopicFilter
 }).
 
--define(agent_update_stream_states(Agent, StreamStates, Version), #{
-    ?agent_msg_type => ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states => StreamStates,
-    ?agent_msg_version => Version,
-    ?agent_msg_agent => Agent
+-define(borrower_ping(FromBorrowerId), #{
+    message_type => borrower_ping,
+    from_borrower_id => FromBorrowerId
 }).
 
--define(agent_update_stream_states_match(Agent, StreamStates, Version), #{
-    ?agent_msg_type := ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states := StreamStates,
-    ?agent_msg_version := Version,
-    ?agent_msg_agent := Agent
+-define(borrower_ping_match(FromBorrowerId), #{
+    message_type := borrower_ping,
+    from_borrower_id := FromBorrowerId
 }).
 
--define(agent_update_stream_states(Agent, StreamStates, VersionOld, VersionNew), #{
-    ?agent_msg_type => ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states => StreamStates,
-    ?agent_msg_version_old => VersionOld,
-    ?agent_msg_version_new => VersionNew,
-    ?agent_msg_agent => Agent
+-define(borrower_update_progress_match(FromBorrowerId, StreamProgress), #{
+    message_type := borrower_update_progresses,
+    from_borrower_id := FromBorrowerId,
+    stream_progress := StreamProgress
 }).
 
--define(agent_update_stream_states_match(Agent, StreamStates, VersionOld, VersionNew), #{
-    ?agent_msg_type := ?agent_update_stream_states_msg,
-    ?agent_msg_stream_states := StreamStates,
-    ?agent_msg_version_old := VersionOld,
-    ?agent_msg_version_new := VersionNew,
-    ?agent_msg_agent := Agent
+-define(borrower_update_progress(FromBorrowerId, StreamProgress), #{
+    message_type => borrower_update_progresses,
+    from_borrower_id => FromBorrowerId,
+    stream_progress => StreamProgress
 }).
 
--define(agent_disconnect(Agent, StreamStates, Version), #{
-    ?agent_msg_type => ?agent_disconnect_msg,
-    ?agent_msg_stream_states => StreamStates,
-    ?agent_msg_version => Version,
-    ?agent_msg_agent => Agent
+-define(borrower_revoke_finished_match(FromBorrowerId, Stream), #{
+    message_type := borrower_revoke_finished,
+    from_borrower_id := FromBorrowerId,
+    stream := Stream
 }).
 
--define(agent_disconnect_match(Agent, StreamStates, Version), #{
-    ?agent_msg_type := ?agent_disconnect_msg,
-    ?agent_msg_stream_states := StreamStates,
-    ?agent_msg_version := Version,
-    ?agent_msg_agent := Agent
+-define(borrower_revoke_finished(FromBorrowerId, Stream), #{
+    message_type => borrower_revoke_finished,
+    from_borrower_id => FromBorrowerId,
+    stream => Stream
 }).
 
-%% leader messages, sent from the leader to the agent
-%% Agent may have several shared subscriptions, so may talk to several leaders
-%% `group_id` field is used to identify the leader.
-
--define(leader_lease_streams_msg, 101).
--define(leader_renew_stream_lease_msg, 102).
--define(leader_update_streams, 103).
--define(leader_invalidate, 104).
-
--define(leader_msg_type, 101).
--define(leader_msg_streams, 102).
--define(leader_msg_version, 103).
--define(leader_msg_version_old, 104).
--define(leader_msg_version_new, 105).
--define(leader_msg_streams_new, 106).
--define(leader_msg_leader, 107).
--define(leader_msg_group_id, 108).
-
--define(leader_lease_streams(GrouId, Leader, Streams, Version), #{
-    ?leader_msg_type => ?leader_lease_streams_msg,
-    ?leader_msg_streams => Streams,
-    ?leader_msg_version => Version,
-    ?leader_msg_leader => Leader,
-    ?leader_msg_group_id => GrouId
+-define(borrower_disconnect_match(FromBorrowerId, StreamProgresses), #{
+    message_type := borrower_unsubscribe,
+    from_borrower_id := FromBorrowerId,
+    stream_progresses := StreamProgresses
 }).
 
--define(leader_lease_streams_match(GroupId, Leader, Streams, Version), #{
-    ?leader_msg_type := ?leader_lease_streams_msg,
-    ?leader_msg_streams := Streams,
-    ?leader_msg_version := Version,
-    ?leader_msg_leader := Leader,
-    ?leader_msg_group_id := GroupId
+-define(borrower_disconnect(FromBorrowerId, StreamProgresses), #{
+    message_type => borrower_unsubscribe,
+    from_borrower_id => FromBorrowerId,
+    stream_progresses => StreamProgresses
 }).
 
--define(leader_renew_stream_lease(GroupId, Version), #{
-    ?leader_msg_type => ?leader_renew_stream_lease_msg,
-    ?leader_msg_version => Version,
-    ?leader_msg_group_id => GroupId
+%% Leader messages sent to the Borrower.
+
+%% A common matcher for leader messages.
+-define(leader_message_match(FromLeader), #{
+    from_leader := FromLeader
 }).
 
--define(leader_renew_stream_lease_match(GroupId, Version), #{
-    ?leader_msg_type := ?leader_renew_stream_lease_msg,
-    ?leader_msg_version := Version,
-    ?leader_msg_group_id := GroupId
+%% Respond to the Borrower's connection request.
+
+-define(leader_connect_response(FromLeader), #{
+    message_type => leader_connect_response,
+    from_leader => FromLeader
 }).
 
--define(leader_renew_stream_lease(GroupId, VersionOld, VersionNew), #{
-    ?leader_msg_type => ?leader_renew_stream_lease_msg,
-    ?leader_msg_version_old => VersionOld,
-    ?leader_msg_version_new => VersionNew,
-    ?leader_msg_group_id => GroupId
+-define(leader_connect_response_match(FromLeader), #{
+    message_type := leader_connect_response,
+    from_leader := FromLeader
 }).
 
--define(leader_renew_stream_lease_match(GroupId, VersionOld, VersionNew), #{
-    ?leader_msg_type := ?leader_renew_stream_lease_msg,
-    ?leader_msg_version_old := VersionOld,
-    ?leader_msg_version_new := VersionNew,
-    ?leader_msg_group_id := GroupId
+%% Respond to the Borrower's ping request.
+
+-define(leader_ping_response(FromLeader), #{
+    message_type => leader_ping_response,
+    from_leader => FromLeader
 }).
 
--define(leader_update_streams(GroupId, VersionOld, VersionNew, StreamsNew), #{
-    ?leader_msg_type => ?leader_update_streams,
-    ?leader_msg_version_old => VersionOld,
-    ?leader_msg_version_new => VersionNew,
-    ?leader_msg_streams_new => StreamsNew,
-    ?leader_msg_group_id => GroupId
+-define(leader_ping_response_match(FromLeader), #{
+    message_type := leader_ping_response,
+    from_leader := FromLeader
 }).
 
--define(leader_update_streams_match(GroupId, VersionOld, VersionNew, StreamsNew), #{
-    ?leader_msg_type := ?leader_update_streams,
-    ?leader_msg_version_old := VersionOld,
-    ?leader_msg_version_new := VersionNew,
-    ?leader_msg_streams_new := StreamsNew,
-    ?leader_msg_group_id := GroupId
+%% Grant a stream to the Borrower.
+
+-define(leader_grant_match(FromLeader, StreamProgress), #{
+    message_type := leader_grant,
+    from_leader := FromLeader,
+    stream_progress := StreamProgress
 }).
 
--define(leader_invalidate(GroupId), #{
-    ?leader_msg_type => ?leader_invalidate,
-    ?leader_msg_group_id => GroupId
+-define(leader_grant(FromLeader, StreamProgress), #{
+    message_type => leader_grant,
+    from_leader => FromLeader,
+    stream_progress => StreamProgress
 }).
 
--define(leader_invalidate_match(GroupId), #{
-    ?leader_msg_type := ?leader_invalidate,
-    ?leader_msg_group_id := GroupId
+%% Start a revoke process for a stream from the Borrower.
+
+-define(leader_revoke_match(FromLeader, Stream), #{
+    message_type := leader_revoke,
+    from_leader := FromLeader,
+    stream := Stream
 }).
 
-%% Helpers
-%% In test mode we extend agents with (session) Id to have more
-%% readable traces.
+-define(leader_revoke(FromLeader, Stream), #{
+    message_type => leader_revoke,
+    from_leader => FromLeader,
+    stream => Stream
+}).
 
--ifdef(TEST).
+%% Confirm that the leader obtained the progress of the stream,
+%% allow the borrower to clean the data
 
--define(agent(SessionId, SubscriptionId, Pid), {Pid, SubscriptionId, SessionId}).
+-define(leader_revoked_match(FromLeader, Stream), #{
+    message_type := leader_revoked,
+    from_leader := FromLeader,
+    stream := Stream
+}).
 
--define(format_agent_msg(Msg), emqx_ds_shared_sub_proto_format:format_agent_msg(Msg)).
+-define(leader_revoked(FromLeader, Stream), #{
+    message_type => leader_revoked,
+    from_leader => FromLeader,
+    stream => Stream
+}).
 
--define(format_leader_msg(Msg), emqx_ds_shared_sub_proto_format:format_leader_msg(Msg)).
+%% Notify the Borrower that it is in unexpected state and should reconnect.
 
-%% -ifdef(TEST).
--else.
+-define(leader_invalidate_match(FromLeader), #{
+    message_type := leader_invalidate,
+    from_leader := FromLeader
+}).
 
--define(agent(_SessionId, SubscriptionId, Pid), {Pid, SubscriptionId}).
+-define(leader_invalidate(FromLeader), #{
+    message_type => leader_invalidate,
+    from_leader => FromLeader
+}).
 
--define(format_agent_msg(Msg), Msg).
+%% Borrower/Leader Id helpers
 
--define(format_leader_msg(Msg), Msg).
-
-%% -ifdef(TEST).
--endif.
-
--define(agent_pid(Agent), element(1, Agent)).
-
--define(agent_subscription_id(Agent), element(2, Agent)).
-
--define(agent_node(Agent), node(element(1, Agent))).
-
--define(is_local_agent(Agent), (?agent_node(Agent) =:= node())).
-
+-define(borrower_id(SessionId, SubscriptionId, PidRef), {SessionId, SubscriptionId, PidRef}).
+-define(borrower_pidref(BorrowerId), element(3, BorrowerId)).
+-define(borrower_subscription_id(BorrowerId), element(2, BorrowerId)).
+-define(borrower_node(BorrowerId), node(?borrower_pidref(BorrowerId))).
+-define(is_local_borrower(BorrowerId), (?borrower_node(BorrowerId) =:= node())).
 -define(leader_node(Leader), node(Leader)).
-
 -define(is_local_leader(Leader), (?leader_node(Leader) =:= node())).

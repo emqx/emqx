@@ -35,12 +35,6 @@
 
 -define(WORKER_POOL_SIZE, 4).
 
--define(WITH_CLIENT(Process),
-    Client = connect_direct_hstream(_Name = test_c, Config),
-    Process,
-    ok = disconnect(Client)
-).
-
 %% How to run it locally (all commands are run in $PROJ_ROOT dir):
 %%   A: run ct on host
 %%     1. Start all deps services
@@ -101,7 +95,8 @@ init_per_group(_Group, Config) ->
 
 end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
     Apps = ?config(apps, Config),
-    connect_and_delete_stream(Config),
+    _ = delete_stream_direct(Config),
+    _ = stop_client(?config(hstreamdb_client, Config)),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
@@ -423,22 +418,22 @@ common_init(ConfigT) ->
             ),
             % Connect to hstreamdb directly
             % drop old stream and then create new one
-            connect_and_delete_stream(Config0),
-            connect_and_create_stream(Config0),
+            Client = start_client_direct(?FUNCTION_NAME, Config0),
+            Config = [{hstreamdb_client, Client} | Config0],
+            _ = delete_stream_direct(Config),
+            ok = create_stream_direct(Config),
             {Name, HStreamDBConf} = hstreamdb_config(BridgeType, Config0),
-            Config =
-                [
-                    {apps, Apps},
-                    {hstreamdb_config, HStreamDBConf},
-                    {hstreamdb_bridge_type, BridgeType},
-                    {hstreamdb_name, Name},
-                    {bridge_config, action_config(Config0)},
-                    {connector_config, connector_config(Config0)},
-                    {proxy_host, ProxyHost},
-                    {proxy_port, ProxyPort}
-                    | Config0
-                ],
-            Config;
+            [
+                {apps, Apps},
+                {hstreamdb_config, HStreamDBConf},
+                {hstreamdb_bridge_type, BridgeType},
+                {hstreamdb_name, Name},
+                {bridge_config, action_config(Config0)},
+                {connector_config, connector_config(Config0)},
+                {proxy_host, ProxyHost},
+                {proxy_port, ProxyPort}
+                | Config
+            ];
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
@@ -539,24 +534,21 @@ default_options(Config) ->
         rpc_options => ?RPC_OPTIONS
     }.
 
-connect_direct_hstream(Name, Config) ->
-    client(Name, Config, ?CONN_ATTEMPTS).
+start_client_direct(Name, Config) ->
+    start_client(Name, Config, ?CONN_ATTEMPTS).
 
-client(_Name, _Config, N) when N =< 0 -> error(cannot_connect);
-client(Name, Config, N) ->
+start_client(Name, Config, N) ->
     try
-        _ = hstreamdb:stop_client(Name),
         {ok, Client} = hstreamdb:start_client(Name, default_options(Config)),
-        ok = hstreamdb_client:echo(Client),
         Client
     catch
-        Class:Error ->
-            ct:print("Error connecting: ~p", [{Class, Error}]),
+        Class:Error:ST when N > 0 ->
+            ct:pal("Error connecting: ~p", [{Class, Error, ST}]),
             ct:sleep(timer:seconds(1)),
-            client(Name, Config, N - 1)
+            start_client(Name, Config, N - 1)
     end.
 
-disconnect(Client) ->
+stop_client(Client = #{}) ->
     hstreamdb:stop_client(Client).
 
 create_bridge(Config) ->
@@ -581,7 +573,7 @@ create_bridge_http(Params) ->
         {ok, Res} ->
             #{<<"type">> := Type, <<"name">> := Name} = Params,
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -648,18 +640,20 @@ health_check_resource_down(Config) ->
     end.
 
 % These funs start and then stop the hstreamdb connection
-connect_and_create_stream(Config) ->
-    ?WITH_CLIENT(
-        _ = hstreamdb_client:create_stream(
-            Client, ?STREAM, ?REPLICATION_FACTOR, ?BACKLOG_RETENTION_SECOND, ?SHARD_COUNT
-        )
+create_stream_direct(Config) ->
+    ok = hstreamdb_client:create_stream(
+        ?config(hstreamdb_client, Config),
+        ?STREAM,
+        ?REPLICATION_FACTOR,
+        ?BACKLOG_RETENTION_SECOND,
+        ?SHARD_COUNT
     ),
     %% force write to stream to make it created and ready to be written data for test cases
     ProducerOptions = #{
         stream => ?STREAM,
         buffer_options => #{
             interval => 1000,
-            callback => {?MODULE, on_flush_result, [<<"WHAT">>]},
+            callback => {?MODULE, on_flush_result, []},
             max_records => 1,
             max_batches => 1
         },
@@ -670,24 +664,18 @@ connect_and_create_stream(Config) ->
         writer_pool_size => 1,
         client_options => default_options(Config)
     },
-
-    ?WITH_CLIENT(
-        begin
-            ok = hstreamdb:start_producer(test_producer, ProducerOptions),
-            _ = hstreamdb:append_flush(test_producer, hstreamdb:to_record([], raw, rand_payload())),
-            _ = hstreamdb:stop_producer(test_producer)
-        end
-    ).
+    ok = hstreamdb:start_producer(test_producer, ProducerOptions),
+    _ = hstreamdb:append_flush(test_producer, hstreamdb:to_record([], raw, rand_payload())),
+    _ = hstreamdb:stop_producer(test_producer),
+    ok.
 
 on_flush_result({{flush, _Stream, _Records}, {ok, _Resp}}) ->
     ok;
 on_flush_result({{flush, _Stream, _Records}, {error, _Reason}}) ->
     ok.
 
-connect_and_delete_stream(Config) ->
-    ?WITH_CLIENT(
-        _ = hstreamdb_client:delete_stream(Client, ?STREAM)
-    ).
+delete_stream_direct(Config) ->
+    hstreamdb_client:delete_stream(?config(hstreamdb_client, Config), ?STREAM).
 
 %%--------------------------------------------------------------------
 %% help functions

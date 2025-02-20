@@ -55,18 +55,24 @@
     emqx_statsd,
     emqx_statsd_proto_v1,
     emqx_persistent_session_proto_v1,
+    emqx_persistent_session_ds_proto_v1,
     emqx_ds_proto_v1,
     emqx_ds_proto_v2,
-    emqx_ds_proto_v3
+    emqx_ds_proto_v3,
+    emqx_ds_shared_sub_proto_v1,
+    emqx_ds_shared_sub_proto_v2
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
     {emqx_plugin_libs, 1},
     {emqx_persistent_session, 1},
+    {emqx_persistent_session_ds, 1},
     {emqx_ds, 1},
     {emqx_ds, 2},
     {emqx_ds, 3},
-    {emqx_node_rebalance_purge, 1}
+    {emqx_node_rebalance_purge, 1},
+    {emqx_ds_shared_sub, 1},
+    {emqx_ds_shared_sub, 2}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").

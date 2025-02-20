@@ -48,7 +48,8 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            emqx_connector
+            emqx_connector,
+            emqx_redis
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),

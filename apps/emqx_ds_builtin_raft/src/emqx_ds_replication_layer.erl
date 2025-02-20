@@ -25,8 +25,12 @@
     make_iterator/4,
     make_delete_iterator/4,
     next/3,
-    poll/3,
     delete_next/4,
+
+    subscribe/3,
+    unsubscribe/2,
+    suback/3,
+    subscription_info/2,
 
     current_timestamp/2,
 
@@ -71,13 +75,15 @@
 ]).
 
 -behaviour(emqx_ds_beamformer).
--export(
-    [
-        unpack_iterator/2,
-        scan_stream/5,
-        update_iterator/3
-    ]
-).
+-export([
+    unpack_iterator/2,
+    high_watermark/2,
+    scan_stream/5,
+    fast_forward/3,
+    update_iterator/3,
+    message_match_context/4,
+    iterator_match_context/2
+]).
 
 -ifdef(TEST).
 -export([test_applications/1, test_db_config/1]).
@@ -102,6 +108,34 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds_replication_layer.hrl").
+
+-define(SAFE_ERPC(EXPR),
+    try
+        EXPR
+    catch
+        error:RPCError__ = {erpc, _} ->
+            {error, recoverable, RPCError__};
+        %% Note: remote node never _throws_ unrecoverable errors, so
+        %% we can assume that all exceptions are transient.
+        EC__:RPCError__:Stack__ ->
+            {error, recoverable, #{EC__ => RPCError__, stacktrace => Stack__}}
+    end
+).
+
+-define(SHARD_RPC(DB, SHARD, NODE, BODY),
+    case
+        emqx_ds_replication_layer_shard:servers(
+            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
+        )
+    of
+        [{_, NODE} | _] ->
+            begin
+                BODY
+            end;
+        [] ->
+            {error, recoverable, replica_offline}
+    end
+).
 
 %%================================================================================
 %% Type declarations
@@ -196,8 +230,8 @@ list_shards(DB) ->
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
-    {AppendOnly, CreateOpts1} = maps:take(append_only, CreateOpts0),
-    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts1),
+    AppendOnly = maps:get(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
@@ -313,9 +347,16 @@ get_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            case ra_get_streams(DB, Shard, TopicFilter, StartTime) of
+            try ra_get_streams(DB, Shard, TopicFilter, StartTime) of
                 Streams when is_list(Streams) ->
-                    ok;
+                    lists:map(
+                        fun({RankY, StorageLayerStream}) ->
+                            RankX = Shard,
+                            Rank = {RankX, RankY},
+                            {Rank, ?stream_v2(Shard, StorageLayerStream)}
+                        end,
+                        Streams
+                    );
                 {error, Class, Reason} ->
                     ?tp(debug, ds_repl_get_streams_failed, #{
                         db => DB,
@@ -323,16 +364,18 @@ get_streams(DB, TopicFilter, StartTime) ->
                         class => Class,
                         reason => Reason
                     }),
-                    Streams = []
-            end,
-            lists:map(
-                fun({RankY, StorageLayerStream}) ->
-                    RankX = Shard,
-                    Rank = {RankX, RankY},
-                    {Rank, ?stream_v2(Shard, StorageLayerStream)}
-                end,
-                Streams
-            )
+                    []
+            catch
+                EC:Err:Stack ->
+                    ?tp(debug, ds_repl_get_streams_failed, #{
+                        db => DB,
+                        shard => Shard,
+                        class => EC,
+                        reason => Err,
+                        stack => Stack
+                    }),
+                    []
+            end
         end,
         Shards
     ).
@@ -399,47 +442,56 @@ next(DB, Iter0, BatchSize) ->
             Other
     end.
 
--spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) ->
-    {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
-    %% Create a new alias, if not already provided:
-    case PollOpts of
-        #{reply_to := ReplyTo} ->
-            ok;
-        _ ->
-            ReplyTo = alias([explicit_unalias])
-    end,
-    %% Spawn a helper process that will notify the caller when the
-    %% poll times out:
-    _Completion = emqx_ds_lib:send_poll_timeout(ReplyTo, Timeout),
-    %% Submit poll jobs:
-    Groups = maps:groups_from_list(
-        fun({_Token, #{?tag := ?IT, ?shard := Shard}}) -> Shard end,
-        Iterators
-    ),
-    maps:foreach(
-        fun(Shard, ShardIts) ->
-            Result = ra_poll(
-                DB,
-                Shard,
-                [{{ReplyTo, Token}, It} || {Token, It} <- ShardIts],
-                PollOpts
-            ),
-            case Result of
-                ok ->
-                    ok;
-                {error, Class, Reason} ->
-                    ?tp(debug, ds_repl_poll_shard_failed, #{
-                        db => DB,
-                        shard => Shard,
-                        class => Class,
-                        reason => Reason
-                    })
-            end
-        end,
-        Groups
-    ),
-    {ok, ReplyTo}.
+-spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
+    {ok, emqx_ds:subscription_handle(), emqx_ds:sub_ref()} | emqx_ds:error(_).
+subscribe(DB, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+    ?SHARD_RPC(
+        DB,
+        Shard,
+        Node,
+        try emqx_ds_beamformer_proto_v1:where(Node, {DB, Shard}) of
+            Server when is_pid(Server) ->
+                MRef = monitor(process, Server),
+                Result = ?SAFE_ERPC(
+                    emqx_ds_beamformer_proto_v1:subscribe(
+                        Node, Server, self(), MRef, It, SubOpts
+                    )
+                ),
+                case Result of
+                    {ok, MRef} ->
+                        {ok, #sub_handle{shard = Shard, server = Server, ref = MRef}, MRef};
+                    Err ->
+                        Err
+                end;
+            undefined ->
+                {error, recoverable, beamformer_is_not_started};
+            Err ->
+                Err
+        catch
+            EC:Err:Stack ->
+                {error, recoverable, #{EC => Err, stacktrace => Stack}}
+        end
+    ).
+
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscription_handle()) -> boolean().
+unsubscribe(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef}) ->
+    ?SAFE_ERPC(
+        emqx_ds_beamformer_proto_v1:unsubscribe(node(Server), {DB, Shard}, SubRef)
+    ).
+
+-spec suback(emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()) ->
+    ok.
+suback(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef}, SeqNo) ->
+    ?SAFE_ERPC(
+        emqx_ds_beamformer_proto_v1:suback_a(node(Server), {DB, Shard}, SubRef, SeqNo)
+    ).
+
+-spec subscription_info(emqx_ds:db(), emqx_ds:subscription_handle()) ->
+    emqx_ds:sub_info() | undefined.
+subscription_info(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef}) ->
+    ?SAFE_ERPC(
+        emqx_ds_beamformer_proto_v1:subscription_info(node(Server), {DB, Shard}, SubRef)
+    ).
 
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(delete_iterator()).
@@ -742,34 +794,6 @@ list_nodes() ->
 -define(RA_RELEASE_LOG_MIN_FREQ, 1_000).
 -endif.
 
--define(SAFE_ERPC(EXPR),
-    try
-        EXPR
-    catch
-        error:RPCError__ = {erpc, _} ->
-            {error, recoverable, RPCError__};
-        %% Note: remote node never _throws_ unrecoverable errors, so
-        %% we can assume that all exceptions are transient.
-        EC__:RPCError__:Stack__ ->
-            {error, recoverable, #{EC__ => RPCError__, stacktrace => Stack__}}
-    end
-).
-
--define(SHARD_RPC(DB, SHARD, NODE, BODY),
-    case
-        emqx_ds_replication_layer_shard:servers(
-            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
-        )
-    of
-        [{_, NODE} | _] ->
-            begin
-                BODY
-            end;
-        [] ->
-            {error, recoverable, replica_offline}
-    end
-).
-
 -spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:batch()) ->
     ok | {timeout, _} | emqx_ds:error(_).
 ra_store_batch(DB, Shard, Batch) ->
@@ -883,14 +907,6 @@ ra_next(DB, Shard, Iter, BatchSize) ->
             Ret ->
                 Ret
         end
-    ).
-
-ra_poll(DB, Shard, Iterators, PollOpts) ->
-    ?SHARD_RPC(
-        DB,
-        Shard,
-        DestNode,
-        ?SAFE_ERPC(emqx_ds_proto_v5:poll(DestNode, node(), DB, Shard, Iterators, PollOpts))
     ).
 
 ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
@@ -1053,6 +1069,7 @@ apply(
     ),
     {Timestamp, Latest} = ensure_monotonic_timestamp(Since, Latest0),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Timestamp),
+    emqx_ds_beamformer:generation_event(DBShard),
     State = State0#{latest := Latest},
     set_ts(DBShard, Latest),
     Effects = release_log(RaftMeta, State),
@@ -1211,10 +1228,9 @@ reset_bytes_need_release() ->
     erlang:put(?pd_ra_bytes_need_release, 0).
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
-tick(TimeMs, #{db_shard := DBShard = {DB, Shard}, latest := Latest}) ->
+tick(TimeMs, #{db_shard := DBShard, latest := Latest}) ->
     %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
-    ?tp(emqx_ds_replication_layer_tick, #{db => DB, shard => Shard, timestamp => Timestamp}),
     handle_custom_event(DBShard, Timestamp, ra_tick).
 
 assign_timestamps(true, Latest0, [Message0 = #message{} | Rest], Acc, N, Sz) ->
@@ -1259,13 +1275,39 @@ snapshot_module() ->
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
-scan_stream(ShardId = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
+high_watermark(DBShard = {DB, Shard}, Stream) ->
+    Now = current_timestamp(DB, Shard),
+    emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
+
+fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key) ->
     ?IF_SHARD_READY(
-        ShardId,
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+                {ok, end_of_stream} ->
+                    {ok, end_of_stream};
+                {ok, Inner} ->
+                    {ok, It#{?enc := Inner}};
+                {error, _, _} = Err ->
+                    Err
+            end
+        end
+    ).
+
+message_match_context(DBShard, InnerStream, MsgKey, Message) ->
+    emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
+
+iterator_match_context(DBShard = {_DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
+
+scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
+    ?IF_SHARD_READY(
+        DBShard,
         begin
             Now = current_timestamp(DB, Shard),
             emqx_ds_storage_layer:scan_stream(
-                ShardId, Stream, TopicFilter, Now, StartMsg, BatchSize
+                DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
             )
         end
     ).
@@ -1326,17 +1368,17 @@ clientid_size(ClientID) ->
 test_db_config(_Config) ->
     #{
         backend => builtin_raft,
-        storage => {emqx_ds_storage_reference, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{with_guid => true}},
         n_shards => 1,
         n_sites => 1,
         replication_factor => 3,
         replication_options => #{}
     }.
 
-test_applications(_Config) ->
+test_applications(Config) ->
     [
-        emqx_durable_storage,
-        emqx_ds_backends
+        {App, maps:get(App, Config, #{})}
+     || App <- [emqx_durable_storage, emqx_ds_backends]
     ].
 
 -endif.

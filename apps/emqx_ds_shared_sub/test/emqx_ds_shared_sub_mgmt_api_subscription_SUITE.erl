@@ -27,7 +27,7 @@ init_per_suite(Config) ->
                 config => #{
                     <<"durable_queues">> => #{
                         <<"enable">> => true,
-                        <<"session_find_leader_timeout_ms">> => "1200ms"
+                        <<"session_find_leader_timeout">> => "1200ms"
                     }
                 }
             }},
@@ -127,7 +127,7 @@ t_list_with_invalid_match_topic(Config) ->
             {error, {R, _H, Body}} = emqx_mgmt_api_test_util:request_api(
                 get, path(), uri_string:compose_query(QS), Headers, [], #{return_all => true}
             ),
-            {error, {R, _H, emqx_utils_json:decode(Body, [return_maps])}}
+            {error, {R, _H, emqx_utils_json:decode(Body)}}
         end
     ),
     ok.
@@ -135,7 +135,7 @@ t_list_with_invalid_match_topic(Config) ->
 request_json(Method, Query, Headers) when is_list(Query) ->
     Qs = uri_string:compose_query(Query),
     {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(Method, path(), Qs, Headers),
-    emqx_utils_json:decode(MatchRes, [return_maps]).
+    emqx_utils_json:decode(MatchRes).
 
 path() ->
     emqx_mgmt_api_test_util:api_path(["subscriptions"]).

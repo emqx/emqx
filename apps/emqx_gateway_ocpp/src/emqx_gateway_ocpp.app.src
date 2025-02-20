@@ -1,6 +1,6 @@
 {application, emqx_gateway_ocpp, [
     {description, "OCPP-J 1.6 Gateway for EMQX"},
-    {vsn, "0.1.6"},
+    {vsn, "0.1.7"},
     {registered, []},
     {applications, [kernel, stdlib, jesse, emqx, emqx_gateway]},
     {env, []},

@@ -60,11 +60,11 @@ delete_config(ID) ->
         ).
 
 client_ssl_cert_opts() ->
-    Dir = code:lib_dir(emqx_auth, test),
+    Dir = code:lib_dir(emqx_auth),
     #{
-        <<"keyfile">> => filename:join([Dir, <<"data/certs">>, <<"client.key">>]),
-        <<"certfile">> => filename:join([Dir, <<"data/certs">>, <<"client.crt">>]),
-        <<"cacertfile">> => filename:join([Dir, <<"data/certs">>, <<"ca.crt">>])
+        <<"keyfile">> => filename:join([Dir, <<"test/data/certs">>, <<"client.key">>]),
+        <<"certfile">> => filename:join([Dir, <<"test/data/certs">>, <<"client.crt">>]),
+        <<"cacertfile">> => filename:join([Dir, <<"test/data/certs">>, <<"ca.crt">>])
     }.
 
 register_fake_providers(ProviderTypes) ->
@@ -77,3 +77,10 @@ register_fake_providers(ProviderTypes) ->
 deregister_providers() ->
     ProviderTypes = maps:keys(emqx_authn_chains:get_providers()),
     emqx_authn_chains:deregister_providers(ProviderTypes).
+
+enable_node_cache(Enable) ->
+    {ok, _} = emqx:update_config(
+        [authentication_settings, node_cache],
+        #{<<"enable">> => Enable}
+    ),
+    ok.

@@ -286,6 +286,10 @@ t_configure_config_file_transfer(Config) ->
     test_configure(Uri, Config).
 
 test_configure(Uri, Config) ->
+    #{
+        cert := Cert,
+        key := Key
+    } = emqx_ft_test_helpers:generate_pki_files(Config),
     ?assertMatch(
         {ok, 200, #{
             <<"enable">> := true,
@@ -399,8 +403,8 @@ test_configure(Uri, Config) ->
         <<"transport_options">> => #{
             <<"ssl">> => #{
                 <<"enable">> => true,
-                <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
-                <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+                <<"certfile">> => Cert,
+                <<"keyfile">> => Key
             }
         }
     },
@@ -553,7 +557,7 @@ request_json(Method, Url, Config) ->
 
 json(Body) when is_binary(Body) ->
     try
-        emqx_utils_json:decode(Body, [return_maps])
+        emqx_utils_json:decode(Body)
     catch
         _:_ ->
             error({bad_json, Body})

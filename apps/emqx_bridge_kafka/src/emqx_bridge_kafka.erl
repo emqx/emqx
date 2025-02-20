@@ -297,7 +297,7 @@ fields(kafka_producer) ->
     %% Schema used by bridges V1.
     connector_config_fields() ++ producer_opts(v1);
 fields(kafka_producer_action) ->
-    emqx_bridge_v2_schema:common_fields() ++ producer_opts(action);
+    emqx_bridge_v2_schema:common_action_fields() ++ producer_opts(action);
 fields(kafka_consumer) ->
     connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->
@@ -352,7 +352,7 @@ fields(socket_opts) ->
         {tcp_keepalive,
             mk(string(), #{
                 default => <<"none">>,
-                desc => ?DESC(socket_tcp_keepalive),
+                desc => ?DESC(emqx_schema, socket_tcp_keepalive),
                 validator => fun emqx_schema:validate_tcp_keepalive/1
             })}
     ];

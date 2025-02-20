@@ -17,6 +17,7 @@
 
 -compile(nowarn_export_all).
 -compile(export_all).
+-compile(nowarn_update_literal).
 
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").

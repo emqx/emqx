@@ -108,6 +108,8 @@ defmodule EMQXUmbrella.MixProject do
   def overridden_deps() do
     [
       common_dep(:lc),
+      # in conflict between typerefl and emqx_utils
+      {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true},
       common_dep(:typerefl),
       common_dep(:ehttpc),
       common_dep(:gproc),
@@ -136,7 +138,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
+      {:recon, github: "ferd/recon", tag: "2.5.6", override: true},
       common_dep(:jsx),
       # in conflict by erlavro and rocketmq
       common_dep(:jsone),
@@ -148,7 +150,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:ranch),
       # in conflict by grpc and eetcd
       common_dep(:gpb),
-      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
+      common_dep(:hackney),
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
@@ -183,36 +185,40 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.8", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.20.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.4", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.1", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
+  def common_dep(:gun), do: {:gun, "2.1.0", override: true}
   # in conflict by cowboy_swagger and cowboy
-  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true}
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx-1", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.6.0", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.1", override: true}
 
-  def common_dep(:jiffy), do: {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true}
+  def common_dep(:jiffy), do: {:jiffy, "1.1.2", override: true}
 
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.6.12", override: true, system_env: emqx_app_system_env()}
+       github: "emqx/grpc-erl", tag: "0.7.1", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
+
+  def common_dep(:hackney),
+    do: {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
+
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1", override: true}
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.3.12", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
-  def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
+  def common_dep(:telemetry), do: {:telemetry, "1.3.0", override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
+  def common_dep(:gpb), do: {:gpb, "4.21.1", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, "2.15.0", override: true}
 
   # in conflict by emqx_connector and system_monitor
@@ -221,11 +227,11 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.1", override: true}
 
   def common_dep(:system_monitor),
-    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.5"}
+    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
-  def common_dep(:observer_cli), do: {:observer_cli, "1.7.5"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.8.2"}
 
   def common_dep(:jose),
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
@@ -233,7 +239,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
 
   def common_dep(:bcrypt),
-    do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true}
+    do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
     do: {:minirest, github: "emqx/minirest", tag: "1.4.4", override: true}
@@ -242,10 +248,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.13.5", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.14.0", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
-    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
+    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
 
   def common_dep(:rocksdb),
     do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-6", override: true}
@@ -254,9 +260,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do:
-      {:cowlib,
-       github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true}
+    do: {:cowlib, "2.13.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
@@ -270,7 +274,7 @@ defmodule EMQXUmbrella.MixProject do
     }
 
   def common_dep(:ots_erl),
-    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.2", override: true}
+    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
@@ -287,7 +291,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.11", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
-  def common_dep(:erlavro), do: {:erlavro, github: "emqx/erlavro", tag: "2.10.0", override: true}
+
+  def common_dep(:erlavro) do
+    {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-1", override: true}
+  end
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
@@ -379,6 +386,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_azure_blob_storage,
       :emqx_bridge_couchbase,
       :emqx_bridge_snowflake,
+      :emqx_bridge_disk_log,
       :emqx_schema_registry,
       :emqx_schema_validation,
       :emqx_message_transformation,
@@ -389,6 +397,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_dashboard_rbac,
       :emqx_dashboard_sso,
       :emqx_audit,
+      :emqx_mt,
       :emqx_gateway_gbt32960,
       :emqx_gateway_ocpp,
       :emqx_gateway_jt808,
@@ -419,8 +428,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl,
-       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
       common_dep(:influxdb),
       common_dep(:wolff),
       common_dep(:kafka_protocol),
@@ -431,21 +439,7 @@ defmodule EMQXUmbrella.MixProject do
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
       {:greptimedb,
        github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.1.8", override: true},
-      # The following two are dependencies of rabbit_common. They are needed here to
-      # make mix not complain about conflicting versions
-      {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
-      {:credentials_obfuscation,
-       github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
-      {:rabbit_common,
-       github: "emqx/rabbitmq-server",
-       tag: "v3.11.13.2",
-       sparse: "deps/rabbit_common",
-       override: true},
-      {:amqp_client,
-       github: "emqx/rabbitmq-server",
-       tag: "v3.11.13.2",
-       sparse: "deps/amqp_client",
-       override: true}
+      {:amqp_client, "4.0.3", override: true}
     ]
   end
 
@@ -641,6 +635,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_dashboard,
             :emqx_dashboard_sso,
             :emqx_audit,
+            :emqx_mt,
             :emqx_resource,
             :emqx_connector,
             :emqx_exhook,
@@ -1226,7 +1221,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.1.11", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.2.3", override: true}
       ],
       else: []
   end

@@ -19,7 +19,7 @@ EMQX supports multiple open standard protocols like MQTT, HTTP, QUIC, and WebSoc
 
 With the built-in powerful SQL-based [rules engine](https://www.emqx.com/en/solutions/iot-rule-engine), EMQX can extract, filter, enrich and transform IoT data in real-time. In addition, it ensures high availability and horizontal scalability with a masterless distributed architecture, and provides ops-friendly user experience and great observability.
 
-EMQX boasts more than 20K+ enterprise users across 50+ countries and regions, connecting 100M+ IoT devices worldwide, and is trusted by over 400 customers in mission-critical scenarios of IoT, IIoT, connected vehicles, and more, including over 70 Fortune 500 companies like HPE, VMware, Verifone, SAIC Volkswagen, and Ericsson.
+EMQX boasts more than 20K+ enterprise users across 60+ countries and regions, connecting 250M+ IoT devices worldwide, and is trusted by over 1000 customers in mission-critical scenarios of IoT, IIoT, connected vehicles, and more, including over 70 Fortune 500 companies like HPE, VMware, Verifone, SAIC Volkswagen, and Ericsson.
 
 For more information, please visit [EMQX homepage](https://www.emqx.com/en).
 
@@ -117,6 +117,36 @@ cd emqx-rel
 make
 _build/emqx/rel/emqx/bin/emqx console
 ```
+
+## Rolling Upgrade Paths Since 5.0
+
+Below is the matrix supported rolling upgrade paths since 5.0.
+
+- Version numbers end with `?` e.g. `6.0?` are future releases.
+- ✅: Supported, or planed to support.
+- ⚠️:  May experience issues, require manual resolution.
+- ❌: Not supported.
+- 🔄: Tentative support for future versions.
+
+See release notes for detailed information.
+
+| From\To  | 5.1  | 5.2  | 5.3  | 5.4  | 5.5  | 5.6  | 5.7  | 5.8  | 5.9?  | 5.10? | 6.0?  |
+|----------|------|------|------|------|------|------|------|------|-------|-------|-------|
+| 5.0      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ⚠️[1]  | ❌[2] | ❌[2] |
+| 5.1      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
+| 5.2      |      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
+| 5.3      |      |      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
+| 5.4      |      |      |      | ✅   | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.5      |      |      |      |      | ✅   | ⚠️    | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.6      |      |      |      |      |      | ✅   | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.7      |      |      |      |      |      |      | ✅   | ✅   | ✅    | ✅    | 🔄    |
+| 5.8      |      |      |      |      |      |      |      | ✅   | ✅    | ✅    | 🔄    |
+| 5.9?     |      |      |      |      |      |      |      |      | ✅    | ✅    | ✅    |
+| 5.10?    |      |      |      |      |      |      |      |      |       | ✅    | ✅    |
+| 6.0?     |      |      |      |      |      |      |      |      |       |       | ✅    |
+
+- [1] Old limiter configs should be deleted from the config files (`etc/emqx.conf` and `data/configs/cluster-override.conf`) before upgrade.
+- [2] Pre-5.4 routing table will be deleted. Upgrade to 5.9 first, then perform a full-cluster restart (not rolling) before upgrade to 5.10 or later.
 
 ## License
 

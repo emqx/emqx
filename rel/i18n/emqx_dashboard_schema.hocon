@@ -137,6 +137,9 @@ token_expired_time.desc:
 token_expired_time.label:
 """Token expired time"""
 
+password_expired_time.desc:
+"""The expiration time for the password of users. The default value `0` means the password will never expire."""
+
 ssl_options.desc:
 """SSL/TLS options for the dashboard listener."""
 
@@ -148,4 +151,21 @@ swagger_support.desc:
 
 swagger_support.label:
 """Swagger Support"""
+
+mfa_settings.label: "MFA Settings"
+mfa_settings.desc: "Multifactor authentication settings."
+
+default_mfa.label:
+"""Default MFA Settings"""
+default_mfa.desc:
+"""Default Multifactor authentication settings for Dashboard.
+When set as `none`, MFA can be enabled per user from the dashboard.
+If set as `{mechanism = totp}`, the user will be initialized with
+a random TOTP secret when logging in for the first time."""
+
+mfa_mechanism.label:
+"""MFA Mechanism"""
+mfa_mechanism.desc:
+"""Multifactor authentication mechanism."""
+
 }

@@ -15,6 +15,8 @@
 
 -module(emqx_bridge_v2_kafka_producer_SUITE).
 
+-feature(maybe_expr, enable).
+
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -24,6 +26,7 @@
 -include_lib("brod/include/brod.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -35,7 +38,27 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All0 = emqx_common_test_helpers:all(?MODULE),
+    All = All0 -- matrix_cases(),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    Groups ++ All.
+
+groups() ->
+    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+
+matrix_cases() ->
+    lists:filter(
+        fun(TestCase) ->
+            maybe
+                true ?= erlang:function_exported(?MODULE, TestCase, 0),
+                {matrix, true} ?= proplists:lookup(matrix, ?MODULE:TestCase()),
+                true
+            else
+                _ -> false
+            end
+        end,
+        emqx_common_test_helpers:all(?MODULE)
+    ).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
@@ -1685,5 +1708,81 @@ t_overflow_rule_metrics(Config) ->
             get_rule_metrics(RuleId)
         )
     ),
+
+    ok.
+
+%% Smoke integration test to check that fallback action are triggered.  This Action is
+%% particularly interesting for this test because it uses an internal buffer.
+t_fallback_actions() ->
+    [{matrix, true}].
+t_fallback_actions(matrix) ->
+    [[sync], [async]];
+t_fallback_actions(Config) when is_list(Config) ->
+    [QueryMode] = emqx_common_test_helpers:group_path(Config),
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig = proplists:get_value(
+        connector_config, Config, connector_config_toxiproxy(Config)
+    ),
+    ActionName = atom_to_binary(?FUNCTION_NAME),
+    ActionConfig1 = proplists:get_value(action_config, Config, action_config(ConnectorName)),
+    RepublishTopic = <<"republish/fallback">>,
+    RepublishArgs = #{
+        <<"topic">> => RepublishTopic,
+        <<"qos">> => 1,
+        <<"retain">> => false,
+        <<"payload">> => <<"${payload}">>,
+        <<"mqtt_properties">> => #{},
+        <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+        <<"direct_dispatch">> => false
+    },
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        action,
+        Type,
+        ActionName,
+        emqx_utils_maps:deep_merge(
+            ActionConfig1,
+            #{
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => RepublishArgs
+                    }
+                ],
+                <<"parameters">> => #{
+                    <<"query_mode">> => atom_to_binary(QueryMode),
+                    %% Simple way to make the requests fail: make the buffer overflow
+                    <<"buffer">> => #{
+                        <<"segment_bytes">> => <<"1B">>,
+                        <<"per_partition_limit">> => <<"2B">>
+                    }
+                }
+            }
+        )
+    ),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    ActionParams = [
+        {action_config, ActionConfig},
+        {action_name, ActionName},
+        {action_type, Type}
+    ],
+    {201, _} = simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams)),
+    {201, _} = simplify_result(emqx_bridge_v2_testlib:create_action_api(ActionParams)),
+
+    RuleTopic = <<"fallback/actions">>,
+    {ok, #{<<"id">> := RuleId}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
+            {bridge_name, ActionName}
+        ]),
+
+    emqx:subscribe(RepublishTopic),
+    Payload = <<"aaaaaaaaaaaaaa">>,
+    emqx:publish(emqx_message:make(RuleTopic, Payload)),
+
+    ?assertReceive({deliver, RepublishTopic, #message{payload = Payload}}),
 
     ok.

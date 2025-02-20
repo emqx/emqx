@@ -37,14 +37,23 @@
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
+    delete_next/4,
+
     update_iterator/3,
     next/3,
-    poll/3,
-    delete_next/4,
+
+    subscribe/3,
+    unsubscribe/2,
+    suback/3,
+    subscription_info/2,
 
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
+    high_watermark/2,
+    fast_forward/3,
+    message_match_context/4,
+    iterator_match_context/2,
 
     %% `emqx_ds_buffer':
     init_buffer/3,
@@ -123,8 +132,8 @@
 -spec open_db(emqx_ds:db(), db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
-    {AppendOnly, CreateOpts1} = maps:take(append_only, CreateOpts0),
-    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts1),
+    AppendOnly = maps:get(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
     case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
@@ -143,13 +152,14 @@ add_generation(DB) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     Errors = lists:filtermap(
         fun(Shard) ->
-            ShardId = {DB, Shard},
+            DBShard = {DB, Shard},
             case
                 emqx_ds_storage_layer:add_generation(
-                    ShardId, emqx_ds_builtin_local_meta:ensure_monotonic_timestamp(ShardId)
+                    DBShard, emqx_ds_builtin_local_meta:ensure_monotonic_timestamp(DBShard)
                 )
             of
                 ok ->
+                    emqx_ds_beamformer:generation_event(DBShard),
                     false;
                 Error ->
                     {true, {Shard, Error}}
@@ -388,44 +398,68 @@ update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_next, [DB, Iter, N]),
+    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_next, [DB, Iter, N]),
     receive
-        #poll_reply{ref = Ref, payload = Data} ->
-            Data
+        {Ref, Result} ->
+            Result
     end.
 
--spec poll(emqx_ds:db(), emqx_ds:poll_iterators(), emqx_ds:poll_opts()) -> {ok, reference()}.
-poll(DB, Iterators, PollOpts = #{timeout := Timeout}) ->
-    %% Create a new alias, if not already provided:
-    case PollOpts of
-        #{reply_to := ReplyTo} ->
-            ok;
-        _ ->
-            ReplyTo = alias([explicit_unalias])
-    end,
-    %% Spawn a helper process that will notify the caller when the
-    %% poll times out:
-    emqx_ds_lib:send_poll_timeout(ReplyTo, Timeout),
-    %% Submit poll jobs:
-    lists:foreach(
-        fun({ItKey, It = #{?tag := ?IT, ?shard := Shard}}) ->
-            ShardId = {DB, Shard},
-            ReturnAddr = {ReplyTo, ItKey},
-            emqx_ds_beamformer:poll(node(), ReturnAddr, ShardId, It, PollOpts)
-        end,
-        Iterators
-    ),
-    {ok, ReplyTo}.
+-spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
+    {ok, emqx_ds:subscription_handle(), reference()}.
+subscribe(DB, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+    Server = emqx_ds_beamformer:where({DB, Shard}),
+    MRef = monitor(process, Server),
+    case emqx_ds_beamformer:subscribe(Server, self(), MRef, It, SubOpts) of
+        {ok, MRef} ->
+            {ok, {Shard, MRef}, MRef};
+        Err = {error, _, _} ->
+            Err
+    end.
 
-unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
-    emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
+-spec subscription_info(emqx_ds:db(), emqx_ds:subscription_handle()) ->
+    emqx_ds:sub_info() | undefined.
+subscription_info(DB, {Shard, SubRef}) ->
+    emqx_ds_beamformer:subscription_info({DB, Shard}, SubRef).
 
-scan_stream(ShardId, Stream, TopicFilter, StartMsg, BatchSize) ->
-    {DB, _} = ShardId,
-    Now = current_timestamp(ShardId),
+-spec unsubscribe(emqx_ds:db(), emqx_ds:subscription_handle()) -> boolean().
+unsubscribe(DB, {Shard, SubId}) ->
+    emqx_ds_beamformer:unsubscribe({DB, Shard}, SubId).
+
+-spec suback(emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()) ->
+    ok | {error, subscription_not_found}.
+suback(DB, {Shard, SubRef}, SeqNo) ->
+    emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
+
+unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:unpack_iterator(DBShard, Iterator).
+
+high_watermark(DBShard, Stream) ->
+    Now = current_timestamp(DBShard),
+    emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
+
+fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
+    Now = current_timestamp(DBShard),
+    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+        {ok, end_of_stream} ->
+            {ok, end_of_stream};
+        {ok, Inner} ->
+            {ok, It#{?enc := Inner}};
+        {error, _, _} = Err ->
+            Err
+    end.
+
+message_match_context(DBShard, InnerStream, MsgKey, Message) ->
+    emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
+
+iterator_match_context(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
+    emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
+
+scan_stream(DBShard, Stream, TopicFilter, StartMsg, BatchSize) ->
+    {DB, _} = DBShard,
+    Now = current_timestamp(DBShard),
     T0 = erlang:monotonic_time(microsecond),
     Result = emqx_ds_storage_layer:scan_stream(
-        ShardId, Stream, TopicFilter, Now, StartMsg, BatchSize
+        DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
     ),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
@@ -470,9 +504,9 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
 delete_next(DB, Iter, Selector, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(undefined, ?MODULE, do_delete_next, [DB, Iter, Selector, N]),
+    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
-        #poll_reply{ref = Ref, payload = Data} -> Data
+        {Ref, Result} -> Result
     end.
 
 %%================================================================================
@@ -534,16 +568,16 @@ timeus_to_timestamp(TimestampUs) ->
 
 -ifdef(TEST).
 
-test_applications(_Config) ->
+test_applications(Config) ->
     [
-        emqx_durable_storage,
-        emqx_ds_backends
+        {App, maps:get(App, Config, #{})}
+     || App <- [emqx_durable_storage, emqx_ds_backends]
     ].
 
 test_db_config(_Config) ->
     #{
         backend => builtin_local,
-        storage => {emqx_ds_storage_reference, #{}},
+        storage => {emqx_ds_storage_skipstream_lts, #{with_guid => true}},
         n_shards => 1
     }.
 

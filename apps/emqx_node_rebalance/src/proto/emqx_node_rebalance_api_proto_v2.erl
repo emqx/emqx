@@ -23,37 +23,39 @@
 -include_lib("emqx/include/bpapi.hrl").
 -include_lib("emqx/include/types.hrl").
 
+-define(TIMEOUT, 15000).
+
 introduced_in() ->
     "5.2.1".
 
 -spec node_rebalance_evacuation_start(node(), emqx_node_rebalance_evacuation:start_opts()) ->
     emqx_rpc:badrpc() | ok_or_error(emqx_node_rebalance_evacuation:start_error()).
 node_rebalance_evacuation_start(Node, #{} = Opts) ->
-    rpc:call(Node, emqx_node_rebalance_evacuation, start, [Opts]).
+    rpc:call(Node, emqx_node_rebalance_evacuation, start, [Opts], ?TIMEOUT).
 
 -spec node_rebalance_evacuation_stop(node()) ->
     emqx_rpc:badrpc() | ok_or_error(not_started).
 node_rebalance_evacuation_stop(Node) ->
-    rpc:call(Node, emqx_node_rebalance_evacuation, stop, []).
+    rpc:call(Node, emqx_node_rebalance_evacuation, stop, [], ?TIMEOUT).
 
 -spec node_rebalance_start(node(), emqx_node_rebalance:start_opts()) ->
     emqx_rpc:badrpc() | ok_or_error(emqx_node_rebalance:start_error()).
 node_rebalance_start(Node, Opts) ->
-    rpc:call(Node, emqx_node_rebalance, start, [Opts]).
+    rpc:call(Node, emqx_node_rebalance, start, [Opts], ?TIMEOUT).
 
 -spec node_rebalance_stop(node()) ->
     emqx_rpc:badrpc() | ok_or_error(not_started).
 node_rebalance_stop(Node) ->
-    rpc:call(Node, emqx_node_rebalance, stop, []).
+    rpc:call(Node, emqx_node_rebalance, stop, [], ?TIMEOUT).
 
 %% Introduced in v2:
 
 -spec node_rebalance_purge_start(node(), emqx_node_rebalance_purge:start_opts()) ->
     emqx_rpc:badrpc() | ok_or_error(emqx_node_rebalance_purge:start_error()).
 node_rebalance_purge_start(Node, #{} = Opts) ->
-    rpc:call(Node, emqx_node_rebalance_purge, start, [Opts]).
+    rpc:call(Node, emqx_node_rebalance_purge, start, [Opts], ?TIMEOUT).
 
 -spec node_rebalance_purge_stop(node()) ->
     emqx_rpc:badrpc() | ok_or_error(emqx_node_rebalance_purge:stop_error()).
 node_rebalance_purge_stop(Node) ->
-    rpc:call(Node, emqx_node_rebalance_purge, stop, []).
+    rpc:call(Node, emqx_node_rebalance_purge, stop, [], ?TIMEOUT).

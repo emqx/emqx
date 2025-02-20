@@ -23,12 +23,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--import(hoconsc, [
-    mk/2,
-    array/1,
-    enum/1
-]).
-
 -export([
     api_spec/0,
     fields/1,
@@ -42,12 +36,14 @@
     logout/2,
     users/2,
     user/2,
-    change_pwd/2
+    change_pwd/2,
+    change_mfa/2
 ]).
 
 -define(EMPTY(V), (V == undefined orelse V == <<>>)).
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
+-define(BAD_MFA_TOKEN, 'BAD_MFA_TOKEN').
 -define(WRONG_TOKEN_OR_USERNAME, 'WRONG_TOKEN_OR_USERNAME').
 -define(USER_NOT_FOUND, 'USER_NOT_FOUND').
 -define(ERROR_PWD_NOT_MATCH, 'ERROR_PWD_NOT_MATCH').
@@ -65,20 +61,24 @@ paths() ->
         "/logout",
         "/users",
         "/users/:username",
-        "/users/:username/change_pwd"
+        "/users/:username/change_pwd",
+        "/users/:username/mfa"
     ].
 
 schema("/login") ->
+    ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN],
     #{
         'operationId' => login,
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(login_api),
             summary => <<"Dashboard authentication">>,
-            'requestBody' => fields([username, password]),
+            'requestBody' => fields([username, password, mfa_token]),
             responses => #{
-                200 => fields([role, token, version, license]),
-                401 => response_schema(401)
+                200 => fields([
+                    role, token, version, license, password_expire_in_seconds
+                ]),
+                401 => emqx_dashboard_swagger:error_codes(ErrorCodes, ?DESC(login_failed401))
             },
             security => []
         }
@@ -131,7 +131,7 @@ schema("/users/:username") ->
             parameters => sso_parameters(fields([username_in_path])),
             'requestBody' => fields([role, description]),
             responses => #{
-                200 => fields([username, role, description, backend]),
+                200 => user_fields(),
                 404 => response_schema(404)
             }
         },
@@ -165,6 +165,29 @@ schema("/users/:username/change_pwd") ->
                 )
             }
         }
+    };
+schema("/users/:username/mfa") ->
+    #{
+        'operationId' => change_mfa,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(change_mfa),
+            parameters => fields([username_in_path]),
+            'requestBody' => emqx_dashboard_schema:mfa_fields(),
+            responses => #{
+                204 => <<"MFA setting is reset">>,
+                404 => response_schema(404)
+            }
+        },
+        delete => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(delete_mfa),
+            parameters => fields([username_in_path]),
+            responses => #{
+                204 => <<"MFA setting is deleted">>,
+                404 => response_schema(404)
+            }
+        }
     }.
 
 response_schema(401) ->
@@ -173,9 +196,26 @@ response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
 fields(user) ->
-    fields([username, role, description, backend]);
+    user_fields();
 fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
+
+user_fields() ->
+    fields([username, role, description, backend]) ++ ee_user_fields().
+
+ee_user_fields() ->
+    case emqx_release:edition() of
+        ee ->
+            [
+                {mfa,
+                    mk(
+                        enum([none, disabled] ++ emqx_dashboard_mfa:supported_mechanisms()),
+                        #{desc => ?DESC(mfa_status), example => totp}
+                    )}
+            ];
+        _ ->
+            []
+    end.
 
 field(username) ->
     {username,
@@ -191,6 +231,14 @@ field(username_in_path) ->
 field(password) ->
     {password,
         mk(binary(), #{desc => ?DESC(password), 'maxLength' => 100, example => <<"public">>})};
+field(mfa_token) ->
+    {mfa_token,
+        mk(binary(), #{
+            desc => ?DESC(mfa_token),
+            'maxLength' => 9,
+            example => <<"023123">>,
+            required => false
+        })};
 field(description) ->
     {description, mk(binary(), #{desc => ?DESC(user_description), example => <<"administrator">>})};
 field(token) ->
@@ -213,7 +261,10 @@ field(role) ->
     {role,
         mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
 field(backend) ->
-    {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})}.
+    {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})};
+field(password_expire_in_seconds) ->
+    {password_expire_in_seconds,
+        mk(integer(), #{desc => ?DESC(password_expire_in_seconds), example => 3600})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -221,21 +272,26 @@ field(backend) ->
 login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
+    MfaToken = maps:get(<<"mfa_token">>, Params, ?NO_MFA_TOKEN),
     minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username}),
-    case emqx_dashboard_admin:sign_token(Username, Password) of
-        {ok, Role, Token} ->
+    case emqx_dashboard_admin:sign_token(Username, Password, MfaToken) of
+        {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200,
-                filter_result(#{
-                    role => Role,
-                    token => Token,
+                filter_result(Result#{
                     version => Version,
                     license => #{edition => emqx_release:edition()}
                 })};
         {error, R} ->
             ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
-            {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+            %% check if this error was created by emqx_dashboard_mfa
+            case emqx_dashboard_mfa:is_mfa_error(R) of
+                true ->
+                    {401, ?BAD_MFA_TOKEN, R};
+                false ->
+                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+            end
     end.
 
 logout(_, #{
@@ -369,6 +425,38 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
                     {400, ?BAD_REQUEST, Reason}
             end
     end.
+
+change_mfa(delete, #{bindings := #{username := Username}}) ->
+    LogMeta = #{msg => "dashboard_user_mfa_delete", username => binary_to_list(Username)},
+    case emqx_dashboard_admin:disable_mfa(Username) of
+        {ok, ok} ->
+            ?SLOG(info, LogMeta#{result => success}),
+            {204};
+        {error, <<"username_not_found">>} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+            {404, ?USER_NOT_FOUND, <<"User not found">>}
+    end;
+change_mfa(post, #{bindings := #{username := Username}, body := Settings}) ->
+    Mechanism = maps:get(<<"mechanism">>, Settings),
+    {ok, State} = emqx_dashboard_mfa:init(Mechanism),
+    LogMeta = #{msg => "dashboard_user_mfa_setup", username => binary_to_list(Username)},
+    case emqx_dashboard_admin:set_mfa_state(Username, State) of
+        {ok, ok} ->
+            ?SLOG(info, LogMeta#{result => success}),
+            {204};
+        {error, <<"username_not_found">>} ->
+            ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+            {404, ?USER_NOT_FOUND, <<"User not found">>}
+    end.
+
+mk(Type, Props) ->
+    hoconsc:mk(Type, Props).
+
+array(Type) ->
+    hoconsc:array(Type).
+
+enum(Symbols) ->
+    hoconsc:enum(Symbols).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 field_filter(_) ->

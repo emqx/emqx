@@ -157,7 +157,7 @@ t_update(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Body = [#{topic => ?TOPIC_S}],
     {ok, Response} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, Body),
-    ResponseMap = emqx_utils_json:decode(Response, [return_maps]),
+    ResponseMap = emqx_utils_json:decode(Response),
     ?assertEqual(1, erlang:length(ResponseMap)),
 
     BadBody1 = #{topic => ?TOPIC_S},
@@ -193,7 +193,7 @@ t_update(_) ->
     emqtt:disconnect(Client),
 
     {ok, GETResponse} = emqx_mgmt_api_test_util:request_api(get, Path),
-    GETResponseMap = emqx_utils_json:decode(GETResponse, [return_maps]),
+    GETResponseMap = emqx_utils_json:decode(GETResponse),
     ?assertEqual(1, erlang:length(GETResponseMap)),
     ok.
 

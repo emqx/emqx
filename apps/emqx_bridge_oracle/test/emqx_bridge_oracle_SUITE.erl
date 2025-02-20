@@ -319,7 +319,7 @@ create_bridge_api(Config, Overrides) ->
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
                 _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeBin, Name),
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             {error, {Status, Headers, Body0}} ->
                 {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
             Error ->
@@ -346,7 +346,7 @@ update_bridge_api(Config, Overrides) ->
         case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Params, Opts) of
             {ok, {_Status, _Headers, Body0}} ->
                 _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeBin, Name),
-                {ok, emqx_utils_json:decode(Body0, [return_maps])};
+                {ok, emqx_utils_json:decode(Body0)};
             Error ->
                 Error
         end,
@@ -382,7 +382,7 @@ create_rule_and_action_http(Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 

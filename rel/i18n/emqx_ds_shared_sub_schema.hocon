@@ -6,58 +6,53 @@ enable.desc:
 enable.label:
 """Enable Shared Subscription"""
 
-session_find_leader_timeout_ms.desc:
+session_find_leader_timeout.desc:
 """The timeout in milliseconds for the session to find a leader.
 If the session cannot find a leader within this time, the session will retry."""
 
-session_find_leader_timeout_ms.label:
+session_find_leader_timeout.label:
 """Session Find Leader Timeout"""
 
-session_renew_lease_timeout_ms.desc:
-"""The timeout in milliseconds for the session to wait for the leader to renew the lease.
-If the leader does not renew the lease within this time, the session will consider
+session_ping_leader_interval.desc:
+"""The interval in milliseconds for the session to ping the leader."""
+
+session_ping_leader_interval.label:
+"""Session Ping Leader Interval"""
+
+session_ping_leader_timeout.desc:
+"""The timeout in milliseconds for the session to wait for the leader to respond to the ping.
+If the leader does not respond to the ping within this time, the session will consider
 the leader as lost and try to find a new leader."""
 
-session_renew_lease_timeout_ms.label:
-"""Session Renew Lease Timeout"""
+session_ping_leader_timeout.label:
+"""Session Ping Leader Timeout"""
 
-session_min_update_stream_state_interval_ms.desc:
-"""The minimum interval in milliseconds for the session to update the stream state.
-If session has no updates for the stream state within this time, the session will
-send empty updates."""
+session_unsubscribe_timeout.desc:
+"""The timeout in milliseconds for the session to wait for the streams to reach
+consistent state that may be reported to the leader. If the timeout is reached,
+the session will send the latest known consistent state to the leader."""
 
-session_min_update_stream_state_interval_ms.label:
-"""Session Min Update Stream State Interval"""
+session_unsubscribe_timeout.label:
+"""Session Unsubscribe Timeout"""
 
-leader_renew_lease_interval_ms.desc:
-"""The interval in milliseconds for the leader to renew the lease."""
+leader_periodical_actions_interval.desc:
+"""The interval in milliseconds for the leader to perform periodical actions."""
 
-leader_renew_lease_interval_ms.label:
-"""Leader Renew Lease Interval"""
+leader_periodical_actions_interval.label:
+"""Leader Periodical Actions Interval"""
 
-leader_renew_streams_interval_ms.desc:
+leader_renew_streams_interval.desc:
 """The interval in milliseconds for the leader to renew the streams."""
 
-leader_renew_streams_interval_ms.label:
+leader_renew_streams_interval.label:
 """Leader Renew Streams Interval"""
 
-leader_drop_timeout_interval_ms.desc:
-"""The interval in milliseconds for the leader to drop non-responsive sessions."""
+leader_ssubscriber_timeout.desc:
+"""The maximum time in milliseconds for the leader to wait for the ping from a shared subscriber.
+If the shared subscriber does not ping the leader within this time, the leader will consider
+the shared subscriber as lost and will reclaim its streams."""
 
-leader_drop_timeout_interval_ms.label:
-"""Leader Drop Timeout Interval"""
-
-leader_session_update_timeout_ms.desc:
-"""The timeout in milliseconds for the leader to wait for the session to update the stream state.
-If the session does not update the stream state within this time, the leader will drop the session."""
-
-leader_session_update_timeout_ms.label:
-"""Leader Session Update Timeout"""
-
-leader_session_not_replaying_timeout_ms.desc:
-"""The timeout in milliseconds for the leader to wait for the session leave intermediate states."""
-
-leader_session_not_replaying_timeout_ms.label:
-"""Leader Session Not Replaying Timeout"""
+leader_ssubscriber_timeout.label:
+"""Leader Subscriber Timeout"""
 
 }

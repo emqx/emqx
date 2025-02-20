@@ -25,7 +25,7 @@
 
 %% behavior callbacks:
 -export([
-    create/5,
+    create/6,
     open/5,
     drop/5,
     prepare_batch/4,
@@ -202,10 +202,11 @@
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     options(),
-    _PrevGeneration :: s() | undefined
+    _PrevGeneration :: s() | undefined,
+    emqx_ds:db_opts()
 ) ->
     {schema(), emqx_ds_storage_layer:cf_refs()}.
-create(_ShardId, DBHandle, GenId, Options, SPrev) ->
+create(_ShardId, DBHandle, GenId, Options, SPrev, _DBOpts) ->
     %% Get options:
     BitsPerTopicLevel = maps:get(bits_per_wildcard_level, Options, 64),
     TopicIndexBytes = maps:get(topic_index_bytes, Options, 4),

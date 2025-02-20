@@ -82,9 +82,10 @@
 %%       for the activation from control stream after it is accepted as a legit connection.
 %%       For security, the initial number of allowed data streams from client should be limited by
 %%       'peer_bidi_stream_count` & 'peer_unidi_stream_count`
--spec activate_data_streams(pid(), {
-    emqx_frame:parse_state(), emqx_frame:serialize_opts(), emqx_channel:channel()
-}) -> ok.
+-spec activate_data_streams(
+    pid(),
+    {emqx_frame:parse_state(), emqx_frame:serialize_opts(), emqx_channel:channel()}
+) -> ok.
 activate_data_streams(ConnOwner, {PS, Serialize, Channel}) ->
     gen_server:call(ConnOwner, {activate_data_streams, {PS, Serialize, Channel}}, infinity).
 
@@ -122,7 +123,8 @@ new_conn(
             ),
             receive
                 {CtrlPid, stream_acceptor_ready} ->
-                    ok = quicer:async_handshake(Conn),
+                    %% Apply latest config during handshake
+                    ok = quicer:async_handshake(Conn, S),
                     {ok, S#{conn := Conn, ctrl_pid := CtrlPid}};
                 {'EXIT', _Pid, _Reason} ->
                     {stop, stream_accept_error, S}
@@ -263,7 +265,13 @@ handle_call(
         %% we dont care about the return val here.
         %% note, this is only used after control stream pass the validation. The data streams
         %%       that are called here are assured to be inactived (data processing hasn't been started).
-        catch emqx_quic_data_stream:activate_data(OwnerPid, ActivateData)
+        try emqx_quic_data_stream:activate_data(OwnerPid, ActivateData) of
+            _ ->
+                ok
+        catch
+            _:_ ->
+                ok
+        end
      || {OwnerPid, _Stream} <- Streams
     ],
     {reply, ok, S#{

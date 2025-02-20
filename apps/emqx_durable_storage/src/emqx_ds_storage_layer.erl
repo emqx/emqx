@@ -39,8 +39,14 @@
     next/4,
 
     generation/1,
+
+    %% Beamformer
     unpack_iterator/2,
     scan_stream/6,
+    high_watermark/3,
+    fast_forward/4,
+    message_match_context/4,
+    iterator_match_context/2,
 
     delete_next/5,
 
@@ -258,6 +264,13 @@
 %% Shard (runtime):
 -type shard() :: shard(generation()).
 
+%% Which DB options to provide to the storage layout module:
+%% See `emqx_ds:db_opts()`.
+-define(STORAGE_LAYOUT_DB_OPTS, [
+    append_only,
+    atomic_batches
+]).
+
 -define(GLOBAL(K), <<"G/", K/binary>>).
 
 -type options() :: map().
@@ -278,7 +291,8 @@
     rocksdb:db_handle(),
     gen_id(),
     Options :: map(),
-    generation_data() | undefined
+    generation_data() | undefined,
+    emqx_ds:db_opts()
 ) ->
     {_Schema, cf_refs()}.
 
@@ -485,7 +499,7 @@ dispatch_events(
 ) ->
     #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
     Events = Mod:batch_events(Shard, GenData, CookedBatch),
-    DispatchF([{?stream_v2(GenId, InnerStream), Topic} || {InnerStream, Topic} <- Events]).
+    DispatchF([?stream_v2(GenId, InnerStream) || InnerStream <- Events]).
 
 -spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
@@ -626,16 +640,16 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 
 %%    When doing multi-next, we group iterators by stream:
 %% @TODO we need add it to the callback
-unpack_iterator(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
-    case generation_get(Shard, GenId) of
+unpack_iterator(DBShard = {_, Shard}, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    case generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key, TS} = Mod:unpack_iterator(Shard, GenData, Inner),
+            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(DBShard, GenData, Inner),
             #{
                 stream => ?stream_v2(GenId, InnerStream),
                 topic_filter => TopicFilter,
                 last_seen_key => Key,
-                timestamp => TS,
-                message_matcher => Mod:message_matcher(Shard, GenData, Inner)
+                message_matcher => Mod:message_matcher(DBShard, GenData, Inner),
+                rank => {Shard, GenId}
             };
         not_found ->
             %% generation was possibly dropped by GC
@@ -654,6 +668,44 @@ scan_stream(
             Mod:scan_stream(
                 Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent
             );
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
+    case make_iterator(Shard, Stream, ['#'], Now) of
+        {ok, It} ->
+            #{last_seen_key := LSK} = unpack_iterator(Shard, It),
+            {ok, LSK};
+        Err ->
+            Err
+    end.
+
+fast_forward(Shard, It = #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            case Mod:fast_forward(Shard, GenData, Inner0, Key, Now) of
+                {ok, Inner} ->
+                    {ok, It#{?enc := Inner}};
+                Other ->
+                    Other
+            end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+message_match_context(Shard, ?stream_v2(GenId, Inner), MsgKey, Message) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:message_match_context(Shard, GenData, Inner, MsgKey, Message);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+iterator_match_context(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:iterator_match_context(Shard, GenData, Inner);
         not_found ->
             ?ERR_GEN_GONE
     end.
@@ -810,6 +862,7 @@ start_link(Shard = {_, _}, Options) ->
 -record(s, {
     shard_id :: shard_id(),
     db :: rocksdb:db_handle(),
+    db_opts :: emqx_ds:db_opts(),
     cf_refs :: cf_refs(),
     cf_need_flush :: gen_id(),
     schema :: shard_schema(),
@@ -831,8 +884,7 @@ init({ShardId, Options}) ->
     {Schema, CFRefs} =
         case get_schema_persistent(DB) of
             not_found ->
-                Prototype = maps:get(storage, Options),
-                create_new_shard_schema(ShardId, DB, CFRefs0, Prototype);
+                create_new_shard_schema(ShardId, DB, CFRefs0, Options);
             Scm ->
                 {Scm, CFRefs0}
         end,
@@ -841,6 +893,7 @@ init({ShardId, Options}) ->
     S = #s{
         shard_id = ShardId,
         db = DB,
+        db_opts = filter_layout_db_opts(Options),
         cf_refs = CFRefs,
         cf_need_flush = CurrentGenId,
         schema = Schema,
@@ -990,13 +1043,23 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
 
 -spec handle_add_generation(server_state(), emqx_ds:time()) ->
     server_state() | {error, overlaps_existing_generations}.
-handle_add_generation(S0, Since) ->
-    #s{shard_id = ShardId, db = DB, schema = Schema0, shard = Shard0, cf_refs = CFRefs0} = S0,
+handle_add_generation(
+    S0 = #s{
+        shard_id = ShardId,
+        db = DB,
+        db_opts = DBOpts,
+        schema = Schema0,
+        shard = Shard0,
+        cf_refs = CFRefs0
+    },
+    Since
+) ->
     Schema1 = update_last_until(Schema0, Since),
     Shard1 = update_last_until(Shard0, Since),
     case Schema1 of
         _Updated = #{} ->
-            {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Shard0, Since),
+            {GenId, Schema, NewCFRefs} =
+                new_generation(ShardId, DB, Schema1, Shard0, Since, DBOpts),
             CFRefs = NewCFRefs ++ CFRefs0,
             Key = ?GEN_KEY(GenId),
             Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
@@ -1097,32 +1160,30 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
     GenSchema#{data => RuntimeData}.
 
--spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), prototype()) ->
+-spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
     {shard_schema(), cf_refs()}.
-create_new_shard_schema(ShardId, DB, CFRefs, Prototype) ->
+create_new_shard_schema(ShardId, DB, CFRefs, Options = #{storage := Prototype}) ->
     ?tp(notice, ds_create_new_shard_schema, #{shard => ShardId, prototype => Prototype}),
     %% TODO: read prototype from options/config
     Schema0 = #{
         current_generation => 0,
         prototype => Prototype
     },
-    {_NewGenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema0, _Since = 0),
+    DBOpts = filter_layout_db_opts(Options),
+    {_NewGenId, Schema, NewCFRefs} =
+        new_generation(ShardId, DB, Schema0, undefined, _Since = 0, DBOpts),
     {Schema, NewCFRefs ++ CFRefs}.
-
--spec new_generation(shard_id(), rocksdb:db_handle(), shard_schema(), emqx_ds:time()) ->
-    {gen_id(), shard_schema(), cf_refs()}.
-new_generation(ShardId, DB, Schema0, Since) ->
-    new_generation(ShardId, DB, Schema0, undefined, Since).
 
 -spec new_generation(
     shard_id(),
     rocksdb:db_handle(),
     shard_schema(),
     shard() | undefined,
-    emqx_ds:time()
+    emqx_ds:time(),
+    emqx_ds:db_opts()
 ) ->
     {gen_id(), shard_schema(), cf_refs()}.
-new_generation(ShardId, DB, Schema0, Shard0, Since) ->
+new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
     #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
     case Shard0 of
         #{?GEN_KEY(PrevGenId) := #{module := Mod} = PrevGen} ->
@@ -1132,8 +1193,9 @@ new_generation(ShardId, DB, Schema0, Shard0, Since) ->
         _ ->
             PrevRuntimeData = undefined
     end,
+    %% Provide a small subset of DB options to the storage layout module.
     GenId = next_generation_id(PrevGenId),
-    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf, PrevRuntimeData),
+    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf, PrevRuntimeData, DBOpts),
     GenSchema = #{
         module => Mod,
         data => GenData,
@@ -1164,6 +1226,12 @@ rocksdb_open(Shard, Options) ->
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
+        %% Info log file management:
+        %%    Maximal log files:
+        {keep_log_file_num, 10},
+        %%    Create a new log file when the old one exceeds:
+        %%    `max_log_file_size' (1MB):
+        {max_log_file_size, 16#100000},
         %% NOTE
         %% With WAL-less writes, it's important to have CFs flushed atomically.
         %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
@@ -1283,6 +1351,9 @@ handle_event(Shard, Time, ?storage_event(GenId, Event)) ->
 handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
+
+filter_layout_db_opts(Options) ->
+    maps:with(?STORAGE_LAYOUT_DB_OPTS, Options).
 
 %%--------------------------------------------------------------------------------
 

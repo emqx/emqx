@@ -150,11 +150,12 @@ cli(_) ->
                 "    [--nodes \"node1@host1 node2@host2\"] \\\n"
                 "    [--wait-health-check Secs] \\\n"
                 "    [--conn-evict-rate ConnPerSec] \\\n"
+                "    [--conn-evict-rpc-timeout Secs] \\\n"
                 "    [--abs-conn-threshold Count] \\\n"
                 "    [--rel-conn-threshold Fraction] \\\n"
-                "    [--conn-evict-rate ConnPerSec] \\\n"
                 "    [--wait-takeover Secs] \\\n"
                 "    [--sess-evict-rate CountPerSec] \\\n"
+                "    [--sess-evict-rpc-timeout Secs] \\\n"
                 "    [--abs-sess-threshold Count] \\\n"
                 "    [--rel-sess-threshold Fraction]",
                 "Start rebalance on the specified nodes using the current node as the coordinator"
@@ -240,6 +241,10 @@ collect_args(["--abs-sess-threshold", AbsSessThres | Args], Map) ->
     collect_args(Args, Map#{"--abs-sess-threshold" => AbsSessThres});
 collect_args(["--rel-sess-threshold", RelSessThres | Args], Map) ->
     collect_args(Args, Map#{"--rel-sess-threshold" => RelSessThres});
+collect_args(["--conn-evict-rpc-timeout", ConnEvictRpcTimeout | Args], Map) ->
+    collect_args(Args, Map#{"--conn-evict-rpc-timeout" => ConnEvictRpcTimeout});
+collect_args(["--sess-evict-rpc-timeout", SessEvictRpcTimeout | Args], Map) ->
+    collect_args(Args, Map#{"--sess-evict-rpc-timeout" => SessEvictRpcTimeout});
 %% common
 collect_args(["--wait-health-check", WaitHealthCheck | Args], Map) ->
     collect_args(Args, Map#{"--wait-health-check" => WaitHealthCheck});
@@ -303,8 +308,12 @@ validate_rebalance([{"--wait-health-check", _} | _] = Opts, Map) ->
     validate_pos_int(wait_health_check, Opts, Map, fun validate_rebalance/2);
 validate_rebalance([{"--conn-evict-rate", _} | _] = Opts, Map) ->
     validate_pos_int(conn_evict_rate, Opts, Map, fun validate_rebalance/2);
+validate_rebalance([{"--conn-evict-rpc-timeout", _} | _] = Opts, Map) ->
+    validate_sec_timeout(conn_evict_rpc_timeout, Opts, Map, fun validate_rebalance/2);
 validate_rebalance([{"--sess-evict-rate", _} | _] = Opts, Map) ->
     validate_pos_int(sess_evict_rate, Opts, Map, fun validate_rebalance/2);
+validate_rebalance([{"--sess-evict-rpc-timeout", _} | _] = Opts, Map) ->
+    validate_sec_timeout(sess_evict_rpc_timeout, Opts, Map, fun validate_rebalance/2);
 validate_rebalance([{"--abs-conn-threshold", _} | _] = Opts, Map) ->
     validate_pos_int(abs_conn_threshold, Opts, Map, fun validate_rebalance/2);
 validate_rebalance([{"--rel-conn-threshold", _} | _] = Opts, Map) ->
@@ -348,6 +357,14 @@ validate_pos_int(Name, [{OptionName, Value} | Rest], Map, Next) ->
     case string:to_integer(Value) of
         {Int, ""} when Int > 0 ->
             Next(Rest, Map#{Name => Int});
+        _ ->
+            {error, "invalid " ++ OptionName ++ " value"}
+    end.
+
+validate_sec_timeout(Name, [{OptionName, Value} | Rest], Map, Next) ->
+    case string:to_integer(Value) of
+        {Int, ""} when Int > 0 ->
+            Next(Rest, Map#{Name => Int * 1000});
         _ ->
             {error, "invalid " ++ OptionName ++ " value"}
     end.

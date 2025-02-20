@@ -34,8 +34,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_dashboard.hrl").
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
-
 -define(HOST, "http://127.0.0.1:18083").
 
 -define(BASE_PATH, "/api/v5").
@@ -210,7 +208,8 @@ t_rest_api(_Config) ->
                 <<"backend">> => <<"local">>,
                 <<"username">> => <<"admin">>,
                 <<"description">> => <<"administrator">>,
-                <<"role">> => ?ROLE_SUPERUSER
+                <<"role">> => ?ROLE_SUPERUSER,
+                <<"mfa">> => <<"none">>
             })
         ],
         get_http_data(Res0)
@@ -228,6 +227,7 @@ t_rest_api(_Config) ->
             <<"username">> => <<"usera">>,
             <<"password">> => <<"passwd_01234">>,
             <<"role">> => ?ROLE_SUPERUSER,
+            <<"mfa">> => <<"none">>,
             <<"description">> => Desc
         })
     ),
@@ -356,6 +356,45 @@ t_clean_expired_jwt(_Config) ->
     ?assertMatch([], emqx_dashboard_token:lookup_by_username(User)),
     ok.
 
+t_default_password_file(Config) ->
+    Password = <<"passwordfromfile">>,
+    Passfile = filename:join(?config(priv_dir, Config), "passfile"),
+    FileURI = iolist_to_binary([<<"file://">>, Passfile]),
+    ok = file:write_file(Passfile, Password),
+    Port = 18089,
+    AppSpecs = [
+        emqx_conf,
+        {emqx_dashboard, #{
+            config =>
+                #{
+                    <<"dashboard">> =>
+                        #{
+                            <<"listeners">> => #{
+                                <<"http">> => #{
+                                    <<"enable">> => true,
+                                    %% to avoid clash with master test node
+                                    <<"bind">> => Port
+                                }
+                            },
+                            <<"default_password">> => FileURI
+                        }
+                }
+        }}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        [{dash_default_pass1, #{apps => AppSpecs}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Username = <<"admin">>,
+    URL = "http://127.0.0.1:" ++ integer_to_list(Port) ++ filename:join([?BASE_PATH, "login"]),
+    Body = emqx_utils_json:encode(#{username => Username, password => Password}),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, _}},
+        httpc:request(post, {URL, [], "application/json", Body}, [], [{body_format, binary}])
+    ),
+    emqx_cth_cluster:stop(Nodes),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
@@ -406,15 +445,14 @@ auth_header_() ->
     auth_header_(<<"admin">>, <<"public">>).
 
 auth_header_(Username, Password) ->
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 api_path(Parts) ->
     ?HOST ++ filename:join([?BASE_PATH | Parts]).
 
 json(Data) ->
-    {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
-    Jsx.
+    emqx_utils_json:decode(Data).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 filter_req(Req) ->

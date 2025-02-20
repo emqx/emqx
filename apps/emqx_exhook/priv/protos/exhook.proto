@@ -16,15 +16,17 @@
 
 syntax = "proto3";
 
-option csharp_namespace = "Emqx.Exhook.V2";
+option csharp_namespace = "Emqx.Exhook.V3";
 option go_package = "emqx.io/grpc/exhook";
 option java_multiple_files = true;
 option java_package = "io.emqx.exhook";
 option java_outer_classname = "EmqxExHookProto";
 
-// The exhook proto version should be fixed as `v2` in EMQX v5.x
-// to make sure the exhook proto version is compatible
-package emqx.exhook.v2;
+// Please make sure the exhook proto version is compatible
+// with the EMQX version
+// v3: EMQX 5.9.0+
+// v2: EMQX 5.0-5.8.x
+package emqx.exhook.v3;
 
 service HookProvider {
 
@@ -97,6 +99,8 @@ message ClientConnectRequest {
   repeated Property props = 2;
 
   RequestMeta meta = 3;
+
+  repeated Property user_props = 4;
 }
 
 message ClientConnackRequest {
@@ -108,6 +112,8 @@ message ClientConnackRequest {
   repeated Property props = 3;
 
   RequestMeta meta = 4;
+
+  repeated Property user_props = 5;
 }
 
 message ClientConnectedRequest {
@@ -167,6 +173,8 @@ message ClientSubscribeRequest {
   repeated TopicFilter topic_filters = 3;
 
   RequestMeta meta = 4;
+
+  repeated Property user_props = 5;
 }
 
 message ClientUnsubscribeRequest {
@@ -178,6 +186,8 @@ message ClientUnsubscribeRequest {
   repeated TopicFilter topic_filters = 3;
 
   RequestMeta meta = 4;
+
+  repeated Property user_props = 5;
 }
 
 message SessionCreatedRequest {
@@ -242,6 +252,10 @@ message MessagePublishRequest {
   Message message = 1;
 
   RequestMeta meta = 2;
+
+  repeated Property props = 3;
+
+  repeated Property user_props = 4;
 }
 
 message MessageDeliveredRequest {

@@ -17,7 +17,7 @@
 -module(emqx_utils_sql).
 
 -export([get_statement_type/1]).
--export([parse_insert/1]).
+-export([split_insert/1]).
 
 -export([to_sql_value/1]).
 -export([to_sql_string/2]).
@@ -39,17 +39,20 @@
 -define(INSERT_RE_MP_KEY, {?MODULE, insert_re_mp}).
 -define(INSERT_RE_BIN, <<
     %% case-insensitive
-    "(?i)^\\s*",
+    "(?i)^\\s*"
     %% Group-1: insert into, table name and columns (when existed).
     %% All space characters suffixed to <TABLE_NAME> will be kept
     %% `INSERT INTO <TABLE_NAME> [(<COLUMN>, ..)]`
-    "(insert\\s+into\\s+[^\\s\\(\\)]+\\s*(?:\\([^\\)]*\\))?)",
+    "(insert\\s+into\\s+[^\\s\\(\\)]+\\s*(?:\\([^\\)]*\\))?)"
     %% Keyword: `VALUES`
-    "\\s*values\\s*",
+    "\\s*values\\s*"
     %% Group-2: literals value(s) or placeholder(s) with round brackets.
     %% And the sub-pattern in brackets does not do any capturing
     %% `([<VALUE> | <PLACEHOLDER>], ..])`
-    "(\\((?:[^()]++|(?2))*\\))",
+    "(\\((?:[^()]++|(?2))*\\))"
+    %% Group-3: match the `ON conflict` or `ON dulicate` clause
+    "\\s*(?:on\\s+(\\S+.*\\S))?"
+    %% Match trailings spaces
     "\\s*$"
 >>).
 
@@ -108,17 +111,35 @@ get_statement_type(Query) ->
     end.
 
 %% @doc Parse an INSERT SQL statement into its INSERT part and the VALUES part.
-%% SQL = <<"INSERT INTO \"abc\" (c1, c2, c3) VALUES (${a}, ${b}, ${c.prop})">>
-%% {ok, {<<"INSERT INTO \"abc\" (c1, c2, c3)">>, <<"(${a}, ${b}, ${c.prop})">>}}
--spec parse_insert(iodata()) ->
-    {ok, {_Statement :: binary(), _Rows :: binary()}} | {error, not_insert_sql}.
-parse_insert(SQL) ->
+%%
+%% SQL = "INSERT INTO \"abc\" (c1, c2, c3) VALUES (${a}, ${b}, ${c.prop})"
+%%   {ok, {<<"INSERT INTO \"abc\" (c1, c2, c3)">>, <<"(${a}, ${b}, ${c.prop})">>}}
+%%
+%% SQL = "INSERT INTO \"abc\" (c1, c2, c3) VALUES (${a}, ${b}, ${c.prop}) ON DUPLICATE KEY UPDATE c1 = ${a}"
+%%   {ok, {<<"INSERT INTO \"abc\" (c1, c2, c3)">>, <<"(${a}, ${b}, ${c.prop})">>,
+%%         <<"DUPLICATE KEY UPDATE c1 = ${a}">>}}
+-spec split_insert(iodata()) ->
+    {ok, {binary(), binary()} | {binary(), binary(), binary()}} | {error, term()}.
+split_insert(SQL) ->
     {ok, MP} = get_insert_mp(),
-    case re:run(SQL, MP, [{capture, all_but_first, binary}]) of
-        {match, [InsertInto, ValuesTemplate]} ->
-            {ok, {InsertInto, ValuesTemplate}};
-        nomatch ->
-            {error, not_insert_sql}
+    try
+        case re:run(SQL, MP, [{capture, all_but_first, binary}]) of
+            {match, [InsertInto, ValuesTemplate]} ->
+                {ok, {assert_no_vars(InsertInto), ValuesTemplate}};
+            {match, [InsertInto, ValuesTemplate, OnClause]} ->
+                {ok, {assert_no_vars(InsertInto), ValuesTemplate, assert_no_vars(OnClause)}};
+            nomatch ->
+                {error, <<"Not an INSERT statement or incorrect SQL syntax">>}
+        end
+    catch
+        throw:{placeholders_not_allowed, _Str} ->
+            {error, <<"Placeholders are only allowed in VALUES part">>}
+    end.
+
+assert_no_vars(Str) ->
+    case emqx_template_sql:has_placeholder(Str) of
+        true -> throw({placeholders_not_allowed, Str});
+        false -> Str
     end.
 
 %% @doc Convert an Erlang term to a value that can be used primarily in

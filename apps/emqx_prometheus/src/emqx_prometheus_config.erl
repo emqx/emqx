@@ -100,6 +100,7 @@ to_collectors(Conf) ->
 post_config_update(?PROMETHEUS, _Req, New, Old, AppEnvs) ->
     update_prometheus(AppEnvs),
     _ = update_push_gateway(New),
+    ok = emqx_prometheus_auth:update_latency_metrics(New),
     update_auth(New, Old);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.

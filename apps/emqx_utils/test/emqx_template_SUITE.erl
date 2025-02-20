@@ -82,9 +82,13 @@ t_render_this(_) ->
     Context = #{a => <<"a">>, b => [1, 2, 3]},
     Template = emqx_template:parse(<<"this:${} / also:${.}">>),
     ?assertEqual(ok, emqx_template:validate(["."], Template)),
-    ?assertEqual(
-        % NOTE: order of the keys in the JSON object depends on the JSON encoder
-        <<"this:{\"b\":[1,2,3],\"a\":\"a\"} / also:{\"b\":[1,2,3],\"a\":\"a\"}">>,
+    ?assertMatch(
+        % NOTE
+        % Order of the keys in the JSON object depends on the JSON encoder.
+        % Moreover, under Erlang/OTP 27 traversal order seems to be unpredicatble.
+        S when
+            S == <<"this:{\"b\":[1,2,3],\"a\":\"a\"} / also:{\"b\":[1,2,3],\"a\":\"a\"}">>;
+            S == <<"this:{\"a\":\"a\",\"b\":[1,2,3]} / also:{\"a\":\"a\",\"b\":[1,2,3]}">>,
         render_strict_string(Template, Context)
     ).
 
@@ -134,6 +138,10 @@ t_placeholders(_) ->
     ?assertEqual(
         ["a", "b", "c", "d.d1"],
         emqx_template:placeholders(Template)
+    ),
+    ?assertEqual(
+        {["a", "b", "d.d1"], ["c"]},
+        emqx_template:placeholders(["a", "b", "d.d1", "e"], Template)
     ).
 
 t_unparse(_) ->

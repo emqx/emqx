@@ -220,13 +220,13 @@ create_bridge(Config, Overrides) ->
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
     ConnectorConfig = ?config(connector_config, Config),
-    ct:pal("creating connector with config: ~p, ~p, ~p", [
+    ct:pal("creating connector with config: ~p, ~p\n  ~p", [
         ConnectorType, ConnectorName, ConnectorConfig
     ]),
     {ok, _} =
         emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
 
-    ct:pal("creating bridge with config: ~p", [BridgeConfig]),
+    ct:pal("creating bridge with config:\n  ~p", [BridgeConfig]),
     emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig).
 
 get_ct_config_with_fallback(Config, [Key]) ->
@@ -273,7 +273,7 @@ conf_root_key(Kind) ->
     end.
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.
@@ -287,7 +287,7 @@ request(Method, Path, Params) ->
             {ok, {Status, Headers, Body}};
         {error, {Status, Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
@@ -318,7 +318,7 @@ list_bridges_api() ->
     Res =
         case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             Error ->
                 Error
         end,
@@ -696,9 +696,9 @@ is_rule_enabled(RuleId) ->
     Enable.
 
 try_decode_error(Body0) ->
-    case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+    case emqx_utils_json:safe_decode(Body0) of
         {ok, #{<<"message">> := Msg0} = Body1} ->
-            case emqx_utils_json:safe_decode(Msg0, [return_maps]) of
+            case emqx_utils_json:safe_decode(Msg0) of
                 {ok, Msg1} -> Body1#{<<"message">> := Msg1};
                 {error, _} -> Body1
             end;
@@ -747,7 +747,7 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
             AuthHeaderGetter = get_auth_header_getter(),
             on_exit(fun() ->
                 set_auth_header_getter(AuthHeaderGetter),
@@ -771,7 +771,7 @@ api_spec_schemas(Root) ->
     case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
         {ok, {{_, 200, _}, _, Res0}} ->
             #{<<"components">> := #{<<"schemas">> := Schemas}} =
-                emqx_utils_json:decode(Res0, [return_maps]),
+                emqx_utils_json:decode(Res0),
             Schemas
     end.
 
@@ -857,7 +857,7 @@ t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
 
 t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ReplyFun =
-        fun(Pid, Result) ->
+        fun(Pid, #{result := Result}) ->
             Pid ! {result, Result}
         end,
     ?check_trace(

@@ -229,11 +229,8 @@ shard_batch_serializer_spec(DB, Shard, Opts) ->
         type => worker
     }.
 
-shard_beamformers_spec(DB, Shard, _Options) ->
-    %% TODO: don't hardcode value
-    BeamformerOpts = #{
-        n_workers => 5
-    },
+shard_beamformers_spec(DB, Shard, _Opts) ->
+    BeamformerOpts = #{n_workers => emqx_ds_beamformer:cfg_workers_per_shard()},
     #{
         id => {Shard, beamformers},
         type => supervisor,

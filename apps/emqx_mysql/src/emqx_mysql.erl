@@ -455,10 +455,9 @@ parse_prepare_sql(Key, Query, Acc) ->
 parse_batch_sql(Key, Query, Acc) ->
     case emqx_utils_sql:get_statement_type(Query) of
         insert ->
-            case emqx_utils_sql:parse_insert(Query) of
-                {ok, {Insert, Params}} ->
-                    RowTemplate = emqx_template_sql:parse(Params),
-                    Acc#{{Key, batch} => {Insert, RowTemplate}};
+            case emqx_utils_sql:split_insert(Query) of
+                {ok, SplitedInsert} ->
+                    Acc#{{Key, batch} => parse_splited_sql(SplitedInsert)};
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "parse insert sql statement failed",
@@ -477,6 +476,13 @@ parse_batch_sql(Key, Query, Acc) ->
             }),
             Acc
     end.
+
+parse_splited_sql({Insert, Values, OnClause}) ->
+    RowTemplate = emqx_template_sql:parse(Values),
+    {Insert, RowTemplate, OnClause};
+parse_splited_sql({Insert, Values}) ->
+    RowTemplate = emqx_template_sql:parse(Values),
+    {Insert, RowTemplate}.
 
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
@@ -498,6 +504,10 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
 proc_sql_params(_TypeOrKey, SQLOrData, Params, _State) ->
     {SQLOrData, Params}.
 
+on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate, OnClause}, State, ChannelConfig) ->
+    Rows = [render_row(RowTemplate, Msg, ChannelConfig) || {_, Msg} <- BatchReqs],
+    Query = [InsertPart, <<" values ">> | lists:join($,, Rows)] ++ [<<" on ">>, OnClause],
+    on_sql_query(InstId, query, Query, no_params, default_timeout, State);
 on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State, ChannelConfig) ->
     Rows = [render_row(RowTemplate, Msg, ChannelConfig) || {_, Msg} <- BatchReqs],
     Query = [InsertPart, <<" values ">> | lists:join($,, Rows)],
@@ -515,14 +525,7 @@ render_row(RowTemplate, Data, ChannelConfig) ->
     {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),
     Row.
 
-on_sql_query(
-    InstId,
-    SQLFunc,
-    SQLOrKey,
-    Params,
-    Timeout,
-    #{pool_name := PoolName} = State
-) ->
+on_sql_query(InstId, SQLFunc, SQLOrKey, Params, Timeout, #{pool_name := PoolName} = State) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},
     ?TRACE("QUERY", "mysql_connector_received", LogMeta),
     ChannelID = maps:get(channel_id, State, no_channel),

@@ -55,6 +55,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 -define(HEALTH_CHECK_TIMEOUT, 1000).
 -define(NO_PREFIX, <<>>).
 -define(IS_NO_PREFIX(P), (P =:= undefined orelse P =:= ?NO_PREFIX)).

@@ -17,7 +17,7 @@
 -module(emqx_authz_mongodb).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -behaviour(emqx_authz_source).
 
@@ -34,35 +34,41 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(ALLOWED_VARS, [
-    ?VAR_USERNAME,
-    ?VAR_CLIENTID,
-    ?VAR_PEERHOST,
-    ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
-]).
+-define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_auth_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS),
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
+        emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
+    ),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source#{
         annotations => #{
-            id => ResourceId, skip => Skip, limit => Limit, filter_template => FilterTemp
+            id => ResourceId,
+            skip => Skip,
+            limit => Limit,
+            filter_template => FilterTemp,
+            cache_key_template => CacheKeyTemplate
         }
     }.
 
 update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
-    FilterTemp = emqx_auth_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS),
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
+        emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
+    ),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
             Source#{
                 annotations => #{
-                    id => Id, skip => Skip, limit => Limit, filter_template => FilterTemp
+                    id => Id,
+                    skip => Skip,
+                    limit => Limit,
+                    filter_template => FilterTemp,
+                    cache_key_template => CacheKeyTemplate
                 }
             }
     end.
@@ -76,7 +82,7 @@ authorize(
     Topic,
     #{annotations := #{filter_template := FilterTemplate}} = Config
 ) ->
-    try emqx_auth_utils:render_deep_for_json(FilterTemplate, Client) of
+    try emqx_auth_template:render_deep_for_json(FilterTemplate, Client) of
         RenderedFilter ->
             authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
     catch
@@ -90,10 +96,16 @@ authorize(
 
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{skip := Skip, limit := Limit, id := ResourceID}
+    annotations := #{
+        skip := Skip, limit := Limit, id := ResourceID, cache_key_template := CacheKeyTemplate
+    }
 }) ->
     Options = #{skip => Skip, limit => Limit},
-    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, Options}) of
+    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
+    Result = emqx_authz_utils:cached_simple_sync_query(
+        CacheKey, ResourceID, {find, Collection, RenderedFilter, Options}
+    ),
+    case Result of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",
@@ -111,8 +123,8 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
 
 parse_rule(Row) ->
     case emqx_authz_rule_raw:parse_rule(Row) of
-        {ok, {Permission, Action, Topics}} ->
-            [emqx_authz_rule:compile({Permission, all, Action, Topics})];
+        {ok, {Permission, Who, Action, Topics}} ->
+            [emqx_authz_rule:compile({Permission, Who, Action, Topics})];
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "parse_rule_error",

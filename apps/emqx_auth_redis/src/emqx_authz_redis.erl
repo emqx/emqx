@@ -17,7 +17,7 @@
 -module(emqx_authz_redis).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -behaviour(emqx_authz_source).
 
@@ -34,29 +34,29 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(ALLOWED_VARS, [
-    ?VAR_CERT_CN_NAME,
-    ?VAR_CERT_SUBJECT,
-    ?VAR_PEERHOST,
-    ?VAR_CLIENTID,
-    ?VAR_USERNAME,
-    ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
-]).
+-define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(#{cmd := CmdStr} = Source) ->
-    CmdTemplate = parse_cmd(CmdStr),
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
-    Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
+    Source#{
+        annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
+        cmd_template => CmdTemplate
+    }.
 
 update(#{cmd := CmdStr} = Source) ->
-    CmdTemplate = parse_cmd(CmdStr),
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case emqx_authz_utils:update_resource(emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id}, cmd_template => CmdTemplate}
+            Source#{
+                annotations => #{id => Id, cache_key_template => CacheKeyTemplate},
+                cmd_template => CmdTemplate
+            }
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -68,12 +68,13 @@ authorize(
     Topic,
     #{
         cmd_template := CmdTemplate,
-        annotations := #{id := ResourceID}
+        annotations := #{id := ResourceID, cache_key_template := CacheKeyTemplate}
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    Cmd = emqx_auth_utils:render_deep_for_raw(CmdTemplate, Vars),
-    case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
+    Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
+    case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceID, {cmd, Cmd}) of
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
         {error, Reason} ->
@@ -117,7 +118,7 @@ parse_cmd(Query) ->
     case emqx_redis_command:split(Query) of
         {ok, Cmd} ->
             ok = validate_cmd(Cmd),
-            emqx_auth_utils:parse_deep(Cmd, ?ALLOWED_VARS);
+            emqx_auth_template:parse_deep(Cmd, ?ALLOWED_VARS);
         {error, Reason} ->
             error({invalid_redis_cmd, Reason, Query})
     end.
@@ -143,7 +144,7 @@ parse_rule(<<"subscribe">>) ->
 parse_rule(<<"all">>) ->
     {ok, #{<<"action">> => <<"all">>}};
 parse_rule(Bin) when is_binary(Bin) ->
-    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
+    case emqx_utils_json:safe_decode(Bin) of
         {ok, Map} when is_map(Map) ->
             {ok, maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map)};
         {ok, _} ->

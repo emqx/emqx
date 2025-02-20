@@ -741,11 +741,15 @@ do_query_with_enabled_config(
     BridgeType, BridgeName, Message, QueryOpts0, Config
 ) ->
     ConnectorName = maps:get(connector, Config),
+    FallbackActions = maps:get(fallback_actions, Config, []),
     ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
     ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
         query_opts(BridgeType, Config),
-        QueryOpts0#{connector_resource_id => ConnectorResId}
+        QueryOpts0#{
+            connector_resource_id => ConnectorResId,
+            fallback_actions => FallbackActions
+        }
     ),
     BridgeV2Id = id(BridgeType, BridgeName),
     case Message of
@@ -993,7 +997,7 @@ parse_id(Id) ->
             #{kind => action, type => Type, name => Name};
         [<<"source">>, Type, Name | _] ->
             #{kind => source, type => Type, name => Name};
-        _X ->
+        _ ->
             error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
     end.
 
@@ -1905,19 +1909,17 @@ bridge_v1_id_to_connector_resource_id(BridgeId) ->
     bridge_v1_id_to_connector_resource_id(?ROOT_KEY_ACTIONS, BridgeId).
 
 bridge_v1_id_to_connector_resource_id(ConfRootKey, BridgeId) ->
-    case binary:split(BridgeId, <<":">>) of
-        [Type, Name] ->
-            BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
-            ConnectorName =
-                case lookup_conf(ConfRootKey, BridgeV2Type, Name) of
-                    #{connector := Con} ->
-                        Con;
-                    {error, Reason} ->
-                        throw(Reason)
-                end,
-            ConnectorType = bin(connector_type(BridgeV2Type)),
-            <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>
-    end.
+    [Type, Name] = binary:split(BridgeId, <<":">>),
+    BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
+    ConnectorName =
+        case lookup_conf(ConfRootKey, BridgeV2Type, Name) of
+            #{connector := Con} ->
+                Con;
+            {error, Reason} ->
+                throw(Reason)
+        end,
+    ConnectorType = bin(connector_type(BridgeV2Type)),
+    <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>.
 
 bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
     case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of

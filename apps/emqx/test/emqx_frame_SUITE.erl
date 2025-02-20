@@ -79,6 +79,7 @@ groups() ->
             t_serialize_parse_qos0_publish,
             t_serialize_parse_qos1_publish,
             t_serialize_parse_qos2_publish,
+            t_serialize_parse_with_dup_flag,
             t_serialize_parse_publish_v5
         ]},
         {puback, [parallel], [
@@ -139,7 +140,7 @@ t_parse_cont(_) ->
     {more, ContParse1} = emqx_frame:parse(HdrBin, ContParse),
     {more, ContParse2} = emqx_frame:parse(LenBin, ContParse1),
     {more, ContParse3} = emqx_frame:parse(<<>>, ContParse2),
-    {ok, Packet, <<>>, _} = emqx_frame:parse(RestBin, ContParse3).
+    {Packet, <<>>, _} = emqx_frame:parse(RestBin, ContParse3).
 
 t_parse_frame_too_large(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(1000)),
@@ -183,8 +184,11 @@ t_serialize_parse_v3_connect(_) ->
             keepalive = 60
         }
     ),
-    {ok, Packet, <<>>, PState} = emqx_frame:parse(Bin),
-    ?assertMatch({none, #{version := ?MQTT_PROTO_V3}}, PState).
+    {Packet, <<>>, PState} = emqx_frame:parse(Bin),
+    ?assertMatch(
+        #{state := clean, proto_ver := ?MQTT_PROTO_V3},
+        emqx_frame:describe_state(PState)
+    ).
 
 t_serialize_parse_v4_connect(_) ->
     Bin =
@@ -200,7 +204,7 @@ t_serialize_parse_v4_connect(_) ->
         }
     ),
     ?assertEqual(Bin, serialize_to_binary(Packet)),
-    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
+    ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 t_serialize_parse_v5_connect(_) ->
     Props = #{
@@ -256,7 +260,7 @@ t_serialize_parse_connect_without_clientid(_) ->
         keepalive = 60
     }),
     ?assertEqual(Bin, serialize_to_binary(Packet)),
-    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
+    ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 t_serialize_parse_connect_with_will(_) ->
     Bin =
@@ -282,7 +286,7 @@ t_serialize_parse_connect_with_will(_) ->
         }
     },
     ?assertEqual(Bin, serialize_to_binary(Packet)),
-    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
+    ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 t_serialize_parse_connect_with_malformed_will(_) ->
     Packet2 = #mqtt_packet{
@@ -340,7 +344,7 @@ t_serialize_parse_bridge_connect(_) ->
         }
     },
     ?assertEqual(Bin, serialize_to_binary(Packet)),
-    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)),
+    ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin)),
     Packet1 = ?CONNECT_PACKET(#mqtt_packet_connect{is_bridge = true}),
     ?assertEqual(Packet1, parse_serialize(Packet1)).
 
@@ -392,8 +396,8 @@ t_parse_sticky_frames(_) ->
     %% needs 2 more bytes
     {more, PState1} = emqx_frame:parse(H),
     %% feed 3 bytes as if the next 1 byte belongs to the next packet.
-    {ok, _, <<42>>, PState2} = emqx_frame:parse(iolist_to_binary([TailTwoBytes, 42]), PState1),
-    ?assertMatch({none, _}, PState2).
+    {_, <<42>>, PState2} = emqx_frame:parse(iolist_to_binary([TailTwoBytes, 42]), PState1),
+    ?assertMatch(#{state := clean}, emqx_frame:describe_state(PState2)).
 
 t_serialize_parse_qos0_publish(_) ->
     Bin = <<48, 14, 0, 7, 120, 120, 120, 47, 121, 121, 121, 104, 101, 108, 108, 111>>,
@@ -449,6 +453,39 @@ t_serialize_parse_qos2_publish(_) ->
     ),
     %% strict_mode = false
     _ = parse_serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 0, <<>>), #{strict_mode => false}).
+
+t_serialize_parse_with_dup_flag(_) ->
+    Packet = fun(Dup, QoS) ->
+        #mqtt_packet{
+            header = #mqtt_packet_header{
+                type = ?PUBLISH,
+                dup = Dup,
+                qos = QoS,
+                retain = false
+            },
+            variable = #mqtt_packet_publish{
+                topic_name = <<"a/b/c">>,
+                packet_id = 1
+            },
+            payload = <<"haha">>
+        }
+    end,
+
+    %% no invalid flag check for serializing now
+    InvalidQoS0Packet = Packet(true, ?QOS_0),
+    ?ASSERT_FRAME_THROW(bad_frame_header, parse_serialize(InvalidQoS0Packet)),
+
+    QoS1_Dup = Packet(true, ?QOS_1),
+    ?assertEqual(QoS1_Dup, parse_serialize(QoS1_Dup)),
+
+    QoS1_NoDup = Packet(false, ?QOS_1),
+    ?assertEqual(QoS1_NoDup, parse_serialize(QoS1_NoDup)),
+
+    QoS2_Dup = Packet(true, ?QOS_2),
+    ?assertEqual(QoS2_Dup, parse_serialize(QoS2_Dup)),
+
+    QoS2_NoDup = Packet(false, ?QOS_2),
+    ?assertEqual(QoS2_NoDup, parse_serialize(QoS2_NoDup)).
 
 t_serialize_parse_publish_v5(_) ->
     Props = #{
@@ -629,7 +666,7 @@ t_serialize_parse_pingresp(_) ->
 
 t_parse_disconnect(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
-    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(<<224, 0>>)).
+    ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(<<224, 0>>)).
 
 t_serialize_parse_disconnect(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
@@ -738,7 +775,7 @@ t_undefined_password(_) ->
     ConnectFlags = <<2#1000:4, 2#0010:4>>,
     ConnBin =
         <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
-    {ok, Packet, <<>>, {none, _}} = emqx_frame:parse(ConnBin),
+    {Packet, <<>>, _} = emqx_frame:parse(ConnBin),
     Password = undefined,
     ?assertEqual(
         #mqtt_packet{
@@ -779,7 +816,7 @@ t_invalid_password_flag(_) ->
     ConnectBin =
         <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
     ?assertMatch(
-        {ok, _, _, _},
+        {_, _, _},
         emqx_frame:parse(ConnectBin)
     ),
 
@@ -817,7 +854,7 @@ t_invalid_will_qos(_) ->
             54, 75, 78, 112, 57, 0, 6, 68, 103, 55, 87, 87, 87>>
     end,
     ?assertMatch(
-        {ok, _, _, _},
+        {_, _, _},
         emqx_frame:parse(ConnectBinFun(Will_F_WillQoS0))
     ),
     ?assertException(
@@ -857,7 +894,7 @@ parse_serialize(Packet, Opts) when is_map(Opts) ->
     Ver = maps:get(version, Opts, ?MQTT_PROTO_V4),
     Bin = iolist_to_binary(emqx_frame:serialize(Packet, Ver)),
     ParseState = emqx_frame:initial_parse_state(Opts),
-    {ok, NPacket, <<>>, _} = emqx_frame:parse(Bin, ParseState),
+    {NPacket, <<>>, _} = emqx_frame:parse(Bin, ParseState),
     NPacket.
 
 serialize_to_binary(Packet) ->
@@ -868,7 +905,7 @@ serialize_to_binary(Packet, Ver) ->
 
 parse_to_packet(Bin, Opts) ->
     PState = emqx_frame:initial_parse_state(Opts),
-    {ok, Packet, <<>>, _} = emqx_frame:parse(Bin, PState),
+    {Packet, <<>>, _} = emqx_frame:parse(Bin, PState),
     Packet.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).

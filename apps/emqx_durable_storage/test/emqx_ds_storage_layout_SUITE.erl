@@ -42,20 +42,26 @@
 all() ->
     [
         {group, bitfield_lts},
-        {group, skipstream_lts}
+        {group, skipstream_lts},
+        {group, skipstream_lts_master_hash},
+        {group, reference}
     ].
 
 init_per_group(Group, Config) ->
     LayoutConf =
         case Group of
             reference ->
-                {emqx_ds_storage_reference, #{
-                    lts_threshold_spec => ?LTS_THRESHOLD
-                }};
+                {emqx_ds_storage_reference, #{}};
             skipstream_lts ->
                 {emqx_ds_storage_skipstream_lts, #{
                     with_guid => true,
                     lts_threshold_spec => ?LTS_THRESHOLD
+                }};
+            skipstream_lts_master_hash ->
+                {emqx_ds_storage_skipstream_lts, #{
+                    with_guid => true,
+                    lts_threshold_spec => ?LTS_THRESHOLD,
+                    master_hash_bytes => 8
                 }};
             bitfield_lts ->
                 {emqx_ds_storage_bitfield_lts, #{}}
@@ -135,6 +141,10 @@ t_iterate(_Config) ->
     ok.
 
 %% Smoke test for deleting messages.
+t_delete(groups, _AllGroups) ->
+    %% NOTE: Subtly broken in general, but fails explicitly with `reference` layout.
+    [bitfield_lts, skipstream_lts].
+
 t_delete(_Config) ->
     %% Prepare data:
     TopicToDelete = <<"foo/bar/baz">>,
@@ -163,6 +173,10 @@ t_delete(_Config) ->
 
 %% Smoke test that verifies that concrete topics are mapped to
 %% individual streams, unless there's too many of them.
+t_get_streams(groups, _AllGroups) ->
+    %% NOTE: Relevant only to LTS-based layouts.
+    [bitfield_lts, skipstream_lts].
+
 t_get_streams(Config) ->
     %% Prepare data (without wildcards):
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
@@ -213,6 +227,10 @@ t_get_streams(Config) ->
     ?assert(lists:member(FooBarBaz, AllStreams)),
     ?assert(lists:member(A, AllStreams)),
     ok.
+
+t_new_generation_inherit_trie(groups, _AllGroups) ->
+    %% NOTE: Relevant only to LTS-based layouts.
+    [bitfield_lts, skipstream_lts].
 
 t_new_generation_inherit_trie(Config) ->
     %% This test checks that we inherit the previous generation's LTS when creating a new
@@ -337,106 +355,47 @@ t_replay_special_topics(_Config) ->
     ?assert(check(?SHARD, <<"+/test/#">>, 0, Batch1 ++ Batch2)),
     check(?SHARD, <<"$SYS/test/#">>, 0, []).
 
-%% This testcase verifies poll functionality that doesn't involve events:
-t_poll(Config) ->
-    ?check_trace(
-        begin
-            Topics = [list_to_binary("t/" ++ integer_to_list(I)) || I <- lists:seq(1, 21)],
-            Values = lists:seq(1, 1_000, 500),
-            Batch1 = [
-                make_message(Val, Topic, bin(Val))
-             || Topic <- Topics, Val <- Values
-            ],
-            BatchSize = 1000,
-            Timeout = 1_000,
-            PollOpts = #{timeout => Timeout},
-            %% 1. Store a batch of data to create streams:
-            ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
-            timer:sleep(1000),
-            %% 2. Create a number of iterators for different topic
-            %% subscriptions. These iterators overlap, so the
-            %% beamformer is likely to group them.
-            Iterators0 =
-                [
-                    begin
-                        {ok, It} = emqx_ds:make_iterator(?FUNCTION_NAME, Stream, TopicFilter, 0),
-                        %% Create a reference to identify poll reply:
-                        {make_ref(), It}
-                    end
-                 || TopicFilter <- lists:map(fun emqx_topic:words/1, [<<"#">> | Topics]),
-                    {_Rank, Stream} <- emqx_ds:get_streams(?FUNCTION_NAME, TopicFilter, 0)
-                ],
-            ?assertMatch([_ | _], Iterators0, "List of iterators should be non-empty"),
-            %% 2. Fetch values via `next' API for reference:
-            Reference1 = [
-                {Ref, emqx_ds:next(?FUNCTION_NAME, It, BatchSize)}
-             || {Ref, It} <- Iterators0
-            ],
-            %% 3. Fetch the same data via poll API (we use initial values of
-            %% the iterator as tags):
-            {ok, Alias1} = emqx_ds:poll(?FUNCTION_NAME, Iterators0, PollOpts),
-            %% Collect the replies:
-            Got1 = emqx_ds_test_helpers:collect_poll_replies(Alias1, Timeout),
-            unalias(Alias1),
-            %% 4. Compare data. Everything (batch contents and iterators) should be the same:
-            compare_poll_with_reference(Reference1, Got1),
-            %% 5. Create a new poll request with the new iterators,
-            %% these should be resolved via events:
-            Iterators1 = lists:map(
-                fun({ItRef, {ok, It, _}}) ->
-                    {ItRef, It}
-                end,
-                Got1
-            ),
-            {ok, Alias2} = emqx_ds:poll(?FUNCTION_NAME, Iterators1, PollOpts),
-            %% 5.1 Sleep to make sure poll requests are enqueued
-            %% _before_ the batch is published:
-            timer:sleep(10),
-            %% 6. Add new data and receive results:
-            emqx_ds:store_batch(?FUNCTION_NAME, Batch1),
-            case ?config(layout, Config) of
-                {emqx_ds_storage_bitfield_lts, _} ->
-                    %% Currenty this layout doesn't support events:
-                    ok;
-                _ ->
-                    ?assertMatch(
-                        [{_, {ok, _, [_ | _]}} | _],
-                        emqx_ds_test_helpers:collect_poll_replies(Alias2, Timeout),
-                        "Poll reply with non-empty batch should be received after "
-                        "data was published to the topic."
-                    )
-            end
-        end,
-        []
-    ).
+%% Verify that select storage layouts work properly in non-append-only context
+%% (single generation only):
+%% 1. Message timestamp is respected.
+%% 2. Message timestamp and topic uniquely identifies a message.
+t_replay_nonunique_ts(db_config, _Config) ->
+    %% NOTE: Layouts are expected to pick safe defaults for non-append-only DBs.
+    #{append_only => false}.
 
-compare_poll_with_reference(Reference, PollRepliesL) ->
-    PollReplies = maps:from_list(PollRepliesL),
-    lists:foreach(
-        fun({ItRef, ReferenceReply}) ->
-            case ReferenceReply of
-                {ok, _, []} ->
-                    %% DS doesn't send empty replies back, so skip
-                    %% check here:
-                    ok;
-                _ ->
-                    compare_poll_reply(ReferenceReply, maps:get(ItRef, PollReplies, undefined))
-            end
-        end,
-        Reference
-    ).
+t_replay_nonunique_ts(_Config) ->
+    %% Create concrete topics:
+    Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"foo/bar/xyz">>],
+    Timestamps = lists:seq(100, 500, 100),
+    Batch1 = [make_message(TS, Topic, bin(TS)) || Topic <- Topics, TS <- Timestamps],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch1, #{sync => true}),
+    %% Create wildcard topics:
+    WTopics1 = [make_topic([foo, Idx, baz]) || Idx <- lists:seq(1, 30)],
+    WTopics2 = [make_topic([foo, Idx, xyz]) || Idx <- lists:seq(1, 30)],
+    WTopics = WTopics1 ++ WTopics2,
+    Batch2 = [make_message(TS, Topic, _Empty = <<>>) || Topic <- WTopics, TS <- Timestamps],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch2, #{sync => true}),
+    %% Overwrite half of the messages written in the previous batch:
+    BatchOverwrite = [make_message(TS, Topic, bin(TS)) || Topic <- WTopics1, TS <- Timestamps],
+    ok = emqx_ds:store_batch(?FUNCTION_NAME, BatchOverwrite, #{sync => true}),
+    %% Expect to see messages from both batches but with updated payloads:
+    Messages = lists:append([
+        Batch1,
+        [M || M <- Batch2, binary:match(emqx_message:topic(M), <<"baz">>) == nomatch],
+        BatchOverwrite
+    ]),
+    ?assert(check(?SHARD, <<"foo/bar/baz">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/+/baz">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/+/xyz">>, 0, Messages)),
+    ok.
 
-compare_poll_reply({ok, ReferenceIterator, BatchRef}, {ok, ReplyIterator, Batch}) ->
-    ?defer_assert(?assertEqual(ReferenceIterator, ReplyIterator, "Iterators should be equal")),
-    ?defer_assert(snabbkaffe_diff:assert_lists_eq(BatchRef, Batch));
-compare_poll_reply(A, B) ->
-    ?defer_assert(?assertEqual(A, B)).
+t_atomic_store_batch(db_config, _Config) ->
+    #{atomic_batches => true}.
 
 t_atomic_store_batch(_Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
-            application:set_env(emqx_durable_storage, egress_batch_size, 1),
             Msgs = [
                 make_message(0, <<"1">>, <<"1">>),
                 make_message(1, <<"2">>, <<"2">>),
@@ -444,17 +403,14 @@ t_atomic_store_batch(_Config) ->
             ],
             ?assertEqual(
                 ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => true,
-                    sync => true
-                })
+                emqx_ds:store_batch(DB, Msgs, #{sync => true})
             ),
             timer:sleep(1000)
         end,
         fun(Trace) ->
-            %% Must contain exactly one flush with all messages.
+            %% TODO: Strictly speaking, atomicity does not imply loss of buffering.
             ?assertMatch(
-                [#{batch := [_, _, _]}],
+                [],
                 ?of_kind(emqx_ds_buffer_flush, Trace)
             ),
             ok
@@ -475,10 +431,7 @@ t_non_atomic_store_batch(_Config) ->
             %% Non-atomic batches may be split.
             ?assertEqual(
                 ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => false,
-                    sync => true
-                })
+                emqx_ds:store_batch(DB, Msgs, #{sync => true})
             ),
             Msgs
         end,
@@ -567,24 +520,6 @@ dump_stream(Shard, Stream, TopicFilter, StartTime) ->
     MaxIterations = 1000000,
     Loop(Iterator, MaxIterations).
 
-%% t_create_gen(_Config) ->
-%%     {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG),
-%%     ?assertEqual(
-%%         {error, nonmonotonic},
-%%         emqx_ds_storage_layer:create_generation(?SHARD, 1, ?DEFAULT_CONFIG)
-%%     ),
-%%     ?assertEqual(
-%%         {error, nonmonotonic},
-%%         emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG)
-%%     ),
-%%     {ok, 2} = emqx_ds_storage_layer:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
-%%     Topics = ["foo/bar", "foo/bar/baz"],
-%%     Timestamps = lists:seq(1, 100),
-%%     [
-%%         ?assertMatch({ok, [_]}, store(?SHARD, PublishedAt, Topic, <<>>))
-%%      || Topic <- Topics, PublishedAt <- Timestamps
-%%     ].
-
 make_message(PublishedAt, Topic, Payload) when is_list(Topic) ->
     make_message(PublishedAt, list_to_binary(Topic), Payload);
 make_message(PublishedAt, Topic, Payload) when is_binary(Topic) ->
@@ -628,11 +563,19 @@ bin(X) ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    Groups = [
+        reference,
+        bitfield_lts,
+        skipstream_lts,
+        skipstream_lts_master_hash
+    ],
     [
-        {reference, TCs},
-        {bitfield_lts, TCs},
-        {skipstream_lts, TCs}
+        {Group, [TC || TC <- TCs, lists:member(Group, groups(TC, Groups))]}
+     || Group <- Groups
     ].
+
+groups(TC, AllGroups) ->
+    get_testcase_prop(TC, groups, AllGroups, _Default = AllGroups).
 
 suite() -> [{timetrap, {seconds, 20}}].
 
@@ -664,13 +607,15 @@ end_per_testcase(TC, _Config) ->
 
 db_config(TC, Config) ->
     ConfigBase = ?DB_CONFIG(Config),
-    SpecificConfig =
-        try
-            ?MODULE:TC(?FUNCTION_NAME, Config)
-        catch
-            error:undef -> #{}
-        end,
+    SpecificConfig = get_testcase_prop(TC, ?FUNCTION_NAME, Config, #{}),
     maps:merge(ConfigBase, SpecificConfig).
+
+get_testcase_prop(TC, Prop, Context, Default) ->
+    try
+        ?MODULE:TC(Prop, Context)
+    catch
+        error:R when R == undef; R == function_clause -> Default
+    end.
 
 shard(TC) ->
     {TC, <<"0">>}.

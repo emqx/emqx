@@ -327,5 +327,30 @@ t_update_conf(Config) when is_list(Config) ->
     ok.
 
 parse(Bytes) ->
-    {ok, Frame, <<>>, {none, _}} = emqx_frame:parse(Bytes),
+    {Frame, <<>>, _} = emqx_frame:parse(Bytes),
     Frame.
+
+authenticate_return_quota_exceeded_hook(_, _) ->
+    {stop, {error, quota_exceeded}}.
+
+t_authenticate_return_quota_exceeded({init, Config}) ->
+    Priority = 0,
+    ok = emqx_hooks:put(
+        'client.authenticate', {?MODULE, authenticate_return_quota_exceeded_hook, []}, Priority
+    ),
+    Config;
+t_authenticate_return_quota_exceeded({'end', _Config}) ->
+    ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_return_quota_exceeded_hook});
+t_authenticate_return_quota_exceeded(Config) when is_list(Config) ->
+    {ok, Client} = emqtt:start_link([
+        {clientid, <<"tests-cli1">>},
+        {password, <<"pass">>},
+        {proto_ver, v5}
+    ]),
+    _ = monitor(process, Client),
+    _ = unlink(Client),
+    ?assertMatch({error, {quota_exceeded, _}}, emqtt:connect(Client)),
+    receive
+        {'DOWN', _, process, Client, Reason} ->
+            ?assertEqual({shutdown, quota_exceeded}, Reason)
+    end.

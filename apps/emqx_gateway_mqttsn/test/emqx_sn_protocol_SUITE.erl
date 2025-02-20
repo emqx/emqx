@@ -2218,11 +2218,18 @@ t_register_subs_resume_off(_) ->
         emqx_message:make(test, ?QOS_2, <<"topic-b">>, <<"test-b">>)
     ),
 
-    <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgId1:16, "test-a">> = receive_response(Socket),
+    QoS1Flags = 2#00100000,
+    QoS2Flags = 2#01000000,
+
+    %% This is a QoS 1 message
+    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgId1:16, "test-a">> = receive_response(Socket),
     send_puback_msg(Socket, TopicIdA, MsgId1, ?SN_RC_ACCEPTED),
 
-    <<_, ?SN_PUBLISH, 2#01000000, TopicIdB:16, MsgId2:16, "test-b">> = receive_response(Socket),
-    send_puback_msg(Socket, TopicIdB, MsgId2, ?SN_RC_ACCEPTED),
+    %% This is a QoS 2 message
+    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgId2:16, "test-b">> = receive_response(Socket),
+    send_pubrec_msg(Socket, MsgId2),
+    %% discard PUBREL message
+    <<_, ?SN_PUBREL, MsgId2:16>> = receive_response(Socket),
 
     send_disconnect_msg(Socket, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
@@ -2245,8 +2252,11 @@ t_register_subs_resume_off(_) ->
 
     %% qos1
 
+    %% receive PUBREL for `test-b' again
+    <<_, ?SN_PUBREL, MsgId2:16>> = receive_response(NSocket),
+    send_pubcomp_msg(NSocket, MsgId2),
     %% received the resume messages
-    <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgIdA0:16, "m1">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA0:16, "m1">> = receive_response(NSocket),
     %% only one qos1/qos2 inflight
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),
     send_puback_msg(NSocket, TopicIdA, MsgIdA0, ?SN_RC_INVALID_TOPIC_ID),
@@ -2254,17 +2264,17 @@ t_register_subs_resume_off(_) ->
     <<_, ?SN_REGISTER, TopicIdA:16, RegMsgIdA:16, "topic-a">> = receive_response(NSocket),
     send_regack_msg(NSocket, TopicIdA, RegMsgIdA),
     %% received the replay messages
-    <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgIdA1:16, "m1">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA1:16, "m1">> = receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA1, ?SN_RC_ACCEPTED),
 
-    <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgIdA2:16, "m2">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA2:16, "m2">> = receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA2, ?SN_RC_ACCEPTED),
 
-    <<_, ?SN_PUBLISH, 2#00100000, TopicIdA:16, MsgIdA3:16, "m3">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, QoS1Flags, TopicIdA:16, MsgIdA3:16, "m3">> = receive_response(NSocket),
     send_puback_msg(NSocket, TopicIdA, MsgIdA3, ?SN_RC_ACCEPTED),
 
     %% qos2
-    <<_, ?SN_PUBLISH, 2#01000000, TopicIdB:16, MsgIdB0:16, "m1">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB0:16, "m1">> = receive_response(NSocket),
     %% only one qos1/qos2 inflight
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),
     send_puback_msg(NSocket, TopicIdB, MsgIdB0, ?SN_RC_INVALID_TOPIC_ID),
@@ -2272,16 +2282,20 @@ t_register_subs_resume_off(_) ->
     <<_, ?SN_REGISTER, TopicIdB:16, RegMsgIdB:16, "topic-b">> = receive_response(NSocket),
     send_regack_msg(NSocket, TopicIdB, RegMsgIdB),
     %% received the replay messages
-    <<_, ?SN_PUBLISH, 2#01000000, TopicIdB:16, MsgIdB1:16, "m1">> = receive_response(NSocket),
+    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB1:16, "m1">> = receive_response(NSocket),
     send_pubrec_msg(NSocket, MsgIdB1),
     <<_, ?SN_PUBREL, MsgIdB1:16>> = receive_response(NSocket),
     send_pubcomp_msg(NSocket, MsgIdB1),
 
-    <<_, ?SN_PUBLISH, 2#01000000, TopicIdB:16, MsgIdB2:16, "m2">> = receive_response(NSocket),
-    send_puback_msg(NSocket, TopicIdB, MsgIdB2, ?SN_RC_ACCEPTED),
+    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB2:16, "m2">> = receive_response(NSocket),
+    send_pubrec_msg(NSocket, MsgIdB2),
+    <<_, ?SN_PUBREL, MsgIdB2:16>> = receive_response(NSocket),
+    send_pubcomp_msg(NSocket, MsgIdB2),
 
-    <<_, ?SN_PUBLISH, 2#01000000, TopicIdB:16, MsgIdB3:16, "m3">> = receive_response(NSocket),
-    send_puback_msg(NSocket, TopicIdB, MsgIdB3, ?SN_RC_ACCEPTED),
+    <<_, ?SN_PUBLISH, QoS2Flags, TopicIdB:16, MsgIdB3:16, "m3">> = receive_response(NSocket),
+    send_pubrec_msg(NSocket, MsgIdB3),
+    <<_, ?SN_PUBREL, MsgIdB3:16>> = receive_response(NSocket),
+    send_pubcomp_msg(NSocket, MsgIdB3),
 
     %% no more messages
     ?assertEqual(udp_receive_timeout, receive_response(NSocket)),

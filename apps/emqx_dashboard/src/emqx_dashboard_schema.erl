@@ -21,7 +21,11 @@
     roots/0,
     fields/1,
     namespace/0,
-    desc/1,
+    desc/1
+]).
+
+-export([
+    mfa_fields/0,
     https_converter/2
 ]).
 
@@ -55,6 +59,14 @@ fields("dashboard") ->
                     desc => ?DESC(token_expired_time)
                 }
             )},
+        {password_expired_time,
+            ?HOCON(
+                emqx_schema:duration_s(),
+                #{
+                    default => 0,
+                    desc => ?DESC(password_expired_time)
+                }
+            )},
         {cors, fun cors/1},
         {swagger_support, fun swagger_support/1},
         {i18n_lang, fun i18n_lang/1},
@@ -69,7 +81,7 @@ fields("dashboard") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ] ++ sso_fields();
+    ] ++ ee_fields();
 fields("listeners") ->
     [
         {"http",
@@ -104,7 +116,22 @@ fields("https") ->
         | common_listener_fields()
     ];
 fields("ssl_options") ->
-    server_ssl_options().
+    server_ssl_options();
+fields("mfa_settings") ->
+    mfa_fields().
+
+mfa_fields() ->
+    [
+        {mechanism,
+            ?HOCON(
+                hoconsc:enum([totp]),
+                #{
+                    desc => ?DESC("mfa_mechanism"),
+                    importance => ?IMPORTANCE_HIGH,
+                    required => true
+                }
+            )}
+    ].
 
 ssl_options() ->
     {"ssl_options",
@@ -224,6 +251,8 @@ desc("https") ->
     ?DESC(desc_https);
 desc("ssl_options") ->
     ?DESC(ssl_options);
+desc("mfa_settings") ->
+    ?DESC(mfa_settings);
 desc(_) ->
     undefined.
 
@@ -239,12 +268,12 @@ default_username('readOnly') -> true;
 default_username(importance) -> ?IMPORTANCE_HIDDEN;
 default_username(_) -> undefined.
 
-default_password(type) -> binary();
+default_password(type) -> emqx_schema_secret:secret();
 default_password(default) -> <<"public">>;
 default_password(required) -> true;
 default_password('readOnly') -> true;
 default_password(sensitive) -> true;
-default_password(converter) -> fun emqx_schema:password_converter/2;
+default_password(converter) -> fun password_converter/2;
 default_password(desc) -> ?DESC(default_password);
 default_password(importance) -> ?IMPORTANCE_LOW;
 default_password(_) -> undefined.
@@ -292,9 +321,29 @@ convert_ssl_layout(Conf = #{}, _Opts) ->
     Conf1 = maps:without(Keys, Conf),
     Conf1#{<<"ssl_options">> => SslOpts}.
 
+password_converter(undefined, _HoconOpts) ->
+    undefined;
+password_converter(I, HoconOpts) when is_integer(I) ->
+    password_converter(integer_to_binary(I), HoconOpts);
+password_converter(X, HoconOpts) ->
+    emqx_schema_secret:convert_secret(X, HoconOpts).
+
 -if(?EMQX_RELEASE_EDITION == ee).
-sso_fields() ->
+
+mfa_schema() ->
+    ?HOCON(
+        hoconsc:union([none, ?REF("mfa_settings")]),
+        #{
+            desc => ?DESC("default_mfa"),
+            default => none,
+            required => false,
+            importance => ?IMPORTANCE_LOW
+        }
+    ).
+
+ee_fields() ->
     [
+        {default_mfa, mfa_schema()},
         {sso,
             ?HOCON(
                 ?R_REF(emqx_dashboard_sso_schema, sso),
@@ -303,6 +352,6 @@ sso_fields() ->
     ].
 
 -else.
-sso_fields() ->
+ee_fields() ->
     [].
 -endif.

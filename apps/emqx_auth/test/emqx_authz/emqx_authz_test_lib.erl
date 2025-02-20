@@ -64,10 +64,20 @@ deregister_sources() ->
     SourceTypes = emqx_authz_source_registry:get(),
     lists:foreach(
         fun(Type) ->
-            emqx_authz_source_registry:register(Type, emqx_authz_fake_source)
+            emqx_authz_source_registry:unregister(Type)
         end,
         SourceTypes -- BuiltInTypes
     ).
+
+enable_node_cache(Enable) ->
+    {ok, _} = emqx:update_config(
+        [authorization, node_cache],
+        #{<<"enable">> => Enable}
+    ),
+    ok.
+
+reset_node_cache() ->
+    emqx_auth_cache:reset(?AUTHZ_CACHE).
 
 %%--------------------------------------------------------------------
 %% Table-based test helpers

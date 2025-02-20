@@ -62,10 +62,10 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    application:load(emqx_gateway_ocpp),
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, ?CONF_DEFAULT},
+            emqx_gateway_ocpp,
             emqx_gateway,
             emqx_auth,
             emqx_management,
@@ -155,7 +155,7 @@ t_enable_disable_gw_ocpp(_Config) ->
     AssertEnabled(true).
 
 t_adjust_keepalive_timer(_Config) ->
-    {ok, ClientPid} = connect("127.0.0.1", 33033, <<"client1">>),
+    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
     UniqueId = <<"3335862321">>,
     BootNotification = #{
         id => UniqueId,
@@ -166,7 +166,7 @@ t_adjust_keepalive_timer(_Config) ->
             <<"chargePointModel">> => <<"model1">>
         }
     },
-    ok = send_msg(ClientPid, BootNotification),
+    ok = send_msg(Client, BootNotification),
     %% check the default keepalive timer
     timer:sleep(1000),
     ?assertMatch(
@@ -183,13 +183,13 @@ t_adjust_keepalive_timer(_Config) ->
         }
     }),
     _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
-    {ok, _Resp} = receive_msg(ClientPid),
+    {ok, _Resp} = receive_msg(Client),
     %% assert: check the keepalive timer is adjusted
     ?assertMatch(
         #{conninfo := #{keepalive := 300}}, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)
     ),
     %% close conns
-    close(ClientPid),
+    close(Client),
     timer:sleep(1000),
     %% assert:
     ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)),
@@ -206,14 +206,16 @@ t_auth_expire(_Config) ->
     ),
 
     ?assertWaitEvent(
-        {ok, _ClientPid} = connect("127.0.0.1", 33033, <<"client1">>),
+        {ok, _Client} = connect("127.0.0.1", 33033, <<"client1">>),
         #{
             ?snk_kind := conn_process_terminated,
             clientid := <<"client1">>,
             reason := {shutdown, expired}
         },
         5000
-    ).
+    ),
+
+    meck:unload(emqx_access_control).
 
 t_listeners_status(_Config) ->
     {200, [Listener]} = request(get, "/gateways/ocpp/listeners"),
@@ -224,7 +226,7 @@ t_listeners_status(_Config) ->
         Listener
     ),
     %% add a connection
-    {ok, ClientPid} = connect("127.0.0.1", 33033, <<"client1">>),
+    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
     UniqueId = <<"3335862321">>,
     BootNotification = #{
         id => UniqueId,
@@ -235,7 +237,7 @@ t_listeners_status(_Config) ->
             <<"chargePointModel">> => <<"model1">>
         }
     },
-    ok = send_msg(ClientPid, BootNotification),
+    ok = send_msg(Client, BootNotification),
     timer:sleep(1000),
     %% assert: the current_connections is 1
     {200, [Listener1]} = request(get, "/gateways/ocpp/listeners"),
@@ -246,7 +248,7 @@ t_listeners_status(_Config) ->
         Listener1
     ),
     %% close conns
-    close(ClientPid),
+    close(Client),
     timer:sleep(1000),
     %% assert: the current_connections is 0
     {200, [Listener2]} = request(get, "/gateways/ocpp/listeners"),
@@ -267,7 +269,7 @@ connect(Host, Port, ClientId) ->
         {ok, ConnPid} ->
             {ok, _} = gun:await_up(ConnPid, Timeout),
             case upgrade(ConnPid, ClientId, Timeout) of
-                {ok, _Headers} -> {ok, ConnPid};
+                {ok, StreamRef} -> {ok, {ConnPid, StreamRef}};
                 Error -> Error
             end;
         Error ->
@@ -279,8 +281,8 @@ upgrade(ConnPid, ClientId, Timeout) ->
     WsHeaders = [{<<"cache-control">>, <<"no-cache">>}],
     StreamRef = gun:ws_upgrade(ConnPid, Path, WsHeaders, #{protocols => [{<<"ocpp1.6">>, gun_ws_h}]}),
     receive
-        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], Headers} ->
-            {ok, Headers};
+        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _Headers} ->
+            {ok, StreamRef};
         {gun_response, ConnPid, _, _, Status, Headers} ->
             {error, {ws_upgrade_failed, Status, Headers}};
         {gun_error, ConnPid, StreamRef, Reason} ->
@@ -289,20 +291,20 @@ upgrade(ConnPid, ClientId, Timeout) ->
         {error, timeout}
     end.
 
-send_msg(ConnPid, Frame) when is_map(Frame) ->
+send_msg({ConnPid, StreamRef}, Frame) when is_map(Frame) ->
     Opts = emqx_ocpp_frame:serialize_opts(),
     Msg = emqx_ocpp_frame:serialize_pkt(Frame, Opts),
-    gun:ws_send(ConnPid, {text, Msg}).
+    gun:ws_send(ConnPid, StreamRef, {text, Msg}).
 
-receive_msg(ConnPid) ->
+receive_msg({ConnPid, StreamRef}) ->
     receive
-        {gun_ws, ConnPid, _Ref, {_Type, Msg}} ->
+        {gun_ws, ConnPid, StreamRef, {_Type, Msg}} ->
             ParseState = emqx_ocpp_frame:initial_parse_state(#{}),
             {ok, Frame, _Rest, _NewParseStaet} = emqx_ocpp_frame:parse(Msg, ParseState),
             {ok, Frame}
     after 5000 ->
-        {error, timeout}
+        {error, {timeout, ?drainMailbox()}}
     end.
 
-close(ConnPid) ->
+close({ConnPid, _StreamRef}) ->
     gun:shutdown(ConnPid).

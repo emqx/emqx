@@ -17,6 +17,7 @@
 -include_lib("emqx/include/emqx_access_control.hrl").
 
 -include("emqx_auth.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
 
 %% authz_mnesia
 -define(ACL_TABLE, emqx_acl).
@@ -75,9 +76,27 @@
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],
             retain => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            username_re => <<"^u+$">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            clientid_re => <<"^c+$">>,
+            ipaddr => <<"192.168.1.0/24">>
         }
     ]
 }).
+
 -define(CLIENTID_RULES_EXAMPLE, #{
     clientid => client1,
     rules => [
@@ -109,9 +128,27 @@
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],
             retain => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            username_re => <<"^u+$">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>,
+            clientid_re => <<"^c+$">>,
+            ipaddr => <<"192.168.1.0/24">>
         }
     ]
 }).
+
 -define(ALL_RULES_EXAMPLE, #{
     rules => [
         #{
@@ -167,3 +204,16 @@
     {client_info, emqx_authz_client_info},
     {file, emqx_authz_file}
 ]).
+
+-define(AUTHZ_DEFAULT_ALLOWED_VARS, [
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_PEERHOST,
+    ?VAR_PEERPORT,
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME,
+    ?VAR_ZONE,
+    ?VAR_NS_CLIENT_ATTRS
+]).
+
+-define(AUTHZ_CACHE, emqx_authz_cache).

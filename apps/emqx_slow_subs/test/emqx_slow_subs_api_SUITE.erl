@@ -46,9 +46,9 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            emqx_conf,
             emqx,
             emqx_auth,
-            emqx_conf,
             emqx_management,
             {emqx_slow_subs, ?CONF_DEFAULT},
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
@@ -86,7 +86,7 @@ t_get_history(_) ->
         "page=1&limit=10",
         auth_header_()
     ),
-    #{<<"data">> := [First | _]} = emqx_utils_json:decode(Data, [return_maps]),
+    #{<<"data">> := [First | _]} = emqx_utils_json:decode(Data),
 
     ?assertMatch(
         #{
@@ -141,7 +141,7 @@ t_settting(_) ->
     ?assertEqual(Expect, GetReturn).
 
 decode_json(Data) ->
-    emqx_utils_json:decode(Data, [return_maps]).
+    emqx_utils_json:decode(Data).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).

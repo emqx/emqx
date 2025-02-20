@@ -11,7 +11,8 @@
 
 %% API
 -export([
-    container/0
+    container/0,
+    container/1
 ]).
 
 %% `hocon_schema' API
@@ -31,18 +32,33 @@
 %%------------------------------------------------------------------------------
 
 container() ->
+    container(_Opts = #{}).
+
+container(Opts) ->
+    AllTypes = [<<"csv">>, <<"json_lines">>],
+    SupportedTypes = maps:get(supported_types, Opts, AllTypes),
+    %% Assert
+    true = SupportedTypes =/= [],
+    Default = maps:get(default, Opts, <<"csv">>),
+    %% Assert
+    true = lists:member(Default, SupportedTypes),
+    Selector0 = #{
+        <<"csv">> => ref(container_csv),
+        <<"json_lines">> => ref(container_json_lines)
+    },
+    Selector = maps:with(SupportedTypes, Selector0),
+    MetaOverrides = maps:get(meta, Opts, #{}),
     {container,
         hoconsc:mk(
-            %% TODO: Support selectors once there are more than one container.
-            hoconsc:union(fun
-                (all_union_members) -> [ref(container_csv)];
-                ({value, _Value}) -> [ref(container_csv)]
-            end),
-            #{
-                required => true,
-                default => #{<<"type">> => <<"csv">>},
-                desc => ?DESC("container")
-            }
+            emqx_schema:mkunion(type, Selector, Default),
+            emqx_utils_maps:deep_merge(
+                #{
+                    required => true,
+                    default => #{<<"type">> => Default},
+                    desc => ?DESC("container")
+                },
+                MetaOverrides
+            )
         )}.
 
 %%------------------------------------------------------------------------------
@@ -72,10 +88,22 @@ fields(container_csv) ->
                     desc => ?DESC("container_csv_column_order")
                 }
             )}
+    ];
+fields(container_json_lines) ->
+    [
+        {type,
+            mk(
+                json_lines,
+                #{
+                    required => true,
+                    desc => ?DESC("container_json_lines")
+                }
+            )}
     ].
 
 desc(Name) when
-    Name == container_csv
+    Name == container_csv;
+    Name == container_json_lines
 ->
     ?DESC(Name);
 desc(_Name) ->

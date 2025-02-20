@@ -19,8 +19,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(APP, emqx).
-
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -433,7 +431,6 @@ t_limiter_manager(_) ->
     ignore = gen_server:call(emqx_limiter_manager, unexpected_call),
     ok = gen_server:cast(emqx_limiter_manager, unexpected_cast),
     erlang:send(erlang:whereis(emqx_limiter_manager), unexpected_info),
-    ok = emqx_limiter_manager:format_status(normal, ok),
     ok.
 
 t_limiter_app(_) ->
@@ -463,7 +460,6 @@ t_limiter_server(_) ->
     ignored = gen_server:call(Name, unexpected_call),
     ok = gen_server:cast(Name, unexpected_cast),
     erlang:send(erlang:whereis(Name), unexpected_info),
-    ok = emqx_limiter_server:format_status(normal, ok),
     ok.
 
 t_decimal(_) ->

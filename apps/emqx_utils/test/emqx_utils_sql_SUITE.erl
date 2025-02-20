@@ -21,7 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_utils_sql, [get_statement_type/1, parse_insert/1]).
+-import(emqx_utils_sql, [get_statement_type/1, split_insert/1]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -90,6 +90,46 @@ t_parse_insert(_) ->
     run_pi(
         <<"INSERT Into some_table      values\t(${tag1},   ${tag2}  )">>,
         {<<"INSERT Into some_table      "/utf8>>, <<"(${tag1},   ${tag2}  )">>}
+    ),
+    placeholders_not_allowed("insert into ${tab} (val1, val2) values (${val1}, ${val2})").
+
+t_parse_insert_with_on_condition(_) ->
+    Expected1 = {
+        <<"insert into test_tab (val1, val2)"/utf8>>,
+        <<"(${val1}, ${val2})">>,
+        <<"duplicate key update id=id">>
+    },
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2}) on duplicate key update id=id">>,
+        Expected1
+    ),
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2}) on duplicate key update id=id ">>,
+        Expected1
+    ),
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2}) on  duplicate key update id=id   ">>,
+        Expected1
+    ),
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2})on duplicate key update id=id  ">>,
+        Expected1
+    ),
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2})  on duplicate key update id=id">>,
+        Expected1
+    ),
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2}) ON duplicate key update id=id">>,
+        Expected1
+    ),
+    run_pi(
+        <<"insert into test_tab (val1, val2) values (${val1}, ${val2}) on conflict (val1) do nothing">>,
+        {<<"insert into test_tab (val1, val2)"/utf8>>, <<"(${val1}, ${val2})">>,
+            <<"conflict (val1) do nothing">>}
+    ),
+    placeholders_not_allowed(
+        "insert into test_tab (val1, val2) values (${val1}, ${val2}) on duplicate key update id=${id}+1"
     ).
 
 t_parse_insert_nested_brackets(_) ->
@@ -114,19 +154,22 @@ t_parse_insert_nested_brackets(_) ->
     ].
 
 t_parse_insert_failed(_) ->
-    run_pi("drop table books"),
-    run_pi("SELECT * FROM abc"),
-    run_pi("UPDATE abc SET c1 = 1, c2 = 2, c3 = 3"),
-    run_pi("DELETE FROM abc WHERE c1 = 1"),
-    run_pi("insert intotable(a,b)values(1,2)"),
-    run_pi("insert into (a,val)values(1,'val')").
+    incorrect_insert("drop table books"),
+    incorrect_insert("SELECT * FROM abc"),
+    incorrect_insert("UPDATE abc SET c1 = 1, c2 = 2, c3 = 3"),
+    incorrect_insert("DELETE FROM abc WHERE c1 = 1"),
+    incorrect_insert("insert intotable(a,b)values(1,2)"),
+    incorrect_insert("insert into (a,val)values(1,'val')").
 
-run_pi(SQL) ->
-    ?assertEqual({error, not_insert_sql}, parse_insert(SQL)),
+incorrect_insert(SQL) ->
+    ?assertEqual({error, <<"Not an INSERT statement or incorrect SQL syntax">>}, split_insert(SQL)),
     ct:pal("SQL:~n~ts~n", [SQL]).
 
-run_pi(SQL, {InsertPart, Values}) ->
-    {ok, {InsertPart0, Values0}} = parse_insert(SQL),
-    ?assertEqual(InsertPart, InsertPart0),
-    ?assertEqual(Values, Values0),
+placeholders_not_allowed(SQL) ->
+    ?assertEqual({error, <<"Placeholders are only allowed in VALUES part">>}, split_insert(SQL)),
     ct:pal("SQL:~n~ts~n", [SQL]).
+
+run_pi(SQL, Expected) ->
+    {ok, Parsed} = split_insert(SQL),
+    ?assertEqual(Expected, Parsed),
+    ct:pal("SQL: ~ts~n", [SQL]).

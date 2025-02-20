@@ -7,7 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").

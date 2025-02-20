@@ -15,8 +15,8 @@ do(Dir, CONFIG) ->
     end.
 
 assert_otp() ->
-    Oldest = 25,
-    Latest = 26,
+    Oldest = 26,
+    Latest = 27,
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < Oldest orelse OtpRelease > Latest of
         true ->
@@ -36,7 +36,7 @@ assert_otp() ->
     end.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.11"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.2.3"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.
@@ -112,6 +112,7 @@ is_community_umbrella_app("apps/emqx_bridge_s3") -> false;
 is_community_umbrella_app("apps/emqx_bridge_azure_blob_storage") -> false;
 is_community_umbrella_app("apps/emqx_bridge_couchbase") -> false;
 is_community_umbrella_app("apps/emqx_bridge_snowflake") -> false;
+is_community_umbrella_app("apps/emqx_bridge_disk_log") -> false;
 is_community_umbrella_app("apps/emqx_schema_registry") -> false;
 is_community_umbrella_app("apps/emqx_enterprise") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
@@ -120,6 +121,7 @@ is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_sso") -> false;
 is_community_umbrella_app("apps/emqx_audit") -> false;
+is_community_umbrella_app("apps/emqx_mt") -> false;
 is_community_umbrella_app("apps/emqx_gateway_gbt32960") -> false;
 is_community_umbrella_app("apps/emqx_gateway_ocpp") -> false;
 is_community_umbrella_app("apps/emqx_gateway_jt808") -> false;
@@ -172,7 +174,7 @@ project_app_dirs() ->
 
 project_app_dirs(Edition, RelType) ->
     IsEnterprise = is_enterprise(Edition),
-    ExcludedApps = excluded_apps(RelType),
+    ExcludedApps = unavailable_apps(RelType),
     UmbrellaApps = [
         Path
      || Path <- filelib:wildcard("apps/*"),
@@ -187,10 +189,10 @@ project_app_excluded("apps/" ++ AppStr, ExcludedApps) ->
 
 plugins() ->
     [
-        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.1"}}},
+        {emqx_relup, {git, "https://github.com/emqx/emqx-relup.git", {tag, "0.2.3"}}},
         %% emqx main project does not require port-compiler
         %% pin at root level for deterministic
-        {pc, "v1.14.0"}
+        {pc, "1.15.0"}
     ] ++
         %% test plugins are concatenated to default profile plugins
         %% otherwise rebar3 test profile runs are super slow
@@ -335,6 +337,7 @@ relx(Vsn, RelType, PkgType, Edition) ->
         {sys_config, false},
         {vm_args, false},
         {release, {emqx, Vsn}, relx_apps(RelType, Edition)},
+        {exclude_apps, excluded_apps(RelType)},
         {tar_hooks, [
             "scripts/rel/cleanup-release-package.sh",
             "scripts/rel/macos-sign-binaries.sh",
@@ -442,17 +445,17 @@ relx_apps(ReleaseType, Edition) ->
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
-    ExcludedApps = excluded_apps(ReleaseType),
+    UnavailableApps = unavailable_apps(ReleaseType),
     Apps =
-        ([App || App <- SystemApps, not lists:member(App, ExcludedApps)] ++
+        [App || App <- SystemApps, not lists:member(App, UnavailableApps)] ++
             %% EMQX starts the DB and the business applications:
-            [{App, load} || App <- DBApps, not lists:member(App, ExcludedApps)] ++
+            [{App, load} || App <- DBApps, not lists:member(App, UnavailableApps)] ++
             [emqx_machine] ++
-            [{App, load} || App <- BusinessApps, not lists:member(App, ExcludedApps)]),
+            [{App, load} || App <- BusinessApps, not lists:member(App, UnavailableApps)],
     Apps.
 
-excluded_apps(standard) ->
-    OptionalApps = [
+unavailable_apps(standard) ->
+    AppAvailability = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
         {observer, is_app(observer)},
@@ -463,15 +466,22 @@ excluded_apps(standard) ->
         {emqx_fdb_management, false},
         {emqx_event_history, false}
     ],
-    [App || {App, false} <- OptionalApps];
-excluded_apps(platform) ->
-    OptionalApps = [
+    [App || {App, false} <- AppAvailability];
+unavailable_apps(platform) ->
+    AppAvailability = [
         {quicer, is_quicer_supported()},
         {jq, is_jq_supported()},
         {observer, is_app(observer)},
         {mnesia_rocksdb, is_rocksdb_supported()}
     ],
-    [App || {App, false} <- OptionalApps].
+    [App || {App, false} <- AppAvailability].
+
+excluded_apps(_) ->
+    [
+        %% Pulled in as an _optional application_ for `observer` (as of OTP-27.2)
+        %% Exclude as it needs a bunch of extra libraries installed on the host system.
+        wx
+    ].
 
 is_app(Name) ->
     case application:load(Name) of
@@ -593,8 +603,9 @@ dialyzer(Config) ->
 
     AppNames = app_names(),
     KnownApps = [Name || Name <- AppsToAnalyse, lists:member(Name, AppNames)],
+    UnavailableApps = unavailable_apps(standard),
     ExcludedApps = excluded_apps(standard),
-    AppsToExclude = ExcludedApps ++ (AppNames -- KnownApps),
+    AppsToExclude = UnavailableApps ++ ExcludedApps ++ (AppNames -- KnownApps),
 
     Extra =
         [system_monitor, tools] ++

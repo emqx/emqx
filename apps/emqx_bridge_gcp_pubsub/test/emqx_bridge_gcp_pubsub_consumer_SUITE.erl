@@ -383,7 +383,7 @@ create_bridge_api(Config, Overrides) ->
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             Error ->
                 Error
         end,
@@ -446,7 +446,7 @@ receive_published(#{n := N, timeout := Timeout} = Opts, Acc) ->
     receive
         {publish, Msg0 = #{payload := Payload}} ->
             Msg =
-                case emqx_utils_json:safe_decode(Payload, [return_maps]) of
+                case emqx_utils_json:safe_decode(Payload) of
                     {ok, Decoded} -> Msg0#{payload := Decoded};
                     {error, _} -> Msg0
                 end,
@@ -488,7 +488,7 @@ create_rule_and_action_http(Config) ->
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res = #{<<"id">> := RuleId}} ->
             on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.

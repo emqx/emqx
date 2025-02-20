@@ -35,15 +35,14 @@ fields(durable_queues) ->
                     desc => ?DESC(enable)
                 }
             )},
-        duration(session_find_leader_timeout_ms, 1000),
-        duration(session_renew_lease_timeout_ms, 5000),
-        duration(session_min_update_stream_state_interval_ms, 500),
+        duration(session_find_leader_timeout, 1000),
+        duration(session_ping_leader_interval, 4000),
+        duration(session_ping_leader_timeout, 4000),
+        duration(session_unsubscribe_timeout, 1000),
 
-        duration(leader_renew_lease_interval_ms, 1000),
-        duration(leader_renew_streams_interval_ms, 1000),
-        duration(leader_drop_timeout_interval_ms, 1000),
-        duration(leader_session_update_timeout_ms, 5000),
-        duration(leader_session_not_replaying_timeout_ms, 5000)
+        duration(leader_periodical_actions_interval, 1000),
+        duration(leader_renew_streams_interval, 1000),
+        duration(leader_borrower_timeout, 5000)
     ].
 
 injected_fields() ->
@@ -61,6 +60,9 @@ injected_fields() ->
     }.
 
 duration(MsFieldName, Default) ->
+    duration(MsFieldName, Default, ?IMPORTANCE_HIDDEN).
+
+duration(MsFieldName, Default, Importance) ->
     {MsFieldName,
         ?HOCON(
             emqx_schema:timeout_duration_ms(),
@@ -68,7 +70,7 @@ duration(MsFieldName, Default) ->
                 required => false,
                 default => Default,
                 desc => ?DESC(MsFieldName),
-                importance => ?IMPORTANCE_HIDDEN
+                importance => Importance
             }
         )}.
 

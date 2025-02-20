@@ -38,9 +38,6 @@ init_per_suite(Config) ->
             emqx_management
         ],
         #{
-            %% N.B.: This is needed to avoid `emqx_cth_suite' default behavior of setting
-            %% `authorization.sources = []'.
-            emqx_conf_shared_apps => [emqx],
             work_dir => emqx_cth_suite:work_dir(Config)
         }
     ),

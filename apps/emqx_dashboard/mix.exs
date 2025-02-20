@@ -25,6 +25,7 @@ defmodule EMQXDashboard.MixProject do
 
   def deps() do
     [
+      {:pot, "1.0.2"},
       {:emqx_ctl, in_umbrella: true},
       {:emqx, in_umbrella: true},
       {:minirest, github: "emqx/minirest", tag: "1.4.1"}

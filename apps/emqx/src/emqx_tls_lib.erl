@@ -15,6 +15,9 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_tls_lib).
+
+-feature(maybe_expr, enable).
+
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*(_SUITE)?$"}}]).
 
 %% version & cipher suites
@@ -36,9 +39,7 @@
     drop_invalid_certs/1,
     ssl_file_conf_keypaths/0,
     pem_dir/1,
-    is_managed_ssl_file/1,
-    is_valid_pem_file/1,
-    is_pem/1
+    is_managed_ssl_file/1
 ]).
 
 -export([
@@ -379,17 +380,18 @@ ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
     end.
 
 do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun) ->
+    Type = keypath_to_type(KeyPath),
+    Password = maps:get(password, SSL, maps:get(<<"password">>, SSL, undefined)),
     case is_pem(MaybePem) of
         true ->
-            case save_pem_file(Dir, RawDir, KeyPath, MaybePem, DryRun) of
-                {ok, Path} ->
-                    NewSSL = emqx_utils_maps:deep_put(KeyPath, SSL, Path),
-                    {ok, NewSSL};
-                {error, Reason} ->
-                    {error, Reason}
+            maybe
+                ok ?= try_validate_pem(MaybePem, Type, Password),
+                {ok, Path} ?= save_pem_file(Dir, RawDir, KeyPath, MaybePem, DryRun),
+                NewSSL = emqx_utils_maps:deep_put(KeyPath, SSL, Path),
+                {ok, NewSSL}
             end;
         false ->
-            case is_valid_pem_file(MaybePem) of
+            case is_valid_pem_file(MaybePem, Type, Password) of
                 true ->
                     {ok, SSL};
                 {error, #{pem_check := enoent}} when DryRun ->
@@ -397,6 +399,16 @@ do_ensure_ssl_file(Dir, RawDir, KeyPath, SSL, MaybePem, DryRun) ->
                 {error, Reason} ->
                     {error, Reason}
             end
+    end.
+
+keypath_to_type(KeyPath) when is_list(KeyPath) ->
+    case lists:map(fun emqx_utils_conv:bin/1, KeyPath) of
+        [<<"certfile">>] ->
+            certfile;
+        [<<"keyfile">>] ->
+            keyfile;
+        _ ->
+            undefined
     end.
 
 is_valid_string(Empty) when Empty == <<>>; Empty == "" -> false;
@@ -419,6 +431,52 @@ is_pem(MaybePem) ->
     catch
         _:_ -> false
     end.
+
+-define(catching(BODY, ON_ERROR),
+    try
+        {ok, BODY}
+    catch
+        _:_ -> ON_ERROR
+    end
+).
+-define(catching(BODY), ?catching(BODY, error)).
+try_validate_pem(PEM, certfile, _Password) ->
+    do_validate_certfile(PEM);
+try_validate_pem(PEM, keyfile, Password) ->
+    do_validate_keyfile(PEM, Password);
+try_validate_pem(_PEM, _Type, _Password) ->
+    ok.
+
+do_validate_certfile(PEM) ->
+    maybe
+        {ok, [{'Certificate' = Type, DER, not_encrypted} | _]} ?=
+            ?catching(public_key:pem_decode(PEM)),
+        {ok, _} ?= ?catching(public_key:der_decode(Type, DER)),
+        ok
+    else
+        _ -> {error, #{reason => failed_to_parse_certfile}}
+    end.
+
+do_validate_keyfile(PEM, Password) ->
+    maybe
+        {ok, [Entry]} ?= ?catching(public_key:pem_decode(PEM)),
+        {ok, _} ?= der_decode_file(Entry, Password),
+        ok
+    else
+        {error, Reason} -> {error, Reason};
+        _ -> {error, #{reason => failed_to_parse_keyfile}}
+    end.
+
+der_decode_file({Type, DER, not_encrypted}, _Password) ->
+    ?catching(public_key:der_decode(Type, DER));
+der_decode_file({_EncType, _EncDER, _EncryptionData}, undefined) ->
+    {error, #{reason => encryped_keyfile_missing_password}};
+der_decode_file({_EncType, _EncDER, _EncryptionData} = EncryptedEntry, Password) ->
+    ?catching(
+        public_key:pem_entry_decode(EncryptedEntry, emqx_secret:unwrap(Password)),
+        {error, #{reason => bad_password_or_invalid_keyfile}}
+    ).
+-undef(catching).
 
 %% Write the pem file to the given dir.
 %% To make it simple, the file is always overwritten.
@@ -471,15 +529,19 @@ is_hex_str(Str) ->
     end.
 
 %% @doc Returns 'true' when the file is a valid pem, otherwise {error, Reason}.
-is_valid_pem_file(Path0) ->
+is_valid_pem_file(Path0, Type, Password) ->
     Path = resolve_cert_path_for_read(Path0),
     case is_valid_filename(Path) of
         true ->
             case file:read_file(Path) of
                 {ok, Pem} ->
-                    case is_pem(Pem) of
-                        true ->
+                    case is_pem(Pem) andalso try_validate_pem(Pem, Type, Password) of
+                        ok ->
                             true;
+                        {error, #{reason := Reason}} ->
+                            {error, #{reason => Reason, file_path => Path}};
+                        {error, Reason} ->
+                            {error, #{reason => Reason, file_path => Path}};
                         false ->
                             {error, #{pem_check => not_pem, file_path => Path}}
                     end;
@@ -513,11 +575,13 @@ drop_invalid_certs(#{<<"enable">> := True} = SSL) when ?IS_TRUE(True) ->
 do_drop_invalid_certs([], SSL) ->
     SSL;
 do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
+    Type = keypath_to_type(KeyPath),
+    Password = maps:get(password, SSL, maps:get(<<"password">>, SSL, undefined)),
     case emqx_utils_maps:deep_get(KeyPath, SSL, undefined) of
         undefined ->
             do_drop_invalid_certs(KeyPaths, SSL);
         PemOrPath ->
-            case is_pem(PemOrPath) orelse is_valid_pem_file(PemOrPath) of
+            case is_pem(PemOrPath) orelse is_valid_pem_file(PemOrPath, Type, Password) of
                 true ->
                     do_drop_invalid_certs(KeyPaths, SSL);
                 {error, _} ->

@@ -348,7 +348,7 @@ create_bridge_http(Params) ->
             #{<<"type">> := Type0, <<"name">> := Name} = Params,
             Type = emqx_action_info:bridge_v1_type_to_action_type(Type0),
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Body, [return_maps])};
+            {ok, emqx_utils_json:decode(Body)};
         Error ->
             Error
     end.

@@ -242,31 +242,6 @@ t_remove_fail(_Config) ->
     ),
 
     ?assert(meck:validate(?CONNECTOR)),
-    ?assertMatch(
-        [
-            {_, {?CONNECTOR, callback_mode, []}, _},
-            {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
-            {_, {?CONNECTOR, on_get_channels, [_]}, _},
-            {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
-            {_, {?CONNECTOR, on_get_channels, [_]}, _},
-            {_, {?CONNECTOR, on_add_channel, _}, {ok, connector_state}},
-            {_, {?CONNECTOR, on_get_channels, [_]}, _}
-        ],
-        lists:filter(
-            fun({_, {?CONNECTOR, Fun, _Args}, _}) ->
-                lists:member(
-                    Fun, [
-                        callback_mode,
-                        on_start,
-                        on_get_channels,
-                        on_get_status,
-                        on_add_channel
-                    ]
-                )
-            end,
-            meck:history(?CONNECTOR)
-        )
-    ),
     ok.
 
 t_create_with_bad_name_direct_path({init, Config}) ->

@@ -1057,7 +1057,7 @@ merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
         [undefined] ->
             ExtHeaders;
         [MaybeJson] when is_binary(MaybeJson) ->
-            case emqx_utils_json:safe_decode(MaybeJson, [return_maps]) of
+            case emqx_utils_json:safe_decode(MaybeJson) of
                 {ok, JsonTerm} when is_map(JsonTerm) ->
                     maps:to_list(JsonTerm) ++ ExtHeaders;
                 {ok, JsonTerm} when is_list(JsonTerm) ->

@@ -39,16 +39,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
 
--import(
-    prometheus_model_helpers,
-    [
-        create_mf/5,
-        gauge_metric/1,
-        gauge_metrics/1,
-        counter_metrics/1
-    ]
-).
-
 %% APIs
 -export([start_link/1, info/0]).
 
@@ -278,7 +268,7 @@ add_collect_family(Callback, MetricWithType, Data) ->
     ok.
 
 add_collect_family(Name, Data, Callback, Type) ->
-    Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
+    Callback(prometheus_model_helpers:create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
 %% behaviour
 fetch_from_local_node(Mode) ->
@@ -403,7 +393,6 @@ emqx_collect(K = emqx_packets_publish_sent, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_inuse, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_error, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_publish_auth_error, D) -> counter_metrics(?MG(K, D));
-emqx_collect(K = emqx_packets_publish_dropped, D) -> counter_metrics(?MG(K, D));
 %% puback
 emqx_collect(K = emqx_packets_puback_received, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_packets_puback_sent, D) -> counter_metrics(?MG(K, D));
@@ -447,6 +436,8 @@ emqx_collect(K = emqx_messages_publish, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_expired, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_no_subscribers, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_dropped_quota_exceeded, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_dropped_receive_maximum, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_forward, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_retained, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delayed, D) -> counter_metrics(?MG(K, D));
@@ -541,13 +532,16 @@ emqx_collect(K = ?DS_SKIPSTREAM_LTS_HIT, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SKIPSTREAM_LTS_MISS, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SKIPSTREAM_LTS_FUTURE, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SKIPSTREAM_LTS_EOS, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS_FULFILLED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS_DROPPED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUESTS_EXPIRED, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_WAITING_QUEUE_LEN, D) -> gauge_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_POLL_PENDING_QUEUE_LEN, D) -> gauge_metrics(?MG(K, D, [])).
+%% DS beamformer:
+emqx_collect(K = ?DS_SUBS_FANOUT_TIME, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_STUCK_TOTAL, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_UNSTUCK_TOTAL, D) -> counter_metrics(?MG(K, D, []));
+%% DS beamformer worker:
+emqx_collect(K = ?DS_SUBS, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_BEAMS_SENT_TOTAL, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_FULFILL_TIME, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_SCAN_TIME, D) -> counter_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators
@@ -770,7 +764,6 @@ emqx_packet_metric_meta() ->
         {emqx_packets_publish_inuse, counter, 'packets.publish.inuse'},
         {emqx_packets_publish_error, counter, 'packets.publish.error'},
         {emqx_packets_publish_auth_error, counter, 'packets.publish.auth_error'},
-        {emqx_packets_publish_dropped, counter, 'packets.publish.dropped'},
         %% puback
         {emqx_packets_puback_received, counter, 'packets.puback.received'},
         {emqx_packets_puback_sent, counter, 'packets.puback.sent'},
@@ -817,6 +810,8 @@ message_metric_meta() ->
         {emqx_messages_dropped, counter, 'messages.dropped'},
         {emqx_messages_dropped_expired, counter, 'messages.dropped.await_pubrel_timeout'},
         {emqx_messages_dropped_no_subscribers, counter, 'messages.dropped.no_subscribers'},
+        {emqx_messages_dropped_quota_exceeded, counter, 'messages.dropped.quota_exceeded'},
+        {emqx_messages_dropped_receive_maximum, counter, 'messages.dropped.receive_maximum'},
         {emqx_messages_forward, counter, 'messages.forward'},
         {emqx_messages_retained, counter, 'messages.retained'},
         {emqx_messages_delayed, counter, 'messages.delayed'},
@@ -1245,3 +1240,15 @@ do_start() ->
 %% deprecated_since 5.0.10, remove this when 5.1.x
 do_stop() ->
     emqx_prometheus_sup:stop_child(?APP).
+
+%%--------------------------------------------------------------------
+%% prometheus_model_helpers proxy
+%%
+gauge_metric(Metric) ->
+    prometheus_model_helpers:gauge_metric(Metric).
+
+gauge_metrics(Values) ->
+    prometheus_model_helpers:gauge_metrics(Values).
+
+counter_metrics(Specs) ->
+    prometheus_model_helpers:counter_metrics(Specs).

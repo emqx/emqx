@@ -923,3 +923,36 @@ case19_serialize_ctrl(_Config) ->
     ?assertEqual(DataUnit2, DataUnitSeried2),
     ?assertEqual(Crc2, make_crc(Body2, undefined)),
     ok.
+
+case20_realtime_report_0x80(_Config) ->
+    Parser = emqx_gbt32960_frame:initial_parse_state(#{}),
+    Time = <<16, 10, 1, 22, 59, 0>>,
+    InfoData = <<16#80, 16#02, "0000000">>,
+    Data = <<Time/binary, InfoData/binary>>,
+    Bin = encode(?CMD_INFO_REPORT, <<"1G1BL52P7TR115520">>, Data),
+    Base64Data = base64:encode(InfoData),
+    {ok, Frame, <<>>, _State} = emqx_gbt32960_frame:parse(Bin, Parser),
+    #frame{
+        cmd = ?CMD_INFO_REPORT,
+        ack = ?ACK_IS_CMD,
+        vin = <<"1G1BL52P7TR115520">>,
+        encrypt = ?ENCRYPT_NONE,
+        data = #{
+            <<"Time">> := #{
+                <<"Year">> := 16,
+                <<"Month">> := 10,
+                <<"Day">> := 1,
+                <<"Hour">> := 22,
+                <<"Minute">> := 59,
+                <<"Second">> := 0
+            },
+            <<"Infos">> := [
+                #{
+                    <<"Type">> := <<"CustomData">>,
+                    <<"Data">> := Base64Data
+                }
+            ]
+        }
+    } = Frame,
+    ?LOGT("frame: ~p", [to_json(Frame)]),
+    ok.

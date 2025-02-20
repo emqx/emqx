@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   mqnamesrvssl:
     image: apache/rocketmq:4.9.4

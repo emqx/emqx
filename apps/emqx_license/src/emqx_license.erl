@@ -85,7 +85,16 @@ exec_config_update(Param) ->
 check(#{clientid := ClientId}, AckProps) ->
     case emqx_license_checker:limits() of
         {ok, #{max_connections := ?ERR_EXPIRED}} ->
-            ?SLOG(error, #{msg => "connection_rejected_due_to_license_expired"}, #{tag => "LICENSE"}),
+            ?SLOG_THROTTLE(error, #{msg => connection_rejected_due_to_license_expired}, #{
+                tag => "LICENSE"
+            }),
+            {stop, {error, ?RC_QUOTA_EXCEEDED}};
+        {ok, #{max_connections := ?ERR_MAX_UPTIME}} ->
+            ?SLOG_THROTTLE(
+                error, #{msg => connection_rejected_due_to_trial_license_uptime_limit}, #{
+                    tag => "LICENSE"
+                }
+            ),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_connections := MaxClients}} ->
             case is_max_clients_exceeded(MaxClients) andalso is_new_client(ClientId) of

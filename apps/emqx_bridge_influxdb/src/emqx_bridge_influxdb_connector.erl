@@ -258,6 +258,7 @@ fields("connector") ->
     [
         server_field(),
         pool_size_field(),
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         parameter_field()
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("connector_influxdb_api_v1") ->

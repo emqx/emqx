@@ -130,6 +130,7 @@ do_get_status(AppStatus, <<"json">>) ->
     BrokerStatus = broker_status(),
     emqx_utils_json:encode(#{
         node_name => atom_to_binary(node(), utf8),
+        cluster => atom_to_binary(cluster(), utf8),
         rel_vsn => vsn(),
         broker_status => atom_to_binary(BrokerStatus),
         app_status => atom_to_binary(AppStatus)
@@ -157,3 +158,6 @@ application_status() ->
         false -> not_running;
         {value, _Val} -> running
     end.
+
+cluster() ->
+    emqx_config:get([cluster, name]).

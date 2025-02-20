@@ -9,10 +9,12 @@
 -export([
     new/1,
     open/2,
-    can_subscribe/3,
+    pre_subscribe/3,
+    has_subscription/2,
+    has_subscriptions/1,
 
     on_subscribe/4,
-    on_unsubscribe/3,
+    on_unsubscribe/2,
     on_stream_progress/2,
     on_info/3,
     on_disconnect/2
@@ -30,13 +32,19 @@ new(_Opts) ->
 open(_Topics, _Opts) ->
     undefined.
 
-can_subscribe(_Agent, _TopicFilter, _SubOpts) ->
+pre_subscribe(_Agent, _TopicFilter, _SubOpts) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}.
+
+has_subscription(_Agent, _SubscriptionId) ->
+    false.
+
+has_subscriptions(_Agent) ->
+    false.
 
 on_subscribe(Agent, _SubscriptionId, _TopicFilter, _SubOpts) ->
     Agent.
 
-on_unsubscribe(Agent, _SubscriptionId, _Progresses) ->
+on_unsubscribe(Agent, _SubscriptionId) ->
     Agent.
 
 on_disconnect(Agent, _) ->

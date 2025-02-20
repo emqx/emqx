@@ -18,6 +18,7 @@
 
 -compile(nowarn_export_all).
 -compile(export_all).
+-compile(nowarn_update_literal).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -168,7 +169,7 @@ t_crud_rule_api(_Config) ->
         ),
     ?assertMatch(
         #{<<"select_and_transform_error">> := <<"decode_json_failed">>},
-        emqx_utils_json:decode(SelectAndTransformJsonError, [return_maps])
+        emqx_utils_json:decode(SelectAndTransformJsonError)
     ),
     {400, #{
         code := 'BAD_REQUEST',
@@ -182,7 +183,7 @@ t_crud_rule_api(_Config) ->
         ),
     ?assertMatch(
         #{<<"select_and_transform_error">> := <<"badarg">>},
-        emqx_utils_json:decode(SelectAndTransformBadArgError, [return_maps])
+        emqx_utils_json:decode(SelectAndTransformBadArgError)
     ),
     {400, #{
         code := 'BAD_REQUEST',

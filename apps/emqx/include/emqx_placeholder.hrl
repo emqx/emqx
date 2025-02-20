@@ -53,6 +53,9 @@
 %% client IPAddress
 -define(VAR_PEERHOST, "peerhost").
 -define(PH_PEERHOST, ?PH(?VAR_PEERHOST)).
+%% client Port
+-define(VAR_PEERPORT, "peerport").
+-define(PH_PEERPORT, ?PH(?VAR_PEERPORT)).
 %% ip & port
 -define(PH_HOST, ?PH("host")).
 -define(PH_PORT, ?PH("port")).
@@ -124,6 +127,7 @@
 -define(PH_S_PUBLISH_RECEIVED_AT, "${publish_received_at}").
 -define(PH_S_MOUNTPOINT, "${mountpoint}").
 -define(PH_S_PEERNAME, "${peername}").
+-define(PH_S_PEERPORT, "${peerport}").
 -define(PH_S_SOCKNAME, "${sockname}").
 -define(PH_S_IS_BRIDGE, "${is_bridge}").
 -define(PH_S_CONNECTED_AT, "${connected_at}").

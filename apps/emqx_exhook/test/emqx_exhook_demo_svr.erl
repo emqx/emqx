@@ -16,7 +16,7 @@
 
 -module(emqx_exhook_demo_svr).
 
--behaviour(emqx_exhook_v_2_hook_provider_bhvr).
+-behaviour(emqx_exhook_v_3_hook_provider_bhvr).
 
 %%
 -export([
@@ -111,7 +111,7 @@ init({Name, Port}) ->
     _ = erlang:process_flag(trap_exit, true),
     Services = #{
         protos => [emqx_exhook_pb],
-        services => #{'emqx.exhook.v2.HookProvider' => emqx_exhook_demo_svr}
+        services => #{'emqx.exhook.v3.HookProvider' => emqx_exhook_demo_svr}
     },
     {ok, ServerPid} = grpc:start_server(Name, Port, Services, _Options = []),
     {ok, #{

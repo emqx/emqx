@@ -52,7 +52,12 @@ set_special_configs(_App) ->
 
 -spec emqx_dashboard() -> emqx_cth_suite:appspec().
 emqx_dashboard() ->
-    emqx_dashboard("dashboard.listeners.http { enable = true, bind = 18083 }").
+    emqx_dashboard(
+        "dashboard {\n"
+        "           listeners.http { enable = true, bind = 18083}, \n"
+        "           password_expired_time = \"86400s\"\n"
+        "}"
+    ).
 
 emqx_dashboard(Config) ->
     {emqx_dashboard, #{
@@ -307,7 +312,7 @@ format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
     erlang:iolist_to_binary([WithPaths, StartBoundary, <<"--">>, LineSeparator]).
 
 maybe_json_decode(X) ->
-    case emqx_utils_json:safe_decode(X, [return_maps]) of
+    case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
         {error, _} -> X
     end.
@@ -324,7 +329,7 @@ simple_request(Method, Path, Params, AuthHeader) ->
             {Status, Body};
         {error, {{_, Status, _}, _Headers, Body0}} ->
             Body =
-                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                case emqx_utils_json:safe_decode(Body0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};

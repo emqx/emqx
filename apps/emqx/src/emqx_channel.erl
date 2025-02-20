@@ -81,28 +81,6 @@
 ]).
 -endif.
 
--if(?EMQX_RELEASE_EDITION == ee).
--import(emqx_external_trace, [
-    connect_attrs/2,
-    basic_attrs/1,
-    topic_attrs/1,
-    authn_attrs/1,
-    sub_authz_attrs/1,
-    disconnect_attrs/2
-]).
-
--else.
--endif.
-
--import(
-    emqx_utils,
-    [
-        run_fold/3,
-        pipeline/3,
-        maybe_apply/2
-    ]
-).
-
 -export_type([channel/0, opts/0, conn_state/0, reply/0, replies/0]).
 
 -record(channel, {
@@ -112,7 +90,7 @@
     clientinfo :: emqx_types:clientinfo(),
     %% MQTT Session
     session :: option(emqx_session:t()),
-    %% Keepalive
+    %% KeepAlive
     keepalive :: option(emqx_keepalive:keepalive()),
     %% MQTT Will Msg
     will_msg :: option(emqx_types:message()),
@@ -136,7 +114,7 @@
     pendings :: list()
 }).
 
--type channel() :: #channel{}.
+-opaque channel() :: #channel{}.
 
 -type opts() :: #{
     zone := atom(),
@@ -223,13 +201,13 @@ info(username, #channel{clientinfo = ClientInfo}) ->
 info(is_bridge, #channel{clientinfo = ClientInfo}) ->
     maps:get(is_bridge, ClientInfo, undefined);
 info(session, #channel{session = Session}) ->
-    maybe_apply(fun emqx_session:info/1, Session);
+    emqx_utils:maybe_apply(fun emqx_session:info/1, Session);
 info({session, Info}, #channel{session = Session}) ->
-    maybe_apply(fun(S) -> emqx_session:info(Info, S) end, Session);
+    emqx_utils:maybe_apply(fun(S) -> emqx_session:info(Info, S) end, Session);
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
-info(keepalive, #channel{keepalive = Keepalive}) ->
-    maybe_apply(fun emqx_keepalive:info/1, Keepalive);
+info(keepalive, #channel{keepalive = KeepAlive}) ->
+    emqx_utils:maybe_apply(fun emqx_keepalive:info/1, KeepAlive);
 info(will_msg, #channel{will_msg = undefined}) ->
     undefined;
 info(will_msg, #channel{will_msg = WillMsg}) ->
@@ -245,6 +223,7 @@ info(session_state, #channel{session = Session}) ->
 info(impl, #channel{session = Session}) ->
     emqx_session:info(impl, Session).
 
+-spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
@@ -274,7 +253,7 @@ init(
         listener := {Type, Listener}
     } = Opts
 ) ->
-    Peercert = maps:get(peercert, ConnInfo, undefined),
+    PeerCert = maps:get(peercert, ConnInfo, undefined),
     Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint =
         case emqx_config:get_listener_conf(Type, Listener, [mountpoint]) of
@@ -283,7 +262,7 @@ init(
         end,
     ListenerId = emqx_listeners:listener_id(Type, Listener),
     ClientInfo = set_peercert_infos(
-        Peercert,
+        PeerCert,
         #{
             zone => Zone,
             listener => ListenerId,
@@ -332,15 +311,15 @@ set_peercert_infos(NoSSL, ClientInfo, _) when
     NoSSL =:= undefined
 ->
     ClientInfo#{username => undefined};
-set_peercert_infos(Peercert, ClientInfo, Zone) ->
-    {DN, CN} = {esockd_peercert:subject(Peercert), esockd_peercert:common_name(Peercert)},
+set_peercert_infos(PeerCert, ClientInfo, Zone) ->
+    {DN, CN} = {esockd_peercert:subject(PeerCert), esockd_peercert:common_name(PeerCert)},
     PeercetAs = fun(Key) ->
         case get_mqtt_conf(Zone, Key) of
             cn -> CN;
             dn -> DN;
-            crt -> Peercert;
-            pem when is_binary(Peercert) -> base64:encode(Peercert);
-            md5 when is_binary(Peercert) -> emqx_passwd:hash_data(md5, Peercert);
+            crt -> PeerCert;
+            pem when is_binary(PeerCert) -> base64:encode(PeerCert);
+            md5 when is_binary(PeerCert) -> emqx_passwd:hash_data(md5, PeerCert);
             _ -> undefined
         end
     end,
@@ -501,9 +480,9 @@ handle_in(
         fun(NPacket) -> process_unsubscribe(NPacket, Channel) end,
         [Packet]
     );
-handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = Keepalive}) ->
-    {ok, NKeepalive} = emqx_keepalive:check(Keepalive),
-    NChannel = Channel#channel{keepalive = NKeepalive},
+handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = KeepAlive}) ->
+    {ok, NKeepAlive} = emqx_keepalive:check(KeepAlive),
+    NChannel = Channel#channel{keepalive = NKeepAlive},
     {ok, ?PACKET(?PINGRESP), reset_timer(keepalive, NChannel)};
 handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,
@@ -537,7 +516,7 @@ handle_in(Packet, Channel) ->
 
 process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
     case
-        pipeline(
+        emqx_utils:pipeline(
             [
                 fun overload_protection/2,
                 fun enrich_conninfo/2,
@@ -606,7 +585,7 @@ post_process_connect(
 
 process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
     case
-        pipeline(
+        emqx_utils:pipeline(
             [
                 fun check_quota_exceeded/2,
                 fun process_alias/2,
@@ -652,7 +631,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             ),
             case QoS of
                 ?QOS_0 ->
-                    ok = emqx_metrics:inc('packets.publish.dropped'),
+                    ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
                     {ok, NChannel};
                 ?QOS_1 ->
                     handle_out(puback, {PacketId, Rc}, NChannel);
@@ -741,7 +720,7 @@ do_publish(
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ok = emqx_metrics:inc('packets.publish.dropped'),
+            ok = emqx_metrics:inc('messages.dropped.receive_maximum'),
             handle_out(disconnect, RC, Channel)
     end.
 
@@ -894,7 +873,7 @@ after_message_acked(ClientInfo, Msg, PubAckProps) ->
 %%--------------------------------------------------------------------
 
 process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilters0), Channel0) ->
-    Pipe = pipeline(
+    Pipe = emqx_utils:pipeline(
         [
             fun check_subscribe/2,
             fun enrich_subscribe/2,
@@ -1280,7 +1259,7 @@ handle_frame_error(
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = ConnInfo}) ->
-    AckProps = run_fold(
+    AckProps = emqx_utils:run_fold(
         [
             fun enrich_connack_caps/2,
             fun enrich_server_keepalive/2,
@@ -1531,9 +1510,9 @@ handle_call(
     }
 ) ->
     ClientId = info(clientid, Channel),
-    NKeepalive = emqx_keepalive:update(Zone, Interval, KeepAlive),
+    NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
-    NChannel = Channel#channel{keepalive = NKeepalive, conninfo = NConnInfo},
+    NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
@@ -1647,14 +1626,18 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
-handle_info({'DOWN', Ref, process, Pid, Reason}, Channel) ->
-    case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
-        [] -> {ok, Channel};
-        Msgs -> {ok, Msgs, Channel}
-    end;
-handle_info(Info, Channel = #channel{session = Session0, clientinfo = ClientInfo}) ->
+handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
-    {ok, Channel#channel{session = Session}}.
+    Channel = Channel0#channel{session = Session},
+    case Info of
+        {'DOWN', Ref, process, Pid, Reason} ->
+            case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
+                [] -> {ok, Channel};
+                Msgs -> {ok, Msgs, Channel}
+            end;
+        _ ->
+            {ok, Channel}
+    end.
 
 -ifdef(TEST).
 
@@ -1692,11 +1675,11 @@ handle_timeout(
 handle_timeout(
     _TRef,
     keepalive,
-    Channel = #channel{keepalive = Keepalive}
+    Channel = #channel{keepalive = KeepAlive}
 ) ->
-    case emqx_keepalive:check(Keepalive) of
-        {ok, NKeepalive} ->
-            NChannel = Channel#channel{keepalive = NKeepalive},
+    case emqx_keepalive:check(KeepAlive) of
+        {ok, NKeepAlive} ->
+            NChannel = Channel#channel{keepalive = NKeepAlive},
             {ok, reset_timer(keepalive, NChannel)};
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
@@ -1761,13 +1744,16 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    connection_expire,
+    connection_auth_expire,
     #channel{conn_state = ConnState} = Channel0
 ) ->
-    Channel1 = clean_timer(connection_expire, Channel0),
+    Channel1 = clean_timer(connection_auth_expire, Channel0),
     case ConnState of
-        disconnected -> {ok, Channel1};
-        _ -> handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel1)
+        disconnected ->
+            {ok, Channel1};
+        _ ->
+            Channel2 = maybe_publish_will_msg(auth_expired, Channel1),
+            handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel2)
     end;
 handle_timeout(TRef, Msg, Channel) ->
     case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
@@ -1864,7 +1850,7 @@ enrich_conninfo(
         proto_name = ProtoName,
         proto_ver = ProtoVer,
         clean_start = CleanStart,
-        keepalive = Keepalive,
+        keepalive = KeepAlive,
         properties = ConnProps,
         clientid = ClientId,
         username = Username
@@ -1879,7 +1865,7 @@ enrich_conninfo(
         proto_name => ProtoName,
         proto_ver => ProtoVer,
         clean_start => CleanStart,
-        keepalive => Keepalive,
+        keepalive => KeepAlive,
         clientid => ClientId,
         username => Username,
         conn_props => ConnProps,
@@ -1931,7 +1917,7 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %% Enrich Client Info
 
 enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
-    Pipe = pipeline(
+    Pipe = emqx_utils:pipeline(
         [
             fun set_username/2,
             fun set_bridge_mode/2,
@@ -2017,9 +2003,8 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
                         #{
                             msg => "client_attr_rednered_to_empty_string",
                             set_as_attr => Name
-                        }#{
-                            clientid => ClientId
-                        }
+                        },
+                        #{clientid => ClientId}
                     ),
                     Acc;
                 {ok, Value} ->
@@ -2154,7 +2139,7 @@ maybe_add_cert(Map, #channel{conninfo = ConnInfo}) ->
     maybe_add_cert(Map, ConnInfo);
 maybe_add_cert(Map, #{peercert := PeerCert}) when is_binary(PeerCert) ->
     %% NOTE: it's raw binary at this point,
-    %% encoding to PEM (base64) is done lazy in emqx_auth_utils:render_var
+    %% encoding to PEM (base64) is done lazy in emqx_auth_template:render_var
     Map#{cert_pem => PeerCert};
 maybe_add_cert(Map, _) ->
     Map.
@@ -2619,7 +2604,7 @@ enrich_subscribe(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters), Channel)
     {ok, ?SUBSCRIBE_PACKET(PacketId, Properties, NTopicFilters), Channel}.
 
 do_enrich_subscribe(Properties, TopicFilters, Channel) ->
-    _NTopicFilters = run_fold(
+    _NTopicFilters = emqx_utils:run_fold(
         [
             %% TODO: do try catch with reason code here
             fun(TFs, _) -> parse_raw_topic_filters(TFs) end,
@@ -2701,7 +2686,7 @@ enrich_connack_caps(AckProps, _Channel) ->
 enrich_server_keepalive(AckProps, ?IS_MQTT_V5 = #channel{clientinfo = #{zone := Zone}}) ->
     case get_mqtt_conf(Zone, server_keepalive) of
         disabled -> AckProps;
-        Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
+        KeepAlive -> AckProps#{'Server-Keep-Alive' => KeepAlive}
     end;
 enrich_server_keepalive(AckProps, _Channel) ->
     AckProps.
@@ -2752,16 +2737,16 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
-    schedule_connection_expire(Channel#channel{
+    schedule_connection_auth_expire(Channel#channel{
         conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
     }).
 
-schedule_connection_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
+schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
     Channel;
-schedule_connection_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
+schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
     Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
-    ensure_timer(connection_expire, Interval, Channel).
+    ensure_timer(connection_auth_expire, Interval, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
@@ -2794,7 +2779,7 @@ init_alias_maximum(_ConnPkt, _ClientInfo) ->
     undefined.
 
 %%--------------------------------------------------------------------
-%% Ensure Keepalive
+%% Ensure KeepAlive
 
 %% MQTT 5
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel = #channel{conninfo = ConnInfo}) ->
@@ -2833,8 +2818,8 @@ ensure_keepalive_timer(
             undefined ->
                 emqx_pd:get_counter(recv_pkt)
         end,
-    Keepalive = emqx_keepalive:init(Zone, Val, Interval),
-    ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
+    KeepAlive = emqx_keepalive:init(Zone, Val, Interval),
+    ensure_timer(keepalive, Channel#channel{keepalive = KeepAlive}).
 
 clear_keepalive(Channel = #channel{timers = Timers}) ->
     case maps:get(keepalive, Timers, undefined) of
@@ -2929,6 +2914,8 @@ session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
         | expired
         %% Connection is terminating because of socket close/error
         | sock_closed
+        %% Connection is terminating because auth expired
+        | auth_expired
         %% Session is terminating, delay willmsg publish is impossible.
         | ?chan_terminating.
 maybe_publish_will_msg(_Reason, Channel = #channel{will_msg = undefined}) ->
@@ -2983,7 +2970,6 @@ maybe_publish_will_msg(
     case is_durable_session(Channel0) andalso Reason =:= ?chan_terminating of
         false ->
             ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
-
             Channel = publish_will_msg(Channel0),
             remove_willmsg(Channel);
         true ->
@@ -3036,8 +3022,14 @@ maybe_publish_will_msg(
             ?tp(debug, maybe_publish_will_msg_other_publish, #{
                 clientid => ClientId, reason => Reason
             }),
-            Channel = publish_will_msg(Channel0),
-            remove_willmsg(Channel);
+            %% In case of Reason = auth_expired, the very expiration of auth is the reason of disconnection,
+            %% so the will message should won't pass the auth check.
+            %% We want to publish the will message as it would be published at the very moment of auth expiration,
+            %% so we inject the auth expiration time as the current time used for the auth check.
+            Channel1 = maybe_with_injected_now(Reason, Channel0, fun(Channel) ->
+                publish_will_msg(Channel)
+            end),
+            remove_willmsg(Channel1);
         I when I > 0 ->
             ?tp(debug, maybe_publish_will_msg_other_delay, #{clientid => ClientId, reason => Reason}),
             ensure_timer(will_message, timer:seconds(I), Channel0)
@@ -3049,6 +3041,13 @@ will_delay_interval(WillMsg) ->
         emqx_message:get_header(properties, WillMsg, #{}),
         0
     ).
+
+maybe_with_injected_now(
+    auth_expired, #channel{clientinfo = #{auth_expire_at := AuthExpiredAt}} = Channel, Fun
+) ->
+    with_now(AuthExpiredAt, Channel, Fun);
+maybe_with_injected_now(_, Channel, Fun) ->
+    Fun(Channel).
 
 publish_will_msg(
     #channel{
@@ -3217,12 +3216,37 @@ is_durable_session(#channel{session = Session}) ->
             false
     end.
 
+with_now(NowMs, #channel{clientinfo = ClientInfo0} = Channel0, Fun) ->
+    ClientInfo1 = ClientInfo0#{now_time => NowMs},
+    #channel{clientinfo = ClientInfo2} = Channel1 = Fun(Channel0#channel{clientinfo = ClientInfo1}),
+    Channel1#channel{clientinfo = maps:without([now_time], ClientInfo2)}.
+
 proto_ver(#{proto_ver := ProtoVer}, _ConnInfo) ->
     ProtoVer;
 proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+connect_attrs(Packet, Channel) ->
+    emqx_external_trace:connect_attrs(Packet, Channel).
+
+basic_attrs(Channel) ->
+    emqx_external_trace:basic_attrs(Channel).
+
+topic_attrs(Packet) ->
+    emqx_external_trace:topic_attrs(Packet).
+
+authn_attrs(AuthResult) ->
+    emqx_external_trace:authn_attrs(AuthResult).
+
+sub_authz_attrs(AuthzResult) ->
+    emqx_external_trace:sub_authz_attrs(AuthzResult).
+
+disconnect_attrs(Reason, Channel) ->
+    emqx_external_trace:disconnect_attrs(Reason, Channel).
+-endif.
 
 %%--------------------------------------------------------------------
 %% For CT tests

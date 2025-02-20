@@ -46,6 +46,7 @@
 
 -type connector_config() :: #{
     connect_timeout := pos_integer(),
+    max_inactive := pos_integer(),
     password := emqx_secret:t(binary()),
     pipelining := pos_integer(),
     pool_size := pos_integer(),
@@ -97,6 +98,7 @@ on_start(ConnResId, ConnConfig) ->
         connect_timeout := ConnectTimeout,
         password := Password,
         pipelining := Pipelining,
+        max_inactive := MaxInactive,
         pool_size := PoolSize,
         username := Username
     } = ConnConfig,
@@ -124,6 +126,7 @@ on_start(ConnResId, ConnConfig) ->
         {pool_size, PoolSize},
         {transport, Transport},
         {transport_opts, TransportOpts},
+        {max_inactive, MaxInactive},
         {enable_pipelining, Pipelining}
     ],
     case ehttpc_sup:start_pool(ConnResId, PoolOpts) of
@@ -350,24 +353,23 @@ do_query(ConnResId, SQL, Args, RequestTTL, MaxRetries, ConnState) ->
     Response.
 
 maybe_decode_json(Raw) ->
-    case emqx_utils_json:safe_decode(Raw, [return_maps]) of
+    case emqx_utils_json:safe_decode(Raw) of
         {ok, JSON} ->
             JSON;
         {error, _} ->
             Raw
     end.
 
+map_response({error, {shutdown, Reason}}) ->
+    map_response({error, Reason});
 map_response({error, Reason}) when
     Reason =:= econnrefused;
     Reason =:= timeout;
     Reason =:= normal;
-    Reason =:= {shutdown, normal};
-    Reason =:= {shutdown, closed}
+    Reason =:= closed;
+    %% {closed, "The connection was lost."}
+    element(1, Reason) =:= closed
 ->
-    ?tp("couchbase_query_error", #{reason => Reason}),
-    {error, {recoverable_error, Reason}};
-map_response({error, {closed, _Message} = Reason}) ->
-    %% _Message = "The connection was lost."
     ?tp("couchbase_query_error", #{reason => Reason}),
     {error, {recoverable_error, Reason}};
 map_response({error, Reason}) ->

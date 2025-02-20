@@ -289,7 +289,7 @@ create_bridge_http(Params) ->
         {ok, Res} ->
             #{<<"type">> := Type, <<"name">> := Name} = Params,
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res, [return_maps])};
+            {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error
     end.
@@ -318,7 +318,7 @@ query_resource_async(Config, Request, Opts) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
     Ref = alias([reply]),
-    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
+    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     Timeout = maps:get(timeout, Opts, 500),
     Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
         timeout => Timeout,

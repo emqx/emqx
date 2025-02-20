@@ -101,10 +101,12 @@ init_per_suite(Config) ->
         ],
         #{work_dir => ?config(priv_dir)}
     ),
+    ok = emqx_access_control:set_default_authn_restrictive(),
     ok = deregister_providers(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    ok = emqx_access_control:set_default_authn_permissive(),
     emqx_cth_suite:stop(?config(apps)),
     ok.
 

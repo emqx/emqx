@@ -205,6 +205,7 @@ datalayers_connector_config(Name, DatalayersHost, DatalayersPort, Config) ->
             "connectors.datalayers.~s {\n"
             "  enable = true\n"
             "  server = \"~s:~b\"\n"
+            "  max_inactive = 10s\n"
             "  parameters {\n"
             "    driver_type = influxdb_v1\n"
             "    database = mqtt\n"
@@ -296,7 +297,7 @@ create_rule_and_action_http(Config, Overrides) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
 
@@ -312,7 +313,7 @@ query_by_clientid(Table, ClientId, Config) ->
         {200, <<>>} ->
             #{};
         {200, Resp} ->
-            case emqx_utils_json:decode(Resp, [return_maps]) of
+            case emqx_utils_json:decode(Resp) of
                 [] -> error(no_data);
                 [FirstRow | _] -> FirstRow
             end;

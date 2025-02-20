@@ -204,6 +204,8 @@ t_start_rebalance_validation(Config) ->
     BadOpts = [
         #{conn_evict_rate => <<"conn">>},
         #{sess_evict_rate => <<"sess">>},
+        #{conn_evict_rpc_timeout => <<"conn">>},
+        #{sess_evict_rpc_timeout => <<"sess">>},
         #{abs_conn_threshold => <<"act">>},
         #{rel_conn_threshold => <<"rct">>},
         #{abs_sess_threshold => <<"act">>},
@@ -244,7 +246,9 @@ t_start_rebalance_validation(Config) ->
             ["load_rebalance", atom_to_list(DonorNode), "start"],
             #{
                 conn_evict_rate => 10,
+                conn_evict_rpc_timeout => <<"10s">>,
                 sess_evict_rate => 10,
+                sess_evict_rpc_timeout => <<"10s">>,
                 wait_takeover => <<"10s">>,
                 wait_health_check => <<"10s">>,
                 abs_conn_threshold => 10,
@@ -422,7 +426,9 @@ t_start_stop_rebalance(Config) ->
                         <<"node">> := DonorNodeBin,
                         <<"coordinator_node">> := _,
                         <<"connection_eviction_rate">> := 10,
+                        <<"connection_eviction_rpc_timeout">> := 15000,
                         <<"session_eviction_rate">> := 20,
+                        <<"session_eviction_rpc_timeout">> := 15000,
                         <<"donors">> := [DonorNodeBin],
                         <<"recipients">> := [RecipientNodeBin]
                     }
@@ -440,7 +446,9 @@ t_start_stop_rebalance(Config) ->
                     node := DonorNodeBin,
                     coordinator_node := _,
                     connection_eviction_rate := 10,
+                    connection_eviction_rpc_timeout := 15000,
                     session_eviction_rate := 20,
+                    session_eviction_rpc_timeout := 15000,
                     donors := [DonorNodeBin],
                     recipients := [RecipientNodeBin]
                 }
@@ -509,7 +517,7 @@ api_post(Path, Data) ->
     case request(post, uri(Path), Data) of
         {ok, Code, ResponseBody} ->
             Res =
-                case emqx_utils_json:safe_decode(ResponseBody, [return_maps]) of
+                case emqx_utils_json:safe_decode(ResponseBody) of
                     {ok, Decoded} -> Decoded;
                     {error, _} -> ResponseBody
                 end,

@@ -674,7 +674,7 @@ trace_type(_, _, _) -> error.
 
 listeners([]) ->
     lists:foreach(
-        fun({ID, Conf}) ->
+        fun({Id, Conf}) ->
             Bind = maps:get(bind, Conf),
             Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
@@ -683,17 +683,17 @@ listeners([]) ->
             case Running of
                 true ->
                     CurrentConns =
-                        case emqx_listeners:current_conns(ID, Bind) of
+                        case emqx_listeners:current_conns(Id, Bind) of
                             {error, _} -> [];
                             CC -> [{current_conn, CC}]
                         end,
                     MaxConn =
-                        case emqx_listeners:max_conns(ID, Bind) of
+                        case emqx_listeners:max_conns(Id, Bind) of
                             {error, _} -> [];
                             MC -> [{max_conns, MC}]
                         end,
                     ShutdownCount =
-                        case emqx_listeners:shutdown_count(ID, Bind) of
+                        case emqx_listeners:shutdown_count(Id, Bind) of
                             {error, _} -> [];
                             SC -> [{shutdown_count, SC}]
                         end;
@@ -710,7 +710,7 @@ listeners([]) ->
                     {enbale, Enable},
                     {running, Running}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
-            emqx_ctl:print("~ts~n", [ID]),
+            emqx_ctl:print("~ts~n", [Id]),
             lists:foreach(fun indent_print/1, Info)
         end,
         emqx_listeners:list()
@@ -938,10 +938,10 @@ collect_data_export_args(Args, _Acc) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
-ds(CMD) ->
+ds(Cmd) ->
     case emqx_mgmt_api_ds:is_enabled() of
         true ->
-            do_ds(CMD);
+            do_ds(Cmd);
         false ->
             emqx_ctl:usage([{"ds", "Durable storage is disabled"}])
     end.
@@ -1011,7 +1011,7 @@ do_ds(_) ->
 
 -else.
 
-ds(_CMD) ->
+ds(_Cmd) ->
     emqx_ctl:usage([{"ds", "DS CLI is not available in this edition of EMQX"}]).
 
 -endif.

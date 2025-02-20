@@ -52,28 +52,52 @@ jobs:
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
 
     steps:
+      - name: Install prerequisites
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: >
+          apt-get update -qy &&
+            apt-get install -qy gitlint shellcheck shelltestrunner
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
       - name: Work around https://github.com/actions/checkout/issues/766
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run gitlint
         env:
           BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           AFTER_REF: ${{ github.sha }}
+        run: gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
+      - name: Check changelog file path
+        env:
+          BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER_REF: ${{ github.sha }}
         run: |
-          pip install --require-hashes -r .ci/gitlint.requirements.txt
-          gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
+          added_files=$(git diff --name-only --diff-filter=A "$BEFORE_REF" "$AFTER_REF")
+          error=0
+          for file in $added_files; do
+            # Only process files in the changes/ directory.
+            if [[ "$file" == changes/* ]]; then
+              base=$(basename "$file")
+              # If the filename starts with fix-, feat-, or perf- then enforce the naming pattern.
+              if [[ "$base" =~ ^(fix|feat|perf)- ]]; then
+                # The valid pattern is:
+                # changes/{ce|ee}/{fix|feat|perf}-PRNUMBER.en.md
+                if [[ ! "$file" =~ ^changes/(ce|ee)/(fix|feat|perf)-[0-9]+\.en\.md$ ]]; then
+                  echo "Error: '$file' does not follow the required pattern 'changes/{ce|ee}/{fix|feat|perf}-PRNUMBER.en.md'" >&2
+                  error=1
+                fi
+              fi
+            fi
+          done
+          if [ $error -ne 0 ]; then
+            exit 1
+          fi
       - name: Run shellcheck
-        run: |
-          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
-          ./scripts/shellcheck.sh
+        run: ./scripts/shellcheck.sh
       - name: Run shell tests
-        run: |
-          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
-          scripts/shelltest/run_tests.sh
+        run: scripts/shelltest/run_tests.sh
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.6.25

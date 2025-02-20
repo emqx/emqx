@@ -229,6 +229,10 @@ t_switch_exporter(_Config) ->
     ok = emqx_ft_test_helpers:upload_file(gen_clientid(), <<"f1">>, "f1", <<?MODULE_STRING>>).
 
 t_persist_ssl_certfiles(Config) ->
+    #{
+        cert := Cert,
+        key := Key
+    } = emqx_ft_test_helpers:generate_pki_files(Config),
     ?assertMatch(
         {ok, _},
         emqx_ft_conf:update(mk_storage(true))
@@ -259,8 +263,8 @@ t_persist_ssl_certfiles(Config) ->
                 <<"s3">> => mk_s3_config(#{
                     <<"transport_options">> => #{
                         <<"ssl">> => #{
-                            <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
-                            <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+                            <<"certfile">> => Cert,
+                            <<"keyfile">> => Key
                         }
                     }
                 })
@@ -293,15 +297,19 @@ t_persist_ssl_certfiles(Config) ->
         emqx_ft_conf:update(mk_storage(true))
     ).
 
-t_import(_Config) ->
+t_import(Config) ->
+    #{
+        cert := Cert,
+        key := Key
+    } = emqx_ft_test_helpers:generate_pki_files(Config),
     {ok, _} =
         emqx_ft_conf:update(
             mk_storage(true, #{
                 <<"s3">> => mk_s3_config(#{
                     <<"transport_options">> => #{
                         <<"ssl">> => #{
-                            <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
-                            <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+                            <<"certfile">> => Cert,
+                            <<"keyfile">> => Key
                         }
                     }
                 })

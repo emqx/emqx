@@ -51,23 +51,18 @@ init_per_group(without_ds, Config) ->
     ),
     [{apps, Apps} | Config];
 init_per_group(with_ds, Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            emqx_durable_storage,
-            {emqx,
-                "durable_sessions {enable = true}"
-                "\ndurable_sessions {\n"
-                "  enable = true\n"
-                "  heartbeat_interval = 100ms\n"
-                "  session_gc_interval = 2s\n"
-                "}\n"},
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{apps, Apps} | Config].
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"heartbeat_interval">> => <<"100ms">>,
+        <<"session_gc_interval">> => <<"2s">>
+    },
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    ExtraApps = [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts).
 
+end_per_group(with_ds, Config) ->
+    ok = emqx_common_test_helpers:stop_apps_ds(Config),
+    ok;
 end_per_group(_, Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
@@ -407,6 +402,27 @@ t_publish_offline_api(_) ->
     ResponseMap = decode_json(Response),
     ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap))).
 
+%% Checks that we return HTTP response status code 200 for delayed messages, even if there
+%% are no subscribers at the time of publishing.
+t_delayed_message_always_200({init, Config}) ->
+    Config;
+t_delayed_message_always_200({'end', _Config}) ->
+    ok;
+t_delayed_message_always_200(Config) when is_list(Config) ->
+    Request = #{
+        <<"topic">> => <<"$delayed/1/t">>,
+        <<"payload">> => <<"delayed">>
+    },
+    ?assertMatch(
+        {200, #{<<"id">> := _}},
+        emqx_mgmt_api_test_util:simple_request(
+            post,
+            emqx_mgmt_api_test_util:api_path(["publish"]),
+            Request
+        )
+    ),
+    ok.
+
 receive_assert(Topic, Qos, Payload) ->
     receive
         {publish, Message} ->
@@ -422,4 +438,4 @@ receive_assert(Topic, Qos, Payload) ->
     end.
 
 decode_json(In) ->
-    emqx_utils_json:decode(In, [return_maps]).
+    emqx_utils_json:decode(In).

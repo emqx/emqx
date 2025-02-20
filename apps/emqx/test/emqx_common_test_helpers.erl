@@ -105,6 +105,19 @@
     gen_host_cert/4
 ]).
 
+-export([ensure_loaded/1]).
+
+%% DS test helpers
+-export([
+    start_apps_ds/3,
+    stop_apps_ds/1,
+    start_cluster_ds/3,
+    stop_cluster_ds/1,
+    restart_node_ds/2,
+    is_platform/0,
+    skip_if_platform/0
+]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
@@ -168,6 +181,8 @@
 ]).
 
 -define(DEFAULT_TCP_SERVER_CHECK_AVAIL_TIMEOUT, 1000).
+
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -1420,3 +1435,122 @@ ssl_verify_fun_allow_any_host() ->
         {verify, verify_peer},
         {verify_fun, {fun ?MODULE:ssl_verify_fun_allow_any_host_impl/3, _State = #{}}}
     ].
+
+ensure_loaded(Mod) ->
+    case code:ensure_loaded(Mod) of
+        {module, Mod} -> true;
+        _ -> false
+    end.
+
+%%------------------------------------------------------------------------------
+%% DS Test Helpers
+%%------------------------------------------------------------------------------
+
+-ifdef(BUILD_WITH_FDB).
+is_platform() -> true.
+
+skip_if_platform() ->
+    {skip, platform_not_supported}.
+
+start_apps_ds(Config, ExtraApps, Opts) ->
+    emqx_fdb_ds_test_helpers:start_apps_simple(Config, ExtraApps, Opts).
+
+stop_apps_ds(Config) ->
+    emqx_fdb_ds_test_helpers:stop_apps(Config).
+
+start_cluster_ds(Config, N, Opts) ->
+    emqx_fdb_ds_test_helpers:start_cluster_simple(Config, N, Opts).
+
+stop_cluster_ds(Config) ->
+    emqx_fdb_ds_test_helpers:stop_cluster(Config).
+
+restart_node_ds(Node, NodeSpec) ->
+    emqx_fdb_ds_test_helpers:restart_node_simple(Node, NodeSpec).
+-else.
+is_platform() -> false.
+
+skip_if_platform() ->
+    false.
+
+start_apps_ds(Config, ExtraApps, Opts) ->
+    DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
+    EMQXOpts = maps:get(emqx_opts, Opts, #{}),
+    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
+    StartEMQXConf = maps:get(start_emqx_conf, Opts, true),
+    Apps = emqx_cth_suite:start(
+        lists:flatten(
+            [
+                [emqx_conf || StartEMQXConf],
+                {emqx, #{
+                    config => emqx_utils_maps:deep_merge(EMQXOpts, #{
+                        <<"durable_sessions">> => durable_sessions_config(
+                            DurableSessionsOpts
+                        )
+                    })
+                }}
+                | ExtraApps
+            ]
+        ),
+        #{work_dir => WorkDir}
+    ),
+    [{apps, Apps} | Config].
+
+stop_apps_ds(Config) ->
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+
+durable_sessions_config(Opts) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"enable">> => true,
+            <<"renew_streams_interval">> => <<"100ms">>
+        },
+        Opts
+    ).
+
+start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
+    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
+    DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
+    EMQXOpts = maps:get(emqx_opts, Opts, #{}),
+    BaseApps = [
+        emqx_conf,
+        {emqx, #{
+            config => maps:merge(EMQXOpts, #{
+                <<"durable_sessions">> => durable_sessions_config(
+                    DurableSessionsOpts
+                )
+            })
+        }}
+    ],
+    ClusterSpec =
+        lists:map(
+            fun({NodeName, #{apps := ExtraApps} = NodeOpts}) ->
+                {NodeName, NodeOpts#{apps := BaseApps ++ ExtraApps}}
+            end,
+            ClusterSpec0
+        ),
+    ClusterOpts = #{work_dir => WorkDir},
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
+    Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
+    [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
+
+stop_cluster_ds(Config) ->
+    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)),
+    case proplists:get_value(work_dir, Config) of
+        undefined ->
+            ok;
+        WorkDir ->
+            emqx_cth_suite:clean_work_dir(WorkDir)
+    end.
+
+restart_node_ds(Node, NodeSpec) ->
+    emqx_cth_cluster:restart(NodeSpec),
+    wait_nodeup(Node),
+    ok.
+
+wait_nodeup(Node) ->
+    ?retry(
+        _Sleep0 = 500,
+        _Attempts0 = 50,
+        pong = net_adm:ping(Node)
+    ).
+-endif.

@@ -22,7 +22,7 @@
 -export([dispatch/2]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
 
 %%================================================================================
 %% API functions
@@ -38,3 +38,6 @@ dispatch(Node, Beam) ->
 
 introduced_in() ->
     "5.8.0".
+
+deprecated_since() ->
+    "5.9.0".

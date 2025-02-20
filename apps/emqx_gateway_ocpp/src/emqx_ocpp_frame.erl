@@ -55,7 +55,7 @@ initial_parse_state(_Opts) ->
 
 -spec parse(binary() | list(), parse_state()) -> parse_result().
 parse(Bin, Parser) when is_binary(Bin) ->
-    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
+    case emqx_utils_json:safe_decode(Bin) of
         {ok, Json} ->
             parse(Json, Parser);
         {error, {Position, Reason}} ->

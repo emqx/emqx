@@ -191,4 +191,5 @@ connack_error(server_unavailable) -> ?RC_SERVER_UNAVAILABLE;
 connack_error(server_busy) -> ?RC_SERVER_BUSY;
 connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
+connack_error(quota_exceeded) -> ?RC_QUOTA_EXCEEDED;
 connack_error(_) -> ?RC_UNSPECIFIED_ERROR.

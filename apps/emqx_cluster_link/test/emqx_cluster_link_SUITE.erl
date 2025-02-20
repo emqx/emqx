@@ -18,6 +18,8 @@
 
 %%
 
+suite() -> [{timetrap, {minutes, 1}}].
+
 all() ->
     [
         {group, shared_subs},
@@ -65,10 +67,13 @@ mk_source_cluster(BaseName, Config) ->
         "\n     topics = []"
         "\n   }"
         "\n ]}",
-    ExtraApps = proplists:get_value(extra_apps, Config, []),
-    SourceApps1 = [{emqx_conf, combine([conf_log(), SourceConf])}, emqx | ExtraApps],
+    ExtraApps0 = proplists:get_value(extra_apps, Config, []),
+    ExtraEmqxConf = proplists:get_value(emqx_conf, ExtraApps0, ""),
+    ExtraApps = proplists:delete(emqx_conf, ExtraApps0),
+    SourceEmqxConf = combine([conf_log(), SourceConf, ExtraEmqxConf]),
+    SourceApps1 = [{emqx_conf, SourceEmqxConf}, emqx | ExtraApps],
     SourceApps2 = [
-        {emqx_conf, combine([conf_log(), SourceConf])},
+        {emqx_conf, SourceEmqxConf},
         {emqx, conf_mqtt_listener(41883)}
         | ExtraApps
     ],
@@ -114,7 +119,7 @@ conf_mqtt_listener(_) ->
     "".
 
 conf_log() ->
-    "log.file { enable = true, level = debug, path = node.log, supervisor_reports = progress }".
+    "log.file { enable = true, level = info, path = node.log, supervisor_reports = progress }".
 
 combine([Entry | Rest]) ->
     lists:foldl(fun emqx_cth_suite:merge_config/2, Entry, Rest).
@@ -328,7 +333,7 @@ t_disconnect_on_errors(Config) ->
 %% Checks that if a timeout occurs during actor state initialization, we close the
 %% (potentially unhealthy) connection and start anew.
 t_restart_connection_on_actor_init_timeout('init', Config0) ->
-    ExtraApps = [{emqx_auth, "authorization.no_match = deny"}],
+    ExtraApps = [{emqx_conf, "authorization.no_match = deny"}, emqx_auth],
     SourceNodesSpec = mk_source_cluster(?FUNCTION_NAME, [{extra_apps, ExtraApps} | Config0]),
     TargetNodesSpec = mk_target_cluster(?FUNCTION_NAME, Config0),
     ok = snabbkaffe:start_trace(),

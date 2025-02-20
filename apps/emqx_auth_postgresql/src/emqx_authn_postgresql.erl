@@ -73,11 +73,17 @@ authenticate(
     #{
         placeholders := PlaceHolders,
         resource_id := ResourceId,
-        password_hash_algorithm := Algorithm
+        password_hash_algorithm := Algorithm,
+        cache_key_template := CacheKeyTemplate
     }
 ) ->
-    Params = emqx_auth_utils:render_sql_params(PlaceHolders, Credential),
-    case emqx_resource:simple_sync_query(ResourceId, {prepared_query, ResourceId, Params}) of
+    Params = emqx_auth_template:render_sql_params(PlaceHolders, Credential),
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    case
+        emqx_authn_utils:cached_simple_sync_query(
+            CacheKey, ResourceId, {prepared_query, ResourceId, Params}
+        )
+    of
         {ok, _Columns, []} ->
             ignore;
         {ok, Columns, [Row | _]} ->
@@ -110,9 +116,11 @@ parse_config(
     ResourceId
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
+    {Vars, Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = #{
         placeholders => PlaceHolders,
-        password_hash_algorithm => Algorithm
+        password_hash_algorithm => Algorithm,
+        cache_key_template => CacheKeyTemplate
     },
     {Config#{prepare_statement => #{ResourceId => Query}}, State}.

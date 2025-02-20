@@ -12,7 +12,7 @@
     close/1
 ]).
 
--export_type([container/0]).
+-export_type([container/0, options/0]).
 
 -record(csv, {
     columns :: [binary()] | undefined,
@@ -26,14 +26,13 @@
     quoting_mp :: _ReMP
 }).
 
--type container() :: #csv{}.
+-opaque container() :: #csv{}.
 
 -type options() :: #{
     %% Which columns have to be ordered first in the resulting CSV?
     column_order => [column()]
 }.
 
--type record() :: emqx_connector_aggregator:record().
 -type column() :: binary().
 
 %%
@@ -48,7 +47,7 @@ new(Opts) ->
         quoting_mp = MP
     }.
 
--spec fill([record()], container()) -> {iodata(), container()}.
+-spec fill([emqx_connector_aggregator:record()], container()) -> {iodata(), container()}.
 fill(Records = [Record | _], CSV0 = #csv{columns = undefined}) ->
     Columns = mk_columns(Record, CSV0),
     Header = emit_header(Columns, CSV0),
@@ -77,7 +76,7 @@ emit_header([C | Rest], CSV = #csv{field_separator = Sep}) ->
 emit_header([], #csv{record_delimiter = Delim}) ->
     [Delim].
 
--spec emit_row(record(), container()) -> iodata().
+-spec emit_row(emqx_connector_aggregator:record(), container()) -> iodata().
 emit_row(Record, CSV = #csv{columns = Columns}) ->
     emit_row(Record, Columns, CSV).
 

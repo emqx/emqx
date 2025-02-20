@@ -26,10 +26,14 @@
 
 -export_type([buffer_map/0]).
 
+-type container_and_mod() ::
+    {emqx_connector_aggreg_csv, emqx_connector_aggreg_csv:container()}
+    | {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:container()}.
+
 -record(delivery, {
     id :: id(),
     callback_module :: module(),
-    container :: emqx_connector_aggreg_csv:container(),
+    container :: container_and_mod(),
     reader :: emqx_connector_aggreg_buffer:reader(),
     transfer :: transfer_state(),
     empty :: boolean()
@@ -107,7 +111,10 @@ open_buffer(#buffer{filename = Filename}) ->
 mk_container(#{type := csv, column_order := OrderOpt}) ->
     %% TODO: Deduplicate?
     ColumnOrder = lists:map(fun emqx_utils_conv:bin/1, OrderOpt),
-    emqx_connector_aggreg_csv:new(#{column_order => ColumnOrder}).
+    {emqx_connector_aggreg_csv, emqx_connector_aggreg_csv:new(#{column_order => ColumnOrder})};
+mk_container(#{type := json_lines}) ->
+    Opts = #{},
+    {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)}.
 
 %%
 
@@ -140,14 +147,14 @@ process_append_records(
     Records,
     Delivery = #delivery{
         callback_module = Mod,
-        container = Container0,
+        container = {ContainerMod, Container0},
         transfer = Transfer0
     }
 ) ->
-    {Writes, Container} = emqx_connector_aggreg_csv:fill(Records, Container0),
+    {Writes, Container} = emqx_connector_aggreg_container:fill(ContainerMod, Records, Container0),
     Transfer = Mod:process_append(Writes, Transfer0),
     Delivery#delivery{
-        container = Container,
+        container = {ContainerMod, Container},
         transfer = Transfer,
         empty = false
     }.
@@ -165,9 +172,12 @@ process_complete(#delivery{id = Id, empty = true}) ->
     ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => empty}),
     exit({shutdown, {skipped, empty}});
 process_complete(#delivery{
-    id = Id, callback_module = Mod, container = Container, transfer = Transfer0
+    id = Id,
+    callback_module = Mod,
+    container = {ContainerMod, Container},
+    transfer = Transfer0
 }) ->
-    Trailer = emqx_connector_aggreg_csv:close(Container),
+    Trailer = emqx_connector_aggreg_container:close(ContainerMod, Container),
     Transfer = Mod:process_append(Trailer, Transfer0),
     case Mod:process_complete(Transfer) of
         {ok, Completed} ->

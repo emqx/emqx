@@ -72,7 +72,7 @@ init_per_testcase(TC, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
-    [{tc_apps, Apps} | Config].
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
 end_per_testcase(_, Config) ->
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)),
@@ -86,6 +86,12 @@ emqx_conf(_) ->
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+t_access_failed_if_no_server_running('init', Config) ->
+    ok = emqx_hooks:add('client.authorize', {emqx_authz, authorize, [[]]}, ?HP_AUTHZ),
+    Config;
+t_access_failed_if_no_server_running('end', _Config) ->
+    emqx_hooks:del('client.authorize', {emqx_authz, authorize}).
 
 t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
@@ -134,7 +140,6 @@ t_access_failed_if_no_server_running(Config) ->
         emqx_exhook_handler:on_message_publish(Message)
     ),
     emqx_exhook_mgr:enable(<<"default">>),
-    emqx_hooks:del('client.authorize', {emqx_authz, authorize}),
     assert_get_basic_usage_info(Config).
 
 t_lookup(_) ->
@@ -443,9 +448,17 @@ t_cluster_name(_) ->
     ),
     emqx_exhook_mgr:disable(<<"default">>).
 
+t_stop_timeout('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    ok = meck:new(emqx_exhook_demo_svr, [passthrough, no_history]),
+    Config;
+t_stop_timeout('end', _Config) ->
+    %% ensure started for other tests
+    {ok, _} = application:ensure_all_started(emqx_exhook),
+    ok = snabbkaffe:stop(),
+    ok = meck:unload(emqx_exhook_demo_svr).
+
 t_stop_timeout(_) ->
-    snabbkaffe:start_trace(),
-    meck:new(emqx_exhook_demo_svr, [passthrough, no_history]),
     meck:expect(
         emqx_exhook_demo_svr,
         on_provider_unloaded,
@@ -461,21 +474,14 @@ t_stop_timeout(_) ->
     ?block_until(#{?snk_kind := exhook_mgr_terminated}, 20000),
 
     %% all exhook hooked point should be unloaded
-    Mods = lists:flatten(
-        lists:map(
-            fun({hook, _, Cbs}) ->
-                lists:map(fun({callback, {M, _, _}, _, _}) -> M end, Cbs)
-            end,
-            ets:tab2list(emqx_hooks)
-        )
+    Hooks = lists:flatmap(
+        fun emqx_hooks:lookup/1,
+        maps:keys(emqx_hookpoints:registered_hookpoints())
     ),
-    ?assertEqual(false, lists:any(fun(M) -> M == emqx_exhook_handler end, Mods)),
-
-    %% ensure started for other tests
-    {ok, _} = application:ensure_all_started(emqx_exhook),
-
-    snabbkaffe:stop(),
-    meck:unload(emqx_exhook_demo_svr).
+    ?assertEqual(
+        [],
+        [H || H = {callback, {emqx_exhook_handler, _, _}, _, _} <- Hooks]
+    ).
 
 t_ssl_clear(_) ->
     SvrName = <<"ssl_test">>,
@@ -524,6 +530,106 @@ t_ssl_clear(_) ->
     ?assertMatch({error, enoent}, list_pem_dir(SvrName)),
     ok.
 
+t_format_props(_) ->
+    ?assertMatch(
+        [{on_provider_loaded, #{broker := _Broker}}],
+        emqx_exhook_demo_svr:flush()
+    ),
+
+    %% connect
+    ClientId = <<"exhook_format_props">>,
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {port, 1883},
+        {username, <<"gooduser">>},
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{
+            'User-Property' => [{<<"k1">>, <<"v1">>}],
+            'Session-Expiry-Interval' => 100
+        }}
+    ]),
+    %% assert the connect/connack props
+    {ok, _} = emqtt:connect(C),
+    Events1 = get_props_from_events(
+        [on_client_connect, on_client_connack],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            %% assert the requested props
+            {on_client_connect, #{
+                props := [#{name := <<"Session-Expiry-Interval">>, value := <<"100">>}],
+                user_props := [#{name := <<"k1">>, value := <<"v1">>}]
+            }},
+            %% broker will modify/add some props
+            {on_client_connack, #{props := _, user_props := []}}
+        ],
+        Events1
+    ),
+    %% assert the subscribe props
+    SubReqProps = #{
+        'Subscription-Identifier' => 1,
+        'User-Property' => [{<<"k2">>, <<"v2">>}]
+    },
+    {ok, _, _} = emqtt:subscribe(C, SubReqProps, <<"t/a">>, qos0),
+    Events2 = get_props_from_events(
+        [on_client_subscribe],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            {on_client_subscribe, #{
+                props := [#{name := <<"Subscription-Identifier">>, value := <<"1">>}],
+                user_props := [#{name := <<"k2">>, value := <<"v2">>}]
+            }}
+        ],
+        Events2
+    ),
+    %% assert the unsubscribe props
+    UnsubReqProps = #{
+        'Subscription-Identifier' => 1,
+        'User-Property' => [{<<"k3">>, <<"v3">>}]
+    },
+    {ok, _, _} = emqtt:unsubscribe(C, UnsubReqProps, <<"t/a">>),
+    Events3 = get_props_from_events(
+        [on_client_unsubscribe],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            {on_client_unsubscribe, #{
+                props := [#{name := <<"Subscription-Identifier">>, value := <<"1">>}],
+                user_props := [#{name := <<"k3">>, value := <<"v3">>}]
+            }}
+        ],
+        Events3
+    ),
+    %% assert the publish props
+    PubReqProps = #{
+        'Message-Expiry-Interval' => 300,
+        'User-Property' => [{<<"k4">>, <<"v4">>}]
+    },
+    ok = emqtt:publish(C, <<"t/a">>, PubReqProps, <<"payload">>, []),
+    timer:sleep(500),
+    Events4 = get_props_from_events(
+        [on_message_publish],
+        emqx_exhook_demo_svr:flush()
+    ),
+    ?assertMatch(
+        [
+            {on_message_publish, #{
+                props := [#{name := <<"Message-Expiry-Interval">>, value := <<"300">>}],
+                user_props := [#{name := <<"k4">>, value := <<"v4">>}]
+            }}
+        ],
+        Events4
+    ),
+    timer:sleep(100),
+    emqtt:stop(C),
+    timer:sleep(100),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Cases Helpers
 %%--------------------------------------------------------------------
@@ -566,38 +672,13 @@ assert_get_basic_usage_info(_Config) ->
 %% Utils
 %%--------------------------------------------------------------------
 
-meck_print() ->
-    meck:new(emqx_ctl, [passthrough, no_history, no_link]),
-    meck:expect(emqx_ctl, print, fun(_) -> ok end),
-    meck:expect(emqx_ctl, print, fun(_, Args) -> Args end).
-
-unmeck_print() ->
-    meck:unload(emqx_ctl).
-
-loaded_exhook_hookpoints() ->
-    lists:filtermap(
-        fun(E) ->
-            Name = element(2, E),
-            Callbacks = element(3, E),
-            case lists:any(fun is_exhook_callback/1, Callbacks) of
-                true -> {true, Name};
-                _ -> false
-            end
-        end,
-        ets:tab2list(emqx_hooks)
-    ).
-
-is_exhook_callback(Cb) ->
-    Action = element(2, Cb),
-    emqx_exhook_handler == element(1, Action).
-
 list_pem_dir(Name) ->
     Dir = filename:join([emqx:mutable_certs_dir(), "exhook", Name]),
     file:list_dir(Dir).
 
 data_file(Name) ->
-    Dir = code:lib_dir(emqx_exhook, test),
-    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Dir = code:lib_dir(emqx_exhook),
+    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
     Bin.
 
 cert_file(Name) ->
@@ -606,3 +687,16 @@ cert_file(Name) ->
 shuffle(List) ->
     Sorted = lists:sort(lists:map(fun(L) -> {rand:uniform(), L} end, List)),
     lists:map(fun({_, L}) -> L end, Sorted).
+
+get_props_from_events(Names, Events) ->
+    lists:filtermap(
+        fun({Name, Req}) ->
+            case lists:member(Name, Names) of
+                true ->
+                    {true, {Name, maps:with([props, user_props], Req)}};
+                false ->
+                    false
+            end
+        end,
+        Events
+    ).

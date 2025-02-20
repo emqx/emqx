@@ -278,9 +278,8 @@ t_stream_revoke(_Config) ->
     ?assertWaitEvent(
         {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr6/topic6/#">>, 1),
         #{
-            ?snk_kind := shared_sub_group_sm_leader_update_streams,
-            stream_progresses := [_ | _],
-            id := <<"client_shared2">>
+            ?snk_kind := ds_shared_sub_borrower_leader_grant,
+            session_id := <<"client_shared2">>
         },
         5_000
     ),
@@ -317,7 +316,7 @@ t_graceful_disconnect(_Config) ->
 
     ?assertWaitEvent(
         ok = emqtt:disconnect(ConnShared1),
-        #{?snk_kind := shared_sub_leader_disconnect_agent},
+        #{?snk_kind := ds_shared_sub_leader_disconnect_borrower},
         1_000
     ),
 
@@ -721,14 +720,14 @@ t_lease_reconnect(_Config) ->
 
     ?assertWaitEvent(
         {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr2/topic2/#">>, 1),
-        #{?snk_kind := group_sm_find_leader_timeout},
+        #{?snk_kind := ds_shared_sub_borrower_find_leader_timeout},
         5_000
     ),
 
     %% Agent should retry after some time and find the leader.
     ?assertWaitEvent(
         ok = meck:unload(emqx_ds_shared_sub_store),
-        #{?snk_kind := leader_lease_streams},
+        #{?snk_kind := ds_shared_sub_leader_borrower_connect},
         5_000
     ),
 
@@ -749,20 +748,20 @@ t_renew_lease_timeout(_Config) ->
 
     ?assertWaitEvent(
         {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr3/topic3/#">>, 1),
-        #{?snk_kind := leader_lease_streams},
+        #{?snk_kind := ds_shared_sub_leader_borrower_connect},
         5_000
     ),
 
     ?check_trace(
         ?wait_async_action(
             ok = emqx_ds_shared_sub_registry:purge(),
-            #{?snk_kind := leader_lease_streams},
+            #{?snk_kind := ds_shared_sub_leader_borrower_connect},
             10_000
         ),
         fun(Trace) ->
             ?strict_causality(
-                #{?snk_kind := renew_lease_timeout},
-                #{?snk_kind := leader_lease_streams},
+                #{?snk_kind := ds_shared_sub_borrower_ping_leader_timeout},
+                #{?snk_kind := ds_shared_sub_leader_borrower_connect},
                 Trace
             )
         end
@@ -830,21 +829,21 @@ verify_received_pubs(Pubs, NPubs, ClientByBid) ->
         #{},
         Pubs
     ),
+    Expected = [integer_to_binary(N) || N <- lists:seq(1, NPubs)],
 
     Missing = lists:filter(
-        fun(N) -> not maps:is_key(integer_to_binary(N), Messages) end,
-        lists:seq(1, NPubs)
+        fun(NBin) -> not maps:is_key(NBin, Messages) end,
+        Expected
     ),
     Duplicate = lists:filtermap(
-        fun(N) ->
-            NBin = integer_to_binary(N),
+        fun(NBin) ->
             case Messages of
                 #{NBin := [_]} -> false;
-                #{NBin := [_ | _] = Clients} -> {true, {N, Clients}};
+                #{NBin := [_ | _] = Clients} -> {true, {NBin, Clients}};
                 _ -> false
             end
         end,
-        lists:seq(1, NPubs)
+        Expected
     ),
 
     {Missing, Duplicate}.

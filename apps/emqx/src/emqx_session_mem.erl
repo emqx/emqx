@@ -405,11 +405,13 @@ is_awaiting_full(#session{
     | {error, emqx_types:reason_code()}.
 puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, #inflight_data{phase = wait_ack, message = Msg}} ->
+        {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_1} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
             {ok, Replies, Session2} = dequeue(ClientInfo, Session1),
             {ok, without_inflight_insert_ts(Msg), Replies, Session2};
+        {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
+            {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -425,10 +427,12 @@ puback(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     | {error, emqx_types:reason_code()}.
 pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, #inflight_data{phase = wait_ack, message = Msg} = Data} ->
+        {value, #inflight_data{phase = wait_ack, message = #message{qos = ?QOS_2} = Msg} = Data} ->
             Update = Data#inflight_data{phase = wait_comp},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
             {ok, without_inflight_insert_ts(Msg), Session#session{inflight = Inflight1}};
+        {value, #inflight_data{phase = wait_ack, message = _DifferentQoSMsg}} ->
+            {error, ?RC_PROTOCOL_ERROR};
         {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -460,11 +464,13 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
     | {error, emqx_types:reason_code()}.
 pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, #inflight_data{phase = wait_comp, message = Msg}} ->
+        {value, #inflight_data{phase = wait_comp, message = #message{qos = ?QOS_2} = Msg}} ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             Session1 = Session#session{inflight = Inflight1},
             {ok, Replies, Session2} = dequeue(ClientInfo, Session1),
             {ok, without_inflight_insert_ts(Msg), Replies, Session2};
+        {value, #inflight_data{message = #message{qos = QoS}}} when QoS =/= ?QOS_2 ->
+            {error, ?RC_PROTOCOL_ERROR};
         {value, _Other} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -558,7 +564,7 @@ enqueue(ClientInfo, Msgs, Session) when is_list(Msgs) ->
         Msgs
     ).
 
-enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q}) ->
+enqueue_msg(ClientInfo, #message{qos = QoS} = Msg, Session = #session{mqueue = Q}) ->
     {Dropped, NQ} = emqx_mqueue:in(Msg, Q),
     NewSession = Session#session{mqueue = NQ},
     case Dropped of
@@ -568,7 +574,7 @@ enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q
             NQInfo = emqx_mqueue:info(NQ),
             Reason =
                 case NQInfo of
-                    #{store_qos0 := false} when QOS =:= ?QOS_0 -> qos0_msg;
+                    #{store_qos0 := false} when QoS =:= ?QOS_0 -> qos0_msg;
                     _ -> queue_full
                 end,
             _ = emqx_session_events:handle_event(
@@ -604,6 +610,8 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 %%--------------------------------------------------------------------
 
 -spec handle_info(term(), session(), clientinfo()) -> session().
+handle_info({'DOWN', _Ref, _Kind, _Pid, _Reason}, Session, _ClientInfo) ->
+    Session;
 handle_info(Msg, Session, _ClientInfo) ->
     ?SLOG(warning, #{msg => emqx_session_mem_unknown_message, message => Msg}),
     Session.
@@ -638,7 +646,8 @@ retry_delivery(
     Now,
     Session = #session{retry_interval = Interval, inflight = Inflight}
 ) ->
-    case (Age = age(Now, Ts)) >= Interval of
+    Age = age(Now, Ts),
+    case Age >= Interval of
         true ->
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
             retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});

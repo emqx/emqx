@@ -50,7 +50,8 @@
 %% export this
 -export([
     registered_actions_api_schemas/1,
-    registered_sources_api_schemas/1
+    registered_sources_api_schemas/1,
+    registered_action_types/0
 ]).
 
 -export([action_types/0, action_types_sc/0]).
@@ -67,6 +68,7 @@
     make_producer_action_schema/1, make_producer_action_schema/2,
     make_consumer_action_schema/1, make_consumer_action_schema/2,
     common_fields/0,
+    common_action_fields/0,
     top_level_common_action_keys/0,
     top_level_common_source_keys/0,
     project_to_actions_resource_opts/1,
@@ -374,7 +376,39 @@ fields(sources) ->
 fields(action_resource_opts) ->
     action_resource_opts_fields(_Overrides = []);
 fields(source_resource_opts) ->
-    source_resource_opts_fields(_Overrides = []).
+    source_resource_opts_fields(_Overrides = []);
+fields(fallback_action_reference) ->
+    [
+        {kind, mk(reference, #{required => true, desc => ?DESC("fallback_action_kind")})},
+        {type,
+            mk(
+                hoconsc:union(?MODULE:registered_action_types()),
+                #{required => true, desc => ?DESC("fallback_action_reference_type")}
+            )},
+        {name,
+            mk(
+                binary(),
+                #{required => true, desc => ?DESC("fallback_action_reference_name")}
+            )}
+    ];
+fields(fallback_action_republish) ->
+    [
+        {kind, mk(republish, #{required => true, desc => ?DESC("fallback_action_kind")})},
+        {args,
+            mk(
+                ref(emqx_rule_engine_schema, "republish_args"),
+                #{
+                    default => #{},
+                    computed => fun fallback_actions_republish_compute/2
+                }
+            )}
+    ].
+
+registered_action_types() ->
+    lists:map(
+        fun({Type, _Module}) -> Type end,
+        emqx_action_info:registered_schema_modules_actions()
+    ).
 
 registered_schema_fields_actions() ->
     [
@@ -396,6 +430,10 @@ desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(source_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
+desc(fallback_action_reference) ->
+    ?DESC("fallback_action_reference");
+desc(fallback_action_republish) ->
+    ?DESC("fallback_action_republish");
 desc(_) ->
     undefined.
 
@@ -499,7 +537,7 @@ make_producer_action_schema(ActionParametersRef, Opts) ->
     ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, action_resource_opts)),
     [
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
-        | common_schema(ActionParametersRef, Opts)
+        | common_action_schema(ActionParametersRef, Opts)
     ] ++
         [
             {resource_opts,
@@ -514,7 +552,7 @@ make_consumer_action_schema(ParametersRef) ->
 
 make_consumer_action_schema(ParametersRef, Opts) ->
     ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, source_resource_opts)),
-    common_schema(ParametersRef, Opts) ++
+    common_consumer_schema(ParametersRef, Opts) ++
         [
             {resource_opts,
                 mk(ResourceOptsRef, #{
@@ -522,6 +560,27 @@ make_consumer_action_schema(ParametersRef, Opts) ->
                     desc => ?DESC(emqx_resource_schema, "resource_opts")
                 })}
         ].
+
+common_action_fields() ->
+    [
+        {fallback_actions,
+            mk(
+                hoconsc:array(
+                    emqx_schema:mkunion(
+                        kind,
+                        #{
+                            <<"reference">> => ref(?MODULE, fallback_action_reference),
+                            <<"republish">> => ref(?MODULE, fallback_action_republish)
+                        }
+                    )
+                ),
+                #{
+                    default => [],
+                    desc => ?DESC("fallback_actions")
+                }
+            )}
+        | common_fields()
+    ].
 
 common_fields() ->
     [
@@ -541,7 +600,13 @@ common_fields() ->
         {last_modified_at, mk(integer(), #{required => false, importance => ?IMPORTANCE_HIDDEN})}
     ].
 
-common_schema(ParametersRef, _Opts) ->
+common_action_schema(ParametersRef, _Opts) ->
+    [
+        {parameters, ParametersRef}
+        | common_action_fields()
+    ].
+
+common_consumer_schema(ParametersRef, _Opts) ->
     [
         {parameters, ParametersRef}
         | common_fields()
@@ -583,6 +648,10 @@ actions_convert_from_connectors(RawConf = #{<<"actions">> := Actions}) ->
     maps:put(<<"actions">>, Actions1, RawConf);
 actions_convert_from_connectors(RawConf) ->
     RawConf.
+
+fallback_actions_republish_compute(Args0, _HoconOpts) ->
+    Args = emqx_utils_maps:unsafe_atom_key_map(Args0),
+    emqx_rule_actions:pre_process_args(emqx_rule_actions, republish, Args).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").

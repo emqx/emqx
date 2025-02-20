@@ -25,11 +25,16 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     generate_tls_certs(Config),
-    application:ensure_all_started(esockd),
-    [{ssl_config, ssl_config_verify_peer()} | Config].
+    %% injection happens when module is loaded.
+    code:load_file(emqx_auth_ext),
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{ssl_config, ssl_config_verify_peer()}, {suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    application:stop(esockd).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_conn_fail_with_intermediate_ca_cert(Config) ->
     Port = select_free_port(ssl),

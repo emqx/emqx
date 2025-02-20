@@ -242,6 +242,17 @@ t_max_connections(_Config) ->
 
     ?assertEqual(10, emqx_license_parser:max_connections(License)).
 
+t_max_uptime_seconds(_Config) ->
+    {ok, LicenseEvaluation} = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(#{customer_type => "10"}), public_key_pem()
+    ),
+    {ok, LicenseMedium} = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(#{customer_type => "1"}), public_key_pem()
+    ),
+
+    ?assert(is_integer(emqx_license_parser:max_uptime_seconds(LicenseEvaluation))),
+    ?assertEqual(infinity, emqx_license_parser:max_uptime_seconds(LicenseMedium)).
+
 t_expiry_date(_Config) ->
     {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 

@@ -195,9 +195,9 @@ t_convert_certs(Config) ->
         <<"redis_type">> => <<"single">>,
         <<"ssl">> => #{
             <<"enable">> => true,
-            <<"cacertfile">> => some_pem(),
-            <<"certfile">> => some_pem(),
-            <<"keyfile">> => some_pem()
+            <<"cacertfile">> => cacert_pem(),
+            <<"certfile">> => cert_pem(),
+            <<"keyfile">> => private_key_pem()
         }
     },
     {ok, _} = emqx_conf:update(
@@ -239,8 +239,16 @@ listener_mqtt_tcp_conf(Config) ->
         <<"enable_authn">> => true
     }.
 
-some_pem() ->
-    Dir = code:lib_dir(emqx_auth, test),
-    Path = filename:join([Dir, "data", "private_key.pem"]),
+private_key_pem() ->
+    pem("client-key.pem").
+
+cert_pem() ->
+    pem("client-cert.pem").
+
+cacert_pem() ->
+    pem("cacert.pem").
+
+pem(Name) ->
+    Path = filename:join([code:lib_dir(emqx), etc, certs, Name]),
     {ok, Pem} = file:read_file(Path),
     Pem.

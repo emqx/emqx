@@ -356,13 +356,13 @@ deactivate_alarm(
     mria:dirty_delete(?ACTIVATED_ALARM, Name),
     do_actions(deactivate, DeActAlarm, emqx:get_config([alarm, actions]), State).
 
-make_deactivated_alarm(ActivateAt, Name, Details, Message, DeActivateAt) ->
+make_deactivated_alarm(ActivateAt, Name, Details, Message, DeactivateAt) ->
     #deactivated_alarm{
         activate_at = ActivateAt,
         name = Name,
         details = Details,
         message = Message,
-        deactivate_at = DeActivateAt
+        deactivate_at = DeactivateAt
     }.
 
 deactivate_all_alarms() ->

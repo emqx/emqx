@@ -23,8 +23,6 @@
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--import(proplists, [get_value/2, get_value/3]).
-
 %% API
 -export([
     info/1,
@@ -56,6 +54,8 @@
     handle_recv_nack_frame/2
 ]).
 
+-export_type([channel/0, replies/0, stomp_frame/0]).
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -79,7 +79,7 @@
     transaction :: #{binary() => list()}
 }).
 
--type channel() :: #channel{}.
+-opaque channel() :: #channel{}.
 
 -type conn_state() :: idle | connecting | connected | disconnected.
 
@@ -1208,9 +1208,9 @@ do_negotiate_version(Ver, _) ->
     {error, <<"Supported protocol versions < ", Ver/binary>>}.
 
 header(Name, Headers) ->
-    get_value(Name, Headers).
+    proplists:get_value(Name, Headers).
 header(Name, Headers, Val) ->
-    get_value(Name, Headers, Val).
+    proplists:get_value(Name, Headers, Val).
 
 connected_frame(Headers) ->
     emqx_stomp_frame:make(<<"CONNECTED">>, Headers).

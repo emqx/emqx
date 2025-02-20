@@ -226,6 +226,49 @@ t_update_tcp_keepalive_conf(_Conf) ->
     ),
     ok.
 
+t_tcp_change_parse_unit(_Conf) ->
+    test_change_parse_unit(?LISTENERS ++ [tcp, default], #{
+        hosts => [{{127, 0, 0, 1}, 1883}]
+    }).
+
+t_ssl_change_parse_unit(_Conf) ->
+    test_change_parse_unit(?LISTENERS ++ [ssl, default], #{
+        hosts => [{{127, 0, 0, 1}, 8883}],
+        ssl => true,
+        ssl_opts => [{verify, verify_none}]
+    }).
+
+test_change_parse_unit(ConfPath, ClientOpts) ->
+    ListenerRawConf0 = #{<<"parse_unit">> := <<"chunk">>} = emqx:get_raw_config(ConfPath),
+    ListenerRawConf1 = ListenerRawConf0#{
+        <<"parse_unit">> := <<"frame">>
+    },
+    %% Update listener and verify `parse_unit` came into effect:
+    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf1})),
+    Client1 = emqtt_connect(ClientOpts),
+    pong = emqtt:ping(Client1),
+    CState1 = get_conn_state(Client1),
+    emqx_listeners:is_packet_parser_available(mqtt) andalso
+        ?assertMatch(
+            #{parser := {frame, _Options}},
+            CState1
+        ),
+    %% Restore original config and verify original `parse_unit` came into effect as well:
+    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf0})),
+    Client2 = emqtt_connect(ClientOpts),
+    pong = emqtt:ping(Client2),
+    CState2 = get_conn_state(Client2),
+    emqx_listeners:is_packet_parser_available(mqtt) andalso
+        ?assertMatch(
+            #{parser := Parser} when Parser =/= map_get(parser, CState1),
+            CState2
+        ),
+    %% Existing connections should be preserved:
+    pong = emqtt:ping(Client1),
+    ok = emqtt:disconnect(Client1),
+    pong = emqtt:ping(Client2),
+    ok = emqtt:disconnect(Client2).
+
 t_update_empty_ssl_options_conf(_Conf) ->
     Raw = emqx:get_raw_config(?LISTENERS),
     Raw1 = emqx_utils_maps:deep_put(
@@ -379,3 +422,22 @@ t_delete_default_conf(_Conf) ->
     ?assert(is_running('ws:default')),
     ?assert(is_running('wss:default')),
     ok.
+
+%%
+
+emqtt_connect(Opts) ->
+    case emqtt:start_link(Opts) of
+        {ok, Client} ->
+            true = erlang:unlink(Client),
+            case emqtt:connect(Client) of
+                {ok, _} -> Client;
+                {error, Reason} -> error(Reason, [Opts])
+            end;
+        {error, Reason} ->
+            error(Reason, [Opts])
+    end.
+
+get_conn_state(Client) ->
+    ClientId = proplists:get_value(clientid, emqtt:info(Client)),
+    [CPid | _] = emqx_cm:lookup_channels(ClientId),
+    emqx_connection:get_state(CPid).

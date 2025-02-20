@@ -930,7 +930,7 @@ t_event_client_disconnected_normal(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"normal">>}, emqx_utils_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"normal">>}, emqx_utils_json:decode(Payload)
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_normal)
@@ -969,7 +969,7 @@ t_event_client_disconnected_kicked(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"kicked">>}, emqx_utils_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"kicked">>}, emqx_utils_json:decode(Payload)
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_kicked)
@@ -1011,7 +1011,7 @@ t_event_client_disconnected_discarded(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"discarded">>}, emqx_utils_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"discarded">>}, emqx_utils_json:decode(Payload)
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_discarded)
@@ -1056,7 +1056,7 @@ t_event_client_disconnected_takenover(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"takenover">>}, emqx_utils_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"takenover">>}, emqx_utils_json:decode(Payload)
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_discarded)
@@ -1099,7 +1099,7 @@ t_event_client_disconnected_takenover_2(_Config) ->
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(RepubT, T),
             ?assertMatch(
-                #{<<"reason">> := <<"normal">>}, emqx_utils_json:decode(Payload, [return_maps])
+                #{<<"reason">> := <<"normal">>}, emqx_utils_json:decode(Payload)
             )
     after 1000 ->
         ct:fail(wait_for_repub_disconnected_discarded)
@@ -1115,7 +1115,7 @@ t_event_client_disconnected_takenover_2(_Config) ->
         {publish, #{topic := T1, payload := Payload1}} ->
             ?assertEqual(RepubT, T1),
             ?assertMatch(
-                #{<<"reason">> := <<"takenover">>}, emqx_utils_json:decode(Payload1, [return_maps])
+                #{<<"reason">> := <<"takenover">>}, emqx_utils_json:decode(Payload1)
             ),
             ct:fail(wait_for_repub_disconnected_discarded)
     after 1000 ->
@@ -1197,7 +1197,6 @@ delivery_dropped(Client) ->
     {ok, _, _} = emqtt:subscribe(Client, #{}, <<"t1">>, [{nl, true}, {qos, 1}]),
     ct:sleep(50),
     message_publish(Client),
-    ct:pal("--- current emqx hooks: ~p", [ets:tab2list(emqx_hooks)]),
     verify_event('delivery.dropped'),
     ok.
 message_dropped(Client) ->
