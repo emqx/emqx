@@ -25,10 +25,10 @@
 
 start(_Type, _Args) ->
     ok = emqx_retainer_cli:load(),
-    emqx_retainer_limiter:create(),
+    ok = emqx_retainer_limiter:create(),
     emqx_retainer_sup:start_link().
 
 stop(_State) ->
     ok = emqx_retainer_cli:unload(),
-    emqx_retainer_limiter:delete(),
+    ok = emqx_retainer_limiter:delete(),
     ok.

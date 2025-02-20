@@ -25,7 +25,7 @@
     try_consume/2
 ]).
 
--type t() :: #{emqx_limiter:limiter_name() => emqx_limiter_client:t()}.
+-type t() :: #{emqx_limiter:name() => emqx_limiter_client:t()}.
 
 -export_type([t/0]).
 
@@ -33,11 +33,11 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec new(list({emqx_limiter:limiter_name(), emqx_limiter_client:t()})) -> t().
+-spec new(list({emqx_limiter:name(), emqx_limiter_client:t()})) -> t().
 new(Clients) ->
     maps:from_list(Clients).
 
--spec try_consume(t(), [{emqx_limiter:limiter_name(), non_neg_integer()}]) -> {boolean(), t()}.
+-spec try_consume(t(), [{emqx_limiter:name(), non_neg_integer()}]) -> {boolean(), t()}.
 try_consume(Container, Needs) ->
     try_consume_from_clients(Container, Needs, []).
 

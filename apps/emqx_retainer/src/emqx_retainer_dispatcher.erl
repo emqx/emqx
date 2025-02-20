@@ -39,7 +39,7 @@
     terminate/2
 ]).
 
--type limiter() :: emqx_limiter:limiter().
+-type limiter() :: emqx_limiter_client:t().
 -type topic() :: emqx_types:topic().
 
 -define(POOL, ?DISPATCHER_POOL).
@@ -195,7 +195,7 @@ deliver_in_batches([], _BatchSize, _Pid, _Topic, Limiter) ->
     {true, Limiter};
 deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
     {BatchActualSize, Batch, RestMsgs} = take(BatchSize, Msgs),
-    case emqx_limiter_client:try_consume(BatchActualSize, Limiter0) of
+    case emqx_limiter_client:try_consume(Limiter0, BatchActualSize) of
         {true, Limiter1} ->
             ok = deliver_to_client(Batch, Pid, Topic),
             deliver_in_batches(RestMsgs, BatchSize, Pid, Topic, Limiter1);

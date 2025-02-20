@@ -38,7 +38,7 @@
 
 -type group() :: emqx_limiter:group().
 -type name() :: emqx_limiter:name().
--type limiter_id() :: emqx_limiter:limiter_id().
+-type limiter_id() :: emqx_limiter:id().
 
 -define(PT_KEY(GROUP), {?MODULE, GROUP}).
 

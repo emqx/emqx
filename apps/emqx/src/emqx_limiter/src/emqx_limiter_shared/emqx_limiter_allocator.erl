@@ -49,7 +49,7 @@
     group := emqx_limiter:group(),
     buckets := #{emqx_limiter:name() => bucket()},
     counter := counters:counters_ref(),
-    free_indices := [index()]
+    timers := #{pos_integer() => [emqx_limiter:name()]}
 }.
 
 -type millisecond() :: non_neg_integer().
@@ -226,12 +226,7 @@ add_tokens(#{counter := Counter, index := Index}, Val, Capacity, Tokens) ->
     end.
 
 get_limiter_options(LimiterId) ->
-    case emqx_limiter_registry:get_limiter_options(LimiterId) of
-        undefined ->
-            error({limiter_not_found, LimiterId});
-        Options ->
-            Options
-    end.
+    emqx_limiter_registry:get_limiter_options(LimiterId).
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).

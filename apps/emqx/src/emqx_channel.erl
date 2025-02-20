@@ -101,7 +101,7 @@
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
-    quota :: emqx_limiter_client_container:container(),
+    quota :: emqx_limiter_client_container:t(),
     %% Timers
     timers :: #{atom() => disabled | option(reference())},
     %% Conn State
