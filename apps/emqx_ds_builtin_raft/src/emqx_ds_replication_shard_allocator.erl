@@ -40,6 +40,8 @@
 -define(TRIGGER_PENDING_TIMEOUT, 5_000).
 -endif.
 
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 %%
 
 -record(trigger_transitions, {}).
