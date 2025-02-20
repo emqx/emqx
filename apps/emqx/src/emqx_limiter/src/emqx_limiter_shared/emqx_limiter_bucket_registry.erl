@@ -27,7 +27,7 @@
 ]).
 
 -type bucket_ref() :: emqx_limiter_shared:bucket_ref().
--type limiter_id() :: emqx_limiter:limiter_id().
+-type limiter_id() :: emqx_limiter:id().
 
 %%--------------------------------------------------------------------
 %%  API

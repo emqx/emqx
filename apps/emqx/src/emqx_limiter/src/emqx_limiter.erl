@@ -62,8 +62,8 @@
 
 -type zone() :: group().
 
--type group() :: atom().
--type name() :: max_conn | messages | bytes.
+-type group() :: term().
+-type name() :: atom().
 
 -type id() :: {group(), name()}.
 

@@ -94,7 +94,7 @@ update_group_configs(Group, LimiterConfigs) ->
     end.
 
 -spec child_spec(emqx_limiter:group(), [emqx_limiter:name()]) ->
-    emqx_child_spec:child_spec().
+    supervisor:child_spec().
 child_spec(Group, Names) ->
     #{
         id => Group,

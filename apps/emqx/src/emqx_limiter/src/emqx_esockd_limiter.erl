@@ -55,8 +55,6 @@ create(#{limiter_client := LimiterClient}) ->
     #{
         module => ?MODULE,
         name => ?MODULE,
-        ref => make_ref(),
-        self => self(),
         limiter_client => LimiterClient
     }.
 
@@ -67,13 +65,10 @@ delete(_State) ->
 -spec consume(non_neg_integer(), state()) ->
     {ok, state()} | {pause, non_neg_integer(), state()}.
 consume(Amount, #{limiter_client := LimiterClient0} = State) ->
-    % ct:print("esockd_limiter: consume: Amount~p~nState~p~n", [Amount, State]),
     case emqx_limiter_client:try_consume(LimiterClient0, Amount) of
         {true, LimiterClient} ->
-            % ct:print("esockd_limiter: consume ok: ~p~n", [LimiterClient]),
             {ok, State#{limiter_client := LimiterClient}};
         {false, LimiterClient} ->
             ?tp(esockd_limiter_consume_pause, #{amount => Amount}),
-            % ct:print("esockd_limiter: consume pause: ~p~n", [LimiterClient]),
             {pause, ?PAUSE_INTERVAL, State#{limiter_client := LimiterClient}}
     end.
