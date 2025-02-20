@@ -642,8 +642,13 @@ force_kill(ResId, MRef0) ->
 try_clean_allocated_resources(ResId) ->
     case emqx_resource_cache:read_mod(ResId) of
         {ok, Mod} ->
-            catch emqx_resource:clean_allocated_resources(ResId, Mod),
-            ok;
+            try emqx_resource:clean_allocated_resources(ResId, Mod) of
+                _ ->
+                    ok
+            catch
+                _:_ ->
+                    ok
+            end;
         not_found ->
             ok
     end.
@@ -1002,17 +1007,17 @@ add_channels(Data) ->
     %% Add channels to the Channels map but not to the resource state
     %% Channels will be added to the resource state after the initial health_check
     %% if that succeeds.
-    ChannelIDConfigTuples = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
+    ChannelIdConfigTuples = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
     Channels = Data#data.added_channels,
     NewChannels = lists:foldl(
         fun
-            ({ChannelID, #{enable := true} = Config}, Acc) ->
-                maps:put(ChannelID, channel_status_not_added(Config), Acc);
+            ({ChannelId, #{enable := true} = Config}, Acc) ->
+                maps:put(ChannelId, channel_status_not_added(Config), Acc);
             ({_, #{enable := false}}, Acc) ->
                 Acc
         end,
         Channels,
-        ChannelIDConfigTuples
+        ChannelIdConfigTuples
     ),
     Data#data{added_channels = NewChannels}.
 
@@ -1029,7 +1034,7 @@ add_channels_in_list(ChannelsWithConfigs, Data) ->
 
 add_channels_in_list([], Data, Actions) ->
     {Actions, Data};
-add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data, Actions) ->
+add_channels_in_list([{ChannelId, ChannelConfig} | Rest], Data, Actions) ->
     #data{
         id = ResId,
         mod = Mod,
@@ -1038,17 +1043,17 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data, Actions) ->
         group = Group,
         type = Type
     } = Data,
-    ensure_metrics(ChannelID),
+    ensure_metrics(ChannelId),
     case
         emqx_resource:call_add_channel(
-            ResId, Mod, State, ChannelID, ChannelConfig
+            ResId, Mod, State, ChannelId, ChannelConfig
         )
     of
         {ok, NewState} ->
             %% Set the channel status to connecting to indicate that
             %% we have not yet performed the initial health_check
             NewAddedChannelsMap = maps:put(
-                ChannelID,
+                ChannelId,
                 channel_status_new_waiting_for_health_check(ChannelConfig),
                 AddedChannelsMap
             ),
@@ -1064,22 +1069,22 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data, Actions) ->
                 #{
                     msg => "add_channel_failed",
                     resource_id => ResId,
-                    channel_id => ChannelID,
+                    channel_id => ChannelId,
                     reason => Reason
                 },
                 #{tag => tag(Group, Type)}
             ),
             NewAddedChannelsMap = maps:put(
-                ChannelID,
+                ChannelId,
                 channel_status(?add_channel_failed(Reason), ChannelConfig),
                 AddedChannelsMap
             ),
-            NewActions = [retry_add_channel_action(ChannelID, ChannelConfig, Data) | Actions],
+            NewActions = [retry_add_channel_action(ChannelId, ChannelConfig, Data) | Actions],
             NewData = Data#data{
                 added_channels = NewAddedChannelsMap
             },
             %% Raise an alarm since the channel could not be added
-            _ = maybe_alarm(?status_disconnected, IsDryRun, ChannelID, Error, no_prev_error)
+            _ = maybe_alarm(?status_disconnected, IsDryRun, ChannelId, Error, no_prev_error)
     end,
     add_channels_in_list(Rest, NewData, NewActions).
 
@@ -1114,7 +1119,7 @@ remove_channels(Data) ->
 
 remove_channels_in_list([], Data) ->
     Data;
-remove_channels_in_list([ChannelID | Rest], Data) ->
+remove_channels_in_list([ChannelId | Rest], Data) ->
     #data{
         id = ResId,
         added_channels = AddedChannelsMap,
@@ -1124,9 +1129,9 @@ remove_channels_in_list([ChannelID | Rest], Data) ->
         type = Type
     } = Data,
     IsDryRun = emqx_resource:is_dry_run(ResId),
-    _ = maybe_clear_alarm(IsDryRun, ChannelID),
-    NewAddedChannelsMap = maps:remove(ChannelID, AddedChannelsMap),
-    case safe_call_remove_channel(ResId, Mod, State, ChannelID) of
+    _ = maybe_clear_alarm(IsDryRun, ChannelId),
+    NewAddedChannelsMap = maps:remove(ChannelId, AddedChannelsMap),
+    case safe_call_remove_channel(ResId, Mod, State, ChannelId) of
         {ok, NewState} ->
             NewData = Data#data{
                 state = NewState,
@@ -1141,7 +1146,7 @@ remove_channels_in_list([ChannelID | Rest], Data) ->
                     resource_id => ResId,
                     group => Group,
                     type => Type,
-                    channel_id => ChannelID,
+                    channel_id => ChannelId,
                     reason => Reason
                 },
                 #{tag => tag(Group, Type)}
@@ -1152,10 +1157,10 @@ remove_channels_in_list([ChannelID | Rest], Data) ->
     end,
     remove_channels_in_list(Rest, NewData).
 
-safe_call_remove_channel(_ResId, _Mod, undefined = State, _ChannelID) ->
+safe_call_remove_channel(_ResId, _Mod, undefined = State, _ChannelId) ->
     {ok, State};
-safe_call_remove_channel(ResId, Mod, State, ChannelID) ->
-    emqx_resource:call_remove_channel(ResId, Mod, State, ChannelID).
+safe_call_remove_channel(ResId, Mod, State, ChannelId) ->
+    emqx_resource:call_remove_channel(ResId, Mod, State, ChannelId).
 
 %% For cases where we need to terminate and there are running health checks.
 terminate_health_check_workers(Data) ->
