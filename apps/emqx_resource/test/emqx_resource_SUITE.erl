@@ -27,7 +27,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource_buffer_worker_internal.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("emqx/include/asserts.hrl").
 
 -define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
