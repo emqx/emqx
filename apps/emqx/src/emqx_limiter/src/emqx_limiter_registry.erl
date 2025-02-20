@@ -18,15 +18,24 @@
 
 -include_lib("emqx/include/logger.hrl").
 
+%% API for external apps
+
+-export([
+    connect/1
+]).
+
+%% App-internal API
+
 -export([
     start_link/0,
     register_group/3,
     unregister_group/1,
     find_group/1,
     list_groups/0,
-    connect/1,
     get_limiter_options/1
 ]).
+
+%% `gen_server` callbacks
 
 -export([
     init/1,
@@ -68,6 +77,19 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec connect(limiter_id()) -> emqx_limiter_client:t().
+connect({Group, _Name} = LimiterId) ->
+    case persistent_term:get(?PT_KEY(Group), undefined) of
+        undefined ->
+            error({limiter_not_found, LimiterId});
+        #group{module = Module} ->
+            Module:connect(LimiterId)
+    end.
+
+%%------------------------------------------------------------------------------
+%% Internal API
+%%------------------------------------------------------------------------------
+
 -spec start_link() -> {ok, pid()}.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -101,15 +123,6 @@ find_group(Group) ->
             undefined;
         #group{module = Module, limiter_options = LimiterOptions} ->
             {Module, maps:to_list(LimiterOptions)}
-    end.
-
--spec connect(limiter_id()) -> emqx_limiter_client:t().
-connect({Group, _Name} = LimiterId) ->
-    case persistent_term:get(?PT_KEY(Group), undefined) of
-        undefined ->
-            error({limiter_not_found, LimiterId});
-        #group{module = Module} ->
-            Module:connect(LimiterId)
     end.
 
 -spec get_limiter_options(limiter_id()) -> emqx_limiter:options() | no_return().
