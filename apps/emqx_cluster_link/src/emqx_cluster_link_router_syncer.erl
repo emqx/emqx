@@ -170,22 +170,25 @@ start_link_client(Actor, LinkConf) ->
     Options = emqx_cluster_link_config:mk_emqtt_options(LinkConf),
     case emqtt:start_link(refine_client_options(Options, Actor)) of
         {ok, Pid} ->
-            try emqtt:connect(Pid) of
-                {ok, _Props} ->
-                    {ok, Pid};
-                Error ->
-                    _ = flush_link_signal(Pid),
-                    Error
+            try
+                case emqtt:connect(Pid) of
+                    {ok, _Props} ->
+                        ?tp("cluster_link_actor_connected", #{actor => Actor}),
+                        Topic = ?RESP_TOPIC(Actor),
+                        {ok, _, _} = emqtt:subscribe(Pid, Topic, ?QOS_1),
+                        {ok, Pid};
+                    Error ->
+                        _ = flush_link_signal(Pid),
+                        Error
+                end
             catch
                 exit:Reason ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_connect_to_cluster",
-                        reason => Reason,
-                        options => Options,
-                        actor => Actor
-                    }),
+                    %% NOTE
+                    %% For inexplicable reason exit signal may arrive earlier than
+                    %% `disconnect` reply.
                     _ = flush_link_signal(Pid),
-                    {error, failed_to_connect}
+                    _ = flush_disconnect(),
+                    {error, Reason}
             end;
         Error ->
             Error
@@ -194,6 +197,12 @@ start_link_client(Actor, LinkConf) ->
 flush_link_signal(Pid) ->
     receive
         {'EXIT', Pid, _} -> ok
+    after 1 -> timeout
+    end.
+
+flush_disconnect() ->
+    receive
+        {disconnected, _RC, _} -> ok
     after 1 -> timeout
     end.
 
@@ -352,6 +361,7 @@ mk_state(#{name := TargetCluster} = LinkConf, Actor, Incarnation) ->
     }.
 
 init_actor(State = #st{}) ->
+    ?tp("cluster_link_actor_init", #{actor => State#st.actor}),
     _ = erlang:process_flag(trap_exit, true),
     {ok, State, {continue, connect}}.
 
@@ -439,8 +449,6 @@ init_remote_actor(
     St0 = #st{target = TargetCluster, client = ClientPid, actor = Actor, incarnation = Incr}
 ) ->
     ReqId = emqx_utils_conv:bin(emqx_utils:gen_id(16)),
-    %% TODO: handle subscribe errors
-    {ok, _, _} = emqtt:subscribe(ClientPid, ?RESP_TOPIC(Actor), ?QOS_1),
     Res = ?SAFE_MQTT_PUB(
         emqx_cluster_link_mqtt:publish_actor_init_sync(
             ClientPid, ReqId, ?RESP_TOPIC(Actor), TargetCluster, Actor, Incr
@@ -478,8 +486,7 @@ ensure_reconnect_timer(#st{reconnect_timer = TRef} = St) ->
     ensure_reconnect_timer(St#st{reconnect_timer = undefined}).
 
 handle_connect_error(Reason, St) ->
-    ?SLOG(error, #{
-        msg => "cluster_link_connection_failed",
+    ?tp(error, "cluster_link_connection_failed", #{
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor
@@ -491,7 +498,7 @@ handle_client_down(
     Reason,
     St = #st{target = TargetCluster, actor = Actor, bootstrapped = Bootstrapped}
 ) ->
-    ?tp(error, "cluster_link_connection_failed", #{
+    ?tp(error, "cluster_link_connection_down", #{
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor
