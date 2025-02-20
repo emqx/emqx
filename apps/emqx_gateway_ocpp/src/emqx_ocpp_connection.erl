@@ -73,7 +73,7 @@
     %% Piggyback
     piggyback :: single | multiple,
     %% Limiter
-    limiter :: option(emqx_limiter:limiter()),
+    limiter :: option(emqx_limiter_client_container:t()),
     %% Limit Timer
     limit_timer :: option(reference()),
     %% Parse State
