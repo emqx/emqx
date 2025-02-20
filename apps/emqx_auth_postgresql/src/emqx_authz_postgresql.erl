@@ -39,27 +39,27 @@
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(#{query := SQL0} = Source) ->
-    {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    {Vars, SQL, Placeholders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceID = emqx_authz_utils:make_resource_id(emqx_postgresql),
+    ResourceId = emqx_authz_utils:make_resource_id(emqx_postgresql),
     {ok, _Data} = emqx_authz_utils:create_resource(
-        ResourceID,
+        ResourceId,
         emqx_postgresql,
-        Source#{prepare_statement => #{ResourceID => SQL}}
+        Source#{prepare_statement => #{ResourceId => SQL}}
     ),
     Source#{
         annotations => #{
-            id => ResourceID, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate
+            id => ResourceId, placeholders => Placeholders, cache_key_template => CacheKeyTemplate
         }
     }.
 
-update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
-    {Vars, SQL, PlaceHolders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+update(#{query := SQL0, annotations := #{id := ResourceId}} = Source) ->
+    {Vars, SQL, Placeholders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     case
         emqx_authz_utils:update_resource(
             emqx_postgresql,
-            Source#{prepare_statement => #{ResourceID => SQL}}
+            Source#{prepare_statement => #{ResourceId => SQL}}
         )
     of
         {error, Reason} ->
@@ -67,7 +67,7 @@ update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
         {ok, Id} ->
             Source#{
                 annotations => #{
-                    id => Id, placeholders => PlaceHolders, cache_key_template => CacheKeyTemplate
+                    id => Id, placeholders => Placeholders, cache_key_template => CacheKeyTemplate
                 }
             }
     end.
@@ -81,7 +81,7 @@ authorize(
     Topic,
     #{
         annotations := #{
-            id := ResourceID,
+            id := ResourceId,
             placeholders := Placeholders,
             cache_key_template := CacheKeyTemplate
         }
@@ -92,7 +92,7 @@ authorize(
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
-            CacheKey, ResourceID, {prepared_query, ResourceID, RenderedParams}
+            CacheKey, ResourceId, {prepared_query, ResourceId, RenderedParams}
         )
     of
         {ok, Columns, Rows} ->
@@ -102,7 +102,7 @@ authorize(
                 msg => "query_postgresql_error",
                 reason => Reason,
                 params => RenderedParams,
-                resource_id => ResourceID
+                resource_id => ResourceId
             }),
             nomatch
     end.

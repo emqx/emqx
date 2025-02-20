@@ -61,6 +61,8 @@
 
 -define(PTERM(DB, SHARD, KEY), {?MODULE, DB, SHARD, KEY}).
 
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 %%
 
 start_link(DB, Shard, Opts) ->

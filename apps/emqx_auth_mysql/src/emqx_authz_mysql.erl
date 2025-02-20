@@ -74,7 +74,7 @@ authorize(
     Topic,
     #{
         annotations := #{
-            id := ResourceID,
+            id := ResourceId,
             tmpl_token := TmplToken,
             cache_key_template := CacheKeyTemplate
         }
@@ -85,7 +85,7 @@ authorize(
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
-            CacheKey, ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams}
+            CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, RenderParams}
         )
     of
         {ok, ColumnNames, Rows} ->
@@ -96,7 +96,7 @@ authorize(
                 reason => Reason,
                 tmpl_token => TmplToken,
                 params => RenderParams,
-                resource_id => ResourceID
+                resource_id => ResourceId
             }),
             nomatch
     end.
