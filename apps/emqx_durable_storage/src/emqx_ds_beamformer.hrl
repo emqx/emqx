@@ -30,9 +30,7 @@
     topic_filter,
     start_key,
     %% Iterator:
-    it,
-    %% Callback that filters messages that belong to the request:
-    msg_matcher
+    it
 }).
 
 %% Persistent term used to store various global information about the

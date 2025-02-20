@@ -302,19 +302,10 @@
 %% Callbacks
 %%================================================================================
 
-%% @obsolete
--type match_messagef() :: fun(
-    (
-        _MessageKey :: emqx_ds:message_key(),
-        emqx_types:message()
-    ) -> boolean()
-).
-
 -type unpack_iterator_result(Stream) :: #{
     stream := Stream,
     topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
-    message_matcher := match_messagef(),
     rank := emqx_ds:stream_rank()
 }.
 
@@ -821,7 +812,6 @@ handle_event(
             stream := Stream,
             topic_filter := TF,
             last_seen_key := DSKey,
-            message_matcher := MsgMatcher,
             rank := Rank
         } ->
             MRef = monitor(process, Client),
@@ -846,8 +836,7 @@ handle_event(
                 stream = Stream,
                 topic_filter = TF,
                 start_key = DSKey,
-                it = It,
-                msg_matcher = MsgMatcher
+                it = It
             },
             %% Store another reference to the flow control object in a
             %% different table readable by the client during suback:
