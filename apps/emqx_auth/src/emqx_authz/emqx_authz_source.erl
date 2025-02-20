@@ -41,9 +41,6 @@
 %% An authz backend will not be used after `destroy`.
 -callback destroy(source()) -> ok.
 
-%% Get authz text description.
--callback description() -> string().
-
 %% Authorize client action.
 -callback authorize(
     emqx_types:clientinfo(),

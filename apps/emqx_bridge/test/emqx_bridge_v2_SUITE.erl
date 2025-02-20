@@ -28,6 +28,8 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -1324,6 +1326,69 @@ t_async_load_config_cli(_Config) ->
     ct:pal("config loaded"),
 
     ok.
+
+%% Checks that we avoid touching `created_at' and `last_modified_at' when replicating
+%% cluster RPC configurations.
+t_modification_dates_when_replicating(Config) ->
+    AppSpecs = app_specs() ++ [emqx_management],
+    ClusterSpec = [
+        {mod_dates1, #{apps => AppSpecs ++ [emqx_mgmt_api_test_util:emqx_dashboard()]}},
+        {mod_dates2, #{apps => AppSpecs}}
+    ],
+    [N1, N2] =
+        Nodes = emqx_cth_cluster:start(
+            ClusterSpec,
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
+    Fun = fun() -> ?ON(N1, emqx_mgmt_api_test_util:auth_header_()) end,
+    emqx_bridge_v2_testlib:set_auth_header_getter(Fun),
+    snabbkaffe:start_trace(),
+    try
+        ConnectorName = mod_dates,
+        {201, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_connector_api(
+            [
+                {connector_type, mqtt},
+                {connector_name, ConnectorName},
+                {connector_config, emqx_bridge_mqtt_v2_publisher_SUITE:connector_config()}
+            ],
+            #{}
+        ),
+        snabbkaffe_nemesis:inject_crash(
+            ?match_event(#{?snk_kind := bridge_post_config_update_done}),
+            fun(_) ->
+                %% Only introduces a bit of delay, so that we are guaranteed some time
+                %% difference when replicating.
+                ct:sleep(100),
+                false
+            end
+        ),
+        {201, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_action_api(
+            [
+                {bridge_kind, action},
+                {action_type, mqtt},
+                {action_name, ConnectorName},
+                {action_config,
+                    emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
+                        <<"connector">> => ConnectorName
+                    })}
+            ],
+            #{}
+        ),
+        #{
+            <<"created_at">> := CreatedAt1,
+            <<"last_modified_at">> := LastModifiedAt1
+        } = ?ON(N1, emqx_config:get_raw([actions, mqtt, ConnectorName])),
+        #{
+            <<"created_at">> := CreatedAt2,
+            <<"last_modified_at">> := LastModifiedAt2
+        } = ?ON(N2, emqx_config:get_raw([actions, mqtt, ConnectorName])),
+        ?assertEqual(CreatedAt1, CreatedAt2),
+        ?assertEqual(LastModifiedAt1, LastModifiedAt2),
+        ok
+    after
+        emqx_cth_cluster:stop(Nodes),
+        snabbkaffe:stop()
+    end.
 
 %% Happy path smoke tests for fallback actions.
 t_fallback_actions(_Config) ->

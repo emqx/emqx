@@ -642,7 +642,7 @@ is_tcp_server_available(Host, Port, Timeout) ->
     end.
 
 start_ekka() ->
-    try mnesia_hook:module_info() of
+    try mnesia_hook:module_info(module) of
         _ -> ekka:start()
     catch
         _:_ ->

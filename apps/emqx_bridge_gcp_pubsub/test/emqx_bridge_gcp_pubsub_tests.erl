@@ -93,8 +93,7 @@ check(Conf) when is_map(Conf) ->
 %%===========================================================================
 
 producer_attributes_validator_test_() ->
-    %% ensure this module is loaded when testing only this file
-    _ = emqx_bridge_enterprise:module_info(),
+    emqx_utils:interactive_load(emqx_bridge_enterprise),
     BaseConf = parse(gcp_pubsub_producer_hocon()),
     Override = fun(Cfg) ->
         emqx_utils_maps:deep_merge(

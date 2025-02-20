@@ -23,7 +23,6 @@
 
 %% AuthZ Callbacks
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -36,9 +35,6 @@
 -endif.
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
-
-description() ->
-    "AuthZ with MongoDB".
 
 create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),

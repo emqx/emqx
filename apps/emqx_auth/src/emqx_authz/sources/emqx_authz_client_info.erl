@@ -27,7 +27,6 @@
 
 %% APIs
 -export([
-    description/0,
     create/1,
     update/1,
     destroy/1,
@@ -47,9 +46,6 @@
 %%--------------------------------------------------------------------
 %% emqx_authz callbacks
 %%--------------------------------------------------------------------
-
-description() ->
-    "AuthZ with ClientInfo".
 
 create(Source) ->
     Source.

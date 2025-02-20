@@ -225,4 +225,9 @@ static_clientid_entry_ids.label:
 static_clientid_entry_ids.desc:
 """Array of static client IDs assigned to this node."""
 
+connect_timeout.label:
+"""Connect Timeout"""
+connect_timeout.desc:
+"""Timeout for connecting to the remote broker.  The connection worker process is blocked up to this amount of time when attempting the initial connection."""
+
 }

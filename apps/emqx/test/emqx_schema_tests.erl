@@ -972,6 +972,7 @@ max_packet_size_test_() ->
 max_heap_size_test_() ->
     WordSize = erlang:system_info(wordsize),
     MaxWords = 128 * 1024 * 1024 * 1024 div WordSize,
+    MaxBytes = MaxWords * WordSize,
     DefaultWords = 32 * 1024 * 1024 div WordSize,
     Sc = emqx_schema,
     Check = fun(Input) ->
@@ -1001,7 +1002,7 @@ max_heap_size_test_() ->
         {"129GB is not allowed",
             ?_assertThrow(
                 {emqx_schema, [
-                    #{reason := #{cause := max_heap_size_too_large, maximum := MaxWords}}
+                    #{reason := #{cause := max_heap_size_too_large, maximum := MaxBytes}}
                 ]},
                 Check(<<"force_shutdown.max_heap_size = 129GB">>)
             )},

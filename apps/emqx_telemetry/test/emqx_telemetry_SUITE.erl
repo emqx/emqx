@@ -811,7 +811,7 @@ stop_peer(Node) ->
     ok = application:start(mria).
 
 leave_cluster() ->
-    try mnesia_hook:module_info() of
+    try mnesia_hook:module_info(module) of
         _ -> ekka:leave()
     catch
         _:_ ->

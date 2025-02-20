@@ -178,7 +178,7 @@ inject_value_fields(Injections) ->
 
 call_if_defined(Module, Function, Args, Default) ->
     %% Ensure module is loaded, especially when called from nodetool
-    _ = Module:module_info(),
+    ok = emqx_utils:interactive_load(Module),
     case erlang:function_exported(Module, Function, length(Args)) of
         true ->
             apply(Module, Function, Args);

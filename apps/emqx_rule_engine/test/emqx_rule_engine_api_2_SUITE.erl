@@ -666,15 +666,15 @@ t_create_rule_with_null_id(_Config) ->
     ),
     ok.
 
-%% Smoke tests for `$events/alarm_activated' and `$events/alarm_deactivated'.
+%% Smoke tests for `$events/sys/alarm_activated' and `$events/sys/alarm_deactivated'.
 t_alarm_events(_Config) ->
     TestPidBin = list_to_binary(pid_to_list(self())),
     {201, _} = create_rule(#{
         <<"id">> => <<"alarms">>,
         <<"sql">> => iolist_to_binary([
             <<" select * from ">>,
-            <<" \"$events/alarm_activated\", ">>,
-            <<" \"$events/alarm_deactivated\" ">>
+            <<" \"$events/sys/alarm_activated\", ">>,
+            <<" \"$events/sys/alarm_deactivated\" ">>
         ]),
         <<"actions">> => [
             #{

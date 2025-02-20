@@ -508,6 +508,7 @@ mk_ingress_config(
 mk_ecpool_client_opts(
     ResourceId,
     Config = #{
+        connect_timeout := ConnectTimeoutS,
         server := Server,
         keepalive := KeepAlive,
         ssl := #{enable := EnableSsl} = Ssl
@@ -535,7 +536,7 @@ mk_ecpool_client_opts(
     mk_client_opt_password(Options#{
         hosts => [HostPort],
         clientid => clientid(Name, Config),
-        connect_timeout => 30,
+        connect_timeout => ConnectTimeoutS,
         keepalive => ms_to_s(KeepAlive),
         force_ping => true,
         ssl => EnableSsl,

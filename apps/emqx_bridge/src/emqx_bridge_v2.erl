@@ -320,15 +320,17 @@ list(ConfRootKey) ->
 create(BridgeType, BridgeName, RawConf) ->
     create(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, RawConf).
 
-create(ConfRootKey, BridgeType, BridgeName, RawConf) ->
+create(ConfRootKey, BridgeType, BridgeName, RawConf0) ->
     ?SLOG(debug, #{
         bridge_action => create,
         bridge_version => 2,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
-        bridge_raw_config => emqx_utils:redact(RawConf),
+        bridge_raw_config => emqx_utils:redact(RawConf0),
         root_key_path => ConfRootKey
     }),
+    RawConf1 = ensure_created_at(RawConf0),
+    RawConf = ensure_last_modified_at(RawConf1),
     emqx_conf:update(
         [ConfRootKey, BridgeType, BridgeName],
         RawConf,
@@ -616,10 +618,12 @@ combine_connector_and_bridge_v2_config(
 disable_enable(Action, BridgeType, BridgeName) when ?ENABLE_OR_DISABLE(Action) ->
     disable_enable(?ROOT_KEY_ACTIONS, Action, BridgeType, BridgeName).
 
-disable_enable(ConfRootKey, Action, BridgeType, BridgeName) when ?ENABLE_OR_DISABLE(Action) ->
+disable_enable(ConfRootKey, EnableOrDisable, BridgeType, BridgeName) when
+    ?ENABLE_OR_DISABLE(EnableOrDisable)
+->
     emqx_conf:update(
         [ConfRootKey, BridgeType, BridgeName],
-        Action,
+        {EnableOrDisable, #{now => now_ms()}},
         #{override_to => cluster}
     ).
 
@@ -1142,19 +1146,30 @@ pre_config_update([ConfRootKey, _Type, _Name], Oper, undefined) when
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
     {error, bridge_not_found};
-pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction0) when
+pre_config_update([ConfRootKey, _Type, _Name], {Oper, #{}}, undefined) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
-    OldAction = ensure_last_modified_at(OldAction0),
+    {error, bridge_not_found};
+pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction) when
+    ?ENABLE_OR_DISABLE(Oper) andalso
+        (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
+->
     {ok, OldAction#{<<"enable">> => operation_to_enable(Oper)}};
+pre_config_update([ConfRootKey, _Type, _Name], {Oper, #{now := NowMS}}, OldAction) when
+    ?ENABLE_OR_DISABLE(Oper) andalso
+        (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
+->
+    Action = OldAction#{
+        <<"enable">> => operation_to_enable(Oper),
+        <<"last_modified_at">> => NowMS
+    },
+    {ok, Action};
 %% Updates a single action from a specific HTTP API.
 %% If the connector is not found, the update operation fails.
-pre_config_update([ConfRootKey, Type, Name], Conf0 = #{}, _OldConf) when
+pre_config_update([ConfRootKey, Type, Name], Conf = #{}, _OldConf) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    Conf1 = ensure_created_at(Conf0),
-    Conf = ensure_last_modified_at(Conf1),
     convert_from_connector(ConfRootKey, Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
