@@ -180,9 +180,11 @@ post_config_update(_Path, _Cmd, NewConf, _OldConf, _AppEnvs) ->
 %%------------------------------------------------------------------------------
 
 import_config(#{?CONF_KEY_ROOT_BIN := RawConf0}) ->
+    OldRawConf = emqx:get_raw_config([?CONF_KEY_ROOT_BIN], #{}),
+    RawConf = emqx_utils_maps:deep_merge(OldRawConf, RawConf0),
     Result = emqx_conf:update(
         [?CONF_KEY_ROOT],
-        RawConf0,
+        RawConf,
         #{override_to => cluster, rawconf_with_defaults => true}
     ),
     case Result of

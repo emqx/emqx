@@ -305,7 +305,7 @@ fields(db_site) ->
             )},
         {status,
             mk(
-                enum([up, joining]),
+                enum([up, down, lost]),
                 #{desc => <<"Status of the replica">>}
             )}
     ].
@@ -550,6 +550,8 @@ meta_error_to_binary({nonexistent_db, DB}) ->
     emqx_utils:format("Unknown storage: ~p", [DB]);
 meta_error_to_binary(nonexistent_site) ->
     <<"Unknown site">>;
+meta_error_to_binary({lost_sites, LostSites}) ->
+    iolist_to_binary(["Replication still targets lost sites: " | lists:join(", ", LostSites)]);
 meta_error_to_binary({too_few_sites, _Sites}) ->
     <<"Replica sets would become too small">>;
 meta_error_to_binary(site_online) ->

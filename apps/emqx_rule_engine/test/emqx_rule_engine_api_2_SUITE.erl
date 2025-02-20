@@ -142,6 +142,24 @@ create_rule(Overrides) ->
             SRes
     end.
 
+update_rule(Id, Params) ->
+    Method = put,
+    Path = emqx_mgmt_api_test_util:api_path(["rules", Id]),
+    Res = request(Method, Path, Params),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+list_rules() ->
+    Method = get,
+    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
+    Res = request(Method, Path, _Params = ""),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
+get_rule(Id) ->
+    Method = get,
+    Path = emqx_mgmt_api_test_util:api_path(["rules", Id]),
+    Res = request(Method, Path, _Params = ""),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
 sources_sql(Sources) ->
     Froms = iolist_to_binary(lists:join(<<", ">>, lists:map(fun source_from/1, Sources))),
     <<"select * from ", Froms/binary>>.
@@ -731,4 +749,78 @@ t_alarm_events(_Config) ->
     emqx_alarm:safe_deactivate(AlarmName),
     ?assertNotReceive({rule_called, _}),
 
+    ok.
+
+%% Smoke tests for `last_modified_at' field when creating/updating a rule.
+t_last_modified_at(_Config) ->
+    Id = <<"last_mod_at">>,
+    CreateParams = #{
+        <<"id">> => Id,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from \"t/a\" ">>
+        ]),
+        <<"actions">> => [
+            #{<<"function">> => <<"console">>}
+        ]
+    },
+    {201, Res} = create_rule(CreateParams),
+    ?assertMatch(
+        #{
+            <<"created_at">> := CreatedAt,
+            <<"last_modified_at">> := CreatedAt
+        },
+        Res
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"created_at">> := CreatedAt,
+            <<"last_modified_at">> := CreatedAt
+        }},
+        get_rule(Id)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"data">> := [
+                #{
+                    <<"created_at">> := CreatedAt,
+                    <<"last_modified_at">> := CreatedAt
+                }
+            ]
+        }},
+        list_rules()
+    ),
+    #{
+        <<"created_at">> := CreatedAt,
+        <<"last_modified_at">> := CreatedAt
+    } = Res,
+    ct:sleep(10),
+    UpdateParams = maps:without([<<"id">>], CreateParams),
+    {200, UpdateRes} = update_rule(Id, UpdateParams),
+    ?assertMatch(
+        #{
+            <<"created_at">> := CreatedAt,
+            <<"last_modified_at">> := LastModifiedAt
+        } when LastModifiedAt =/= CreatedAt,
+        UpdateRes,
+        #{created_at => CreatedAt}
+    ),
+    #{<<"last_modified_at">> := LastModifiedAt} = UpdateRes,
+    ?assertMatch(
+        {200, #{
+            <<"created_at">> := CreatedAt,
+            <<"last_modified_at">> := LastModifiedAt
+        }},
+        get_rule(Id)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"data">> := [
+                #{
+                    <<"created_at">> := CreatedAt,
+                    <<"last_modified_at">> := LastModifiedAt
+                }
+            ]
+        }},
+        list_rules()
+    ),
     ok.
