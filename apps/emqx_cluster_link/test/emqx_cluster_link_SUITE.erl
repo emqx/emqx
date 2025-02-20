@@ -329,7 +329,7 @@ t_disconnect_on_errors(Config) ->
                 ),
                 emqtt:subscribe(SC1, <<"t/u/v">>, 1)
             end,
-            #{?snk_kind := "cluster_link_connection_failed"}
+            #{?snk_kind := "cluster_link_connection_down"}
         )
     ),
     _ = ?ON(TargetNode, meck:unload()),
