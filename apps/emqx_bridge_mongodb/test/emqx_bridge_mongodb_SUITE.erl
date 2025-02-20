@@ -177,8 +177,7 @@ start_apps(Config) ->
 
 ensure_loaded() ->
     _ = application:load(emqtt),
-    _ = emqx_bridge_enterprise:module_info(),
-    ok.
+    ok = emqx_utils:interactive_load(emqx_bridge_enterprise).
 
 mongo_type(Config) ->
     case ?config(mongo_type, Config) of

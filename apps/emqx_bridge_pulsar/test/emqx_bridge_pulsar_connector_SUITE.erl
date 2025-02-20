@@ -53,7 +53,7 @@ only_once_tests() ->
 
 init_per_suite(Config) ->
     %% Ensure enterprise bridge module is loaded
-    _ = emqx_bridge_enterprise:module_info(),
+    emqx_utils:interactive_load(emqx_bridge_enterprise),
     %% TODO
     %% This is needed to ensure that filenames generated deep inside pulsar/replayq
     %% will not exceed 256 characters, because replayq eventually turns them into atoms.
