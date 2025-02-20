@@ -173,6 +173,7 @@ start_link_client(Actor, LinkConf) ->
             try
                 case emqtt:connect(Pid) of
                     {ok, _Props} ->
+                        ?tp("cluster_link_actor_connected", #{actor => Actor}),
                         Topic = ?RESP_TOPIC(Actor),
                         {ok, _, _} = emqtt:subscribe(Pid, Topic, ?QOS_1),
                         {ok, Pid};
@@ -360,6 +361,7 @@ mk_state(#{name := TargetCluster} = LinkConf, Actor, Incarnation) ->
     }.
 
 init_actor(State = #st{}) ->
+    ?tp("cluster_link_actor_init", #{actor => State#st.actor}),
     _ = erlang:process_flag(trap_exit, true),
     {ok, State, {continue, connect}}.
 
@@ -484,8 +486,7 @@ ensure_reconnect_timer(#st{reconnect_timer = TRef} = St) ->
     ensure_reconnect_timer(St#st{reconnect_timer = undefined}).
 
 handle_connect_error(Reason, St) ->
-    ?SLOG(error, #{
-        msg => "cluster_link_connection_failed",
+    ?tp(error, "cluster_link_connection_failed", #{
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor
@@ -497,7 +498,7 @@ handle_client_down(
     Reason,
     St = #st{target = TargetCluster, actor = Actor, bootstrapped = Bootstrapped}
 ) ->
-    ?tp(error, "cluster_link_connection_failed", #{
+    ?tp(error, "cluster_link_connection_down", #{
         reason => Reason,
         target_cluster => St#st.target,
         actor => St#st.actor

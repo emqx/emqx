@@ -7,6 +7,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -compile(export_all).
@@ -65,12 +66,16 @@ mk_source_cluster(BaseName, Config) ->
         "\n     topics = []"
         "\n   }"
         "\n ]}",
-    ExtraApps = proplists:get_value(extra_apps, Config, []),
-    SourceApps1 = [{emqx_conf, combine([conf_log(), SourceConf])}, emqx | ExtraApps],
+    ExtraConf = proplists:get_value(extra_conf, Config, ""),
+    SourceApps1 = [
+        {emqx_conf, combine([conf_log(), SourceConf])},
+        {emqx, ExtraConf},
+        {emqx_auth, #{}}
+    ],
     SourceApps2 = [
         {emqx_conf, combine([conf_log(), SourceConf])},
-        {emqx, conf_mqtt_listener(41883)}
-        | ExtraApps
+        {emqx, combine([conf_mqtt_listener(41883), ExtraConf])},
+        {emqx_auth, #{}}
     ],
     emqx_cth_cluster:mk_nodespecs(
         [
@@ -92,11 +97,17 @@ mk_target_cluster(BaseName, Config) ->
         "\n     topics = [\"#\"]"
         "\n   }"
         "\n ]}",
+    ExtraConf = proplists:get_value(extra_conf, Config, ""),
     TargetApps1 = [
         {emqx_conf, combine([conf_log(), TargetConf])},
-        {emqx, conf_mqtt_listener(31883)}
+        {emqx, combine([conf_mqtt_listener(31883), ExtraConf])},
+        {emqx_auth, #{}}
     ],
-    TargetApps2 = [{emqx_conf, combine([conf_log(), TargetConf])}],
+    TargetApps2 = [
+        {emqx_conf, combine([conf_log(), TargetConf])},
+        {emqx, ExtraConf},
+        {emqx_auth, #{}}
+    ],
     emqx_cth_cluster:mk_nodespecs(
         [
             {mk_nodename(BaseName, t1), #{apps => TargetApps1, base_port => 20100}},
@@ -328,24 +339,28 @@ t_disconnect_on_errors(Config) ->
 %% Checks that if a timeout occurs during actor state initialization, we close the
 %% (potentially unhealthy) connection and start anew.
 t_restart_connection_on_actor_init_timeout('init', Config0) ->
-    ExtraApps = [{emqx_auth, "authorization.no_match = deny"}],
-    SourceNodesSpec = mk_source_cluster(?FUNCTION_NAME, [{extra_apps, ExtraApps} | Config0]),
+    ExtraConf = "authorization.no_match = deny",
+    SourceNodesSpec = mk_source_cluster(?FUNCTION_NAME, [{extra_conf, ExtraConf} | Config0]),
     TargetNodesSpec = mk_target_cluster(?FUNCTION_NAME, Config0),
     ok = snabbkaffe:start_trace(),
+    SourceNodes = emqx_cth_cluster:start(SourceNodesSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetNodesSpec),
     [
         {source_nodes_spec, SourceNodesSpec},
-        {target_nodes_spec, TargetNodesSpec}
+        {source_nodes, SourceNodes},
+        {target_nodes_spec, TargetNodesSpec},
+        {target_nodes, TargetNodes}
         | Config0
     ];
-t_restart_connection_on_actor_init_timeout('end', _Config) ->
+t_restart_connection_on_actor_init_timeout('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 t_restart_connection_on_actor_init_timeout(Config) ->
-    SourceNodesSpec = ?config(source_nodes_spec, Config),
-    TargetNodesSpec = ?config(target_nodes_spec, Config),
-    SourceNodes = [SN | _] = emqx_cth_cluster:start(SourceNodesSpec),
-    on_exit(fun() -> ok = emqx_cth_cluster:stop(SourceNodes) end),
+    SourceNodes = [SN | _] = ?config(source_nodes, Config),
+    TargetNodes = ?config(target_nodes, Config),
 
     %% Simulate a poorly configured node that'll reject the actor init ack
     %% message, making the initialization time out.
@@ -364,14 +379,7 @@ t_restart_connection_on_actor_init_timeout(Config) ->
             #{}
         )
     ),
-    %% For some reason, it's fruitless to try to set this config in the app specs....
-    {ok, _} = ?ON(
-        SN,
-        emqx_conf:update([authorization, no_match], deny, #{override_to => cluster})
-    ),
 
-    TargetNodes = emqx_cth_cluster:start(TargetNodesSpec),
-    on_exit(fun() -> ok = emqx_cth_cluster:stop(TargetNodes) end),
     ?check_trace(
         #{timetrap => 30_000},
         begin
@@ -414,6 +422,112 @@ t_restart_connection_on_actor_init_timeout(Config) ->
                     _N1 =:= _N2,
                     Trace
                 )
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Checks that connect / subscribe errors during routerepl actor initialization are
+%% handled gracefully.
+t_graceful_retry_on_actor_error('init', Config0) ->
+    ExtraConf = "listeners.tcp.clink.enable = false",
+    SourceNodesSpec = mk_source_cluster(?FUNCTION_NAME, Config0),
+    TargetNodesSpec = mk_target_cluster(?FUNCTION_NAME, [{extra_conf, ExtraConf} | Config0]),
+    ok = snabbkaffe:start_trace(),
+    SourceNodes = emqx_cth_cluster:start(SourceNodesSpec),
+    [
+        {source_nodes_spec, SourceNodesSpec},
+        {source_nodes, SourceNodes},
+        {target_nodes_spec, TargetNodesSpec}
+        | Config0
+    ];
+t_graceful_retry_on_actor_error('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
+t_graceful_retry_on_actor_error(Config) ->
+    SourceNodes = [SN | _] = ?config(source_nodes, Config),
+    TargetNodeSpecs = ?config(target_nodes_spec, Config),
+
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Target cluster is not started yet.
+            %% Connection failure should be tolerated.
+            ?wait_async_action(
+                start_cluster_link(SourceNodes, Config),
+                #{
+                    ?snk_kind := "cluster_link_connection_failed",
+                    ?snk_meta := #{node := SN}
+                }
+            ),
+
+            %% Start Target cluster.
+            TargetNodes = [TN | _] = emqx_cth_cluster:start(TargetNodeSpecs),
+            on_exit(fun() -> emqx_cth_cluster:stop(TargetNodes) end),
+
+            %% Setup strict authz, incompatible with what routerepl actor expects.
+            ok = ?ON(
+                TN,
+                emqx_authz_test_lib:setup_config(
+                    #{
+                        <<"type">> => <<"file">>,
+                        <<"enable">> => true,
+                        <<"rules">> => <<"{deny, all, subscribe, [\"$LINK/#\"]}.">>
+                    },
+                    #{}
+                )
+            ),
+            %% Also make sure that connection is forcefully disconnected on authz failures.
+            {ok, _} = ?ON(
+                TN,
+                emqx_conf:update([authorization, deny_action], disconnect, #{override_to => cluster})
+            ),
+
+            %% Enable dedicated listener.
+            ?wait_async_action(
+                {ok, _} = ?ON(
+                    TN,
+                    emqx_mgmt_listeners_conf:update(tcp, clink, #{<<"enable">> => true})
+                ),
+                %% Disconnect during SUBSCRIBE should be tolerated.
+                #{
+                    ?snk_kind := "cluster_link_connection_failed",
+                    ?snk_meta := #{node := SN},
+                    reason := {{shutdown, {disconnected, ?RC_NOT_AUTHORIZED, _}}, _}
+                }
+            ),
+
+            _ = start_cluster_link(TargetNodes, Config),
+
+            %% Fix the authorization config, it should reconnect.
+            ?wait_async_action(
+                begin
+                    ok = ?ON(
+                        TN,
+                        emqx_authz_test_lib:setup_config(
+                            #{
+                                <<"type">> => <<"file">>,
+                                <<"enable">> => true,
+                                <<"rules">> => <<"{allow, all}.">>
+                            },
+                            #{}
+                        )
+                    )
+                end,
+                #{
+                    ?snk_kind := clink_route_bootstrap_complete,
+                    ?snk_meta := #{node := SN}
+                }
+            )
+        end,
+        fun(Trace) ->
+            %% Exactly 4 actors started, no actor should have restarted.
+            ?assertMatch(
+                [_SN1, _SN2, _TN1, _TN2],
+                ?of_kind("cluster_link_actor_init", Trace)
             ),
             ok
         end
