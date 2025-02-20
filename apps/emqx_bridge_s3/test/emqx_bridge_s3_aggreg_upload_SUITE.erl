@@ -380,7 +380,7 @@ t_aggreg_upload_restart(Config) ->
     BridgeName = ?config(bridge_name, Config),
     AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
-    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
     %% Send some sample messages that look like Rule SQL productions.
     MessageEvents = lists:map(fun mk_message_event/1, [
         {<<"C1">>, T1 = <<"a/b/c">>, P1 = <<"{\"hello\":\"world\"}">>},
@@ -390,8 +390,8 @@ t_aggreg_upload_restart(Config) ->
     ok = send_messages(BridgeName, MessageEvents),
     {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := AggregId}),
     %% Restart the bridge.
-    {ok, _} = emqx_bridge_v2:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
-    {ok, _} = emqx_bridge_v2:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
+    {204, _} = emqx_bridge_v2_testlib:disable_kind_api(action, ?BRIDGE_TYPE, BridgeName),
+    {204, _} = emqx_bridge_v2_testlib:enable_kind_api(action, ?BRIDGE_TYPE, BridgeName),
     %% Send some more messages (wuth same timestamps though).
     ok = send_messages(BridgeName, MessageEvents),
     {ok, _} = ?block_until(#{?snk_kind := connector_aggreg_records_written, action := AggregId}),
