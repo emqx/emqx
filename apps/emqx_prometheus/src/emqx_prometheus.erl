@@ -131,8 +131,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer, opts := Opts}) ->
-    #{interval := Interval, headers := Headers, url := Server} = Opts,
-    PushRes = push_to_push_gateway(Server, Headers),
+    #{interval := Interval, headers := Headers, url := Server, method := Method} = Opts,
+    PushRes = push_to_push_gateway(Method, Server, Headers),
     NewTimer = ensure_timer(Interval),
     NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
     %% Data is too big, hibernate for saving memory and stop system monitor warning.
@@ -143,9 +143,11 @@ handle_info({update, Conf}, State = #{timer := Timer}) ->
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-push_to_push_gateway(Url, Headers) when is_list(Headers) ->
+push_to_push_gateway(Method, Url, Headers) when
+    is_list(Headers) andalso (Method =:= put orelse Method =:= post)
+->
     Data = push_metrics_data(),
-    case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
+    case httpc:request(Method, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
         {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
         Error ->
@@ -174,10 +176,22 @@ ensure_timer(Interval) ->
 %%--------------------------------------------------------------------
 %% prometheus callbacks
 %%--------------------------------------------------------------------
-opts(#{interval := Interval, headers := Headers, job_name := JobName, push_gateway_server := Url}) ->
-    #{interval => Interval, headers => Headers, url => join_url(Url, JobName)};
+opts(
+    Conf = #{
+        interval := Interval, headers := Headers, job_name := JobName, push_gateway_server := Url
+    }
+) ->
+    #{
+        interval => Interval,
+        headers => Headers,
+        url => join_url(Url, JobName),
+        method => ?MG(method, Conf, put)
+    };
 opts(#{push_gateway := #{url := Url, job_name := JobName} = PushGateway}) ->
-    maps:put(url, join_url(Url, JobName), PushGateway).
+    PushGateway#{
+        url => join_url(Url, JobName),
+        method => ?MG(method, PushGateway, put)
+    }.
 
 join_url(Url, JobName0) ->
     ClusterName = atom_to_binary(emqx:get_config([cluster, name], emqxcl)),

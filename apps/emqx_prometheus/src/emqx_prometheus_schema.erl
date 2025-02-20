@@ -82,6 +82,15 @@ fields(push_gateway) ->
                     desc => ?DESC(push_gateway_enable)
                 }
             )},
+        {method,
+            ?HOCON(
+                hoconsc:enum([put, post]),
+                #{
+                    default => put,
+                    required => true,
+                    desc => ?DESC(push_gateway_method)
+                }
+            )},
         {url,
             ?HOCON(
                 string(),
