@@ -848,15 +848,49 @@ t_import_config(_Config) ->
         RawConf,
         <<"Updated description">>
     ),
-    Path = [schema_registry, schemas, my_avro_schema],
+    %% Config without old schema, should be merged with previous schemas.
+    RawConf2 = #{
+        <<"schema_registry">> =>
+            #{
+                <<"schemas">> =>
+                    #{
+                        <<"my_json_schema">> =>
+                            #{
+                                <<"description">> => <<"My Json Schema">>,
+                                <<"source">> => emqx_utils_json:encode(#{
+                                    <<"$schema">> => <<"http://json-schema.org/draft-06/schema#">>,
+                                    <<"type">> => <<"object">>
+                                }),
+                                <<"type">> => <<"json">>
+                            }
+                    }
+            }
+    },
+    Path1 = [schema_registry, schemas, my_avro_schema],
+    Path2 = [schema_registry, schemas, my_json_schema],
     ?assertEqual(
-        {ok, #{root_key => schema_registry, changed => [Path]}},
+        {ok, #{root_key => schema_registry, changed => [Path1]}},
         emqx_schema_registry_config:import_config(RawConf)
     ),
     ?assertEqual(
-        {ok, #{root_key => schema_registry, changed => [Path]}},
+        {ok, #{root_key => schema_registry, changed => [Path1]}},
         emqx_schema_registry_config:import_config(RawConf1)
-    ).
+    ),
+    ?assertEqual(
+        {ok, #{root_key => schema_registry, changed => [Path2]}},
+        emqx_schema_registry_config:import_config(RawConf2)
+    ),
+    %% Both schemas should be present.
+    ?assertMatch(
+        #{
+            <<"schemas">> := #{
+                <<"my_avro_schema">> := #{<<"description">> := <<"Updated description">>},
+                <<"my_json_schema">> := #{<<"description">> := <<"My Json Schema">>}
+            }
+        },
+        emqx_config:get_raw([<<"schema_registry">>])
+    ),
+    ok.
 
 sparkplug_example_data_base64() ->
     <<
