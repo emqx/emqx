@@ -526,7 +526,7 @@ t_clean(Config) ->
     ok = emqtt:disconnect(C1).
 
 t_stop_publish_clear_msg(_) ->
-    emqx_retainer:update_config(#{<<"stop_publish_clear_msg">> => true}),
+    update_retainer_config(#{<<"stop_publish_clear_msg">> => true}),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
     emqtt:publish(
@@ -542,12 +542,12 @@ t_stop_publish_clear_msg(_) ->
     emqtt:publish(C1, <<"retained/0">>, <<"">>, [{qos, 0}, {retain, true}]),
     ?assertEqual(0, length(receive_messages(1))),
 
-    emqx_retainer:update_config(#{<<"stop_publish_clear_msg">> => false}),
+    update_retainer_config(#{<<"stop_publish_clear_msg">> => false}),
     ok = emqtt:disconnect(C1).
 
 t_flow_control(_) ->
     %% Setup slow delivery
-    emqx_retainer:update_config(#{
+    update_retainer_config(#{
         <<"delivery_rate">> => <<"1/1s">>
     }),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -577,10 +577,9 @@ t_flow_control(_) ->
 
 t_publish_rate_limit(_) ->
     %% Setup tight publish rates
-    emqx_retainer:update_config(#{
+    update_retainer_config(#{
         <<"max_publish_rate">> => <<"1/1s">>
     }),
-
     %% Connect client
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
@@ -611,7 +610,7 @@ t_publish_rate_limit(_) ->
     snabbkaffe:stop(),
 
     %% No more failures after setting the rate limit to infinity
-    emqx_retainer:update_config(#{<<"max_publish_rate">> => <<"infinity">>}),
+    update_retainer_config(#{<<"max_publish_rate">> => <<"infinity">>}),
     ?check_trace(
         ?wait_async_action(
             publish_messages(C1, 100),
@@ -644,7 +643,7 @@ t_publish_rate_limit(_) ->
     ),
 
     %% Start with tight rate limit
-    emqx_retainer:update_config(#{<<"max_publish_rate">> => <<"1/1s">>}),
+    update_retainer_config(#{<<"max_publish_rate">> => <<"1/1s">>}),
     ok = application:stop(emqx_retainer),
     ok = application:ensure_started(emqx_retainer),
 
@@ -674,7 +673,7 @@ t_publish_rate_limit(_) ->
 
 t_delete_rate_limit(_) ->
     %% Setup tight publish rates
-    emqx_retainer:update_config(#{
+    update_retainer_config(#{
         <<"max_publish_rate">> => <<"1/1s">>
     }),
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
@@ -1035,7 +1034,7 @@ t_compatibility_for_deliver_rate(_) ->
                     <<"flow_control">> := #{
                         <<"batch_deliver_number">> := 0,
                         <<"batch_read_number">> := 0,
-                        <<"batch_deliver_limiter">> := 0
+                        <<"batch_deliver_limiter">> := infinity
                     }
                 }
         },
@@ -1050,7 +1049,7 @@ t_compatibility_for_deliver_rate(_) ->
                     <<"flow_control">> := #{
                         <<"batch_deliver_number">> := 1000,
                         <<"batch_read_number">> := 1000,
-                        <<"batch_deliver_limiter">> := 1.0
+                        <<"batch_deliver_limiter">> := {1000, 1000}
                     }
                 }
         },
@@ -1065,7 +1064,7 @@ t_compatibility_for_deliver_rate(_) ->
                     <<"flow_control">> := #{
                         <<"batch_deliver_number">> := 0,
                         <<"batch_read_number">> := 0,
-                        <<"batch_deliver_limiter">> := 0
+                        <<"batch_deliver_limiter">> := infinity
                     }
                 }
         },
@@ -1074,8 +1073,8 @@ t_compatibility_for_deliver_rate(_) ->
 
 t_update_config(_) ->
     OldConf = emqx_config:get_raw([retainer]),
-    NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disk">>),
-    emqx_retainer:update_config(NewConf).
+    NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disc">>),
+    update_retainer_config(NewConf).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -1121,14 +1120,14 @@ receive_messages(Count, Msgs) ->
 with_conf(CTConfig, ConfMod, Case) ->
     Conf = emqx:get_raw_config([retainer]),
     NewConf = ConfMod(Conf),
-    emqx_retainer:update_config(NewConf),
+    update_retainer_config(NewConf),
     ?config(index, CTConfig) =:= false andalso mria:clear_table(?TAB_INDEX_META),
     try
         Case(),
-        {ok, _} = emqx_retainer:update_config(Conf)
+        update_retainer_config(Conf)
     catch
         Type:Error:Strace ->
-            emqx_retainer:update_config(Conf),
+            update_retainer_config(Conf),
             erlang:raise(Type, Error, Strace)
     end.
 
@@ -1166,8 +1165,7 @@ do_publish(Client, Topic, Payload, Opts, {sleep, Time}) ->
     Res.
 
 reset_rates_to_default() ->
-    emqx_retainer_app:delete_buckets(),
-    emqx_retainer:update_config(#{
+    update_retainer_config(#{
         <<"delivery_rate">> => <<"1000/s">>,
         <<"max_publish_rate">> => <<"100000/s">>,
         <<"flow_control">> =>
@@ -1175,8 +1173,7 @@ reset_rates_to_default() ->
                 <<"batch_read_number">> => 0,
                 <<"batch_deliver_number">> => 0
             }
-    }),
-    emqx_retainer_app:init_buckets().
+    }).
 
 publish_messages(C1, Count) ->
     lists:foreach(
@@ -1211,11 +1208,19 @@ is_retainer_started() ->
     gproc_pool:active_workers(emqx_retainer_dispatcher) /= [].
 
 remove_delivery_rate() ->
-    emqx_retainer:update_config(#{
+    update_retainer_config(#{
         <<"delivery_rate">> => <<"infinity">>
     }).
 
 reset_delivery_rate_to_default() ->
-    emqx_retainer:update_config(#{
+    update_retainer_config(#{
         <<"delivery_rate">> => <<"1000/s">>
     }).
+
+restart_retainer_limiter() ->
+    ok = emqx_retainer_limiter:delete(),
+    ok = emqx_retainer_limiter:create().
+
+update_retainer_config(Conf) ->
+    {ok, _} = emqx_retainer:update_config(Conf),
+    ok = restart_retainer_limiter().

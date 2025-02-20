@@ -28,19 +28,26 @@
 %% API
 %%------------------------------------------------------------------------------
 
+-spec create() -> ok | {error, term()}.
 create() ->
     emqx_limiter_shared:create_group(?RETAINER_LIMITER_GROUP, limiter_configs()).
 
+-spec delete() -> ok | {error, term()}.
 delete() ->
     emqx_limiter_shared:delete_group(?RETAINER_LIMITER_GROUP).
 
+-spec update() -> ok.
 update() ->
     emqx_limiter_shared:update_group_configs(?RETAINER_LIMITER_GROUP, limiter_configs()).
 
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
 limiter_configs() ->
     DispatcherLimiterConfig =
-        case emqx:get_config([retainer, flow_control, batch_deliver_limiter], undefined) of
-            undefined ->
+        case emqx:get_config([retainer, flow_control, batch_deliver_limiter], infinity) of
+            infinity ->
                 emqx_limiter:config_unlimited();
             Rate ->
                 emqx_limiter:config_from_rate(Rate)

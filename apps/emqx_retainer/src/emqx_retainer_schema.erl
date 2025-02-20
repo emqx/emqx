@@ -293,7 +293,8 @@ convert_delivery_rate(#{<<"delivery_rate">> := <<"infinity">>} = Conf) ->
     FlowControl0 = maps:get(<<"flow_control">>, Conf, #{}),
     FlowControl1 = FlowControl0#{
         <<"batch_read_number">> => 0,
-        <<"batch_deliver_number">> => 0
+        <<"batch_deliver_number">> => 0,
+        <<"batch_deliver_limiter">> => <<"infinity">>
     },
     Conf#{<<"flow_control">> => FlowControl1};
 convert_delivery_rate(#{<<"delivery_rate">> := RateStr} = Conf) ->
