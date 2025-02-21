@@ -13,6 +13,14 @@ For example:
 max_conn_rate.label:
 """Maximum Connection Rate"""
 
+max_conn_burst.desc:
+"""Number of connections that can be accepted in a burst.
+
+For example: `10000/60m`: Once in 60 minutes, up to 10000 connections can be accepted in a short period of time."""
+
+max_conn_burst.label:
+"""Maximum Connection Burst"""
+
 messages_rate.desc:
 """Used to limit the number of messages a single client can send to EMQX per second.
 
@@ -25,6 +33,14 @@ For example:
 
 messages_rate.label:
 """Messages Publish Rate"""
+
+messages_burst.desc:
+"""Number of messages that can be sent in a burst.
+
+For example: `10000/60m`: Once in 60 minutes, up to 10000 messages can be sent in a short period of time."""
+
+messages_burst.label:
+"""Messages Publish Burst"""
 
 bytes_rate.desc:
 """Used to limit the number of bytes a single client can send to EMQX per second.
@@ -40,6 +56,14 @@ For example:
 
 bytes_rate.label:
 """Data Publish Rate"""
+
+bytes_burst.desc:
+"""Number of bytes that can be sent in a burst.
+
+For example: `100MB/60m`: Once in 60 minutes, up to 100 megabytes can be sent in a short period of time."""
+
+bytes_burst.label:
+"""Data Publish Burst"""
 
 mqtt.desc:
 """MQTT related limiters."""
