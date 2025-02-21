@@ -88,7 +88,7 @@ t_max_message_rate_listener(_Config) ->
         begin
             set_limiter_for_listener(messages_rate, <<"2/500ms">>),
             ct:sleep(550),
-            spawn_publisher(100)
+            spawn_publisher(100, 1)
         end,
         #{?snk_kind := limiter_exclusive_try_consume, result := false},
         10_000
@@ -99,7 +99,7 @@ t_max_message_rate_zone(_Config) ->
         begin
             set_limiter_for_zone(messages_rate, <<"2/500ms">>),
             ct:sleep(550),
-            spawn_publisher(100)
+            spawn_publisher(100, 1)
         end,
         #{?snk_kind := limiter_shared_try_consume, result := false},
         10_000
@@ -110,7 +110,7 @@ t_bytes_rate_listener(_Config) ->
         begin
             set_limiter_for_listener(bytes_rate, <<"5kb/1m">>),
             ct:sleep(550),
-            spawn_publisher(100)
+            spawn_publisher(100, 1)
         end,
         #{?snk_kind := limiter_exclusive_try_consume, result := false},
         10_000
@@ -121,10 +121,35 @@ t_bytes_rate_zone(_Config) ->
         begin
             set_limiter_for_zone(bytes_rate, <<"5kb/1m">>),
             ct:sleep(550),
-            spawn_publisher(100)
+            spawn_publisher(100, 1)
         end,
         #{?snk_kind := limiter_shared_try_consume, result := false},
         10_000
+    ).
+
+t_metrics_quota_exceeded(_Config) ->
+    ?assertWaitEvent(
+        begin
+            set_limiter_for_zone(messages_rate, <<"2/500ms">>),
+            ct:sleep(550),
+            spawn_publisher(100, 0)
+        end,
+        #{?snk_kind := limiter_shared_try_consume, result := false},
+        10_000
+    ),
+    ?retry(
+        _Inteval = 100,
+        _Attempts = 10,
+        ?assert(
+            emqx_metrics:val('packets.publish.quota_exceeded') > 0
+        )
+    ),
+    ?retry(
+        _Inteval = 100,
+        _Attempts = 10,
+        ?assert(
+            emqx_metrics:val('messages.dropped.quota_exceeded') > 0
+        )
     ).
 
 %%--------------------------------------------------------------------
@@ -165,14 +190,14 @@ run_connector() ->
     ct:sleep(10),
     run_connector().
 
-spawn_publisher(PayloadSize) ->
+spawn_publisher(PayloadSize, QoS) ->
     spawn_link(fun() ->
         {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
         {ok, _} = emqtt:connect(C),
-        run_publisher(C, PayloadSize)
+        run_publisher(C, PayloadSize, QoS)
     end).
 
-run_publisher(C, PayloadSize) ->
-    _ = emqtt:publish(C, <<"test">>, binary:copy(<<"a">>, PayloadSize), 1),
+run_publisher(C, PayloadSize, QoS) ->
+    _ = emqtt:publish(C, <<"test">>, binary:copy(<<"a">>, PayloadSize), QoS),
     ct:sleep(10),
-    run_publisher(C, PayloadSize).
+    run_publisher(C, PayloadSize, QoS).
