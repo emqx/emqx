@@ -64,7 +64,8 @@
     %% This field points at the approximate position of the last
     %% fulfilled request. It's used to rotate through subscriptions to
     %% make fulfillment more fair:
-    last_served :: ?queue_key(emqx_ds:stream(), _TF, _Key, _Node, _SubRef) | undefined
+    last_served :: ?queue_key(emqx_ds:stream(), _TF, _Key, _Node, _SubRef) | undefined,
+    pending_handovers = gen_server:reqids_new() :: gen_server:request_id_collection()
 }).
 
 -type s() :: #s{}.
@@ -141,8 +142,22 @@ handle_info(#unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}) ->
             queue_drop(Queue, SubState)
     end,
     {noreply, S};
-handle_info(_Info, S) ->
-    {noreply, S}.
+handle_info(Info, S0 = #s{pending_handovers = Handovers0, sub_tab = SubTab}) ->
+    case gen_server:check_response(Info, Handovers0, true) of
+        {Response, SubRef, Handovers} ->
+            S = S0#s{pending_handovers = Handovers},
+            case emqx_ds_beamformer:sub_tab_lookup(SubTab, SubRef) of
+                {ok, SubState} ->
+                    handover_complete(Response, SubState, S);
+                undefined ->
+                    ok
+            end,
+            {noreply, S};
+        no_request ->
+            {noreply, S0};
+        no_reply ->
+            {noreply, S0}
+    end.
 
 terminate(Reason, #s{sub_tab = SubTab, shard_id = ShardId, name = Name}) ->
     gproc_pool:disconnect_worker(pool(ShardId), Name),
@@ -219,12 +234,7 @@ do_fulfill(
     case ScanResult of
         {ok, EndKey, []} ->
             %% Empty batch? Try to move request to the RT queue:
-            move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey),
-            %% `move_to_realtime' function consumes elements from the
-            %% queue, making it unnecessary to update `last_served'
-            %% explicitly. The same applies to other clauses that
-            %% return `S' unchanged.
-            S;
+            move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey);
         {ok, EndKey, Batch} ->
             fulfill_batch(S, Stream, TopicFilter, StartKey, EndKey, Batch);
         {error, recoverable, Err} ->
@@ -260,17 +270,17 @@ do_fulfill(
     emqx_ds:message_key(),
     emqx_ds:message_key()
 ) ->
-    ok.
+    s().
 move_to_realtime(
-    S = #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue},
+    S = #s{shard_id = DBShard, queue = Queue, pending_handovers = Handovers0},
     Stream,
     TopicFilter,
     StartKey,
     EndKey
 ) ->
     Reqs = lookup_subs(S, Stream, TopicFilter, StartKey),
-    lists:foreach(
-        fun(Req) ->
+    Handovers = lists:foldl(
+        fun(Req, HandoversAcc) ->
             ?tp(debug, beamformer_move_to_rt, #{
                 shard => DBShard,
                 stream => Stream,
@@ -279,39 +289,54 @@ move_to_realtime(
                 end_key => EndKey,
                 req_id => Req#sub_state.req_id
             }),
-            case emqx_ds_beamformer_rt:enqueue(DBShard, Req) of
-                ok ->
-                    drop(Queue, SubTab, Req);
-                {error, unrecoverable, stale} ->
-                    %% Race condition: new data has been added. Keep
-                    %% this request in the catchup queue, so
-                    %% fulfillment of this requst is retried
-                    %% immediately (is it a good idea?):
-                    ok;
-                {error, recoverable, Error} ->
-                    %% TODO: currently enqueue cannot fail due to
-                    %% infinite timeout. However, sync call with an
-                    %% infinite timeout is a temporary solution. There
-                    %% should be a async ownership transfer protocol
-                    %% that doesn't block the caller.
-                    ?tp(
-                        warning,
-                        emqx_ds_beamformer_move_to_rt_fail,
-                        #{shard => DBShard, recoverable => true, req => Req, error => Error}
-                    ),
-                    handle_recoverable(S, [Req]);
-                Err = {error, unrecoverable, Reason} ->
-                    ?tp(
-                        error,
-                        emqx_ds_beamformer_move_to_rt_fail,
-                        #{shard => DBShard, recoverable => false, req => Req, error => Reason}
-                    ),
-                    emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Err, [Req]),
-                    queue_drop(Queue, Req)
-            end
+            %% Remove request the active queue, but keep it in the sub
+            %% table for now:
+            queue_drop(Queue, Req),
+            %% Send async handover request to the RT worker:
+            emqx_ds_beamformer_rt:enqueue(DBShard, Req, HandoversAcc)
         end,
+        Handovers0,
         Reqs
-    ).
+    ),
+    S#s{pending_handovers = Handovers}.
+
+handover_complete(
+    Reply,
+    SubState = #sub_state{req_id = SubRef},
+    S = #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue}
+) ->
+    case Reply of
+        {reply, Result} ->
+            ok;
+        {error, Err} ->
+            Result = {error, recoverable, Err}
+    end,
+    case Result of
+        ok ->
+            %% Handover has been successful. Remove the request from
+            %% the subscription table as well:
+            emqx_ds_beamformer:sub_tab_delete(SubTab, SubRef);
+        ?err_unrec(stale) ->
+            %% Race condition: new data has been added. Add the
+            %% request back to the active queue, so it can be
+            %% retried:
+            queue_push(Queue, SubState);
+        ?err_rec(Reason) ->
+            ?tp(
+                warning,
+                emqx_ds_beamformer_move_to_rt_fail,
+                #{shard => DBShard, recoverable => true, req => SubState, error => Reason}
+            ),
+            handle_recoverable(S, [SubState]);
+        ?err_unrec(Reason) ->
+            ?tp(
+                error,
+                emqx_ds_beamformer_move_to_rt_fail,
+                #{shard => DBShard, recoverable => false, req => SubState, error => Reason}
+            ),
+            emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, ?err_unrec(Reason), [SubState]),
+            queue_drop(Queue, SubState)
+    end.
 
 -spec fulfill_batch(
     s(),
@@ -428,7 +453,8 @@ queue_lookup(#s{queue = Queue}, Stream, TopicFilter, StartKey) ->
 lookup_subs(S = #s{sub_tab = SubTab}, Stream, TopicFilter, StartKey) ->
     lists:map(
         fun({_Node, ReqId}) ->
-            emqx_ds_beamformer:sub_tab_lookup(SubTab, ReqId)
+            {ok, SubState} = emqx_ds_beamformer:sub_tab_lookup(SubTab, ReqId),
+            SubState
         end,
         queue_lookup(S, Stream, TopicFilter, StartKey)
     ).

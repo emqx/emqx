@@ -23,7 +23,7 @@
 -behaviour(gen_server).
 
 %% API:
--export([pool/1, start_link/4, enqueue/2, shard_event/2, seal_generation/2]).
+-export([pool/1, start_link/4, enqueue/3, shard_event/2, seal_generation/2]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -66,17 +66,12 @@
 pool(DBShard) ->
     {emqx_ds_beamformer_rt, DBShard}.
 
--spec enqueue(_Shard, emqx_ds_beamformer:sub_state()) ->
-    ok | {error, unrecoverable, stale} | emqx_ds:error(_).
-enqueue(Shard, Req = #sub_state{req_id = SubId, stream = Stream}) ->
+-spec enqueue(_Shard, emqx_ds_beamformer:sub_state(), gen_server:request_id_collection()) ->
+    gen_server:request_id_collection().
+enqueue(Shard, Req = #sub_state{req_id = SubId, stream = Stream}, ReqIdCollection) ->
     ?tp(debug, beamformer_enqueue, #{req_id => SubId, queue => rt}),
     Worker = gproc_pool:pick_worker(pool(Shard), Stream),
-    try
-        gen_server:call(Worker, Req)
-    catch
-        exit:{timeout, _} ->
-            {error, recoverable, timeout}
-    end.
+    gen_server:send_request(Worker, Req, SubId, ReqIdCollection).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
@@ -313,7 +308,10 @@ do_process_stream_event(
                 end,
             Ids = emqx_ds_beamformer_waitq:matching_keys(Stream, ['#'], Queue),
             MatchReqs = lists:map(
-                fun({_Node, SubId}) -> emqx_ds_beamformer:sub_tab_lookup(SubTab, SubId) end,
+                fun({_Node, SubId}) ->
+                    {ok, SubState} = emqx_ds_beamformer:sub_tab_lookup(SubTab, SubId),
+                    SubState
+                end,
                 Ids
             ),
             emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, MatchReqs),
