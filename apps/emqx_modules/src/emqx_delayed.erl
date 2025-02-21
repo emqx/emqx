@@ -156,10 +156,10 @@ on_message_publish(
                 {Interval * 1000 + Ts, Interval};
             Timestamp ->
                 %% Check malicious timestamp?
-                Internal = Timestamp - erlang:round(Ts / 1000),
-                case abs(Internal) > ?MAX_INTERVAL of
+                Interval = Timestamp - erlang:round(Ts / 1000),
+                case abs(Interval) > ?MAX_INTERVAL of
                     true -> error(invalid_delayed_timestamp);
-                    false -> {Timestamp * 1000, Internal}
+                    false -> {Timestamp * 1000, Interval}
                 end
         end,
     PubMsg = Msg#message{topic = Topic1},
