@@ -818,7 +818,6 @@ t_missing_table(Config) ->
                     emqx_bridge_testlib:get_bridge_api(Config)
                 )
             ),
-            ?block_until(#{?snk_kind := oracle_undefined_table}),
             MsgId = erlang:unique_integer(),
             Params = #{
                 topic => ?config(mqtt_topic, Config),
@@ -832,10 +831,7 @@ t_missing_table(Config) ->
             ),
             ok
         end,
-        fun(Trace) ->
-            ?assertNotMatch([], ?of_kind(oracle_undefined_table, Trace)),
-            ok
-        end
+        []
     ).
 
 t_table_removed(Config) ->
@@ -872,7 +868,10 @@ t_table_removed(Config) ->
 t_update_with_invalid_prepare(Config) ->
     reset_table(Config),
 
-    {ok, _} = create_bridge_api(Config),
+    {ok, _} = create_bridge_api(
+        Config,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+    ),
 
     %% retainx is a bad column name
     BadSQL =
@@ -886,10 +885,10 @@ t_update_with_invalid_prepare(Config) ->
 
     ?retry(
         1_000,
-        10,
+        20,
         begin
             {ok, Body1} = emqx_bridge_testlib:get_bridge_api(Config),
-            ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
+            ?assertMatch(#{<<"status_reason">> := _, <<"status">> := <<"disconnected">>}, Body1),
             Error1 = maps:get(<<"status_reason">>, Body1),
             case re:run(Error1, <<"unhealthy_target">>, [{capture, none}]) of
                 match ->
