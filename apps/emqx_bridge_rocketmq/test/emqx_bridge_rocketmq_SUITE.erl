@@ -76,7 +76,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
-    delete_bridge(Config),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
@@ -84,7 +84,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ok = snabbkaffe:stop(),
-    delete_bridge(Config),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -200,7 +200,7 @@ create_bridge(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
     Name = ?GET_CONFIG(rocketmq_name, Config),
     RocketMQConf = ?GET_CONFIG(rocketmq_config, Config),
-    emqx_bridge:create(BridgeType, Name, RocketMQConf).
+    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, RocketMQConf).
 
 create_bridge_ssl(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
@@ -226,7 +226,7 @@ create_bridge_ssl_bad_ssl_opts(Config) ->
         },
         RocketMQConf0
     ),
-    emqx_bridge:create(BridgeType, Name, RocketMQConf1).
+    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, RocketMQConf1).
 
 delete_bridge(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
@@ -237,8 +237,12 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
+        {ok, Res} ->
+            #{<<"type">> := Type, <<"name">> := Name} = Params,
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res)};
+        Error ->
+            Error
     end.
 
 send_message(Config, Payload) ->
@@ -253,6 +257,14 @@ query_resource(Config, Request) ->
     ID = emqx_bridge_v2:id(BridgeType, Name),
     ResID = emqx_connector_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
+
+create_action_api(Type, Name, Conf) ->
+    emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, action},
+        {action_type, Type},
+        {action_name, Name},
+        {action_config, Conf}
+    ]).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -367,7 +379,7 @@ t_setup_two_actions_via_http_api_and_publish(Config) ->
         [<<"parameters">>, <<"topic">>], ActionConf, Topic2
     ),
     Action2Name = atom_to_binary(?FUNCTION_NAME),
-    {ok, _} = emqx_bridge_v2:create(BridgeType, Action2Name, ActionConf2),
+    {ok, _} = create_action_api(BridgeType, Action2Name, ActionConf2),
     SentData = #{payload => ?PAYLOAD},
     ?check_trace(
         begin

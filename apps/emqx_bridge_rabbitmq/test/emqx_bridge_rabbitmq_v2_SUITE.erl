@@ -46,15 +46,19 @@ groups() ->
     ].
 
 init_per_group(Group, Config) ->
-    Config1 = emqx_bridge_rabbitmq_test_utils:init_per_group(Group, Config),
-    Name = atom_to_binary(?MODULE),
-    create_connector(Name, get_rabbitmq(Config1)),
-    Config1.
+    emqx_bridge_rabbitmq_test_utils:init_per_group(Group, Config).
 
 end_per_group(Group, Config) ->
-    Name = atom_to_binary(?MODULE),
-    delete_connector(Name),
     emqx_bridge_rabbitmq_test_utils:end_per_group(Group, Config).
+
+init_per_testcase(_TestCase, Config) ->
+    Name = atom_to_binary(?MODULE),
+    create_connector(Name, get_rabbitmq(Config)),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ok.
 
 rabbitmq_connector(Config) ->
     UseTLS = maps:get(tls, Config, false),
@@ -127,14 +131,19 @@ rabbitmq_action(TestCase, Exchange) ->
 
 create_connector(Name, Config) ->
     Connector = rabbitmq_connector(Config),
-    {ok, _} = emqx_connector:create(?TYPE, Name, Connector).
+    {ok, _} = emqx_bridge_v2_testlib:create_connector_api(Name, ?TYPE, Connector).
 
 delete_connector(Name) ->
     ok = emqx_connector:remove(?TYPE, Name).
 
 create_source(Name) ->
     Source = rabbitmq_source(),
-    {ok, _} = emqx_bridge_v2:create(sources, ?TYPE, Name, Source).
+    {ok, _} = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, source},
+        {source_type, ?TYPE},
+        {source_name, Name},
+        {source_config, Source}
+    ]).
 
 delete_source(Name) ->
     ok = emqx_bridge_v2:remove(sources, ?TYPE, Name).
@@ -144,7 +153,12 @@ create_action(TestCase, Name) ->
 
 create_action(TestCase, Name, Exchange) ->
     Action = rabbitmq_action(TestCase, Exchange),
-    {ok, _} = emqx_bridge_v2:create(actions, ?TYPE, Name, Action).
+    {ok, _} = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, action},
+        {action_type, ?TYPE},
+        {action_name, Name},
+        {action_config, Action}
+    ]).
 
 delete_action(Name) ->
     ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).

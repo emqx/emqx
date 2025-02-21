@@ -294,7 +294,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(pulsar_name, Config),
     PulsarConfig0 = ?config(pulsar_config, Config),
     PulsarConfig = emqx_utils_maps:deep_merge(PulsarConfig0, Overrides),
-    emqx_bridge:create(Type, Name, PulsarConfig).
+    emqx_bridge_testlib:create_bridge_api(Type, Name, PulsarConfig).
 
 delete_bridge(Config) ->
     Type = ?BRIDGE_TYPE_BIN,
@@ -317,6 +317,8 @@ create_bridge_api(Config, Overrides) ->
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
+                TypeV1 = emqx_action_info:bridge_v1_type_to_action_type(TypeBin),
+                _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeV1, Name),
                 {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             {error, {Status, Headers, Body0}} ->
                 {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
@@ -512,13 +514,18 @@ try_decode_json(Payload) ->
     end.
 
 cluster(Config) ->
-    Apps = [
-        {emqx, #{override_env => [{boot_modules, [broker]}]}}
-        | ?APPS
-    ],
+    Apps = [emqx | ?APPS],
     Nodes = emqx_cth_cluster:start(
         [
-            {emqx_bridge_pulsar_impl_producer1, #{apps => Apps}},
+            {emqx_bridge_pulsar_impl_producer1, #{
+                apps => Apps ++
+                    [
+                        emqx_management,
+                        emqx_mgmt_api_test_util:emqx_dashboard(
+                            "dashboard.listeners.http.bind = 28083"
+                        )
+                    ]
+            }},
             {emqx_bridge_pulsar_impl_producer2, #{apps => Apps}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -1015,7 +1022,7 @@ t_resource_manager_crash_after_producers_started(Config) ->
             end),
             %% even if the resource manager is dead, we can still
             %% clear the allocated resources.
-            {{error, {config_update_crashed, {killed, _}}}, {ok, _}} =
+            {_, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
                     #{?snk_kind := pulsar_bridge_stopped, instance_id := InstanceId} when
@@ -1023,7 +1030,6 @@ t_resource_manager_crash_after_producers_started(Config) ->
                     10_000
                 ),
             ?assertEqual([], get_pulsar_producers()),
-            ?assertMatch({error, bridge_not_found}, delete_bridge(Config)),
             ok
         end,
         []
@@ -1049,14 +1055,13 @@ t_resource_manager_crash_before_producers_started(Config) ->
             end),
             %% even if the resource manager is dead, we can still
             %% clear the allocated resources.
-            {{error, {config_update_crashed, _}}, {ok, _}} =
+            {_, {ok, _}} =
                 ?wait_async_action(
                     create_bridge(Config),
                     #{?snk_kind := pulsar_bridge_stopped},
                     10_000
                 ),
             ?assertEqual([], get_pulsar_producers()),
-            ?assertMatch({error, bridge_not_found}, delete_bridge(Config)),
             ok
         end,
         []

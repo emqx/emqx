@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2_testlib).
 
+-feature(maybe_expr, enable).
+
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -1444,6 +1446,35 @@ proplist_update(Proplist, K, Fn) ->
     {K, OldV} = lists:keyfind(K, 1, Proplist),
     NewV = Fn(OldV),
     lists:keystore(K, 1, Proplist, {K, NewV}).
+
+kickoff_action_health_check(Type, Name) ->
+    kickoff_kind_health_check(actions, Type, Name).
+
+kickoff_source_health_check(Type, Name) ->
+    kickoff_kind_health_check(sources, Type, Name).
+
+kickoff_kind_health_check(ConfRootKey, Type, Name) ->
+    Res =
+        try
+            maybe
+                {ok, {ConnResId, ChannelResId}} ?=
+                    emqx_bridge_v2:get_resource_ids(ConfRootKey, Type, Name),
+                _ = emqx_resource_manager:channel_health_check(ConnResId, ChannelResId),
+                ok
+            end
+        catch
+            throw:Reason ->
+                {error, Reason};
+            exit:{timeout, _} ->
+                {error, timeout};
+            K:E:S ->
+                {error, {K, E, S}}
+        end,
+    maybe
+        {error, _} ?= Res,
+        ct:pal("health check kickoff failed: ~p", [Res]),
+        Res
+    end.
 
 -define(AUTH_HEADER_FN_PD_KEY, {?MODULE, auth_header_fn}).
 get_auth_header_getter() ->

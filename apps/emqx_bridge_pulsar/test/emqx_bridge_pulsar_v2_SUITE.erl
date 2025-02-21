@@ -170,10 +170,6 @@ create_connector(Config) ->
 delete_connector(Name) ->
     ok = emqx_connector:remove(?TYPE, Name).
 
-create_action(Name, Config) ->
-    Action = action_config(Config),
-    {ok, _} = emqx_bridge_v2:create(actions, ?TYPE, Name, Action).
-
 delete_action(Name) ->
     ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).
 
@@ -468,7 +464,14 @@ t_action(Config) when is_list(Config) ->
         end,
     Name = atom_to_binary(?FUNCTION_NAME),
     create_connector(Config),
-    create_action(Name, [{query_mode, QueryMode} | Config]),
+    ActionConfig = action_config([{query_mode, QueryMode} | Config]),
+    create_action_api([
+        {brige_kind, action},
+        {action_type, ?TYPE},
+        {action_name, Name},
+        {action_config, ActionConfig}
+        | Config
+    ]),
     Actions = emqx_bridge_v2:list(actions),
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),

@@ -364,7 +364,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(influxdb_name, Config),
     InfluxDBConfig0 = ?config(influxdb_config, Config),
     InfluxDBConfig = emqx_utils_maps:deep_merge(InfluxDBConfig0, Overrides),
-    emqx_bridge:create(Type, Name, InfluxDBConfig).
+    emqx_bridge_testlib:create_bridge_api(Type, Name, InfluxDBConfig).
 
 delete_bridge(Config) ->
     Type = influxdb_type_bin(?config(influxdb_type, Config)),
@@ -372,12 +372,7 @@ delete_bridge(Config) ->
     emqx_bridge:remove(Type, Name).
 
 delete_all_bridges() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
 
 delete_all_rules() ->
     lists:foreach(
@@ -916,6 +911,7 @@ t_tag_set_use_literal_value(Config) ->
 
 t_bad_timestamp(Config) ->
     test_bad_timestamp(Config, <<"bad_timestamp">>, non_integer_timestamp),
+    delete_all_bridges(),
     test_bad_timestamp(Config, <<"${timestamp}000">>, unsupported_placeholder_usage_for_timestamp).
 
 test_bad_timestamp(Config, Timestamp, ErrTag) ->

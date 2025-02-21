@@ -47,7 +47,6 @@ basic_tests() ->
     ].
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
     AppsToStart = [
         emqx,
         emqx_conf,
@@ -55,17 +54,14 @@ init_per_suite(Config) ->
         emqx_bridge,
         emqx_bridge_http,
         emqx_rule_engine,
-        emqx_modules
+        emqx_modules,
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard()
     ],
-    %% I don't know why we need to stop the apps and then start them but if we
-    %% don't do this and other suites run before this suite the test cases will
-    %% fail as it seems like the connector silently refuses to start.
-    ok = emqx_cth_suite:stop(AppsToStart),
     Apps = emqx_cth_suite:start(
         AppsToStart,
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_mgmt_api_test_util:init_suite(),
     [{apps, Apps} | Config].
 
 init_per_group(GroupName, Config) ->
@@ -76,7 +72,6 @@ end_per_group(_GroupName, Config) ->
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
-    emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
@@ -323,10 +318,13 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
                 <<"batch_time">> => 500
             }
         },
-    {ok, _} = emqx_bridge_v2:create(
-        rule_engine_test,
-        ?FUNCTION_NAME,
-        ActionConf
+    {ok, _} = emqx_bridge_v2_testlib:create_kind_api(
+        [
+            {bridge_kind, action},
+            {action_type, rule_engine_test},
+            {action_name, ?FUNCTION_NAME},
+            {action_config, ActionConf}
+        ]
     ),
     SQL = <<"SELECT payload.is_stop_after_render as stop_after_render FROM \"", Name/binary, "\"">>,
     {ok, RuleID} = create_rule_with_action(
@@ -588,10 +586,13 @@ do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) 
                 <<"request_ttl">> => 200
             }
         },
-    {ok, _} = emqx_bridge_v2:create(
-        rule_engine_test,
-        ?FUNCTION_NAME,
-        ActionConf
+    {ok, _} = emqx_bridge_v2_testlib:create_kind_api(
+        [
+            {bridge_kind, action},
+            {action_type, rule_engine_test},
+            {action_name, ?FUNCTION_NAME},
+            {action_config, ActionConf}
+        ]
     ),
     SQL = <<"SELECT payload.is_stop_after_render as stop_after_render FROM \"", Name/binary, "\"">>,
     {ok, RuleID} = create_rule_with_action(

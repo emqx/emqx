@@ -187,7 +187,7 @@ make_bridge(Config, Overrides) ->
     Type = <<"clickhouse">>,
     Name = atom_to_binary(?MODULE),
     BridgeConfig = maps:merge(clickhouse_config(Config), Overrides),
-    {ok, _} = emqx_bridge:create(
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(
         Type,
         Name,
         BridgeConfig

@@ -214,7 +214,7 @@ t_create_delete_bridge(Config) ->
     IsBatch = ?config(is_batch, Config),
     ?assertMatch(
         {ok, _},
-        emqx_bridge:create(Type, Name, BridgeConfig)
+        create(Type, Name, BridgeConfig)
     ),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?WAIT(
@@ -281,7 +281,7 @@ t_check_replay(Config) ->
 
     ?assertMatch(
         {ok, _},
-        emqx_bridge:create(Type, Name, toxiproxy_redis_bridge_config())
+        create(Type, Name, toxiproxy_redis_bridge_config())
     ),
 
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
@@ -334,7 +334,7 @@ t_permanent_error(_Config) ->
 
     ?assertMatch(
         {ok, _},
-        emqx_bridge:create(Type, Name, invalid_command_bridge_config())
+        create(Type, Name, invalid_command_bridge_config())
     ),
 
     ?check_trace(
@@ -360,7 +360,7 @@ t_auth_username_password(Config) ->
     BridgeConfig = username_password_redis_bridge_config(),
     ?assertMatch(
         {ok, _},
-        emqx_bridge:create(Type, Name, BridgeConfig)
+        create(Type, Name, BridgeConfig)
     ),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?WAIT(
@@ -377,7 +377,7 @@ t_auth_error_username_password(Config) ->
     BridgeConfig = maps:merge(BridgeConfig0, #{<<"password">> => <<"wrong_password">>}),
     ?assertMatch(
         {ok, _},
-        emqx_bridge:create(Type, Name, BridgeConfig)
+        create(Type, Name, BridgeConfig)
     ),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?WAIT(
@@ -398,7 +398,7 @@ t_auth_error_password_only(Config) ->
     BridgeConfig = maps:merge(BridgeConfig0, #{<<"password">> => <<"wrong_password">>}),
     ?assertMatch(
         {ok, _},
-        emqx_bridge:create(Type, Name, BridgeConfig)
+        create(Type, Name, BridgeConfig)
     ),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?assertEqual(
@@ -417,7 +417,7 @@ t_create_disconnected(Config) ->
 
     ?check_trace(
         with_down_failure(Config, "redis_single_tcp", fun() ->
-            {ok, _} = emqx_bridge:create(
+            {ok, _} = create(
                 Type, Name, toxiproxy_redis_bridge_config()
             )
         end),
@@ -689,3 +689,6 @@ wait(F, Attempt) ->
             timer:sleep(1000),
             wait(F, Attempt - 1)
     end.
+
+create(Type, Name, Config) ->
+    emqx_bridge_testlib:create_bridge_api(Type, Name, Config).

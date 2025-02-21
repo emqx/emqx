@@ -358,7 +358,9 @@ create_bridge(Config, Overrides) ->
     Name = ?config(consumer_name, Config),
     BridgeConfig0 = ?config(consumer_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    emqx_bridge:create(Type, Name, BridgeConfig).
+    Res = emqx_bridge_testlib:create_bridge_api(Type, Name, BridgeConfig),
+    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name),
+    Res.
 
 remove_bridge(Config) ->
     Type = ?BRIDGE_TYPE_BIN,
@@ -2229,7 +2231,15 @@ t_cluster_subscription(Config) ->
                 [N1, N2] = emqx_cth_cluster:start(
                     [
                         {gcp_pubsub_consumer_subscription1, #{apps => AppSpecs}},
-                        {gcp_pubsub_consumer_subscription2, #{apps => AppSpecs}}
+                        {gcp_pubsub_consumer_subscription2, #{
+                            apps => AppSpecs ++
+                                [
+                                    emqx_management,
+                                    emqx_mgmt_api_test_util:emqx_dashboard(
+                                        "dashboard.listeners.http.bind = 28083"
+                                    )
+                                ]
+                        }}
                     ],
                     #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
                 ),

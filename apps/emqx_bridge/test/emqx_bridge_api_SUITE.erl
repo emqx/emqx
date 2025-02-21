@@ -25,6 +25,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
+-define(ACTION_HTTP_TYPE, <<"http">>).
 -define(BRIDGE_TYPE_HTTP, <<"webhook">>).
 -define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(URL(PORT, PATH),
@@ -189,13 +190,7 @@ end_per_testcase(_, Config) ->
     ok.
 
 clear_resources() ->
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    lists:foreach(
-        fun(#{type := Type, name := Name}) ->
-            ok = emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
 
 %%------------------------------------------------------------------------------
 %% HTTP server for testing
@@ -243,13 +238,13 @@ make_response(CodeStr, Str) ->
 handle_fun_200_ok(Conn, Parent) ->
     case gen_tcp:recv(Conn, 0) of
         {ok, ReqStr} ->
-            ct:pal("the http handler got request: ~p", [ReqStr]),
+            ct:pal("http handler got request: ~p", [ReqStr]),
             Req = parse_http_request(ReqStr),
             Parent ! {http_server, received, Req},
             gen_tcp:send(Conn, make_response("200 OK", "Request OK")),
             handle_fun_200_ok(Conn, Parent);
         {error, Reason} ->
-            ct:pal("the http handler recv error: ~p", [Reason]),
+            ct:pal("http handler recv error: ~p", [Reason]),
             timer:sleep(100),
             gen_tcp:close(Conn)
     end.
@@ -293,6 +288,7 @@ t_http_crud_apis(Config) ->
             Config
         )
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
 
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     %% send an message to emqx and the message should be forwarded to the HTTP server
@@ -331,6 +327,7 @@ t_http_crud_apis(Config) ->
             Config
         )
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
 
     %% list all bridges again, assert Bridge2 is in it
     ?assertMatch(
@@ -497,12 +494,14 @@ t_http_crud_apis(Config) ->
         BrokenBridge
     ),
 
-    {ok, 200, FixedBridge} = request_json(
+    {ok, 200, _} = request_json(
         put,
         uri(["bridges", BridgeID]),
         ?HTTP_BRIDGE(URL1),
         Config
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
+    {ok, 200, FixedBridge} = request_json(get, uri(["bridges", BridgeID]), Config),
     ?assertMatch(
         #{
             <<"status">> := <<"connected">>,
@@ -551,6 +550,7 @@ t_http_bridges_local_topic(Config) ->
         ?HTTP_BRIDGE(URL1, Name1),
         Config
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name1),
     %% and we create another one without local_topic
     {ok, 201, _} = request(
         post,
@@ -558,6 +558,7 @@ t_http_bridges_local_topic(Config) ->
         maps:remove(<<"local_topic">>, ?HTTP_BRIDGE(URL1, Name2)),
         Config
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name2),
     BridgeID1 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name1),
     BridgeID2 = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name2),
     %% Send an message to emqx and the message should be forwarded to the HTTP server.
@@ -755,7 +756,7 @@ do_start_stop_bridges(Type, Config) ->
             <<"type">> := ?BRIDGE_TYPE_HTTP,
             <<"name">> := Name,
             <<"enable">> := true,
-            <<"status">> := <<"connected">>,
+            <<"status">> := _,
             <<"node_status">> := [_ | _],
             <<"url">> := URL1
         }},
@@ -766,6 +767,7 @@ do_start_stop_bridges(Type, Config) ->
             Config
         )
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
 
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     ExpectedStatus =
@@ -778,24 +780,28 @@ do_start_stop_bridges(Type, Config) ->
 
     %% stop it
     {ok, 204, <<>>} = request(post, {operation, Type, stop, BridgeID}, Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := ExpectedStatus}},
         request_json(get, uri(["bridges", BridgeID]), Config)
     ),
     %% start again
     {ok, 204, <<>>} = request(post, {operation, Type, start, BridgeID}, Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
     ),
     %% start a started bridge
     {ok, 204, <<>>} = request(post, {operation, Type, start, BridgeID}, Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
     ),
     %% restart an already started bridge
     {ok, 204, <<>>} = request(post, {operation, Type, restart, BridgeID}, Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
@@ -804,6 +810,7 @@ do_start_stop_bridges(Type, Config) ->
     {ok, 204, <<>>} = request(post, {operation, Type, stop, BridgeID}, Config),
     %% restart a stopped bridge
     {ok, 204, <<>>} = request(post, {operation, Type, restart, BridgeID}, Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
@@ -826,7 +833,7 @@ do_start_stop_bridges(Type, Config) ->
     BadServer = iolist_to_binary(io_lib:format("localhost:~B", [ListenPort])),
     BadName = <<"bad_", (atom_to_binary(Type))/binary>>,
     MQTTBridgeConf0 = ?MQTT_BRIDGE(BadServer, BadName),
-    MQTTBridgeConf = MQTTBridgeConf0#{<<"connect_timeout">> => <<"30s">>},
+    MQTTBridgeConf = MQTTBridgeConf0#{<<"connect_timeout">> => <<"20s">>},
     CreateRes0 = request_json(
         post,
         uri(["bridges"]),
@@ -842,8 +849,10 @@ do_start_stop_bridges(Type, Config) ->
         }},
         CreateRes0
     ),
-    {ok, 201, CreateRes1} = CreateRes0,
-    case CreateRes1 of
+    _ = kickoff_action_health_check(Config, ?BRIDGE_TYPE_MQTT, BadName),
+    BadBridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_MQTT, BadName),
+    {ok, 200, Res1} = request_json(get, uri(["bridges", BadBridgeID]), Config),
+    case Res1 of
         #{
             <<"node_status">> := [
                 #{
@@ -872,9 +881,9 @@ do_start_stop_bridges(Type, Config) ->
         } ->
             ok;
         _ ->
-            error({unexpected_result, CreateRes1})
+            ct:pal("unexpected result:\n  ~p", [Res1]),
+            error({unexpected_result, Res1})
     end,
-    BadBridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_MQTT, BadName),
     ?assertMatch(
         %% request from product: return 400 on such errors
         {ok, SC, _} when SC == 500 orelse SC == 400,
@@ -934,7 +943,7 @@ t_enable_disable_bridges(Config) ->
             <<"type">> := ?BRIDGE_TYPE_HTTP,
             <<"name">> := Name,
             <<"enable">> := true,
-            <<"status">> := <<"connected">>,
+            <<"status">> := _,
             <<"node_status">> := [_ | _],
             <<"url">> := URL1
         }},
@@ -945,6 +954,7 @@ t_enable_disable_bridges(Config) ->
             Config
         )
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     %% disable it
     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), Config),
@@ -954,18 +964,21 @@ t_enable_disable_bridges(Config) ->
     ),
     %% enable again
     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
     ),
     %% enable an already started bridge
     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
     ),
     %% disable it again
     {ok, 204, <<>>} = request(put, enable_path(false, BridgeID), Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
 
     %% bad param
     {ok, 404, _} = request(put, enable_path(foo, BridgeID), Config),
@@ -984,6 +997,7 @@ t_enable_disable_bridges(Config) ->
 
     %% enable a stopped bridge
     {ok, 204, <<>>} = request(put, enable_path(true, BridgeID), Config),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
         request_json(get, uri(["bridges", BridgeID]), Config)
@@ -1004,7 +1018,7 @@ t_reset_bridges(Config) ->
             <<"type">> := ?BRIDGE_TYPE_HTTP,
             <<"name">> := Name,
             <<"enable">> := true,
-            <<"status">> := <<"connected">>,
+            <<"status">> := _,
             <<"node_status">> := [_ | _],
             <<"url">> := URL1
         }},
@@ -1286,6 +1300,7 @@ t_metrics(Config) ->
             Config
         )
     ),
+    _ = kickoff_action_health_check(Config, ?ACTION_HTTP_TYPE, Name),
 
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
 
@@ -1492,6 +1507,16 @@ do_send_message(BridgeV1Type, Name, Message) ->
     emqx_bridge_v2:send_message(Type, Name, Message, #{}).
 
 %%
+
+kickoff_action_health_check(Config, Type, Name) ->
+    case proplists:get_value(cluster_nodes, Config) of
+        undefined ->
+            emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name);
+        Nodes ->
+            erpc:multicall(Nodes, fun() ->
+                emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name)
+            end)
+    end.
 
 request(Method, URL, Config) ->
     request(Method, URL, [], Config).

@@ -23,6 +23,7 @@
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 -import(emqx_utils, [redact/1]).
@@ -73,7 +74,8 @@
     get_metrics_from_local_node/2,
     lookup_from_local_node_v6/3,
     get_metrics_from_local_node_v6/3,
-    summary_from_local_node_v7/1
+    summary_from_local_node_v7/1,
+    wait_for_ready_local_node_v7/3
 ]).
 
 -define(BPAPI_NAME, emqx_bridge).
@@ -974,6 +976,7 @@ handle_disable_enable(ConfRootKey, Id, Enable) ->
             emqx_bridge_v2:disable_enable(ConfRootKey, enable_func(Enable), BridgeType, BridgeName)
         of
             {ok, _} ->
+                wait_for_ready(ConfRootKey, BridgeType, BridgeName),
                 ?NO_CONTENT;
             {error, {pre_config_update, _, bridge_not_found}} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
@@ -1375,6 +1378,30 @@ summary_from_local_node_v7(ConfRootKey) ->
         emqx_bridge_v2:list(ConfRootKey)
     ).
 
+wait_for_ready(ConfRootKey, Type, Name) ->
+    Nodes = nodes_supporting_bpapi_version(7),
+    CallsTimeout = 2 * 5_000,
+    RPCTimeout = CallsTimeout + 1_000,
+    _R = emqx_bridge_proto_v7:v2_wait_for_ready_v7(
+        Nodes,
+        ConfRootKey,
+        Type,
+        Name,
+        RPCTimeout
+    ),
+    ok.
+
+%% RPC Target
+wait_for_ready_local_node_v7(ConfRootKey, Type, Name) ->
+    try
+        {ok, {ConnResId, ChannelResId}} =
+            emqx_bridge_v2:get_resource_ids(ConfRootKey, Type, Name),
+        emqx_resource_manager:channel_health_check(ConnResId, ChannelResId)
+    catch
+        exit:{timeout, _} ->
+            {error, timeout}
+    end.
+
 %% resource
 format_resource(
     ConfRootKey,
@@ -1576,6 +1603,7 @@ create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatusCod
 do_create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge_v2:create(ConfRootKey, BridgeType, BridgeName, Conf) of
         {ok, _} ->
+            wait_for_ready(ConfRootKey, BridgeType, BridgeName),
             lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, HttpStatusCode);
         {error, {PreOrPostConfigUpdate, _HandlerMod, Reason}} when
             PreOrPostConfigUpdate =:= pre_config_update;

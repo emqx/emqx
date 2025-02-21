@@ -258,7 +258,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(mysql_name, Config),
     MysqlConfig0 = ?config(mysql_config, Config),
     MysqlConfig = emqx_utils_maps:deep_merge(MysqlConfig0, Overrides),
-    emqx_bridge:create(BridgeType, Name, MysqlConfig).
+    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, MysqlConfig).
 
 delete_bridge(Config) ->
     BridgeType = ?config(mysql_bridge_type, Config),
@@ -269,8 +269,12 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
+        {ok, Res} ->
+            #{<<"type">> := Type, <<"name">> := Name} = Params,
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res)};
+        Error ->
+            Error
     end.
 
 send_message(Config, Payload) ->
@@ -960,12 +964,13 @@ t_batch_update_is_forbidden(Config) ->
                     [global, {capture, none}]
                 )
             ),
-            CreateRes = emqx_bridge_testlib:create_bridge_api(Config, Overrides),
+            _ = emqx_bridge_testlib:create_bridge_api(Config, Overrides),
+            Res = emqx_bridge_testlib:get_bridge_api(Config),
             ?assertMatch(
-                {ok, {{_, 201, _}, _, #{<<"status">> := <<"disconnected">>}}},
-                CreateRes
+                {ok, #{<<"status">> := <<"disconnected">>}},
+                Res
             ),
-            {ok, {{_, 201, _}, _, #{<<"status_reason">> := Reason}}} = CreateRes,
+            {ok, #{<<"status_reason">> := Reason}} = Res,
             ?assertEqual(
                 match,
                 re:run(
@@ -996,9 +1001,11 @@ t_non_batch_update_is_allowed(Config) ->
             ProbeRes = emqx_bridge_testlib:probe_bridge_api(Config, Overrides),
             ?assertMatch({ok, {{_, 204, _}, _, _Body}}, ProbeRes),
             ?assertMatch(
-                {ok, {{_, 201, _}, _, #{<<"status">> := <<"connected">>}}},
+                {ok, {{_, 201, _}, _, #{<<"status">> := _}}},
                 emqx_bridge_testlib:create_bridge_api(Config, Overrides)
             ),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(?ACTION_TYPE, BridgeName),
+
             {ok, #{
                 <<"id">> := RuleId,
                 <<"from">> := [Topic]

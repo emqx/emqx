@@ -199,9 +199,14 @@ create_bridge(Config, GCPPubSubConfigOverrides) ->
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
     GCPPubSubConfig = emqx_utils_maps:deep_merge(GCPPubSubConfig0, GCPPubSubConfigOverrides),
     ct:pal("creating bridge: ~p", [GCPPubSubConfig]),
-    Res = emqx_bridge:create(TypeBin, Name, GCPPubSubConfig),
+    Res = emqx_bridge_testlib:create_bridge_api(TypeBin, Name, GCPPubSubConfig),
     ct:pal("bridge creation result: ~p", [Res]),
-    Res.
+    case Res of
+        {error, {Status, Headers, Body0}} ->
+            {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
+        {ok, {Status, Headers, Body0}} ->
+            {ok, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}}
+    end.
 
 create_bridge_http(Config) ->
     create_bridge_http(Config, _GCPPubSubConfigOverrides = #{}).
@@ -224,6 +229,8 @@ create_bridge_http(Config, GCPPubSubConfigOverrides) ->
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headhers, Res0}} ->
+                TypeV1 = emqx_action_info:bridge_v1_type_to_action_type(TypeBin),
+                _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeV1, Name),
                 {ok, {Status, Headhers, emqx_utils_json:decode(Res0)}};
             {error, {Status, Headers, Body0}} ->
                 {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
@@ -932,12 +939,15 @@ test_publish_success_batch(Config) ->
 
 t_not_a_json(Config) ->
     ?assertMatch(
-        {error, #{
-            kind := validation_error,
-            reason := "not a json",
-            %% should be censored as it contains secrets
-            value := <<"******">>
-        }},
+        {error,
+            {_, _, #{
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := <<"not a json">>,
+                    %% should be censored as it contains secrets
+                    <<"value">> := <<"******">>
+                }
+            }}},
         create_bridge(
             Config,
             #{
@@ -948,20 +958,6 @@ t_not_a_json(Config) ->
     ok.
 
 t_not_of_service_account_type(Config) ->
-    ?assertMatch(
-        {error, #{
-            kind := validation_error,
-            reason := #{wrong_type := <<"not a service account">>},
-            %% should be censored as it contains secrets
-            value := <<"******">>
-        }},
-        create_bridge(
-            Config,
-            #{
-                <<"service_account_json">> => #{<<"type">> => <<"not a service account">>}
-            }
-        )
-    ),
     ?assertMatch(
         {error,
             {{_, 400, _}, _, #{
@@ -983,27 +979,6 @@ t_not_of_service_account_type(Config) ->
 
 t_json_missing_fields(Config) ->
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
-    ?assertMatch(
-        {error, #{
-            kind := validation_error,
-            reason :=
-                #{
-                    missing_keys := [
-                        <<"client_email">>,
-                        <<"private_key">>,
-                        <<"private_key_id">>,
-                        <<"project_id">>,
-                        <<"type">>
-                    ]
-                },
-            %% should be censored as it contains secrets
-            value := <<"******">>
-        }},
-        create_bridge([
-            {gcp_pubsub_config, GCPPubSubConfig0#{<<"service_account_json">> := #{}}}
-            | Config
-        ])
-    ),
     ?assertMatch(
         {error,
             {{_, 400, _}, _, #{
