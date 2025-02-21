@@ -841,7 +841,7 @@ handle_event(enter, _OldState, ?state_stopped = State, Data0) ->
 handle_event(
     {call, From}, #add_channel{channel_id = ChannelId, config = Config}, State, Data0
 ) ->
-    {Actions, Data} = handle_not_connected_add_channel(From, ChannelId, Config, State, Data0),
+    {Actions, Data} = handle_add_channel_not_connected(From, ChannelId, Config, State, Data0),
     {keep_state, Data, Actions};
 handle_event(
     cast, #add_channel{channel_id = _ChannelId, config = _Config} = Op, State, Data0
@@ -1218,7 +1218,7 @@ handle_add_channel(From, Data, ChannelId, Config) ->
             {Actions, Data}
     end.
 
-handle_not_connected_add_channel(From, ChannelId, ChannelConfig, State, Data) ->
+handle_add_channel_not_connected(From, ChannelId, ChannelConfig, State, Data) ->
     %% When state is not connected the channel will be added to the channels
     %% map but nothing else will happen.
     NewData = add_or_update_channel_status(Data, ChannelId, ChannelConfig, State),
@@ -2275,7 +2275,7 @@ collect_and_handle_channel_operations_not_connected(Op, State, Data0) ->
         fun
             (#add_channel{channel_id = ChannelId, config = Config}, {AccActions, AccData}) ->
                 {Actions, Data} =
-                    handle_not_connected_add_channel(From, ChannelId, Config, State, AccData),
+                    handle_add_channel_not_connected(From, ChannelId, Config, State, AccData),
                 {Actions ++ AccActions, Data};
             (#remove_channel{channel_id = ChannelId}, {AccActions, AccData}) ->
                 {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),

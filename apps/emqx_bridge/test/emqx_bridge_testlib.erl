@@ -127,7 +127,7 @@ create_bridge(Config, Overrides) ->
     emqx_bridge:create(BridgeType, BridgeName, BridgeConfig).
 
 %% For running RPCs in peers.
-infer_dashboard_host_port() ->
+infer_dashboard_base_url() ->
     Port = emqx_config:get([dashboard, listeners, http, bind], 18083),
     "http://127.0.0.1:" ++ integer_to_list(Port).
 
@@ -159,7 +159,7 @@ create_bridge_api(Config, Overrides) ->
 
 create_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
-    Host = infer_dashboard_host_port(),
+    Host = infer_dashboard_base_url(),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
