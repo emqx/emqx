@@ -12,6 +12,8 @@
 -feature(maybe_expr, enable).
 -compile(inline).
 
+-export([print_status/3]).
+
 -behaviour(gen_server).
 
 %% API:
@@ -22,7 +24,9 @@
     allocate_shards/1,
     replica_set/2,
     sites/0,
+    sites/1,
     node/1,
+    node_status/1,
     this_site/0,
     forget_site/1,
     print_status/0
@@ -42,6 +46,7 @@
     join_db_site/2,
     leave_db_site/2,
     assign_db_sites/2,
+    modify_db_sites/2,
     replica_set_transitions/2,
     claim_transition/3,
     update_replica_set/3,
@@ -145,7 +150,7 @@
 -type update_cluster_result() ::
     {ok, unchanged | [site()]}
     | {error, {nonexistent_db, emqx_ds:db()}}
-    | {error, {nonexistent_sites, [site()]}}
+    | {error, {nonexistent_sites | lost_sites, [site()]}}
     | {error, {too_few_sites, [site()]}}
     | {error, _}.
 
@@ -213,10 +218,10 @@ shard_info(DB, Shard) ->
             ReplicaSet = maps:from_list([
                 begin
                     Status =
-                        case mria:cluster_status(?MODULE:node(I)) of
+                        case node_status(?MODULE:node(I)) of
                             running -> up;
                             stopped -> down;
-                            false -> down
+                            lost -> lost
                         end,
                     ReplInfo = #{status => Status},
                     {I, ReplInfo}
@@ -242,9 +247,21 @@ allocate_shards(DB) ->
             {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}}
     end.
 
+%% @doc List all sites.
 -spec sites() -> [site()].
 sites() ->
-    [R#?NODE_TAB.site || R <- mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT())].
+    sites(all).
+
+%% @doc List sites.
+%% * `all`: all sites.
+%% * `lost`: sites that are no longer considered part of the cluster.
+-spec sites(all | lost) -> [site()].
+sites(all) ->
+    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
+    [S || #?NODE_TAB{site = S} <- Recs];
+sites(lost) ->
+    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
+    [S || #?NODE_TAB{site = S, node = N} <- Recs, node_status(N) == lost].
 
 -spec node(site()) -> node() | undefined.
 node(Site) ->
@@ -255,11 +272,18 @@ node(Site) ->
             undefined
     end.
 
+-spec node_status(node()) -> running | stopped | lost.
+node_status(Node) ->
+    case mria:cluster_status(Node) of
+        false -> lost;
+        Status -> Status
+    end.
+
 -spec forget_site(site()) -> ok | {error, _Reason}.
 forget_site(Site) ->
     maybe
         [Record] ?= mnesia:dirty_read(?NODE_TAB, Site),
-        false ?= node_status(Record#?NODE_TAB.node),
+        lost ?= node_status(Record#?NODE_TAB.node),
         %% Node is lost, proceed.
         transaction(fun ?MODULE:forget_site_trans/1, [Record])
     else
@@ -287,7 +311,7 @@ print_status(Nodes, Shards, Transitions) ->
     PendingTransitions = lists:filtermap(
         fun(Record = #?SHARD_TAB{shard = DBShard}) ->
             ClaimedTs = [T || T = #?TRANSITION_TAB{shard = S} <- Transitions, S == DBShard],
-            case compute_transitions(Record, ClaimedTs) of
+            case pending_transitions(Record, ClaimedTs) of
                 [] -> false;
                 ShardTransitions -> {true, {DBShard, ShardTransitions}}
             end
@@ -315,7 +339,7 @@ print_status(Nodes, Shards, Transitions) ->
          || #?NODE_TAB{site = Site, node = Node} <- Nodes
         ]
     ),
-    NodesLost = [Node || #?NODE_TAB{node = Node} <- Nodes, node_status(Node) == false],
+    NodesLost = [Node || #?NODE_TAB{node = Node} <- Nodes, node_status(Node) == lost],
     NodesLost =/= [] andalso
         io:format(
             "(!) ATTENTION~n"
@@ -332,7 +356,8 @@ print_status(Nodes, Shards, Transitions) ->
                 format_shard(DBShard),
                 {group, [
                     {subcolumns, [
-                        format_replicas(RS, Nodes), format_transitions(ShardTransitions)
+                        format_replicas(RS, Nodes),
+                        format_transitions(ShardTransitions, Nodes)
                     ]}
                 ]}
             ]
@@ -343,14 +368,14 @@ print_status(Nodes, Shards, Transitions) ->
     TransitionsStuck = [
         DBShard
      || #?SHARD_TAB{shard = DBShard, replica_set = RS} <- Shards,
-        RSLost <- [[Site || Site <- RS, site_status(Site, Nodes) == false]],
+        RSLost <- [[Site || Site <- RS, site_status(Site, Nodes) == lost]],
         length(RSLost) * 2 >= length(RS)
     ],
     TransitionsStuck =/= [] andalso
         io:format(
             "(!) ATTENTION~n"
-            "(!) One or more shards have replica set where majority of replicas are gone.~n"
-            "(!) Membership changes are compromised, pending transitions may never finish.~n"
+            "(!) One or more shards have replica sets where majority of replicas are gone.~n"
+            "(!) Membership changes are compromised.~n"
             "(!) Please take necessary steps to deal with lost sites.~n"
             "(!) Prepare for the possibility of data loss.~n"
         ),
@@ -369,30 +394,27 @@ site_status(Site, Nodes) ->
     [Node] = [N || #?NODE_TAB{site = S, node = N} <- Nodes, S == Site],
     node_status(Node).
 
-format_transitions(Transitions) ->
-    [format_transition(T) || T <- Transitions].
+format_transitions(Transitions, Nodes) ->
+    [format_transition(T, Nodes) || T <- Transitions].
 
-format_transition({add, Site}) ->
-    ["+ ", Site];
-format_transition({del, Site}) ->
-    ["- ", Site].
+format_transition({add, Site}, Nodes) ->
+    ["+ ", format_replica(Site, Nodes)];
+format_transition({del, Site}, Nodes) ->
+    ["- ", format_replica(Site, Nodes)].
 
 format_node_status(Status) ->
     case Status of
         running -> "    up";
         stopped -> "(x) down";
-        false -> "(!) LOST"
+        lost -> "(!) LOST"
     end.
 
 format_node_marker(Status) ->
     case Status of
         running -> "";
         stopped -> " (x)";
-        false -> " (!)"
+        lost -> " (!)"
     end.
-
-node_status(Node) ->
-    mria:cluster_status(Node).
 
 print_table(Header, Rows) ->
     io:put_chars(emqx_utils_fmt:table(Header, Rows)).
@@ -447,11 +469,16 @@ leave_db_site(DB, Site) ->
 assign_db_sites(DB, Sites) ->
     transaction(fun ?MODULE:assign_db_sites_trans/2, [DB, Sites]).
 
+%% @doc Assign a set of sites to the DB for replication.
+-spec modify_db_sites(emqx_ds:db(), [transition()]) -> update_cluster_result().
+modify_db_sites(DB, Transitions) ->
+    transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, Transitions]).
+
 %% @doc List the sites the DB is replicated across.
 -spec db_sites(emqx_ds:db()) -> [site()].
 db_sites(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
-    list_db_sites(Recs).
+    list_sites(Recs).
 
 %% @doc List the sequence of transitions that should be conducted in order to
 %% bring the set of replicas for a DB shard in line with the target set.
@@ -461,7 +488,7 @@ replica_set_transitions(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
         [Record] ->
             PendingTransitions = mnesia:dirty_read(?TRANSITION_TAB, {DB, Shard}),
-            compute_transitions(Record, PendingTransitions);
+            pending_transitions(Record, PendingTransitions);
         [] ->
             undefined
     end.
@@ -616,13 +643,26 @@ allocate_shards_trans(DB) ->
 -spec assign_db_sites_trans(emqx_ds:db(), [site()]) -> {ok, [site()]}.
 assign_db_sites_trans(DB, Sites) ->
     Opts = db_config_trans(DB),
-    case [S || S <- Sites, mnesia:read(?NODE_TAB, S, read) == []] of
-        [] when length(Sites) == 0 ->
+    case length(Sites) of
+        0 ->
             mnesia:abort({too_few_sites, Sites});
+        _ ->
+            ok
+    end,
+    SiteRecords = [R || S <- Sites, R <- mnesia:read(?NODE_TAB, S, read)],
+    NonexistentSites = [S || S <- Sites, not lists:keymember(S, #?NODE_TAB.site, SiteRecords)],
+    case NonexistentSites of
         [] ->
             ok;
-        NonexistentSites ->
+        [_ | _] ->
             mnesia:abort({nonexistent_sites, NonexistentSites})
+    end,
+    LostSites = [S || #?NODE_TAB{site = S, node = N} <- SiteRecords, node_status(N) == lost],
+    case LostSites of
+        [] ->
+            ok;
+        [_ | _] ->
+            mnesia:abort({lost_sites, LostSites})
     end,
     %% TODO
     %% Optimize reallocation. The goals are:
@@ -641,7 +681,7 @@ assign_db_sites_trans(DB, Sites) ->
 -spec modify_db_sites_trans(emqx_ds:db(), [transition()]) -> {ok, unchanged | [site()]}.
 modify_db_sites_trans(DB, Modifications) ->
     Shards = db_shards_trans(DB),
-    Sites0 = list_db_target_sites(Shards),
+    Sites0 = list_target_sites(Shards),
     Sites = lists:foldl(fun apply_transition/2, Sites0, Modifications),
     case Sites of
         Sites0 ->
@@ -664,7 +704,7 @@ claim_transition_trans(DB, Shard, Trans) ->
         [#?TRANSITION_TAB{transition = Conflict}] ->
             mnesia:abort({conflict, Conflict});
         [] ->
-            case compute_transitions(ShardRecord) of
+            case compute_transition_plan(ShardRecord) of
                 [Trans | _] ->
                     mnesia:write(#?TRANSITION_TAB{shard = {DB, Shard}, transition = Trans});
                 Expected ->
@@ -723,8 +763,11 @@ db_config_trans(DB, LockType) ->
 db_shards_trans(DB) ->
     mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write).
 
-shard_transition_trans(#?SHARD_TAB{shard = DBShard}) ->
-    mnesia:read(?TRANSITION_TAB, DBShard, write).
+shard_transition_trans(ShardRecord) ->
+    shard_transition_trans(ShardRecord, write).
+
+shard_transition_trans(#?SHARD_TAB{shard = DBShard}, LockType) ->
+    mnesia:read(?TRANSITION_TAB, DBShard, LockType).
 
 -spec drop_db_trans(emqx_ds:db()) -> ok.
 drop_db_trans(DB) ->
@@ -734,7 +777,7 @@ drop_db_trans(DB) ->
 
 -spec claim_site_trans(site(), node()) -> ok.
 claim_site_trans(Site, Node) ->
-    case node_sites(Node) of
+    case node_sites_trans(Node) of
         [] ->
             mnesia:write(#?NODE_TAB{site = Site, node = Node});
         [#?NODE_TAB{site = Site}] ->
@@ -747,34 +790,41 @@ claim_site_trans(Site, Node) ->
 -spec forget_site_trans(_Record :: tuple()) -> ok.
 forget_site_trans(Record = #?NODE_TAB{site = Site}) ->
     %% Safeguards.
-    DBs = mnesia:all_keys(?META_TAB),
+    SiteShards = site_shards_trans(Site),
     %% 1. Compute which DBs has this site as a replica for any of the shards.
-    SiteDBs = lists:usort([DB || DB <- DBs, S <- list_db_sites(db_shards_trans(DB)), S == Site]),
+    SiteDBs = lists:usort([DB || {current, {DB, _Shard}} <- SiteShards]),
     %% 2. Compute which DBs has this site in a membership transition, for any of the shards.
-    SiteTargetDBs = lists:usort([
-        DB
-     || DB <- DBs,
-        ShardRecord <- db_shards_trans(DB),
-        {_, S} <- compute_transitions(ShardRecord, shard_transition_trans(ShardRecord)),
-        S == Site
-    ]),
+    SiteTargetDBs = lists:usort([DB || {target, {DB, _Shard}} <- SiteShards]),
     case SiteDBs of
         [] when SiteTargetDBs == [] ->
-            Safeguard = ok;
-        [_ | _] ->
-            Safeguard = {member_of_replica_sets, SiteDBs};
-        [] ->
-            Safeguard = {member_of_target_sets, SiteTargetDBs}
-    end,
-    case Safeguard of
-        ok ->
             mnesia:delete_object(?NODE_TAB, Record, write);
-        _Otherwise ->
-            mnesia:abort(Safeguard)
+        [_ | _] ->
+            mnesia:abort({member_of_replica_sets, SiteDBs});
+        [] ->
+            mnesia:abort({member_of_target_sets, SiteTargetDBs})
     end.
+
+site_shards_trans(Site) ->
+    ShardRecords = all_shards_trans(),
+    Current = [
+        {current, R#?SHARD_TAB.shard}
+     || R <- ShardRecords,
+        S <- get_shard_sites(R),
+        S == Site
+    ],
+    Target = [
+        {target, R#?SHARD_TAB.shard}
+     || R <- ShardRecords,
+        {_T, S} <- pending_transitions(R, shard_transition_trans(R, read)),
+        S == Site
+    ],
+    Current ++ Target.
 
 node_sites(Node) ->
     mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
+
+node_sites_trans(Node) ->
+    mnesia:match_object(?NODE_TAB, ?NODE_PAT(Node), write).
 
 all_nodes() ->
     mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()).
@@ -784,6 +834,9 @@ all_shards() ->
 
 all_transitions() ->
     mnesia:dirty_match_object(?TRANSITION_TAB, ?TRANSITION_PAT('_')).
+
+all_shards_trans() ->
+    mnesia:match_object(?SHARD_TAB, ?SHARD_PAT('_'), read).
 
 %%================================================================================
 %% Internal functions
@@ -883,12 +936,13 @@ forget_node(Node) ->
     end.
 
 %% @doc Returns sorted list of sites shards are replicated across.
--spec list_db_sites([_Shard]) -> [site()].
-list_db_sites(Shards) ->
+-spec list_sites([_Shard]) -> [site()].
+list_sites(Shards) ->
     flatmap_sorted_set(fun get_shard_sites/1, Shards).
 
--spec list_db_target_sites([_Shard]) -> [site()].
-list_db_target_sites(Shards) ->
+%% @doc Returns sorted list of sites shards are _going to be_ replicated across.
+-spec list_target_sites([_Shard]) -> [site()].
+list_target_sites(Shards) ->
     flatmap_sorted_set(fun get_shard_target_sites/1, Shards).
 
 -spec get_shard_sites(_Shard) -> [site()].
@@ -920,20 +974,39 @@ compute_allocation(Shards, Sites, Opts) ->
     ),
     Allocation.
 
-compute_transitions(Shard, []) ->
-    compute_transitions(Shard);
-compute_transitions(Shard, [#?TRANSITION_TAB{transition = Trans}]) ->
-    [Trans | lists:delete(Trans, compute_transitions(Shard))].
+pending_transitions(ShardRecord, PendingTransitions) ->
+    prepend_pending_transitions(compute_transition_plan(ShardRecord), PendingTransitions).
 
-compute_transitions(#?SHARD_TAB{target_set = TargetSet, replica_set = ReplicaSet}) ->
-    do_compute_transitions(TargetSet, ReplicaSet).
+prepend_pending_transitions(Transitions, []) ->
+    Transitions;
+prepend_pending_transitions(Transitions, [#?TRANSITION_TAB{transition = Trans}]) ->
+    [Trans | lists:delete(Trans, Transitions)].
 
-do_compute_transitions(undefined, _ReplicaSet) ->
+compute_transition_plan(#?SHARD_TAB{target_set = TargetSet, replica_set = ReplicaSet}) ->
+    compute_transition_plan(TargetSet, ReplicaSet).
+
+compute_transition_plan(undefined, _ReplicaSet) ->
     [];
-do_compute_transitions(TargetSet, ReplicaSet) ->
-    Additions = TargetSet -- ReplicaSet,
-    Deletions = ReplicaSet -- TargetSet,
-    intersperse([{add, S} || S <- Additions], [{del, S} || S <- Deletions]).
+compute_transition_plan(TargetSet, ReplicaSet) ->
+    SitesAdded = TargetSet -- ReplicaSet,
+    SitesDeleted = ReplicaSet -- TargetSet,
+    SitesLost = sites(lost),
+    SitesDeletedLost = [S || S <- SitesDeleted, lists:member(S, SitesLost)],
+    Additions = [{add, S} || S <- SitesAdded],
+    Deletions = [{del, S} || S <- SitesDeleted -- SitesDeletedLost],
+    LostDeletions = [{del, S} || S <- SitesDeletedLost],
+    lists:append([
+        %% 1. We need to remove lost replicas first.
+        %%    They don't contribute to availability and redundancy anyway, and pose
+        %%    a risk to make any further additions inoperable, depending on if quorum
+        %%    is reachable or not.
+        LostDeletions,
+        %% 2. We need to alternate additions and deletions, starting from additions
+        %%    (if any). This way we won't compromise redundancy, and on the other hand
+        %%    won't temporarily increase quorum size and replication factor too much
+        %%    to effectively compromise availability.
+        intersperse(Additions, Deletions)
+    ]).
 
 %% @doc Apply a transition to a list of sites, preserving sort order.
 -spec apply_transition(transition(), [site()]) -> [site()].

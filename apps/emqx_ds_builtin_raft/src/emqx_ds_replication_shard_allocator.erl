@@ -40,6 +40,8 @@
 -define(TRIGGER_PENDING_TIMEOUT, 5_000).
 -endif.
 
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 %%
 
 -record(trigger_transitions, {}).
@@ -93,7 +95,7 @@ handle_call(_Call, _From, State) ->
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
 handle_cast(#trigger_transitions{}, State) ->
-    {noreply, handle_pending_transitions(State), ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, handle_pending_transitions(State)};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -104,16 +106,17 @@ handle_cast(_Cast, State) ->
         | {'EXIT', pid(), _Reason}.
 handle_info({timeout, _TRef, allocate}, State) ->
     {noreply, handle_allocate_shards(State)};
+handle_info({timeout, _TRef0, fallback}, State) ->
+    _TRef = restart_fallback_timer(),
+    {noreply, handle_pending_transitions(State)};
 handle_info({changed, {shard, DB, Shard}}, State = #{db := DB}) ->
-    {noreply, handle_shard_changed(Shard, State), ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, handle_shard_changed(Shard, State)};
 handle_info({changed, _}, State) ->
-    {noreply, State, ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, State};
 handle_info({'EXIT', Pid, Reason}, State) ->
-    {noreply, handle_exit(Pid, Reason, State), ?TRIGGER_PENDING_TIMEOUT};
-handle_info(timeout, State) ->
-    {noreply, handle_pending_transitions(State), ?TRIGGER_PENDING_TIMEOUT};
+    {noreply, handle_exit(Pid, Reason, State)};
 handle_info(_Info, State) ->
-    {noreply, State, ?TRIGGER_PENDING_TIMEOUT}.
+    {noreply, State}.
 
 -spec terminate(_Reason, state()) -> _Ok.
 terminate(_Reason, State = #{db := DB, shards := Shards}) ->
@@ -132,6 +135,7 @@ handle_allocate_shards(State0) ->
             %% Subscribe to shard changes and trigger any yet unhandled transitions.
             ok = subscribe_db_changes(State),
             ok = trigger_transitions(self()),
+            _TRef = start_fallback_timer(),
             State;
         {error, Data} ->
             _ = logger:notice(
@@ -149,6 +153,17 @@ subscribe_db_changes(#{db := DB}) ->
 
 unsubscribe_db_changes(_State) ->
     emqx_ds_replication_layer_meta:unsubscribe(self()).
+
+start_fallback_timer() ->
+    %% NOTE
+    %% Adding random initial delay to reduce chances that different nodes will
+    %% act on some transitions roughly at the same moment.
+    Timeout = ?TRIGGER_PENDING_TIMEOUT,
+    InitialTimeout = Timeout + round(Timeout * rand:uniform()),
+    erlang:start_timer(InitialTimeout, self(), fallback).
+
+restart_fallback_timer() ->
+    erlang:start_timer(?TRIGGER_PENDING_TIMEOUT, self(), fallback).
 
 %%
 
@@ -237,11 +252,7 @@ trans_claim(DB, Shard, Trans, TransHandler) ->
     end.
 
 trans_add_local(DB, Shard, {add, Site}) ->
-    ?tp(info, "Adding new local shard replica", #{
-        site => Site,
-        db => DB,
-        shard => Shard
-    }),
+    ?tp(info, "Adding new local shard replica", #{site => Site, db => DB, shard => Shard}),
     do_add_local(membership, DB, Shard).
 
 do_add_local(membership = Stage, DB, Shard) ->
@@ -276,11 +287,7 @@ do_add_local(readiness = Stage, DB, Shard) ->
     end.
 
 trans_drop_local(DB, Shard, {del, Site}) ->
-    ?tp(notice, "Dropping local shard replica", #{
-        site => Site,
-        db => DB,
-        shard => Shard
-    }),
+    ?tp(notice, "Dropping local shard replica", #{site => Site, db => DB, shard => Shard}),
     do_drop_local(DB, Shard).
 
 do_drop_local(DB, Shard) ->
@@ -301,27 +308,78 @@ do_drop_local(DB, Shard) ->
     end.
 
 trans_rm_unresponsive(DB, Shard, {del, Site}) ->
-    ?tp(notice, "Removing unresponsive shard replica", #{
-        site => Site,
-        db => DB,
-        shard => Shard
-    }),
-    do_rm_unresponsive(DB, Shard, Site).
+    ?tp(notice, "Removing unresponsive shard replica", #{site => Site, db => DB, shard => Shard}),
+    do_rm_unresponsive(DB, Shard, Site, 1).
 
-do_rm_unresponsive(DB, Shard, Site) ->
+do_rm_unresponsive(DB, Shard, Site, NAttempt) ->
     Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
     case emqx_ds_replication_layer_shard:remove_server(DB, Shard, Server) of
         ok ->
-            ?tp(info, "Unresponsive shard replica removed", #{db => DB, shard => Shard});
+            ?tp(notice, "Unresponsive shard replica removed", #{
+                db => DB,
+                shard => Shard,
+                site => Site
+            });
         {error, recoverable, Reason} ->
             ?tp(warning, "Removing shard replica failed", #{
                 db => DB,
                 shard => Shard,
+                site => Site,
+                reason => Reason,
+                attempt => NAttempt,
+                retry_in => ?TRANS_RETRY_TIMEOUT
+            }),
+            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
+            retry_rm_unresponsive(DB, Shard, Site, Reason, NAttempt)
+    end.
+
+do_forget_lost(DB, Shard, Site) ->
+    Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
+    case emqx_ds_replication_layer_shard:forget_server(DB, Shard, Server) of
+        ok ->
+            ?tp(notice, "Unresponsive shard replica forcefully forgotten", #{
+                db => DB,
+                shard => Shard,
+                site => Site
+            });
+        {error, recoverable, Reason} ->
+            ?tp(warning, "Forgetting shard replica failed", #{
+                db => DB,
+                shard => Shard,
+                site => Site,
                 reason => Reason,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
             ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_rm_unresponsive(DB, Shard, Site)
+            do_forget_lost(DB, Shard, Site);
+        {error, unrecoverable, Reason} ->
+            %% NOTE: Revert to `rm_unresponsive/3` on next `?TRIGGER_PENDING_TIMEOUT`.
+            ?tp(warning, "Forgetting shard replica error", #{
+                db => DB,
+                shard => Shard,
+                site => Site,
+                reason => Reason
+            }),
+            exit({shutdown, {forget_lost_error, Reason}})
+    end.
+
+retry_rm_unresponsive(DB, Shard, Site, _Reason, NAttempt) when NAttempt < 2 ->
+    %% Retry regular safe replica removal first couple of times.
+    do_rm_unresponsive(DB, Shard, Site, NAttempt + 1);
+retry_rm_unresponsive(DB, Shard, Site, Reason, NAttempt) ->
+    %% If unsuccessful, perhaps it's time to tell cluster to "forget" it forcefully.
+    %% We only do that if:
+    case Reason of
+        %% Cluster change times out, quorum is probably lost and unreachable.
+        {timeout, _Server} ->
+            do_forget_lost(DB, Shard, Site);
+        %% Cluster change is in the Ra log, but couldn't be confired, quorum is
+        %% probably lost and unreachable.
+        {error, _Server, cluster_change_not_permitted} ->
+            do_forget_lost(DB, Shard, Site);
+        %% Otherwise, let's try the safe way.
+        _Otherwise ->
+            do_rm_unresponsive(DB, Shard, Site, NAttempt + 1)
     end.
 
 %%
@@ -371,6 +429,8 @@ handle_transition_exit(Shard, Trans, normal, State) ->
     State;
 handle_transition_exit(_Shard, _Trans, {shutdown, skipped}, State) ->
     State;
+handle_transition_exit(Shard, Trans, {shutdown, Reason}, State) ->
+    handle_transition_exit(Shard, Trans, Reason, State);
 handle_transition_exit(Shard, Trans, Reason, State = #{db := DB}) ->
     %% NOTE
     %% In case of `{add, Site}` transition failure, we have no choice but to retry:
