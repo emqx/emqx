@@ -1052,13 +1052,13 @@ source_id(BridgeType, BridgeName, ConnectorName) ->
 
 get_resource_ids(ConfRootKey, Type, Name) ->
     try
-        ChannelResId = id_with_root_name(ConfRootKey, Type, Name),
-        ConnResId = extract_connector_id_from_bridge_v2_id(ChannelResId),
-        {ok, {ConnResId, ChannelResId}}
+        maybe
+            ChannelResId = id_with_root_name(ConfRootKey, Type, Name),
+            {ok, ConnResId} ?= extract_connector_id_from_bridge_v2_id(ChannelResId),
+            {ok, {ConnResId, ChannelResId}}
+        end
     catch
         throw:Reason ->
-            {error, Reason};
-        error:{error, Reason} ->
             {error, Reason}
     end.
 
@@ -2005,11 +2005,11 @@ bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 extract_connector_id_from_bridge_v2_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [<<"action">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
-            <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
+            {ok, <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>};
         [<<"source">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
-            <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
+            {ok, <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>};
         _X ->
-            error({error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))})
+            {error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))}
     end.
 
 ensure_atom_root_key(ConfRootKey) when is_atom(ConfRootKey) ->

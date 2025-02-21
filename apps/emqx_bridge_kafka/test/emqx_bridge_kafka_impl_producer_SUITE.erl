@@ -462,7 +462,7 @@ t_failed_creation_then_fix(Config) ->
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     ct:pal("base offset before testing ~p", [Offset]),
     BridgeV2Id = emqx_bridge_v2:id(bin(?BRIDGE_TYPE_V2), bin(Name)),
-    ResourceId = emqx_bridge_v2:extract_connector_id_from_bridge_v2_id(BridgeV2Id),
+    {ok, ResourceId} = emqx_bridge_v2:extract_connector_id_from_bridge_v2_id(BridgeV2Id),
     {ok, _Group, #{state := State}} = emqx_resource:get_instance(ResourceId),
     ok = send(Config, ResourceId, Msg, State, BridgeV2Id),
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
