@@ -49,7 +49,8 @@
     group := emqx_limiter:group(),
     buckets := #{emqx_limiter:name() => bucket()},
     counter := counters:counters_ref(),
-    timers := #{pos_integer() => [emqx_limiter:name()]}
+    timers := #{pos_integer() => [emqx_limiter:name()]},
+    burst_timers := #{pos_integer() => [emqx_limiter:name()]}
 }.
 
 -type millisecond() :: non_neg_integer().
@@ -87,14 +88,18 @@ init([Group, LimiterNames]) ->
         counter => counters:new(length(LimiterNames), [write_concurrency]),
         buckets => #{},
         last_alloc_time => now_ms_monotonic(),
-        timers => #{}
+        timers => #{},
+        burst_timers => #{}
     },
     State1 = create_buckets(State0, LimiterNames),
-    State2 = ensure_timers(State1),
-    {ok, State2}.
+    State2 = ensure_alloc_timers(State1),
+    State3 = ensure_burst_timers(State2),
+    {ok, State3}.
 
-handle_call(#update{}, _From, State) ->
-    {reply, ok, ensure_timers(State)};
+handle_call(#update{}, _From, State0) ->
+    State1 = ensure_alloc_timers(State0),
+    State2 = ensure_burst_timers(State1),
+    {reply, ok, State2};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "emqx_limiter_allocator_unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -104,7 +109,9 @@ handle_cast(Req, State) ->
     {noreply, State}.
 
 handle_info({tick_alloc_event, Interval}, State) ->
-    {noreply, handle_timer(State, Interval)};
+    {noreply, handle_alloc_timer(State, Interval)};
+handle_info({tick_burst_alloc_event, Interval}, State) ->
+    {noreply, handle_burst_timer(State, Interval)};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "emqx_limiter_allocator_unexpected_info", info => Info}),
     {noreply, State}.
@@ -138,14 +145,14 @@ create_buckets(State, LimiterNames) ->
 
 create_bucket(#{group := Group, counter := Counter}, LimiterName, Index) ->
     LimiterId = {Group, LimiterName},
-    _Options = #{capacity := Capacity} = get_limiter_options(LimiterId),
-    ok = set_initial_tokens(Counter, Index, Capacity),
+    Options = get_limiter_options(LimiterId),
+    ok = set_initial_tokens(Counter, Index, Options),
     BucketRef = #{counter => Counter, index => Index},
     ?SLOG(warning, #{
         msg => "emqx_limiter_allocator_create_bucket",
         limiter_id => LimiterId,
         bucket_ref => BucketRef,
-        options => _Options
+        options => Options
     }),
     ok = emqx_limiter_bucket_registry:insert_bucket(LimiterId, BucketRef),
     #{
@@ -156,23 +163,25 @@ create_bucket(#{group := Group, counter := Counter}, LimiterName, Index) ->
     }.
 
 alloc_tokens(
+    %% regular or burst
+    Kind,
     #{
         buckets := Buckets0,
         group := Group
     } = State,
     Names
 ) ->
-    Buckets = alloc_buckets(Buckets0, Group, Names),
+    Buckets = alloc_buckets(Kind, Buckets0, Group, Names),
     State#{
         buckets := Buckets
     }.
 
-alloc_buckets(Buckets, Group, Names) ->
+alloc_buckets(Kind, Buckets, Group, Names) ->
     lists:foldl(
         fun(Name, BucketsAcc) ->
             LimiterId = {Group, Name},
             Bucket0 = maps:get(Name, BucketsAcc),
-            Bucket = alloc_bucket(LimiterId, Bucket0),
+            Bucket = alloc_bucket(Kind, LimiterId, Bucket0),
             BucketsAcc#{Name => Bucket}
         end,
         Buckets,
@@ -180,6 +189,7 @@ alloc_buckets(Buckets, Group, Names) ->
     ).
 
 alloc_bucket(
+    regular,
     LimiterId,
     #{
         correction := Correction,
@@ -195,9 +205,11 @@ alloc_bucket(
     case Options of
         #{capacity := infinity} ->
             Bucket;
-        #{capacity := Capacity} when Val >= Capacity ->
+        #{capacity := Capacity, burst_capacity := BurstCapacity} when
+            Val >= Capacity + BurstCapacity
+        ->
             Bucket#{last_alloc_time => Now};
-        #{capacity := Capacity, interval := Interval} ->
+        #{capacity := Capacity, burst_capacity := BurstCapacity, interval := Interval} ->
             Inc = Elapsed * Capacity / Interval + Correction,
             Inc2 = erlang:floor(Inc),
             Correction2 = Inc - Inc2,
@@ -208,19 +220,44 @@ alloc_bucket(
                 tokens => Inc2,
                 options => Options
             }),
-            add_tokens(Bucket, Val, Capacity, Inc2),
+            add_tokens(Bucket, Val, Capacity + BurstCapacity, Inc2),
             Bucket#{correction := Correction2, last_alloc_time => Now}
+    end;
+alloc_bucket(
+    burst,
+    LimiterId,
+    #{
+        counter := Counter,
+        index := Index
+    } = Bucket
+) ->
+    Val = counters:get(Counter, Index),
+    Options = get_limiter_options(LimiterId),
+    case Options of
+        #{capacity := infinity} ->
+            Bucket;
+        #{burst_capacity := 0} ->
+            Bucket;
+        #{capacity := Capacity, burst_capacity := BurstCapacity} ->
+            ?SLOG(warning, #{
+                limiter_id => LimiterId,
+                msg => "limiter_shared_set_burst_capacity",
+                val => Val,
+                options => Options
+            }),
+            ok = counters:put(Counter, Index, Capacity + BurstCapacity),
+            Bucket
     end.
 
-set_initial_tokens(_Counter, _Ix, infinity) ->
+set_initial_tokens(_Counter, _Ix, #{capacity := infinity}) ->
     ok;
-set_initial_tokens(Counter, Ix, Capacity) ->
-    counters:put(Counter, Ix, Capacity).
+set_initial_tokens(Counter, Ix, #{capacity := Capacity, burst_capacity := BurstCapacity}) ->
+    counters:put(Counter, Ix, Capacity + BurstCapacity).
 
-add_tokens(#{counter := Counter, index := Index}, Val, Capacity, Tokens) ->
-    case Val + Tokens > Capacity of
+add_tokens(#{counter := Counter, index := Index}, Val, FullCapacity, Tokens) ->
+    case Val + Tokens > FullCapacity of
         true ->
-            counters:put(Counter, Index, Capacity);
+            counters:put(Counter, Index, FullCapacity);
         false ->
             counters:add(Counter, Index, Tokens)
     end.
@@ -242,20 +279,22 @@ now_ms_monotonic() ->
 %% We ignore the temorary skew that may be caused by rate updates on the fly.
 %% So, we do not reschedule timers for limiter names that are already in the timers map,
 %% even if the interval or capacity has changed. The allocation will be corrected in the next tick.
-%%
-ensure_timers(#{buckets := Buckets} = State) ->
-    do_ensure_timers(State, maps:keys(Buckets) -- scheduled_names(State)).
 
-ensure_timers(State, Names) ->
-    do_ensure_timers(State, Names -- scheduled_names(State)).
+%% Capacity refilling
 
-do_ensure_timers(State, []) ->
+ensure_alloc_timers(#{buckets := Buckets} = State) ->
+    do_ensure_alloc_timers(State, maps:keys(Buckets) -- scheduled_alloc_names(State)).
+
+ensure_alloc_timers(State, Names) ->
+    do_ensure_alloc_timers(State, Names -- scheduled_alloc_names(State)).
+
+do_ensure_alloc_timers(State, []) ->
     State;
-do_ensure_timers(#{timers := Timers0, group := Group} = State, [Name | Names]) ->
+do_ensure_alloc_timers(#{timers := Timers0, group := Group} = State, [Name | Names]) ->
     LimiterId = {Group, Name},
     case get_limiter_options(LimiterId) of
         #{capacity := infinity} ->
-            do_ensure_timers(State, Names);
+            do_ensure_alloc_timers(State, Names);
         #{interval := Interval} ->
             Timers =
                 case Timers0 of
@@ -266,14 +305,53 @@ do_ensure_timers(#{timers := Timers0, group := Group} = State, [Name | Names]) -
                         _ = erlang:send_after(Interval, self(), {tick_alloc_event, Interval}),
                         Timers0#{Interval => [Name]}
                 end,
-            do_ensure_timers(State#{timers => Timers}, Names)
+            do_ensure_alloc_timers(State#{timers => Timers}, Names)
     end.
 
-handle_timer(#{timers := Timers0} = State0, Interval) ->
+handle_alloc_timer(#{timers := Timers0} = State0, Interval) ->
     {Names, Timers} = maps:take(Interval, Timers0),
     State1 = State0#{timers => Timers},
-    State2 = alloc_tokens(State1, Names),
-    ensure_timers(State2, Names).
+    State2 = alloc_tokens(regular, State1, Names),
+    ensure_alloc_timers(State2, Names).
 
-scheduled_names(#{timers := Timers}) ->
+scheduled_alloc_names(#{timers := Timers}) ->
     lists:append(maps:values(Timers)).
+
+%% Burst capacity refilling
+
+ensure_burst_timers(#{buckets := Buckets} = State) ->
+    do_ensure_burst_timers(State, maps:keys(Buckets) -- scheduled_burst_names(State)).
+
+ensure_burst_timers(State, Names) ->
+    do_ensure_burst_timers(State, Names -- scheduled_burst_names(State)).
+
+do_ensure_burst_timers(State, []) ->
+    State;
+do_ensure_burst_timers(#{burst_timers := BurstTimers0, group := Group} = State, [Name | Names]) ->
+    LimiterId = {Group, Name},
+    case get_limiter_options(LimiterId) of
+        #{capacity := infinity} ->
+            do_ensure_burst_timers(State, Names);
+        #{burst_capacity := 0} ->
+            do_ensure_burst_timers(State, Names);
+        #{burst_capacity := BurstCapacity, burst_interval := Interval} when BurstCapacity > 0 ->
+            BurstTimers =
+                case BurstTimers0 of
+                    #{Interval := IntervalNames0} ->
+                        IntervalNames = [Name | IntervalNames0],
+                        BurstTimers0#{Interval => IntervalNames};
+                    _ ->
+                        _ = erlang:send_after(Interval, self(), {tick_burst_alloc_event, Interval}),
+                        BurstTimers0#{Interval => [Name]}
+                end,
+            do_ensure_burst_timers(State#{burst_timers => BurstTimers}, Names)
+    end.
+
+handle_burst_timer(#{burst_timers := BurstTimers0} = State0, Interval) ->
+    {Names, BurstTimers} = maps:take(Interval, BurstTimers0),
+    State1 = State0#{burst_timers => BurstTimers},
+    State2 = alloc_tokens(burst, State1, Names),
+    ensure_burst_timers(State2, Names).
+
+scheduled_burst_names(#{burst_timers := BurstTimers}) ->
+    lists:append(maps:values(BurstTimers)).

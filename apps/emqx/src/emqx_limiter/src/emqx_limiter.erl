@@ -67,13 +67,19 @@
 
 -type id() :: {group(), name()}.
 
--type options() :: unlimited() | limited().
+-type options() :: unlimited() | limited() | limited_with_burst().
 
 -type unlimited() :: #{
     capacity := infinity
 }.
 
 -type limited() :: #{
+    capacity := pos_integer(),
+    interval := pos_integer(),
+    burst_capacity := 0
+}.
+
+-type limited_with_burst() :: #{
     capacity := pos_integer(),
     burst_capacity := pos_integer(),
     interval := pos_integer(),
@@ -158,6 +164,57 @@ propagated_post_config_update([mqtt, limiter], _UpdateReq, _NewConf, _OldConf, _
 %% Config helpers
 %%--------------------------------------------------------------------
 
+%% @doc get the config of a limiter from a config map of different parameters.
+%%
+%% The convention is as follows:
+%% Limiter with name `x` is configured with the following keys in a config map:
+%%  `x_rate`, `x_burst`, `x_rate_window`, and `x_burst_window`.
+%%
+%% Having a config like
+%% ```
+%% Config = #{
+%%   foo => bar,
+%%   x_rate => {10, 1000},
+%%   x_burst => {100, 300000},
+%% }
+%% ```
+%% means that the limiter `x` has a rate of 10 tokens per 1000ms and a burst of 100 each 5 minutes.
+%%
+%% The `config(x, Config)` function will return limiter config
+%%  `#{capacity => 10, burst_capacity => 110, interval => 1000, burst_interval => 30000}`.
+%%
+%% If the limiter `x` is not configured, the function will return unlimited limiter config
+%%  `#{capacity => infinity}`.
+-spec config(emqx_limiter:name(), emqx_config:config()) -> emqx_limiter:options().
+config(Name, Config) ->
+    RateKey = to_rate_key(Name),
+    case Config of
+        #{RateKey := {Capacity, Interval}} ->
+            BurstKey = to_burst_key(Name),
+            case Config of
+                #{BurstKey := {BurstCapacity, BurstInterval}} ->
+                    %% limited_with_burst()
+                    #{
+                        capacity => Capacity,
+                        burst_capacity => BurstCapacity + Capacity,
+                        interval => Interval,
+                        burst_interval => BurstInterval
+                    };
+                _ ->
+                    %% limited()
+                    #{
+                        capacity => Capacity,
+                        interval => Interval,
+                        burst_capacity => 0
+                    }
+            end;
+        _ ->
+            %% unlimited()
+            #{
+                capacity => infinity
+            }
+    end.
+
 config_unlimited() ->
     #{
         capacity => infinity
@@ -167,8 +224,7 @@ config_from_rps(RPS) ->
     #{
         capacity => RPS,
         interval => 1000,
-        burst_capacity => RPS,
-        burst_interval => 1000
+        burst_capacity => 0
     }.
 
 config_from_rate(infinity) ->
@@ -177,8 +233,7 @@ config_from_rate({Capacity, Interval}) ->
     #{
         capacity => Capacity,
         interval => Interval,
-        burst_capacity => Capacity,
-        burst_interval => Interval
+        burst_capacity => 0
     }.
 
 %%--------------------------------------------------------------------
@@ -230,46 +285,6 @@ create_client_container(ZoneName, ListenerId, Names) ->
         Names
     ),
     emqx_limiter_client_container:new(Clients).
-
-%% @doc get the config of a limiter from a config map of different parameters.
-%%
-%% The convention is as follows:
-%% Limiter with name `x` is configured with the following keys in a config map:
-%%  `x_rate`, `x_burst`, `x_rate_window`, and `x_burst_window`.
-%%
-%% Having a config like
-%% ```
-%% Config = #{
-%%   foo => bar,
-%%   x_rate => {10, 1000},
-%%   x_burst => {100, 300000},
-%% }
-%% ```
-%% means that the limiter `x` has a rate of 10 tokens per 1000ms and a burst of 100 each 5 minutes.
-%%
-%% The `config(x, Config)` function will return limiter config
-%%  `#{capacity => 10, burst_capacity => 110, interval => 1000, burst_interval => 30000}`.
-%%
-%% If the limiter `x` is not configured, the function will return unlimited limiter config
-%%  `#{capacity => infinity}`.
--spec config(emqx_limiter:name(), emqx_config:config()) -> emqx_limiter:options().
-config(Name, Config) ->
-    RateKey = to_rate_key(Name),
-    case Config of
-        #{RateKey := {Capacity, Interval}} ->
-            BurstKey = to_burst_key(Name),
-            {BurstCapacity, BurstInterval} = maps:get(BurstKey, Config, {0, Interval}),
-            #{
-                capacity => Capacity,
-                burst_capacity => BurstCapacity + Capacity,
-                interval => Interval,
-                burst_interval => BurstInterval
-            };
-        _ ->
-            #{
-                capacity => infinity
-            }
-    end.
 
 %% NOTE
 %% all limiter names are predefined, so we ignore atom leakage threat

@@ -55,8 +55,8 @@ end_per_testcase(_TestCase, Config) ->
 
 t_try_consume(_) ->
     ok = emqx_limiter_exclusive:create_group(group1, [
-        {limiter1, #{capacity => 2, interval => 1000, burst_capacity => 2, burst_interval => 1000}},
-        {limiter2, #{capacity => 1, interval => 1000, burst_capacity => 1, burst_interval => 1000}}
+        {limiter1, #{capacity => 2, interval => 1000, burst_capacity => 0}},
+        {limiter2, #{capacity => 1, interval => 1000, burst_capacity => 0}}
     ]),
     Container0 = emqx_limiter_client_container:new([
         {limiter1, emqx_limiter_registry:connect({group1, limiter1})},

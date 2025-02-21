@@ -72,10 +72,12 @@ update_group_configs(Group, LimiterConfigs) ->
 -spec connect(emqx_limiter:id()) -> emqx_limiter_client:t().
 connect({_Group, _Name} = LimiterId) ->
     InitialTokens = initial_tokens(emqx_limiter_registry:get_limiter_options(LimiterId)),
+    Now = now_ms_monotonic(),
     State = #{
         limiter_id => LimiterId,
         tokens => InitialTokens,
-        last_time => now_ms_monotonic()
+        last_time => Now,
+        last_burst_time => Now
     },
     emqx_limiter_client:new(?MODULE, State).
 
@@ -102,33 +104,53 @@ put_back(#{tokens := Tokens} = State, Amount) ->
 %%  Internal functions
 %%--------------------------------------------------------------------
 
-%% TODO
-%% handle burst_capacity
 try_consume(State, _Amount, #{capacity := infinity}) ->
     {true, State};
-try_consume(#{tokens := Tokens} = State, Amount, _Setting) when Amount =< Tokens ->
+try_consume(#{tokens := Tokens} = State, Amount, _LimiterOptions) when Amount =< Tokens ->
     {true, State#{tokens := Tokens - Amount}};
-try_consume(
-    #{tokens := Tokens0, last_time := LastTime} = State0,
+try_consume(State0, Amount, LimiterOptions) ->
+    Now = now_ms_monotonic(),
+    case try_consume_regular(State0, LimiterOptions, Amount, Now) of
+        {true, State1} ->
+            {true, State1};
+        {false, State1} ->
+            try_consume_burst(State1, LimiterOptions, Amount, Now)
+    end.
+
+try_consume_regular(#{last_time := LastTime} = State0, #{interval := Interval}, _Amount, Now) when
+    Now < LastTime + Interval
+->
+    {false, State0};
+try_consume_regular(
+    #{last_time := LastTime, tokens := Tokens0} = State0,
+    #{capacity := Capacity, burst_capacity := BurstCapacity, interval := Interval},
     Amount,
-    #{capacity := Capacity, interval := Interval} = _LimiterOptions
-) when Amount > Tokens0 ->
-    case now_ms_monotonic() of
-        Now when Now < LastTime + Interval ->
-            {false, State0};
-        Now ->
-            %% NOTE
-            %% This calculation are mostly redundant now, because
-            %% the capacity is equal to the max capacity
-            Inc = Capacity * (Now - LastTime) / Interval,
-            Tokens = erlang:min(Capacity, Tokens0 + Inc),
-            State1 = State0#{last_time := Now, tokens := Tokens},
-            case Tokens >= Amount of
-                true ->
-                    {true, State1#{tokens := Tokens - Amount}};
-                _ ->
-                    {false, State1}
-            end
+    Now
+) ->
+    Inc = Capacity * (Now - LastTime) / Interval,
+    Tokens = erlang:min(Capacity + BurstCapacity, Tokens0 + Inc),
+    State1 = State0#{last_time := Now, tokens := Tokens},
+    case Tokens >= Amount of
+        true ->
+            {true, State1#{tokens := Tokens - Amount}};
+        false ->
+            {false, State1}
+    end.
+
+try_consume_burst(State0, #{burst_capacity := 0}, _Amount, _Now) ->
+    {false, State0};
+try_consume_burst(
+    #{last_burst_time := LastBurstTime} = State0, #{burst_interval := BurstInterval}, _Amount, Now
+) when Now < LastBurstTime + BurstInterval ->
+    {false, State0};
+try_consume_burst(State0, #{capacity := Capacity, burst_capacity := BurstCapacity}, Amount, Now) ->
+    Tokens = Capacity + BurstCapacity,
+    State1 = State0#{last_burst_time := Now, tokens := Tokens},
+    case Tokens >= Amount of
+        true ->
+            {true, State1#{tokens := Tokens - Amount}};
+        false ->
+            {false, State1}
     end.
 
 register_group(Group, LimiterConfigs) ->
@@ -140,5 +162,7 @@ unregister_group(Group) ->
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
 
-initial_tokens(#{capacity := infinity}) -> 0;
-initial_tokens(#{capacity := Capacity}) when is_integer(Capacity) -> Capacity.
+initial_tokens(#{capacity := infinity}) ->
+    0;
+initial_tokens(#{capacity := Capacity, burst_capacity := BurstCapacity}) ->
+    Capacity + BurstCapacity.

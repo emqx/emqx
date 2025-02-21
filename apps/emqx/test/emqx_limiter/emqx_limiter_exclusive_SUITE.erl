@@ -55,7 +55,7 @@ end_per_testcase(_TestCase, Config) ->
 
 t_try_consume(_) ->
     ok = emqx_limiter_exclusive:create_group(group1, [
-        {limiter1, #{capacity => 2, interval => 100, burst_capacity => 2, burst_interval => 100}}
+        {limiter1, #{capacity => 2, interval => 100, burst_capacity => 0}}
     ]),
 
     %% Create two different clients to consume tokens
@@ -79,9 +79,43 @@ t_try_consume(_) ->
     {false, _ClientA6} = emqx_limiter_client:try_consume(ClientA5, 1),
     {false, _ClientB6} = emqx_limiter_client:try_consume(ClientB5, 1).
 
+t_try_consume_burst(_) ->
+    ok = emqx_limiter_exclusive:create_group(group1, [
+        {limiter1, #{capacity => 2, interval => 100, burst_capacity => 8, burst_interval => 1000}}
+    ]),
+    Client0 = emqx_limiter_registry:connect({group1, limiter1}),
+
+    %% Consume full capacity
+    Client1 = lists:foldl(
+        fun(_, ClientAcc0) ->
+            {true, ClientAcc1} = emqx_limiter_client:try_consume(ClientAcc0, 1),
+            ClientAcc1
+        end,
+        Client0,
+        lists:seq(1, 10)
+    ),
+    {false, Client2} = emqx_limiter_client:try_consume(Client1, 1),
+
+    ct:sleep(110),
+    %% Only regularly refilled tokens are available
+    {true, Client3} = emqx_limiter_client:try_consume(Client2, 1),
+    {true, Client4} = emqx_limiter_client:try_consume(Client3, 1),
+    {false, Client5} = emqx_limiter_client:try_consume(Client4, 1),
+
+    ct:sleep(900),
+    %% Burst tokens are available again
+    lists:foldl(
+        fun(_, ClientAcc0) ->
+            {true, ClientAcc1} = emqx_limiter_client:try_consume(ClientAcc0, 1),
+            ClientAcc1
+        end,
+        Client5,
+        lists:seq(1, 10)
+    ).
+
 t_put_back(_) ->
     ok = emqx_limiter_exclusive:create_group(group1, [
-        {limiter1, #{capacity => 2, interval => 100, burst_capacity => 2, burst_interval => 100}}
+        {limiter1, #{capacity => 2, interval => 100, burst_capacity => 0}}
     ]),
 
     %% Create a client and consume tokens
@@ -99,7 +133,7 @@ t_put_back(_) ->
 
 t_change_options(_) ->
     ok = emqx_limiter_exclusive:create_group(group1, [
-        {limiter1, #{capacity => 1, interval => 100, burst_capacity => 1, burst_interval => 100}}
+        {limiter1, #{capacity => 1, interval => 100, burst_capacity => 0}}
     ]),
 
     %% Create a client and consume tokens
@@ -109,7 +143,7 @@ t_change_options(_) ->
 
     %% Change the options, increase the capacity and interval
     ok = emqx_limiter_exclusive:update_group_configs(group1, [
-        {limiter1, #{capacity => 2, interval => 200, burst_capacity => 2, burst_interval => 200}}
+        {limiter1, #{capacity => 2, interval => 200, burst_capacity => 0}}
     ]),
 
     %% The tokens will be refilled at the end of the NEW interval
