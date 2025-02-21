@@ -2305,8 +2305,9 @@ collect_and_compress_channel_operations(Acc) ->
         Ops0
     ),
     Ops2 = lists:map(fun(#{op := Op, n := N}) -> {N, Op} end, maps:values(Ops1)),
-    Ops = lists:keysort(1, Ops2),
-    lists:map(fun({_N, Op}) -> Op end, Ops).
+    Ops3 = lists:keysort(1, Ops2),
+    {_, Ops} = lists:unzip(Ops3),
+    Ops.
 
 operation_channel_id(#add_channel{channel_id = ChannelId, config = _Config}) ->
     ChannelId;
