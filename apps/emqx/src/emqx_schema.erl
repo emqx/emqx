@@ -55,7 +55,7 @@
 -type cipher() :: map().
 -type port_number() :: 1..65535.
 -type server_parse_option() :: #{
-    default_port => port_number(),
+    default_port => integer(),
     no_port => boolean(),
     supported_schemes => [string()],
     default_scheme => string()
@@ -87,7 +87,7 @@
 
 -type parsed_server() :: #{
     hostname := string(),
-    port => port_number(),
+    port => integer(),
     scheme => string()
 }.
 
