@@ -18,6 +18,7 @@
 
 -behaviour(esockd_generic_limiter).
 
+-include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
@@ -70,5 +71,13 @@ consume(Amount, #{limiter_client := LimiterClient0} = State) ->
             {ok, State#{limiter_client := LimiterClient}};
         {false, LimiterClient} ->
             ?tp(esockd_limiter_consume_pause, #{amount => Amount}),
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => listener_accept_throttled_due_to_quota_exceeded,
+                    pause_interval => ?PAUSE_INTERVAL
+                },
+                #{tag => "LISTENER"}
+            ),
             {pause, ?PAUSE_INTERVAL, State#{limiter_client := LimiterClient}}
     end.
