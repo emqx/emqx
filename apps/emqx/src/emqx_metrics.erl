@@ -56,8 +56,7 @@
 -export([
     inc_msg/1,
     inc_recv/1,
-    inc_sent/1,
-    inc_quota_exceeded/1
+    inc_sent/1
 ]).
 
 %% gen_server callbacks
@@ -345,11 +344,6 @@ do_inc_sent(?PACKET(?DISCONNECT)) ->
 do_inc_sent(?PACKET(?AUTH)) ->
     inc('packets.auth.sent');
 do_inc_sent(_Packet) ->
-    ok.
-
-inc_quota_exceeded(QoS) ->
-    inc('packets.publish.quota_exceeded'),
-    QoS =:= ?QOS_0 andalso emqx_metrics:inc('packets.publish.dropped'),
     ok.
 
 %%--------------------------------------------------------------------

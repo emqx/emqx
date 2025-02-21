@@ -628,7 +628,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                 },
                 #{topic => Topic, tag => "AUTHZ"}
             ),
-            emqx_metrics:inc_quota_exceeded(QoS),
+            ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
             case QoS of
                 ?QOS_0 ->
                     ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
