@@ -799,7 +799,14 @@ t_missing_table(Config) ->
     ?check_trace(
         begin
             drop_table_if_exists(Config),
-            ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ct:sleep(500),
+            ?assertMatch(
+                {ok, _},
+                create_bridge_api(
+                    Config,
+                    #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+                )
+            ),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
@@ -871,21 +878,30 @@ t_update_with_invalid_prepare(Config) ->
     BadSQL =
         <<"INSERT INTO mqtt_test(topic, msgid, payload, retainx) VALUES (${topic}, ${id}, ${payload}, ${retain})">>,
 
-    Override = #{<<"sql">> => BadSQL},
+    Override = #{
+        <<"sql">> => BadSQL,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
+    },
     {ok, _} = update_bridge_api(Config, Override),
 
-    {ok, Body1} = emqx_bridge_testlib:get_bridge_api(Config),
-    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
-    Error1 = maps:get(<<"status_reason">>, Body1),
-    case re:run(Error1, <<"unhealthy_target">>, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            ct:fail(#{
-                expected_pattern => "undefined_column",
-                got => Error1
-            })
-    end,
+    ?retry(
+        1_000,
+        10,
+        begin
+            {ok, Body1} = emqx_bridge_testlib:get_bridge_api(Config),
+            ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
+            Error1 = maps:get(<<"status_reason">>, Body1),
+            case re:run(Error1, <<"unhealthy_target">>, [{capture, none}]) of
+                match ->
+                    ok;
+                nomatch ->
+                    ct:fail(#{
+                        expected_pattern => "undefined_column",
+                        got => Error1
+                    })
+            end
+        end
+    ),
 
     %% assert that although there was an error returned, the invliad SQL is actually put
     BridgeName = ?config(oracle_name, Config),
