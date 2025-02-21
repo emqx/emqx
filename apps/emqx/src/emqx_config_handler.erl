@@ -660,9 +660,11 @@ return_change_result(#conf_info{conf_key_path = ConfKeyPath, update_args = {{upd
 return_change_result(#conf_info{update_args = {remove, _Opts}}) ->
     #{}.
 
-return_rawconf(ConfKeyPath, #{rawconf_with_defaults := true}) ->
-    FullRawConf = emqx_config:fill_defaults(emqx_config:get_raw([])),
-    emqx_utils_maps:deep_get(bin_path(ConfKeyPath), FullRawConf);
+return_rawconf([Root | _] = ConfKeyPath, #{rawconf_with_defaults := true}) ->
+    RootKey = bin(Root),
+    RawConf1 = #{RootKey => emqx_config:get_raw([RootKey])},
+    RawConf2 = emqx_config:fill_defaults(RawConf1),
+    emqx_utils_maps:deep_get(bin_path(ConfKeyPath), RawConf2);
 return_rawconf(ConfKeyPath, _) ->
     emqx_config:get_raw(ConfKeyPath).
 

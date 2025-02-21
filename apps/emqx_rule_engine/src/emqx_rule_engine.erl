@@ -373,9 +373,9 @@ get_basic_usage_info() ->
         ReferencedBridges =
             lists:foldl(
                 fun(#{actions := Actions, from := Froms}, Acc) ->
-                    BridgeIDs0 = get_referenced_hookpoints(Froms),
-                    BridgeIDs1 = get_egress_bridges(Actions),
-                    tally_referenced_bridges(BridgeIDs0 ++ BridgeIDs1, Acc)
+                    BridgeIds0 = get_referenced_hookpoints(Froms),
+                    BridgeIds1 = get_egress_bridges(Actions),
+                    tally_referenced_bridges(BridgeIds0 ++ BridgeIds1, Acc)
                 end,
                 #{},
                 EnabledRules
@@ -392,11 +392,11 @@ get_basic_usage_info() ->
             }
     end.
 
-tally_referenced_bridges(BridgeIDs, Acc0) ->
+tally_referenced_bridges(BridgeIds, Acc0) ->
     lists:foldl(
-        fun(BridgeID, Acc) ->
+        fun(BridgeId, Acc) ->
             {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(
-                BridgeID,
+                BridgeId,
                 #{atom_name => false}
             ),
             maps:update_with(
@@ -407,7 +407,7 @@ tally_referenced_bridges(BridgeIDs, Acc0) ->
             )
         end,
         Acc0,
-        BridgeIDs
+        BridgeIds
     ).
 
 %%----------------------------------------------------------------------------------------
@@ -481,14 +481,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
 
-with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt, Fun) ->
+with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt0, Fun) ->
+    CreatedAt = emqx_utils_maps:deep_get([metadata, created_at], Params, CreatedAt0),
+    LastModifiedAt = emqx_utils_maps:deep_get([metadata, last_modified_at], Params, CreatedAt),
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Rule0 = #{
                 id => RuleId,
                 name => maps:get(name, Params, <<"">>),
                 created_at => CreatedAt,
-                updated_at => now_ms(),
+                updated_at => LastModifiedAt,
                 sql => Sql,
                 actions => parse_actions(Actions),
                 description => maps:get(description, Params, ""),
@@ -505,10 +507,10 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
             case validate_bridge_existence_in_actions(Rule0) of
                 ok ->
                     ok;
-                {error, NonExistentBridgeIDs} ->
+                {error, NonExistentBridgeIds} ->
                     ?tp(error, "action_references_nonexistent_bridges", #{
                         rule_id => RuleId,
-                        nonexistent_bridge_ids => NonExistentBridgeIDs,
+                        nonexistent_bridge_ids => NonExistentBridgeIds,
                         hint => "this rule will be disabled"
                     })
             end,
@@ -599,9 +601,9 @@ references_ingress_bridge(Froms, BridgeId) ->
 
 get_referenced_hookpoints(Froms) ->
     [
-        BridgeID
+        BridgeId
      || From <- Froms,
-        {ok, BridgeID} <-
+        {ok, BridgeId} <-
             [emqx_bridge_resource:bridge_hookpoint_to_bridge_id(From)]
     ].
 
@@ -641,13 +643,13 @@ set_extra_functions_module(Mod) ->
 %% ones, the rule shouldn't be allowed to be enabled.
 %% The actions here are already parsed.
 validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rule) ->
-    BridgeIDs0 =
+    BridgeIds0 =
         lists:map(
-            fun(BridgeID) ->
+            fun(BridgeId) ->
                 %% FIXME: this supposedly returns an upgraded type, but it's fuzzy: it
                 %% returns v1 types when attempting to "upgrade".....
                 {Type, Name} =
-                    emqx_bridge_resource:parse_bridge_id(BridgeID, #{atom_name => false}),
+                    emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
                 case emqx_action_info:is_action_type(Type) of
                     true -> {source, Type, Name};
                     false -> {bridge_v1, Type, Name}
@@ -655,7 +657,7 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             end,
             get_referenced_hookpoints(Froms)
         ),
-    BridgeIDs1 =
+    BridgeIds1 =
         lists:filtermap(
             fun
                 ({bridge_v2, Type, Name}) -> {true, {action, Type, Name}};
@@ -664,7 +666,7 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             end,
             Actions
         ),
-    NonExistentBridgeIDs =
+    NonExistentBridgeIds =
         lists:filter(
             fun({Kind, Type, Name}) ->
                 IsExist =
@@ -679,9 +681,9 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
                     _:_ -> true
                 end
             end,
-            BridgeIDs0 ++ BridgeIDs1
+            BridgeIds0 ++ BridgeIds1
         ),
-    case NonExistentBridgeIDs of
+    case NonExistentBridgeIds of
         [] -> ok;
-        _ -> {error, #{nonexistent_bridge_ids => NonExistentBridgeIDs}}
+        _ -> {error, #{nonexistent_bridge_ids => NonExistentBridgeIds}}
     end.

@@ -324,6 +324,12 @@ ri_created_at.desc:
 ri_created_at.label:
 """Rule Create Time"""
 
+ri_last_modified_at.desc:
+"""Time at which the rule was last modified."""
+
+ri_last_modified_at.label:
+"""Rule Last Modified Time"""
+
 event_dup.desc:
 """The DUP flag of the MQTT message"""
 
