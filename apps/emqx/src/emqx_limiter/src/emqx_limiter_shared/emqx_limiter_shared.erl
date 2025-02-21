@@ -25,6 +25,7 @@
 -module(emqx_limiter_shared).
 
 -behaviour(emqx_limiter_client).
+-behaviour(emqx_limiter_registry).
 
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

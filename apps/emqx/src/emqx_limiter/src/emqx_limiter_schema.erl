@@ -162,7 +162,7 @@ do_parse_rate(Str) ->
         # Capacity with optional unit
         (\d+)(kb|mb|gb|)
         # Optional interval with required unit
-        (?: 
+        (?:
             /(\d*)([mshd]{1,2})
         )?
         $
