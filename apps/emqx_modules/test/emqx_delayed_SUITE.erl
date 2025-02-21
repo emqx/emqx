@@ -129,7 +129,8 @@ t_delayed_message_abs_time(_) ->
         ets:tab2list(emqx_delayed)
     ),
 
-    Ts1 = integer_to_binary(erlang:system_time(second) + 10000000),
+    %% later than max allowed interval
+    Ts1 = integer_to_binary(erlang:system_time(second) + 42949670 + 100),
     DelayedMsg1 = emqx_message:make(
         ?MODULE, 1, <<"$delayed/", Ts1/binary, "/publish">>, <<"delayed_abs">>
     ),
