@@ -83,13 +83,7 @@ update_group_configs(Group, LimiterConfigs) ->
     case emqx_limiter_registry:find_group(Group) of
         undefined ->
             error({group_not_found, Group});
-        {_Module, OldLimiterConfigs} ->
-            ?SLOG(warning, #{
-                msg => "update_group_configs",
-                group => Group,
-                old_limiter_configs => OldLimiterConfigs,
-                limiter_configs => LimiterConfigs
-            }),
+        {_Module, _OldLimiterConfigs} ->
             ok = register_group(Group, LimiterConfigs),
             ok = emqx_limiter_allocator:update(Group)
     end.

@@ -148,12 +148,6 @@ create_bucket(#{group := Group, counter := Counter}, LimiterName, Index) ->
     Options = get_limiter_options(LimiterId),
     ok = set_initial_tokens(Counter, Index, Options),
     BucketRef = #{counter => Counter, index => Index},
-    ?SLOG(warning, #{
-        msg => "emqx_limiter_allocator_create_bucket",
-        limiter_id => LimiterId,
-        bucket_ref => BucketRef,
-        options => Options
-    }),
     ok = emqx_limiter_bucket_registry:insert_bucket(LimiterId, BucketRef),
     #{
         counter => Counter,
@@ -213,13 +207,6 @@ alloc_bucket(
             Inc = Elapsed * Capacity / Interval + Correction,
             Inc2 = erlang:floor(Inc),
             Correction2 = Inc - Inc2,
-            ?SLOG(warning, #{
-                limiter_id => LimiterId,
-                msg => "limiter_shared_add_tokens",
-                val => Val,
-                tokens => Inc2,
-                options => Options
-            }),
             add_tokens(Bucket, Val, Capacity + BurstCapacity, Inc2),
             Bucket#{correction := Correction2, last_alloc_time => Now}
     end;
@@ -231,7 +218,6 @@ alloc_bucket(
         index := Index
     } = Bucket
 ) ->
-    Val = counters:get(Counter, Index),
     Options = get_limiter_options(LimiterId),
     case Options of
         #{capacity := infinity} ->
@@ -239,12 +225,6 @@ alloc_bucket(
         #{burst_capacity := 0} ->
             Bucket;
         #{capacity := Capacity, burst_capacity := BurstCapacity} ->
-            ?SLOG(warning, #{
-                limiter_id => LimiterId,
-                msg => "limiter_shared_set_burst_capacity",
-                val => Val,
-                options => Options
-            }),
             ok = counters:put(Counter, Index, Capacity + BurstCapacity),
             Bucket
     end.

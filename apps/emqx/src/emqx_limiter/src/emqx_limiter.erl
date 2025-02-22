@@ -105,7 +105,7 @@ create_zone_limiters() ->
     ).
 
 update_zone_limiters() ->
-    ?SLOG(warning, #{
+    ?SLOG(debug, #{
         msg => "update_zone_limiters",
         zones => maps:keys(emqx_config:get([zones]))
     }),
