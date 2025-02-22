@@ -52,6 +52,23 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    %% Set up limiters for default listener
+    ok = emqx_limiter:create_listener_limiters('tcp:default', #{}),
+
+    %% Set up limiters for a listener with tight message rate limit
+    DefaultConf = emqx_config:get_listener_conf(tcp, default, []),
+    emqx_config:put_listener_conf(tcp, low_message_rate, [], DefaultConf),
+    {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
+    ok = emqx_limiter:create_listener_limiters('tcp:low_message_rate', #{
+        messages_rate => MessagesRate
+    }),
+
+    %% Set up limiters for a listener with tight byte rate limit
+    emqx_config:put_listener_conf(tcp, low_byte_rate, [], DefaultConf),
+    {ok, BytesRate} = emqx_limiter_schema:to_rate("7/s"),
+    ok = emqx_limiter:create_listener_limiters('tcp:low_byte_rate', #{
+        bytes_rate => BytesRate
+    }),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -485,11 +502,13 @@ t_process_unsubscribe(_) ->
     {[?RC_SUCCESS], _Channel} = emqx_channel:post_process_unsubscribe(TopicFilters, #{}, channel()).
 
 t_quota_qos0(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("1/s"),
-    emqx_limiter_allocator:add_bucket(messages, #{rate => Rate, burst => 0}),
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(
+        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+            listener => {tcp, low_message_rate}
+        }
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
     Metric = 'messages.dropped.quota_exceeded',
@@ -501,15 +520,16 @@ t_quota_qos0(_) ->
     {ok, _} = emqx_channel:handle_in(Pub, Chann2),
     %% No longer exceeds quota
     ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
-    emqx_limiter_allocator:delete_bucket(messages),
     ok.
 
 t_quota_qos1(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("1/s"),
-    emqx_limiter_allocator:add_bucket(messages, #{rate => Rate, burst => 0}),
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(
+        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+            listener => {tcp, low_message_rate}
+        }
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
@@ -518,15 +538,16 @@ t_quota_qos1(_) ->
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
     {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
-    emqx_limiter_allocator:delete_bucket(messages),
     ok.
 
 t_quota_qos2(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("1/s"),
-    emqx_limiter_allocator:add_bucket(messages, #{rate => Rate, burst => 0}),
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(
+        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+            listener => {tcp, low_message_rate}
+        }
+    ),
     Pub1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     Pub2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
     Pub3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
@@ -538,15 +559,14 @@ t_quota_qos2(_) ->
     {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub3, Chann2),
     %% Quota in overall
     {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann3),
-    emqx_limiter_allocator:delete_bucket(messages),
     ok.
 
 t_quota_bytes(_) ->
-    {ok, Rate} = emqx_limiter_schema:to_rate("7/s"),
-    emqx_limiter_allocator:add_bucket(bytes, #{rate => Rate, burst => 0}),
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(clientinfo(#{listener => {tcp, low_byte_rate}}), #{conn_state => connected}, #{
+        listener => {tcp, low_byte_rate}
+    }),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
@@ -555,11 +575,6 @@ t_quota_bytes(_) ->
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
     {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
-    emqx_limiter_allocator:delete_bucket(bytes),
-    ?assertEqual(
-        undefined,
-        emqx_limiter_bucket_registry:find_bucket(emqx_limiter:default_alloc_interval(), bytes)
-    ),
     ok.
 
 t_mount_will_msg(_) ->
@@ -1045,7 +1060,8 @@ t_flapping_detect(_) ->
 
 channel() -> channel(#{}).
 channel(InitFields) -> channel(clientinfo(), InitFields).
-channel(ClientInfo, InitFields) ->
+channel(ClientInfo, InitFields) -> channel(ClientInfo, InitFields, #{}).
+channel(ClientInfo, InitFields, ListenerOpts) ->
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 1883},
@@ -1066,11 +1082,14 @@ channel(ClientInfo, InitFields) ->
         end,
         emqx_channel:init(
             ConnInfo,
-            #{
-                zone => default,
-                limiter => undefined,
-                listener => {tcp, default}
-            }
+            maps:merge(
+                #{
+                    zone => default,
+                    limiter => undefined,
+                    listener => {tcp, default}
+                },
+                ListenerOpts
+            )
         ),
         maps:merge(
             #{
