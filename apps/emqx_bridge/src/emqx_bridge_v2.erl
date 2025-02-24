@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
