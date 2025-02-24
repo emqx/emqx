@@ -69,7 +69,7 @@ t_try_consume(_) ->
         [{limiter1, 2}, {limiter2, 2}]
     ),
 
-    %% Chech that the tokens were put back into the limiters
+    %% Check that the tokens were put back into the limiters are available
     {true, _Container2} = emqx_limiter_client_container:try_consume(
         Container1,
         [{limiter1, 2}, {limiter2, 1}]
