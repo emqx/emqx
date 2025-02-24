@@ -701,7 +701,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(kafka_name, Config),
     KafkaConfig0 = ?config(kafka_config, Config),
     KafkaConfig = emqx_utils_maps:deep_merge(KafkaConfig0, Overrides),
-    emqx_bridge:create(Type, Name, KafkaConfig).
+    emqx_bridge_testlib:create_bridge_api(Type, Name, KafkaConfig).
 
 create_bridge_wait_for_balance(Config) ->
     setup_group_subscriber_spy(self()),
@@ -1078,8 +1078,24 @@ cluster(TestCase, Config) ->
     ],
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(
         [
-            {node_name(TestCase, 1), #{apps => AppSpecs}},
-            {node_name(TestCase, 2), #{apps => AppSpecs}}
+            {node_name(TestCase, 1), #{
+                apps => AppSpecs ++
+                    [
+                        emqx_management,
+                        emqx_mgmt_api_test_util:emqx_dashboard(
+                            "dashboard.listeners.http.bind = 28083"
+                        )
+                    ]
+            }},
+            {node_name(TestCase, 2), #{
+                apps => AppSpecs ++
+                    [
+                        emqx_management,
+                        emqx_mgmt_api_test_util:emqx_dashboard(
+                            "dashboard.listeners.http.bind = 28084"
+                        )
+                    ]
+            }}
         ],
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),

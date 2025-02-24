@@ -300,7 +300,7 @@ create_bridge(Config, Overrides) ->
     Name = ?config(oracle_name, Config),
     OracleConfig0 = ?config(oracle_config, Config),
     OracleConfig = emqx_utils_maps:deep_merge(OracleConfig0, Overrides),
-    emqx_bridge:create(Type, Name, OracleConfig).
+    emqx_bridge_testlib:create_bridge_api(Type, Name, OracleConfig).
 
 create_bridge_api(Config) ->
     create_bridge_api(Config, _Overrides = #{}).
@@ -318,6 +318,7 @@ create_bridge_api(Config, Overrides) ->
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
+                _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeBin, Name),
                 {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             {error, {Status, Headers, Body0}} ->
                 {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
@@ -343,8 +344,11 @@ update_bridge_api(Config, Overrides) ->
     ct:pal("updating bridge (via http): ~p", [Params]),
     Res =
         case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Params, Opts) of
-            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_utils_json:decode(Body0)};
-            Error -> Error
+            {ok, {_Status, _Headers, Body0}} ->
+                _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeBin, Name),
+                {ok, emqx_utils_json:decode(Body0)};
+            Error ->
+                Error
         end,
     ct:pal("bridge update result: ~p", [Res]),
     Res.
@@ -765,10 +769,6 @@ t_no_sid_nor_service_name(Config0) ->
     NewOracleConfig = {oracle_config, OracleConfig},
     Config = lists:keyreplace(oracle_config, 1, Config0, NewOracleConfig),
     ?assertMatch(
-        {error, #{kind := validation_error, reason := "neither SID nor Service Name was set"}},
-        create_bridge(Config)
-    ),
-    ?assertMatch(
         {error,
             {{_, 400, _}, _, #{
                 <<"message">> := #{
@@ -799,7 +799,14 @@ t_missing_table(Config) ->
     ?check_trace(
         begin
             drop_table_if_exists(Config),
-            ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ct:sleep(500),
+            ?assertMatch(
+                {ok, _},
+                create_bridge_api(
+                    Config,
+                    #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+                )
+            ),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
@@ -811,7 +818,6 @@ t_missing_table(Config) ->
                     emqx_bridge_testlib:get_bridge_api(Config)
                 )
             ),
-            ?block_until(#{?snk_kind := oracle_undefined_table}),
             MsgId = erlang:unique_integer(),
             Params = #{
                 topic => ?config(mqtt_topic, Config),
@@ -825,10 +831,7 @@ t_missing_table(Config) ->
             ),
             ok
         end,
-        fun(Trace) ->
-            ?assertNotMatch([], ?of_kind(oracle_undefined_table, Trace)),
-            ok
-        end
+        []
     ).
 
 t_table_removed(Config) ->
@@ -865,27 +868,39 @@ t_table_removed(Config) ->
 t_update_with_invalid_prepare(Config) ->
     reset_table(Config),
 
-    {ok, _} = create_bridge_api(Config),
+    {ok, _} = create_bridge_api(
+        Config,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+    ),
 
     %% retainx is a bad column name
     BadSQL =
         <<"INSERT INTO mqtt_test(topic, msgid, payload, retainx) VALUES (${topic}, ${id}, ${payload}, ${retain})">>,
 
-    Override = #{<<"sql">> => BadSQL},
-    {ok, Body1} =
-        update_bridge_api(Config, Override),
+    Override = #{
+        <<"sql">> => BadSQL,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
+    },
+    {ok, _} = update_bridge_api(Config, Override),
 
-    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
-    Error1 = maps:get(<<"status_reason">>, Body1),
-    case re:run(Error1, <<"unhealthy_target">>, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            ct:fail(#{
-                expected_pattern => "undefined_column",
-                got => Error1
-            })
-    end,
+    ?retry(
+        1_000,
+        20,
+        begin
+            {ok, Body1} = emqx_bridge_testlib:get_bridge_api(Config),
+            ?assertMatch(#{<<"status_reason">> := _, <<"status">> := <<"disconnected">>}, Body1),
+            Error1 = maps:get(<<"status_reason">>, Body1),
+            case re:run(Error1, <<"unhealthy_target">>, [{capture, none}]) of
+                match ->
+                    ok;
+                nomatch ->
+                    ct:fail(#{
+                        expected_pattern => "undefined_column",
+                        got => Error1
+                    })
+            end
+        end
+    ),
 
     %% assert that although there was an error returned, the invliad SQL is actually put
     BridgeName = ?config(oracle_name, Config),
@@ -895,7 +910,8 @@ t_update_with_invalid_prepare(Config) ->
     ?assertEqual(FetchedSQL, BadSQL),
 
     %% update again with the original sql
-    {ok, Body2} = update_bridge_api(Config),
+    {ok, _} = update_bridge_api(Config),
+    {ok, Body2} = emqx_bridge_testlib:get_bridge_api(Config),
     %% the error should be gone now, and status should be 'connected'
     ?assertMatch(#{<<"status">> := <<"connected">>}, Body2),
     %% finally check if ecpool worker should have exactly one of reconnect callback

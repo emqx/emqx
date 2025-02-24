@@ -268,8 +268,8 @@ t_mqtt_conn_bridge_ingress(_) ->
         }
     ),
     #{
-        <<"type">> := ?TYPE_MQTT,
-        <<"name">> := ?BRIDGE_NAME_INGRESS
+        <<"type">> := ?TYPE_MQTT = Type,
+        <<"name">> := ?BRIDGE_NAME_INGRESS = Name
     } = emqx_utils_json:decode(Bridge),
 
     BridgeIDIngress = emqx_bridge_resource:bridge_id(?TYPE_MQTT, ?BRIDGE_NAME_INGRESS),
@@ -285,6 +285,7 @@ t_mqtt_conn_bridge_ingress(_) ->
         {ok, 200, _},
         request(put, uri(["bridges", BridgeIDIngress]), ServerConf)
     ),
+    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name),
 
     %% non-shared subscription, verify that only one client is subscribed
     ?assertEqual(
@@ -330,6 +331,7 @@ t_mqtt_conn_bridge_ingress_full_context(_Config) ->
             <<"ingress">> => IngressConf
         }
     ),
+    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(?TYPE_MQTT, ?BRIDGE_NAME_INGRESS),
 
     RemoteTopic = <<?INGRESS_REMOTE_TOPIC, "/1">>,
     LocalTopic = <<?INGRESS_LOCAL_TOPIC, "/", RemoteTopic/binary>>,
@@ -1119,6 +1121,8 @@ create_bridge(Config = #{<<"type">> := Type, <<"name">> := Name}) ->
         uri(["bridges"]),
         Config
     ),
+    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name),
     ?assertMatch(
         #{
             <<"type">> := Type,

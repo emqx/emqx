@@ -53,7 +53,7 @@ connector_action_config_to_bridge_v1_config(ConnectorRawConf, ActionRawConf) ->
     RawConf = emqx_action_info:connector_action_config_to_bridge_v1_config(
         ConnectorRawConf, ActionRawConf
     ),
-    maps:without([<<"influxdb_type">>], RawConf).
+    maps:without([<<"influxdb_type">>, <<"max_inactive">>], RawConf).
 
 bridge_v1_type_name() ->
     {fun ?MODULE:bridge_v1_type_name_fun/1, bridge_v1_type_names()}.

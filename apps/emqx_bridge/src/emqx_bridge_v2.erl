@@ -86,6 +86,7 @@
 
 -export([
     parse_id/1,
+    get_resource_ids/3,
     get_channels_for_connector/1
 ]).
 
@@ -510,7 +511,7 @@ install_bridge_v2_helper(
     ConnectorId = emqx_connector_resource:resource_id(
         connector_type(BridgeV2Type), ConnectorName
     ),
-    _ = emqx_resource_manager:add_channel(
+    _ = emqx_resource_manager:add_channel_async(
         ConnectorId,
         BridgeV2Id,
         augment_channel_config(
@@ -572,14 +573,7 @@ uninstall_bridge_v2(
             ConnectorId = emqx_connector_resource:resource_id(
                 connector_type(BridgeV2Type), ConnectorName
             ),
-            Res = emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id),
-            case Res of
-                ok ->
-                    ok = emqx_resource:clear_metrics(BridgeV2Id);
-                _ ->
-                    ok
-            end,
-            Res
+            emqx_resource_manager:remove_channel_async(ConnectorId, BridgeV2Id)
     end.
 
 combine_connector_and_bridge_v2_config(
@@ -1056,6 +1050,18 @@ id(BridgeType, BridgeName, ConnectorName) ->
 source_id(BridgeType, BridgeName, ConnectorName) ->
     id_with_root_name(?ROOT_KEY_SOURCES, BridgeType, BridgeName, ConnectorName).
 
+get_resource_ids(ConfRootKey, Type, Name) ->
+    try
+        maybe
+            ChannelResId = id_with_root_name(ConfRootKey, Type, Name),
+            {ok, ConnResId} ?= extract_connector_id_from_bridge_v2_id(ChannelResId),
+            {ok, {ConnResId, ChannelResId}}
+        end
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
 id_with_root_name(RootName, BridgeType, BridgeName) ->
     case lookup_conf(RootName, BridgeType, BridgeName) of
         #{connector := ConnectorName} ->
@@ -1192,7 +1198,7 @@ post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv) when
         install_bridge_v2(ConfRootKey, Type, Name, Conf)
     end,
     UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
-        uninstall_bridge_v2(ConfRootKey, Type, Name, OldBridgeConf),
+        _ = uninstall_bridge_v2(ConfRootKey, Type, Name, OldBridgeConf),
         install_bridge_v2(ConfRootKey, Type, Name, Conf)
     end,
     Result = perform_bridge_changes([
@@ -1241,18 +1247,6 @@ post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, OldConf
     case uninstall_bridge_v2(ConfRootKey, BridgeType, BridgeName, OldConf) of
         ok ->
             ok;
-        {error, timeout} ->
-            ErrorContext = #{
-                error => uninstall_timeout,
-                bridge_kind => ConfRootKey,
-                type => BridgeType,
-                name => BridgeName,
-                reason => <<
-                    "Timed out trying to remove action or source.  Please try again and,"
-                    " if the error persists, try disabling the connector before retrying."
-                >>
-            },
-            throw(ErrorContext);
         {error, not_found} ->
             %% Should not happen, unless config is inconsistent.
             throw(<<"Referenced connector not found">>)
@@ -2011,9 +2005,11 @@ bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 extract_connector_id_from_bridge_v2_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [<<"action">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
-            <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
+            {ok, <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>};
+        [<<"source">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
+            {ok, <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>};
         _X ->
-            error({error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))})
+            {error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))}
     end.
 
 ensure_atom_root_key(ConfRootKey) when is_atom(ConfRootKey) ->

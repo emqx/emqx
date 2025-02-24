@@ -414,8 +414,10 @@ t_undefined_vars_as_null(Config0) ->
     ).
 
 t_batch_insert(Config) ->
+    Name = ?config(bridge_name, Config),
     connect_and_clear_table(Config),
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(?BRIDGE_TYPE_BIN, Name),
 
     Size = 5,
     Ts = erlang:system_time(millisecond),
@@ -482,9 +484,11 @@ t_auto_create_simple_insert(Config) ->
     ).
 
 t_auto_create_batch_insert(Config) ->
+    Name = ?config(bridge_name, Config),
     ClientId1 = "client1",
     ClientId2 = "client2",
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(?BRIDGE_TYPE_BIN, Name),
 
     Size1 = 2,
     Size2 = 3,

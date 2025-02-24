@@ -30,6 +30,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
+-define(ACTION_TYPE, http).
 -define(BRIDGE_TYPE, emqx_bridge_http_test_lib:bridge_type()).
 -define(BRIDGE_NAME, emqx_bridge_http_test_lib:bridge_name()).
 
@@ -572,7 +573,9 @@ t_path_not_found(Config) ->
                 port => Port,
                 path => Path
             }),
-            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            {ok, _} = emqx_bridge_testlib:create_bridge_api(
+                ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig
+            ),
             Msg = emqx_message:make(MQTTTopic, <<"{}">>),
             emqx:publish(Msg),
             wait_http_request(),
@@ -611,7 +614,9 @@ t_empty_path(Config) ->
                 port => Port,
                 path => <<"">>
             }),
-            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            {ok, _} = emqx_bridge_testlib:create_bridge_api(
+                ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig
+            ),
             Msg = emqx_message:make(MQTTTopic, <<"{}">>),
             emqx:publish(Msg),
             wait_http_request(),
@@ -656,7 +661,9 @@ check_send_is_retried(Config) ->
                 port => Port,
                 path => Path
             }),
-            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            {ok, _} = emqx_bridge_testlib:create_bridge_api(
+                ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig
+            ),
             Msg = emqx_message:make(MQTTTopic, <<"{}">>),
             emqx:publish(Msg),
             %% should retry
@@ -700,7 +707,9 @@ t_rule_action_expired(Config) ->
                 request_timeout => "100ms",
                 resource_request_ttl => "100ms"
             }),
-            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            {ok, _} = emqx_bridge_testlib:create_bridge_api(
+                ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig
+            ),
             {ok, #{<<"id">> := RuleId}} =
                 emqx_bridge_testlib:create_rule_and_action_http(?BRIDGE_TYPE, RuleTopic, Config),
             Msg = emqx_message:make(RuleTopic, <<"timeout">>),

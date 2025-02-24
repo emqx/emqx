@@ -176,6 +176,9 @@ common_init(Config0) ->
                     {pgsql_config, PGConf},
                     {pgsql_bridge_type, BridgeType},
                     {pgsql_name, Name},
+                    {bridge_type, BridgeType},
+                    {bridge_name, Name},
+                    {bridge_config, PGConf},
                     {proxy_host, ProxyHost},
                     {proxy_port, ProxyPort}
                     | Config0
@@ -269,7 +272,10 @@ create_bridge(Config, Overrides) ->
     Name = ?config(pgsql_name, Config),
     PGConfig0 = ?config(pgsql_config, Config),
     PGConfig = emqx_utils_maps:deep_merge(PGConfig0, Overrides),
-    emqx_bridge:create(BridgeType, Name, PGConfig).
+    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, PGConfig).
+
+update_bridge_api(Config) ->
+    emqx_bridge_testlib:update_bridge_api(Config).
 
 delete_bridge(Config) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
@@ -280,8 +286,12 @@ create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
+        {ok, Res} ->
+            #{<<"type">> := Type, <<"name">> := Name} = Params,
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+            {ok, emqx_utils_json:decode(Res)};
+        Error ->
+            Error
     end.
 
 send_message(Config, Payload) ->
@@ -778,7 +788,7 @@ t_prepared_statement_exists(Config) ->
     %% We should get status disconnected if removing already existing statment don't help
     ?check_trace(
         begin
-            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?assertMatch({ok, _}, update_bridge_api(Config)),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,

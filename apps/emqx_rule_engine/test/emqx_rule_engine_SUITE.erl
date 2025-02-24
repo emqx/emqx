@@ -210,7 +210,9 @@ init_per_suite(Config) ->
                     }
                 }}
              || is_ee()
-            ]
+            ],
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ]),
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -3823,7 +3825,7 @@ do_test_rule_metrics(QMode) ->
     emqx_metrics_worker:get_counters(rule_metrics, RuleId).
 
 create_bridge(Type, Name, Config) ->
-    {ok, _Bridge} = emqx_bridge:create(Type, Name, Config),
+    {ok, _Bridge} = emqx_bridge_testlib:create_bridge_api(Type, Name, Config),
     emqx_bridge_resource:bridge_id(Type, Name).
 
 create_rule(Name, SQL) ->

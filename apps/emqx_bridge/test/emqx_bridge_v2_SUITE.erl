@@ -718,6 +718,7 @@ t_unhealthy_channel_alarm(_) ->
     },
     0 = get_bridge_v2_alarm_cnt(),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    ok = emqx_bridge_v2_testlib:kickoff_action_health_check(bridge_type(), my_test_bridge),
     1 = get_bridge_v2_alarm_cnt(),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     0 = get_bridge_v2_alarm_cnt(),
@@ -1445,7 +1446,11 @@ t_fallback_actions(_Config) ->
             {ok, _} = emqx_bridge_v2:create(
                 bridge_type(), FallbackActionName, FallbackActionConfig
             ),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
+                bridge_type(), FallbackActionName
+            ),
             {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(bridge_type(), ActionName),
 
             {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
                 #{
@@ -1540,7 +1545,13 @@ t_fallback_actions_cycles(_Config) ->
             {ok, _} = emqx_bridge_v2:create(
                 bridge_type(), FallbackActionName, FallbackActionConfig
             ),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
+                bridge_type(), FallbackActionName
+            ),
             {ok, _} = emqx_bridge_v2:create(bridge_type(), PrimaryActionName, PrimaryActionConfig),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
+                bridge_type(), PrimaryActionName
+            ),
 
             {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
                 #{
