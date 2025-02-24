@@ -41,7 +41,9 @@
 -export([start/1, start/2, restart/1]).
 -export([stop/1, stop_node/1]).
 
--export([start_bare_nodes/1, start_bare_nodes/2, join_cluster/2]).
+-export([start_bare_nodes/1, start_bare_nodes/2]).
+
+-export([join/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
@@ -95,19 +97,19 @@
     work_dir => file:name()
 }}.
 
--spec start([nodespec()], ClusterOpts) ->
-    [node()]
-when
-    ClusterOpts :: #{
-        %% Working directory
-        %% Everything a test produces should go here. Each node's stuff should go in its
-        %% own directory.
-        work_dir := file:name()
-    }.
+-type opts() :: #{
+    %% Working directory
+    %% Everything a test produces should go here. Each node's stuff should go in its
+    %% own directory.
+    work_dir := file:name()
+}.
+
+-spec start([nodespec()], opts()) -> [node()].
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
     start(NodeSpecs).
 
+-spec start(Complete :: [nodespec()]) -> [node()].
 start(NodeSpecs) ->
     emqx_common_test_helpers:clear_screen(),
     perform(start, NodeSpecs).
@@ -168,6 +170,7 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
             wait_clustered(All, Check, Deadline)
     end.
 
+-spec restart(Complete :: [nodespec()] | nodespec()) -> [node()].
 restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
@@ -176,6 +179,12 @@ restart(NodeSpecs = [_ | _]) ->
 restart(NodeSpec = #{}) ->
     restart([NodeSpec]).
 
+-spec join(node(), JoinTo :: node()) -> ok.
+join(Node, JoinTo) ->
+    ok = join_cluster(Node, JoinTo),
+    wait_clustered([Node, JoinTo], ?TIMEOUT_CLUSTER_WAIT_MS).
+
+-spec mk_nodespecs([nodespec()], opts()) -> Complete :: [nodespec()].
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
         fun(N, {Name, Opts}) -> mk_init_nodespec(N, Name, Opts, ClusterOpts) end,
