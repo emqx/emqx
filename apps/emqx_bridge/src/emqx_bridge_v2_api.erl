@@ -87,10 +87,6 @@
     )
 ).
 
--define(BRIDGE_NOT_ENABLED,
-    ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
-).
-
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
         {BridgeType, BridgeName} ->
@@ -1123,7 +1119,7 @@ operation_func(all, get_metrics) -> v2_get_metrics_from_all_nodes_v6.
 call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, BridgeName]) ->
     try is_enabled_bridge(ConfRootKey, BridgeType, BridgeName) of
         false ->
-            ?BRIDGE_NOT_ENABLED;
+            ?BAD_REQUEST(<<"Forbidden operation, connector not enabled">>);
         true ->
             call_operation(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, BridgeName])
     catch
