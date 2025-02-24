@@ -14,17 +14,13 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Registry for limiter groups.
+%% NOTE
+%% This module is not designed to be used outside of the `emqx_limiter` application.
+
 -module(emqx_limiter_registry).
 
 -include_lib("emqx/include/logger.hrl").
-
-%% API for external apps
-
--export([
-    connect/1
-]).
-
-%% App-internal API
 
 -export([
     start_link/0,
@@ -58,12 +54,6 @@
 }).
 
 %%--------------------------------------------------------------------
-%% callbacks
-%%--------------------------------------------------------------------
-
--callback connect(limiter_id()) -> emqx_limiter_client:t().
-
-%%--------------------------------------------------------------------
 %% gen_server messages
 %%--------------------------------------------------------------------
 
@@ -78,19 +68,6 @@
 }).
 
 -record(list_groups, {}).
-
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
-
--spec connect(limiter_id()) -> emqx_limiter_client:t().
-connect({Group, _Name} = LimiterId) ->
-    case persistent_term:get(?PT_KEY(Group), undefined) of
-        undefined ->
-            error({limiter_not_found, LimiterId});
-        #group{module = Module} ->
-            Module:connect(LimiterId)
-    end.
 
 %%------------------------------------------------------------------------------
 %% Internal API

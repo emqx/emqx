@@ -43,7 +43,7 @@ end_per_testcase(_TestCase, Config) ->
     Groups = emqx_limiter_registry:list_groups(),
     lists:foreach(
         fun(Group) ->
-            emqx_limiter_exclusive:delete_group(Group)
+            emqx_limiter:delete_group(Group)
         end,
         Groups
     ),
@@ -54,13 +54,13 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 t_try_consume(_) ->
-    ok = emqx_limiter_exclusive:create_group(group1, [
+    ok = emqx_limiter:create_group(exclusive, group1, [
         {limiter1, #{capacity => 2, interval => 100, burst_capacity => 0}}
     ]),
 
     %% Create two different clients to consume tokens
-    ClientA0 = emqx_limiter_registry:connect({group1, limiter1}),
-    ClientB0 = emqx_limiter_registry:connect({group1, limiter1}),
+    ClientA0 = emqx_limiter:connect({group1, limiter1}),
+    ClientB0 = emqx_limiter:connect({group1, limiter1}),
 
     %% Consume both tokens concurrently, each client has its own bucket
     {true, ClientA1} = emqx_limiter_client:try_consume(ClientA0, 1),
@@ -80,10 +80,10 @@ t_try_consume(_) ->
     {false, _ClientB6} = emqx_limiter_client:try_consume(ClientB5, 1).
 
 t_try_consume_burst(_) ->
-    ok = emqx_limiter_exclusive:create_group(group1, [
+    ok = emqx_limiter:create_group(exclusive, group1, [
         {limiter1, #{capacity => 2, interval => 100, burst_capacity => 8, burst_interval => 1000}}
     ]),
-    Client0 = emqx_limiter_registry:connect({group1, limiter1}),
+    Client0 = emqx_limiter:connect({group1, limiter1}),
 
     %% Consume full capacity
     Client1 = lists:foldl(
@@ -114,12 +114,12 @@ t_try_consume_burst(_) ->
     ).
 
 t_put_back(_) ->
-    ok = emqx_limiter_exclusive:create_group(group1, [
+    ok = emqx_limiter:create_group(exclusive, group1, [
         {limiter1, #{capacity => 2, interval => 100, burst_capacity => 0}}
     ]),
 
     %% Create a client and consume tokens
-    Client0 = emqx_limiter_registry:connect({group1, limiter1}),
+    Client0 = emqx_limiter:connect({group1, limiter1}),
     {true, Client1} = emqx_limiter_client:try_consume(Client0, 1),
     {true, Client2} = emqx_limiter_client:try_consume(Client1, 1),
     {false, Client3} = emqx_limiter_client:try_consume(Client2, 1),
@@ -132,17 +132,17 @@ t_put_back(_) ->
     {false, _Client6} = emqx_limiter_client:try_consume(Client5, 1).
 
 t_change_options(_) ->
-    ok = emqx_limiter_exclusive:create_group(group1, [
+    ok = emqx_limiter:create_group(exclusive, group1, [
         {limiter1, #{capacity => 1, interval => 100, burst_capacity => 0}}
     ]),
 
     %% Create a client and consume tokens
-    Client0 = emqx_limiter_registry:connect({group1, limiter1}),
+    Client0 = emqx_limiter:connect({group1, limiter1}),
     {true, Client1} = emqx_limiter_client:try_consume(Client0, 1),
     {false, Client2} = emqx_limiter_client:try_consume(Client1, 1),
 
     %% Change the options, increase the capacity and interval
-    ok = emqx_limiter_exclusive:update_group_configs(group1, [
+    ok = emqx_limiter:update_group(group1, [
         {limiter1, #{capacity => 2, interval => 200, burst_capacity => 0}}
     ]),
 

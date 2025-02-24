@@ -241,4 +241,4 @@ take(N, [H | T], Count, Acc) ->
 
 get_limiter() ->
     LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
-    emqx_limiter_registry:connect(LimiterId).
+    emqx_limiter:connect(LimiterId).

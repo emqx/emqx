@@ -25,24 +25,22 @@
 -module(emqx_limiter_exclusive).
 
 -behaviour(emqx_limiter_client).
--behaviour(emqx_limiter_registry).
+-behaviour(emqx_limiter).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% emqx_limiter callbacks
 -export([
     create_group/2,
     delete_group/1,
-    update_group_configs/2
+    update_group/2,
+    connect/1
 ]).
 
 %% emqx_limiter_client API
 -export([
     try_consume/2,
     put_back/2
-]).
-
--export([
-    connect/1
 ]).
 
 -type millisecond() :: integer().
@@ -57,18 +55,22 @@
 %%  API
 %%--------------------------------------------------------------------
 
+%% NOTE
+%% Group operations are no-ops because the the buckets are on the client side.
+%% The limiter's state is just the settings, we do not need to update anything here.
+
 -spec create_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) -> ok.
-create_group(Group, LimiterConfigs) ->
-    ok = register_group(Group, LimiterConfigs).
+create_group(_Group, _LimiterConfigs) ->
+    ok.
 
 -spec delete_group(emqx_limiter:group()) -> ok.
-delete_group(Group) ->
-    ok = unregister_group(Group).
-
--spec update_group_configs(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
+delete_group(_Group) ->
     ok.
-update_group_configs(Group, LimiterConfigs) ->
-    ok = register_group(Group, LimiterConfigs).
+
+-spec update_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
+    ok.
+update_group(_Group, _LimiterConfigs) ->
+    ok.
 
 -spec connect(emqx_limiter:id()) -> emqx_limiter_client:t().
 connect({_Group, _Name} = LimiterId) ->
@@ -153,12 +155,6 @@ try_consume_burst(State0, #{capacity := Capacity, burst_capacity := BurstCapacit
         false ->
             {false, State1}
     end.
-
-register_group(Group, LimiterConfigs) ->
-    emqx_limiter_registry:register_group(Group, ?MODULE, LimiterConfigs).
-
-unregister_group(Group) ->
-    emqx_limiter_registry:unregister_group(Group).
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
