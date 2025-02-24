@@ -82,7 +82,7 @@ jobs:
           ./scripts/buildx.sh --profile ${{ matrix.profile }} --pkgtype tgz --builder "$EMQX_DOCKER_BUILD_FROM"
           PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_DOCKER_BUILD_FROM" ./pkg-vsn.sh "${{ matrix.profile }}")
           echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: "${{ matrix.profile }}-${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }}.tar.gz"
           path: "_packages/emqx*/emqx-*.tar.gz"
@@ -201,7 +201,7 @@ jobs:
         run: |
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
 
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: "${{ env.PROFILE }}-docker"
           path: "${{ env.PROFILE }}-docker-${{ env.PKG_VSN }}.tar.gz"
