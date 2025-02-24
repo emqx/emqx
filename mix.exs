@@ -1022,6 +1022,14 @@ defmodule EMQXUmbrella.MixProject do
 
     File.chmod!(Path.join(bin, "emqx_fw"), 0o755)
 
+    Mix.Generator.copy_file(
+      "bin/emqx_nft",
+      Path.join(bin, "emqx_nft"),
+      force: overwrite?
+    )
+
+    File.chmod!(Path.join(bin, "emqx_nft"), 0o755)
+
     render_template(
       "rel/BUILD_INFO",
       assigns,
