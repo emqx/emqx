@@ -69,9 +69,19 @@
 %% for batch operation
 -export([do_subscribe/3]).
 
+%% RPC targets
+-export([local_ets_select_v1/1]).
+
 -ifdef(TEST).
 -export([parse_cursor/2, serialize_cursor/1]).
 -endif.
+
+-export_type([
+    list_clients_v2_params/0,
+    ets_continuation/0
+]).
+
+-define(BPAPI_NAME, emqx_mgmt_api_clients).
 
 -define(TAGS, [<<"Clients">>]).
 
@@ -112,6 +122,16 @@
 %% field keys
 -define(CURSOR_ETS_NODE_IDX, 1).
 -define(CURSOR_ETS_CONT, 2).
+
+-define(DEFAULT_LIMIT_CLIENT_V2, 100).
+
+-type ets_continuation() :: term().
+-type list_clients_v2_params() :: #{
+    qs => {list(), list()},
+    node_idx := pos_integer(),
+    continuation := undefined | ets_continuation(),
+    limit := non_neg_integer()
+}.
 
 namespace() -> undefined.
 
@@ -979,26 +999,29 @@ list_clients_v2(get, #{query_string := QString}) ->
     end.
 
 do_list_clients_v2(Nodes, Cursor, QString0) ->
-    Limit = maps:get(<<"limit">>, QString0, 100),
+    Limit = maps:get(<<"limit">>, QString0, ?DEFAULT_LIMIT_CLIENT_V2),
     Acc = #{
         rows => [],
         n => 0,
-        limit => Limit
+        limit => Limit,
+        remaining => Limit
     },
     do_list_clients_v2(Nodes, Cursor, QString0, Acc).
 
 do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
     format_results(Acc, Cursor);
 do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
+    #{remaining := Remaining0, limit := Limit0} = Acc0,
     maybe
-        {ok, {Rows, NewCursor}} ?= do_ets_select(Nodes, QString0, Cursor),
+        {ok, {Rows, NewCursor}} ?= do_ets_select(Nodes, Remaining0, QString0, Cursor),
+        NRows = length(Rows),
         Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
-        Acc = #{limit := Limit, n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
-        case N >= Limit of
+        Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        case N >= Limit0 of
             true ->
                 format_results(Acc, NewCursor);
             false ->
-                do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+                do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{remaining := Remaining0 - NRows})
         end
     end;
 do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
@@ -1041,10 +1064,9 @@ format_results(Acc, Cursor) ->
     },
     ?OK(Resp).
 
-do_ets_select(Nodes, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
+do_ets_select(Nodes, Limit, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
     maybe
         {ok, {_, QString1}} ?= parse_qstring(QString0),
-        Limit = maps:get(<<"limit">>, QString0, 10),
         {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
             QString1, Limit, Node, NodeIdx, Cont
         ),
@@ -1199,19 +1221,41 @@ serialize_cursor(#{type := ?CURSOR_TYPE_DS, iterator := Iter}) ->
 %% An adapter function so we can reutilize all the logic in `emqx_mgmt_api' for
 %% selecting/fuzzy filters, and also reutilize its BPAPI for selecting rows.
 ets_select(NQString, Limit, Node, NodeIdx, Cont) ->
+    MinBPAPIVsn = 1,
+    case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
+        Vsn when is_number(Vsn), Vsn >= MinBPAPIVsn ->
+            Params = #{qs => NQString, node_idx => NodeIdx, continuation => Cont, limit => Limit},
+            emqx_mgmt_api_clients_proto_v1:clients_v2_ets_select(Node, Params);
+        undefined ->
+            %% Skip to next node
+            {_Rows = [], #{cont => undefined, node_idx => NodeIdx + 1}}
+    end.
+
+local_ets_select_v1(Params) ->
+    do_local_ets_select_v1(Params, _Acc = []).
+
+do_local_ets_select_v1(#{limit := N, node_idx := NodeIdx, continuation := Cont}, Rows) when
+    N =< 0
+->
+    {lists:reverse(Rows), #{node_idx => NodeIdx, cont => Cont}};
+do_local_ets_select_v1(#{} = Params, Acc) ->
+    #{qs := NQString, node_idx := NodeIdx, limit := N, continuation := Cont} = Params,
     QueryState0 = emqx_mgmt_api:init_query_state(
         ?CHAN_INFO_TAB,
         NQString,
         fun ?MODULE:qs2ms/2,
-        _Meta = #{page => unused, limit => Limit},
+        %% Note: we set limit to 1 here so we may avoid overshooting desired batch size.
+        _Meta = #{page => unused, limit => 1},
         _Options = #{}
     ),
     QueryState = QueryState0#{continuation => Cont},
-    case emqx_mgmt_api:do_query(Node, QueryState) of
-        {Rows, #{complete := true}} ->
-            {Rows, #{node_idx => NodeIdx + 1, cont => undefined}};
-        {Rows, #{continuation := NCont}} ->
-            {Rows, #{node_idx => NodeIdx, cont => NCont}}
+    case emqx_mgmt_api:do_query(node(), QueryState) of
+        {MRow, #{complete := true}} ->
+            {lists:reverse(MRow ++ Acc), #{node_idx => NodeIdx + 1, cont => undefined}};
+        {MRow, #{continuation := NCont}} ->
+            NRows = length(MRow),
+            NextParams = Params#{limit := N - NRows, continuation := NCont},
+            do_local_ets_select_v1(NextParams, MRow ++ Acc)
     end.
 
 lookup(#{clientid := ClientID}) ->
