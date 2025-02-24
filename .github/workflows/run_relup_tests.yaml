@@ -45,7 +45,7 @@ jobs:
       run: |
         export PROFILE='emqx-enterprise'
         make emqx-enterprise-tgz
-    - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+    - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
       name: Upload built emqx and test scenario
       with:
         name: relup_tests_emqx_built
@@ -111,7 +111,7 @@ jobs:
           docker logs node2.emqx.io | tee lux_logs/emqx2.log
           exit 1
         fi
-    - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+    - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
       name: Save debug data
       if: failure()
       with:
