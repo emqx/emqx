@@ -39,7 +39,8 @@
     update_plugin/2,
     plugin_config/2,
     plugin_schema/2,
-    update_boot_order/2
+    update_boot_order/2,
+    sync_plugin/2
 ]).
 
 -export([
@@ -51,7 +52,8 @@
     describe_package/1,
     ensure_action/2,
     ensure_action/3,
-    do_update_plugin_config/3
+    do_update_plugin_config/3,
+    sync_plugin_cluster/2
 ]).
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
@@ -77,7 +79,8 @@ paths() ->
         "/plugins/:name/:action",
         "/plugins/:name/config",
         "/plugins/:name/schema",
-        "/plugins/:name/move"
+        "/plugins/:name/move",
+        "/plugins/cluster_sync"
     ].
 
 schema("/plugins") ->
@@ -245,6 +248,24 @@ schema("/plugins/:name/move") ->
                 400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
             }
         }
+    };
+schema("/plugins/cluster_sync") ->
+    #{
+        'operationId' => sync_plugin,
+        post => #{
+            summary => <<"Sync specific version of plugin from given node">>,
+            description => "Sync specific version of plugin on all nodes from the given node.",
+            tags => ?TAGS,
+            'requestBody' => sync_request_body(),
+            responses => #{
+                204 => <<"Sync plugin successfully">>,
+                400 => <<"No such Node running.">>,
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND', 'FILE_NOT_EXISTED'],
+                    <<"Plugin Not Found on given Node">>
+                )
+            }
+        }
     }.
 
 fields(plugin) ->
@@ -351,6 +372,19 @@ fields(position) ->
                 }
             )}
     ];
+fields(sync_request) ->
+    [
+        {node,
+            hoconsc:mk(string(), #{
+                example => "emqx@127.0.0.1",
+                required => true
+            })},
+        {name,
+            hoconsc:mk(string(), #{
+                example => "emqx_plugin_demo-5.1-rc.2",
+                required => true
+            })}
+    ];
 fields(running_status) ->
     [
         {node, hoconsc:mk(string(), #{example => "emqx@127.0.0.1"})},
@@ -382,6 +416,17 @@ move_request_body() ->
             move_to_after => #{
                 summary => <<"move plugin after other plugins">>,
                 value => #{position => <<"after:emqx_plugin_demo-5.1-rc.2">>}
+            }
+        }
+    ).
+
+sync_request_body() ->
+    emqx_dashboard_swagger:schema_with_examples(
+        hoconsc:ref(?MODULE, sync_request),
+        #{
+            sync_from_node => #{
+                summary => <<"sync plugin from emqx@127.0.0.1">>,
+                value => #{name => <<"emqx_plugin_demo-5.1-rc.2">>, node => <<"emqx@127.0.0.1">>}
             }
         }
     ).
@@ -558,6 +603,23 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
             end
     end.
 
+sync_plugin(post, #{body := Body}) ->
+    case parse_sync_from(Body) of
+        {ok, Node, NameVsn} ->
+            ?SLOG(debug, #{
+                msg => "sync_plugin_from_node",
+                node => Node,
+                keep_namevsn => NameVsn
+            }),
+            Nodes = emqx:running_nodes(),
+            _Res = emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
+                Nodes, Node, NameVsn
+            ),
+            {204};
+        {error, Reason} ->
+            {400, #{reason => Reason}}
+    end.
+
 %% API CallBack End
 
 %% For RPC upload_install/2
@@ -608,11 +670,6 @@ delete_package(Name, _Opts) ->
 ensure_action(Name, Action) ->
     ensure_action(Name, Action, #{}).
 
-%% for RPC plugin update
-%% TODO: catch thrown error to return 400
-%% - plugin_not_found
-%% - otp vsn assertion failed
-
 ensure_action(Name, start, _Opts) ->
     _ = emqx_plugins:ensure_started(Name),
     _ = emqx_plugins:ensure_enabled(Name),
@@ -634,6 +691,15 @@ ensure_action(Name, restart, _Opts) ->
 do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
     %% TODO: maybe use `AvroValue` to validate config
     emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
+
+%% for RPC plugin sync
+-spec sync_plugin_cluster(node(), name_vsn()) -> ok.
+sync_plugin_cluster(Node, NameVsn) ->
+    _ = emqx_plugins:maybe_purge_others(NameVsn),
+    case Node =:= node() of
+        true -> ok;
+        false -> emqx_plugins:get_plugin_tar_from_node(Node, NameVsn)
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -674,6 +740,36 @@ parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->
     {behind, binary_to_list(After)};
 parse_position(Position, _) ->
     {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
+
+-spec parse_sync_from(binary()) -> {ok, node(), string()} | {error, term()}.
+parse_sync_from(#{<<"node">> := NodeBin, <<"name">> := NameBin}) ->
+    maybe
+        {ok, Node} ?= parse_node(NodeBin),
+        %% convert `Name` a list, not binary
+        {ok, Name} ?= parse_name(NameBin),
+        {ok, Node, Name}
+    else
+        {error, Reason} -> {error, Reason}
+    end.
+
+parse_node(NodeBin) ->
+    case emqx_utils:safe_to_existing_atom(NodeBin) of
+        {ok, Node} ->
+            case lists:any(fun(N) -> N =:= Node end, emqx:running_nodes()) of
+                true -> {ok, Node};
+                false -> {error, node_not_running}
+            end;
+        {error, _} ->
+            {error, bad_node_name}
+    end.
+
+parse_name(Name) ->
+    case emqx_plugins:parse_name_vsn(Name) of
+        {ok, _AppName, _Vsn} ->
+            {ok, binary_to_list(Name)};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 format_plugins(List) ->
     StatusMap = aggregate_status(List),
