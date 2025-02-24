@@ -67,7 +67,7 @@ t_try_consume_put_back(_) ->
     %% Try to consume 2 tokens, but the second limiter has only 1 available
     {false, Client1} = emqx_limiter_client:try_consume(Client0, 2),
 
-    %% Chech that 2 tokens were put back into the first limiter
+    %% Check that 2 tokens were put back into the first limiter are available
     {true, Client2} = emqx_limiter_client:try_consume(Client1, 1),
     {false, Client3} = emqx_limiter_client:try_consume(Client2, 1),
 
