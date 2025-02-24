@@ -380,8 +380,9 @@ t_case01_auth(_) ->
 t_case02_anonymous_register_and_auth(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
 
-    {ok, AuthCode} = client_regi_procedure(Socket, <<>>),
-    ?assertEqual(AuthCode, <<>>),
+    DefaultAuthCode = <<"anonymous">>,
+    {ok, AuthCode} = client_regi_procedure(Socket, DefaultAuthCode),
+    ?assertEqual(AuthCode, DefaultAuthCode),
 
     ok = client_auth_procedure(Socket, AuthCode),
 

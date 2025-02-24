@@ -443,7 +443,7 @@ handle_out({?MS_GENERAL_RESPONSE, Result, InMsgId}, MsgSn, Channel) ->
 handle_out({?MS_REGISTER_ACK, 0}, MsgSn, Channel = #channel{authcode = Authcode0}) ->
     Authcode =
         case Authcode0 == anonymous of
-            true -> <<>>;
+            true -> <<"anonymous">>;
             false -> Authcode0
         end,
     Frame = #{
