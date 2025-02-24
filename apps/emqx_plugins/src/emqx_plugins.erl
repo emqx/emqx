@@ -42,6 +42,10 @@
     ensure_installed/0,
     ensure_installed/1,
     ensure_installed/2,
+
+    get_plugin_tar_from_node/2,
+    get_plugin_config_from_node/2,
+
     ensure_uninstalled/1,
     ensure_enabled/1,
     ensure_enabled/2,
@@ -50,6 +54,7 @@
     purge/1,
     write_package/2,
     is_package_present/1,
+    purge_other_versions/1,
     delete_package/1
 ]).
 
@@ -240,6 +245,7 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
+    ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
     ok = delete_cached_config(NameVsn),
     emqx_plugins_fs:purge_installed(NameVsn).
 
@@ -252,6 +258,25 @@ write_package(NameVsn, Bin) ->
 -spec is_package_present(name_vsn()) -> false | {true, [file:filename()]}.
 is_package_present(NameVsn) ->
     emqx_plugins_fs:is_tar_present(NameVsn).
+
+-spec purge_other_versions(name_vsn()) -> ok.
+purge_other_versions(NameVsn) ->
+    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    lists:foreach(
+        fun
+            (Dir) when Dir =:= NameVsn ->
+                ok;
+            (Path) ->
+                case emqx_plugins_fs:is_installed(Path) of
+                    true ->
+                        ok = delete_cached_config(Path),
+                        emqx_plugins_fs:purge_installed(Path);
+                    false ->
+                        ok
+                end
+        end,
+        filelib:wildcard(atom_to_list(AppName) ++ "*", emqx_plugins_fs:install_dir())
+    ).
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
@@ -638,6 +663,9 @@ get_from_cluster(NameVsn) ->
             {error, ErrMeta}
     end.
 
+get_plugin_tar_from_node(Node, NameVsn) ->
+    get_plugin_tar_from_any_node([Node], NameVsn, []).
+
 get_plugin_tar_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
 get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
@@ -652,6 +680,9 @@ get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
         Err ->
             get_plugin_tar_from_any_node(T, NameVsn, [{Node, Err} | Errors])
     end.
+
+get_plugin_config_from_node(Node, NameVsn) ->
+    get_plugin_config_from_any_node([Node], NameVsn, []).
 
 get_plugin_config_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
