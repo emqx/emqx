@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Facade module for the rate-limiting functionality.
+
 -module(emqx_limiter).
 
 -include("logger.hrl").
@@ -42,6 +44,14 @@
     create_channel_client_container/2
 ]).
 
+%% Generic limiter client API
+-export([
+    connect/1,
+    create_group/3,
+    update_group/2,
+    delete_group/1
+]).
+
 %% Config Listener
 -export([
     add_handler/0,
@@ -61,30 +71,36 @@
 -export_type([zone/0, group/0, name/0, id/0, options/0]).
 
 -type zone() :: group().
-
 -type group() :: term().
 -type name() :: atom().
-
 -type id() :: {group(), name()}.
+-type listener_id() :: term().
 
+%% Limiter types
 -type options() :: unlimited() | limited() | limited_with_burst().
-
 -type unlimited() :: #{
     capacity := infinity
 }.
-
 -type limited() :: #{
     capacity := pos_integer(),
     interval := pos_integer(),
     burst_capacity := 0
 }.
-
 -type limited_with_burst() :: #{
     capacity := pos_integer(),
     burst_capacity := pos_integer(),
     interval := pos_integer(),
     burst_interval := pos_integer()
 }.
+
+%%--------------------------------------------------------------------
+%% Callbacks
+%%--------------------------------------------------------------------
+
+-callback create_group(group(), [{name(), options()}]) -> ok.
+-callback update_group(group(), [{name(), options()}]) -> ok.
+-callback delete_group(group()) -> ok.
+-callback connect(id()) -> emqx_limiter_client:t().
 
 %%--------------------------------------------------------------------
 %% API
@@ -94,8 +110,9 @@
 %% Deinit happens as a part supervision tree shutdown
 -spec init() -> ok.
 init() ->
-    emqx_limiter:create_zone_limiters().
+    create_zone_limiters().
 
+-spec create_zone_limiters() -> ok.
 create_zone_limiters() ->
     lists:foreach(
         fun(Zone) ->
@@ -104,6 +121,7 @@ create_zone_limiters() ->
         maps:keys(emqx_config:get([zones]))
     ).
 
+-spec update_zone_limiters() -> ok.
 update_zone_limiters() ->
     ?SLOG(debug, #{
         msg => "update_zone_limiters",
@@ -116,6 +134,7 @@ update_zone_limiters() ->
         maps:keys(emqx_config:get([zones]))
     ).
 
+-spec delete_zone_limiters() -> ok.
 delete_zone_limiters() ->
     lists:foreach(
         fun(Zone) ->
@@ -124,23 +143,72 @@ delete_zone_limiters() ->
         maps:keys(emqx_config:get([zones]))
     ).
 
+-spec create_listener_limiters(listener_id(), term()) -> ok.
 create_listener_limiters(ListenerId, ListenerConfig) ->
     ListenerLimiters = config_limiters(ListenerConfig),
-    emqx_limiter_exclusive:create_group(listener_group(ListenerId), ListenerLimiters).
+    create_group(exclusive, listener_group(ListenerId), ListenerLimiters).
 
+-spec update_listener_limiters(listener_id(), term()) -> ok.
 update_listener_limiters(ListenerId, ListenerConfig) ->
     ListenerLimiters = config_limiters(ListenerConfig),
-    emqx_limiter_exclusive:update_group_configs(listener_group(ListenerId), ListenerLimiters).
+    update_group(listener_group(ListenerId), ListenerLimiters).
 
+-spec delete_listener_limiters(listener_id()) -> ok.
 delete_listener_limiters(ListenerId) ->
-    emqx_limiter_exclusive:delete_group(listener_group(ListenerId)).
+    delete_group(listener_group(ListenerId)).
 
+-spec create_channel_client_container(zone(), listener_id()) -> emqx_limiter_client_container:t().
 create_channel_client_container(ZoneName, ListenerId) ->
     create_client_container(ZoneName, ListenerId, [messages, bytes]).
 
+-spec create_esockd_limiter_client(zone(), listener_id()) -> emqx_esockd_limiter:create_options().
 create_esockd_limiter_client(ZoneName, ListenerId) ->
     LimiterClient = create_listener_limiter(ZoneName, ListenerId, max_conn),
     emqx_esockd_limiter:create_options(LimiterClient).
+
+%%--------------------------------------------------------------------
+%% Generic limiter client API
+%%--------------------------------------------------------------------
+
+-spec connect(id()) -> emqx_limiter_client:t().
+connect({Group, _} = ListenerId) ->
+    case emqx_limiter_registry:find_group(Group) of
+        undefined ->
+            error({limiter_group_not_found, Group});
+        {Module, _} ->
+            Module:connect(ListenerId)
+    end.
+
+-spec create_group(shared | exclusive | module(), group(), [{name(), options()}]) -> ok.
+%% Shortcuts for built-in types
+create_group(shared, Group, Options) ->
+    create_group(emqx_limiter_shared, Group, Options);
+create_group(exclusive, Group, Options) ->
+    create_group(emqx_limiter_exclusive, Group, Options);
+%% Any other module
+create_group(Module, Group, Options) ->
+    ok = emqx_limiter_registry:register_group(Group, Module, Options),
+    Module:create_group(Group, Options).
+
+-spec update_group(group(), [{name(), options()}]) -> ok.
+update_group(Group, Options) ->
+    case emqx_limiter_registry:find_group(Group) of
+        undefined ->
+            error({limiter_group_not_found, Group});
+        {Module, _OldLimiterConfigs} ->
+            ok = emqx_limiter_registry:register_group(Group, Module, Options),
+            ok = Module:update_group(Group, Options)
+    end.
+
+-spec delete_group(group()) -> ok.
+delete_group(Group) ->
+    case emqx_limiter_registry:find_group(Group) of
+        undefined ->
+            error({limiter_group_not_found, Group});
+        {Module, _} ->
+            ok = Module:delete_group(Group),
+            ok = emqx_limiter_registry:unregister_group(Group)
+    end.
 
 %%--------------------------------------------------------------------
 %% Zone config update
@@ -185,7 +253,7 @@ propagated_post_config_update([mqtt, limiter], _UpdateReq, _NewConf, _OldConf, _
 %%
 %% If the limiter `x` is not configured, the function will return unlimited limiter config
 %%  `#{capacity => infinity}`.
--spec config(emqx_limiter:name(), emqx_config:config()) -> emqx_limiter:options().
+-spec config(name(), emqx_config:config()) -> options().
 config(Name, Config) ->
     RateKey = to_rate_key(Name),
     case Config of
@@ -251,14 +319,14 @@ zone_limiters(Zone) when is_atom(Zone) ->
 
 create_zone_limiters(Zone) ->
     ZoneLimiters = zone_limiters(Zone),
-    emqx_limiter_shared:create_group(zone_group(Zone), ZoneLimiters).
+    create_group(shared, zone_group(Zone), ZoneLimiters).
 
 update_zone_limiters(Zone) ->
     ZoneLimiters = zone_limiters(Zone),
-    emqx_limiter_shared:update_group_configs(zone_group(Zone), ZoneLimiters).
+    update_group(zone_group(Zone), ZoneLimiters).
 
 delete_zone_limiters(Zone) ->
-    emqx_limiter_shared:delete_group(zone_group(Zone)).
+    delete_group(zone_group(Zone)).
 
 %% Listener-related
 
@@ -269,9 +337,9 @@ listener_group(ListenerConfig) ->
 
 create_listener_limiter(ZoneName, ListenerId, Name) ->
     ZoneLimiterId = {zone_group(ZoneName), Name},
-    ZoneLimiterClient = emqx_limiter_registry:connect(ZoneLimiterId),
+    ZoneLimiterClient = connect(ZoneLimiterId),
     ListenerLimiterId = {listener_group(ListenerId), Name},
-    ListenerLimiterClient = emqx_limiter_registry:connect(ListenerLimiterId),
+    ListenerLimiterClient = connect(ListenerLimiterId),
     emqx_limiter_composite:new([
         ZoneLimiterClient, ListenerLimiterClient
     ]).

@@ -38,6 +38,11 @@
     limiter_client := emqx_limiter_client:t()
 }.
 
+-export_type([
+    create_options/0,
+    state/0
+]).
+
 -define(PAUSE_INTERVAL, 100).
 
 %%--------------------------------------------------------------------

@@ -30,15 +30,15 @@
 
 -spec create() -> ok | {error, term()}.
 create() ->
-    emqx_limiter_shared:create_group(?RETAINER_LIMITER_GROUP, limiter_configs()).
+    emqx_limiter:create_group(shared, ?RETAINER_LIMITER_GROUP, limiter_configs()).
 
 -spec delete() -> ok | {error, term()}.
 delete() ->
-    emqx_limiter_shared:delete_group(?RETAINER_LIMITER_GROUP).
+    emqx_limiter:delete_group(?RETAINER_LIMITER_GROUP).
 
 -spec update() -> ok.
 update() ->
-    emqx_limiter_shared:update_group_configs(?RETAINER_LIMITER_GROUP, limiter_configs()).
+    emqx_limiter:update_group(?RETAINER_LIMITER_GROUP, limiter_configs()).
 
 %%------------------------------------------------------------------------------
 %% Internal functions

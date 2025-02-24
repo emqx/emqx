@@ -103,11 +103,12 @@ delete_message(Topic) ->
 %%--------------------------------------------------------------------
 
 with_limiter(Fun) ->
-    case emqx_limiter_shared:try_consume(?LIMITER_ID, 1) of
-        true ->
+    Client = emqx_limiter:connect(?LIMITER_ID),
+    case emqx_limiter_client:try_consume(Client, 1) of
+        {true, _Client} ->
             Fun(),
             true;
-        false ->
+        {false, _Client} ->
             false
     end.
 

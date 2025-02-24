@@ -25,15 +25,15 @@
 -module(emqx_limiter_shared).
 
 -behaviour(emqx_limiter_client).
--behaviour(emqx_limiter_registry).
+-behaviour(emqx_limiter).
 
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% API
+%% emqx_limiter callbacks
 -export([
     create_group/2,
-    update_group_configs/2,
+    update_group/2,
     delete_group/1,
     connect/1
 ]).
@@ -62,31 +62,22 @@
 ]) -> ok | {error, term()}.
 create_group(Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
     {Names, _} = lists:unzip(LimiterConfigs),
-    ok = register_group(Group, LimiterConfigs),
     ChildSpec = child_spec(Group, Names),
     start_child(emqx_limiter_shared_sup, ChildSpec).
 
 -spec delete_group(emqx_limiter:group()) -> ok | {error, term()}.
 delete_group(Group) ->
-    ok =
-        case supervisor:terminate_child(emqx_limiter_shared_sup, Group) of
-            ok ->
-                supervisor:delete_child(emqx_limiter_shared_sup, Group);
-            {error, not_found} ->
-                ok
-        end,
-    ok = unregister_group(Group).
-
--spec update_group_configs(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
-    ok | no_return().
-update_group_configs(Group, LimiterConfigs) ->
-    case emqx_limiter_registry:find_group(Group) of
-        undefined ->
-            error({group_not_found, Group});
-        {_Module, _OldLimiterConfigs} ->
-            ok = register_group(Group, LimiterConfigs),
-            ok = emqx_limiter_allocator:update(Group)
+    case supervisor:terminate_child(emqx_limiter_shared_sup, Group) of
+        ok ->
+            supervisor:delete_child(emqx_limiter_shared_sup, Group);
+        {error, not_found} ->
+            ok
     end.
+
+-spec update_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
+    ok | no_return().
+update_group(Group, _LimiterConfigs) ->
+    ok = emqx_limiter_allocator:update(Group).
 
 -spec child_spec(emqx_limiter:group(), [emqx_limiter:name()]) ->
     supervisor:child_spec().
@@ -144,16 +135,6 @@ put_back(LimiterId = State, Amount) ->
             ok = put_back(Counter, Index, Amount),
             State
     end.
-
-%%--------------------------------------------------------------------
-%%  Internal API
-%%--------------------------------------------------------------------
-
-register_group(Group, LimiterConfigs) ->
-    emqx_limiter_registry:register_group(Group, ?MODULE, LimiterConfigs).
-
-unregister_group(Group) ->
-    emqx_limiter_registry:unregister_group(Group).
 
 %%--------------------------------------------------------------------
 %%  Internal functions
