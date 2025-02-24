@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_sqlserver_connector).
 
+-feature(maybe_expr, enable).
+
 -behaviour(emqx_resource).
 
 -include("emqx_bridge_sqlserver.hrl").
@@ -51,7 +53,9 @@
 ]).
 
 %% Internal exports used to execute code with ecpool worker
--export([do_get_status/1, worker_do_insert/3]).
+-export([do_get_status/1, worker_do_insert/3, get_servername/1]).
+
+-export([parse_server/1]).
 
 -import(emqx_utils_conv, [str/1]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -60,8 +64,9 @@
 
 -define(SYNC_QUERY_MODE, handover).
 
+%% We use -1 to differentiate between default port and explicitly defined port.
 -define(SQLSERVER_HOST_OPTIONS, #{
-    default_port => ?SQLSERVER_DEFAULT_PORT
+    default_port => -1
 }).
 
 -define(REQUEST_TTL(RESOURCE_OPTS),
@@ -171,8 +176,42 @@ add_default_fn(OrigFn, Default) ->
     end.
 
 server() ->
-    Meta = #{desc => ?DESC("server")},
-    emqx_schema:servers_sc(Meta, ?SQLSERVER_HOST_OPTIONS).
+    hoconsc:mk(
+        string(),
+        #{
+            desc => ?DESC("server"),
+            required => true,
+            converter => fun emqx_schema:convert_servers/2,
+            validator => fun server_validator/1
+        }
+    ).
+
+server_validator(Str) ->
+    BaseValidator = emqx_schema:servers_validator(?SQLSERVER_HOST_OPTIONS, _Required = true),
+    ok = BaseValidator(Str),
+    _ = parse_server(Str),
+    ok.
+
+parse_server(undefined) ->
+    undefined;
+parse_server(Str) ->
+    Parsed = emqx_schema:parse_server(Str, ?SQLSERVER_HOST_OPTIONS),
+    split_named_instance(Parsed).
+
+split_named_instance(#{hostname := Hostname0} = Parsed) ->
+    HasExplicitPort = maps:get(port, Parsed) =/= -1,
+    case string:tokens(Hostname0, "\\") of
+        [_] when HasExplicitPort ->
+            Parsed;
+        [_] ->
+            Parsed#{port => ?SQLSERVER_DEFAULT_PORT};
+        [Server, InstanceName] when HasExplicitPort ->
+            Parsed#{hostname => Server, instance_name => InstanceName};
+        [_Server, _InstanceName] ->
+            throw("must_explicitly_define_port_when_using_named_instances");
+        [_, _, _ | _] ->
+            throw("bad_server_name_and_instance_name")
+    end.
 
 %%====================================================================
 %% Callbacks defined in emqx_resource
@@ -210,8 +249,9 @@ on_start(
     end,
 
     %% odbc connection string required
+    ServerBin = to_bin(Server),
     ConnectOptions = [
-        {server, to_bin(Server)},
+        {server, ServerBin},
         {username, Username},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {driver, Driver},
@@ -219,9 +259,11 @@ on_start(
         {pool_size, PoolSize},
         {on_disconnect, {?MODULE, disconnect, []}}
     ],
+    ParsedServer = parse_server(Server),
 
     State = #{
         %% also InstanceId
+        server => ParsedServer,
         pool_name => PoolName,
         installed_channels => #{},
         resource_opts => ResourceOpts
@@ -318,17 +360,40 @@ on_format_query_result({ok, Rows}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = _State) ->
-    Health = emqx_resource_pool:health_check_workers(
+on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
+    Result = emqx_resource_pool:health_check_workers(
         PoolName,
         {?MODULE, do_get_status, []}
     ),
-    status_result(Health).
+    case Result of
+        true ->
+            case validate_connected_instance_name(ConnState) of
+                ok ->
+                    ?status_connected;
+                {error, #{expected := ExpectedInstanceName, got := InstanceName}} ->
+                    Msg = iolist_to_binary(
+                        io_lib:format(
+                            "connected instance does not match desired instance name;"
+                            " expected ~s; connected to: ~s",
+                            [
+                                format_instance_name(ExpectedInstanceName),
+                                format_instance_name(InstanceName)
+                            ]
+                        )
+                    ),
+                    {?status_disconnected, {unhealthy_target, Msg}};
+                error ->
+                    %% Could not infer instance name; assume ok
+                    ?status_connected
+            end;
+        false ->
+            ?status_connecting
+    end.
 
-status_result(_Status = true) -> ?status_connected;
-status_result(_Status = false) -> ?status_connecting.
-%% TODO:
-%% case for disconnected
+format_instance_name(undefined) ->
+    <<"no instance name">>;
+format_instance_name(Name) ->
+    Name.
 
 %%====================================================================
 %% ecpool callback fns
@@ -351,6 +416,14 @@ do_get_status(Conn) ->
         _ -> false
     end.
 
+get_servername(Conn) ->
+    case execute(Conn, <<"select @@servername">>) of
+        {selected, _, [{RawName}]} ->
+            {ok, RawName};
+        _ ->
+            error
+    end.
+
 %%====================================================================
 %% Internal Functions
 %%====================================================================
@@ -369,8 +442,15 @@ conn_str([], Acc) ->
 conn_str([{driver, Driver} | Opts], Acc) ->
     conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
 conn_str([{server, Server} | Opts], Acc) ->
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SQLSERVER_HOST_OPTIONS),
-    conn_str(Opts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
+    #{hostname := Host, port := Port} = Parsed = parse_server(Server),
+    InstanceNameStr =
+        case maps:find(instance_name, Parsed) of
+            {ok, InstanceName} -> "\\" ++ InstanceName;
+            error -> ""
+        end,
+    conn_str(Opts, [
+        "Server=" ++ str(Host) ++ InstanceNameStr ++ "," ++ str(Port) | Acc
+    ]);
 conn_str([{database, Database} | Opts], Acc) ->
     conn_str(Opts, ["Database=" ++ str(Database) | Acc]);
 conn_str([{username, Username} | Opts], Acc) ->
@@ -569,3 +649,46 @@ proc_msg(Tokens, Msg, _) ->
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).
+
+validate_connected_instance_name(#{server := ParsedServer} = ConnState) ->
+    ExpectedInstanceName = maps:get(instance_name, ParsedServer, undefined),
+    maybe
+        {ok, InstanceName} ?= infer_instance_name(ConnState),
+        case InstanceName == ExpectedInstanceName of
+            true ->
+                ok;
+            false ->
+                {error, #{expected => ExpectedInstanceName, got => InstanceName}}
+        end
+    end.
+
+infer_instance_name(#{pool_name := PoolName} = _ConnState) ->
+    maybe
+        {ok, RawName} ?= ecpool:pick_and_do(PoolName, {?MODULE, get_servername, []}, handover),
+        {ok, Decoded} ?= try_decode_raw_str(RawName),
+        get_instance_name(Decoded)
+    end.
+
+try_decode_raw_str(Raw) when is_binary(Raw) ->
+    case io_lib:printable_unicode_list(binary_to_list(Raw)) of
+        true ->
+            {ok, Raw};
+        false ->
+            Decoded = unicode:characters_to_binary(Raw, {utf16, little}, utf8),
+            case io_lib:printable_unicode_list(binary_to_list(Decoded)) of
+                true ->
+                    {ok, Decoded};
+                false ->
+                    error
+            end
+    end.
+
+get_instance_name(ServerName) ->
+    case binary:split(ServerName, <<"\\">>) of
+        [_Server, InstanceName] ->
+            {ok, InstanceName};
+        [_] ->
+            {ok, undefined};
+        _ ->
+            error
+    end.
