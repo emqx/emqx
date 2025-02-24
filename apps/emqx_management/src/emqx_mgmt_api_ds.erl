@@ -34,6 +34,9 @@
     join/3,
     leave/3,
 
+    shards_of_this_site/0,
+    shards_of_site/1,
+
     forget/2
 ]).
 
@@ -428,6 +431,38 @@ forget(Site, Via) ->
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:forget_site(Site)).
 
+-spec shards_of_this_site() -> [ShardInfo :: #{}].
+shards_of_this_site() ->
+    try emqx_ds_replication_layer_meta:this_site() of
+        Site -> shards_of_site(Site)
+    catch
+        error:badarg -> []
+    end.
+
+-pec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [ShardInfo :: #{}].
+shards_of_site(Site) ->
+    lists:flatmap(
+        fun({DB, Shard}) ->
+            case emqx_ds_replication_layer_meta:shard_info(DB, Shard) of
+                #{replica_set := #{Site := Info}} ->
+                    [
+                        #{
+                            storage => DB,
+                            id => Shard,
+                            status => maps:get(status, Info)
+                        }
+                    ];
+                _ ->
+                    []
+            end
+        end,
+        [
+            {DB, Shard}
+         || DB <- dbs(),
+            Shard <- emqx_ds_replication_layer_meta:shards(DB)
+        ]
+    ).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -480,29 +515,6 @@ db_config(DB) ->
         _ ->
             undefined
     end.
-
-shards_of_site(Site) ->
-    lists:flatmap(
-        fun({DB, Shard}) ->
-            case emqx_ds_replication_layer_meta:shard_info(DB, Shard) of
-                #{replica_set := #{Site := Info}} ->
-                    [
-                        #{
-                            storage => DB,
-                            id => Shard,
-                            status => maps:get(status, Info)
-                        }
-                    ];
-                _ ->
-                    []
-            end
-        end,
-        [
-            {DB, Shard}
-         || DB <- dbs(),
-            Shard <- emqx_ds_replication_layer_meta:shards(DB)
-        ]
-    ).
 
 list_shards(DB) ->
     [

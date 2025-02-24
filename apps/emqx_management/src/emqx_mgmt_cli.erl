@@ -109,17 +109,37 @@ cluster(["join", SNode]) ->
             ok;
         ignore ->
             emqx_ctl:print("Ignore.~n");
-        {error, Error} ->
-            emqx_ctl:print("Failed to join the cluster: ~0p~n", [Error])
+        {error, Reason} = Error ->
+            emqx_ctl:print("Failed to join the cluster: ~0p~n", [Reason]),
+            Error
     end;
 cluster(["leave"]) ->
-    _ = maybe_disable_autocluster(),
-    case ekka:leave() of
-        ok ->
-            emqx_ctl:print("Leave the cluster successfully.~n"),
-            cluster(["status"]);
-        {error, Error} ->
-            emqx_ctl:print("Failed to leave the cluster: ~0p~n", [Error])
+    case cluster_leave_safeguards() of
+        [] ->
+            _ = maybe_disable_autocluster(),
+            case ekka:leave() of
+                ok ->
+                    emqx_ctl:print("Leave the cluster successfully.~n"),
+                    cluster(["status"]);
+                {error, Reason} = Error ->
+                    emqx_ctl:print("Failed to leave the cluster: ~0p~n", [Reason]),
+                    Error
+            end;
+        Safeguards ->
+            lists:foreach(
+                fun
+                    (nonempty_ds_site) ->
+                        emqx_ctl:warning(
+                            "Operation is unsafe: "
+                            "Node is still responsible for one or more DS shard replicas. "
+                            "Consult `emqx ctl ds info' for details.~n"
+                        );
+                    (Reason) ->
+                        emqx_ctl:warning("Operation is unsafe: ~p.~n", [Reason])
+                end,
+                Safeguards
+            ),
+            {error, Safeguards}
     end;
 cluster(["force-leave", SNode]) ->
     Node = ekka_node:parse_name(SNode),
@@ -129,11 +149,9 @@ cluster(["force-leave", SNode]) ->
                 ok ->
                     emqx_ctl:print("Remove the node from cluster successfully.~n"),
                     cluster(["status"]);
-                {error, Reason} ->
-                    emqx_ctl:print(
-                        "Failed to remove the node from cluster_rpc.~n~p~n",
-                        [Reason]
-                    )
+                {error, Reason} = Error ->
+                    emqx_ctl:print("Failed to remove the node from cluster: ~0p~n", [Reason]),
+                    Error
             end;
         ignore ->
             emqx_ctl:print("Ignore.~n");
@@ -155,6 +173,16 @@ cluster(_) ->
         {"cluster status [--json]", "Cluster status"},
         {"cluster discovery enable", "Enable and run automatic cluster discovery (if configured)"}
     ]).
+
+cluster_leave_safeguards() ->
+    cluster_leave_safeguards(ds).
+
+cluster_leave_safeguards(ds) ->
+    case emqx_mgmt_api_ds:is_enabled() andalso emqx_mgmt_api_ds:shards_of_this_site() of
+        [_ | _] -> [nonempty_ds_site];
+        [] -> [];
+        false -> []
+    end.
 
 %% sort lists for deterministic output
 sort_map_list_fields(Map) when is_map(Map) ->
