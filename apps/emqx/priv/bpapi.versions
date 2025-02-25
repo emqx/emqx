@@ -52,6 +52,7 @@
 {emqx_management,5}.
 {emqx_metrics,1}.
 {emqx_metrics,2}.
+{emqx_mgmt_api_clients,1}.
 {emqx_mgmt_api_plugins,1}.
 {emqx_mgmt_api_plugins,2}.
 {emqx_mgmt_api_plugins,3}.
