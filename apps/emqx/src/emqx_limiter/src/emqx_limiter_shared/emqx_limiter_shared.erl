@@ -88,7 +88,7 @@ child_spec(Group, Names) ->
         restart => permanent,
         shutdown => 5000,
         type => worker,
-        modules => [?MODULE]
+        modules => [?MODULE, emqx_limiter_allocator]
     }.
 
 -spec connect(emqx_limiter:id()) -> emqx_limiter_client:t().

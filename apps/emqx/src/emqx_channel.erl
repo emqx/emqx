@@ -626,7 +626,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     msg => cannot_publish_to_topic_due_to_quota_exceeded,
                     reason => emqx_reason_codes:name(Rc)
                 },
-                #{topic => Topic, tag => "AUTHZ"}
+                #{topic => Topic, tag => "QUOTA"}
             ),
             ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
             case QoS of

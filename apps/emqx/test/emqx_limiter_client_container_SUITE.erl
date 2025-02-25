@@ -74,3 +74,10 @@ t_try_consume(_) ->
         Container1,
         [{limiter1, 2}, {limiter2, 1}]
     ).
+
+t_try_consume_from_nonexistent_limiter(_) ->
+    Container = emqx_limiter_client_container:new([]),
+    ?assertError(
+        {limiter_not_found_in_container, limiter1},
+        emqx_limiter_client_container:try_consume(Container, [{limiter1, 1}])
+    ).

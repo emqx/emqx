@@ -1075,7 +1075,6 @@ to_quicer_listener_opts(Name, Opts) ->
     ListenOpts = maps:merge(Opts2, optional_quic_listener_opts(Opts)),
 
     %% Conn Opts
-    Limiter = limiter(Opts),
     HibernateAfterMs = maps:get(hibernate_after, ListenOpts),
     ConnectionOpts = #{
         conn_callback => emqx_quic_connection,
@@ -1083,7 +1082,6 @@ to_quicer_listener_opts(Name, Opts) ->
         peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
         zone => zone(Opts),
         listener => {quic, Name},
-        limiter => Limiter,
         hibernate_after => HibernateAfterMs
     },
     StreamOpts = #{

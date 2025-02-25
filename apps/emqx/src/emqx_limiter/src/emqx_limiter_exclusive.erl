@@ -48,7 +48,8 @@
 -type state() :: #{
     limiter_id := emqx_limiter:id(),
     tokens := number(),
-    last_time := millisecond()
+    last_time := millisecond(),
+    last_burst_time := millisecond()
 }.
 
 %%--------------------------------------------------------------------

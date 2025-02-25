@@ -65,7 +65,7 @@ try_consume(#{module := Module, state := State} = Limiter, Amount) ->
                     reason => Reason,
                     module => Module
                 },
-                #{tag => "AUTHZ"}
+                #{tag => "QUOTA"}
             ),
             {true, Limiter}
     end.
@@ -84,7 +84,7 @@ put_back(#{module := Module, state := State} = Limiter, Amount) ->
                     reason => Reason,
                     module => Module
                 },
-                #{tag => "AUTHZ"}
+                #{tag => "QUOTA"}
             ),
             Limiter
     end.

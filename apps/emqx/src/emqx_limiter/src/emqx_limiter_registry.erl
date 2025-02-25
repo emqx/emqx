@@ -81,9 +81,13 @@ start_link() ->
 register_group(Group, Module, LimiterOptions) ->
     ok = assert_unique_names(LimiterOptions),
     case
-        gen_server:call(?MODULE, #register_group{
-            group = Group, module = Module, limiter_options = maps:from_list(LimiterOptions)
-        })
+        gen_server:call(
+            ?MODULE,
+            #register_group{
+                group = Group, module = Module, limiter_options = maps:from_list(LimiterOptions)
+            },
+            infinity
+        )
     of
         ok ->
             ok;
@@ -93,11 +97,11 @@ register_group(Group, Module, LimiterOptions) ->
 
 -spec unregister_group(group()) -> ok.
 unregister_group(Group) ->
-    gen_server:call(?MODULE, #unregister_group{group = Group}).
+    gen_server:call(?MODULE, #unregister_group{group = Group}, infinity).
 
 -spec list_groups() -> [group()].
 list_groups() ->
-    gen_server:call(?MODULE, #list_groups{}).
+    gen_server:call(?MODULE, #list_groups{}, infinity).
 
 -spec find_group(group()) -> {module(), [{name(), emqx_limiter:options()}]} | undefined.
 find_group(Group) ->
@@ -122,6 +126,7 @@ get_limiter_options({Group, Name} = LimiterId) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    process_flag(trap_exit, true),
     {ok, #{
         group_names => sets:new([{version, 2}])
     }}.

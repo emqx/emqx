@@ -59,9 +59,7 @@ try_consume_from_clients(Container, [{Name, Amount} | Rest], Consumed) ->
                     {false, put_back_to_clients(Container#{Name => NewClient}, Consumed)}
             end;
         _ ->
-            %% TODO
-            %% error?
-            try_consume_from_clients(Container, Rest, Consumed)
+            error({limiter_not_found_in_container, Name})
     end.
 
 put_back_to_clients(Container, []) ->

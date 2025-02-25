@@ -63,17 +63,6 @@ namespace() -> limiter.
 roots() ->
     [].
 
-fields(mqtt_with_interval) ->
-    fields(mqtt) ++
-        [
-            {alloc_interval,
-                ?HOCON(emqx_schema:duration_ms(), #{
-                    desc => ?DESC(alloc_interval),
-                    default => <<"100ms">>,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    deprecated => {since, "5.9.0"}
-                })}
-        ];
 fields(mqtt) ->
     lists:foldl(fun make_mqtt_limiters_schema/2, [], mqtt_limiter_names()).
 
@@ -89,7 +78,7 @@ make_mqtt_limiters_schema(Name, Fields) ->
             })},
         {Burst,
             ?HOCON(rate_type(), #{
-                desc => ?DESC(burst),
+                desc => ?DESC(Burst),
                 required => false
             })}
         | Fields
@@ -101,8 +90,6 @@ rate_type() ->
 burst_type() ->
     typerefl:alias("string", burst()).
 
-desc(mqtt_with_interval) ->
-    ?DESC(mqtt);
 desc(mqtt) ->
     ?DESC(mqtt);
 desc(_) ->

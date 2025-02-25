@@ -49,8 +49,8 @@
     group := emqx_limiter:group(),
     buckets := #{emqx_limiter:name() => bucket()},
     counter := counters:counters_ref(),
-    timers := #{pos_integer() => [emqx_limiter:name()]},
-    burst_timers := #{pos_integer() => [emqx_limiter:name()]}
+    timers := #{millisecond() => [emqx_limiter:name()]},
+    burst_timers := #{millisecond() => [emqx_limiter:name()]}
 }.
 
 -type millisecond() :: non_neg_integer().
@@ -65,6 +65,10 @@
 %% We will read the actual settings from the registry
 -record(update, {}).
 
+-record(tick_burst_alloc_event, {interval :: millisecond()}).
+
+-record(tick_alloc_event, {interval :: millisecond()}).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -75,7 +79,7 @@ start_link(Group, LimiterNames) when length(LimiterNames) > 0 ->
 
 -spec update(emqx_limiter:group()) -> ok.
 update(Group) ->
-    gen_server:call(?VIA_GPROC(Group), #update{}).
+    gen_server:call(?VIA_GPROC(Group), #update{}, infinity).
 
 %%--------------------------------------------------------------------
 %%% gen_server callbacks
@@ -83,6 +87,7 @@ update(Group) ->
 
 -spec init(list()) -> {ok, state()}.
 init([Group, LimiterNames]) ->
+    process_flag(trap_exit, true),
     State0 = #{
         group => Group,
         counter => counters:new(length(LimiterNames), [write_concurrency]),
@@ -108,9 +113,9 @@ handle_cast(Req, State) ->
     ?SLOG(error, #{msg => "emqx_limiter_allocator_unexpected_cast", cast => Req}),
     {noreply, State}.
 
-handle_info({tick_alloc_event, Interval}, State) ->
+handle_info(#tick_alloc_event{interval = Interval}, State) ->
     {noreply, handle_alloc_timer(State, Interval)};
-handle_info({tick_burst_alloc_event, Interval}, State) ->
+handle_info(#tick_burst_alloc_event{interval = Interval}, State) ->
     {noreply, handle_burst_timer(State, Interval)};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "emqx_limiter_allocator_unexpected_info", info => Info}),
@@ -282,7 +287,9 @@ do_ensure_alloc_timers(#{timers := Timers0, group := Group} = State, [Name | Nam
                         IntervalNames = [Name | IntervalNames0],
                         Timers0#{Interval => IntervalNames};
                     _ ->
-                        _ = erlang:send_after(Interval, self(), {tick_alloc_event, Interval}),
+                        _ = erlang:send_after(Interval, self(), #tick_alloc_event{
+                            interval = Interval
+                        }),
                         Timers0#{Interval => [Name]}
                 end,
             do_ensure_alloc_timers(State#{timers => Timers}, Names)
@@ -291,8 +298,8 @@ do_ensure_alloc_timers(#{timers := Timers0, group := Group} = State, [Name | Nam
 handle_alloc_timer(#{timers := Timers0} = State0, Interval) ->
     {Names, Timers} = maps:take(Interval, Timers0),
     State1 = State0#{timers => Timers},
-    State2 = alloc_tokens(regular, State1, Names),
-    ensure_alloc_timers(State2, Names).
+    State2 = ensure_alloc_timers(State1, Names),
+    alloc_tokens(regular, State2, Names).
 
 scheduled_alloc_names(#{timers := Timers}) ->
     lists:append(maps:values(Timers)).
@@ -321,7 +328,9 @@ do_ensure_burst_timers(#{burst_timers := BurstTimers0, group := Group} = State, 
                         IntervalNames = [Name | IntervalNames0],
                         BurstTimers0#{Interval => IntervalNames};
                     _ ->
-                        _ = erlang:send_after(Interval, self(), {tick_burst_alloc_event, Interval}),
+                        _ = erlang:send_after(Interval, self(), #tick_burst_alloc_event{
+                            interval = Interval
+                        }),
                         BurstTimers0#{Interval => [Name]}
                 end,
             do_ensure_burst_timers(State#{burst_timers => BurstTimers}, Names)
@@ -330,8 +339,8 @@ do_ensure_burst_timers(#{burst_timers := BurstTimers0, group := Group} = State, 
 handle_burst_timer(#{burst_timers := BurstTimers0} = State0, Interval) ->
     {Names, BurstTimers} = maps:take(Interval, BurstTimers0),
     State1 = State0#{burst_timers => BurstTimers},
-    State2 = alloc_tokens(burst, State1, Names),
-    ensure_burst_timers(State2, Names).
+    State2 = ensure_burst_timers(State1, Names),
+    alloc_tokens(burst, State2, Names).
 
 scheduled_burst_names(#{burst_timers := BurstTimers}) ->
     lists:append(maps:values(BurstTimers)).

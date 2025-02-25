@@ -1167,11 +1167,6 @@ mock_cm_open_session() ->
         end
     ).
 
-quota() ->
-    emqx_limiter_container:create_by_names(
-        [bytes, messages], #{}, emqx_limiter:internal_allocator()
-    ).
-
 v4(Channel) ->
     ConnInfo = emqx_channel:info(conninfo, Channel),
     emqx_channel:set_field(

@@ -29,19 +29,21 @@
 -type bucket_ref() :: emqx_limiter_shared:bucket_ref().
 -type limiter_id() :: emqx_limiter:id().
 
+-define(PT_KEY(LimiterId), {?MODULE, LimiterId}).
+
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
 
 -spec find_bucket(limiter_id()) -> bucket_ref() | undefined.
 find_bucket(LimiterId) ->
-    persistent_term:get(LimiterId, undefined).
+    persistent_term:get(?PT_KEY(LimiterId), undefined).
 
 -spec insert_bucket(limiter_id(), bucket_ref()) -> ok.
 insert_bucket(LimiterId, Bucket) ->
-    persistent_term:put(LimiterId, Bucket).
+    persistent_term:put(?PT_KEY(LimiterId), Bucket).
 
 -spec delete_bucket(limiter_id()) -> ok.
 delete_bucket(LimiterId) ->
-    _ = persistent_term:erase(LimiterId),
+    _ = persistent_term:erase(?PT_KEY(LimiterId)),
     ok.
