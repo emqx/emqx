@@ -425,8 +425,7 @@ fields(common_list_clients_input) ->
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => ?DESC("username"),
-                example => <<"u1,u2">>
+                desc => ?DESC("username")
             })},
         {ip_address,
             hoconsc:mk(binary(), #{
