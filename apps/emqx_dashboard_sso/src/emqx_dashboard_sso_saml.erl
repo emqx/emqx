@@ -226,14 +226,15 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
     SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals),
     RelayState = proplists:get_value(<<"RelayState">>, PostVals),
-    case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
-        {'EXIT', Reason} ->
-            {error, {bad_decode, Reason}};
-        Xml ->
-            case esaml_sp:validate_assertion(Xml, DuplicateFun, SP) of
-                {ok, A} -> {ok, A, RelayState};
-                {error, E} -> {error, E}
-            end
+    try
+        Xml = esaml_binding:decode_response(SAMLEncoding, SAMLResponse),
+        case esaml_sp:validate_assertion(Xml, DuplicateFun, SP) of
+            {ok, A} -> {ok, A, RelayState};
+            {error, E} -> {error, E}
+        end
+    catch
+        exit:Reason ->
+            {error, {bad_decode, Reason}}
     end.
 
 gen_redirect_response(DashboardAddr, Username) ->
