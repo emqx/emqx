@@ -133,6 +133,27 @@ By specifying the `since` parameter, it can return the number of sessions that h
 get_sessions_count.label:
 """Count number of sessions"""
 
+not_implemented.desc:
+"""API not implemented"""
+not_implemented.label:
+"""Not Implemented"""
+
+invalid_parameter.desc:
+"""Invalid parameters"""
+invalid_parameter.label:
+"""Invalid parameter"""
+
+clientid_not_found.desc:
+"""Client ID not found"""
+clientid_not_found.label:
+"""Client ID not found"""
+
+bad_request.desc:
+"""Cannot handle this request."""
+bad_request.label:
+"""Bad Request"""
+
+>>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 since.desc:
 """Include sessions expired after this time (UNIX Epoch in seconds precision)"""
 since.label:
@@ -141,31 +162,44 @@ since.label:
 sessions_count.desc:
 """Number of sessions"""
 sessions_count.label:
+<<<<<<< HEAD
 """Sessions Count"""
 
 bad_request.desc:
 """Cannot handle this request."""
 bad_request.label:
 """Bad Request"""
+=======
+"""Number of sessions"""
+>>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 node_name.desc:
 """Node name"""
 node_name.label:
+<<<<<<< HEAD
 """Node Name"""
+=======
+"""Node name"""
+>>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 username.desc:
 """User name, multiple values can be specified by repeating the parameter: username=u1&username=u2"""
 username.label:
+<<<<<<< HEAD
 """Username"""
 
 ip_address.desc:
 """IP address"""
 ip_address.label:
 """IP Address"""
+=======
+"""User name"""
+>>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 conn_state.desc:
 """The current connection status of the client, the possible values are connected,idle,disconnected"""
 conn_state.label:
+<<<<<<< HEAD
 """Connection State"""
 
 clean_start.desc:
@@ -268,10 +302,14 @@ inflight_max.desc:
 """Maximum length of inflight"""
 inflight_max.label:
 """Inflight Max"""
+=======
+"""Connection state"""
+>>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 ip_address.desc:
 """Client's IP address"""
 ip_address.label:
+<<<<<<< HEAD
 """IP Address"""
 
 is_bridge.desc:
@@ -559,3 +597,57 @@ max_payload_bytes.label:
 """Max Payload Bytes"""
 
 
+=======
+"""Client's IP address"""
+
+proto_ver.desc:
+"""Protocol version"""
+proto_ver.label:
+"""Protocol version"""
+
+like_clientid.desc:
+"""Fuzzy search `clientid` as substring"""
+like_clientid.label:
+"""Fuzzy search `clientid`"""
+
+like_username.desc:
+"""Fuzzy search `username` as substring"""
+like_username.label:
+"""Fuzzy search `username`"""
+
+gte_created_at.desc:
+"""Include sessions created after this time (UNIX Epoch in seconds precision)"""
+gte_created_at.label:
+"""Include sessions created after this time"""
+
+clientid.desc:
+"""Client identifier"""
+clientid.label:
+"""Client identifier"""
+
+connected.desc:
+"""Indicate whether the client is connected"""
+connected.label:
+"""Connected"""
+
+connected_at.desc:
+"""Client connection time, rfc3339 or timestamp(millisecond)"""
+connected_at.label:
+"""Client connection time"""
+
+created_at.desc:
+"""Client session creation time, rfc3339 or timestamp(millisecond)"""
+created_at.label:
+"""Client session creation time"""
+
+disconnected_at.desc:
+"""Client disconnection time, rfc3339 or timestamp(millisecond), it's only valid and returned when connected is false."""
+disconnected_at.label:
+"""Client disconnection time"""
+
+expiry_interval.desc:
+"""Client session expiry interval"""
+expiry_interval.label:
+"""Client session expiry interval"""
+
+}

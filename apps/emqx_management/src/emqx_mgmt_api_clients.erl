@@ -158,7 +158,7 @@ schema("/clients_v2") ->
                     emqx_dashboard_swagger:schema_with_example(map(), #{}),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                        ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     )
             }
         }
@@ -183,7 +183,7 @@ schema("/clients") ->
                     }),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                        ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     )
             }
         }
@@ -217,7 +217,7 @@ schema("/clients/:clientid") ->
                     client_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         },
@@ -230,7 +230,7 @@ schema("/clients/:clientid") ->
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -245,7 +245,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         },
@@ -256,7 +256,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 204 => <<"Clean client authz cache successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -273,7 +273,7 @@ schema("/clients/:clientid/subscriptions") ->
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -289,7 +289,7 @@ schema("/clients/:clientid/subscribe") ->
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -306,7 +306,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -323,7 +323,7 @@ schema("/clients/:clientid/unsubscribe") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -340,7 +340,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -361,7 +361,7 @@ schema("/clients/:clientid/keepalive") ->
                     client_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -1259,13 +1259,13 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
                     }),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                        ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND', 'CLIENT_SHUTDOWN'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND', 'CLIENT_SHUTDOWN'], ?DESC("clientid_not_found")
                 ),
                 ?NOT_IMPLEMENTED => emqx_dashboard_swagger:error_codes(
-                    ['NOT_IMPLEMENTED'], <<"API not implemented">>
+                    ['NOT_IMPLEMENTED'], ?DESC("not_implemented")
                 )
             }
         }
