@@ -135,7 +135,7 @@ t_api(_) ->
         request(
             put,
             uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            ?MAPPEND(?USERNAME_RULES_EXAMPLE, #{rules => []})
+            maps:merge(?USERNAME_RULES_EXAMPLE, #{rules => []})
         ),
 
     %% check length limit
@@ -228,7 +228,7 @@ t_api(_) ->
         request(
             put,
             uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            ?MAPPEND(?CLIENTID_RULES_EXAMPLE, #{rules => []})
+            maps:merge(?CLIENTID_RULES_EXAMPLE, #{rules => []})
         ),
 
     {ok, 400, _} =

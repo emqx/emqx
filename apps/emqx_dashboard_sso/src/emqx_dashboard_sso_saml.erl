@@ -139,7 +139,7 @@ login(
                 Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
                 {200, ?RESPHEADERS, Html};
             false ->
-                {302, ?MAPPEND(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY}
+                {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY}
         end,
     {redirect, Redirect}.
 
@@ -240,7 +240,7 @@ gen_redirect_response(DashboardAddr, Username) ->
     case ensure_user_exists(Username) of
         {ok, Role, Token} ->
             Target = login_redirect_target(DashboardAddr, Username, Role, Token),
-            Response = {302, ?MAPPEND(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
+            Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
             {redirect, Username, Response};
         {error, Reason} ->
             {error, Reason}
