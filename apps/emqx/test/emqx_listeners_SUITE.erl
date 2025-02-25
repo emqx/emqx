@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -489,6 +490,8 @@ t_quic_update_opts(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",
     Port = emqx_common_test_helpers:select_free_port(ListenerType),
+    ok = emqx_config:put_zone_conf(?FUNCTION_NAME, [mqtt, max_topic_levels], 2),
+
     Conf = #{
         <<"enable">> => true,
         <<"bind">> => format_bind({Host, Port}),
@@ -566,12 +569,13 @@ t_quic_update_opts(Config) ->
             | ClientSSLOpts
         ]),
 
-        %% Change the listener port
+        %% Change the listener port and zone
         NewPort = emqx_common_test_helpers:select_free_port(ListenerType),
         {ok, _} = emqx:update_config(
             [listeners, ListenerType, Name],
             {update, #{
-                <<"bind">> => format_bind({Host, NewPort})
+                <<"bind">> => format_bind({Host, NewPort}),
+                <<"zone">> => ?FUNCTION_NAME
             }}
         ),
 
@@ -600,6 +604,9 @@ t_quic_update_opts(Config) ->
         ?assertEqual(pong, emqtt:ping(C2)),
         ?assertEqual(pong, emqtt:ping(C3)),
         ?assertEqual(pong, emqtt:ping(C4)),
+
+        ?assertMatch({ok, _, [?RC_GRANTED_QOS_1]}, emqtt:subscribe(C1, <<"test/2/3">>, 1)),
+        ?assertMatch({ok, _, [?RC_UNSPECIFIED_ERROR]}, emqtt:subscribe(C4, <<"test/2/3">>, 1)),
 
         ok = emqtt:stop(C1),
         ok = emqtt:stop(C2),

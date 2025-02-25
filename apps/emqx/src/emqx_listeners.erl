@@ -74,7 +74,7 @@
         do_stop_listener/3,
         do_start_listener/4,
         do_update_listener/4,
-        quic_listener_conf_rollback/3
+        quic_listener_conf_rollback/4
     ]}
 ).
 -endif.
@@ -459,26 +459,10 @@ do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
     ListenOn = quic_listen_on(Bind),
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
-            ListenOpts = to_quicer_listener_opts(Opts),
-            Limiter = limiter(Opts),
-            ConnectionOpts = #{
-                conn_callback => emqx_quic_connection,
-                peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
-                peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
-                zone => zone(Opts),
-                listener => {quic, Name},
-                limiter => Limiter,
-                hibernate_after => maps:get(hibernate_after, ListenOpts)
-            },
-            StreamOpts = #{
-                stream_callback => emqx_quic_stream,
-                active => 1,
-                hibernate_after => maps:get(hibernate_after, ListenOpts)
-            },
             quicer:spawn_listener(
                 Id,
                 ListenOn,
-                {ListenOpts, ConnectionOpts, StreamOpts}
+                to_quicer_listener_opts(Name, Opts)
             );
         [] ->
             {ok, {skipped, quic_app_missing}}
@@ -517,14 +501,21 @@ do_update_listener(Type, Name, OldConf, NewConf) when
 do_update_listener(quic = Type, Name, OldConf, NewConf) ->
     case quicer:listener(listener_id(Type, Name)) of
         {ok, ListenerPid} ->
-            ListenOn = quic_listen_on(maps:get(bind, NewConf)),
-            case quicer_listener:reload(ListenerPid, ListenOn, to_quicer_listener_opts(NewConf)) of
+            ListenOn = quic_listen_on(NewConf),
+            case
+                quicer_listener:reload(
+                    ListenerPid, ListenOn, to_quicer_listener_opts(Name, NewConf)
+                )
+            of
                 ok ->
                     ok;
                 Error ->
                     case
                         quic_listener_conf_rollback(
-                            ListenerPid, to_quicer_listener_opts(OldConf), Error
+                            ListenerPid,
+                            quic_listen_on(OldConf),
+                            to_quicer_listener_opts(Name, OldConf),
+                            Error
                         )
                     of
                         ok ->
@@ -1092,6 +1083,8 @@ ensure_max_conns(<<"infinity">>) -> <<"infinity">>;
 ensure_max_conns(MaxConn) when is_binary(MaxConn) -> binary_to_integer(MaxConn);
 ensure_max_conns(MaxConn) -> MaxConn.
 
+quic_listen_on(#{bind := Bind}) ->
+    quic_listen_on(Bind);
 quic_listen_on(Bind) ->
     case Bind of
         {Addr, Port} when tuple_size(Addr) == 4 ->
@@ -1104,8 +1097,8 @@ quic_listen_on(Bind) ->
             Port
     end.
 
--spec to_quicer_listener_opts(map()) -> map().
-to_quicer_listener_opts(Opts) ->
+-spec to_quicer_listener_opts(atom(), map()) -> quicer_listener:listener_opts().
+to_quicer_listener_opts(Name, Opts) ->
     DefAcceptors = erlang:system_info(schedulers_online) * 8,
     SSLOpts = maps:from_list(ssl_opts(Opts)),
     Opts1 = maps:filter(
@@ -1130,15 +1123,34 @@ to_quicer_listener_opts(Opts) ->
         SSLOpts
     ),
     %% @NOTE: Optional options take precedence over required options
-    maps:merge(Opts2, optional_quic_listener_opts(Opts)).
+    ListenOpts = maps:merge(Opts2, optional_quic_listener_opts(Opts)),
+
+    %% Conn Opts
+    Limiter = limiter(Opts),
+    HibernateAfterMs = maps:get(hibernate_after, ListenOpts),
+    ConnectionOpts = #{
+        conn_callback => emqx_quic_connection,
+        peer_unidi_stream_count => maps:get(peer_unidi_stream_count, Opts, 1),
+        peer_bidi_stream_count => maps:get(peer_bidi_stream_count, Opts, 10),
+        zone => zone(Opts),
+        listener => {quic, Name},
+        limiter => Limiter,
+        hibernate_after => HibernateAfterMs
+    },
+    StreamOpts = #{
+        stream_callback => emqx_quic_stream,
+        active => 1,
+        hibernate_after => HibernateAfterMs
+    },
+    {ListenOpts, ConnectionOpts, StreamOpts}.
 
 -spec quic_listener_conf_rollback(
     pid(),
-    map(),
+    quicer:listen_on(),
+    quicer_listener:listener_opts(),
     Error :: {error, _, _} | {error, _}
 ) -> ok | {error, any()}.
-quic_listener_conf_rollback(ListenerPid, #{bind := Bind} = Conf, Error) ->
-    ListenOn = quic_listen_on(Bind),
+quic_listener_conf_rollback(ListenerPid, ListenOn, Conf, Error) ->
     case quicer_listener:reload(ListenerPid, ListenOn, Conf) of
         ok ->
             ?ELOG(
