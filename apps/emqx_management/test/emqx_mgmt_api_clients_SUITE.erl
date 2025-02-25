@@ -35,6 +35,8 @@
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(assertContainsClientids(RES, EXPECTED), assert_contains_clientids(RES, EXPECTED, ?LINE)).
 
+-define(CLIENTID(SUFFIX), <<(atom_to_binary(?FUNCTION_NAME))/binary, "_", SUFFIX/binary>>).
+
 all() ->
     [
         {group, general},
@@ -70,6 +72,7 @@ persistent_session_testcases() ->
         t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
+        t_list_clients_v2_limit,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
@@ -1834,6 +1837,97 @@ t_list_clients_v2(Config) ->
         end,
         []
     ),
+    ok.
+
+t_list_clients_v2_limit(Config) ->
+    [N1, N2] = ?config(cluster_nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    Port2 = get_mqtt_port(N2, tcp),
+    N1ClientIds = lists:map(
+        fun(N) ->
+            Suffix = <<"n1_", (integer_to_binary(N))/binary>>,
+            ?CLIENTID(Suffix)
+        end,
+        lists:seq(1, 5)
+    ),
+    N1Clients = lists:map(
+        fun(ClientId) ->
+            connect_client(#{
+                port => Port1,
+                clientid => ClientId,
+                clean_start => true
+            })
+        end,
+        N1ClientIds
+    ),
+    N2ClientIds = lists:map(
+        fun(N) ->
+            Suffix = <<"n2_", (integer_to_binary(N))/binary>>,
+            ?CLIENTID(Suffix)
+        end,
+        lists:seq(1, 5)
+    ),
+    N2Clients = lists:map(
+        fun(ClientId) ->
+            connect_client(#{
+                port => Port2,
+                clientid => ClientId,
+                clean_start => true
+            })
+        end,
+        N2ClientIds
+    ),
+    %% All clients are live and in ETS.
+    Limit = 8,
+    QueryParams1 = #{<<"limit">> => integer_to_binary(Limit)},
+    {ok, {{_, 200, _}, _, Res1}} = list_v2_request(QueryParams1, Config),
+    %% Current implementation does an `ets:select_reverse'...
+    NumN1Clients = length(N1ClientIds),
+    NumN2Clients = Limit - NumN1Clients,
+    N2ClientsToDrop = length(N2ClientIds) - NumN2Clients,
+    ?assert(N2ClientsToDrop > 0, #{n2_clients_to_drop_from_list => N2ClientsToDrop}),
+    ExpectedClientIds1 = N1ClientIds ++ lists:nthtail(N2ClientsToDrop, N2ClientIds),
+    ?assertContainsClientids([Res1], ExpectedClientIds1),
+    Res1A = list_all_v2(#{<<"limit">> => <<"8">>}, Config),
+    ?assertContainsClientids(Res1A, N1ClientIds ++ N2ClientIds),
+    Res1B = list_all_v2(#{<<"limit">> => <<"3">>}, Config),
+    ?assertContainsClientids(Res1B, N1ClientIds ++ N2ClientIds),
+    %% Some clients are now disconnected and mixed between ETS and DS.
+    ClientsToDisconnect = lists:nthtail(NumN2Clients, N2Clients),
+    lists:foreach(fun stop_and_commit/1, ClientsToDisconnect),
+    ct:sleep(200),
+    %% ETS iterates in reverse order, DS in direct order....
+    ExpectedClientIds2 = N1ClientIds ++ lists:sublist(N2ClientIds, NumN2Clients),
+    {ok, {{_, 200, _}, _, Res2}} = list_v2_request(QueryParams1, Config),
+    ?assertContainsClientids([Res2], ExpectedClientIds2),
+    %% All clients are disconnected and in DS.
+    MoreClientsToDisconnect = N1Clients ++ (N2Clients -- ClientsToDisconnect),
+    lists:foreach(fun stop_and_commit/1, MoreClientsToDisconnect),
+    ct:sleep(200),
+    {ok, {{_, 200, _}, _, Res3}} = list_v2_request(QueryParams1, Config),
+    ?assertContainsClientids([Res3], ExpectedClientIds2),
+    %% Clear persistent sessions
+    NewN1Clients = lists:map(
+        fun(ClientId) ->
+            connect_client(#{
+                port => Port1,
+                clientid => ClientId,
+                clean_start => true
+            })
+        end,
+        N1ClientIds
+    ),
+    NewN2Clients = lists:map(
+        fun(ClientId) ->
+            connect_client(#{
+                port => Port2,
+                clientid => ClientId,
+                clean_start => true
+            })
+        end,
+        N2ClientIds
+    ),
+    lists:foreach(fun disconnect_and_destroy_session/1, NewN1Clients ++ NewN2Clients),
     ok.
 
 %% Checks that exact match filters (username) works in clients_v2 API.
