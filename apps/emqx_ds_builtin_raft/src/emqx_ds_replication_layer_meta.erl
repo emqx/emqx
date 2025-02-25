@@ -147,6 +147,14 @@
 %% Membership transition of shard's replica set:
 -type transition() :: {add | del, site()}.
 
+-type site_status() :: up | down | lost.
+-type site_info() :: #{status := site_status()}.
+-type shard_info() :: #{
+    replica_set := #{site() => site_info()},
+    target_set => #{site() => site_info()},
+    transitions => [#{site() => add | del}]
+}.
+
 -type update_cluster_result() ::
     {ok, unchanged | [site()]}
     | {error, {nonexistent_db, emqx_ds:db()}}
@@ -208,28 +216,39 @@ shards(DB) ->
     [Shard || #?SHARD_TAB{shard = {_, Shard}} <- Recs].
 
 -spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    #{replica_set := #{site() => #{status => up | down}}}
-    | undefined.
+    shard_info() | undefined.
 shard_info(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
         [] ->
             undefined;
-        [#?SHARD_TAB{replica_set = Replicas}] ->
-            ReplicaSet = maps:from_list([
-                begin
-                    Status =
-                        case node_status(?MODULE:node(I)) of
-                            running -> up;
-                            stopped -> down;
-                            lost -> lost
-                        end,
-                    ReplInfo = #{status => Status},
-                    {I, ReplInfo}
-                end
-             || I <- Replicas
-            ]),
-            #{replica_set => ReplicaSet}
+        [ShardRecord] ->
+            ReplicaSet = get_shard_sites(ShardRecord),
+            TargetSet = get_shard_target_sites(ShardRecord),
+            Transitions = pending_transitions(ShardRecord),
+            Info1 = #{
+                replica_set => maps:from_list([{S, site_info(S)} || S <- ReplicaSet])
+            },
+            case TargetSet of
+                ReplicaSet ->
+                    Info2 = Info1;
+                _ ->
+                    Info2 = Info1#{
+                        target_set => maps:from_list([{S, site_info(S)} || S <- TargetSet])
+                    }
+            end,
+            case Transitions of
+                [] ->
+                    Info = Info2;
+                _ ->
+                    Info = Info2#{
+                        transitions => [#{S => T} || {T, S} <- Transitions]
+                    }
+            end,
+            Info
     end.
+
+site_info(Site) ->
+    #{status => node_status(?MODULE:node(Site))}.
 
 -spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 my_shards(DB) ->
@@ -488,8 +507,7 @@ db_sites(DB) ->
 replica_set_transitions(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
         [Record] ->
-            PendingTransitions = mnesia:dirty_read(?TRANSITION_TAB, {DB, Shard}),
-            pending_transitions(Record, PendingTransitions);
+            pending_transitions(Record);
         [] ->
             undefined
     end.
@@ -974,6 +992,10 @@ compute_allocation(Shards, Sites, Opts) ->
         ShardsSorted
     ),
     Allocation.
+
+pending_transitions(ShardRecord = #?SHARD_TAB{shard = Shard}) ->
+    PendingTransitions = mnesia:dirty_read(?TRANSITION_TAB, Shard),
+    pending_transitions(ShardRecord, PendingTransitions).
 
 pending_transitions(ShardRecord, PendingTransitions) ->
     prepend_pending_transitions(compute_transition_plan(ShardRecord), PendingTransitions).
