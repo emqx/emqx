@@ -310,7 +310,7 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
         ApiSpec0
     ),
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    emqx_utils_json:encode(
+    emqx_utils_json:encode_proplist(
         #{
             info => SchemaInfo,
             paths => ApiSpec,
@@ -420,7 +420,7 @@ failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace) ->
         standard_error,
         "Failed to generate swagger for path ~p in module ~p~n"
         "error:~p~nreason:~p~n~p~n",
-        [Module, Path, Error, Reason, Stacktrace]
+        [Path, Module, Error, Reason, Stacktrace]
     ),
     error({failed_to_generate_swagger_spec, Module, Path}).
 
