@@ -155,7 +155,12 @@ update_listener_limiters(ListenerId, ListenerConfig) ->
 
 -spec delete_listener_limiters(listener_id()) -> ok.
 delete_listener_limiters(ListenerId) ->
-    delete_group(listener_group(ListenerId)).
+    try
+        delete_group(listener_group(ListenerId))
+    catch
+        error:{limiter_group_not_found, _} ->
+            ok
+    end.
 
 -spec create_channel_client_container(zone(), listener_id()) -> emqx_limiter_client_container:t().
 create_channel_client_container(ZoneName, ListenerId) ->

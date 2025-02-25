@@ -16,6 +16,8 @@
 
 -module(emqx_limiter_client).
 
+-include("logger.hrl").
+
 -export([
     new/2,
     try_consume/2,
@@ -49,14 +51,40 @@ new(Module, State) ->
 
 -spec try_consume(t(), non_neg_integer()) -> {boolean(), t()}.
 try_consume(#{module := Module, state := State} = Limiter, Amount) ->
-    case Module:try_consume(State, Amount) of
+    try Module:try_consume(State, Amount) of
         {Result, NewState} when is_boolean(Result) ->
             {Result, Limiter#{state := NewState}};
         Result when is_boolean(Result) ->
             {Result, Limiter}
+    catch
+        error:Reason ->
+            ?SLOG_THROTTLE(
+                error,
+                #{
+                    msg => failed_to_consume_from_limiter,
+                    reason => Reason,
+                    module => Module
+                },
+                #{tag => "AUTHZ"}
+            ),
+            {true, Limiter}
     end.
 
 -spec put_back(t(), non_neg_integer()) -> t().
 put_back(#{module := Module, state := State} = Limiter, Amount) ->
-    NewState = Module:put_back(State, Amount),
-    Limiter#{state := NewState}.
+    try Module:put_back(State, Amount) of
+        NewState ->
+            Limiter#{state := NewState}
+    catch
+        error:Reason ->
+            ?SLOG_THROTTLE(
+                error,
+                #{
+                    msg => failed_to_put_back_to_limiter,
+                    reason => Reason,
+                    module => Module
+                },
+                #{tag => "AUTHZ"}
+            ),
+            Limiter
+    end.
