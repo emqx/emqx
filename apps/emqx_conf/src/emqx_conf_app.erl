@@ -84,14 +84,14 @@ get_override_config_file() ->
 -define(DATA_DIRS, ["authz", "certs"]).
 
 sync_data_from_node() ->
-    Dir = emqx:data_dir(),
-    TargetDirs = lists:filter(
-        fun(Type) -> filelib:is_dir(filename:join(Dir, Type)) end, ?DATA_DIRS
-    ),
+    DataDir = emqx:data_dir(),
     Name = "data.zip",
-    case zip:zip(Name, TargetDirs, [memory, {cwd, Dir}]) of
-        {ok, {Name, Bin}} -> {ok, Bin};
-        {error, Reason} -> {error, Reason}
+    Files = traverse_and_collect_files(DataDir),
+    case zip:zip(Name, Files, [memory, {cwd, DataDir}]) of
+        {ok, {Name, Bin}} ->
+            {ok, Bin};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %% ------------------------------------------------------------------------------
@@ -327,3 +327,23 @@ has_deprecated_file(#{conf := Conf} = Info) ->
             %% Conf is not empty if deprecated file is found.
             Conf =/= #{}
     end.
+
+traverse_and_collect_files(DataDir) ->
+    SubDirs = lists:map(fun(D) -> filename:join(DataDir, D) end, ?DATA_DIRS),
+    do_traverse_and_collect_files(SubDirs, DataDir, _Acc = []).
+
+do_traverse_and_collect_files([] = _SubDirs, _DataDir, Acc) ->
+    Acc;
+do_traverse_and_collect_files([SubDir | Rest], DataDir, Acc0) ->
+    %% This function already drops any non-regular file, including symlinks.
+    Acc = filelib:fold_files(
+        SubDir,
+        _Regex = "",
+        _Recursive = true,
+        fun(Path0, Acc) ->
+            Path = lists:flatten(string:replace(Path0, DataDir ++ "/", "", leading)),
+            [Path | Acc]
+        end,
+        Acc0
+    ),
+    do_traverse_and_collect_files(Rest, DataDir, Acc).
