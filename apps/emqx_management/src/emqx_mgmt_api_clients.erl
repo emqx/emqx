@@ -664,14 +664,13 @@ fields(client) ->
             hoconsc:mk(integer(), #{
                 desc => ?DESC("subscriptions_max")
             })},
-        {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
-        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})},
-        {durable, hoconsc:mk(boolean(), #{desc => <<"Session is durable">>})},
+        {username, hoconsc:mk(binary(), #{desc => ?DESC("username")})},
+        {mountpoint, hoconsc:mk(binary(), #{desc => ?DESC("mountpoint")})},
+        {durable, hoconsc:mk(boolean(), #{desc => ?DESC("durable")})},
         {n_streams,
             hoconsc:mk(non_neg_integer(), #{
-                desc => <<"Number of streams used by the durable session">>
+                desc => ?DESC("n_streams")
             })},
-
         {seqno_q1_comm,
             hoconsc:mk(non_neg_integer(), #{
                 desc => ?DESC("seqno_q1_comm")
