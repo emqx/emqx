@@ -475,6 +475,8 @@ fields(common_list_clients_input) ->
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 in => query,
                 required => false,
+                desc => ?DESC("lte_created_at")
+            })},
         {gte_connected_at,
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 in => query,
@@ -561,7 +563,7 @@ fields(client) ->
             hoconsc:mk(integer(), #{
                 desc => ?DESC("keepalive")
             })},
-        {mailbox_len, hoconsc:mk(integer(), #{desc => ?DESC("mailbox_len"))},
+        {mailbox_len, hoconsc:mk(integer(), #{desc => ?DESC("mailbox_len")})},
         {mqueue_dropped,
             hoconsc:mk(integer(), #{
                 desc => ?DESC("mqueue_dropped")
@@ -663,8 +665,6 @@ fields(client) ->
             hoconsc:mk(non_neg_integer(), #{
                 desc => ?DESC("seqno_q1_next")
             })},
-            })},
-
         {seqno_q2_comm,
             hoconsc:mk(non_neg_integer(), #{
                 desc => ?DESC("seqno_q2_comm")
@@ -680,8 +680,8 @@ fields(client) ->
         {seqno_q2_next,
             hoconsc:mk(non_neg_integer(), #{
                 desc => ?DESC("seqno_q2_next")
-            })
-            })
+            })}
+    ];
 fields(authz_cache) ->
     [
         {access, hoconsc:mk(binary(), #{desc => ?DESC("authz_cache_access")})},
@@ -691,12 +691,13 @@ fields(authz_cache) ->
             })},
         {topic, hoconsc:mk(binary(), #{desc => ?DESC("authz_cache_topic")})},
         {updated_time,
-            hoconsc:mk(integer(), #{desc => ?DESC("authz_cache_updated_time"), example => 1687850712989})}
+            hoconsc:mk(integer(), #{
+                desc => ?DESC("authz_cache_updated_time"), example => 1687850712989
+            })}
     ];
 fields(keepalive) ->
     [
-        {interval,
-            hoconsc:mk(range(0, 65535), #{desc => ?DESC("keepalive_interval")})}
+        {interval, hoconsc:mk(range(0, 65535), #{desc => ?DESC("keepalive_interval")})}
     ];
 fields(subscribe) ->
     [

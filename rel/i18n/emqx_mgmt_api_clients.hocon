@@ -153,7 +153,6 @@ bad_request.desc:
 bad_request.label:
 """Bad Request"""
 
->>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 since.desc:
 """Include sessions expired after this time (UNIX Epoch in seconds precision)"""
 since.label:
@@ -162,44 +161,31 @@ since.label:
 sessions_count.desc:
 """Number of sessions"""
 sessions_count.label:
-<<<<<<< HEAD
 """Sessions Count"""
 
 bad_request.desc:
 """Cannot handle this request."""
 bad_request.label:
 """Bad Request"""
-=======
-"""Number of sessions"""
->>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 node_name.desc:
 """Node name"""
 node_name.label:
-<<<<<<< HEAD
-"""Node Name"""
-=======
 """Node name"""
->>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 username.desc:
 """User name, multiple values can be specified by repeating the parameter: username=u1&username=u2"""
 username.label:
-<<<<<<< HEAD
 """Username"""
 
 ip_address.desc:
 """IP address"""
 ip_address.label:
 """IP Address"""
-=======
-"""User name"""
->>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 conn_state.desc:
 """The current connection status of the client, the possible values are connected,idle,disconnected"""
 conn_state.label:
-<<<<<<< HEAD
 """Connection State"""
 
 clean_start.desc:
@@ -302,14 +288,10 @@ inflight_max.desc:
 """Maximum length of inflight"""
 inflight_max.label:
 """Inflight Max"""
-=======
-"""Connection state"""
->>>>>>> ef98b1ebb (docs: fix i18n for emqx_mgmt_api_clients)
 
 ip_address.desc:
 """Client's IP address"""
 ip_address.label:
-<<<<<<< HEAD
 """IP Address"""
 
 is_bridge.desc:
@@ -395,6 +377,7 @@ recv_msg_qos1.label:
 recv_msg_qos2.desc:
 """Number of PUBLISH QoS2 packets received"""
 recv_msg_qos2.label:
+"""Received QoS2 Messages"""
 
 recv_oct.desc:
 """Number of bytes received"""
@@ -595,10 +578,6 @@ max_payload_bytes.desc:
 """Client's inflight/mqueue messages payload limit. The total payload size of all messages in the response will not exceed this value. Messages beyond the limit will be silently omitted in the response. The only exception to this rule is when the first message payload is already larger than the limit, in this case, the first message will be returned in the response."""
 max_payload_bytes.label:
 """Max Payload Bytes"""
-
-
-=======
-"""Client's IP address"""
 
 proto_ver.desc:
 """Protocol version"""
