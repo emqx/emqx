@@ -691,7 +691,7 @@ trans_description(Spec, Hocon, Options) ->
             ?DESC(_, _) = Struct ->
                 get_i18n(<<"desc">>, Struct, undefined, Options);
             Text ->
-                io:format(user, "Missing-api-translation: ~s~n", [Text]),
+                maybe_warn_missing_desc(Hocon, Text),
                 to_bin(Text)
         end,
     case Desc =:= undefined of
@@ -700,6 +700,16 @@ trans_description(Spec, Hocon, Options) ->
         false ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
+    end.
+
+maybe_warn_missing_desc(Hocon, Text) ->
+    case os:getenv("WARN_MISSING_DESC") of
+        "1" when Text =/= <<>> ->
+            io:format(user, "Missing-api-translation: ~s~n", [Text]);
+        "1" ->
+            io:format(user, "Missing-api-translation: ~0p~n", [Hocon]);
+        _ ->
+            ok
     end.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
