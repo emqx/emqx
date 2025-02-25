@@ -262,6 +262,14 @@ fields(sites_shard) ->
                     desc => <<"Shard status">>,
                     example => up
                 }
+            )},
+        {transition,
+            mk(
+                enum([joining, leaving]),
+                #{
+                    desc => <<"Shard transition">>,
+                    example => joining
+                }
             )}
     ];
 fields(db) ->
@@ -340,11 +348,10 @@ get_site(get, #{bindings := #{site := Site}}) ->
             ?NOT_FOUND(<<"Site not found: ", Site/binary>>);
         true ->
             Node = emqx_ds_replication_layer_meta:node(Site),
-            IsUp = mria:cluster_status(Node) =:= running,
             Shards = shards_of_site(Site),
             ?OK(#{
                 node => Node,
-                up => IsUp,
+                up => emqx_ds_replication_layer_meta:node_status(Node) == up,
                 shards => Shards
             })
     end.
@@ -443,17 +450,40 @@ shards_of_this_site() ->
 shards_of_site(Site) ->
     lists:flatmap(
         fun({DB, Shard}) ->
-            case emqx_ds_replication_layer_meta:shard_info(DB, Shard) of
-                #{replica_set := #{Site := Info}} ->
-                    [
-                        #{
-                            storage => DB,
-                            id => Shard,
-                            status => maps:get(status, Info)
-                        }
-                    ];
+            ShardInfo = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ReplicaSet = maps:get(replica_set, ShardInfo),
+            TargetSet = maps:get(target_set, ShardInfo, #{}),
+            TransitionSet = get_transition_set(ShardInfo),
+            case ReplicaSet of
+                #{Site := Info} ->
+                    S = #{
+                        storage => DB,
+                        id => Shard,
+                        status => maps:get(status, Info)
+                    },
+                    case TransitionSet of
+                        #{Site := T} ->
+                            [S#{transition => meta_to_transition(T)}];
+                        #{} ->
+                            [S]
+                    end;
                 _ ->
-                    []
+                    case TransitionSet of
+                        #{Site := add} ->
+                            S = #{
+                                storage => DB,
+                                id => Shard,
+                                transition => joining
+                            },
+                            case TargetSet of
+                                #{Site := Info} ->
+                                    [S#{status => maps:get(status, Info)}];
+                                #{} ->
+                                    [S]
+                            end;
+                        _ ->
+                            []
+                    end
             end
         end,
         [
@@ -461,6 +491,13 @@ shards_of_site(Site) ->
          || DB <- dbs(),
             Shard <- emqx_ds_replication_layer_meta:shards(DB)
         ]
+    ).
+
+get_transition_set(ShardInfo) ->
+    lists:foldr(
+        fun maps:merge/2,
+        #{},
+        maps:get(transitions, ShardInfo, [])
     ).
 
 %%================================================================================
@@ -537,6 +574,9 @@ list_shards(DB) ->
         end
      || Shard <- emqx_ds_replication_layer_meta:shards(DB)
     ].
+
+meta_to_transition(add) -> joining;
+meta_to_transition(del) -> leaving.
 
 meta_result_to_binary(ok) ->
     ok;
