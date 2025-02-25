@@ -599,11 +599,6 @@ gte_created_at.desc:
 gte_created_at.label:
 """Include sessions created after this time"""
 
-clientid.desc:
-"""Client identifier"""
-clientid.label:
-"""Client identifier"""
-
 connected.desc:
 """Indicate whether the client is connected"""
 connected.label:
