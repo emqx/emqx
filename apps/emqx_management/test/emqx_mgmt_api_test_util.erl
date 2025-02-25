@@ -86,8 +86,11 @@ uri(Host, Parts) ->
 
 %% compatible_mode will return as same as 'emqx_dashboard_api_test_helpers:request'
 request_api_with_body(Method, Url, Body) ->
+    request_api_with_body(Method, Url, auth_header_(), Body).
+
+request_api_with_body(Method, Url, AuthOrHeaders, Body) ->
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
-    request_api(Method, Url, [], auth_header_(), Body, Opts).
+    request_api(Method, Url, [], AuthOrHeaders, Body, Opts).
 
 request_api(Method, Url) ->
     request_api(Method, Url, auth_header_()).
