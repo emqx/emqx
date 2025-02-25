@@ -128,10 +128,10 @@ schema("/authorization/sources/built_in_database/rules/users") ->
                     #{
                         204 => <<"Created">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad username or bad rule schema">>
+                            [?BAD_REQUEST], ?DESC("bad_request_username")
                         ),
                         409 => emqx_dashboard_swagger:error_codes(
-                            [?ALREADY_EXISTS], <<"ALREADY_EXISTS">>
+                            [?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS)
                         )
                     }
             }
@@ -178,7 +178,7 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
                     #{
                         204 => <<"Created">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>
+                            [?BAD_REQUEST], ?DESC("bad_request_clientid")
                         )
                     }
             }
@@ -199,7 +199,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
                             {username, ?PUT_MAP_EXAMPLE}
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Not Found">>
+                            [?NOT_FOUND], ?DESC(?NOT_FOUND)
                         )
                     }
             },
@@ -216,7 +216,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
                     #{
                         204 => <<"Updated">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad username or bad rule schema">>
+                            [?BAD_REQUEST], ?DESC("bad_request_username")
                         )
                     }
             },
@@ -229,10 +229,10 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
                     #{
                         204 => <<"Deleted">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad username">>
+                            [?BAD_REQUEST], ?DESC("bad_request_username")
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Username Not Found">>
+                            [?NOT_FOUND], ?DESC(?NOT_FOUND)
                         )
                     }
             }
@@ -253,7 +253,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
                             {clientid, ?PUT_MAP_EXAMPLE}
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Not Found">>
+                            [?NOT_FOUND], ?DESC(?NOT_FOUND)
                         )
                     }
             },
@@ -270,7 +270,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
                     #{
                         204 => <<"Updated">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad clientid or bad rule schema">>
+                            [?BAD_REQUEST], ?DESC("bad_request_clientid")
                         )
                     }
             },
@@ -283,10 +283,10 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
                     #{
                         204 => <<"Deleted">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad clientid">>
+                            [?BAD_REQUEST], ?DESC("bad_request_clientid")
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"ClientID Not Found">>
+                            [?NOT_FOUND], ?DESC(?NOT_FOUND)
                         )
                     }
             }
@@ -312,7 +312,7 @@ schema("/authorization/sources/built_in_database/rules/all") ->
                     #{
                         204 => <<"Updated">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad rule schema">>
+                            [?BAD_REQUEST], ?DESC("bad_request")
                         )
                     }
             },
@@ -338,7 +338,7 @@ schema("/authorization/sources/built_in_database/rules") ->
                     #{
                         204 => <<"Deleted">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad Request">>
+                            [?BAD_REQUEST], ?DESC("bad_request")
                         )
                     }
             }
