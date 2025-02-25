@@ -1723,7 +1723,7 @@ does_offline_chan_info_match(_, _) ->
     false.
 
 does_offline_row_match_query(
-    {_ID, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
+    {_Id, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
 ) ->
     lists:all(
         fun(FieldQuery) -> does_offline_chan_info_match(FieldQuery, ChanInfo) end,
