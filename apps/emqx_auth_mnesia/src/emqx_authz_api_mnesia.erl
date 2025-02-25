@@ -543,8 +543,8 @@ clients(post, #{body := Body}) when is_list(Body) ->
     case ensure_rules_is_valid(<<"clientid">>, clientid, Body) of
         ok ->
             lists:foreach(
-                fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules)
+                fun(#{<<"clientid">> := ClientId, <<"rules">> := Rules}) ->
+                    emqx_authz_mnesia:store_rules({clientid, ClientId}, Rules)
                 end,
                 Body
             ),
@@ -602,23 +602,23 @@ user(delete, #{bindings := #{username := Username}}) ->
             {204}
     end.
 
-client(get, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+client(get, #{bindings := #{clientid := ClientId}}) ->
+    case emqx_authz_mnesia:get_rules({clientid, ClientId}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         {ok, Rules} ->
             {200, #{
-                clientid => ClientID,
+                clientid => ClientId,
                 rules => format_rules(Rules)
             }}
     end;
 client(put, #{
-    bindings := #{clientid := ClientID},
-    body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}
+    bindings := #{clientid := ClientId},
+    body := #{<<"clientid">> := ClientId, <<"rules">> := Rules}
 }) ->
     case ensure_rules_len(Rules) of
         ok ->
-            emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules),
+            emqx_authz_mnesia:store_rules({clientid, ClientId}, Rules),
             {204};
         {error, too_many_rules} ->
             {400, #{
@@ -630,12 +630,12 @@ client(put, #{
                     )
             }}
     end;
-client(delete, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+client(delete, #{bindings := #{clientid := ClientId}}) ->
+    case emqx_authz_mnesia:get_rules({clientid, ClientId}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
         {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({clientid, ClientID}),
+            emqx_authz_mnesia:delete_rules({clientid, ClientId}),
             {204}
     end.
 
@@ -727,9 +727,9 @@ format_result([{username, Username}, {rules, Rules}]) ->
         username => Username,
         rules => format_rules(Rules)
     };
-format_result([{clientid, ClientID}, {rules, Rules}]) ->
+format_result([{clientid, ClientId}, {rules, Rules}]) ->
     #{
-        clientid => ClientID,
+        clientid => ClientId,
         rules => format_rules(Rules)
     }.
 

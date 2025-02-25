@@ -310,7 +310,7 @@ gen_api_schema_json_iodata(SchemaMod, SchemaInfo, Converter) ->
         ApiSpec0
     ),
     Components = lists:foldl(fun(M, Acc) -> maps:merge(M, Acc) end, #{}, Components0),
-    emqx_utils_json:encode_proplist(
+    emqx_utils_json:encode(
         #{
             info => SchemaInfo,
             paths => ApiSpec,
@@ -420,7 +420,7 @@ failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace) ->
         standard_error,
         "Failed to generate swagger for path ~p in module ~p~n"
         "error:~p~nreason:~p~n~p~n",
-        [Path, Module, Error, Reason, Stacktrace]
+        [Module, Path, Error, Reason, Stacktrace]
     ),
     error({failed_to_generate_swagger_spec, Module, Path}).
 
@@ -552,7 +552,7 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
                     Fun when is_function(Fun) ->
                         [{validator, fun(#{<<"root">> := B}) -> Fun(B) end}]
                 end,
-            NewSchema = #{roots => [{root, Type}], fields => #{}, validations => Validations},
+            NewSchema = #{roots => [{root, Type}], validations => Validations, fields => #{}},
             Option = #{required => false},
             #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
             {ok, NewBody};
@@ -858,7 +858,7 @@ hocon_schema_fields(Module, StructName) ->
 namespace(Module) ->
     case hocon_schema:namespace(Module) of
         undefined -> Module;
-        NameSpace -> re:replace(to_bin(NameSpace), ":", "-", [global])
+        Namespace -> re:replace(to_bin(Namespace), ":", "-", [global])
     end.
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->

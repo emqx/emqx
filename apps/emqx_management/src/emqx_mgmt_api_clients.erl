@@ -775,8 +775,8 @@ fields(requested_client_fields) ->
 clients(get, #{query_string := QString}) ->
     list_clients(QString).
 
-kickout_clients(post, #{body := ClientIDs}) ->
-    case emqx_mgmt:kickout_clients(ClientIDs) of
+kickout_clients(post, #{body := ClientIds}) ->
+    case emqx_mgmt:kickout_clients(ClientIds) of
         ok ->
             {204};
         {error, Reason} ->
@@ -794,28 +794,28 @@ authz_cache(get, #{bindings := Bindings}) ->
 authz_cache(delete, #{bindings := Bindings}) ->
     clean_authz_cache(Bindings).
 
-subscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
+subscribe(post, #{bindings := #{clientid := ClientId}, body := TopicInfo}) ->
     Opts = to_topic_info(TopicInfo),
-    subscribe(Opts#{clientid => ClientID}).
+    subscribe(Opts#{clientid => ClientId}).
 
-subscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
+subscribe_batch(post, #{bindings := #{clientid := ClientId}, body := TopicInfos}) ->
     Topics =
         [
             to_topic_info(TopicInfo)
          || TopicInfo <- TopicInfos
         ],
-    subscribe_batch(#{clientid => ClientID, topics => Topics}).
+    subscribe_batch(#{clientid => ClientId, topics => Topics}).
 
-unsubscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
+unsubscribe(post, #{bindings := #{clientid := ClientId}, body := TopicInfo}) ->
     Topic = maps:get(<<"topic">>, TopicInfo),
-    unsubscribe(#{clientid => ClientID, topic => Topic}).
+    unsubscribe(#{clientid => ClientId, topic => Topic}).
 
-unsubscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
+unsubscribe_batch(post, #{bindings := #{clientid := ClientId}, body := TopicInfos}) ->
     Topics = [Topic || #{<<"topic">> := Topic} <- TopicInfos],
-    unsubscribe_batch(#{clientid => ClientID, topics => Topics}).
+    unsubscribe_batch(#{clientid => ClientId, topics => Topics}).
 
-subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_mgmt:list_client_subscriptions(ClientID) of
+subscriptions(get, #{bindings := #{clientid := ClientId}}) ->
+    case emqx_mgmt:list_client_subscriptions(ClientId) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         [] ->
@@ -823,31 +823,31 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
         {Node, Subs} ->
             Formatter =
                 fun(_Sub = {Topic, SubOpts}) ->
-                    emqx_mgmt_api_subscriptions:format(Node, {{Topic, ClientID}, SubOpts})
+                    emqx_mgmt_api_subscriptions:format(Node, {{Topic, ClientId}, SubOpts})
                 end,
             {200, lists:map(Formatter, Subs)}
     end.
 
-set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
+set_keepalive(put, #{bindings := #{clientid := ClientId}, body := Body}) ->
     case maps:find(<<"interval">>, Body) of
         error ->
             {400, 'BAD_REQUEST', "Interval Not Found"};
         {ok, Interval} ->
-            case emqx_mgmt:set_keepalive(ClientID, Interval) of
-                ok -> lookup(#{clientid => ClientID});
+            case emqx_mgmt:set_keepalive(ClientId, Interval) of
+                ok -> lookup(#{clientid => ClientId});
                 {error, not_found} -> {404, ?CLIENTID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAM_ERROR', message => Reason}}
             end
     end.
 
-mqueue_msgs(get, #{bindings := #{clientid := ClientID}, query_string := QString}) ->
-    list_client_msgs(mqueue_msgs, ClientID, QString).
+mqueue_msgs(get, #{bindings := #{clientid := ClientId}, query_string := QString}) ->
+    list_client_msgs(mqueue_msgs, ClientId, QString).
 
 inflight_msgs(get, #{
-    bindings := #{clientid := ClientID},
+    bindings := #{clientid := ClientId},
     query_string := QString
 }) ->
-    list_client_msgs(inflight_msgs, ClientID, QString).
+    list_client_msgs(inflight_msgs, ClientId, QString).
 
 %%%==============================================================================================
 %% api apply
@@ -1137,24 +1137,24 @@ ets_select(NQString, Limit, Node, NodeIdx, Cont) ->
             {Rows, #{node_idx => NodeIdx, cont => NCont}}
     end.
 
-lookup(#{clientid := ClientID}) ->
-    case emqx_mgmt:lookup_client({clientid, ClientID}, ?FORMAT_FUN) of
+lookup(#{clientid := ClientId}) ->
+    case emqx_mgmt:lookup_client({clientid, ClientId}, ?FORMAT_FUN) of
         [] ->
             {404, ?CLIENTID_NOT_FOUND};
         ClientInfo ->
             {200, hd(ClientInfo)}
     end.
 
-kickout(#{clientid := ClientID}) ->
-    case emqx_mgmt:kickout_client(ClientID) of
+kickout(#{clientid := ClientId}) ->
+    case emqx_mgmt:kickout_client(ClientId) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->
             {204}
     end.
 
-get_authz_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:list_authz_cache(ClientID) of
+get_authz_cache(#{clientid := ClientId}) ->
+    case emqx_mgmt:list_authz_cache(ClientId) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
@@ -1165,8 +1165,8 @@ get_authz_cache(#{clientid := ClientID}) ->
             {200, Response}
     end.
 
-clean_authz_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:clean_authz_cache(ClientID) of
+clean_authz_cache(#{clientid := ClientId}) ->
+    case emqx_mgmt:clean_authz_cache(ClientId) of
         ok ->
             {204};
         {error, not_found} ->
@@ -1176,9 +1176,9 @@ clean_authz_cache(#{clientid := ClientID}) ->
             {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}}
     end.
 
-subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
+subscribe(#{clientid := ClientId, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
-    case do_subscribe(ClientID, Topic, Opts) of
+    case do_subscribe(ClientId, Topic, Opts) of
         {error, channel_not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         {error, invalid_subopts_nl} ->
@@ -1194,7 +1194,7 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
             {200, SubInfo}
     end.
 
-subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
+subscribe_batch(#{clientid := ClientId, topics := Topics}) ->
     %% On the one hand, we first try to use `emqx_channel' instead of `emqx_channel_info'
     %% (used by the `emqx_mgmt:lookup_client/2'), as the `emqx_channel_info' table will
     %% only be populated after the hook `client.connected' has returned. So if one want to
@@ -1202,10 +1202,10 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     %% ... On the other hand, using only `emqx_channel' would render this API unusable if
     %% called from a node that doesn't have hold the targeted client connection, so we
     %% fall back to `emqx_mgmt:lookup_client/2', which consults the global registry.
-    Result1 = ets:lookup(?CHAN_TAB, ClientID),
+    Result1 = ets:lookup(?CHAN_TAB, ClientId),
     Result =
         case Result1 of
-            [] -> emqx_mgmt:lookup_client({clientid, ClientID}, _FormatFn = undefined);
+            [] -> emqx_mgmt:lookup_client({clientid, ClientId}, _FormatFn = undefined);
             _ -> Result1
         end,
     case Result of
@@ -1213,15 +1213,15 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->
             ArgList = [
-                [ClientID, Topic, maps:with([qos, nl, rap, rh], Sub)]
+                [ClientId, Topic, maps:with([qos, nl, rap, rh], Sub)]
              || #{topic := Topic} = Sub <- Topics
             ],
             {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)}
     end.
 
-unsubscribe(#{clientid := ClientID, topic := Topic}) ->
+unsubscribe(#{clientid := ClientId, topic := Topic}) ->
     {NTopic, _} = emqx_topic:parse(Topic),
-    case do_unsubscribe(ClientID, Topic) of
+    case do_unsubscribe(ClientId, Topic) of
         {error, channel_not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         {unsubscribe, [{UnSubedT, #{}}]} when
@@ -1230,10 +1230,10 @@ unsubscribe(#{clientid := ClientID, topic := Topic}) ->
             {204}
     end.
 
-unsubscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    case lookup(#{clientid => ClientID}) of
+unsubscribe_batch(#{clientid := ClientId, topics := Topics}) ->
+    case lookup(#{clientid => ClientId}) of
         {200, _} ->
-            _ = emqx_mgmt:unsubscribe_batch(ClientID, Topics),
+            _ = emqx_mgmt:unsubscribe_batch(ClientId, Topics),
             {204};
         {404, NotFound} ->
             {404, NotFound}
@@ -1292,17 +1292,17 @@ client_msgs_params() ->
         hoconsc:ref(emqx_dashboard_swagger, limit)
     ].
 
-do_subscribe(ClientID, Topic0, Options) ->
+do_subscribe(ClientId, Topic0, Options) ->
     try emqx_topic:parse(Topic0, Options) of
         {Topic, Opts} ->
             TopicTable = [{Topic, Opts}],
-            case emqx_mgmt:subscribe(ClientID, TopicTable) of
+            case emqx_mgmt:subscribe(ClientId, TopicTable) of
                 {error, Reason} ->
                     {error, Reason};
                 {subscribe, Subscriptions, Node} ->
                     case proplists:is_defined(Topic, Subscriptions) of
                         true ->
-                            {ok, Options#{node => Node, clientid => ClientID, topic => Topic0}};
+                            {ok, Options#{node => Node, clientid => ClientId, topic => Topic0}};
                         false ->
                             {error, unknow_error}
                     end
@@ -1316,8 +1316,8 @@ do_subscribe(ClientID, Topic0, Options) ->
 
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
-do_unsubscribe(ClientID, Topic) ->
-    case emqx_mgmt:unsubscribe(ClientID, Topic) of
+do_unsubscribe(ClientId, Topic) ->
+    case emqx_mgmt:unsubscribe(ClientId, Topic) of
         {error, Reason} ->
             {error, Reason};
         Res ->
@@ -1504,12 +1504,12 @@ check_for_live_and_expired(Rows) ->
 is_live_session(ClientId) ->
     [] =/= emqx_cm_registry:lookup_channels(ClientId).
 
-list_client_msgs(MsgType, ClientID, QString) ->
+list_client_msgs(MsgType, ClientId, QString) ->
     case emqx_mgmt_api:parse_cont_pager_params(QString, pos_decoder(MsgType)) of
         false ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"position_limit_invalid">>}};
         PagerParams = #{} ->
-            case emqx_mgmt:list_client_msgs(MsgType, ClientID, PagerParams) of
+            case emqx_mgmt:list_client_msgs(MsgType, ClientId, PagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND};
                 {error, shutdown} ->
@@ -1681,7 +1681,7 @@ does_offline_chan_info_match(_, _) ->
     false.
 
 does_offline_row_match_query(
-    {_Id, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
+    {_ID, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
 ) ->
     lists:all(
         fun(FieldQuery) -> does_offline_chan_info_match(FieldQuery, ChanInfo) end,
@@ -1911,26 +1911,20 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
             ?INTERNAL_ERROR(Error)
     end.
 
+format_msgs(_MsgType, [], _PayloadFmt, _MaxBytes) ->
+    [];
 format_msgs(MsgType, [FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
     %% Always include at least one message payload, even if it exceeds the limit
-    {FirstMsg1, PayloadSize0} = format_msg(MsgType, FirstMsg, PayloadFmt),
-    {Msgs1, _} =
-        catch lists:foldl(
-            fun(Msg, {MsgsAcc, SizeAcc} = Acc) ->
-                {Msg1, PayloadSize} = format_msg(MsgType, Msg, PayloadFmt),
-                case SizeAcc + PayloadSize of
-                    SizeAcc1 when SizeAcc1 =< MaxBytes ->
-                        {[Msg1 | MsgsAcc], SizeAcc1};
-                    _ ->
-                        throw(Acc)
-                end
-            end,
-            {[FirstMsg1], PayloadSize0},
-            Msgs
-        ),
-    lists:reverse(Msgs1);
-format_msgs(_MsgType, [], _PayloadFmt, _MaxBytes) ->
-    [].
+    {FirstMsg1, PayloadSize} = format_msg(MsgType, FirstMsg, PayloadFmt),
+    format_msgs2(MsgType, Msgs, PayloadFmt, MaxBytes - PayloadSize, [FirstMsg1]).
+
+format_msgs2(_MsgType, [], _PayloadFmt, _MaxBytes, Acc) ->
+    lists:reverse(Acc);
+format_msgs2(_MsgType, _Msgs, _PayloadFmt, MaxBytes, Acc) when MaxBytes =< 0 ->
+    lists:reverse(Acc);
+format_msgs2(MsgType, [Msg | Msgs], PayloadFmt, MaxBytes, Acc) ->
+    {Msg1, PayloadSize} = format_msg(MsgType, Msg, PayloadFmt),
+    format_msgs2(MsgType, Msgs, PayloadFmt, MaxBytes - PayloadSize, [Msg1 | Acc]).
 
 format_msg(
     MsgType,
@@ -1979,9 +1973,9 @@ take_maps_from_inner(Key, Value, Current) ->
 
 result_format_time_fun(Key, NClientInfoMap) ->
     case NClientInfoMap of
-        #{Key := TimeStamp} ->
+        #{Key := Timestamp} ->
             NClientInfoMap#{
-                Key => emqx_utils_calendar:epoch_to_rfc3339(TimeStamp)
+                Key => emqx_utils_calendar:epoch_to_rfc3339(Timestamp)
             };
         #{} ->
             NClientInfoMap
