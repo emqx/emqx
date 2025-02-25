@@ -182,52 +182,36 @@ namespace() -> "public".
 
 -spec fields(hocon_schema:name()) -> hocon_schema:fields().
 fields(page) ->
-    Desc = <<"Page number of the results to fetch.">>,
+    Desc = ?DESC("page"),
     Meta = #{in => query, desc => Desc, default => 1, example => 1},
     [{page, hoconsc:mk(pos_integer(), Meta)}];
 fields(limit) ->
-    Desc = iolist_to_binary([
-        <<"Results per page(max ">>,
-        integer_to_binary(?MAX_ROW_LIMIT),
-        <<")">>
-    ]),
+    Desc = ?DESC("limit"),
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
 fields(cursor) ->
-    Desc = <<"Opaque value representing the current iteration state.">>,
+    Desc = ?DESC("cursor"),
     Meta = #{required => false, in => query, desc => Desc},
     [{cursor, hoconsc:mk(binary(), Meta)}];
 fields(cursor_response) ->
-    Desc = <<"Opaque value representing the current iteration state.">>,
+    Desc = ?DESC("cursor_response"),
     Meta = #{desc => Desc, required => false},
     [{cursor, hoconsc:mk(binary(), Meta)}];
 fields(count) ->
-    Desc = <<
-        "Total number of records matching the query.<br/>"
-        "Note: this field is present only if the query can be optimized and does "
-        "not require a full table scan."
-    >>,
-    Meta = #{desc => Desc, required => false},
+    Meta = #{desc => ?DESC("count"), required => false},
     [{count, hoconsc:mk(non_neg_integer(), Meta)}];
 fields(hasnext) ->
-    Desc = <<
-        "Flag indicating whether there are more results available on next pages."
-    >>,
+    Desc = ?DESC("hasnext"),
     Meta = #{desc => Desc, required => true},
     [{hasnext, hoconsc:mk(boolean(), Meta)}];
 fields(position) ->
-    Desc = <<
-        "An opaque token that can then be in subsequent requests to get "
-        " the next chunk of results: \"?position={prev_response.meta.position}\"<br/>"
-        "It is used instead of \"page\" parameter to traverse highly volatile data.<br/>"
-        "Can be omitted or set to \"none\" to get the first chunk of data."
-    >>,
+    Desc = ?DESC("position"),
     Meta = #{
         in => query, desc => Desc, required => false, example => <<"none">>
     },
     [{position, hoconsc:mk(hoconsc:union([none, end_of_data, binary()]), Meta)}];
 fields(start) ->
-    Desc = <<"The position of the current first element of the data collection.">>,
+    Desc = ?DESC("start"),
     Meta = #{
         desc => Desc, required => true, example => <<"none">>
     },
