@@ -168,7 +168,7 @@ schema("/ds/storages/:ds/replicas") ->
                         200 => mk(array(binary()), #{
                             desc => <<"List sites that contain replicas of the durable storage">>
                         }),
-                        400 => not_found(<<"Durable storage">>),
+                        400 => bad_request(),
                         404 => disabled_schema()
                     }
             },
@@ -318,6 +318,14 @@ fields(db_site) ->
             mk(
                 enum([up, down, lost]),
                 #{desc => <<"Status of the replica">>}
+            )},
+        {transition,
+            mk(
+                enum([joining, leaving]),
+                #{
+                    desc => <<"Shard transition">>,
+                    example => joining
+                }
             )}
     ].
 
@@ -553,24 +561,40 @@ db_config(DB) ->
 list_shards(DB) ->
     [
         begin
-            #{replica_set := RS} = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ShardInfo = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ReplicaSet = maps:get(replica_set, ShardInfo),
+            Transitions = maps:get(transitions, ShardInfo, []),
             Replicas = maps:fold(
                 fun(Site, #{status := Status}, Acc) ->
-                    [
-                        #{
-                            site => Site,
-                            status => Status
-                        }
-                        | Acc
-                    ]
+                    Elem = #{
+                        site => Site,
+                        status => Status
+                    },
+                    [Elem | Acc]
                 end,
                 [],
-                RS
+                maps:iterator(ReplicaSet, reversed)
             ),
-            #{
+            RShard = #{
                 id => Shard,
                 replicas => Replicas
-            }
+            },
+            case Transitions of
+                [] ->
+                    RShard;
+                [_ | _] ->
+                    RTransitions = [
+                        #{
+                            site => Site,
+                            transition => meta_to_transition(T)
+                        }
+                     || Transition <- Transitions,
+                        {Site, T} <- maps:to_list(Transition)
+                    ],
+                    RShard#{
+                        transitions => RTransitions
+                    }
+            end
         end
      || Shard <- emqx_ds_replication_layer_meta:shards(DB)
     ].
