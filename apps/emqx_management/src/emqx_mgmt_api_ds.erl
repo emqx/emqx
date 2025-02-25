@@ -469,12 +469,7 @@ shards_of_site(Site) ->
                         id => Shard,
                         status => maps:get(status, Info)
                     },
-                    case TransitionSet of
-                        #{Site := T} ->
-                            [S#{transition => meta_to_transition(T)}];
-                        #{} ->
-                            [S]
-                    end;
+                    [annotate_transition(Site, TransitionSet, S)];
                 _ ->
                     case TransitionSet of
                         #{Site := add} ->
@@ -483,12 +478,7 @@ shards_of_site(Site) ->
                                 id => Shard,
                                 transition => joining
                             },
-                            case TargetSet of
-                                #{Site := Info} ->
-                                    [S#{status => maps:get(status, Info)}];
-                                #{} ->
-                                    [S]
-                            end;
+                            [annotate_target_status(Site, TargetSet, S)];
                         _ ->
                             []
                     end
@@ -507,6 +497,22 @@ get_transition_set(ShardInfo) ->
         #{},
         maps:get(transitions, ShardInfo, [])
     ).
+
+annotate_transition(Site, TransitionSet, Acc) ->
+    case TransitionSet of
+        #{Site := T} ->
+            Acc#{transition => meta_to_transition(T)};
+        #{} ->
+            Acc
+    end.
+
+annotate_target_status(Site, TargetSet, Acc) ->
+    case TargetSet of
+        #{Site := Info} ->
+            Acc#{status => maps:get(status, Info)};
+        #{} ->
+            Acc
+    end.
 
 %%================================================================================
 %% Internal functions
