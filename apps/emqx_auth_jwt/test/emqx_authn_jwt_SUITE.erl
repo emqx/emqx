@@ -502,6 +502,65 @@ t_jwks_custom_headers(_Config) ->
     ),
     ok.
 
+%% @doc verify that the authenticator state is actually updated when we update its config
+t_jwks_config_update(_Config) ->
+    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
+
+    PrivateKey = test_rsa_key(private),
+    Payload0 = #{<<"username">> => <<"myuser">>},
+    JWS0 = generate_jws('public-key', Payload0, PrivateKey),
+    Credential = #{
+        username => <<"myuser">>,
+        password => JWS0
+    },
+    Config = #{
+        mechanism => jwt,
+        %% That is wrong
+        from => username,
+        acl_claim_name => <<"acl">>,
+        ssl => client_ssl_opts(),
+        verify_claims => [],
+        disconnect_after_expire => false,
+        use_jwks => true,
+        endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
+        headers => #{<<"Accept">> => <<"application/json">>},
+        refresh_interval => 1000,
+        pool_size => 1
+    },
+
+    %% Wait till the jwks are ready
+    ok = snabbkaffe:start_trace(),
+    {{ok, State0}, _} = ?wait_async_action(
+        emqx_authn_jwt:create(?AUTHN_ID, Config),
+        #{?snk_kind := jwks_endpoint_response},
+        10000
+    ),
+    ok = snabbkaffe:stop(),
+
+    %% The authentication should fail, because the `from` is set to `username` in settings
+    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State0)),
+
+    %% Fix from field in the config
+    ok = snabbkaffe:start_trace(),
+    {{ok, State1}, _} = ?wait_async_action(
+        emqx_authn_jwt:update(
+            Config#{
+                from => password,
+                endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH
+            },
+            State0
+        ),
+        #{?snk_kind := jwks_endpoint_response},
+        10000
+    ),
+    ok = snabbkaffe:stop(),
+
+    %% The authentication should be correctly updated
+    %% and authenticate the request
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State1)),
+    ok = emqx_authn_http_test_server:stop().
+
 t_verify_claims(_) ->
     Secret = <<"abcdef">>,
     Config0 = #{
