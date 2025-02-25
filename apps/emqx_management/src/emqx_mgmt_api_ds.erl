@@ -439,7 +439,7 @@ shards_of_this_site() ->
         error:badarg -> []
     end.
 
--pec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [ShardInfo :: #{}].
+-spec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [ShardInfo :: #{}].
 shards_of_site(Site) ->
     lists:flatmap(
         fun({DB, Shard}) ->
@@ -466,9 +466,6 @@ shards_of_site(Site) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-%% site_info(Site) ->
-%%     #{}.
 
 disabled_schema() ->
     emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Durable storage is disabled">>).
@@ -566,10 +563,10 @@ meta_error_to_binary({lost_sites, LostSites}) ->
     iolist_to_binary(["Replication still targets lost sites: " | lists:join(", ", LostSites)]);
 meta_error_to_binary({too_few_sites, _Sites}) ->
     <<"Replica sets would become too small">>;
-meta_error_to_binary(site_online) ->
-    <<"Site is online">>;
-meta_error_to_binary(site_temporarily_offline) ->
-    <<"Site is considered temporarily offline">>;
+meta_error_to_binary(site_up) ->
+    <<"Site is up and running">>;
+meta_error_to_binary(site_temporarily_down) ->
+    <<"Site is considered temporarily down">>;
 meta_error_to_binary(Err) ->
     emqx_utils:format("Error: ~p", [Err]).
 

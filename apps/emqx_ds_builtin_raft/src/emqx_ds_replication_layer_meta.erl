@@ -272,11 +272,12 @@ node(Site) ->
             undefined
     end.
 
--spec node_status(node()) -> running | stopped | lost.
+-spec node_status(node()) -> up | down | lost.
 node_status(Node) ->
     case mria:cluster_status(Node) of
-        false -> lost;
-        Status -> Status
+        running -> up;
+        stopped -> down;
+        false -> lost
     end.
 
 -spec forget_site(site()) -> ok | {error, _Reason}.
@@ -289,12 +290,12 @@ forget_site(Site) ->
     else
         [] ->
             {error, nonexistent_site};
-        running ->
-            {error, site_online};
-        stopped ->
+        up ->
+            {error, site_up};
+        down ->
             %% Node is stopped, reject the request.
             %% If it's gone, it should leave the cluster first.
-            {error, site_temporarily_offline}
+            {error, site_temporarily_down}
     end.
 
 %%===============================================================================
@@ -404,15 +405,15 @@ format_transition({del, Site}, Nodes) ->
 
 format_node_status(Status) ->
     case Status of
-        running -> "    up";
-        stopped -> "(x) down";
+        up -> "    up";
+        down -> "(x) down";
         lost -> "(!) LOST"
     end.
 
 format_node_marker(Status) ->
     case Status of
-        running -> "";
-        stopped -> " (x)";
+        up -> "";
+        down -> " (x)";
         lost -> " (!)"
     end.
 
