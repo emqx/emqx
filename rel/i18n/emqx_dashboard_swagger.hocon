@@ -22,9 +22,9 @@ hasnext.desc: "Flag indicating whether there are more results available on next 
 hasnext.label: "Has Next"
 
 position.desc: """~
-    An opaque token that can then be in subsequent requests to get the next chunk of results: "?position={prev_response.meta.position}"
-    It is used instead of "page" parameter to traverse highly volatile data.
-    Can be omitted or set to "none" to get the first chunk of data.
+    An opaque token that can then be in subsequent requests to get the next chunk of results: `?position={prev_response.meta.position}`.
+    It is used instead of `page` parameter to traverse highly volatile data.
+    Can be omitted or set to `none` to get the first chunk of data.
 ~"""
 position.label: "Position"
 
