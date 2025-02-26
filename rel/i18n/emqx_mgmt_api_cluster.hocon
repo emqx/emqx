@@ -86,12 +86,12 @@ node_invitation_failed_reason.label:
 """Failure Reason"""
 
 node_invitation_succeed_finished_at.desc:
-"""The time of the async invitation result is received"""
+"""The time async invitation result is received."""
 node_invitation_succeed_finished_at.label:
 """Finished At"""
 
 node_invitation_in_progress_started_at.desc:
-"""The time of the async invitation is started"""
+"""The time invitation is started."""
 node_invitation_in_progress_started_at.label:
 """Started At"""
 

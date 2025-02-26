@@ -178,11 +178,6 @@ username.desc:
 username.label:
 """Username"""
 
-ip_address.desc:
-"""IP address"""
-ip_address.label:
-"""IP Address"""
-
 conn_state.desc:
 """The current connection status of the client, the possible values are connected,idle,disconnected"""
 conn_state.label:
@@ -234,12 +229,12 @@ clientid.label:
 """Client ID"""
 
 awaiting_rel_cnt.desc:
-"""Number of awaiting PUBREC packet"""
+"""Number of awaiting PUBREC packets."""
 awaiting_rel_cnt.label:
 """Awaiting PUBREC Count"""
 
 awaiting_rel_max.desc:
-"""Maximum allowed number of awaiting PUBREC packet"""
+"""Maximum allowed number of awaiting PUBREC packets."""
 awaiting_rel_max.label:
 """Awaiting PUBREC Max"""
 
@@ -275,7 +270,7 @@ expiry_interval.label:
 """Expiry Interval"""
 
 heap_size.desc:
-"""Eralng process heap size with the unit of byte"""
+"""Erlang process heap size with the unit of byte"""
 heap_size.label:
 """Heap Size"""
 
@@ -310,7 +305,7 @@ keepalive.label:
 """Keepalive"""
 
 mailbox_len.desc:
-"""Eralng process mailbox size"""
+"""Erlang process mailbox size"""
 mailbox_len.label:
 """Mailbox Length"""
 
@@ -390,7 +385,7 @@ recv_pkt.label:
 """Received Packets"""
 
 reductions.desc:
-"""Erlang reduction"""
+"""Erlang reductions"""
 reductions.label:
 """Reductions"""
 
@@ -578,50 +573,5 @@ max_payload_bytes.desc:
 """Client's inflight/mqueue messages payload limit. The total payload size of all messages in the response will not exceed this value. Messages beyond the limit will be silently omitted in the response. The only exception to this rule is when the first message payload is already larger than the limit, in this case, the first message will be returned in the response."""
 max_payload_bytes.label:
 """Max Payload Bytes"""
-
-proto_ver.desc:
-"""Protocol version"""
-proto_ver.label:
-"""Protocol version"""
-
-like_clientid.desc:
-"""Fuzzy search `clientid` as substring"""
-like_clientid.label:
-"""Fuzzy search `clientid`"""
-
-like_username.desc:
-"""Fuzzy search `username` as substring"""
-like_username.label:
-"""Fuzzy search `username`"""
-
-gte_created_at.desc:
-"""Include sessions created after this time (UNIX Epoch in seconds precision)"""
-gte_created_at.label:
-"""Include sessions created after this time"""
-
-connected.desc:
-"""Indicate whether the client is connected"""
-connected.label:
-"""Connected"""
-
-connected_at.desc:
-"""Client connection time, rfc3339 or timestamp(millisecond)"""
-connected_at.label:
-"""Client connection time"""
-
-created_at.desc:
-"""Client session creation time, rfc3339 or timestamp(millisecond)"""
-created_at.label:
-"""Client session creation time"""
-
-disconnected_at.desc:
-"""Client disconnection time, rfc3339 or timestamp(millisecond), it's only valid and returned when connected is false."""
-disconnected_at.label:
-"""Client disconnection time"""
-
-expiry_interval.desc:
-"""Client session expiry interval"""
-expiry_interval.label:
-"""Client session expiry interval"""
 
 }
