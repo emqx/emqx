@@ -472,14 +472,16 @@ handle_info(
     State = #state{pmon = PMon}
 ) ->
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
-%% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
-%% it `unsubscribed` the last topic.
-%% The trick is we don't demonitor the subscriber here, and (after a long time) it will eventually
-%% be disconnected.
-% handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{pmon = PMon}) ->
-%     #?SHARED_SUBSCRIPTION{subpid = SubPid} = OldRecord,
-%     {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
-
+handle_info({mnesia_table_event, {delete_object, _OldRecord, _}}, State = #state{pmon = _PMon}) ->
+    %% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
+    %% it `unsubscribed` the last topic.
+    %% The trick is we don't demonitor the subscriber here, and (after a long time) it will eventually
+    %% be disconnected.
+    %% #?SHARED_SUBSCRIPTION{subpid = SubPid} = OldRecord,
+    %% {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
+    %%
+    %% So we only need to update stats here.
+    {noreply, update_stats(State)};
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{pmon = PMon}) ->
