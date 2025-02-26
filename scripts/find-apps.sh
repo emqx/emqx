@@ -82,43 +82,39 @@ matrix() {
         fi
         case "${app}" in
             apps/emqx)
-                entries+=("$(format_app_entry "$app" 8 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 8 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 8 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_bridge)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_connector)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_dashboard)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_prometheus)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_rule_engine)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_management)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_auth_http)
-                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/*)
-                if [[ -f "${app}/BSL.txt" ]]; then
-                    profile='emqx-enterprise'
-                else
-                    profile='emqx'
-                fi
+                profile='emqx-enterprise'
                 entries+=("$(format_app_entry "$app" 1 "$profile" "$runner")")
                 ;;
             *)
