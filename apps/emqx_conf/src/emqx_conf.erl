@@ -510,7 +510,16 @@ make_desc_resolver(Lang) ->
         ({desc, Namespace, Id}) ->
             emqx_dashboard_desc_cache:lookup(Lang, Namespace, Id, desc);
         (Desc) ->
+            maybe_warn_missing_desc(Desc),
             unicode:characters_to_binary(Desc)
+    end.
+
+maybe_warn_missing_desc(Desc) ->
+    case os:getenv("WARN_MISSING_DESC") of
+        "1" ->
+            io:format(user, "Missing-cfg-translation: ~s~n", [Desc]);
+        _ ->
+            ok
     end.
 
 join_format(Snippets) ->

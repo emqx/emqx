@@ -193,8 +193,8 @@ schema("/authentication") ->
                     authenticator_type(config),
                     authenticator_examples()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                409 => error_codes([?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS))
             }
         }
     };
@@ -210,7 +210,7 @@ schema("/authentication/:id") ->
                     authenticator_type(config),
                     authenticator_examples()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         put => #{
@@ -223,9 +223,9 @@ schema("/authentication/:id") ->
             ),
             responses => #{
                 204 => <<"Authenticator updated">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND)),
+                409 => error_codes([?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS))
             }
         },
         delete => #{
@@ -249,8 +249,8 @@ schema("/authentication/:id/status") ->
                     ref(emqx_authn_schema, "metrics_status_fields"),
                     status_metrics_example()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND)),
+                500 => error_codes([?INTERNAL_ERROR], ?DESC(?INTERNAL_ERROR))
             }
         }
     };
@@ -283,8 +283,8 @@ schema("/listeners/:listener_id/authentication") ->
                     authenticator_type(config),
                     authenticator_examples()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                409 => error_codes([?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS))
             }
         }
     };
@@ -301,7 +301,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
                     authenticator_type(config),
                     authenticator_examples()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         put => #{
@@ -315,9 +315,9 @@ schema("/listeners/:listener_id/authentication/:id") ->
             ),
             responses => #{
                 204 => <<"Authenticator updated">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
-                409 => error_codes([?ALREADY_EXISTS], <<"ALREADY_EXISTS">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND)),
+                409 => error_codes([?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS))
             }
         },
         delete => #{
@@ -327,7 +327,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 204 => <<"Authenticator deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -344,7 +344,8 @@ schema("/listeners/:listener_id/authentication/:id/status") ->
                     ref(emqx_authn_schema, "metrics_status_fields"),
                     status_metrics_example()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -357,8 +358,8 @@ schema("/authentication/:id/position/:position") ->
             parameters => [param_auth_id(), param_position()],
             responses => #{
                 204 => <<"Authenticator moved">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -372,8 +373,8 @@ schema("/listeners/:listener_id/authentication/:id/position/:position") ->
             parameters => [param_listener_id(), param_auth_id(), param_position()],
             responses => #{
                 204 => <<"Authenticator moved">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -393,8 +394,8 @@ schema("/authentication/:id/users") ->
                     ref(response_user),
                     response_user_examples()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         get => #{
@@ -422,7 +423,7 @@ schema("/authentication/:id/users") ->
                     ref(response_users),
                     response_users_example()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -443,8 +444,8 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                     ref(response_user),
                     response_user_examples()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         get => #{
@@ -468,7 +469,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                     ref(response_users),
                     response_users_example()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -484,7 +485,7 @@ schema("/authentication/:id/users/:user_id") ->
                     ref(response_user),
                     response_user_examples()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         put => #{
@@ -500,8 +501,8 @@ schema("/authentication/:id/users/:user_id") ->
                     ref(response_user),
                     response_user_examples()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         delete => #{
@@ -510,7 +511,7 @@ schema("/authentication/:id/users/:user_id") ->
             parameters => [param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -527,7 +528,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                     ref(response_user),
                     response_user_examples()
                 ),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         put => #{
@@ -544,8 +545,8 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
                     ref(response_user),
                     response_user_examples()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         },
         delete => #{
@@ -555,7 +556,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
                 204 => <<"User deleted">>,
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
     };
@@ -571,7 +572,7 @@ schema("/authentication/order") ->
             ),
             responses => #{
                 204 => <<"Authenticators order updated">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST))
             }
         }
     };

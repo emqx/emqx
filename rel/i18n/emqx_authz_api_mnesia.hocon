@@ -132,4 +132,29 @@ users_username_post.desc:
 users_username_post.label:
 """Add rule for 'username'"""
 
+ALREADY_EXISTS.desc:
+"""Authorization already exists."""
+ALREADY_EXISTS.label:
+"""Already exists"""
+
+bad_request_username.desc:
+"""Bad username or bad rule format."""
+bad_request_username.label:
+"""Bad request"""
+
+bad_request_clientid.desc:
+"""Bad clientid or bad rule format."""
+bad_request_clientid.label:
+"""Bad request"""
+
+NOT_FOUND.desc:
+"""Not Found"""
+NOT_FOUND.label:
+"""Not Found"""
+
+bad_request.desc:
+"""Bad rule schema."""
+bad_request.label:
+"""Bad request"""
+
 }

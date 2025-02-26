@@ -63,12 +63,12 @@ schema("/error_codes/:code") ->
         'operationId' => error_code,
         get => #{
             security => [],
-            description => ?DESC(error_codes),
+            description => ?DESC("error_codes"),
             tags => [<<"Error Codes">>],
             parameters => [
                 {code,
                     hoconsc:mk(hoconsc:enum(emqx_dashboard_error_code:all()), #{
-                        desc => <<"API Error Codes">>,
+                        desc => ?DESC("error_codes"),
                         in => path,
                         example => hd(emqx_dashboard_error_code:all())
                     })}

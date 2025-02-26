@@ -168,4 +168,16 @@ mfa_mechanism.label:
 mfa_mechanism.desc:
 """Multifactor authentication mechanism."""
 
+http_listener_settings.desc:
+"""Settings for the HTTP listener."""
+
+http_listener_settings.label:
+"""HTTP Listener Settings"""
+
+https_listener_settings.desc:
+"""Settings for the HTTPS listener."""
+
+https_listener_settings.label:
+"""HTTPS Listener Settings"""
+
 }

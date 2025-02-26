@@ -30,4 +30,69 @@ get_invitation_status.desc:
 get_invitation_status.label:
 """Get invitation statuses"""
 
+cluster_name.desc:
+"""Cluster name. Statically set in the configuration `cluster.name`."""
+cluster_name.label:
+"""Cluster Name"""
+
+node_names.desc:
+"""Nodes in the cluster"""
+node_names.label:
+"""Node names"""
+
+self_node_name.desc:
+"""Self node name. The node which served the request."""
+self_node_name.label:
+"""Self node name"""
+
+cluster_topology.desc:
+"""Cluster topology: connections between core and replicant nodes."""
+cluster_topology.label:
+"""Cluster Topology"""
+
+invitation_progress.desc:
+"""Get invitation progress created by async operation."""
+invitation_progress.label:
+"""Invitation Progress"""
+
+replicated_log_streams.desc:
+"""The number of RLOG (replicated log) streams."""
+replicated_log_streams.label:
+"""Replicated Log Streams"""
+
+timeout.desc:
+"""Timeout in milliseconds"""
+timeout.label:
+"""Timeout"""
+
+node_invitation_succeed.desc:
+"""Node invitation succeeded."""
+node_invitation_succeed.label:
+"""Node Invitation Succeeded"""
+
+node_invitation_in_progress.desc:
+"""Nodes that are processing invitations."""
+node_invitation_in_progress.label:
+"""Node Invitation In Progress"""
+
+node_invitation_failed.desc:
+"""A list of information about nodes that failed to be invited"""
+node_invitation_failed.label:
+"""Node Invitation Failed"""
+
+node_invitation_failed_reason.desc:
+"""Failure reason"""
+node_invitation_failed_reason.label:
+"""Failure Reason"""
+
+node_invitation_succeed_finished_at.desc:
+"""The time async invitation result is received."""
+node_invitation_succeed_finished_at.label:
+"""Finished At"""
+
+node_invitation_in_progress_started_at.desc:
+"""The time invitation is started."""
+node_invitation_in_progress_started_at.label:
+"""Started At"""
+
 }

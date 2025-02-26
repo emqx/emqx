@@ -36,7 +36,7 @@ fields(sso) ->
     ).
 
 desc(sso) ->
-    "Dashboard Single Sign-On";
+    ?DESC("sso_struct");
 desc(_) ->
     undefined.
 

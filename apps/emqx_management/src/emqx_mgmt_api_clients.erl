@@ -178,7 +178,7 @@ schema("/clients_v2") ->
                     emqx_dashboard_swagger:schema_with_example(map(), #{}),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                        ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     )
             }
         }
@@ -203,7 +203,7 @@ schema("/clients") ->
                     }),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                        ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     )
             }
         }
@@ -237,7 +237,7 @@ schema("/clients/:clientid") ->
                     client_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         },
@@ -250,7 +250,7 @@ schema("/clients/:clientid") ->
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -265,7 +265,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         },
@@ -276,7 +276,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 204 => <<"Clean client authz cache successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -293,7 +293,7 @@ schema("/clients/:clientid/subscriptions") ->
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -309,7 +309,7 @@ schema("/clients/:clientid/subscribe") ->
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -326,7 +326,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -343,7 +343,7 @@ schema("/clients/:clientid/unsubscribe") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -360,7 +360,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -381,7 +381,7 @@ schema("/clients/:clientid/keepalive") ->
                     client_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -406,17 +406,16 @@ schema("/sessions_count") ->
                         in => query,
                         required => false,
                         default => 0,
-                        desc =>
-                            <<"Include sessions expired after this time (UNIX Epoch in seconds precision)">>,
+                        desc => ?DESC("since"),
                         example => 1705391625
                     })}
             ],
             responses => #{
                 200 => hoconsc:mk(binary(), #{
-                    desc => <<"Number of sessions">>
+                    desc => ?DESC("sessions_count")
                 }),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Node {name} cannot handle this request.">>
+                    ['BAD_REQUEST'], ?DESC("bad_request")
                 )
             }
         }
@@ -434,7 +433,7 @@ fields(list_clients_v1_inputs) ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Node name">>,
+                desc => ?DESC("node_name"),
                 example => <<"emqx@127.0.0.1">>
             })}
         | fields(common_list_clients_input)
@@ -446,92 +445,74 @@ fields(common_list_clients_input) ->
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => <<
-                    "User name, multiple values can be specified by"
-                    " repeating the parameter: username=u1&username=u2"
-                >>
+                desc => ?DESC("username")
             })},
         {ip_address,
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Client's IP address">>,
+                desc => ?DESC("ip_address"),
                 example => <<"127.0.0.1">>
             })},
         {conn_state,
             hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
                 in => query,
                 required => false,
-                desc =>
-                    <<"The current connection status of the client, ",
-                        "the possible values are connected,idle,disconnected">>
+                desc => ?DESC("conn_state")
             })},
         {clean_start,
             hoconsc:mk(boolean(), #{
                 in => query,
                 required => false,
-                description => <<"Whether the client uses a new session">>
+                desc => ?DESC("clean_start")
             })},
         {proto_ver,
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Client protocol version">>
+                desc => ?DESC("proto_ver")
             })},
         {like_clientid,
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Fuzzy search `clientid` as substring">>
+                desc => ?DESC("like_clientid")
             })},
         {like_username,
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Fuzzy search `username` as substring">>
+                desc => ?DESC("like_username")
             })},
         {gte_created_at,
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 in => query,
                 required => false,
-                desc =>
-                    <<"Search client session creation time by greater",
-                        " than or equal method, rfc3339 or timestamp(millisecond)">>
+                desc => ?DESC("gte_created_at")
             })},
         {lte_created_at,
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 in => query,
                 required => false,
-                desc =>
-                    <<"Search client session creation time by less",
-                        " than or equal method, rfc3339 or timestamp(millisecond)">>
+                desc => ?DESC("lte_created_at")
             })},
         {gte_connected_at,
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 in => query,
                 required => false,
-                desc => <<
-                    "Search client connection creation time by greater"
-                    " than or equal method, rfc3339 or timestamp(epoch millisecond)"
-                >>
+                desc => ?DESC("gte_connected_at")
             })},
         {lte_connected_at,
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 in => query,
                 required => false,
-                desc => <<
-                    "Search client connection creation time by less"
-                    " than or equal method, rfc3339 or timestamp(millisecond)"
-                >>
+                desc => ?DESC("lte_connected_at")
             })},
         {clientid,
             hoconsc:mk(hoconsc:array(binary()), #{
                 in => query,
                 required => false,
-                desc => <<
-                    "Client ID, multiple values can be specified by"
-                    " repeating the parameter: clientid=c1&clientid=c2"
-                >>
+                desc => ?DESC("clientid")
             })},
         ?R_REF(requested_client_fields)
     ];
@@ -549,267 +530,207 @@ fields(client) ->
     [
         {awaiting_rel_cnt,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"v4 api name [awaiting_rel] Number of awaiting PUBREC packet">>
+                desc => ?DESC("awaiting_rel_cnt")
             })},
         {awaiting_rel_max,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<
-                        "v4 api name [max_awaiting_rel]. "
-                        "Maximum allowed number of awaiting PUBREC packet"
-                    >>
+                desc => ?DESC("awaiting_rel_max")
             })},
         {clean_start,
             hoconsc:mk(boolean(), #{
-                desc =>
-                    <<"Indicate whether the client is using a brand new session">>
+                desc => ?DESC("clean_start")
             })},
-        {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
-        {connected, hoconsc:mk(boolean(), #{desc => <<"Whether the client is connected">>})},
+        {clientid, hoconsc:mk(binary(), #{desc => ?DESC("clientid")})},
+        {connected, hoconsc:mk(boolean(), #{desc => ?DESC("connected")})},
         {connected_at,
             hoconsc:mk(
                 emqx_utils_calendar:epoch_millisecond(),
-                #{desc => <<"Client connection time, rfc3339 or timestamp(millisecond)">>}
+                #{desc => ?DESC("connected_at")}
             )},
         {created_at,
             hoconsc:mk(
                 emqx_utils_calendar:epoch_millisecond(),
-                #{desc => <<"Session creation time, rfc3339 or timestamp(millisecond)">>}
+                #{desc => ?DESC("created_at")}
             )},
         {disconnected_at,
             hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
-                desc =>
-                    <<
-                        "Client offline time."
-                        " It's Only valid and returned when connected is false, rfc3339 or timestamp(millisecond)"
-                    >>
+                desc => ?DESC("disconnected_at")
             })},
         {expiry_interval,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Session expiration interval, with the unit of second">>
+                desc => ?DESC("expiry_interval")
             })},
         {heap_size,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Process heap size with the unit of byte">>
+                desc => ?DESC("heap_size")
             })},
-        {inflight_cnt, hoconsc:mk(integer(), #{desc => <<"Current length of inflight">>})},
+        {inflight_cnt, hoconsc:mk(integer(), #{desc => ?DESC("inflight_cnt")})},
         {inflight_max,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"v4 api name [max_inflight]. Maximum length of inflight">>
+                desc => ?DESC("inflight_max")
             })},
-        {ip_address, hoconsc:mk(binary(), #{desc => <<"Client's IP address">>})},
+        {ip_address, hoconsc:mk(binary(), #{desc => ?DESC("ip_address")})},
         {is_bridge,
             hoconsc:mk(boolean(), #{
-                desc =>
-                    <<"Indicates whether the client is connected via bridge">>
+                desc => ?DESC("is_bridge")
             })},
         {is_expired,
             hoconsc:mk(boolean(), #{
-                desc =>
-                    <<"Indicates whether the client session is expired">>
+                desc => ?DESC("is_expired")
             })},
         {keepalive,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"keepalive time, with the unit of second">>
+                desc => ?DESC("keepalive")
             })},
-        {mailbox_len, hoconsc:mk(integer(), #{desc => <<"Process mailbox size">>})},
+        {mailbox_len, hoconsc:mk(integer(), #{desc => ?DESC("mailbox_len")})},
         {mqueue_dropped,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of messages dropped by the message queue due to exceeding the length">>
+                desc => ?DESC("mqueue_dropped")
             })},
-        {mqueue_len, hoconsc:mk(integer(), #{desc => <<"Current length of message queue">>})},
+        {mqueue_len, hoconsc:mk(integer(), #{desc => ?DESC("mqueue_len")})},
         {mqueue_max,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"v4 api name [max_mqueue]. Maximum length of message queue">>
+                desc => ?DESC("mqueue_max")
             })},
         {node,
             hoconsc:mk(binary(), #{
-                desc =>
-                    <<"Name of the node to which the client is connected">>
+                desc => ?DESC("node_name")
             })},
-        {port, hoconsc:mk(integer(), #{desc => <<"Client's port">>})},
-        {proto_name, hoconsc:mk(binary(), #{desc => <<"Client protocol name">>})},
-        {proto_ver, hoconsc:mk(integer(), #{desc => <<"Protocol version used by the client">>})},
-        {recv_cnt, hoconsc:mk(integer(), #{desc => <<"Number of TCP packets received">>})},
-        {recv_msg, hoconsc:mk(integer(), #{desc => <<"Number of PUBLISH packets received">>})},
+        {port, hoconsc:mk(integer(), #{desc => ?DESC("client_port")})},
+        {proto_name, hoconsc:mk(binary(), #{desc => ?DESC("proto_name")})},
+        {proto_ver, hoconsc:mk(integer(), #{desc => ?DESC("proto_ver")})},
+        {recv_cnt, hoconsc:mk(integer(), #{desc => ?DESC("recv_cnt")})},
+        {recv_msg, hoconsc:mk(integer(), #{desc => ?DESC("recv_msg")})},
         {'recv_msg.dropped',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of dropped PUBLISH packets">>
+                desc => ?DESC("dropped")
             })},
         {'recv_msg.dropped.await_pubrel_timeout',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of dropped PUBLISH packets due to expired">>
+                desc => ?DESC("await_pubrel_timeout")
             })},
         {'recv_msg.qos0',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of PUBLISH QoS0 packets received">>
+                desc => ?DESC("recv_msg_qos0")
             })},
         {'recv_msg.qos1',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of PUBLISH QoS1 packets received">>
+                desc => ?DESC("recv_msg_qos1")
             })},
         {'recv_msg.qos2',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of PUBLISH QoS2 packets received">>
+                desc => ?DESC("recv_msg_qos2")
             })},
-        {recv_oct, hoconsc:mk(integer(), #{desc => <<"Number of bytes received">>})},
-        {recv_pkt, hoconsc:mk(integer(), #{desc => <<"Number of MQTT packets received">>})},
-        {reductions, hoconsc:mk(integer(), #{desc => <<"Erlang reduction">>})},
-        {send_cnt, hoconsc:mk(integer(), #{desc => <<"Number of TCP packets sent">>})},
-        {send_msg, hoconsc:mk(integer(), #{desc => <<"Number of PUBLISH packets sent">>})},
+        {recv_oct, hoconsc:mk(integer(), #{desc => ?DESC("recv_oct")})},
+        {recv_pkt, hoconsc:mk(integer(), #{desc => ?DESC("recv_pkt")})},
+        {reductions, hoconsc:mk(integer(), #{desc => ?DESC("reductions")})},
+        {send_cnt, hoconsc:mk(integer(), #{desc => ?DESC("send_cnt")})},
+        {send_msg, hoconsc:mk(integer(), #{desc => ?DESC("send_msg")})},
         {'send_msg.dropped',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of dropped PUBLISH packets">>
+                desc => ?DESC("send_msg_dropped")
             })},
         {'send_msg.dropped.expired',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of dropped PUBLISH packets due to expired">>
+                desc => ?DESC("send_msg_dropped_expired")
             })},
         {'send_msg.dropped.queue_full',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of dropped PUBLISH packets due to queue full">>
+                desc => ?DESC("send_msg_dropped_queue_full")
             })},
         {'send_msg.dropped.too_large',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of dropped PUBLISH packets due to packet length too large">>
+                desc => ?DESC("send_msg_dropped_too_large")
             })},
         {'send_msg.qos0',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of PUBLISH QoS0 packets sent">>
+                desc => ?DESC("send_msg_qos0")
             })},
         {'send_msg.qos1',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of PUBLISH QoS1 packets sent">>
+                desc => ?DESC("send_msg_qos1")
             })},
         {'send_msg.qos2',
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of PUBLISH QoS2 packets sent">>
+                desc => ?DESC("send_msg_qos2")
             })},
-        {send_oct, hoconsc:mk(integer(), #{desc => <<"Number of bytes sent">>})},
-        {send_pkt, hoconsc:mk(integer(), #{desc => <<"Number of MQTT packets sent">>})},
+        {send_oct, hoconsc:mk(integer(), #{desc => ?DESC("send_oct")})},
+        {send_pkt, hoconsc:mk(integer(), #{desc => ?DESC("send_pkt")})},
         {subscriptions_cnt,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"Number of subscriptions established by this client.">>
+                desc => ?DESC("subscriptions_cnt")
             })},
         {subscriptions_max,
             hoconsc:mk(integer(), #{
-                desc =>
-                    <<"v4 api name [max_subscriptions]",
-                        " Maximum number of subscriptions allowed by this client">>
+                desc => ?DESC("subscriptions_max")
             })},
-        {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
-        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})},
-        {durable, hoconsc:mk(boolean(), #{desc => <<"Session is durable">>})},
+        {username, hoconsc:mk(binary(), #{desc => ?DESC("username")})},
+        {mountpoint, hoconsc:mk(binary(), #{desc => ?DESC("mountpoint")})},
+        {durable, hoconsc:mk(boolean(), #{desc => ?DESC("durable")})},
         {n_streams,
             hoconsc:mk(non_neg_integer(), #{
-                desc => <<"Number of streams used by the durable session">>
+                desc => ?DESC("n_streams")
             })},
-
         {seqno_q1_comm,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<
-                        "Sequence number of the last PUBACK received from the client "
-                        "(Durable sessions only)"
-                    >>
+                desc => ?DESC("seqno_q1_comm")
             })},
         {seqno_q1_dup,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<
-                        "Sequence number of the last QoS1 message sent to the client, that hasn't been acked "
-                        "(Durable sessions only)"
-                    >>
+                desc => ?DESC("seqno_q1_dup")
             })},
         {seqno_q1_next,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<
-                        "Sequence number of next QoS1 message to be added to the batch "
-                        "(Durable sessions only)"
-                    >>
+                desc => ?DESC("seqno_q1_next")
             })},
-
         {seqno_q2_comm,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<
-                        "Sequence number of the last PUBCOMP received from the client "
-                        "(Durable sessions only)"
-                    >>
+                desc => ?DESC("seqno_q2_comm")
             })},
         {seqno_q2_dup,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<
-                        "Sequence number of last unacked QoS2 PUBLISH message sent to the client "
-                        "(Durable sessions only)"
-                    >>
+                desc => ?DESC("seqno_q2_dup")
             })},
         {seqno_q2_rec,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<"Sequence number of last PUBREC received from the client (Durable sessions only)">>
+                desc => ?DESC("seqno_q2_rec")
             })},
         {seqno_q2_next,
             hoconsc:mk(non_neg_integer(), #{
-                desc =>
-                    <<
-                        "Sequence number of next QoS2 message to be added to the batch "
-                        "(Durable sessions only)"
-                    >>
+                desc => ?DESC("seqno_q2_next")
             })}
     ];
 fields(authz_cache) ->
     [
-        {access, hoconsc:mk(binary(), #{desc => <<"Access type">>, example => <<"publish">>})},
+        {access, hoconsc:mk(binary(), #{desc => ?DESC("authz_cache_access")})},
         {result,
             hoconsc:mk(hoconsc:enum([allow, denny]), #{
-                desc => <<"Allow or deny">>, example => <<"allow">>
+                desc => ?DESC("authz_cache_result"), example => <<"allow">>
             })},
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>, example => <<"testtopic/1">>})},
+        {topic, hoconsc:mk(binary(), #{desc => ?DESC("authz_cache_topic")})},
         {updated_time,
-            hoconsc:mk(integer(), #{desc => <<"Update time">>, example => 1687850712989})}
+            hoconsc:mk(integer(), #{
+                desc => ?DESC("authz_cache_updated_time"), example => 1687850712989
+            })}
     ];
 fields(keepalive) ->
     [
-        {interval,
-            hoconsc:mk(range(0, 65535), #{desc => <<"Keepalive time, with the unit of second">>})}
+        {interval, hoconsc:mk(range(0, 65535), #{desc => ?DESC("keepalive_interval")})}
     ];
 fields(subscribe) ->
     [
         {topic,
             hoconsc:mk(binary(), #{
-                required => true, desc => <<"Topic">>, example => <<"testtopic/#">>
+                required => true, desc => ?DESC("topic"), example => <<"testtopic/#">>
             })},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => <<"QoS">>})},
-        {nl, hoconsc:mk(integer(), #{default => 0, desc => <<"No Local">>})},
-        {rap, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain as Published">>})},
-        {rh, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain Handling">>})}
+        {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => ?DESC("qos")})},
+        {nl, hoconsc:mk(integer(), #{default => 0, desc => ?DESC("nl")})},
+        {rap, hoconsc:mk(integer(), #{default => 0, desc => ?DESC("rap")})},
+        {rh, hoconsc:mk(integer(), #{default => 0, desc => ?DESC("rh")})}
     ];
 fields(unsubscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>, example => <<"testtopic/#">>})}
+        {topic, hoconsc:mk(binary(), #{desc => ?DESC("topic"), example => <<"testtopic/#">>})}
     ];
 fields(mqueue_messages) ->
     [
@@ -854,7 +775,7 @@ fields(requested_client_fields) ->
                     in => query,
                     required => false,
                     default => all,
-                    desc => <<"Comma separated list of client fields to return in the response">>,
+                    desc => ?DESC("requested_client_fields"),
                     converter => fun
                         (all, _Opts) ->
                             all;
@@ -1381,13 +1302,13 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
                     }),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
-                        ['INVALID_PARAMETER'], <<"Invalid parameters">>
+                        ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND', 'CLIENT_SHUTDOWN'], <<"Client ID not found">>
+                    ['CLIENTID_NOT_FOUND', 'CLIENT_SHUTDOWN'], ?DESC("clientid_not_found")
                 ),
                 ?NOT_IMPLEMENTED => emqx_dashboard_swagger:error_codes(
-                    ['NOT_IMPLEMENTED'], <<"API not implemented">>
+                    ['NOT_IMPLEMENTED'], ?DESC("not_implemented")
                 )
             }
         }
@@ -1400,23 +1321,13 @@ client_msgs_params() ->
             hoconsc:mk(hoconsc:enum([none, base64, plain]), #{
                 in => query,
                 default => base64,
-                desc => <<
-                    "Client's inflight/mqueue messages payload encoding."
-                    " If set to `none`, no payload is returned in the response."
-                >>
+                desc => ?DESC("payload_encoding")
             })},
         {max_payload_bytes,
             hoconsc:mk(emqx_schema:bytesize(), #{
                 in => query,
                 default => <<"1MB">>,
-                desc => <<
-                    "Client's inflight/mqueue messages payload limit."
-                    " The total payload size of all messages in the response will not exceed this value."
-                    " Messages beyond the limit will be silently omitted in the response."
-                    " The only exception to this rule is when the first message payload"
-                    " is already larger than the limit."
-                    " In this case, the first message will be returned in the response."
-                >>,
+                desc => ?DESC("max_payload_bytes"),
                 validator => fun max_bytes_validator/1
             })},
         hoconsc:ref(emqx_dashboard_swagger, position),

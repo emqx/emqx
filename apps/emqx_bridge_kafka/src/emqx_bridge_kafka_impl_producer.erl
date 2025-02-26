@@ -736,7 +736,7 @@ check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
         ok ->
             ok;
         {error, unknown_topic_or_partition} when KafkaTopic =:= ?PROBE_TOPIC_NAME ->
-            %% The probing topic is only used to check if metada request can be sent
+            %% The probing topic is only used to check if metadata request can be sent
             ok;
         {error, unknown_topic_or_partition} ->
             Msg = iolist_to_binary([<<"Unknown topic or partition: ">>, KafkaTopic]),
