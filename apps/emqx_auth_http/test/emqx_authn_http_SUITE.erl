@@ -219,7 +219,7 @@ t_authenticate_path_placeholders(_Config) ->
         end
     ),
 
-    Credentials = ?MAPPEND(?CREDENTIALS, #{
+    Credentials = maps:merge(?CREDENTIALS, #{
         username => <<"us er">>
     }),
 
@@ -431,7 +431,7 @@ t_node_cache(_Config) ->
     ok = emqx_authn_http_test_server:set_handler(Handler),
 
     %% We authenticate twice, the second time should be cached
-    Credentials = ?MAPPEND(?CREDENTIALS, #{
+    Credentials = maps:merge(?CREDENTIALS, #{
         clientid => <<"clientid">>,
         username => <<"username">>,
         password => <<"password">>

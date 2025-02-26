@@ -30,10 +30,12 @@
             logger:log(
                 Level,
                 (Data),
-                ?MAPPEND(Meta, #{
+                (begin
+                    Meta
+                end)#{
                     mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
                     line => ?LINE
-                })
+                }
             );
         false ->
             ok
@@ -85,7 +87,11 @@
             emqx_trace:log(
                 persistent_term:get(?TRACE_FILTER, []),
                 Msg,
-                ?MAPPEND(Meta, #{trace_tag => Tag})
+                (begin
+                    Meta
+                end)#{
+                    trace_tag => Tag
+                }
             )
     end
 ).
@@ -97,7 +103,11 @@
     ?_DO_TRACE(Tag, Msg, Meta),
     ?SLOG(
         Level,
-        ?MAPPEND(Meta, #{msg => Msg, tag => Tag}),
+        (begin
+            Meta
+        end)#{
+            msg => Msg, tag => Tag
+        },
         #{is_trace => false}
     )
 end).
@@ -134,15 +144,5 @@ end).
 %% print to 'user' group leader
 -define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).
 -define(ELOG(Fmt, Args), io:format(standard_error, Fmt, Args)).
-
-%% macro utilities
-
-%% Append literal associations to a (meta) map, avoiding compliler warnings.
--define(MAPPEND(META, EXTRA),
-    (begin
-        META
-    end)
-        EXTRA
-).
 
 -endif.

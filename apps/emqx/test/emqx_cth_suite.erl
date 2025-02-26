@@ -434,7 +434,7 @@ work_dir(TCName, CTConfig) ->
 %% @doc Delete contents of the workdir.
 clean_work_dir(WorkDir) ->
     ct:pal("Cleaning workdir ~p", [WorkDir]),
-    case re:run(WorkDir, "_build/test/logs/") of
+    case re:run(WorkDir, "_build/.*test/logs/") of
         {match, _} ->
             file:del_dir_r(WorkDir);
         nomatch ->
@@ -468,8 +468,9 @@ stop_apps(Apps) ->
 
 %%
 
-verify_clean_suite_state(#{boot_type := restart}) ->
-    %% when testing node restart, we do not need to verify clean state
+verify_clean_suite_state(#{work_dir_dirty := true}) ->
+    %% Used by `emqx_cth_cluster:restart/1` that implies the work dir is dirty.
+    %% Use with care.
     ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
     {ok, []} = file:list_dir(WorkDir),

@@ -126,7 +126,13 @@
 -define(LIMITER_BYTES_IN, bytes).
 -define(LIMITER_MESSAGE_IN, messages).
 
--define(LOG(Level, Data), ?SLOG(Level, ?MAPPEND(Data, #{tag => "MQTT"}))).
+-define(LOG(Level, Data),
+    ?SLOG(Level, (begin
+        Data
+    end)#{
+        tag => "MQTT"
+    })
+).
 
 %%--------------------------------------------------------------------
 %% Info, Stats

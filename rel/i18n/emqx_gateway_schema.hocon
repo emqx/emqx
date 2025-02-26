@@ -34,13 +34,14 @@ gateway_common_idle_timeout.desc:
   2. A running client process that does not receive any client requests after this time will go into hibernation to save resources."""
 
 gateway_common_listener_access_rules.desc:
-"""An access rule list consisting of string rules to restrict or allow access from some addresses.
+"""~
+An access rule list consisting of string rules to restrict or allow access from some addresses.
 The rules that appear earlier in the list are matched first.
 The format is `allow | deny <address> | <CIDR> | all`.
 
 For example:
 
-`[\"deny 192.168.1.1\", \"allow 192.168.1.0/24\", \"deny, all\"]`"""
+`["deny 192.168.1.1", "allow 192.168.1.0/24", "deny all"]`~"""
 
 gateway_common_listener_bind.desc:
 """The IP address and port that the listener will bind."""
