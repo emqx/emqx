@@ -76,7 +76,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - emqx
+          - emqx-enterprise
         branch:
           - master
         os:
