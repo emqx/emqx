@@ -485,6 +485,7 @@ t_quic_update_opts(Config) ->
     Host = "127.0.0.1",
     Port = emqx_common_test_helpers:select_free_port(ListenerType),
     ok = emqx_config:put_zone_conf(?FUNCTION_NAME, [mqtt, max_topic_levels], 2),
+    ok = emqx_limiter:create_zone_limiters(?FUNCTION_NAME),
 
     Conf = #{
         <<"enable">> => true,

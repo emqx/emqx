@@ -28,7 +28,10 @@
 -export([
     create_zone_limiters/0,
     update_zone_limiters/0,
-    delete_zone_limiters/0
+    delete_zone_limiters/0,
+    create_zone_limiters/1,
+    update_zone_limiters/1,
+    delete_zone_limiters/1
 ]).
 
 %% Listener limiter management
