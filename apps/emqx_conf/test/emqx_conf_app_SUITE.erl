@@ -243,7 +243,14 @@ cluster(TC, Specs, Config) ->
     ],
     emqx_cth_cluster:mk_nodespecs(
         [{Name, #{apps => Apps}} || Name <- Specs],
-        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(TC, Config),
+            start_opts => #{
+                %% Call `init:stop' instead of `erlang:halt/0' for clean mnesia
+                %% shutdown and restart
+                shutdown => 5_000
+            }
+        }
     ).
 
 cluster_spec(Num) ->
