@@ -25,6 +25,7 @@
     delete_package/1,
     ensure_action/2,
     update_plugin_config/4,
+    ensure_existed/2,
     sync_plugin_cluster/3
 ]).
 
@@ -69,6 +70,10 @@ update_plugin_config(Nodes, NameVsn, AvroJsonMap, MaybeAvroValue) ->
         [NameVsn, AvroJsonMap, MaybeAvroValue],
         10000
     ).
+
+-spec ensure_existed(node(), binary() | string()) -> emqx_rpc:call_result().
+ensure_existed(Node, NameVsn) ->
+    rpc:call(Node, emqx_mgmt_api_plugins, ensure_existed, [NameVsn], 10000).
 
 -spec sync_plugin_cluster([node()], node(), binary() | string()) ->
     emqx_rpc:multicall_result().

@@ -53,6 +53,7 @@
     ensure_action/2,
     ensure_action/3,
     do_update_plugin_config/3,
+    ensure_existed/1,
     sync_plugin_cluster/2
 ]).
 
@@ -259,10 +260,11 @@ schema("/plugins/cluster_sync") ->
             'requestBody' => sync_request_body(),
             responses => #{
                 204 => <<"Sync plugin successfully">>,
-                400 => <<"No such Node running.">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_PLUGIN_INFO'], <<"Bad Plugin Name Vsn">>
+                ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND', 'FILE_NOT_EXISTED'],
-                    <<"Plugin Not Found on given Node">>
+                    ['NOT_FOUND'], <<"Plugin Not Found">>
                 )
             }
         }
@@ -374,11 +376,6 @@ fields(position) ->
     ];
 fields(sync_request) ->
     [
-        {node,
-            hoconsc:mk(string(), #{
-                example => "emqx@127.0.0.1",
-                required => true
-            })},
         {name,
             hoconsc:mk(string(), #{
                 example => "emqx_plugin_demo-5.1-rc.2",
@@ -425,8 +422,8 @@ sync_request_body() ->
         hoconsc:ref(?MODULE, sync_request),
         #{
             sync_from_node => #{
-                summary => <<"sync plugin from emqx@127.0.0.1">>,
-                value => #{name => <<"emqx_plugin_demo-5.1-rc.2">>, node => <<"emqx@127.0.0.1">>}
+                summary => <<"sync specific version of plugin to cluster">>,
+                value => #{name => <<"emqx_plugin_demo-5.1-rc.2">>}
             }
         }
     ).
@@ -604,20 +601,30 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
     end.
 
 sync_plugin(post, #{body := Body}) ->
-    case parse_sync_from(Body) of
-        {ok, Node, NameVsn} ->
+    case parse_sync_plugin_name(Body) of
+        {ok, NameVsn} ->
             ?SLOG(debug, #{
-                msg => "sync_plugin_from_node",
-                node => Node,
+                msg => "sync_plugin_to_cluster",
                 keep_namevsn => NameVsn
             }),
-            Nodes = emqx:running_nodes(),
-            _Res = emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
-                Nodes, Node, NameVsn
-            ),
-            {204};
-        {error, Reason} ->
-            {400, #{reason => Reason}}
+            case ensure_existed(NameVsn) of
+                ok ->
+                    case
+                        emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
+                            emqx:running_nodes(), node(), NameVsn
+                        )
+                    of
+                        {_Res, []} -> {204};
+                        {_Res, BadNodes} -> {400, plugin_sync_failed_msg(BadNodes)}
+                    end;
+                {error, {plugin_error, _Reason}} ->
+                    {404, plugin_not_found_msg()}
+            end;
+        {error, {plugin_error, Reason}} ->
+            {404, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => Reason
+            }}
     end.
 
 %% API CallBack End
@@ -692,14 +699,22 @@ do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
     %% TODO: maybe use `AvroValue` to validate config
     emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
 
+%% for RPC plugin ensure existed
+-spec ensure_existed(name_vsn()) -> ok | {error, term()}.
+ensure_existed(NameVsn) ->
+    case emqx_plugins:ensure_installed(NameVsn) of
+        ok -> ok;
+        {error, _} -> {error, {plugin_error, <<"Plugin Not Found">>}}
+    end.
+
 %% for RPC plugin sync
 -spec sync_plugin_cluster(node(), name_vsn()) -> ok.
+sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
+    _ = emqx_plugins:maybe_purge_others(NameVsn),
+    ok;
 sync_plugin_cluster(Node, NameVsn) ->
     _ = emqx_plugins:maybe_purge_others(NameVsn),
-    case Node =:= node() of
-        true -> ok;
-        false -> emqx_plugins:get_plugin_tar_from_node(Node, NameVsn)
-    end.
+    emqx_plugins:get_plugin_tar_from_node(Node, NameVsn).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -722,6 +737,17 @@ plugin_not_found_msg() ->
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
 
+plugin_sync_failed_msg(Nodes) ->
+    #{
+        code => 'BAD_PLUGIN_INFO',
+        message => iolist_to_binary(
+            io_lib:format(
+                "Failed to sync plugin on nodes: ~p",
+                [Nodes]
+            )
+        )
+    }.
+
 parse_position(#{<<"position">> := <<"front">>}, _) ->
     front;
 parse_position(#{<<"position">> := <<"rear">>}, _) ->
@@ -741,34 +767,15 @@ parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->
 parse_position(Position, _) ->
     {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
 
--spec parse_sync_from(binary()) -> {ok, node(), string()} | {error, term()}.
-parse_sync_from(#{<<"node">> := NodeBin, <<"name">> := NameBin}) ->
-    maybe
-        {ok, Node} ?= parse_node(NodeBin),
-        %% convert `Name` a list, not binary
-        {ok, Name} ?= parse_name(NameBin),
-        {ok, Node, Name}
-    else
-        {error, Reason} -> {error, Reason}
-    end.
-
-parse_node(NodeBin) ->
-    case emqx_utils:safe_to_existing_atom(NodeBin) of
-        {ok, Node} ->
-            case lists:any(fun(N) -> N =:= Node end, emqx:running_nodes()) of
-                true -> {ok, Node};
-                false -> {error, node_not_running}
-            end;
-        {error, _} ->
-            {error, bad_node_name}
-    end.
-
-parse_name(Name) ->
+-spec parse_sync_plugin_name(map()) -> {ok, string()} | {error, term()}.
+parse_sync_plugin_name(#{<<"name">> := Name}) ->
+    parse_sync_plugin_name(Name);
+parse_sync_plugin_name(Name) ->
     case emqx_plugins:parse_name_vsn(Name) of
         {ok, _AppName, _Vsn} ->
             {ok, binary_to_list(Name)};
-        {error, Reason} ->
-            {error, Reason}
+        {error, _} ->
+            {error, {plugin_error, <<"Bad Plugin Name Vsn">>}}
     end.
 
 format_plugins(List) ->
