@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_auth_redis, [
     {description, "EMQX Redis Authentication and Authorization"},
-    {vsn, "0.3.1"},
+    {vsn, "0.3.2"},
     {registered, []},
     {mod, {emqx_auth_redis_app, []}},
     {applications, [
