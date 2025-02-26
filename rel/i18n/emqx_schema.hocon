@@ -616,7 +616,8 @@ fields_mqtt_quic_listener_stream_recv_window_default.label:
 """Stream recv window default"""
 
 mqtt_mqueue_priorities.desc:
-"""Topic priority list. Prioritize messages in the message queue by topic. The priority range is `[1, 255]`.
+"""~
+Topic priority list. Prioritize messages in the message queue by topic. The priority range is `[1, 255]`.
 
 The larger the value, the higher the priority. Messages with higher priority will be sent first.
 
@@ -628,7 +629,7 @@ Note: commas and equal signs are not supported in topic names.
 
 For example, if you want `topic/1` to have a higher priority than `topic/2`, you can configure it like this:
 
-`mqueue_priorities: {\"topic/1\": 10, \"topic/2\": 8}`"""
+`mqueue_priorities: {"topic/1": 10, "topic/2": 8}`~"""
 
 mqtt_mqueue_priorities.label:
 """Topic Priorities"""
@@ -1522,12 +1523,13 @@ mqtt_listener_proxy_protocol.label:
 """Proxy protocol"""
 
 mqtt_listener_access_rules.desc:
-"""An access rule list consisting of string rules to restrict or allow access from some addresses. The rules that appear earlier in the list are matched first.
+"""~
+An access rule list consisting of string rules to restrict or allow access from some addresses. The rules that appear earlier in the list are matched first.
 The format is `allow | deny <address> | <CIDR> | all`.
 
 For example:
 
-`[\"deny 192.168.1.1\", \"allow 192.168.1.0/24\", \"deny, all\"]`"""
+`["deny 192.168.1.1", "allow 192.168.1.0/24", "deny all"]`~"""
 
 mqtt_listener_access_rules.label:
 """Access rules"""

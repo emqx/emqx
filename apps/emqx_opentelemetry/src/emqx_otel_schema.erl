@@ -185,7 +185,7 @@ fields("otel_exporter") ->
             ?HOCON(
                 emqx_schema:url(),
                 #{
-                    default => "http://localhost:4317",
+                    default => <<"http://localhost:4317">>,
                     desc => ?DESC(exporter_endpoint),
                     importance => ?IMPORTANCE_HIGH
                 }
