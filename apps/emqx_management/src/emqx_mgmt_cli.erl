@@ -175,14 +175,7 @@ cluster(_) ->
     ]).
 
 cluster_leave_safeguards() ->
-    cluster_leave_safeguards(ds).
-
-cluster_leave_safeguards(ds) ->
-    case emqx_mgmt_api_ds:is_enabled() andalso emqx_mgmt_api_ds:shards_of_this_site() of
-        [_ | _] -> [nonempty_ds_site];
-        [] -> [];
-        false -> []
-    end.
+    ds_cluster_leave_safeguards().
 
 %% sort lists for deterministic output
 sort_map_list_fields(Map) when is_map(Map) ->
@@ -967,7 +960,7 @@ collect_data_export_args(Args, _Acc) ->
     {error, io_lib:format("unknown arguments: ~p", [Args])}.
 
 %%--------------------------------------------------------------------
-%% @doc Durable storage command
+%% @doc Durable storage
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
@@ -1042,10 +1035,20 @@ do_ds(_) ->
         {"ds forget <site>", "Remove a site from the list of known sites"}
     ]).
 
+ds_cluster_leave_safeguards() ->
+    case emqx_mgmt_api_ds:is_enabled() andalso emqx_mgmt_api_ds:shards_of_this_site() of
+        [_ | _] -> [nonempty_ds_site];
+        [] -> [];
+        false -> []
+    end.
+
 -else.
 
 ds(_Cmd) ->
     emqx_ctl:usage([{"ds", "DS CLI is not available in this edition of EMQX"}]).
+
+ds_cluster_leave_safeguards() ->
+    [].
 
 -endif.
 
