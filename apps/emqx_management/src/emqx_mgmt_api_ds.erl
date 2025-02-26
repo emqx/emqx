@@ -57,6 +57,13 @@
     check_db_exists/2
 ]).
 
+-type sites_shard() :: #{
+    storage := emqx_ds:db(),
+    id := binary(),
+    status => up | down | lost,
+    transition => joining | leaving
+}.
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -446,7 +453,7 @@ forget(Site, Via) ->
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:forget_site(Site)).
 
--spec shards_of_this_site() -> [ShardInfo :: #{}].
+-spec shards_of_this_site() -> [sites_shard()].
 shards_of_this_site() ->
     try emqx_ds_replication_layer_meta:this_site() of
         Site -> shards_of_site(Site)
@@ -454,7 +461,7 @@ shards_of_this_site() ->
         error:badarg -> []
     end.
 
--spec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [ShardInfo :: #{}].
+-spec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [sites_shard()].
 shards_of_site(Site) ->
     lists:flatmap(
         fun({DB, Shard}) ->
