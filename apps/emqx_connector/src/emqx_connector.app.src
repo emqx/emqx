@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_connector, [
     {description, "EMQX Data Integration Connectors"},
-    {vsn, "0.3.6"},
+    {vsn, "0.3.7"},
     {registered, []},
     {mod, {emqx_connector_app, []}},
     {applications, [

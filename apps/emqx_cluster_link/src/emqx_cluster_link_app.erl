@@ -31,7 +31,7 @@ prep_stop(State) ->
 stop(_State) ->
     _ = emqx_cluster_link:delete_hook(),
     _ = emqx_cluster_link:unregister_external_broker(),
-    _ = remove_msg_fwd_resources(emqx_cluster_link_config:links()),
+    _ = remove_msg_fwd_resources(emqx_cluster_link_config:get_links()),
     ok.
 
 %%--------------------------------------------------------------------
