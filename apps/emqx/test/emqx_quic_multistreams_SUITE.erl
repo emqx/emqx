@@ -163,7 +163,7 @@ restart_emqx(Config) ->
     ok = stop_emqx(Config),
     emqx_cth_suite:start(
         [mk_emqx_spec()],
-        #{work_dir => emqx_cth_suite:work_dir(Config), boot_type => restart}
+        #{work_dir => emqx_cth_suite:work_dir(Config), work_dir_dirty => true}
     ).
 
 mk_emqx_spec() ->
