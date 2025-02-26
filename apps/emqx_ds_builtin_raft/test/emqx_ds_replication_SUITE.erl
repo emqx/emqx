@@ -874,9 +874,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
             %% Have to drop mnesia, otherwise N2 coming back online can actually bring
             %% N3 and N4 back into the cluster.
             ok = emqx_cth_suite:clean_work_dir(filename:join(maps:get(work_dir, NS2), mnesia)),
-            [N2] = emqx_cth_cluster:restart([NS2]),
-            ok = emqx_cth_cluster:join(N2, N1),
-            ?retry(500, 10, ?ON(N2, true = emqx_mgmt_api_ds:is_enabled())),
+            [N2] = emqx_cth_cluster:start([NS2#{work_dir_dirty => true}]),
             assert_db_open([N2], ?DB, Opts),
 
             %% But the force-forgetting should now succeed.

@@ -435,7 +435,7 @@ load_apps(Node, #{apps := Apps}) ->
     erpc:call(Node, emqx_cth_suite, load_apps, [Apps]).
 
 start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = (suite_opts(Spec))#{boot_type => Act},
+    SuiteOpts = suite_opts(Act, Spec),
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
     _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
@@ -452,8 +452,13 @@ start_apps(Node, #{apps := Apps} = Spec) ->
     end,
     ok.
 
-suite_opts(#{work_dir := WorkDir}) ->
-    #{work_dir => WorkDir}.
+suite_opts(restart, Spec) ->
+    maps:merge(#{work_dir_dirty => true}, suite_opts(Spec));
+suite_opts(_, Spec) ->
+    suite_opts(Spec).
+
+suite_opts(Spec) ->
+    maps:with([work_dir, work_dir_dirty], Spec).
 
 %% Returns 'true' if this node should appear in the cluster.
 maybe_join_cluster(restart, _Node, #{}) ->
