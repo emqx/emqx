@@ -20,6 +20,11 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
+
+-define(ON(NODES, BODY),
+    emqx_ds_test_helpers:on(NODES, fun() -> BODY end)
+).
 
 all() ->
     All = emqx_common_test_helpers:all(?MODULE),
@@ -45,46 +50,15 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
-init_per_testcase(t_autocluster_leave = TC, Config) ->
-    [Core1, Core2, Repl1, Repl2] =
-        Nodes = [
-            t_autocluster_leave_core1,
-            t_autocluster_leave_core2,
-            t_autocluster_leave_replicant1,
-            t_autocluster_leave_replicant2
-        ],
-
-    NodeNames = [emqx_cth_cluster:node_name(N) || N <- Nodes],
-    AppSpec = [
-        emqx,
-        {emqx_conf, #{
-            config => #{
-                cluster => #{
-                    discovery_strategy => static,
-                    static => #{seeds => NodeNames}
-                }
-            }
-        }},
-        emqx_management
-    ],
-    Cluster = emqx_cth_cluster:start(
-        [
-            {Core1, #{role => core, apps => AppSpec}},
-            {Core2, #{role => core, apps => AppSpec}},
-            {Repl1, #{role => replicant, apps => AppSpec}},
-            {Repl2, #{role => replicant, apps => AppSpec}}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
-    ),
-    [{cluster, Cluster} | Config];
-init_per_testcase(_TC, Config) ->
-    Config.
-
-end_per_testcase(_TC, Config) ->
-    case ?config(cluster, Config) of
-        undefined -> ok;
-        Cluster -> emqx_cth_cluster:stop(Cluster)
+init_per_testcase(TC, Config) ->
+    try
+        emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config)
+    catch
+        throw:{skip, Reason} -> {skip, Reason}
     end.
+
+end_per_testcase(TC, Config) ->
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
 t_status(_Config) ->
     emqx_ctl:run_command([]),
@@ -319,10 +293,43 @@ t_admin(_Config) ->
     %% admins del <Username>                          # Delete dashboard user
     ok.
 
+t_autocluster_leave('init', Config) ->
+    ok = skip_if_oss(),
+    [Core1, Core2, Repl1, Repl2] =
+        Nodes = [
+            t_autocluster_leave_core1,
+            t_autocluster_leave_core2,
+            t_autocluster_leave_replicant1,
+            t_autocluster_leave_replicant2
+        ],
+    NodeNames = [emqx_cth_cluster:node_name(N) || N <- Nodes],
+    AppSpec = [
+        emqx,
+        {emqx_conf, #{
+            config => #{
+                cluster => #{
+                    discovery_strategy => static,
+                    static => #{seeds => NodeNames}
+                }
+            }
+        }},
+        emqx_management
+    ],
+    Cluster = emqx_cth_cluster:start(
+        [
+            {Core1, #{role => core, apps => AppSpec}},
+            {Core2, #{role => core, apps => AppSpec}},
+            {Repl1, #{role => replicant, apps => AppSpec}},
+            {Repl2, #{role => replicant, apps => AppSpec}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    [{cluster, Cluster} | Config];
+t_autocluster_leave('end', Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config)).
+
 t_autocluster_leave(Config) ->
     [Core1, Core2, Repl1, Repl2] = Cluster = ?config(cluster, Config),
-    %% Mria membership updates are async, makes sense to wait a little
-    timer:sleep(300),
     ClusterView = [lists:sort(rpc:call(N, emqx, running_nodes, [])) || N <- Cluster],
     [View1, View2, View3, View4] = ClusterView,
     ?assertEqual(lists:sort(Cluster), View1),
@@ -363,9 +370,89 @@ t_autocluster_leave(Config) ->
         )
     ).
 
+t_leave_rejected_ds_nonempty('init', Config) ->
+    ok = skip_if_norepl(),
+    ok = snabbkaffe:start_trace(),
+    AppSpec = [
+        emqx_conf,
+        {emqx,
+            "durable_sessions.enable = true \n"
+            "durable_storage.messages.backend = builtin_raft \n"
+            "durable_storage.messages.n_sites = 2 \n"},
+        emqx_management
+    ],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_leave_rejected_ds_nonempty1, #{role => core, apps => AppSpec}},
+            {t_leave_rejected_ds_nonempty2, #{role => core, apps => AppSpec}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Cluster = emqx_cth_cluster:start(NodeSpecs),
+    [{cluster, Cluster}, {nodespecs, NodeSpecs} | Config];
+t_leave_rejected_ds_nonempty('end', Config) ->
+    ok = snabbkaffe:stop(),
+    emqx_cth_cluster:stop(?config(cluster, Config)).
+
+t_leave_rejected_ds_nonempty(Config) ->
+    _Specs = [_, NS2] = ?config(nodespecs, Config),
+    Nodes = [N1, N2] = ?config(cluster, Config),
+    S2 = ?ON(N2, emqx_ds_replication_layer_meta:this_site()),
+    DB = messages,
+    DBArg = "messages",
+    S2Arg = binary_to_list(S2),
+
+    %% Ensure DS has been bootstrapped.
+    ok = emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, DB),
+    ?ON(N1, emqx_mgmt_cli:ds(["info"])),
+
+    %% Should not be possible to leave, because there are shard replicas.
+    ?assertEqual(
+        {error, [nonempty_ds_site]},
+        ?ON(N2, emqx_mgmt_cli:cluster(["leave"]))
+    ),
+
+    %% Ask to leave DS DB replication, wait until transitions are finished.
+    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["leave", DBArg, S2Arg]))),
+    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(DB)),
+
+    %% Now leave the cluster again, wait until N1 forgets about S2.
+    ?assertEqual(ok, ?ON(N2, emqx_mgmt_cli:cluster(["leave"]))),
+    ?retry(500, 10, undefined = ?ON(N1, emqx_ds_replication_layer_meta:node(S2))),
+    ?ON(N1, emqx_mgmt_cli:ds(["info"])),
+
+    %% Join the cluster again.
+    ?assertEqual(ok, ?ON(N2, emqx_mgmt_cli:cluster(["join", atom_to_list(N1)]))),
+    [N2] = emqx_cth_cluster:restart(NS2),
+    % ?retry(500, 10, N2 = ?ON(N1, emqx_ds_replication_layer_meta:node(S2))),
+    ?ON(N1, emqx_mgmt_cli:ds(["info"])),
+
+    %% Ask to be DS DB replication site again.
+    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["join", DBArg, S2Arg]))),
+    %% Should not be possible to leave, even if transitions are still in-progress.
+    ?assertEqual(
+        {error, [nonempty_ds_site]},
+        ?ON(N1, emqx_mgmt_cli:cluster(["leave"]))
+    ).
+
 t_exclusive(_Config) ->
     emqx_ctl:run_command(["exclusive", "list"]),
     emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
     ok.
 
-format(Str, Opts) -> io:format("str:~s: Opts:~p", [Str, Opts]).
+%%
+
+skip_if_oss() ->
+    case emqx_cth_suite:skip_if_oss() of
+        false -> ok;
+        Skip -> throw(Skip)
+    end.
+
+skip_if_norepl() ->
+    case emqx_ds_test_helpers:skip_if_norepl() of
+        false -> ok;
+        Skip -> throw(Skip)
+    end.
+
+format(Str, Opts) ->
+    io:format("str:~s: Opts:~p", [Str, Opts]).

@@ -34,6 +34,9 @@
     join/3,
     leave/3,
 
+    shards_of_this_site/0,
+    shards_of_site/1,
+
     forget/2
 ]).
 
@@ -53,6 +56,13 @@
     check_enabled/2,
     check_db_exists/2
 ]).
+
+-type sites_shard() :: #{
+    storage := emqx_ds:db(),
+    id := binary(),
+    status => up | down | lost,
+    transition => joining | leaving
+}.
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -165,7 +175,7 @@ schema("/ds/storages/:ds/replicas") ->
                         200 => mk(array(binary()), #{
                             desc => <<"List sites that contain replicas of the durable storage">>
                         }),
-                        400 => not_found(<<"Durable storage">>),
+                        400 => bad_request(),
                         404 => disabled_schema()
                     }
             },
@@ -259,6 +269,14 @@ fields(sites_shard) ->
                     desc => <<"Shard status">>,
                     example => up
                 }
+            )},
+        {transition,
+            mk(
+                enum([joining, leaving]),
+                #{
+                    desc => <<"Shard transition">>,
+                    example => joining
+                }
             )}
     ];
 fields(db) ->
@@ -307,6 +325,14 @@ fields(db_site) ->
             mk(
                 enum([up, down, lost]),
                 #{desc => <<"Status of the replica">>}
+            )},
+        {transition,
+            mk(
+                enum([joining, leaving]),
+                #{
+                    desc => <<"Shard transition">>,
+                    example => joining
+                }
             )}
     ].
 
@@ -337,11 +363,10 @@ get_site(get, #{bindings := #{site := Site}}) ->
             ?NOT_FOUND(<<"Site not found: ", Site/binary>>);
         true ->
             Node = emqx_ds_replication_layer_meta:node(Site),
-            IsUp = mria:cluster_status(Node) =:= running,
             Shards = shards_of_site(Site),
             ?OK(#{
                 node => Node,
-                up => IsUp,
+                up => emqx_ds_replication_layer_meta:node_status(Node) == up,
                 shards => Shards
             })
     end.
@@ -428,12 +453,77 @@ forget(Site, Via) ->
     }),
     meta_result_to_binary(emqx_ds_replication_layer_meta:forget_site(Site)).
 
+-spec shards_of_this_site() -> [sites_shard()].
+shards_of_this_site() ->
+    try emqx_ds_replication_layer_meta:this_site() of
+        Site -> shards_of_site(Site)
+    catch
+        error:badarg -> []
+    end.
+
+-spec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [sites_shard()].
+shards_of_site(Site) ->
+    lists:flatmap(
+        fun({DB, Shard}) ->
+            ShardInfo = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ReplicaSet = maps:get(replica_set, ShardInfo),
+            TargetSet = maps:get(target_set, ShardInfo, #{}),
+            TransitionSet = get_transition_set(ShardInfo),
+            case ReplicaSet of
+                #{Site := Info} ->
+                    S = #{
+                        storage => DB,
+                        id => Shard,
+                        status => maps:get(status, Info)
+                    },
+                    [annotate_transition(Site, TransitionSet, S)];
+                _ ->
+                    case TransitionSet of
+                        #{Site := add} ->
+                            S = #{
+                                storage => DB,
+                                id => Shard,
+                                transition => joining
+                            },
+                            [annotate_target_status(Site, TargetSet, S)];
+                        _ ->
+                            []
+                    end
+            end
+        end,
+        [
+            {DB, Shard}
+         || DB <- dbs(),
+            Shard <- emqx_ds_replication_layer_meta:shards(DB)
+        ]
+    ).
+
+get_transition_set(ShardInfo) ->
+    lists:foldr(
+        fun maps:merge/2,
+        #{},
+        maps:get(transitions, ShardInfo, [])
+    ).
+
+annotate_transition(Site, TransitionSet, Acc) ->
+    case TransitionSet of
+        #{Site := T} ->
+            Acc#{transition => meta_to_transition(T)};
+        #{} ->
+            Acc
+    end.
+
+annotate_target_status(Site, TargetSet, Acc) ->
+    case TargetSet of
+        #{Site := Info} ->
+            Acc#{status => maps:get(status, Info)};
+        #{} ->
+            Acc
+    end.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-%% site_info(Site) ->
-%%     #{}.
 
 disabled_schema() ->
     emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Durable storage is disabled">>).
@@ -481,53 +571,49 @@ db_config(DB) ->
             undefined
     end.
 
-shards_of_site(Site) ->
-    lists:flatmap(
-        fun({DB, Shard}) ->
-            case emqx_ds_replication_layer_meta:shard_info(DB, Shard) of
-                #{replica_set := #{Site := Info}} ->
-                    [
-                        #{
-                            storage => DB,
-                            id => Shard,
-                            status => maps:get(status, Info)
-                        }
-                    ];
-                _ ->
-                    []
-            end
-        end,
-        [
-            {DB, Shard}
-         || DB <- dbs(),
-            Shard <- emqx_ds_replication_layer_meta:shards(DB)
-        ]
-    ).
-
 list_shards(DB) ->
     [
         begin
-            #{replica_set := RS} = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ShardInfo = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ReplicaSet = maps:get(replica_set, ShardInfo),
+            Transitions = maps:get(transitions, ShardInfo, []),
             Replicas = maps:fold(
                 fun(Site, #{status := Status}, Acc) ->
-                    [
-                        #{
-                            site => Site,
-                            status => Status
-                        }
-                        | Acc
-                    ]
+                    Elem = #{
+                        site => Site,
+                        status => Status
+                    },
+                    [Elem | Acc]
                 end,
                 [],
-                RS
+                maps:iterator(ReplicaSet, reversed)
             ),
-            #{
+            RShard = #{
                 id => Shard,
                 replicas => Replicas
-            }
+            },
+            case Transitions of
+                [] ->
+                    RShard;
+                [_ | _] ->
+                    RTransitions = [
+                        #{
+                            site => Site,
+                            transition => meta_to_transition(T)
+                        }
+                     || Transition <- Transitions,
+                        {Site, T} <- maps:to_list(Transition)
+                    ],
+                    RShard#{
+                        transitions => RTransitions
+                    }
+            end
         end
      || Shard <- emqx_ds_replication_layer_meta:shards(DB)
     ].
+
+meta_to_transition(add) -> joining;
+meta_to_transition(del) -> leaving.
 
 meta_result_to_binary(ok) ->
     ok;
@@ -554,10 +640,10 @@ meta_error_to_binary({lost_sites, LostSites}) ->
     iolist_to_binary(["Replication still targets lost sites: " | lists:join(", ", LostSites)]);
 meta_error_to_binary({too_few_sites, _Sites}) ->
     <<"Replica sets would become too small">>;
-meta_error_to_binary(site_online) ->
-    <<"Site is online">>;
-meta_error_to_binary(site_temporarily_offline) ->
-    <<"Site is considered temporarily offline">>;
+meta_error_to_binary(site_up) ->
+    <<"Site is up and running">>;
+meta_error_to_binary(site_temporarily_down) ->
+    <<"Site is considered temporarily down">>;
 meta_error_to_binary(Err) ->
     emqx_utils:format("Error: ~p", [Err]).
 
