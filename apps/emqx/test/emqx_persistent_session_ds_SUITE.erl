@@ -14,7 +14,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx/src/emqx_persistent_session_ds/session_internals.hrl").
+-include("../src/emqx_persistent_session_ds/session_internals.hrl").
 
 -include("emqx_persistent_message.hrl").
 
