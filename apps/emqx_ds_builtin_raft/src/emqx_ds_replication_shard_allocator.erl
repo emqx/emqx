@@ -74,7 +74,8 @@ shard_meta(DB, Shard) ->
     db := emqx_ds:db(),
     shards := [emqx_ds_replication_layer:shard_id()],
     status := allocating | ready,
-    transitions := #{_Track => #transhdl{}}
+    transitions := #{_Track => #transhdl{}},
+    timers := #{atom() => reference()}
 }.
 
 -spec init(emqx_ds:db()) -> {ok, state()}.
@@ -85,7 +86,8 @@ init(DB) ->
         db => DB,
         shards => [],
         status => allocating,
-        transitions => #{}
+        transitions => #{},
+        timers => #{}
     },
     {ok, handle_allocate_shards(State)}.
 
@@ -94,28 +96,38 @@ handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
-handle_cast(#trigger_transitions{}, State) ->
-    {noreply, handle_pending_transitions(State)};
+handle_cast(#trigger_transitions{}, State0) ->
+    State1 = handle_pending_transitions(State0),
+    State = restart_fallback_timer(State1),
+    {noreply, State};
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
 -spec handle_info(Info, state()) -> {noreply, state()} when
     Info ::
         emqx_ds_replication_layer_meta:subscription_event()
-        | {timeout, reference(), allocate}
+        | {timeout, reference(), allocate | fallback}
         | {'EXIT', pid(), _Reason}.
-handle_info({timeout, _TRef, allocate}, State) ->
-    {noreply, handle_allocate_shards(State)};
-handle_info({timeout, _TRef0, fallback}, State) ->
-    _TRef = restart_fallback_timer(),
-    {noreply, handle_pending_transitions(State)};
-handle_info({changed, {shard, DB, Shard}}, State = #{db := DB}) ->
-    {noreply, handle_shard_changed(Shard, State)};
+handle_info({timeout, TRef, Name}, State0) ->
+    State = clear_timer(Name, State0),
+    handle_timer(Name, TRef, State);
+handle_info({changed, {shard, DB, Shard}}, State0 = #{db := DB}) ->
+    State1 = handle_shard_changed(Shard, State0),
+    State = restart_fallback_timer(State1),
+    {noreply, State};
 handle_info({changed, _}, State) ->
     {noreply, State};
 handle_info({'EXIT', Pid, Reason}, State) ->
     {noreply, handle_exit(Pid, Reason, State)};
 handle_info(_Info, State) ->
+    {noreply, State}.
+
+handle_timer(allocate, _TRef, State0) ->
+    State = handle_allocate_shards(State0),
+    {noreply, State};
+handle_timer(fallback, _TRef, State0) ->
+    State1 = handle_pending_transitions(State0),
+    State = restart_fallback_timer(State1),
     {noreply, State}.
 
 -spec terminate(_Reason, state()) -> _Ok.
@@ -135,8 +147,7 @@ handle_allocate_shards(State0) ->
             %% Subscribe to shard changes and trigger any yet unhandled transitions.
             ok = subscribe_db_changes(State),
             ok = trigger_transitions(self()),
-            _TRef = start_fallback_timer(),
-            State;
+            start_fallback_timer(State);
         {error, Data} ->
             _ = logger:notice(
                 Data#{
@@ -144,8 +155,7 @@ handle_allocate_shards(State0) ->
                     retry_in => ?ALLOCATE_RETRY_TIMEOUT
                 }
             ),
-            _TRef = erlang:start_timer(?ALLOCATE_RETRY_TIMEOUT, self(), allocate),
-            State0
+            start_allocate_timer(State0)
     end.
 
 subscribe_db_changes(#{db := DB}) ->
@@ -154,16 +164,27 @@ subscribe_db_changes(#{db := DB}) ->
 unsubscribe_db_changes(_State) ->
     emqx_ds_replication_layer_meta:unsubscribe(self()).
 
-start_fallback_timer() ->
+start_allocate_timer(State) ->
+    restart_timer(allocate, ?ALLOCATE_RETRY_TIMEOUT, State).
+
+start_fallback_timer(State) ->
     %% NOTE
     %% Adding random initial delay to reduce chances that different nodes will
     %% act on some transitions roughly at the same moment.
     Timeout = ?TRIGGER_PENDING_TIMEOUT,
     InitialTimeout = Timeout + round(Timeout * rand:uniform()),
-    erlang:start_timer(InitialTimeout, self(), fallback).
+    restart_timer(fallback, InitialTimeout, State).
 
-restart_fallback_timer() ->
-    erlang:start_timer(?TRIGGER_PENDING_TIMEOUT, self(), fallback).
+restart_fallback_timer(State) ->
+    restart_timer(fallback, ?TRIGGER_PENDING_TIMEOUT, State).
+
+restart_timer(Name, Timeout, State = #{timers := Timers}) ->
+    ok = emqx_utils:cancel_timer(maps:get(Name, Timers, undefined)),
+    TRef = emqx_utils:start_timer(Timeout, Name),
+    State#{timers := Timers#{Name => TRef}}.
+
+clear_timer(Name, State = #{timers := Timers}) ->
+    State#{timers := maps:remove(Name, Timers)}.
 
 %%
 

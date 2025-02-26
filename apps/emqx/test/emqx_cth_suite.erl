@@ -468,8 +468,9 @@ stop_apps(Apps) ->
 
 %%
 
-verify_clean_suite_state(#{boot_type := restart}) ->
-    %% when testing node restart, we do not need to verify clean state
+verify_clean_suite_state(#{work_dir_dirty := true}) ->
+    %% Used by `emqx_cth_cluster:restart/1` that implies the work dir is dirty.
+    %% Use with care.
     ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
     {ok, []} = file:list_dir(WorkDir),
