@@ -87,6 +87,6 @@
 
 -define(TIMER_SCHEDULER_RETRY, timer_scheduler_retry).
 
--include_lib("emqx/src/emqx_tracepoints.hrl").
+-include("../emqx_tracepoints.hrl").
 
 -endif.
