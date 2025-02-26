@@ -114,8 +114,9 @@ cluster(["join", SNode]) ->
             Error
     end;
 cluster(["leave"]) ->
-    case cluster_leave_safeguards() of
-        [] ->
+    Safeguards = cluster_leave_safeguards(),
+    case length(Safeguards) of
+        0 ->
             _ = maybe_disable_autocluster(),
             case ekka:leave() of
                 ok ->
@@ -125,7 +126,7 @@ cluster(["leave"]) ->
                     emqx_ctl:print("Failed to leave the cluster: ~0p~n", [Reason]),
                     Error
             end;
-        Safeguards ->
+        _ ->
             lists:foreach(
                 fun
                     (nonempty_ds_site) ->
