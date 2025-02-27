@@ -41,9 +41,7 @@
 -export([start/1, start/2, restart/1]).
 -export([stop/1, stop_node/1]).
 
--export([start_bare_nodes/1, start_bare_nodes/2]).
-
--export([join/2]).
+-export([join_cluster/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
@@ -90,6 +88,9 @@
     % If set to `undefined` this node won't try to join the cluster
     % Default: no (first core node is used to join to by default)
     join_to => node() | undefined,
+
+    %% Options that may affect `emqx_cth_peer:start{,_link}', such as `shutdown'.
+    start_opts => #{},
 
     %% Working directory
     %% If this directory is not empty, starting up the node applications will fail
@@ -224,6 +225,7 @@ mk_init_nodespec(N, Name, NodeOpts, ClusterOpts) ->
         role => core,
         apps => [],
         base_port => BasePort,
+        start_opts => maps:get(start_opts, ClusterOpts, #{}),
         work_dir => filename:join([WorkDir, Node])
     },
     maps:merge(Defaults, NodeOpts).
@@ -352,29 +354,29 @@ allocate_listener_ports(Types, Spec) ->
     lists:foldl(fun maps:merge/2, #{}, [allocate_listener_port(Type, Spec) || Type <- Types]).
 
 start_nodes_init(Specs, Timeout) ->
-    Names = lists:map(fun(#{name := Name}) -> Name end, Specs),
-    _Nodes = start_bare_nodes(Names, Timeout),
+    _Nodes = start_bare_nodes(Specs, Timeout),
     lists:foreach(fun node_init/1, Specs).
 
-start_bare_nodes(Names) ->
-    start_bare_nodes(Names, ?TIMEOUT_NODE_START_MS).
-
-start_bare_nodes(Names, Timeout) ->
+start_bare_nodes(Specs, Timeout) ->
     Args = erl_flags(),
     Envs = [],
     Waits = lists:map(
-        fun(Name) ->
+        fun(#{name := Name} = Spec) ->
             WaitTag = {boot_complete, Name},
             WaitBoot = {self(), WaitTag},
-            {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot),
+            Opts = peer_start_opts(Spec),
+            {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot, Opts),
             WaitTag
         end,
-        Names
+        Specs
     ),
     Deadline = deadline(Timeout),
     Nodes = wait_boot_complete(Waits, Deadline),
     lists:foreach(fun(Node) -> pong = net_adm:ping(Node) end, Nodes),
     Nodes.
+
+peer_start_opts(Spec) ->
+    maps:get(start_opts, Spec, #{}).
 
 deadline(Timeout) ->
     erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, native).

@@ -23,6 +23,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -141,6 +143,44 @@ t_no_copy_from_newer_version_node(Config) ->
     after
         stop_cluster(Nodes)
     end.
+
+%% Checks that a node may join another even if the former has bad/broken symlinks in the
+%% data directories that are zipped and synced from it.
+t_sync_data_from_node_with_bad_symlinks(Config) ->
+    Names = [cluster_spec(13), cluster_spec(14)],
+    Nodes = lists:map(fun emqx_cth_cluster:node_name/1, Names),
+    [N1Spec, N2Spec] = cluster(?FUNCTION_NAME, Names, Config),
+    try
+        [N1] = start_cluster([N1Spec]),
+        OkFiles = ?ON(N1, begin
+            DataDir = emqx:data_dir(),
+            AuthzDir = filename:join(DataDir, "authz"),
+            CertsDir = filename:join(DataDir, "certs"),
+            ok = filelib:ensure_path(AuthzDir),
+            ok = filelib:ensure_path(CertsDir),
+            BadAuthzSymlink = filename:join(AuthzDir, "badlink"),
+            BadCertsSymlink = filename:join(CertsDir, "badlink"),
+            ok = file:make_symlink("idontexistandneverwill", BadAuthzSymlink),
+            ok = file:make_symlink("idontexistandneverwill", BadCertsSymlink),
+            OkAuthzFile = filename:join(AuthzDir, "ok"),
+            OkCertsFile = filename:join(CertsDir, "ok"),
+            ok = file:write_file(OkAuthzFile, <<"">>),
+            ok = file:write_file(OkCertsFile, <<"">>),
+            [OkAuthzFile, OkCertsFile]
+        end),
+        [N2] = start_cluster([N2Spec]),
+        %% Should have copied the ok files
+        lists:foreach(
+            fun(F) ->
+                ?ON(N2, ?assertMatch({ok, _}, file:read_file(F)))
+            end,
+            OkFiles
+        ),
+        ok
+    after
+        stop_cluster(Nodes)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
@@ -230,7 +270,7 @@ assert_config_load_done(Nodes) ->
     ).
 
 stop_cluster(Nodes) ->
-    emqx_cth_cluster:stop(Nodes).
+    ok = emqx_cth_cluster:stop(Nodes).
 
 start_cluster(Specs) ->
     emqx_cth_cluster:start(Specs).
@@ -246,12 +286,19 @@ restart_cluster_async(Specs) ->
 
 cluster(TC, Specs, Config) ->
     Apps = [
-        {emqx, #{override_env => [{boot_modules, [broker]}]}},
-        {emqx_conf, #{}}
+        emqx,
+        emqx_conf
     ],
     emqx_cth_cluster:mk_nodespecs(
         [{Name, #{apps => Apps}} || Name <- Specs],
-        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(TC, Config),
+            start_opts => #{
+                %% Call `init:stop' instead of `erlang:halt/0' for clean mnesia
+                %% shutdown and restart
+                shutdown => 5_000
+            }
+        }
     ).
 
 cluster_spec(Num) ->
