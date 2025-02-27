@@ -330,20 +330,33 @@ has_deprecated_file(#{conf := Conf} = Info) ->
 
 traverse_and_collect_files(DataDir) ->
     SubDirs = lists:map(fun(D) -> filename:join(DataDir, D) end, ?DATA_DIRS),
-    do_traverse_and_collect_files(SubDirs, DataDir, _Acc = []).
+    Prefix = ensure_trailing_slash(DataDir),
+    do_traverse_and_collect_files(SubDirs, Prefix, _Acc = []).
 
-do_traverse_and_collect_files([] = _SubDirs, _DataDir, Acc) ->
+do_traverse_and_collect_files([] = _SubDirs, _Prefix, Acc) ->
     Acc;
-do_traverse_and_collect_files([SubDir | Rest], DataDir, Acc0) ->
+do_traverse_and_collect_files([SubDir | Rest], Prefix, Acc0) ->
     %% This function already drops any non-regular file, including symlinks.
     Acc = filelib:fold_files(
         SubDir,
         _Regex = "",
         _Recursive = true,
         fun(Path0, Acc) ->
-            Path = lists:flatten(string:replace(Path0, DataDir ++ "/", "", leading)),
+            Path = to_data_dir_relative_path(Path0, Prefix),
             [Path | Acc]
         end,
         Acc0
     ),
-    do_traverse_and_collect_files(Rest, DataDir, Acc).
+    do_traverse_and_collect_files(Rest, Prefix, Acc).
+
+%% Note: `Prefix' must end in `/'.
+to_data_dir_relative_path(Path, Prefix) ->
+    lists:flatten(string:replace(Path, Prefix, "", leading)).
+
+ensure_trailing_slash(DataDir) ->
+    case lists:suffix("/", DataDir) of
+        true ->
+            DataDir;
+        false ->
+            DataDir ++ "/"
+    end.
