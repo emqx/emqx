@@ -41,7 +41,9 @@
 -export([start/1, start/2, restart/1]).
 -export([stop/1, stop_node/1]).
 
--export([start_bare_nodes/1, start_bare_nodes/2, join_cluster/2]).
+-export([start_bare_nodes/1, start_bare_nodes/2]).
+
+-export([join/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
@@ -95,19 +97,19 @@
     work_dir => file:name()
 }}.
 
--spec start([nodespec()], ClusterOpts) ->
-    [node()]
-when
-    ClusterOpts :: #{
-        %% Working directory
-        %% Everything a test produces should go here. Each node's stuff should go in its
-        %% own directory.
-        work_dir := file:name()
-    }.
+-type opts() :: #{
+    %% Working directory
+    %% Everything a test produces should go here. Each node's stuff should go in its
+    %% own directory.
+    work_dir := file:name()
+}.
+
+-spec start([nodespec()], opts()) -> [node()].
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
     start(NodeSpecs).
 
+-spec start(Complete :: [nodespec()]) -> [node()].
 start(NodeSpecs) ->
     emqx_common_test_helpers:clear_screen(),
     perform(start, NodeSpecs).
@@ -168,6 +170,7 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
             wait_clustered(All, Check, Deadline)
     end.
 
+-spec restart(Complete :: [nodespec()] | nodespec()) -> [node()].
 restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
@@ -176,6 +179,12 @@ restart(NodeSpecs = [_ | _]) ->
 restart(NodeSpec = #{}) ->
     restart([NodeSpec]).
 
+-spec join(node(), JoinTo :: node()) -> ok.
+join(Node, JoinTo) ->
+    ok = join_cluster(Node, JoinTo),
+    wait_clustered([Node, JoinTo], ?TIMEOUT_CLUSTER_WAIT_MS).
+
+-spec mk_nodespecs([nodespec()], opts()) -> Complete :: [nodespec()].
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
         fun(N, {Name, Opts}) -> mk_init_nodespec(N, Name, Opts, ClusterOpts) end,
@@ -420,7 +429,7 @@ load_apps(Node, #{apps := Apps}) ->
     erpc:call(Node, emqx_cth_suite, load_apps, [Apps]).
 
 start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = (suite_opts(Spec))#{boot_type => Act},
+    SuiteOpts = suite_opts(Act, Spec),
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
     _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
@@ -431,8 +440,13 @@ start_apps(Node, #{apps := Apps} = Spec) ->
     _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
     ok.
 
-suite_opts(#{work_dir := WorkDir}) ->
-    #{work_dir => WorkDir}.
+suite_opts(restart, Spec) ->
+    maps:merge(#{work_dir_dirty => true}, suite_opts(Spec));
+suite_opts(_, Spec) ->
+    suite_opts(Spec).
+
+suite_opts(Spec) ->
+    maps:with([work_dir, work_dir_dirty], Spec).
 
 %% Returns 'true' if this node should appear in the cluster.
 maybe_join_cluster(restart, _Node, #{}) ->
