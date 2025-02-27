@@ -27,8 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "elixir", "x64"]
-          - ["emqx", "elixir", "arm64"]
+          - ["emqx-enterprise", "elixir", "arm64"]
           - ["emqx-enterprise", "erlang", "x64"]
 
     steps:
@@ -53,7 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-        - emqx
+        - emqx-enterprise
         os:
         - macos-14-arm64
 

@@ -27,7 +27,6 @@ jobs:
         - k8s
         - dns
         profile:
-        - emqx
         - emqx-enterprise
         rpc:
         - tcp

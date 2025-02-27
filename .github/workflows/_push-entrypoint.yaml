@@ -133,7 +133,6 @@ jobs:
     strategy:
       matrix:
         profile:
-          - emqx
           - emqx-enterprise
 
     steps:

@@ -67,7 +67,8 @@ app_specs() ->
         emqx_retainer,
         emqx_exhook,
         emqx_auth,
-        emqx_plugins
+        emqx_plugins,
+        {emqx_license, "license { key = \"default\" }"}
     ].
 
 init_per_testcase(t_custom_shard_transports, Config) ->
