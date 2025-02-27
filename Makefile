@@ -18,9 +18,9 @@ export EMQX_REL_FORM ?= tgz
 export QUICER_TLS_VER ?= sys
 
 -include default-profile.mk
-PROFILE ?= emqx
-REL_PROFILES := emqx emqx-enterprise
-PKG_PROFILES := emqx-pkg emqx-enterprise-pkg
+PROFILE ?= emqx-enterprise
+REL_PROFILES := emqx-enterprise
+PKG_PROFILES := emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
@@ -93,7 +93,7 @@ ct: $(REBAR) merge-config
 .PHONY: static_checks
 static_checks:
 	@$(REBAR) as check do xref, dialyzer
-	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
+	@$(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
