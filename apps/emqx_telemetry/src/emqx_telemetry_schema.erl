@@ -34,6 +34,8 @@ namespace() -> "emqxtel".
 roots() -> ["telemetry"].
 
 fields("telemetry") ->
+    %% the 'enable' field has no default value because it is resovled
+    %% dynamically if it is not explicitly set
     [{enable, ?HOCON(boolean(), #{required => false, desc => ?DESC("enable")})}].
 
 desc("telemetry") ->

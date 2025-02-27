@@ -202,7 +202,6 @@ make_rel() {
     just_compile
     # now assemble the release tar
     ./rebar3 as "$PROFILE" "$release_or_tar"
-    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 make_elixir_rel() {
@@ -214,7 +213,6 @@ make_elixir_rel() {
     env MIX_ENV="$PROFILE" mix local.hex 2.0.6 --if-missing --force
     env MIX_ENV="$PROFILE" mix deps.get
     env MIX_ENV="$PROFILE" mix release --overwrite
-    assert_no_excluded_deps emqx-enterprise emqx_telemetry
 }
 
 make_relup() {

@@ -1,9 +1,12 @@
 emqx_telemetry_schema {
-telemetry_root_doc.desc:
-"""Whether to enable telemetry to allow EMQX to collect relevant usage information and share it with EMQ for the purpose of enhancing your product experience, and in no case will EMQX collect personal information about you, such as your MAC address, IP address, content of messages sent.
+    telemetry_root_doc.desc: """~
+        Whether to enable telemetry to allow EMQX to collect relevant usage information
+        and share it with EMQ for the purpose of enhancing your product experience,
+        and in no case will EMQX collect personal information about you,
+        such as your MAC address, IP address, content of messages sent.
 
-See https://docs.emqx.com/en/emqx/latest/telemetry/telemetry.html for more details."""
+        See https://docs.emqx.com/en/emqx/latest/telemetry/telemetry.html for more details.~"""
 
-enable.desc:
-"""Set to `false` disable telemetry data report"""
+    enable.desc: """~
+        Set to `false` disable telemetry data report~"""
 }

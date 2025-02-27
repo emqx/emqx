@@ -113,9 +113,6 @@ matrix() {
                 #entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
-            apps/emqx_telemetry)
-                # TODO include it for emqx-enterprise profile
-                ;;
             apps/*)
                 profile='emqx-enterprise'
                 entries+=("$(format_app_entry "$app" 1 "$profile" "$runner")")

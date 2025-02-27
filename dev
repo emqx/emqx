@@ -364,39 +364,12 @@ copy_other_conf_files() {
     cp apps/emqx_auth/etc/acl.conf "$EMQX_ETC_DIR"/
 }
 
-is_current_profile_app() {
-    local app="$1"
-    case "$app" in
-        *emqx_telemetry*)
-            if [ "$PROFILE" = 'emqx-enterprise' ]; then
-                return 1
-            else
-                return 0
-            fi
-            ;;
-        *)
-            if [ "$PROFILE" = 'emqx' ]; then
-                if [ -f "$app"/BSL.txt ]; then
-                    return 1
-                else
-                    return 0
-                fi
-            else
-                return 0
-            fi
-            ;;
-    esac
-}
-
 ## apps to load
 apps_to_load() {
     local apps csl
     apps="$(./scripts/find-apps.sh | xargs)"
     csl=""
     for app in $apps; do
-        if ! is_current_profile_app "$app"; then
-            continue
-        fi
         name="$(basename "$app")"
         if [ -z "$csl" ]; then
             csl="$name"
