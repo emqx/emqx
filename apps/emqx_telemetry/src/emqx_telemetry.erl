@@ -42,8 +42,11 @@
 
 -export([
     get_node_uuid/0,
+    get_node_uuid/1,
     get_cluster_uuid/0,
-    get_telemetry/0
+    get_cluster_uuid/1,
+    get_telemetry/0,
+    get_telemetry/1
 ]).
 
 %% Internal exports (RPC)
@@ -126,13 +129,22 @@ stop_reporting() ->
     gen_server:cast(?MODULE, stop_reporting).
 
 get_node_uuid() ->
-    gen_server:call(?MODULE, get_node_uuid).
+    get_node_uuid(timer:seconds(5)).
+
+get_node_uuid(Timeout) ->
+    gen_server:call(?MODULE, get_node_uuid, Timeout).
 
 get_cluster_uuid() ->
-    gen_server:call(?MODULE, get_cluster_uuid).
+    get_cluster_uuid(timer:seconds(5)).
+
+get_cluster_uuid(Timeout) ->
+    gen_server:call(?MODULE, get_cluster_uuid, Timeout).
 
 get_telemetry() ->
-    gen_server:call(?MODULE, get_telemetry).
+    get_telemetry(timer:seconds(5)).
+
+get_telemetry(Timeout) ->
+    gen_server:call(?MODULE, get_telemetry, Timeout).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -168,7 +180,7 @@ handle_call(get_node_uuid, _From, State = #state{node_uuid = UUID}) ->
 handle_call(get_cluster_uuid, _From, State = #state{cluster_uuid = UUID}) ->
     {reply, {ok, UUID}, State};
 handle_call(get_telemetry, _From, State) ->
-    {_State, Telemetry} = get_telemetry(State),
+    {_State, Telemetry} = do_get_telemetry(State),
     {reply, {ok, Telemetry}, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -331,8 +343,8 @@ generate_uuid() ->
         )
     ).
 
--spec get_telemetry(state()) -> {state(), proplists:proplist()}.
-get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}) ->
+-spec do_get_telemetry(state()) -> {state(), proplists:proplist()}.
+do_get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID}) ->
     OSInfo = os_info(),
     {MQTTRTInsights, State} = mqtt_runtime_insights(State0),
     #{
@@ -366,7 +378,7 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
     ]}.
 
 report_telemetry(State0 = #state{url = URL}) ->
-    {State, Data} = get_telemetry(State0),
+    {State, Data} = do_get_telemetry(State0),
     try emqx_utils_json:encode_proplist(Data) of
         Bin ->
             ok = httpc_request(post, URL, [], Bin),
