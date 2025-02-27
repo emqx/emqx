@@ -312,8 +312,7 @@ handle_call({update_config, _NewConf, _OldConf}, _From, #{is_started := false} =
     {reply, ok, State};
 handle_call({update_config, NewConf, OldConf}, _From, #{is_started := true} = State) ->
     State2 = update_config(State, NewConf, OldConf),
-    ok = emqx_retainer_dispatcher:refresh_limiter(NewConf),
-    ok = emqx_retainer_publisher:refresh_limits(NewConf),
+    ok = emqx_retainer_limiter:update(),
     {reply, ok, State2};
 handle_call(start, _From, #{is_started := IsStarted} = State0) ->
     State = update_status(State0, IsStarted, true),

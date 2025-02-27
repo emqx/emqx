@@ -29,7 +29,6 @@
     configs/3,
     get_full_config/0,
     global_zone_configs/3,
-    limiter/3,
     get_raw_config/1
 ]).
 -export([request_config/3]).
@@ -93,8 +92,7 @@ paths() ->
     [
         "/configs",
         "/configs_reset/:rootname",
-        "/configs/global_zone",
-        "/configs/limiter"
+        "/configs/global_zone"
     ] ++
         lists:map(fun({Name, _Type}) -> ?PREFIX ++ binary_to_list(Name) end, config_list()).
 
@@ -218,30 +216,6 @@ schema("/configs/global_zone") ->
             }
         }
     };
-schema("/configs/limiter") ->
-    #{
-        'operationId' => limiter,
-        get => #{
-            tags => ?TAGS,
-            hidden => true,
-            description => ?DESC(get_node_level_limiter_configs),
-            responses => #{
-                200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
-            }
-        },
-        put => #{
-            tags => ?TAGS,
-            hidden => true,
-            description => ?DESC(update_node_level_limiter_configs),
-            'requestBody' => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
-            responses => #{
-                200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
-                403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
-            }
-        }
-    };
 schema(Path) ->
     {RootKey, {_Root, Schema}} = find_schema(Path),
     GetDesc = iolist_to_binary([
@@ -339,6 +313,8 @@ global_zone_configs(put, #{body := Body}, _Req) ->
             {#{}, #{}},
             Body
         ),
+    %% TODO: introduce a hook?
+    ok = emqx_limiter:update_zone_limiters(),
     case maps:size(Res) =:= maps:size(Body) of
         true -> {200, Res};
         false -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Error)}}
@@ -437,22 +413,6 @@ get_configs_v2(QueryStr) ->
         #{<<"content-type">> => <<"text/plain">>},
         iolist_to_binary(hocon_pp:do(Conf, #{}))
     }.
-
-limiter(get, _Params, _Req) ->
-    {200, format_limiter_config(get_raw_config(limiter))};
-limiter(put, #{body := NewConf}, _Req) ->
-    case emqx_conf:update([limiter], NewConf, ?OPTS) of
-        {ok, #{raw_config := RawConf}} ->
-            {200, format_limiter_config(RawConf)};
-        {error, {permission_denied, Reason}} ->
-            {403, #{code => 'UPDATE_FAILED', message => Reason}};
-        {error, Reason} ->
-            {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
-    end.
-
-format_limiter_config(RawConf) ->
-    Shorts = lists:map(fun erlang:atom_to_binary/1, emqx_limiter_schema:short_paths()),
-    maps:with(Shorts, RawConf).
 
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),

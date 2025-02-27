@@ -43,6 +43,7 @@ start(_Type, _Args) ->
     ok = emqx_bpapi:start(),
     ok = emqx_alarm_handler:load(),
     {ok, Sup} = emqx_sup:start_link(),
+    ok = emqx_limiter:init(),
     ok = maybe_start_listeners(),
     emqx_config:add_handlers(),
     register(emqx, self()),
