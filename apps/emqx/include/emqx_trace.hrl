@@ -18,6 +18,8 @@
 
 -define(TRACE, emqx_trace).
 
+-type trace_extra() :: #{formatter => text | json, payload_limit => integer()}.
+
 -record(?TRACE, {
     name :: binary() | undefined | '_',
     type :: clientid | topic | ip_address | ruleid | undefined | '_',
@@ -30,7 +32,7 @@
         | '_',
     enable = true :: boolean() | '_',
     payload_encode = text :: hex | text | hidden | '_',
-    extra = #{formatter => text} :: #{formatter => text | json} | '_',
+    extra = #{formatter => text} :: trace_extra() | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_'
 }).

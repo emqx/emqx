@@ -288,6 +288,20 @@ fields(trace) ->
                     "",
                 default => text
             })},
+        {payload_limit,
+            hoconsc:mk(
+                integer(),
+                #{
+                    desc =>
+                        ""
+                        "Determine the maximum bytes of the payload will be printed in the trace file.<br/>\n"
+                        "It's only effective when `payload_encode` is `hex` or `text`<br/>\n"
+                        "`0`: No limit<br/>\n"
+                        "Default is 1024 bytes<br/>\n"
+                        "",
+                    default => 1024
+                }
+            )},
         {start_at,
             hoconsc:mk(
                 emqx_utils_calendar:epoch_second(),

@@ -21,6 +21,8 @@
 
 -logger_header("[Tracer]").
 
+-define(MAX_PAYLOAD_LIMIT, 1024).
+
 %% APIs
 -export([
     running/0,
@@ -48,6 +50,7 @@
     type := clientid | topic | ip_address,
     filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
     payload_encode := text | hidden | hex,
+    payload_limit := non_neg_integer(),
     formatter => json | text
 }.
 
@@ -80,6 +83,7 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
         filter => ensure_bin(Filter),
         name => ensure_bin(Name),
         payload_encode => payload_encode(),
+        payload_limit => ?MAX_PAYLOAD_LIMIT,
         formatter => Formatter
     },
     install(Who, Level, LogFile).
@@ -197,11 +201,16 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
 filters(#{type := ruleid, filter := Filter, name := Name}) ->
     [{ruleid, {fun ?MODULE:filter_ruleid/2, {ensure_bin(Filter), Name}}}].
 
-formatter(#{type := _Type, payload_encode := PayloadEncode, formatter := json}) ->
-    {emqx_trace_json_formatter, #{
-        payload_encode => PayloadEncode
-    }};
-formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
+formatter(#{
+    type := _Type, payload_encode := PayloadEncode, formatter := json, payload_limit := PayloadLimit
+}) ->
+    PayloadFmtOpts = #{
+        payload_encode => PayloadEncode,
+        payload_limit => PayloadLimit,
+        printed_size => PayloadLimit
+    },
+    {emqx_trace_json_formatter, #{payload_fmt_opts => PayloadFmtOpts}};
+formatter(#{type := _Type, payload_encode := PayloadEncode, payload_limit := PayloadLimit}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
         %% XXX: Don't need to print the time field in logger_formatter due to we manually concat it
@@ -210,7 +219,11 @@ formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
         single_line => true,
         max_size => unlimited,
         depth => unlimited,
-        payload_encode => PayloadEncode
+        payload_fmt_opts => #{
+            payload_encode => PayloadEncode,
+            payload_limit => PayloadLimit,
+            printed_size => PayloadLimit
+        }
     }}.
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->
