@@ -71,7 +71,6 @@
     emqx_rule_engine_schema,
     emqx_exhook_schema,
     emqx_psk_schema,
-    emqx_limiter_schema,
     emqx_slow_subs_schema,
     {emqx_otel_schema, ee},
     emqx_mgmt_api_key_schema
@@ -88,6 +87,9 @@
     connection_rejected_due_to_license_limit_reached,
     connection_rejected_due_to_trial_license_uptime_limit,
     connection_rejected_due_to_max_uptime_reached,
+    listener_accept_throttled_due_to_quota_exceeded,
+    failed_to_consume_from_limiter,
+    failed_to_put_back_to_limiter,
     data_bridge_buffer_overflow,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,

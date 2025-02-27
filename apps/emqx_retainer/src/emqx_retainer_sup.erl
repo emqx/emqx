@@ -54,12 +54,10 @@ start_gc(Context, Opts) ->
 -spec start_workers() -> ok.
 start_workers() ->
     {ok, _} = start_dispatcher(),
-    {ok, _} = start_publisher(),
     ok.
 
 -spec stop_workers() -> ok.
 stop_workers() ->
-    ok = stop_child(publisher),
     ok = stop_child(dispatcher),
     ok.
 
@@ -104,17 +102,6 @@ start_dispatcher() ->
             {emqx_retainer_dispatcher, start_link, []}
         ]
     ),
-    supervisor:start_child(?worker_sup, ChildSpec).
-
-start_publisher() ->
-    ChildSpec = #{
-        id => publisher,
-        start => {emqx_retainer_publisher, start_link, []},
-        restart => permanent,
-        shutdown => 5000,
-        type => worker,
-        modules => [emqx_retainer_publisher]
-    },
     supervisor:start_child(?worker_sup, ChildSpec).
 
 stop_child(ChildId) ->

@@ -206,6 +206,7 @@ clean-all:
 	@rm -rf deps
 	@rm -rf _build
 	@rm -f emqx_dialyzer_*_plt
+	@rm -rf apps/emqx_dashboard/priv
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)

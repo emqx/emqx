@@ -45,6 +45,9 @@
     %% PUBLISH failed for auth error
     {counter, 'packets.publish.auth_error',
         <<"Number of received PUBLISH packets with failed the Authorization check">>},
+    %% PUBLISH failed due to rate limiting
+    {counter, 'packets.publish.quota_exceeded',
+        <<"Number of received PUBLISH packets that exceeded the quota">>},
     %% PUBACK packets received
     {counter, 'packets.puback.received', <<"Number of received PUBACK packet">>},
     %% PUBACK packets sent

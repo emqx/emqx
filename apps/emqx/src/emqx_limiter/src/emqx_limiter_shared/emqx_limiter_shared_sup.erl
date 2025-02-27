@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_limiter_sup).
+-module(emqx_limiter_shared_sup).
 
 -behaviour(supervisor).
 
@@ -28,6 +28,7 @@
 %%  API functions
 %%--------------------------------------------------------------------
 
+-spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -41,19 +42,4 @@ init([]) ->
         intensity => 10,
         period => 3600
     },
-
-    Childs = [
-        child_spec(emqx_limiter_registry, worker),
-        child_spec(emqx_limiter_shared_sup, supervisor)
-    ],
-
-    {ok, {SupFlags, Childs}}.
-
-child_spec(Mod, Type) ->
-    #{
-        id => Mod,
-        start => {Mod, start_link, []},
-        restart => transient,
-        type => Type,
-        modules => [Mod]
-    }.
+    {ok, {SupFlags, []}}.
