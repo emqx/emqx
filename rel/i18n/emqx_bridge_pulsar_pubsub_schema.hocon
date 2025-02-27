@@ -35,4 +35,10 @@ producer_pulsar_message.desc:
 producer_pulsar_message.label:
 """Pulsar Message Template"""
 
+producer_max_inflight.desc:
+"""The maximum number of message batches that the producer can send to each partition before it must wait for a receipt.
+Setting a higher number can enhance throughput."""
+producer_max_inflight.label:
+"""Max Inflight"""
+
 }

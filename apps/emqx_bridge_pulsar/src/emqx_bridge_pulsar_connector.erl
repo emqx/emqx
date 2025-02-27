@@ -410,6 +410,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
         },
         compression := Compression,
         max_batch_bytes := MaxBatchBytes,
+        max_inflight := MaxInflight,
         pulsar_topic := PulsarTopic,
         retention_period := RetentionPeriod,
         send_buffer := SendBuffer,
@@ -431,7 +432,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
         replayq_offload_mode => OffloadMode,
         replayq_max_total_bytes => PerPartitionLimit,
         replayq_seg_bytes => SegmentBytes,
-        drop_if_highmem => MemOLP
+        drop_if_high_mem => MemOLP
     },
     ProducerName = producer_name(ConnResId, ActionResId),
     ?tp(pulsar_producer_capture_name, #{producer_name => ProducerName}),
@@ -441,6 +442,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
             compression => Compression,
             conn_opts => ConnOpts,
             max_batch_bytes => MaxBatchBytes,
+            max_inflight => MaxInflight,
             name => ProducerName,
             retention_period => RetentionPeriod,
             ssl_opts => SSLOpts,
