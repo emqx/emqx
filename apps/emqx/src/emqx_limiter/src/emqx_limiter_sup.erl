@@ -44,7 +44,7 @@ init([]) ->
 
     Childs = [
         child_spec(emqx_limiter_registry, worker),
-        child_spec(emqx_limiter_shared_sup, supervisor)
+        child_spec(emqx_limiter_bucket_registry, worker)
     ],
 
     {ok, {SupFlags, Childs}}.
