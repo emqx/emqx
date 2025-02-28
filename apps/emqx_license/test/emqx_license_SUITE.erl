@@ -178,10 +178,10 @@ t_import_config(_Config) ->
         emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"default">>}})
     ),
     ?assertEqual(default, emqx:get_config([license, key])),
-    ?assertMatch({ok, #{max_connections := 10}}, emqx_license_checker:limits()),
+    ?assertMatch({ok, #{max_sessions := 10}}, emqx_license_checker:limits()),
 
     %% Import to a new license
-    EncodedLicense = emqx_license_test_lib:make_license(#{max_connections => "100"}),
+    EncodedLicense = emqx_license_test_lib:make_license(#{max_sessions => "100"}),
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
         emqx_license:import_config(
@@ -195,7 +195,7 @@ t_import_config(_Config) ->
             }
         )
     ),
-    ?assertMatch({ok, #{max_connections := 100}}, emqx_license_checker:limits()),
+    ?assertMatch({ok, #{max_sessions := 100}}, emqx_license_checker:limits()),
     ?assertMatch(
         #{connection_low_watermark := 0.2, connection_high_watermark := 0.5},
         emqx:get_config([license])

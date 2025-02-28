@@ -741,7 +741,7 @@ non_rate_value() ->
 -if(?EMQX_RELEASE_EDITION == ee).
 license_quota() ->
     case emqx_license_checker:limits() of
-        {ok, #{max_connections := Quota}} ->
+        {ok, #{max_sessions := Quota}} ->
             #{license_quota => Quota};
         {error, no_license} ->
             #{license_quota => 0}

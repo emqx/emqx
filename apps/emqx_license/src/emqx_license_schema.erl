@@ -49,7 +49,7 @@ fields(key_license) ->
         }},
         %% This feature is not made GA yet, hence hidden.
         %% When license is issued to cutomer-type BUSINESS_CRITICAL (code 3)
-        %% This config is taken as the real max_connections limit.
+        %% This config is taken as the real max_sessions limit.
         {dynamic_max_connections, #{
             type => non_neg_integer(),
             default => default(dynamic_max_connections),

@@ -92,7 +92,7 @@ code_change(_OldVsn, State, _Extra) ->
 connection_quota_early_alarm() ->
     connection_quota_early_alarm(emqx_license_checker:limits()).
 
-connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Max) ->
+connection_quota_early_alarm({ok, #{max_sessions := Max}}) when is_integer(Max) ->
     Count = cached_connection_count(),
     Low = emqx_conf:get([license, connection_low_watermark], 0.75),
     High = emqx_conf:get([license, connection_high_watermark], 0.80),

@@ -189,4 +189,6 @@ get_setting() ->
     end.
 
 license_info() ->
-    maps:from_list(emqx_license_checker:dump()).
+    #{max_sessions := Max} = Dump = maps:from_list(emqx_license_checker:dump()),
+    %% For API backward compatibility
+    Dump#{max_connections => Max}.
