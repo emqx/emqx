@@ -59,7 +59,6 @@
     mini_tokens_index := pos_integer(),
     last_time_aref := atomics:atomics_ref(),
     last_time_index := pos_integer(),
-    last_burst_time_aref := atomics:atomics_ref(),
     last_burst_time_index := pos_integer()
 }.
 
@@ -100,11 +99,10 @@
 ]) -> ok | {error, term()}.
 create_group(Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
     Size = length(LimiterConfigs),
-    MiniTokensCRef = counters:new(Size, []),
-    LastTimeARef = atomics:new(Size, []),
-    LastBurstTimeARef = atomics:new(Size, []),
+    MiniTokensCRef = counters:new(Size, [write_concurrency]),
+    LastTimeARef = atomics:new(Size * 2, []),
     NowUs = now_us_monotonic(),
-    Buckets = make_buckets(LimiterConfigs, MiniTokensCRef, LastTimeARef, LastBurstTimeARef, NowUs),
+    Buckets = make_buckets(LimiterConfigs, MiniTokensCRef, LastTimeARef, NowUs),
     ok = emqx_limiter_bucket_registry:insert_buckets(Group, Buckets).
 
 -spec delete_group(emqx_limiter:group()) -> ok | {error, term()}.
@@ -121,7 +119,7 @@ connect({Group, Name}) ->
     case emqx_limiter_bucket_registry:find_bucket({Group, Name}) of
         undefined ->
             error({bucket_not_found, {Group, Name}});
-        #{last_burst_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
+        #{last_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
                 BucketRef ->
             Options = emqx_limiter_registry:get_limiter_options({Group, Name}),
             emqx_limiter_client:new(
@@ -188,25 +186,24 @@ inspect(#{bucket_ref := BucketRef, mode := Mode, options := Options} = _State) -
 %%  Internal functions
 %%--------------------------------------------------------------------
 
-make_buckets(Names, MiniTokensCRef, LastTimeARef, LastBurstTimeARef, NowUs) ->
-    make_buckets(Names, MiniTokensCRef, LastTimeARef, LastBurstTimeARef, NowUs, 1, []).
+make_buckets(Names, MiniTokensCRef, LastTimeARef, NowUs) ->
+    make_buckets(Names, MiniTokensCRef, LastTimeARef, NowUs, 1, []).
 
-make_buckets([], _MiniTokensCRef, _LastTimeARef, _LastBurstTimeARef, _NowUs, _Index, Res) ->
+make_buckets([], _MiniTokensCRef, _LastTimeARef, _NowUs, _Index, Res) ->
     lists:reverse(Res);
 make_buckets(
-    [{Name, Options} | Names], MiniTokensCRef, LastTimeARef, LastBurstTimeARef, NowUs, Index, Res
+    [{Name, Options} | Names], MiniTokensCRef, LastTimeARef, NowUs, Index, Res
 ) ->
     BucketRef = #{
         mini_tokens_cref => MiniTokensCRef,
         mini_tokens_index => Index,
         last_time_aref => LastTimeARef,
         last_time_index => Index,
-        last_burst_time_aref => LastBurstTimeARef,
-        last_burst_time_index => Index
+        last_burst_time_index => Index + 1
     },
     Mode = calc_mode(Options),
     ok = apply_burst(Mode, Options, BucketRef, NowUs),
-    make_buckets(Names, MiniTokensCRef, LastTimeARef, LastBurstTimeARef, NowUs, Index + 1, [
+    make_buckets(Names, MiniTokensCRef, LastTimeARef, NowUs, Index + 2, [
         {Name, BucketRef} | Res
     ]).
 
@@ -291,7 +288,7 @@ try_consume_burst(
     Amount,
     NowUs
 ) ->
-    #{last_burst_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
+    #{last_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
         BucketRef,
     LastBurstTimeUs = atomics:get(LastBurstTimeARef, LastBurstTimeIndex),
     case NowUs < LastBurstTimeUs + BurstIntervalMs * 1000 of
@@ -309,7 +306,7 @@ apply_burst(_Mode, #{capacity := infinity}, _BucketRef, _NowUs) ->
     ok;
 apply_burst(Mode, _Options, BucketRef, NowUs) ->
     #{
-        last_burst_time_aref := LastBurstTimeARef,
+        last_time_aref := LastBurstTimeARef,
         last_burst_time_index := LastBurstTimeIndex,
         last_time_aref := LastTimeARef,
         last_time_index := LastTimeIndex
