@@ -76,6 +76,7 @@
 %% For tight limits, <1000/s
 -record(token_mode, {
     us_per_token :: pos_integer(),
+    %% The maximum time models the maximum bucket size.
     max_time_us :: pos_integer()
 }).
 
@@ -85,6 +86,7 @@
 %% several tokens at once, putting unused tokens into a separate counter.
 -record(mini_token_mode, {
     mini_tokens_per_ms :: pos_integer(),
+    %% The maximum time models the maximum bucket size.
     max_time_us :: pos_integer()
 }).
 
@@ -145,7 +147,9 @@ try_consume(#{limiter_id := LimiterId} = State, Amount) ->
         #{capacity := infinity} ->
             true;
         _ ->
-            {Result, State1} = try_consume(State, Options, Amount, now_us_monotonic()),
+            {Result, State1} = try_consume_with_actual_mode(
+                State, Options, Amount, now_us_monotonic()
+            ),
             ?tp(limiter_shared_try_consume, #{
                 limiter_id => LimiterId,
                 amount => Amount,
@@ -198,42 +202,39 @@ make_buckets(
         mini_tokens_cref => MiniTokensCRef,
         mini_tokens_index => Index,
         last_time_aref => LastTimeARef,
-        last_time_index => Index,
-        last_burst_time_index => Index + 1
+        last_time_index => 2 * Index - 1,
+        last_burst_time_index => 2 * Index
     },
     Mode = calc_mode(Options),
     ok = apply_burst(Mode, Options, BucketRef, NowUs),
-    make_buckets(Names, MiniTokensCRef, LastTimeARef, NowUs, Index + 2, [
+    make_buckets(Names, MiniTokensCRef, LastTimeARef, NowUs, Index + 1, [
         {Name, BucketRef} | Res
     ]).
 
-try_consume(State0, Options, Amount, NowUs) ->
+try_consume_with_actual_mode(State0, Options, Amount, NowUs) ->
     {Mode, State1} = mode(State0, Options),
-    try_consume(State1, Mode, Options, Amount, NowUs).
+    try_consume_regular(State1, Mode, Options, Amount, NowUs).
 
-try_consume(
+%% @doc Try to consume tokens from the bucket
+%% If there are not enough tokens, then try to obtain burst tokens.
+try_consume_regular(
     #{bucket_ref := BucketRef} = State,
     #token_mode{us_per_token = UsPerToken, max_time_us = MaxTimeUs} = Mode,
     Options,
     Amount,
     NowUs
 ) ->
-    #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
-    LastTimeUs = atomics:get(LastTimeARef, LastTimeIndex),
     UsRequired = UsPerToken * Amount,
-    case NowUs - LastTimeUs > UsRequired of
-        true ->
-            LastTimeUsNew = max(UsRequired + LastTimeUs, UsRequired + NowUs - MaxTimeUs),
-            case atomics:compare_exchange(LastTimeARef, LastTimeIndex, LastTimeUs, LastTimeUsNew) of
-                ok ->
-                    {true, State};
-                _ ->
-                    try_consume(State, Mode, Options, Amount, now_us_monotonic())
-            end;
-        false ->
+    %% To succeed, at least UsRequired microseconds must pass since the last time stored in the bucket.
+    case advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) of
+        ok ->
+            {true, State};
+        retry ->
+            try_consume_regular(State, Mode, Options, Amount, now_us_monotonic());
+        failed ->
             try_consume_burst(State, Mode, Options, Amount, NowUs)
     end;
-try_consume(
+try_consume_regular(
     #{bucket_ref := BucketRef} = State,
     #mini_token_mode{mini_tokens_per_ms = MiniTokensPerMs, max_time_us = MaxTimeUs} = Mode,
     Options,
@@ -242,37 +243,34 @@ try_consume(
 ) ->
     #{mini_tokens_cref := MiniTokensCRef, mini_tokens_index := MiniTokensIndex} = BucketRef,
     AmountMini = Amount * 1000,
-    case counters:get(MiniTokensCRef, MiniTokensIndex) - AmountMini > 0 of
+    %% First try to consume the tokens from the leftovers
+    %% If there are not enough, we calculate the required time to advance the last_time
+    case counters:get(MiniTokensCRef, MiniTokensIndex) - AmountMini >= 0 of
         true ->
             ok = counters:sub(MiniTokensCRef, MiniTokensIndex, AmountMini),
             {true, State};
         false ->
+            %% In mini-token mode, we the granularity of tokens consumpton is > 1,
+            %% so we may have left-over tokens
             {UsRequired, LeftOver} = amount_to_required_time_and_leftover(
                 MiniTokensPerMs, AmountMini
             ),
-            #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
-            LastTimeUs = atomics:get(LastTimeARef, LastTimeIndex),
-            case NowUs - LastTimeUs > UsRequired of
-                true ->
-                    LastTimeUsNew = max(UsRequired + LastTimeUs, UsRequired + NowUs - MaxTimeUs),
-                    case
-                        atomics:compare_exchange(
-                            LastTimeARef, LastTimeIndex, LastTimeUs, LastTimeUsNew
-                        )
-                    of
-                        ok ->
-                            ok = counters:add(MiniTokensCRef, MiniTokensIndex, LeftOver),
-                            {true, State};
-                        _ ->
-                            try_consume(State, Mode, Options, Amount, now_us_monotonic())
-                    end;
-                false ->
+            %% To succeed, at least UsRequired microseconds must pass since the last time stored in the bucket.
+            case advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) of
+                ok ->
+                    ok = counters:add(MiniTokensCRef, MiniTokensIndex, LeftOver),
+                    {true, State};
+                retry ->
+                    try_consume_regular(State, Mode, Options, Amount, now_us_monotonic());
+                failed ->
                     try_consume_burst(State, Mode, Options, Amount, NowUs)
             end
     end.
 
+%% No burst capacity at all, so we can't grant any burst tokens.
 try_consume_burst(State, _Mode, #{burst_capacity := 0}, _Amount, _NowUs) ->
     {false, State};
+%% The burst tokens were granted recently, so we can't grant any more.
 try_consume_burst(
     #{last_burst_time := LastBurstTimeUs} = State,
     _Mode,
@@ -281,6 +279,8 @@ try_consume_burst(
     NowUs
 ) when NowUs < LastBurstTimeUs + BurstIntervalMs * 1000 ->
     {false, State};
+%% We do not know from the local cache if burst tokens were granted recently, so we need to check
+%% the global last burst time.
 try_consume_burst(
     #{bucket_ref := BucketRef} = State,
     Mode,
@@ -293,14 +293,17 @@ try_consume_burst(
     LastBurstTimeUs = atomics:get(LastBurstTimeARef, LastBurstTimeIndex),
     case NowUs < LastBurstTimeUs + BurstIntervalMs * 1000 of
         true ->
+            %% Some other process has granted burst tokens recently, so we can't grant any more.
+            %% Just cache the last burst time and fail.
             {false, State#{last_burst_time := LastBurstTimeUs}};
         false ->
+            %% We can grant burst tokens, so do it and consume the tokens again.
             apply_burst_and_consume(State, Mode, Options, Amount, NowUs)
     end.
 
 apply_burst_and_consume(#{bucket_ref := BucketRef} = State, Mode, Options, Amount, NowUs) ->
     ok = apply_burst(Mode, Options, BucketRef, NowUs),
-    try_consume(State#{last_burst_time := NowUs}, Mode, Options, Amount, NowUs).
+    try_consume_regular(State#{last_burst_time := NowUs}, Mode, Options, Amount, NowUs).
 
 apply_burst(_Mode, #{capacity := infinity}, _BucketRef, _NowUs) ->
     ok;
@@ -311,6 +314,8 @@ apply_burst(Mode, _Options, BucketRef, NowUs) ->
         last_time_aref := LastTimeARef,
         last_time_index := LastTimeIndex
     } = BucketRef,
+    %% MaxTimeUs models the maximum bucket capacity (see module description).
+    %% So here we extend the bucket time interval back by the maximum capacity.
     LastTimeUsNew =
         case Mode of
             #token_mode{max_time_us = MaxTimeUs} ->
@@ -318,8 +323,36 @@ apply_burst(Mode, _Options, BucketRef, NowUs) ->
             #mini_token_mode{max_time_us = MaxTimeUs} ->
                 NowUs - MaxTimeUs
         end,
+    %% Here we don't care that the read and write are not atomic.
+    %% The worst case is that several processes will concurrently extend the bucket to the maximum capacity,
+    %% while some other processes will consume some (free) tokens between the extends.
+    %% We allow this, because burst should be configured to happen quite rarely and provide large
+    %% amount of tokens. So some free tokens are not a deal.
+    %% For very strict limits, one should operate with regular capacity only.
     ok = atomics:put(LastTimeARef, LastTimeIndex, LastTimeUsNew),
     ok = atomics:put(LastBurstTimeARef, LastBurstTimeIndex, NowUs).
+
+advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) ->
+    #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
+    LastTimeUs = atomics:get(LastTimeARef, LastTimeIndex),
+    case NowUs - LastTimeUs >= UsRequired of
+        true ->
+            %% There is enough capacity to advance the LastTime by UsRequired.
+            %% We try to do it atomically.
+            %% If LastTimeUs is very old (e.g. limiter was not used for a long time),
+            %% we take NowUs - MaxTimeUs instead of LastTimeUs to limit the bucket capacity.
+            LastTimeUsNew = UsRequired + max(LastTimeUs, NowUs - MaxTimeUs),
+            case atomics:compare_exchange(LastTimeARef, LastTimeIndex, LastTimeUs, LastTimeUsNew) of
+                ok ->
+                    ok;
+                _ ->
+                    retry
+            end;
+        false ->
+            %% Not enough time has passed to advance the LastTime by UsRequired
+            %% meaning that not enough tokens have been generated.
+            failed
+    end.
 
 now_us_monotonic() ->
     erlang:monotonic_time(microsecond).

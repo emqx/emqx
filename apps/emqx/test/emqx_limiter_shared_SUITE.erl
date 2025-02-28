@@ -55,6 +55,7 @@ end_per_testcase(_TestCase, Config) ->
 
 t_try_consume(_) ->
     ok = emqx_limiter:create_group(shared, group1, [
+        {limiter0, #{capacity => 2, interval => 100, burst_capacity => 0}},
         {limiter1, #{capacity => 2, interval => 100, burst_capacity => 0}}
     ]),
 
@@ -167,6 +168,7 @@ t_concurrent(_) ->
 
 test_concurrent(Capacity, Interval) ->
     ok = emqx_limiter:create_group(shared, group1, [
+        {limiter0, #{capacity => Capacity, interval => Interval, burst_capacity => 0}},
         {limiter1, #{capacity => Capacity, interval => Interval, burst_capacity => 0}}
     ]),
     Self = self(),

@@ -30,6 +30,10 @@
 ]).
 
 -export([
+    create_table/0
+]).
+
+-export([
     init/1,
     handle_call/3,
     handle_cast/2,
@@ -68,30 +72,35 @@
 
 -spec find_bucket(limiter_id()) -> bucket_ref() | undefined.
 find_bucket(LimiterId) ->
-    try ets:lookup(?TABLE, LimiterId) of
-        [#bucket_ref{bucket_ref = BucketRef}] -> BucketRef;
-        [] -> undefined
+    try
+        ets:lookup_element(?TABLE, LimiterId, #bucket_ref.bucket_ref)
     catch
         error:badarg -> undefined
     end.
 
 -spec insert_buckets(group(), [{limiter_id(), bucket_ref()}]) -> ok.
 insert_buckets(Group, Buckets) ->
-    gen_server:call(?MODULE, #insert_buckets{group = Group, buckets = Buckets}).
+    gen_server:call(?MODULE, #insert_buckets{group = Group, buckets = Buckets}, infinity).
 
 -spec delete_buckets(group()) -> ok.
 delete_buckets(Group) ->
-    gen_server:call(?MODULE, #delete_buckets{group = Group}).
+    gen_server:call(?MODULE, #delete_buckets{group = Group}, infinity).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+%%--------------------------------------------------------------------
+%% Internal API
+%%--------------------------------------------------------------------
+
+create_table() ->
+    ok = emqx_utils_ets:new(?TABLE, [named_table, ordered_set, public, {keypos, #bucket_ref.key}]).
 
 %%--------------------------------------------------------------------
 %%  gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_utils_ets:new(?TABLE, [named_table, ordered_set, protected, {keypos, #bucket_ref.key}]),
     {ok, #{}}.
 
 handle_call(
