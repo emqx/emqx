@@ -374,9 +374,10 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    %% TODO: trace these two cases
+    ?TRACE("MQTT", "unexpected_connect_packet", #{conn_state => ConnState}),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
+    ?TRACE("MQTT", "unexpected_connect_packet", #{conn_state => connecting}),
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
     ?EXT_TRACE_CLIENT_CONNECT(
@@ -393,10 +394,15 @@ handle_in(
 ) ->
     try
         case {ReasonCode, ConnState} of
-            {?RC_CONTINUE_AUTHENTICATION, connecting} -> ok;
-            {?RC_CONTINUE_AUTHENTICATION, reauthenticating} -> ok;
-            {?RC_RE_AUTHENTICATE, connected} -> ok;
-            _ -> error(protocol_error)
+            {?RC_CONTINUE_AUTHENTICATION, connecting} ->
+                ok;
+            {?RC_CONTINUE_AUTHENTICATION, reauthenticating} ->
+                ok;
+            {?RC_RE_AUTHENTICATE, connected} ->
+                ok;
+            _ ->
+                ?TRACE("MQTT", "unexpected_auth_packet", #{conn_state => ConnState}),
+                error(protocol_error)
         end,
         case authenticate(Packet, Channel) of
             {ok, NProperties, NChannel} ->
@@ -435,9 +441,10 @@ handle_in(
                     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel)
             end
     end;
-handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
+handle_in(?PACKET(Type), Channel = #channel{conn_state = ConnState}) when
     ConnState =/= connected andalso ConnState =/= reauthenticating
 ->
+    ?TRACE("MQTT", "unexpected_packet", #{type => Type, conn_state => ConnState}),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PUBLISH_PACKET(_QoS, _Topic, _PacketId) = Packet, Channel) ->
     case emqx_packet:check(Packet) of
@@ -448,6 +455,7 @@ handle_in(?PUBLISH_PACKET(_QoS, _Topic, _PacketId) = Packet, Channel) ->
                 [Packet]
             );
         {error, ReasonCode} ->
+            ?TRACE("MQTT", "invalid_publish_packet", #{reason => emqx_reason_codes:name(ReasonCode)}),
             handle_out(disconnect, ReasonCode, Channel)
     end;
 handle_in(
