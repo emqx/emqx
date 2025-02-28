@@ -62,7 +62,7 @@
     emqx_authn_schema,
     emqx_authz_schema,
     emqx_auto_subscribe_schema,
-    {emqx_telemetry_schema, ce},
+    emqx_telemetry_schema,
     emqx_modules_schema,
     emqx_plugins_schema,
     emqx_dashboard_schema,

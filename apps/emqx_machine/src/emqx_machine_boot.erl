@@ -137,13 +137,11 @@ reboot_apps() ->
 basic_reboot_apps() ->
     #{
         common_business_apps := CommonBusinessApps,
-        ee_business_apps := EEBusinessApps,
-        ce_business_apps := CEBusinessApps
+        ee_business_apps := EEBusinessApps
     } = read_apps(),
     EditionSpecificApps =
         case emqx_release:edition() of
             ee -> EEBusinessApps;
-            ce -> CEBusinessApps;
             _ -> []
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,

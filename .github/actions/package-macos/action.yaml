@@ -130,7 +130,6 @@ runs:
         pkg_name=$(find _packages/${{ inputs.profile }} -mindepth 1 -maxdepth 1 -iname \*.zip)
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
-        # gsed -i '/emqx_telemetry/d' ./emqx/data/loaded_plugins
         ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
         ready='no'
         for i in {1..30}; do

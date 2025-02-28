@@ -233,7 +233,8 @@ t_node_uuid(_) ->
 
 t_cluster_uuid(Config) ->
     Node = proplists:get_value(n1, Config),
-    {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(),
+    {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(timer:seconds(10)),
+    ?assertEqual({ok, ClusterUUID0}, emqx_telemetry:get_cluster_uuid(timer:seconds(1))),
     {ok, ClusterUUID1} = emqx_telemetry_proto_v1:get_cluster_uuid(node()),
     ?assertEqual(ClusterUUID0, ClusterUUID1),
     {ok, NodeUUID0} = emqx_telemetry:get_node_uuid(),

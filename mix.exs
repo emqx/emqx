@@ -306,7 +306,7 @@ defmodule EMQXUmbrella.MixProject do
     set_emqx_app_system_env(apps, profile_info, version)
   end
 
-  defp umbrella_apps(profile_info = %{release_type: release_type}) do
+  defp umbrella_apps(%{release_type: release_type}) do
     enterprise_apps = enterprise_umbrella_apps(release_type)
     excluded_apps = excluded_apps(release_type)
 
@@ -324,15 +324,6 @@ defmodule EMQXUmbrella.MixProject do
       dep_spec
       |> elem(0)
       |> then(&MapSet.member?(enterprise_apps, &1))
-    end)
-    |> Enum.reject(fn {app, _} ->
-      case profile_info do
-        %{edition_type: :enterprise} ->
-          app == :emqx_telemetry
-
-        _ ->
-          false
-      end
     end)
     |> Enum.reject(fn {app, _} -> app == :emqx_mix_utils end)
     |> Enum.reject(fn {app, _} -> app in excluded_apps end)
@@ -666,28 +657,18 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
-  def applications(release_type, edition_type) do
+  def applications(_release_type, _edition_type) do
     {:ok,
      [
        %{
          db_apps: db_apps,
          system_apps: system_apps,
          common_business_apps: common_business_apps,
-         ee_business_apps: ee_business_apps,
-         ce_business_apps: ce_business_apps
+         ee_business_apps: ee_business_apps
        }
      ]} = :file.consult("apps/emqx_machine/priv/reboot_lists.eterm")
 
-    edition_specific_apps =
-      if edition_type == :enterprise do
-        ee_business_apps
-      else
-        ce_business_apps
-      end
-
-    business_apps = common_business_apps ++ edition_specific_apps
-
-    excluded_apps = excluded_apps(release_type)
+    business_apps = common_business_apps ++ ee_business_apps
 
     system_apps =
       Enum.map(system_apps, fn app ->
@@ -699,10 +680,6 @@ defmodule EMQXUmbrella.MixProject do
 
     [system_apps, db_apps, [emqx_ctl: :permanent, emqx_machine: :permanent], business_apps]
     |> List.flatten()
-    |> Keyword.reject(fn {app, _type} ->
-      app in excluded_apps ||
-        (edition_type == :enterprise && app == :emqx_telemetry)
-    end)
   end
 
   defp excluded_apps(:standard) do
@@ -764,12 +741,7 @@ defmodule EMQXUmbrella.MixProject do
         |> String.to_atom()
         |> Mix.env()
       else
-        Mix.shell().info([
-          :yellow,
-          "Warning: env var PROFILE is unset; defaulting to emqx"
-        ])
-
-        Mix.env(:emqx)
+        Mix.env(:"emqx-enterprise")
       end
     end
 

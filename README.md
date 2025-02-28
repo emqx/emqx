@@ -13,7 +13,7 @@ English | [简体中文](./README-CN.md) | [Русский](./README-RU.md)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
 
-EMQX is the world's most scalable open-source [MQTT broker](https://www.emqx.com/en/blog/the-ultimate-guide-to-mqtt-broker-comparison) with a high performance that connects 100M+ IoT devices in 1 cluster, while maintaining 1M message per second throughput and sub-millisecond latency.
+EMQX is the world's most scalable [MQTT broker](https://www.emqx.com/en/blog/the-ultimate-guide-to-mqtt-broker-comparison) with a high performance that connects 100M+ IoT devices in 1 cluster, while maintaining 1M message per second throughput and sub-millisecond latency.
 
 EMQX supports multiple open standard protocols like MQTT, HTTP, QUIC, and WebSocket. It’s 100% compliant with MQTT 5.0 and 3.x standard, and secures bi-directional communication with MQTT over TLS/SSL and various authentication mechanisms.
 
@@ -54,7 +54,7 @@ emqx start
 
 If you prefer to install and manage EMQX yourself, you can download the latest version from [the official site](https://www.emqx.com/en/downloads-and-install/broker).
 
-For more installation options, see the [EMQX installation documentation](https://docs.emqx.com/en/emqx/latest/deploy/install-open-source.html).
+For more installation options, see the [EMQX installation documentation](https://docs.emqx.com/en/emqx/latest/deploy/install.html)
 
 ## Documentation
 

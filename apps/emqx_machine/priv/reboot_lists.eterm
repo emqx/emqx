@@ -80,7 +80,8 @@
             emqx_postgresql,
             emqx_plugins,
             quicer,
-            bcrypt
+            bcrypt,
+            emqx_telemetry
         ],
     %% must always be of type `load'
     ee_business_apps =>
@@ -145,8 +146,5 @@
             emqx_cluster_link,
             emqx_ds_builtin_raft,
             emqx_auth_cinfo
-        ],
-    %% must always be of type `load'
-    ce_business_apps =>
-        [emqx_telemetry]
+        ]
 }.

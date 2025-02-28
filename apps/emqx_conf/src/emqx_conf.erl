@@ -163,8 +163,6 @@ dump_schema(Dir, SchemaModule) ->
     ),
     emqx_dashboard:save_dispatch_eterm(SchemaModule).
 
-load(emqx_enterprise_schema, emqx_telemetry) ->
-    ignore;
 load(_, Lib) ->
     case application:load(Lib) of
         ok -> ok;

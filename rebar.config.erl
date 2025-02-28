@@ -429,22 +429,16 @@ overlay_vars_pkg(pkg) ->
         {is_elixir, "no"}
     ].
 
-relx_apps(ReleaseType, Edition) ->
+relx_apps(ReleaseType, _Edition) ->
     {ok, [
         #{
             db_apps := DBApps,
             system_apps := SystemApps,
             common_business_apps := CommonBusinessApps,
-            ee_business_apps := EEBusinessApps,
-            ce_business_apps := CEBusinessApps
+            ee_business_apps := EEBusinessApps
         }
     ]} = file:consult("apps/emqx_machine/priv/reboot_lists.eterm"),
-    EditionSpecificApps =
-        case Edition of
-            ee -> EEBusinessApps;
-            ce -> CEBusinessApps
-        end,
-    BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
+    BusinessApps = CommonBusinessApps ++ EEBusinessApps,
     UnavailableApps = unavailable_apps(ReleaseType),
     Apps =
         [App || App <- SystemApps, not lists:member(App, UnavailableApps)] ++
