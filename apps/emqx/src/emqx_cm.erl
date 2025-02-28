@@ -332,7 +332,7 @@ takeover_session_begin(_ClientId, undefined) ->
 -spec takeover_session_end(takeover_state()) ->
     {ok, _ReplayContext} | {error, _Reason}.
 takeover_session_end({ConnMod, ChanPid}) ->
-    case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
+    case emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid) of
         {ok, Pendings} ->
             {ok, Pendings};
         {error, _} = Error ->
@@ -392,11 +392,7 @@ do_takeover_session(ClientId, Pid) ->
 
 %% Used only by `emqx_session_mem'
 takeover_finish(ConnMod, ChanPid) ->
-    request_stepdown(
-        {takeover, 'end'},
-        ConnMod,
-        ChanPid
-    ).
+    request_stepdown({takeover, 'end'}, ConnMod, ChanPid, ?T_TAKEOVER).
 
 %% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
 %% Used only by `emqx_session_mem'
@@ -405,10 +401,9 @@ takeover_session(ClientId, Pid) ->
         do_takeover_begin(ClientId, Pid)
     catch
         %% request_stepdown/3
-        _:R when R == noproc; R == timeout; R == unexpected_exception ->
+        error:R when R == noproc; R == timeout; R == unexpected_exception ->
             none;
-        % rpc_call/3
-        _:{'EXIT', {noproc, _}} ->
+        error:{erpc, _} ->
             none
     end.
 
@@ -417,7 +412,7 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
         undefined ->
             none;
         ConnMod when is_atom(ConnMod) ->
-            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
+            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid, ?T_TAKEOVER) of
                 {ok, Session} ->
                     {living, ConnMod, ChanPid, Session};
                 {error, Reason} ->
@@ -425,14 +420,7 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
             end
     end;
 do_takeover_begin(ClientId, ChanPid) ->
-    case wrap_rpc(emqx_cm_proto_v2:takeover_session(ClientId, ChanPid)) of
-        %% NOTE: v5.3.0
-        {living, ConnMod, Session} ->
-            {living, ConnMod, ChanPid, Session};
-        %% NOTE: other versions
-        Res ->
-            Res
-    end.
+    emqx_cm_proto_v3:takeover_session(ClientId, ChanPid).
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec discard_session(emqx_types:clientid()) -> ok.
@@ -446,29 +434,19 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% If failed to kick (e.g. timeout) force a kill.
 %% Keeping the stale pid around, or returning error or raise an exception
 %% benefits nobody.
--spec request_stepdown(Action, module(), pid()) ->
+-spec request_stepdown(Action, module(), pid(), timeout()) ->
     ok
     | {ok, emqx_session:t() | _ReplayContext}
     | {error, term()}
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
-request_stepdown(Action, ConnMod, Pid) ->
-    Timeout =
-        case Action == kick orelse Action == discard of
-            true -> ?T_KICK;
-            _ -> ?T_TAKEOVER
-        end,
-    Return =
-        try apply(ConnMod, call, [Pid, Action, Timeout]) of
-            ok -> ok;
-            Reply -> {ok, Reply}
-        catch
-            Err:Reason:St ->
-                handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action)
-        end,
-    case Action == kick orelse Action == discard of
-        true -> ok;
-        _ -> Return
+request_stepdown(Action, ConnMod, Pid, Timeout) ->
+    try apply(ConnMod, call, [Pid, Action, Timeout]) of
+        ok -> ok;
+        Reply -> {ok, Reply}
+    catch
+        Err:Reason:St ->
+            handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action)
     end.
 
 %% The emqx_connection returns `{Reason, {gen_server, call, _}}` on failure, but
@@ -528,7 +506,9 @@ do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
-            ok = request_stepdown(Action, ConnMod, ChanPid)
+            %% NOTE: Ignoring any errors here.
+            _ = request_stepdown(Action, ConnMod, ChanPid, ?T_KICK),
+            ok
     end.
 
 %% @doc RPC Target for emqx_cm_proto_v3:takeover_kick_session/3
@@ -539,7 +519,9 @@ do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
-            ok = request_stepdown(takeover_kick, ConnMod, ChanPid)
+            %% NOTE: Ignoring any errors here.
+            _ = request_stepdown(takeover_kick, ConnMod, ChanPid, ?T_KICK),
+            ok
     end.
 
 %% @private This function is shared for session `kick' and `discard' (as the first arg
@@ -550,9 +532,6 @@ kick_session(Action, ClientId, ChanPid) ->
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
-            %% However, if the node is still running the old version
-            %% code (prior to emqx app 4.3.10) some of the RPC handler
-            %% exceptions may get propagated to a new version node
             ?SLOG(
                 error,
                 #{
@@ -572,9 +551,6 @@ takeover_kick_session(ClientId, ChanPid) ->
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
-            %% However, if the node is still running the old version
-            %% code (prior to emqx app 4.3.10) some of the RPC handler
-            %% exceptions may get propagated to a new version node
             ?SLOG(
                 error,
                 #{
