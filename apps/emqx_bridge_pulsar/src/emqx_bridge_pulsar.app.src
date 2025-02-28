@@ -1,6 +1,6 @@
 {application, emqx_bridge_pulsar, [
     {description, "EMQX Pulsar Bridge"},
-    {vsn, "0.2.8"},
+    {vsn, "0.2.9"},
     {registered, []},
     {applications, [
         kernel,
