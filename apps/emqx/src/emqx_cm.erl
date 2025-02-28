@@ -147,12 +147,6 @@
     (is_binary(CLIENTID) orelse (is_atom(CLIENTID) andalso CLIENTID =/= undefined))
 ).
 
--define(REQ_DOWN_ERR(MOD, PID, ACTION), (#{conn_mod => MOD, stale_pid => PID, action => ACTION})).
-
--define(REQ_DOWN_ERR_CHANNEL_INFO(MOD, PID, ACTION),
-    (?REQ_DOWN_ERR(MOD, PID, ACTION)#{stale_channel => stale_channel_info(PID)})
-).
-
 %% linting overrides
 -elvis([
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
@@ -358,7 +352,7 @@ pick_channel(ClientId) ->
             ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
             lists:foreach(
                 fun(StalePid) ->
-                    catch discard_session(ClientId, StalePid)
+                    discard_session(ClientId, StalePid)
                 end,
                 StalePids
             ),
@@ -479,53 +473,43 @@ request_stepdown(Action, ConnMod, Pid) ->
 
 %% The emqx_connection returns `{Reason, {gen_server, call, _}}` on failure, but
 %% emqx_ws_connection returns `Reason`.
-handle_stepdown_exception(_Err, noproc, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "ws_session_already_gone", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {noproc, _}, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "session_already_gone", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {shutdown, _}, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "ws_session_already_shutdown", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {{shutdown, _}, _}, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "session_already_shutdown", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, killed, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "ws_session_already_killed", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {killed, {gen_server, call, _}}, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "session_already_killed", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, normal, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "ws_session_already_stopped_normally", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {normal, {gen_server, call, _}}, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "session_already_stopped_normally", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, timeout, _St, ConnMod, Pid, Action) ->
-    ErrInfo = ?REQ_DOWN_ERR_CHANNEL_INFO(ConnMod, Pid, Action),
-    ?tp(warning, "ws_session_stepdown_request_timeout", ErrInfo),
-    ok = force_kill(Pid),
-    {error, timeout};
-handle_stepdown_exception(_Err, {timeout, {gen_server, call, _}}, _St, ConnMod, Pid, Action) ->
-    ErrInfo = ?REQ_DOWN_ERR_CHANNEL_INFO(ConnMod, Pid, Action),
-    ?tp(warning, "session_stepdown_request_timeout", ErrInfo),
-    ok = force_kill(Pid),
-    {error, timeout};
+handle_stepdown_exception(Exit, {Reason, {gen_server, _Call, _}}, St, ConnMod, Pid, Action) ->
+    handle_stepdown_exception(Exit, Reason, St, ConnMod, Pid, Action);
 handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action) ->
-    ErroInfo = ?REQ_DOWN_ERR_CHANNEL_INFO(ConnMod, Pid, Action)#{
-        error => Err,
-        reason => Reason,
-        stacktrace => St
+    Meta = #{
+        conn_mod => ConnMod,
+        stale_pid => Pid,
+        action => Action
     },
-    ?tp(error, "session_stepdown_request_exception", ErroInfo),
-    ok = force_kill(Pid),
-    {error, unexpected_exception}.
-
-force_kill(Pid) ->
-    exit(Pid, kill),
-    ok.
+    case Reason of
+        noproc ->
+            ok = ?tp(debug, "session_already_gone", Meta),
+            {error, noproc};
+        normal ->
+            ?tp(debug, "session_already_stopped_normally", Meta),
+            {error, noproc};
+        {shutdown, _} ->
+            ok = ?tp(debug, "session_already_shutdown", Meta),
+            {error, noproc};
+        killed ->
+            ?tp(debug, "session_already_killed", Meta),
+            {error, noproc};
+        timeout ->
+            ?tp(warning, "session_stepdown_request_timeout", Meta#{
+                stale_channel => stale_channel_info(Pid)
+            }),
+            _ = exit(Pid, kill),
+            {error, timeout};
+        _ ->
+            ?tp(error, "session_stepdown_request_exception", Meta#{
+                stale_channel => stale_channel_info(Pid),
+                error => Err,
+                reason => Reason,
+                stacktrace => St
+            }),
+            _ = exit(Pid, kill),
+            {error, unexpected_exception}
+    end.
 
 stale_channel_info(Pid) ->
     process_info(Pid, [status, message_queue_len, current_stacktrace]).
