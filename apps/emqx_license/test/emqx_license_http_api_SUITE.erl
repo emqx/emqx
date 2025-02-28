@@ -20,7 +20,7 @@ all() ->
 init_per_suite(Config) ->
     emqx_license_test_lib:mock_parser(),
     Setting = emqx_license_schema:default_setting(),
-    Key = emqx_license_test_lib:make_license(#{max_connections => "100"}),
+    Key = emqx_license_test_lib:make_license(#{max_sessions => "100"}),
     LicenseConf = maps:merge(#{key => Key}, Setting),
     Apps = emqx_cth_suite:start(
         [
@@ -71,7 +71,7 @@ get_license() ->
     maps:from_list(emqx_license_checker:dump()).
 
 default_license() ->
-    emqx_license_test_lib:make_license(#{max_connections => "100"}).
+    emqx_license_test_lib:make_license(#{max_sessions => "100"}).
 
 reset_license() ->
     {ok, _} = emqx_license:update_key(default_license()),
@@ -82,7 +82,7 @@ reset_license() ->
 
 assert_untouched_license() ->
     ?assertMatch(
-        #{max_connections := 100},
+        #{max_sessions := 100},
         get_license()
     ).
 
@@ -124,7 +124,7 @@ t_set_default_license(_Config) ->
     ok.
 
 t_license_upload_key_success(_Config) ->
-    NewKey = emqx_license_test_lib:make_license(#{max_connections => "999"}),
+    NewKey = emqx_license_test_lib:make_license(#{max_sessions => "999"}),
     Res = request(
         post,
         uri(["license"]),
@@ -147,7 +147,7 @@ t_license_upload_key_success(_Config) ->
         emqx_utils_json:decode(Payload)
     ),
     ?assertMatch(
-        #{max_connections := 999},
+        #{max_sessions := 999},
         get_license()
     ),
     ok.
@@ -235,23 +235,24 @@ t_license_setting(_Config) ->
 t_license_setting_updated_from_cli(_Config) ->
     %% update license from cli
     LicenseValue = binary_to_list(
-        emqx_license_test_lib:make_license(#{max_connections => "201"})
+        emqx_license_test_lib:make_license(#{max_sessions => "201"})
     ),
     _ = emqx_license_cli:license(["update", LicenseValue]),
-    ?assertMatch(#{<<"max_connections">> := 201}, request_dump()),
+    ?assertMatch(#{<<"max_sessions">> := 201}, request_dump()),
     ok.
 
 t_license_setting_bc(_Config) ->
     %% Create a BC license
     Key = emqx_license_test_lib:make_license(#{
         customer_type => "3",
-        max_connections => "33"
+        max_sessions => "33"
     }),
     Res = request(post, uri(["license"]), #{key => Key}),
     ?assertMatch({ok, 200, _}, Res),
     %% for bc customer, before setting dynamic limit,
     %% the default limit is always 25, as if no license
     ?assertMatch(#{<<"max_connections">> := 25}, request_dump()),
+    ?assertMatch(#{<<"max_sessions">> := 25}, request_dump()),
     %% get
     GetRes = request(get, uri(["license", "setting"]), []),
     %% also check that the settings return correctly
@@ -268,12 +269,14 @@ t_license_setting_bc(_Config) ->
     %% assert it's changed to 26
     validate_setting(UpdateRes, Low, High, 26),
     ?assertMatch(#{<<"max_connections">> := 26}, request_dump()),
+    ?assertMatch(#{<<"max_sessions">> := 26}, request_dump()),
     ?assertEqual(26, emqx_config:get([license, dynamic_max_connections])),
     %% Try to set it beyond the limit, it's allowed, but no effect
     Settings2 = Settings#{<<"dynamic_max_connections">> => 99999},
     UpdateRes2 = request(put, uri(["license", "setting"]), Settings2),
     validate_setting(UpdateRes2, Low, High, 99999),
     ?assertMatch(#{<<"max_connections">> := 33}, request_dump()),
+    ?assertMatch(#{<<"max_sessions">> := 33}, request_dump()),
     ?assertEqual(99999, emqx_config:get([license, dynamic_max_connections])),
     ok.
 

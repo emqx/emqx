@@ -30,9 +30,6 @@ license(["update", EncodedLicense]) ->
 license(["info"]) ->
     lists:foreach(
         fun
-            ({max_connections, _V}) ->
-                %% max_sessions will be printed
-                ok;
             ({K, V}) when is_binary(V); is_atom(V); is_list(V) ->
                 ?PRINT("~-16s: ~s~n", [K, V]);
             ({K, V}) ->

@@ -217,7 +217,7 @@ t_dump(_Config) ->
             {customer, <<"Foo">>},
             {email, <<"contact@foo.com">>},
             {deployment, <<"default-deployment">>},
-            {max_connections, 10},
+            {max_sessions, 10},
             {start_at, <<"2022-01-11">>},
             {expiry_at, <<"2295-10-27">>},
             {type, <<"trial">>},
@@ -237,10 +237,10 @@ t_license_type(_Config) ->
 
     ?assertEqual(0, emqx_license_parser:license_type(License)).
 
-t_max_connections(_Config) ->
+t_max_sessions(_Config) ->
     {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 
-    ?assertEqual(10, emqx_license_parser:max_connections(License)).
+    ?assertEqual(10, emqx_license_parser:max_sessions(License)).
 
 t_max_uptime_seconds(_Config) ->
     {ok, LicenseEvaluation} = emqx_license_parser:parse(

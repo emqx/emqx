@@ -54,7 +54,7 @@ t_update(_Config) ->
     _ = emqx_license_cli:license(["update", "Invalid License Value"]).
 
 t_conf_update(_Config) ->
-    LicenseKey = emqx_license_test_lib:make_license(#{max_connections => "123"}),
+    LicenseKey = emqx_license_test_lib:make_license(#{max_sessions => "123"}),
     Conf = #{
         <<"connection_high_watermark">> => <<"50%">>,
         <<"connection_low_watermark">> => <<"45%">>,
@@ -73,7 +73,6 @@ t_conf_update(_Config) ->
     Dump = maps:from_list(emqx_license_checker:dump()),
     ?assertMatch(
         #{
-            max_connections := 123,
             max_sessions := 123
         },
         Dump

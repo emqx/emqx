@@ -41,7 +41,7 @@ make_license(Values0 = #{}) ->
         deployment => "bar-deployment",
         start_date => "20220111",
         days => "100000",
-        max_connections => "10"
+        max_sessions => "10"
     },
     Values1 = maps:merge(Defaults, Values0),
     Keys = [
@@ -53,7 +53,7 @@ make_license(Values0 = #{}) ->
         deployment,
         start_date,
         days,
-        max_connections
+        max_sessions
     ],
     Values = lists:map(fun(K) -> maps:get(K, Values1) end, Keys),
     make_license(Values);

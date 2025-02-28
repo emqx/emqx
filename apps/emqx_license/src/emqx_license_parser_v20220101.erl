@@ -26,7 +26,7 @@
     customer_type/1,
     license_type/1,
     expiry_date/1,
-    max_connections/1,
+    max_sessions/1,
     max_uptime_seconds/1
 ]).
 
@@ -53,7 +53,7 @@ dump(
         email := Email,
         deployment := Deployment,
         date_start := DateStart,
-        max_connections := MaxConns
+        max_sessions := MaxSessions
     } = License
 ) ->
     DateExpiry = expiry_date(License),
@@ -64,7 +64,7 @@ dump(
         {customer, Customer},
         {email, Email},
         {deployment, Deployment},
-        {max_connections, MaxConns},
+        {max_sessions, MaxSessions},
         {start_at, format_date(DateStart)},
         {expiry_at, format_date(DateExpiry)},
         {type, format_type(Type)},
@@ -76,13 +76,13 @@ summary(
     #{
         deployment := Deployment,
         date_start := DateStart,
-        max_connections := MaxConns
+        max_sessions := MaxSessions
     } = License
 ) ->
     DateExpiry = expiry_date(License),
     #{
         deployment => Deployment,
-        max_connections => MaxConns,
+        max_sessions => MaxSessions,
         start_at => format_date(DateStart),
         expiry_at => format_date(DateExpiry)
     }.
@@ -104,8 +104,8 @@ max_uptime_seconds(License) ->
             infinity
     end.
 
-max_connections(#{max_connections := MaxConns}) ->
-    MaxConns.
+max_sessions(#{max_sessions := MaxSessions}) ->
+    MaxSessions.
 
 %%------------------------------------------------------------------------------
 %% Private functions
@@ -141,7 +141,7 @@ parse_payload(Payload) ->
         string:split(string:trim(Payload), <<"\n">>, all)
     ),
     case Lines of
-        [?LICENSE_VERSION, Type, CType, Customer, Email, Deployment, DateStart, Days, MaxConns] ->
+        [?LICENSE_VERSION, Type, CType, Customer, Email, Deployment, DateStart, Days, MaxSessions] ->
             collect_fields([
                 {type, parse_type(Type)},
                 {customer_type, parse_customer_type(CType)},
@@ -150,9 +150,9 @@ parse_payload(Payload) ->
                 {deployment, {ok, Deployment}},
                 {date_start, parse_date_start(DateStart)},
                 {days, parse_days(Days)},
-                {max_connections, parse_max_connections(MaxConns)}
+                {max_sessions, parse_max_sessions(MaxSessions)}
             ]);
-        [_Version, _Type, _CType, _Customer, _Email, _Deployment, _DateStart, _Days, _MaxConns] ->
+        [_Version, _Type, _CType, _Customer, _Email, _Deployment, _DateStart, _Days, _MaxSessions] ->
             {error, invalid_version};
         _ ->
             {error, unexpected_number_of_fields}
@@ -190,9 +190,9 @@ parse_days(DaysStr) ->
         _ -> {error, invalid_int_value}
     end.
 
-parse_max_connections(MaxConnStr) ->
-    case parse_int(MaxConnStr) of
-        {ok, MaxConns} when MaxConns > 0 -> {ok, MaxConns};
+parse_max_sessions(MaxSessionsStr) ->
+    case parse_int(MaxSessionsStr) of
+        {ok, MaxSessions} when MaxSessions > 0 -> {ok, MaxSessions};
         _ -> {error, invalid_connection_limit}
     end.
 
