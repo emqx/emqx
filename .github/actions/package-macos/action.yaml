@@ -109,6 +109,8 @@ runs:
         APPLE_DEVELOPER_IDENTITY: ${{ inputs.apple_developer_identity }}
         APPLE_DEVELOPER_ID_BUNDLE: ${{ inputs.apple_developer_id_bundle }}
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
+        # In above job, OTP is built with --disable-dynamic-ssl-lib and openssl@1.1, QUIC just follow
+        QUICER_TLS_VER: openssl
       shell: bash
       run: |
         export PATH="${{ steps.prepare.outputs.OTP_INSTALL_PATH }}/bin:$PATH"
