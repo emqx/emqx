@@ -25,10 +25,13 @@
     ensure_stopped/2,
     restart/2,
     ensure_disabled/2,
-    ensure_enabled/3
+    ensure_enabled/3,
+    allow_installation/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
+
+-define(BPAPI_NAME, emqx_plugins).
 
 -define(PRINT(EXPR, LOG_FUN),
     print(NameVsn, fun() -> EXPR end(), LOG_FUN, ?FUNCTION_NAME)
@@ -53,6 +56,34 @@ describe(NameVsn, LogFun) ->
             %% do nothing to the CLI console
             ok
     end.
+
+allow_installation(NameVsn, LogFun) ->
+    case emqx_plugins:parse_name_vsn(NameVsn) of
+        {ok, _, _} ->
+            do_allow_installation(NameVsn, LogFun);
+        {error, _} = Error ->
+            ?PRINT(Error, LogFun)
+    end.
+
+do_allow_installation(NameVsn, LogFun) ->
+    Nodes = nodes_supporting_bpapi_version(3),
+    Results = emqx_plugins_proto_v3:allow_installation(Nodes, NameVsn),
+    Errors =
+        lists:filter(
+            fun
+                ({_Node, {ok, ok}}) ->
+                    false;
+                ({_Node, _Error}) ->
+                    true
+            end,
+            lists:zip(Nodes, Results)
+        ),
+    Result =
+        case Errors of
+            [] -> ok;
+            _ -> {error, maps:from_list(Errors)}
+        end,
+    ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_installed(NameVsn), LogFun).
@@ -97,3 +128,13 @@ print(NameVsn, Res, LogFun, Action) ->
                 }
         end,
     LogFun("~ts~n", [to_json(JsonReady)]).
+
+nodes_supporting_bpapi_version(Vsn) ->
+    [
+        N
+     || N <- emqx:running_nodes(),
+        case emqx_bpapi:supported_version(N, ?BPAPI_NAME) of
+            undefined -> false;
+            NVsn when is_number(NVsn) -> NVsn >= Vsn
+        end
+    ].
