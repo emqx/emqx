@@ -71,16 +71,14 @@ get_chann_conn_mod(ClientId, ChanPid) ->
     | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
     %% NOTE: v5.3.0
     | {living, _ConnMod :: atom(), emqx_session:session()}
-    | {expired | persistent, emqx_session:session()}
-    | {badrpc, _}.
+    | {expired | persistent, emqx_session:session()}.
 takeover_session(ClientId, ChanPid) ->
-    rpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
+    erpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
 
 -spec takeover_finish(module(), emqx_cm:chan_pid()) ->
     {ok, emqx_types:takeover_data()}
     | {ok, list(emqx_types:deliver())}
-    | {error, term()}
-    | {badrpc, _}.
+    | {error, term()}.
 takeover_finish(ConnMod, ChanPid) ->
     erpc:call(
         node(ChanPid),
