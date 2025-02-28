@@ -104,7 +104,7 @@
     enqueue/3,
     dequeue/2,
     replay/2,
-    dedup/4
+    dedup/2
 ]).
 
 %% Will message handling
@@ -132,7 +132,7 @@
 }).
 
 -type session() :: #session{}.
--type replayctx() :: [emqx_types:message()].
+-type replayctx() :: _TakeoverState.
 
 -type message() :: emqx_types:message().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -217,15 +217,10 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, SessionRemote, TakeoverState} ->
             Session0 = resume(ClientInfo, SessionRemote),
-            case emqx_cm:takeover_session_end(TakeoverState) of
-                {ok, Pendings} ->
-                    Session1 = resize_inflight(ConnInfo, Session0),
-                    Session = apply_conf(Conf, Session1),
-                    clean_session(ClientInfo, Session, Pendings);
-                {error, _} ->
-                    % TODO log error?
-                    false
-            end;
+            Session1 = resize_inflight(ConnInfo, Session0),
+            Session2 = apply_conf(Conf, Session1),
+            Session = fliter_remote_session(Session2),
+            {true, Session, TakeoverState};
         none ->
             false
     end.
@@ -244,12 +239,9 @@ apply_conf(Conf, Session = #session{}) ->
         await_rel_timeout = maps:get(await_rel_timeout, Conf)
     }.
 
-clean_session(ClientInfo, Session = #session{mqueue = Q}, Pendings) ->
+fliter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
-    Session1 = Session#session{mqueue = Q1},
-    Pendings1 = emqx_session:enrich_delivers(ClientInfo, Pendings, Session),
-    Pendings2 = lists:filter(fun emqx_session:should_keep/1, Pendings1),
-    {true, Session1, Pendings2}.
+    Session#session{mqueue = Q1}.
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -732,7 +724,7 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 
 -spec replay(emqx_types:clientinfo(), replayctx(), session()) ->
     {ok, replies(), session()}.
-replay(ClientInfo, Pendings, Session) ->
+replay(ClientInfo, TakeoverState, Session) ->
     %% NOTE
     %% Here, `Pendings` is a list messages that were pending delivery in the remote
     %% session, see `clean_session/3`. It's a replay context that gets passed back
@@ -747,10 +739,23 @@ replay(ClientInfo, Pendings, Session) ->
     %%    is delivered twice.
     %% 2. Replay deliveries of the inflight messages, this time to the new channel.
     %% 3. Deliver the combined pending messages, following the same logic as `deliver/3`.
-    PendingsAll = dedup(ClientInfo, Pendings, emqx_utils:drain_deliver(), Session),
-    {ok, PubsResendQueued, Session1} = replay(ClientInfo, Session),
-    {ok, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, Session1),
-    {ok, append(PubsResendQueued, PubsPending), Session2}.
+    case emqx_cm:takeover_session_end(TakeoverState) of
+        {ok, PendingsRemote0} ->
+            DeliversLocal = emqx_utils:drain_deliver(),
+            PendingsLocal = emqx_session:enrich_delivers(ClientInfo, DeliversLocal, Session),
+            PendingsRemote = filter_remote_pendings(ClientInfo, Session, PendingsRemote0),
+            PendingsAll = dedup(PendingsRemote, PendingsLocal),
+            {ok, PubsResendQueued, Session1} = replay(ClientInfo, Session),
+            {ok, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, Session1),
+            {ok, append(PubsResendQueued, PubsPending), Session2};
+        {error, _} ->
+            % TODO log error?
+            replay(ClientInfo, Session)
+    end.
+
+filter_remote_pendings(ClientInfo, Session, Pendings) ->
+    Pendings1 = emqx_session:enrich_delivers(ClientInfo, Pendings, Session),
+    lists:filter(fun emqx_session:should_keep/1, Pendings1).
 
 -spec replay(emqx_types:clientinfo(), session()) ->
     {ok, replies(), session()}.
@@ -767,15 +772,14 @@ replay(ClientInfo, Session) ->
     {ok, More, Session1} = dequeue(ClientInfo, Session),
     {ok, append(PubsResend, More), Session1}.
 
--spec dedup(clientinfo(), [emqx_types:message()], [emqx_types:deliver()], session()) ->
+-spec dedup([emqx_types:message()], [emqx_types:message()]) ->
     [emqx_types:message()].
-dedup(ClientInfo, Pendings, DeliversLocal, Session) ->
-    PendingsLocal1 = emqx_session:enrich_delivers(ClientInfo, DeliversLocal, Session),
-    PendingsLocal2 = lists:filter(
+dedup(Pendings, PendingsLocal) ->
+    PendingsLocal1 = lists:filter(
         fun(Msg) -> not lists:keymember(Msg#message.id, #message.id, Pendings) end,
-        PendingsLocal1
+        PendingsLocal
     ),
-    append(Pendings, PendingsLocal2).
+    append(Pendings, PendingsLocal1).
 
 append(L1, []) -> L1;
 append(L1, L2) -> L1 ++ L2.
