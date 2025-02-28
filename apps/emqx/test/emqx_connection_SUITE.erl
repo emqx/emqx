@@ -191,12 +191,6 @@ t_cancel_stats_timer(_) ->
     ?assertEqual(undefined, StatsTimer),
     ?assertEqual(NStats, emqx_connection:cancel_stats_timer(NStats)).
 
-t_append_msg(_) ->
-    ?assertEqual([msg], emqx_connection:append_msg([], [msg])),
-    ?assertEqual([msg], emqx_connection:append_msg([], msg)),
-    ?assertEqual([msg1, msg], emqx_connection:append_msg([msg1], [msg])),
-    ?assertEqual([msg1, msg], emqx_connection:append_msg([msg1], msg)).
-
 t_handle_msg(_) ->
     From = {make_ref(), self()},
     ?assertMatch({ok, _St}, handle_msg({'$gen_call', From, for_testing}, st())),

@@ -129,7 +129,7 @@ t_chan_caps(_) ->
 
 t_handle_in_connect_packet_success(_) ->
     IdleChannel = channel(#{conn_state => idle}),
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
     ClientInfo = emqx_channel:info(clientinfo, Channel),
     ?assertMatch(
@@ -184,7 +184,7 @@ t_handle_in_continue_auth(_) ->
     ConnInfo = emqx_channel:info(conninfo, Channel2),
     Channel3 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel2),
 
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
         emqx_channel:handle_in(
             ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel3
         ).
@@ -322,7 +322,7 @@ t_override_client_receive_maximum(_) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
     ClientCapacity = 2,
-    {ok, [{event, connected}, _ConnAck], C2} =
+    {_Continue, [{event, connected}, _ConnAck], C2} =
         emqx_channel:handle_in(
             ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => ClientCapacity})),
             C1
@@ -476,7 +476,7 @@ t_handle_in_expected_packet(_) ->
 
 t_process_connect(_) ->
     mock_cm_open_session(),
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
         emqx_channel:post_process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
@@ -630,7 +630,7 @@ t_handle_out_publish_1(_) ->
         emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_connack_success(_) ->
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, #{}}, channel()),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
@@ -638,7 +638,7 @@ t_handle_out_connack_response_information(_) ->
     mock_cm_open_session(),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
-    {ok,
+    {continue,
         [
             {event, connected},
             {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}
@@ -652,7 +652,7 @@ t_handle_out_connack_not_response_information(_) ->
     mock_cm_open_session(),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
         emqx_channel:handle_in(
             ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 0})),
             IdleChannel
