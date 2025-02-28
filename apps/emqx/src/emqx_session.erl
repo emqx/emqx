@@ -691,7 +691,7 @@ on_dropped_qos2_msg(PacketId, Msg, RC) ->
 
 %%--------------------------------------------------------------------
 
--spec should_keep(message() | emqx_types:deliver()) -> boolean().
+-spec should_keep(message()) -> boolean().
 should_keep(MsgDeliver) ->
     not is_banned_msg(MsgDeliver).
 
