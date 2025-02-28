@@ -353,6 +353,7 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
 -spec handle_in(emqx_types:packet(), channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
+    | {continue, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
@@ -1339,27 +1340,8 @@ handle_out(Type, Data, Channel) ->
 
 return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel) ->
     ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => _RC}),
-    do_return_connack(AckPacket, Channel).
-
-do_return_connack(AckPacket, Channel) ->
     Replies = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
-    case maybe_resume_session(Channel) of
-        ignore ->
-            {ok, Replies, Channel};
-        {ok, Publishes, NSession} ->
-            NChannel1 = Channel#channel{
-                resuming = false,
-                pendings = [],
-                session = NSession
-            },
-            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
-            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
-            %% NOTE
-            %% Session timers are not restored here, so there's a tiny chance that
-            %% the session becomes stuck, when it already has no place to track new
-            %% messages.
-            {ok, Replies ++ Outgoing, NChannel2}
-    end.
+    {continue, Replies, Channel}.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -1514,8 +1496,29 @@ handle_call(Req, Channel) ->
 %%--------------------------------------------------------------------
 
 -spec handle_info(Info :: term(), channel()) ->
-    ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
+    ok
+    | {ok, channel()}
+    | {ok, replies(), channel()}
+    | {shutdown, Reason :: term(), channel()}.
 
+handle_info(continue, Channel) ->
+    case maybe_resume_session(Channel) of
+        ignore ->
+            ok;
+        {ok, Publishes, NSession} ->
+            NChannel1 = Channel#channel{
+                resuming = false,
+                pendings = [],
+                session = NSession
+            },
+            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
+            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            %% NOTE
+            %% Session timers are not restored here, so there's a tiny chance that
+            %% the session becomes stuck, when it already has no place to track new
+            %% messages.
+            {ok, Outgoing, NChannel2}
+    end;
 handle_info({subscribe, TopicFilters}, Channel) ->
     ?EXT_TRACE_BROKER_SUBSCRIBE(
         ?EXT_TRACE_ATTR(
