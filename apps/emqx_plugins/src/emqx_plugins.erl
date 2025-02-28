@@ -37,6 +37,10 @@
 
 %% Package operations
 -export([
+    allow_installation/1,
+    forget_allowed_installation/1,
+    is_allowed_installation/1,
+
     ensure_installed/0,
     ensure_installed/1,
     ensure_installed/2,
@@ -153,6 +157,28 @@ app_dir(AppName, Apps) ->
         _ ->
             {error, not_found}
     end.
+
+%% Note: this is only used for the HTTP API.
+%% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
+%% seems a non-atom key...
+-spec allow_installation(binary() | string()) -> ok.
+allow_installation(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    _ = persistent_term:put({?MODULE, NameVsn}, true),
+    ok.
+
+%% Note: this is only used for the HTTP API.
+-spec is_allowed_installation(binary() | string()) -> boolean().
+is_allowed_installation(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    persistent_term:get({?MODULE, NameVsn}, false).
+
+%% Note: this is only used for the HTTP API.
+-spec forget_allowed_installation(binary() | string()) -> ok.
+forget_allowed_installation(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    _ = persistent_term:erase({?MODULE, NameVsn}),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Package operations
