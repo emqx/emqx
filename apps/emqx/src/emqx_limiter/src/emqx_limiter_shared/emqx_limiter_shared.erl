@@ -84,7 +84,7 @@
 %% With tokens that cost too little, we extend the time interval by
 %% several tokens at once, putting unused tokens into a separate counter.
 -record(mini_token_mode, {
-    mini_token_per_ms :: pos_integer(),
+    mini_tokens_per_ms :: pos_integer(),
     max_time_us :: pos_integer()
 }).
 
@@ -235,7 +235,7 @@ try_consume(
     end;
 try_consume(
     #{bucket_ref := BucketRef} = State,
-    #mini_token_mode{mini_token_per_ms = MiniTokenPerMs, max_time_us = MaxTimeUs} = Mode,
+    #mini_token_mode{mini_tokens_per_ms = MiniTokensPerMs, max_time_us = MaxTimeUs} = Mode,
     Options,
     Amount,
     NowUs
@@ -248,7 +248,7 @@ try_consume(
             {true, State};
         false ->
             {UsRequired, LeftOver} = amount_to_required_time_and_leftover(
-                MiniTokenPerMs, AmountMini
+                MiniTokensPerMs, AmountMini
             ),
             #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
             LastTimeUs = atomics:get(LastTimeARef, LastTimeIndex),
@@ -344,7 +344,7 @@ calc_mode(#{capacity := Capacity, interval := IntervalMs, burst_capacity := Burs
             };
         false ->
             #mini_token_mode{
-                mini_token_per_ms = (1000 * Capacity) div IntervalMs,
+                mini_tokens_per_ms = (1000 * Capacity) div IntervalMs,
                 max_time_us = MaxTimeUs
             }
     end.
