@@ -22,6 +22,7 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_external_trace.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -799,7 +800,15 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 %% Handle outgoing packets
 %%--------------------------------------------------------------------
 
-handle_outgoing(
+handle_outgoing(Packets, State = #state{channel = _Channel}) ->
+    Res = do_handle_outgoing(Packets, State),
+    _ = ?EXT_TRACE_OUTGOING_STOP(
+        emqx_external_trace:basic_attrs(_Channel),
+        Packets
+    ),
+    Res.
+
+do_handle_outgoing(
     Packets,
     State = #state{
         mqtt_piggyback = MQTTPiggyback,
