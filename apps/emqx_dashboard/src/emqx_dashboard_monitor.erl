@@ -367,12 +367,12 @@ merge_samplers(SinceTime, Increment0, Base) ->
         end,
     maps:fold(fun merge_samplers_loop/3, Base, Increment).
 
-merge_samplers_loop(TS, Increment, Base) when is_map(Increment) ->
-    case maps:get(TS, Base, undefined) of
+merge_samplers_loop(Ts, Increment, Base) when is_map(Increment) ->
+    case maps:get(Ts, Base, undefined) of
         undefined ->
-            Base#{TS => Increment};
+            Base#{Ts => Increment};
         BaseSample when is_map(BaseSample) ->
-            Base#{TS => merge_sampler_maps(Increment, BaseSample)}
+            Base#{Ts => merge_sampler_maps(Increment, BaseSample)}
     end.
 
 merge_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
