@@ -228,6 +228,12 @@ check_license(#{license := License, start_time := StartTime} = _State) ->
             is_max_uptime_reached => IsMaxUptimeReached
         }),
     true = apply_limits(Limits),
+    case emqx_license_parser:license_type(License) of
+        ?SINGLE_NODE ->
+            emqx_cluster:ensure_mode();
+        _ ->
+            ok
+    end,
     #{
         warn_evaluation => warn_evaluation(License, IsOverdue, MaxConn),
         warn_expiry => {(DaysLeft < 0), -DaysLeft}

@@ -990,7 +990,7 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             end),
             {ok, {ok, _}} =
                 ?wait_async_action(
-                    ?ON(N2, ekka:join(N1)),
+                    ?ON(N2, emqx_cluster:join(N1)),
                     #{?snk_kind := "emqx_plugins_app_started"}
                 ),
             ct:pal("checking N1 state"),
