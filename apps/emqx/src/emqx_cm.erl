@@ -147,12 +147,6 @@
     (is_binary(CLIENTID) orelse (is_atom(CLIENTID) andalso CLIENTID =/= undefined))
 ).
 
--define(REQ_DOWN_ERR(MOD, PID, ACTION), (#{conn_mod => MOD, stale_pid => PID, action => ACTION})).
-
--define(REQ_DOWN_ERR_CHANNEL_INFO(MOD, PID, ACTION),
-    (?REQ_DOWN_ERR(MOD, PID, ACTION)#{stale_channel => stale_channel_info(PID)})
-).
-
 %% linting overrides
 -elvis([
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
@@ -338,7 +332,7 @@ takeover_session_begin(_ClientId, undefined) ->
 -spec takeover_session_end(takeover_state()) ->
     {ok, _ReplayContext} | {error, _Reason}.
 takeover_session_end({ConnMod, ChanPid}) ->
-    case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
+    case emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid) of
         {ok, Pendings} ->
             {ok, Pendings};
         {error, _} = Error ->
@@ -398,11 +392,7 @@ do_takeover_session(ClientId, Pid) ->
 
 %% Used only by `emqx_session_mem'
 takeover_finish(ConnMod, ChanPid) ->
-    request_stepdown(
-        {takeover, 'end'},
-        ConnMod,
-        ChanPid
-    ).
+    request_stepdown({takeover, 'end'}, ConnMod, ChanPid, ?T_TAKEOVER).
 
 %% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
 %% Used only by `emqx_session_mem'
@@ -411,10 +401,9 @@ takeover_session(ClientId, Pid) ->
         do_takeover_begin(ClientId, Pid)
     catch
         %% request_stepdown/3
-        _:R when R == noproc; R == timeout; R == unexpected_exception ->
+        error:R when R == noproc; R == timeout; R == unexpected_exception ->
             none;
-        % rpc_call/3
-        _:{'EXIT', {noproc, _}} ->
+        error:{erpc, _} ->
             none
     end.
 
@@ -423,7 +412,7 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
         undefined ->
             none;
         ConnMod when is_atom(ConnMod) ->
-            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
+            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid, ?T_TAKEOVER) of
                 {ok, Session} ->
                     {living, ConnMod, ChanPid, Session};
                 {error, Reason} ->
@@ -431,14 +420,7 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
             end
     end;
 do_takeover_begin(ClientId, ChanPid) ->
-    case wrap_rpc(emqx_cm_proto_v2:takeover_session(ClientId, ChanPid)) of
-        %% NOTE: v5.3.0
-        {living, ConnMod, Session} ->
-            {living, ConnMod, ChanPid, Session};
-        %% NOTE: other versions
-        Res ->
-            Res
-    end.
+    emqx_cm_proto_v3:takeover_session(ClientId, ChanPid).
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec discard_session(emqx_types:clientid()) -> ok.
@@ -452,80 +434,60 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% If failed to kick (e.g. timeout) force a kill.
 %% Keeping the stale pid around, or returning error or raise an exception
 %% benefits nobody.
--spec request_stepdown(Action, module(), pid()) ->
+-spec request_stepdown(Action, module(), pid(), timeout()) ->
     ok
     | {ok, emqx_session:t() | _ReplayContext}
     | {error, term()}
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
-request_stepdown(Action, ConnMod, Pid) ->
-    Timeout =
-        case Action == kick orelse Action == discard of
-            true -> ?T_KICK;
-            _ -> ?T_TAKEOVER
-        end,
-    Return =
-        try apply(ConnMod, call, [Pid, Action, Timeout]) of
-            ok -> ok;
-            Reply -> {ok, Reply}
-        catch
-            Err:Reason:St ->
-                handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action)
-        end,
-    case Action == kick orelse Action == discard of
-        true -> ok;
-        _ -> Return
+request_stepdown(Action, ConnMod, Pid, Timeout) ->
+    try apply(ConnMod, call, [Pid, Action, Timeout]) of
+        ok -> ok;
+        Reply -> {ok, Reply}
+    catch
+        Err:Reason:St ->
+            handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action)
     end.
 
 %% The emqx_connection returns `{Reason, {gen_server, call, _}}` on failure, but
 %% emqx_ws_connection returns `Reason`.
-handle_stepdown_exception(_Err, noproc, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "ws_session_already_gone", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {noproc, _}, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "session_already_gone", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {shutdown, _}, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "ws_session_already_shutdown", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {{shutdown, _}, _}, _St, ConnMod, Pid, Action) ->
-    ok = ?tp(debug, "session_already_shutdown", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, killed, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "ws_session_already_killed", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {killed, {gen_server, call, _}}, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "session_already_killed", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, normal, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "ws_session_already_stopped_normally", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, {normal, {gen_server, call, _}}, _St, ConnMod, Pid, Action) ->
-    ?tp(debug, "session_already_stopped_normally", ?REQ_DOWN_ERR(ConnMod, Pid, Action)),
-    {error, noproc};
-handle_stepdown_exception(_Err, timeout, _St, ConnMod, Pid, Action) ->
-    ErrInfo = ?REQ_DOWN_ERR_CHANNEL_INFO(ConnMod, Pid, Action),
-    ?tp(warning, "ws_session_stepdown_request_timeout", ErrInfo),
-    ok = force_kill(Pid),
-    {error, timeout};
-handle_stepdown_exception(_Err, {timeout, {gen_server, call, _}}, _St, ConnMod, Pid, Action) ->
-    ErrInfo = ?REQ_DOWN_ERR_CHANNEL_INFO(ConnMod, Pid, Action),
-    ?tp(warning, "session_stepdown_request_timeout", ErrInfo),
-    ok = force_kill(Pid),
-    {error, timeout};
+handle_stepdown_exception(Exit, {Reason, {gen_server, _Call, _}}, _St, ConnMod, Pid, Action) ->
+    handle_stepdown_exception(Exit, Reason, _St, ConnMod, Pid, Action);
 handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action) ->
-    ErroInfo = ?REQ_DOWN_ERR_CHANNEL_INFO(ConnMod, Pid, Action)#{
-        error => Err,
-        reason => Reason,
-        stacktrace => St
+    Meta = #{
+        conn_mod => ConnMod,
+        stale_pid => Pid,
+        action => Action
     },
-    ?tp(error, "session_stepdown_request_exception", ErroInfo),
-    ok = force_kill(Pid),
-    {error, unexpected_exception}.
-
-force_kill(Pid) ->
-    exit(Pid, kill),
-    ok.
+    case Reason of
+        noproc ->
+            ok = ?tp(debug, "session_already_gone", Meta),
+            {error, noproc};
+        normal ->
+            ?tp(debug, "session_already_stopped_normally", Meta),
+            {error, noproc};
+        {shutdown, _} ->
+            ok = ?tp(debug, "session_already_shutdown", Meta),
+            {error, noproc};
+        killed ->
+            ?tp(debug, "session_already_killed", Meta),
+            {error, noproc};
+        timeout ->
+            ?tp(warning, "session_stepdown_request_timeout", Meta#{
+                stale_channel => stale_channel_info(Pid)
+            }),
+            _ = exit(Pid, kill),
+            {error, timeout};
+        _ ->
+            ?tp(error, "session_stepdown_request_exception", Meta#{
+                stale_channel => stale_channel_info(Pid),
+                error => Err,
+                reason => Reason,
+                stacktrace => St
+            }),
+            _ = exit(Pid, kill),
+            {error, unexpected_exception}
+    end.
 
 stale_channel_info(Pid) ->
     process_info(Pid, [status, message_queue_len, current_stacktrace]).
@@ -544,7 +506,9 @@ do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
-            ok = request_stepdown(Action, ConnMod, ChanPid)
+            %% NOTE: Ignoring any errors here.
+            _ = request_stepdown(Action, ConnMod, ChanPid, ?T_KICK),
+            ok
     end.
 
 %% @doc RPC Target for emqx_cm_proto_v3:takeover_kick_session/3
@@ -555,7 +519,9 @@ do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
             %% already deregistered
             ok;
         ConnMod when is_atom(ConnMod) ->
-            ok = request_stepdown(takeover_kick, ConnMod, ChanPid)
+            %% NOTE: Ignoring any errors here.
+            _ = request_stepdown(takeover_kick, ConnMod, ChanPid, ?T_KICK),
+            ok
     end.
 
 %% @private This function is shared for session `kick' and `discard' (as the first arg
@@ -566,9 +532,6 @@ kick_session(Action, ClientId, ChanPid) ->
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
-            %% However, if the node is still running the old version
-            %% code (prior to emqx app 4.3.10) some of the RPC handler
-            %% exceptions may get propagated to a new version node
             ?SLOG(
                 error,
                 #{
@@ -588,9 +551,6 @@ takeover_kick_session(ClientId, ChanPid) ->
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
-            %% However, if the node is still running the old version
-            %% code (prior to emqx app 4.3.10) some of the RPC handler
-            %% exceptions may get propagated to a new version node
             ?SLOG(
                 error,
                 #{

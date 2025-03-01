@@ -252,7 +252,8 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             % already have been thrown away by `emqx_channel:handle_deliver/2`.
             % See also: `emqx_channel:maybe_resume_session/1`, `emqx_session_mem:replay/3`.
             DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
-            PendingsAll = emqx_session_mem:dedup(ClientInfo, Pendings, DeliversLocal, Session),
+            PendingsLocal = emqx_session:enrich_delivers(ClientInfo, DeliversLocal, Session),
+            PendingsAll = emqx_session_mem:dedup(Pendings, PendingsLocal),
             NSession = emqx_session_mem:enqueue(ClientInfo, PendingsAll, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
