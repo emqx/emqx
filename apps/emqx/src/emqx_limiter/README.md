@@ -60,7 +60,7 @@ Then, when needed, one consumes tokens from the client:
 case emqx_limiter_client:try_consume(Client0, 10) of
  {true, Client} ->
         %% proceed with the operation
- {false, Client} ->
+ {false, Client, Reason} ->
         %% handle the quota exceeded case
 end.
 ```

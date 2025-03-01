@@ -31,13 +31,16 @@
     state := state()
 }.
 
--export_type([t/0, state/0]).
+-type reason() :: term().
+
+-export_type([t/0, state/0, reason/0]).
 
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------
 
--callback try_consume(state(), non_neg_integer()) -> {boolean(), state()} | boolean().
+-callback try_consume(state(), non_neg_integer()) ->
+    true | {true, state()} | {false, state(), reason()}.
 
 -callback put_back(state(), non_neg_integer()) -> state().
 
@@ -49,13 +52,15 @@
 new(Module, State) ->
     #{module => Module, state => State}.
 
--spec try_consume(t(), non_neg_integer()) -> {boolean(), t()}.
+-spec try_consume(t(), non_neg_integer()) -> {true, t()} | {false, t(), reason()}.
 try_consume(#{module := Module, state := State} = Limiter, Amount) ->
     try Module:try_consume(State, Amount) of
-        {Result, NewState} when is_boolean(Result) ->
-            {Result, Limiter#{state := NewState}};
-        Result when is_boolean(Result) ->
-            {Result, Limiter}
+        true ->
+            {true, Limiter};
+        {true, NewState} ->
+            {true, Limiter#{state := NewState}};
+        {false, NewState, Reason} ->
+            {false, Limiter#{state := NewState}, Reason}
     catch
         error:Reason ->
             ?SLOG_THROTTLE(

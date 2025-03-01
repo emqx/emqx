@@ -71,6 +71,8 @@
 }.
 
 -type microsecond() :: non_neg_integer().
+-type reason() :: emqx_limiter_client:reason().
+
 -export_type([bucket_ref/0, client_state/0]).
 
 %% For tight limits, <1000/s
@@ -117,19 +119,19 @@ update_group(_Group, _LimiterConfigs) ->
     ok.
 
 -spec connect(emqx_limiter:id()) -> emqx_limiter_client:t().
-connect({Group, Name}) ->
-    case emqx_limiter_bucket_registry:find_bucket({Group, Name}) of
+connect(LimiterId) ->
+    case emqx_limiter_bucket_registry:find_bucket(LimiterId) of
         undefined ->
-            error({bucket_not_found, {Group, Name}});
-        #{last_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
+            error({bucket_not_found, LimiterId});
+        #{last_time_aref := LastTimeARef, last_burst_time_index := LastBurstTimeIndex} =
                 BucketRef ->
-            Options = emqx_limiter_registry:get_limiter_options({Group, Name}),
+            Options = emqx_limiter_registry:get_limiter_options(LimiterId),
             emqx_limiter_client:new(
                 ?MODULE,
                 _State = #{
-                    limiter_id => {Group, Name},
+                    limiter_id => LimiterId,
                     bucket_ref => BucketRef,
-                    last_burst_time => atomics:get(LastBurstTimeARef, LastBurstTimeIndex),
+                    last_burst_time => atomics:get(LastTimeARef, LastBurstTimeIndex),
                     mode => calc_mode(Options),
                     options => Options
                 }
@@ -140,22 +142,31 @@ connect({Group, Name}) ->
 %% emqx_limiter_client callbacks
 %%--------------------------------------------------------------------
 
--spec try_consume(client_state(), non_neg_integer()) -> boolean().
+-spec try_consume(client_state(), non_neg_integer()) ->
+    true | {true, client_state()} | {false, client_state(), reason()}.
 try_consume(#{limiter_id := LimiterId} = State, Amount) ->
     Options = emqx_limiter_registry:get_limiter_options(LimiterId),
     case Options of
         #{capacity := infinity} ->
             true;
         _ ->
-            {Result, State1} = try_consume_with_actual_mode(
-                State, Options, Amount, now_us_monotonic()
-            ),
+            Result =
+                case
+                    try_consume_with_actual_mode(
+                        State, Options, Amount, now_us_monotonic()
+                    )
+                of
+                    {true = Success, State1} ->
+                        {true, State1};
+                    {false = Success, State1} ->
+                        {false, State1, {failed_to_consume_from_limiter, LimiterId}}
+                end,
             ?tp(limiter_shared_try_consume, #{
                 limiter_id => LimiterId,
                 amount => Amount,
-                result => Result
+                success => Success
             }),
-            {Result, State1}
+            Result
     end.
 
 -spec put_back(client_state(), non_neg_integer()) -> client_state().
@@ -288,9 +299,9 @@ try_consume_burst(
     Amount,
     NowUs
 ) ->
-    #{last_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
+    #{last_time_aref := LastTimeARef, last_burst_time_index := LastBurstTimeIndex} =
         BucketRef,
-    LastBurstTimeUs = atomics:get(LastBurstTimeARef, LastBurstTimeIndex),
+    LastBurstTimeUs = atomics:get(LastTimeARef, LastBurstTimeIndex),
     case NowUs < LastBurstTimeUs + BurstIntervalMs * 1000 of
         true ->
             %% Some other process has granted burst tokens recently, so we can't grant any more.
@@ -305,11 +316,8 @@ apply_burst_and_consume(#{bucket_ref := BucketRef} = State, Mode, Options, Amoun
     ok = apply_burst(Mode, Options, BucketRef, NowUs),
     try_consume_regular(State#{last_burst_time := NowUs}, Mode, Options, Amount, NowUs).
 
-apply_burst(_Mode, #{capacity := infinity}, _BucketRef, _NowUs) ->
-    ok;
 apply_burst(Mode, _Options, BucketRef, NowUs) ->
     #{
-        last_time_aref := LastBurstTimeARef,
         last_burst_time_index := LastBurstTimeIndex,
         last_time_aref := LastTimeARef,
         last_time_index := LastTimeIndex
@@ -330,7 +338,7 @@ apply_burst(Mode, _Options, BucketRef, NowUs) ->
     %% amount of tokens. So some free tokens are not a deal.
     %% For very strict limits, one should operate with regular capacity only.
     ok = atomics:put(LastTimeARef, LastTimeIndex, LastTimeUsNew),
-    ok = atomics:put(LastBurstTimeARef, LastBurstTimeIndex, NowUs).
+    ok = atomics:put(LastTimeARef, LastBurstTimeIndex, NowUs).
 
 advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) ->
     #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
@@ -357,6 +365,7 @@ advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) ->
 now_us_monotonic() ->
     erlang:monotonic_time(microsecond).
 
+%% Do not re-calculate the mode if Options did not change
 mode(#{options := Options, mode := Mode} = State, Options) ->
     {Mode, State};
 mode(State, NewOptions) ->
@@ -364,7 +373,7 @@ mode(State, NewOptions) ->
     {Mode, State#{mode := Mode}}.
 
 calc_mode(#{capacity := infinity}) ->
-    #token_mode{us_per_token = 1000, max_time_us = 1000};
+    #token_mode{us_per_token = 1, max_time_us = 1};
 calc_mode(#{capacity := Capacity, interval := IntervalMs, burst_capacity := BurstCapacity}) ->
     FullCapacity = Capacity + BurstCapacity,
     MaxTimeUs = (1000 * IntervalMs * FullCapacity) div Capacity,

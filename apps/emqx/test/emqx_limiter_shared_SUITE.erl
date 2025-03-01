@@ -66,15 +66,19 @@ t_try_consume(_) ->
     %% Consume both tokens concurrently
     {true, ClientA1} = emqx_limiter_client:try_consume(ClientA0, 1),
     {true, ClientB1} = emqx_limiter_client:try_consume(ClientB0, 1),
-    {false, ClientA2} = emqx_limiter_client:try_consume(ClientA1, 1),
-    {false, ClientB2} = emqx_limiter_client:try_consume(ClientB1, 1),
+    {false, ClientA2, {failed_to_consume_from_limiter, {group1, limiter1}}} = emqx_limiter_client:try_consume(
+        ClientA1, 1
+    ),
+    {false, ClientB2, {failed_to_consume_from_limiter, {group1, limiter1}}} = emqx_limiter_client:try_consume(
+        ClientB1, 1
+    ),
     ct:sleep(110),
 
     %% Capacity should be refilled
     {true, ClientA3} = emqx_limiter_client:try_consume(ClientA2, 1),
     {true, ClientB3} = emqx_limiter_client:try_consume(ClientB2, 1),
-    {false, _ClientA4} = emqx_limiter_client:try_consume(ClientA3, 1),
-    {false, _ClientB4} = emqx_limiter_client:try_consume(ClientB3, 1).
+    {false, _ClientA4, _} = emqx_limiter_client:try_consume(ClientA3, 1),
+    {false, _ClientB4, _} = emqx_limiter_client:try_consume(ClientB3, 1).
 
 t_try_consume_burst(_) ->
     ok = emqx_limiter:create_group(shared, group1, [
@@ -91,13 +95,13 @@ t_try_consume_burst(_) ->
         Client0,
         lists:seq(1, 10)
     ),
-    {false, Client2} = emqx_limiter_client:try_consume(Client1, 1),
+    {false, Client2, _} = emqx_limiter_client:try_consume(Client1, 1),
 
     ct:sleep(110),
     %% Only regularly refilled tokens are available
     {true, Client3} = emqx_limiter_client:try_consume(Client2, 1),
     {true, Client4} = emqx_limiter_client:try_consume(Client3, 1),
-    {false, Client5} = emqx_limiter_client:try_consume(Client4, 1),
+    {false, Client5, _} = emqx_limiter_client:try_consume(Client4, 1),
 
     ct:sleep(900),
     %% Burst tokens are available again
@@ -119,14 +123,14 @@ t_put_back(_) ->
     Client0 = emqx_limiter:connect({group1, limiter1}),
     {true, Client1} = emqx_limiter_client:try_consume(Client0, 1),
     {true, Client2} = emqx_limiter_client:try_consume(Client1, 1),
-    {false, Client3} = emqx_limiter_client:try_consume(Client2, 1),
+    {false, Client3, _} = emqx_limiter_client:try_consume(Client2, 1),
 
     %% Put back one token
     Client4 = emqx_limiter_client:put_back(Client3, 1),
 
     %% Check if the token is refilled back
     {true, Client5} = emqx_limiter_client:try_consume(Client4, 1),
-    {false, _Client6} = emqx_limiter_client:try_consume(Client5, 1).
+    {false, _Client6, _} = emqx_limiter_client:try_consume(Client5, 1).
 
 t_change_options(_) ->
     ok = emqx_limiter:create_group(shared, group1, [
@@ -136,7 +140,7 @@ t_change_options(_) ->
     %% Create a client and consume tokens
     Client0 = emqx_limiter:connect({group1, limiter1}),
     {true, Client1} = emqx_limiter_client:try_consume(Client0, 1),
-    {false, Client2} = emqx_limiter_client:try_consume(Client1, 1),
+    {false, Client2, _} = emqx_limiter_client:try_consume(Client1, 1),
 
     %% Change the options, increase the capacity and interval
     ok = emqx_limiter:update_group(group1, [
@@ -147,7 +151,7 @@ t_change_options(_) ->
     ct:sleep(210),
     {true, Client3} = emqx_limiter_client:try_consume(Client2, 1),
     {true, Client4} = emqx_limiter_client:try_consume(Client3, 1),
-    {false, Client5} = emqx_limiter_client:try_consume(Client4, 1),
+    {false, Client5, _} = emqx_limiter_client:try_consume(Client4, 1),
 
     %% infinite capacity should be applied immediately
     ok = emqx_limiter:update_group(group1, [
@@ -161,6 +165,23 @@ t_change_options(_) ->
         Client5,
         lists:seq(1, 10)
     ).
+
+t_change_options_from_unlimited(_) ->
+    %% Create a client and consume tokens
+    ok = emqx_limiter:create_group(shared, group1, [
+        {limiter1, #{capacity => infinity}}
+    ]),
+    Client0 = emqx_limiter:connect({group1, limiter1}),
+    {true, Client1} = emqx_limiter_client:try_consume(Client0, 1),
+
+    %% Change the options, set finite capacity
+    ok = emqx_limiter:update_group(group1, [
+        {limiter1, #{capacity => 100, interval => 200, burst_capacity => 0}}
+    ]),
+
+    %% Check that the bucket is correctly converted and the client can still consume tokens
+    ct:sleep(210),
+    {true, _Client2} = emqx_limiter_client:try_consume(Client1, 1).
 
 t_concurrent(_) ->
     ok = test_concurrent(33333, 1000),
@@ -212,7 +233,7 @@ consume_till(Client, Deadline, Consumed) ->
             case emqx_limiter_client:try_consume(Client, 1) of
                 {true, Client1} ->
                     consume_till(Client1, Deadline, Consumed + 1);
-                {false, Client1} ->
+                {false, Client1, _} ->
                     consume_till(Client1, Deadline, Consumed)
             end
     end.

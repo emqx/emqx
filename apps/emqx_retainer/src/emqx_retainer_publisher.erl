@@ -69,12 +69,13 @@ store_retained(#message{topic = Topic, payload = Payload} = Msg) ->
             case WithinLimits of
                 true ->
                     ?tp(retain_within_limit, #{topic => Topic});
-                false ->
+                {false, Reason} ->
                     ?tp(retain_failed_for_rate_exceeded_limit, #{topic => Topic}),
                     ?SLOG_THROTTLE(warning, #{
                         msg => retain_failed_for_rate_exceeded_limit,
                         topic => Topic,
-                        config => "retainer.max_publish_rate"
+                        config => "retainer.max_publish_rate",
+                        reason => Reason
                     })
             end
     end.
@@ -89,12 +90,13 @@ delete_message(Topic) ->
     case WithinLimits of
         true ->
             ok;
-        false ->
+        {false, Reason} ->
             ?tp(retained_delete_failed_for_rate_exceeded_limit, #{topic => Topic}),
             ?SLOG_THROTTLE(info, #{
                 msg => retained_delete_failed_for_rate_exceeded_limit,
                 topic => Topic,
-                config => "retainer.max_publish_rate"
+                config => "retainer.max_publish_rate",
+                reason => Reason
             })
     end.
 
@@ -108,8 +110,8 @@ with_limiter(Fun) ->
         {true, _Client} ->
             Fun(),
             true;
-        {false, _Client} ->
-            false
+        {false, _Client, Reason} ->
+            {false, Reason}
     end.
 
 payload_size_limit() ->

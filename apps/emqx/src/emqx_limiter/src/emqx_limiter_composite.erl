@@ -28,6 +28,9 @@
 
 -type t() :: emqx_limiter_client:t().
 -type state() :: [emqx_limiter_client:t()].
+-type reason() :: emqx_limiter_client:reason().
+
+-export_type([t/0, state/0, reason/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -41,7 +44,7 @@ new(Clients) ->
 %% emqx_limiter_client
 %%--------------------------------------------------------------------
 
--spec try_consume(state(), non_neg_integer()) -> {boolean(), state()}.
+-spec try_consume(state(), non_neg_integer()) -> {true, state()} | {false, state(), reason()}.
 try_consume(Clients, Amount) ->
     consume_from_clients(Clients, Amount, []).
 
@@ -59,8 +62,8 @@ consume_from_clients([Client | Rest], Amount, ClientsConsumed) ->
     case emqx_limiter_client:try_consume(Client, Amount) of
         {true, NewClient} ->
             consume_from_clients(Rest, Amount, [NewClient | ClientsConsumed]);
-        {false, NewClient} ->
-            {false, put_back_to_clients([NewClient | Rest], Amount, ClientsConsumed)}
+        {false, NewClient, Reason} ->
+            {false, put_back_to_clients([NewClient | Rest], Amount, ClientsConsumed), Reason}
     end.
 
 put_back_to_clients(Clients, _Amount, []) ->
