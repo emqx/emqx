@@ -28,7 +28,7 @@
     Config :: config().
 format(
     #{level := debug, meta := _Meta = #{trace_tag := _Tag}, msg := _Msg} = Entry,
-    #{payload_encode := PEncode}
+    #{payload_fmt_opts := PayloadFmtOpts}
 ) ->
     #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg} =
         emqx_logger_textfmt:evaluate_lazy_values(Entry),
@@ -40,52 +40,52 @@ format(
         end,
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
-    MetaBin = format_meta(Meta, PEncode),
+    MetaBin = format_meta(Meta, PayloadFmtOpts),
     Msg1 = to_iolist(Msg),
     Tag1 = to_iolist(Tag),
     [Time, " [", Tag1, "] ", ClientId, "@", Peername, Tns, " msg: ", Msg1, ", ", MetaBin, "\n"];
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
-format_meta_map(Meta, Encode) ->
-    format_meta_map(Meta, Encode, [
+format_meta_map(Meta, PayloadFmtOpts) ->
+    format_meta_map(Meta, PayloadFmtOpts, [
         {packet, fun format_packet/2},
         {payload, fun format_payload/2},
         {<<"payload">>, fun format_payload/2}
     ]).
 
-format_meta_map(Meta, _Encode, []) ->
+format_meta_map(Meta, _PayloadFmtOpts, []) ->
     Meta;
-format_meta_map(Meta, Encode, [{Name, FormatFun} | Rest]) ->
+format_meta_map(Meta, PayloadFmtOpts, [{Name, FormatFun} | Rest]) ->
     case Meta of
         #{Name := Value} ->
             NewMeta =
-                case FormatFun(Value, Encode) of
+                case FormatFun(Value, PayloadFmtOpts) of
                     {NewValue, NewMeta0} ->
                         maps:merge(Meta#{Name => NewValue}, NewMeta0);
                     NewValue ->
                         Meta#{Name => NewValue}
                 end,
-            format_meta_map(NewMeta, Encode, Rest);
+            format_meta_map(NewMeta, PayloadFmtOpts, Rest);
         #{} ->
-            format_meta_map(Meta, Encode, Rest)
+            format_meta_map(Meta, PayloadFmtOpts, Rest)
     end.
 
-format_meta_data(Meta0, Encode) when is_map(Meta0) ->
-    Meta1 = format_meta_map(Meta0, Encode),
-    maps:map(fun(_K, V) -> format_meta_data(V, Encode) end, Meta1);
-format_meta_data(Meta, Encode) when is_list(Meta) ->
-    [format_meta_data(Item, Encode) || Item <- Meta];
-format_meta_data(Meta, Encode) when is_tuple(Meta) ->
+format_meta_data(Meta0, PayloadFmtOpts) when is_map(Meta0) ->
+    Meta1 = format_meta_map(Meta0, PayloadFmtOpts),
+    maps:map(fun(_K, V) -> format_meta_data(V, PayloadFmtOpts) end, Meta1);
+format_meta_data(Meta, PayloadFmtOpts) when is_list(Meta) ->
+    [format_meta_data(Item, PayloadFmtOpts) || Item <- Meta];
+format_meta_data(Meta, PayloadFmtOpts) when is_tuple(Meta) ->
     List = erlang:tuple_to_list(Meta),
-    FormattedList = [format_meta_data(Item, Encode) || Item <- List],
+    FormattedList = [format_meta_data(Item, PayloadFmtOpts) || Item <- List],
     erlang:list_to_tuple(FormattedList);
-format_meta_data(Meta, _Encode) ->
+format_meta_data(Meta, _PayloadFmtOpts) ->
     Meta.
 
-format_meta(Meta0, Encode) ->
+format_meta(Meta0, PayloadFmtOpts) ->
     Meta1 = maps:without([msg, tns, clientid, peername, trace_tag], Meta0),
-    Meta2 = format_meta_data(Meta1, Encode),
+    Meta2 = format_meta_data(Meta1, PayloadFmtOpts),
     kvs_to_iolist(lists:sort(fun compare_meta_kvs/2, maps:to_list(Meta2))).
 
 %% packet always goes first; payload always goes last
@@ -97,9 +97,9 @@ weight({K, _}) -> {1, K}.
 
 format_packet(undefined, _) ->
     "";
-format_packet(Packet, Encode) ->
+format_packet(Packet, PayloadFmtOpts) ->
     try
-        emqx_packet:format(Packet, Encode)
+        emqx_packet:format(Packet, PayloadFmtOpts)
     catch
         _:_ ->
             %% We don't want to crash if there is a field named packet with
@@ -107,12 +107,12 @@ format_packet(Packet, Encode) ->
             Packet
     end.
 
-format_payload(undefined, Type) ->
+format_payload(undefined, #{payload_encode := Type}) ->
     {"", #{payload_encode => Type}};
-format_payload(Payload, Type) when is_binary(Payload) ->
-    {Payload1, Type1} = emqx_packet:format_payload(Payload, Type),
+format_payload(Payload, PayloadFmtOpts) when is_binary(Payload) ->
+    {Payload1, Type1} = emqx_packet:format_payload(Payload, PayloadFmtOpts),
     {Payload1, #{payload_encode => Type1}};
-format_payload(Payload, Type) ->
+format_payload(Payload, #{payload_encode := Type}) ->
     {Payload, #{payload_encode => Type}}.
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
