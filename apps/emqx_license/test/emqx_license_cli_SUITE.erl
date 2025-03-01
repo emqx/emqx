@@ -9,7 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
-
+-include_lib("emqx_license.hrl").
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -65,7 +65,7 @@ t_conf_update(_Config) ->
         #{
             connection_high_watermark => 0.5,
             connection_low_watermark => 0.45,
-            dynamic_max_connections => 25,
+            dynamic_max_connections => ?DEFAULT_MAX_SESSIONS_CTYPE3,
             key => LicenseKey
         },
         emqx:get_config([license])

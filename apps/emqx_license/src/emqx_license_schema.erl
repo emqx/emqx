@@ -98,17 +98,15 @@ check_license_watermark(Conf) ->
     end.
 
 %% @doc The default license key.
-%% This default license has 25 connections limit.
-%% Issued on 2024-04-18 and valid for 5 years (1825 days)
+%% This default license is of single-node type and has 10M sessions limit.
+%% Issued on 2025-03-01 and valid for 4 years (1460 days)
 %%
 %% NOTE: when updating a new key, below should be updated accordingly:
-%% - emqx_license_schema.hocon default connections limit
-%% - default(dynamic_max_connections) return value
+%% - emqx_license_schema.hocon default sessions limit
 default_license() ->
     <<
-        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KdHJpYWwKMjAyNDA0MTgKMTgyNQoyNQo="
-        "."
-        "MEUCICMWWkfrvyMwQaQAOXEsEcs+d6+5uXc1BDxR7j25fRy4AiEAmblQ4p+FFmdsvnKgcRRkv1zj7PExmZKVk3mVcxH3fgw="
+        "MjIwMTExCjIKMTEKRGV2ZWxvcGVyCmNvbnRhY3RAZW1xeC5pbwpEZXZlbG9wbWVudAoyMDI1MDMwMgoxNDYwCjAK."
+        "MEUCIQCCyEkOUIFDop1/69mU3UoAGOTraIh+jYn5ZineZbZq+gIgIlkVl0h0aqajY8QtkxrXbdN3N8a3rPPluBxt+d2o3lM="
     >>.
 
 %% @doc Exported for testing
@@ -133,5 +131,4 @@ default(connection_low_watermark) ->
 default(connection_high_watermark) ->
     <<"80%">>;
 default(dynamic_max_connections) ->
-    %Must match the value encoded in default license.
-    ?DEFAULT_TRIAL_SESSIONS_LIMIT.
+    ?DEFAULT_MAX_SESSIONS_CTYPE3.

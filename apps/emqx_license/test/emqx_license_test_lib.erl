@@ -34,14 +34,14 @@ test_key(Filename, Format) ->
 make_license(Values0 = #{}) ->
     Defaults = #{
         license_format => "220111",
-        license_type => "0",
-        customer_type => "10",
+        license_type => "2",
+        customer_type => "11",
         name => "Foo",
         email => "contact@foo.com",
         deployment => "bar-deployment",
         start_date => "20220111",
         days => "100000",
-        max_sessions => "10"
+        max_sessions => "0"
     },
     Values1 = maps:merge(Defaults, Values0),
     Keys = [
