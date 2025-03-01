@@ -39,7 +39,8 @@
     update_plugin/2,
     plugin_config/2,
     plugin_schema/2,
-    update_boot_order/2
+    update_boot_order/2,
+    sync_plugin/2
 ]).
 
 -export([
@@ -51,7 +52,9 @@
     describe_package/1,
     ensure_action/2,
     ensure_action/3,
-    do_update_plugin_config/3
+    do_update_plugin_config/3,
+    ensure_existed/1,
+    sync_plugin_cluster/2
 ]).
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
@@ -77,7 +80,8 @@ paths() ->
         "/plugins/:name/:action",
         "/plugins/:name/config",
         "/plugins/:name/schema",
-        "/plugins/:name/move"
+        "/plugins/:name/move",
+        "/plugins/cluster_sync"
     ].
 
 schema("/plugins") ->
@@ -245,6 +249,25 @@ schema("/plugins/:name/move") ->
                 400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
             }
         }
+    };
+schema("/plugins/cluster_sync") ->
+    #{
+        'operationId' => sync_plugin,
+        post => #{
+            summary => <<"Sync specific version of plugin from given node">>,
+            description => "Sync specific version of plugin on all nodes from the given node.",
+            tags => ?TAGS,
+            'requestBody' => sync_request_body(),
+            responses => #{
+                204 => <<"Sync plugin successfully">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_PLUGIN_INFO'], <<"Bad Plugin Name Vsn">>
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], <<"Plugin Not Found">>
+                )
+            }
+        }
     }.
 
 fields(plugin) ->
@@ -351,6 +374,14 @@ fields(position) ->
                 }
             )}
     ];
+fields(sync_request) ->
+    [
+        {name,
+            hoconsc:mk(string(), #{
+                example => "emqx_plugin_demo-5.1-rc.2",
+                required => true
+            })}
+    ];
 fields(running_status) ->
     [
         {node, hoconsc:mk(string(), #{example => "emqx@127.0.0.1"})},
@@ -382,6 +413,17 @@ move_request_body() ->
             move_to_after => #{
                 summary => <<"move plugin after other plugins">>,
                 value => #{position => <<"after:emqx_plugin_demo-5.1-rc.2">>}
+            }
+        }
+    ).
+
+sync_request_body() ->
+    emqx_dashboard_swagger:schema_with_examples(
+        hoconsc:ref(?MODULE, sync_request),
+        #{
+            sync_from_node => #{
+                summary => <<"sync specific version of plugin to cluster">>,
+                value => #{name => <<"emqx_plugin_demo-5.1-rc.2">>}
             }
         }
     ).
@@ -558,6 +600,33 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
             end
     end.
 
+sync_plugin(post, #{body := Body}) ->
+    case parse_sync_plugin_name(Body) of
+        {ok, NameVsn} ->
+            ?SLOG(debug, #{
+                msg => "sync_plugin_to_cluster",
+                keep_namevsn => NameVsn
+            }),
+            case ensure_existed(NameVsn) of
+                ok ->
+                    case
+                        emqx_mgmt_api_plugins_proto_v4:sync_plugin_cluster(
+                            emqx:running_nodes(), node(), NameVsn
+                        )
+                    of
+                        {_Res, []} -> {204};
+                        {_Res, BadNodes} -> {400, plugin_sync_failed_msg(BadNodes)}
+                    end;
+                {error, {plugin_error, _Reason}} ->
+                    {404, plugin_not_found_msg()}
+            end;
+        {error, {plugin_error, Reason}} ->
+            {404, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => Reason
+            }}
+    end.
+
 %% API CallBack End
 
 %% For RPC upload_install/2
@@ -608,11 +677,6 @@ delete_package(Name, _Opts) ->
 ensure_action(Name, Action) ->
     ensure_action(Name, Action, #{}).
 
-%% for RPC plugin update
-%% TODO: catch thrown error to return 400
-%% - plugin_not_found
-%% - otp vsn assertion failed
-
 ensure_action(Name, start, _Opts) ->
     _ = emqx_plugins:ensure_started(Name),
     _ = emqx_plugins:ensure_enabled(Name),
@@ -635,6 +699,23 @@ do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
     %% TODO: maybe use `AvroValue` to validate config
     emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
 
+%% for RPC plugin ensure existed
+-spec ensure_existed(name_vsn()) -> ok | {error, term()}.
+ensure_existed(NameVsn) ->
+    case emqx_plugins:ensure_installed(NameVsn) of
+        ok -> ok;
+        {error, _} -> {error, {plugin_error, <<"Plugin Not Found">>}}
+    end.
+
+%% for RPC plugin sync
+-spec sync_plugin_cluster(node(), name_vsn()) -> ok.
+sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
+    _ = emqx_plugins:maybe_purge_others(NameVsn),
+    ok;
+sync_plugin_cluster(Node, NameVsn) ->
+    _ = emqx_plugins:maybe_purge_others(NameVsn),
+    emqx_plugins:get_plugin_tar_from_node(Node, NameVsn).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -656,6 +737,17 @@ plugin_not_found_msg() ->
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
 
+plugin_sync_failed_msg(Nodes) ->
+    #{
+        code => 'BAD_PLUGIN_INFO',
+        message => iolist_to_binary(
+            io_lib:format(
+                "Failed to sync plugin on nodes: ~p",
+                [Nodes]
+            )
+        )
+    }.
+
 parse_position(#{<<"position">> := <<"front">>}, _) ->
     front;
 parse_position(#{<<"position">> := <<"rear">>}, _) ->
@@ -674,6 +766,17 @@ parse_position(#{<<"position">> := <<"after:", After/binary>>}, _Name) ->
     {behind, binary_to_list(After)};
 parse_position(Position, _) ->
     {error, iolist_to_binary(io_lib:format("~p", [Position]))}.
+
+-spec parse_sync_plugin_name(map()) -> {ok, string()} | {error, term()}.
+parse_sync_plugin_name(#{<<"name">> := Name}) ->
+    parse_sync_plugin_name(Name);
+parse_sync_plugin_name(Name) ->
+    case emqx_plugins:parse_name_vsn(Name) of
+        {ok, _AppName, _Vsn} ->
+            {ok, binary_to_list(Name)};
+        {error, _} ->
+            {error, {plugin_error, <<"Bad Plugin Name Vsn">>}}
+    end.
 
 format_plugins(List) ->
     StatusMap = aggregate_status(List),
