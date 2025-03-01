@@ -99,7 +99,7 @@ broker(_) ->
 %% @doc Cluster with other nodes
 
 cluster(["join", SNode]) ->
-    case ekka:join(ekka_node:parse_name(SNode)) of
+    case emqx_cluster:join(ekka_node:parse_name(SNode)) of
         ok ->
             emqx_ctl:print("Join the cluster successfully.~n"),
             %% FIXME: running status on the replicant immediately
@@ -118,7 +118,7 @@ cluster(["leave"]) ->
     case length(Safeguards) of
         0 ->
             _ = maybe_disable_autocluster(),
-            case ekka:leave() of
+            case emqx_cluster:leave() of
                 ok ->
                     emqx_ctl:print("Leave the cluster successfully.~n"),
                     cluster(["status"]);
@@ -144,7 +144,7 @@ cluster(["leave"]) ->
     end;
 cluster(["force-leave", SNode]) ->
     Node = ekka_node:parse_name(SNode),
-    case ekka:force_leave(Node) of
+    case emqx_cluster:force_leave(Node) of
         ok ->
             case emqx_cluster_rpc:force_leave_clean(Node) of
                 ok ->
