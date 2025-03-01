@@ -199,13 +199,18 @@ deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
         {true, Limiter1} ->
             ok = deliver_to_client(Batch, Pid, Topic),
             deliver_in_batches(RestMsgs, BatchSize, Pid, Topic, Limiter1);
-        {false, _NLimiter1} = Drop ->
-            ?SLOG(debug, #{
-                msg => "retained_message_dropped",
-                reason => "reached_ratelimit",
-                dropped_count => BatchActualSize
-            }),
-            Drop
+        {false, Limiter1, Reason} ->
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => retained_dispatch_failed_for_rate_exceeded_limit,
+                    reason => Reason,
+                    topic => Topic,
+                    dropped_count => BatchActualSize
+                },
+                #{tag => "RETAINER"}
+            ),
+            {false, Limiter1}
     end.
 
 deliver_to_client([Msg | Rest], Pid, Topic) ->

@@ -26,8 +26,9 @@
 ]).
 
 -type t() :: #{emqx_limiter:name() => emqx_limiter_client:t()}.
+-type reason() :: emqx_limiter_client:reason().
 
--export_type([t/0]).
+-export_type([t/0, reason/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -37,7 +38,8 @@
 new(Clients) ->
     maps:from_list(Clients).
 
--spec try_consume(t(), [{emqx_limiter:name(), non_neg_integer()}]) -> {boolean(), t()}.
+-spec try_consume(t(), [{emqx_limiter:name(), non_neg_integer()}]) ->
+    {true, t()} | {false, t(), reason()}.
 try_consume(Container, Needs) ->
     try_consume_from_clients(Container, Needs, []).
 
@@ -55,8 +57,8 @@ try_consume_from_clients(Container, [{Name, Amount} | Rest], Consumed) ->
                     try_consume_from_clients(Container#{Name => NewClient}, Rest, [
                         {Name, Amount} | Consumed
                     ]);
-                {false, NewClient} ->
-                    {false, put_back_to_clients(Container#{Name => NewClient}, Consumed)}
+                {false, NewClient, Reason} ->
+                    {false, put_back_to_clients(Container#{Name => NewClient}, Consumed), Reason}
             end;
         _ ->
             error({limiter_not_found_in_container, Name})

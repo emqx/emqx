@@ -74,13 +74,14 @@ consume(Amount, #{limiter_client := LimiterClient0} = State) ->
     case emqx_limiter_client:try_consume(LimiterClient0, Amount) of
         {true, LimiterClient} ->
             {ok, State#{limiter_client := LimiterClient}};
-        {false, LimiterClient} ->
-            ?tp(esockd_limiter_consume_pause, #{amount => Amount}),
+        {false, LimiterClient, Reason} ->
+            ?tp(esockd_limiter_consume_pause, #{amount => Amount, reason => Reason}),
             ?SLOG_THROTTLE(
                 warning,
                 #{
                     msg => listener_accept_throttled_due_to_quota_exceeded,
-                    pause_interval => ?PAUSE_INTERVAL
+                    pause_interval => ?PAUSE_INTERVAL,
+                    reason => Reason
                 },
                 #{tag => "LISTENER"}
             ),

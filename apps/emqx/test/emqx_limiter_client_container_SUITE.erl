@@ -64,10 +64,11 @@ t_try_consume(_) ->
     ]),
 
     %% Try to consume 2 tokens from each limiter, but the second limiter has only 1 available
-    {false, Container1} = emqx_limiter_client_container:try_consume(
-        Container0,
-        [{limiter1, 2}, {limiter2, 2}]
-    ),
+    {false, Container1, {failed_to_consume_from_limiter, {group1, limiter2}}} =
+        emqx_limiter_client_container:try_consume(
+            Container0,
+            [{limiter1, 2}, {limiter2, 2}]
+        ),
 
     %% Check that the tokens were put back into the limiters are available
     {true, _Container2} = emqx_limiter_client_container:try_consume(

@@ -90,7 +90,7 @@ t_max_message_rate_listener(_Config) ->
             ct:sleep(550),
             spawn_publisher(100, 1)
         end,
-        #{?snk_kind := limiter_exclusive_try_consume, result := false},
+        #{?snk_kind := limiter_exclusive_try_consume, success := false},
         10_000
     ).
 
@@ -101,7 +101,7 @@ t_max_message_rate_zone(_Config) ->
             ct:sleep(550),
             spawn_publisher(100, 1)
         end,
-        #{?snk_kind := limiter_shared_try_consume, result := false},
+        #{?snk_kind := limiter_shared_try_consume, success := false},
         10_000
     ).
 
@@ -112,7 +112,7 @@ t_bytes_rate_listener(_Config) ->
             ct:sleep(550),
             spawn_publisher(100, 1)
         end,
-        #{?snk_kind := limiter_exclusive_try_consume, result := false},
+        #{?snk_kind := limiter_exclusive_try_consume, success := false},
         10_000
     ).
 
@@ -123,7 +123,7 @@ t_bytes_rate_zone(_Config) ->
             ct:sleep(550),
             spawn_publisher(100, 1)
         end,
-        #{?snk_kind := limiter_shared_try_consume, result := false},
+        #{?snk_kind := limiter_shared_try_consume, success := false},
         10_000
     ).
 
@@ -134,7 +134,7 @@ t_metrics_quota_exceeded(_Config) ->
             ct:sleep(550),
             spawn_publisher(100, 0)
         end,
-        #{?snk_kind := limiter_shared_try_consume, result := false},
+        #{?snk_kind := limiter_shared_try_consume, success := false},
         10_000
     ),
     ?retry(

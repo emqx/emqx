@@ -37,9 +37,9 @@ First, one creates a limiter group:
 
 ```erlang
 emqx_limiter:create_group(
-    shared,
- {zone, default},
- [{messages, #{rate => {100, 1000}}}, {bytes, #{rate => {100000, 1000}}}]
+       shared,
+       {zone, default},
+       [{messages, #{rate => {100, 1000}}}, {bytes, #{rate => {100000, 1000}}}]
 ).
 ```
 
@@ -60,7 +60,7 @@ Then, when needed, one consumes tokens from the client:
 case emqx_limiter_client:try_consume(Client0, 10) of
  {true, Client} ->
         %% proceed with the operation
- {false, Client} ->
+ {false, Client, Reason} ->
         %% handle the quota exceeded case
 end.
 ```
@@ -93,4 +93,4 @@ The client state is owned by the client process.
 
 For exclusive limiters, the bucket state is a part of the client state. The client itself refills the bucket algorithmically based on the bucket settings.
 
-For shared limiters, the bucket state is represented via `counters` and is managed by a dedicated process (`emqx_limiter_allocator`). The client only holds a reference to the bucket.
+For shared limiters, the bucket state is modeled via atomic values which provide consistent consumption of tokens.
