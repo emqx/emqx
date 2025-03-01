@@ -26,21 +26,29 @@
     "========================================================================\n"
 ).
 
--define(OFFICIAL, 1).
 -define(TRIAL, 0).
+-define(OFFICIAL, 1).
+-define(SINGLE_NODE, 2).
 
 -define(SMALL_CUSTOMER, 0).
 -define(MEDIUM_CUSTOMER, 1).
 -define(LARGE_CUSTOMER, 2).
 -define(BUSINESS_CRITICAL_CUSTOMER, 3).
 -define(BYOC_CUSTOMER, 4).
+-define(EDUCATION_NONPROFIT_CUSTOMER, 5).
 -define(EVALUATION_CUSTOMER, 10).
+-define(DEVELOPMENT_CUSTOMER, 11).
 
 -define(EXPIRED_DAY, -90).
 
 -define(ERR_EXPIRED, expired).
 -define(ERR_MAX_UPTIME, max_uptime_reached).
 
--define(DEFAULT_TRIAL_SESSIONS_LIMIT, 25).
+%% The default max_sessions limit for 'single-node' license type.
+-define(DEFAULT_MAX_SESSIONS_LTYPE2, 10_000_000).
+
+%% The default max_sessions limit for business-critical customer
+%% before dynamic_max_connections set.
+-define(DEFAULT_MAX_SESSIONS_CTYPE3, 25).
 
 -endif.

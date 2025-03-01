@@ -142,15 +142,16 @@ parse_payload(Payload) ->
     ),
     case Lines of
         [?LICENSE_VERSION, Type, CType, Customer, Email, Deployment, DateStart, Days, MaxSessions] ->
+            TypeParseRes = parse_type(Type),
             collect_fields([
-                {type, parse_type(Type)},
+                {type, TypeParseRes},
                 {customer_type, parse_customer_type(CType)},
                 {customer, {ok, Customer}},
                 {email, {ok, Email}},
                 {deployment, {ok, Deployment}},
                 {date_start, parse_date_start(DateStart)},
                 {days, parse_days(Days)},
-                {max_sessions, parse_max_sessions(MaxSessions)}
+                {max_sessions, parse_max_sessions(TypeParseRes, MaxSessions)}
             ]);
         [_Version, _Type, _CType, _Customer, _Email, _Deployment, _DateStart, _Days, _MaxSessions] ->
             {error, invalid_version};
@@ -190,8 +191,14 @@ parse_days(DaysStr) ->
         _ -> {error, invalid_int_value}
     end.
 
-parse_max_sessions(MaxSessionsStr) ->
+parse_max_sessions(TypeParseRes, MaxSessionsStr) ->
+    IsSingleNode =
+        case TypeParseRes of
+            {ok, ?SINGLE_NODE} -> true;
+            _ -> false
+        end,
     case parse_int(MaxSessionsStr) of
+        {ok, 0} when IsSingleNode -> {ok, ?DEFAULT_MAX_SESSIONS_LTYPE2};
         {ok, MaxSessions} when MaxSessions > 0 -> {ok, MaxSessions};
         _ -> {error, invalid_connection_limit}
     end.
@@ -229,5 +236,6 @@ format_date({Year, Month, Day}) ->
         )
     ).
 
+format_type(?SINGLE_NODE) -> <<"single_node">>;
 format_type(?OFFICIAL) -> <<"official">>;
 format_type(?TRIAL) -> <<"trial">>.
