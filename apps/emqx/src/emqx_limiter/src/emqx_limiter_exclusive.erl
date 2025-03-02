@@ -52,6 +52,8 @@
     last_burst_time := millisecond()
 }.
 
+-type reason() :: emqx_limiter_client:reason().
+
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
@@ -89,16 +91,22 @@ connect({_Group, _Name} = LimiterId) ->
 %% emqx_limiter_client API
 %%--------------------------------------------------------------------
 
--spec try_consume(state(), number()) -> {boolean(), state()}.
+-spec try_consume(state(), number()) -> {true, state()} | {false, state(), reason()}.
 try_consume(#{limiter_id := LimiterId} = State0, Amount) ->
     LimiterOptions = emqx_limiter_registry:get_limiter_options(LimiterId),
-    {Result, State1} = try_consume(State0, Amount, LimiterOptions),
+    Result =
+        case try_consume(State0, Amount, LimiterOptions) of
+            {true = Success, State1} ->
+                {true, State1};
+            {false = Success, State1} ->
+                {false, State1, {failed_to_consume_from_limiter, LimiterId}}
+        end,
     ?tp(limiter_exclusive_try_consume, #{
         limiter_id => LimiterId,
         amount => Amount,
-        result => Result
+        success => Success
     }),
-    {Result, State1}.
+    Result.
 
 -spec put_back(state(), number()) -> state().
 put_back(#{tokens := Tokens} = State, Amount) ->

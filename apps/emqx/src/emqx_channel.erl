@@ -628,14 +628,6 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ?SLOG_THROTTLE(
-                warning,
-                #{
-                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
-                    reason => emqx_reason_codes:name(Rc)
-                },
-                #{topic => Topic, tag => "QUOTA"}
-            ),
             ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
             case QoS of
                 ?QOS_0 ->
@@ -2350,18 +2342,24 @@ packing_alias(Packet, Channel) ->
 %% Check quota state
 
 check_quota_exceeded(
-    ?PUBLISH_PACKET(_QoS, _Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
+    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
 ) ->
-    {Result, Quota2} = emqx_limiter_client_container:try_consume(
+    Result = emqx_limiter_client_container:try_consume(
         Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
     ),
-    NChann = Chann#channel{quota = Quota2},
-
     case Result of
-        true ->
-            {ok, NChann};
-        _ ->
-            {error, ?RC_QUOTA_EXCEEDED, NChann}
+        {true, Quota2} ->
+            {ok, Chann#channel{quota = Quota2}};
+        {false, Quota2, Reason} ->
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
+                    reason => Reason
+                },
+                #{topic => Topic, tag => "QUOTA"}
+            ),
+            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
     end.
 
 %%--------------------------------------------------------------------
