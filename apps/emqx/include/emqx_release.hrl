@@ -17,8 +17,8 @@
 %% NOTE: this is the release version which is not always the same
 %% as the emqx app version defined in emqx.app.src
 %% App (plugin) versions are bumped independently.
-%% e.g. EMQX_RELEASE_CE being 4.3.1 does no always imply emqx app
-%% should be 4.3.1, as it might be the case that only one of the
+%% e.g. EMQX_RELEASE_EE being 5.9.0 does not always imply emqx app
+%% should be 5.9.0, as it might be the case that only one of the
 %% plugins had a bug to fix. So for a hot beam upgrade, only the app
 %% with beam files changed needs an upgrade.
 
@@ -28,7 +28,7 @@
 %% (Major.Minor.Patch), and extra info can be added after a final
 %% hyphen.
 
-%% NOTE: ALso make sure to follow the instructions in end of
+%% NOTE: Also make sure to follow the instructions in end of
 %% `apps/emqx/src/bpapi/README.md'
 
 %% Opensource edition
