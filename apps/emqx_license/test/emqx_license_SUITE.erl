@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_license.hrl").
 
 -define(LIMIT, 10).
 
@@ -178,10 +179,14 @@ t_import_config(_Config) ->
         emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"default">>}})
     ),
     ?assertEqual(default, emqx:get_config([license, key])),
-    ?assertMatch({ok, #{max_sessions := 10}}, emqx_license_checker:limits()),
+    ?assertMatch(
+        {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_LTYPE2}}, emqx_license_checker:limits()
+    ),
 
     %% Import to a new license
-    EncodedLicense = emqx_license_test_lib:make_license(#{max_sessions => "100"}),
+    EncodedLicense = emqx_license_test_lib:make_license(#{
+        license_type => "1", max_sessions => "100"
+    }),
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
         emqx_license:import_config(
@@ -196,6 +201,10 @@ t_import_config(_Config) ->
         )
     ),
     ?assertMatch({ok, #{max_sessions := 100}}, emqx_license_checker:limits()),
+    ?assertMatch(
+        #{type := <<"official">>, max_sessions := 100},
+        maps:from_list(emqx_license_checker:dump())
+    ),
     ?assertMatch(
         #{connection_low_watermark := 0.2, connection_high_watermark := 0.5},
         emqx:get_config([license])

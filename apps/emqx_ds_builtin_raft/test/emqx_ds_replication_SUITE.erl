@@ -737,7 +737,7 @@ t_rebalance_tolerate_lost(Config) ->
     %% This will lead to a situation when DB is residing on out-of-cluster nodes only.
     ok = emqx_cth_cluster:stop_node(N1),
     _ = ?retry(200, 5, [N2, N3] = ?ON(N2, mria:cluster_nodes(running))),
-    ok = ?ON(N2, ekka:force_leave(N1)),
+    ok = ?ON(N2, emqx_cluster:force_leave(N1)),
     ok = timer:sleep(1_000),
 
     ct:pal("DS Status [lost node holding the data]:", []),
@@ -832,8 +832,8 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
             ?retry(200, 5, [N1] = ?ON(N1, mria:cluster_nodes(running))),
-            ok = ?ON(N1, ekka:force_leave(N3)),
-            ok = ?ON(N1, ekka:force_leave(N4)),
+            ok = ?ON(N1, emqx_cluster:force_leave(N3)),
+            ok = ?ON(N1, emqx_cluster:force_leave(N4)),
             ok = timer:sleep(1_000),
 
             %% Tell the cluster that S3 is not responsible for the data anymore.
