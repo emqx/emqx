@@ -7,23 +7,35 @@
 -ifndef(_EMQX_LICENSE_).
 -define(_EMQX_LICENSE_, true).
 
+-define(SINGLE_NODE_LICENSE_LOG,
+    "\n"
+    "==============================================================================\n"
+    "Using a single-node development license.\n"
+    "This license is not permitted for production use.\n"
+    "Visit https://www.emqx.com/apply-licenses/emqx?version=5 to apply license for:\n"
+    " - Production use\n"
+    " - Education and Non-profit use (clustered deployment, free of charge)\n"
+    "==============================================================================\n"
+).
+
+%% The new license key since 5.9 is not a trial license, but a single-node license.
+%% In case someone uses the old license key, we will print this log.
 -define(EVALUATION_LOG,
     "\n"
-    "========================================================================\n"
+    "==================================================================================\n"
     "Using an evaluation license limited to ~p concurrent sessions.\n"
     "This license is for evaluation purposes only and not permitted for production use.\n"
-    "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply a new license.\n"
-    "Or contact EMQ customer services via email contact@emqx.io\n"
-    "========================================================================\n"
+    "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply a license.\n"
+    "==================================================================================\n"
 ).
 
 -define(EXPIRY_LOG,
     "\n"
-    "========================================================================\n"
+    "============================================================================\n"
     "License has been expired for ~p days.\n"
     "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply a new license.\n"
     "Or contact EMQ customer services via email contact@emqx.io\n"
-    "========================================================================\n"
+    "============================================================================\n"
 ).
 
 -define(TRIAL, 0).
