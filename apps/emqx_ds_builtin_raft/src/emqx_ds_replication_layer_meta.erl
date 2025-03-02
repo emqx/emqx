@@ -896,6 +896,8 @@ run_migrations() ->
     run_migrations(emqx_release:version()).
 
 run_migrations(_Version = "5.8." ++ _) ->
+    run_migrations_e58();
+run_migrations(_Version = "5.9." ++ _) ->
     run_migrations_e58().
 
 ensure_site() ->
