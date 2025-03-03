@@ -19,6 +19,7 @@ export QUICER_TLS_VER ?= sys
 
 -include default-profile.mk
 PROFILE ?= emqx-enterprise
+export PROFILE
 REL_PROFILES := emqx-enterprise
 PKG_PROFILES := emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
