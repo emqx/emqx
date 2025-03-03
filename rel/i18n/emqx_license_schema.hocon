@@ -26,7 +26,7 @@ key_field {
 
         - Direct Key: Enter the secret key directly as a string value.
         - File Path: Specify the path to a file that contains the secret key. Ensure the path starts with `file://`.
-        - "default": Use string value `default` to apply the default single-node developer license.
+        - "default": Use string value `default` to apply the default single-node community license.
 
         Note: An invalid license key or an incorrect file path may prevent EMQX from starting successfully.
         If a file path is used, EMQX attempts to reload the license key from the file every 2 minutes.
@@ -40,7 +40,8 @@ license_root {
     desc: """~
         Defines the EMQX Enterprise license.
 
-        EMQX is initially provided with a default single-node developer license.
+        EMQX is initially provided with a default single-node community license.
+        The default license is not permitted for commercial use.
 
         Apply for an official license here: https://www.emqx.com/apply-licenses/emqx?version=5~"""
 }

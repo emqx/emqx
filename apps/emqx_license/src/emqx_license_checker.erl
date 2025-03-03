@@ -229,19 +229,19 @@ check_license(#{license := License, start_time := StartTime} = _State) ->
         }),
     true = apply_limits(Limits),
     case emqx_license_parser:license_type(License) of
-        ?SINGLE_NODE ->
+        ?COMMUNITY ->
             emqx_cluster:ensure_mode();
         _ ->
             ok
     end,
     #{
-        warn_default => warn_default(License),
+        warn_default => warn_community(License),
         warn_evaluation => warn_evaluation(License, IsOverdue, MaxConn),
         warn_expiry => {(DaysLeft < 0), -DaysLeft}
     }.
 
-warn_default(License) ->
-    emqx_license_parser:license_type(License) == ?SINGLE_NODE.
+warn_community(License) ->
+    emqx_license_parser:license_type(License) == ?COMMUNITY.
 
 warn_evaluation(License, false, MaxConn) ->
     {emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER, MaxConn};
@@ -333,13 +333,13 @@ expiry_early_alarm(License) ->
     end.
 
 print_warnings(State) ->
-    ok = print_single_node_warning(State),
+    ok = print_community_warning(State),
     ok = print_evaluation_warning(State),
     ok = print_expiry_warning(State).
 
-print_single_node_warning(#{warn_default := true}) ->
-    io:format(?SINGLE_NODE_LICENSE_LOG);
-print_single_node_warning(_) ->
+print_community_warning(#{warn_default := true}) ->
+    io:format(?COMMUNITY_LICENSE_LOG);
+print_community_warning(_) ->
     ok.
 
 print_evaluation_warning(#{warn_evaluation := {true, MaxConn}}) ->

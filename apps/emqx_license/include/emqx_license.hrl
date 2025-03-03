@@ -7,18 +7,18 @@
 -ifndef(_EMQX_LICENSE_).
 -define(_EMQX_LICENSE_, true).
 
--define(SINGLE_NODE_LICENSE_LOG,
+-define(COMMUNITY_LICENSE_LOG,
     "\n"
     "==============================================================================\n"
-    "Using a single-node development license.\n"
-    "This license is not permitted for production use.\n"
-    "Visit https://www.emqx.com/apply-licenses/emqx?version=5 to apply license for:\n"
-    " - Production use\n"
-    " - Education and Non-profit use (clustered deployment, free of charge)\n"
+    "Using a single-node community license!\n"
+    "This license is not permitted for commercial use.\n"
+    "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply license for:\n"
+    " - Commercial use\n"
+    " - Education or Non-profit use (clustered deployment, free of charge)\n"
     "==============================================================================\n"
 ).
 
-%% The new license key since 5.9 is not a trial license, but a single-node license.
+%% The new license key since 5.9 is not a trial license, but a community license.
 %% In case someone uses the old license key, we will print this log.
 -define(EVALUATION_LOG,
     "\n"
@@ -40,7 +40,7 @@
 
 -define(TRIAL, 0).
 -define(OFFICIAL, 1).
--define(SINGLE_NODE, 2).
+-define(COMMUNITY, 2).
 
 -define(SMALL_CUSTOMER, 0).
 -define(MEDIUM_CUSTOMER, 1).
@@ -56,7 +56,7 @@
 -define(ERR_EXPIRED, expired).
 -define(ERR_MAX_UPTIME, max_uptime_reached).
 
-%% The default max_sessions limit for 'single-node' license type.
+%% The default max_sessions limit for 'community' license type.
 -define(DEFAULT_MAX_SESSIONS_LTYPE2, 10_000_000).
 
 %% The default max_sessions limit for business-critical customer

@@ -101,7 +101,7 @@ t_license_info(_Config) ->
             <<"expiry_at">> := <<"2295-10-27">>,
             <<"max_sessions">> := 100,
             <<"start_at">> := <<"2022-01-11">>,
-            <<"type">> := <<"single_node">>
+            <<"type">> := <<"community">>
         },
         emqx_utils_json:decode(Payload)
     ),
@@ -139,7 +139,7 @@ t_license_upload_key_success(_Config) ->
             <<"expiry_at">> := <<"2295-10-27">>,
             <<"max_sessions">> := 999,
             <<"start_at">> := <<"2022-01-11">>,
-            <<"type">> := <<"single_node">>
+            <<"type">> := <<"community">>
         },
         emqx_utils_json:decode(Payload)
     ),

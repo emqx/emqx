@@ -53,6 +53,6 @@ is_single_node_mode() ->
     end.
 
 %% @doc Set the cluster mode to single node mode.
-%% Called by license checker for single-node type license.
+%% Called by license checker for community license.
 ensure_mode() ->
     application:set_env(emqx, cluster_mode, ?DEFAULT_MODE).

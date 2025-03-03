@@ -194,7 +194,7 @@ parse_days(DaysStr) ->
 parse_max_sessions(TypeParseRes, MaxSessionsStr) ->
     IsSingleNode =
         case TypeParseRes of
-            {ok, ?SINGLE_NODE} -> true;
+            {ok, ?COMMUNITY} -> true;
             _ -> false
         end,
     case parse_int(MaxSessionsStr) of
@@ -236,6 +236,6 @@ format_date({Year, Month, Day}) ->
         )
     ).
 
-format_type(?SINGLE_NODE) -> <<"single_node">>;
+format_type(?COMMUNITY) -> <<"community">>;
 format_type(?OFFICIAL) -> <<"official">>;
 format_type(?TRIAL) -> <<"trial">>.

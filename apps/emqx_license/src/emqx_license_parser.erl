@@ -32,7 +32,7 @@
     | ?BYOC_CUSTOMER
     | ?EVALUATION_CUSTOMER.
 
--type license_type() :: ?OFFICIAL | ?TRIAL | ?SINGLE_NODE.
+-type license_type() :: ?OFFICIAL | ?TRIAL | ?COMMUNITY.
 
 -type license() :: #{
     %% the parser module which parsed the license
