@@ -1,33 +1,10 @@
 %% -*- mode: erlang -*-
-Profile = case os:getenv("PROFILE") of
-            "emqx-enterprise" ++ _ ->
-              ee;
-            "emqx-platform" ++ _ ->
-              platform;
-            false ->
-              io:format(user, "WARN: environment variable PROFILE is not set, using 'emqx-enterprise'~n", []),
-              ee;
-            _ ->
-              ce
-          end,
-
-Backends = case Profile of
-             ce ->
-               [emqx_ds_builtin_local];
-             ee ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft];
-             platform ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft, emqx_fdb_ds, emqx_ds_fdb_backend]
-           end,
-
-io:format(user, "DS backends available for this release (~p): ~0p~n", [Profile, Backends]),
-
 {application, emqx_ds_backends, [
     {description, "A placeholder application that depends on all available DS backends"},
     % strict semver, bump manually!
     {vsn, "0.1.0"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib, emqx_durable_storage | Backends]},
-    {env, [{available_backends, Backends}]}
+    {applications, [kernel, stdlib, emqx_durable_storage, emqx_ds_builtin_local, emqx_ds_builtin_raft]},
+    {env, [{available_backends, [emqx_ds_builtin_local, emqx_ds_builtin_raft]}]}
 ]}.

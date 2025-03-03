@@ -404,19 +404,6 @@ defmodule EMQXUmbrella.MixProject do
     ])
   end
 
-  defp enterprise_umbrella_apps(:platform) do
-    MapSet.union(
-      enterprise_umbrella_apps(:standard),
-      MapSet.new([
-        :emqx_fdb_ds,
-        :emqx_fdb_cli,
-        :emqx_fdb_management,
-        :emqx_event_history,
-        :emqx_ds_fdb_backend
-      ])
-    )
-  end
-
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
@@ -683,22 +670,6 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp excluded_apps(:standard) do
-    %{
-      mnesia_rocksdb: enable_rocksdb?(),
-      quicer: enable_quicer?(),
-      jq: enable_jq?(),
-      observer: is_app?(:observer),
-      emqx_fdb_ds: false,
-      emqx_fdb_cli: false,
-      emqx_fdb_management: false,
-      emqx_event_history: false,
-      emqx_ds_fdb_backend: false
-    }
-    |> Enum.reject(&elem(&1, 1))
-    |> Enum.map(&elem(&1, 0))
-  end
-
-  defp excluded_apps(:platform) do
     %{
       mnesia_rocksdb: enable_rocksdb?(),
       quicer: enable_quicer?(),

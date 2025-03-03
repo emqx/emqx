@@ -20,11 +20,7 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
--ifdef(BUILD_WITH_FDB).
--define(SETUP_MOD, emqx_persistent_session_ds_SUITE_fdb_surrogate).
--else.
 -define(SETUP_MOD, ?MODULE).
--endif.
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate

@@ -96,7 +96,7 @@ init_per_group(persistent_sessions, Config) ->
             Yes
     end;
 init_per_group(common = Group, Config0) ->
-    DurableSessionsOpts = #{<<"enable">> => emqx_common_test_helpers:is_platform()},
+    DurableSessionsOpts = #{<<"enable">> => false},
     Opts = #{
         durable_sessions_opts => DurableSessionsOpts,
         work_dir => emqx_cth_suite:work_dir(Group, Config0)
@@ -138,13 +138,7 @@ init_per_testcase(t_smoke_test_monitor_multiple_windows = TestCase, Config0) ->
     ok = snabbkaffe:start_trace(),
     Config;
 init_per_testcase(t_monitor_current_shared_subscription, Config) ->
-    %% TODO: durable sessions only use emqx_ds_shared_sub, which is currenlty stubbed.
-    case emqx_common_test_helpers:skip_if_platform() of
-        false ->
-            init_per_testcase(common, Config);
-        Skip ->
-            Skip
-    end;
+    init_per_testcase(common, Config);
 init_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     ct:timetrap({seconds, 30}),

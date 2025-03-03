@@ -1035,28 +1035,10 @@ delete(DB, It0, Selector, BatchSize, Acc) ->
 all() ->
     [{group, Backend} || Backend <- backends()].
 
-exclude(emqx_ds_fdb_backend) ->
-    [
-        %% Atomic operations and preconditions are not supported:
-        t_09_atomic_store_batch,
-        t_11_batch_preconditions,
-        t_12_batch_precondition_conflicts,
-        %% Deletions are not supported at this moment:
-        t_smoke_delete_next,
-        %% FIXME: this test shouldn't pass for ANY backend (as
-        %% `update_config' call must not create a new generation by
-        %% itself), investigate why it does for builtins:
-        t_07_smoke_update_config
-    ];
-exclude(_) ->
-    [].
-
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    [{Backend, TCs -- exclude(Backend)} || Backend <- backends()].
+    [{Backend, TCs} || Backend <- backends()].
 
-init_per_group(emqx_fdb_ds, _Config) ->
-    {skip, fixme};
 init_per_group(emqx_ds_builtin_raft, Config) ->
     %% Raft backend is an odd one, as its main module is named
     %% `emqx_ds_replication_layer' for historical reasons:

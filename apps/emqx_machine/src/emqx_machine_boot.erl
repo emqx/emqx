@@ -189,12 +189,8 @@ runtime_deps() ->
         %% apps, we may apply the same tactic for `emqx_connector' and inject individual bridges
         %% as its dependencies.
         {emqx_connector, fun(App) -> lists:prefix("emqx_bridge_", atom_to_list(App)) end},
-        %% emqx_fdb_ds is an EE app
-        {emqx_durable_storage, emqx_fdb_ds},
         %% emqx_ds_builtin is an EE app
         {emqx_ds_backends, emqx_ds_builtin_raft},
-        %% emqx_ds_fdb_backend is an EE app
-        {emqx_ds_backends, emqx_ds_fdb_backend},
         {emqx_dashboard, emqx_license}
     ].
 

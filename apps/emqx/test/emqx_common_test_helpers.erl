@@ -113,9 +113,7 @@
     stop_apps_ds/1,
     start_cluster_ds/3,
     stop_cluster_ds/1,
-    restart_node_ds/2,
-    is_platform/0,
-    skip_if_platform/0
+    restart_node_ds/2
 ]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
@@ -1444,32 +1442,6 @@ ensure_loaded(Mod) ->
 %% DS Test Helpers
 %%------------------------------------------------------------------------------
 
--ifdef(BUILD_WITH_FDB).
-is_platform() -> true.
-
-skip_if_platform() ->
-    {skip, platform_not_supported}.
-
-start_apps_ds(Config, ExtraApps, Opts) ->
-    emqx_fdb_ds_test_helpers:start_apps_simple(Config, ExtraApps, Opts).
-
-stop_apps_ds(Config) ->
-    emqx_fdb_ds_test_helpers:stop_apps(Config).
-
-start_cluster_ds(Config, N, Opts) ->
-    emqx_fdb_ds_test_helpers:start_cluster_simple(Config, N, Opts).
-
-stop_cluster_ds(Config) ->
-    emqx_fdb_ds_test_helpers:stop_cluster(Config).
-
-restart_node_ds(Node, NodeSpec) ->
-    emqx_fdb_ds_test_helpers:restart_node_simple(Node, NodeSpec).
--else.
-is_platform() -> false.
-
-skip_if_platform() ->
-    false.
-
 start_apps_ds(Config, ExtraApps, Opts) ->
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
@@ -1551,4 +1523,3 @@ wait_nodeup(Node) ->
         _Attempts0 = 50,
         pong = net_adm:ping(Node)
     ).
--endif.
