@@ -20,12 +20,14 @@
     join/1,
     leave/0,
     force_leave/1,
-    ensure_mode/0
+    ensure_normal_mode/0,
+    ensure_singleton_mode/0
 ]).
 
 -define(CLUSTER_MODE_NORMAL, normal).
 -define(CLUSTER_MODE_SINGLE, singleton).
 
+%% Allow cluster when running tests
 -ifdef(TEST).
 -define(DEFAULT_MODE, ?CLUSTER_MODE_NORMAL).
 -else.
@@ -54,5 +56,13 @@ is_single_node_mode() ->
 
 %% @doc Set the cluster mode to single node mode.
 %% Called by license checker for community license.
-ensure_mode() ->
-    application:set_env(emqx, cluster_mode, ?DEFAULT_MODE).
+ensure_singleton_mode() ->
+    ensure_mode(?DEFAULT_MODE).
+
+%% @doc Allow clustering.
+ensure_normal_mode() ->
+    ensure_mode(?CLUSTER_MODE_NORMAL).
+
+ensure_mode(Mode) ->
+    _ = application:set_env(emqx, cluster_mode, Mode),
+    ok.

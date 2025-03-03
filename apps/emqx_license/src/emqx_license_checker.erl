@@ -228,17 +228,36 @@ check_license(#{license := License, start_time := StartTime} = _State) ->
             is_max_uptime_reached => IsMaxUptimeReached
         }),
     true = apply_limits(Limits),
-    case emqx_license_parser:license_type(License) of
-        ?COMMUNITY ->
-            emqx_cluster:ensure_mode();
-        _ ->
-            ok
-    end,
+    ok = ensure_cluster_mode(License),
+    ok = ensure_telemetry_default_status(License),
     #{
         warn_default => warn_community(License),
         warn_evaluation => warn_evaluation(License, IsOverdue, MaxConn),
         warn_expiry => {(DaysLeft < 0), -DaysLeft}
     }.
+
+ensure_cluster_mode(License) ->
+    case emqx_license_parser:license_type(License) of
+        ?COMMUNITY ->
+            ok = emqx_cluster:ensure_singleton_mode();
+        _ ->
+            ok = emqx_cluster:ensure_normal_mode()
+    end.
+
+%% Enable telemetry when any of the following conditions are met:
+%% 1. License type is community (LTYPE=2)
+%% 2. Customer type is education  | non-profilt (CTYPE=5)
+%% 3. Customer type is evaluation (CTYPE=10)
+%% 4. Customer type is developer (CTYPE=11)
+ensure_telemetry_default_status(License) ->
+    LType = emqx_license_parser:license_type(License),
+    CType = emqx_license_parser:customer_type(License),
+    EnableByDefault =
+        LType =:= ?COMMUNITY orelse
+            CType =:= ?EDUCATION_NONPROFIT_CUSTOMER orelse
+            CType =:= ?EVALUATION_CUSTOMER orelse
+            CType =:= ?DEVELOPER_CUSTOMER,
+    emqx_telemetry_config:set_default_status(EnableByDefault).
 
 warn_community(License) ->
     emqx_license_parser:license_type(License) == ?COMMUNITY.

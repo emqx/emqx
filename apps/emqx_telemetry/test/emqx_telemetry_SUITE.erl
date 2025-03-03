@@ -122,11 +122,13 @@ init_per_testcase(t_authn_authz_info, Config) ->
 init_per_testcase(t_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
+    emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
 init_per_testcase(t_send_after_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
+    emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
