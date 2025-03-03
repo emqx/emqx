@@ -367,7 +367,8 @@ check_client_id(
     #mqtt_packet_connect{clientid = ClientId},
     #{max_clientid_len := MaxLen} = _Opts
 ) ->
-    case (1 =< (Len = byte_size(ClientId))) andalso (Len =< MaxLen) of
+    Len = byte_size(ClientId),
+    case (1 =< Len) andalso (Len =< MaxLen) of
         true -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
     end.
