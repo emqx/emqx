@@ -29,6 +29,8 @@
 -compile(nowarn_export_all).
 -endif.
 
+-elvis([{elvis_style, used_ignored_variable, disable}]).
+
 %% API
 -export([
     info/1,
