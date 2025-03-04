@@ -15,7 +15,7 @@ permissions:
 jobs:
   linux:
     if: github.repository_owner == 'emqx'
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
 
     strategy:
       fail-fast: false
@@ -79,6 +79,7 @@ jobs:
           - emqx
         branch:
           - master
+          - release-58
         os:
           - macos-14-arm64
 

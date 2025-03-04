@@ -16,20 +16,20 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.profile[2])) || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.profile[2]) || (matrix.profile[2] == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     env:
       PROFILE: ${{ matrix.profile[0] }}
       ELIXIR: ${{ matrix.profile[1] == 'elixir' && 'yes' || 'no' }}
-      ARCH: ${{ matrix.profile[2] == 'x64' && 'amd64' || 'arm64' }}
+      ARCH: ${{ matrix.profile[2] }}
       BUILDER_SYSTEM: force_docker
 
     strategy:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "elixir", "x64"]
+          - ["emqx", "elixir", "amd64"]
           - ["emqx", "elixir", "arm64"]
-          - ["emqx-enterprise", "erlang", "x64"]
+          - ["emqx-enterprise", "erlang", "amd64"]
 
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

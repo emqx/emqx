@@ -121,7 +121,7 @@ jobs:
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
   compile:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral-xl","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init

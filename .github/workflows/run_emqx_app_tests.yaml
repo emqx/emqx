@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   prepare_matrix:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     container: ${{ inputs.builder }}
     defaults:
       run:
@@ -62,7 +62,7 @@ jobs:
     if: needs.prepare_matrix.outputs.skip != 'true'
     needs:
       - prepare_matrix
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     container: ${{ inputs.builder }}
     strategy:
       fail-fast: false

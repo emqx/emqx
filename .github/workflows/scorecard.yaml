@@ -18,7 +18,7 @@ jobs:
   analysis:
     if: github.repository == 'emqx/emqx'
     name: Scorecard analysis
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       security-events: write
       id-token: write

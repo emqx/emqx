@@ -125,7 +125,7 @@ jobs:
     uses: ./.github/workflows/build_slim_packages.yaml
 
   compile:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init
@@ -174,7 +174,7 @@ jobs:
       - init
       - prepare
       - build_packages
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     permissions:
       actions: write
     steps:
@@ -188,7 +188,7 @@ jobs:
     needs:
       - prepare
       - compile
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     steps:
       - name: Generate GitHub App token
         id: app-token

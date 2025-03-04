@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   check_deps_integrity:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     container: ${{ inputs.builder }}
     env:
       MIX_ENV: ${{ matrix.profile }}
