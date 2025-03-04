@@ -10,6 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.common import utils
 from selenium.common.exceptions import NoSuchElementException
 
@@ -39,6 +40,9 @@ def login(driver, dashboard_url):
     # admin is set in CI jobs, hence as default value
     password = os.getenv("EMQX_DASHBOARD__DEFAULT_PASSWORD", "admin")
     driver.get(dashboard_url)
+    WebDriverWait(driver, 10).until(
+        expected_conditions.presence_of_element_located((By.CLASS_NAME, "login"))
+    )
     assert "EMQX Dashboard" == driver.title
     assert f"{dashboard_url}/#/login?to=/dashboard/overview" == driver.current_url
     driver.execute_script("window.localStorage.setItem('licenseTipVisible','false');")
