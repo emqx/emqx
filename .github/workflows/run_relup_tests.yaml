@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   relup_test_plan:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     container: ${{ inputs.builder }}
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
@@ -60,7 +60,7 @@ jobs:
     needs:
       - relup_test_plan
     if: needs.relup_test_plan.outputs.OLD_VERSIONS != '[]'
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:

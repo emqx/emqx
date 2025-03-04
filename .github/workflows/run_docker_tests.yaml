@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   basic-tests:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     defaults:
       run:
         shell: bash
@@ -55,7 +55,7 @@ jobs:
           docker compose rm -fs
 
   paho-mqtt-testing:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     defaults:
       run:
         shell: bash

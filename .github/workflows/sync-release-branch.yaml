@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   create-pr:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false

@@ -55,7 +55,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.arch)) || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     outputs:
       PKG_VSN: ${{ steps.build.outputs.PKG_VSN }}
 
@@ -66,7 +66,7 @@ jobs:
           - ${{ inputs.profile }}
           - ${{ inputs.profile }}-elixir
         arch:
-          - x64
+          - amd64
           - arm64
 
     steps:
@@ -84,14 +84,14 @@ jobs:
           echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
-          name: "${{ matrix.profile }}-${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }}.tar.gz"
+          name: "${{ matrix.profile }}-${{ matrix.arch }}.tar.gz"
           path: "_packages/emqx*/emqx-*.tar.gz"
           retention-days: 7
           overwrite: true
           if-no-files-found: error
 
   docker:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     needs:
       - build
     defaults:

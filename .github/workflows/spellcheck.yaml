@@ -16,7 +16,7 @@ jobs:
       matrix:
         profile:
         - emqx-enterprise
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
