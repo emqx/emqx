@@ -97,16 +97,10 @@ jobs:
         run: |
           ./scripts/apps-version-check.sh
       - name: Setup mix
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
         run: |
           # mix local.hex --force --if-missing && mix local.rebar --force --if-missing
           mix local.hex 2.0.6 --force --if-missing && mix local.rebar --force --if-missing
       - name: Check formatting
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
         run: |
           ./scripts/check-format.sh
       - name: Run elvis check

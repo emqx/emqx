@@ -40,7 +40,7 @@ on:
       profile:
         required: false
         type: string
-        default: 'emqx'
+        default: 'emqx-enterprise'
       latest:
         required: false
         type: boolean

@@ -7,7 +7,7 @@ concurrency:
 on:
   push:
     tags:
-      - 'v*'
+      - 'e*'
     branches:
       - 'master'
       - 'release-5[0-9]'
@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Detect emqx profile
+      - name: Parse git ref
         id: parse-git-ref
         run: |
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"
