@@ -1359,7 +1359,7 @@ e2e_client_id(Config) ->
     iolist_to_binary(
         io_lib:format("~s.~s.~s.~s.~B", [
             ?config(group_otel_conn_type, Config),
-            ?config(group_otel_trace_mode, Config),
+            ?config(group_client_conn_type, Config),
             ?config(group_follow_traceparent, Config),
             ?config(tc, Config),
             Rand
