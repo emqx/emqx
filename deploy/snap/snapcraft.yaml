@@ -40,3 +40,4 @@ parts:
     source: $PACKAGE_SOURCE
     stage-packages:
       - libsasl2-2
+      - libodbc2
