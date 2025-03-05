@@ -331,7 +331,8 @@ plugins(_) ->
             {"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
             {"plugins list", "List all installed plugins"},
             {"plugins describe  Name-Vsn", "Describe an installed plugins"},
-            {"plugins allow     Name-Vsn", "Allows installation of a plugin in the cluster"},
+            {"plugins allow     Name-Vsn",
+                "Allows installation of a plugin in the cluster from Dashboard or API"},
             {"plugins install   Name-Vsn",
                 "Install a plugin package placed\n"
                 "in plugin's install_dir"},
