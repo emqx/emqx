@@ -217,34 +217,64 @@ jobs:
         run: |
           ./build ${PROFILE} docker
 
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: "${{ env.PROFILE }}-docker-image-tags"
+          path: ".emqx_docker_image_tags"
+          retention-days: 7
+
+
+  upload:
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
+    if: inputs.publish || github.repository_owner != 'emqx'
+
+    needs:
+      - build
+      - docker
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - ${{ inputs.profile }}
+          - ${{ inputs.profile }}-elixir
+        arch:
+          - amd64
+          - arm64
+    env:
+      FILENAME: "${{ matrix.profile }}-${{ needs.build.outputs.PKG_VSN }}-docker-${{ matrix.arch }}.tar.gz"
+
+    steps:
+      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        with:
+          pattern: "${{ matrix.profile }}-docker-image-tags"
+
+      - name: export docker image to .tar.gz
+        run: |
+          set -xeuo pipefail
+
+          export _EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)
+          docker pull "${_EMQX_DOCKER_IMAGE_TAG}"
+          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$FILENAME"
+
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: ${{ matrix.profile }}-docker-image-${{ matrix.arch }}
+          path: ${{ env.FILENAME }}
+
       - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
-        if: inputs.publish || github.repository_owner != 'emqx'
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
       - name: upload to aws s3
-        if: inputs.publish || github.repository_owner != 'emqx'
         env:
           AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
           AWS_CLOUDFRONT_ID: ${{ secrets.AWS_CLOUDFRONT_ID }}
-          ORIG_PROFILE: ${{ inputs.profile }}
         run: |
           set -xeuo pipefail
-          if [ $ORIG_PROFILE = 'emqx' ]; then
-              s3dir="emqx-ce/v$PKG_VSN"
-          elif [ $ORIG_PROFILE = 'emqx-enterprise' ]; then
-              s3dir="emqx-ee/e$PKG_VSN"
-          else
-              echo "unknown profile $ORIG_PROFILE"
-              exit 1
-          fi
-          docker pull --platform linux/amd64 "${_EMQX_DOCKER_IMAGE_TAG}"
-          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$PROFILE-$PKG_VSN-docker-amd64.tar.gz"
-          docker pull --platform linux/arm64 "${_EMQX_DOCKER_IMAGE_TAG}"
-          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$PROFILE-$PKG_VSN-docker-arm64.tar.gz"
-          ls -lh
-          aws s3 cp "$PROFILE-$PKG_VSN-docker-amd64.tar.gz" "s3://$AWS_S3_BUCKET/$s3dir/"
-          aws s3 cp "$PROFILE-$PKG_VSN-docker-arm64.tar.gz" "s3://$AWS_S3_BUCKET/$s3dir/"
+
+          export s3dir="emqx-ee/e$PKG_VSN"
+          aws s3 cp "$FILENAME" "s3://$AWS_S3_BUCKET/$s3dir/"
           aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/$s3dir/*docker*"
