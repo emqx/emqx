@@ -173,7 +173,7 @@ t_check_not_loaded(_Config) ->
     ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()).
 
 t_import_config(_Config) ->
-    %% Import to default license
+    %% Import default license
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
         emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"default">>}})
@@ -183,9 +183,19 @@ t_import_config(_Config) ->
         {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_LTYPE2}}, emqx_license_checker:limits()
     ),
 
+    %% Import evaluation license
+    ?assertMatch(
+        {ok, #{root_key := license, changed := _}},
+        emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"evaluation">>}})
+    ),
+    ?assertEqual(evaluation, emqx:get_config([license, key])),
+    ?assertMatch(
+        {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_CTYPE10}}, emqx_license_checker:limits()
+    ),
+
     %% Import to a new license
     EncodedLicense = emqx_license_test_lib:make_license(#{
-        license_type => "1", max_sessions => "100"
+        license_type => "1", max_sessions => "0", customer_type => "3"
     }),
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
@@ -200,9 +210,11 @@ t_import_config(_Config) ->
             }
         )
     ),
-    ?assertMatch({ok, #{max_sessions := 100}}, emqx_license_checker:limits()),
     ?assertMatch(
-        #{type := <<"official">>, max_sessions := 100},
+        {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_CTYPE3}}, emqx_license_checker:limits()
+    ),
+    ?assertMatch(
+        #{type := <<"official">>, max_sessions := ?DEFAULT_MAX_SESSIONS_CTYPE3},
         maps:from_list(emqx_license_checker:dump())
     ),
     ?assertMatch(

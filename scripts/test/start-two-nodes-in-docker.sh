@@ -105,6 +105,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
+  -e EMQX_LICENSE__KEY=evaluation \
   "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
@@ -119,6 +120,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
+  -e EMQX_LICENSE__KEY=evaluation \
   "$IMAGE2"
 
 mkdir -p tmp

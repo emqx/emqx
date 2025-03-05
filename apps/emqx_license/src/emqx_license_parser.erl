@@ -70,6 +70,7 @@
 %% for testing purpose
 -export([
     default/0,
+    evaluation/0,
     pubkey/0
 ]).
 
@@ -99,7 +100,8 @@
 %%--------------------------------------------------------------------
 
 pubkey() -> ?PUBKEY.
-default() -> emqx_license_schema:default_license().
+default() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
+evaluation() -> ?DEFAULT_EVALUATION_LICENSE_KEY.
 
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",
@@ -110,6 +112,8 @@ parse(Content) ->
 
 parse(<<"default">>, PubKey) ->
     parse(?MODULE:default(), PubKey);
+parse(<<"evaluation">>, PubKey) ->
+    parse(?MODULE:evaluation(), PubKey);
 parse(<<"file://", Path/binary>> = FileKey, PubKey) ->
     case file:read_file(Path) of
         {ok, Content} ->

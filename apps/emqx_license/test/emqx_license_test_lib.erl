@@ -7,6 +7,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("emqx_license.hrl").
+
 private_key() ->
     test_key("pvt.key").
 
@@ -69,12 +71,15 @@ default_test_license() ->
     make_license(#{}).
 
 default_license() ->
-    emqx_license_schema:default_license().
+    ?DEFAULT_COMMUNITY_LICENSE_KEY.
 
 mock_parser() ->
     meck:new(emqx_license_parser, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_license_parser, pubkey, fun() -> public_key_pem() end),
     meck:expect(emqx_license_parser, default, fun() -> default_test_license() end),
+    meck:expect(emqx_license_parser, evaluation, fun() ->
+        make_license(#{license_type => "0", customer_type => "10"})
+    end),
     ok.
 
 unmock_parser() ->

@@ -27,6 +27,7 @@ key_field {
         - Direct Key: Enter the secret key directly as a string value.
         - File Path: Specify the path to a file that contains the secret key. Ensure the path starts with `file://`.
         - "default": Use string value `default` to apply the default single-node community license.
+        - "evaluation": Use string value `evaluation` to apply the 25-connection limit evaluation license.
 
         Note: An invalid license key or an incorrect file path may prevent EMQX from starting successfully.
         If a file path is used, EMQX attempts to reload the license key from the file every 2 minutes.

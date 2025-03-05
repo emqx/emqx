@@ -298,7 +298,7 @@ get_max_sessions(License) ->
 %% It's only meaningful for business-critical license.
 -spec get_dynamic_max_sessions() -> non_neg_integer().
 get_dynamic_max_sessions() ->
-    %% For config backward compatibility
+    %% For config backward compatibility, dynamic_max_connections is not renamed to dynamic_max_sesssions
     emqx_conf:get([license, dynamic_max_connections]).
 
 days_left(License) ->

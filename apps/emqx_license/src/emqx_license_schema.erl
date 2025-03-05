@@ -17,7 +17,6 @@
 -export([namespace/0, roots/0, fields/1, validations/0, desc/1, tags/0]).
 
 -export([
-    default_license/0,
     default_setting/0
 ]).
 
@@ -40,7 +39,7 @@ tags() ->
 fields(key_license) ->
     [
         {key, #{
-            type => hoconsc:union([default, binary()]),
+            type => hoconsc:union([default, evaluation, binary()]),
             default => <<"default">>,
             %% so it's not logged
             sensitive => true,
@@ -97,18 +96,6 @@ check_license_watermark(Conf) ->
             end
     end.
 
-%% @doc The default license key.
-%% This default license is of single-node type and has 10M sessions limit.
-%% Issued on 2025-03-01 and valid for 4 years (1460 days)
-%%
-%% NOTE: when updating a new key, below should be updated accordingly:
-%% - emqx_license_schema.hocon default sessions limit
-default_license() ->
-    <<
-        "MjIwMTExCjIKMTEKRGV2ZWxvcGVyCmNvbnRhY3RAZW1xeC5pbwpEZXZlbG9wbWVudAoyMDI1MDMwMgoxNDYwCjAK."
-        "MEUCIQCCyEkOUIFDop1/69mU3UoAGOTraIh+jYn5ZineZbZq+gIgIlkVl0h0aqajY8QtkxrXbdN3N8a3rPPluBxt+d2o3lM="
-    >>.
-
 %% @doc Exported for testing
 default_setting() ->
     Keys =
@@ -131,4 +118,5 @@ default(connection_low_watermark) ->
 default(connection_high_watermark) ->
     <<"80%">>;
 default(dynamic_max_connections) ->
+    %% This config is only applicable to CTYPE3
     ?DEFAULT_MAX_SESSIONS_CTYPE3.
