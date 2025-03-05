@@ -186,11 +186,6 @@ restart(NodeSpec = #{}) ->
 get_start_opts(ClusterOpts) ->
     maps:with([start_apps_timeout], ClusterOpts).
 
--spec join(node(), JoinTo :: node()) -> ok.
-join(Node, JoinTo) ->
-    ok = join_cluster(Node, JoinTo),
-    wait_clustered([Node, JoinTo], ?TIMEOUT_CLUSTER_WAIT_MS).
-
 -spec mk_nodespecs([nodespec()], opts()) -> Complete :: [nodespec()].
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(

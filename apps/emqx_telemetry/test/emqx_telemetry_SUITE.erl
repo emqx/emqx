@@ -122,11 +122,13 @@ init_per_testcase(t_authn_authz_info, Config) ->
 init_per_testcase(t_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
+    emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
 init_per_testcase(t_send_after_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
+    emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
@@ -779,7 +781,7 @@ start_peer(Name) ->
         fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
-                ekka:join(TestNode),
+                emqx_cluster:join(TestNode),
                 emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
                 ok;
             (_App) ->
@@ -813,12 +815,12 @@ stop_peer(Node) ->
 
 leave_cluster() ->
     try mnesia_hook:module_info(module) of
-        _ -> ekka:leave()
+        _ -> emqx_cluster:leave()
     catch
         _:_ ->
             %% We have to set the db_backend to mnesia even for `ekka:leave/0`!!
             application:set_env(mria, db_backend, mnesia),
-            ekka:leave()
+            emqx_cluster:leave()
     end.
 
 is_official_version(V) ->

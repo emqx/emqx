@@ -9,10 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
-
-%%------------------------------------------------------------------------------
-%% CT boilerplate
-%%------------------------------------------------------------------------------
+-include_lib("emqx_license.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -97,14 +94,14 @@ t_license_info(_Config) ->
     ?assertMatch(
         #{
             <<"customer">> := <<"Foo">>,
-            <<"customer_type">> := 10,
+            <<"customer_type">> := 11,
             <<"deployment">> := <<"bar-deployment">>,
             <<"email">> := <<"contact@foo.com">>,
             <<"expiry">> := false,
             <<"expiry_at">> := <<"2295-10-27">>,
             <<"max_sessions">> := 100,
             <<"start_at">> := <<"2022-01-11">>,
-            <<"type">> := <<"trial">>
+            <<"type">> := <<"community">>
         },
         emqx_utils_json:decode(Payload)
     ),
@@ -135,14 +132,14 @@ t_license_upload_key_success(_Config) ->
     ?assertMatch(
         #{
             <<"customer">> := <<"Foo">>,
-            <<"customer_type">> := 10,
+            <<"customer_type">> := 11,
             <<"deployment">> := <<"bar-deployment">>,
             <<"email">> := <<"contact@foo.com">>,
             <<"expiry">> := false,
             <<"expiry_at">> := <<"2295-10-27">>,
             <<"max_sessions">> := 999,
             <<"start_at">> := <<"2022-01-11">>,
-            <<"type">> := <<"trial">>
+            <<"type">> := <<"community">>
         },
         emqx_utils_json:decode(Payload)
     ),
@@ -250,9 +247,14 @@ t_license_setting_bc(_Config) ->
     Res = request(post, uri(["license"]), #{key => Key}),
     ?assertMatch({ok, 200, _}, Res),
     %% for bc customer, before setting dynamic limit,
-    %% the default limit is always 25, as if no license
-    ?assertMatch(#{<<"max_connections">> := 25}, request_dump()),
-    ?assertMatch(#{<<"max_sessions">> := 25}, request_dump()),
+    %% the default limit is ?DEFAULT_MAX_SESSIONS_CTYPE3
+    ?assertMatch(
+        #{
+            <<"max_connections">> := ?DEFAULT_MAX_SESSIONS_CTYPE3,
+            <<"max_sessions">> := ?DEFAULT_MAX_SESSIONS_CTYPE3
+        },
+        request_dump()
+    ),
     %% get
     GetRes = request(get, uri(["license", "setting"]), []),
     %% also check that the settings return correctly

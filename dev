@@ -85,7 +85,7 @@ if [ -n "${EMQX_NODE_NAME:-}" ]; then
     export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
 fi
 EMQX_NODE_NAME="${EMQX_NODE__NAME:-emqx@127.0.0.1}"
-PROFILE="${PROFILE:-emqx}"
+PROFILE="${PROFILE:-emqx-enterprise}"
 FORCE_COMPILE=0
 # Do not start using ekka epmd by default, so your IDE can connect to it
 EKKA_EPMD=0

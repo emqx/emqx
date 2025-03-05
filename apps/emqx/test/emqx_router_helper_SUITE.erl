@@ -203,7 +203,7 @@ t_cluster_node_force_leave(Config) ->
     %% Give Mria some time to recognize the node is down.
     ok = timer:sleep(500),
     %% Force-leave it.
-    ok = ekka:force_leave(ClusterNode),
+    ok = emqx_cluster:force_leave(ClusterNode),
     {ok, _Event} = snabbkaffe:receive_events(SRef),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
@@ -257,5 +257,5 @@ start_join_node(Name, Config) ->
 
 stop_leave_node(Config) ->
     ClusterNode = ?config(cluster_node, Config),
-    ekka:force_leave(ClusterNode),
+    emqx_cluster:force_leave(ClusterNode),
     emqx_cth_cluster:stop([ClusterNode]).

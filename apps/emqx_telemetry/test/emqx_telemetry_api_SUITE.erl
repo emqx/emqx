@@ -87,10 +87,12 @@ set_special_configs(_App) ->
 
 %% official's telemetry is enabled by default
 t_status_official(_) ->
+    emqx_telemetry_config:set_default_status(true),
     check_status(true).
 
 %% non official's telemetry is disabled by default
 t_status_non_official(_) ->
+    emqx_telemetry_config:set_default_status(true),
     check_status(false).
 
 check_status(Default) ->

@@ -327,7 +327,7 @@ get_invitation_status(get, _) ->
 
 force_leave(delete, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
-    case ekka:force_leave(Node) of
+    case emqx_cluster:force_leave(Node) of
         ok ->
             {204};
         ignore ->
@@ -338,7 +338,7 @@ force_leave(delete, #{bindings := #{node := Node0}}) ->
 
 -spec join(node()) -> ok | ignore | {error, term()}.
 join(Node) ->
-    ekka:join(Node).
+    emqx_cluster:join(Node).
 
 -spec connected_replicants() -> [{atom(), node(), pid()}].
 connected_replicants() ->

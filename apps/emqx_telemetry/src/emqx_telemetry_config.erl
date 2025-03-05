@@ -19,7 +19,8 @@
 %% Public API
 -export([
     set_telemetry_status/1,
-    is_enabled/0
+    is_enabled/0,
+    set_default_status/1
 ]).
 
 %% emqx_config_handler callback
@@ -36,9 +37,33 @@
     is_official_version/0
 ]).
 
+%% @doc License control.
+set_default_status(IsEnable) ->
+    _ = application:set_env(emqx_telemetry, default_status, IsEnable),
+    case is_enabled() of
+        true ->
+            emqx_telemetry:start_reporting();
+        false ->
+            emqx_telemetry:stop_reporting()
+    end,
+    ok.
+
+%% @doc Check if telemetry is enabled.
 is_enabled() ->
-    IsOfficial = ?MODULE:is_official_version(),
-    emqx_conf:get([telemetry, enable], IsOfficial).
+    case emqx_conf:get([telemetry, enable], no_value) of
+        Bool when is_boolean(Bool) ->
+            %% Configured from config file to enable/disable telemetry
+            Bool;
+        no_value ->
+            case ?MODULE:is_official_version() of
+                true ->
+                    %% Control by license
+                    application:get_env(emqx_telemetry, default_status, false);
+                false ->
+                    %% For non-official version, telemetry is disabled
+                    false
+            end
+    end.
 
 on_server_start() ->
     emqx_conf:add_handler([telemetry], ?MODULE).

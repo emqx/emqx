@@ -228,10 +228,39 @@ check_license(#{license := License, start_time := StartTime} = _State) ->
             is_max_uptime_reached => IsMaxUptimeReached
         }),
     true = apply_limits(Limits),
+    ok = ensure_cluster_mode(License),
+    ok = ensure_telemetry_default_status(License),
     #{
+        warn_default => warn_community(License),
         warn_evaluation => warn_evaluation(License, IsOverdue, MaxConn),
         warn_expiry => {(DaysLeft < 0), -DaysLeft}
     }.
+
+ensure_cluster_mode(License) ->
+    case emqx_license_parser:license_type(License) of
+        ?COMMUNITY ->
+            ok = emqx_cluster:ensure_singleton_mode();
+        _ ->
+            ok = emqx_cluster:ensure_normal_mode()
+    end.
+
+%% Enable telemetry when any of the following conditions are met:
+%% 1. License type is community (LTYPE=2)
+%% 2. Customer type is education  | non-profit (CTYPE=5)
+%% 3. Customer type is evaluation (CTYPE=10)
+%% 4. Customer type is developer (CTYPE=11)
+ensure_telemetry_default_status(License) ->
+    LType = emqx_license_parser:license_type(License),
+    CType = emqx_license_parser:customer_type(License),
+    EnableByDefault =
+        LType =:= ?COMMUNITY orelse
+            CType =:= ?EDUCATION_NONPROFIT_CUSTOMER orelse
+            CType =:= ?EVALUATION_CUSTOMER orelse
+            CType =:= ?DEVELOPER_CUSTOMER,
+    emqx_telemetry_config:set_default_status(EnableByDefault).
+
+warn_community(License) ->
+    emqx_license_parser:license_type(License) == ?COMMUNITY.
 
 warn_evaluation(License, false, MaxConn) ->
     {emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER, MaxConn};
@@ -269,7 +298,7 @@ get_max_sessions(License) ->
 %% It's only meaningful for business-critical license.
 -spec get_dynamic_max_sessions() -> non_neg_integer().
 get_dynamic_max_sessions() ->
-    %% For config backward compatibility
+    %% For config backward compatibility, dynamic_max_connections is not renamed to dynamic_max_sesssions
     emqx_conf:get([license, dynamic_max_connections]).
 
 days_left(License) ->
@@ -322,9 +351,15 @@ expiry_early_alarm(License) ->
             ?OK(emqx_alarm:ensure_deactivated(license_expiry))
     end.
 
-print_warnings(Warnings) ->
-    ok = print_evaluation_warning(Warnings),
-    ok = print_expiry_warning(Warnings).
+print_warnings(State) ->
+    ok = print_community_warning(State),
+    ok = print_evaluation_warning(State),
+    ok = print_expiry_warning(State).
+
+print_community_warning(#{warn_default := true}) ->
+    io:format(?COMMUNITY_LICENSE_LOG);
+print_community_warning(_) ->
+    ok.
 
 print_evaluation_warning(#{warn_evaluation := {true, MaxConn}}) ->
     io:format(?EVALUATION_LOG, [MaxConn]);

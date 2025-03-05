@@ -239,7 +239,6 @@ t_takeover_willmsg(Config) ->
 
 t_takeover_willmsg_clean_session(Config) ->
     process_flag(trap_exit, true),
-    PersistenceEnabled = ?config(persistence_enabled, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
     Middle = ?CNT div 2,
@@ -302,7 +301,6 @@ t_takeover_willmsg_clean_session(Config) ->
 
 t_takeover_clean_session_with_delayed_willmsg(Config) ->
     process_flag(trap_exit, true),
-    PersistenceEnabled = ?config(persistence_enabled, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
     Middle = ?CNT div 2,
