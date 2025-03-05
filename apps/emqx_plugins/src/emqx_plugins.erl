@@ -113,6 +113,10 @@
 
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
+-define(APP, emqx_plugins).
+
+-define(allowed_installations, allowed_installations).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -164,20 +168,25 @@ app_dir(AppName, Apps) ->
 -spec allow_installation(binary() | string()) -> ok.
 allow_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    _ = persistent_term:put({?MODULE, NameVsn}, true),
+    Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
+    Allowed = Allowed0#{NameVsn => true},
+    application:set_env(?APP, ?allowed_installations, Allowed),
     ok.
 
 %% Note: this is only used for the HTTP API.
 -spec is_allowed_installation(binary() | string()) -> boolean().
 is_allowed_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    persistent_term:get({?MODULE, NameVsn}, false).
+    Allowed = application:get_env(?APP, ?allowed_installations, #{}),
+    maps:get(NameVsn, Allowed, false).
 
 %% Note: this is only used for the HTTP API.
 -spec forget_allowed_installation(binary() | string()) -> ok.
 forget_allowed_installation(NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    _ = persistent_term:erase({?MODULE, NameVsn}),
+    Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
+    Allowed = maps:remove(NameVsn, Allowed0),
+    application:set_env(?APP, ?allowed_installations, Allowed),
     ok.
 
 %%--------------------------------------------------------------------
