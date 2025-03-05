@@ -1411,8 +1411,8 @@ conn_opts(wss, _Config) ->
         {ws_transport_options, [
             {http_opts, #{version => 'HTTP/1.1'}},
             {protocols, [http]},
-            {transport, ssl},
-            {transport_opts, client_ssl_opts()}
+            {transport, tls},
+            {tls_opts, client_ssl_opts()}
         ]}
     ]}.
 
