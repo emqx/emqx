@@ -458,7 +458,9 @@ do_install_package(NameVsn, FileName, Bin) ->
             Msg = iolist_to_binary([
                 <<"Package is not allowed installation;">>,
                 <<" first allow it to be installed by running:">>,
-                <<" `emqx ctl plugins allow NAME-VSN`">>
+                <<" `emqx ctl plugins allow ">>,
+                NameVsn,
+                <<"`">>
             ]),
             {403, #{code => 'FORBIDDEN', message => Msg}}
     end.
