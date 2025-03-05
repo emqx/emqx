@@ -31,6 +31,7 @@
     connect/1,
     connect/2,
     subscribe/4,
+    publish/5,
     puback/4,
     pubrec/4,
     pubcomp/4
@@ -87,6 +88,10 @@ connect(Pid, Properties) ->
 
 subscribe(Pid, PacketId, Properties, TopicFilters) ->
     Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
+    send(Pid, Packet).
+
+publish(Pid, PacketId, Topic, Payload, QoS) ->
+    Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId, Payload),
     send(Pid, Packet).
 
 pubcomp(Pid, PacketId, ReasonCode, Properties) ->
