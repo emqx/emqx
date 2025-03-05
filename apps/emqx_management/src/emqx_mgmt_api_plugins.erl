@@ -254,8 +254,9 @@ schema("/plugins/cluster_sync") ->
     #{
         'operationId' => sync_plugin,
         post => #{
-            summary => <<"Sync specific version of plugin from given node">>,
-            description => "Sync specific version of plugin on all nodes from the given node.",
+            summary => <<"Sync specific version of plugin to cluster">>,
+            description =>
+                "Forces a plugin to be synced to the cluster and removes other versions of the plugin.",
             tags => ?TAGS,
             'requestBody' => sync_request_body(),
             responses => #{
@@ -621,7 +622,7 @@ sync_plugin(post, #{body := Body}) ->
                     {404, plugin_not_found_msg()}
             end;
         {error, {plugin_error, Reason}} ->
-            {404, #{
+            {400, #{
                 code => 'BAD_PLUGIN_INFO',
                 message => Reason
             }}
@@ -710,10 +711,10 @@ ensure_existed(NameVsn) ->
 %% for RPC plugin sync
 -spec sync_plugin_cluster(node(), name_vsn()) -> ok.
 sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
-    _ = emqx_plugins:maybe_purge_others(NameVsn),
+    _ = emqx_plugins:purge_other_versions(NameVsn),
     ok;
 sync_plugin_cluster(Node, NameVsn) ->
-    _ = emqx_plugins:maybe_purge_others(NameVsn),
+    _ = emqx_plugins:purge_other_versions(NameVsn),
     emqx_plugins:get_plugin_tar_from_node(Node, NameVsn).
 
 %%--------------------------------------------------------------------

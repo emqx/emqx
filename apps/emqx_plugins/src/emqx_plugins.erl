@@ -50,7 +50,7 @@
     ensure_enabled/3,
     ensure_disabled/1,
     purge/1,
-    maybe_purge_others/1,
+    purge_other_versions/1,
     delete_package/1
 ]).
 
@@ -252,8 +252,8 @@ purge(NameVsn) ->
     _ = maybe_purge_plugin_config(NameVsn),
     purge_plugin(NameVsn).
 
--spec maybe_purge_others(name_vsn()) -> ok.
-maybe_purge_others(NameVsn) ->
+-spec purge_other_versions(name_vsn()) -> ok.
+purge_other_versions(NameVsn) ->
     {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
     lists:foreach(
         fun
