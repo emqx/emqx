@@ -71,6 +71,7 @@
 {emqx_persistent_session_ds,1}.
 {emqx_plugins,1}.
 {emqx_plugins,2}.
+{emqx_plugins,3}.
 {emqx_prometheus,1}.
 {emqx_prometheus,2}.
 {emqx_resource,1}.
