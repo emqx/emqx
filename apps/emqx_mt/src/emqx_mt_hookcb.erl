@@ -79,7 +79,7 @@ on_authenticate(
 on_authenticate(_, DefaultResult) ->
     %% TDOO: deny access when namespaces is mandatory
     %% case emqx_mt_config:is_ns_mandatory() of
-    %%   true -> {stop, {error, not_auhorized}};
+    %%   true -> {stop, {error, not_authorized}};
     %%   false -> DefaultResult
     %% end
     ?TRACE("new_tenant_namespace", #{}),
