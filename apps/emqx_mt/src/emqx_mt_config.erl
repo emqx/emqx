@@ -16,7 +16,7 @@
 %% @doc Get the maximum number of sessions allowed for the given namespace.
 %% TODO: support per-ns configs
 -spec get_max_sessions(emqx_mt:tns()) -> non_neg_integer() | infinity.
-get_max_sessions(_Tns) ->
+get_max_sessions(_Ns) ->
     emqx_config:get([multi_tenancy, default_max_sessions]).
 
 %% @doc Temporarily set the maximum number of sessions allowed for the given namespace.

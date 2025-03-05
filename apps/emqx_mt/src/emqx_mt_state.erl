@@ -54,7 +54,6 @@
 -define(RECORD_KEY(Ns, ClientId, Pid), {Ns, ClientId, Pid}).
 %% 0 is less '<' than any pid
 -define(MIN_PID, 0).
--define(MIN_RECORD_KEY(Ns), ?RECORD_KEY(Ns, ?MIN_CLIENTID, ?MIN_PID)).
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
     node :: node(),

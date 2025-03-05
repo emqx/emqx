@@ -338,8 +338,8 @@ delete_zone_limiters(Zone) ->
 
 %% Listener-related
 
-listener_group(ListenerConfig) ->
-    {listener, ListenerConfig}.
+listener_group(ListenerId) ->
+    {listener, ListenerId}.
 
 %% General helper functions
 
