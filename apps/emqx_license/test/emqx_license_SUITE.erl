@@ -64,10 +64,13 @@ t_update_value(_Config) ->
     ).
 
 t_check_exceeded_25(_Config) ->
-    check_exceeded(25, 25).
+    Limit = ?NO_OVERSHOOT_SESSIONS_LIMIT,
+    check_exceeded(Limit, Limit).
 
 t_check_exceeded_26(_Config) ->
-    check_exceeded(26, erlang:round(26 * 1.1)).
+    Limit = ?NO_OVERSHOOT_SESSIONS_LIMIT + 1,
+    Factor = ?SESSIONS_LIMIT_OVERSHOOT_FACTOR,
+    check_exceeded(Limit, erlang:round(Limit * Factor)).
 
 check_exceeded(LimitInLicense, Limit) ->
     License = mk_license(integer_to_list(LimitInLicense)),

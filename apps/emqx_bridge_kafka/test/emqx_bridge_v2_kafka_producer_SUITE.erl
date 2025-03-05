@@ -1774,7 +1774,7 @@ t_fallback_actions(Config) when is_list(Config) ->
     {201, _} = simplify_result(emqx_bridge_v2_testlib:create_action_api(ActionParams)),
 
     RuleTopic = <<"fallback/actions">>,
-    {ok, #{<<"id">> := RuleId}} =
+    {ok, #{<<"id">> := _RuleId}} =
         emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, [
             {bridge_name, ActionName}
         ]),

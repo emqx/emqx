@@ -193,10 +193,11 @@ is_new_client(ClientId) ->
     %% it's a new client if no live session is found
     [] =:= emqx_cm:lookup_channels(ClientId).
 
-is_max_clients_exceeded(MaxClients) when MaxClients =< ?DEFAULT_MAX_SESSIONS_CTYPE10 ->
+is_max_clients_exceeded(MaxClients) when MaxClients =< ?NO_OVERSHOOT_SESSIONS_LIMIT ->
     emqx_license_resources:cached_connection_count() >= MaxClients;
 is_max_clients_exceeded(MaxClients) ->
-    emqx_license_resources:cached_connection_count() >= erlang:round(MaxClients * 1.1).
+    Limit = MaxClients * ?SESSIONS_LIMIT_OVERSHOOT_FACTOR,
+    emqx_license_resources:cached_connection_count() >= erlang:round(Limit).
 
 read_license(#{key := Content}) ->
     emqx_license_parser:parse(Content).

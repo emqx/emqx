@@ -74,6 +74,13 @@
 %% The default max_sessions limit for the 'evaluation' customer.
 -define(DEFAULT_MAX_SESSIONS_CTYPE10, 25).
 
+%% If the max_sessions limit in a license not greater than
+%% this threshold, do not allow any overshoot.
+-define(NO_OVERSHOOT_SESSIONS_LIMIT, ?DEFAULT_MAX_SESSIONS_CTYPE10).
+
+%% Allow 10% more sessions over the limit defined in the license key
+-define(SESSIONS_LIMIT_OVERSHOOT_FACTOR, 1.1).
+
 %% The default license key.
 %% This default license is of single-node type and has 10M sessions limit.
 %% Issued on 2025-03-02 and valid for 4 years (1460 days)

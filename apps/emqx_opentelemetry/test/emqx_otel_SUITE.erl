@@ -1403,10 +1403,3 @@ build_query_string(Query = [{_, _} | _]) ->
     uri_string:compose_query([{emqx_utils_conv:bin(K), emqx_utils_conv:bin(V)} || {K, V} <- Query]);
 build_query_string(QueryString) ->
     unicode:characters_to_list(QueryString).
-
-to_list(A) when is_atom(A) ->
-    atom_to_list(A);
-to_list(B) when is_binary(B) ->
-    binary_to_list(B);
-to_list(L) when is_list(L) ->
-    L.
