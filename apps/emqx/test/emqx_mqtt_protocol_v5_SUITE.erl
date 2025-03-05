@@ -218,6 +218,7 @@ t_connect_clean_start(Config) ->
 t_connect_clean_start_unresp_old_client(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ClientID = atom_to_binary(?FUNCTION_NAME),
+    process_flag(trap_exit, true),
     %% GIVEN: a client with clean_start=true
     {ok, Client1} = emqtt:start_link([
         {clientid, ClientID},
@@ -240,6 +241,9 @@ t_connect_clean_start_unresp_old_client(Config) ->
     close_quic_conn_silently(ConnFun, Client1),
     %% THEN: the new client should connect successfully in time < connect_timeout
     {ok, _} = emqtt:ConnFun(Client2),
+    ok = emqtt:disconnect(Client2),
+    waiting_client_process_exit(Client1),
+    waiting_client_process_exit(Client2),
     ok.
 
 close_quic_conn_silently(quic_connect, Client) ->
