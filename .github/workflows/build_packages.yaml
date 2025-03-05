@@ -33,6 +33,14 @@ on:
         required: true
       AWS_CLOUDFRONT_ID:
         required: true
+      CLOUD_DEV_AWS_ACCESS_ID:
+        required: true
+      CLOUD_DEV_AWS_SECRET_KEY:
+        required: true
+      CLOUD_DEV_AWS_REGION:
+        required: true
+      CLOUD_DEV_AWS_BUCKET:
+        required: true
       APPLE_ID_PASSWORD:
         required: true
       APPLE_DEVELOPER_IDENTITY:
@@ -47,7 +55,7 @@ on:
         required: false
       profile:
         required: true
-        default: 'emqx'
+        default: 'emqx-enterprise'
       publish:
         required: false
         type: boolean
@@ -59,7 +67,7 @@ on:
       elixir_vsn:
         required: false
         type: string
-        default: '1.15.7'
+        default: '1.17.3'
       builder_vsn:
         required: false
         type: string
@@ -103,7 +111,7 @@ jobs:
         retention-days: 7
 
   linux:
-    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}"]
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     strategy:
       fail-fast: false
       matrix:
@@ -188,7 +196,7 @@ jobs:
         retention-days: 7
 
   snap:
-    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}"]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -212,11 +220,12 @@ jobs:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
 
-    - name: Build snap
+    - name: Build tar.gz
       env:
         IS_ELIXIR: "no"
         BUILDER: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-ubuntu22.04"
         BUILDER_SYSTEM: force_docker
+        SNAP_BASE: core22
       run: |
         ./scripts/buildx.sh \
           --profile $PROFILE \
@@ -225,28 +234,38 @@ jobs:
           --elixir $IS_ELIXIR \
           --pkgtype tgz
 
-        sudo snap install snapcraft --classic
-        sudo snap install lxd
-        sudo lxd init --auto
-
-        export EMQX_VERSION=$(./pkg-vsn.sh $PROFILE)
+        export EMQX_VERSION="$(./pkg-vsn.sh $PROFILE)"
         echo "EMQX_VERSION=$EMQX_VERSION" >> $GITHUB_ENV
         export PACKAGE_SOURCE="_packages/${PROFILE}/${PROFILE}-${EMQX_VERSION}-ubuntu22.04-$ARCH.tar.gz"
-        export SNAP_BASE=core22
-
+        echo "PACKAGE_SOURCE=$PACKAGE_SOURCE" >> $GITHUB_ENV
         envsubst '${PROFILE},${EMQX_VERSION},${PACKAGE_SOURCE},${SNAP_BASE}' < deploy/snap/snapcraft.yaml > ./snapcraft.yaml
-        snapcraft --use-lxd
+        cat snapcraft.yaml
+
+    - name: Build snap
+      id: snapcraft
+      uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
+
+    - name: Show logs if failed
+      if: failure()
+      run: |
+        cat ~/.local/state/snapcraft/log/*.log
 
     - name: Test snap
+      if: success()
       run: |
-        sudo snap install "${PROFILE}_${EMQX_VERSION}_${ARCH}.snap" --dangerous
+        sudo snap install "${{ steps.snapcraft.outputs.snap }}" --dangerous --devmode
+        # kill any process potentially running on emqx ports
+        for port in 1883 8883 8083 8084 18083; do
+          sudo fuser -k $port/tcp || true
+        done
         sudo snap start "${PROFILE}"
         for i in {1..30}; do
+          echo .
           sudo snap logs "${PROFILE}" | grep -q "${EMQX_VERSION} is running now!" && break
           sleep 1
         done
         if [ $i -eq 30 ]; then
-          sudo snap logs "${PROFILE}"
+          sudo snap logs -n=all "${PROFILE}"
           exit 1
         fi
         sudo snap remove "${PROFILE}"
@@ -256,7 +275,7 @@ jobs:
       uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
       with:
         name: "${{ matrix.profile }}-${{ matrix.arch }}-snap"
-        path: '*.snap'
+        path: "${{ steps.snapcraft.outputs.snap }}"
 
   publish_artifacts:
     runs-on: ubuntu-latest
@@ -289,13 +308,18 @@ jobs:
         AWS_CLOUDFRONT_ID: ${{ secrets.AWS_CLOUDFRONT_ID }}
       run: |
         set -eu
-        if [ $PROFILE = 'emqx' ]; then
-            s3dir='emqx-ce'
-        elif [ $PROFILE = 'emqx-enterprise' ]; then
-            s3dir='emqx-ee'
-        else
-            echo "unknown profile $PROFILE"
-            exit 1
-        fi
-        aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/$s3dir/$REF_NAME
-        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/$s3dir/$REF_NAME/*"
+        aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME
+        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*"
+    - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+      with:
+        aws-access-key-id: ${{ secrets.CLOUD_DEV_AWS_ACCESS_ID }}
+        aws-secret-access-key: ${{ secrets.CLOUD_DEV_AWS_SECRET_KEY }}
+        aws-region: ${{ secrets.CLOUD_DEV_AWS_REGION }}
+    - name: upload to aws s3 (cloud)
+      env:
+        PROFILE: ${{ matrix.profile }}
+        REF_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref_name }}
+        AWS_S3_BUCKET: ${{ secrets.CLOUD_DEV_AWS_BUCKET }}
+      run: |
+        set -eu
+        aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/$PROFILE/package/$REF_NAME

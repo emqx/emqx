@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   jmeter_artifact:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     steps:
     - name: Cache Jmeter
       id: cache-jmeter
@@ -38,7 +38,7 @@ jobs:
         retention-days: 3
 
   advanced_feat:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -96,7 +96,7 @@ jobs:
         retention-days: 3
 
   pgsql_authn_authz:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -169,7 +169,7 @@ jobs:
         retention-days: 3
 
   mysql_authn_authz:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -235,7 +235,7 @@ jobs:
         retention-days: 3
 
   JWT_authn:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -293,7 +293,7 @@ jobs:
         retention-days: 3
 
   built_in_database_authn_authz:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false

@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   static_checks:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "static_checks (${{ matrix.profile }})"
     strategy:
       fail-fast: false
