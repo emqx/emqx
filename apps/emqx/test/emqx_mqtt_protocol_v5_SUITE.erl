@@ -218,6 +218,7 @@ t_connect_clean_start(Config) ->
 t_connect_clean_start_unresp_old_client(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ClientID = atom_to_binary(?FUNCTION_NAME),
+    process_flag(trap_exit, true),
     %% GIVEN: a client with clean_start=true
     {ok, Client1} = emqtt:start_link([
         {clientid, ClientID},
@@ -240,6 +241,9 @@ t_connect_clean_start_unresp_old_client(Config) ->
     close_quic_conn_silently(ConnFun, Client1),
     %% THEN: the new client should connect successfully in time < connect_timeout
     {ok, _} = emqtt:ConnFun(Client2),
+    ok = emqtt:disconnect(Client2),
+    waiting_client_process_exit(Client1),
+    waiting_client_process_exit(Client2),
     ok.
 
 close_quic_conn_silently(quic_connect, Client) ->
@@ -423,11 +427,12 @@ t_connect_idle_timeout(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
     SockOpts = [binary, {active, true}, {nodelay, true}],
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
+    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
     ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
     ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
     ?assertMatch(
-        {ok, #{reason := {shutdown, idle_timeout}}},
-        ?block_until(#{?snk_kind := terminate}, IdleTimeout)
+        {ok, #{reason := {shutdown, idle_timeout}, ?snk_meta := #{peername := ClientSockname}}},
+        ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
     ).
 
 t_connect_emit_stats_timeout(init, Config) ->
