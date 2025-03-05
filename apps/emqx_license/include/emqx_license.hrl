@@ -7,7 +7,7 @@
 -ifndef(_EMQX_LICENSE_).
 -define(_EMQX_LICENSE_, true).
 
-%% The new default ltype=community/ctyp=developer license key since 5.9
+%% The new default ltype=community&ctype=developer license key since 5.9
 %% limit=0 is encoded in the license key,
 %% resolved to DEFAULT_MAX_SESSIONS_LTYPE2 at runtime.
 -define(COMMUNITY_LICENSE_LOG,
@@ -21,7 +21,7 @@
     "==============================================================================\n"
 ).
 
-%% Similar to the trial/evaluation license from before 5.9
+%% Similar to the ltype=trial&ctype=evaluation license from before 5.9
 %% limit = 0 is encoded in the license key,
 %% resolved to DEFAULT_MAX_SESSIONS_CTYPE10 at runtime.
 -define(EVALUATION_LOG,
@@ -29,10 +29,10 @@
     "=============================================================================\n"
     "Using an evaluation license!\n"
     "This license is not permitted for commercial use.\n"
-    "Limitations:"
+    "Limitations:\n"
     " - At most ~p concurrent sessions.\n"
     " - A 30-day uptime limit, must restart the node to regain the sessions quota.\n"
-    "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply a license for:.\n"
+    "Visit https://emqx.com/apply-licenses/emqx?version=5 to apply a license for:\n"
     " - Commercial use\n"
     " - Education or Non-profit use (clustered deployment, free of charge)\n"
     "=============================================================================\n"

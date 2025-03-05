@@ -246,7 +246,7 @@ ensure_cluster_mode(License) ->
 
 %% Enable telemetry when any of the following conditions are met:
 %% 1. License type is community (LTYPE=2)
-%% 2. Customer type is education  | non-profilt (CTYPE=5)
+%% 2. Customer type is education  | non-profit (CTYPE=5)
 %% 3. Customer type is evaluation (CTYPE=10)
 %% 4. Customer type is developer (CTYPE=11)
 ensure_telemetry_default_status(License) ->
