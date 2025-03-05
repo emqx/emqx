@@ -427,11 +427,12 @@ t_connect_idle_timeout(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
     SockOpts = [binary, {active, true}, {nodelay, true}],
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
+    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
     ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
     ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
     ?assertMatch(
-        {ok, #{reason := {shutdown, idle_timeout}}},
-        ?block_until(#{?snk_kind := terminate}, IdleTimeout)
+        {ok, #{reason := {shutdown, idle_timeout}, ?snk_meta := #{peername := ClientSockname}}},
+        ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
     ).
 
 t_connect_emit_stats_timeout(init, Config) ->
