@@ -86,6 +86,11 @@ t_plugins(Config) ->
     %% Must allow via CLI first.
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok = allow_installation(NameVsn),
+    %% Test disallow
+    ok = disallow_installation(NameVsn),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
+    %% Now really allow it.
+    ok = allow_installation(NameVsn),
     ok = install_plugin(PackagePath),
     {ok, StopRes} = describe_plugins(NameVsn),
     Node = atom_to_binary(node()),
@@ -422,3 +427,6 @@ get_host_and_auth(Config) when is_list(Config) ->
 
 allow_installation(NameVsn) ->
     emqx_ctl:run_command(["plugins", "allow", NameVsn]).
+
+disallow_installation(NameVsn) ->
+    emqx_ctl:run_command(["plugins", "disallow", NameVsn]).

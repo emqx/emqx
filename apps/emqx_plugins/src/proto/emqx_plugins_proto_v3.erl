@@ -20,7 +20,8 @@
 -export([
     introduced_in/0,
 
-    allow_installation/2
+    allow_installation/2,
+    disallow_installation/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -34,3 +35,8 @@ introduced_in() ->
     emqx_rpc:erpc_multicall(ok | {error, term()}).
 allow_installation(Nodes, NameVsn) ->
     erpc:multicall(Nodes, emqx_plugins, allow_installation, [NameVsn], ?TIMEOUT).
+
+-spec disallow_installation([node()], binary() | string()) ->
+    emqx_rpc:erpc_multicall(ok | {error, term()}).
+disallow_installation(Nodes, NameVsn) ->
+    erpc:multicall(Nodes, emqx_plugins, forget_allowed_installation, [NameVsn], ?TIMEOUT).

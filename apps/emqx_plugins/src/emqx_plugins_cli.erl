@@ -26,7 +26,8 @@
     restart/2,
     ensure_disabled/2,
     ensure_enabled/3,
-    allow_installation/2
+    allow_installation/2,
+    disallow_installation/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -68,6 +69,34 @@ allow_installation(NameVsn, LogFun) ->
 do_allow_installation(NameVsn, LogFun) ->
     Nodes = nodes_supporting_bpapi_version(3),
     Results = emqx_plugins_proto_v3:allow_installation(Nodes, NameVsn),
+    Errors =
+        lists:filter(
+            fun
+                ({_Node, {ok, ok}}) ->
+                    false;
+                ({_Node, _Error}) ->
+                    true
+            end,
+            lists:zip(Nodes, Results)
+        ),
+    Result =
+        case Errors of
+            [] -> ok;
+            _ -> {error, maps:from_list(Errors)}
+        end,
+    ?PRINT(Result, LogFun).
+
+disallow_installation(NameVsn, LogFun) ->
+    case emqx_plugins:parse_name_vsn(NameVsn) of
+        {ok, _, _} ->
+            do_disallow_installation(NameVsn, LogFun);
+        {error, _} = Error ->
+            ?PRINT(Error, LogFun)
+    end.
+
+do_disallow_installation(NameVsn, LogFun) ->
+    Nodes = nodes_supporting_bpapi_version(3),
+    Results = emqx_plugins_proto_v3:disallow_installation(Nodes, NameVsn),
     Errors =
         lists:filter(
             fun
