@@ -33,14 +33,6 @@ on:
         required: true
       AWS_CLOUDFRONT_ID:
         required: true
-      CLOUD_DEV_AWS_ACCESS_ID:
-        required: true
-      CLOUD_DEV_AWS_SECRET_KEY:
-        required: true
-      CLOUD_DEV_AWS_REGION:
-        required: true
-      CLOUD_DEV_AWS_BUCKET:
-        required: true
       APPLE_ID_PASSWORD:
         required: true
       APPLE_DEVELOPER_IDENTITY:
@@ -310,16 +302,3 @@ jobs:
         set -eu
         aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME
         aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*"
-    - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
-      with:
-        aws-access-key-id: ${{ secrets.CLOUD_DEV_AWS_ACCESS_ID }}
-        aws-secret-access-key: ${{ secrets.CLOUD_DEV_AWS_SECRET_KEY }}
-        aws-region: ${{ secrets.CLOUD_DEV_AWS_REGION }}
-    - name: upload to aws s3 (cloud)
-      env:
-        PROFILE: ${{ matrix.profile }}
-        REF_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref_name }}
-        AWS_S3_BUCKET: ${{ secrets.CLOUD_DEV_AWS_BUCKET }}
-      run: |
-        set -eu
-        aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/$PROFILE/package/$REF_NAME
