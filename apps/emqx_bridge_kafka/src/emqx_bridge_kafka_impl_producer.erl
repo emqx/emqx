@@ -582,7 +582,9 @@ on_kafka_ack(_Partition, message_too_large, ReplyFnAndArgs) ->
     %% wolff should bump the message 'dropped' counter with handle_telemetry_event/4.
     %% however 'dropped' is not mapped to EMQX metrics name
     %% so we reply error here
-    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, message_too_large}).
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, message_too_large});
+on_kafka_ack(_Partition, partition_lost, ReplyFnAndArgs) ->
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, partition_lost}).
 
 %% Note: since wolff client has its own replayq that is not managed by
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
