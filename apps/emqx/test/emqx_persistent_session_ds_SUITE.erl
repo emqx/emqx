@@ -20,11 +20,7 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
--ifdef(BUILD_WITH_FDB).
--define(SETUP_MOD, emqx_persistent_session_ds_SUITE_fdb_surrogate).
--else.
 -define(SETUP_MOD, ?MODULE).
--endif.
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -44,14 +40,6 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_session_replay_retry, Config) ->
-    maybe
-        %% Todo: ideally, should find a way to "phrase" this test for platform build.
-        false ?= emqx_common_test_helpers:skip_if_platform(),
-        %% Todo: ideally, should find a way to "phrase" this test for emqx build.
-        false ?= emqx_ds_test_helpers:skip_if_norepl(),
-        t_session_replay_retry(init, Config)
-    end;
 init_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase(init, Config).
 

@@ -88,8 +88,7 @@ init_per_group(persistence_disabled, Config) ->
     Opts = #{
         durable_sessions_opts => DurableSessionsOpts,
         emqx_opts => EMQXOpts,
-        start_emqx_conf => false,
-        wait_fdb_init => false
+        start_emqx_conf => false
     },
     [
         {cth_opts, Opts},
@@ -114,8 +113,7 @@ init_per_group(persistence_enabled, Config) ->
     Opts = #{
         durable_sessions_opts => DurableSessionsOpts,
         emqx_opts => EMQXOpts,
-        start_emqx_conf => false,
-        wait_fdb_init => [?DURABLE_SESSION_STATE]
+        start_emqx_conf => false
     },
     [
         {cth_opts, Opts},

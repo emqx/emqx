@@ -56,19 +56,14 @@ init_per_group(persistence_disabled, Config) ->
         | Config
     ];
 init_per_group(persistence_enabled, Config) ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            DurableSessionsOpts = #{
-                <<"enable">> => true,
-                <<"heartbeat_interval">> => <<"100ms">>,
-                <<"renew_streams_interval">> => <<"100ms">>
-            },
-            Opts = #{durable_sessions_opts => DurableSessionsOpts},
-            ExtraApps = [emqx_management],
-            emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts);
-        Yes ->
-            Yes
-    end;
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"heartbeat_interval">> => <<"100ms">>,
+        <<"renew_streams_interval">> => <<"100ms">>
+    },
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    ExtraApps = [emqx_management],
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts);
 init_per_group(cm_registry_enabled, Config) ->
     [{emqx_config, "broker.enable_session_registry = true"} | Config];
 init_per_group(cm_registry_disabled, Config) ->

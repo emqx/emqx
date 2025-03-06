@@ -133,15 +133,6 @@ if [ -z "${PROFILE+x}" ]; then
         apps/emqx_auth_http)
             export PROFILE='emqx-enterprise'
             ;;
-        apps/emqx_fdb*)
-            export PROFILE='emqx-platform'
-            ;;
-        apps/emqx_ds_fdb_backend)
-            export PROFILE='emqx-platform'
-            ;;
-        apps/emqx_event_history)
-            export PROFILE='emqx-platform'
-            ;;
         apps/*)
             if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
                 export PROFILE='emqx-enterprise'
