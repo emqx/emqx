@@ -843,9 +843,15 @@ t_conn_change_client_addr(Config) ->
     ?assertEqual(
         ok, quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
     ),
-    {ok, NewAddr} = quicer:sockname(Conn),
-    ct:pal("NewAddr: ~p, Old Addr: ~p", [NewAddr, OldAddr]),
-    ?assertNotEqual(OldAddr, NewAddr),
+
+    ?retry(
+        _Delay = 50,
+        _attempt = 20,
+        fun() ->
+            {ok, NewAddr} = quicer:sockname(Conn),
+            ?assertNotEqual(OldAddr, NewAddr)
+        end
+    ),
     ?assert(is_list(emqtt:info(C))),
     ok = emqtt:disconnect(C).
 

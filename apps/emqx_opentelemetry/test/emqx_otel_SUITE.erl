@@ -48,6 +48,13 @@
 -define(otel_trace_core1, otel_trace_core1).
 -define(otel_trace_core2, otel_trace_core2).
 -define(otel_trace_repl, otel_trace_repl).
+
+-define(CONN_TYPE_GROUP(T),
+    ((T =:= tcp) orelse
+        (T =:= ssl) orelse
+        (T =:= ws) orelse
+        (T =:= wss))
+).
 %% How to run it locally:
 %%
 %% run ct in docker container
@@ -76,13 +83,23 @@
 
 all() ->
     [
-        {group, tcp},
-        {group, tls}
+        {group, otel_tcp},
+        {group, otel_tls}
     ].
 
 groups() ->
     LogsCases = [
         t_log
+    ],
+
+    %% TODO: Add metrics test cases
+    MetricsGroups = [],
+
+    TraceConnTypeGroups = [
+        {group, tcp},
+        {group, ssl},
+        {group, ws},
+        {group, wss}
     ],
     TraceGroups = [
         {group, trace_legacy_mode},
@@ -108,23 +125,31 @@ groups() ->
         t_e2e_cilent_publish_qos2_with_forward,
         t_e2e_cilent_borker_publish_whitelist
     ],
-    %% TODO: Add metrics test cases
-    MetricsGroups = [
-        %% t_metrics
-    ],
     FeatureGroups = [
         {group, logs},
         {group, traces},
         {group, metrics}
     ],
     [
-        {tcp, FeatureGroups},
-        {tls, FeatureGroups},
+        {otel_tcp, FeatureGroups},
+        {otel_tls, FeatureGroups},
+
+        %% FeatureGroups
         {logs, LogsCases},
-        {traces, TraceGroups},
+        {traces, TraceConnTypeGroups},
         {metrics, MetricsGroups},
+
+        %% TraceConnTypeGroups
+        {tcp, TraceGroups},
+        {ssl, TraceGroups},
+        {ws, TraceGroups},
+        {wss, TraceGroups},
+
+        %% TraceGroups
         {trace_legacy_mode, LegacyModeTraceCases},
         {trace_e2e_mode, E2ETraceGroups},
+
+        %% E2ETraceGroups
         {e2e_with_traceparent, E2EModeTraceCases},
         {e2e_no_traceparent, E2EModeTraceCases}
     ].
@@ -141,46 +166,51 @@ end_per_suite(_) ->
     os:unsetenv("OTEL_SERVICE_NAME"),
     ok.
 
-init_per_group(tcp = Group, Config) ->
+init_per_group(otel_tcp = Group, Config) ->
     OtelCollectorURL = os:getenv("OTEL_COLLECTOR_URL", "http://otel-collector.emqx.net:4317"),
     [
-        {group_conn_type, Group},
+        {group_otel_conn_type, Group},
         {otel_collector_url, OtelCollectorURL},
         {logs_exporter_file_path, logs_exporter_file_path(Group, Config)}
         | Config
     ];
-init_per_group(tls = Group, Config) ->
+init_per_group(otel_tls = Group, Config) ->
     OtelCollectorURL = os:getenv(
         "OTEL_COLLECTOR_TLS_URL", "https://otel-collector-tls.emqx.net:4317"
     ),
     [
-        {group_conn_type, Group},
+        {group_otel_conn_type, Group},
         {otel_collector_url, OtelCollectorURL},
         {logs_exporter_file_path, logs_exporter_file_path(Group, Config)}
+        | Config
+    ];
+init_per_group(Group, Config) when ?CONN_TYPE_GROUP(Group) ->
+    [
+        {group_client_conn_type, Group}
         | Config
     ];
 init_per_group(trace_legacy_mode = Group, Config) ->
     [
         {otel_trace_mode, legacy},
-        {trace_mode_group_name, Group}
+        {group_otel_trace_mode, Group}
         | Config
     ];
 init_per_group(trace_e2e_mode = Group, Config) ->
     [
         {otel_trace_mode, e2e},
-        {trace_mode_group_name, Group}
+        {group_otel_trace_mode, Group}
         | Config
     ];
 init_per_group(e2e_with_traceparent = Group, Config) ->
     [
         {otel_follow_traceparent, true},
-        {traceparent_group_name, Group}
+        {group_follow_traceparent, Group}
         | Config
     ];
 init_per_group(e2e_no_traceparent = Group, Config) ->
     [
         {otel_follow_traceparent, false},
-        {traceparent_group_name, Group}
+        {group_follow_traceparent, Group}
         | Config
     ];
 init_per_group(Group, Config) ->
@@ -224,9 +254,9 @@ project_dir(Config) ->
         )
     ).
 
-logs_exporter_filename(tcp) ->
+logs_exporter_filename(otel_tcp) ->
     ".ci/docker-compose-file/otel/otel-collector.json";
-logs_exporter_filename(tls) ->
+logs_exporter_filename(otel_tls) ->
     ".ci/docker-compose-file/otel/otel-collector-tls.json".
 
 %%------------------------------------------------------------------------------
@@ -271,18 +301,16 @@ t_log(Config) ->
 %% Legacy mode cases
 
 t_trace(Config) ->
-    MqttHostPort = mqtt_host_port(),
-
     {ok, _} = emqx_conf:update(?CONF_PATH, enabled_trace_conf(Config), #{override_to => cluster}),
 
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     TopicNoSubs = <<"t/trace/test/nosub/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
 
-    SubConn1 = connect(MqttHostPort, <<"sub1">>),
+    SubConn1 = connect(Config, <<"sub1">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn1, Topic),
-    SubConn2 = connect(MqttHostPort, <<"sub2">>),
+    SubConn2 = connect(Config, <<"sub2">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn2, Topic),
-    PubConn = connect(MqttHostPort, <<"pub">>),
+    PubConn = connect(Config, <<"pub">>),
 
     TraceParent = traceparent(true),
     TraceParentNotSampled = traceparent(false),
@@ -321,7 +349,7 @@ t_trace(Config) ->
     ),
     stop_conns([SubConn1, SubConn2, PubConn]).
 
-t_trace_disabled(_Config) ->
+t_trace_disabled(Config) ->
     ?assertNot(emqx:get_config(?CONF_PATH ++ [traces, enable])),
     %% Tracer must be actually disabled
     ?assertEqual({otel_tracer_noop, []}, opentelemetry:get_tracer()),
@@ -329,9 +357,9 @@ t_trace_disabled(_Config) ->
 
     Topic = <<"t/trace/test", (atom_to_binary(?FUNCTION_NAME))/binary>>,
 
-    SubConn = connect(mqtt_host_port(), <<"sub">>),
+    SubConn = connect(Config, <<"sub">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn, Topic),
-    PubConn = connect(mqtt_host_port(), <<"pub">>),
+    PubConn = connect(Config, <<"pub">>),
 
     TraceParent = traceparent(true),
     emqtt:publish(PubConn, Topic, props(TraceParent), <<>>, []),
@@ -367,7 +395,7 @@ t_trace_all(Config) ->
 
     Topic = <<"t/trace/test", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     ClientId = <<"pub-", (integer_to_binary(erlang:system_time(nanosecond)))/binary>>,
-    PubConn = connect(mqtt_host_port(), ClientId),
+    PubConn = connect(Config, ClientId),
     emqtt:publish(PubConn, Topic, #{}, <<>>, []),
 
     ?assertEqual(
@@ -412,14 +440,14 @@ t_distributed_trace(Config) ->
     ),
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
 
-    SubConn1 = connect(mqtt_host_port(Core1), <<"sub1">>),
+    SubConn1 = connect(Config, Core1, <<"sub1">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn1, Topic),
-    SubConn2 = connect(mqtt_host_port(Core2), <<"sub2">>),
+    SubConn2 = connect(Config, Core2, <<"sub2">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn2, Topic),
-    SubConn3 = connect(mqtt_host_port(Repl), <<"sub3">>),
+    SubConn3 = connect(Config, Repl, <<"sub3">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn3, Topic),
 
-    PubConn = connect(mqtt_host_port(Repl), <<"pub">>),
+    PubConn = connect(Config, Repl, <<"pub">>),
 
     TraceParent = traceparent(true),
     TraceParentNotSampled = traceparent(false),
@@ -463,14 +491,13 @@ t_e2e_connect_disconnect(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
-    MqttHostPort = mqtt_host_port(),
     ClientId = e2e_client_id(Config),
 
     WithTraceparent = ?config(otel_follow_traceparent, Config),
     ConnectTraceParent = traceparent(true),
     DisconnectTraceParent = traceparent(true),
 
-    Conn = connect(MqttHostPort, ClientId, props(WithTraceparent, ConnectTraceParent)),
+    Conn = connect(Config, node(), ClientId, props(WithTraceparent, ConnectTraceParent)),
     timer:sleep(500),
     _ = emqtt:disconnect(Conn, ?RC_SUCCESS, props(WithTraceparent, DisconnectTraceParent)),
     ?assertEqual(
@@ -557,9 +584,8 @@ t_e2e_abnormal_disconnect(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
-    MqttHostPort = mqtt_host_port(),
     ClientId = e2e_client_id(Config),
-    Conn = connect(MqttHostPort, ClientId),
+    Conn = connect(Config, ClientId),
     timer:sleep(500),
     _ = stop_conn(Conn),
     ?assertEqual(
@@ -594,14 +620,13 @@ t_e2e_cilent_sub_unsub(Config) ->
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     QoS = ?QOS_2,
 
-    MqttHostPort = mqtt_host_port(),
     ClientId = e2e_client_id(Config),
 
     WithTraceparent = ?config(otel_follow_traceparent, Config),
     SubTraceParent = traceparent(true),
     UnsubTraceParent = traceparent(true),
 
-    Conn = connect(MqttHostPort, ClientId),
+    Conn = connect(Config, ClientId),
     timer:sleep(500),
     {ok, _, [QoS]} = emqtt:subscribe(Conn, props(WithTraceparent, SubTraceParent), Topic, QoS),
     timer:sleep(500),
@@ -723,12 +748,11 @@ t_e2e_cilent_publish_qos0(Config) ->
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     QoS = ?QOS_0,
 
-    MqttHostPort = mqtt_host_port(),
     BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
-    Conn1 = connect(MqttHostPort, ClientId1),
-    Conn2 = connect(MqttHostPort, ClientId2),
+    Conn1 = connect(Config, ClientId1),
+    Conn2 = connect(Config, ClientId2),
 
     timer:sleep(200),
     %% both subscribe the topic
@@ -791,12 +815,11 @@ t_e2e_cilent_publish_qos1(Config) ->
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     QoS = ?QOS_1,
 
-    MqttHostPort = mqtt_host_port(),
     BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
-    Conn1 = connect(MqttHostPort, ClientId1),
-    Conn2 = connect(MqttHostPort, ClientId2),
+    Conn1 = connect(Config, ClientId1),
+    Conn2 = connect(Config, ClientId2),
 
     timer:sleep(200),
     %% both subscribe the topic
@@ -866,12 +889,11 @@ t_e2e_cilent_publish_qos2(Config) ->
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     QoS = ?QOS_2,
 
-    MqttHostPort = mqtt_host_port(),
     BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
-    Conn1 = connect(MqttHostPort, ClientId1),
-    Conn2 = connect(MqttHostPort, ClientId2),
+    Conn1 = connect(Config, ClientId1),
+    Conn2 = connect(Config, ClientId2),
 
     timer:sleep(200),
     %% both subscribe the topic
@@ -969,11 +991,11 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
     ClientId2 = <<BaseClientId/binary, "-2">>,
     ClientId3 = <<BaseClientId/binary, "-3">>,
 
-    Conn1 = connect(mqtt_host_port(Core1), ClientId1),
+    Conn1 = connect(Config, Core1, ClientId1),
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
-    Conn2 = connect(mqtt_host_port(Core2), ClientId2),
+    Conn2 = connect(Config, Core2, ClientId2),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
-    Conn3 = connect(mqtt_host_port(Repl), ClientId3),
+    Conn3 = connect(Config, Repl, ClientId3),
     {ok, _, [QoS]} = emqtt:subscribe(Conn3, Topic, QoS),
 
     timer:sleep(200),
@@ -1119,11 +1141,11 @@ t_e2e_cilent_borker_publish_whitelist(Config) ->
     ok = rpc:call(Core1, emqx_otel_sampler, store_rule, [clientid, ClientId2]),
     ok = rpc:call(Core1, emqx_otel_sampler, store_rule, [clientid, ClientId3]),
 
-    Conn1 = connect(mqtt_host_port(Core1), ClientId1),
+    Conn1 = connect(Config, Core1, ClientId1),
     {ok, _, [PubQoS]} = emqtt:subscribe(Conn1, Topic, PubQoS),
-    Conn2 = connect(mqtt_host_port(Core2), ClientId2),
+    Conn2 = connect(Config, Core2, ClientId2),
     {ok, _, [?QOS_1]} = emqtt:subscribe(Conn2, Topic, ?QOS_1),
-    Conn3 = connect(mqtt_host_port(Repl), ClientId3),
+    Conn3 = connect(Config, Repl, ClientId3),
     {ok, _, [?QOS_2]} = emqtt:subscribe(Conn3, Topic, ?QOS_2),
 
     timer:sleep(50),
@@ -1336,27 +1358,72 @@ e2e_client_id(Config) ->
     Rand = rand:uniform(1000),
     iolist_to_binary(
         io_lib:format("~s.~s.~s.~s.~B", [
-            ?config(group_conn_type, Config),
-            ?config(trace_mode_group_name, Config),
-            ?config(traceparent_group_name, Config),
+            ?config(group_otel_conn_type, Config),
+            ?config(group_client_conn_type, Config),
+            ?config(group_follow_traceparent, Config),
             ?config(tc, Config),
             Rand
         ])
     ).
 
-connect({Host, Port}, ClientId) ->
-    connect({Host, Port}, ClientId, #{}).
+connect(Config, ClientId) ->
+    connect(Config, node(), ClientId).
 
-connect({Host, Port}, ClientId, Props) ->
-    {ok, ConnPid} = emqtt:start_link([
-        {proto_ver, v5},
-        {host, Host},
-        {port, Port},
-        {clientid, ClientId},
-        {properties, Props}
-    ]),
-    {ok, _} = emqtt:connect(ConnPid),
+connect(Config, Node, ClientId) ->
+    connect(Config, Node, ClientId, #{}).
+
+connect(Config, Node, ClientId, Props) when is_atom(Node) ->
+    connect(Config, mqtt_host_port(Config, Node), ClientId, Props);
+connect(Config, {Host, Port}, ClientId, Props) ->
+    {ConnFun, ConnOpts} = conn_opts(Config),
+    {ok, ConnPid} = emqtt:start_link(
+        [
+            {proto_ver, v5},
+            {host, Host},
+            {port, Port},
+            {clientid, ClientId},
+            {properties, Props}
+        ] ++ ConnOpts
+    ),
+    {ok, _} = ConnFun(ConnPid),
     ConnPid.
+
+-define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
+
+-define(MQTT_SSL_CLIENT_CERTS, [
+    {keyfile, ?CERTS_PATH("client-key.pem")},
+    {cacertfile, ?CERTS_PATH("cacert.pem")},
+    {certfile, ?CERTS_PATH("client-cert.pem")}
+]).
+
+conn_opts(Config) ->
+    conn_opts(?config(group_client_conn_type, Config), Config).
+
+conn_opts(tcp, _Config) ->
+    {fun emqtt:connect/1, []};
+conn_opts(ssl, _Config) ->
+    {fun emqtt:connect/1, [{ssl, true}, {ssl_opts, client_ssl_opts()}]};
+conn_opts(ws, _Config) ->
+    {fun emqtt:ws_connect/1, [{ws_path, "/mqtt"}]};
+conn_opts(wss, _Config) ->
+    {fun emqtt:ws_connect/1, [
+        {ws_path, "/mqtt"},
+        {ws_transport_options, [
+            {http_opts, #{version => 'HTTP/1.1'}},
+            {protocols, [http]},
+            {transport, tls},
+            {tls_opts, client_ssl_opts()}
+        ]}
+    ]}.
+
+client_ssl_opts() ->
+    [{verify, verify_none}] ++ client_certs().
+
+client_certs() ->
+    [
+        {Key, emqx_common_test_helpers:app_path(emqx, FilePath)}
+     || {Key, FilePath} <- ?MQTT_SSL_CLIENT_CERTS
+    ].
 
 disconnect_conn(ConnPid) ->
     disconnect_conns([ConnPid]).
@@ -1370,11 +1437,9 @@ stop_conn(ConnPid) ->
 stop_conns(Conns) ->
     lists:foreach(fun emqtt:stop/1, Conns).
 
-mqtt_host_port() ->
-    emqx:get_config([listeners, tcp, default, bind]).
-
-mqtt_host_port(Node) ->
-    rpc:call(Node, emqx, get_config, [[listeners, tcp, default, bind]]).
+mqtt_host_port(Config, Node) ->
+    ListenerType = ?config(group_client_conn_type, Config),
+    rpc:call(Node, emqx, get_config, [[listeners, ListenerType, default, bind]]).
 
 cluster(TC, Config) ->
     _Nodes = emqx_cth_cluster:start(

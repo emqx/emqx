@@ -91,6 +91,7 @@
     failed_to_consume_from_limiter,
     failed_to_put_back_to_limiter,
     data_bridge_buffer_overflow,
+    dropped_qos0_msg,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
     failed_to_fetch_crl,

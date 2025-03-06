@@ -147,8 +147,14 @@
 -define(IS_CONNECTED_OR_REAUTHENTICATING(ConnState),
     ((ConnState == connected) orelse (ConnState == reauthenticating))
 ).
+
+%% Timers implemented by sessions
 -define(IS_COMMON_SESSION_TIMER(N),
     ((N == retry_delivery) orelse (N == expire_awaiting_rel))
+).
+%% Timers implemented by sessions that need to be handled only when the client is connected
+-define(IS_COMMON_SESSION_ONLINE_TIMER(N),
+    (N == retry_delivery)
 ).
 
 -define(chan_terminating, chan_terminating).
@@ -1666,7 +1672,8 @@ handle_timeout(
     _TRef,
     TimerName,
     Channel = #channel{conn_state = disconnected}
-) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
+) when ?IS_COMMON_SESSION_ONLINE_TIMER(TimerName) ->
+    %% Skip session timers that require a connected client
     {ok, Channel};
 handle_timeout(
     _TRef,
