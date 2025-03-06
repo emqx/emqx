@@ -124,8 +124,8 @@ on_client_authenticate(ClientInfo, AuthResult) ->
                     _ -> {error, not_authorized}
                 end,
             {StopOrOk, Result};
-        _ ->
-            {ok, AuthResult}
+        ignore ->
+            ignore
     end.
 
 on_client_authorize(ClientInfo, Action, Topic, Result) ->
@@ -156,8 +156,8 @@ on_client_authorize(ClientInfo, Action, Topic, Result) ->
                     _ -> deny
                 end,
             {StopOrOk, #{result => NResult, from => exhook}};
-        _ ->
-            {ok, Result}
+        ignore ->
+            ignore
     end.
 
 on_client_subscribe(ClientInfo, Props, TopicFilters) ->
@@ -246,8 +246,8 @@ on_message_publish(Message) ->
     of
         {StopOrOk, #{message := NMessage}} ->
             {StopOrOk, assign_to_message(NMessage, Message)};
-        _ ->
-            {ok, Message}
+        ignore ->
+            ignore
     end.
 
 on_message_dropped(#message{topic = <<"$SYS/", _/binary>>}, _By, _Reason) ->
