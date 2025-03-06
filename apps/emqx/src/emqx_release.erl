@@ -41,29 +41,18 @@
 -define(EMQX_RELEASE_EDITION, ce).
 -endif.
 
--define(EMQX_DESCS, #{
-    ee =>
-        case get_flavor() of
-            official -> "EMQX Enterprise";
-            Flavor -> io_lib:format("EMQX Enterprise(~s)", [Flavor])
-        end,
-    ce => "EMQX"
-}).
+-define(EMQX_DESCS,
+    case get_flavor() of
+        official -> "EMQX Enterprise";
+        Flavor -> io_lib:format("EMQX Enterprise(~s)", [Flavor])
+    end
+).
 
--define(EMQX_REL_NAME, #{
-    ee => <<"Enterprise">>,
-    ce => <<"Opensource">>
-}).
+-define(EMQX_REL_NAME, <<"Enterprise">>).
 
--define(EMQX_REL_VSNS, #{
-    ee => ?EMQX_RELEASE_EE,
-    ce => ?EMQX_RELEASE_CE
-}).
+-define(EMQX_REL_VSNS, ?EMQX_RELEASE_EE).
 
--define(EMQX_REL_VSN_PREFIX, #{
-    ee => "e",
-    ce => "v"
-}).
+-define(EMQX_REL_VSN_PREFIX, "e").
 
 %% @hidden Initialize edition. Almost static. use persistent_term to trick compiler.
 -spec on_load() -> ok.
@@ -73,22 +62,17 @@ on_load() ->
 %% @doc Return EMQX description.
 -dialyzer({[no_match], [description/0]}).
 description() ->
-    maps:get(edition(), ?EMQX_DESCS).
+    ?EMQX_DESCS.
 
-%% @doc Return EMQX edition info.
-%% Read info from persistent_term at runtime.
-%% Or meck this function to run tests for another edition.
--spec edition() -> ce | ee.
 edition() ->
-    persistent_term:get('EMQX_RELEASE_EDITION').
+    ee.
 
 %% @doc Return EMQX version prefix string.
 edition_vsn_prefix() ->
-    maps:get(edition(), ?EMQX_REL_VSN_PREFIX).
+    ?EMQX_REL_VSN_PREFIX.
 
 %% @doc Return EMQX edition name, ee => Enterprise ce => Opensource.
-edition_longstr() ->
-    maps:get(edition(), ?EMQX_REL_NAME).
+edition_longstr() -> ?EMQX_REL_NAME.
 
 %% @doc Return the release version with prefix.
 version_with_prefix() ->
@@ -117,12 +101,13 @@ version() ->
     end.
 
 build_vsn() ->
-    maps:get(edition(), ?EMQX_REL_VSNS).
+    ?EMQX_REL_VSNS.
 
 %% @doc Compare the given version with the current running version,
 %% return 'newer' 'older' or 'same'.
 vsn_compare("v" ++ Vsn) ->
-    vsn_compare(?EMQX_RELEASE_CE, Vsn);
+    %% this clause is kept in case one wants to rolling-upgrade from ce to ee
+    vsn_compare(?EMQX_RELEASE_EE, Vsn);
 vsn_compare("e" ++ Vsn) ->
     vsn_compare(?EMQX_RELEASE_EE, Vsn).
 
