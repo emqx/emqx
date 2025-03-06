@@ -30,30 +30,25 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            AppSpecs = [
-                emqx_conf,
-                {emqx, "durable_sessions.enable = true"},
-                emqx_management
-            ],
-            DashboardSpecs = [
-                emqx_mgmt_api_test_util:emqx_dashboard()
-            ],
-            Cluster = emqx_cth_cluster:start(
-                [
-                    {emqx_mgmt_api_ds_SUITE1, #{apps => AppSpecs ++ DashboardSpecs}},
-                    {emqx_mgmt_api_ds_SUITE2, #{apps => AppSpecs}}
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [N1 | _] = Cluster,
-            Sites = [?ON(N, emqx_ds_replication_layer_meta:this_site()) || N <- Cluster],
-            ApiAuth = ?ON(N1, emqx_common_test_http:default_auth_header()),
-            [{cluster, Cluster}, {sites, Sites}, {api_auth, ApiAuth} | Config];
-        Yes ->
-            Yes
-    end.
+    AppSpecs = [
+        emqx_conf,
+        {emqx, "durable_sessions.enable = true"},
+        emqx_management
+    ],
+    DashboardSpecs = [
+        emqx_mgmt_api_test_util:emqx_dashboard()
+    ],
+    Cluster = emqx_cth_cluster:start(
+        [
+            {emqx_mgmt_api_ds_SUITE1, #{apps => AppSpecs ++ DashboardSpecs}},
+            {emqx_mgmt_api_ds_SUITE2, #{apps => AppSpecs}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [N1 | _] = Cluster,
+    Sites = [?ON(N, emqx_ds_replication_layer_meta:this_site()) || N <- Cluster],
+    ApiAuth = ?ON(N1, emqx_common_test_http:default_auth_header()),
+    [{cluster, Cluster}, {sites, Sites}, {api_auth, ApiAuth} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_cth_cluster:stop(?config(cluster, Config)).

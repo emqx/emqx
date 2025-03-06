@@ -82,19 +82,14 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(persistent_sessions, Config) ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            Port = 18083,
-            ClusterSpecs = [
-                {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
-                {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
-            ],
-            DurableSessionsOpts = #{<<"enable">> => true},
-            Opts = #{durable_sessions_opts => DurableSessionsOpts},
-            emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
-        Yes ->
-            Yes
-    end;
+    Port = 18083,
+    ClusterSpecs = [
+        {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
+        {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
+    ],
+    DurableSessionsOpts = #{<<"enable">> => true},
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
 init_per_group(common = Group, Config0) ->
     DurableSessionsOpts = #{<<"enable">> => false},
     Opts = #{

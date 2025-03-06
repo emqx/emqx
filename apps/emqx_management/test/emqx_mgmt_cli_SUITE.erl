@@ -371,7 +371,6 @@ t_autocluster_leave(Config) ->
     ).
 
 t_leave_rejected_ds_nonempty('init', Config) ->
-    ok = skip_if_norepl(),
     ok = snabbkaffe:start_trace(),
     AppSpec = [
         emqx_conf,
@@ -444,12 +443,6 @@ t_exclusive(_Config) ->
 
 skip_if_oss() ->
     case emqx_cth_suite:skip_if_oss() of
-        false -> ok;
-        Skip -> throw(Skip)
-    end.
-
-skip_if_norepl() ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
         false -> ok;
         Skip -> throw(Skip)
     end.
