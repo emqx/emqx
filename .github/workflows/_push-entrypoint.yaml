@@ -251,3 +251,40 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
+
+  update_public_broker:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - init
+      - prepare
+      - build_and_push_docker_images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: extract_version
+        run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
+
+      - name: Create PR in emqx/public.broker.io
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        with:
+          token: ${{ secrets.PUBLIC_BROKER_REPO_PAT }}
+          repository: emqx/public.broker.io
+          event-type: release
+          client-payload: |
+            {
+              "version": "${{ steps.extract_version.outputs.version }}"
+            }
+
+  trigger_regression_testing:
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && contains(join(needs.*.result, ','), 'success') }}
+    needs:
+      - build_packages
+    env:
+      GH_TOKEN: ${{ secrets.PAT_EMQX_QA_RW }}
+    steps:
+      - name: Trigger EMQX Regression Testing Workflow
+        shell: bash
+        run: |
+          gh --repo emqx/emqx-qa workflow run regression_testing_emqx.yaml \
+            -f froms="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
