@@ -14,22 +14,13 @@
 ## zmstone
 
 ## apps
-/apps/emqx/                @emqx/emqx-review-board @lafirest
 /apps/emqx_auth/           @emqx/emqx-review-board @JimMoen
 /apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
-/apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
-/apps/emqx_dashboard_rbac/ @emqx/emqx-review-board @lafirest
-/apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen @lafirest
+/apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen
+/apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen
 /apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
-/apps/emqx_management/     @emqx/emqx-review-board @lafirest
-/apps/emqx_opentelemetry   @emqx/emqx-review-board @SergeTupchiy
 /apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen
 /apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
-/apps/emqx_psk/            @emqx/emqx-review-board @lafirest
-/apps/emqx_retainer/       @emqx/emqx-review-board @lafirest
-/apps/emqx_rule_engine/    @emqx/emqx-review-board @kjellwinblad
-/apps/emqx_slow_subs/      @emqx/emqx-review-board @lafirest
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
 /apps/emqx_durable_storage/ @emqx/emqx-review-board @keynslug
 
