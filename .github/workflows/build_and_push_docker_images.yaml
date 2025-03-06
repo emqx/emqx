@@ -167,6 +167,13 @@ jobs:
           cat .emqx_docker_image_tags
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
+          head -n 1 .emqx_docker_image_tags > docker-image-tag
+
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: "${{ env.PROFILE }}-docker-image-tag"
+          path: "docker-image-tag"
+          retention-days: 7
 
       - name: Verify that size of docker image is less than 300 MB
         run: |
@@ -217,12 +224,6 @@ jobs:
         run: |
           ./build ${PROFILE} docker
 
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
-        with:
-          name: "${{ env.PROFILE }}-docker-image-tags"
-          path: ".emqx_docker_image_tags"
-          retention-days: 7
-
 
   upload:
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
@@ -242,18 +243,19 @@ jobs:
           - amd64
           - arm64
     env:
+      PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
       FILENAME: "${{ matrix.profile }}-${{ needs.build.outputs.PKG_VSN }}-docker-${{ matrix.arch }}.tar.gz"
 
     steps:
       - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
-          pattern: "${{ matrix.profile }}-docker-image-tags"
+          name: "${{ matrix.profile }}-docker-image-tag"
 
       - name: export docker image to .tar.gz
         run: |
           set -xeuo pipefail
 
-          export _EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)
+          export _EMQX_DOCKER_IMAGE_TAG=$(cat docker-image-tag)
           docker pull "${_EMQX_DOCKER_IMAGE_TAG}"
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$FILENAME"
 

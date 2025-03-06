@@ -371,21 +371,13 @@ make_docker() {
     local EMQX_BASE_DOCKER_TAG="${DOCKER_ORG}/${PROFILE%%-elixir}"
     local default_tag="${EMQX_BASE_DOCKER_TAG}:${PKG_VSN}${SUFFIX}"
     local EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
-    local EDITION=Opensource
-    local LICENSE='Apache-2.0'
-    local PRODUCT_URL='https://www.emqx.io'
-    local PRODUCT_DESCRIPTION='Official docker image for EMQX, the most scalable open-source MQTT broker for IoT, IIoT, and connected vehicles.'
-    local DOCUMENTATION_URL='https://www.emqx.io/docs/en/latest/'
+    local EDITION=Enterprise
+    local LICENSE='(Apache-2.0 AND BSL-1.1)'
+    local PRODUCT_URL='https://emqx.com/en/products/emqx'
+    local PRODUCT_DESCRIPTION='Official docker image for EMQX Enterprise, an enterprise MQTT platform at scale.'
+    local DOCUMENTATION_URL='https://docs.emqx.com/en/emqx/latest/'
     ## extra_deps is a comma separated list of debian 12 package names
-    local EXTRA_DEPS=''
-    if [[ "$PROFILE" = *enterprise* ]]; then
-        EXTRA_DEPS='libsasl2-2,libsasl2-modules-gssapi-mit'
-        EDITION=Enterprise
-        LICENSE='(Apache-2.0 AND BSL-1.1)'
-        PRODUCT_URL='https://www.emqx.com/en/products/emqx'
-        PRODUCT_DESCRIPTION='Official docker image for EMQX Enterprise, an enterprise MQTT platform at scale. '
-        DOCUMENTATION_URL='https://docs.emqx.com/en/enterprise/latest/'
-    fi
+    local EXTRA_DEPS='libsasl2-2,libsasl2-modules-gssapi-mit'
     local ISO_8601_DATE GIT_REVISION
     ISO_8601_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     GIT_REVISION="$(git rev-parse HEAD)"
@@ -483,10 +475,10 @@ function join {
 export_elixir_release_vars() {
   local profile="$1"
   case "$profile" in
-    emqx|emqx-enterprise)
+    emqx-enterprise)
       export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-no}
       ;;
-    emqx-pkg|emqx-enterprise-pkg)
+    emqx-enterprise-pkg)
       export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     *)
