@@ -25,20 +25,18 @@
     version_with_prefix/0,
     vsn_compare/1,
     vsn_compare/2,
-    get_flavor/0,
-    on_load/0
+    get_flavor/0
 ]).
 
 -ifdef(TEST).
 -export([set_flavor/1]).
 -endif.
 
--on_load(on_load/0).
-
 -include("emqx_release.hrl").
 
+%% TODO: delete
 -ifndef(EMQX_RELEASE_EDITION).
--define(EMQX_RELEASE_EDITION, ce).
+-define(EMQX_RELEASE_EDITION, ee).
 -endif.
 
 -define(EMQX_DESCS,
@@ -53,11 +51,6 @@
 -define(EMQX_REL_VSNS, ?EMQX_RELEASE_EE).
 
 -define(EMQX_REL_VSN_PREFIX, "e").
-
-%% @hidden Initialize edition. Almost static. use persistent_term to trick compiler.
--spec on_load() -> ok.
-on_load() ->
-    persistent_term:put('EMQX_RELEASE_EDITION', ?EMQX_RELEASE_EDITION).
 
 %% @doc Return EMQX description.
 -dialyzer({[no_match], [description/0]}).

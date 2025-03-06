@@ -15,11 +15,9 @@ defmodule EMQXUmbrella.MixProject do
 
   The following profiles are valid:
 
-    * `emqx`
     * `emqx-enterprise`
-    * `emqx-pkg`
     * `emqx-enterprise-pkg`
-    * `dev` -> same as `emqx`, for convenience
+    * `dev` -> same as `emqx-enterprise`, for convenience
 
   ## Release Environment Variables
 
@@ -41,7 +39,7 @@ defmodule EMQXUmbrella.MixProject do
     if new_mix_build?() do
       [
         apps_path: "apps",
-        erlc_options: erlc_options(profile_info, version),
+        erlc_options: erlc_options(version),
         version: version,
         deps: deps(profile_info, version),
         releases: releases(),
@@ -52,7 +50,7 @@ defmodule EMQXUmbrella.MixProject do
       # manager for all umbrella apps.
       [
         app: :emqx_mix,
-        erlc_options: erlc_options(profile_info, version),
+        erlc_options: erlc_options(version),
         version: version,
         deps: deps(profile_info, version),
         releases: releases(),
@@ -96,7 +94,7 @@ defmodule EMQXUmbrella.MixProject do
 
   ## TODO: this should be removed once we migrate the release build to mix
   defp old_deps(profile_info, version) do
-    rebar3_umbrella_apps = emqx_apps(profile_info, version) ++ enterprise_deps(profile_info)
+    rebar3_umbrella_apps = emqx_apps(profile_info, version) ++ data_integration_deps()
 
     common_deps() ++
       extra_release_apps() ++
@@ -303,7 +301,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp emqx_apps(profile_info, version) do
     apps = umbrella_apps(profile_info) ++ enterprise_apps(profile_info)
-    set_emqx_app_system_env(apps, profile_info, version)
+    set_emqx_app_system_env(apps, version)
   end
 
   defp umbrella_apps(%{release_type: release_type}) do
@@ -404,7 +402,7 @@ defmodule EMQXUmbrella.MixProject do
     ])
   end
 
-  defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
+  defp data_integration_deps() do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
       common_dep(:influxdb),
@@ -421,12 +419,8 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
-  defp enterprise_deps(_profile_info) do
-    []
-  end
-
-  defp set_emqx_app_system_env(apps, profile_info, version) do
-    system_env = emqx_app_system_env(profile_info, version) ++ maybe_no_quic_env()
+  defp set_emqx_app_system_env(apps, version) do
+    system_env = emqx_app_system_env(version) ++ maybe_no_quic_env()
 
     Enum.map(
       apps,
@@ -442,8 +436,8 @@ defmodule EMQXUmbrella.MixProject do
     )
   end
 
-  def emqx_app_system_env(profile_info, version) do
-    erlc_options(profile_info, version)
+  def emqx_app_system_env(version) do
+    erlc_options(version)
     |> dump_as_erl()
     |> then(&[{"ERL_COMPILER_OPTIONS", &1}])
   end
@@ -452,7 +446,7 @@ defmodule EMQXUmbrella.MixProject do
     k = {__MODULE__, :emqx_app_system_env}
 
     get_memoized(k, fn ->
-      emqx_app_system_env(profile_info(), pkg_vsn())
+      emqx_app_system_env(pkg_vsn())
     end)
   end
 
@@ -460,11 +454,12 @@ defmodule EMQXUmbrella.MixProject do
   # END DEPRECATED FOR MIX BLOCK
   ###############################################################################################
 
-  defp erlc_options(%{edition_type: edition_type}, version) do
+  defp erlc_options(version) do
     [
       :debug_info,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
-      {:d, :EMQX_RELEASE_EDITION, erlang_edition(edition_type)},
+      # TODO: remove
+      {:d, :EMQX_RELEASE_EDITION, :ee},
       {:d, :EMQX_ELIXIR},
       {:d, :EMQX_FLAVOR, get_emqx_flavor()},
       {:d, :snk_kind, :msg}
@@ -532,9 +527,8 @@ defmodule EMQXUmbrella.MixProject do
     k = {__MODULE__, :erlc_options}
 
     get_memoized(k, fn ->
-      profile_info = profile_info()
       version = pkg_vsn()
-      erlc_options(profile_info, version)
+      erlc_options(version)
     end)
   end
 
@@ -695,9 +689,6 @@ defmodule EMQXUmbrella.MixProject do
 
   def check_profile!() do
     valid_envs = [
-      :emqx,
-      :"emqx-test",
-      :"emqx-pkg",
       :"emqx-enterprise",
       :"emqx-enterprise-test",
       :"emqx-enterprise-pkg"
@@ -737,22 +728,13 @@ defmodule EMQXUmbrella.MixProject do
     } =
       case mix_env do
         :dev ->
-          {:standard, :bin, :community}
-
-        :emqx ->
-          {:standard, :bin, :community}
-
-        :"emqx-test" ->
-          {:standard, :bin, :community}
+          {:standard, :bin, :enterprise}
 
         :"emqx-enterprise" ->
           {:standard, :bin, :enterprise}
 
         :"emqx-enterprise-test" ->
           {:standard, :bin, :enterprise}
-
-        :"emqx-pkg" ->
-          {:standard, :pkg, :community}
 
         :"emqx-enterprise-pkg" ->
           {:standard, :pkg, :enterprise}
@@ -861,6 +843,7 @@ defmodule EMQXUmbrella.MixProject do
     # copy /rel/config/ee-examples if profile is enterprise
     case profile do
       "emqx-enterprise" ->
+        # TODO: merge examples dir
         File.cp_r!(
           "rel/config/ee-examples",
           Path.join(etc, "examples"),
@@ -1128,14 +1111,11 @@ defmodule EMQXUmbrella.MixProject do
       {_, :enterprise} ->
         case get_emqx_flavor() do
           :official ->
-            "EMQX Enterprise"
+            "EMQX Entreprise"
 
           flavor ->
             "EMQX Enterprise(#{flavor})"
         end
-
-      {_, :community} ->
-        "EMQX"
     end
   end
 
@@ -1145,14 +1125,7 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_configuration_doc(:enterprise, :log),
     do: "https://docs.emqx.com/en/enterprise/latest/configuration/logs.html"
 
-  defp emqx_configuration_doc(:community, :root),
-    do: "https://www.emqx.io/docs/en/latest/configuration/configuration.html"
-
-  defp emqx_configuration_doc(:community, :log),
-    do: "https://www.emqx.io/docs/en/latest/configuration/logs.html"
-
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
-  defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
   def jq_dep() do
     if enable_jq?(),
@@ -1268,7 +1241,7 @@ defmodule EMQXUmbrella.MixProject do
     env =
       case Mix.env() do
         :dev ->
-          :emqx
+          :"emqx-enterprise"
 
         env ->
           env
@@ -1310,9 +1283,6 @@ defmodule EMQXUmbrella.MixProject do
     |> then(&:io_lib.format("~0p", [&1]))
     |> :erlang.iolist_to_binary()
   end
-
-  defp erlang_edition(:community), do: :ce
-  defp erlang_edition(:enterprise), do: :ee
 
   defp aliases() do
     [
