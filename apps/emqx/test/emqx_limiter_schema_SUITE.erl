@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -28,6 +29,67 @@
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+to_rate(Str) ->
+    emqx_limiter_schema:to_rate(Str).
+
+to_burst(Str) ->
+    emqx_limiter_schema:to_burst(Str).
+
+parse(Str, Type) ->
+    typerefl:from_string(Type, Str).
+
+%%--------------------------------------------------------------------
+%% Generators
+%%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% Properties
+%%--------------------------------------------------------------------
+
+t_rate_to_str_no_unit_prop(_Config) ->
+    ?assert(
+        proper:quickcheck(prop_rate_to_str_no_unit(), [{numtests, 1000}, {to_file, user}])
+    ),
+    ok.
+
+t_rate_to_str_bytes_prop(_Config) ->
+    ?assert(
+        proper:quickcheck(prop_rate_to_str_bytes(), [{numtests, 1000}, {to_file, user}])
+    ),
+    ok.
+
+prop_rate_to_str_no_unit() ->
+    TimeUnits = [<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>],
+    ?FORALL(
+        {Capacity, RawDuration},
+        {pos_integer(), emqx_proper_types:raw_duration(TimeUnits)},
+        begin
+            Raw0 = <<(integer_to_binary(Capacity))/binary, "/", RawDuration/binary>>,
+            {ok, Parsed0} = parse(Raw0, emqx_limiter_schema:rate_type()),
+            Pretty = emqx_limiter_schema:rate_to_str(Parsed0, no_unit),
+            {ok, Parsed1} = parse(Pretty, emqx_limiter_schema:rate_type()),
+            Parsed0 =:= Parsed1
+        end
+    ).
+
+prop_rate_to_str_bytes() ->
+    TimeUnits = [<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>],
+    ?FORALL(
+        {RawCapacity, RawDuration},
+        {emqx_proper_types:raw_byte_size(), emqx_proper_types:raw_duration(TimeUnits)},
+        begin
+            Raw0 = <<RawCapacity/binary, "/", RawDuration/binary>>,
+            {ok, Parsed0} = parse(Raw0, emqx_limiter_schema:rate_type()),
+            Pretty = emqx_limiter_schema:rate_to_str(Parsed0, bytes),
+            {ok, Parsed1} = parse(Pretty, emqx_limiter_schema:rate_type()),
+            Parsed0 =:= Parsed1
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -89,13 +151,3 @@ t_burst(_) ->
     ?assertMatch({error, _}, to_burst("100/10x")),
 
     ok.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-to_rate(Str) ->
-    emqx_limiter_schema:to_rate(Str).
-
-to_burst(Str) ->
-    emqx_limiter_schema:to_burst(Str).

@@ -50,7 +50,9 @@
     printable_utf8/0,
     printable_codepoint/0,
     raw_duration/0,
+    raw_duration/1,
     large_raw_duration/0,
+    raw_byte_size/0,
     clientid/0
 ]).
 
@@ -646,9 +648,13 @@ printable_codepoint() ->
     ]).
 
 raw_duration() ->
+    Units = [<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>],
+    raw_duration(Units).
+
+raw_duration(Units) ->
     ?LET(
         {Value, Unit},
-        {pos_integer(), oneof([<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>])},
+        {pos_integer(), oneof(Units)},
         <<(integer_to_binary(Value))/binary, Unit/binary>>
     ).
 
@@ -656,6 +662,13 @@ large_raw_duration() ->
     ?LET(
         {Value, Unit},
         {range(1_000_000, inf), oneof([<<"d">>, <<"h">>, <<"m">>])},
+        <<(integer_to_binary(Value))/binary, Unit/binary>>
+    ).
+
+raw_byte_size() ->
+    ?LET(
+        {Value, Unit},
+        {pos_integer(), oneof([<<"gb">>, <<"mb">>, <<"kb">>, <<"">>])},
         <<(integer_to_binary(Value))/binary, Unit/binary>>
     ).
 
