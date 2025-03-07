@@ -335,7 +335,7 @@ simple_request(Method, Path, Body, AuthHeader) ->
 
 simple_request(#{method := Method, url := Url} = Params) ->
     Opts = #{return_all => true},
-    AuthHeader = maps:get(auth_header, Params, auth_header_()),
+    AuthHeader = emqx_utils_maps:get_lazy(auth_header, Params, fun auth_header_/0),
     QueryParams = maps:get(query_params, Params, #{}),
     Body = maps:get(body, Params, ""),
     case request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of

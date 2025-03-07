@@ -539,6 +539,7 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 %% set_log_meta should happen after enrich_client
                 %% because client ID assign and override
                 fun set_log_meta/2,
+                fun adjust_limiter/2,
                 fun check_banned/2,
                 fun count_flapping_event/2
             ],
@@ -2060,8 +2061,7 @@ fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
     Username = maps:get(username, ClientInfo, undefined),
-    Attrs = maps:get(client_attrs, ClientInfo, #{}),
-    Tns0 = maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined),
+    Tns0 = get_tenant_namespace(ClientInfo),
     %% No need to add Tns to log metadata if it's aready a prefix is client ID
     %% Or if it's the username.
     Tns =
@@ -2076,6 +2076,10 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
     Meta = lists:filter(fun({_, V}) -> V =/= undefined andalso V =/= <<>> end, Meta0),
     emqx_logger:set_proc_metadata(maps:from_list(Meta)).
 
+get_tenant_namespace(ClientInfo) ->
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+    maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined).
+
 %% clientid_override is an expression which is free to set tns as a prefix, suffix or whatsoever,
 %% but as a best-effort log metadata optimization, we only check for prefix
 is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> ->
@@ -2087,6 +2091,23 @@ is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> -
     end;
 is_clientid_namespaced(_ClientId, _Tns) ->
     false.
+
+%%--------------------------------------------------------------------
+%% Adjust limiter
+
+adjust_limiter(_ConnPkt, #channel{clientinfo = ClientInfo} = Channel0) ->
+    #{zone := Zone, listener := ListenerId} = ClientInfo,
+    maybe
+        Tns = get_tenant_namespace(ClientInfo),
+        true ?= Tns /= undefined,
+        {ok, Fn} ?= emqx_schema_hooks:value_injection_point('channel.adjust_limiter'),
+        NewLimiter = Fn(#{zone => Zone, listener_id => ListenerId, tns => Tns}),
+        ?tp("channel_limiter_adjusted", #{}),
+        {ok, Channel0#channel{quota = NewLimiter}}
+    else
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Check banned

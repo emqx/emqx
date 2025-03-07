@@ -30,6 +30,10 @@ If one of the limiters lack configuration, we simply don't do each action above.
     delete_client_limiter_group/1
 ]).
 
+%% `emqx_schema_hooks' API
+-export([injected_values/0]).
+-export([adjust_limiter/1]).
+
 -export_type([
     client_config/0,
     tenant_config/0
@@ -59,8 +63,8 @@ If one of the limiters lack configuration, we simply don't do each action above.
 
 -spec create_channel_client_container(emqx_types:zone(), emqx_listeners:listener_id(), tns()) ->
     emqx_limiter_client_container:t().
-create_channel_client_container(ZoneName, ListenerId, Ns) ->
-    create_client_container(ZoneName, ListenerId, Ns, limiter_names()).
+create_channel_client_container(Zone, ListenerId, Ns) ->
+    create_client_container(Zone, ListenerId, Ns, limiter_names()).
 
 create_tenant_limiter_group(Ns, Config) ->
     LimiterConfigs = to_limiter_options(Config),
@@ -85,6 +89,23 @@ update_client_limiter_group(Ns, Config) ->
 
 delete_client_limiter_group(Ns) ->
     emqx_limiter:delete_group(client_group(Ns)).
+
+%%------------------------------------------------------------------------------
+%% `emqx_schema_hooks' API
+%%------------------------------------------------------------------------------
+
+injected_values() ->
+    #{
+        'channel.adjust_limiter' => fun ?MODULE:adjust_limiter/1
+    }.
+
+adjust_limiter(Context) ->
+    #{
+        zone := Zone,
+        listener_id := ListenerId,
+        tns := Ns
+    } = Context,
+    create_channel_client_container(Zone, ListenerId, Ns).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
