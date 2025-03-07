@@ -27,13 +27,7 @@
 ).
 
 all() ->
-    All = emqx_common_test_helpers:all(?MODULE),
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            All;
-        _ ->
-            All -- [t_autocluster_leave]
-    end.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -294,7 +288,6 @@ t_admin(_Config) ->
     ok.
 
 t_autocluster_leave('init', Config) ->
-    ok = skip_if_oss(),
     [Core1, Core2, Repl1, Repl2] =
         Nodes = [
             t_autocluster_leave_core1,
@@ -440,12 +433,6 @@ t_exclusive(_Config) ->
     ok.
 
 %%
-
-skip_if_oss() ->
-    case emqx_cth_suite:skip_if_oss() of
-        false -> ok;
-        Skip -> throw(Skip)
-    end.
 
 format(Str, Opts) ->
     io:format("str:~s: Opts:~p", [Str, Opts]).

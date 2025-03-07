@@ -5,6 +5,8 @@
     {vsn, "0.1.0"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib, emqx_durable_storage, emqx_ds_builtin_local, emqx_ds_builtin_raft]},
+    {applications, [
+        kernel, stdlib, emqx_durable_storage, emqx_ds_builtin_local, emqx_ds_builtin_raft
+    ]},
     {env, [{available_backends, [emqx_ds_builtin_local, emqx_ds_builtin_raft]}]}
 ]}.

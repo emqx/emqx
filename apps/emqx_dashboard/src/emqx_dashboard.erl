@@ -273,10 +273,7 @@ listener_name(Protocol) ->
 -dialyzer({no_match, [audit_log_fun/0]}).
 
 audit_log_fun() ->
-    case emqx_release:edition() of
-        ee -> emqx_dashboard_audit:log_fun();
-        ce -> undefined
-    end.
+    emqx_dashboard_audit:log_fun().
 
 -if(?EMQX_RELEASE_EDITION =/= ee).
 

@@ -139,12 +139,7 @@ basic_reboot_apps() ->
         common_business_apps := CommonBusinessApps,
         ee_business_apps := EEBusinessApps
     } = read_apps(),
-    EditionSpecificApps =
-        case emqx_release:edition() of
-            ee -> EEBusinessApps;
-            _ -> []
-        end,
-    BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
+    BusinessApps = CommonBusinessApps ++ EEBusinessApps,
     ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
 
 %% @doc Read business apps belonging to the current profile/edition.

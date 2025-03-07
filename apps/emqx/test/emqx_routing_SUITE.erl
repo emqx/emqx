@@ -64,28 +64,18 @@ init_per_group(routing_schema_v2, Config) ->
 init_per_group(batch_sync_on, Config) ->
     [{emqx_config, "broker.routing.batch_sync.enable_on = all"} | Config];
 init_per_group(batch_sync_replicants, Config) ->
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            [{emqx_config, "broker.routing.batch_sync.enable_on = replicant"} | Config];
-        True ->
-            True
-    end;
+    [{emqx_config, "broker.routing.batch_sync.enable_on = replicant"} | Config];
 init_per_group(batch_sync_off, Config) ->
     [{emqx_config, "broker.routing.batch_sync.enable_on = none"} | Config];
 init_per_group(cluster, Config) ->
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            WorkDir = emqx_cth_suite:work_dir(Config),
-            NodeSpecs = [
-                {emqx_routing_SUITE1, #{apps => [mk_emqx_appspec(1, Config)], role => core}},
-                {emqx_routing_SUITE2, #{apps => [mk_emqx_appspec(2, Config)], role => core}},
-                {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(3, Config)], role => replicant}}
-            ],
-            Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
-            [{cluster, Nodes} | Config];
-        True ->
-            True
-    end;
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    NodeSpecs = [
+        {emqx_routing_SUITE1, #{apps => [mk_emqx_appspec(1, Config)], role => core}},
+        {emqx_routing_SUITE2, #{apps => [mk_emqx_appspec(2, Config)], role => core}},
+        {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(3, Config)], role => replicant}}
+    ],
+    Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
+    [{cluster, Nodes} | Config];
 init_per_group(GroupName, Config) when
     GroupName =:= single_batch_on;
     GroupName =:= single
