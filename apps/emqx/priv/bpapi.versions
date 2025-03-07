@@ -56,6 +56,7 @@
 {emqx_mgmt_api_plugins,1}.
 {emqx_mgmt_api_plugins,2}.
 {emqx_mgmt_api_plugins,3}.
+{emqx_mgmt_api_plugins,4}.
 {emqx_mgmt_api_relup,1}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_cluster,2}.
