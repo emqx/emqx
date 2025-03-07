@@ -101,7 +101,7 @@ if [ ! -d "${WHICH_APP}" ]; then
     exit 1
 fi
 
-ERLANG_CONTAINER='erlang'
+ERLANG_CONTAINER=${ERLANG_CONTAINER:-erlang}
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
 if [ -f "${WHICH_APP}/BSL.txt" ]; then
@@ -165,7 +165,7 @@ FILES=( )
 
 for dep in ${CT_DEPS}; do
     case "${dep}" in
-        erlang)
+        "${ERLANG_CONTAINER}")
             FILES+=( '.ci/docker-compose-file/docker-compose.yaml' )
             ;;
         toxiproxy)
