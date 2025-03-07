@@ -440,15 +440,15 @@ handle_out({?MS_GENERAL_RESPONSE, Result, InMsgId}, MsgSn, Channel) ->
         <<"body">> => #{<<"seq">> => MsgSn, <<"result">> => Result, <<"id">> => InMsgId}
     },
     {ok, [{outgoing, Frame}], state_inc_sn(Channel)};
-handle_out({?MS_REGISTER_ACK, 0}, MsgSn, Channel = #channel{authcode = Authcode0}) ->
-    Authcode =
-        case Authcode0 == anonymous of
-            true -> <<>>;
-            false -> Authcode0
+handle_out({?MS_REGISTER_ACK, 0}, MsgSn, Channel = #channel{authcode = AuthCode0}) ->
+    AuthCode =
+        case AuthCode0 == anonymous of
+            true -> <<"anonymous">>;
+            false -> AuthCode0
         end,
     Frame = #{
         <<"header">> => build_frame_header(?MS_REGISTER_ACK, Channel),
-        <<"body">> => #{<<"seq">> => MsgSn, <<"result">> => 0, <<"auth_code">> => Authcode}
+        <<"body">> => #{<<"seq">> => MsgSn, <<"result">> => 0, <<"auth_code">> => AuthCode}
     },
     {ok, [{outgoing, Frame}], state_inc_sn(Channel)};
 handle_out({?MS_REGISTER_ACK, ResCode}, MsgSn, Channel) ->
@@ -635,8 +635,8 @@ reset_timer(Name, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
-interval(alive_timer, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(check_interval, KeepAlive);
+interval(alive_timer, #channel{keepalive = Keepalive}) ->
+    emqx_keepalive:info(check_interval, Keepalive);
 interval(retry_timer, #channel{retx_interval = RetxIntv}) ->
     RetxIntv.
 
@@ -891,8 +891,8 @@ is_driver_id_req_exist(#channel{inflight = Inflight}) ->
 
 register_(Frame, Channel0) ->
     case emqx_jt808_auth:register(Frame, Channel0#channel.auth) of
-        {ok, Authcode} ->
-            {ok, Channel0#channel{authcode = Authcode}};
+        {ok, AuthCode} ->
+            {ok, Channel0#channel{authcode = AuthCode}};
         {error, Reason} ->
             ?SLOG(error, #{msg => "register_failed", reason => Reason}),
             ResCode =
@@ -916,9 +916,9 @@ authenticate(AuthFrame, #channel{authcode = undefined, auth = Auth}) ->
     end;
 authenticate(
     #{<<"body">> := #{<<"code">> := InCode}},
-    #channel{authcode = Authcode}
+    #channel{authcode = AuthCode}
 ) ->
-    InCode == Authcode.
+    InCode == AuthCode.
 
 enrich_conninfo(
     #{<<"header">> := #{<<"phone">> := Phone}},
@@ -999,10 +999,10 @@ replvar(Topic, #channel{clientinfo = #{clientid := ClientId, phone := Phone}}) w
     do_replvar(Topic, #{clientid => ClientId, phone => Phone}).
 
 do_replvar(Topic, Vars) ->
-    ClientID = maps:get(clientid, Vars, undefined),
+    ClientId = maps:get(clientid, Vars, undefined),
     Phone = maps:get(phone, Vars, undefined),
     List = [
-        {?PH_CLIENTID, ClientID},
+        {?PH_CLIENTID, ClientId},
         {?PH_PHONE, Phone}
     ],
     lists:foldl(fun feed_var/2, Topic, List).
