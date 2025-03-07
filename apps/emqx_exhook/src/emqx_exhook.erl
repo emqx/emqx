@@ -48,18 +48,21 @@ cast(Hookpoint, Req, [ServerName | More]) ->
 
 -spec call_fold(atom(), term(), function()) ->
     {ok, term()}
-    | {stop, term()}.
+    | {stop, term()}
+    | ignore.
 call_fold(Hookpoint, Req, AccFun) ->
     case emqx_exhook_mgr:running() of
         [] ->
             {stop, deny_action_result(Hookpoint, Req)};
         ServerNames ->
-            call_fold(Hookpoint, Req, AccFun, ServerNames)
+            call_fold(true, Hookpoint, Req, AccFun, ServerNames)
     end.
 
-call_fold(_, Req, _, []) ->
+call_fold(true, _, _Req, _, []) ->
+    ignore;
+call_fold(false, _, Req, _, []) ->
     {ok, Req};
-call_fold(Hookpoint, Req, AccFun, [ServerName | More]) ->
+call_fold(IsIgnore, Hookpoint, Req, AccFun, [ServerName | More]) ->
     Server = emqx_exhook_mgr:server(ServerName),
     case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->
@@ -67,14 +70,14 @@ call_fold(Hookpoint, Req, AccFun, [ServerName | More]) ->
                 {stop, NReq} ->
                     {stop, NReq};
                 {ok, NReq} ->
-                    call_fold(Hookpoint, NReq, AccFun, More);
-                _ ->
-                    call_fold(Hookpoint, Req, AccFun, More)
+                    call_fold(false, Hookpoint, NReq, AccFun, More);
+                ignore ->
+                    call_fold(IsIgnore, Hookpoint, Req, AccFun, More)
             end;
         _ ->
             case emqx_exhook_server:failed_action(Server) of
                 ignore ->
-                    call_fold(Hookpoint, Req, AccFun, More);
+                    call_fold(IsIgnore, Hookpoint, Req, AccFun, More);
                 deny ->
                     {stop, deny_action_result(Hookpoint, Req)}
             end
