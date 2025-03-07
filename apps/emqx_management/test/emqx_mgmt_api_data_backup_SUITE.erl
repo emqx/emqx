@@ -239,10 +239,26 @@ test_file_op(Method, Config) ->
             ?NODE2_PORT,
             Auth,
             maps:get(<<"filename">>, Node3Parsed),
-            [{<<"node">>, maps:get(<<"node">>, Node3Parsed)}]
+            [{<<"node">>, maps:get(<<"node">>, Node3Parsed)}],
+            #{return_all => true}
         )
     end,
-    ?assertMatch({ok, _}, F2()),
+    Res2 = F2(),
+    Code2 =
+        case Method of
+            get -> 200;
+            delete -> 204
+        end,
+    ?assertMatch({ok, {{_, Code2, _}, _, _}}, Res2),
+    {ok, {{_, Code2, _}, Headers2List, _}} = Res2,
+    case Method of
+        get ->
+            ?assertMatch(
+                #{"content-type" := "application/octet-stream"}, maps:from_list(Headers2List)
+            );
+        _ ->
+            ok
+    end,
     assert_second_call(Method, F2()),
 
     %% The same as above but nodes are switched
@@ -311,7 +327,14 @@ import_backup_test(Config, BackupName) ->
 assert_second_call(get, Res) ->
     ?assertMatch({ok, _}, Res);
 assert_second_call(delete, Res) ->
-    ?assertMatch({error, {_, 404, _}}, Res).
+    case Res of
+        {error, {_, 404, _}} ->
+            ok;
+        {error, {{_, 404, _}, _, _}} ->
+            ok;
+        _ ->
+            ct:fail("unexpected result: ~p", [Res])
+    end.
 
 export_cloud_backup(NodeApiPort, Auth) ->
     Body = #{
@@ -356,8 +379,11 @@ list_backups(NodeApiPort, Auth, Page, Limit) ->
     request(get, NodeApiPort, Path, [{<<"page">>, Page}, {<<"limit">>, Limit}], [], Auth).
 
 backup_file_op(Method, NodeApiPort, Auth, BackupName, QueryList) ->
+    backup_file_op(Method, NodeApiPort, Auth, BackupName, QueryList, _Opts = #{}).
+
+backup_file_op(Method, NodeApiPort, Auth, BackupName, QueryList, Opts) ->
     Path = ["data", "files", BackupName],
-    request(Method, NodeApiPort, Path, QueryList, [], Auth).
+    request(Method, NodeApiPort, Path, QueryList, [], Auth, Opts).
 
 upload_backup(NodeApiPort, Auth, BackupFilePath) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "files"]),
@@ -386,9 +412,12 @@ request(Method, NodePort, PathParts, Body, Auth) ->
     request(Method, NodePort, PathParts, [], Body, Auth).
 
 request(Method, NodePort, PathParts, QueryList, Body, Auth) ->
+    request(Method, NodePort, PathParts, QueryList, Body, Auth, _Opts = #{}).
+
+request(Method, NodePort, PathParts, QueryList, Body, Auth, Opts) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodePort), PathParts),
     Query = unicode:characters_to_list(uri_string:compose_query(QueryList)),
-    emqx_mgmt_api_test_util:request_api(Method, Path, Query, Auth, Body).
+    emqx_mgmt_api_test_util:request_api(Method, Path, Query, Auth, Body, Opts).
 
 cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
