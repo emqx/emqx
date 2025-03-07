@@ -143,6 +143,8 @@ duration_ms_to_str(Interval) ->
     AllowedTimeUnits = [<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>],
     emqx_schema:duration_ms_to_str(Interval, AllowedTimeUnits).
 
+byte_capacity_to_str(0) ->
+    <<"0">>;
 byte_capacity_to_str(C0) when C0 rem ?GIGABYTE == 0 ->
     C1 = C0 div ?GIGABYTE,
     <<(integer_to_binary(C1))/binary, "gb">>;
