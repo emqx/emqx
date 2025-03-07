@@ -415,7 +415,7 @@ handle_recv({'EXIT', Parent, Reason}, Parent, State) ->
     %% FIXME: it's not trapping exit, should never receive an EXIT
     terminate(Reason, State);
 handle_recv(Msg, Parent, State) ->
-    case process_msg([Msg], ensure_stats_timer(State)) of
+    case process_msg(Msg, ensure_stats_timer(State)) of
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
         {stop, Reason, NewSate} ->
@@ -461,16 +461,33 @@ get_zone_idle_timeout(Zone) ->
 %%--------------------------------------------------------------------
 %% Process next Msg
 
-process_msg([], State) ->
+process_msgs([], State) ->
     {ok, State};
-process_msg([Msg | More], State) ->
+process_msgs([Msgs | More], State) when is_list(Msgs) ->
+    case process_msgs(Msgs, State) of
+        {ok, NState} ->
+            process_msgs(More, NState);
+        Stop ->
+            Stop
+    end;
+process_msgs([Msg | More], State) ->
+    case process_msg(Msg, State) of
+        {ok, NState} ->
+            process_msgs(More, NState);
+        Stop ->
+            Stop
+    end.
+
+process_msg(Msg, State) ->
     try handle_msg(Msg, State) of
         ok ->
-            process_msg(More, State);
+            {ok, State};
         {ok, NState} ->
-            process_msg(More, NState);
-        {ok, Msgs, NState} ->
-            process_msg(append_msg(More, Msgs), NState);
+            {ok, NState};
+        {ok, NextMsgs, NState} when is_list(NextMsgs) ->
+            process_msgs(NextMsgs, NState);
+        {ok, NextMsg, NState} ->
+            process_msg(NextMsg, NState);
         {stop, Reason, NState} ->
             {stop, Reason, NState};
         {stop, Reason} ->
@@ -491,16 +508,6 @@ process_msg([Msg | More], State) ->
                 },
                 State}
     end.
-
--compile({inline, [append_msg/2]}).
-append_msg([], Msgs) when is_list(Msgs) ->
-    Msgs;
-append_msg([], Msg) ->
-    [Msg];
-append_msg(Q, Msgs) when is_list(Msgs) ->
-    lists:append(Q, Msgs);
-append_msg(Q, Msg) ->
-    lists:append(Q, [Msg]).
 
 %%--------------------------------------------------------------------
 %% Handle a Msg
@@ -858,6 +865,9 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
             {ok, State#state{channel = NChannel}};
         {ok, Replies, NChannel} ->
             {ok, next_msgs(Replies), State#state{channel = NChannel}};
+        {continue, Replies, NChannel} ->
+            %% NOTE: Will later go back to `emqx_channel:handle_info/2`.
+            {ok, [next_msgs(Replies), continue], State#state{channel = NChannel}};
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
