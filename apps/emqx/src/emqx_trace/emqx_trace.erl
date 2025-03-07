@@ -490,11 +490,13 @@ start_trace(Trace) ->
         extra = Extra
     } = Trace,
     Formatter = maps:get(formatter, Extra, text),
+    PayloadLimit = maps:get(payload_limit, Extra, 1024),
     Who = #{
         name => Name,
         type => Type,
         filter => Filter,
         payload_encode => PayloadEncode,
+        payload_limit => PayloadLimit,
         formatter => Formatter
     },
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
@@ -665,6 +667,12 @@ to_trace(#{formatter := Formatter} = Trace, Rec) ->
     to_trace(
         maps:remove(formatter, Trace),
         Rec#?TRACE{extra = Extra#{formatter => Formatter}}
+    );
+to_trace(#{payload_limit := PayloadLimit} = Trace, Rec) ->
+    Extra = Rec#?TRACE.extra,
+    to_trace(
+        maps:remove(payload_limit, Trace),
+        Rec#?TRACE{extra = Extra#{payload_limit => PayloadLimit}}
     );
 to_trace(_, Rec) ->
     {ok, Rec}.
