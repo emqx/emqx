@@ -72,7 +72,7 @@
     emqx_exhook_schema,
     emqx_psk_schema,
     emqx_slow_subs_schema,
-    {emqx_otel_schema, ee},
+    emqx_otel_schema,
     emqx_mgmt_api_key_schema
 ]).
 
@@ -197,18 +197,7 @@ validate_durable_sessions_strategy(Conf) ->
     end.
 
 common_apps() ->
-    Edition = emqx_release:edition(),
-    lists:filtermap(
-        fun
-            ({N, E}) ->
-                case E =:= Edition of
-                    true -> {true, N};
-                    false -> false
-                end;
-            (N) when is_atom(N) -> {true, N}
-        end,
-        ?MERGED_CONFIGS
-    ).
+    ?MERGED_CONFIGS.
 
 fields("cluster") ->
     [
