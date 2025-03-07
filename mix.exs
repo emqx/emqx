@@ -1111,7 +1111,7 @@ defmodule EMQXUmbrella.MixProject do
       {_, :enterprise} ->
         case get_emqx_flavor() do
           :official ->
-            "EMQX Entreprise"
+            "EMQX Enterprise"
 
           flavor ->
             "EMQX Enterprise(#{flavor})"
