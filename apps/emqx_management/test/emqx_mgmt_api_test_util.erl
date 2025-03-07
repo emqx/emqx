@@ -114,11 +114,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, [], Opts) when
         (Method =:= delete) orelse
         (Method =:= trace)
 ->
-    NewUrl =
-        case QueryParams of
-            [] -> Url;
-            _ -> Url ++ "?" ++ build_query_string(QueryParams)
-        end,
+    NewUrl = append_query_params(Url, QueryParams),
     do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, Opts);
 request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
     (Method =:= post) orelse
@@ -127,11 +123,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
         (Method =:= delete)
 ->
     ContentType = maps:get('content-type', Opts, "application/json"),
-    NewUrl =
-        case QueryParams of
-            "" -> Url;
-            _ -> Url ++ "?" ++ QueryParams
-        end,
+    NewUrl = append_query_params(Url, QueryParams),
     Body =
         case Body0 of
             {raw, B} -> B;
@@ -142,6 +134,12 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
         {NewUrl, build_http_header(AuthOrHeaders), ContentType, Body},
         maps:remove('content-type', Opts)
     ).
+
+append_query_params(Url, QueryParams) ->
+    case QueryParams of
+        "" -> Url;
+        _ -> Url ++ "?" ++ build_query_string(QueryParams)
+    end.
 
 do_request_api(Method, Request, Opts) ->
     ReturnAll = maps:get(return_all, Opts, false),
@@ -321,25 +319,39 @@ maybe_json_decode(X) ->
     end.
 
 simple_request(Method, Path, Params) ->
-    AuthHeader = auth_header_(),
-    simple_request(Method, Path, Params, AuthHeader).
+    simple_request(#{
+        method => Method,
+        url => Path,
+        body => Params
+    }).
 
-simple_request(Method, Path, Params, AuthHeader) ->
+simple_request(Method, Path, Body, AuthHeader) ->
+    simple_request(#{
+        method => Method,
+        url => Path,
+        body => Body,
+        auth_header => AuthHeader
+    }).
+
+simple_request(#{method := Method, url := Url} = Params) ->
     Opts = #{return_all => true},
-    case request_api(Method, Path, "", AuthHeader, Params, Opts) of
-        {ok, {{_, Status, _}, _Headers, Body0}} ->
-            Body = maybe_json_decode(Body0),
-            {Status, Body};
-        {error, {{_, Status, _}, _Headers, Body0}} ->
-            Body =
-                case emqx_utils_json:safe_decode(Body0) of
+    AuthHeader = maps:get(auth_header, Params, auth_header_()),
+    QueryParams = maps:get(query_params, Params, #{}),
+    Body = maps:get(body, Params, ""),
+    case request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
+        {ok, {{_, Status, _}, _Headers, RespBody0}} ->
+            RespBody = maybe_json_decode(RespBody0),
+            {Status, RespBody};
+        {error, {{_, Status, _}, _Headers, RespBody0}} ->
+            RespBody =
+                case emqx_utils_json:safe_decode(RespBody0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
                     {ok, Decoded0} ->
                         Decoded0;
                     {error, _} ->
-                        Body0
+                        RespBody0
                 end,
-            {Status, Body}
+            {Status, RespBody}
     end.

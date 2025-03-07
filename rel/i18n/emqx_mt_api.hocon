@@ -30,4 +30,36 @@ emqx_mt_api {
             For the first page, use empty string.~"""
         label: "Last Client ID"
     }
+    get_client_limiter {
+        desc: "Get client limiter configuration"
+        label: "Get client limiter"
+    }
+    create_client_limiter {
+        desc: "Create client limiter configuration"
+        label: "Create client limiter"
+    }
+    update_client_limiter {
+        desc: "Update client limiter configuration"
+        label: "Update client limiter"
+    }
+    delete_client_limiter {
+        desc: "Delete client limiter configuration"
+        label: "Delete client limiter"
+    }
+    get_tenant_limiter {
+        desc: "Get tenant limiter configuration"
+        label: "Get tenant limiter"
+    }
+    create_tenant_limiter {
+        desc: "Create tenant limiter configuration"
+        label: "Create tenant limiter"
+    }
+    update_tenant_limiter {
+        desc: "Update tenant limiter configuration"
+        label: "Update tenant limiter"
+    }
+    delete_tenant_limiter {
+        desc: "Delete tenant limiter configuration"
+        label: "Delete tenant limiter"
+    }
 }
