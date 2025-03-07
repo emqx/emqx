@@ -34,12 +34,15 @@
     rate_type/0,
     burst_type/0
 ]).
+-export([rate_to_str/2]).
 
 -export([
     mqtt_limiter_names/0
 ]).
 
 -define(KILOBYTE, 1024).
+-define(MEGABYTE, (?KILOBYTE * ?KILOBYTE)).
+-define(GIGABYTE, (?KILOBYTE * ?KILOBYTE * ?KILOBYTE)).
 
 -type interval_ms() :: pos_integer().
 -type rate() :: infinity | {number(), interval_ms()}.
@@ -125,6 +128,33 @@ to_burst(Str) ->
             Error
     end.
 
+rate_to_str(infinity, _CapacityUnit) ->
+    <<"infinity">>;
+rate_to_str({Capacity, Interval}, no_unit = _CapacityUnit) ->
+    iolist_to_binary([
+        integer_to_binary(Capacity), <<"/">>, duration_ms_to_str(Interval)
+    ]);
+rate_to_str({Capacity, Interval}, bytes = _CapacityUnit) ->
+    iolist_to_binary([
+        byte_capacity_to_str(Capacity), <<"/">>, duration_ms_to_str(Interval)
+    ]).
+
+duration_ms_to_str(Interval) ->
+    AllowedTimeUnits = [<<"d">>, <<"h">>, <<"m">>, <<"s">>, <<"ms">>],
+    emqx_schema:duration_ms_to_str(Interval, AllowedTimeUnits).
+
+byte_capacity_to_str(C0) when C0 rem ?GIGABYTE == 0 ->
+    C1 = C0 div ?GIGABYTE,
+    <<(integer_to_binary(C1))/binary, "gb">>;
+byte_capacity_to_str(C0) when C0 rem ?MEGABYTE == 0 ->
+    C1 = C0 div ?MEGABYTE,
+    <<(integer_to_binary(C1))/binary, "mb">>;
+byte_capacity_to_str(C0) when C0 rem ?KILOBYTE == 0 ->
+    C1 = C0 div ?KILOBYTE,
+    <<(integer_to_binary(C1))/binary, "kb">>;
+byte_capacity_to_str(C) ->
+    integer_to_binary(C).
+
 %% rate can be: 10 10MB 10MB/s 10MB/2s infinity
 %% e.g. the bytes_in regex tree is:
 %%
@@ -182,8 +212,8 @@ capacity_from_str(ValueStr, UnitStr) ->
 
 unit_scale("") -> {ok, 1};
 unit_scale("kb") -> {ok, ?KILOBYTE};
-unit_scale("mb") -> {ok, ?KILOBYTE * ?KILOBYTE};
-unit_scale("gb") -> {ok, ?KILOBYTE * ?KILOBYTE * ?KILOBYTE};
+unit_scale("mb") -> {ok, ?MEGABYTE};
+unit_scale("gb") -> {ok, ?GIGABYTE};
 unit_scale(_) -> error.
 
 interval_from_str("", UnitStr) ->
