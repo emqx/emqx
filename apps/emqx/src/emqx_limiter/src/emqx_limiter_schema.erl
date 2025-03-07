@@ -77,7 +77,7 @@ make_mqtt_limiters_schema(Name, Fields) ->
                 required => false
             })},
         {Burst,
-            ?HOCON(rate_type(), #{
+            ?HOCON(burst_type(), #{
                 desc => ?DESC(Burst),
                 required => false
             })}
