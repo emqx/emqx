@@ -27,6 +27,8 @@
 
 -define(CLUSTER_API_SERVER(PORT), ("http://127.0.0.1:" ++ (integer_to_list(PORT)))).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
@@ -40,7 +42,9 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_plugins,
-            emqx_management,
+            {emqx_management, #{
+                after_start => fun emqx_mgmt_cli:load/0
+            }},
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -79,6 +83,14 @@ t_plugins(Config) ->
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
+    %% Must allow via CLI first.
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
+    ok = allow_installation(NameVsn),
+    %% Test disallow
+    ok = disallow_installation(NameVsn),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
+    %% Now really allow it.
+    ok = allow_installation(NameVsn),
     ok = install_plugin(PackagePath),
     {ok, StopRes} = describe_plugins(NameVsn),
     Node = atom_to_binary(node()),
@@ -112,6 +124,8 @@ t_plugins(Config) ->
         StopRes2
     ),
     {ok, []} = uninstall_plugin(NameVsn),
+    %% Should forget that we allowed installation after uninstall
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok.
 
 t_install_plugin_matching_exisiting_name(Config) ->
@@ -128,6 +142,8 @@ t_install_plugin_matching_exisiting_name(Config) ->
     %% First, install plugin "emqx_plugin_template_a", then:
     %% "emqx_plugin_template" which matches the beginning
     %% of the previously installed plugin name
+    ok = allow_installation(NameVsn),
+    ok = allow_installation(NameVsn1),
     ok = install_plugin(PackagePath1),
     ok = install_plugin(PackagePath),
     {ok, _} = describe_plugins(NameVsn),
@@ -150,6 +166,8 @@ t_bad_plugin(Config) ->
     %% rename plugin tarball
     file:copy(PackagePathOrig, PackagePath),
     file:delete(PackagePathOrig),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = allow_installation(NameVsn),
     {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, _}} = install_plugin(PackagePath),
     ?assertEqual(
         {error, enoent},
@@ -170,6 +188,7 @@ t_delete_non_existing(_Config) ->
     ok.
 
 t_cluster_update_order(Config) ->
+    [N1 | _] = ?config(cluster, Config),
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath1 = get_demo_plugin_package(DemoShDir),
     NameVsn1 = filename:basename(PackagePath1, ?PACKAGE_SUFFIX),
@@ -179,6 +198,10 @@ t_cluster_update_order(Config) ->
     Name1 = list_to_binary(?EMQX_PLUGIN_TEMPLATE_NAME),
     Name2 = list_to_binary(Name2Str),
 
+    ?ON(N1, begin
+        ok = allow_installation(NameVsn1),
+        ok = allow_installation(NameVsn2)
+    end),
     ok = install_plugin(Config, PackagePath1),
     ok = install_plugin(Config, PackagePath2),
     %% to get them configured...
@@ -371,7 +394,9 @@ app_specs(_Config) ->
     [
         emqx,
         emqx_conf,
-        emqx_management,
+        {emqx_management, #{
+            after_start => fun emqx_mgmt_cli:load/0
+        }},
         emqx_plugins
     ].
 
@@ -399,3 +424,9 @@ get_host_and_auth(Config) when is_list(Config) ->
     Host = ?CLUSTER_API_SERVER(APIPort),
     Auth = emqx_common_test_http:auth_header(API),
     #{host => Host, auth => Auth}.
+
+allow_installation(NameVsn) ->
+    emqx_ctl:run_command(["plugins", "allow", NameVsn]).
+
+disallow_installation(NameVsn) ->
+    emqx_ctl:run_command(["plugins", "disallow", NameVsn]).

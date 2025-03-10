@@ -21,9 +21,7 @@
     nested_get/3,
     nested_put/3,
     range_gen/2,
-    range_get/3,
-    atom_key_map/1,
-    unsafe_atom_key_map/1
+    range_get/3
 ]).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -198,42 +196,3 @@ index(0, _) ->
 index(Index, _) when Index > 0 -> Index;
 index(Index, Len) when Index < 0 ->
     Len + Index + 1.
-
-%%%-------------------------------------------------------------------
-%%% atom key map
-%%%-------------------------------------------------------------------
-atom_key_map(BinKeyMap) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun
-            (K, V, Acc) when is_binary(K) ->
-                Acc#{binary_to_existing_atom(K, utf8) => atom_key_map(V)};
-            (K, V, Acc) when is_list(K) ->
-                Acc#{list_to_existing_atom(K) => atom_key_map(V)};
-            (K, V, Acc) when is_atom(K) ->
-                Acc#{K => atom_key_map(V)}
-        end,
-        #{},
-        BinKeyMap
-    );
-atom_key_map(ListV) when is_list(ListV) ->
-    [atom_key_map(V) || V <- ListV];
-atom_key_map(Val) ->
-    Val.
-
-unsafe_atom_key_map(BinKeyMap) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun
-            (K, V, Acc) when is_binary(K) ->
-                Acc#{binary_to_atom(K, utf8) => unsafe_atom_key_map(V)};
-            (K, V, Acc) when is_list(K) ->
-                Acc#{list_to_atom(K) => unsafe_atom_key_map(V)};
-            (K, V, Acc) when is_atom(K) ->
-                Acc#{K => unsafe_atom_key_map(V)}
-        end,
-        #{},
-        BinKeyMap
-    );
-unsafe_atom_key_map(ListV) when is_list(ListV) ->
-    [unsafe_atom_key_map(V) || V <- ListV];
-unsafe_atom_key_map(Val) ->
-    Val.

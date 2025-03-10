@@ -2332,7 +2332,7 @@ t_sqlparse_foreach_1(_Config) ->
                 #{
                     sql => Sql6,
                     context => #{
-                        <<"payload">> => <<"{\"sensors\": [1, 2]}">>,
+                        payload => <<"{\"sensors\": [1, 2]}">>,
                         topic => <<"t/a">>
                     }
                 }
@@ -2350,7 +2350,7 @@ t_sqlparse_foreach_1(_Config) ->
                 #{
                     sql => Sql7,
                     context => #{
-                        <<"payload">> => <<"{\"sensors\": [1, 2]}">>,
+                        payload => <<"{\"sensors\": [1, 2]}">>,
                         topic => <<"t/a">>
                     }
                 }

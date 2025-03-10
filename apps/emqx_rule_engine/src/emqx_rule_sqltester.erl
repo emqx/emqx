@@ -73,10 +73,7 @@ do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         update_process_trace_metadata(StopAfterRender),
-        FullContext = fill_default_values(
-            hd(EventTopics),
-            emqx_rule_maps:atom_key_map(Context)
-        ),
+        FullContext = fill_default_values(hd(EventTopics), Context),
         ApplyRuleRes = emqx_rule_runtime:apply_rule(
             Rule,
             FullContext,
@@ -158,7 +155,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
         conditions => emqx_rule_sqlparser:select_where(Select),
         created_at => erlang:system_time(millisecond)
     },
-    FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
+    FullContext = fill_default_values(hd(EventTopics), Context),
     set_is_test_runtime_env(),
     try emqx_rule_runtime:apply_rule(Rule, FullContext, #{}) of
         {ok, Data} ->
@@ -190,8 +187,19 @@ fill_default_values(Event, Context) ->
 
 envs_examp(EventTopic, Context) ->
     EventName = maps:get(event, Context, emqx_rule_events:event_name(EventTopic)),
-    Env = maps:from_list(emqx_rule_events:columns_with_exam(EventName)),
-    emqx_rule_maps:atom_key_map(Env).
+    Env = emqx_rule_events:columns_with_exam(EventName),
+    %% Only the top level keys need to be converted to atoms.
+    lists:foldl(
+        fun({K, V}, Acc) ->
+            Acc#{to_known_atom(K) => V}
+        end,
+        #{},
+        Env
+    ).
+
+to_known_atom(B) when is_binary(B) -> binary_to_existing_atom(B, utf8);
+to_known_atom(S) when is_list(S) -> list_to_existing_atom(S);
+to_known_atom(A) when is_atom(A) -> A.
 
 is_test_runtime_env_atom() ->
     'emqx_rule_sqltester:is_test_runtime_env'.

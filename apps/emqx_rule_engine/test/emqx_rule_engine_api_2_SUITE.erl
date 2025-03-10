@@ -824,3 +824,57 @@ t_last_modified_at(_Config) ->
         list_rules()
     ),
     ok.
+
+%% This verifies that we don't attempt to transform keys in the `details' value of an
+%% alarm activated/deactivated rule test to atoms.
+t_alarm_details_with_unknown_atom_key(_Config) ->
+    Cases = [
+        #{
+            expected => #{code => 200},
+            hint => <<
+                "the original bug was that this failed with 500 when"
+                " trying to convert a binary to existing atom"
+            >>,
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"event_type">> => <<"alarm_activated">>,
+                            <<"name">> => <<"alarm_name">>,
+                            <<"details">> => #{
+                                <<"some_key_that_is_not_a_known_atom">> => <<"yes">>
+                            },
+                            <<"message">> => <<"boom">>,
+                            <<"activated_at">> => 1736512728666
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"$events/sys/alarm_activated\" ">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            hint => <<
+                "the original bug was that this failed with 500 when"
+                " trying to convert a binary to existing atom"
+            >>,
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"event_type">> => <<"alarm_deactivated">>,
+                            <<"name">> => <<"alarm_name">>,
+                            <<"details">> => #{
+                                <<"some_key_that_is_not_a_known_atom">> => <<"yes">>
+                            },
+                            <<"message">> => <<"boom">>,
+                            <<"activated_at">> => 1736512728666,
+                            <<"deactivated_at">> => 1736512828666
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"$events/sys/alarm_deactivated\" ">>
+                }
+        }
+    ],
+    Failures = lists:filtermap(fun do_t_rule_test_smoke/1, Cases),
+    ?assertEqual([], Failures),
+    ok.

@@ -120,7 +120,7 @@ schema("/plugins/install") ->
             responses => #{
                 204 => <<"Install plugin successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO']
+                    ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO', 'FORBIDDEN']
                 )
             }
         }
@@ -418,7 +418,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
                     AppDir = filename:join(emqx_plugins:install_dir(), AppName),
                     case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
                         [] ->
-                            do_install_package(FileName, Bin);
+                            do_install_package(NameVsn, FileName, Bin);
                         OtherVsn ->
                             {400, #{
                                 code => 'ALREADY_INSTALLED',
@@ -450,6 +450,21 @@ upload_install(post, #{}) ->
             <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
     }}.
 
+do_install_package(NameVsn, FileName, Bin) ->
+    case emqx_plugins:is_allowed_installation(NameVsn) of
+        true ->
+            do_install_package(FileName, Bin);
+        false ->
+            Msg = iolist_to_binary([
+                <<"Package is not allowed installation;">>,
+                <<" first allow it to be installed by running:">>,
+                <<" `emqx ctl plugins allow ">>,
+                NameVsn,
+                <<"`">>
+            ]),
+            {403, #{code => 'FORBIDDEN', message => Msg}}
+    end.
+
 do_install_package(FileName, Bin) ->
     %% TODO: handle bad nodes
     Nodes = emqx:running_nodes(),
@@ -477,19 +492,19 @@ do_install_package(FileName, Bin) ->
             }}
     end.
 
-plugin(get, #{bindings := #{name := Name}}) ->
+plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, _} = emqx_mgmt_api_plugins_proto_v3:describe_package(Nodes, Name),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v3:describe_package(Nodes, NameVsn),
     case format_plugins(Plugins) of
         [Plugin] -> {200, Plugin};
-        [] -> {404, #{code => 'NOT_FOUND', message => Name}}
+        [] -> {404, #{code => 'NOT_FOUND', message => NameVsn}}
     end;
-plugin(delete, #{bindings := #{name := Name}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v3:delete_package(Name),
+plugin(delete, #{bindings := #{name := NameVsn}}) ->
+    Res = emqx_mgmt_api_plugins_proto_v3:delete_package(NameVsn),
     return(204, Res).
 
-update_plugin(put, #{bindings := #{name := Name, action := Action}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v3:ensure_action(Name, Action),
+update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
+    Res = emqx_mgmt_api_plugins_proto_v3:ensure_action(NameVsn, Action),
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
@@ -588,17 +603,18 @@ describe_package(NameVsn) ->
     end.
 
 %% Tip: Don't delete delete_package/1, use before v571 cluster_rpc
-delete_package(Name) ->
-    delete_package(Name, #{}).
+delete_package(NameVsn) ->
+    delete_package(NameVsn, #{}).
 
 %% For RPC plugin delete
-delete_package(Name, _Opts) ->
-    case emqx_plugins:ensure_stopped(Name) of
+delete_package(NameVsn, _Opts) ->
+    _ = emqx_plugins:forget_allowed_installation(NameVsn),
+    case emqx_plugins:ensure_stopped(NameVsn) of
         ok ->
-            _ = emqx_plugins:ensure_disabled(Name),
-            _ = emqx_plugins:ensure_uninstalled(Name),
-            _ = emqx_plugins:delete_package(Name),
-            _ = file:delete(emqx_plugins:md5sum_file(Name)),
+            _ = emqx_plugins:ensure_disabled(NameVsn),
+            _ = emqx_plugins:ensure_uninstalled(NameVsn),
+            _ = emqx_plugins:delete_package(NameVsn),
+            _ = file:delete(emqx_plugins:md5sum_file(NameVsn)),
             ok;
         Error ->
             Error
