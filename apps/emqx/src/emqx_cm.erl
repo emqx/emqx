@@ -197,8 +197,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
 unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
-    true = do_unregister_channel({ClientId, self()}),
-    ok.
+    do_unregister_channel({ClientId, self()}).
 
 %% @private
 do_unregister_channel({_ClientId, ChanPid} = Chan) ->
@@ -206,8 +205,7 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, ChanPid),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
-    ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]),
-    true.
+    ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
@@ -836,9 +834,8 @@ mark_channel_connected(ChanPid) ->
     ok.
 
 mark_channel_disconnected(ChanPid) ->
-    ?tp(emqx_cm_connected_client_count_dec, #{chan_pid => ChanPid}),
     ets:delete(?CHAN_LIVE_TAB, ChanPid),
-    ?tp(emqx_cm_connected_client_count_dec_done, #{chan_pid => ChanPid}),
+    ?tp(emqx_cm_connected_client_count_dec, #{chan_pid => ChanPid}),
     ok.
 
 %% @doc This function counts the sessions (channels) table but not the live-channel table.
