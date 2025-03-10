@@ -43,7 +43,7 @@
         normalize_config/1,
         start_listeners/4,
         stop_listeners/2,
-        update_listeners/5
+        update_gateway/5
     ]
 ).
 
@@ -86,14 +86,7 @@ on_gateway_load(
 on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
-        OldListeners = normalize_config(OldConfig),
-        NewListeners = normalize_config(Config),
-        Res = update_listeners(NewListeners, OldListeners, GwName, Ctx, ?MOD_CFG),
-        ?SLOG(info, #{
-            msg => "update_gateway_result",
-            result => Res
-        }),
-        NewPids = lists:map(fun({_, Pid}) -> Pid end, maps:get(added, Res, [])),
+        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ?MOD_CFG),
         {ok, NewPids, GwState}
     catch
         Class:Reason:Stk ->

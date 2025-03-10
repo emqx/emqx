@@ -44,7 +44,8 @@
     start_listener/4,
     stop_listeners/2,
     stop_listener/2,
-    update_listeners/5
+    update_listeners/5,
+    update_gateway/5
 ]).
 
 -export([
@@ -373,6 +374,27 @@ wait_listener_stopped(ListenOn) ->
             %% concurrently binds to the same port.
             gen_tcp:close(Socket)
     end.
+
+-spec update_gateway(
+    NewConfig :: map(),
+    OldConfig :: map(),
+    GwName :: atom(),
+    Ctx :: emqx_gateway_ctx:context(),
+    ModCfg :: map()
+) ->
+    {ok, [pid()]}
+    | {error, term()}.
+update_gateway(NewConfig, OldConfig, GwName, Ctx, ModCfg) ->
+    NewListeners = normalize_config(NewConfig),
+    OldListeners = normalize_config(OldConfig),
+    Res = update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg),
+    NewPids = lists:map(fun({_, Pid}) -> Pid end, maps:get(added, Res, [])),
+    ?SLOG(info, #{
+        msg => "update_gateway_result",
+        gateway => GwName,
+        result => Res
+    }),
+    {ok, NewPids}.
 
 -spec update_listeners(
     NewListeners :: list(),
