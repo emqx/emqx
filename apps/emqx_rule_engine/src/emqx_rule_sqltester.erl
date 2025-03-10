@@ -73,13 +73,13 @@ do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         update_process_trace_metadata(StopAfterRender),
-        FullContext = fill_default_values(hd(EventTopics), Context),
-        ApplyRuleRes = emqx_rule_runtime:apply_rule(
+        FullContext0 = fill_default_values(hd(EventTopics), Context),
+        FullContext = remove_internal_fields(FullContext0),
+        emqx_rule_runtime:apply_rule(
             Rule,
             FullContext,
             apply_rule_environment()
-        ),
-        ApplyRuleRes
+        )
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -101,6 +101,12 @@ reset_logger_process_metadata(PrevProcessMetadata) ->
 %% is first merged with the context so there does not seem to be any need to
 %% set this to anything else then the empty map.
 apply_rule_environment() -> #{}.
+
+%% Some fields are injected internally to help resolve the event type, such as
+%% `event_type', and should be removed before applying the rule to avoid confusing the
+%% user into thinking they'll be present on real events.
+remove_internal_fields(Context) ->
+    maps:without([event_type], Context).
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
 test(#{sql := Sql, context := Context}) ->
