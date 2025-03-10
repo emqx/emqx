@@ -45,7 +45,9 @@
 
     %% Start Span when `emqx_channel:handle_out/3` called.
     %% Stop when `emqx_channel:handle_outgoing/3` returned
-    outgoing/3
+    outgoing/3,
+
+    apply_rule/3
 ]).
 
 -export([
@@ -575,6 +577,26 @@ outgoing(Attrs, ?EXT_TRACE_STOP, Any) ->
         stop_outgoing_trace(Attrs, Any)
     ).
 
+-spec apply_rule(
+    Attrs :: emqx_external_trace:attrs(),
+    ProcessFun :: emqx_external_trace:t_fun(),
+    Args :: emqx_external_trace:t_args()
+) ->
+    Res :: emqx_external_trace:t_res().
+apply_rule(Attrs, ProcessFun, [Rule, Columns, Envs] = Args) ->
+    ?with_trace_mode(
+        erlang:apply(ProcessFun, Args),
+        ?with_span(
+            ?BROKER_RULE_ENGINE_APPLY,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                NColumns = put_ctx(otel_ctx:get_current(), Columns),
+                NArgs = [Rule, NColumns, Envs],
+                erlang:apply(ProcessFun, NArgs)
+            end
+        )
+    ).
+
 %%--------------------------------------------------------------------
 %% Legacy Mode
 %%--------------------------------------------------------------------
@@ -959,6 +981,13 @@ put_ctx(
     NProps = to_properties(?EMQX_OTEL_CTX, OtelCtx, Props),
     Packet#mqtt_packet{variable = PubAckPacket#mqtt_packet_puback{properties = NProps}};
 %% ====================
+%% Rule Columns Metadata
+put_ctx(
+    OtelCtx,
+    #{metadata := Metadata} = Columns
+) ->
+    Columns#{metadata => Metadata#{?EMQX_OTEL_CTX => OtelCtx}};
+%% ====================
 %% ignore
 put_ctx(
     _OtelCtx,
@@ -981,6 +1010,8 @@ get_ctx(#mqtt_packet{
             #{}
         )
     );
+get_ctx(#{metadata := Metadata} = _Columns) ->
+    maps:get(?EMQX_OTEL_CTX, Metadata, undefined);
 get_ctx(_) ->
     undefined.
 

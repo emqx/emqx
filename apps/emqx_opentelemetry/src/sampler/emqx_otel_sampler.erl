@@ -147,6 +147,7 @@ setup(#{sample_ratio := Ratio} = InitOpts) ->
             client_connect_disconnect,
             client_subscribe_unsubscribe,
             client_messaging,
+            trace_rule_engine,
             msg_trace_level,
             cluster_identifier
         ],
@@ -279,6 +280,11 @@ event_enabled(SpanName, #{client_subscribe_unsubscribe := Boolean}) when
 event_enabled(SpanName, #{client_messaging := Boolean}) when
     SpanName =:= ?CLIENT_PUBLISH_SPAN_NAME orelse
         SpanName =:= ?BROKER_PUBLISH_SPAN_NAME
+->
+    Boolean;
+event_enabled(SpanName, #{trace_rule_engine := Boolean}) when
+    SpanName =:= ?BROKER_RULE_ENGINE_APPLY orelse
+        SpanName =:= ?BROKER_RULE_ENGINE_ACTION
 ->
     Boolean.
 

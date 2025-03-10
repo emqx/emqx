@@ -99,6 +99,8 @@
     Packet :: emqx_types:packet()
 ) -> Res :: t_res().
 
+-callback apply_rule(attrs(), t_fun(), t_args()) -> t_res().
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 

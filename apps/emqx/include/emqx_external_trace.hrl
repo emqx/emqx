@@ -198,6 +198,10 @@ end).
     ?with_provider_action(outgoing, Attrs, ?EXT_TRACE_STOP, Packets)
 ).
 
+-define(EXT_TRACE_APPLY_RULE(Attrs, Fun, FunArgs),
+    ?with_provider_apply_process_fun(apply_rule, Attrs, Fun, FunArgs)
+).
+
 -else.
 
 -define(EXT_TRACE_ADD_ATTRS(_Attrs), ok).
@@ -296,6 +300,10 @@ end).
 
 -define(EXT_TRACE_OUTGOING_STOP(_Attrs, Packets),
     ok
+).
+
+-define(EXT_TRACE_APPLY_RULE(Attrs, Fun, FunArgs),
+    erlang:apply(Fun, FunArgs)
 ).
 
 %% EMQX_RELEASE_EDITION check end

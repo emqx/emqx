@@ -103,6 +103,10 @@ client_messaging.desc:
 """Enable/Disable background messaging events for all clients at the configured sample ratio and trace-level."""
 client_messaging.label: "Trace Messaging Events"
 
+trace_rule_engine.desc:
+"""Enable/Disable background tracing of rule engine execution for all clients at the configured sample ratio."""
+trace_rule_engine.label: "Trace Rule Engine"
+
 follow_traceparent.desc:
 """Enable/Disable, Whether to follow the traceparent passed in by the client through User-Property."""
 follow_traceparent.label: "Follow Traceparent"

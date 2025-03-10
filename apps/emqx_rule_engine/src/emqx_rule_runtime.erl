@@ -19,6 +19,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -72,6 +73,15 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     ok.
 
 apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
+    %% add metadata before the rule is applied
+    %% end-to-end tracing also required the metadata
+    ?EXT_TRACE_APPLY_RULE(
+        ?EXT_TRACE_ATTR(#{'rule.id' => RuleId}),
+        fun(R, C, E) -> do_apply_rule(R, C, E) end,
+        [Rule, add_metadata(Columns, #{rule_id => RuleId}), Envs]
+    ).
+
+do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
     PrevProcessMetadata = logger:get_process_metadata(),
     set_process_trace_metadata(RuleId, Columns),
     trace_rule_sql(
@@ -84,7 +94,7 @@ apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched'),
     clear_rule_payload(),
     try
-        do_apply_rule(Rule, add_metadata(Columns, #{rule_id => RuleId}), Envs)
+        do_apply_rule2(Rule, Columns, Envs)
     catch
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
@@ -168,7 +178,7 @@ rule_trigger_time(Columns) ->
             erlang:system_time(millisecond)
     end.
 
-do_apply_rule(
+do_apply_rule2(
     #{
         id := RuleId,
         is_foreach := true,
@@ -200,7 +210,7 @@ do_apply_rule(
             ok = metrics_inc_no_result(RuleId),
             {error, nomatch}
     end;
-do_apply_rule(
+do_apply_rule2(
     #{
         id := RuleId,
         is_foreach := false,
