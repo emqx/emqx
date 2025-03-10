@@ -37,12 +37,7 @@
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 all() ->
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            emqx_common_test_helpers:all(?MODULE);
-        True ->
-            True
-    end.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Config.

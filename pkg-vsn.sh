@@ -86,8 +86,8 @@ case "${PROFILE}" in
         GIT_TAG_PREFIX="e"
         ;;
     *)
-        RELEASE_EDITION="EMQX_RELEASE_CE"
-        GIT_TAG_PREFIX="v"
+        echo "Unsupported profile ${PROFILE}"
+        exit 1
         ;;
 esac
 

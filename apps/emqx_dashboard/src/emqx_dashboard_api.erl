@@ -204,18 +204,13 @@ user_fields() ->
     fields([username, role, description, backend]) ++ ee_user_fields().
 
 ee_user_fields() ->
-    case emqx_release:edition() of
-        ee ->
-            [
-                {mfa,
-                    mk(
-                        enum([none, disabled] ++ emqx_dashboard_mfa:supported_mechanisms()),
-                        #{desc => ?DESC(mfa_status), example => totp}
-                    )}
-            ];
-        _ ->
-            []
-    end.
+    [
+        {mfa,
+            mk(
+                enum([none, disabled] ++ emqx_dashboard_mfa:supported_mechanisms()),
+                #{desc => ?DESC(mfa_status), example => totp}
+            )}
+    ].
 
 field(username) ->
     {username,
