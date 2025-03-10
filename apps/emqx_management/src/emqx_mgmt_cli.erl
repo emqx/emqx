@@ -325,6 +325,10 @@ plugins(["list"]) ->
     emqx_plugins_cli:list(fun emqx_ctl:print/2);
 plugins(["describe", NameVsn]) ->
     emqx_plugins_cli:describe(NameVsn, fun emqx_ctl:print/2);
+plugins(["allow", NameVsn]) ->
+    emqx_plugins_cli:allow_installation(NameVsn, fun emqx_ctl:print/2);
+plugins(["disallow", NameVsn]) ->
+    emqx_plugins_cli:disallow_installation(NameVsn, fun emqx_ctl:print/2);
 plugins(["install", NameVsn]) ->
     emqx_plugins_cli:ensure_installed(NameVsn, fun emqx_ctl:print/2);
 plugins(["uninstall", NameVsn]) ->
@@ -351,6 +355,10 @@ plugins(_) ->
             {"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
             {"plugins list", "List all installed plugins"},
             {"plugins describe  Name-Vsn", "Describe an installed plugins"},
+            {"plugins allow     Name-Vsn",
+                "Allows installation of a plugin in the cluster from Dashboard or API"},
+            {"plugins disallow  Name-Vsn",
+                "Disallows installation of a plugin in the cluster from Dashboard or API"},
             {"plugins install   Name-Vsn",
                 "Install a plugin package placed\n"
                 "in plugin's install_dir"},
