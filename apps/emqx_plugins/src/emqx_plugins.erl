@@ -686,7 +686,7 @@ ensure_state(NameVsn, Position, State, ConfLocation) ->
 
 ensure_configured(#{name_vsn := NameVsn} = Item, Position, ConfLocation) ->
     Configured = configured(),
-    SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
+    SplitFun = fun(#{name_vsn := NV}) -> bin(NV) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     NewConfigured =
         case Rear of
@@ -707,7 +707,7 @@ add_new_configured(Configured, front, Item) ->
 add_new_configured(Configured, rear, Item) ->
     Configured ++ [Item];
 add_new_configured(Configured, {Action, NameVsn}, Item) ->
-    SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
+    SplitFun = fun(#{name_vsn := NV}) -> bin(NV) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
         throw(#{
@@ -958,8 +958,8 @@ plugin_status(NameVsn, Info) ->
                 stopped
         end,
     Configured = lists:filtermap(
-        fun(#{name_vsn := Nv, enable := St}) ->
-            case bin(Nv) =:= bin(NameVsn) of
+        fun(#{name_vsn := NV, enable := St}) ->
+            case bin(NV) =:= bin(NameVsn) of
                 true -> {true, St};
                 false -> false
             end
