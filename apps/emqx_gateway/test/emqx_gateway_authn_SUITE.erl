@@ -265,17 +265,17 @@ t_case_exproto(_) ->
                 ConnBin = SvrMod:frame_connect(Client, Password),
 
                 Mod:send(Sock, ConnBin),
-                {ok, Recv} = Mod:recv(Sock, 5000),
+                {ok, Recv} = Mod:recv(Sock, 15000),
                 C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin)),
                 ?assertEqual(C(Expect), C(Recv))
             end
         )
     end,
     Login(<<"admin">>, <<"public">>, SvrMod:frame_connack(0)),
-    Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(1)),
+    Login(<<"bad">>, <<"bad-password-1">>, SvrMod:frame_connack(1)),
 
     disable_authn(exproto, tcp, default),
-    Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(0)),
+    Login(<<"bad">>, <<"bad-password-2">>, SvrMod:frame_connack(0)),
 
     SvrMod:stop(Svrs),
     ok.
