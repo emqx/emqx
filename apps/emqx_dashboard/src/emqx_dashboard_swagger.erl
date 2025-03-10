@@ -34,6 +34,7 @@
 
 -export([
     filter_check_request/2,
+    filter_check_request_and_translate_body_atom_keys/2,
     filter_check_request_and_translate_body/2,
     gen_api_schema_json_iodata/3
 ]).
@@ -114,7 +115,7 @@
 
 -type spec_opts() :: #{
     check_schema => boolean() | filter(),
-    translate_body => boolean(),
+    translate_body => boolean() | {true, atom_keys},
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
     i18n_lang => atom() | string() | binary(),
     filter => filter()
@@ -337,6 +338,13 @@ filter_check_request_and_translate_body(Request, RequestMeta) ->
 filter_check_request(Request, RequestMeta) ->
     translate_req(Request, RequestMeta, fun check_only/3).
 
+filter_check_request_and_translate_body_atom_keys(Request, RequestMeta) ->
+    CheckFun = fun(Schema, Map, Opts0) ->
+        Opts = maps:merge(Opts0, #{atom_key => true}),
+        check_and_translate(Schema, Map, Opts)
+    end,
+    translate_req(Request, RequestMeta, CheckFun).
+
 translate_req(Request, ReqMeta = #{module := Module}, CheckFun) ->
     Spec = find_req_apispec(ReqMeta),
     try
@@ -378,6 +386,8 @@ custom_filter(Options) ->
 
 check_schema_filter(#{check_schema := true, translate_body := true}) ->
     fun ?MODULE:filter_check_request_and_translate_body/2;
+check_schema_filter(#{check_schema := true, translate_body := {true, atom_keys}}) ->
+    fun ?MODULE:filter_check_request_and_translate_body_atom_keys/2;
 check_schema_filter(#{check_schema := true}) ->
     fun ?MODULE:filter_check_request/2;
 check_schema_filter(#{check_schema := Filter}) when is_function(Filter, 2) ->
@@ -554,7 +564,11 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
                 end,
             NewSchema = #{roots => [{root, Type}], validations => Validations, fields => #{}},
             Option = #{required => false},
-            #{<<"root">> := NewBody} = CheckFun(NewSchema, #{<<"root">> => Body}, Option),
+            NewBody =
+                case CheckFun(NewSchema, #{<<"root">> => Body}, Option) of
+                    #{<<"root">> := NewBody0} -> NewBody0;
+                    #{root := NewBody0} -> NewBody0
+                end,
             {ok, NewBody};
         true ->
             {415, 'UNSUPPORTED_MEDIA_TYPE', <<"content-type:application/json Required">>}

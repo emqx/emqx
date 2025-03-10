@@ -43,6 +43,21 @@ parses_the_same(Value, Type1, Type2) ->
 %% Properties
 %%--------------------------------------------------------------------
 
+prop_duration_ms_to_str_roundtrip() ->
+    ?FORALL(
+        RawDuration,
+        emqx_proper_types:raw_duration(),
+        ?IMPLIES(
+            timeout_within_bounds(RawDuration),
+            begin
+                {ok, Parsed0} = parse(RawDuration, emqx_schema:duration_ms()),
+                Pretty = emqx_schema:duration_ms_to_str(Parsed0),
+                {ok, Parsed1} = parse(Pretty, emqx_schema:duration_ms()),
+                Parsed0 =:= Parsed1
+            end
+        )
+    ).
+
 prop_timeout_duration_refines_duration() ->
     ?FORALL(
         RawDuration,
