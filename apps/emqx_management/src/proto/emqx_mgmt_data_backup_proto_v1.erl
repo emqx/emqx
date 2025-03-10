@@ -42,10 +42,10 @@ import_file(Node, FileNode, FileName, Timeout) ->
     rpc:call(Node, emqx_mgmt_data_backup, maybe_copy_and_import, [FileNode, FileName], Timeout).
 
 -spec read_file(node(), binary(), timeout()) ->
-    {ok, binary()} | {error, _} | {bardrpc, _}.
+    {ok, binary()} | {error, _} | {badrpc, _}.
 read_file(Node, FileName, Timeout) ->
     rpc:call(Node, emqx_mgmt_data_backup, read_file, [FileName], Timeout).
 
--spec delete_file(node(), binary(), timeout()) -> ok | {error, _} | {bardrpc, _}.
+-spec delete_file(node(), binary(), timeout()) -> ok | {error, _} | {badrpc, _}.
 delete_file(Node, FileName, Timeout) ->
     rpc:call(Node, emqx_mgmt_data_backup, delete_file, [FileName], Timeout).

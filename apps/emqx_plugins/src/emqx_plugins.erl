@@ -37,6 +37,10 @@
 
 %% Package operations
 -export([
+    allow_installation/1,
+    forget_allowed_installation/1,
+    is_allowed_installation/1,
+
     ensure_installed/0,
     ensure_installed/1,
     ensure_installed/2,
@@ -109,6 +113,10 @@
 
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
+-define(APP, emqx_plugins).
+
+-define(allowed_installations, allowed_installations).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -153,6 +161,33 @@ app_dir(AppName, Apps) ->
         _ ->
             {error, not_found}
     end.
+
+%% Note: this is only used for the HTTP API.
+%% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
+%% seems a non-atom key...
+-spec allow_installation(binary() | string()) -> ok.
+allow_installation(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
+    Allowed = Allowed0#{NameVsn => true},
+    application:set_env(?APP, ?allowed_installations, Allowed),
+    ok.
+
+%% Note: this is only used for the HTTP API.
+-spec is_allowed_installation(binary() | string()) -> boolean().
+is_allowed_installation(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Allowed = application:get_env(?APP, ?allowed_installations, #{}),
+    maps:get(NameVsn, Allowed, false).
+
+%% Note: this is only used for the HTTP API.
+-spec forget_allowed_installation(binary() | string()) -> ok.
+forget_allowed_installation(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
+    Allowed = maps:remove(NameVsn, Allowed0),
+    application:set_env(?APP, ?allowed_installations, Allowed),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Package operations
@@ -651,7 +686,7 @@ ensure_state(NameVsn, Position, State, ConfLocation) ->
 
 ensure_configured(#{name_vsn := NameVsn} = Item, Position, ConfLocation) ->
     Configured = configured(),
-    SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
+    SplitFun = fun(#{name_vsn := NV}) -> bin(NV) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     NewConfigured =
         case Rear of
@@ -672,7 +707,7 @@ add_new_configured(Configured, front, Item) ->
 add_new_configured(Configured, rear, Item) ->
     Configured ++ [Item];
 add_new_configured(Configured, {Action, NameVsn}, Item) ->
-    SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
+    SplitFun = fun(#{name_vsn := NV}) -> bin(NV) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
     Rear =:= [] andalso
         throw(#{
@@ -923,8 +958,8 @@ plugin_status(NameVsn, Info) ->
                 stopped
         end,
     Configured = lists:filtermap(
-        fun(#{name_vsn := Nv, enable := St}) ->
-            case bin(Nv) =:= bin(NameVsn) of
+        fun(#{name_vsn := NV, enable := St}) ->
+            case bin(NV) =:= bin(NameVsn) of
                 true -> {true, St};
                 false -> false
             end
