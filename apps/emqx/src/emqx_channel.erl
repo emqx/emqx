@@ -1421,8 +1421,18 @@ handle_call(discard, Channel) ->
         []
     );
 %% Session Takeover
-handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
-    reply(Session, Channel#channel{takeover = true});
+handle_call(
+    {takeover, 'begin'},
+    Channel = #channel{
+        session = Session
+    }
+) ->
+    %% NOTE
+    %% Ensure channel has enough time left to react to takeover end call. At the same
+    %% time ensure that channel dies off reasonably quickly if no call will arrive.
+    Interval = interval(expire_takeover, Channel),
+    NChannel = reset_timer(expire_session, Interval, Channel),
+    reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{
@@ -1783,6 +1793,9 @@ interval(expire_awaiting_rel, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
 interval(expire_session, #channel{conninfo = ConnInfo}) ->
     maps:get(expiry_interval, ConnInfo);
+interval(expire_takeover, #channel{}) ->
+    %% NOTE: Equivalent to `?T_TAKEOVER` for simplicity.
+    15_000;
 interval(will_message, #channel{will_msg = WillMsg}) ->
     timer:seconds(will_delay_interval(WillMsg)).
 
