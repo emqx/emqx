@@ -174,6 +174,7 @@ t_open_session_race_condition(_) ->
         Parent ! OpenR,
         case OpenR of
             {ok, _} ->
+                ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
                 receive
                     {'$gen_call', From, discard} ->
                         gen_server:reply(From, ok),

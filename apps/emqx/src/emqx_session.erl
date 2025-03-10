@@ -231,7 +231,7 @@
     {ok, replies(), t()}
     | {error, emqx_types:reason_code()}.
 
--callback replay(clientinfo(), [emqx_types:message()], t()) ->
+-callback replay(clientinfo(), _ReplayContext, t()) ->
     {ok, replies(), t()}.
 
 -callback deliver(clientinfo(), [emqx_types:deliver()], t()) ->
@@ -691,7 +691,7 @@ on_dropped_qos2_msg(PacketId, Msg, RC) ->
 
 %%--------------------------------------------------------------------
 
--spec should_keep(message() | emqx_types:deliver()) -> boolean().
+-spec should_keep(message()) -> boolean().
 should_keep(MsgDeliver) ->
     not is_banned_msg(MsgDeliver).
 

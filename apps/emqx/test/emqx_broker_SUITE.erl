@@ -448,8 +448,7 @@ t_connected_client_count_persistent(Config) when is_list(Config) ->
         [
             emqx_cm_connected_client_count_inc,
             emqx_cm_connected_client_count_dec
-        ],
-        500
+        ]
     ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
@@ -580,17 +579,16 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
                         spawn(ConnectFun)
                     end,
                     lists:seq(1, NumClients)
-                ),
-                ok
+                )
             end,
             %% At least one channel acquires the lock for this client id.  We
             %% also expect a decrement event because the client dies along with
             %% the ephemeral process.
             [
                 emqx_cm_connected_client_count_inc,
-                emqx_cm_connected_client_count_dec_done
+                emqx_cm_connected_client_count_dec
             ],
-            _Timeout = 10000
+            5000
         ),
     %% Since more than one pair of inc/dec may be emitted, we need to
     %% wait for full stabilization
@@ -610,13 +608,13 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
             ConnectSuccessCnt,
             [
                 emqx_cm_connected_client_count_inc,
-                emqx_cm_connected_client_count_dec_done
+                emqx_cm_connected_client_count_dec
             ]
         )
     ),
     wait_for_events(fun() -> ok end, EventsThatShouldHaveHappened, 10000, infinity),
     %% It must be 0 again because we got enough
-    %% emqx_cm_connected_client_count_dec_done events
+    %% emqx_cm_connected_client_count_dec events
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     %% connecting again
     {ok, ConnPid1} = emqtt:start_link([
@@ -627,8 +625,7 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     {{ok, _}, {ok, [_]}} =
         wait_for_events(
             fun() -> emqtt:ConnFun(ConnPid1) end,
-            [emqx_cm_connected_client_count_inc],
-            _Timeout = 10000
+            [emqx_cm_connected_client_count_inc]
         ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process
@@ -639,8 +636,7 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
                 exit(ChanPid, kill),
                 ok
             end,
-            [emqx_cm_connected_client_count_dec_done],
-            _Timeout = 10000
+            [emqx_cm_connected_client_count_dec]
         ),
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     ok;
