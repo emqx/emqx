@@ -112,7 +112,15 @@ handle_call(kick, _From, Channel) ->
     {stop, kicked, ok, Channel};
 handle_call(discard, _From, Channel) ->
     {stop, discarded, ok, Channel};
-handle_call({takeover, 'begin'}, _From, #{session := Session} = Channel) ->
+handle_call(
+    {takeover, 'begin'},
+    _From,
+    #{
+        session := Session,
+        clientinfo := #{clientid := ClientId}
+    } = Channel
+) ->
+    ok = emqx_cm:unregister_channel(ClientId),
     {reply, Session, Channel#{takeover => true}};
 handle_call(
     {takeover, 'end'},
@@ -257,6 +265,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
             ?SLOG(
                 info,

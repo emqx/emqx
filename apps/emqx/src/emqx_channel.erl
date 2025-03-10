@@ -570,17 +570,18 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
 post_process_connect(
     AckProps,
     Channel = #channel{
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo,
+        conninfo = #{clean_start := CleanStart} = ConnInfo,
+        clientinfo = #{clientid := ClientId} = ClientInfo,
         will_msg = MaybeWillMsg
     }
 ) ->
-    #{clean_start := CleanStart} = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, replay := ReplayContext}} ->
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = ReplayContext
@@ -1424,7 +1425,8 @@ handle_call(discard, Channel) ->
 handle_call(
     {takeover, 'begin'},
     Channel = #channel{
-        session = Session
+        session = Session,
+        clientinfo = #{clientid := ClientId}
     }
 ) ->
     %% NOTE
@@ -1432,13 +1434,14 @@ handle_call(
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
     Interval = interval(expire_takeover, Channel),
     NChannel = reset_timer(expire_session, Interval, Channel),
+    ok = emqx_cm:unregister_channel(ClientId),
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{
         session = Session,
         pendings = Pendings,
-        conninfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId}
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -2870,6 +2873,8 @@ parse_raw_topic_filters(TopicFilters) ->
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected
 
+ensure_disconnected(_Reason, Channel = #channel{conn_state = disconnected}) ->
+    Channel;
 ensure_disconnected(
     Reason,
     Channel = #channel{

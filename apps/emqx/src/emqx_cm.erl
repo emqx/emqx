@@ -286,29 +286,21 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     }}
     | {error, Reason :: term()}.
 open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
-    Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         ok = discard_session(ClientId),
         ok = emqx_session:destroy(ClientInfo, ConnInfo),
-        create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, Self)
+        Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
+        {ok, #{session => Session, present => false}}
     end);
 open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
-    Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
             {true, Session, ReplayContext} ->
-                ok = register_channel(ClientId, Self, ConnInfo),
                 {ok, #{session => Session, present => true, replay => ReplayContext}};
             {false, Session} ->
-                ok = register_channel(ClientId, Self, ConnInfo),
                 {ok, #{session => Session, present => false}}
         end
     end).
-
-create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg, ChanPid) ->
-    Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
-    ok = register_channel(ClientId, ChanPid, ConnInfo),
-    {ok, #{session => Session, present => false}}.
 
 %% @doc Try to takeover a session from existing channel.
 -spec takeover_session_begin(emqx_types:clientid()) ->
