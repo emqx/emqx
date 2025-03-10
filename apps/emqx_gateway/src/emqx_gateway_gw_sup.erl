@@ -69,7 +69,11 @@ remove_insta(Sup, Name) ->
     case emqx_gateway_utils:find_sup_child(Sup, Name) of
         false ->
             ok;
-        {ok, _GwInstaPid} ->
+        {ok, GwInstaPid} ->
+            case emqx_gateway_insta_sup:disable(GwInstaPid) of
+                ok -> ok;
+                {error, already_stopped} -> ok
+            end,
             ok = supervisor:terminate_child(Sup, Name),
             ok = supervisor:delete_child(Sup, Name)
     end.

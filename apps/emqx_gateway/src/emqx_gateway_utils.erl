@@ -470,9 +470,9 @@ diff_listeners(NewListeners, OldListeners) ->
                 {ok, {Type, LisName, ListenOn, _OldCfg}, Remaining} ->
                     Update = maps:get(update, Result, []),
                     {Remaining, Result#{update => [L | Update]}};
-                {ok, {Type, LisName, _OldListenOn, _}, Remaining} ->
+                {ok, {Type, LisName, _OldListenOn, _}, _Remaining} ->
                     Add = maps:get(add, Result, []),
-                    {Remaining, Result#{add => [L | Add]}};
+                    {Old, Result#{add => [L | Add]}};
                 error ->
                     Add = maps:get(add, Result, []),
                     {Old, Result#{add => [L | Add]}}
