@@ -150,42 +150,42 @@ end_per_testcase(_TestCase, _Config) ->
     snabbkaffe:stop(),
     ok.
 
-restart_mqttsn_with_subs_resume_on() ->
+update_mqttsn_with_subs_resume_on() ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"subs_resume">> => <<"true">>}
     ).
 
-restart_mqttsn_with_subs_resume_off() ->
+update_mqttsn_with_subs_resume_off() ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"subs_resume">> => <<"false">>}
     ).
 
-restart_mqttsn_with_neg_qos_on() ->
+update_mqttsn_with_neg_qos_on() ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"enable_qos3">> => <<"true">>}
     ).
 
-restart_mqttsn_with_neg_qos_off() ->
+update_mqttsn_with_neg_qos_off() ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"enable_qos3">> => <<"false">>}
     ).
 
-restart_mqttsn_with_mountpoint(Mp) ->
+update_mqttsn_with_mountpoint(Mp) ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"mountpoint">> => Mp}
     ).
 
-restart_mqttsn_with_predefined_topics(Topics) ->
+update_mqttsn_with_predefined_topics(Topics) ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
         mqttsn,
@@ -221,6 +221,27 @@ t_connect(_) ->
 
     send_disconnect_msg(Socket, undefined),
     %% assert: mqttsn gateway will ack disconnect msg with DISCONNECT packet
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_update_not_restart_listener(_) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+    update_mqttsn_with_mountpoint(<<"mp/">>),
+
+    MsgId = 1,
+    TopicId = ?MAX_PRED_TOPIC_ID + 1,
+    TopicName1 = <<"abcD">>,
+    send_register_msg(Socket, TopicName1, MsgId),
+    %% send successfully means the listener is not restarted
+    ?assertEqual(<<7, ?SN_REGACK, TopicId:16, MsgId:16, 0:8>>, receive_response(Socket)),
+
+    update_mqttsn_with_mountpoint(<<>>),
+
+    send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
@@ -623,7 +644,7 @@ t_subscribe_predefined_topic(_) ->
     send_disconnect_msg(Socket, undefined),
     gen_udp:close(Socket),
 
-    restart_mqttsn_with_predefined_topics([]),
+    update_mqttsn_with_predefined_topics([]),
     Socket1 = ensure_connected_client(?CLIENTID),
     send_subscribe_msg_predefined_topic(Socket1, 0, ?PREDEF_TOPIC_ID1, 1),
     ?assertEqual(
@@ -632,7 +653,7 @@ t_subscribe_predefined_topic(_) ->
         receive_response(Socket1)
     ),
     send_disconnect_msg(Socket1, undefined),
-    restart_mqttsn_with_predefined_topics(?DEFAULT_PREDEFINED_TOPICS),
+    update_mqttsn_with_predefined_topics(?DEFAULT_PREDEFINED_TOPICS),
     gen_udp:close(Socket1).
 
 t_publish_negqos_enabled(_) ->
@@ -672,7 +693,7 @@ t_publish_negqos_enabled(_) ->
     gen_udp:close(Socket).
 
 t_publish_negqos_disabled(_) ->
-    restart_mqttsn_with_neg_qos_off(),
+    update_mqttsn_with_neg_qos_off(),
     NegQoS = 3,
     MsgId = 1,
     Payload = <<"abc">>,
@@ -692,7 +713,7 @@ t_publish_negqos_disabled(_) ->
             ?assertMatch([#{return_code := ?SN_RC_NOT_SUPPORTED}], Trace)
         end
     ),
-    restart_mqttsn_with_neg_qos_on(),
+    update_mqttsn_with_neg_qos_on(),
     gen_udp:close(Socket).
 
 t_publish_qos0_case01(_) ->
@@ -1183,7 +1204,7 @@ t_publish_qos2_case03(_) ->
     gen_udp:close(Socket).
 
 t_publish_mountpoint(_) ->
-    restart_mqttsn_with_mountpoint(<<"mp/">>),
+    update_mqttsn_with_mountpoint(<<"mp/">>),
     Dup = 0,
     QoS = 1,
     Retain = 0,
@@ -1217,7 +1238,7 @@ t_publish_mountpoint(_) ->
     ),
 
     send_disconnect_msg(Socket, undefined),
-    restart_mqttsn_with_mountpoint(<<>>),
+    update_mqttsn_with_mountpoint(<<>>),
     gen_udp:close(Socket).
 
 t_delivery_qos1_register_invalid_topic_id(_) ->
@@ -2105,7 +2126,7 @@ t_broadcast_test1(_) ->
     gen_udp:close(Socket).
 
 t_register_subs_resume_on(_) ->
-    restart_mqttsn_with_subs_resume_on(),
+    update_mqttsn_with_subs_resume_on(),
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"test">>, 0),
@@ -2194,7 +2215,7 @@ t_register_subs_resume_on(_) ->
     send_disconnect_msg(NSocket1, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket1)),
     gen_udp:close(NSocket1),
-    restart_mqttsn_with_subs_resume_off().
+    update_mqttsn_with_subs_resume_off().
 
 t_register_subs_resume_off(_) ->
     MsgId = 1,
@@ -2312,7 +2333,7 @@ t_register_subs_resume_off(_) ->
     gen_udp:close(NSocket1).
 
 t_register_skip_failure_topic_name_and_reach_max_retry_times(_) ->
-    restart_mqttsn_with_subs_resume_on(),
+    update_mqttsn_with_subs_resume_on(),
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"test">>, 0),
@@ -2372,10 +2393,10 @@ t_register_skip_failure_topic_name_and_reach_max_retry_times(_) ->
     timer:sleep(5000),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket)),
     gen_udp:close(NSocket),
-    restart_mqttsn_with_subs_resume_off().
+    update_mqttsn_with_subs_resume_off().
 
 t_register_enqueue_delivering_messages(_) ->
-    restart_mqttsn_with_subs_resume_on(),
+    update_mqttsn_with_subs_resume_on(),
     MsgId = 1,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, <<"test">>, 0),
@@ -2428,7 +2449,7 @@ t_register_enqueue_delivering_messages(_) ->
     send_disconnect_msg(NSocket1, undefined),
     ?assertMatch(<<2, ?SN_DISCONNECT>>, receive_response(NSocket1)),
     gen_udp:close(NSocket1),
-    restart_mqttsn_with_subs_resume_off().
+    update_mqttsn_with_subs_resume_off().
 
 t_socket_passvice(_) ->
     %% TODO: test this gateway enter the passvie event

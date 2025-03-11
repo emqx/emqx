@@ -486,6 +486,10 @@ diff_listeners(NewListeners, OldListeners) ->
     {Removes, Diff1} = lists:foldl(
         fun(L = {Type, LisName, ListenOn, Cfg}, {Old, Result}) ->
             case take_listener_in_list(Type, LisName, Old) of
+                {ok, {dtls, _, _, _}, _} ->
+                    %% XXX: dtls have to restart to update the options due to the limitation of esockd
+                    Add = maps:get(add, Result, []),
+                    {Old, Result#{add => [L | Add]}};
                 {ok, {Type, LisName, ListenOn, Cfg}, Remaining} ->
                     NoChange = maps:get(no_change, Result, []),
                     {Remaining, Result#{no_change => [L | NoChange]}};

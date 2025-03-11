@@ -187,7 +187,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                 {badconf, #{
                     key => server,
                     value => Options,
-                    reason => invalid_grpc_server_confs
+                    reason => Reason
                 }}
             )
     end;
