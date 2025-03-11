@@ -15,10 +15,24 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       :emqx_exproto_v_1_connection_unary_handler_client,
       :emqx_exhook_v_2_hook_provider_client,
       :emqx_exhook_v_2_hook_provider_bhvr,
+      __MODULE__,
+      Mix.Tasks.Compile.Asn1,
+      Mix.Tasks.Emqx.Ct,
+      Mix.Tasks.Emqx.Eunit,
+      Mix.Tasks.Emqx.Proper,
       Mix.Tasks.Compile.Grpc,
       Mix.Tasks.Compile.CopySrcs,
     ]
     |> MapSet.new(&to_string/1)
+  )
+  ## Warnings such as "Expression produces a value of type bitstring(), but this value is
+  ## unmatched" are not generated for these modules
+  @excluded_mods_from_warnings (
+    [
+      :DurableMessage,
+    ]
+    |> MapSet.new(&to_string/1)
+    |> MapSet.union(@excluded_mods)
   )
 
   @impl true
@@ -31,6 +45,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
     } = resolve_apps()
     umbrella_files = Enum.flat_map(umbrella_apps, & resolve_files/1)
     dep_files = Enum.flat_map(dep_apps, & resolve_files/1)
+    # Files to be considered; will be analyzed and their contracts taken into account.
     files =
       (umbrella_files ++ dep_files)
       |> Enum.reject(fn path ->
@@ -38,11 +53,12 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         MapSet.member?(@excluded_mods, name)
       end)
       |> Enum.map(&to_charlist/1)
+    # Files that might have warnings for them
     warning_files =
       umbrella_files
       |> Enum.reject(fn path ->
         name = Path.basename(path, ".beam")
-        MapSet.member?(@excluded_mods, name)
+        MapSet.member?(@excluded_mods_from_warnings, name)
       end)
       |> Enum.map(&to_charlist/1)
     warning_apps = Enum.sort(umbrella_apps)
@@ -64,6 +80,15 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         files: files,
         files_rec: files
       )
+      |> Enum.map(& :dialyzer.format_warning(&1, filename_opt: :fullpath, indent_opt: false))
+      |> tap(&IO.puts/1)
+      |> case do
+           [] ->
+             Mix.shell().info("ok")
+
+           [_ | _] ->
+             Mix.raise("Errors found!")
+         end
     catch
       {:dialyzer_error, msg} ->
         {:dialyzer_error, to_string(msg)}
