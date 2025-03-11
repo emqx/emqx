@@ -69,10 +69,10 @@
 -type payload_format_opts() :: #{
     %% required option
     payload_encode := payload_encode(),
-    %% default is ?MAX_PAYLOAD_FORMAT_SIZE
-    payload_limit => non_neg_integer(),
-    %% default is ?TRUNCATED_PAYLOAD_SIZE
-    printed_size => non_neg_integer()
+    %% Truncate if over this limit, default is ?MAX_PAYLOAD_FORMAT_SIZE
+    truncate_above => non_neg_integer(),
+    %% Truncate to this number of bytes, default is ?TRUNCATED_PAYLOAD_SIZE
+    truncate_to => non_neg_integer()
 }.
 
 %%--------------------------------------------------------------------
@@ -647,20 +647,18 @@ format_payload(<<>>, #{payload_encode := Type}) ->
     {"", Type};
 format_payload(Payload, PayloadFormatOpts) when is_map(PayloadFormatOpts) ->
     Type = maps:get(payload_encode, PayloadFormatOpts),
-    Limit = maps:get(payload_limit, PayloadFormatOpts, ?MAX_PAYLOAD_FORMAT_SIZE),
+    Limit = maps:get(truncate_above, PayloadFormatOpts, ?MAX_PAYLOAD_FORMAT_SIZE),
+    TruncateTo = maps:get(truncate_to, PayloadFormatOpts, ?TRUNCATED_PAYLOAD_SIZE),
     PayloadSize = size(Payload),
-    PrintedSize = maps:get(printed_size, PayloadFormatOpts, ?TRUNCATED_PAYLOAD_SIZE),
     case PayloadSize =< Limit of
         true ->
-            %% under the limit, print the payload
-            format_payload_limit(Type, Payload, PayloadSize);
+            format_truncated_payload(Type, Payload, PayloadSize);
         false ->
-            %% too long, truncate to PrintedSize
-            format_payload_limit(Type, Payload, PrintedSize)
+            format_truncated_payload(Type, Payload, TruncateTo)
     end.
 
-format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
-    {Type, Part, TruncatedBytes} = truncate_payload(Type0, Limit, Payload),
+format_truncated_payload(Type0, Payload, TruncateTo) when size(Payload) > TruncateTo ->
+    {Type, Part, TruncatedBytes} = truncate_payload(Type0, TruncateTo, Payload),
     case TruncatedBytes > 0 of
         true ->
             {
@@ -670,14 +668,14 @@ format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
         false ->
             {do_format_payload(Type, Payload), Type}
     end;
-format_payload_limit(text, Payload, _Limit) ->
+format_truncated_payload(text, Payload, _TruncateTo) ->
     case is_utf8(Payload) of
         true ->
             {do_format_payload(text, Payload), text};
         false ->
             {do_format_payload(hex, Payload), hex}
     end;
-format_payload_limit(hex, Payload, _Limit) ->
+format_truncated_payload(hex, Payload, _TruncateTo) ->
     {do_format_payload(hex, Payload), hex}.
 
 do_format_payload(text, Bytes) ->

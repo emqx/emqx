@@ -18,10 +18,9 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("emqx_trace.hrl").
 
 -logger_header("[Tracer]").
-
--define(MAX_PAYLOAD_LIMIT, 1024).
 
 %% APIs
 -export([
@@ -83,7 +82,7 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
         filter => ensure_bin(Filter),
         name => ensure_bin(Name),
         payload_encode => payload_encode(),
-        payload_limit => ?MAX_PAYLOAD_LIMIT,
+        payload_limit => ?DEFAULT_PAYLOAD_LIMIT,
         formatter => Formatter
     },
     install(Who, Level, LogFile).
@@ -206,8 +205,8 @@ formatter(#{
 }) ->
     PayloadFmtOpts = #{
         payload_encode => PayloadEncode,
-        payload_limit => PayloadLimit,
-        printed_size => PayloadLimit
+        truncate_above => PayloadLimit,
+        truncate_to => PayloadLimit
     },
     {emqx_trace_json_formatter, #{payload_fmt_opts => PayloadFmtOpts}};
 formatter(#{type := _Type, payload_encode := PayloadEncode, payload_limit := PayloadLimit}) ->
@@ -221,8 +220,8 @@ formatter(#{type := _Type, payload_encode := PayloadEncode, payload_limit := Pay
         depth => unlimited,
         payload_fmt_opts => #{
             payload_encode => PayloadEncode,
-            payload_limit => PayloadLimit,
-            printed_size => PayloadLimit
+            truncate_above => PayloadLimit,
+            truncate_to => PayloadLimit
         }
     }}.
 

@@ -490,7 +490,7 @@ start_trace(Trace) ->
         extra = Extra
     } = Trace,
     Formatter = maps:get(formatter, Extra, text),
-    PayloadLimit = maps:get(payload_limit, Extra, 1024),
+    PayloadLimit = maps:get(payload_limit, Extra, ?DEFAULT_PAYLOAD_LIMIT),
     Who = #{
         name => Name,
         type => Type,
