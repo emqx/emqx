@@ -23,7 +23,7 @@ defmodule EMQXOracle.MixProject do
 
   def deps() do
     [
-      {:jamdb_oracle, github: "emqx/jamdb_oracle", tag: "0.4.9.5"},
+      {:jamdb_oracle, github: "emqx/jamdb_oracle", tag: "0.4.9.5", manager: :rebar3},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true}
     ]
