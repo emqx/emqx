@@ -35,6 +35,9 @@ If one of the limiters lack configuration, we simply don't do each action above.
 -export([adjust_limiter/1]).
 
 -export_type([
+    root_config/0,
+
+    limiter_kind/0,
     client_config/0,
     tenant_config/0
 ]).
@@ -46,7 +49,17 @@ If one of the limiters lack configuration, we simply don't do each action above.
 -define(BYTES_LIM_NAME, bytes).
 -define(MESSAGES_LIM_NAME, messages).
 
+-define(tenant, tenant).
+-define(client, client).
+
 -type tns() :: emqx_mt:tns().
+
+-type root_config() :: #{
+    ?tenant => tenant_config(),
+    ?client => client_config()
+}.
+
+-type limiter_kind() :: ?tenant | ?client.
 
 -type tenant_config() :: #{
     ?BYTES_LIM_NAME := limiter_options(),
