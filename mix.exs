@@ -832,27 +832,11 @@ defmodule EMQXUmbrella.MixProject do
       Path.join(etc, "certs")
     )
 
-    profile = System.get_env("MIX_ENV")
-
     File.cp_r!(
       "rel/config/examples",
       Path.join(etc, "examples"),
       force: overwrite?
     )
-
-    # copy /rel/config/ee-examples if profile is enterprise
-    case profile do
-      "emqx-enterprise" ->
-        # TODO: merge examples dir
-        File.cp_r!(
-          "rel/config/ee-examples",
-          Path.join(etc, "examples"),
-          force: overwrite?
-        )
-
-      _ ->
-        :ok
-    end
 
     # this is required by the produced escript / nodetool
     Mix.Generator.copy_file(
