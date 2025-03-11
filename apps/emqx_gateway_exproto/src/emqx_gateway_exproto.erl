@@ -68,20 +68,12 @@ on_gateway_load(
         GwName,
         maps:get(handler, Config, undefined)
     ),
-    ServiceName = ensure_service_name(Config),
     %% XXX: How to monitor it ?
     _ = start_grpc_server(GwName, maps:get(server, Config, undefined)),
 
-    NConfig = maps:without(
-        [server, handler],
-        Config#{
-            grpc_client_channel => GwName,
-            grpc_client_service_name => ServiceName
-        }
-    ),
-    Listeners = emqx_gateway_utils:normalize_config(
-        NConfig#{handler => GwName}
-    ),
+    Config1 = set_client_channel_and_service_name(GwName, Config),
+
+    Listeners = emqx_gateway_utils:normalize_config(Config1),
 
     case
         start_listeners(
@@ -103,7 +95,12 @@ on_gateway_load(
 on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
-        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ?MOD_CFG),
+        ok = update_grpc_client_and_server(GwName, Config, OldConfig),
+
+        Config1 = set_client_channel_and_service_name(GwName, Config),
+        OldConfig1 = set_client_channel_and_service_name(GwName, OldConfig),
+
+        {ok, NewPids} = update_gateway(Config1, OldConfig1, GwName, Ctx, ?MOD_CFG),
         {ok, NewPids, GwState}
     catch
         Class:Reason:Stk ->
@@ -130,6 +127,30 @@ on_gateway_unload(
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+update_grpc_client_and_server(GwName, NewConfig, OldConfig) ->
+    ok = update_grpc_client_channel(GwName, NewConfig, OldConfig),
+    update_grpc_server(GwName, NewConfig, OldConfig).
+
+update_grpc_client_channel(GwName, NewConfig, OldConfig) ->
+    case {maps:get(handler, NewConfig, undefined), maps:get(handler, OldConfig, undefined)} of
+        {New, New} ->
+            ok;
+        {New, Old} ->
+            stop_grpc_client_channel(Old),
+            _ = start_grpc_client_channel(GwName, New)
+    end,
+    ok.
+
+update_grpc_server(GwName, NewConfig, OldConfig) ->
+    case {maps:get(server, NewConfig, undefined), maps:get(server, OldConfig, undefined)} of
+        {New, New} ->
+            ok;
+        {New, Old} ->
+            stop_grpc_server(Old),
+            _ = start_grpc_server(GwName, New)
+    end,
+    ok.
 
 start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
     Services = #{
@@ -252,7 +273,15 @@ stop_grpc_client_channel(GwName) ->
     _ = grpc_client_sup:stop_channel_pool(GwName),
     ok.
 
-ensure_service_name(Config) ->
+set_client_channel_and_service_name(GwName, Config) ->
+    Config1 = maps:without([server, handler], Config),
+    Config1#{
+        handler => GwName,
+        grpc_client_channel => GwName,
+        grpc_client_service_name => get_service_name(Config)
+    }.
+
+get_service_name(Config) ->
     emqx_utils_maps:deep_get([handler, service_name], Config, 'ConnectionUnaryHandler').
 
 -ifndef(TEST).
