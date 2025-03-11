@@ -1797,8 +1797,8 @@ interval(expire_awaiting_rel, #channel{session = Session}) ->
 interval(expire_session, #channel{conninfo = ConnInfo}) ->
     maps:get(expiry_interval, ConnInfo);
 interval(expire_takeover, #channel{}) ->
-    %% NOTE: Equivalent to `?T_TAKEOVER` for simplicity.
-    15_000;
+    %% NOTE: Equivalent to 2 × `?T_TAKEOVER` for simplicity.
+    2 * 5_000;
 interval(will_message, #channel{will_msg = WillMsg}) ->
     timer:seconds(will_delay_interval(WillMsg)).
 
