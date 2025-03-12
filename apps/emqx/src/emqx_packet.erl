@@ -66,6 +66,14 @@
 -type subscribe() :: #mqtt_packet_subscribe{}.
 -type unsubscribe() :: #mqtt_packet_unsubscribe{}.
 -type payload_encode() :: hex | text | hidden.
+-type payload_format_opts() :: #{
+    %% required option
+    payload_encode := payload_encode(),
+    %% Truncate if over this limit, default is ?MAX_PAYLOAD_FORMAT_SIZE
+    truncate_above => non_neg_integer(),
+    %% Truncate to this number of bytes, default is ?TRUNCATED_PAYLOAD_SIZE
+    truncate_to => non_neg_integer()
+}.
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Type and Flags.
@@ -359,7 +367,8 @@ check_client_id(
     #mqtt_packet_connect{clientid = ClientId},
     #{max_clientid_len := MaxLen} = _Opts
 ) ->
-    case (1 =< (Len = byte_size(ClientId))) andalso (Len =< MaxLen) of
+    Len = byte_size(ClientId),
+    case (1 =< Len) andalso (Len =< MaxLen) of
         true -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
     end.
@@ -482,16 +491,18 @@ will_msg(#mqtt_packet_connect{
     }.
 
 %% @doc Format packet
--spec format(emqx_types:packet(), payload_encode()) -> iolist().
-format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadEncode) ->
+-spec format(emqx_types:packet(), payload_encode() | payload_format_opts()) -> iolist().
+format(Packet, PayloadEncode) when is_atom(PayloadEncode) ->
+    format(Packet, #{payload_encode => PayloadEncode});
+format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}, PayloadFormatOpts) ->
     HeaderIO = format_header(Header),
-    case format_variable(Variable, Payload, PayloadEncode) of
+    case format_variable(Variable, Payload, PayloadFormatOpts) of
         "" -> [HeaderIO, ")"];
         VarIO -> [HeaderIO, ", ", VarIO, ")"]
     end;
 %% receive a frame error packet, such as {frame_error,#{cause := frame_too_large}} or
 %% {frame_error,#{expected => <<"'MQTT' or 'MQIsdp'">>,cause => invalid_proto_name,received => <<"bad_name">>}}
-format(FrameError, _PayloadEncode) ->
+format(FrameError, _PayloadFormatOpts) ->
     lists:flatten(io_lib:format("~tp", [FrameError])).
 
 format_header(#mqtt_packet_header{
@@ -504,10 +515,14 @@ format_header(#mqtt_packet_header{
 
 format_variable(undefined, _, _) ->
     "";
-format_variable(Variable, undefined, PayloadEncode) ->
-    format_variable(Variable, PayloadEncode);
-format_variable(Variable, Payload, PayloadEncode) ->
-    [format_variable(Variable, PayloadEncode), ", ", format_payload_label(Payload, PayloadEncode)].
+format_variable(Variable, undefined, PayloadFormatOpts) ->
+    format_variable(Variable, PayloadFormatOpts);
+format_variable(Variable, Payload, PayloadFormatOpts) ->
+    [
+        format_variable(Variable, PayloadFormatOpts),
+        ", ",
+        format_payload_label(Payload, PayloadFormatOpts)
+    ].
 
 format_variable(
     #mqtt_packet_connect{
@@ -524,7 +539,7 @@ format_variable(
         username = Username,
         password = Password
     },
-    PayloadEncode
+    PayloadFormatOpts
 ) ->
     Base = io_lib:format(
         "ClientId=~ts, ProtoName=~ts, ProtoVsn=~p, CleanStart=~ts, KeepAlive=~p, Username=~ts, Password=~ts",
@@ -538,7 +553,7 @@ format_variable(
                     ", Will(Q~p, R~p, Topic=~ts ",
                     [WillQoS, i(WillRetain), WillTopic]
                 ),
-                format_payload_label(WillPayload, PayloadEncode),
+                format_payload_label(WillPayload, PayloadFormatOpts),
                 ")"
             ];
         false ->
@@ -618,24 +633,32 @@ format_password(undefined) -> "";
 format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
-format_payload_label(Payload, Type) ->
-    {FPayload, Type1} = format_payload(Payload, Type),
+format_payload_label(Payload, PayloadFormatOpts) ->
+    {FPayload, Type1} = format_payload(Payload, PayloadFormatOpts),
     [io_lib:format("Payload(~s)=", [Type1]), FPayload].
 
--spec format_payload(binary(), payload_encode()) -> {iolist(), payload_encode()}.
-format_payload(_, hidden) ->
+-spec format_payload(binary(), payload_encode() | payload_format_opts()) ->
+    {iolist(), payload_encode()}.
+format_payload(Payload, Type) when is_atom(Type) ->
+    format_payload(Payload, #{payload_encode => Type});
+format_payload(_, #{payload_encode := hidden}) ->
     {"******", hidden};
-format_payload(<<>>, Type) ->
+format_payload(<<>>, #{payload_encode := Type}) ->
     {"", Type};
-format_payload(Payload, Type) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
-    %% under the 1KB limit
-    format_payload_limit(Type, Payload, size(Payload));
-format_payload(Payload, Type) ->
-    %% too long, truncate to 100B
-    format_payload_limit(Type, Payload, ?TRUNCATED_PAYLOAD_SIZE).
+format_payload(Payload, PayloadFormatOpts) when is_map(PayloadFormatOpts) ->
+    Type = maps:get(payload_encode, PayloadFormatOpts),
+    Limit = maps:get(truncate_above, PayloadFormatOpts, ?MAX_PAYLOAD_FORMAT_SIZE),
+    TruncateTo = maps:get(truncate_to, PayloadFormatOpts, ?TRUNCATED_PAYLOAD_SIZE),
+    PayloadSize = size(Payload),
+    case PayloadSize =< Limit of
+        true ->
+            format_truncated_payload(Type, Payload, PayloadSize);
+        false ->
+            format_truncated_payload(Type, Payload, TruncateTo)
+    end.
 
-format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
-    {Type, Part, TruncatedBytes} = truncate_payload(Type0, Limit, Payload),
+format_truncated_payload(Type0, Payload, TruncateTo) when size(Payload) > TruncateTo ->
+    {Type, Part, TruncatedBytes} = truncate_payload(Type0, TruncateTo, Payload),
     case TruncatedBytes > 0 of
         true ->
             {
@@ -645,14 +668,14 @@ format_payload_limit(Type0, Payload, Limit) when size(Payload) > Limit ->
         false ->
             {do_format_payload(Type, Payload), Type}
     end;
-format_payload_limit(text, Payload, _Limit) ->
+format_truncated_payload(text, Payload, _TruncateTo) ->
     case is_utf8(Payload) of
         true ->
             {do_format_payload(text, Payload), text};
         false ->
             {do_format_payload(hex, Payload), hex}
     end;
-format_payload_limit(hex, Payload, _Limit) ->
+format_truncated_payload(hex, Payload, _TruncateTo) ->
     {do_format_payload(hex, Payload), hex}.
 
 do_format_payload(text, Bytes) ->
