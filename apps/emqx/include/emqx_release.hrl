@@ -31,4 +31,4 @@
 %% NOTE: Also make sure to follow the instructions in end of
 %% `apps/emqx/src/bpapi/README.md'
 
--define(EMQX_RELEASE_EE, "5.9.0-alpha.1").
+-define(EMQX_RELEASE_EE, "5.9.0-beta.1").

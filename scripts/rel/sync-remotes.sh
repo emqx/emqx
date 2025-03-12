@@ -5,7 +5,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
-BASE_BRANCHES=( 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
+BASE_BRANCHES=( 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
 
 usage() {
     cat <<EOF
@@ -22,6 +22,7 @@ options:
     * release-56: []        # no upstream for 5.6 opensource edition
     * release-57: []        # no upstream for 5.7 opensource edition
     * release-58: []        # no upstream for 5.8 opensource edition
+    * release-59: []        # no upstream for 5.9
     * master: [release-5x]  # sync release-5x to master
 
   -b|--base:
@@ -107,18 +108,12 @@ if ! is_element "$BASE_BRANCH" "${BASE_BRANCHES[@]}"; then
 fi
 
 ## Find git remotes to fetch from.
-##
-## NOTE: For enterprise, the opensource repo must be added as a remote.
-##       Because not all changes in opensource repo are synced to enterprise repo immediately.
-##
-## NOTE: grep -v enterprise here, but why not to match on full repo name 'emqx/emqx.git'?
-##       It's because the git remote does not always end with .git
-GIT_REMOTE_CE="$(git remote -v | grep 'emqx/emqx' | grep -v enterprise | grep fetch | head -1 | awk '{print $1}' || true)"
-if [ -z "$GIT_REMOTE_CE" ]; then
+GIT_REMOTE="$(git remote -v | grep -E 'github\.com[:/]emqx/emqx(\.git)? \(fetch\)' | head -1 | awk '{print $1}' || true)"
+if [ -z "$GIT_REMOTE" ]; then
 	logerr "Cannot find git remote for emqx/emqx"
     exit 1
 fi
-REMOTES=( "${GIT_REMOTE_CE}" )
+REMOTES=( "${GIT_REMOTE}" )
 
 ## Fetch the remotes
 for remote in "${REMOTES[@]}"; do
@@ -140,7 +135,7 @@ fi
 ## Get the git remote reference of the given 'release-' or 'main-' branch
 remote_ref() {
     local branch="$1"
-    echo -n "${GIT_REMOTE_CE}/${branch} "
+    echo -n "${GIT_REMOTE}/${branch} "
 }
 
 remote_refs() {
@@ -166,8 +161,11 @@ upstream_branches() {
         release-58)
             remote_ref "$base"
             ;;
+        release-59)
+            remote_ref "$base"
+            ;;
         master)
-            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58'
+            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59'
             ;;
     esac
 }
