@@ -1348,7 +1348,7 @@ defmodule EMQXUmbrella.MixProject do
   # the exact OTP version.
   # https://www.erlang.org/doc/man/erlang.html#system_info_otp_release
   # https://github.com/erlang/rebar3/blob/e3108ac187b88fff01eca6001a856283a3e0ec87/src/rebar_utils.erl#L572-L577
-  defp otp_release() do
+  def otp_release() do
     major_version = System.otp_release()
     root_dir = to_string(:code.root_dir())
 
