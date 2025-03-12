@@ -132,11 +132,18 @@ mqtt_prefix() ->
 ps_prefix() ->
     ?PS_PREFIX.
 
-restart_coap_with_connection_mode(Bool) ->
+update_coap_with_connection_mode(Bool) ->
     Conf = emqx:get_raw_config([gateway, coap]),
     emqx_gateway_conf:update_gateway(
         coap,
         Conf#{<<"connection_required">> => atom_to_binary(Bool)}
+    ).
+
+update_coap_with_mountpoint(Mp) ->
+    Conf = emqx:get_raw_config([gateway, coap]),
+    emqx_gateway_conf:update_gateway(
+        coap,
+        Conf#{<<"mountpoint">> => Mp}
     ).
 
 %%--------------------------------------------------------------------
@@ -314,6 +321,15 @@ t_connection_with_expire(_) ->
         },
         5000
     ).
+
+t_update_not_restart_listener(_) ->
+    update_coap_with_mountpoint(<<"mp/">>),
+    with_connection(fun(_Channel, Token) ->
+        ?assertMatch({ok, changed, _}, send_heartbeat(Token)),
+        update_coap_with_mountpoint(<<>>),
+        ?assertMatch({ok, changed, _}, send_heartbeat(Token)),
+        true
+    end).
 
 t_publish(_) ->
     %% can publish to a normal topic
@@ -632,7 +648,7 @@ t_on_offline_event(_) ->
     do(Fun).
 
 t_connectionless_pubsub(_) ->
-    restart_coap_with_connection_mode(false),
+    update_coap_with_connection_mode(false),
     Fun = fun(Channel) ->
         Topic = <<"t/a">>,
         Payload = <<"123">>,
@@ -658,7 +674,7 @@ t_connectionless_pubsub(_) ->
         ?assertEqual(Payload, PayloadRecv)
     end,
     do(Fun),
-    restart_coap_with_connection_mode(true).
+    update_coap_with_connection_mode(true).
 
 %%--------------------------------------------------------------------
 %% helpers

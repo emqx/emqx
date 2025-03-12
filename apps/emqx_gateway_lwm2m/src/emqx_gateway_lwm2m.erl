@@ -42,9 +42,15 @@
     [
         normalize_config/1,
         start_listeners/4,
-        stop_listeners/2
+        stop_listeners/2,
+        update_gateway/5
     ]
 ).
+
+-define(MOD_CFG, #{
+    frame_mod => emqx_coap_frame,
+    chann_mod => emqx_lwm2m_channel
+}).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_registry callbacks
@@ -61,13 +67,9 @@ on_gateway_load(
     case emqx_lwm2m_xml_object_db:start_link(XmlDir) of
         {ok, RegPid} ->
             Listeners = emqx_gateway_utils:normalize_config(Config),
-            ModCfg = #{
-                frame_mod => emqx_coap_frame,
-                chann_mod => emqx_lwm2m_channel
-            },
             case
                 emqx_gateway_utils:start_listeners(
-                    Listeners, GwName, Ctx, ModCfg
+                    Listeners, GwName, Ctx, ?MOD_CFG
                 )
             of
                 {ok, ListenerPids} ->
@@ -92,13 +94,11 @@ on_gateway_load(
             )
     end.
 
-on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
+on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
-        %% XXX: 1. How hot-upgrade the changes ???
-        %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_gateway_unload(Gateway, GwState),
-        on_gateway_load(Gateway#{config => Config}, Ctx)
+        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ?MOD_CFG),
+        {ok, NewPids, GwState}
     catch
         Class:Reason:Stk ->
             logger:error(

@@ -92,7 +92,7 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 
 t_case_coap(_) ->
-    emqx_coap_SUITE:restart_coap_with_connection_mode(false),
+    emqx_coap_SUITE:update_coap_with_connection_mode(false),
     Login = fun(URI, Checker) ->
         Action = fun(Channel) ->
             Req = emqx_coap_SUITE:make_req(post),
@@ -265,17 +265,17 @@ t_case_exproto(_) ->
                 ConnBin = SvrMod:frame_connect(Client, Password),
 
                 Mod:send(Sock, ConnBin),
-                {ok, Recv} = Mod:recv(Sock, 5000),
+                {ok, Recv} = Mod:recv(Sock, 15000),
                 C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin)),
                 ?assertEqual(C(Expect), C(Recv))
             end
         )
     end,
     Login(<<"admin">>, <<"public">>, SvrMod:frame_connack(0)),
-    Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(1)),
+    Login(<<"bad">>, <<"bad-password-1">>, SvrMod:frame_connack(1)),
 
     disable_authn(exproto, tcp, default),
-    Login(<<"bad">>, <<"bad">>, SvrMod:frame_connack(0)),
+    Login(<<"bad">>, <<"bad-password-2">>, SvrMod:frame_connack(0)),
 
     SvrMod:stop(Svrs),
     ok.

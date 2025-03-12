@@ -42,9 +42,15 @@
     [
         normalize_config/1,
         start_listeners/4,
-        stop_listeners/2
+        stop_listeners/2,
+        update_gateway/5
     ]
 ).
+
+-define(MOD_CFG, #{
+    frame_mod => emqx_coap_frame,
+    chann_mod => emqx_coap_channel
+}).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_impl callbacks
@@ -58,11 +64,7 @@ on_gateway_load(
     Ctx
 ) ->
     Listeners = normalize_config(Config),
-    ModCfg = maps:merge(connection_opts(Config), #{
-        frame_mod => emqx_coap_frame,
-        chann_mod => emqx_coap_channel
-    }),
-
+    ModCfg = maps:merge(connection_opts(Config), ?MOD_CFG),
     case
         start_listeners(
             Listeners, GwName, Ctx, ModCfg
@@ -80,13 +82,12 @@ on_gateway_load(
             )
     end.
 
-on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
+on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
-        %% XXX: 1. How hot-upgrade the changes ???
-        %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_gateway_unload(Gateway, GwState),
-        on_gateway_load(Gateway#{config => Config}, Ctx)
+        ModCfg = maps:merge(connection_opts(Config), ?MOD_CFG),
+        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ModCfg),
+        {ok, NewPids, GwState}
     catch
         Class:Reason:Stk ->
             logger:error(

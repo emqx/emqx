@@ -92,6 +92,13 @@ end_per_testcase(_TestCase, _Config) ->
 default_config() ->
     ?CONF_DEFAULT.
 
+update_ocpp_with_idle_timeout(IdleTimeout) ->
+    Conf = emqx:get_raw_config([gateway, ocpp]),
+    emqx_gateway_conf:update_gateway(
+        ocpp,
+        Conf#{<<"idle_timeout">> => IdleTimeout}
+    ).
+
 %%--------------------------------------------------------------------
 %% cases
 %%--------------------------------------------------------------------
@@ -139,7 +146,19 @@ t_update_listeners(_Config) ->
     {200, _} = request(put, "/gateways/ocpp/listeners/ocpp:ws:default", UpdateBody),
 
     {200, [UpdatedListener]} = request(get, "/gateways/ocpp/listeners"),
-    ?assertMatch(#{websocket := #{path := <<"/ocpp2">>}}, UpdatedListener).
+    ?assertMatch(#{websocket := #{path := <<"/ocpp2">>}}, UpdatedListener),
+
+    %% update listener back to default
+    UpdateBody2 = emqx_utils_maps:deep_put(
+        [websocket, path],
+        maps:with(ListenerConfKeys, DefaultListener),
+        <<"/ocpp">>
+    ),
+    {200, _} = request(put, "/gateways/ocpp/listeners/ocpp:ws:default", UpdateBody2),
+
+    {200, [UpdatedListener2]} = request(get, "/gateways/ocpp/listeners"),
+    ?assertMatch(#{websocket := #{path := <<"/ocpp">>}}, UpdatedListener2),
+    ok.
 
 t_enable_disable_gw_ocpp(_Config) ->
     AssertEnabled = fun(Enabled) ->
@@ -216,6 +235,39 @@ t_auth_expire(_Config) ->
     ),
 
     meck:unload(emqx_access_control).
+
+t_update_not_restart_listener(_Config) ->
+    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
+    %% update ocpp gateway config
+    update_ocpp_with_idle_timeout(<<"20s">>),
+    %% send BootNotification
+    UniqueId = <<"3335862321">>,
+    BootNotification = #{
+        id => UniqueId,
+        type => ?OCPP_MSG_TYPE_ID_CALL,
+        action => <<"BootNotification">>,
+        payload => #{
+            <<"chargePointVendor">> => <<"vendor1">>,
+            <<"chargePointModel">> => <<"model1">>
+        }
+    },
+    ok = send_msg(Client, BootNotification),
+    %% publish the BootNotification.ack
+    AckPayload = emqx_utils_json:encode(#{
+        <<"MessageTypeId">> => ?OCPP_MSG_TYPE_ID_CALLRESULT,
+        <<"UniqueId">> => UniqueId,
+        <<"Payload">> => #{
+            <<"currentTime">> => "2023-06-21T14:20:39+00:00",
+            <<"interval">> => 300,
+            <<"status">> => <<"Accepted">>
+        }
+    }),
+    _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
+    %% receive the BootNotification.ack
+    {ok, _Resp} = receive_msg(Client),
+
+    close(Client),
+    ok.
 
 t_listeners_status(_Config) ->
     {200, [Listener]} = request(get, "/gateways/ocpp/listeners"),

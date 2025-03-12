@@ -93,7 +93,7 @@ default_config() ->
 stomp_ver() ->
     ?STOMP_VER.
 
-restart_stomp_with_mountpoint(Mountpoint) ->
+update_stomp_with_mountpoint(Mountpoint) ->
     Conf = emqx:get_raw_config([gateway, stomp]),
     emqx_gateway_conf:update_gateway(
         stomp,
@@ -1096,7 +1096,7 @@ t_authn_superuser(_) ->
     meck:unload(emqx_access_control).
 
 t_mountpoint(_) ->
-    restart_stomp_with_mountpoint(<<"stomp/">>),
+    update_stomp_with_mountpoint(<<"stomp/">>),
 
     PubSub = fun(Sock) ->
         ok = send_connection_frame(Sock, <<"user1">>, <<"public">>),
@@ -1160,7 +1160,22 @@ t_mountpoint(_) ->
     with_connection(PubSub),
     with_connection(PubToMqtt),
     with_connection(ReceiveMsgFromMqtt),
-    restart_stomp_with_mountpoint(<<>>).
+    update_stomp_with_mountpoint(<<>>).
+
+t_update_not_restart_listener(_) ->
+    update_stomp_with_mountpoint(<<"stomp/">>),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"user1">>, <<"public">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        update_stomp_with_mountpoint(<<>>),
+
+        %% send successfully means the listener is not restarted
+        ok = send_message_frame(Sock, <<"t/a">>, <<"hello">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        ok = send_disconnect_frame(Sock)
+    end).
 
 %% TODO: Mountpoint, AuthChain, Authorization + Mountpoint, ClientInfoOverride,
 %%       Listeners, Metrics, Stats, ClientInfo

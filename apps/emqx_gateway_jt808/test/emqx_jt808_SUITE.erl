@@ -136,6 +136,13 @@ boot_apps(Case, JT808Conf, Config) ->
     timer:sleep(1000),
     Apps.
 
+update_jt808_with_idle_timeout(IdleTimeout) ->
+    Conf = emqx:get_raw_config([gateway, jt808]),
+    emqx_gateway_conf:update_gateway(
+        jt808,
+        Conf#{<<"idle_timeout">> => IdleTimeout}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 gen_packet(Header, Body) ->
@@ -374,6 +381,29 @@ t_case01_auth(_) ->
         ['client.connect' | _],
         emqx_gateway_test_utils:collect_emqx_hooks_calls()
     ),
+
+    ok = gen_tcp:close(Socket).
+
+t_case01_update_not_restart_listener(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    update_jt808_with_idle_timeout(<<"20s">>),
+
+    % send heartbeat
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MC_HEARTBEAT,
+    MsgSn = 78,
+    Size = 0,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, <<>>),
+
+    ok = gen_tcp:send(Socket, S1),
+    %% assert: heartbeat can be received after gateway update
+    {ok, _} = gen_tcp:recv(Socket, 0, 500),
 
     ok = gen_tcp:close(Socket).
 

@@ -68,6 +68,7 @@ groups() ->
         {test_grp_0_register, [RepeatOpt], [
             case01_register,
             case01_auth_expire,
+            case01_update_not_restart_listener,
             case01_register_additional_opts,
             %% TODO now we can't handle partial decode packet
             %% case01_register_incorrect_opts,
@@ -226,6 +227,13 @@ default_config(Overrides) ->
 default_port() ->
     ?PORT.
 
+update_lwm2m_with_idle_timeout(IdleTimeout) ->
+    Conf = emqx:get_raw_config([gateway, lwm2m]),
+    emqx_gateway_conf:update_gateway(
+        lwm2m,
+        Conf#{<<"idle_timeout">> => IdleTimeout}
+    ).
+
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
@@ -332,6 +340,61 @@ case01_auth_expire(Config) ->
         },
         5000
     ).
+
+case01_update_not_restart_listener(Config) ->
+    %%----------------------------------------
+    %% REGISTER command
+    %%----------------------------------------
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:3",
+    MsgId = 12,
+    SubTopic = list_to_binary("lwm2m/" ++ Epn ++ "/dn/#"),
+
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+        #coap_content{
+            content_format = <<"text/plain">>,
+            payload = <<"</1>, </2>, </3>, </4>, </5>">>
+        },
+        [],
+        MsgId
+    ),
+
+    %% checkpoint 1 - register success
+    #coap_message{type = Type, method = Method, id = RspId, options = Opts} =
+        test_recv_coap_response(UdpSock),
+    ack = Type,
+    {ok, created} = Method,
+    RspId = MsgId,
+    Location = maps:get(location_path, Opts),
+    ?assertNotEqual(undefined, Location),
+
+    update_lwm2m_with_idle_timeout(<<"20s">>),
+
+    %% checkpoint 2 - deregister success after gateway update
+    %%----------------------------------------
+    %% DE-REGISTER command
+    %%----------------------------------------
+    ?LOGT("start to send DE-REGISTER command", []),
+    MsgId3 = 52,
+    test_send_coap_request(
+        UdpSock,
+        delete,
+        sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+        #coap_content{payload = <<>>},
+        [],
+        MsgId3
+    ),
+    #coap_message{
+        type = ack,
+        id = RspId3,
+        method = Method3
+    } = test_recv_coap_response(UdpSock),
+    {ok, deleted} = Method3,
+    MsgId3 = RspId3,
+    ok.
 
 case01_register_additional_opts(Config) ->
     %%----------------------------------------

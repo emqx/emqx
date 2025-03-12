@@ -50,7 +50,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_CaseName, Conf) ->
-    _ = emqx_gateway_conf:unload_gateway(stomp),
+    ok = emqx_gateway_conf:unload_gateway(stomp),
     ct:sleep(500),
     Conf.
 

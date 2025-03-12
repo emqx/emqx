@@ -43,7 +43,9 @@
     start_listeners/4,
     start_listener/4,
     stop_listeners/2,
-    stop_listener/2
+    stop_listener/2,
+    update_listeners/5,
+    update_gateway/5
 ]).
 
 -export([
@@ -337,17 +339,10 @@ stop_listener(GwName, {Type, LisName, ListenOn, Cfg}) ->
     end,
     StopRet.
 
-stop_listener(GwName, Type, LisName, ListenOn, _Cfg) when
-    Type == tcp;
-    Type == ssl;
-    Type == udp;
-    Type == dtls
-->
+stop_listener(GwName, Type, LisName, ListenOn, _Cfg) when ?IS_ESOCKD_LISTENER(Type) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     esockd:close(Name, ListenOn);
-stop_listener(GwName, Type, LisName, ListenOn, _Cfg) when
-    Type == ws; Type == wss
-->
+stop_listener(GwName, Type, LisName, ListenOn, _Cfg) when ?IS_COWBOY_LISTENER(Type) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     case cowboy:stop_listener(Name) of
         ok ->
@@ -379,6 +374,150 @@ wait_listener_stopped(ListenOn) ->
             %% concurrently binds to the same port.
             gen_tcp:close(Socket)
     end.
+
+-spec update_gateway(
+    NewConfig :: map(),
+    OldConfig :: map(),
+    GwName :: atom(),
+    Ctx :: emqx_gateway_ctx:context(),
+    ModCfg :: map()
+) ->
+    {ok, [pid()]}
+    | {error, term()}.
+update_gateway(NewConfig, OldConfig, GwName, Ctx, ModCfg) ->
+    NewListeners = normalize_config(NewConfig),
+    OldListeners = normalize_config(OldConfig),
+    Res = update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg),
+    NewPids = lists:map(fun({_, Pid}) -> Pid end, maps:get(added, Res, [])),
+    ?SLOG(info, #{
+        msg => "update_gateway_result",
+        gateway => GwName,
+        result => Res
+    }),
+    {ok, NewPids}.
+
+-spec update_listeners(
+    NewListeners :: list(),
+    OldListeners :: list(),
+    GwName :: atom(),
+    Ctx :: emqx_gateway_ctx:context(),
+    ModCfg :: map()
+) ->
+    #{
+        removed := [tuple()],
+        added := [tuple()],
+        updated := [tuple()]
+    }.
+update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg) ->
+    #{
+        remove := Removes,
+        add := Adds,
+        update := Update
+    } = diff_listeners(NewListeners, OldListeners),
+
+    RemoveListeners = lists:map(
+        fun({Type, LisName, ListenOn, Cfg}) ->
+            ok = stop_listener(GwName, Type, LisName, ListenOn, Cfg),
+            {Type, LisName, ListenOn}
+        end,
+        Removes
+    ),
+
+    AddListeners = lists:map(
+        fun({Type, LisName, ListenOn, Cfg}) ->
+            {ok, Pid} = start_listener(GwName, Ctx, Type, LisName, ListenOn, Cfg, ModCfg),
+            {{Type, LisName, ListenOn}, Pid}
+        end,
+        Adds
+    ),
+
+    UpdateListeners = lists:map(
+        fun({Type, LisName, ListenOn, Cfg}) ->
+            ok = update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg),
+            {Type, LisName, ListenOn}
+        end,
+        Update
+    ),
+
+    #{
+        removed => RemoveListeners,
+        added => AddListeners,
+        updated => UpdateListeners
+    }.
+
+update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_ESOCKD_LISTENER(Type) ->
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
+    SocketOpts = merge_default(Type, esockd_opts(Type, Cfg)),
+    HighLevelCfgs0 = filter_out_low_level_opts(Type, Cfg),
+    HighLevelCfgs = maps:merge(
+        HighLevelCfgs0,
+        ModCfg#{
+            ctx => Ctx,
+            listener => {GwName, Type, LisName}
+        }
+    ),
+    ConnMod = maps:get(connection_mod, ModCfg, emqx_gateway_conn),
+    NewOptions = [{connection_mfargs, {ConnMod, start_link, [HighLevelCfgs]}} | SocketOpts],
+    esockd:set_options({Name, ListenOn}, NewOptions);
+update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_COWBOY_LISTENER(Type) ->
+    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
+    RanchOpts = ranch_opts(Type, ListenOn, Cfg),
+    HighLevelCfgs0 = filter_out_low_level_opts(Type, Cfg),
+    HighLevelCfgs = maps:merge(
+        HighLevelCfgs0,
+        ModCfg#{
+            ctx => Ctx,
+            listener => {GwName, Type, LisName}
+        }
+    ),
+    WsOpts = ws_opts(Cfg, HighLevelCfgs),
+
+    ok = ranch:suspend_listener(Name),
+    ok = ranch:set_transport_options(Name, RanchOpts),
+    ok = ranch:set_protocol_options(Name, WsOpts),
+    ranch:resume_listener(Name).
+
+diff_listeners(NewListeners, OldListeners) ->
+    Init = #{
+        add => [],
+        remove => [],
+        update => []
+    },
+    {Removes, Diff1} = lists:foldl(
+        fun(L = {Type, LisName, ListenOn, Cfg}, {Old, Result}) ->
+            case take_listener_in_list(Type, LisName, Old) of
+                {ok, {dtls, _, _, _}, _} ->
+                    %% XXX: dtls have to restart to update the options due to the limitation of esockd
+                    Add = maps:get(add, Result, []),
+                    {Old, Result#{add => [L | Add]}};
+                {ok, {Type, LisName, ListenOn, Cfg}, Remaining} ->
+                    NoChange = maps:get(no_change, Result, []),
+                    {Remaining, Result#{no_change => [L | NoChange]}};
+                {ok, {Type, LisName, ListenOn, _OldCfg}, Remaining} ->
+                    Update = maps:get(update, Result, []),
+                    {Remaining, Result#{update => [L | Update]}};
+                {ok, {Type, LisName, _OldListenOn, _}, _Remaining} ->
+                    Add = maps:get(add, Result, []),
+                    {Old, Result#{add => [L | Add]}};
+                error ->
+                    Add = maps:get(add, Result, []),
+                    {Old, Result#{add => [L | Add]}}
+            end
+        end,
+        {OldListeners, Init},
+        NewListeners
+    ),
+    Diff1#{remove => Removes}.
+
+take_listener_in_list(Type, LisName, Listeners) ->
+    take_listener_in_list(Type, LisName, Listeners, []).
+
+take_listener_in_list(_, _, [], _) ->
+    error;
+take_listener_in_list(Type, LisName, [{Type, LisName, ListenOn, Conf} | T], Remaining) ->
+    {ok, {Type, LisName, ListenOn, Conf}, lists:reverse(Remaining) ++ T};
+take_listener_in_list(Type, LisName, [H | T], Remaining) ->
+    take_listener_in_list(Type, LisName, T, [H | Remaining]).
 
 -ifndef(TEST).
 console_print(Fmt, Args) -> ?ULOG(Fmt, Args).

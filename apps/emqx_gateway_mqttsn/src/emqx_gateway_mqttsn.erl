@@ -41,9 +41,15 @@
     [
         normalize_config/1,
         start_listeners/4,
-        stop_listeners/2
+        stop_listeners/2,
+        update_gateway/5
     ]
 ).
+
+-define(MOD_CFG, #{
+    frame_mod => emqx_mqttsn_frame,
+    chann_mod => emqx_mqttsn_channel
+}).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_impl callbacks
@@ -56,33 +62,13 @@ on_gateway_load(
     },
     Ctx
 ) ->
-    %% We Also need to start `emqx_mqttsn_broadcast`
-    case maps:get(broadcast, Config, false) of
-        false ->
-            ok;
-        true ->
-            %% FIXME:
-            Port = 1884,
-            SnGwId = maps:get(gateway_id, Config, undefined),
-            _ = emqx_mqttsn_broadcast:start_link(SnGwId, Port),
-            ok
-    end,
-
-    PredefTopics = maps:get(predefined, Config, []),
-    ok = emqx_mqttsn_registry:persist_predefined_topics(PredefTopics),
-
+    ensure_broadcast_started(Config),
+    ensure_predefined_topics(Config),
     NConfig = maps:without([broadcast, predefined], Config),
-
     Listeners = emqx_gateway_utils:normalize_config(NConfig),
-
-    ModCfg = #{
-        frame_mod => emqx_mqttsn_frame,
-        chann_mod => emqx_mqttsn_channel
-    },
-
     case
         start_listeners(
-            Listeners, GwName, Ctx, ModCfg
+            Listeners, GwName, Ctx, ?MOD_CFG
         )
     of
         {ok, ListenerPids} ->
@@ -97,13 +83,16 @@ on_gateway_load(
             )
     end.
 
-on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
+on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
-        %% XXX: 1. How hot-upgrade the changes ???
-        %% XXX: 2. Check the New confs first before destroy old instance ???
-        on_gateway_unload(Gateway, GwState),
-        on_gateway_load(Gateway#{config => Config}, Ctx)
+        ensure_broadcast_started(Config),
+        clear_predefined_topics(OldConfig),
+        ensure_predefined_topics(Config),
+        Config1 = maps:without([broadcast, predefined], Config),
+        OldConfig1 = maps:without([broadcast, predefined], OldConfig),
+        {ok, NewPids} = update_gateway(Config1, OldConfig1, GwName, Ctx, ?MOD_CFG),
+        {ok, NewPids, GwState}
     catch
         Class:Reason:Stk ->
             logger:error(
@@ -121,7 +110,30 @@ on_gateway_unload(
     },
     _GwState
 ) ->
-    PredefTopics = maps:get(predefined, Config, []),
-    ok = emqx_mqttsn_registry:clear_predefined_topics(PredefTopics),
+    ok = clear_predefined_topics(Config),
     Listeners = normalize_config(Config),
     stop_listeners(GwName, Listeners).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+ensure_broadcast_started(Config) ->
+    case maps:get(broadcast, Config, false) of
+        false ->
+            ok;
+        true ->
+            %% FIXME:
+            Port = 1884,
+            SnGwId = maps:get(gateway_id, Config, undefined),
+            _ = emqx_mqttsn_broadcast:start_link(SnGwId, Port),
+            ok
+    end.
+
+ensure_predefined_topics(Config) ->
+    PredefTopics = maps:get(predefined, Config, []),
+    ok = emqx_mqttsn_registry:persist_predefined_topics(PredefTopics).
+
+clear_predefined_topics(Config) ->
+    PredefTopics = maps:get(predefined, Config, []),
+    ok = emqx_mqttsn_registry:clear_predefined_topics(PredefTopics).
