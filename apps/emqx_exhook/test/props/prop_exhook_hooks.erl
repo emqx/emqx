@@ -117,10 +117,10 @@ prop_client_authenticate() ->
                     <<"normaluser">> ->
                         ok;
                     _ ->
-                        case AuthResult of
-                            ok -> ok;
-                            _ -> {error, not_authorized}
-                        end
+                        %% the exhook server will return ignore if the
+                        %% username is not in the whitelist
+                        %% so we need to return the original auth result
+                        AuthResult
                 end,
             ?assertEqual(ExpectedAuthResult, OutAuthResult),
 
