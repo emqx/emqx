@@ -68,7 +68,8 @@
     config/2,
     config_unlimited/0,
     config_from_rps/1,
-    config_from_rate/1
+    config_from_rate/1,
+    config_from_rate_and_burst/2
 ]).
 
 -export_type([zone/0, group/0, name/0, id/0, options/0]).
@@ -312,6 +313,18 @@ config_from_rate({Capacity, Interval}) ->
         burst_capacity => 0
     }.
 
+config_from_rate_and_burst(infinity, _Burst) ->
+    config_unlimited();
+config_from_rate_and_burst({_Capacity, _Interval} = Rate, {0, _}) ->
+    config_from_rate(Rate);
+config_from_rate_and_burst({Capacity, Interval}, {BurstCapacity, BurstInterval}) ->
+    #{
+        capacity => Capacity,
+        interval => Interval,
+        burst_capacity => BurstCapacity,
+        burst_interval => BurstInterval
+    }.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -338,8 +351,8 @@ delete_zone_limiters(Zone) ->
 
 %% Listener-related
 
-listener_group(ListenerConfig) ->
-    {listener, ListenerConfig}.
+listener_group(ListenerId) ->
+    {listener, ListenerId}.
 
 %% General helper functions
 

@@ -155,6 +155,7 @@
 -export([listeners/0]).
 -export([mkunion/2, mkunion/3]).
 -export([fill_defaults/2, fill_defaults_for_type/2]).
+-export([duration_ms_to_str/1, duration_ms_to_str/2]).
 
 -behaviour(hocon_schema).
 
@@ -2713,6 +2714,53 @@ to_duration_ms(Str) ->
                 {error, _} -> {error, "Not a valid duration"}
             end
     end.
+
+-define(SECOND, 1000).
+-define(MINUTE, (?SECOND * 60)).
+-define(HOUR, (?MINUTE * 60)).
+-define(DAY, (?HOUR * 24)).
+-define(WEEK, (?DAY * 7)).
+-define(FORTNIGHT, (?WEEK * 2)).
+
+all_duration_units() ->
+    [
+        {?FORTNIGHT, <<"f">>},
+        {?WEEK, <<"w">>},
+        {?DAY, <<"d">>},
+        {?HOUR, <<"h">>},
+        {?MINUTE, <<"m">>},
+        {?SECOND, <<"s">>}
+    ].
+
+duration_ms_to_str(0) ->
+    <<"0ms">>;
+duration_ms_to_str(I) when is_integer(I) ->
+    duration_ms_to_str1(I, all_duration_units()).
+
+duration_ms_to_str(I, AllowedUnits0) when is_integer(I), is_list(AllowedUnits0) ->
+    AllUnits = all_duration_units(),
+    AllowedUnits = lists:filter(
+        fun({_UnitMS, UnitStr}) ->
+            lists:member(UnitStr, AllowedUnits0)
+        end,
+        AllUnits
+    ),
+    duration_ms_to_str1(I, AllowedUnits).
+
+duration_ms_to_str1(I, []) ->
+    <<(integer_to_binary(I))/binary, "ms">>;
+duration_ms_to_str1(I0, [{UnitMS, UnitStr} | _Rest]) when I0 rem UnitMS == 0 ->
+    I1 = I0 div UnitMS,
+    <<(integer_to_binary(I1))/binary, UnitStr/binary>>;
+duration_ms_to_str1(I, [_ | Rest]) ->
+    duration_ms_to_str1(I, Rest).
+
+-undef(SECOND).
+-undef(MINUTE).
+-undef(HOUR).
+-undef(DAY).
+-undef(WEEK).
+-undef(FORTNIGHT).
 
 -spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
     Input :: string() | binary().

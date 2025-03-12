@@ -72,6 +72,12 @@
     prepare_will_message_for_publishing/2
 ]).
 
+%% Used to inject limiter adjustments (e.g.: `emqx_mt' application)
+-export([
+    set_limiter_adjustment_fn/1,
+    unset_limiter_adjustment_fn/0
+]).
+
 %% Exports for tests
 -ifdef(TEST).
 -export([
@@ -408,6 +414,13 @@ handle_in(
                     {?RC_CONTINUE_AUTHENTICATION, NProperties},
                     NChannel#channel{conn_state = reauthenticating}
                 );
+            {error, NReasonCode, NChannel} ->
+                case ConnState of
+                    connecting ->
+                        handle_out(connack, NReasonCode, NChannel);
+                    _ ->
+                        handle_out(disconnect, NReasonCode, NChannel)
+                end;
             {error, NReasonCode} ->
                 case ConnState of
                     connecting ->
@@ -536,8 +549,10 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun run_conn_hooks/2,
                 fun check_connect/2,
                 fun enrich_client/2,
-                %% set_log_meta should happen after enrich_client
-                %% because client ID assign and override
+                %% `set_log_meta' should happen after `enrich_client'
+                %% because client ID assign and override.
+                %% Even though authentication may also inject new attributes, we call it
+                %% here so that next steps have more logger context, and call it again after auth.
                 fun set_log_meta/2,
                 fun check_banned/2,
                 fun count_flapping_event/2
@@ -559,8 +574,8 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                     post_process_connect(Properties, NChannel3);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
-                {error, ReasonCode} ->
-                    handle_out(connack, ReasonCode, NChannel1)
+                {error, ReasonCode, NChannel2} ->
+                    handle_out(connack, ReasonCode, NChannel2)
             end;
         {error, ReasonCode, NChannel} ->
             handle_out(connack, ReasonCode, NChannel)
@@ -2055,13 +2070,17 @@ fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
 
+fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) ->
+    ClientInfo = fix_mountpoint(ClientInfo0),
+    Channel = Channel0#channel{clientinfo = ClientInfo},
+    {ok, Channel}.
+
 %%--------------------------------------------------------------------
 %% Set log metadata
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
     Username = maps:get(username, ClientInfo, undefined),
-    Attrs = maps:get(client_attrs, ClientInfo, #{}),
-    Tns0 = maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined),
+    Tns0 = get_tenant_namespace(ClientInfo),
     %% No need to add Tns to log metadata if it's aready a prefix is client ID
     %% Or if it's the username.
     Tns =
@@ -2076,6 +2095,10 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
     Meta = lists:filter(fun({_, V}) -> V =/= undefined andalso V =/= <<>> end, Meta0),
     emqx_logger:set_proc_metadata(maps:from_list(Meta)).
 
+get_tenant_namespace(ClientInfo) ->
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+    maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined).
+
 %% clientid_override is an expression which is free to set tns as a prefix, suffix or whatsoever,
 %% but as a best-effort log metadata optimization, we only check for prefix
 is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> ->
@@ -2087,6 +2110,45 @@ is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> -
     end;
 is_clientid_namespaced(_ClientId, _Tns) ->
     false.
+
+%%--------------------------------------------------------------------
+%% Adjust limiter
+
+-define(PT_LIMITER_ADJUST_KEY, {?MODULE, limiter_adjust_fn}).
+-spec set_limiter_adjustment_fn(fun((map()) -> ignore | {ok, emqx_limiter_client_container:t()})) ->
+    ok.
+set_limiter_adjustment_fn(Fn) when is_function(Fn, 1) ->
+    persistent_term:put(?PT_LIMITER_ADJUST_KEY, Fn).
+
+-spec get_limiter_adjustment_fn() ->
+    undefined | fun((map()) -> ignore | {ok, emqx_limiter_client_container:t()}).
+get_limiter_adjustment_fn() ->
+    persistent_term:get(?PT_LIMITER_ADJUST_KEY, undefined).
+
+-spec unset_limiter_adjustment_fn() -> ok.
+unset_limiter_adjustment_fn() ->
+    _ = persistent_term:erase(?PT_LIMITER_ADJUST_KEY),
+    ok.
+-undef(PT_LIMITER_ADJUST_KEY).
+
+adjust_limiter(_ConnPkt, #channel{clientinfo = ClientInfo} = Channel0) ->
+    maybe
+        Fn = get_limiter_adjustment_fn(),
+        true ?= is_function(Fn, 1),
+        #{zone := Zone, listener := ListenerId} = ClientInfo,
+        Tns = get_tenant_namespace(ClientInfo),
+        Context = #{zone => Zone, listener_id => ListenerId, tns => Tns},
+        case Fn(Context) of
+            ignore ->
+                ok;
+            {ok, NewLimiter} ->
+                ?tp("channel_limiter_adjusted", #{}),
+                {ok, Channel0#channel{quota = NewLimiter}}
+        end
+    else
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Check banned
@@ -2136,7 +2198,7 @@ authenticate(Packet, Channel) ->
                 {ok, _, _} -> ?EXT_TRACE_SET_STATUS_OK();
                 %% TODO: Enhanced AUTH
                 {continue, _, _} -> ok;
-                {error, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
+                {error, _, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
             end,
             Res
         end,
@@ -2164,14 +2226,14 @@ process_authenticate(
             auth_cache => AuthCache
         },
     Credential = maybe_add_cert(Credential0, Channel),
-    do_authenticate(Credential, Channel);
+    authentication_pipeline(Credential, Channel);
 process_authenticate(
     ?CONNECT_PACKET(#mqtt_packet_connect{password = Password}),
     #channel{clientinfo = ClientInfo} = Channel
 ) ->
     %% Auth with CONNECT packet for MQTT v3
     Credential = maybe_add_cert(ClientInfo#{password => Password}, Channel),
-    do_authenticate(Credential, Channel);
+    authentication_pipeline(Credential, Channel);
 process_authenticate(
     ?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properties),
     #channel{
@@ -2184,7 +2246,7 @@ process_authenticate(
     case emqx_mqtt_props:get('Authentication-Method', ConnProps, undefined) of
         AuthMethod ->
             AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-            do_authenticate(
+            authentication_pipeline(
                 ClientInfo#{
                     auth_method => AuthMethod,
                     auth_data => AuthData,
@@ -2196,6 +2258,31 @@ process_authenticate(
             log_auth_failure("bad_authentication_method"),
             {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
+
+authentication_pipeline(Credential, Channel) ->
+    %% Slightly adapted version of `emqx_utils:pipeline' because `do_authenticate/2' may
+    %% return `{continue, _, _}', which serves as a special short-circuit return value.
+    emqx_utils:foldl_while(
+        fun(Fn, {ok, OutputAcc, ChanAcc}) ->
+            case Fn(OutputAcc, ChanAcc) of
+                ok -> {cont, {ok, OutputAcc, ChanAcc}};
+                {ok, NewChan} -> {cont, {ok, OutputAcc, NewChan}};
+                {ok, NewOutput, NewChan} -> {cont, {ok, NewOutput, NewChan}};
+                {error, Reason} -> {halt, {error, Reason, ChanAcc}};
+                {error, Reason, NewChan} -> {halt, {error, Reason, NewChan}};
+                {continue, _Props, _Chan} = Res -> {halt, Res}
+            end
+        end,
+        {ok, Credential, Channel},
+        [
+            fun do_authenticate/2,
+            fun fix_mountpoint/2,
+            %% We call `set_log_meta' again here because authentication may have injected
+            %% different attributes.
+            fun set_log_meta/2,
+            fun adjust_limiter/2
+        ]
+    ).
 
 do_authenticate(
     #{auth_method := AuthMethod} = Credential,
@@ -2256,14 +2343,13 @@ merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_ma
     Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
     Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
     Attrs = maps:merge(Attrs0, Attrs1),
-    NewClientInfo = maps:merge(
+    maps:merge(
         ClientInfo#{client_attrs => Attrs},
         AuthResult#{
             is_superuser => IsSuperuser,
             auth_expire_at => ExpireAt
         }
-    ),
-    fix_mountpoint(NewClientInfo).
+    ).
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias

@@ -26,9 +26,19 @@
     clear_self_node/0
 ]).
 
+-export([
+    set_limiter_config/3,
+    get_limiter_config/2,
+    delete_limiter_config/2
+]).
+
 -include("emqx_mt.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
 
 -define(EMQX_MT_SHARD, emqx_mt_shard).
 
@@ -36,10 +46,13 @@
 -define(RECORD_TAB, emqx_mt_record).
 -define(COUNTER_TAB, emqx_mt_counter).
 -define(NS_TAB, emqx_mt_ns).
+-define(CONFIG_TAB, emqx_mt_config).
 
 %% ets tables
 -define(MONITOR_TAB, emqx_mt_monitor).
 -define(CCACHE_TAB, emqx_mt_ccache).
+
+-define(MAX_NUM_TNS_CONFIGS, 1_000).
 
 %% Mria table (disc_copies) to store the namespace records.
 %% Value is for future use.
@@ -54,7 +67,6 @@
 -define(RECORD_KEY(Ns, ClientId, Pid), {Ns, ClientId, Pid}).
 %% 0 is less '<' than any pid
 -define(MIN_PID, 0).
--define(MIN_RECORD_KEY(Ns), ?RECORD_KEY(Ns, ?MIN_CLIENTID, ?MIN_PID)).
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
     node :: node(),
@@ -70,6 +82,15 @@
     count :: non_neg_integer()
 }).
 
+%% Mria table to store various configurations for explicitly created namespaces.
+%% They is simply the namespace name (a binary).
+%% Currently, we limit the maximum number of configurable namespaces.
+-record(?CONFIG_TAB, {
+    key :: tns(),
+    configs :: tns_config(),
+    extra = #{} :: map()
+}).
+
 %% ETS table to keep track of the session pid for each client.
 -define(MONITOR(Pid, Key), {Pid, Key}).
 -define(CCACHE(Ns, Ts, Cnt), {Ns, Ts, Cnt}).
@@ -77,8 +98,18 @@
 
 -define(LOCK(Node), {emqx_mt_clear_node_lock, Node}).
 
+-define(limiter, limiter).
+
 -type tns() :: emqx_mt:tns().
 -type clientid() :: emqx_types:clientid().
+
+-type tns_config() :: #{
+    ?limiter => emqx_mt_limiter:root_config()
+}.
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
 create_tables() ->
     ok = mria:create_table(?NS_TAB, [
@@ -98,6 +129,12 @@ create_tables() ->
         {rlog_shard, ?EMQX_MT_SHARD},
         {storage, ram_copies},
         {attributes, record_info(fields, ?COUNTER_TAB)}
+    ]),
+    ok = mria:create_table(?CONFIG_TAB, [
+        {type, ordered_set},
+        {rlog_shard, ?EMQX_MT_SHARD},
+        {storage, disc_copies},
+        {attributes, record_info(fields, ?CONFIG_TAB)}
     ]),
     _ = ets:new(?MONITOR_TAB, [
         set,
@@ -291,3 +328,78 @@ evict_ccache() ->
 evict_ccache(Ns) ->
     ets:delete(?CCACHE_TAB, Ns),
     ok.
+
+-spec set_limiter_config(
+    emqx_mt:tns(),
+    emqx_mt_limiter:limiter_kind(),
+    emqx_mt_limiter:tenant_config() | emqx_mt_limiter:client_config()
+) ->
+    {ok, new | updated} | {error, {aborted, _}} | {error, table_is_full}.
+set_limiter_config(Ns, Kind, Config) ->
+    transaction(fun set_limiter_config_txn/3, [Ns, Kind, Config]).
+
+delete_limiter_config(Ns, Kind) ->
+    transaction(fun delete_limiter_config_txn/2, [Ns, Kind]).
+
+get_limiter_config(Ns, Kind) ->
+    case mnesia:dirty_read(?CONFIG_TAB, Ns) of
+        [#?CONFIG_TAB{configs = #{?limiter := #{Kind := Config}}}] ->
+            {ok, Config};
+        _ ->
+            {error, not_found}
+    end.
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+transaction(Fn, Args) ->
+    case mria:transaction(?EMQX_MT_SHARD, Fn, Args) of
+        {atomic, Res} ->
+            Res;
+        {aborted, Reason} ->
+            {error, {aborted, Reason}}
+    end.
+
+tns_config_size() ->
+    mnesia:table_info(?CONFIG_TAB, size).
+
+delete_limiter_config_txn(Ns, Kind) ->
+    case mnesia:read(?CONFIG_TAB, Ns, write) of
+        [#?CONFIG_TAB{configs = #{?limiter := LimiterConfig0} = Configs0} = Rec0] ->
+            LimiterConfig = maps:remove(Kind, LimiterConfig0),
+            Configs = Configs0#{?limiter := LimiterConfig},
+            Rec = Rec0#?CONFIG_TAB{configs = Configs},
+            ok = mnesia:write(?CONFIG_TAB, Rec, write),
+            ok;
+        _ ->
+            {error, not_found}
+    end.
+
+set_limiter_config_txn(Ns, Kind, Config) ->
+    case mnesia:read(?CONFIG_TAB, Ns, write) of
+        [] ->
+            %% New record
+            Size = tns_config_size(),
+            case Size >= ?MAX_NUM_TNS_CONFIGS of
+                true ->
+                    {error, table_is_full};
+                false ->
+                    Rec = #?CONFIG_TAB{key = Ns, configs = #{?limiter => #{Kind => Config}}},
+                    ok = mnesia:write(?CONFIG_TAB, Rec, write),
+                    {ok, new}
+            end;
+        [#?CONFIG_TAB{configs = #{?limiter := #{Kind := _} = OldLimiter} = OldConfigs} = Rec0] ->
+            Limiter = OldLimiter#{Kind := Config},
+            Configs = OldConfigs#{?limiter := Limiter},
+            Rec = Rec0#?CONFIG_TAB{configs = Configs},
+            ok = mnesia:write(?CONFIG_TAB, Rec, write),
+            {ok, updated};
+        [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ->
+            OldLimiter = maps:get(?limiter, OldConfigs, #{}),
+            Limiter = OldLimiter#{Kind => Config},
+            Configs = OldConfigs#{?limiter => Limiter},
+            Rec = Rec0#?CONFIG_TAB{configs = Configs},
+            ok = mnesia:write(?CONFIG_TAB, Rec, write),
+            {ok, new}
+    end.
