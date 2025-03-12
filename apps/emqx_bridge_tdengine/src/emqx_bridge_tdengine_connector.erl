@@ -60,6 +60,7 @@ fields(config) ->
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         base_config(false) ++
+        token_field() ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -75,6 +76,9 @@ base_config(HasDatabase) ->
         {server, server()}
         | adjust_fields(emqx_connector_schema_lib:relational_db_fields(), HasDatabase)
     ].
+
+token_field() ->
+    [{token, hoconsc:mk(binary(), #{required => false, desc => ?DESC("token")})}].
 
 desc(config) ->
     ?DESC("desc_config");
@@ -166,6 +170,7 @@ on_start(
         {port, Port},
         {username, Username},
         {password, Password},
+        {token, maps:get(token, Config, undefined)},
         {pool_size, PoolSize},
         {pool, InstanceId}
     ],

@@ -14,4 +14,9 @@ desc_config.desc:
 desc_config.label:
 """TDengine Connector Configuration"""
 
+token.desc:
+"""The token used when connecting to TDEngine Cloud. <br/>
+If this value is provided, it will override the authentication method of Username and Password.<br/>
+Default is empty."""
+
 }
