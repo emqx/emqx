@@ -147,13 +147,13 @@ byte_capacity_to_str(0) ->
     <<"0">>;
 byte_capacity_to_str(C0) when C0 rem ?GIGABYTE == 0 ->
     C1 = C0 div ?GIGABYTE,
-    <<(integer_to_binary(C1))/binary, "gb">>;
+    <<(integer_to_binary(C1))/binary, "GB">>;
 byte_capacity_to_str(C0) when C0 rem ?MEGABYTE == 0 ->
     C1 = C0 div ?MEGABYTE,
-    <<(integer_to_binary(C1))/binary, "mb">>;
+    <<(integer_to_binary(C1))/binary, "MB">>;
 byte_capacity_to_str(C0) when C0 rem ?KILOBYTE == 0 ->
     C1 = C0 div ?KILOBYTE,
-    <<(integer_to_binary(C1))/binary, "kb">>;
+    <<(integer_to_binary(C1))/binary, "KB">>;
 byte_capacity_to_str(C) ->
     integer_to_binary(C).
 

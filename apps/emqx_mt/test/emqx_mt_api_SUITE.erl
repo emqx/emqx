@@ -316,7 +316,7 @@ t_tenant_limiter(_Config) ->
 
     ?assertMatch(
         {201, #{
-            <<"bytes">> := #{<<"rate">> := <<"10mb/10s">>, <<"burst">> := <<"200mb/1m">>},
+            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
             <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
         }},
         create_tenant_limiter(Ns1, Params1)
@@ -324,7 +324,7 @@ t_tenant_limiter(_Config) ->
     ?assertMatch({400, _}, create_tenant_limiter(Ns1, Params1)),
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"10mb/10s">>, <<"burst">> := <<"200mb/1m">>},
+            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
             <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
         }},
         get_tenant_limiter(Ns1)
@@ -370,7 +370,7 @@ t_client_limiter(_Config) ->
 
     ?assertMatch(
         {201, #{
-            <<"bytes">> := #{<<"rate">> := <<"10mb/10s">>, <<"burst">> := <<"200mb/1m">>},
+            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
             <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
         }},
         create_client_limiter(Ns1, Params1)
@@ -378,7 +378,7 @@ t_client_limiter(_Config) ->
     ?assertMatch({400, _}, create_client_limiter(Ns1, Params1)),
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"10mb/10s">>, <<"burst">> := <<"200mb/1m">>},
+            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
             <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
         }},
         get_client_limiter(Ns1)
