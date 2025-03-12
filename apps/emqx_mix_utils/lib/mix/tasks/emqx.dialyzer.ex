@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
   use Mix.Task
 
   alias Mix.Tasks.Emqx.Ct, as: ECt
+  alias EMQXUmbrella.MixProject, as: UMP
 
   @requirements ["compile", "loadpaths"]
 
@@ -36,7 +37,11 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
   )
 
   @impl true
-  def run(_args) do
+  def run(args) do
+    %{
+      mode: mode
+    } = parse_args!(args)
+
     ECt.add_to_path_and_cache(:dialyzer)
 
     %{
@@ -63,39 +68,43 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       |> Enum.map(&to_charlist/1)
     warning_apps = Enum.sort(umbrella_apps)
 
-    try do
-      :dialyzer.run(
-        analysis_type: :incremental,
-        warnings: [
+    plt = to_charlist(plt_path(mode))
+
+    context = %{
+      mode: mode,
+      warnings: [
           :unmatched_returns,
           :error_handling
         ],
-        # plt_location: ~c".",
-        # plt_prefix: ~c"emqx_dialyzer",
-        warning_files: warning_files,
-        warning_files_rec: warning_files,
-        # apps: umbrella_apps ++ dep_apps,
-        # warning_apps: warning_apps,
-        get_warnings: false,
-        files: files,
-        files_rec: files
-      )
+      warning_files: warning_files,
+      umbrella_files: umbrella_files,
+      files: files,
+    }
+
+    try do
+      case mode do
+        :classic ->
+          run_dialyzer_classic(context)
+
+        :incremental ->
+          run_dialyzer_incremental(context)
+      end
       |> Enum.map(& :dialyzer.format_warning(&1, filename_opt: :fullpath, indent_opt: false))
       |> tap(&IO.puts/1)
       |> case do
            [] ->
-             Mix.shell().info("ok")
+             Mix.shell().info("Ok")
 
            [_ | _] ->
-             Mix.raise("Errors found!")
+             Mix.raise("Errors found!  See output above for details.")
          end
     catch
       {:dialyzer_error, msg} ->
-        {:dialyzer_error, to_string(msg)}
+        Mix.raise("Dialyzer error:\n\n#{inspect(msg, pretty: true)}")
+
       err ->
-        {:throw, err}
+        Mix.raise("Error runnin dialyzer:\n\n#{inspect(err, pretty: true)}")
     end
-    |> IO.inspect(limit: :infinity)
   end
 
   defp resolve_apps() do
@@ -178,5 +187,115 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
             ]))
         :error
     end
+  end
+
+  defp parse_args!(args) do
+    {opts, _rest} = OptionParser.parse!(
+      args,
+      strict: [
+        mode: :string,
+      ]
+    )
+    mode =
+      opts
+      |> Keyword.get(:mode, "classic")
+      |> String.to_atom()
+
+    case mode do
+      :classic ->
+        :ok
+
+      :incremental ->
+        :ok
+
+      _ ->
+        Mix.raise("Unknown mode: #{mode}; valid values are: classic, incremental")
+    end
+
+    %{
+      mode: mode
+    }
+  end
+
+  defp plt_path(mode) do
+    otp_version = UMP.otp_release()
+    mode_slug = if mode == :incremental do
+      "_incremental"
+    else
+      ""
+    end
+
+    Mix.Project.project_file()
+    |> Path.dirname()
+    |> Path.join("emqx_dialyzer_#{otp_version}_plt#{mode_slug}")
+  end
+
+  def run_dialyzer_classic(context) do
+    # Creating a full PLT straight away, instead of building a initial PLT with only OTP
+    # modules.
+    %{
+      mode: mode,
+      files: files,
+      warnings: warnings,
+      warning_files: warning_files,
+    } = context
+    plt = mode |> plt_path() |> to_charlist()
+
+    Mix.shell().info("Running dialyzer in #{mode} mode and PLT #{plt}")
+
+    Mix.shell().info("Building initial PLT...")
+    {time, _} = :timer.tc(fn ->
+      :dialyzer.run(
+        analysis_type: :plt_build,
+        output_plt: plt,
+        get_warnings: false,
+        files: files,
+        files_rec: files,
+      )
+    end, :millisecond)
+    Mix.shell().info("Built initial PLT in #{time / 1_000} s")
+
+    Mix.shell().info("Running success typing analysis...")
+    {time, res} = :timer.tc(fn ->
+      :dialyzer.run(
+        analysis_type: :succ_typings,
+        warnings: warnings,
+        init_plt: plt,
+        get_warnings: true,
+        files: warning_files
+      )
+    end, :millisecond)
+    Mix.shell().info("Ran success typing analysis in #{time / 1_000} s")
+
+    res
+  end
+
+  def run_dialyzer_incremental(context) do
+    %{
+      mode: mode,
+      files: files,
+      warnings: warnings,
+      warning_files: warning_files,
+    } = context
+    plt = mode |> plt_path() |> to_charlist()
+
+    Mix.shell().info("Running dialyzer in #{mode} mode and PLT #{plt}")
+
+    {time, res} = :timer.tc(fn ->
+      :dialyzer.run(
+        analysis_type: :incremental,
+        warnings: warnings,
+        init_plt: plt,
+        output_plt: plt,
+        warning_files: warning_files,
+        warning_files_rec: warning_files,
+        get_warnings: false,
+        files: files,
+        files_rec: files,
+      )
+    end, :millisecond)
+    Mix.shell().info("Ran incremental analysis in #{time / 1_000} s")
+
+    res
   end
 end
