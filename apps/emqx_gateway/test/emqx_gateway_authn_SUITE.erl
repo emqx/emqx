@@ -92,7 +92,7 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 
 t_case_coap(_) ->
-    emqx_coap_SUITE:restart_coap_with_connection_mode(false),
+    emqx_coap_SUITE:update_coap_with_connection_mode(false),
     Login = fun(URI, Checker) ->
         Action = fun(Channel) ->
             Req = emqx_coap_SUITE:make_req(post),

@@ -138,7 +138,8 @@ update_grpc_client_channel(GwName, NewConfig, OldConfig) ->
             ok;
         {New, Old} ->
             stop_grpc_client_channel(Old),
-            _ = start_grpc_client_channel(GwName, New)
+            _ = start_grpc_client_channel(GwName, New),
+            ok
     end,
     ok.
 
@@ -146,8 +147,8 @@ update_grpc_server(GwName, NewConfig, OldConfig) ->
     case {maps:get(server, NewConfig, undefined), maps:get(server, OldConfig, undefined)} of
         {New, New} ->
             ok;
-        {New, Old} ->
-            stop_grpc_server(Old),
+        {New, _Old} ->
+            stop_grpc_server(GwName),
             _ = start_grpc_server(GwName, New)
     end,
     ok.
