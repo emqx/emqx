@@ -6,13 +6,9 @@ cd -P -- "$(dirname -- "$0")/../.."
 # shellcheck disable=SC1091
 source ./env.sh
 
-PROFILE="${PROFILE:-emqx}"
+PROFILE="${PROFILE:-emqx-enterprise}"
 DIR_NAME='examples'
-SCHEMA_MOD='emqx_conf_schema'
-if [ "${PROFILE}" = 'emqx-enterprise' ]; then
-    DIR_NAME='ee-examples'
-    SCHEMA_MOD='emqx_enterprise_schema'
-fi
+SCHEMA_MOD='emqx_enterprise_schema'
 
 IFS=$'\n' read -r -d '' -a FILES < <(find "rel/config/${DIR_NAME}" -name "*.example" 2>/dev/null | sort && printf '\0')
 
