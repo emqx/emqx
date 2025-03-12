@@ -66,8 +66,8 @@ init([Opts]) ->
     State = handle_options(Opts),
     {ok, refresh_jwks(State)}.
 
-handle_call(get_cached_jwks, _From, #{jwks := Jwks} = State) ->
-    {reply, {ok, Jwks}, State};
+handle_call(get_cached_jwks, _From, #{jwks := JWKS} = State) ->
+    {reply, {ok, JWKS}, State};
 handle_call({update, Opts}, _From, _State) ->
     NewState = handle_options(Opts),
     {reply, ok, refresh_jwks(NewState)};
@@ -101,9 +101,9 @@ handle_info(
                 State1;
             {StatusLine, Headers, Body} ->
                 try
-                    JWKS = jose_jwk:from(emqx_utils_json:decode(Body)),
-                    {_, JWKs} = JWKS#jose_jwk.keys,
-                    State1#{jwks := JWKs}
+                    JWK = jose_jwk:from(emqx_utils_json:decode(Body)),
+                    {_, JWKS} = JWK#jose_jwk.keys,
+                    State1#{jwks := JWKS}
                 catch
                     _:_ ->
                         ?SLOG(warning, #{
