@@ -276,7 +276,8 @@ get_param_types(Signatures, From, {M, F, A}) ->
 
 dump() ->
     RootDir = project_root_dir(),
-    TryRelDir = RootDir ++ "/_build/check/lib",
+    BuildProfile = os:getenv("BPAPI_BUILD_PROFILE", "check"),
+    TryRelDir = filename:join([RootDir, "_build", BuildProfile, "lib"]),
     case {filelib:wildcard(RootDir ++ "/*_plt"), filelib:wildcard(TryRelDir)} of
         {[PLT | _], [RelDir | _]} ->
             dump(#{

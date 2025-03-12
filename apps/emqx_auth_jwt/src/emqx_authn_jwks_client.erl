@@ -86,7 +86,9 @@ handle_info(
     {http, {RequestID, Result}},
     #{request_id := RequestID, endpoint := Endpoint} = State0
 ) ->
-    ?tp(debug, jwks_endpoint_response, #{request_id => RequestID}),
+    ?tp(debug, jwks_endpoint_response, #{
+        request_id => RequestID, response => emqx_utils:redact(Result)
+    }),
     State1 = State0#{request_id := undefined},
     NewState =
         case Result of
@@ -135,13 +137,13 @@ handle_options(#{
     endpoint := Endpoint,
     headers := Headers,
     refresh_interval := RefreshInterval0,
-    ssl_opts := SSLOpts
+    ssl := SSLOpts
 }) ->
     #{
         endpoint => Endpoint,
         headers => to_httpc_headers(Headers),
         refresh_interval => limit_refresh_interval(RefreshInterval0),
-        ssl_opts => maps:to_list(SSLOpts),
+        ssl_opts => emqx_tls_lib:to_client_opts(SSLOpts),
         jwks => [],
         request_id => undefined
     }.

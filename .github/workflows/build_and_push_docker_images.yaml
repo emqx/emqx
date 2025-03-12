@@ -91,7 +91,7 @@ jobs:
           if-no-files-found: error
 
   docker:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     needs:
       - build
     defaults:
