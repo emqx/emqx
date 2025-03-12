@@ -74,6 +74,7 @@ t_copy_new_data_dir(Config) ->
         {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
         ok = rpc:call(First, application, start, [emqx_conf]),
+        ct:sleep(500),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
         ?retry(200, 10, ok = assert_data_copy_done(Nodes, File))
     after
