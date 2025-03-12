@@ -30,8 +30,7 @@ If one of the limiters lack configuration, we simply don't do each action above.
     delete_client_limiter_group/1
 ]).
 
-%% `emqx_schema_hooks' API
--export([injected_values/0]).
+%% `emqx_channel:set_limiter_adjustment_fn' hook
 -export([adjust_limiter/1]).
 
 -export_type([
@@ -104,21 +103,18 @@ delete_client_limiter_group(Ns) ->
     emqx_limiter:delete_group(client_group(Ns)).
 
 %%------------------------------------------------------------------------------
-%% `emqx_schema_hooks' API
+%% `emqx_channel:set_limiter_adjustment_fn' hook
 %%------------------------------------------------------------------------------
 
-injected_values() ->
-    #{
-        'channel.adjust_limiter' => fun ?MODULE:adjust_limiter/1
-    }.
-
+adjust_limiter(#{tns := undefined}) ->
+    ignore;
 adjust_limiter(Context) ->
     #{
         zone := Zone,
         listener_id := ListenerId,
         tns := Ns
     } = Context,
-    create_channel_client_container(Zone, ListenerId, Ns).
+    {ok, create_channel_client_container(Zone, ListenerId, Ns)}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

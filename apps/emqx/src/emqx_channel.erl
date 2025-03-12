@@ -72,6 +72,12 @@
     prepare_will_message_for_publishing/2
 ]).
 
+%% Used to inject limiter adjustments (e.g.: `emqx_mt' application)
+-export([
+    set_limiter_adjustment_fn/1,
+    unset_limiter_adjustment_fn/0
+]).
+
 %% Exports for tests
 -ifdef(TEST).
 -export([
@@ -2108,15 +2114,37 @@ is_clientid_namespaced(_ClientId, _Tns) ->
 %%--------------------------------------------------------------------
 %% Adjust limiter
 
+-define(PT_LIMITER_ADJUST_KEY, {?MODULE, limiter_adjust_fn}).
+-spec set_limiter_adjustment_fn(fun((map()) -> ignore | {ok, emqx_limiter_client_container:t()})) ->
+    ok.
+set_limiter_adjustment_fn(Fn) when is_function(Fn, 1) ->
+    persistent_term:put(?PT_LIMITER_ADJUST_KEY, Fn).
+
+-spec get_limiter_adjustment_fn() ->
+    undefined | fun((map()) -> ignore | {ok, emqx_limiter_client_container:t()}).
+get_limiter_adjustment_fn() ->
+    persistent_term:get(?PT_LIMITER_ADJUST_KEY, undefined).
+
+-spec unset_limiter_adjustment_fn() -> ok.
+unset_limiter_adjustment_fn() ->
+    _ = persistent_term:erase(?PT_LIMITER_ADJUST_KEY),
+    ok.
+-undef(PT_LIMITER_ADJUST_KEY).
+
 adjust_limiter(_ConnPkt, #channel{clientinfo = ClientInfo} = Channel0) ->
-    #{zone := Zone, listener := ListenerId} = ClientInfo,
     maybe
+        Fn = get_limiter_adjustment_fn(),
+        true ?= is_function(Fn, 1),
+        #{zone := Zone, listener := ListenerId} = ClientInfo,
         Tns = get_tenant_namespace(ClientInfo),
-        true ?= Tns /= undefined,
-        {ok, Fn} ?= emqx_schema_hooks:value_injection_point('channel.adjust_limiter'),
-        NewLimiter = Fn(#{zone => Zone, listener_id => ListenerId, tns => Tns}),
-        ?tp("channel_limiter_adjusted", #{}),
-        {ok, Channel0#channel{quota = NewLimiter}}
+        Context = #{zone => Zone, listener_id => ListenerId, tns => Tns},
+        case Fn(Context) of
+            ignore ->
+                ok;
+            {ok, NewLimiter} ->
+                ?tp("channel_limiter_adjusted", #{}),
+                {ok, Channel0#channel{quota = NewLimiter}}
+        end
     else
         _ ->
             ok

@@ -29,7 +29,6 @@ schemas(Edition) ->
         authz() ++
         shared_subs(Edition) ++
         bridges(Edition) ++
-        channel_customizations() ++
         customized(Edition).
 
 mria(ee) ->
@@ -84,9 +83,6 @@ bridges(ee) ->
         emqx_bridge_disk_log_connector_schema,
         emqx_bridge_mqtt_connector_schema
     ].
-
-channel_customizations() ->
-    [emqx_mt_limiter].
 
 %% Add more schemas here.
 customized(_) ->
