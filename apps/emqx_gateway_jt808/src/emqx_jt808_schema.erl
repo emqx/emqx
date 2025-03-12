@@ -60,7 +60,12 @@ fields(jt808_proto) ->
                 #{desc => ?DESC(jt808_auth)}
             )},
         {up_topic, fun up_topic/1},
-        {dn_topic, fun dn_topic/1}
+        {dn_topic, fun dn_topic/1},
+        {ignore_unsupported_frames,
+            sc(
+                hoconsc:union([true, false]),
+                #{desc => ?DESC(ignore_unsupported_frames), default => true}
+            )}
     ];
 fields(anonymous_true) ->
     [
