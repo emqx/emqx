@@ -23,6 +23,8 @@
 %% `minirest' handlers
 -export([
     ns_list/2,
+    explicit_ns_list/2,
+    explicit_ns/2,
     client_list/2,
     client_count/2,
     tenant_limiter/2,
@@ -53,8 +55,10 @@ api_spec() ->
 paths() ->
     [
         "/mt/ns_list",
+        "/mt/explicit_ns_list",
         "/mt/ns/:ns/client_list",
         "/mt/ns/:ns/client_count",
+        "/mt/ns/:ns/explicit",
         "/mt/ns/:ns/limiter/tenant",
         "/mt/ns/:ns/limiter/client"
     ].
@@ -118,6 +122,52 @@ schema("/mt/ns/:ns/client_count") ->
                 }
         }
     };
+schema("/mt/explicit_ns_list") ->
+    #{
+        'operationId' => explicit_ns_list,
+        get => #{
+            tags => ?TAGS,
+            summary => <<"List explicit namespaces">>,
+            description => ?DESC("explicit_ns_list"),
+            parameters => [
+                last_ns_in_query(),
+                limit_in_query()
+            ],
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            array(binary()),
+                            example_ns_list()
+                        )
+                }
+        }
+    };
+schema("/mt/ns/:ns/explicit") ->
+    #{
+        'operationId' => explicit_ns,
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Create explicit namespace">>,
+            description => ?DESC("create_explicit_ns"),
+            parameters => [param_path_ns()],
+            responses =>
+                #{
+                    204 => <<"">>,
+                    400 => error_schema('BAD_REQUEST', "Maximum number of configurations reached")
+                }
+        },
+        delete => #{
+            tags => ?TAGS,
+            summary => <<"Delete explicit namespace">>,
+            description => ?DESC("delete_explicit_ns"),
+            parameters => [param_path_ns()],
+            responses =>
+                #{
+                    204 => <<"">>
+                }
+        }
+    };
 schema("/mt/ns/:ns/limiter/tenant") ->
     #{
         'operationId' => tenant_limiter,
@@ -165,8 +215,8 @@ schema("/mt/ns/:ns/limiter/tenant") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Update tenant limiter configuration">>,
-            description => ?DESC("update_tenant_limiter"),
+            summary => <<"Delete tenant limiter configuration">>,
+            description => ?DESC("delete_tenant_limiter"),
             parameters => [param_path_ns()],
             responses =>
                 #{
@@ -222,8 +272,8 @@ schema("/mt/ns/:ns/limiter/client") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Update client limiter configuration">>,
-            description => ?DESC("update_client_limiter"),
+            summary => <<"Delete client limiter configuration">>,
+            description => ?DESC("delete_client_limiter"),
             parameters => [param_path_ns()],
             responses =>
                 #{
@@ -323,14 +373,38 @@ client_count(get, #{bindings := #{ns := Ns}}) ->
         {error, not_found} -> ?NOT_FOUND("Namespace not found")
     end.
 
-tenant_limiter(get, #{bindings := #{ns := Ns}}) ->
-    %% TODO: check NS exists and was explicitly created.
-    case emqx_mt_config:get_tenant_limiter_config(Ns) of
-        {ok, Limiter} ->
-            ?OK(limiter_out(Limiter));
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Limiter configuration not found">>)
+explicit_ns_list(get, Params) ->
+    QS = maps:get(query_string, Params, #{}),
+    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
+    Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
+    ?OK(emqx_mt:list_explicit_ns(LastNs, Limit)).
+
+explicit_ns(post, #{bindings := #{ns := Ns}}) ->
+    case emqx_mt_config:create_explicit_ns(Ns) of
+        ok ->
+            ?NO_CONTENT;
+        {error, table_is_full} ->
+            ?BAD_REQUEST(<<"Maximum number of explicit namespaces reached">>);
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
     end;
+explicit_ns(delete, #{bindings := #{ns := Ns}}) ->
+    case emqx_mt_config:delete_explicit_ns(Ns) of
+        ok ->
+            ?NO_CONTENT;
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+tenant_limiter(get, #{bindings := #{ns := Ns}}) ->
+    with_known_explicit_ns(Ns, fun() ->
+        case emqx_mt_config:get_tenant_limiter_config(Ns) of
+            {ok, Limiter} ->
+                ?OK(limiter_out(Limiter));
+            {error, not_found} ->
+                ?NOT_FOUND(<<"Limiter configuration not found">>)
+        end
+    end);
 tenant_limiter(delete, #{bindings := #{ns := Ns}}) ->
     case emqx_mt_config:delete_tenant_limiter_config(Ns) of
         ok ->
@@ -341,28 +415,33 @@ tenant_limiter(delete, #{bindings := #{ns := Ns}}) ->
             ?BAD_REQUEST(Reason)
     end;
 tenant_limiter(post, #{bindings := #{ns := Ns}, body := Params}) ->
-    case emqx_mt_config:get_tenant_limiter_config(Ns) of
-        {error, not_found} ->
-            handle_create_limiter(?tenant_limiter, Ns, Params);
-        {ok, _} ->
-            ?BAD_REQUEST(<<"Limiter config already exists">>)
-    end;
+    with_known_explicit_ns(Ns, fun() ->
+        case emqx_mt_config:get_tenant_limiter_config(Ns) of
+            {error, not_found} ->
+                handle_create_limiter(?tenant_limiter, Ns, Params);
+            {ok, _} ->
+                ?BAD_REQUEST(<<"Limiter config already exists">>)
+        end
+    end);
 tenant_limiter(put, #{bindings := #{ns := Ns}, body := Params}) ->
-    case emqx_mt_config:get_tenant_limiter_config(Ns) of
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Limiter config not found">>);
-        {ok, _} ->
-            handle_update_limiter(?tenant_limiter, Ns, Params)
-    end.
+    with_known_explicit_ns(Ns, fun() ->
+        case emqx_mt_config:get_tenant_limiter_config(Ns) of
+            {error, not_found} ->
+                ?NOT_FOUND(<<"Limiter config not found">>);
+            {ok, _} ->
+                handle_update_limiter(?tenant_limiter, Ns, Params)
+        end
+    end).
 
 client_limiter(get, #{bindings := #{ns := Ns}}) ->
-    %% TODO: check NS exists and was explicitly created.
-    case emqx_mt_config:get_client_limiter_config(Ns) of
-        {ok, Limiter} ->
-            ?OK(limiter_out(Limiter));
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Limiter configuration not found">>)
-    end;
+    with_known_explicit_ns(Ns, fun() ->
+        case emqx_mt_config:get_client_limiter_config(Ns) of
+            {ok, Limiter} ->
+                ?OK(limiter_out(Limiter));
+            {error, not_found} ->
+                ?NOT_FOUND(<<"Limiter configuration not found">>)
+        end
+    end);
 client_limiter(delete, #{bindings := #{ns := Ns}}) ->
     case emqx_mt_config:delete_client_limiter_config(Ns) of
         ok ->
@@ -373,19 +452,23 @@ client_limiter(delete, #{bindings := #{ns := Ns}}) ->
             ?BAD_REQUEST(Reason)
     end;
 client_limiter(post, #{bindings := #{ns := Ns}, body := Params}) ->
-    case emqx_mt_config:get_client_limiter_config(Ns) of
-        {error, not_found} ->
-            handle_create_limiter(?client_limiter, Ns, Params);
-        {ok, _} ->
-            ?BAD_REQUEST(<<"Limiter config already exists">>)
-    end;
+    with_known_explicit_ns(Ns, fun() ->
+        case emqx_mt_config:get_client_limiter_config(Ns) of
+            {error, not_found} ->
+                handle_create_limiter(?client_limiter, Ns, Params);
+            {ok, _} ->
+                ?BAD_REQUEST(<<"Limiter config already exists">>)
+        end
+    end);
 client_limiter(put, #{bindings := #{ns := Ns}, body := Params}) ->
-    case emqx_mt_config:get_client_limiter_config(Ns) of
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Limiter config not found">>);
-        {ok, _} ->
-            handle_update_limiter(?client_limiter, Ns, Params)
-    end.
+    with_known_explicit_ns(Ns, fun() ->
+        case emqx_mt_config:get_client_limiter_config(Ns) of
+            {error, not_found} ->
+                ?NOT_FOUND(<<"Limiter config not found">>);
+            {ok, _} ->
+                handle_update_limiter(?client_limiter, Ns, Params)
+        end
+    end).
 
 %%-------------------------------------------------------------------------------------------------
 %% Handler implementations
@@ -396,8 +479,8 @@ handle_create_limiter(?tenant_limiter, Ns, Limiter) ->
     case emqx_mt_config:set_tenant_limiter_config(Ns, Limiter) of
         ok ->
             ?CREATED(limiter_out(Limiter));
-        {error, table_is_full} ->
-            ?BAD_REQUEST(<<"Maximum number of configurations reached">>);
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Explicit namespace not found">>);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end;
@@ -405,8 +488,8 @@ handle_create_limiter(?client_limiter, Ns, Limiter) ->
     case emqx_mt_config:set_client_limiter_config(Ns, Limiter) of
         ok ->
             ?CREATED(limiter_out(Limiter));
-        {error, table_is_full} ->
-            ?BAD_REQUEST(<<"Maximum number of configurations reached">>);
+        {error, not_found} ->
+            ?NOT_FOUND(<<"Explicit namespace not found">>);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.
@@ -482,3 +565,11 @@ limiter_config_out(Unit0, LimiterConfig) ->
         end,
         LimiterConfig
     ).
+
+with_known_explicit_ns(Ns, Fn) ->
+    case emqx_mt_config:is_known_explicit_ns(Ns) of
+        true ->
+            Fn();
+        false ->
+            ?NOT_FOUND(<<"Explicit namespace not found">>)
+    end.

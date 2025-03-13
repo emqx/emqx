@@ -25,6 +25,10 @@
     try_consume/2
 ]).
 
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
 -type t() :: #{emqx_limiter:name() => emqx_limiter_client:t()}.
 -type reason() :: emqx_limiter_client:reason().
 

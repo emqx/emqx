@@ -26,6 +26,15 @@
     clear_self_node/0
 ]).
 
+%% Explicitly created namespace management
+-export([
+    list_explicit_ns/2,
+    create_explicit_ns/1,
+    delete_explicit_ns/1,
+    is_known_explicit_ns/1
+]).
+
+%% Limiter
 -export([
     set_limiter_config/3,
     get_limiter_config/2,
@@ -153,17 +162,28 @@ create_tables() ->
 %% The third argument is the number of namespaces to return.
 -spec list_ns(tns(), pos_integer()) -> [tns()].
 list_ns(LastNs, Limit) ->
-    do_list_ns(LastNs, Limit).
+    do_list_ns(?NS_TAB, LastNs, Limit).
 
-do_list_ns(_LastNs, 0) ->
+do_list_ns(_Table, _LastNs, 0) ->
     [];
-do_list_ns(LastNs, Limit) ->
-    case ets:next(?NS_TAB, LastNs) of
+do_list_ns(Table, LastNs, Limit) ->
+    case ets:next(Table, LastNs) of
         '$end_of_table' ->
             [];
         Ns ->
-            [Ns | do_list_ns(Ns, Limit - 1)]
+            [Ns | do_list_ns(Table, Ns, Limit - 1)]
     end.
+
+-doc """
+List explicit namespaces.
+
+The second argument is the last namespace from the previous page.
+
+The third argument is the number of namespaces to return.
+""".
+-spec list_explicit_ns(tns(), pos_integer()) -> [tns()].
+list_explicit_ns(LastNs, Limit) ->
+    do_list_ns(?CONFIG_TAB, LastNs, Limit).
 
 %% @doc count the number of clients for a given tns.
 -spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.
@@ -329,12 +349,36 @@ evict_ccache(Ns) ->
     ets:delete(?CCACHE_TAB, Ns),
     ok.
 
+-spec create_explicit_ns(emqx_mt:tns()) ->
+    ok | {error, {aborted, _}} | {error, table_is_full}.
+create_explicit_ns(Ns) ->
+    ensure_ns_added(Ns),
+    transaction(fun create_explicit_ns_txn/1, [Ns]).
+
+-spec delete_explicit_ns(emqx_mt:tns()) ->
+    {ok, tns_config()} | {error, {aborted, _}}.
+delete_explicit_ns(Ns) ->
+    %% Note: we may safely delete the limiter groups here: when clients attempt to consume
+    %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
+    %% do any limiting when it fails to fetch the missing limiter group configuration.
+    %% The user may choose to later kick all clients from this namespace.
+    transaction(fun delete_explicit_ns_txn/1, [Ns]).
+
+-spec is_known_explicit_ns(emqx_mt:tns()) -> boolean().
+is_known_explicit_ns(Ns) ->
+    case mnesia:dirty_read(?CONFIG_TAB, Ns) of
+        [] ->
+            false;
+        [_] ->
+            true
+    end.
+
 -spec set_limiter_config(
     emqx_mt:tns(),
     emqx_mt_limiter:limiter_kind(),
     emqx_mt_limiter:tenant_config() | emqx_mt_limiter:client_config()
 ) ->
-    {ok, new | updated} | {error, {aborted, _}} | {error, table_is_full}.
+    {ok, new | updated} | {error, {aborted, _}} | {error, not_found}.
 set_limiter_config(Ns, Kind, Config) ->
     transaction(fun set_limiter_config_txn/3, [Ns, Kind, Config]).
 
@@ -361,6 +405,31 @@ transaction(Fn, Args) ->
             {error, {aborted, Reason}}
     end.
 
+create_explicit_ns_txn(Ns) ->
+    case mnesia:read(?CONFIG_TAB, Ns, write) of
+        [] ->
+            Size = tns_config_size(),
+            case Size >= ?MAX_NUM_TNS_CONFIGS of
+                true ->
+                    {error, table_is_full};
+                false ->
+                    Rec = #?CONFIG_TAB{key = Ns, configs = #{}},
+                    ok = mnesia:write(?CONFIG_TAB, Rec, write),
+                    ok
+            end;
+        [_] ->
+            {error, already_exists}
+    end.
+
+delete_explicit_ns_txn(Ns) ->
+    case mnesia:read(?CONFIG_TAB, Ns, write) of
+        [] ->
+            {ok, #{}};
+        [#?CONFIG_TAB{configs = Configs}] ->
+            ok = mnesia:delete(?CONFIG_TAB, Ns, write),
+            {ok, Configs}
+    end.
+
 tns_config_size() ->
     mnesia:table_info(?CONFIG_TAB, size).
 
@@ -379,16 +448,7 @@ delete_limiter_config_txn(Ns, Kind) ->
 set_limiter_config_txn(Ns, Kind, Config) ->
     case mnesia:read(?CONFIG_TAB, Ns, write) of
         [] ->
-            %% New record
-            Size = tns_config_size(),
-            case Size >= ?MAX_NUM_TNS_CONFIGS of
-                true ->
-                    {error, table_is_full};
-                false ->
-                    Rec = #?CONFIG_TAB{key = Ns, configs = #{?limiter => #{Kind => Config}}},
-                    ok = mnesia:write(?CONFIG_TAB, Rec, write),
-                    {ok, new}
-            end;
+            {error, not_found};
         [#?CONFIG_TAB{configs = #{?limiter := #{Kind := _} = OldLimiter} = OldConfigs} = Rec0] ->
             Limiter = OldLimiter#{Kind := Config},
             Configs = OldConfigs#{?limiter := Limiter},

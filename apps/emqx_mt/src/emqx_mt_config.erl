@@ -10,6 +10,10 @@
 -export([
     get_max_sessions/1,
 
+    create_explicit_ns/1,
+    delete_explicit_ns/1,
+    is_known_explicit_ns/1,
+
     set_tenant_limiter_config/2,
     get_tenant_limiter_config/1,
     delete_tenant_limiter_config/1,
@@ -46,7 +50,7 @@ get_max_sessions(_Ns) ->
 
 %% TODO: validate NS exists and is explicitly defined.
 -spec set_tenant_limiter_config(emqx_mt:tns(), tenant_config()) ->
-    ok | {error, {aborted, _}} | {error, table_is_full}.
+    ok | {error, {aborted, _}} | {error, not_found}.
 set_tenant_limiter_config(Ns, Config) ->
     case emqx_mt_state:set_limiter_config(Ns, ?tenant, Config) of
         {ok, new} ->
@@ -56,6 +60,23 @@ set_tenant_limiter_config(Ns, Config) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+-spec create_explicit_ns(emqx_mt:tns()) ->
+    ok | {error, {aborted, _}} | {error, table_is_full}.
+create_explicit_ns(Ns) ->
+    emqx_mt_state:create_explicit_ns(Ns).
+
+-spec delete_explicit_ns(emqx_mt:tns()) ->
+    ok | {error, {aborted, _}}.
+delete_explicit_ns(Ns) ->
+    maybe
+        {ok, Configs} ?= emqx_mt_state:delete_explicit_ns(Ns),
+        cleanup_explicit_ns_configs(Ns, maps:to_list(Configs))
+    end.
+
+-spec is_known_explicit_ns(emqx_mt:tns()) -> boolean().
+is_known_explicit_ns(Ns) ->
+    emqx_mt_state:is_known_explicit_ns(Ns).
 
 -spec get_tenant_limiter_config(emqx_mt:tns()) ->
     {ok, tenant_config()} | {error, not_found}.
@@ -72,7 +93,7 @@ delete_tenant_limiter_config(Ns) ->
 
 %% TODO: validate NS exists and is explicitly defined.
 -spec set_client_limiter_config(emqx_mt:tns(), tenant_config()) ->
-    ok | {error, {aborted, _}} | {error, table_is_full}.
+    ok | {error, {aborted, _}} | {error, not_found}.
 set_client_limiter_config(Ns, Config) ->
     case emqx_mt_state:set_limiter_config(Ns, ?client, Config) of
         {ok, new} ->
@@ -104,3 +125,9 @@ delete_client_limiter_config(Ns) ->
 -spec tmp_set_default_max_sessions(non_neg_integer() | infinity) -> ok.
 tmp_set_default_max_sessions(Max) ->
     emqx_config:put([multi_tenancy, default_max_sessions], Max).
+
+cleanup_explicit_ns_configs(_Ns, []) ->
+    ok;
+cleanup_explicit_ns_configs(Ns, [{limiter, Configs} | Rest]) ->
+    ok = emqx_mt_limiter:cleanup_configs(Ns, Configs),
+    cleanup_explicit_ns_configs(Ns, Rest).

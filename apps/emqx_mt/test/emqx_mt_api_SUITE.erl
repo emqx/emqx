@@ -11,6 +11,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(NEW_CLIENTID(I),
     iolist_to_binary("c-" ++ atom_to_list(?FUNCTION_NAME) ++ "-" ++ integer_to_list(I))
@@ -121,6 +123,22 @@ simple_request(Method, Path, Body, QueryParams) ->
 
 simple_request(Method, Path, Body) ->
     emqx_mgmt_api_test_util:simple_request(Method, Path, Body).
+
+list_explicit_nss(QueryParams) ->
+    URL = emqx_mgmt_api_test_util:api_path(["mt", "explicit_ns_list"]),
+    simple_request(#{method => get, url => URL, query_params => QueryParams}).
+
+create_explicit_ns(Ns) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "explicit"]),
+    Res = simple_request(post, Path, ""),
+    ct:pal("create explicit ns result:\n  ~p", [Res]),
+    Res.
+
+delete_explicit_ns(Ns) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "explicit"]),
+    Res = simple_request(delete, Path, ""),
+    ct:pal("delete explicit ns result:\n  ~p", [Res]),
+    Res.
 
 get_tenant_limiter(Ns) ->
     Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "tenant"]),
@@ -306,6 +324,36 @@ t_list_apis(_Config) ->
     ok.
 
 %% Smoke CRUD operations test for tenant limiter.
+t_explicit_namespace_management(_Config) ->
+    ?assertMatch({200, []}, list_explicit_nss(#{})),
+
+    Ns1 = <<"tns1">>,
+    Ns2 = <<"tns2">>,
+    ?assertMatch({204, _}, delete_explicit_ns(Ns1)),
+    ?assertMatch({204, _}, delete_explicit_ns(Ns2)),
+    ?assertMatch({200, []}, list_explicit_nss(#{})),
+
+    ?assertMatch({204, _}, create_explicit_ns(Ns1)),
+    ?assertMatch({204, _}, delete_explicit_ns(Ns2)),
+    ?assertMatch({200, [Ns1]}, list_explicit_nss(#{})),
+
+    ?assertMatch({204, _}, create_explicit_ns(Ns2)),
+    ?assertMatch({200, [Ns1, Ns2]}, list_explicit_nss(#{})),
+
+    ?assertMatch({200, [Ns1]}, list_explicit_nss(#{<<"limit">> => <<"1">>})),
+    ?assertMatch({200, [Ns2]}, list_explicit_nss(#{<<"last_ns">> => Ns1})),
+    ?assertMatch({200, []}, list_explicit_nss(#{<<"last_ns">> => Ns2})),
+
+    ?assertMatch({204, _}, delete_explicit_ns(Ns1)),
+    %% Idempotency
+    ?assertMatch({204, _}, delete_explicit_ns(Ns1)),
+    ?assertMatch({200, [Ns2]}, list_explicit_nss(#{})),
+    ?assertMatch({204, _}, delete_explicit_ns(Ns2)),
+    ?assertMatch({200, []}, list_explicit_nss(#{})),
+
+    ok.
+
+%% Smoke CRUD operations test for tenant limiter.
 t_tenant_limiter(_Config) ->
     Ns1 = <<"tns">>,
     Params1 = tenant_limiter_params(),
@@ -314,6 +362,9 @@ t_tenant_limiter(_Config) ->
     ?assertMatch({404, _}, update_tenant_limiter(Ns1, Params1)),
     ?assertMatch({204, _}, delete_tenant_limiter(Ns1)),
 
+    %% Must create the explicit namespace first
+    ?assertMatch({404, _}, create_tenant_limiter(Ns1, Params1)),
+    ?assertMatch({204, _}, create_explicit_ns(Ns1)),
     ?assertMatch(
         {201, #{
             <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
@@ -368,6 +419,9 @@ t_client_limiter(_Config) ->
     ?assertMatch({404, _}, update_client_limiter(Ns1, Params1)),
     ?assertMatch({204, _}, delete_client_limiter(Ns1)),
 
+    %% Must create the explicit namespace first
+    ?assertMatch({404, _}, create_client_limiter(Ns1, Params1)),
+    ?assertMatch({204, _}, create_explicit_ns(Ns1)),
     ?assertMatch(
         {201, #{
             <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
@@ -419,6 +473,8 @@ t_adjust_limiters(Config) when is_list(Config) ->
     Ns = atom_to_binary(?FUNCTION_NAME),
     ?check_trace(
         begin
+            ?assertMatch({204, _}, create_explicit_ns(Ns)),
+
             %% 1) Client limiter completely replaces listener limiter.
             set_limiter_for_listener(messages_rate, <<"infinity">>),
             set_limiter_for_listener(bytes_rate, <<"infinity">>),
@@ -479,10 +535,30 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 timeout => 1_000
             }),
             {204, _} = delete_tenant_limiter(Ns),
+
+            %% Check that, if we delete an explicit namespace with live clients, they
+            %% still can publish without crashing.
+            set_limiter_for_listener(messages_rate, <<"infinity">>),
+            set_limiter_for_listener(bytes_rate, <<"infinity">>),
+            set_limiter_for_zone(messages_rate, <<"infinity">>),
+            set_limiter_for_zone(bytes_rate, <<"infinity">>),
+            ?assertMatch({201, _}, create_client_limiter(Ns, ClientParams1)),
+            ?assertMatch({201, _}, create_tenant_limiter(Ns, TenantParams1)),
+            ClientId4 = ?NEW_CLIENTID(4),
+            C = connect(ClientId4, Username),
+            ?assertMatch({204, _}, delete_explicit_ns(Ns)),
+            ?assertMatch({200, []}, list_explicit_nss(#{})),
+            Topic = <<"test">>,
+            emqx:subscribe(Topic, #{qos => 1}),
+            {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, <<"hi1">>, [{qos, 1}]),
+            {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, <<"hi2">>, [{qos, 1}]),
+            ?assertReceive({deliver, Topic, #message{payload = <<"hi1">>}}),
+            ?assertReceive({deliver, Topic, #message{payload = <<"hi2">>}}),
+
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_, _, _], ?of_kind("channel_limiter_adjusted", Trace)),
+            ?assertMatch([_, _, _, _], ?of_kind("channel_limiter_adjusted", Trace)),
             ok
         end
     ),
