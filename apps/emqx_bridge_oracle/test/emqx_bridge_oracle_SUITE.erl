@@ -855,9 +855,16 @@ t_table_removed(Config) ->
                 retain => true
             },
             Message = {ActionId, Params},
-            ?assertEqual(
-                {error, {unrecoverable_error, {942, "ORA-00942: table or view does not exist\n"}}},
-                emqx_resource:simple_sync_query(ResourceId, Message)
+            %% Sometimes, this may fail with "ORA-01013: user requested cancel of current
+            %% operation", probably due to unknown race condition.
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    {error,
+                        {unrecoverable_error, {942, "ORA-00942: table or view does not exist\n"}}},
+                    emqx_resource:simple_sync_query(ResourceId, Message)
+                )
             ),
             ok
         end,

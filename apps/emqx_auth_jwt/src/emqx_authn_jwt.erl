@@ -224,13 +224,8 @@ do_create_jwk_from_public_key(PublicKey) ->
             jose_jwk:from_pem(iolist_to_binary(PublicKey))
     end.
 
-connector_opts(#{ssl := #{enable := Enable} = SSL} = Config) ->
-    SSLOpts =
-        case Enable of
-            true -> maps:without([enable], SSL);
-            false -> #{}
-        end,
-    Config#{ssl_opts => SSLOpts}.
+connector_opts(Config) ->
+    Config.
 
 may_decode_secret(false, Secret) ->
     Secret;

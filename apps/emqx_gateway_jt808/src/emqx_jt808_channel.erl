@@ -99,6 +99,8 @@
 
 -dialyzer({nowarn_function, init/2}).
 
+-define(IGNORE_UNSUPPORTED_FRAMES, true).
+
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
@@ -162,6 +164,9 @@ init(
     % TODO: init rsa_key from user input
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Mountpoint = maps:get(mountpoint, Options, ?DEFAULT_MOUNTPOINT),
+    IgnoreUnsupportedFrames = maps:get(
+        ignore_unsupported_frames, ProtoConf, ?IGNORE_UNSUPPORTED_FRAMES
+    ),
     ListenerId =
         case maps:get(listener, Options, undefined) of
             undefined -> undefined;
@@ -180,7 +185,8 @@ init(
             username => undefined,
             is_bridge => false,
             is_superuser => false,
-            mountpoint => Mountpoint
+            mountpoint => Mountpoint,
+            ignore_unsupported_frames => IgnoreUnsupportedFrames
         }
     ),
 
@@ -239,12 +245,25 @@ handle_in(Frame = ?MSG(MType), Channel) when
 ->
     ?SLOG(debug, #{msg => "recv_frame", frame => Frame, info => "jt808_client_deregister"}),
     do_handle_in(Frame, Channel#channel{conn_state = disconnected});
-handle_in(Frame, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_jt808_frame", frame => Frame}),
-    {shutdown, unexpected_frame, Channel}.
+handle_in(Frame, Channel = #channel{clientinfo = ClientInfo}) ->
+    case maps:get(ignore_unsupported_frames, ClientInfo, ?IGNORE_UNSUPPORTED_FRAMES) of
+        true ->
+            ?SLOG(warning, #{msg => "ignore_unsupported_frames", frame => Frame}),
+            {ok, Channel};
+        false ->
+            ?SLOG(error, #{msg => "unexpected_jt808_frame", frame => Frame}),
+            {shutdown, unexpected_frame, Channel}
+    end.
 
-handle_frame_error(Reason, Channel) ->
-    {shutdown, Reason, Channel}.
+handle_frame_error(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
+    case maps:get(ignore_unsupported_frames, ClientInfo, ?IGNORE_UNSUPPORTED_FRAMES) of
+        true ->
+            ?SLOG(warning, #{msg => "ignore_frame_error", reason => Reason}),
+            {ok, Channel};
+        false ->
+            ?SLOG(error, #{msg => "disconnect_client", reason => frame_error}),
+            {shutdown, frame_error, Channel}
+    end.
 
 %% @private
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
