@@ -42,8 +42,8 @@ start_link() ->
 
 -spec invite_async(atom()) -> ok | ignore | {error, {already_started, pid()}}.
 invite_async(Node) ->
-    %% Proxy the invitation task to the leader node
-    JoinTo = mria_membership:leader(),
+    %% Proxy the invitation task to the coordinator node
+    JoinTo = mria_membership:coordinator(),
     case Node =/= JoinTo of
         true ->
             gen_server:call({?MODULE, JoinTo}, {invite_async, Node, JoinTo}, infinity);
@@ -53,8 +53,8 @@ invite_async(Node) ->
 
 -spec invitation_status() -> map().
 invitation_status() ->
-    Leader = mria_membership:leader(),
-    gen_server:call({?MODULE, Leader}, invitation_status, infinity).
+    Coordinator = mria_membership:coordinator(),
+    gen_server:call({?MODULE, Coordinator}, invitation_status, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
