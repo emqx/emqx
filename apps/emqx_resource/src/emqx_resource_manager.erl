@@ -172,8 +172,10 @@
 
 -type generic_timeout_cancel(Id) :: {{timeout, Id}, cancel}.
 
-%% calls/casts/generic timeouts
--record(add_channel, {channel_id :: channel_id(), config :: map()}).
+-type channel_config() :: map().
+
+%% calls/casts/generic timeouts/internal events
+-record(add_channel, {channel_id :: channel_id(), config :: channel_config()}).
 -record(remove_channel, {channel_id :: channel_id()}).
 -record(start_channel_health_check, {channel_id :: channel_id()}).
 -record(retry_add_channel, {channel_id :: channel_id()}).
@@ -758,11 +760,6 @@ handle_event(internal, start_resource, ?state_connecting, Data) ->
 handle_event(state_timeout, health_check, ?state_connecting, Data) ->
     start_resource_health_check(Data);
 handle_event(
-    {call, From}, #remove_channel{channel_id = ChannelId}, ?state_connecting = _State, Data0
-) ->
-    {Actions, Data} = handle_remove_channel(From, ChannelId, Data0),
-    {keep_state, Data, Actions};
-handle_event(
     cast, #remove_channel{channel_id = _ChannelId} = Op, ?state_connecting = State, Data0
 ) ->
     {Actions, Data} = collect_and_handle_channel_operations_not_connected(Op, State, Data0),
@@ -794,11 +791,6 @@ handle_event(
     Data0
 ) ->
     {Actions, Data} = collect_and_handle_channel_operations_connected(Op, Data0),
-    {keep_state, Data, Actions};
-handle_event(
-    {call, From}, #remove_channel{channel_id = ChannelId}, ?state_connected = _State, Data0
-) ->
-    {Actions, Data} = handle_remove_channel(From, ChannelId, Data0),
     {keep_state, Data, Actions};
 handle_event(
     cast, #remove_channel{channel_id = _ChannelId} = Op, ?state_connected = _State, Data0
