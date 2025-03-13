@@ -1324,7 +1324,15 @@ recv_msgs(Count, Msgs) ->
 start_peer(Name, Port) ->
     {ok, Node} = emqx_cth_peer:start_link(
         Name,
-        emqx_common_test_helpers:ebin_path()
+        emqx_common_test_helpers:ebin_path(),
+        _Envs = [],
+        _WaitBootTimeout = timer:seconds(20),
+        %% In CI, when stopping and starting nodes, apparently sometimes `gen_rpc' (or the
+        %% VM itself) doesn't have time to properly close listen sockets, so we may get
+        %% `eaddrinuse' errors when (re)starting `gen_rpc'.  Using an integer shutdown here
+        %% makes `init:stop' be called instead of `erlang:halt', so listeners may have the
+        %% chance to properly shutdown before starting the next test case.
+        #{shutdown => 5_000}
     ),
     pong = net_adm:ping(Node),
     setup_node(Node, Port),
