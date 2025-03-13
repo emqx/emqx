@@ -348,7 +348,11 @@ start_emqx_with_crl_cache(#{is_cached := IsCached} = Opts, TC, Config) ->
     case IsCached of
         true ->
             %% wait the cache to be filled
-            emqx_crl_cache:refresh(?DEFAULT_URL),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqx_crl_cache:refresh(?DEFAULT_URL),
+                    #{?snk_kind := "emqx_ssl_crl_cache_inserted"}
+                ),
             ?assertReceive({http_get, <<?DEFAULT_URL>>});
         false ->
             %% ensure cache is empty
