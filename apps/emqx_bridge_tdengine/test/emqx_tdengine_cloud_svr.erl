@@ -65,7 +65,7 @@ handle(Method, Path, Req, [#{expected_token := ExpectedToken, td_opts := TDOpts}
     Bindings = cowboy_req:bindings(Req),
     QueryString = cow_qs:parse_qs(cowboy_req:qs(Req)),
     ct:pal(
-        "TDEngine Cloud Mock Server received request, method: ~p, path: ~p, bindings: ~p, query_string: ~p",
+        "TDengine Cloud Mock Server received request, method: ~p, path: ~p, bindings: ~p, query_string: ~p",
         [Method, Path, Bindings, QueryString]
     ),
     %% assert method
@@ -76,7 +76,7 @@ handle(Method, Path, Req, [#{expected_token := ExpectedToken, td_opts := TDOpts}
     DbName = maps:get(db_name, Bindings, <<>>),
     {ok, Body, Req1} = cowboy_req:read_body(Req),
     Ret = forward_request_to_tdengine(Body, DbName, TDOpts),
-    ct:pal("TDEngine Cloud Mock Server forward request to tdengine, ret: ~0p", [Ret]),
+    ct:pal("TDengine Cloud Mock Server forward request to tdengine, ret: ~0p", [Ret]),
     case Ret of
         {ok, RespMap} when is_map(RespMap) ->
             reply(200, #{<<"content-type">> => <<"application/json">>}, jsx:encode(RespMap), Req1);
@@ -93,7 +93,7 @@ reply(Code, Headers, Body, Req) ->
     cowboy_req:reply(Code, Headers, Body, Req).
 
 forward_request_to_tdengine(Sql, DbName, TDOpts) ->
-    ct:pal("TDEngine Cloud Mock Server forward request, sql: ~p, db_name: ~p, opts: ~0p", [
+    ct:pal("TDengine Cloud Mock Server forward request, sql: ~p, db_name: ~p, opts: ~0p", [
         Sql, DbName, TDOpts
     ]),
     {ok, Pid} = tdengine:start_link(TDOpts),
