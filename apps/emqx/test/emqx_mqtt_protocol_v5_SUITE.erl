@@ -242,8 +242,8 @@ t_connect_clean_start_unresp_old_client(Config) ->
     %% THEN: the new client should connect successfully in time < connect_timeout
     {ok, _} = emqtt:ConnFun(Client2),
     ok = emqtt:disconnect(Client2),
-    waiting_client_process_exit(Client1),
-    waiting_client_process_exit(Client2),
+    ?assertReceive({'EXIT', Client1, _}),
+    ?assertReceive({'EXIT', Client2, _}),
     ok.
 
 close_quic_conn_silently(quic_connect, Client) ->
