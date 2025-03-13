@@ -97,7 +97,7 @@ adjust_fields(Fields, HasDatabase) ->
             ({username, OrigUsernameFn}) ->
                 {true, {username, add_default_fn(OrigUsernameFn, <<"root">>)}};
             ({password, _}) ->
-                {true, {password, emqx_connector_schema_lib:password_field(#{required => true})}};
+                {true, {password, emqx_connector_schema_lib:password_field(#{required => false})}};
             ({database, _}) ->
                 HasDatabase;
             (_Field) ->
