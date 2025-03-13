@@ -180,6 +180,7 @@
 -record(start_channel_health_check, {channel_id :: channel_id()}).
 -record(retry_add_channel, {channel_id :: channel_id()}).
 -record(retry_remove_channel, {channel_id :: channel_id()}).
+-record(retry_update_channel, {channel_id :: channel_id()}).
 -record(get_channel_configs, {}).
 
 -type generic_timeout(Id, Content) :: {{timeout, Id}, timeout(), Content}.
@@ -192,8 +193,12 @@
 -type retry_remove_channel_action() :: generic_timeout(
     #retry_remove_channel{}, #retry_remove_channel{}
 ).
+-type retry_update_channel_action() :: generic_timeout(
+    #retry_update_channel{}, channel_config()
+).
 -type retry_add_channel_event() :: #retry_add_channel{}.
 -type retry_remove_channel_event() :: #retry_remove_channel{}.
+-type retry_update_channel_event() :: #retry_update_channel{}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -759,11 +764,6 @@ handle_event(internal, start_resource, ?state_connecting, Data) ->
     start_resource(Data, undefined);
 handle_event(state_timeout, health_check, ?state_connecting, Data) ->
     start_resource_health_check(Data);
-handle_event(
-    cast, #remove_channel{channel_id = _ChannelId} = Op, ?state_connecting = State, Data0
-) ->
-    {Actions, Data} = collect_and_handle_channel_operations_not_connected(Op, State, Data0),
-    {keep_state, Data, Actions};
 %%--------------------------
 %% State: CONNECTED
 %% The connected state is entered after a successful on_start/2 of the callback mod
@@ -776,27 +776,6 @@ handle_event(enter, _OldState, ?state_connected = State, Data) ->
     {keep_state, Data, resource_health_check_actions(Data)};
 handle_event(state_timeout, health_check, ?state_connected, Data) ->
     start_resource_health_check(Data);
-handle_event(
-    {call, From},
-    #add_channel{channel_id = ChannelId, config = Config},
-    ?state_connected = _State,
-    Data0
-) ->
-    {Actions, Data} = handle_add_channel(From, Data0, ChannelId, Config),
-    {keep_state, Data, Actions};
-handle_event(
-    cast,
-    #add_channel{channel_id = _ChannelId, config = _Config} = Op,
-    ?state_connected = _State,
-    Data0
-) ->
-    {Actions, Data} = collect_and_handle_channel_operations_connected(Op, Data0),
-    {keep_state, Data, Actions};
-handle_event(
-    cast, #remove_channel{channel_id = _ChannelId} = Op, ?state_connected = _State, Data0
-) ->
-    {Actions, Data} = collect_and_handle_channel_operations_connected(Op, Data0),
-    {keep_state, Data, Actions};
 handle_event(
     {timeout, #start_channel_health_check{channel_id = ChannelId}},
     _,
@@ -831,14 +810,14 @@ handle_event(enter, _OldState, ?state_stopped = State, Data0) ->
 %% The following events can be handled in any other state
 %%--------------------------
 handle_event(
-    {call, From}, #add_channel{channel_id = ChannelId, config = Config}, State, Data0
+    {call, From}, #add_channel{channel_id = ChannelId, config = Config}, _State, Data0
 ) ->
-    {Actions, Data} = handle_add_channel_not_connected(From, ChannelId, Config, State, Data0),
+    {Actions, Data} = handle_add_channel(From, Data0, ChannelId, Config),
     {keep_state, Data, Actions};
 handle_event(
-    cast, #add_channel{channel_id = _ChannelId, config = _Config} = Op, State, Data0
+    cast, #add_channel{channel_id = _ChannelId, config = _Config} = Op, _State, Data0
 ) ->
-    {Actions, Data} = collect_and_handle_channel_operations_not_connected(Op, State, Data0),
+    {Actions, Data} = collect_and_handle_channel_operations(Op, Data0),
     {keep_state, Data, Actions};
 handle_event(
     {call, From}, #remove_channel{channel_id = ChannelId}, _State, Data0
@@ -846,9 +825,9 @@ handle_event(
     {Actions, Data} = handle_remove_channel(From, ChannelId, Data0),
     {keep_state, Data, Actions};
 handle_event(
-    cast, #remove_channel{channel_id = _ChannelId} = Op, State, Data0
+    cast, #remove_channel{channel_id = _ChannelId} = Op, _State, Data0
 ) ->
-    {Actions, Data} = collect_and_handle_channel_operations_not_connected(Op, State, Data0),
+    {Actions, Data} = collect_and_handle_channel_operations(Op, Data0),
     {keep_state, Data, Actions};
 handle_event(
     {call, From}, get_channels, _State, Data
@@ -882,6 +861,14 @@ handle_event(
 handle_event({timeout, #retry_add_channel{channel_id = _}}, _, _State, _Data) ->
     %% We only add channels to the resource state in the connected state.
     {keep_state_and_data, [postpone]};
+handle_event(
+    {timeout, #retry_update_channel{channel_id = ChannelId}},
+    ChannelConfig,
+    _State,
+    Data0
+) ->
+    {Actions, Data} = handle_retry_update_channel(ChannelId, ChannelConfig, Data0),
+    {keep_state, Data, Actions};
 handle_event(
     {timeout, #retry_remove_channel{channel_id = ChannelId}}, _, _State, Data0
 ) ->
@@ -959,19 +946,25 @@ handle_remove_event(From, ClearMetrics, Data) ->
     _ = erase_cache(Data),
     {stop_and_reply, {shutdown, removed}, [{reply, From, ok}]}.
 
-start_resource(Data, From) ->
+start_resource(Data0, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
-    #data{id = ResId, mod = Mod, config = Config, group = Group, type = Type} = Data,
+    #data{id = ResId, mod = Mod, config = Config, group = Group, type = Type} = Data0,
     ok = ensure_metrics(ResId),
     case emqx_resource:call_start(ResId, Mod, Config) of
         {ok, ResourceState} ->
-            UpdatedData1 = Data#data{status = ?status_connecting, state = ResourceState},
-            ensure_channel_metrics_exist(UpdatedData1),
-            %% Perform an initial health_check immediately before transitioning into a connected state
-            UpdatedData2 = add_channels(UpdatedData1),
-            UpdatedData3 = maybe_update_callback_mode(UpdatedData2),
-            Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
-            {next_state, ?state_connecting, update_state(UpdatedData3), Actions};
+            Data1 = Data0#data{status = ?status_connecting, state = ResourceState},
+            ensure_channel_metrics_exist(Data1),
+            %% Since we have just re-created the whole resource state, thus losing all
+            %% installed channels, we remove them from the old state first to attempt to
+            %% free any resources before moving on, and then immediatelly add them back to
+            %% avoid having external queries seeing the inconsistent resource state.
+            {Actions0, Data2} = add_channels_to_fresh_resource_state(Data1, Data0, add),
+            Data = maybe_update_callback_mode(Data2),
+            %% Perform an initial health_check immediately before transitioning into a
+            %% connected state.
+            Actions1 = maybe_reply([{state_timeout, 0, health_check}], From, ok),
+            Actions = Actions1 ++ Actions0,
+            {next_state, ?state_connecting, update_state(Data), Actions};
         {error, Reason} = Err ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
             ?SLOG(
@@ -983,35 +976,113 @@ start_resource(Data, From) ->
                 },
                 #{tag => tag(Group, Type)}
             ),
-            _ = maybe_alarm(?status_disconnected, IsDryRun, ResId, Err, Data#data.error),
+            _ = maybe_alarm(?status_disconnected, IsDryRun, ResId, Err, Data0#data.error),
             %% Add channels and raise alarms
-            ensure_channel_metrics_exist(Data),
-            {Actions0, NewData1} = channels_health_check(?status_disconnected, add_channels(Data)),
+            ensure_channel_metrics_exist(Data0),
+            {Actions0, Data1} = add_channels_to_fresh_resource_state(Data0, Data0, load),
+            {Actions1, Data2} = channels_health_check(?status_disconnected, Data1),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
-            NewData2 = NewData1#data{status = ?status_disconnected, error = Err},
-            Actions1 = maybe_reply(retry_actions(NewData2), From, Err),
-            Actions = Actions1 ++ Actions0,
-            {next_state, ?state_disconnected, update_state(NewData2), Actions}
+            Data = Data2#data{status = ?status_disconnected, error = Err},
+            Actions2 = maybe_reply(retry_actions(Data), From, Err),
+            Actions = Actions2 ++ Actions1 ++ Actions0,
+            %% It's ok to update the cache here: since we haven't clobbered the old
+            %% resource state, concurrent requests won't see a resource state with missing
+            %% channels.
+            {next_state, ?state_disconnected, update_state(Data), Actions}
     end.
 
-add_channels(Data) ->
+add_channels_to_fresh_resource_state(Data0, PreviousIncarnationData, LoadOrAdd) ->
     %% Add channels to the Channels map but not to the resource state
     %% Channels will be added to the resource state after the initial health_check
     %% if that succeeds.
-    ChannelIdConfigTuples = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
-    Channels = Data#data.added_channels,
-    NewChannels = lists:foldl(
-        fun
-            ({ChannelId, #{enable := true} = Config}, Acc) ->
-                maps:put(ChannelId, channel_status_not_added(Config), Acc);
-            ({_, #{enable := false}}, Acc) ->
-                Acc
+    #data{
+        id = ResId,
+        mod = Mod
+    } = Data0,
+    ChannelIdConfigTuples = emqx_resource:call_get_channels(ResId, Mod),
+    PreviousIncarnationChannels = PreviousIncarnationData#data.added_channels,
+    Data1 = Data0#data{added_channels = #{}},
+    {ChannelsToRemove, ChannelsToAdd} = lists:foldl(
+        fun({ChannelId, Config}, {AccRemove, AccAdd}) ->
+            IsEnabled = maps:get(enable, Config, true),
+            IsInPreviousIncarnation = is_map_key(ChannelId, PreviousIncarnationChannels),
+            NAccAdd = emqx_utils_maps:put_if(AccAdd, ChannelId, Config, IsEnabled),
+            NAccRemove =
+                emqx_utils_maps:put_if(AccRemove, ChannelId, true, IsInPreviousIncarnation),
+            {NAccRemove, NAccAdd}
         end,
-        Channels,
+        {#{}, #{}},
         ChannelIdConfigTuples
     ),
-    Data#data{added_channels = NewChannels}.
+    remove_channels_from_previous_incarnation(maps:keys(ChannelsToRemove), PreviousIncarnationData),
+    case LoadOrAdd of
+        add ->
+            %% Immediately add attempt to add channels to resource state to avoid
+            %% inconsistent cached resource state while concurrently serving requests.
+            %%
+            %% This is because after successfully (re)starting the resource (either within
+            %% the same incarnation, or a complete restart by the supervisor), we are left
+            %% with a fresh resource state, with no memory of previous channels.
+            %%
+            %% This also adds the channel status to `#data.added_channels'.
+            add_channels_to_resource_state(maps:to_list(ChannelsToAdd), Data1);
+        load ->
+            %% This only loads channels from external configuration, but does not attempt
+            %% to add them to the resoure state, as the resource itself is not yet
+            %% connected.  They'll be added to the resource state once the state changes
+            %% to `?state_connected'.
+            Channels =
+                maps:fold(
+                    fun(ChannelId, Config, Acc) ->
+                        Acc#{ChannelId => channel_status_not_added(Config)}
+                    end,
+                    #{},
+                    ChannelsToAdd
+                ),
+            Data2 = Data1#data{added_channels = Channels},
+            Actions = [],
+            {Actions, Data2}
+    end.
+
+%% When a resource goes disconnected and back online, `start_resource' is called and
+%% returns a fresh resource state, thus losing all previously installed channels.  We
+%% remove them from the old state to potentially free resources and be able to properly
+%% re-add them to the fresh state.
+remove_channels_from_previous_incarnation(_ChannelIds, #data{state = undefined}) ->
+    %% No previous state, so nothing to do
+    ok;
+remove_channels_from_previous_incarnation(ChannelIds, #data{} = PreviousIncarnationData) ->
+    #data{
+        id = ResId,
+        group = Group,
+        mod = Mod,
+        type = Type
+    } = PreviousIncarnationData,
+    IsDryRun = emqx_resource:is_dry_run(ResId),
+    lists:foldl(
+        fun(ChannelId, OldState0) ->
+            case emqx_resource:call_remove_channel(ResId, Mod, OldState0, ChannelId) of
+                {ok, OldState} ->
+                    OldState;
+                {error, Reason} ->
+                    %% Nothing much else to do; we are going to work with a new state.
+                    ?SLOG(
+                        log_level(IsDryRun),
+                        #{
+                            msg => "remove_channel_failed",
+                            resource_id => ResId,
+                            channel_id => ChannelId,
+                            reason => Reason
+                        },
+                        #{tag => tag(Group, Type)}
+                    ),
+                    OldState0
+            end
+        end,
+        PreviousIncarnationData#data.state,
+        ChannelIds
+    ).
 
 maybe_update_callback_mode(Data = #data{mod = ResourceType, state = ResourceState}) ->
     case emqx_resource:get_callback_mode(ResourceType, ResourceState) of
@@ -1021,12 +1092,12 @@ maybe_update_callback_mode(Data = #data{mod = ResourceType, state = ResourceStat
             Data#data{callback_mode = CallMode}
     end.
 
-add_channels_in_list(ChannelsWithConfigs, Data) ->
-    add_channels_in_list(ChannelsWithConfigs, Data, _Actions = []).
+add_channels_to_resource_state(ChannelsWithConfigs, Data) ->
+    add_channels_to_resource_state(ChannelsWithConfigs, Data, _Actions = []).
 
-add_channels_in_list([], Data, Actions) ->
+add_channels_to_resource_state([], Data, Actions) ->
     {Actions, Data};
-add_channels_in_list([{ChannelId, ChannelConfig} | Rest], Data, Actions) ->
+add_channels_to_resource_state([{ChannelId, ChannelConfig} | Rest], Data, Actions) ->
     #data{
         id = ResId,
         mod = Mod,
@@ -1078,7 +1149,7 @@ add_channels_in_list([{ChannelId, ChannelConfig} | Rest], Data, Actions) ->
             %% Raise an alarm since the channel could not be added
             _ = maybe_alarm(?status_disconnected, IsDryRun, ChannelId, Error, no_prev_error)
     end,
-    add_channels_in_list(Rest, NewData, NewActions).
+    add_channels_to_resource_state(Rest, NewData, NewActions).
 
 maybe_stop_resource(#data{status = Status} = Data) when Status =/= ?rm_status_stopped ->
     stop_resource(Data);
@@ -1185,38 +1256,40 @@ terminate_health_check_workers(Data) ->
 
 handle_add_channel(From, Data, ChannelId, Config) ->
     Channels = Data#data.added_channels,
-    Actions0 = [abort_retry_remove_channel_action(ChannelId)],
-    case
-        channel_status_is_channel_added(
-            maps:get(
-                ChannelId,
-                Channels,
-                channel_status_not_added(Config)
-            )
-        )
-    of
+    Actions0 = [
+        abort_retry_remove_channel_action(ChannelId),
+        abort_retry_update_channel_action(ChannelId)
+    ],
+    CurrentChannelStatus = maps:get(
+        ChannelId,
+        Channels,
+        channel_status_not_added(Config)
+    ),
+    CurrentChannelConfig = maps:get(config, CurrentChannelStatus),
+    IsSameConfig = Config == CurrentChannelConfig,
+    case channel_status_is_channel_added(CurrentChannelStatus) of
         false ->
             %% The channel is not installed in the connector state
             %% We insert it into the channels map and let the health check
             %% take care of the rest
-            NewChannels = maps:put(ChannelId, channel_status_not_added(Config), Channels),
+            ChannelStatus = channel_status_not_added(Config),
+            NewChannels = maps:put(ChannelId, ChannelStatus, Channels),
             NewData = Data#data{added_channels = NewChannels},
             Actions = [{reply, From, ok} || From /= undefined] ++ Actions0,
+            IsDryRun = emqx_resource:is_dry_run(ChannelId),
+            ResStatus = NewData#data.status,
+            maybe_alarm(ResStatus, IsDryRun, ChannelId, ChannelStatus, no_prev),
             {Actions, update_state(NewData)};
-        true ->
+        true when IsSameConfig ->
             %% The channel is already installed in the connector state
             %% We don't need to install it again
             Actions = [{reply, From, ok} || From /= undefined] ++ Actions0,
-            {Actions, Data}
+            {Actions, Data};
+        true ->
+            %% Channel is installed, but with a different configuration.  We need to
+            %% remove and re-add it.
+            handle_update_channel(From, ChannelId, Config, Data)
     end.
-
-handle_add_channel_not_connected(From, ChannelId, ChannelConfig, State, Data) ->
-    %% When state is not connected the channel will be added to the channels
-    %% map but nothing else will happen.
-    NewData = add_or_update_channel_status(Data, ChannelId, ChannelConfig, State),
-    Actions0 = [abort_retry_remove_channel_action(ChannelId)],
-    Actions = [{reply, From, ok} || From /= undefined] ++ Actions0,
-    {Actions, update_state(NewData)}.
 
 handle_remove_channel(From, ChannelId, Data0) ->
     Data = abort_health_checks_for_channel(Data0, ChannelId),
@@ -1238,11 +1311,16 @@ handle_remove_channel(From, ChannelId, Data0) ->
             },
             Actions =
                 [{reply, From, ok} || From /= undefined] ++
-                    [abort_retry_add_channel_action(ChannelId)],
+                    [
+                        abort_retry_add_channel_action(ChannelId),
+                        abort_retry_update_channel_action(ChannelId)
+                    ],
             {Actions, NewData};
         true ->
             %% The channel is installed in the connector state
-            handle_remove_channel_exists(From, ChannelId, Data)
+            {_Succeeded, MaybeReply, Actions, NewData} =
+                handle_remove_channel_exists(From, ChannelId, Data),
+            {MaybeReply ++ Actions, NewData}
     end.
 
 handle_remove_channel_exists(From, ChannelId, Data) ->
@@ -1252,7 +1330,11 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
         type = Type,
         added_channels = AddedChannelsMap
     } = Data,
-    Actions0 = [abort_retry_add_channel_action(ChannelId)],
+    %% Note: if updating these actions, check if `handle_update_channel' stays consistent.
+    Actions0 = [
+        abort_retry_add_channel_action(ChannelId),
+        abort_retry_update_channel_action(ChannelId)
+    ],
     case
         emqx_resource:call_remove_channel(
             Id, Data#data.mod, Data#data.state, ChannelId
@@ -1265,8 +1347,8 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
                 state = NewState,
                 added_channels = NewAddedChannelsMap
             },
-            Actions = [{reply, From, ok} || From /= undefined] ++ Actions0,
-            {Actions, update_state(UpdatedData)};
+            Reply = [{reply, From, ok} || From /= undefined],
+            {ok, Reply, Actions0, update_state(UpdatedData)};
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Id),
             ?tp("remove_channel_failed", #{resource_id => Id, reason => Reason}),
@@ -1280,16 +1362,35 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
                 },
                 #{tag => tag(Group, Type)}
             ),
-            Actions =
+            %% Note: if updating these actions, check if `handle_update_channel' stays
+            %% consistent.
+            {Reply, Actions} =
                 case From of
                     undefined ->
                         %% Async removal; retry
-                        [retry_remove_channel_action(ChannelId)] ++ Actions0;
+                        {[], [retry_remove_channel_action(ChannelId)] ++ Actions0};
                     _ ->
                         %% Sync caller may try again itself.
-                        [{reply, From, Error}] ++ Actions0
+                        {[{reply, From, Error}], Actions0}
                 end,
-            {Actions, Data}
+            {error, Reply, Actions, Data}
+    end.
+
+handle_update_channel(From, ChannelId, ChannelConfig, Data0) ->
+    case handle_remove_channel_exists(From, ChannelId, Data0) of
+        {error, MaybeReply, _Actions, Data1} ->
+            %% Currently, returned actions are to retry removal, if this was an async
+            %% request, and to always abort retry add channel.  We don't want any of them,
+            %% since we'll want to actually retry updating the channel with a different
+            %% timer.
+            Actions = MaybeReply ++ [retry_update_channel_action(ChannelId, ChannelConfig, Data1)],
+            {Actions, Data1};
+        {ok, _MaybeReply, _Actions, Data1} ->
+            %% Currently, returned actions here are only to abort retry add channel.
+            %% Since adding the new channel may fail, we want that retry timer to go off.
+            %% Also, we don't reply anything yet since the original operation was to add
+            %% the updated channel.
+            handle_add_channel(From, Data1, ChannelId, ChannelConfig)
     end.
 
 handle_manual_resource_health_check(From, Data0 = #data{hc_workers = #{resource := HCWorkers}}) when
@@ -1481,7 +1582,7 @@ channels_health_check(?status_connected = _ConnectorStatus, Data0) ->
     ],
     %% Attempt to add channels to resource state that are not added yet
     ChannelsNotAddedWithConfigs = get_config_for_channels(Data0, ChannelsNotAdded),
-    {Actions, Data1} = add_channels_in_list(ChannelsNotAddedWithConfigs, Data0),
+    {Actions, Data1} = add_channels_to_resource_state(ChannelsNotAddedWithConfigs, Data0),
     %% Now that we have done the adding, we can get the status of all channels (execept
     %% unhealthy ones)
     Data2 = trigger_health_check_for_added_channels(Data1),
@@ -1528,7 +1629,7 @@ channels_health_check(?status_disconnected = ConnectorStatus, Data1) ->
     %% Whenever the resource is disconnected:
     %% 1. Change the status of channels to an error status
     %%    - Except for channels yet to be added to the resource state.  Those need to keep
-    %%    those special errors so they are added or retried.
+    %%      those special errors so they are added or retried.
     %% 2. Raise alarms
     Channels = Data1#data.added_channels,
     ChannelsWithNewAndOldStatuses =
@@ -1616,6 +1717,12 @@ retry_add_channel_action(ChannelId, ChannelConfig, Data) ->
     Event = #retry_add_channel{channel_id = ChannelId},
     generic_timeout_action(Event, Timeout, Event).
 
+-spec retry_update_channel_action(channel_id(), map(), data()) -> retry_update_channel_action().
+retry_update_channel_action(ChannelId, ChannelConfig, Data) ->
+    Timeout = get_channel_health_check_interval(ChannelId, [ChannelConfig], Data),
+    Event = #retry_update_channel{channel_id = ChannelId},
+    generic_timeout_action(Event, Timeout, ChannelConfig).
+
 -spec retry_remove_channel_action(channel_id()) -> retry_remove_channel_action().
 retry_remove_channel_action(ChannelId) ->
     Timeout = ?RETRY_REMOVE_TIMEOUT,
@@ -1626,6 +1733,11 @@ retry_remove_channel_action(ChannelId) ->
     generic_timeout_cancel(retry_remove_channel_event()).
 abort_retry_remove_channel_action(ChannelId) ->
     cancel_generic_timeout_action(#retry_remove_channel{channel_id = ChannelId}).
+
+-spec abort_retry_update_channel_action(channel_id()) ->
+    generic_timeout_cancel(retry_update_channel_event()).
+abort_retry_update_channel_action(ChannelId) ->
+    cancel_generic_timeout_action(#retry_update_channel{channel_id = ChannelId}).
 
 -spec abort_retry_add_channel_action(channel_id()) ->
     generic_timeout_cancel(retry_add_channel_event()).
@@ -1815,7 +1927,7 @@ handle_retry_add_channel(Data0, ChannelId) ->
         {ok, StatusMap} ?= maps:find(ChannelId, Data0#data.added_channels),
         %% Must contain config map if in data.
         #{config := #{} = ChannelConfig} = StatusMap,
-        {Actions, Data1} = add_channels_in_list([{ChannelId, ChannelConfig}], Data0),
+        {Actions, Data1} = add_channels_to_resource_state([{ChannelId, ChannelConfig}], Data0),
         Data = trigger_health_check_for_added_channels(Data1),
         {keep_state, Data, Actions}
     else
@@ -1823,6 +1935,9 @@ handle_retry_add_channel(Data0, ChannelId) ->
             %% Channel has been removed since timer was set?
             keep_state_and_data
     end.
+
+handle_retry_update_channel(ChannelId, ChannelConfig, Data0) ->
+    handle_update_channel(_From = undefined, ChannelId, ChannelConfig, Data0).
 
 handle_retry_remove_channel(Data0, ChannelId) ->
     ?tp(retry_remove_channel, #{channel_id => ChannelId}),
@@ -2129,21 +2244,6 @@ channel_status_is_channel_added(#{error := ?add_channel_failed(_)}) ->
 channel_status_is_channel_added(_StatusMap) ->
     true.
 
--spec add_or_update_channel_status(data(), channel_id(), map(), resource_state()) -> data().
-add_or_update_channel_status(Data, ChannelId, ChannelConfig, State) ->
-    Channels = Data#data.added_channels,
-    ChannelStatus = channel_status_not_added(ChannelConfig),
-    NewChannels = maps:put(ChannelId, ChannelStatus, Channels),
-    ResStatus = state_to_status(State),
-    IsDryRun = emqx_resource:is_dry_run(ChannelId),
-    maybe_alarm(ResStatus, IsDryRun, ChannelId, ChannelStatus, no_prev),
-    Data#data{added_channels = NewChannels}.
-
-state_to_status(?state_stopped) -> ?rm_status_stopped;
-state_to_status(?state_connected) -> ?status_connected;
-state_to_status(?state_connecting) -> ?status_connecting;
-state_to_status(?state_disconnected) -> ?status_disconnected.
-
 log_level(true) -> info;
 log_level(false) -> warning.
 
@@ -2244,30 +2344,13 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
         hc_pending_callers = Pending
     }.
 
-collect_and_handle_channel_operations_connected(Op, Data0) ->
+collect_and_handle_channel_operations(Op, Data0) ->
     From = undefined,
     Ops = collect_and_compress_channel_operations([Op]),
     lists:foldl(
         fun
             (#add_channel{channel_id = ChannelId, config = Config}, {AccActions, AccData}) ->
                 {Actions, Data} = handle_add_channel(From, AccData, ChannelId, Config),
-                {AccActions ++ Actions, Data};
-            (#remove_channel{channel_id = ChannelId}, {AccActions, AccData}) ->
-                {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),
-                {AccActions ++ Actions, Data}
-        end,
-        {[], Data0},
-        Ops
-    ).
-
-collect_and_handle_channel_operations_not_connected(Op, State, Data0) ->
-    From = undefined,
-    Ops = collect_and_compress_channel_operations([Op]),
-    lists:foldl(
-        fun
-            (#add_channel{channel_id = ChannelId, config = Config}, {AccActions, AccData}) ->
-                {Actions, Data} =
-                    handle_add_channel_not_connected(From, ChannelId, Config, State, AccData),
                 {AccActions ++ Actions, Data};
             (#remove_channel{channel_id = ChannelId}, {AccActions, AccData}) ->
                 {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),

@@ -43,6 +43,15 @@
 
 -export([counter_loop/0, set_callback_mode/1]).
 
+%% Since we want to emulate an external configuration source (`emqx_config'), especially
+%% when calling `on_get_channels', we must update this "external" source independently
+%% from calling `on_{add,remove}_channel' to have a more accurate model of `emqx_config'.
+-export([
+    add_channel_emulate_config/4,
+    remove_channel_emulate_config/3,
+    clear_emulated_config/1
+]).
+
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
 
@@ -54,6 +63,30 @@ roots() ->
         {name, fun name/1},
         {register, fun register/1}
     ].
+
+add_channel_emulate_config(ConnResId, ChanId, ChanConfig, Mode) ->
+    %% Update "external config"
+    do_add_channel(ConnResId, ChanId, ChanConfig),
+    case Mode of
+        sync ->
+            emqx_resource_manager:add_channel(ConnResId, ChanId, ChanConfig);
+        async ->
+            emqx_resource_manager:add_channel_async(ConnResId, ChanId, ChanConfig)
+    end.
+
+remove_channel_emulate_config(ConnResId, ChanId, Mode) ->
+    %% Update "external config"
+    do_remove_channel(ConnResId, ChanId),
+    case Mode of
+        sync ->
+            emqx_resource_manager:remove_channel(ConnResId, ChanId);
+        async ->
+            emqx_resource_manager:remove_channel_async(ConnResId, ChanId)
+    end.
+
+clear_emulated_config(ConnResId) ->
+    _ = persistent_term:erase(?PT_CHAN_KEY(ConnResId)),
+    ok.
 
 name(type) -> atom();
 name(required) -> true;
@@ -112,7 +145,6 @@ on_stop(InstId, #{stop_error := {ask, HowToStop}} = State) ->
             on_stop(InstId, maps:remove(stop_error, State))
     end;
 on_stop(InstId, #{pid := Pid}) ->
-    persistent_term:erase(?PT_CHAN_KEY(InstId)),
     stop_counter_process(Pid).
 
 on_query(_InstId, get_state, State) ->
@@ -379,9 +411,19 @@ on_get_status(_InstId, #{pid := Pid}) ->
         false -> ?status_disconnected
     end.
 
+on_add_channel(ConnResId, #{add_channel_agent := Agent} = ConnSt0, ChanId, ChanCfg) ->
+    case get_agent_action(Agent, add_channel) of
+        {notify, Pid, continue} ->
+            Pid ! {attempted_to_add_channel, ConnResId, ChanId, ChanCfg},
+            do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg);
+        continue ->
+            do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg)
+    end;
 on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
+    do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg).
+
+do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
     ConnSt = emqx_utils_maps:deep_put([channels, ChanId], ConnSt0, ChanCfg),
-    do_add_channel(ConnResId, ChanId, ChanCfg),
     ?tp(added_channel, #{}),
     {ok, ConnSt}.
 
@@ -399,6 +441,9 @@ on_remove_channel(ConnResId, #{remove_channel_agent := Agent} = ConnSt0, ChanId)
         {notify, Pid, {error, _} = Result} ->
             Pid ! {attempted_to_remove_channel, ConnResId, ChanId},
             Result;
+        {notify, Pid, continue} ->
+            Pid ! {attempted_to_remove_channel, ConnResId, ChanId},
+            do_on_remove_channel(ConnResId, ConnSt0, ChanId);
         continue ->
             do_on_remove_channel(ConnResId, ConnSt0, ChanId);
         {error, _} = Result ->
@@ -409,7 +454,6 @@ on_remove_channel(ConnResId, ConnSt0, ChanId) ->
 
 do_on_remove_channel(ConnResId, ConnSt0, ChanId) ->
     ConnSt = emqx_utils_maps:deep_remove([channels, ChanId], ConnSt0),
-    do_remove_channel(ConnResId, ChanId),
     {ok, ConnSt}.
 
 on_get_channels(ConnResId) ->
@@ -613,8 +657,9 @@ make_random_reply(N) ->
     end.
 
 do_add_channel(ConnResId, ChanId, ChanCfg) ->
-    Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
-    persistent_term:put(?PT_CHAN_KEY(ConnResId), [{ChanId, ChanCfg} | Chans]).
+    Chans0 = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
+    Chans = [{ChanId, ChanCfg} | lists:keydelete(ChanId, 1, Chans0)],
+    persistent_term:put(?PT_CHAN_KEY(ConnResId), Chans).
 
 do_remove_channel(ConnResId, ChanId) ->
     Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),

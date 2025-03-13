@@ -816,10 +816,17 @@ connector_resource_id(Config) ->
     #{connector_type := Type, connector_name := Name} = get_common_values(Config),
     emqx_connector_resource:resource_id(Type, Name).
 
-health_check_channel(Config) ->
+health_check_connector(Config) ->
     ConnectorResId = connector_resource_id(Config),
-    ChannelResId = resource_id(Config),
-    emqx_resource_manager:channel_health_check(ConnectorResId, ChannelResId).
+    emqx_resource_manager:health_check(ConnectorResId).
+
+health_check_channel(Config) ->
+    #{
+        conf_root_key := ConfRootKey,
+        type := Type,
+        name := Name
+    } = get_common_values(Config),
+    emqx_bridge_v2:health_check(ConfRootKey, Type, Name).
 
 %%------------------------------------------------------------------------------
 %% Internal export
@@ -1151,14 +1158,17 @@ t_start_stop(Config, StopTracePoint) ->
 
             ?assertMatch({ok, _}, create_kind_api(Config)),
 
-            ResourceId = emqx_bridge_resource:resource_id(conf_root_key(Kind), Type, Name),
-
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+                ?assertEqual({ok, connected}, health_check_connector(Config))
+            ),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(#{status := connected}, health_check_channel(Config))
             ),
 
             %% `start` bridge to trigger `already_started`
@@ -1167,41 +1177,15 @@ t_start_stop(Config, StopTracePoint) ->
                 op_bridge_api(Kind, "start", Type, Name)
             ),
 
-            ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
-
-            %% Not supported anymore
-
-            %% ?assertMatch(
-            %%     {{ok, _}, {ok, _}},
-            %%     ?wait_async_action(
-            %%         emqx_bridge_v2_testlib:op_bridge_api("stop", BridgeType, BridgeName),
-            %%         #{?snk_kind := StopTracePoint},
-            %%         5_000
-            %%     )
-            %% ),
-
-            %% ?assertEqual(
-            %%     {error, resource_is_stopped}, emqx_resource_manager:health_check(ResourceId)
-            %% ),
-
-            %% ?assertMatch(
-            %%     {ok, {{_, 204, _}, _Headers, []}},
-            %%     emqx_bridge_v2_testlib:op_bridge_api("stop", BridgeType, BridgeName)
-            %% ),
-
-            %% ?assertEqual(
-            %%     {error, resource_is_stopped}, emqx_resource_manager:health_check(ResourceId)
-            %% ),
-
-            %% ?assertMatch(
-            %%     {ok, {{_, 204, _}, _Headers, []}},
-            %%     emqx_bridge_v2_testlib:op_bridge_api("start", BridgeType, BridgeName)
-            %% ),
-
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+                ?assertEqual({ok, connected}, health_check_connector(Config))
+            ),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(#{status := connected}, health_check_channel(Config))
             ),
 
             %% Disable the connector, which will also stop it.
@@ -1214,6 +1198,7 @@ t_start_stop(Config, StopTracePoint) ->
                 )
             ),
 
+            ResourceId = emqx_bridge_resource:resource_id(conf_root_key(Kind), Type, Name),
             #{resource_id => ResourceId}
         end,
         fun(Res, Trace) ->

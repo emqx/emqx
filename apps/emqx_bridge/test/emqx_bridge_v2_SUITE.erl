@@ -665,45 +665,57 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, BridgeConf),
     %% Wait until on_add_channel_fun is called at least once
-    wait_until(fun() ->
-        counters:get(OnAddChannelCntr, 1) =:= 1
-    end),
+    ?retry(100, 50, ?assertEqual(1, counters:get(OnAddChannelCntr, 1))),
     1 = counters:get(OnAddChannelCntr, 1),
     %% We change the status of the connector
     ets:insert(ResponseETS, {on_get_status_value, connecting}),
     %% Wait until the status is changed
-    wait_until(fun() ->
-        {ok, BridgeData} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
-        maps:get(status, BridgeData) =:= connecting
-    end),
+    ?retry(
+        100,
+        50,
+        ?assertMatch(
+            {ok, #{status := connecting}},
+            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+        )
+    ),
     {ok, BridgeData1} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
     ct:pal("Bridge V2 status changed to: ~p", [maps:get(status, BridgeData1)]),
     %% We change the status again back to connected
     ets:insert(ResponseETS, {on_get_status_value, connected}),
     %% Wait until the status is connected again
-    wait_until(fun() ->
-        {ok, BridgeData2} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
-        maps:get(status, BridgeData2) =:= connected
-    end),
+    ?retry(
+        100,
+        50,
+        ?assertMatch(
+            {ok, #{status := connected}},
+            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+        )
+    ),
     %% On add channel should not have been called again
     1 = counters:get(OnAddChannelCntr, 1),
     %% We change the status to an error
     ets:insert(ResponseETS, {on_get_status_value, {error, my_error}}),
     %% Wait until the status is changed
-    wait_until(fun() ->
-        {ok, BridgeData2} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
-        maps:get(status, BridgeData2) =:= disconnected
-    end),
+    ?retry(
+        100,
+        50,
+        ?assertMatch(
+            {ok, #{status := disconnected}},
+            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+        )
+    ),
     %% Now we go back to connected
     ets:insert(ResponseETS, {on_get_status_value, connected}),
-    wait_until(fun() ->
-        {ok, BridgeData2} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
-        maps:get(status, BridgeData2) =:= connected
-    end),
+    ?retry(
+        100,
+        50,
+        ?assertMatch(
+            {ok, #{status := connected}},
+            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+        )
+    ),
     %% Now the channel should have been removed and added again
-    wait_until(fun() ->
-        counters:get(OnAddChannelCntr, 1) =:= 2
-    end),
+    ?retry(100, 50, ?assertEqual(2, counters:get(OnAddChannelCntr, 1))),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok = emqx_connector:remove(con_type(), ConName),
     ets:delete(ResponseETS),
