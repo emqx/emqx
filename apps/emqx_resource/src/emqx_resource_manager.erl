@@ -2251,10 +2251,10 @@ collect_and_handle_channel_operations_connected(Op, Data0) ->
         fun
             (#add_channel{channel_id = ChannelId, config = Config}, {AccActions, AccData}) ->
                 {Actions, Data} = handle_add_channel(From, AccData, ChannelId, Config),
-                {Actions ++ AccActions, Data};
+                {AccActions ++ Actions, Data};
             (#remove_channel{channel_id = ChannelId}, {AccActions, AccData}) ->
                 {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),
-                {Actions ++ AccActions, Data}
+                {AccActions ++ Actions, Data}
         end,
         {[], Data0},
         Ops
@@ -2268,10 +2268,10 @@ collect_and_handle_channel_operations_not_connected(Op, State, Data0) ->
             (#add_channel{channel_id = ChannelId, config = Config}, {AccActions, AccData}) ->
                 {Actions, Data} =
                     handle_add_channel_not_connected(From, ChannelId, Config, State, AccData),
-                {Actions ++ AccActions, Data};
+                {AccActions ++ Actions, Data};
             (#remove_channel{channel_id = ChannelId}, {AccActions, AccData}) ->
                 {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),
-                {Actions ++ AccActions, Data}
+                {AccActions ++ Actions, Data}
         end,
         {[], Data0},
         Ops
