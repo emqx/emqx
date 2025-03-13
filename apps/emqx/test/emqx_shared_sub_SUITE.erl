@@ -572,7 +572,9 @@ t_local(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
 
-    Node = start_peer('local_shared_sub_local_1', 21999),
+    %% Use a different base port for each test case to avoid flakiness
+    BasePort = 21999,
+    Node = start_peer('local_shared_sub_local_1', BasePort),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
 
@@ -581,7 +583,7 @@ t_local(Config) when is_list(Config) ->
     ClientId2 = <<"ClientId2">>,
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
-    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {port, 21999}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {port, get_tcp_mqtt_port(Node)}]),
 
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
@@ -625,7 +627,9 @@ t_remote(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
 
-    Node = start_peer('remote_shared_sub_remote_1', 21999),
+    %% Use a different base port for each test case to avoid flakiness
+    BasePort = 22999,
+    Node = start_peer('remote_shared_sub_remote_1', BasePort),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
 
@@ -634,7 +638,9 @@ t_remote(Config) when is_list(Config) ->
     ClientIdRemote = <<"ClientId2">>,
 
     {ok, ConnPidLocal} = emqtt:start_link([{clientid, ClientIdLocal}]),
-    {ok, ConnPidRemote} = emqtt:start_link([{clientid, ClientIdRemote}, {port, 21999}]),
+    {ok, ConnPidRemote} = emqtt:start_link([
+        {clientid, ClientIdRemote}, {port, get_tcp_mqtt_port(Node)}
+    ]),
 
     try
         {ok, ClientPidLocal} = emqtt:connect(ConnPidLocal),
@@ -674,7 +680,9 @@ t_local_fallback(Config) when is_list(Config) ->
     Topic = <<"local_foo/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
-    Node = start_peer('local_fallback_shared_sub_1', 11888),
+    %% Use a different base port for each test case to avoid flakiness
+    BasePort = 11888,
+    Node = start_peer('local_fallback_shared_sub_1', BasePort),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, _} = emqtt:connect(ConnPid1),
@@ -702,12 +710,14 @@ t_stats(Config) when is_list(Config) ->
         <<"round_robin_group">> => round_robin,
         <<"sticky_group">> => sticky
     },
-    Node = start_peer('local_shared_sub_stats_1', 21999),
+    %% Use a different base port for each test case to avoid flakiness
+    BasePort = 23999,
+    Node = start_peer('local_shared_sub_stats_1', BasePort),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
     SharedTopic = format_share(<<"local_group">>, <<"local_foo/bar">>),
     ClientId1 = <<"ClientId1">>,
-    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, 21999}]),
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
     ct:sleep(100),
@@ -1373,6 +1383,10 @@ setup_node(Node, Port) ->
     Node = emqx_rpc:call(Node, erlang, node, []),
     rpc:call(Node, mria, join, [node()]),
     ok.
+
+get_tcp_mqtt_port(Node) ->
+    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 pair_gen_rpc(Node, LocalPort, RemotePort) ->
     _ = rpc:call(Node, application, load, [gen_rpc]),
