@@ -70,18 +70,6 @@ authenticate(Credential, #{method := #{type := Type}} = State) ->
             emqx_authn_ldap_bind:authenticate(Credential, State)
     end.
 
-%% it used the deprecated config form
-parse_config(
-    #{password_attribute := PasswordAttr, is_superuser_attribute := IsSuperuserAttr} = Config0
-) ->
-    Config = maps:without([password_attribute, is_superuser_attribute], Config0),
-    parse_config(Config#{
-        method => #{
-            type => hash,
-            password_attribute => PasswordAttr,
-            is_superuser_attribute => IsSuperuserAttr
-        }
-    });
 parse_config(
     #{base_dn := BaseDN, filter := Filter, query_timeout := QueryTimeout, method := Method}
 ) ->

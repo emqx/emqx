@@ -32,7 +32,7 @@
 namespace() -> "authn".
 
 refs() ->
-    [?R_REF(ldap), ?R_REF(ldap_deprecated)].
+    [?R_REF(ldap)].
 
 select_union_member(#{<<"mechanism">> := ?AUTHN_MECHANISM_BIN, <<"backend">> := ?AUTHN_BACKEND_BIN}) ->
     refs();
@@ -44,12 +44,6 @@ select_union_member(#{<<"backend">> := ?AUTHN_BACKEND_BIN}) ->
 select_union_member(_) ->
     undefined.
 
-fields(ldap_deprecated) ->
-    common_fields() ++
-        [
-            {password_attribute, password_attribute()},
-            {is_superuser_attribute, is_superuser_attribute()}
-        ];
 fields(ldap) ->
     common_fields() ++
         [
@@ -79,8 +73,6 @@ common_fields() ->
 
 desc(ldap) ->
     ?DESC(ldap);
-desc(ldap_deprecated) ->
-    ?DESC(ldap_deprecated);
 desc(hash_method) ->
     ?DESC(hash_method);
 desc(bind_method) ->

@@ -71,29 +71,6 @@ end_per_suite(Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_create_with_deprecated_cfg(_Config) ->
-    AuthConfig = deprecated_raw_ldap_auth_config(),
-
-    {ok, _} = emqx:update_config(
-        ?PATH,
-        {create_authenticator, ?GLOBAL, AuthConfig}
-    ),
-
-    {ok, [#{provider := emqx_authn_ldap, state := State}]} = emqx_authn_chains:list_authenticators(
-        ?GLOBAL
-    ),
-    ?assertMatch(
-        #{
-            method := #{
-                type := hash,
-                is_superuser_attribute := _,
-                password_attribute := "not_the_default_value"
-            }
-        },
-        State
-    ),
-    emqx_authn_test_lib:delete_config(?ResourceID).
-
 t_create(_Config) ->
     AuthConfig = raw_ldap_auth_config(),
 
@@ -367,19 +344,6 @@ raw_ldap_auth_config() ->
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"ldap">>,
         <<"server">> => ldap_server(),
-        <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
-        <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
-        <<"password">> => <<"public">>,
-        <<"pool_size">> => 8
-    }.
-
-deprecated_raw_ldap_auth_config() ->
-    #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"ldap">>,
-        <<"server">> => ldap_server(),
-        <<"is_superuser_attribute">> => <<"isSuperuser">>,
-        <<"password_attribute">> => <<"not_the_default_value">>,
         <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
