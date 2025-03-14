@@ -1255,6 +1255,7 @@ columns_with_exam('client.disconnected') ->
         {<<"proto_name">>, <<"MQTT">>},
         {<<"proto_ver">>, 5},
         columns_example_props(disconn_props),
+        {<<"connected_at">>, erlang:system_time(millisecond)},
         {<<"disconnected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
         {<<"node">>, node()},
