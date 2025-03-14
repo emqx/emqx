@@ -220,7 +220,10 @@ roots(high) ->
         {listeners,
             sc(
                 ref("listeners"),
-                #{importance => ?IMPORTANCE_HIGH}
+                #{
+                    importance => ?IMPORTANCE_HIGH,
+                    desc => ?DESC("listeners_root_doc")
+                }
             )},
         {mqtt,
             sc(
