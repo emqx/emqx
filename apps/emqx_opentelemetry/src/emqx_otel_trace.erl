@@ -47,7 +47,8 @@
     %% Stop when `emqx_channel:handle_outgoing/3` returned
     outgoing/3,
 
-    apply_rule/3
+    apply_rule/3,
+    handle_action/3
 ]).
 
 -export([
@@ -63,6 +64,13 @@
     set_status_ok/0,
     set_status_error/0,
     set_status_error/1
+]).
+
+%% --------------------------------------------------------------------
+%% Helper APIs
+
+-export([
+    with_action_metadata/2
 ]).
 
 -include("emqx_otel_trace.hrl").
@@ -561,7 +569,7 @@ broker_publish(Attrs, ?EXT_TRACE_START, Delivers) ->
 -spec outgoing(
     Attrs :: emqx_external_trace:attrs(),
     TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
-    Packet :: emqx_types:packet()
+    emqx_types:packet() | [emqx_types:packet()]
 ) ->
     Res :: emqx_external_trace:t_res().
 outgoing(Attrs, ?EXT_TRACE_START, Packet) ->
@@ -583,18 +591,53 @@ outgoing(Attrs, ?EXT_TRACE_STOP, Any) ->
     Args :: emqx_external_trace:t_args()
 ) ->
     Res :: emqx_external_trace:t_res().
-apply_rule(Attrs, ProcessFun, [Rule, Columns, Envs] = Args) ->
+apply_rule(Attrs, ProcessFun, [Envs] = Args) ->
     ?with_trace_mode(
         erlang:apply(ProcessFun, Args),
         ?with_span(
             ?BROKER_RULE_ENGINE_APPLY,
             #{attributes => Attrs},
             fun(_SpanCtx) ->
-                NColumns = put_ctx(otel_ctx:get_current(), Columns),
-                NArgs = [Rule, NColumns, Envs],
-                erlang:apply(ProcessFun, NArgs)
+                erlang:apply(ProcessFun, [
+                    Envs#{metadata => #{?EMQX_OTEL_CTX => otel_ctx:get_current()}}
+                ])
             end
         )
+    ).
+
+-spec handle_action(
+    Attrs :: emqx_external_trace:attrs(),
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Any :: any()
+) ->
+    Res :: emqx_external_trace:t_res().
+handle_action(Attrs, ?EXT_TRACE_START, Envs) ->
+    ?with_trace_mode(
+        Envs,
+        begin
+            RootCtx = e2e_mode_root_ctx(Envs),
+            %% Start span here, but will end it after async action done
+            %% XXX: should end `action' span after fallback span?
+            %% FIXME: fix default OTEL_SPAN_SWEEPER_STRATEGY
+            %% https://hexdocs.pm/opentelemetry/1.5.0/readme.html#span-sweeper
+            SpanCtx = otel_tracer:start_span(
+                RootCtx,
+                ?current_tracer,
+                ?BROKER_RULE_ENGINE_ACTION,
+                #{attributes => Attrs}
+            ),
+            Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
+            Metadata0 = maps:get(metadata, Envs, #{}),
+            Envs#{metadata => Metadata0#{?EMQX_OTEL_CTX => Ctx}}
+        end
+    );
+handle_action(_Attrs, ?EXT_TRACE_STOP, RequestContext) ->
+    ?with_trace_mode(
+        ok,
+        begin
+            Ctx = e2e_mode_root_ctx(RequestContext),
+            otel_span:end_span(otel_tracer:current_span_ctx(Ctx))
+        end
     ).
 
 %%--------------------------------------------------------------------
@@ -943,6 +986,13 @@ msg_attr_props(#message{headers = #{properties := Props = #{}}}, Acc) ->
 msg_attr_props(_Msg, Acc) ->
     Acc.
 
+with_action_metadata(#{metadata := Metadata} = _Envs, RequestContext) when
+    is_map(RequestContext)
+->
+    RequestContext#{metadata => Metadata};
+with_action_metadata(_Envs, RequestContext) ->
+    RequestContext.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -1058,7 +1108,13 @@ e2e_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
             extract_traceparent_from_packet(PktVar);
         false ->
             otel_ctx:new()
-    end.
+    end;
+e2e_mode_root_ctx(#{metadata := #{?EMQX_OTEL_CTX := Ctx}}) ->
+    Ctx;
+e2e_mode_root_ctx(#{reply_to := {_, _, #{metadata := #{?EMQX_OTEL_CTX := Ctx}}}} = _RequestContext) ->
+    Ctx;
+e2e_mode_root_ctx(_) ->
+    otel_ctx:new().
 
 extract_traceparent_from_packet(PktVar) ->
     Ctx = otel_ctx:new(),

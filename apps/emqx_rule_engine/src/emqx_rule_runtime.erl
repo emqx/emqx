@@ -26,7 +26,7 @@
 -export([
     apply_rule/3,
     apply_rules/3,
-    inc_action_metrics/2
+    eval_action_reply_to/2
 ]).
 
 %% Internal exports used by schema validation and message transformation.
@@ -72,13 +72,13 @@ apply_rule_discard_result(Rule, Columns, Envs) ->
     _ = apply_rule(Rule, Columns, Envs),
     ok.
 
-apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
+apply_rule(Rule = #{id := RuleId}, Columns, RawEnvs) ->
     %% add metadata before the rule is applied
-    %% end-to-end tracing also required the metadata
+    %% but OTEL trace should not be included in metadata
     ?EXT_TRACE_APPLY_RULE(
-        ?EXT_TRACE_ATTR(#{'rule.id' => RuleId}),
-        fun(R, C, E) -> do_apply_rule(R, C, E) end,
-        [Rule, add_metadata(Columns, #{rule_id => RuleId}), Envs]
+        ?EXT_TRACE_ATTR(rule_attrs(Rule)),
+        fun(Envs) -> do_apply_rule(Rule, add_metadata(Columns, #{rule_id => RuleId}), Envs) end,
+        [RawEnvs]
     ).
 
 do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
@@ -203,7 +203,7 @@ do_apply_rule2(
                     ),
                     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
             end,
-            NewEnvs = maps:merge(ColumnsAndSelected, Envs),
+            NewEnvs = emqx_utils_maps:deep_merge(ColumnsAndSelected, Envs),
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- FinalCollection]};
         false ->
             trace_rule_sql("SQL_yielded_no_result"),
@@ -225,7 +225,10 @@ do_apply_rule2(
         {ok, Selected} ->
             trace_rule_sql("SQL_yielded_result", #{result => Selected}, debug),
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
-            {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
+            {ok,
+                handle_action_list(
+                    RuleId, Actions, Selected, emqx_utils_maps:deep_merge(Columns, Envs)
+                )};
         false ->
             trace_rule_sql("SQL_yielded_no_result"),
             ok = metrics_inc_no_result(RuleId),
@@ -409,10 +412,17 @@ number(Bin) ->
 handle_action_list(RuleId, Actions, Selected, Envs) ->
     [handle_action(RuleId, Act, Selected, Envs) || Act <- Actions].
 
-handle_action(RuleId, ActId, Selected, Envs) ->
+handle_action(RuleId, Act, Selected, Envs) ->
+    NEnvs = ?EXT_TRACE_HANDLE_ACTION_START(
+        ?EXT_TRACE_ATTR((action_attrs(Act))#{'rule.id' => RuleId}),
+        Envs
+    ),
+    do_handle_action(RuleId, Act, Selected, NEnvs).
+
+do_handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
     try
-        do_handle_action(RuleId, ActId, Selected, Envs)
+        do_handle_action2(RuleId, ActId, Selected, Envs)
     catch
         throw:{discard, Reason} ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.discarded'),
@@ -446,10 +456,14 @@ handle_action(RuleId, ActId, Selected, Envs) ->
     end.
 
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found; R == unhealthy_target).
-do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
+do_handle_action2(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
     trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
     {TraceCtx, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [IncCtx], #{reply_dropped => true}},
+    ReplyTo = {
+        fun ?MODULE:eval_action_reply_to/2,
+        [IncCtx],
+        ?EXT_TRACE_WITH_ACTION_METADATA(_Envs, #{reply_dropped => true})
+    },
     case
         emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{
             reply_to => ReplyTo, trace_ctx => TraceCtx
@@ -460,7 +474,7 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId} = Action, Selec
         Result ->
             Result
     end;
-do_handle_action(
+do_handle_action2(
     RuleId,
     {bridge_v2, BridgeType, BridgeName} = Action,
     Selected,
@@ -468,7 +482,11 @@ do_handle_action(
 ) ->
     trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
     {TraceCtx, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [IncCtx], #{reply_dropped => true}},
+    ReplyTo = {
+        fun ?MODULE:eval_action_reply_to/2,
+        [IncCtx],
+        ?EXT_TRACE_WITH_ACTION_METADATA(_Envs, #{reply_dropped => true})
+    },
     case
         emqx_bridge_v2:send_message(
             BridgeType,
@@ -484,7 +502,7 @@ do_handle_action(
         Result ->
             Result
     end;
-do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
+do_handle_action2(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
     trace_action(Action, "call_action_function"),
     %% the function can also throw 'out_of_service'
     Args = maps:get(args, Action, []),
@@ -501,7 +519,9 @@ do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) -
             logger:set_process_metadata(PrevProcessMetadata)
         end,
     {_, IncCtx} = do_handle_action_get_trace_inc_metrics_context(RuleId, Action),
-    inc_action_metrics(IncCtx, Result),
+    eval_action_reply_to(
+        IncCtx, ?EXT_TRACE_WITH_ACTION_METADATA(Envs, #{result => Result})
+    ),
     Result.
 
 do_handle_action_get_trace_inc_metrics_context(RuleId, Action) ->
@@ -753,13 +773,18 @@ nested_put(Alias, Val, Columns0) ->
     Columns = ensure_decoded_payload(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
-inc_action_metrics(_TraceCtx, #{is_fallback := true}) ->
+eval_action_reply_to(_TraceCtx, #{is_fallback := true} = _RequestContext) ->
     %% If this is the result of running a fallback action, we don't want to bump any
     %% metrics from the rule containing the primary action that triggered this.
+    %% XXX:
+    %% FOR OTEL fallback actions, should end it's span here or in buffer worker?
     ok;
-inc_action_metrics(TraceCtx, #{result := Result}) ->
-    inc_action_metrics(TraceCtx, Result);
-inc_action_metrics(TraceCtx, Result) ->
+eval_action_reply_to(TraceCtx, #{result := Result} = _RequestContext) ->
+    %% end otel span `handle_action_end' here
+    ?EXT_TRACE_HANDLE_ACTION_STOP(#{}, _RequestContext),
+    do_eval_action_reply_to(TraceCtx, Result).
+
+do_eval_action_reply_to(TraceCtx, Result) ->
     SavedMetaData = logger:get_process_metadata(),
     try
         %% To not pollute the trace we temporary remove the process meta data
@@ -951,3 +976,13 @@ metrics_inc_no_result(RuleId) ->
 metrics_inc_exception(RuleId) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.exception'),
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
+
+-if(?EMQX_RELEASE_EDITION == ee).
+
+rule_attrs(Rule) ->
+    emqx_external_trace:rule_attrs(Rule).
+
+action_attrs(Action) ->
+    emqx_external_trace:action_attrs(Action).
+
+-endif.
