@@ -320,32 +320,9 @@ import_msg(
         qos => QoS,
         dup => Dup,
         retain => Retain,
-        pub_props => printable_maps(Props),
+        pub_props => emqx_utils_maps:printable_props(Props),
         message_received_at => erlang:system_time(millisecond)
     }.
-
-printable_maps(undefined) ->
-    #{};
-printable_maps(Headers) ->
-    maps:fold(
-        fun
-            ('User-Property', V0, AccIn) when is_list(V0) ->
-                AccIn#{
-                    'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [
-                        #{
-                            key => Key,
-                            value => Value
-                        }
-                     || {Key, Value} <- V0
-                    ]
-                };
-            (K, V0, AccIn) ->
-                AccIn#{K => V0}
-        end,
-        #{},
-        Headers
-    ).
 
 %% published from remote node over a MQTT connection
 to_broker_msg(Msg, Vars, undefined) ->

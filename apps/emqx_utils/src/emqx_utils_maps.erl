@@ -39,7 +39,8 @@
     safe_atom_key_map/1,
     unindent/2,
     unsafe_atom_key_map/1,
-    update_if_present/3
+    update_if_present/3,
+    printable_props/1
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -359,3 +360,43 @@ get_lazy(Key, Map, DefFn) ->
         {ok, Val} -> Val;
         error -> DefFn()
     end.
+
+% @doc Convert a mqtt prop map to a map that can be printed as JSON.
+% The map is converted to a map with atom keys and JSONable values.
+-spec printable_props(map()) -> map().
+printable_props(undefined) ->
+    #{};
+printable_props(Headers) ->
+    maps:fold(
+        fun
+            (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
+                AccIn#{K => ntoa(V0)};
+            ('User-Property', V0, AccIn) when is_list(V0) ->
+                AccIn#{
+                    %% The 'User-Property' field is for the convenience of querying properties
+                    %% using the '.' syntax, e.g. "SELECT 'User-Property'.foo as foo"
+                    %% However, this does not allow duplicate property keys. To allow
+                    %% duplicate keys, we have to use the 'User-Property-Pairs' field instead.
+                    'User-Property' => maps:from_list(V0),
+                    'User-Property-Pairs' => [
+                        #{
+                            key => Key,
+                            value => Value
+                        }
+                     || {Key, Value} <- V0
+                    ]
+                };
+            (_K, V, AccIn) when is_tuple(V) ->
+                %% internal headers
+                AccIn;
+            (K, V, AccIn) ->
+                AccIn#{K => V}
+        end,
+        #{'User-Property' => #{}},
+        Headers
+    ).
+
+ntoa(undefined) ->
+    undefined;
+ntoa(IpOrIpPort) ->
+    iolist_to_binary(emqx_utils:ntoa(IpOrIpPort)).
