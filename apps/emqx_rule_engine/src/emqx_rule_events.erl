@@ -451,7 +451,8 @@ eventmsg_disconnected(
         sockname := SockName,
         proto_name := ProtoName,
         proto_ver := ProtoVer,
-        disconnected_at := DisconnectedAt
+        disconnected_at := DisconnectedAt,
+        connected_at := ConnectedAt
     },
     Reason
 ) ->
@@ -467,6 +468,7 @@ eventmsg_disconnected(
             proto_ver => ProtoVer,
             disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
             disconnected_at => DisconnectedAt,
+            connected_at => ConnectedAt,
             client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
