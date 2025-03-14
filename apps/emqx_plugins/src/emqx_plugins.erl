@@ -70,7 +70,7 @@
     get_config/2,
     get_config/3,
     get_config/4,
-    put_config/3
+    put_config_map/2
 ]).
 
 %% Package utils
@@ -395,15 +395,18 @@ get_config_bin(NameVsn) ->
 %% RPC call from Management API or CLI.
 %% The plugin config Json Map was valid by avro schema
 %% Or: if no and plugin config ALWAYS be valid before calling this function.
-put_config(NameVsn, ConfigJsonMap, AvroValue) when (not is_binary(NameVsn)) ->
-    put_config(bin(NameVsn), ConfigJsonMap, AvroValue);
-put_config(NameVsn, ConfigJsonMap, _AvroValue) ->
+put_config(NameVsn, ConfigJsonMap) when (not is_binary(NameVsn)) ->
+    put_config(bin(NameVsn), ConfigJsonMap);
+put_config(NameVsn, ConfigJsonMap) ->
     HoconBin = hocon_pp:do(ConfigJsonMap, #{}),
-    ok = backup_and_write_hocon_bin(NameVsn, HoconBin),
     %% TODO: callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
-    ok = maybe_call_on_config_changed(NameVsn, ConfigJsonMap),
-    ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), ConfigJsonMap),
-    ok.
+    case maybe_call_on_config_changed(NameVsn, ConfigJsonMap) of
+        ok ->
+            ok = backup_and_write_hocon_bin(NameVsn, HoconBin),
+            ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), ConfigJsonMap);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %% @doc Stop and then start the plugin.
 restart(NameVsn) ->
@@ -419,25 +422,29 @@ maybe_call_on_config_changed(NameVsn, NewConf) ->
         {ok, PluginAppModule} ?= app_module_name(NameVsn),
         true ?= erlang:function_exported(PluginAppModule, FuncName, 2),
         {ok, OldConf} = get_config(NameVsn),
-        try erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf]) of
-            _ -> ok
+        try
+            erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf])
         catch
             Class:CatchReason:Stacktrace ->
                 ?SLOG(error, #{
-                    msg => "failed_to_call_on_config_changed",
+                    msg => "call_on_config_changed_crashed",
                     exception => Class,
                     reason => CatchReason,
                     stacktrace => Stacktrace
                 }),
-                ok
+                {error, CatchReason}
         end
     else
+        ok ->
+            ok;
         {error, Reason} ->
-            ?SLOG(info, #{msg => "failed_to_call_on_config_changed", reason => Reason});
+            ?SLOG(info, #{msg => "call_on_config_changed_failed", reason => Reason}),
+            {error, Reason};
         false ->
-            ?SLOG(info, #{msg => "on_config_changed_callback_not_exported"});
-        _ ->
-            ok
+            ?SLOG(info, #{msg => "on_config_changed_callback_not_exported"}),
+            ok;
+        Other ->
+            {error, Other}
     end.
 
 app_module_name(NameVsn) ->
@@ -1427,33 +1434,38 @@ cp_default_config_file(NameVsn) ->
 ensure_config_map(NameVsn) ->
     case read_plugin_hocon(NameVsn, #{read_mode => ?JSON_MAP}) of
         {ok, ConfigJsonMap} ->
-            case with_plugin_avsc(NameVsn) of
-                true ->
-                    do_ensure_config_map(NameVsn, ConfigJsonMap);
-                false ->
-                    ?SLOG(debug, #{
-                        msg => "put_plugin_config_directly",
-                        hint => "plugin_without_config_schema",
-                        name_vsn => NameVsn
-                    }),
-                    put_config(NameVsn, ConfigJsonMap, ?plugin_without_config_schema)
-            end;
-        _ ->
-            ?SLOG(warning, #{msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn}),
-            ok
+            put_config_map(NameVsn, ConfigJsonMap);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn, reason => Reason
+            }),
+            {error, Reason}
     end.
 
-do_ensure_config_map(NameVsn, ConfigJsonMap) ->
+put_config_map(NameVsn, ConfigJsonMap) ->
+    case with_plugin_avsc(NameVsn) of
+        true ->
+            do_put_config_map(NameVsn, ConfigJsonMap);
+        false ->
+            ?SLOG(debug, #{
+                msg => "put_plugin_config_directly",
+                hint => "plugin_without_config_schema",
+                name_vsn => NameVsn
+            }),
+            put_config(NameVsn, ConfigJsonMap)
+    end.
+
+do_put_config_map(NameVsn, ConfigJsonMap) ->
     case decode_plugin_config_map(NameVsn, ConfigJsonMap) of
-        {ok, AvroValue} ->
-            put_config(NameVsn, ConfigJsonMap, AvroValue);
+        {ok, _AvroValue} ->
+            put_config(NameVsn, ConfigJsonMap);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "plugin_config_validation_failed",
                 name_vsn => NameVsn,
                 reason => Reason
             }),
-            ok
+            {error, Reason}
     end.
 
 %% @private Backup the current config to a file with a timestamp suffix and
