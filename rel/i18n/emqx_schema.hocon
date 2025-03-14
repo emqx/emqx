@@ -1652,7 +1652,7 @@ durable_sessions_enable.desc:
 """Use durable storage for client sessions persistence.
 If enabled, sessions configured to outlive client connections, along with their corresponding messages, will be durably stored and survive broker downtime.
 
-:::warning
+::: warning
 Messages sent to the durable sessions are saved on disc.
 This inevitably limits the overall throughput of the system.
 :::"""
@@ -1819,9 +1819,20 @@ socket_tcp_keepalive.label:
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
   }
 
-config_backup_interval.label:
-"""Config Backup Interval"""
-config_backup_interval.desc:
-"""Interval at which backups to `cluster.hocon` are made.  Even if multiple configuration updates are made withing this interval, only one backup will be made with the current configuration."""
+  config_backup_interval {
+    label: "Config Backup Interval"
+    desc: """~
+      Interval at which backups to `cluster.hocon` are made.  Even if multiple configuration updates are made withing this interval, only one backup will be made with the current configuration.~"""
+  }
 
+  listeners_root_doc {
+    label: "Configure MQTT listeners"
+    desc: """~
+      Listener configurations are defined per transport type.
+      Each transport type contains a map associating listener names with their configurations.
+      By default, each transport type includes a listener named `default`, which is not explicitly configured within configuration files.
+      To remove a `default` listener, explicitly set its configuration like: `listeners.ws.default = marked_for_deletion`.
+
+      Alternatively, to disable a listener without removing its configuration, set the hidden `enable` field to `false`. For example: `listeners.tcp.my_listener.enable = false`.~"""
+  }
 }
