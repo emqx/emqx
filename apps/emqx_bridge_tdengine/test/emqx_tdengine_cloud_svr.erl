@@ -19,13 +19,13 @@
 -module(emqx_tdengine_cloud_svr).
 
 -export([
-    start_link/3,
+    start/3,
     stop/0,
     init/2,
     handle/4
 ]).
 
-start_link(Port, ExpectedToken, TDOpts) when is_integer(Port) andalso is_binary(ExpectedToken) ->
+start(Port, ExpectedToken, TDOpts) when is_integer(Port) andalso is_binary(ExpectedToken) ->
     application:ensure_started(ranch),
     application:ensure_started(cowboy),
     ok = validate_td_opts(TDOpts),

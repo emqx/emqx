@@ -129,6 +129,10 @@ end_per_group(Group, Config) when
 ->
     emqx_bridge_v2_testlib:end_per_group(Config),
     ok;
+end_per_group(cloud, Config) ->
+    emqx_tdengine_cloud_svr:stop(),
+    emqx_bridge_v2_testlib:end_per_group(Config),
+    ok;
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -178,7 +182,7 @@ common_init(ConfigT) ->
 
     case ?config(cloud, Config0) of
         true ->
-            emqx_tdengine_cloud_svr:start_link(
+            emqx_tdengine_cloud_svr:start(
                 ?MOCK_SVR_PORT, ?TD_TOKEN, config_to_tdengine_opts(Config0)
             );
         _ ->
