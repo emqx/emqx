@@ -1035,14 +1035,14 @@ reply_caller_defer_metrics(
 -spec reply_dropped(id(), queue_query(), {error, late_reply | request_expired}) -> ok.
 reply_dropped(
     Id,
-    ?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt, _RequestContext, _TraceCtx) = Query,
+    ?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt, RequestContext, _TraceCtx) = Query,
     Result
 ) ->
     maybe
         {Fn, Args, #{reply_dropped := true}} ?= ReplyTo,
         true ?= is_function(Fn) andalso is_list(Args),
         %% We want to avoid bumping metrics inside the buffer worker, since it's costly.
-        emqx_pool:async_submit(Fn, Args ++ [Result])
+        emqx_pool:async_submit(Fn, Args ++ [RequestContext#{?result => Result}])
     end,
     maybe_trigger_fallback_actions(Id, result_context([Query])),
     ok.

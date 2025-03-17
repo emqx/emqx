@@ -778,11 +778,13 @@ eval_action_reply_to(_TraceCtx, #{is_fallback := true} = _RequestContext) ->
     %% metrics from the rule containing the primary action that triggered this.
     %% XXX:
     %% FOR OTEL fallback actions, should end it's span here or in buffer worker?
+    ?EXT_TRACE_HANDLE_ACTION_STOP(#{}, _RequestContext),
     ok;
 eval_action_reply_to(TraceCtx, #{result := Result} = _RequestContext) ->
     %% end otel span `handle_action_end' here
+    do_eval_action_reply_to(TraceCtx, Result),
     ?EXT_TRACE_HANDLE_ACTION_STOP(#{}, _RequestContext),
-    do_eval_action_reply_to(TraceCtx, Result).
+    Result.
 
 do_eval_action_reply_to(TraceCtx, Result) ->
     SavedMetaData = logger:get_process_metadata(),
