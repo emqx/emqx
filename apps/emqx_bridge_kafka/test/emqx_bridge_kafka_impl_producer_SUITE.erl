@@ -398,8 +398,17 @@ kafka_bridge_rest_api_helper(Config) ->
         % {ok, 204, _} = http_delete(["rules", RuleId]),
         {ok, 204, _} = http_delete(BridgesPartsIdDeleteAlsoActions),
         Remain = http_get_bridges(BridgesParts, BridgeName),
-        delete_all_bridges(),
-        ?assertEqual([], Remain)
+        ?assertEqual([], Remain),
+        %% also wait for the dry-runs to terminate
+        ?retry(
+            _Sleep = 50,
+            _Attempts = 10,
+            begin
+                ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+                ?assertEqual([], supervisor:which_children(wolff_producers_sup))
+            end
+        ),
+        delete_all_bridges()
     end,
     ok.
 
