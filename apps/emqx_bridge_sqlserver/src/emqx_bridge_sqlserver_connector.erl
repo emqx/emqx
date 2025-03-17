@@ -332,17 +332,27 @@ on_format_query_result({ok, Rows}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = _State) ->
-    Health = emqx_resource_pool:health_check_workers(
+on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
+    Results = emqx_resource_pool:health_check_workers(
         PoolName,
-        {?MODULE, do_get_status, []}
+        {?MODULE, do_get_status, []},
+        _Timeout = 5000,
+        #{return_values => true}
     ),
-    status_result(Health).
+    status_result(Results, State).
 
-status_result(_Status = true) -> ?status_connected;
-status_result(_Status = false) -> ?status_connecting.
-%% TODO:
-%% case for disconnected
+status_result({ok, []}, _State) ->
+    %% pool is empty?
+    ?status_connecting;
+status_result({ok, Results}, State) ->
+    case lists:filter(fun(S) -> S =/= ok end, Results) of
+        [] ->
+            ?status_connected;
+        [{error, Reason} | _] ->
+            {?status_connecting, State, Reason}
+    end;
+status_result({error, timeout}, State) ->
+    {?status_connecting, State, <<"timeout_checking_connections">>}.
 
 %%====================================================================
 %% ecpool callback fns
@@ -358,11 +368,18 @@ connect(Options) ->
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
 
--spec do_get_status(connection_reference()) -> Result :: boolean().
+-spec do_get_status(connection_reference()) -> ok | {error, term()}.
 do_get_status(Conn) ->
     case execute(Conn, <<"SELECT 1">>) of
-        {selected, [[]], [{1}]} -> true;
-        _ -> false
+        {selected, [[]], [{1}]} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason};
+        Other ->
+            {error, #{
+                cause => "unexpected_SELECT_1_result",
+                result => Other
+            }}
     end.
 
 %%====================================================================
