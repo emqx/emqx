@@ -98,7 +98,7 @@
 
 -type state() :: #state{}.
 
--type ws_cmd() :: {active, boolean()} | close.
+-type ws_cmd() :: {active, boolean()} | close | continue.
 
 -define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
@@ -627,6 +627,8 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
             return(State#state{channel = NChannel});
         {ok, Replies, NChannel} ->
             return(postpone(Replies, State#state{channel = NChannel}));
+        {continue, Replies, NChannel} ->
+            return(postpone(continue, postpone(Replies, State#state{channel = NChannel})));
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
@@ -823,10 +825,10 @@ resume_stats_timer(State = #state{stats_timer = disabled}) ->
 %%--------------------------------------------------------------------
 %% Postpone the packet, cmd or event
 
-postpone(Event, State) when is_tuple(Event) ->
-    enqueue(Event, State);
 postpone(More, State) when is_list(More) ->
-    lists:foldl(fun postpone/2, State, More).
+    lists:foldl(fun postpone/2, State, More);
+postpone(Event, State) ->
+    enqueue(Event, State).
 
 enqueue([Packet], State = #state{postponed = Postponed}) ->
     State#state{postponed = [Packet | Postponed]};

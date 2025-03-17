@@ -359,6 +359,7 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
 -spec handle_in(emqx_types:packet(), channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
+    | {continue, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
@@ -584,17 +585,18 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
 post_process_connect(
     AckProps,
     Channel = #channel{
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo,
+        conninfo = #{clean_start := CleanStart} = ConnInfo,
+        clientinfo = #{clientid := ClientId} = ClientInfo,
         will_msg = MaybeWillMsg
     }
 ) ->
-    #{clean_start := CleanStart} = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, replay := ReplayContext}} ->
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = ReplayContext
@@ -1354,27 +1356,8 @@ handle_out(Type, Data, Channel) ->
 
 return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel) ->
     ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => _RC}),
-    do_return_connack(AckPacket, Channel).
-
-do_return_connack(AckPacket, Channel) ->
     Replies = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
-    case maybe_resume_session(Channel) of
-        ignore ->
-            {ok, Replies, Channel};
-        {ok, Publishes, NSession} ->
-            NChannel1 = Channel#channel{
-                resuming = false,
-                pendings = [],
-                session = NSession
-            },
-            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
-            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
-            %% NOTE
-            %% Session timers are not restored here, so there's a tiny chance that
-            %% the session becomes stuck, when it already has no place to track new
-            %% messages.
-            {ok, Replies ++ Outgoing, NChannel2}
-    end.
+    {continue, Replies, Channel}.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -1454,14 +1437,26 @@ handle_call(discard, Channel) ->
         []
     );
 %% Session Takeover
-handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
-    reply(Session, Channel#channel{takeover = true});
+handle_call(
+    {takeover, 'begin'},
+    Channel = #channel{
+        session = Session,
+        clientinfo = #{clientid := ClientId}
+    }
+) ->
+    %% NOTE
+    %% Ensure channel has enough time left to react to takeover end call. At the same
+    %% time ensure that channel dies off reasonably quickly if no call will arrive.
+    Interval = interval(expire_takeover, Channel),
+    NChannel = reset_timer(expire_session, Interval, Channel),
+    ok = emqx_cm:unregister_channel(ClientId),
+    reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{
         session = Session,
         pendings = Pendings,
-        conninfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId}
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -1529,8 +1524,29 @@ handle_call(Req, Channel) ->
 %%--------------------------------------------------------------------
 
 -spec handle_info(Info :: term(), channel()) ->
-    ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
+    ok
+    | {ok, channel()}
+    | {ok, replies(), channel()}
+    | {shutdown, Reason :: term(), channel()}.
 
+handle_info(continue, Channel) ->
+    case maybe_resume_session(Channel) of
+        ignore ->
+            ok;
+        {ok, Publishes, NSession} ->
+            NChannel1 = Channel#channel{
+                resuming = false,
+                pendings = [],
+                session = NSession
+            },
+            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
+            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            %% NOTE
+            %% Session timers are not restored here, so there's a tiny chance that
+            %% the session becomes stuck, when it already has no place to track new
+            %% messages.
+            {ok, Outgoing, NChannel2}
+    end;
 handle_info({subscribe, TopicFilters}, Channel) ->
     ?EXT_TRACE_BROKER_SUBSCRIBE(
         ?EXT_TRACE_ATTR(
@@ -1795,6 +1811,9 @@ interval(expire_awaiting_rel, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
 interval(expire_session, #channel{conninfo = ConnInfo}) ->
     maps:get(expiry_interval, ConnInfo);
+interval(expire_takeover, #channel{}) ->
+    %% NOTE: Equivalent to 2 × `?T_TAKEOVER` for simplicity.
+    2 * 5_000;
 interval(will_message, #channel{will_msg = WillMsg}) ->
     timer:seconds(will_delay_interval(WillMsg)).
 
@@ -2940,6 +2959,8 @@ parse_raw_topic_filters(TopicFilters) ->
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected
 
+ensure_disconnected(_Reason, Channel = #channel{conn_state = disconnected}) ->
+    Channel;
 ensure_disconnected(
     Reason,
     Channel = #channel{

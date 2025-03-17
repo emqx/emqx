@@ -112,7 +112,15 @@ handle_call(kick, _From, Channel) ->
     {stop, kicked, ok, Channel};
 handle_call(discard, _From, Channel) ->
     {stop, discarded, ok, Channel};
-handle_call({takeover, 'begin'}, _From, #{session := Session} = Channel) ->
+handle_call(
+    {takeover, 'begin'},
+    _From,
+    #{
+        session := Session,
+        clientinfo := #{clientid := ClientId}
+    } = Channel
+) ->
+    ok = emqx_cm:unregister_channel(ClientId),
     {reply, Session, Channel#{takeover => true}};
 handle_call(
     {takeover, 'end'},
@@ -224,8 +232,9 @@ set_expiry_timer(#{conninfo := ConnInfo} = Channel) ->
     end.
 
 open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
+    CleanSession = false,
     Channel = channel(ConnInfo, ClientInfo),
-    case emqx_cm:open_session(_CleanSession = false, ClientInfo, ConnInfo, MaybeWillMsg) of
+    case emqx_cm:open_session(CleanSession, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{present := false}} ->
             ?SLOG(
                 info,
@@ -236,7 +245,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
                 }
             ),
             {error, no_session};
-        {ok, #{session := Session, present := true, replay := Pendings}} ->
+        {ok, #{session := Session, present := true, replay := RCtx}} ->
             ?SLOG(
                 info,
                 #{
@@ -250,11 +259,13 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             % throwing away any local deliveries that are part of some shared
             % subscription. Remote deliviries pertaining to shared subscriptions should
             % already have been thrown away by `emqx_channel:handle_deliver/2`.
-            % See also: `emqx_channel:maybe_resume_session/1`, `emqx_session_mem:replay/3`.
+            % See also:
+            % * `emqx_channel:maybe_resume_session/1`,
+            % * `emqx_session_mem:replay_enqueue/4`.
             DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
-            PendingsAll = emqx_session_mem:dedup(ClientInfo, Pendings, DeliversLocal, Session),
-            NSession = emqx_session_mem:enqueue(ClientInfo, PendingsAll, Session),
+            NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
             ?SLOG(
                 info,
