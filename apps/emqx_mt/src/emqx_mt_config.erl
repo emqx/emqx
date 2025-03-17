@@ -41,6 +41,7 @@
 
 %% Root configuration keys
 -define(limiter, limiter).
+-define(session, session).
 
 -define(tenant, tenant).
 -define(client, client).
@@ -54,7 +55,13 @@
 -type tenant_config() :: emqx_mt_limiter:tenant_config().
 -type client_config() :: emqx_mt_limiter:client_config().
 
+-define(max_sessions, max_sessions).
+-type session_config() :: #{
+    ?max_sessions => infinity | non_neg_integer()
+}.
+
 -type root_config() :: #{
+    ?session => session_config(),
     ?limiter => limiter_config()
 }.
 
@@ -70,10 +77,14 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Get the maximum number of sessions allowed for the given namespace.
-%% TODO: support per-ns configs
 -spec get_max_sessions(emqx_mt:tns()) -> non_neg_integer() | infinity.
-get_max_sessions(_Ns) ->
-    emqx_config:get([multi_tenancy, default_max_sessions]).
+get_max_sessions(Ns) ->
+    maybe
+        {ok, #{?session := #{?max_sessions := Max}}} ?= get_explicit_ns_config(Ns),
+        Max
+    else
+        _ -> emqx_config:get([multi_tenancy, default_max_sessions])
+    end.
 
 -spec get_explicit_ns_config(emqx_mt:tns()) ->
     {ok, root_config()} | {error, not_found}.
@@ -127,8 +138,10 @@ tmp_set_default_max_sessions(Max) ->
 
 cleanup_explicit_ns_configs(_Ns, []) ->
     ok;
-cleanup_explicit_ns_configs(Ns, [{limiter, Configs} | Rest]) ->
+cleanup_explicit_ns_configs(Ns, [{?limiter, Configs} | Rest]) ->
     ok = emqx_mt_limiter:cleanup_configs(Ns, Configs),
+    cleanup_explicit_ns_configs(Ns, Rest);
+cleanup_explicit_ns_configs(Ns, [{_RootKey, _Configs} | Rest]) ->
     cleanup_explicit_ns_configs(Ns, Rest).
 
 %%------------------------------------------------------------------------------

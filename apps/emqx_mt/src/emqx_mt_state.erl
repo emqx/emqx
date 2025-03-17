@@ -49,6 +49,10 @@
     update_root_configs_txn/2
 ]).
 
+-ifdef(TEST).
+-export([update_ccache/1]).
+-endif.
+
 -include("emqx_mt.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -104,7 +108,7 @@
 %% Currently, we limit the maximum number of configurable namespaces.
 -record(?CONFIG_TAB, {
     key :: tns(),
-    configs :: tns_config(),
+    configs :: emqx_mt_config:root_config(),
     extra = #{} :: map()
 }).
 
@@ -119,10 +123,6 @@
 
 -type tns() :: emqx_mt:tns().
 -type clientid() :: emqx_types:clientid().
-
--type tns_config() :: #{
-    ?limiter => emqx_mt_limiter:root_config()
-}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -225,13 +225,16 @@ lookup_counter_from_cache(Ns) ->
 with_ccache(Ns) ->
     case lookup_counter_from_cache(Ns) of
         false ->
-            Cnt = do_count_clients(Ns),
-            Ts = now_ts(),
-            _ = ets:insert(?CCACHE_TAB, ?CCACHE(Ns, Ts, Cnt)),
-            Cnt;
+            update_ccache(Ns);
         Cnt ->
             Cnt
     end.
+
+update_ccache(Ns) ->
+    Cnt = do_count_clients(Ns),
+    Ts = now_ts(),
+    _ = ets:insert(?CCACHE_TAB, ?CCACHE(Ns, Ts, Cnt)),
+    Cnt.
 
 do_count_clients(Ns) ->
     Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
@@ -364,7 +367,7 @@ create_explicit_ns(Ns) ->
     transaction(fun create_explicit_ns_txn/1, [Ns]).
 
 -spec delete_explicit_ns(emqx_mt:tns()) ->
-    {ok, tns_config()} | {error, {aborted, _}}.
+    {ok, emqx_mt_config:root_config()} | {error, {aborted, _}}.
 delete_explicit_ns(Ns) ->
     %% Note: we may safely delete the limiter groups here: when clients attempt to consume
     %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't

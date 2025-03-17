@@ -248,7 +248,8 @@ last_clientid_in_query() ->
 
 fields(config_in) ->
     [
-        {limiter, mk(ref(limiter_config_in), #{})}
+        {limiter, mk(ref(limiter_config_in), #{})},
+        {session, mk(ref(session_config_in), #{})}
     ];
 fields(limiter_config_in) ->
     [
@@ -259,6 +260,10 @@ fields(limiter_in) ->
     [
         {bytes, mk(ref(limiter_options), #{})},
         {messages, mk(ref(limiter_options), #{})}
+    ];
+fields(session_config_in) ->
+    [
+        {max_sessions, mk(hoconsc:union([infinity, non_neg_integer()]), #{})}
     ];
 fields(config_out) ->
     %% At this moment, same schema as input

@@ -194,6 +194,16 @@ client_limiter_params(Overrides) ->
     Merged = emqx_utils_maps:deep_merge(Defaults, Overrides),
     #{<<"limiter">> => #{<<"client">> => Merged}}.
 
+session_params() ->
+    session_params(_Overrides = #{}).
+
+session_params(Overrides) ->
+    Defaults = #{
+        <<"max_sessions">> => <<"infinity">>
+    },
+    Merged = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    #{<<"session">> => Merged}.
+
 set_limiter_for_zone(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),
     MqttConf0 = emqx_config:fill_defaults(#{<<"mqtt">> => emqx:get_raw_config([<<"mqtt">>])}),
@@ -346,6 +356,47 @@ t_explicit_namespace_management(_Config) ->
     ?assertMatch({404, _}, get_explicit_ns_config(Ns1)),
     ?assertMatch({404, _}, get_explicit_ns_config(Ns2)),
 
+    ok.
+
+%% Checks that explicitly declared namespaces use their own maximum session count instead
+%% of global defaults.
+t_session_limit_exceeded(_Config) ->
+    emqx_mt_config:tmp_set_default_max_sessions(1),
+    Ns = ?NEW_USERNAME(),
+    ClientId1 = ?NEW_CLIENTID(1),
+    ClientId2 = ?NEW_CLIENTID(2),
+    ClientId3 = ?NEW_CLIENTID(3),
+
+    Params = session_params(#{<<"max_sessions">> => 2}),
+    {204, _} = create_explicit_ns(Ns),
+    ?assertMatch({200, _}, update_explicit_ns_config(Ns, Params)),
+
+    %% First client is always fine.
+    {Pid1, {ok, _}} =
+        ?wait_async_action(
+            connect(ClientId1, Ns),
+            #{?snk_kind := multi_tenant_client_added}
+        ),
+    ?assertEqual(1, emqx_mt_state:update_ccache(Ns)),
+    %% Second would fail with quota exceeded reason, if it were to use global default
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(ClientId2, Ns),
+            #{?snk_kind := multi_tenant_client_added}
+        ),
+    ?assertEqual(2, emqx_mt_state:update_ccache(Ns)),
+    %% Now we hit the maximum session count
+    try
+        _Pid3 = connect(ClientId3, Ns),
+        ct:fail("should have not connected successfully!")
+    catch
+        error:{error, {quota_exceeded, _}} ->
+            ok;
+        exit:{shutdown, quota_exceeded} ->
+            ok
+    end,
+    emqtt:stop(Pid1),
+    emqtt:stop(Pid2),
     ok.
 
 %% Smoke CRUD operations test for tenant limiter.

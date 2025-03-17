@@ -124,7 +124,7 @@ t_session_limit_exceeded(_Config) ->
         )
     ),
     ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns)),
-    %% two reaons may race
+    %% two reasons may race
     try
         {ok, _} = connect(C2, Ns)
     catch
