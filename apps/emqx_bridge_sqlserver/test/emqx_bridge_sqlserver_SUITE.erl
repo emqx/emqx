@@ -472,9 +472,11 @@ t_named_instance_mismatch(Config) ->
 %%------------------------------------------------------------------------------
 
 common_init(ConfigT) ->
+    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     Host = os:getenv("SQLSERVER_HOST", "toxiproxy"),
     Port = list_to_integer(os:getenv("SQLSERVER_PORT", str(?SQLSERVER_DEFAULT_PORT))),
-
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     Config0 = [
         {sqlserver_host, Host},
         {sqlserver_port, Port},
@@ -483,14 +485,9 @@ common_init(ConfigT) ->
         {batch_size, batch_size(ConfigT)}
         | ConfigT
     ],
-
     BridgeType = proplists:get_value(bridge_type, Config0, <<"sqlserver">>),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
-            % Setup toxiproxy
-            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             Apps = emqx_cth_suite:start(
                 [
                     emqx_conf,

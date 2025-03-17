@@ -19,6 +19,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-elvis([{elvis_text_style, line_length, #{skip_comments => whole_line}}]).
+
 %%====================================================================
 %% Exports
 %%====================================================================
@@ -501,6 +503,9 @@ do_query(ResourceId, Query, ApplyMode, State) ->
         end,
     handle_result(Result, ResourceId, Query).
 
+handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
+    ?tp(sqlserver_connector_query_return, #{error => Reason}),
+    Result;
 handle_result({error, Reason}, ResourceId, Query) ->
     ?tp(sqlserver_connector_query_return, #{error => Reason}),
     ?SLOG(error, #{
@@ -526,13 +531,32 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {updated, _} ->
                 ok;
             {error, ErrStr} ->
-                ?SLOG(error, LogMeta#{msg => "invalid_request", reason => ErrStr}),
-                {error, {unrecoverable_error, {invalid_request, ErrStr}}}
+                {LogLevel, Err} =
+                    case is_connection_closed_error(ErrStr) of
+                        true ->
+                            {info, {recoverable_error, <<"connection_closed">>}};
+                        false ->
+                            {error, {unrecoverable_error, {invalid_request, ErrStr}}}
+                    end,
+                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr}),
+                {error, Err}
         end
     catch
         _Type:Reason:St ->
             ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason, stacktrace => St}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
+    end.
+
+%% Potential race condition: if an insert request is made while the connection is being
+%% cut by the remote server, this error might be returned.
+%% References:
+%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
+is_connection_closed_error(MsgStr) ->
+    case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
     end.
 
 -spec execute(connection_reference(), sql()) ->
