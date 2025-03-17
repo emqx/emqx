@@ -12,10 +12,6 @@
 
 -feature(maybe_expr, enable).
 
--include("emqx_auth_http.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authn.hrl").
-
 -behaviour(emqx_authn_provider).
 
 -export([
@@ -31,6 +27,10 @@
     <<"salt">>
 ]).
 
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include("emqx_auth_http.hrl").
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -40,12 +40,14 @@ create(_AuthenticatorID, Config) ->
 
 create(Config0) ->
     emqx_authn_http:with_validated_config(Config0, fun(Config, State) ->
-        ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+        ResourceId = emqx_authn_utils:make_resource_id(<<"scram-restapi">>),
         % {Config, State} = parse_config(Config0),
         {ok, _Data} = emqx_authn_utils:create_resource(
             ResourceId,
             emqx_bridge_http_connector,
-            Config
+            Config,
+            ?AUTHN_MECHANISM_SCRAM_BIN,
+            ?AUTHN_BACKEND_BIN
         ),
         {ok, merge_scram_conf(Config, State#{resource_id => ResourceId})}
     end).

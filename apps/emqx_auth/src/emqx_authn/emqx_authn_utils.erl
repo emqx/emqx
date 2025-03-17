@@ -21,7 +21,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    create_resource/3,
+    create_resource/5,
     update_resource/3,
     check_password_from_selected_map/3,
     parse_deep/1,
@@ -46,12 +46,13 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(ResourceId, Module, Config) ->
+create_resource(ResourceId, Module, Config, Mechanism, Backend) ->
+    OwnerId = bin([bin(Mechanism), ":", bin(Backend)]),
     Result = emqx_resource:create_local(
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
         Module,
-        Config,
+        Config#{owner_id => OwnerId},
         ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
@@ -131,8 +132,8 @@ ensure_apps_started(_) ->
     ok.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.
+bin(L) when is_list(L) -> iolist_to_binary(L);
+bin(X) when is_binary(X) -> X.
 
 cleanup_resources() ->
     lists:foreach(
@@ -141,7 +142,7 @@ cleanup_resources() ->
     ).
 
 make_resource_id(Name) ->
-    NameBin = bin(Name),
+    NameBin = bin([<<"authn:">>, bin(Name)]),
     emqx_resource:generate_id(NameBin).
 
 without_password(Credential) ->

@@ -21,6 +21,7 @@
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include("emqx_auth_ldap.hrl").
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
@@ -54,12 +55,12 @@ init_per_suite(Config) ->
             Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
                 work_dir => ?config(priv_dir, Config)
             }),
-            {ok, _} = emqx_resource:create_local(
+            {ok, _Data} = emqx_authn_utils:create_resource(
                 ?LDAP_RESOURCE,
-                ?AUTHN_RESOURCE_GROUP,
                 emqx_ldap,
                 ldap_config(),
-                #{}
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
             ),
             [{apps, Apps} | Config];
         false ->
@@ -71,7 +72,7 @@ end_per_suite(Config) ->
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_resource:remove_local(?LDAP_RESOURCE),
+    ok = emqx_authn_ldap:destroy(#{resource_id => ?LDAP_RESOURCE}),
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 %%------------------------------------------------------------------------------

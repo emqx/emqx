@@ -176,7 +176,7 @@
                     tag => tag(DATA#data.group, DATA#data.type)
                 }
             );
-        false ->
+        _ ->
             ?SLOG(LEVEL, maps:merge(FIELDS, #{resource_id => DATA#data.id}), #{
                 tag => tag(DATA#data.group, DATA#data.type)
             })

@@ -16,33 +16,32 @@
 
 -module(emqx_authn_ldap).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authn.hrl").
-
 -behaviour(emqx_authn_provider).
 
 -export([
     create/2,
     update/2,
     authenticate/2,
-    destroy/1,
-    do_create/2
+    destroy/1
 ]).
 
--import(proplists, [get_value/2, get_value/3]).
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include("emqx_auth_ldap.hrl").
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 create(_AuthenticatorID, Config) ->
-    do_create(?MODULE, Config).
+    do_create(Config).
 
-do_create(Module, Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(Module),
+do_create(Config0) ->
+    ResourceId = emqx_authn_utils:make_resource_id(<<"ldap">>),
     Config = filter_placeholders(Config0),
     State = parse_config(Config),
-    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_ldap, Config),
+    {ok, _Data} = emqx_authn_utils:create_resource(
+        ResourceId, emqx_ldap, Config, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+    ),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config, #{resource_id := ResourceId} = _State) ->

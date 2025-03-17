@@ -16,10 +16,6 @@
 
 -module(emqx_authn_http).
 
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
-
 -behaviour(emqx_authn_provider).
 
 -export([
@@ -38,6 +34,11 @@
     safely_parse_body/2
 ]).
 
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_auth_http.hrl").
+
 -define(DEFAULT_CONTENT_TYPE, <<"application/json">>).
 
 %%------------------------------------------------------------------------------
@@ -49,12 +50,14 @@ create(_AuthenticatorID, Config) ->
 
 create(Config0) ->
     with_validated_config(Config0, fun(Config, State) ->
-        ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+        ResourceId = emqx_authn_utils:make_resource_id(<<"http">>),
         % {Config, State} = parse_config(Config0),
         {ok, _Data} = emqx_authn_utils:create_resource(
             ResourceId,
             emqx_bridge_http_connector,
-            Config
+            Config,
+            ?AUTHN_MECHANISM_BIN,
+            ?AUTHN_BACKEND_BIN
         ),
         {ok, State#{resource_id => ResourceId}}
     end).

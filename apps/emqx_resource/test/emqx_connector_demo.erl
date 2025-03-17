@@ -144,7 +144,7 @@ on_stop(InstId, #{stop_error := {ask, HowToStop}} = State) ->
         continue ->
             on_stop(InstId, maps:remove(stop_error, State))
     end;
-on_stop(InstId, #{pid := Pid}) ->
+on_stop(_InstId, #{pid := Pid}) ->
     stop_counter_process(Pid).
 
 on_query(_InstId, get_state, State) ->
@@ -422,7 +422,7 @@ on_add_channel(ConnResId, #{add_channel_agent := Agent} = ConnSt0, ChanId, ChanC
 on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
     do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg).
 
-do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
+do_on_add_channel(_ConnResId, ConnSt0, ChanId, ChanCfg) ->
     ConnSt = emqx_utils_maps:deep_put([channels, ChanId], ConnSt0, ChanCfg),
     ?tp(added_channel, #{}),
     {ok, ConnSt}.
@@ -452,7 +452,7 @@ on_remove_channel(ConnResId, #{remove_channel_agent := Agent} = ConnSt0, ChanId)
 on_remove_channel(ConnResId, ConnSt0, ChanId) ->
     do_on_remove_channel(ConnResId, ConnSt0, ChanId).
 
-do_on_remove_channel(ConnResId, ConnSt0, ChanId) ->
+do_on_remove_channel(_ConnResId, ConnSt0, ChanId) ->
     ConnSt = emqx_utils_maps:deep_remove([channels, ChanId], ConnSt0),
     {ok, ConnSt}.
 

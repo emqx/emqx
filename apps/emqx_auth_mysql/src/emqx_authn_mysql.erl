@@ -16,8 +16,6 @@
 
 -module(emqx_authn_mysql).
 
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
 -behaviour(emqx_authn_provider).
 
 -define(PREPARE_KEY, ?MODULE).
@@ -29,6 +27,9 @@
     destroy/1
 ]).
 
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include("emqx_auth_mysql.hrl").
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -37,9 +38,11 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authn_utils:make_resource_id(<<"mysql">>),
     {Config, State} = parse_config(Config0),
-    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_mysql, Config),
+    {ok, _Data} = emqx_authn_utils:create_resource(
+        ResourceId, emqx_mysql, Config, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+    ),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
