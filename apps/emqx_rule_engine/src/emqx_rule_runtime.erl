@@ -48,7 +48,8 @@
 -type collection() :: {alias(), [term()]}.
 
 -elvis([
-    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_rule_runtime]}}
+    {elvis_style, invalid_dynamic_call, #{ignore => [emqx_rule_runtime]}},
+    {elvis_style, used_ignored_variable, disable}
 ]).
 
 -define(ephemeral_alias(TYPE, NAME),

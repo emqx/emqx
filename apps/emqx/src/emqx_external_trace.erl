@@ -101,7 +101,7 @@
 
 -callback apply_rule(attrs(), t_fun(), t_args()) -> t_res().
 
--callback handle_action(attrs(), ?EXT_TRACE_START | ?EXT_TRACE_STOP, any()) -> t_res().
+-callback handle_action(attrs(), ?EXT_TRACE_START | ?EXT_TRACE_STOP, map()) -> t_res().
 
 %% --------------------------------------------------------------------
 %% Span enrichments APIs

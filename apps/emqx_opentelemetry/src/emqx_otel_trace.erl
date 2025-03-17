@@ -610,7 +610,7 @@ apply_rule(Attrs, ProcessFun, [Envs] = Args) ->
 -spec handle_action(
     Attrs :: emqx_external_trace:attrs(),
     TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
-    Any :: any()
+    Any :: map()
 ) ->
     Res :: emqx_external_trace:t_res().
 handle_action(Attrs, ?EXT_TRACE_START, Envs) ->
@@ -629,8 +629,7 @@ handle_action(Attrs, ?EXT_TRACE_START, Envs) ->
                 #{attributes => Attrs}
             ),
             Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
-            Metadata0 = maps:get(metadata, Envs, #{}),
-            Envs#{metadata => Metadata0#{?EMQX_OTEL_CTX => Ctx}}
+            put_ctx(Ctx, Envs)
         end
     );
 handle_action(_Attrs, ?EXT_TRACE_STOP, RequestContext) ->
@@ -1075,9 +1074,9 @@ put_ctx(
 %% Rule Columns Metadata
 put_ctx(
     OtelCtx,
-    #{metadata := Metadata} = Columns
+    #{metadata := Metadata} = Envs
 ) ->
-    Columns#{metadata => Metadata#{?EMQX_OTEL_CTX => OtelCtx}};
+    Envs#{metadata => Metadata#{?EMQX_OTEL_CTX => OtelCtx}};
 %% ====================
 %% ignore
 put_ctx(
