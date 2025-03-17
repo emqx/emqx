@@ -219,6 +219,27 @@ should_sample(
         with_cluster_id(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     };
+should_sample(
+    Ctx,
+    TraceId,
+    _Links,
+    SpanName,
+    _SpanKind,
+    Attributes,
+    Opts
+) when
+    SpanName =:= ?BROKER_RULE_ENGINE_APPLY orelse
+        SpanName =:= ?BROKER_RULE_ENGINE_ACTION
+->
+    Desicion =
+        parent_sampled(otel_tracer:current_span_ctx(Ctx)) orelse
+            decide_by_match_rule(Attributes, Opts) orelse
+            decide_by_traceid_ratio(TraceId, SpanName, Opts),
+    {
+        decide(Desicion),
+        with_cluster_id(Opts),
+        otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
+    };
 %% None Root Span, decide by Parent or Publish Response Tracing Level
 should_sample(
     Ctx,
