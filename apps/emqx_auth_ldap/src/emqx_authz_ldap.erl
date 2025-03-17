@@ -27,11 +27,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_ldap).
-
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("eldap/include/eldap.hrl").
-
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
@@ -41,6 +36,11 @@
     destroy/1,
     authorize/4
 ]).
+
+-include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("eldap/include/eldap.hrl").
+-include("emqx_auth_ldap.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -64,7 +64,7 @@
 create(Source0) ->
     ResourceId = emqx_authz_utils:make_resource_id(ldap),
     Source = filter_placeholders(Source0),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source, ?AUTHZ_TYPE),
     Annotations = new_annotations(#{id => ResourceId}, Source),
     Source#{annotations => Annotations}.
 

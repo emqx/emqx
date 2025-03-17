@@ -16,11 +16,6 @@
 
 -module(emqx_authz_postgresql).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authz.hrl").
-
--include_lib("epgsql/include/epgsql.hrl").
-
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
@@ -30,6 +25,11 @@
     destroy/1,
     authorize/4
 ]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
+-include("emqx_auth_postgresql.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -45,7 +45,8 @@ create(#{query := SQL0} = Source) ->
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceId,
         emqx_postgresql,
-        Source#{prepare_statement => #{ResourceId => SQL}}
+        Source#{prepare_statement => #{ResourceId => SQL}},
+        ?AUTHZ_TYPE
     ),
     Source#{
         annotations => #{

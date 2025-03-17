@@ -25,7 +25,7 @@
 -export([
     cleanup_resources/0,
     make_resource_id/1,
-    create_resource/3,
+    create_resource/4,
     update_resource/2,
     remove_resource/1,
     update_config/2,
@@ -52,12 +52,12 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(ResourceId, Module, Config) ->
+create_resource(ResourceId, Module, Config, Type) ->
     Result = emqx_resource:create_local(
         ResourceId,
         ?AUTHZ_RESOURCE_GROUP,
         Module,
-        Config,
+        Config#{owner_id => Type},
         ?DEFAULT_RESOURCE_OPTS
     ),
     start_resource_if_enabled(Result, ResourceId, Config).

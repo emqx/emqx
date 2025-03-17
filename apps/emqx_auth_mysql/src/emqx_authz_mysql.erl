@@ -16,9 +16,6 @@
 
 -module(emqx_authz_mysql).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authz.hrl").
-
 -behaviour(emqx_authz_source).
 
 -define(PREPARE_KEY, ?MODULE).
@@ -30,6 +27,10 @@
     destroy/1,
     authorize/4
 ]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
+-include("emqx_auth_mysql.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -43,7 +44,7 @@ create(#{query := SQL} = Source0) ->
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceId = emqx_authz_utils:make_resource_id(mysql),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source, ?AUTHZ_TYPE),
     Source#{
         annotations => #{
             id => ResourceId, tmpl_token => TmplToken, cache_key_template => CacheKeyTemplate

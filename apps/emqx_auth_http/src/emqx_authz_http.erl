@@ -16,10 +16,6 @@
 
 -module(emqx_authz_http).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
@@ -30,6 +26,11 @@
     authorize/4,
     format_for_api/1
 ]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_auth_http.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -67,7 +68,8 @@ create(Config) ->
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceId,
         emqx_bridge_http_connector,
-        NConfig
+        NConfig,
+        ?AUTHZ_TYPE
     ),
     NConfig#{annotations => Annotations#{id => ResourceId}}.
 
