@@ -25,7 +25,6 @@
 -export([
     cleanup_resources/0,
     make_resource_id/1,
-    create_resource/2,
     create_resource/3,
     update_resource/2,
     remove_resource/1,
@@ -52,10 +51,6 @@
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
-
-create_resource(Module, Config) ->
-    ResourceId = make_resource_id(Module),
-    create_resource(ResourceId, Module, Config).
 
 create_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
