@@ -93,7 +93,7 @@ cleanup_resources() ->
     ).
 
 make_resource_id(Name) ->
-    NameBin = emqx_utils_conv:bin(Name),
+    NameBin = iolist_to_binary(["authz:", emqx_utils_conv:bin(Name)]),
     emqx_resource:generate_id(NameBin).
 
 update_config(Path, ConfigRequest) ->
