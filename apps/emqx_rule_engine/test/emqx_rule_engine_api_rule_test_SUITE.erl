@@ -149,7 +149,10 @@ t_ctx_connected(_) ->
 
 t_ctx_disconnected(_) ->
     SQL =
-        <<"SELECT clientid, username, reason, disconnected_at, node FROM \"$events/client_disconnected\"">>,
+        <<
+            "SELECT clientid, username, reason, connected_at, disconnected_at, node"
+            " FROM \"$events/client_disconnected\""
+        >>,
 
     Context =
         #{
@@ -158,7 +161,9 @@ t_ctx_disconnected(_) ->
             reason => <<"normal">>,
             username => <<"u_emqx">>
         },
-    Expected = check_result([clientid, username, reason], [disconnected_at, node], Context),
+    Expected = check_result(
+        [clientid, username, reason], [connected_at, disconnected_at, node], Context
+    ),
     do_test(SQL, Context, Expected).
 
 t_ctx_connack(_) ->
