@@ -117,6 +117,7 @@
         resource := [gen_statem:from()],
         channel := #{channel_id() => [gen_statem:from()]}
     },
+    owner_id = undefined,
     extra
 }).
 
@@ -162,6 +163,24 @@
 
 -define(IS_STATUS(ST),
     ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
+).
+
+%% If owner_id exists, log owner ID, otherwise log resource_id
+-define(LOG(LEVEL, FIELDS, DATA),
+    case is_binary(DATA#data.owner_id) of
+        true ->
+            ?SLOG(
+                LEVEL,
+                maps:merge(FIELDS, #{owner_id => DATA#data.owner_id, internal_resid => DATA#data.id}),
+                #{
+                    tag => tag(DATA#data.group, DATA#data.type)
+                }
+            );
+        false ->
+            ?SLOG(LEVEL, maps:merge(FIELDS, #{resource_id => DATA#data.id}), #{
+                tag => tag(DATA#data.group, DATA#data.type)
+            })
+    end
 ).
 
 -type add_channel_opts() :: #{
@@ -680,7 +699,8 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
         opts = Opts,
         state = undefined,
         error = undefined,
-        added_channels = #{}
+        added_channels = #{},
+        owner_id = maps:get(owner_id, Opts, undefined)
     },
     gen_statem:start_link(?REF(ResId), ?MODULE, {Data, Opts}, []).
 
@@ -878,17 +898,16 @@ handle_event({timeout, #start_channel_health_check{channel_id = _}}, _, _State, 
     keep_state_and_data;
 % Ignore all other events
 handle_event(EventType, EventData, State, Data) ->
-    ?SLOG(
+    ?LOG(
         error,
         #{
             msg => "ignore_all_other_events",
-            resource_id => Data#data.id,
             event_type => EventType,
             event_data => EventData,
             state => State,
             data => emqx_utils:redact(Data)
         },
-        #{tag => tag(Data#data.group, Data#data.type)}
+        Data
     ),
     keep_state_and_data.
 
@@ -948,7 +967,7 @@ handle_remove_event(From, ClearMetrics, Data) ->
 
 start_resource(Data0, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
-    #data{id = ResId, mod = Mod, config = Config, group = Group, type = Type} = Data0,
+    #data{id = ResId, mod = Mod, config = Config} = Data0,
     ok = ensure_metrics(ResId),
     case emqx_resource:call_start(ResId, Mod, Config) of
         {ok, ResourceState} ->
@@ -967,14 +986,13 @@ start_resource(Data0, From) ->
             {next_state, ?state_connecting, update_state(Data), Actions};
         {error, Reason} = Err ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
-            ?SLOG(
+            ?LOG(
                 log_level(IsDryRun),
                 #{
                     msg => "start_resource_failed",
-                    resource_id => ResId,
                     reason => Reason
                 },
-                #{tag => tag(Group, Type)}
+                Data0
             ),
             _ = maybe_alarm(?status_disconnected, IsDryRun, ResId, Err, Data0#data.error),
             %% Add channels and raise alarms
@@ -1102,9 +1120,7 @@ add_channels_to_resource_state([{ChannelId, ChannelConfig} | Rest], Data, Action
         id = ResId,
         mod = Mod,
         state = State,
-        added_channels = AddedChannelsMap,
-        group = Group,
-        type = Type
+        added_channels = AddedChannelsMap
     } = Data,
     ensure_metrics(ChannelId),
     case
@@ -1127,15 +1143,14 @@ add_channels_to_resource_state([{ChannelId, ChannelConfig} | Rest], Data, Action
             };
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(ResId),
-            ?SLOG(
+            ?LOG(
                 log_level(IsDryRun),
                 #{
                     msg => "add_channel_failed",
-                    resource_id => ResId,
                     channel_id => ChannelId,
                     reason => Reason
                 },
-                #{tag => tag(Group, Type)}
+                Data
             ),
             NewAddedChannelsMap = maps:put(
                 ChannelId,
@@ -1187,9 +1202,7 @@ remove_channels_in_list([ChannelId | Rest], Data) ->
         id = ResId,
         added_channels = AddedChannelsMap,
         mod = Mod,
-        state = State,
-        group = Group,
-        type = Type
+        state = State
     } = Data,
     IsDryRun = emqx_resource:is_dry_run(ResId),
     _ = maybe_clear_alarm(IsDryRun, ChannelId),
@@ -1202,17 +1215,14 @@ remove_channels_in_list([ChannelId | Rest], Data) ->
             };
         {error, Reason} ->
             ?tp("remove_channel_failed", #{resource_id => ResId, reason => Reason}),
-            ?SLOG(
+            ?LOG(
                 log_level(IsDryRun),
                 #{
                     msg => "remove_channel_failed",
-                    resource_id => ResId,
-                    group => Group,
-                    type => Type,
                     channel_id => ChannelId,
                     reason => Reason
                 },
-                #{tag => tag(Group, Type)}
+                Data
             ),
             NewData = Data#data{
                 added_channels = NewAddedChannelsMap
@@ -1324,12 +1334,7 @@ handle_remove_channel(From, ChannelId, Data0) ->
     end.
 
 handle_remove_channel_exists(From, ChannelId, Data) ->
-    #data{
-        id = Id,
-        group = Group,
-        type = Type,
-        added_channels = AddedChannelsMap
-    } = Data,
+    #data{id = Id, added_channels = AddedChannelsMap} = Data,
     %% Note: if updating these actions, check if `handle_update_channel' stays consistent.
     Actions0 = [
         abort_retry_add_channel_action(ChannelId),
@@ -1352,15 +1357,14 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
         {error, Reason} = Error ->
             IsDryRun = emqx_resource:is_dry_run(Id),
             ?tp("remove_channel_failed", #{resource_id => Id, reason => Reason}),
-            ?SLOG(
+            ?LOG(
                 log_level(IsDryRun),
                 #{
                     msg => "remove_channel_failed",
-                    resource_id => Id,
                     channel_id => ChannelId,
                     reason => Reason
                 },
-                #{tag => tag(Group, Type)}
+                Data
             ),
             %% Note: if updating these actions, check if `handle_update_channel' stays
             %% consistent.
@@ -1484,16 +1488,14 @@ continue_resource_health_check_connected(NewStatus, Data0) ->
             Actions = Replies ++ Actions0 ++ resource_health_check_actions(Data),
             {keep_state, Data, Actions};
         _ ->
-            #data{id = ResId, group = Group, type = Type} = Data0,
-            IsDryRun = emqx_resource:is_dry_run(ResId),
-            ?SLOG(
+            IsDryRun = emqx_resource:is_dry_run(Data0#data.id),
+            ?LOG(
                 log_level(IsDryRun),
                 #{
                     msg => "health_check_failed",
-                    resource_id => ResId,
                     status => NewStatus
                 },
-                #{tag => tag(Group, Type)}
+                Data0
             ),
             %% Note: works because, coincidentally, channel/resource status is a
             %% subset of resource manager state...  But there should be a conversion
@@ -2060,14 +2062,13 @@ parse_health_check_result({Status, Error}, _Data) when ?IS_STATUS(Status) ->
     {Status, {error, Error}};
 parse_health_check_result({error, Error}, Data) ->
     ?tp("health_check_exception", #{resource_id => Data#data.id, reason => Error}),
-    ?SLOG(
+    ?LOG(
         error,
         #{
             msg => "health_check_exception",
-            resource_id => Data#data.id,
             reason => Error
         },
-        #{tag => tag(Data#data.group, Data#data.type)}
+        Data
     ),
     {?status_disconnected, {error, Error}}.
 
