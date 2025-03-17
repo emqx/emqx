@@ -30,8 +30,8 @@ If one of the limiters lack configuration, we simply don't do each action above.
     delete_client_limiter_group/1
 ]).
 
-%% `emqx_channel:set_limiter_adjustment_fn' hook
--export([adjust_limiter/1]).
+%% 'channel.limiter_adjustment' hookpoint
+-export([adjust_limiter/2]).
 
 -export_type([
     root_config/0,
@@ -40,6 +40,8 @@ If one of the limiters lack configuration, we simply don't do each action above.
     client_config/0,
     tenant_config/0
 ]).
+
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -103,18 +105,20 @@ delete_client_limiter_group(Ns) ->
     emqx_limiter:delete_group(client_group(Ns)).
 
 %%------------------------------------------------------------------------------
-%% `emqx_channel:set_limiter_adjustment_fn' hook
+%% 'channel.limiter_adjustment' hookpoint
 %%------------------------------------------------------------------------------
 
-adjust_limiter(#{tns := undefined}) ->
-    ignore;
-adjust_limiter(Context) ->
+adjust_limiter(#{tns := undefined}, _Limiter) ->
+    ok;
+adjust_limiter(Context, _Limiter) ->
     #{
         zone := Zone,
         listener_id := ListenerId,
         tns := Ns
     } = Context,
-    {ok, create_channel_client_container(Zone, ListenerId, Ns)}.
+    Limiter = create_channel_client_container(Zone, ListenerId, Ns),
+    ?tp("channel_limiter_adjusted", #{}),
+    {ok, Limiter}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

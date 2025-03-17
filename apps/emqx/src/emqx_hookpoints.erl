@@ -41,6 +41,7 @@
 -define(HOOKPOINTS, [
     'alarm.activated',
     'alarm.deactivated',
+    'channel.limiter_adjustment',
     'client.connect',
     'client.connack',
     'client.connected',
@@ -228,6 +229,16 @@ when
     session_birth_time := emqx_utils_calendar:epoch_millisecond(), clientid := emqx_types:clientid()
 }) ->
     callback_result().
+
+-callback 'channel.limiter_adjustment'(
+    #{
+        zone := emqx_types:zone(),
+        listener_id := emqx_listeners:listener_id(),
+        tns := undefined | binary()
+    },
+    emqx_limiter_client:t()
+) ->
+    fold_callback_result(emqx_limiter_client:t()).
 
 %% NOTE
 %% Executed out of channel process context
