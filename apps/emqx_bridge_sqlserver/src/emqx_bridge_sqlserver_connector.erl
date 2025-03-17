@@ -341,18 +341,17 @@ on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
     ),
     status_result(Results, State).
 
-status_result({ok, []}, _State) ->
-    %% pool is empty?
-    ?status_connecting;
+status_result({error, timeout}, State) ->
+    {?status_connecting, State, <<"timeout_checking_connections">>};
+status_result({ok, []}, State) ->
+    {?status_connecting, State, <<"connection_pool_not_initialized">>};
 status_result({ok, Results}, State) ->
     case lists:filter(fun(S) -> S =/= ok end, Results) of
         [] ->
             ?status_connected;
         [{error, Reason} | _] ->
             {?status_connecting, State, Reason}
-    end;
-status_result({error, timeout}, State) ->
-    {?status_connecting, State, <<"timeout_checking_connections">>}.
+    end.
 
 %%====================================================================
 %% ecpool callback fns
