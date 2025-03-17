@@ -140,53 +140,25 @@ delete_explicit_ns(Ns) ->
     ct:pal("delete explicit ns result:\n  ~p", [Res]),
     Res.
 
-get_tenant_limiter(Ns) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "tenant"]),
+get_explicit_ns_config(Ns) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "config"]),
     Res = simple_request(get, Path, ""),
-    ct:pal("get tenant limiter result:\n  ~p", [Res]),
+    ct:pal("get explicit ns config result:\n  ~p", [Res]),
     Res.
 
-create_tenant_limiter(Ns, Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "tenant"]),
-    Res = simple_request(post, Path, Params),
-    ct:pal("create tenant limiter result:\n  ~p", [Res]),
+update_explicit_ns_config(Ns, Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "config"]),
+    Res = simple_request(put, Path, Body),
+    ct:pal("update explicit ns config result:\n  ~p", [Res]),
     Res.
 
-update_tenant_limiter(Ns, Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "tenant"]),
-    Res = simple_request(put, Path, Params),
-    ct:pal("update tenant limiter result:\n  ~p", [Res]),
-    Res.
+disable_tenant_limiter(Ns) ->
+    Body = #{<<"limiter">> => #{<<"tenant">> => <<"disabled">>}},
+    update_explicit_ns_config(Ns, Body).
 
-delete_tenant_limiter(Ns) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "tenant"]),
-    Res = simple_request(delete, Path, ""),
-    ct:pal("delete tenant limiter result:\n  ~p", [Res]),
-    Res.
-
-get_client_limiter(Ns) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "client"]),
-    Res = simple_request(get, Path, ""),
-    ct:pal("get client limiter result:\n  ~p", [Res]),
-    Res.
-
-create_client_limiter(Ns, Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "client"]),
-    Res = simple_request(post, Path, Params),
-    ct:pal("create client limiter result:\n  ~p", [Res]),
-    Res.
-
-update_client_limiter(Ns, Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "client"]),
-    Res = simple_request(put, Path, Params),
-    ct:pal("update client limiter result:\n  ~p", [Res]),
-    Res.
-
-delete_client_limiter(Ns) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "limiter", "client"]),
-    Res = simple_request(delete, Path, ""),
-    ct:pal("delete client limiter result:\n  ~p", [Res]),
-    Res.
+disable_client_limiter(Ns) ->
+    Body = #{<<"limiter">> => #{<<"client">> => <<"disabled">>}},
+    update_explicit_ns_config(Ns, Body).
 
 tenant_limiter_params() ->
     tenant_limiter_params(_Overrides = #{}).
@@ -202,13 +174,25 @@ tenant_limiter_params(Overrides) ->
             <<"burst">> => <<"40/1m">>
         }
     },
-    emqx_utils_maps:deep_merge(Defaults, Overrides).
+    Merged = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    #{<<"limiter">> => #{<<"tenant">> => Merged}}.
 
 client_limiter_params() ->
     client_limiter_params(_Overrides = #{}).
 
 client_limiter_params(Overrides) ->
-    tenant_limiter_params(Overrides).
+    Defaults = #{
+        <<"bytes">> => #{
+            <<"rate">> => <<"10MB/10s">>,
+            <<"burst">> => <<"200MB/1m">>
+        },
+        <<"messages">> => #{
+            <<"rate">> => <<"3000/1s">>,
+            <<"burst">> => <<"40/1m">>
+        }
+    },
+    Merged = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    #{<<"limiter">> => #{<<"client">> => Merged}}.
 
 set_limiter_for_zone(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),
@@ -324,6 +308,7 @@ t_list_apis(_Config) ->
     ok.
 
 %% Smoke CRUD operations test for tenant limiter.
+%% Configuration management is tested in separate, specific test cases.
 t_explicit_namespace_management(_Config) ->
     ?assertMatch({200, []}, list_explicit_nss(#{})),
 
@@ -331,14 +316,20 @@ t_explicit_namespace_management(_Config) ->
     Ns2 = <<"tns2">>,
     ?assertMatch({204, _}, delete_explicit_ns(Ns1)),
     ?assertMatch({204, _}, delete_explicit_ns(Ns2)),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns2)),
     ?assertMatch({200, []}, list_explicit_nss(#{})),
 
     ?assertMatch({204, _}, create_explicit_ns(Ns1)),
     ?assertMatch({204, _}, delete_explicit_ns(Ns2)),
+    ?assertMatch({200, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns2)),
     ?assertMatch({200, [Ns1]}, list_explicit_nss(#{})),
 
     ?assertMatch({204, _}, create_explicit_ns(Ns2)),
     ?assertMatch({200, [Ns1, Ns2]}, list_explicit_nss(#{})),
+    ?assertMatch({200, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({200, _}, get_explicit_ns_config(Ns2)),
 
     ?assertMatch({200, [Ns1]}, list_explicit_nss(#{<<"limit">> => <<"1">>})),
     ?assertMatch({200, [Ns2]}, list_explicit_nss(#{<<"last_ns">> => Ns1})),
@@ -348,8 +339,12 @@ t_explicit_namespace_management(_Config) ->
     %% Idempotency
     ?assertMatch({204, _}, delete_explicit_ns(Ns1)),
     ?assertMatch({200, [Ns2]}, list_explicit_nss(#{})),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({200, _}, get_explicit_ns_config(Ns2)),
     ?assertMatch({204, _}, delete_explicit_ns(Ns2)),
     ?assertMatch({200, []}, list_explicit_nss(#{})),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns2)),
 
     ok.
 
@@ -358,27 +353,46 @@ t_tenant_limiter(_Config) ->
     Ns1 = <<"tns">>,
     Params1 = tenant_limiter_params(),
 
-    ?assertMatch({404, _}, get_tenant_limiter(Ns1)),
-    ?assertMatch({404, _}, update_tenant_limiter(Ns1, Params1)),
-    ?assertMatch({204, _}, delete_tenant_limiter(Ns1)),
-
     %% Must create the explicit namespace first
-    ?assertMatch({404, _}, create_tenant_limiter(Ns1, Params1)),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({404, _}, update_explicit_ns_config(Ns1, Params1)),
+    ?assertMatch({404, _}, disable_tenant_limiter(Ns1)),
+
     ?assertMatch({204, _}, create_explicit_ns(Ns1)),
-    ?assertMatch(
-        {201, #{
-            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
-        }},
-        create_tenant_limiter(Ns1, Params1)
-    ),
-    ?assertMatch({400, _}, create_tenant_limiter(Ns1, Params1)),
+
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+            <<"limiter">> := #{
+                <<"tenant">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+                }
+            }
         }},
-        get_tenant_limiter(Ns1)
+        update_explicit_ns_config(Ns1, Params1)
+    ),
+    %% Idempotency
+    ?assertMatch(
+        {200, #{
+            <<"limiter">> := #{
+                <<"tenant">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+                }
+            }
+        }},
+        update_explicit_ns_config(Ns1, Params1)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"limiter">> := #{
+                <<"tenant">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+                }
+            }
+        }},
+        get_explicit_ns_config(Ns1)
     ),
     Params2 = tenant_limiter_params(#{
         <<"bytes">> => #{
@@ -391,22 +405,35 @@ t_tenant_limiter(_Config) ->
     }),
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+            <<"limiter">> := #{
+                <<"tenant">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+                }
+            }
         }},
-        update_tenant_limiter(Ns1, Params2)
+        update_explicit_ns_config(Ns1, Params2)
     ),
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+            <<"limiter">> := #{
+                <<"tenant">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+                }
+            }
         }},
-        get_tenant_limiter(Ns1)
+        get_explicit_ns_config(Ns1)
     ),
 
-    ?assertMatch({204, _}, delete_tenant_limiter(Ns1)),
-    ?assertMatch({404, _}, get_tenant_limiter(Ns1)),
-    ?assertMatch({404, _}, update_tenant_limiter(Ns1, Params1)),
+    ?assertMatch(
+        {200, #{<<"limiter">> := #{<<"tenant">> := <<"disabled">>}}},
+        disable_tenant_limiter(Ns1)
+    ),
+    ?assertMatch(
+        {200, #{<<"limiter">> := #{<<"tenant">> := <<"disabled">>}}},
+        get_explicit_ns_config(Ns1)
+    ),
 
     ok.
 
@@ -415,27 +442,46 @@ t_client_limiter(_Config) ->
     Ns1 = <<"tns">>,
     Params1 = client_limiter_params(),
 
-    ?assertMatch({404, _}, get_client_limiter(Ns1)),
-    ?assertMatch({404, _}, update_client_limiter(Ns1, Params1)),
-    ?assertMatch({204, _}, delete_client_limiter(Ns1)),
-
     %% Must create the explicit namespace first
-    ?assertMatch({404, _}, create_client_limiter(Ns1, Params1)),
+    ?assertMatch({404, _}, get_explicit_ns_config(Ns1)),
+    ?assertMatch({404, _}, update_explicit_ns_config(Ns1, Params1)),
+    ?assertMatch({404, _}, disable_client_limiter(Ns1)),
+
     ?assertMatch({204, _}, create_explicit_ns(Ns1)),
-    ?assertMatch(
-        {201, #{
-            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
-        }},
-        create_client_limiter(Ns1, Params1)
-    ),
-    ?assertMatch({400, _}, create_client_limiter(Ns1, Params1)),
+
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+            <<"limiter">> := #{
+                <<"client">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+                }
+            }
         }},
-        get_client_limiter(Ns1)
+        update_explicit_ns_config(Ns1, Params1)
+    ),
+    %% Idempotency
+    ?assertMatch(
+        {200, #{
+            <<"limiter">> := #{
+                <<"client">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+                }
+            }
+        }},
+        update_explicit_ns_config(Ns1, Params1)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"limiter">> := #{
+                <<"client">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"10MB/10s">>, <<"burst">> := <<"200MB/1m">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"40/1m">>}
+                }
+            }
+        }},
+        get_explicit_ns_config(Ns1)
     ),
     Params2 = client_limiter_params(#{
         <<"bytes">> => #{
@@ -448,22 +494,35 @@ t_client_limiter(_Config) ->
     }),
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+            <<"limiter">> := #{
+                <<"client">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+                }
+            }
         }},
-        update_client_limiter(Ns1, Params2)
+        update_explicit_ns_config(Ns1, Params2)
     ),
     ?assertMatch(
         {200, #{
-            <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
-            <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+            <<"limiter">> := #{
+                <<"client">> := #{
+                    <<"bytes">> := #{<<"rate">> := <<"infinity">>, <<"burst">> := <<"0/1d">>},
+                    <<"messages">> := #{<<"rate">> := <<"3000/1s">>, <<"burst">> := <<"60/1m">>}
+                }
+            }
         }},
-        get_client_limiter(Ns1)
+        get_explicit_ns_config(Ns1)
     ),
 
-    ?assertMatch({204, _}, delete_client_limiter(Ns1)),
-    ?assertMatch({404, _}, get_client_limiter(Ns1)),
-    ?assertMatch({404, _}, update_client_limiter(Ns1, Params1)),
+    ?assertMatch(
+        {200, #{<<"limiter">> := #{<<"client">> := <<"disabled">>}}},
+        disable_client_limiter(Ns1)
+    ),
+    ?assertMatch(
+        {200, #{<<"limiter">> := #{<<"client">> := <<"disabled">>}}},
+        get_explicit_ns_config(Ns1)
+    ),
 
     ok.
 
@@ -482,7 +541,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 <<"bytes">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>},
                 <<"messages">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>}
             }),
-            ?assertMatch({201, _}, create_client_limiter(Ns, ClientParams1)),
+            ?assertMatch({200, _}, update_explicit_ns_config(Ns, ClientParams1)),
             Username = Ns,
             ClientId1 = ?NEW_CLIENTID(1),
             assert_limited(#{
@@ -495,7 +554,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 }),
                 timeout => 1_000
             }),
-            {204, _} = delete_client_limiter(Ns),
+            {200, _} = disable_client_limiter(Ns),
             %% Tenant limiter composes with zone limiter.
             set_limiter_for_zone(messages_rate, <<"infinity">>),
             set_limiter_for_zone(bytes_rate, <<"infinity">>),
@@ -503,7 +562,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 <<"bytes">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>},
                 <<"messages">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>}
             }),
-            ?assertMatch({201, _}, create_tenant_limiter(Ns, TenantParams1)),
+            ?assertMatch({200, _}, update_explicit_ns_config(Ns, TenantParams1)),
             ClientId2 = ?NEW_CLIENTID(2),
             assert_limited(#{
                 clientid => ClientId2,
@@ -522,7 +581,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 <<"bytes">> => #{<<"rate">> => <<"infinity">>, <<"burst">> => <<"0/1s">>},
                 <<"messages">> => #{<<"rate">> => <<"infinity">>, <<"burst">> => <<"0/1s">>}
             }),
-            ?assertMatch({200, _}, update_tenant_limiter(Ns, TenantParams2)),
+            ?assertMatch({200, _}, update_explicit_ns_config(Ns, TenantParams2)),
             ClientId3 = ?NEW_CLIENTID(3),
             assert_limited(#{
                 clientid => ClientId3,
@@ -534,7 +593,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 }),
                 timeout => 1_000
             }),
-            {204, _} = delete_tenant_limiter(Ns),
+            {200, _} = disable_tenant_limiter(Ns),
 
             %% Check that, if we delete an explicit namespace with live clients, they
             %% still can publish without crashing.
@@ -542,8 +601,8 @@ t_adjust_limiters(Config) when is_list(Config) ->
             set_limiter_for_listener(bytes_rate, <<"infinity">>),
             set_limiter_for_zone(messages_rate, <<"infinity">>),
             set_limiter_for_zone(bytes_rate, <<"infinity">>),
-            ?assertMatch({201, _}, create_client_limiter(Ns, ClientParams1)),
-            ?assertMatch({201, _}, create_tenant_limiter(Ns, TenantParams1)),
+            TenantAndClientParams1 = emqx_utils_maps:deep_merge(ClientParams1, TenantParams1),
+            ?assertMatch({200, _}, update_explicit_ns_config(Ns, TenantAndClientParams1)),
             ClientId4 = ?NEW_CLIENTID(4),
             C = connect(ClientId4, Username),
             ?assertMatch({204, _}, delete_explicit_ns(Ns)),

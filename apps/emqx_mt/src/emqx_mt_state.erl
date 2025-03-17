@@ -31,14 +31,22 @@
     list_explicit_ns/2,
     create_explicit_ns/1,
     delete_explicit_ns/1,
-    is_known_explicit_ns/1
+    is_known_explicit_ns/1,
+
+    get_root_configs/1,
+    update_root_configs/2
 ]).
 
 %% Limiter
 -export([
-    set_limiter_config/3,
-    get_limiter_config/2,
-    delete_limiter_config/2
+    get_limiter_config/2
+]).
+
+%% In-transaction fns
+-export([
+    create_explicit_ns_txn/1,
+    delete_explicit_ns_txn/1,
+    update_root_configs_txn/2
 ]).
 
 -include("emqx_mt.hrl").
@@ -373,17 +381,18 @@ is_known_explicit_ns(Ns) ->
             true
     end.
 
--spec set_limiter_config(
-    emqx_mt:tns(),
-    emqx_mt_limiter:limiter_kind(),
-    emqx_mt_limiter:tenant_config() | emqx_mt_limiter:client_config()
-) ->
-    {ok, new | updated} | {error, {aborted, _}} | {error, not_found}.
-set_limiter_config(Ns, Kind, Config) ->
-    transaction(fun set_limiter_config_txn/3, [Ns, Kind, Config]).
+-spec get_root_configs(emqx_mt:tns()) ->
+    {ok, emqx_mt_config:root_config()} | {error, not_found}.
+get_root_configs(Ns) ->
+    case mnesia:dirty_read(?CONFIG_TAB, Ns) of
+        [#?CONFIG_TAB{configs = Configs}] ->
+            {ok, Configs};
+        _ ->
+            {error, not_found}
+    end.
 
-delete_limiter_config(Ns, Kind) ->
-    transaction(fun delete_limiter_config_txn/2, [Ns, Kind]).
+update_root_configs(Ns, NewConfig) ->
+    transaction(fun ?MODULE:update_root_configs_txn/2, [Ns, NewConfig]).
 
 get_limiter_config(Ns, Kind) ->
     case mnesia:dirty_read(?CONFIG_TAB, Ns) of
@@ -433,33 +442,16 @@ delete_explicit_ns_txn(Ns) ->
 tns_config_size() ->
     mnesia:table_info(?CONFIG_TAB, size).
 
-delete_limiter_config_txn(Ns, Kind) ->
-    case mnesia:read(?CONFIG_TAB, Ns, write) of
-        [#?CONFIG_TAB{configs = #{?limiter := LimiterConfig0} = Configs0} = Rec0] ->
-            LimiterConfig = maps:remove(Kind, LimiterConfig0),
-            Configs = Configs0#{?limiter := LimiterConfig},
-            Rec = Rec0#?CONFIG_TAB{configs = Configs},
-            ok = mnesia:write(?CONFIG_TAB, Rec, write),
-            ok;
-        _ ->
-            {error, not_found}
-    end.
-
-set_limiter_config_txn(Ns, Kind, Config) ->
-    case mnesia:read(?CONFIG_TAB, Ns, write) of
+update_root_configs_txn(Ns, NewConfigs0) ->
+    maybe
+        [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ?=
+            mnesia:read(?CONFIG_TAB, Ns, write),
+        Diffs = emqx_utils_maps:diff_maps(NewConfigs0, OldConfigs),
+        NewConfigs = emqx_utils_maps:deep_merge(OldConfigs, NewConfigs0),
+        Rec = Rec0#?CONFIG_TAB{configs = NewConfigs},
+        ok = mnesia:write(?CONFIG_TAB, Rec, write),
+        {ok, #{diffs => Diffs, configs => NewConfigs}}
+    else
         [] ->
-            {error, not_found};
-        [#?CONFIG_TAB{configs = #{?limiter := #{Kind := _} = OldLimiter} = OldConfigs} = Rec0] ->
-            Limiter = OldLimiter#{Kind := Config},
-            Configs = OldConfigs#{?limiter := Limiter},
-            Rec = Rec0#?CONFIG_TAB{configs = Configs},
-            ok = mnesia:write(?CONFIG_TAB, Rec, write),
-            {ok, updated};
-        [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ->
-            OldLimiter = maps:get(?limiter, OldConfigs, #{}),
-            Limiter = OldLimiter#{Kind => Config},
-            Configs = OldConfigs#{?limiter => Limiter},
-            Rec = Rec0#?CONFIG_TAB{configs = Configs},
-            ok = mnesia:write(?CONFIG_TAB, Rec, write),
-            {ok, new}
+            {error, not_found}
     end.

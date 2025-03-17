@@ -45,36 +45,12 @@ emqx_mt_api {
         desc: "Delete explicit namespace"
         label: "Delete explicit namespace"
     }
-    get_client_limiter {
-        desc: "Get client limiter configuration"
-        label: "Get client limiter"
+    get_explicit_ns_config {
+        desc: "Get explicit namespace configuration"
+        label: "Get explicit namespace configuration"
     }
-    create_client_limiter {
-        desc: "Create client limiter configuration"
-        label: "Create client limiter"
-    }
-    update_client_limiter {
-        desc: "Update client limiter configuration"
-        label: "Update client limiter"
-    }
-    delete_client_limiter {
-        desc: "Delete client limiter configuration"
-        label: "Delete client limiter"
-    }
-    get_tenant_limiter {
-        desc: "Get tenant limiter configuration"
-        label: "Get tenant limiter"
-    }
-    create_tenant_limiter {
-        desc: "Create tenant limiter configuration"
-        label: "Create tenant limiter"
-    }
-    update_tenant_limiter {
-        desc: "Update tenant limiter configuration"
-        label: "Update tenant limiter"
-    }
-    delete_tenant_limiter {
-        desc: "Delete tenant limiter configuration"
-        label: "Delete tenant limiter"
+    update_explicit_ns_config {
+        desc: "Update explicit namespace configuration"
+        label: "Update explicit namespace configuration"
     }
 }

@@ -24,10 +24,12 @@ If one of the limiters lack configuration, we simply don't do each action above.
     create_tenant_limiter_group/2,
     update_tenant_limiter_group/2,
     delete_tenant_limiter_group/1,
+    ensure_tenant_limiter_group_absent/1,
 
     create_client_limiter_group/2,
     update_client_limiter_group/2,
     delete_client_limiter_group/1,
+    ensure_client_limiter_group_absent/1,
 
     cleanup_configs/2
 ]).
@@ -93,6 +95,9 @@ update_tenant_limiter_group(Ns, Config) ->
 delete_tenant_limiter_group(Ns) ->
     emqx_limiter:delete_group(tenant_group(Ns)).
 
+ensure_tenant_limiter_group_absent(Ns) ->
+    ensure_group_absent(tenant_group(Ns)).
+
 %%
 
 create_client_limiter_group(Ns, Config) ->
@@ -105,6 +110,9 @@ update_client_limiter_group(Ns, Config) ->
 
 delete_client_limiter_group(Ns) ->
     emqx_limiter:delete_group(client_group(Ns)).
+
+ensure_client_limiter_group_absent(Ns) ->
+    ensure_group_absent(client_group(Ns)).
 
 %%
 
