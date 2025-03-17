@@ -19,15 +19,18 @@
 -define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
 -define(SESSION_HOOK, {?MODULE, on_session_created, []}).
 -define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
+-define(LIMITER_HOOK, {emqx_mt_limiter, adjust_limiter, []}).
 
 register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK, ?HP_HIGHEST),
     ok.
 
 unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
+    ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK),
     ok.
 
 on_session_created(
