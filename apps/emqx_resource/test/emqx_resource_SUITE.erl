@@ -4409,7 +4409,7 @@ gauge_metric_set_fns() ->
     ].
 
 create(Id, Group, Type, Config) ->
-    emqx_resource:create_local(Id, Group, Type, Config, #{}).
+    create(Id, Group, Type, Config, #{}).
 
 create(Id, Group, Type, Config, Opts) ->
     Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
