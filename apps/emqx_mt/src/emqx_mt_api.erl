@@ -21,12 +21,12 @@
 
 %% `minirest' handlers
 -export([
-    ns_list/2,
-    managed_ns_list/2,
-    managed_ns/2,
-    managed_ns_config/2,
-    client_list/2,
-    client_count/2
+    '/mt/ns_list'/2,
+    '/mt/managed_ns_list'/2,
+    '/mt/ns/:ns'/2,
+    '/mt/ns/:ns/config'/2,
+    '/mt/ns/:ns/client_list'/2,
+    '/mt/ns/:ns/client_count'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -62,7 +62,7 @@ paths() ->
 
 schema("/mt/ns_list") ->
     #{
-        'operationId' => ns_list,
+        'operationId' => '/mt/ns_list',
         get => #{
             tags => ?TAGS,
             summary => <<"List Namespaces">>,
@@ -83,7 +83,7 @@ schema("/mt/ns_list") ->
     };
 schema("/mt/ns/:ns/client_list") ->
     #{
-        'operationId' => client_list,
+        'operationId' => '/mt/ns/:ns/client_list',
         get => #{
             tags => ?TAGS,
             summary => <<"List Clients in a Namespace">>,
@@ -106,7 +106,7 @@ schema("/mt/ns/:ns/client_list") ->
     };
 schema("/mt/ns/:ns/client_count") ->
     #{
-        'operationId' => client_count,
+        'operationId' => '/mt/ns/:ns/client_count',
         get => #{
             tags => ?TAGS,
             summary => <<"Count Clients in a Namespace">>,
@@ -121,7 +121,7 @@ schema("/mt/ns/:ns/client_count") ->
     };
 schema("/mt/managed_ns_list") ->
     #{
-        'operationId' => managed_ns_list,
+        'operationId' => '/mt/managed_ns_list',
         get => #{
             tags => ?TAGS,
             summary => <<"List managed namespaces">>,
@@ -142,7 +142,7 @@ schema("/mt/managed_ns_list") ->
     };
 schema("/mt/ns/:ns") ->
     #{
-        'operationId' => managed_ns,
+        'operationId' => '/mt/ns/:ns',
         post => #{
             tags => ?TAGS,
             summary => <<"Create managed namespace">>,
@@ -167,7 +167,7 @@ schema("/mt/ns/:ns") ->
     };
 schema("/mt/ns/:ns/config") ->
     #{
-        'operationId' => managed_ns_config,
+        'operationId' => '/mt/ns/:ns/config',
         get => #{
             tags => ?TAGS,
             summary => <<"Get managed namespace configuration">>,
@@ -284,13 +284,13 @@ error_schema(Code, Message) ->
 %% `minirest' handlers
 %%-------------------------------------------------------------------------------------------------
 
-ns_list(get, Params) ->
+'/mt/ns_list'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
     ?OK(emqx_mt:list_ns(LastNs, Limit)).
 
-client_list(get, #{bindings := #{ns := Ns}} = Params) ->
+'/mt/ns/:ns/client_list'(get, #{bindings := #{ns := Ns}} = Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastClientId = maps:get(<<"last_clientid">>, QS, ?MIN_CLIENTID),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
@@ -299,19 +299,19 @@ client_list(get, #{bindings := #{ns := Ns}} = Params) ->
         {error, not_found} -> ?NOT_FOUND("Namespace not found")
     end.
 
-client_count(get, #{bindings := #{ns := Ns}}) ->
+'/mt/ns/:ns/client_count'(get, #{bindings := #{ns := Ns}}) ->
     case emqx_mt:count_clients(Ns) of
         {ok, Count} -> ?OK(#{count => Count});
         {error, not_found} -> ?NOT_FOUND("Namespace not found")
     end.
 
-managed_ns_list(get, Params) ->
+'/mt/managed_ns_list'(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
     ?OK(emqx_mt:list_managed_ns(LastNs, Limit)).
 
-managed_ns(post, #{bindings := #{ns := Ns}}) ->
+'/mt/ns/:ns'(post, #{bindings := #{ns := Ns}}) ->
     case emqx_mt_config:create_managed_ns(Ns) of
         ok ->
             ?NO_CONTENT;
@@ -320,7 +320,7 @@ managed_ns(post, #{bindings := #{ns := Ns}}) ->
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end;
-managed_ns(delete, #{bindings := #{ns := Ns}}) ->
+'/mt/ns/:ns'(delete, #{bindings := #{ns := Ns}}) ->
     case emqx_mt_config:delete_managed_ns(Ns) of
         ok ->
             ?NO_CONTENT;
@@ -328,9 +328,9 @@ managed_ns(delete, #{bindings := #{ns := Ns}}) ->
             ?BAD_REQUEST(Reason)
     end.
 
-managed_ns_config(get, #{bindings := #{ns := Ns}}) ->
+'/mt/ns/:ns/config'(get, #{bindings := #{ns := Ns}}) ->
     with_known_managed_ns(Ns, fun() -> handle_get_managed_ns_config(Ns) end);
-managed_ns_config(put, #{body := Params, bindings := #{ns := Ns}}) ->
+'/mt/ns/:ns/config'(put, #{body := Params, bindings := #{ns := Ns}}) ->
     with_known_managed_ns(Ns, fun() -> handle_update_managed_ns_config(Ns, Params) end).
 
 %%-------------------------------------------------------------------------------------------------
