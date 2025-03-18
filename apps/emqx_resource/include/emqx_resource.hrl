@@ -118,7 +118,9 @@
     inflight_window => pos_integer(),
     %% Only for `emqx_resource_manager' usage.  If false, prevents spawning buffer
     %% workers, regardless of resource query mode.
-    spawn_buffer_workers => boolean()
+    spawn_buffer_workers => boolean(),
+    %% used only for authn authz resources to indicate the owner authenticator or authorizer
+    owner_id => binary() | atom()
 }.
 -type query_result() ::
     ok

@@ -49,7 +49,7 @@ create(#{cmd := CmdStr} = Source) ->
 update(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    case emqx_authz_utils:update_resource(emqx_redis, Source) of
+    case emqx_authz_utils:update_resource(emqx_redis, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

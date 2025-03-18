@@ -117,7 +117,6 @@
         resource := [gen_statem:from()],
         channel := #{channel_id() => [gen_statem:from()]}
     },
-    owner_id = undefined,
     extra
 }).
 
@@ -167,11 +166,11 @@
 
 %% If owner_id exists, log owner ID, otherwise log resource_id
 -define(LOG(LEVEL, FIELDS, DATA),
-    case is_binary(DATA#data.owner_id) of
-        true ->
+    case maps:get(owner_id, DATA#data.opts, undefined) of
+        OWNER_ID when is_binary(OWNER_ID) ->
             ?SLOG(
                 LEVEL,
-                maps:merge(FIELDS, #{owner_id => DATA#data.owner_id, internal_resid => DATA#data.id}),
+                maps:merge(FIELDS, #{owner_id => OWNER_ID, internal_resid => DATA#data.id}),
                 #{
                     tag => tag(DATA#data.group, DATA#data.type)
                 }
@@ -699,8 +698,7 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
         opts = Opts,
         state = undefined,
         error = undefined,
-        added_channels = #{},
-        owner_id = maps:get(owner_id, Opts, undefined)
+        added_channels = #{}
     },
     gen_statem:start_link(?REF(ResId), ?MODULE, {Data, Opts}, []).
 

@@ -65,7 +65,15 @@ create(Config0) ->
 update(Config0, #{resource_id := ResourceId} = _State) ->
     with_validated_config(Config0, fun(Config, NState) ->
         % {Config, NState} = parse_config(Config0),
-        case emqx_authn_utils:update_resource(emqx_bridge_http_connector, Config, ResourceId) of
+        case
+            emqx_authn_utils:update_resource(
+                emqx_bridge_http_connector,
+                Config,
+                ResourceId,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
+            )
+        of
             {error, Reason} ->
                 error({load_config_error, Reason});
             {ok, _} ->

@@ -60,7 +60,8 @@ update(#{query := SQL0, annotations := #{id := ResourceId}} = Source) ->
     case
         emqx_authz_utils:update_resource(
             emqx_postgresql,
-            Source#{prepare_statement => #{ResourceId => SQL}}
+            Source#{prepare_statement => #{ResourceId => SQL}},
+            ?AUTHZ_TYPE
         )
     of
         {error, Reason} ->

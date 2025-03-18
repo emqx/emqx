@@ -55,7 +55,7 @@ update(#{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    case emqx_authz_utils:update_resource(emqx_mysql, Source) of
+    case emqx_authz_utils:update_resource(emqx_mysql, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

@@ -75,7 +75,7 @@ create(Config) ->
 
 update(Config) ->
     #{annotations := Annotations} = NConfig = parse_config(Config),
-    case emqx_authz_utils:update_resource(emqx_bridge_http_connector, NConfig) of
+    case emqx_authz_utils:update_resource(emqx_bridge_http_connector, NConfig, ?AUTHZ_TYPE) of
         {error, Reason} -> error({load_config_error, Reason});
         {ok, Id} -> NConfig#{annotations => Annotations#{id => Id}}
     end.

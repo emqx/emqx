@@ -22,7 +22,7 @@
 
 -export([
     create_resource/5,
-    update_resource/3,
+    update_resource/5,
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
@@ -38,8 +38,9 @@
     cached_simple_sync_query/3
 ]).
 
--define(DEFAULT_RESOURCE_OPTS, #{
-    start_after_created => false
+-define(DEFAULT_RESOURCE_OPTS(OWNER_ID), #{
+    start_after_created => false,
+    owner_id => OWNER_ID
 }).
 
 %%--------------------------------------------------------------------
@@ -47,19 +48,20 @@
 %%--------------------------------------------------------------------
 
 create_resource(ResourceId, Module, Config, Mechanism, Backend) ->
-    OwnerId = bin([bin(Mechanism), ":", bin(Backend)]),
+    OwnerId = owner_id(Mechanism, Backend),
     Result = emqx_resource:create_local(
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
         Module,
-        Config#{owner_id => OwnerId},
-        ?DEFAULT_RESOURCE_OPTS
+        Config,
+        ?DEFAULT_RESOURCE_OPTS(OwnerId)
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
-update_resource(Module, Config, ResourceId) ->
+update_resource(Module, Config, ResourceId, Mechanism, Backend) ->
+    OwnerId = owner_id(Mechanism, Backend),
     Result = emqx_resource:recreate_local(
-        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
+        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS(OwnerId)
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
@@ -198,3 +200,6 @@ without_password(Credential, [Name | Rest]) ->
         false ->
             without_password(Credential, Rest)
     end.
+
+owner_id(Mechanism, Backend) ->
+    bin([bin(Mechanism), ":", bin(Backend)]).

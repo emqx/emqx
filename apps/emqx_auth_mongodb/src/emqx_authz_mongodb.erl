@@ -59,7 +59,7 @@ update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
+    case emqx_authz_utils:update_resource(emqx_mongodb, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

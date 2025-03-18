@@ -46,7 +46,11 @@ do_create(Config0) ->
 
 update(Config, #{resource_id := ResourceId} = _State) ->
     NState = parse_config(Config),
-    case emqx_authn_utils:update_resource(emqx_ldap, Config, ResourceId) of
+    case
+        emqx_authn_utils:update_resource(
+            emqx_ldap, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+        )
+    of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

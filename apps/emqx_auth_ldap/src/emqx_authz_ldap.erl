@@ -69,7 +69,7 @@ create(Source0) ->
     Source#{annotations => Annotations}.
 
 update(Source) ->
-    case emqx_authz_utils:update_resource(emqx_ldap, Source) of
+    case emqx_authz_utils:update_resource(emqx_ldap, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

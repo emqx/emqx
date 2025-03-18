@@ -47,7 +47,11 @@ create(Config0) ->
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_mysql, Config, ResourceId) of
+    case
+        emqx_authn_utils:update_resource(
+            emqx_mysql, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+        )
+    of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->
