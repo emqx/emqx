@@ -275,8 +275,15 @@ on_get_channel_status(
     #{installed_channels := Channels} = State
 ) ->
     case maps:find(ChannelId, Channels) of
-        {ok, _} -> on_get_status(InstanceId, State);
-        error -> ?status_disconnected
+        {ok, _} ->
+            case on_get_status(InstanceId, State) of
+                ?status_connected ->
+                    ?status_connected;
+                {?status_connecting, _State, Reason} ->
+                    {?status_connecting, Reason}
+            end;
+        error ->
+            ?status_disconnected
     end.
 
 on_get_channels(ResId) ->
