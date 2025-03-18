@@ -9,6 +9,8 @@
 %% API
 -export([
     get_max_sessions/1,
+    get_allow_only_managed_namespaces/0,
+    set_allow_only_managed_namespaces/1,
 
     create_managed_ns/1,
     delete_managed_ns/1,
@@ -84,6 +86,30 @@ get_max_sessions(Ns) ->
         Max
     else
         _ -> emqx_config:get([multi_tenancy, default_max_sessions])
+    end.
+
+-doc """
+When `allow_only_managed_namespaces = true`, we don't allow clients from non-managed
+namespaces to connect
+""".
+-spec get_allow_only_managed_namespaces() -> boolean().
+get_allow_only_managed_namespaces() ->
+    emqx_config:get([multi_tenancy, allow_only_managed_namespaces]).
+
+-doc """
+When `allow_only_managed_namespaces = true`, we don't allow clients from non-managed
+namespaces to connect
+""".
+-spec set_allow_only_managed_namespaces(boolean()) -> ok.
+set_allow_only_managed_namespaces(Bool) ->
+    maybe
+        {ok, _} ?=
+            emqx_conf:update(
+                [multi_tenancy, allow_only_managed_namespaces],
+                Bool,
+                #{override_to => cluster}
+            ),
+        ok
     end.
 
 -spec get_managed_ns_config(emqx_mt:tns()) ->

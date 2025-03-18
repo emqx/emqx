@@ -399,6 +399,19 @@ t_session_limit_exceeded(_Config) ->
     emqtt:stop(Pid2),
     ok.
 
+%% When `multi_tenancy.allow_only_managed_namespaces = true', we don't allow clients from
+%% non-managed namespaces to connect.
+t_allow_only_managed_namespaces(_Config) ->
+    ok = emqx_mt_config:set_allow_only_managed_namespaces(true),
+    UnknownNs = <<"implicit-ns">>,
+    ClientId = ?NEW_CLIENTID(1),
+    ?assertError({error, {not_authorized, _}}, connect(ClientId, UnknownNs)),
+    %% Clients without extracted namespace are also forbidden from connecting.
+    {ok, Pid} = emqtt:start_link(#{proto_ver => v5}),
+    unlink(Pid),
+    ?assertMatch({error, {not_authorized, _}}, emqtt:connect(Pid)),
+    ok.
+
 %% Smoke CRUD operations test for tenant limiter.
 t_tenant_limiter(_Config) ->
     Ns1 = <<"tns">>,

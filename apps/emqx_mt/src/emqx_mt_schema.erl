@@ -35,6 +35,15 @@ fields("config") ->
                     importance => ?IMPORTANCE_HIGH,
                     default => infinity
                 }
+            )},
+        {allow_only_managed_namespaces,
+            mk(
+                boolean(),
+                #{
+                    desc => ?DESC("allow_only_managed_namespaces"),
+                    importance => ?IMPORTANCE_HIGH,
+                    default => false
+                }
             )}
     ].
 
