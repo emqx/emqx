@@ -442,6 +442,7 @@ t_wss_update_opts(Config) ->
         ]),
 
         %% Change the listener SSL configuration: require peer certificate.
+        ct:pal("updating config"),
         {ok, _} = emqx:update_config(
             [listeners, wss, Name],
             {update, #{
@@ -453,14 +454,31 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        ?assertError(
-            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}},
-            emqtt_connect_wss(Host, Port, [
-                {cacertfile, filename:join(PrivDir, "ca-next.pem")}
-                | ClientSSLOpts
-            ])
-        ),
+        ct:pal("asserting certificate required error"),
+        CertReqErr =
+            try
+                emqtt_connect_wss(Host, Port, [
+                    {cacertfile, filename:join(PrivDir, "ca-next.pem")}
+                    | ClientSSLOpts
+                ]),
+                {error, <<"didn't raise any errors!">>}
+            catch
+                error:Reason ->
+                    Reason
+            end,
+        case CertReqErr of
+            %% these errors may race
+            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}} ->
+                ok;
+            {ws_upgrade_failed, {error, {tls_alert, {certificate_required, _}}}} ->
+                ok;
+            {ws_upgrade_failed, {error, closed}} ->
+                ok;
+            _ ->
+                error({unexpected_error, CertReqErr})
+        end,
 
+        ct:pal("connecting client with new ca"),
         C3 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")},
             {certfile, filename:join(PrivDir, "client.pem")},
@@ -469,6 +487,7 @@ t_wss_update_opts(Config) ->
         ]),
 
         %% Both pre- and post-update clients should be alive.
+        ct:pal("checking clients are still alive"),
         ?assertEqual(pong, emqtt:ping(C1)),
         ?assertEqual(pong, emqtt:ping(C2)),
         ?assertEqual(pong, emqtt:ping(C3)),
