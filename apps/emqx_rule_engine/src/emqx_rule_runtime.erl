@@ -99,6 +99,7 @@ do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
     catch
         %% ignore the errors if select or match failed
         _:Reason = {select_and_transform_error, Error} ->
+            ?EXT_TRACE_SET_STATUS_ERROR(select_and_transform_error),
             ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "SELECT_clause_exception",
@@ -109,6 +110,7 @@ do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {match_conditions_error, Error} ->
+            ?EXT_TRACE_SET_STATUS_ERROR(match_conditions_error),
             ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "WHERE_clause_exception",
@@ -119,6 +121,7 @@ do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {select_and_collect_error, Error} ->
+            ?EXT_TRACE_SET_STATUS_ERROR(select_and_collect_error),
             ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "FOREACH_clause_exception",
@@ -129,6 +132,7 @@ do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
             ),
             {error, Reason};
         _:Reason = {match_incase_error, Error} ->
+            ?EXT_TRACE_SET_STATUS_ERROR(match_incase_error),
             ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "INCASE_clause_exception",
@@ -139,6 +143,7 @@ do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
             ),
             {error, Reason};
         Class:Error:StkTrace ->
+            ?EXT_TRACE_SET_STATUS_ERROR(emqx_utils:readable_error_msg(Error)),
             ok = metrics_inc_exception(RuleId),
             trace_rule_sql(
                 "apply_rule_failed",
