@@ -23,6 +23,7 @@
 -export([
     '/mt/ns_list'/2,
     '/mt/managed_ns_list'/2,
+    '/mt/bulk_import_configs'/2,
     '/mt/ns/:ns'/2,
     '/mt/ns/:ns/config'/2,
     '/mt/ns/:ns/client_list'/2,
@@ -57,7 +58,8 @@ paths() ->
         "/mt/ns/:ns/client_list",
         "/mt/ns/:ns/client_count",
         "/mt/ns/:ns",
-        "/mt/ns/:ns/config"
+        "/mt/ns/:ns/config",
+        "/mt/bulk_import_configs"
     ].
 
 schema("/mt/ns_list") ->
@@ -195,6 +197,24 @@ schema("/mt/ns/:ns/config") ->
                     404 => error_schema('NOT_FOUND', "Namespace not found")
                 }
         }
+    };
+schema("/mt/bulk_import_configs") ->
+    #{
+        'operationId' => '/mt/bulk_import_configs',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Upsert namespace configurations in bulk">>,
+            description => ?DESC("bulk_import_configs"),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                hoconsc:array(ref(bulk_config_in)),
+                example_bulk_configs_in()
+            ),
+            responses =>
+                #{
+                    200 => <<"TODO">>,
+                    400 => error_schema('BAD_REQUEST', "Invalid configurations")
+                }
+        }
     }.
 
 param_path_ns() ->
@@ -263,6 +283,11 @@ fields(limiter_in) ->
 fields(session_config_in) ->
     [
         {max_sessions, mk(hoconsc:union([infinity, non_neg_integer()]), #{})}
+    ];
+fields(bulk_config_in) ->
+    [
+        {ns, mk(binary(), #{})},
+        {config, mk(ref(config_in), #{})}
     ];
 fields(config_out) ->
     %% At this moment, same schema as input
@@ -333,6 +358,9 @@ error_schema(Code, Message) ->
 '/mt/ns/:ns/config'(put, #{body := Params, bindings := #{ns := Ns}}) ->
     with_known_managed_ns(Ns, fun() -> handle_update_managed_ns_config(Ns, Params) end).
 
+'/mt/bulk_import_configs'(post, #{body := Params}) ->
+    handle_bulk_import_configs(Params).
+
 %%-------------------------------------------------------------------------------------------------
 %% Handler implementations
 %%-------------------------------------------------------------------------------------------------
@@ -347,7 +375,7 @@ handle_get_managed_ns_config(Ns) ->
 
 handle_update_managed_ns_config(Ns, Configs) ->
     case emqx_mt_config:update_managed_ns_config(Ns, Configs) of
-        {ok, #{configs := NewConfigs, errors := Errors}} when length(Errors) == 0 ->
+        {ok, #{configs := NewConfigs, errors := []}} ->
             ?OK(configs_out(NewConfigs));
         {error, not_found} ->
             managed_ns_not_found();
@@ -360,6 +388,31 @@ handle_update_managed_ns_config(Ns, Configs) ->
                 errors => Errors
             },
             ?INTERNAL_ERROR(Msg)
+    end.
+
+handle_bulk_import_configs(Entries) ->
+    case emqx_mt_config:bulk_import_configs(Entries) of
+        {ok, #{errors := []}} ->
+            ?NO_CONTENT;
+        {ok, #{errors := Errors}} ->
+            Msg = #{
+                hint => <<
+                    "Configurations were persisted, but some necessary"
+                    " side-effects failed to execute; please check the logs"
+                >>,
+                errors => Errors
+            },
+            ?INTERNAL_ERROR(Msg);
+        {error, {aborted, table_is_full}} ->
+            ?BAD_REQUEST(<<"Maximum number of managed namespaces reached">>);
+        {error, {duplicated_nss, Duplicated}} ->
+            Msg = iolist_to_binary([
+                <<"Duplicated namespaces in input: ">>,
+                lists:join(<<", ">>, Duplicated)
+            ]),
+            ?BAD_REQUEST(Msg);
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -397,6 +450,30 @@ example_config_in() ->
                     <<"client">> => maps:get(<<"limiter">>, example_limiter_out())
                 }
             }
+    }.
+
+example_bulk_configs_in() ->
+    #{
+        <<"bulk_import_configs">> =>
+            [
+                #{
+                    <<"ns">> => <<"ns1">>,
+                    <<"config">> => #{
+                        <<"limiter">> => #{
+                            <<"tenant">> => maps:get(<<"limiter">>, example_limiter_out()),
+                            <<"client">> => maps:get(<<"limiter">>, example_limiter_out())
+                        }
+                    }
+                },
+                #{
+                    <<"ns">> => <<"ns1">>,
+                    <<"config">> => #{
+                        <<"session">> => #{
+                            <<"max_sessions">> => 10
+                        }
+                    }
+                }
+            ]
     }.
 
 example_limiter_out() ->

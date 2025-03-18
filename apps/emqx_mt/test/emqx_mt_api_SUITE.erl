@@ -20,6 +20,8 @@
 
 -define(NEW_USERNAME(), iolist_to_binary("u-" ++ atom_to_list(?FUNCTION_NAME))).
 
+-define(MAX_NUM_TNS_CONFIGS, 1_000).
+
 %%------------------------------------------------------------------------------
 %% CT Boilerplate
 %%------------------------------------------------------------------------------
@@ -56,6 +58,14 @@ end_per_testcase(_TestCase, Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+-define(assertIntersectionEqual(EXPECTED_MAP, MAP),
+    ?assertEqual(
+        EXPECTED_MAP,
+        deep_intersect(EXPECTED_MAP, MAP),
+        #{expected => EXPECTED_MAP, got => MAP}
+    )
+).
 
 connect(ClientId, Username) ->
     Opts = [
@@ -152,6 +162,12 @@ update_managed_ns_config(Ns, Body) ->
     ct:pal("update managed ns config result:\n  ~p", [Res]),
     Res.
 
+bulk_import_configs(Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_import_configs"]),
+    Res = simple_request(post, Path, Body),
+    ct:pal("bulk import config result:\n  ~p", [Res]),
+    Res.
+
 disable_tenant_limiter(Ns) ->
     Body = #{<<"limiter">> => #{<<"tenant">> => <<"disabled">>}},
     update_managed_ns_config(Ns, Body).
@@ -203,6 +219,12 @@ session_params(Overrides) ->
     },
     Merged = emqx_utils_maps:deep_merge(Defaults, Overrides),
     #{<<"session">> => Merged}.
+
+bulk_import_configs_params(Entries) when is_list(Entries) ->
+    lists:map(
+        fun({Ns, Cfg}) -> #{<<"ns">> => Ns, <<"config">> => Cfg} end,
+        Entries
+    ).
 
 set_limiter_for_zone(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),
@@ -270,6 +292,22 @@ assert_limited(Opts) ->
     after 1_000 ->
         ct:fail("loop pid didn't die")
     end.
+
+deep_intersect(#{} = RefMap, #{} = Map) ->
+    lists:foldl(
+        fun({K, RefV}, Acc) ->
+            case maps:find(K, Map) of
+                {ok, #{} = V} when is_map(RefV) ->
+                    Acc#{K => deep_intersect(RefV, V)};
+                {ok, V} ->
+                    Acc#{K => V};
+                error ->
+                    Acc
+            end
+        end,
+        #{},
+        maps:to_list(RefMap)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -410,6 +448,102 @@ t_allow_only_managed_namespaces(_Config) ->
     {ok, Pid} = emqtt:start_link(#{proto_ver => v5}),
     unlink(Pid),
     ?assertMatch({error, {not_authorized, _}}, emqtt:connect(Pid)),
+    ok.
+
+%% Verifies bulk import config endpoint
+t_bulk_import_configs(_Config) ->
+    %% Seed config with some preexisting configs and namespaces
+    ExistingNs1 = <<"ens1">>,
+    {204, _} = create_managed_ns(ExistingNs1),
+
+    %% Will receive new config keys and leave existing one untouched
+    ExistingNs2 = <<"ens2">>,
+    {204, _} = create_managed_ns(ExistingNs2),
+    ExistingConfig2 = tenant_limiter_params(),
+    {200, _} = update_managed_ns_config(ExistingNs2, ExistingConfig2),
+
+    %% Will receive both new config keys and update existing one
+    ExistingNs3 = <<"ens3">>,
+    {204, _} = create_managed_ns(ExistingNs3),
+    ExistingConfig3 = tenant_limiter_params(),
+    {200, _} = update_managed_ns_config(ExistingNs3, ExistingConfig3),
+
+    %% Untouched
+    ExistingNs4 = <<"ens4">>,
+    {204, _} = create_managed_ns(ExistingNs4),
+
+    NewConfig1 = tenant_limiter_params(),
+    NewConfig2 = client_limiter_params(),
+    NewConfig3 = emqx_utils_maps:deep_merge(
+        #{<<"limiter">> => #{<<"tenant">> => <<"disabled">>}},
+        client_limiter_params()
+    ),
+    NewNs5 = <<"new-ns5">>,
+    NewConfig5 = client_limiter_params(),
+    ImportParams1 = bulk_import_configs_params([
+        {ExistingNs1, NewConfig1},
+        {ExistingNs2, NewConfig2},
+        {ExistingNs3, NewConfig3},
+        {NewNs5, NewConfig5}
+    ]),
+    ?assertMatch({204, _}, bulk_import_configs(ImportParams1)),
+
+    {200, Config1} = get_managed_ns_config(ExistingNs1),
+    ?assertIntersectionEqual(NewConfig1, Config1),
+    {200, Config2} = get_managed_ns_config(ExistingNs2),
+    ?assertIntersectionEqual(NewConfig2, Config2),
+    {200, Config3} = get_managed_ns_config(ExistingNs3),
+    ?assertIntersectionEqual(NewConfig3, Config3),
+    {200, Config4} = get_managed_ns_config(ExistingNs4),
+    ?assertEqual(#{}, Config4),
+    {200, Config5} = get_managed_ns_config(NewNs5),
+    ?assertIntersectionEqual(NewConfig5, Config5),
+
+    ok.
+
+%% Checks that we validate for duplicate namespaces when bulk importing.
+t_bulk_import_configs_duplicated_nss(_Config) ->
+    Ns1 = <<"ns1">>,
+    Ns2 = <<"ns2">>,
+    ImportParams1 = bulk_import_configs_params([
+        {Ns1, #{}},
+        {Ns1, #{}},
+        {<<"not-duplicated">>, #{}},
+        {Ns2, #{}},
+        {Ns2, #{}}
+    ]),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"Duplicated namespaces in input: ns1, ns2">>
+        }},
+        bulk_import_configs(ImportParams1)
+    ),
+    ok.
+
+%% Checks that we validate the maximum allowed number of configs.
+t_bulk_import_configs_max_configs(_Config) ->
+    TooManyConfigs0 =
+        lists:map(
+            fun(N) -> {<<"ns", (integer_to_binary(N))/binary>>, #{}} end,
+            lists:seq(1, ?MAX_NUM_TNS_CONFIGS + 1)
+        ),
+    TooManyConfigs = bulk_import_configs_params(TooManyConfigs0),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"Maximum number of managed namespaces reached">>
+        }},
+        bulk_import_configs(TooManyConfigs)
+    ),
+    MaxConfigs = lists:sublist(TooManyConfigs, ?MAX_NUM_TNS_CONFIGS),
+    ?assertMatch({204, _}, bulk_import_configs(MaxConfigs)),
+    %% Should be fine to bulk import again if only updating existing configs
+    ?assertMatch({204, _}, bulk_import_configs(MaxConfigs)),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"Maximum number of managed namespaces reached">>
+        }},
+        bulk_import_configs(TooManyConfigs)
+    ),
     ok.
 
 %% Smoke CRUD operations test for tenant limiter.

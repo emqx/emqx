@@ -34,7 +34,9 @@
     is_known_managed_ns/1,
 
     get_root_configs/1,
-    update_root_configs/2
+    update_root_configs/2,
+
+    bulk_import_configs/1
 ]).
 
 %% Limiter
@@ -46,7 +48,8 @@
 -export([
     create_managed_ns_txn/1,
     delete_managed_ns_txn/1,
-    update_root_configs_txn/2
+    update_root_configs_txn/2,
+    bulk_update_root_configs_txn/1
 ]).
 
 -ifdef(TEST).
@@ -405,6 +408,9 @@ get_limiter_config(Ns, Kind) ->
             {error, not_found}
     end.
 
+bulk_import_configs(Entries) ->
+    transaction(fun ?MODULE:bulk_update_root_configs_txn/1, [Entries]).
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -458,3 +464,29 @@ update_root_configs_txn(Ns, NewConfigs0) ->
         [] ->
             {error, not_found}
     end.
+
+bulk_update_root_configs_txn(Entries) ->
+    Size0 = tns_config_size(),
+    {Changes, _} = lists:foldl(
+        fun(#{ns := Ns, config := NewConfigs0}, {Acc, SizeAcc}) ->
+            case mnesia:read(?CONFIG_TAB, Ns, write) of
+                [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ->
+                    Size = SizeAcc;
+                [] ->
+                    Size = SizeAcc + 1,
+                    OldConfigs = #{},
+                    Rec0 = #?CONFIG_TAB{key = Ns, configs = OldConfigs}
+            end,
+            maybe
+                true ?= Size > ?MAX_NUM_TNS_CONFIGS,
+                mnesia:abort(table_is_full)
+            end,
+            NewConfigs = emqx_utils_maps:deep_merge(OldConfigs, NewConfigs0),
+            Rec = Rec0#?CONFIG_TAB{configs = NewConfigs},
+            ok = mnesia:write(?CONFIG_TAB, Rec, write),
+            {Acc#{Ns => #{old => OldConfigs, new => NewConfigs0}}, Size}
+        end,
+        {#{}, Size0},
+        Entries
+    ),
+    {ok, Changes}.

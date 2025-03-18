@@ -17,7 +17,9 @@
     is_known_managed_ns/1,
 
     get_managed_ns_config/1,
-    update_managed_ns_config/2
+    update_managed_ns_config/2,
+
+    bulk_import_configs/1
 ]).
 
 %% Internal exports for `mt' application
@@ -125,6 +127,20 @@ get_managed_ns_config(Ns) ->
     | {error, not_found}.
 update_managed_ns_config(Ns, Configs) ->
     handle_root_configs_update(Ns, Configs).
+
+-spec bulk_import_configs([#{ns := emqx_mt:tns(), config := root_config()}]) ->
+    {ok, #{
+        errors := [
+            #{
+                ?path := [atom()],
+                error := {atom(), term()}
+            }
+        ]
+    }}
+    | {error, {duplicated_nss, [emqx_mt:tns()]}}
+    | {error, {aborted, term()}}.
+bulk_import_configs(Entries) ->
+    handle_bulk_import_configs(Entries).
 
 -spec create_managed_ns(emqx_mt:tns()) ->
     ok | {error, {aborted, _}} | {error, table_is_full}.
@@ -307,4 +323,37 @@ limiter_update_side_effects(Ns, {?changed, OldConfig, NewConfig}) ->
                 }
         end,
         maps:to_list(Changes)
+    ).
+
+handle_bulk_import_configs(Entries) ->
+    maybe
+        ok ?= validate_unique_nss(Entries),
+        {ok, Changes} ?= emqx_mt_state:bulk_import_configs(Entries),
+        SideEffects = compute_bulk_side_effects(Changes),
+        Errors = execute_side_effects(SideEffects),
+        {ok, #{errors => Errors}}
+    end.
+
+validate_unique_nss(Entries) ->
+    NSs0 = lists:map(fun(#{ns := Ns}) -> Ns end, Entries),
+    NSs = lists:sort(NSs0),
+    UniqueNSs = lists:usort(NSs0),
+    Duplicated = NSs -- UniqueNSs,
+    case Duplicated of
+        [] ->
+            ok;
+        _ ->
+            {error, {duplicated_nss, Duplicated}}
+    end.
+
+compute_bulk_side_effects(Changes) ->
+    maps:fold(
+        fun(Ns, #{old := Old, new := New}, Acc) ->
+            Diffs = emqx_utils_maps:diff_maps(New, Old),
+            SEs0 = compute_config_update_side_effects(Diffs, Ns),
+            SEs = lists:map(fun(#{?path := Path} = SE) -> SE#{?path := [Ns | Path]} end, SEs0),
+            SEs ++ Acc
+        end,
+        [],
+        Changes
     ).
