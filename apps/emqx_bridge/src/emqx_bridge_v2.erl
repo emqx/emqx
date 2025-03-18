@@ -68,6 +68,7 @@
     disable_enable/3,
     disable_enable/4,
     health_check/2,
+    health_check/3,
     send_message/4,
     query/4,
     start/2,

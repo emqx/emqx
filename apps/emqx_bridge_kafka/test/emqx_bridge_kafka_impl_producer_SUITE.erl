@@ -387,7 +387,16 @@ kafka_bridge_rest_api_helper(Config) ->
         ?assertEqual(1, emqx_resource_metrics:success_get(BridgeV2Id)),
         ?assertEqual(3, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success'))
     after
-        delete_all_bridges()
+        delete_all_bridges(),
+        %% also wait for the dry-runs to terminate
+        ?retry(
+            _Sleep = 50,
+            _Attempts = 10,
+            begin
+                ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+                ?assertEqual([], supervisor:which_children(wolff_producers_sup))
+            end
+        )
     end,
     ok.
 

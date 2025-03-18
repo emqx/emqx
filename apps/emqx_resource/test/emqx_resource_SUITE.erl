@@ -3924,12 +3924,12 @@ t_retry_remove_channel(_Config) ->
             ChanId = <<"action:atype:aname:", ConnResId/binary>>,
             ct:pal("testing async retries"),
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel(
                     ConnResId,
                     ChanId,
                     #{health_check_delay => 500}
                 ),
-            ok = emqx_resource_manager:remove_channel_async(ConnResId, ChanId),
+            ok = remove_channel_async(ConnResId, ChanId),
             RetryTimeout = 2_000,
             Timeout = RetryTimeout + 1_000,
             %% Should then retry asynchronously
@@ -3939,7 +3939,7 @@ t_retry_remove_channel(_Config) ->
                     Alias1 ! {Alias1, {error, oops_again}}
             after Timeout -> ct:fail("didn't retry removing channel async")
             end,
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             %% Now should try again, and we'll let it succeed.
             receive
                 {waiting_remove_channel_result, Alias2, ConnResId, ChanId} ->
@@ -3947,7 +3947,7 @@ t_retry_remove_channel(_Config) ->
                     Alias2 ! {Alias2, continue}
             after Timeout -> ct:fail("didn't retry removing channel async 2")
             end,
-            ?assertMatch({ok, []}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertEqual(#{}, emqx_resource_manager:get_channel_configs(ConnResId)),
             %% Now, let's see that adding the channel again while it's retrying to remove should
             %% cancel such timer.
             ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
@@ -3958,33 +3958,233 @@ t_retry_remove_channel(_Config) ->
             ct:pal("adding channel"),
             {ok, {ok, _}} =
                 ?wait_async_action(
-                    emqx_resource_manager:add_channel(
+                    add_channel(
                         ConnResId,
                         ChanId,
                         #{health_check_delay => 500}
                     ),
                     #{?snk_kind := added_channel}
                 ),
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             ct:pal("removing channel async"),
-            ok = emqx_resource_manager:remove_channel_async(ConnResId, ChanId),
+            ok = remove_channel_async(ConnResId, ChanId),
             ct:pal("waiting for attempt"),
             ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout),
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             %% Now add again while the timer is going on.
             ct:pal("adding channel again"),
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel(
                     ConnResId,
                     ChanId,
                     #{health_check_delay => 500}
                 ),
             %% Should stop trying to remove
             ?assertNotReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout),
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             ok
         end,
         []
+    ),
+    ok.
+
+%% Checks that, if a channel is already installed, and we receive a remove and an add
+%% request (as happens in an config update operation), we do update the channel by
+%% removing and re-adding it with the new config to the resource state.
+t_compress_channel_operations_existing_channel() ->
+    [{matrix, true}].
+t_compress_channel_operations_existing_channel(matrix) ->
+    [[connected], [connecting], [disconnected]];
+t_compress_channel_operations_existing_channel(Config) when is_list(Config) ->
+    [ConnectorStatus] = group_path(Config, [connected]),
+    TestPid = self(),
+    ?check_trace(
+        begin
+            ConnResId = <<"connector:ctype:c">>,
+            {ok, ChanAgent} = emqx_utils_agent:start_link(#{
+                add_channel => [
+                    continue,
+                    {notify, TestPid, continue}
+                ],
+                remove_channel => [
+                    {notify, TestPid, {error, oops}},
+                    {notify, TestPid, continue}
+                ]
+            }),
+            AgentState0 = #{
+                resource_health_check => connected,
+                channel_health_check => connected
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(AgentState0),
+            ?tpal("creating connector resource"),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        remove_channel_agent => ChanAgent,
+                        add_channel_agent => ChanAgent,
+                        health_check_agent => HCAgent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100
+                    }
+                ),
+            ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
+
+            ChanId = action_res_id(ConnResId),
+
+            ?tpal("creating channel"),
+            HCInterval1 = 500,
+            ChanConfig1 = #{
+                enable => true,
+                resource_opts => #{health_check_interval => HCInterval1}
+            },
+            ok = add_channel(ConnResId, ChanId, ChanConfig1),
+            ?assertMatch(
+                #{status := connected, error := undefined},
+                emqx_resource:channel_health_check(ConnResId, ChanId)
+            ),
+            ?assertEqual(
+                #{ChanId => ChanConfig1},
+                emqx_resource_manager:get_channel_configs(ConnResId)
+            ),
+            ?assertEqual(
+                {ok, [{ChanId, ChanConfig1}]},
+                emqx_resource_manager:get_channels(ConnResId)
+            ),
+
+            %% Set desired connector resource status
+            ?tpal("changing connector status"),
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{resource_health_check := ConnectorStatus}}
+            end),
+            ?retry(
+                100, 10, ?assertMatch({ok, ConnectorStatus}, emqx_resource:health_check(ConnResId))
+            ),
+
+            %% We suspend the process so operations are stacked on its mailbox.
+            ?tpal("suspending resource manager process"),
+            Pid = emqx_resource_manager:where(ConnResId),
+            ok = sys:suspend(Pid),
+
+            %% We mock the module so we may count the calls to add/remove channel
+            %% callbacks.
+            on_exit(fun() -> meck:unload() end),
+            ok = meck:new(?TEST_RESOURCE, [passthrough]),
+
+            %% Stack config update ops in its mailbox
+            ?tpal("sending async channel operations"),
+            ok = remove_channel_async(ConnResId, ChanId),
+            HCInterval2 = HCInterval1 + 200,
+            ChanConfig2 = emqx_utils_maps:deep_put(
+                [resource_opts, health_check_interval],
+                ChanConfig1,
+                HCInterval2
+            ),
+            ok = add_channel_async(ConnResId, ChanId, ChanConfig2),
+
+            %% Restore connected status to connector so that it may actually modify
+            %% internal state, if not updated yet.
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{resource_health_check := connected}}
+            end),
+            %% Resume and make a call so that messages are processed
+            ?tpal("changing status and resuming resource manager process"),
+            ok = sys:resume(Pid),
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {ok, connected},
+                    emqx_resource:health_check(ConnResId)
+                )
+            ),
+
+            %% Related to retry operation interval
+            ?tpal("waiting for channel removal attempts"),
+            Timeout = 3_000,
+            %% Should have tried at least once to remove...
+            ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout),
+            %% ... and later succeeded (only retries if resource doesn't to disconnected,
+            %% in which case it'll attempt to remove only once)
+            case ConnectorStatus of
+                disconnected ->
+                    ok;
+                _ ->
+                    ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout)
+            end,
+            ?assertReceive({attempted_to_add_channel, ConnResId, ChanId, ChanConfig2}, Timeout),
+
+            %% We must eventually observe the new configuration in the channel.
+            ?tpal("checking channels configs"),
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    #{ChanId => ChanConfig2},
+                    emqx_resource_manager:get_channel_configs(ConnResId)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    {ok, [{ChanId, ChanConfig2}]},
+                    emqx_resource_manager:get_channels(ConnResId)
+                )
+            ),
+
+            ChanConfig2
+        end,
+        [
+            log_consistency_prop(),
+            fun(FinalConfig, _Trace) ->
+                History = meck:history(?TEST_RESOURCE),
+                Calls = [
+                    {Fn, Args, Res}
+                 || {_Pid, {?TEST_RESOURCE, Fn, Args}, Res} <- History,
+                    lists:member(Fn, [on_add_channel, on_remove_channel])
+                ],
+                case ConnectorStatus of
+                    disconnected ->
+                        %% Depending on whether the channel operations are performed while
+                        %% still disconnected or when the resource reconnects, we may not
+                        %% see the first removal (for the latter case).
+                        case Calls of
+                            [
+                                {on_remove_channel, _, {error, _}},
+                                {on_add_channel, [_ConnResId, _ConnState, _ChanId, FinalConfig], _}
+                            ] ->
+                                ok;
+                            [
+                                {on_remove_channel, _, {error, _}},
+                                %% Retry
+                                {on_remove_channel, _, {ok, _}},
+                                {on_add_channel, [_ConnResId, _ConnState, _ChanId, FinalConfig], _}
+                            ] ->
+                                ok;
+                            _ ->
+                                error({"unexpected (disconnected) history", Calls})
+                        end;
+                    _ ->
+                        ?assertMatch(
+                            [
+                                {on_remove_channel, _, {error, _}},
+                                %% Retry
+                                {on_remove_channel, _, {ok, _}},
+                                {on_add_channel, [_ConnResId, _ConnState, _ChanId, ChanConfig], _}
+                            ] when ChanConfig == FinalConfig,
+                            Calls,
+                            #{final_config => FinalConfig}
+                        )
+                end,
+                ok
+            end
+        ]
     ),
     ok.
 
@@ -3994,7 +4194,8 @@ t_retry_remove_channel(_Config) ->
 
 %% Verifies that we compress operations for a given channel id that may happen to stack up
 %% while the resource manager process is stuck on a call.
-t_compress_channel_operations(_Config) ->
+t_prop_compress_channel_operations(_Config) ->
+    ct:timetrap({seconds, 60}),
     ?assert(
         proper:quickcheck(prop_compress_channel_operations(), [{numtests, 100}, {to_file, user}])
     ),
@@ -4038,30 +4239,29 @@ prop_compress_channel_operations() ->
             ),
             %% Resume and let it process everything.
             ok = sys:resume(Pid),
-            %% To force processing of the mailbox, and trigger channel ops.
-            ?assertMatch({ok, ConnStatus}, emqx_resource:health_check(ConnResId)),
-            Channels = emqx_resource_manager:get_channel_configs(ConnResId),
-            {ok, InStateChannelsList} = emqx_resource_manager:get_channels(ConnResId),
-            InStateChannels = maps:from_list(InStateChannelsList),
+            %% To force processing of the mailbox, and trigger channel ops.  Must go to
+            %% `?status_connected` to actually process state changing operations.
+            _ = emqx_utils_agent:get_and_update(Agent, fun(Old) ->
+                {unused, Old#{resource_health_check := connected}}
+            end),
+            ?retry(100, 10, ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId))),
+            {ok, InConfigChannelsList} = emqx_resource_manager:get_channels(ConnResId),
+            InConfigChannels = maps:from_list(InConfigChannelsList),
+            InStateChannels = emqx_resource_manager:get_channel_configs(ConnResId),
             {ok, _Group, ResData} = emqx_resource_manager:lookup_cached(ConnResId),
             History = meck:history(?TEST_RESOURCE),
             ok = meck:unload(?TEST_RESOURCE),
             ok = emqx_resource:remove_local(ConnResId),
+            emqx_connector_demo:clear_emulated_config(ConnResId),
             ExpectedOps = process_commands_expectation(Commands),
             ExpectedChannels = maps:filter(fun(_, V) -> V /= del end, ExpectedOps),
             %% Even if not added yet to the resource state, the known channel configs must
             %% be the latest received additions, or the channel should be absent from
             %% installed channels.
-            HasExpectedConfigs = ExpectedChannels =:= Channels,
+            HasExpectedConfigs = ExpectedChannels =:= InConfigChannels,
             %% If the resource status is connected, then the channel must also be in the
             %% connector resource state.
-            IsInExpectedResState =
-                case ConnStatus of
-                    ?status_connected ->
-                        ExpectedChannels =:= InStateChannels;
-                    _ ->
-                        true
-                end,
+            IsInExpectedResState = ExpectedChannels =:= InStateChannels,
             %% We compress the operations so that operations that cancel out are not
             %% executed needlessly.  We can only know which calls were made from the
             %% callback module in the connected status.
@@ -4085,7 +4285,7 @@ prop_compress_channel_operations() ->
                     "Connector status:\n  ~s\n\n"
                     "Commands:\n  ~p\n\n"
                     "Expected Channels:\n  ~p\n\n"
-                    "Channels:\n  ~p\n\n"
+                    "Channels in config:\n  ~p\n\n"
                     "Channels in state:\n  ~p\n\n"
                     "Expected op count:\n  ~p\n\n"
                     "Actual op count:\n  ~p\n\n"
@@ -4095,7 +4295,7 @@ prop_compress_channel_operations() ->
                         ConnStatus,
                         Commands,
                         ExpectedChannels,
-                        Channels,
+                        InConfigChannels,
                         InStateChannels,
                         ExpectedOpCount,
                         ActualOpCount,
@@ -4135,10 +4335,10 @@ channel_num_to_id(N) ->
 
 exec_channel_operation({N, {add, ChannelConf}}, ConnResId) ->
     ChannelId = channel_num_to_id(N),
-    ok = emqx_resource_manager:add_channel_async(ConnResId, ChannelId, ChannelConf);
+    ok = add_channel_async(ConnResId, ChannelId, ChannelConf);
 exec_channel_operation({N, del}, ConnResId) ->
     ChannelId = channel_num_to_id(N),
-    ok = emqx_resource_manager:remove_channel_async(ConnResId, ChannelId).
+    ok = remove_channel_async(ConnResId, ChannelId).
 
 channel_op_gen() ->
     frequency([{2, add_channel_gen()}, {1, del}]).
@@ -4409,12 +4609,24 @@ gauge_metric_set_fns() ->
     ].
 
 create(Id, Group, Type, Config) ->
-    emqx_resource:create_local(Id, Group, Type, Config, #{}).
+    create(Id, Group, Type, Config, #{}).
 
 create(Id, Group, Type, Config, Opts) ->
     Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
     on_exit(fun() -> emqx_resource:remove_local(Id) end),
+    case Type of
+        ?TEST_RESOURCE ->
+            on_exit(fun() -> emqx_connector_demo:clear_emulated_config(Id) end);
+        _ ->
+            ok
+    end,
     Res.
+
+add_channel_emualte_config(ConnResId, ChanId, ChanConfig, Mode) ->
+    emqx_connector_demo:add_channel_emualte_config(ConnResId, ChanId, ChanConfig, Mode).
+
+remove_channel_emualte_config(ConnResId, ChanId, Mode) ->
+    emqx_connector_demo:remove_channel_emualte_config(ConnResId, ChanId, Mode).
 
 dryrun(Id, Type, Config) ->
     TestPid = self(),
@@ -4439,12 +4651,27 @@ action_res_id(ConnResId) ->
     <<"action:atype:aname:", ConnResId/binary>>.
 
 add_channel(ConnResId, ChanId, Config) ->
+    do_add_channel(ConnResId, ChanId, Config, sync).
+
+add_channel_async(ConnResId, ChanId, Config) ->
+    do_add_channel(ConnResId, ChanId, Config, async).
+
+do_add_channel(ConnResId, ChanId, Config, Mode) ->
     ok = emqx_resource:create_metrics(ChanId),
     on_exit(fun() -> emqx_resource:clear_metrics(ChanId) end),
     ResourceOpts = emqx_resource:fetch_creation_opts(Config),
     on_exit(fun() -> emqx_resource_buffer_worker_sup:stop_workers(ChanId, ResourceOpts) end),
     ok = emqx_resource_buffer_worker_sup:start_workers(ChanId, ResourceOpts),
-    emqx_resource_manager:add_channel(ConnResId, ChanId, Config).
+    emqx_connector_demo:add_channel_emulate_config(ConnResId, ChanId, Config, Mode).
+
+remove_channel(ConnResId, ChanId) ->
+    do_remove_channel(ConnResId, ChanId, sync).
+
+remove_channel_async(ConnResId, ChanId) ->
+    do_remove_channel(ConnResId, ChanId, async).
+
+do_remove_channel(ConnResId, ChanId, Mode) ->
+    emqx_connector_demo:remove_channel_emulate_config(ConnResId, ChanId, Mode).
 
 group_path(Config, Default) ->
     case emqx_common_test_helpers:group_path(Config) of
