@@ -276,12 +276,7 @@ on_get_channel_status(
 ) ->
     case maps:find(ChannelId, Channels) of
         {ok, _} ->
-            case on_get_status(InstanceId, State) of
-                ?status_connected ->
-                    ?status_connected;
-                {?status_connecting, _State, Reason} ->
-                    {?status_connecting, Reason}
-            end;
+            on_get_status(InstanceId, State);
         error ->
             ?status_disconnected
     end.
@@ -339,25 +334,25 @@ on_format_query_result({ok, Rows}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = State) ->
+on_get_status(_InstanceId, #{pool_name := PoolName}) ->
     Results = emqx_resource_pool:health_check_workers(
         PoolName,
         {?MODULE, do_get_status, []},
         _Timeout = 5000,
         #{return_values => true}
     ),
-    status_result(Results, State).
+    status_result(Results).
 
-status_result({error, timeout}, State) ->
-    {?status_connecting, State, <<"timeout_checking_connections">>};
-status_result({ok, []}, State) ->
-    {?status_connecting, State, <<"connection_pool_not_initialized">>};
-status_result({ok, Results}, State) ->
+status_result({error, timeout}) ->
+    {?status_connecting, <<"timeout_checking_connections">>};
+status_result({ok, []}) ->
+    {?status_connecting, <<"connection_pool_not_initialized">>};
+status_result({ok, Results}) ->
     case lists:filter(fun(S) -> S =/= ok end, Results) of
         [] ->
             ?status_connected;
         [{error, Reason} | _] ->
-            {?status_connecting, State, Reason}
+            {?status_connecting, Reason}
     end.
 
 %%====================================================================
