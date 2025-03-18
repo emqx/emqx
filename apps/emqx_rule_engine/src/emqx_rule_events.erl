@@ -163,11 +163,11 @@ on_message_publish(Message = #message{topic = Topic}, _Conf) ->
             case emqx_rule_engine:get_rules_for_topic(Topic) of
                 [] ->
                     ok;
-                Rules ->
+                RichedRules ->
                     %% ENVs are the fields that can't be refereced by the SQL, but can be used
                     %% from actions. e.g. The 'headers' field in the internal record `#message{}`.
                     {Columns, Envs} = eventmsg_publish(Message),
-                    emqx_rule_runtime:apply_rules(Rules, Columns, Envs)
+                    emqx_rule_runtime:apply_rules(RichedRules, Columns, Envs)
             end
     end,
     {ok, Message}.
@@ -824,10 +824,10 @@ apply_event(EventName, GenEventMsg, _Conf) ->
     case emqx_rule_engine:get_rules_for_topic(EventTopic) of
         [] ->
             ok;
-        Rules ->
+        RichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            emqx_rule_runtime:apply_rules(Rules, Columns, Envs)
+            emqx_rule_runtime:apply_rules(RichedRules, Columns, Envs)
     end.
 
 %%--------------------------------------------------------------------

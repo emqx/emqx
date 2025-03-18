@@ -59,32 +59,57 @@
 %%------------------------------------------------------------------------------
 %% Apply rules
 %%------------------------------------------------------------------------------
--spec apply_rules(list(rule()), columns(), envs()) -> ok.
+-spec apply_rules(
+    list(#{
+        rule => rule(),
+        trigger := binary(),
+        matched := binary()
+    }),
+    columns(),
+    envs()
+) -> ok.
 apply_rules([], _Columns, _Envs) ->
     ?tp("rule_engine_applied_all_rules", #{}),
     ok;
-apply_rules([#{enable := false} | More], Columns, Envs) ->
+apply_rules([#{rule := #{enable := false, id := RuleId}} | More], Columns, Envs) ->
+    ?TRACE("RULE", "skip_apply_disabled_rule", #{rule_id => RuleId}),
     apply_rules(More, Columns, Envs);
-apply_rules([Rule | More], Columns, Envs) ->
-    apply_rule_discard_result(Rule, Columns, Envs),
+apply_rules([RichedRule | More], Columns, Envs) ->
+    apply_rule_discard_result(RichedRule, Columns, Envs),
     apply_rules(More, Columns, Envs).
 
-apply_rule_discard_result(Rule, Columns, Envs) ->
-    _ = apply_rule(Rule, Columns, Envs),
+apply_rule_discard_result(RichedRule, Columns, Envs) ->
+    _ = apply_rule(RichedRule, Columns, Envs),
     ok.
 
-apply_rule(Rule = #{id := RuleId}, Columns, RawEnvs) ->
+apply_rule(
+    #{rule := #{id := RuleId}} = RichedRule,
+    Columns,
+    RawEnvs
+) ->
     %% add metadata before the rule is applied
     %% but OTEL trace should not be included in metadata
     ?EXT_TRACE_APPLY_RULE(
-        ?EXT_TRACE_ATTR(rule_attrs(Rule)),
-        fun(Envs) -> do_apply_rule(Rule, add_metadata(Columns, #{rule_id => RuleId}), Envs) end,
+        ?EXT_TRACE_ATTR(rule_attrs(RichedRule)),
+        fun(Envs) ->
+            do_apply_rule(
+                RichedRule,
+                add_metadata(Columns, #{rule_id => RuleId}),
+                add_metadata(Envs, maps:with([trigger, matched], RichedRule))
+            )
+        end,
         [RawEnvs]
     ).
 
-do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
+do_apply_rule(
+    #{
+        rule := #{id := RuleId} = Rule
+    } = RichedRule,
+    Columns,
+    Envs
+) ->
     PrevProcessMetadata = logger:get_process_metadata(),
-    set_process_trace_metadata(RuleId, Columns),
+    set_process_trace_metadata(RichedRule, Columns),
     trace_rule_sql(
         "rule_activated",
         #{
@@ -159,14 +184,15 @@ do_apply_rule(Rule = #{id := RuleId}, Columns, Envs) ->
         reset_logger_process_metadata(PrevProcessMetadata)
     end.
 
-set_process_trace_metadata(RuleId, #{clientid := ClientID} = Columns) ->
-    logger:update_process_metadata(#{
-        clientid => ClientID,
-        rule_id => RuleId,
-        rule_trigger_ts => [rule_trigger_time(Columns)]
-    });
-set_process_trace_metadata(RuleId, Columns) ->
-    logger:update_process_metadata(#{
+set_process_trace_metadata(
+    #{rule := #{id := RuleId}} = RichedRule,
+    Columns
+) ->
+    Metadata = maps:merge(
+        maps:with([trigger, matched], RichedRule),
+        maps:with([clientid], Columns)
+    ),
+    logger:update_process_metadata(Metadata#{
         rule_id => RuleId,
         rule_trigger_ts => [rule_trigger_time(Columns)]
     }).

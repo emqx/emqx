@@ -348,7 +348,9 @@ feed_var(Var, Val, [Var | Words], Acc) ->
 feed_var(Var, Val, [W | Words], Acc) ->
     feed_var(Var, Val, Words, [W | Acc]).
 
--spec join(list(word())) -> binary().
+-spec join(list(word()) | binary()) -> binary().
+join(B) when is_binary(B) ->
+    B;
 join([]) ->
     <<>>;
 join([Word | Words]) ->

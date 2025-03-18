@@ -306,18 +306,24 @@ disconnect_attrs(sock_closed, Channel) ->
     ?ext_trace_disconnect_reason(sock_closed).
 
 rule_attrs(#{
-    id := Id,
-    name := Name,
-    created_at := CreatedAt,
-    updated_at := LastModifiedAt,
-    description := Descr
+    rule := #{
+        id := Id,
+        name := Name,
+        created_at := CreatedAt,
+        updated_at := LastModifiedAt,
+        description := Descr
+    },
+    trigger := Topic,
+    matched := TopicFilter
 }) ->
     #{
         'rule.id' => Id,
         'rule.name' => Name,
         'rule.created_at' => format_datetime(CreatedAt),
         'rule.updated_at' => format_datetime(LastModifiedAt),
-        'rule.description' => Descr
+        'rule.description' => Descr,
+        'rule.trigger' => Topic,
+        'rule.matched' => TopicFilter
     }.
 
 action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
