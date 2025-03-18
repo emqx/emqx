@@ -52,6 +52,8 @@ init_per_testcase(TestCase, Config) when
     ServerPid = start_crl_server(CRLPem),
     IsCached = lists:member(TestCase, [t_filled_cache, t_revoked]),
     Apps = start_emqx_with_crl_cache(#{is_cached => IsCached}, TestCase, Config),
+    %% Debugging CI flaky failures
+    emqx_logger:set_log_level(debug),
     [
         {crl_pem, CRLPem},
         {crl_der, CRLDer},
