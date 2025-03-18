@@ -9,7 +9,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include("emqx_mt.hrl").
-%% -include_lib("emqx/include/logger.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -23,9 +22,9 @@
 %% `minirest' handlers
 -export([
     ns_list/2,
-    explicit_ns_list/2,
-    explicit_ns/2,
-    explicit_ns_config/2,
+    managed_ns_list/2,
+    managed_ns/2,
+    managed_ns_config/2,
     client_list/2,
     client_count/2
 ]).
@@ -54,10 +53,10 @@ api_spec() ->
 paths() ->
     [
         "/mt/ns_list",
-        "/mt/explicit_ns_list",
+        "/mt/managed_ns_list",
         "/mt/ns/:ns/client_list",
         "/mt/ns/:ns/client_count",
-        "/mt/ns/:ns/explicit",
+        "/mt/ns/:ns",
         "/mt/ns/:ns/config"
     ].
 
@@ -120,13 +119,13 @@ schema("/mt/ns/:ns/client_count") ->
                 }
         }
     };
-schema("/mt/explicit_ns_list") ->
+schema("/mt/managed_ns_list") ->
     #{
-        'operationId' => explicit_ns_list,
+        'operationId' => managed_ns_list,
         get => #{
             tags => ?TAGS,
-            summary => <<"List explicit namespaces">>,
-            description => ?DESC("explicit_ns_list"),
+            summary => <<"List managed namespaces">>,
+            description => ?DESC("managed_ns_list"),
             parameters => [
                 last_ns_in_query(),
                 limit_in_query()
@@ -141,13 +140,13 @@ schema("/mt/explicit_ns_list") ->
                 }
         }
     };
-schema("/mt/ns/:ns/explicit") ->
+schema("/mt/ns/:ns") ->
     #{
-        'operationId' => explicit_ns,
+        'operationId' => managed_ns,
         post => #{
             tags => ?TAGS,
-            summary => <<"Create explicit namespace">>,
-            description => ?DESC("create_explicit_ns"),
+            summary => <<"Create managed namespace">>,
+            description => ?DESC("create_managed_ns"),
             parameters => [param_path_ns()],
             responses =>
                 #{
@@ -157,8 +156,8 @@ schema("/mt/ns/:ns/explicit") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete explicit namespace">>,
-            description => ?DESC("delete_explicit_ns"),
+            summary => <<"Delete managed namespace">>,
+            description => ?DESC("delete_managed_ns"),
             parameters => [param_path_ns()],
             responses =>
                 #{
@@ -168,11 +167,11 @@ schema("/mt/ns/:ns/explicit") ->
     };
 schema("/mt/ns/:ns/config") ->
     #{
-        'operationId' => explicit_ns_config,
+        'operationId' => managed_ns_config,
         get => #{
             tags => ?TAGS,
-            summary => <<"Get explicit namespace configuration">>,
-            description => ?DESC("get_explicit_ns_config"),
+            summary => <<"Get managed namespace configuration">>,
+            description => ?DESC("get_managed_ns_config"),
             parameters => [param_path_ns()],
             responses =>
                 #{
@@ -182,8 +181,8 @@ schema("/mt/ns/:ns/config") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update explicit namespace configuration">>,
-            description => ?DESC("update_explicit_ns_config"),
+            summary => <<"Update managed namespace configuration">>,
+            description => ?DESC("update_managed_ns_config"),
             parameters => [param_path_ns()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(config_in),
@@ -306,52 +305,52 @@ client_count(get, #{bindings := #{ns := Ns}}) ->
         {error, not_found} -> ?NOT_FOUND("Namespace not found")
     end.
 
-explicit_ns_list(get, Params) ->
+managed_ns_list(get, Params) ->
     QS = maps:get(query_string, Params, #{}),
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
-    ?OK(emqx_mt:list_explicit_ns(LastNs, Limit)).
+    ?OK(emqx_mt:list_managed_ns(LastNs, Limit)).
 
-explicit_ns(post, #{bindings := #{ns := Ns}}) ->
-    case emqx_mt_config:create_explicit_ns(Ns) of
+managed_ns(post, #{bindings := #{ns := Ns}}) ->
+    case emqx_mt_config:create_managed_ns(Ns) of
         ok ->
             ?NO_CONTENT;
         {error, table_is_full} ->
-            ?BAD_REQUEST(<<"Maximum number of explicit namespaces reached">>);
+            ?BAD_REQUEST(<<"Maximum number of managed namespaces reached">>);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end;
-explicit_ns(delete, #{bindings := #{ns := Ns}}) ->
-    case emqx_mt_config:delete_explicit_ns(Ns) of
+managed_ns(delete, #{bindings := #{ns := Ns}}) ->
+    case emqx_mt_config:delete_managed_ns(Ns) of
         ok ->
             ?NO_CONTENT;
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.
 
-explicit_ns_config(get, #{bindings := #{ns := Ns}}) ->
-    with_known_explicit_ns(Ns, fun() -> handle_get_explicit_ns_config(Ns) end);
-explicit_ns_config(put, #{body := Params, bindings := #{ns := Ns}}) ->
-    with_known_explicit_ns(Ns, fun() -> handle_update_explicit_ns_config(Ns, Params) end).
+managed_ns_config(get, #{bindings := #{ns := Ns}}) ->
+    with_known_managed_ns(Ns, fun() -> handle_get_managed_ns_config(Ns) end);
+managed_ns_config(put, #{body := Params, bindings := #{ns := Ns}}) ->
+    with_known_managed_ns(Ns, fun() -> handle_update_managed_ns_config(Ns, Params) end).
 
 %%-------------------------------------------------------------------------------------------------
 %% Handler implementations
 %%-------------------------------------------------------------------------------------------------
 
-handle_get_explicit_ns_config(Ns) ->
-    case emqx_mt_config:get_explicit_ns_config(Ns) of
+handle_get_managed_ns_config(Ns) ->
+    case emqx_mt_config:get_managed_ns_config(Ns) of
         {ok, Configs} ->
             ?OK(configs_out(Configs));
         {error, not_found} ->
-            explicit_ns_not_found()
+            managed_ns_not_found()
     end.
 
-handle_update_explicit_ns_config(Ns, Configs) ->
-    case emqx_mt_config:update_explicit_ns_config(Ns, Configs) of
+handle_update_managed_ns_config(Ns, Configs) ->
+    case emqx_mt_config:update_managed_ns_config(Ns, Configs) of
         {ok, #{configs := NewConfigs, errors := Errors}} when length(Errors) == 0 ->
             ?OK(configs_out(NewConfigs));
         {error, not_found} ->
-            explicit_ns_not_found();
+            managed_ns_not_found();
         {ok, #{errors := Errors}} ->
             Msg = #{
                 hint => <<
@@ -391,7 +390,7 @@ example_client_list() ->
 
 example_config_in() ->
     #{
-        <<"explicit_ns_config">> =>
+        <<"managed_ns_config">> =>
             #{
                 <<"limiter">> => #{
                     <<"tenant">> => maps:get(<<"limiter">>, example_limiter_out()),
@@ -448,13 +447,13 @@ limiter_config_out(Unit0, LimiterConfig) ->
         LimiterConfig
     ).
 
-with_known_explicit_ns(Ns, Fn) ->
-    case emqx_mt_config:is_known_explicit_ns(Ns) of
+with_known_managed_ns(Ns, Fn) ->
+    case emqx_mt_config:is_known_managed_ns(Ns) of
         true ->
             Fn();
         false ->
-            explicit_ns_not_found()
+            managed_ns_not_found()
     end.
 
-explicit_ns_not_found() ->
-    ?NOT_FOUND(<<"Explicit namespace not found">>).
+managed_ns_not_found() ->
+    ?NOT_FOUND(<<"Managed namespace not found">>).

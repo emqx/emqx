@@ -30,27 +30,27 @@ emqx_mt_api {
             For the first page, use empty string.~"""
         label: "Last Client ID"
     }
-    explicit_ns_list {
+    managed_ns_list {
         desc: """~
-            List all explicit namespaces
+            List all managed namespaces
             The namespaces are sorted in lexicographical order,
             so this API can be used for prefix based fuzzy search.~"""
-        label: "List explicit namespaces"
+        label: "List managed namespaces"
     }
-    create_explicit_ns {
-        desc: "Create explicit namespace"
-        label: "Create explicit namespace"
+    create_managed_ns {
+        desc: "Create managed namespace"
+        label: "Create managed namespace"
     }
-    delete_explicit_ns {
-        desc: "Delete explicit namespace"
-        label: "Delete explicit namespace"
+    delete_managed_ns {
+        desc: "Delete managed namespace"
+        label: "Delete managed namespace"
     }
-    get_explicit_ns_config {
-        desc: "Get explicit namespace configuration"
-        label: "Get explicit namespace configuration"
+    get_managed_ns_config {
+        desc: "Get managed namespace configuration"
+        label: "Get managed namespace configuration"
     }
-    update_explicit_ns_config {
-        desc: "Update explicit namespace configuration"
-        label: "Update explicit namespace configuration"
+    update_managed_ns_config {
+        desc: "Update managed namespace configuration"
+        label: "Update managed namespace configuration"
     }
 }

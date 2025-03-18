@@ -8,8 +8,8 @@
 -export([
     list_ns/0,
     list_ns/2,
-    list_explicit_ns/0,
-    list_explicit_ns/2,
+    list_managed_ns/0,
+    list_managed_ns/2,
     list_clients/1,
     list_clients/2,
     list_clients/3,
@@ -62,22 +62,22 @@ list_ns(LastNs, Limit) ->
     emqx_mt_state:list_ns(LastNs, Limit).
 
 -doc """
-List first page of explicit namespaces.
+List first page of managed namespaces.
 
 Default page size is 100.
 """.
--spec list_explicit_ns() -> [tns()].
-list_explicit_ns() ->
-    list_explicit_ns(?MIN_NS, ?DEFAULT_PAGE_SIZE).
+-spec list_managed_ns() -> [tns()].
+list_managed_ns() ->
+    list_managed_ns(?MIN_NS, ?DEFAULT_PAGE_SIZE).
 
 -doc """
-List explicit namespaces skipping the last namespace from the previous page.
+List managed namespaces skipping the last namespace from the previous page.
 
-The second argument is the number of explicit namespaces to return.
+The second argument is the number of managed namespaces to return.
 """.
--spec list_explicit_ns(tns(), non_neg_integer()) -> [tns()].
-list_explicit_ns(LastNs, Limit) ->
-    emqx_mt_state:list_explicit_ns(LastNs, Limit).
+-spec list_managed_ns(tns(), non_neg_integer()) -> [tns()].
+list_managed_ns(LastNs, Limit) ->
+    emqx_mt_state:list_managed_ns(LastNs, Limit).
 
 %% @doc Immediately clear session records of the given node.
 %% If a node is down, the records of the node will be cleared after a delay.

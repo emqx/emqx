@@ -26,12 +26,12 @@
     clear_self_node/0
 ]).
 
-%% Explicitly created namespace management
+%% Managed namespaces
 -export([
-    list_explicit_ns/2,
-    create_explicit_ns/1,
-    delete_explicit_ns/1,
-    is_known_explicit_ns/1,
+    list_managed_ns/2,
+    create_managed_ns/1,
+    delete_managed_ns/1,
+    is_known_managed_ns/1,
 
     get_root_configs/1,
     update_root_configs/2
@@ -44,8 +44,8 @@
 
 %% In-transaction fns
 -export([
-    create_explicit_ns_txn/1,
-    delete_explicit_ns_txn/1,
+    create_managed_ns_txn/1,
+    delete_managed_ns_txn/1,
     update_root_configs_txn/2
 ]).
 
@@ -183,14 +183,14 @@ do_list_ns(Table, LastNs, Limit) ->
     end.
 
 -doc """
-List explicit namespaces.
+List managed namespaces.
 
 The second argument is the last namespace from the previous page.
 
 The third argument is the number of namespaces to return.
 """.
--spec list_explicit_ns(tns(), pos_integer()) -> [tns()].
-list_explicit_ns(LastNs, Limit) ->
+-spec list_managed_ns(tns(), pos_integer()) -> [tns()].
+list_managed_ns(LastNs, Limit) ->
     do_list_ns(?CONFIG_TAB, LastNs, Limit).
 
 %% @doc count the number of clients for a given tns.
@@ -360,23 +360,23 @@ evict_ccache(Ns) ->
     ets:delete(?CCACHE_TAB, Ns),
     ok.
 
--spec create_explicit_ns(emqx_mt:tns()) ->
+-spec create_managed_ns(emqx_mt:tns()) ->
     ok | {error, {aborted, _}} | {error, table_is_full}.
-create_explicit_ns(Ns) ->
+create_managed_ns(Ns) ->
     ensure_ns_added(Ns),
-    transaction(fun create_explicit_ns_txn/1, [Ns]).
+    transaction(fun create_managed_ns_txn/1, [Ns]).
 
--spec delete_explicit_ns(emqx_mt:tns()) ->
+-spec delete_managed_ns(emqx_mt:tns()) ->
     {ok, emqx_mt_config:root_config()} | {error, {aborted, _}}.
-delete_explicit_ns(Ns) ->
+delete_managed_ns(Ns) ->
     %% Note: we may safely delete the limiter groups here: when clients attempt to consume
     %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
     %% do any limiting when it fails to fetch the missing limiter group configuration.
     %% The user may choose to later kick all clients from this namespace.
-    transaction(fun delete_explicit_ns_txn/1, [Ns]).
+    transaction(fun delete_managed_ns_txn/1, [Ns]).
 
--spec is_known_explicit_ns(emqx_mt:tns()) -> boolean().
-is_known_explicit_ns(Ns) ->
+-spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
+is_known_managed_ns(Ns) ->
     case mnesia:dirty_read(?CONFIG_TAB, Ns) of
         [] ->
             false;
@@ -417,7 +417,7 @@ transaction(Fn, Args) ->
             {error, {aborted, Reason}}
     end.
 
-create_explicit_ns_txn(Ns) ->
+create_managed_ns_txn(Ns) ->
     case mnesia:read(?CONFIG_TAB, Ns, write) of
         [] ->
             Size = tns_config_size(),
@@ -433,7 +433,7 @@ create_explicit_ns_txn(Ns) ->
             {error, already_exists}
     end.
 
-delete_explicit_ns_txn(Ns) ->
+delete_managed_ns_txn(Ns) ->
     case mnesia:read(?CONFIG_TAB, Ns, write) of
         [] ->
             {ok, #{}};

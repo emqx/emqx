@@ -10,12 +10,12 @@
 -export([
     get_max_sessions/1,
 
-    create_explicit_ns/1,
-    delete_explicit_ns/1,
-    is_known_explicit_ns/1,
+    create_managed_ns/1,
+    delete_managed_ns/1,
+    is_known_managed_ns/1,
 
-    get_explicit_ns_config/1,
-    update_explicit_ns_config/2
+    get_managed_ns_config/1,
+    update_managed_ns_config/2
 ]).
 
 %% Internal exports for `mt' application
@@ -80,42 +80,42 @@
 -spec get_max_sessions(emqx_mt:tns()) -> non_neg_integer() | infinity.
 get_max_sessions(Ns) ->
     maybe
-        {ok, #{?session := #{?max_sessions := Max}}} ?= get_explicit_ns_config(Ns),
+        {ok, #{?session := #{?max_sessions := Max}}} ?= get_managed_ns_config(Ns),
         Max
     else
         _ -> emqx_config:get([multi_tenancy, default_max_sessions])
     end.
 
--spec get_explicit_ns_config(emqx_mt:tns()) ->
+-spec get_managed_ns_config(emqx_mt:tns()) ->
     {ok, root_config()} | {error, not_found}.
-get_explicit_ns_config(Ns) ->
+get_managed_ns_config(Ns) ->
     emqx_mt_state:get_root_configs(Ns).
 
--spec update_explicit_ns_config(emqx_mt:tns(), root_config()) ->
+-spec update_managed_ns_config(emqx_mt:tns(), root_config()) ->
     {ok, #{
         configs := root_config(),
         errors := [#{?path := [atom()], error := {atom(), term()}}]
     }}
     | {error, not_found}.
-update_explicit_ns_config(Ns, Configs) ->
+update_managed_ns_config(Ns, Configs) ->
     handle_root_configs_update(Ns, Configs).
 
--spec create_explicit_ns(emqx_mt:tns()) ->
+-spec create_managed_ns(emqx_mt:tns()) ->
     ok | {error, {aborted, _}} | {error, table_is_full}.
-create_explicit_ns(Ns) ->
-    emqx_mt_state:create_explicit_ns(Ns).
+create_managed_ns(Ns) ->
+    emqx_mt_state:create_managed_ns(Ns).
 
--spec delete_explicit_ns(emqx_mt:tns()) ->
+-spec delete_managed_ns(emqx_mt:tns()) ->
     ok | {error, {aborted, _}}.
-delete_explicit_ns(Ns) ->
+delete_managed_ns(Ns) ->
     maybe
-        {ok, Configs} ?= emqx_mt_state:delete_explicit_ns(Ns),
-        cleanup_explicit_ns_configs(Ns, maps:to_list(Configs))
+        {ok, Configs} ?= emqx_mt_state:delete_managed_ns(Ns),
+        cleanup_managed_ns_configs(Ns, maps:to_list(Configs))
     end.
 
--spec is_known_explicit_ns(emqx_mt:tns()) -> boolean().
-is_known_explicit_ns(Ns) ->
-    emqx_mt_state:is_known_explicit_ns(Ns).
+-spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
+is_known_managed_ns(Ns) ->
+    emqx_mt_state:is_known_managed_ns(Ns).
 
 -spec get_tenant_limiter_config(emqx_mt:tns()) ->
     {ok, tenant_config()} | {error, not_found}.
@@ -136,13 +136,13 @@ get_client_limiter_config(Ns) ->
 tmp_set_default_max_sessions(Max) ->
     emqx_config:put([multi_tenancy, default_max_sessions], Max).
 
-cleanup_explicit_ns_configs(_Ns, []) ->
+cleanup_managed_ns_configs(_Ns, []) ->
     ok;
-cleanup_explicit_ns_configs(Ns, [{?limiter, Configs} | Rest]) ->
+cleanup_managed_ns_configs(Ns, [{?limiter, Configs} | Rest]) ->
     ok = emqx_mt_limiter:cleanup_configs(Ns, Configs),
-    cleanup_explicit_ns_configs(Ns, Rest);
-cleanup_explicit_ns_configs(Ns, [{_RootKey, _Configs} | Rest]) ->
-    cleanup_explicit_ns_configs(Ns, Rest).
+    cleanup_managed_ns_configs(Ns, Rest);
+cleanup_managed_ns_configs(Ns, [{_RootKey, _Configs} | Rest]) ->
+    cleanup_managed_ns_configs(Ns, Rest).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
