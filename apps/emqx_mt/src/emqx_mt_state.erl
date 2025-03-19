@@ -156,6 +156,12 @@ create_tables() ->
         {storage, disc_copies},
         {attributes, record_info(fields, ?CONFIG_TAB)}
     ]),
+    ok = mria:wait_for_tables([
+        ?NS_TAB,
+        ?RECORD_TAB,
+        ?COUNTER_TAB,
+        ?CONFIG_TAB
+    ]),
     _ = ets:new(?MONITOR_TAB, [
         set,
         named_table,
