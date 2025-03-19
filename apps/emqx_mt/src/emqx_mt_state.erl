@@ -26,11 +26,35 @@
     clear_self_node/0
 ]).
 
+%% Managed namespaces
 -export([
-    set_limiter_config/3,
-    get_limiter_config/2,
-    delete_limiter_config/2
+    list_managed_ns/2,
+    create_managed_ns/1,
+    delete_managed_ns/1,
+    is_known_managed_ns/1,
+
+    get_root_configs/1,
+    update_root_configs/2,
+
+    bulk_import_configs/1
 ]).
+
+%% Limiter
+-export([
+    get_limiter_config/2
+]).
+
+%% In-transaction fns
+-export([
+    create_managed_ns_txn/1,
+    delete_managed_ns_txn/1,
+    update_root_configs_txn/2,
+    bulk_update_root_configs_txn/1
+]).
+
+-ifdef(TEST).
+-export([update_ccache/1]).
+-endif.
 
 -include("emqx_mt.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -87,7 +111,7 @@
 %% Currently, we limit the maximum number of configurable namespaces.
 -record(?CONFIG_TAB, {
     key :: tns(),
-    configs :: tns_config(),
+    configs :: emqx_mt_config:root_config(),
     extra = #{} :: map()
 }).
 
@@ -102,10 +126,6 @@
 
 -type tns() :: emqx_mt:tns().
 -type clientid() :: emqx_types:clientid().
-
--type tns_config() :: #{
-    ?limiter => emqx_mt_limiter:root_config()
-}.
 
 %%------------------------------------------------------------------------------
 %% API
@@ -136,6 +156,12 @@ create_tables() ->
         {storage, disc_copies},
         {attributes, record_info(fields, ?CONFIG_TAB)}
     ]),
+    ok = mria:wait_for_tables([
+        ?NS_TAB,
+        ?RECORD_TAB,
+        ?COUNTER_TAB,
+        ?CONFIG_TAB
+    ]),
     _ = ets:new(?MONITOR_TAB, [
         set,
         named_table,
@@ -153,17 +179,28 @@ create_tables() ->
 %% The third argument is the number of namespaces to return.
 -spec list_ns(tns(), pos_integer()) -> [tns()].
 list_ns(LastNs, Limit) ->
-    do_list_ns(LastNs, Limit).
+    do_list_ns(?NS_TAB, LastNs, Limit).
 
-do_list_ns(_LastNs, 0) ->
+do_list_ns(_Table, _LastNs, 0) ->
     [];
-do_list_ns(LastNs, Limit) ->
-    case ets:next(?NS_TAB, LastNs) of
+do_list_ns(Table, LastNs, Limit) ->
+    case ets:next(Table, LastNs) of
         '$end_of_table' ->
             [];
         Ns ->
-            [Ns | do_list_ns(Ns, Limit - 1)]
+            [Ns | do_list_ns(Table, Ns, Limit - 1)]
     end.
+
+-doc """
+List managed namespaces.
+
+The second argument is the last namespace from the previous page.
+
+The third argument is the number of namespaces to return.
+""".
+-spec list_managed_ns(tns(), pos_integer()) -> [tns()].
+list_managed_ns(LastNs, Limit) ->
+    do_list_ns(?CONFIG_TAB, LastNs, Limit).
 
 %% @doc count the number of clients for a given tns.
 -spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.
@@ -197,13 +234,16 @@ lookup_counter_from_cache(Ns) ->
 with_ccache(Ns) ->
     case lookup_counter_from_cache(Ns) of
         false ->
-            Cnt = do_count_clients(Ns),
-            Ts = now_ts(),
-            _ = ets:insert(?CCACHE_TAB, ?CCACHE(Ns, Ts, Cnt)),
-            Cnt;
+            update_ccache(Ns);
         Cnt ->
             Cnt
     end.
+
+update_ccache(Ns) ->
+    Cnt = do_count_clients(Ns),
+    Ts = now_ts(),
+    _ = ets:insert(?CCACHE_TAB, ?CCACHE(Ns, Ts, Cnt)),
+    Cnt.
 
 do_count_clients(Ns) ->
     Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
@@ -329,17 +369,42 @@ evict_ccache(Ns) ->
     ets:delete(?CCACHE_TAB, Ns),
     ok.
 
--spec set_limiter_config(
-    emqx_mt:tns(),
-    emqx_mt_limiter:limiter_kind(),
-    emqx_mt_limiter:tenant_config() | emqx_mt_limiter:client_config()
-) ->
-    {ok, new | updated} | {error, {aborted, _}} | {error, table_is_full}.
-set_limiter_config(Ns, Kind, Config) ->
-    transaction(fun set_limiter_config_txn/3, [Ns, Kind, Config]).
+-spec create_managed_ns(emqx_mt:tns()) ->
+    ok | {error, {aborted, _}} | {error, table_is_full}.
+create_managed_ns(Ns) ->
+    ensure_ns_added(Ns),
+    transaction(fun create_managed_ns_txn/1, [Ns]).
 
-delete_limiter_config(Ns, Kind) ->
-    transaction(fun delete_limiter_config_txn/2, [Ns, Kind]).
+-spec delete_managed_ns(emqx_mt:tns()) ->
+    {ok, emqx_mt_config:root_config()} | {error, {aborted, _}}.
+delete_managed_ns(Ns) ->
+    %% Note: we may safely delete the limiter groups here: when clients attempt to consume
+    %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
+    %% do any limiting when it fails to fetch the missing limiter group configuration.
+    %% The user may choose to later kick all clients from this namespace.
+    transaction(fun delete_managed_ns_txn/1, [Ns]).
+
+-spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
+is_known_managed_ns(Ns) ->
+    case mnesia:dirty_read(?CONFIG_TAB, Ns) of
+        [] ->
+            false;
+        [_] ->
+            true
+    end.
+
+-spec get_root_configs(emqx_mt:tns()) ->
+    {ok, emqx_mt_config:root_config()} | {error, not_found}.
+get_root_configs(Ns) ->
+    case mnesia:dirty_read(?CONFIG_TAB, Ns) of
+        [#?CONFIG_TAB{configs = Configs}] ->
+            {ok, Configs};
+        _ ->
+            {error, not_found}
+    end.
+
+update_root_configs(Ns, NewConfig) ->
+    transaction(fun ?MODULE:update_root_configs_txn/2, [Ns, NewConfig]).
 
 get_limiter_config(Ns, Kind) ->
     case mnesia:dirty_read(?CONFIG_TAB, Ns) of
@@ -348,6 +413,9 @@ get_limiter_config(Ns, Kind) ->
         _ ->
             {error, not_found}
     end.
+
+bulk_import_configs(Entries) ->
+    transaction(fun ?MODULE:bulk_update_root_configs_txn/1, [Entries]).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -361,45 +429,70 @@ transaction(Fn, Args) ->
             {error, {aborted, Reason}}
     end.
 
-tns_config_size() ->
-    mnesia:table_info(?CONFIG_TAB, size).
-
-delete_limiter_config_txn(Ns, Kind) ->
-    case mnesia:read(?CONFIG_TAB, Ns, write) of
-        [#?CONFIG_TAB{configs = #{?limiter := LimiterConfig0} = Configs0} = Rec0] ->
-            LimiterConfig = maps:remove(Kind, LimiterConfig0),
-            Configs = Configs0#{?limiter := LimiterConfig},
-            Rec = Rec0#?CONFIG_TAB{configs = Configs},
-            ok = mnesia:write(?CONFIG_TAB, Rec, write),
-            ok;
-        _ ->
-            {error, not_found}
-    end.
-
-set_limiter_config_txn(Ns, Kind, Config) ->
+create_managed_ns_txn(Ns) ->
     case mnesia:read(?CONFIG_TAB, Ns, write) of
         [] ->
-            %% New record
             Size = tns_config_size(),
             case Size >= ?MAX_NUM_TNS_CONFIGS of
                 true ->
                     {error, table_is_full};
                 false ->
-                    Rec = #?CONFIG_TAB{key = Ns, configs = #{?limiter => #{Kind => Config}}},
+                    Rec = #?CONFIG_TAB{key = Ns, configs = #{}},
                     ok = mnesia:write(?CONFIG_TAB, Rec, write),
-                    {ok, new}
+                    ok
             end;
-        [#?CONFIG_TAB{configs = #{?limiter := #{Kind := _} = OldLimiter} = OldConfigs} = Rec0] ->
-            Limiter = OldLimiter#{Kind := Config},
-            Configs = OldConfigs#{?limiter := Limiter},
-            Rec = Rec0#?CONFIG_TAB{configs = Configs},
-            ok = mnesia:write(?CONFIG_TAB, Rec, write),
-            {ok, updated};
-        [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ->
-            OldLimiter = maps:get(?limiter, OldConfigs, #{}),
-            Limiter = OldLimiter#{Kind => Config},
-            Configs = OldConfigs#{?limiter => Limiter},
-            Rec = Rec0#?CONFIG_TAB{configs = Configs},
-            ok = mnesia:write(?CONFIG_TAB, Rec, write),
-            {ok, new}
+        [_] ->
+            {error, already_exists}
     end.
+
+delete_managed_ns_txn(Ns) ->
+    case mnesia:read(?CONFIG_TAB, Ns, write) of
+        [] ->
+            {ok, #{}};
+        [#?CONFIG_TAB{configs = Configs}] ->
+            ok = mnesia:delete(?CONFIG_TAB, Ns, write),
+            {ok, Configs}
+    end.
+
+tns_config_size() ->
+    mnesia:table_info(?CONFIG_TAB, size).
+
+update_root_configs_txn(Ns, NewConfigs0) ->
+    maybe
+        [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ?=
+            mnesia:read(?CONFIG_TAB, Ns, write),
+        Diffs = emqx_utils_maps:diff_maps(NewConfigs0, OldConfigs),
+        NewConfigs = emqx_utils_maps:deep_merge(OldConfigs, NewConfigs0),
+        Rec = Rec0#?CONFIG_TAB{configs = NewConfigs},
+        ok = mnesia:write(?CONFIG_TAB, Rec, write),
+        {ok, #{diffs => Diffs, configs => NewConfigs}}
+    else
+        [] ->
+            {error, not_found}
+    end.
+
+bulk_update_root_configs_txn(Entries) ->
+    Size0 = tns_config_size(),
+    {Changes, _} = lists:foldl(
+        fun(#{ns := Ns, config := NewConfigs0}, {Acc, SizeAcc}) ->
+            case mnesia:read(?CONFIG_TAB, Ns, write) of
+                [#?CONFIG_TAB{configs = OldConfigs} = Rec0] ->
+                    Size = SizeAcc;
+                [] ->
+                    Size = SizeAcc + 1,
+                    OldConfigs = #{},
+                    Rec0 = #?CONFIG_TAB{key = Ns, configs = OldConfigs}
+            end,
+            maybe
+                true ?= Size > ?MAX_NUM_TNS_CONFIGS,
+                mnesia:abort(table_is_full)
+            end,
+            NewConfigs = emqx_utils_maps:deep_merge(OldConfigs, NewConfigs0),
+            Rec = Rec0#?CONFIG_TAB{configs = NewConfigs},
+            ok = mnesia:write(?CONFIG_TAB, Rec, write),
+            {Acc#{Ns => #{old => OldConfigs, new => NewConfigs0}}, Size}
+        end,
+        {#{}, Size0},
+        Entries
+    ),
+    {ok, Changes}.

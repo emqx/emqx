@@ -24,10 +24,14 @@ If one of the limiters lack configuration, we simply don't do each action above.
     create_tenant_limiter_group/2,
     update_tenant_limiter_group/2,
     delete_tenant_limiter_group/1,
+    ensure_tenant_limiter_group_absent/1,
 
     create_client_limiter_group/2,
     update_client_limiter_group/2,
-    delete_client_limiter_group/1
+    delete_client_limiter_group/1,
+    ensure_client_limiter_group_absent/1,
+
+    cleanup_configs/2
 ]).
 
 %% 'channel.limiter_adjustment' hookpoint
@@ -91,6 +95,9 @@ update_tenant_limiter_group(Ns, Config) ->
 delete_tenant_limiter_group(Ns) ->
     emqx_limiter:delete_group(tenant_group(Ns)).
 
+ensure_tenant_limiter_group_absent(Ns) ->
+    ensure_group_absent(tenant_group(Ns)).
+
 %%
 
 create_client_limiter_group(Ns, Config) ->
@@ -103,6 +110,20 @@ update_client_limiter_group(Ns, Config) ->
 
 delete_client_limiter_group(Ns) ->
     emqx_limiter:delete_group(client_group(Ns)).
+
+ensure_client_limiter_group_absent(Ns) ->
+    ensure_group_absent(client_group(Ns)).
+
+%%
+
+cleanup_configs(Ns, _Configs) ->
+    %% Note: we may safely delete the limiter groups here: when clients attempt to consume
+    %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
+    %% do any limiting when it fails to fetch the missing limiter group configuration.
+    %% The user may choose to later kick all clients from this namespace.
+    _ = ensure_group_absent(tenant_group(Ns)),
+    _ = ensure_group_absent(client_group(Ns)),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% 'channel.limiter_adjustment' hookpoint
@@ -186,4 +207,13 @@ create_client_limiters(ListenerId, Ns, Name) ->
             ListenerLimiterId = {listener_group(ListenerId), Name},
             ListenerLimiterClient = emqx_limiter:connect(ListenerLimiterId),
             [ListenerLimiterClient]
+    end.
+
+ensure_group_absent(Group) ->
+    try emqx_limiter:delete_group(Group) of
+        ok ->
+            ok
+    catch
+        error:{limiter_group_not_found, _} ->
+            ok
     end.

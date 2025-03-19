@@ -1,8 +1,8 @@
 emqx_mt_api {
     ns_list {
         desc: """~
-            List all namespaces"
-            The namespace is sorted in lexicographical order,
+            List all namespaces
+            The namespaces are sorted in lexicographical order,
             so this API can be used for prefix based fuzzy search.~"""
         label: "List Namespaces"
     }
@@ -30,36 +30,31 @@ emqx_mt_api {
             For the first page, use empty string.~"""
         label: "Last Client ID"
     }
-    get_client_limiter {
-        desc: "Get client limiter configuration"
-        label: "Get client limiter"
+    managed_ns_list {
+        desc: """~
+            List all managed namespaces
+            The namespaces are sorted in lexicographical order,
+            so this API can be used for prefix based fuzzy search.~"""
+        label: "List managed namespaces"
     }
-    create_client_limiter {
-        desc: "Create client limiter configuration"
-        label: "Create client limiter"
+    create_managed_ns {
+        desc: "Create managed namespace"
+        label: "Create managed namespace"
     }
-    update_client_limiter {
-        desc: "Update client limiter configuration"
-        label: "Update client limiter"
+    delete_managed_ns {
+        desc: "Delete managed namespace"
+        label: "Delete managed namespace"
     }
-    delete_client_limiter {
-        desc: "Delete client limiter configuration"
-        label: "Delete client limiter"
+    get_managed_ns_config {
+        desc: "Get managed namespace configuration"
+        label: "Get managed namespace configuration"
     }
-    get_tenant_limiter {
-        desc: "Get tenant limiter configuration"
-        label: "Get tenant limiter"
+    update_managed_ns_config {
+        desc: "Update managed namespace configuration"
+        label: "Update managed namespace configuration"
     }
-    create_tenant_limiter {
-        desc: "Create tenant limiter configuration"
-        label: "Create tenant limiter"
-    }
-    update_tenant_limiter {
-        desc: "Update tenant limiter configuration"
-        label: "Update tenant limiter"
-    }
-    delete_tenant_limiter {
-        desc: "Delete tenant limiter configuration"
-        label: "Delete tenant limiter"
+    bulk_import_configs {
+        desc: "Upsert namespace configurations in bulk"
+        label: "Upsert namespace configurations in bulk"
     }
 }

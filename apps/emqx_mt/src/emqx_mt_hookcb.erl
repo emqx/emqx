@@ -69,21 +69,22 @@ on_authenticate(
                             DefaultResult
                     end;
                 {error, not_found} ->
-                    %% TDOO: deny access when namespaces are managed by admin
-                    %% so far ns is created from client attributes
-                    %% case emqx_mt_config:is_managed_ns() of
-                    %%   true -> {stop, {error, not_auhorized}};
-                    %%   false -> DefaultResult
-                    %%  end
-                    ?TRACE("first_clientid_in_namespace", #{}),
-                    DefaultResult
+                    AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
+                    case AllowOnlyManagedNSs of
+                        true ->
+                            {stop, {error, not_authorized}};
+                        false ->
+                            ?TRACE("first_clientid_in_namespace", #{}),
+                            DefaultResult
+                    end
             end
     end;
 on_authenticate(_, DefaultResult) ->
-    %% TDOO: deny access when namespaces is mandatory
-    %% case emqx_mt_config:is_ns_mandatory() of
-    %%   true -> {stop, {error, not_authorized}};
-    %%   false -> DefaultResult
-    %% end
-    ?TRACE("new_tenant_namespace", #{}),
-    DefaultResult.
+    AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
+    case AllowOnlyManagedNSs of
+        true ->
+            {stop, {error, not_authorized}};
+        false ->
+            ?TRACE("new_tenant_namespace", #{}),
+            DefaultResult
+    end.
