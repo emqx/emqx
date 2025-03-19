@@ -13,7 +13,7 @@ emqx_mt_schema {
     allow_only_managed_namespaces {
         desc: """~
             If enabled, clients that belong to a non-managed namespace will be
-            denied connection.  Clients that also can't have their namespace resolved
+            denied connection.  Clients that can't have their namespace resolved
             will also be denied connection.~"""
         label: "Allow only managed namespaces"
     }

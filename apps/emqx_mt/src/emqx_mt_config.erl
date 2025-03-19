@@ -198,7 +198,7 @@ execute_side_effects_v1(SideEffects, _ClusterRPCOpts) ->
             catch
                 Class:Reason:Stacktrace ->
                     ?SLOG(warning, #{
-                        msg => "failed_to_execute_mt_side_effect",
+                        msg => "failed_to_apply_multi_tenancy_config_change_runtime_effect",
                         ?path => Path,
                         ?op => Fn,
                         error => {Class, Reason},
