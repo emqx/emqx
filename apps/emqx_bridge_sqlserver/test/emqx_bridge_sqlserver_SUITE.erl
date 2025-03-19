@@ -92,7 +92,8 @@
 all() ->
     [
         {group, async},
-        {group, sync}
+        {group, sync},
+        {group, health_check}
     ].
 
 groups() ->
@@ -103,7 +104,8 @@ groups() ->
         {async, BatchingGroups},
         {sync, BatchingGroups},
         {with_batch, TCs -- NonBatchCases},
-        {without_batch, TCs}
+        {without_batch, TCs},
+        {health_check, [health_check_return_error]}
     ].
 
 init_per_group(async, Config) ->
@@ -111,15 +113,20 @@ init_per_group(async, Config) ->
 init_per_group(sync, Config) ->
     [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true} | Config0],
+    Config = [{enable_batch, true}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
     common_init(Config);
 init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false} | Config0],
+    Config = [{enable_batch, false}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
+    common_init(Config);
+init_per_group(health_check, Config0) ->
+    Config = [{query_mode, async}, {enable_batch, false}, {pool_size, 1} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
 
-end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
+end_per_group(Group, Config) when
+    Group =:= with_batch; Group =:= without_batch; Group =:= health_check
+->
     connect_and_drop_table(Config),
     connect_and_drop_db(Config),
     Apps = ?config(apps, Config),
@@ -278,6 +285,44 @@ t_create_disconnected(Config) ->
     end),
     timer:sleep(10_000),
     health_check_resource_ok(Config),
+    ok.
+
+health_check_return_error(Config) ->
+    %% use an ets table for mocked health-check fault injection
+    Ets = ets:new(test, [public]),
+    true = ets:insert(Ets, {result, {selected, [[]], [{1}]}}),
+    meck:new(odbc, [passthrough, no_link, no_history]),
+    meck:expect(odbc, sql_query, fun(Conn, SQL) ->
+        %% insert the latest odbc connection used in the health check calls
+        %% so we can inspect if a new connection is established after
+        %% health-check failure
+        case SQL of
+            "SELECT 1" ->
+                true = ets:insert(Ets, {conn, Conn}),
+                [{result, R}] = ets:lookup(Ets, result),
+                R;
+            _ ->
+                meck:passthrough([Conn, SQL])
+        end
+    end),
+    try
+        ?assertMatch(
+            {ok, _},
+            create_bridge(Config)
+        ),
+        health_check_resource_ok(Config),
+        [{conn, Conn1}] = ets:lookup(Ets, conn),
+        true = ets:insert(Ets, {result, {error, <<"injected failure">>}}),
+        ok = health_check_resource_down(Config),
+        %% remove injected failure
+        true = ets:insert(Ets, {result, {selected, [[]], [{1}]}}),
+        health_check_resource_ok(Config),
+        [{conn, Conn2}] = ets:lookup(Ets, conn),
+        ?assertNotEqual(Conn1, Conn2)
+    after
+        meck:unload(odbc),
+        ets:delete(Ets)
+    end,
     ok.
 
 t_create_with_invalid_password(Config) ->
@@ -441,7 +486,6 @@ common_init(ConfigT) ->
         {batch_size, batch_size(ConfigT)}
         | ConfigT
     ],
-
     BridgeType = proplists:get_value(bridge_type, Config0, <<"sqlserver">>),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
@@ -461,6 +505,13 @@ common_init(ConfigT) ->
             ),
             % Connect to sqlserver directly
             % drop old db and table, and then create new ones
+            try
+                connect_and_drop_table(Config0),
+                connect_and_drop_db(Config0)
+            catch
+                _:_ ->
+                    ok
+            end,
             connect_and_create_db_and_table(Config0),
             {Name, SQLServerConf} = sqlserver_config(BridgeType, Config0),
             Config =
@@ -490,6 +541,7 @@ sqlserver_config(BridgeType, Config) ->
     BatchSize = batch_size(Config),
     QueryMode = ?config(query_mode, Config),
     Passfile = ?config(sqlserver_passfile, Config),
+    PoolSize = ?config(pool_size, Config),
     ConfigString =
         io_lib:format(
             "bridges.~s.~s {\n"
@@ -498,6 +550,7 @@ sqlserver_config(BridgeType, Config) ->
             "  database = ~p\n"
             "  username = ~p\n"
             "  password = ~p\n"
+            "  pool_size = ~p\n"
             "  sql = ~p\n"
             "  driver = ~p\n"
             "  resource_opts = {\n"
@@ -505,6 +558,7 @@ sqlserver_config(BridgeType, Config) ->
             "    batch_size = ~b\n"
             "    query_mode = ~s\n"
             "    worker_pool_size = ~b\n"
+            "    health_check_interval = 2s\n"
             "  }\n"
             "}",
             [
@@ -514,6 +568,7 @@ sqlserver_config(BridgeType, Config) ->
                 ?SQL_SERVER_DATABASE,
                 ?SQL_SERVER_USERNAME,
                 "file://" ++ Passfile,
+                PoolSize,
                 ?SQL_BRIDGE,
                 ?SQL_SERVER_DRIVER,
                 BatchSize,
@@ -623,7 +678,7 @@ connect_direct_sqlserver(Config) ->
         {username, ?SQL_SERVER_USERNAME},
         {password, ?SQL_SERVER_PASSWORD},
         {driver, ?SQL_SERVER_DRIVER},
-        {pool_size, 8}
+        {pool_size, 1}
     ],
     {ok, Con} = connect(Opts),
     Con.
