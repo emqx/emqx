@@ -3,6 +3,10 @@ kind: StatefulSet
 metadata:
   name: {{ include "emqx.fullname" . }}
   namespace: {{ .Release.Namespace }}
+  annotations:
+  {{- range $key, $value := .Values.statefulSet.additionalAnnotations }}
+    {{ $key }}: {{ $value | quote }}
+  {{- end }}
   labels:
     app.kubernetes.io/name: {{ include "emqx.name" . }}
     helm.sh/chart: {{ include "emqx.chart" . }}
