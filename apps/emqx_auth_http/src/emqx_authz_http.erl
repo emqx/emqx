@@ -64,7 +64,7 @@
 
 create(Config) ->
     #{annotations := Annotations} = NConfig = parse_config(Config),
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHZ_TYPE),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceId,
         emqx_bridge_http_connector,

@@ -41,7 +41,7 @@
 create(#{query := SQL0} = Source) ->
     {Vars, SQL, Placeholders} = emqx_auth_template:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceId = emqx_authz_utils:make_resource_id(postgres),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceId,
         emqx_postgresql,

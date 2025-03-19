@@ -40,7 +40,9 @@ create(_AuthenticatorID, Config) ->
 
 create(Config0) ->
     emqx_authn_http:with_validated_config(Config0, fun(Config, State) ->
-        ResourceId = emqx_authn_utils:make_resource_id(<<"scram-restapi">>),
+        ResourceId = emqx_authn_utils:make_resource_id(
+            iolist_to_binary([?AUTHN_MECHANISM_SCRAM_BIN, ":", ?AUTHN_BACKEND_BIN])
+        ),
         % {Config, State} = parse_config(Config0),
         {ok, _Data} = emqx_authn_utils:create_resource(
             ResourceId,

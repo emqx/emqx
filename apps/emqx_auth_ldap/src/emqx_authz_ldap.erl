@@ -62,7 +62,7 @@
 %%------------------------------------------------------------------------------
 
 create(Source0) ->
-    ResourceId = emqx_authz_utils:make_resource_id(ldap),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     Source = filter_placeholders(Source0),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source, ?AUTHZ_TYPE),
     Annotations = new_annotations(#{id => ResourceId}, Source),

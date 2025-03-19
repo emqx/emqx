@@ -38,7 +38,7 @@
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
-    ResourceId = emqx_authz_utils:make_resource_id(mongodb),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source, ?AUTHZ_TYPE),
     {Vars, FilterTemp} = emqx_auth_template:parse_deep(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS

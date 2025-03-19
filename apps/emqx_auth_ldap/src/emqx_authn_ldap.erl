@@ -36,7 +36,7 @@ create(_AuthenticatorID, Config) ->
     do_create(Config).
 
 do_create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(<<"ldap">>),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
     Config = filter_placeholders(Config0),
     State = parse_config(Config),
     {ok, _Data} = emqx_authn_utils:create_resource(

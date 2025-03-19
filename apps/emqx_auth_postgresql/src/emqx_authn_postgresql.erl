@@ -42,7 +42,7 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(<<"postgres">>),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
     {Config, State} = parse_config(Config0, ResourceId),
     {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,

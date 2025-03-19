@@ -39,7 +39,7 @@
 create(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceId = emqx_authz_utils:make_resource_id(redis),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source, ?AUTHZ_TYPE),
     Source#{
         annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},

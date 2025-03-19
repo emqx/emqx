@@ -36,7 +36,7 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(<<"redis">>),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
     case parse_config(Config0) of
         {error, _} = Res ->
             Res;

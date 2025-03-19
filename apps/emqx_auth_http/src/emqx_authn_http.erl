@@ -50,7 +50,7 @@ create(_AuthenticatorID, Config) ->
 
 create(Config0) ->
     with_validated_config(Config0, fun(Config, State) ->
-        ResourceId = emqx_authn_utils:make_resource_id(<<"http">>),
+        ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
         % {Config, State} = parse_config(Config0),
         {ok, _Data} = emqx_authn_utils:create_resource(
             ResourceId,
