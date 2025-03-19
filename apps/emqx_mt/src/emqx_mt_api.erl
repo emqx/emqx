@@ -177,7 +177,11 @@ schema("/mt/ns/:ns/config") ->
             parameters => [param_path_ns()],
             responses =>
                 #{
-                    200 => <<"TODO">>,
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            ref(config_out),
+                            example_config_out()
+                        ),
                     404 => error_schema('NOT_FOUND', "Namespace not found")
                 }
         },
@@ -192,7 +196,11 @@ schema("/mt/ns/:ns/config") ->
             ),
             responses =>
                 #{
-                    200 => <<"TODO">>,
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            ref(config_out),
+                            example_config_out()
+                        ),
                     400 => error_schema('BAD_REQUEST', "Invalid configuration"),
                     404 => error_schema('NOT_FOUND', "Namespace not found")
                 }
@@ -211,8 +219,9 @@ schema("/mt/bulk_import_configs") ->
             ),
             responses =>
                 #{
-                    200 => <<"TODO">>,
-                    400 => error_schema('BAD_REQUEST', "Invalid configurations")
+                    204 => <<"">>,
+                    400 => error_schema('BAD_REQUEST', "Invalid configurations"),
+                    500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
                 }
         }
     }.
@@ -445,12 +454,19 @@ example_config_in() ->
     #{
         <<"managed_ns_config">> =>
             #{
+                <<"session">> => #{
+                    <<"max_sessions">> => 10
+                },
                 <<"limiter">> => #{
                     <<"tenant">> => maps:get(<<"limiter">>, example_limiter_out()),
                     <<"client">> => maps:get(<<"limiter">>, example_limiter_out())
                 }
             }
     }.
+
+example_config_out() ->
+    %% Same as input.  For now.
+    example_config_in().
 
 example_bulk_configs_in() ->
     #{
