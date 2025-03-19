@@ -41,6 +41,11 @@
     get_serde/1
 ]).
 
+-export_type([
+    serde_type/0,
+    schema_name/0
+]).
+
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
 %%-------------------------------------------------------------------------------------------------
@@ -235,9 +240,14 @@ build_serdes([], _Acc) ->
 
 do_build_serde(Name, Serde) when not is_binary(Name) ->
     do_build_serde(to_bin(Name), Serde);
+do_build_serde(Name, #{type := external_http = Type, parameters := Params}) ->
+    do_build_serde1(Name, Type, Params);
 do_build_serde(Name, #{type := Type, source := Source}) ->
+    do_build_serde1(Name, Type, Source).
+
+do_build_serde1(Name, Type, Params) ->
     try
-        Serde = emqx_schema_registry_serde:make_serde(Type, Name, Source),
+        Serde = emqx_schema_registry_serde:make_serde(Type, Name, Params),
         true = ets:insert(?SERDE_TAB, Serde),
         ok
     catch

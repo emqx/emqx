@@ -84,6 +84,7 @@
 {emqx_retainer,2}.
 {emqx_router,1}.
 {emqx_rule_engine,1}.
+{emqx_schema_registry_http_api,1}.
 {emqx_shared_sub,1}.
 {emqx_slow_subs,1}.
 {emqx_telemetry,1}.
