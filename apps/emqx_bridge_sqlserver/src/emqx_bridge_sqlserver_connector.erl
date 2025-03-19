@@ -346,13 +346,15 @@ on_get_status(_InstanceId, #{pool_name := PoolName}) ->
 status_result({error, timeout}) ->
     {?status_connecting, <<"timeout_checking_connections">>};
 status_result({ok, []}) ->
-    {?status_connecting, <<"connection_pool_not_initialized">>};
+    %% should not enter connecting state in this case
+    %% otherwise resource manager will stay in connecting state forever
+    {?status_disconnected, <<"connection_pool_not_initialized">>};
 status_result({ok, Results}) ->
     case lists:filter(fun(S) -> S =/= ok end, Results) of
         [] ->
             ?status_connected;
         [{error, Reason} | _] ->
-            {?status_connecting, Reason}
+            {?status_disconnected, Reason}
     end.
 
 %%====================================================================
@@ -374,9 +376,9 @@ do_get_status(Conn) ->
     case execute(Conn, <<"SELECT 1">>) of
         {selected, [[]], [{1}]} ->
             ok;
-        {error, Reason} ->
-            {error, Reason};
         Other ->
+            %% force restart if SELECT 1 returns error
+            disconnect(Conn),
             {error, #{
                 cause => "unexpected_SELECT_1_result",
                 result => Other
