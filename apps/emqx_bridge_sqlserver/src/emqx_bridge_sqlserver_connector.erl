@@ -219,6 +219,7 @@ on_start(
         {driver, Driver},
         {database, Database},
         {pool_size, PoolSize},
+        {auto_reconnect, 2},
         {on_disconnect, {?MODULE, disconnect, []}}
     ],
 
@@ -348,6 +349,7 @@ on_get_status(_InstanceId, #{pool_name := PoolName}) ->
 status_result({error, timeout}) ->
     {?status_connecting, <<"timeout_checking_connections">>};
 status_result({ok, []}) ->
+    %% ecpool will auto-restart after delay
     {?status_connecting, <<"connection_pool_not_initialized">>};
 status_result({ok, Results}) ->
     case lists:filter(fun(S) -> S =/= ok end, Results) of
@@ -376,9 +378,8 @@ do_get_status(Conn) ->
     case execute(Conn, <<"SELECT 1">>) of
         {selected, [[]], [{1}]} ->
             ok;
-        {error, Reason} ->
-            {error, Reason};
         Other ->
+            _ = disconnect(Conn),
             {error, #{
                 cause => "unexpected_SELECT_1_result",
                 result => Other
