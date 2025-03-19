@@ -12,7 +12,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(NEW_CLIENTID(I),
     iolist_to_binary("c-" ++ atom_to_list(?FUNCTION_NAME) ++ "-" ++ integer_to_list(I))
@@ -20,7 +19,11 @@
 
 -define(NEW_USERNAME(), iolist_to_binary("u-" ++ atom_to_list(?FUNCTION_NAME))).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
+
 -define(MAX_NUM_TNS_CONFIGS, 1_000).
+-define(AUTH_HEADER_PD_KEY, {?MODULE, auth_header}).
 
 %%------------------------------------------------------------------------------
 %% CT Boilerplate
@@ -35,6 +38,27 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(t_adjust_limiters = TestCase, Config) ->
+    Apps = [
+        emqx,
+        {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+        emqx_mt,
+        emqx_management
+    ],
+    Cluster =
+        [N1, _N2] = emqx_cth_cluster:start(
+            [
+                {node_name(TestCase, 1), #{
+                    apps => Apps ++
+                        [emqx_mgmt_api_test_util:emqx_dashboard()]
+                }},
+                {node_name(TestCase, 2), #{apps => Apps, role => replicant}}
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+        ),
+    AuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
+    put(?AUTH_HEADER_PD_KEY, AuthHeader),
+    [{cluster, Cluster} | Config];
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -49,6 +73,11 @@ init_per_testcase(TestCase, Config) ->
     snabbkaffe:start_trace(),
     [{apps, Apps} | Config].
 
+end_per_testcase(t_adjust_limiters, Config) ->
+    Cluster = ?config(cluster, Config),
+    snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(Cluster),
+    ok;
 end_per_testcase(_TestCase, Config) ->
     Apps = ?config(apps, Config),
     snabbkaffe:stop(),
@@ -67,13 +96,26 @@ end_per_testcase(_TestCase, Config) ->
     )
 ).
 
+node_name(TestCase, N) ->
+    NameBin = <<(atom_to_binary(TestCase))/binary, "_", (integer_to_binary(N))/binary>>,
+    binary_to_atom(NameBin).
+
+get_mqtt_tcp_port(Node) ->
+    {_, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
+
 connect(ClientId, Username) ->
-    Opts = [
-        {clientid, ClientId},
-        {username, Username},
-        {password, "123456"},
-        {proto_ver, v5}
-    ],
+    connect(#{
+        clientid => ClientId,
+        username => Username,
+        password => "123456"
+    }).
+
+connect(Overrides) ->
+    Opts0 = #{
+        proto_ver => v5
+    },
+    Opts = emqx_utils_maps:deep_merge(Opts0, Overrides),
     {ok, Pid} = emqtt:start_link(Opts),
     monitor(process, Pid),
     unlink(Pid),
@@ -126,13 +168,18 @@ simplify_result(Res) ->
     end.
 
 simple_request(Params) ->
-    emqx_mgmt_api_test_util:simple_request(Params).
+    AuthHeader =
+        case get(?AUTH_HEADER_PD_KEY) of
+            undefined -> emqx_mgmt_api_test_util:auth_header_();
+            Header -> Header
+        end,
+    emqx_mgmt_api_test_util:simple_request(Params#{auth_header => AuthHeader}).
 
 simple_request(Method, Path, Body, QueryParams) ->
-    emqx_mgmt_api_test_util:simple_request(Method, Path, Body, QueryParams).
+    simple_request(#{method => Method, url => Path, body => Body, query_params => QueryParams}).
 
 simple_request(Method, Path, Body) ->
-    emqx_mgmt_api_test_util:simple_request(Method, Path, Body).
+    simple_request(#{method => Method, url => Path, body => Body}).
 
 list_managed_nss(QueryParams) ->
     URL = emqx_mgmt_api_test_util:api_path(["mt", "managed_ns_list"]),
@@ -243,10 +290,22 @@ set_limiter_for_listener(Key, Value) ->
     ),
     ok.
 
-spawn_publisher(ClientId, Username, PayloadSize, QoS) ->
+spawn_publisher(Opts) ->
+    #{
+        clientid := ClientId,
+        username := Username,
+        qos := QoS,
+        payload_size := PayloadSize
+    } = Opts,
+    Port = maps:get(port, Opts, 1883),
     TestPid = self(),
     LoopPid = spawn_link(fun() ->
-        C = connect(ClientId, Username),
+        C = connect(#{
+            clientid => ClientId,
+            username => Username,
+            password => "123456",
+            port => Port
+        }),
         TestPid ! {client, C},
         receive
             go -> run_publisher(C, PayloadSize, QoS)
@@ -270,14 +329,10 @@ run_publisher(C, PayloadSize, QoS) ->
 
 assert_limited(Opts) ->
     #{
-        clientid := ClientId,
-        username := Username,
-        qos := QoS,
-        payload_size := PayloadSize,
         event_matcher := EventMatcher,
         timeout := Timeout
     } = Opts,
-    {LoopPid, _C} = spawn_publisher(ClientId, Username, PayloadSize, QoS),
+    {LoopPid, _C} = spawn_publisher(Opts),
     {_, {ok, _}} =
         snabbkaffe:wait_async_action(
             fun() -> LoopPid ! go end,
@@ -726,15 +781,19 @@ t_client_limiter(_Config) ->
 
 %% Verifies that the channel limiters are adjusted when client and/or tenant limiters are
 %% configured.
+%% We create the configs via HTTP API on one node, and connect MQTT clients to the other,
+%% so we verify that limiter groups are changed on all nodes.
 t_adjust_limiters(Config) when is_list(Config) ->
+    Nodes = [_N1, N2] = ?config(cluster, Config),
+    Port2 = get_mqtt_tcp_port(N2),
     Ns = atom_to_binary(?FUNCTION_NAME),
     ?check_trace(
         begin
             ?assertMatch({204, _}, create_managed_ns(Ns)),
 
             %% 1) Client limiter completely replaces listener limiter.
-            set_limiter_for_listener(messages_rate, <<"infinity">>),
-            set_limiter_for_listener(bytes_rate, <<"infinity">>),
+            ?ON_ALL(Nodes, set_limiter_for_listener(messages_rate, <<"infinity">>)),
+            ?ON_ALL(Nodes, set_limiter_for_listener(bytes_rate, <<"infinity">>)),
             ClientParams1 = client_limiter_params(#{
                 <<"bytes">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>},
                 <<"messages">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>}
@@ -747,6 +806,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 username => Username,
                 qos => 1,
                 payload_size => 100,
+                port => Port2,
                 event_matcher => ?match_event(#{
                     ?snk_kind := limiter_exclusive_try_consume, success := false
                 }),
@@ -754,8 +814,8 @@ t_adjust_limiters(Config) when is_list(Config) ->
             }),
             {200, _} = disable_client_limiter(Ns),
             %% Tenant limiter composes with zone limiter.
-            set_limiter_for_zone(messages_rate, <<"infinity">>),
-            set_limiter_for_zone(bytes_rate, <<"infinity">>),
+            ?ON_ALL(Nodes, set_limiter_for_zone(messages_rate, <<"infinity">>)),
+            ?ON_ALL(Nodes, set_limiter_for_zone(bytes_rate, <<"infinity">>)),
             TenantParams1 = tenant_limiter_params(#{
                 <<"bytes">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>},
                 <<"messages">> => #{<<"rate">> => <<"1/500ms">>, <<"burst">> => <<"0/1s">>}
@@ -767,14 +827,15 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 username => Username,
                 qos => 1,
                 payload_size => 100,
+                port => Port2,
                 event_matcher => ?match_event(#{
                     ?snk_kind := limiter_shared_try_consume, success := false
                 }),
                 timeout => 1_000
             }),
             %% Other way around
-            set_limiter_for_zone(messages_rate, <<"1/500ms">>),
-            set_limiter_for_zone(bytes_rate, <<"1/500ms">>),
+            ?ON_ALL(Nodes, set_limiter_for_zone(messages_rate, <<"1/500ms">>)),
+            ?ON_ALL(Nodes, set_limiter_for_zone(bytes_rate, <<"1/500ms">>)),
             TenantParams2 = tenant_limiter_params(#{
                 <<"bytes">> => #{<<"rate">> => <<"infinity">>, <<"burst">> => <<"0/1s">>},
                 <<"messages">> => #{<<"rate">> => <<"infinity">>, <<"burst">> => <<"0/1s">>}
@@ -786,6 +847,7 @@ t_adjust_limiters(Config) when is_list(Config) ->
                 username => Username,
                 qos => 1,
                 payload_size => 100,
+                port => Port2,
                 event_matcher => ?match_event(#{
                     ?snk_kind := limiter_shared_try_consume, success := false
                 }),
@@ -795,22 +857,27 @@ t_adjust_limiters(Config) when is_list(Config) ->
 
             %% Check that, if we delete an managed namespace with live clients, they
             %% still can publish without crashing.
-            set_limiter_for_listener(messages_rate, <<"infinity">>),
-            set_limiter_for_listener(bytes_rate, <<"infinity">>),
-            set_limiter_for_zone(messages_rate, <<"infinity">>),
-            set_limiter_for_zone(bytes_rate, <<"infinity">>),
+            ?ON_ALL(Nodes, set_limiter_for_listener(messages_rate, <<"infinity">>)),
+            ?ON_ALL(Nodes, set_limiter_for_listener(bytes_rate, <<"infinity">>)),
+            ?ON_ALL(Nodes, set_limiter_for_zone(messages_rate, <<"infinity">>)),
+            ?ON_ALL(Nodes, set_limiter_for_zone(bytes_rate, <<"infinity">>)),
             TenantAndClientParams1 = emqx_utils_maps:deep_merge(ClientParams1, TenantParams1),
             ?assertMatch({200, _}, update_managed_ns_config(Ns, TenantAndClientParams1)),
             ClientId4 = ?NEW_CLIENTID(4),
-            C = connect(ClientId4, Username),
+            C = connect(#{
+                clientid => ClientId4,
+                username => Username,
+                password => "123456",
+                port => Port2
+            }),
             ?assertMatch({204, _}, delete_managed_ns(Ns)),
             ?assertMatch({200, []}, list_managed_nss(#{})),
             Topic = <<"test">>,
-            emqx:subscribe(Topic, #{qos => 1}),
+            {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C, Topic, [{qos, 1}]),
             {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, <<"hi1">>, [{qos, 1}]),
             {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, <<"hi2">>, [{qos, 1}]),
-            ?assertReceive({deliver, Topic, #message{payload = <<"hi1">>}}),
-            ?assertReceive({deliver, Topic, #message{payload = <<"hi2">>}}),
+            ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
+            ?assertReceive({publish, #{topic := Topic, payload := <<"hi2">>}}),
 
             ok
         end,

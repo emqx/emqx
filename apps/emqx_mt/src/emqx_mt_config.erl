@@ -22,6 +22,14 @@
     bulk_import_configs/1
 ]).
 
+%% BPAPI RPC Targets
+-export([
+    execute_side_effects_v1/1,
+    execute_side_effects_v1/2,
+    cleanup_managed_ns_configs_v1/2,
+    cleanup_managed_ns_configs_v1/3
+]).
+
 %% Internal exports for `mt' application
 -export([
     get_tenant_limiter_config/1,
@@ -34,7 +42,8 @@
 ]).
 
 -export_type([
-    root_config/0
+    root_config/0,
+    side_effect/0
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -152,7 +161,7 @@ create_managed_ns(Ns) ->
 delete_managed_ns(Ns) ->
     maybe
         {ok, Configs} ?= emqx_mt_state:delete_managed_ns(Ns),
-        cleanup_managed_ns_configs(Ns, maps:to_list(Configs))
+        emqx_mt_config_proto_v1:cleanup_managed_ns_configs(Ns, maps:to_list(Configs))
     end.
 
 -spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
@@ -170,37 +179,18 @@ get_client_limiter_config(Ns) ->
     emqx_mt_state:get_limiter_config(Ns, ?client).
 
 %%------------------------------------------------------------------------------
-%% Internal exports
+%% BPAPI RPC targets
 %%------------------------------------------------------------------------------
 
-%% @doc Temporarily set the maximum number of sessions allowed for the given namespace.
--spec tmp_set_default_max_sessions(non_neg_integer() | infinity) -> ok.
-tmp_set_default_max_sessions(Max) ->
-    emqx_config:put([multi_tenancy, default_max_sessions], Max).
+%% Only to please BPAPI static checks...  Arity 2 version will be called directly by
+%% `emqx_cluster_rpc:multicall'.
+-spec execute_side_effects_v1([side_effect()]) -> {ok, [map()]}.
+execute_side_effects_v1(SideEffects) ->
+    execute_side_effects_v1(SideEffects, _ClusterRPCOpts = #{}).
 
-cleanup_managed_ns_configs(_Ns, []) ->
-    ok;
-cleanup_managed_ns_configs(Ns, [{?limiter, Configs} | Rest]) ->
-    ok = emqx_mt_limiter:cleanup_configs(Ns, Configs),
-    cleanup_managed_ns_configs(Ns, Rest);
-cleanup_managed_ns_configs(Ns, [{_RootKey, _Configs} | Rest]) ->
-    cleanup_managed_ns_configs(Ns, Rest).
-
-%%------------------------------------------------------------------------------
-%% Internal fns
-%%------------------------------------------------------------------------------
-
-handle_root_configs_update(Ns, NewConfig) ->
-    maybe
-        {ok, #{diffs := Diffs, configs := Configs}} ?=
-            emqx_mt_state:update_root_configs(Ns, NewConfig),
-        SideEffects = compute_config_update_side_effects(Diffs, Ns),
-        Errors = execute_side_effects(SideEffects),
-        {ok, #{configs => Configs, errors => Errors}}
-    end.
-
-execute_side_effects(SideEffects) ->
-    lists:foldl(
+-spec execute_side_effects_v1([side_effect()], emqx_config:cluster_rpc_opts()) -> {ok, [map()]}.
+execute_side_effects_v1(SideEffects, _ClusterRPCOpts) ->
+    Errors = lists:foldl(
         fun(#{?op := {Fn, Args}, ?path := Path}, Acc) ->
             try
                 _ = apply(Fn, Args),
@@ -226,7 +216,58 @@ execute_side_effects(SideEffects) ->
         end,
         [],
         SideEffects
-    ).
+    ),
+    %% Cluster RPC must see `{ok, _}', or else it will treat the operation as a failure...
+    {ok, Errors}.
+
+%% Only to please BPAPI static checks...  Arity 3 version will be called directly by
+%% `emqx_cluster_rpc:multicall'.
+-spec cleanup_managed_ns_configs_v1(emqx_mt:tns(), [{atom(), map()}]) -> ok.
+cleanup_managed_ns_configs_v1(Ns, ConfigsList) ->
+    cleanup_managed_ns_configs_v1(Ns, ConfigsList, _ClusterRPCOpts = #{}).
+
+-spec cleanup_managed_ns_configs_v1(
+    emqx_mt:tns(),
+    [{atom(), map()}],
+    emqx_config:cluster_rpc_opts()
+) -> ok.
+cleanup_managed_ns_configs_v1(Ns, ConfigsList, _ClusterRPCOpts) ->
+    do_cleanup_managed_ns_configs(Ns, ConfigsList).
+
+%%------------------------------------------------------------------------------
+%% Internal exports
+%%------------------------------------------------------------------------------
+
+%% @doc Temporarily set the maximum number of sessions allowed for the given namespace.
+-spec tmp_set_default_max_sessions(non_neg_integer() | infinity) -> ok.
+tmp_set_default_max_sessions(Max) ->
+    emqx_config:put([multi_tenancy, default_max_sessions], Max).
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+do_cleanup_managed_ns_configs(_Ns, []) ->
+    ok;
+do_cleanup_managed_ns_configs(Ns, [{?limiter, Configs} | Rest]) ->
+    ok = emqx_mt_limiter:cleanup_configs(Ns, Configs),
+    do_cleanup_managed_ns_configs(Ns, Rest);
+do_cleanup_managed_ns_configs(Ns, [{_RootKey, _Configs} | Rest]) ->
+    do_cleanup_managed_ns_configs(Ns, Rest).
+
+handle_root_configs_update(Ns, NewConfig) ->
+    maybe
+        {ok, #{diffs := Diffs, configs := Configs}} ?=
+            emqx_mt_state:update_root_configs(Ns, NewConfig),
+        SideEffects = compute_config_update_side_effects(Diffs, Ns),
+        Errors = execute_side_effects(SideEffects),
+        {ok, #{configs => Configs, errors => Errors}}
+    end.
+
+execute_side_effects(SideEffects) ->
+    %% Foreced to wrap erros in `{ok, _}' by cluster RPC...
+    {ok, Errors} = emqx_mt_config_proto_v1:execute_side_effects(SideEffects),
+    Errors.
 
 compute_config_update_side_effects(Diffs, Ns) ->
     #{added := Added0, changed := Changed0} = Diffs,
