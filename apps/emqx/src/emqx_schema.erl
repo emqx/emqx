@@ -148,7 +148,7 @@
 ]).
 
 -export([listeners/0]).
--export([mkunion/2, mkunion/3]).
+-export([mkunion/2, mkunion/3, str/1]).
 
 -behaviour(hocon_schema).
 

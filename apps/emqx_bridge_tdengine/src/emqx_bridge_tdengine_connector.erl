@@ -39,8 +39,15 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
+-define(TD_DEFAULT_PORT, 6041).
+
 -define(TD_HOST_OPTIONS, #{
-    default_port => 6041
+    default_port => ?TD_DEFAULT_PORT
+}).
+
+-define(TD_HOST_OPTIONS_CLOUD, #{
+    default_port => 443,
+    supported_schemes => ["https"]
 }).
 
 -define(CONNECTOR_TYPE, tdengine).
@@ -60,6 +67,7 @@ fields(config) ->
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         base_config(false) ++
+        token_field() ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -75,6 +83,9 @@ base_config(HasDatabase) ->
         {server, server()}
         | adjust_fields(emqx_connector_schema_lib:relational_db_fields(), HasDatabase)
     ].
+
+token_field() ->
+    [{token, hoconsc:mk(binary(), #{required => false, desc => ?DESC("token")})}].
 
 desc(config) ->
     ?DESC("desc_config");
@@ -93,7 +104,7 @@ adjust_fields(Fields, HasDatabase) ->
             ({username, OrigUsernameFn}) ->
                 {true, {username, add_default_fn(OrigUsernameFn, <<"root">>)}};
             ({password, _}) ->
-                {true, {password, emqx_connector_schema_lib:password_field(#{required => true})}};
+                {true, {password, emqx_connector_schema_lib:password_field(#{required => false})}};
             ({database, _}) ->
                 HasDatabase;
             (_Field) ->
@@ -109,8 +120,33 @@ add_default_fn(OrigFn, Default) ->
     end.
 
 server() ->
-    Meta = #{desc => ?DESC("server")},
-    emqx_schema:servers_sc(Meta, ?TD_HOST_OPTIONS).
+    Meta = #{
+        required => true,
+        desc => ?DESC("server"),
+        converter => fun emqx_schema:convert_servers/2,
+        validator => fun validator_server/1
+    },
+    hoconsc:mk(string(), Meta).
+
+validator_server(Str) ->
+    case emqx_schema:str(Str) of
+        "" ->
+            throw("cannot_be_empty");
+        "undefined" ->
+            throw("cannot_be_empty");
+        _ ->
+            _ = parse_server(Str),
+            ok
+    end.
+
+parse_server(Str0) ->
+    Str = emqx_schema:str(Str0),
+    case Str of
+        "https://" ++ _ ->
+            emqx_schema:parse_server(Str, ?TD_HOST_OPTIONS_CLOUD);
+        _ ->
+            emqx_schema:parse_server(Str, ?TD_HOST_OPTIONS)
+    end.
 
 %%=====================================================================
 %% V2 Hocon schema
@@ -150,7 +186,6 @@ on_start(
     #{
         server := Server,
         username := Username,
-        password := Password,
         pool_size := PoolSize
     } = Config
 ) ->
@@ -160,16 +195,25 @@ on_start(
         config => emqx_utils:redact(Config)
     }),
 
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?TD_HOST_OPTIONS),
+    Server1 = parse_server(Server),
+    Options0 =
+        case maps:get(scheme, Server1, undefined) of
+            "https" ->
+                [{https_enabled, true}];
+            _ ->
+                []
+        end,
+    #{hostname := Host, port := Port} = Server1,
     Options = [
         {host, to_bin(Host)},
         {port, Port},
         {username, Username},
-        {password, Password},
+        {password, maps:get(password, Config, undefined)},
+        {token, maps:get(token, Config, undefined)},
         {pool_size, PoolSize},
         {pool, InstanceId}
+        | Options0
     ],
-
     State = #{pool_name => InstanceId, channels => #{}},
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
