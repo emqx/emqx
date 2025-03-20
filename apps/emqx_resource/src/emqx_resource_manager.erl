@@ -166,23 +166,20 @@
 
 %% If owner_id exists, log owner ID, otherwise log resource_id
 -define(LOG(LEVEL, FIELDS, DATA),
-    case maps:get(owner_id, DATA#data.opts, undefined) of
-        OWNER_ID when is_binary(OWNER_ID) ->
-            ?SLOG(
-                LEVEL,
-                maps:merge(FIELDS, #{
-                    owner_id => binary_to_list(OWNER_ID),
-                    internal_resid => binary_to_list(DATA#data.id)
-                }),
-                #{
-                    tag => tag(DATA#data.group, DATA#data.type)
-                }
-            );
-        _ ->
-            ?SLOG(LEVEL, maps:merge(FIELDS, #{resource_id => binary_to_list(DATA#data.id)}), #{
-                tag => tag(DATA#data.group, DATA#data.type)
-            })
-    end
+    (fun() ->
+        case maps:get(owner_id, DATA#data.opts, undefined) of
+            OWNER_ID when is_binary(OWNER_ID) ->
+                ?SLOG(
+                    LEVEL,
+                    maps:merge(FIELDS, #{
+                        owner_id => binary_to_list(OWNER_ID),
+                        internal_resid => binary_to_list(DATA#data.id)
+                    })
+                );
+            _ ->
+                ?SLOG(LEVEL, maps:merge(FIELDS, #{resource_id => binary_to_list(DATA#data.id)}))
+        end
+    end)()
 ).
 
 -type add_channel_opts() :: #{
@@ -708,6 +705,8 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
 init({DataIn, Opts}) ->
     process_flag(trap_exit, true),
     Data = DataIn#data{pid = self()},
+    set_label(Data#data.id),
+    ok = set_log_meta(Data),
     emqx_resource_cache_cleaner:add_cache(Data#data.id, self()),
     case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
         true ->
@@ -1434,9 +1433,16 @@ start_resource_health_check(#data{} = Data0) ->
 spawn_resource_health_check_worker(#data{} = Data) ->
     spawn_link(?MODULE, worker_resource_health_check, [Data]).
 
+-if(OTP_RELEASE >= 27).
+set_label(Label) -> proc_lib:set_label(Label).
+-else.
+set_label(_Label) -> ok.
+-endif.
+
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_resource_health_check(data()) -> no_return().
 worker_resource_health_check(Data) ->
+    set_label(iolist_to_binary([Data#data.id, "-health-check"])),
     HCRes = emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state),
     exit({ok, HCRes}).
 
@@ -2246,6 +2252,10 @@ log_level(false) -> warning.
 tag(Group, Type) ->
     Str = emqx_utils_conv:str(Group) ++ "/" ++ emqx_utils_conv:str(Type),
     string:uppercase(Str).
+
+set_log_meta(Data) ->
+    LogTag = #{tag => tag(Data#data.group, Data#data.type)},
+    emqx_logger:set_proc_metadata(LogTag).
 
 %% For still unknown reasons (e.g.: `emqx_metrics_worker' process might die?), metrics
 %% might be lost for a running resource, and future attempts to bump them result in
