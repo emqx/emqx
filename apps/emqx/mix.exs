@@ -43,6 +43,7 @@ defmodule EMQX.MixProject do
       UMP.common_dep(:gproc),
       UMP.common_dep(:gen_rpc),
       UMP.common_dep(:ekka),
+      UMP.common_dep(:mria),
       UMP.common_dep(:esockd),
       UMP.common_dep(:cowboy),
       UMP.common_dep(:lc),
