@@ -33,7 +33,9 @@
     t_e2e_cilent_publish_qos1/1,
     t_e2e_cilent_publish_qos2/1,
     t_e2e_cilent_publish_qos2_with_forward/1,
-    t_e2e_cilent_borker_publish_whitelist/1
+    t_e2e_cilent_borker_publish_whitelist/1,
+    t_e2e_client_pub_qos2_trace_level_0/1,
+    t_e2e_client_pub_qos2_trace_level_1/1
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -54,6 +56,14 @@
         (T =:= ssl) orelse
         (T =:= ws) orelse
         (T =:= wss))
+).
+
+-define(WITH_CLUSTER(TC),
+    ((TC =:= t_distributed_trace) orelse
+        (TC =:= t_e2e_cilent_publish_qos2_with_forward) orelse
+        (TC =:= t_e2e_cilent_borker_publish_whitelist) orelse
+        (TC =:= t_e2e_client_pub_qos2_trace_level_0) orelse
+        (TC =:= t_e2e_client_pub_qos2_trace_level_1))
 ).
 %% How to run it locally:
 %%
@@ -123,7 +133,9 @@ groups() ->
         t_e2e_cilent_publish_qos1,
         t_e2e_cilent_publish_qos2,
         t_e2e_cilent_publish_qos2_with_forward,
-        t_e2e_cilent_borker_publish_whitelist
+        t_e2e_cilent_borker_publish_whitelist,
+        t_e2e_client_pub_qos2_trace_level_0,
+        t_e2e_client_pub_qos2_trace_level_1
     ],
     FeatureGroups = [
         {group, logs},
@@ -219,22 +231,14 @@ init_per_group(Group, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-init_per_testcase(TC, Config) when
-    TC =:= t_distributed_trace orelse
-        TC =:= t_e2e_cilent_publish_qos2_with_forward orelse
-        TC =:= t_e2e_cilent_borker_publish_whitelist
-->
+init_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
     Cluster = cluster(TC, Config),
     [{tc, TC}, {cluster, Cluster} | Config];
 init_per_testcase(TC, Config) ->
     Apps = emqx_cth_suite:start(apps_spec(), #{work_dir => emqx_cth_suite:work_dir(TC, Config)}),
     [{tc, TC}, {suite_apps, Apps} | Config].
 
-end_per_testcase(TC, Config) when
-    TC =:= t_distributed_trace orelse
-        TC =:= t_e2e_cilent_publish_qos2_with_forward orelse
-        TC =:= t_e2e_cilent_borker_publish_whitelist
-->
+end_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     emqx_config:delete_override_conf_files(),
     ok;
@@ -1201,11 +1205,247 @@ t_e2e_cilent_borker_publish_whitelist(Config) ->
     _ = disconnect_conns([Conn1, Conn2, Conn3]),
     ok.
 
+t_e2e_client_pub_qos2_trace_level_0(Config) ->
+    [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
+
+    OtelConf0 = enabled_e2e_trace_conf_all(Config),
+    OtelConf = emqx_utils_maps:deep_put(
+        [<<"traces">>, <<"filter">>, <<"e2e_tracing_options">>, <<"msg_trace_level">>],
+        OtelConf0,
+        0
+    ),
+
+    {ok, _} = rpc:call(
+        Core1,
+        emqx_conf,
+        update,
+        [?CONF_PATH, OtelConf, #{override_to => cluster}]
+    ),
+
+    Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    QoS = ?QOS_2,
+
+    BaseClientId = e2e_client_id(Config),
+    ClientId1 = <<BaseClientId/binary, "-1">>,
+    ClientId2 = <<BaseClientId/binary, "-2">>,
+    ClientId3 = <<BaseClientId/binary, "-3">>,
+
+    Conn1 = connect(Config, Core1, ClientId1),
+    {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
+    Conn2 = connect(Config, Core2, ClientId2),
+    {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
+    Conn3 = connect(Config, Repl, ClientId3),
+    {ok, _, [QoS]} = emqtt:subscribe(Conn3, Topic, QoS),
+
+    timer:sleep(200),
+    {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
+
+    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+    F2 = ?F(
+        <<"forward.to">>,
+        [
+            emqx_utils_conv:bin(node_name(?otel_trace_core1)),
+            emqx_utils_conv:bin(node_name(?otel_trace_core2)),
+            emqx_utils_conv:bin(node_name(?otel_trace_repl))
+        ],
+        OperationName,
+        Spans
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := ClientPublishTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    "client.publish",
+                    #{
+                        %% find the publisher
+                        <<"client.clientid">> => ClientId1,
+                        <<"cluster.id">> => <<"emqxcl">>
+                    }
+                ),
+                ct:pal("SubTraces: ~p~n", [ClientPublishTraces]),
+
+                [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
+                10 = length(Spans),
+                %% Note: Ignoring spans and sorting by time may cause order problems
+                %% due to asynchronous requests. Manually sort by span name directly
+                %%
+                %% 1, `client.publish` (ClientId1) Root span
+                %% 2.  ├─ `client.authz`
+                %% 3.  └─ `message.route`
+                %%         │
+                %% 4.      ├─ `broker.publish` (Core1, ClientId1, to local node)
+                %%         │
+                %% 5.      ├─ `message.forward` (Core2, ClientId2)
+                %% 6.      │   └─ `message.handle_forward`
+                %% 7.      │       └─ `broker.publish` (ClientId2)
+                %%         │
+                %% 8.      └─ `message.forward` (Repl, ClientId3)
+                %% 9.          └─ `message.handle_forward`
+                %% 10.             └─ `broker.publish` (ClientId3)
+
+                [?MATCH_ROOT_SPAN(SpanID1, TraceID)] = F1(<<"client.publish">>, Spans),
+                [?MATCH_SUB_SPAN(_SpanID2, SpanID1, _)] = F1(<<"client.authz">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID3, SpanID1, _)] = F1(<<"message.route">>, Spans),
+                [
+                    ?MATCH_SUB_SPAN(_SpanID4, SpanID3, _),
+                    ?MATCH_SUB_SPAN(_SpanID7, SpanID6, _),
+                    ?MATCH_SUB_SPAN(_SpanID10, SpanID9, _)
+                ] =
+                    F1(<<"broker.publish">>, Spans),
+
+                [
+                    ?MATCH_SUB_SPAN(SpanID5, SpanID3, _),
+                    ?MATCH_SUB_SPAN(SpanID8, SpanID3, _)
+                ] = F2(<<"message.forward">>, Spans),
+
+                [
+                    ?MATCH_SUB_SPAN(SpanID6, SpanID5, _),
+                    ?MATCH_SUB_SPAN(SpanID9, SpanID8, _)
+                ] = F2(<<"message.handle_forward">>, Spans),
+
+                true
+            end,
+            10_000
+        )
+    ),
+
+    _ = disconnect_conns([Conn1, Conn2, Conn3]),
+    ok.
+
+t_e2e_client_pub_qos2_trace_level_1(Config) ->
+    [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
+
+    OtelConf0 = enabled_e2e_trace_conf_all(Config),
+    OtelConf = emqx_utils_maps:deep_put(
+        [<<"traces">>, <<"filter">>, <<"e2e_tracing_options">>, <<"msg_trace_level">>],
+        OtelConf0,
+        1
+    ),
+
+    {ok, _} = rpc:call(
+        Core1,
+        emqx_conf,
+        update,
+        [?CONF_PATH, OtelConf, #{override_to => cluster}]
+    ),
+
+    Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    QoS = ?QOS_2,
+
+    BaseClientId = e2e_client_id(Config),
+    ClientId1 = <<BaseClientId/binary, "-1">>,
+    ClientId2 = <<BaseClientId/binary, "-2">>,
+    ClientId3 = <<BaseClientId/binary, "-3">>,
+
+    Conn1 = connect(Config, Core1, ClientId1),
+    {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
+    Conn2 = connect(Config, Core2, ClientId2),
+    {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
+    Conn3 = connect(Config, Repl, ClientId3),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Conn3, Topic, ?QOS_1),
+
+    timer:sleep(200),
+    {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
+
+    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+    F2 = ?F(
+        <<"forward.to">>,
+        [
+            emqx_utils_conv:bin(node_name(?otel_trace_core1)),
+            emqx_utils_conv:bin(node_name(?otel_trace_core2)),
+            emqx_utils_conv:bin(node_name(?otel_trace_repl))
+        ],
+        OperationName,
+        Spans
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := ClientPublishTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    "client.publish",
+                    #{
+                        %% find the publisher
+                        <<"client.clientid">> => ClientId1,
+                        <<"cluster.id">> => <<"emqxcl">>
+                    }
+                ),
+                ct:pal("SubTraces: ~p~n", [ClientPublishTraces]),
+
+                [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
+                14 = length(Spans),
+                %% Note: Ignoring spans and sorting by time may cause order problems
+                %% due to asynchronous requests. Manually sort by span name directly
+                %%
+                %% 1, `client.publish` (ClientId1) Root span
+                %% 2.  ├─ `client.authz`
+                %% 3.  ├─ `message.route`
+                %%     │   │
+                %% 4.  │   ├─ `broker.publish` (Core1, ClientId1, to local node)
+                %% 5.  │   │   └─ `client.pubrec`
+                %%     │   │
+                %% 6.  │   ├─ `message.forward` (Core2, ClientId2)
+                %% 7.  │   │   └─ `message.handle_forward`
+                %% 8.  │   │       └─ `broker.publish` (ClientId2)
+                %% 9.  │   │           └─ `client.pubrec`
+                %%     │   │
+                %% 10. │   └─ `message.forward` (Repl, ClientId3)
+                %% 11. │       └─ `message.handle_forward`
+                %% 12. │           └─ `broker.publish` (ClientId3 subscribed QoS1)
+                %% 13. │               └─ `client.puback`
+                %%     │
+                %% 14. └─ `broker.pubrec` (ClientId1)
+
+                [?MATCH_ROOT_SPAN(SpanID1, TraceID)] = F1(<<"client.publish">>, Spans),
+                [?MATCH_SUB_SPAN(_SpanID2, SpanID1, _)] = F1(<<"client.authz">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID3, SpanID1, _)] = F1(<<"message.route">>, Spans),
+                [
+                    ?MATCH_SUB_SPAN(SpanID4, SpanID3, _),
+                    ?MATCH_SUB_SPAN(SpanID8, SpanID7, _),
+                    ?MATCH_SUB_SPAN(SpanID12, SpanID11, _)
+                ] =
+                    F1(<<"broker.publish">>, Spans),
+
+                [
+                    ?MATCH_SUB_SPAN(SpanID6, SpanID3, _),
+                    ?MATCH_SUB_SPAN(SpanID10, SpanID3, _)
+                ] = F2(<<"message.forward">>, Spans),
+
+                [
+                    ?MATCH_SUB_SPAN(SpanID7, SpanID6, _),
+                    ?MATCH_SUB_SPAN(SpanID11, SpanID10, _)
+                ] = F2(<<"message.handle_forward">>, Spans),
+
+                [
+                    ?MATCH_SUB_SPAN(_SpanID5, SpanID4, _),
+                    ?MATCH_SUB_SPAN(_SpanID9, SpanID8, _)
+                ] = F1(<<"client.pubrec">>, Spans),
+
+                [?MATCH_SUB_SPAN(_SpanID13, SpanID12, _)] = F1(<<"client.puback">>, Spans),
+
+                [?MATCH_SUB_SPAN(_SpanID14, SpanID1, _)] = F1(<<"broker.pubrec">>, Spans),
+                true
+            end,
+            10_000
+        )
+    ),
+
+    _ = disconnect_conns([Conn1, Conn2, Conn3]),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-%% TODO: Update msg_trace_level to test qos upgrade/downgrade
 enabled_e2e_trace_conf_all(TcConfig) ->
     OtelConf = enabled_trace_conf(TcConfig),
     emqx_utils_maps:deep_put(
