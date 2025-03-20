@@ -32,6 +32,9 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
+-define(EXT_TRACE__RULE_INTERNAL_CLIENTID, '$emqx_rule_internal_clientid').
+-define(EXT_TRACE__ACTION_INTERNAL_CLIENTID, '$emqx_action_internal_clientid').
+
 -define(get_provider(), persistent_term:get(?PROVIDER, undefined)).
 
 -define(no_provider(Any), Any).

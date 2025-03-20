@@ -323,7 +323,8 @@ rule_attrs(#{
         'rule.updated_at' => format_datetime(LastModifiedAt),
         'rule.description' => Descr,
         'rule.trigger' => Topic,
-        'rule.matched' => TopicFilter
+        'rule.matched' => TopicFilter,
+        'client.clientid' => ?EXT_TRACE__RULE_INTERNAL_CLIENTID
     }.
 
 action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
@@ -331,18 +332,21 @@ action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
         'action.type' => <<"bridge">>,
         'action.bridge_type' => BridgeType,
         'action.bridge_name' => BridgeName,
-        'action.resource_id' => ResId
+        'action.resource_id' => ResId,
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
     };
 action_attrs({bridge_v2, BridgeType, BridgeName}) ->
     #{
         'action.type' => <<"bridge_v2">>,
         'action.bridge_type' => BridgeType,
-        'action.bridge_name' => BridgeName
+        'action.bridge_name' => BridgeName,
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
     };
 action_attrs(#{mod := Mod, func := Func}) ->
     #{
         'action.type' => <<"function">>,
-        'action.function' => printable_function_name(Mod, Func)
+        'action.function' => printable_function_name(Mod, Func),
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
     }.
 
 %%--------------------------------------------------------------------
