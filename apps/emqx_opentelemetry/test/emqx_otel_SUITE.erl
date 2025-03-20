@@ -792,7 +792,7 @@ t_e2e_cilent_sub_unsub(Config) ->
     ]
 }).
 
--define(F(TagKeyName, TagSeq, OperationName, Spans), fun(OperationName, Spans) ->
+-define(F(TagKeyName, TagSeq), fun(OperationName, Spans) ->
     sort_spans_by_key_sequence(TagKeyName, TagSeq, OperationName, Spans)
 end).
 
@@ -820,7 +820,7 @@ t_e2e_cilent_publish_qos0(Config) ->
     timer:sleep(200),
     _ = disconnect_conns([Conn1, Conn2]),
 
-    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2], OperationName, Spans),
+    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2]),
 
     ?assertEqual(
         ok,
@@ -884,7 +884,7 @@ t_e2e_cilent_publish_qos1(Config) ->
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
 
-    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2], OperationName, Spans),
+    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2]),
 
     ?assertEqual(
         ok,
@@ -958,7 +958,7 @@ t_e2e_cilent_publish_qos2(Config) ->
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
 
-    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2], OperationName, Spans),
+    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2]),
 
     ?assertEqual(
         ok,
@@ -1056,16 +1056,14 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
 
-    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3]),
     F2 = ?F(
         <<"forward.to">>,
         [
             emqx_utils_conv:bin(node_name(?otel_trace_core1)),
             emqx_utils_conv:bin(node_name(?otel_trace_core2)),
             emqx_utils_conv:bin(node_name(?otel_trace_repl))
-        ],
-        OperationName,
-        Spans
+        ]
     ),
 
     ?assertEqual(
@@ -1206,7 +1204,7 @@ t_e2e_cilent_borker_publish_whitelist(Config) ->
     timer:sleep(50),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, PubQoS),
 
-    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+    F = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3]),
 
     timer:sleep(200),
     ?assertEqual(
@@ -1291,16 +1289,14 @@ t_e2e_client_pub_qos2_trace_level_0(Config) ->
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
 
-    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3]),
     F2 = ?F(
         <<"forward.to">>,
         [
             emqx_utils_conv:bin(node_name(?otel_trace_core1)),
             emqx_utils_conv:bin(node_name(?otel_trace_core2)),
             emqx_utils_conv:bin(node_name(?otel_trace_repl))
-        ],
-        OperationName,
-        Spans
+        ]
     ),
 
     ?assertEqual(
@@ -1403,16 +1399,14 @@ t_e2e_client_pub_qos2_trace_level_1(Config) ->
     timer:sleep(200),
     {ok, _} = emqtt:publish(Conn1, Topic, <<"must be traced">>, QoS),
 
-    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3], OperationName, Spans),
+    F1 = ?F(<<"client.clientid">>, [ClientId1, ClientId2, ClientId3]),
     F2 = ?F(
         <<"forward.to">>,
         [
             emqx_utils_conv:bin(node_name(?otel_trace_core1)),
             emqx_utils_conv:bin(node_name(?otel_trace_core2)),
             emqx_utils_conv:bin(node_name(?otel_trace_repl))
-        ],
-        OperationName,
-        Spans
+        ]
     ),
 
     ?assertEqual(
@@ -1582,16 +1576,12 @@ t_e2e_client_source_republish_to_clients(Config) ->
             atom_to_binary(?EXT_TRACE__RULE_INTERNAL_CLIENTID),
             atom_to_binary(?EXT_TRACE__ACTION_INTERNAL_CLIENTID),
             SubRepublishClientId
-        ],
-        OperationName,
-        Spans
+        ]
     ),
 
     F2 = ?F(
         <<"action.function">>,
-        [<<"republish">>, <<"console">>],
-        OperationName,
-        Spans
+        [<<"republish">>, <<"console">>]
     ),
 
     ok = emqx_common_test_helpers:wait_for(
