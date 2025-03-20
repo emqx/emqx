@@ -259,6 +259,7 @@ on_start(
         {driver, Driver},
         {database, Database},
         {pool_size, PoolSize},
+        {auto_reconnect, 2},
         {on_disconnect, {?MODULE, disconnect, []}}
     ],
     ParsedServer = parse_server(Server),
@@ -305,8 +306,10 @@ on_remove_channel(_InstId, #{installed_channels := InstalledChannels} = OldState
 
 on_get_channel_status(InstanceId, ChannelId, #{installed_channels := Channels} = State) ->
     case maps:find(ChannelId, Channels) of
-        {ok, _} -> on_get_status(InstanceId, State);
-        error -> ?status_disconnected
+        {ok, _} ->
+            on_get_status(InstanceId, State);
+        error ->
+            ?status_disconnected
     end.
 
 on_get_channels(ResId) ->
@@ -363,12 +366,22 @@ on_format_query_result(Result) ->
     Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
-    Result = emqx_resource_pool:health_check_workers(
+    Results = emqx_resource_pool:health_check_workers(
         PoolName,
-        {?MODULE, do_get_status, []}
+        {?MODULE, do_get_status, []},
+        _Timeout = 5000,
+        #{return_values => true}
     ),
-    case Result of
-        true ->
+    status_result(Results).
+
+status_result({error, timeout}) ->
+    {?status_connecting, <<"timeout_checking_connections">>};
+status_result({ok, []}) ->
+    %% ecpool will auto-restart after delay
+    {?status_connecting, <<"connection_pool_not_initialized">>};
+status_result({ok, Results}) ->
+    case lists:filter(fun(S) -> S =/= ok end, Results) of
+        [] ->
             case validate_connected_instance_name(ConnState) of
                 ok ->
                     ?status_connected;
@@ -388,8 +401,8 @@ on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
                     %% Could not infer instance name; assume ok
                     ?status_connected
             end;
-        false ->
-            ?status_connecting
+        [{error, Reason} | _] ->
+            {?status_connecting, Reason}
     end.
 
 format_instance_name(undefined) ->
@@ -411,11 +424,17 @@ connect(Options) ->
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
 
--spec do_get_status(connection_reference()) -> Result :: boolean().
+-spec do_get_status(connection_reference()) -> ok | {error, term()}.
 do_get_status(Conn) ->
     case execute(Conn, <<"SELECT 1">>) of
-        {selected, [[]], [{1}]} -> true;
-        _ -> false
+        {selected, [[]], [{1}]} ->
+            ok;
+        Other ->
+            _ = disconnect(Conn),
+            {error, #{
+                cause => "unexpected_SELECT_1_result",
+                result => Other
+            }}
     end.
 
 get_servername(Conn) ->
@@ -531,8 +550,10 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {updated, _} ->
                 ok;
             {error, ErrStr} ->
+                IsConnectionClosedError = is_connection_closed_error(ErrStr),
+                IsConnectionBrokenError = is_connection_broken_error(ErrStr),
                 {LogLevel, Err} =
-                    case is_connection_closed_error(ErrStr) of
+                    case IsConnectionClosedError orelse IsConnectionBrokenError of
                         true ->
                             {info, {recoverable_error, <<"connection_closed">>}};
                         false ->
@@ -553,6 +574,18 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
 %% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
 is_connection_closed_error(MsgStr) ->
     case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
+    end.
+
+%% Potential race condition: if an insert request is made while the connection is being
+%% cut by the remote server, this error might be returned.
+%% References:
+%% https://learn.microsoft.com/en-us/sql/connect/odbc/connection-resiliency?view=sql-server-ver16
+is_connection_broken_error(MsgStr) ->
+    case re:run(MsgStr, <<"SQLSTATE IS: IMC0[1-6]">>, [{capture, none}]) of
         match ->
             true;
         nomatch ->
