@@ -364,6 +364,17 @@ deep_intersect(#{} = RefMap, #{} = Map) ->
         maps:to_list(RefMap)
     ).
 
+wait_downs(Refs, _Timeout) when map_size(Refs) =:= 0 ->
+    ok;
+wait_downs(Refs0, Timeout) ->
+    receive
+        {'DOWN', Ref, process, _Pid, _Reason} when is_map_key(Ref, Refs0) ->
+            Refs = maps:remove(Ref, Refs0),
+            wait_downs(Refs, Timeout)
+    after Timeout ->
+        ct:fail("processes didn't die; remaining: ~b", [map_size(Refs0)])
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -886,4 +897,50 @@ t_adjust_limiters(Config) when is_list(Config) ->
             ok
         end
     ),
+    ok.
+
+%% Checks that we kick clients of a managed namespace when we delete it.
+t_kick_clients_when_deleting(_Config) ->
+    Ns1 = <<"ns1">>,
+    Ns2 = <<"ns2">>,
+    Ns3 = <<"ns3">>,
+    {204, _} = create_managed_ns(Ns1),
+    {204, _} = create_managed_ns(Ns2),
+    {204, _} = create_managed_ns(Ns3),
+
+    N = 9,
+    ClientIds1 = [?NEW_CLIENTID(I) || I <- lists:seq(1, N)],
+    Clients1 = [connect(ClientId, Ns1) || ClientId <- ClientIds1],
+    ClientIds2 = [?NEW_CLIENTID(I) || I <- lists:seq(10, 10 + N)],
+    Clients2 = [connect(ClientId, Ns2) || ClientId <- ClientIds2],
+    %% These should be left alone
+    ClientIds3 = [?NEW_CLIENTID(I) || I <- lists:seq(20, 10 + N)],
+    Clients3 = [connect(ClientId, Ns3) || ClientId <- ClientIds3],
+
+    MRefs0 = lists:map(fun(Pid) -> monitor(process, Pid) end, Clients1 ++ Clients2),
+    MRefs = maps:from_keys(MRefs0, true),
+
+    %% Delete 2 NSs (almost) at the same time
+    ct:pal("deleting namespaces"),
+    ?assertMatch({204, _}, delete_managed_ns(Ns1)),
+    ?assertMatch({204, _}, delete_managed_ns(Ns2)),
+
+    ct:pal("waiting for clients to be kicked"),
+    wait_downs(MRefs, _Timeout = 5_000),
+    ct:pal("clients kicked"),
+
+    %% Clients from 3rd namespace should not be kicked
+    ?assert(lists:all(fun is_process_alive/1, Clients3)),
+
+    %% Create one of the NSs again
+    ct:pal("recreating namespace"),
+    {204, _} = create_managed_ns(Ns1),
+    Clients1B = [connect(ClientId, Ns1) || ClientId <- ClientIds1],
+    ct:sleep(500),
+
+    ct:pal("checking new clients are not kicked"),
+    ?assert(lists:all(fun is_process_alive/1, Clients1B)),
+
+    lists:foreach(fun emqtt:stop/1, Clients1B ++ Clients3),
+
     ok.
