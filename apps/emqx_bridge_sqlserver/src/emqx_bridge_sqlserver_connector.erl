@@ -493,8 +493,10 @@ worker_do_insert(
             {updated, _} ->
                 ok;
             {error, ErrStr} ->
+                IsConnectionClosedError = is_connection_closed_error(ErrStr),
+                IsConnectionBrokenError = is_connection_broken_error(ErrStr),
                 {LogLevel, Err} =
-                    case is_connection_closed_error(ErrStr) of
+                    case IsConnectionClosedError orelse IsConnectionBrokenError of
                         true ->
                             {info, {recoverable_error, <<"connection_closed">>}};
                         false ->
@@ -515,6 +517,18 @@ worker_do_insert(
 %% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
 is_connection_closed_error(MsgStr) ->
     case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
+    end.
+
+%% Potential race condition: if an insert request is made while the connection is being
+%% cut by the remote server, this error might be returned.
+%% References:
+%% https://learn.microsoft.com/en-us/sql/connect/odbc/connection-resiliency?view=sql-server-ver16
+is_connection_broken_error(MsgStr) ->
+    case re:run(MsgStr, <<"SQLSTATE IS: IMC0[1-6]">>, [{capture, none}]) of
         match ->
             true;
         nomatch ->
