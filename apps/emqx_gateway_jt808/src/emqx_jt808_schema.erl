@@ -63,7 +63,7 @@ fields(jt808_proto) ->
         {dn_topic, fun dn_topic/1},
         {ignore_unsupported_frames,
             sc(
-                hoconsc:union([true, false]),
+                boolean(),
                 #{desc => ?DESC(ignore_unsupported_frames), default => true}
             )}
     ];

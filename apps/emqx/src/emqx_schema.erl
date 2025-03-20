@@ -154,6 +154,7 @@
 
 -export([listeners/0]).
 -export([mkunion/2, mkunion/3]).
+-export([str/1]).
 -export([fill_defaults/2, fill_defaults_for_type/2]).
 -export([duration_ms_to_str/1, duration_ms_to_str/2]).
 

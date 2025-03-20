@@ -1,6 +1,6 @@
 {application, emqx_bridge_tdengine, [
-    {description, "EMQX Enterprise TDEngine Bridge"},
-    {vsn, "0.2.5"},
+    {description, "EMQX Enterprise TDengine Bridge"},
+    {vsn, "0.2.6"},
     {registered, []},
     {applications, [
         kernel,

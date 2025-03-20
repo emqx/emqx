@@ -27,7 +27,7 @@ services:
       - 15432:5432
       # PostgreSQL TLS
       - 15433:5433
-      # TDEngine
+      # TDengine
       - 16041:6041
       # DynamoDB
       - 18000:8000
