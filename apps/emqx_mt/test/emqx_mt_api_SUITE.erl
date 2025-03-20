@@ -215,6 +215,12 @@ bulk_import_configs(Body) ->
     ct:pal("bulk import config result:\n  ~p", [Res]),
     Res.
 
+kick_all_clients(Ns) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "kick_all_clients"]),
+    Res = simple_request(post, Path, ""),
+    ct:pal("kick all ns clients result:\n  ~p", [Res]),
+    Res.
+
 disable_tenant_limiter(Ns) ->
     Body = #{<<"limiter">> => #{<<"tenant">> => <<"disabled">>}},
     update_managed_ns_config(Ns, Body).
@@ -924,6 +930,16 @@ t_kick_clients_when_deleting(_Config) ->
     ct:pal("deleting namespaces"),
     ?assertMatch({204, _}, delete_managed_ns(Ns1)),
     ?assertMatch({204, _}, delete_managed_ns(Ns2)),
+    %% Cannot re-create namespace while clients are being kicked
+    ?assertMatch(
+        {409, #{
+            <<"message">> := <<
+                "Clients from this namespace are still being kicked;",
+                _/binary
+            >>
+        }},
+        create_managed_ns(Ns2)
+    ),
 
     ct:pal("waiting for clients to be kicked"),
     wait_downs(MRefs, _Timeout = 5_000),
@@ -942,5 +958,42 @@ t_kick_clients_when_deleting(_Config) ->
     ?assert(lists:all(fun is_process_alive/1, Clients1B)),
 
     lists:foreach(fun emqtt:stop/1, Clients1B ++ Clients3),
+
+    ok.
+
+%% Smoke test for "kick all NS clients" API.
+t_kick_all_ns_clients(_Config) ->
+    Ns = <<"ns1">>,
+    {204, _} = create_managed_ns(Ns),
+
+    N = 9,
+    ClientIds = [?NEW_CLIENTID(I) || I <- lists:seq(1, N)],
+    Clients1 = [connect(ClientId, Ns) || ClientId <- ClientIds],
+
+    MRefs1A = lists:map(fun(Pid) -> monitor(process, Pid) end, Clients1),
+    MRefs1 = maps:from_keys(MRefs1A, true),
+
+    ?assertMatch({202, _}, kick_all_clients(Ns)),
+
+    ct:pal("waiting for clients to be kicked"),
+    Timeout = 5_000,
+    wait_downs(MRefs1, Timeout),
+    ct:pal("clients kicked"),
+
+    ?retry(250, 10, ?assertMatch({error, not_found}, emqx_mt_client_kicker:whereis_kicker(Ns))),
+
+    %% Check consecutive calls to this async API.
+    Clients2 = [connect(ClientId, Ns) || ClientId <- ClientIds],
+
+    MRefs2A = lists:map(fun(Pid) -> monitor(process, Pid) end, Clients2),
+    MRefs2 = maps:from_keys(MRefs2A, true),
+
+    ?assertMatch({202, _}, kick_all_clients(Ns)),
+    %% Already started
+    ?assertMatch({409, _}, kick_all_clients(Ns)),
+
+    ct:pal("waiting for clients to be kicked (again)"),
+    wait_downs(MRefs2, Timeout),
+    ct:pal("clients kicked"),
 
     ok.
