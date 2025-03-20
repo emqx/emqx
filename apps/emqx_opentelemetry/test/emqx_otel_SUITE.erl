@@ -35,11 +35,14 @@
     t_e2e_cilent_publish_qos2_with_forward/1,
     t_e2e_cilent_borker_publish_whitelist/1,
     t_e2e_client_pub_qos2_trace_level_0/1,
-    t_e2e_client_pub_qos2_trace_level_1/1
+    t_e2e_client_pub_qos2_trace_level_1/1,
+    t_e2e_client_source_republish_to_clients/1,
+    t_e2e_client_source_republish_to_clients/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -64,6 +67,10 @@
         (TC =:= t_e2e_cilent_borker_publish_whitelist) orelse
         (TC =:= t_e2e_client_pub_qos2_trace_level_0) orelse
         (TC =:= t_e2e_client_pub_qos2_trace_level_1))
+).
+
+-define(WITH_RULE_ENGINE(TC),
+    (TC =:= t_e2e_client_source_republish_to_clients)
 ).
 %% How to run it locally:
 %%
@@ -135,7 +142,8 @@ groups() ->
         t_e2e_cilent_publish_qos2_with_forward,
         t_e2e_cilent_borker_publish_whitelist,
         t_e2e_client_pub_qos2_trace_level_0,
-        t_e2e_client_pub_qos2_trace_level_1
+        t_e2e_client_pub_qos2_trace_level_1,
+        t_e2e_client_source_republish_to_clients
     ],
     FeatureGroups = [
         {group, logs},
@@ -233,19 +241,38 @@ end_per_group(_Group, _Config) ->
 
 init_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
     Cluster = cluster(TC, Config),
-    [{tc, TC}, {cluster, Cluster} | Config];
+    local_init_per_test_case(TC, [{tc, TC}, {cluster, Cluster} | Config]);
+init_per_testcase(TC, Config) when ?WITH_RULE_ENGINE(TC) ->
+    Apps = emqx_cth_suite:start(
+        apps_spec_with_rule_engine(),
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]);
 init_per_testcase(TC, Config) ->
-    Apps = emqx_cth_suite:start(apps_spec(), #{work_dir => emqx_cth_suite:work_dir(TC, Config)}),
-    [{tc, TC}, {suite_apps, Apps} | Config].
+    Apps = emqx_cth_suite:start(
+        apps_spec(),
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]).
 
 end_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     emqx_config:delete_override_conf_files(),
-    ok;
-end_per_testcase(_TC, Config) ->
+    local_end_per_test_case(TC, Config);
+end_per_testcase(TC, Config) when ?WITH_RULE_ENGINE(TC) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files(),
-    ok.
+    local_end_per_test_case(TC, Config);
+end_per_testcase(TC, Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_config:delete_override_conf_files(),
+    local_end_per_test_case(TC, Config).
+
+local_init_per_test_case(TC, Config) ->
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
+
+local_end_per_test_case(TC, Config) ->
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
 logs_exporter_file_path(Group, Config) ->
     filename:join([project_dir(Config), logs_exporter_filename(Group)]).
@@ -733,11 +760,35 @@ t_e2e_cilent_sub_unsub(Config) ->
     <<"spanID">> := SpanID, <<"traceID">> := TraceID, <<"references">> := []
 }).
 
+-define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
+    <<"tags">> := Tags,
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := []
+}).
+
 -define(MATCH_SUB_SPAN(SpanID, ParentSpanID, TraceID), #{
     <<"spanID">> := SpanID,
     <<"traceID">> := TraceID,
     <<"references">> := [
-        #{<<"refType">> := <<"CHILD_OF">>, <<"traceID">> := TraceID, <<"spanID">> := ParentSpanID}
+        #{
+            <<"refType">> := <<"CHILD_OF">>,
+            <<"traceID">> := TraceID,
+            <<"spanID">> := ParentSpanID
+        }
+    ]
+}).
+
+-define(MATCH_SUB_SPAN(SpanID, ParentSpanID, Tags, TraceID), #{
+    <<"tags">> := Tags,
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := [
+        #{
+            <<"refType">> := <<"CHILD_OF">>,
+            <<"traceID">> := TraceID,
+            <<"spanID">> := ParentSpanID
+        }
     ]
 }).
 
@@ -1442,6 +1493,231 @@ t_e2e_client_pub_qos2_trace_level_1(Config) ->
     _ = disconnect_conns([Conn1, Conn2, Conn3]),
     ok.
 
+t_e2e_client_source_republish_to_clients('init', Config) ->
+    ConnectorType = mqtt,
+    ConnectorName = <<"my_mqtt_connector">>,
+    ConnectorConfig = connector_config(),
+
+    SourceType = mqtt,
+    SourceName = <<"my_mqtt_source">>,
+    SourceConfig = source_config(#{connector => ConnectorName}),
+
+    ActionType = mqtt,
+    ActionName = <<"my_mqtt_action">>,
+    ActionConfig = action_config(#{connector => ConnectorName}),
+
+    _ = emqx_conf:update([connectors, ConnectorType, ConnectorName], ConnectorConfig, #{
+        override_to => cluster
+    }),
+    _ = emqx_bridge_v2:create(sources, SourceType, SourceName, SourceConfig),
+    _ = emqx_bridge_v2:create(actions, ActionType, ActionName, ActionConfig),
+
+    RepublishTopic = <<"republish/1">>,
+    RepublishQOS = 2,
+    RuleID = rule_id(Config),
+    Rule = #{
+        id => RuleID,
+        sql => <<"SELECT * FROM \"$bridges/mqtt:my_mqtt_source\"">>,
+        actions => [
+            #{
+                function => republish,
+                args => #{
+                    direct_dispatch => false,
+                    payload => <<"${payload}">>,
+                    qos => RepublishQOS,
+                    retain => false,
+                    topic => RepublishTopic,
+                    user_properties => <<>>,
+                    mqtt_properties => #{}
+                }
+            },
+            #{
+                function => console,
+                args => #{}
+            }
+        ]
+    },
+    {ok, _} = emqx_rule_engine:create_rule(Rule),
+    timer:sleep(500),
+
+    [
+        {rule_id, RuleID},
+        {republish_topic, RepublishTopic},
+        {republish_qos, RepublishQOS}
+        | Config
+    ];
+t_e2e_client_source_republish_to_clients('end', _Config) ->
+    %% apps stopped, no need to delete rule
+    ok.
+
+t_e2e_client_source_republish_to_clients(Config) ->
+    OtelConf = enabled_e2e_trace_conf_all(Config),
+    {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
+
+    BaseClientId = e2e_client_id(Config),
+
+    PubToTriggerSourceClientId = <<BaseClientId/binary, "-publish-to-trigger-source">>,
+    SubRepublishClientId = <<BaseClientId/binary, "-sub-republish">>,
+
+    TriggerSourcePid = connect(Config, PubToTriggerSourceClientId),
+    SubRepublishPid = connect(Config, SubRepublishClientId),
+
+    RepublishTopic = ?config(republish_topic, Config),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(SubRepublishPid, RepublishTopic, ?QOS_2),
+
+    timer:sleep(200),
+
+    PublishPayload = <<"__REMOTE_PAYLOAD__">>,
+    PublishPayloadSize = size(PublishPayload),
+
+    {ok, _} = emqtt:publish(
+        TriggerSourcePid, <<"fetch_from_cluster">>, PublishPayload, ?QOS_1
+    ),
+
+    timer:sleep(500),
+
+    F = ?F(
+        <<"rule.id">>,
+        [
+            atom_to_binary(?EXT_TRACE__RULE_INTERNAL_CLIENTID),
+            atom_to_binary(?EXT_TRACE__ACTION_INTERNAL_CLIENTID),
+            SubRepublishClientId
+        ],
+        OperationName,
+        Spans
+    ),
+
+    F2 = ?F(
+        <<"action.function">>,
+        [<<"republish">>, <<"console">>],
+        OperationName,
+        Spans
+    ),
+
+    ok = emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            RuleID = ?config(rule_id, Config),
+            {ok, #{<<"data">> := RuleEngineTraces}} = search_jaeger_traces(
+                ?config(jaeger_url, Config),
+                %% `Source' triggered rule engine and then action(republish)
+                "broker.rule_engine.apply",
+                #{
+                    %% find the publisher
+                    <<"rule.id">> => RuleID,
+                    <<"cluster.id">> => <<"emqxcl">>
+                }
+            ),
+            ct:pal("SubTraces: ~p~n", [RuleEngineTraces]),
+
+            [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = RuleEngineTraces,
+            8 = length(Spans),
+
+            %% 1. `broker.rule_engine.apply` (triggered by `Source') Root span
+            %% 2.  ├─ `broker.rule_engine.action` (republish)
+            %%     │
+            %% 3.  ├─ `message.route`
+            %% 4.  │   └─ `broker.publish` (to client SubRepublishPid)
+            %% 5.  │       └─ `client.pubrec`
+            %% 6.  │           └─ `broker.pubrel`
+            %% 7.  │               └─ `client.pubcomp`
+            %%     │
+            %% 8.  └─ `broker.rule_engine.action` (console)
+
+            %%%%%%%%%% Root span
+            [?MATCH_ROOT_SPAN(SpanID1, Tags1, TraceID)] = F(<<"broker.rule_engine.apply">>, Spans),
+
+            match_tags(
+                #{
+                    <<"rule.id">> => RuleID,
+                    <<"rule.matched">> => <<"$bridges/mqtt:my_mqtt_source">>,
+                    <<"rule.trigger">> => <<"$bridges/mqtt:my_mqtt_source">>
+                },
+                Tags1
+            ),
+            %%%%%%%%%% actions span
+            [
+                %% republish action
+                ?MATCH_SUB_SPAN(
+                    _SpanID2,
+                    SpanID1,
+                    Tags2,
+                    TraceID
+                ),
+                %% console action
+                ?MATCH_SUB_SPAN(
+                    _SpanID8,
+                    SpanID1,
+                    Tags8,
+                    TraceID
+                )
+            ] = F2(<<"broker.rule_engine.action">>, Spans),
+
+            match_tags(
+                #{
+                    <<"rule.id">> => RuleID,
+                    <<"action.function">> => <<"republish">>,
+                    <<"action.type">> => <<"function">>
+                },
+                Tags2
+            ),
+            match_tags(
+                #{
+                    <<"rule.id">> => RuleID,
+                    <<"action.function">> => <<"console">>,
+                    <<"action.type">> => <<"function">>
+                },
+                Tags8
+            ),
+
+            %%%%%%%%%% message.route
+            [
+                ?MATCH_SUB_SPAN(
+                    SpanID3,
+                    SpanID1,
+                    Tags3,
+                    _
+                )
+            ] = F(<<"message.route">>, Spans),
+            match_tags(
+                #{
+                    <<"client.clientid">> => RuleID,
+                    <<"message.payload_size">> => PublishPayloadSize
+                },
+                Tags3
+            ),
+
+            %%%%%%%%%% publish to subscriber
+            [
+                ?MATCH_SUB_SPAN(
+                    SpanID4,
+                    SpanID3,
+                    Tags4,
+                    _
+                )
+            ] = F(<<"broker.publish">>, Spans),
+
+            match_tags(
+                #{
+                    <<"client.clientid">> => SubRepublishClientId,
+                    <<"message.payload_size">> => PublishPayloadSize
+                },
+                Tags4
+            ),
+
+            [?MATCH_SUB_SPAN(SpanID5, SpanID4, _)] = F(<<"client.pubrec">>, Spans),
+            [?MATCH_SUB_SPAN(SpanID6, SpanID5, _)] = F(<<"broker.pubrel">>, Spans),
+            [?MATCH_SUB_SPAN(_SpanID7, SpanID6, _)] = F(<<"client.pubcomp">>, Spans),
+
+            true
+        end,
+        10_000
+    ),
+
+    _ = disconnect_conns([TriggerSourcePid, SubRepublishPid]),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -1454,7 +1730,8 @@ enabled_e2e_trace_conf_all(TcConfig) ->
             <<"msg_trace_level">> => 2,
             <<"client_connect_disconnect">> => true,
             <<"client_subscribe_unsubscribe">> => true,
-            <<"client_messaging">> => true
+            <<"client_messaging">> => true,
+            <<"trace_rule_engine">> => true
         }
     ).
 
@@ -1529,6 +1806,19 @@ filter_tag_value(TagKey, Tags) ->
 
 filter_tags(TagKey, Tags) ->
     lists:filter(fun(#{<<"key">> := Key}) -> Key =:= TagKey end, Tags).
+
+-define(TAG_KEY(TAG), maps:get(<<"key">>, Tag)).
+-define(TAG_VALUE(TAG), maps:get(<<"value">>, Tag)).
+
+match_tags(TagsPattern, Tags0) ->
+    Tags = #{?TAG_KEY(Tag) => ?TAG_VALUE(Tag) || Tag <- Tags0},
+    true =
+        lists:all(
+            fun({PatternKey, PatternValue}) ->
+                maps:get(PatternKey, Tags) =:= PatternValue
+            end,
+            [{PatternKey, PatternValue} || PatternKey := PatternValue <- TagsPattern]
+        ).
 
 find_first(_, _, []) ->
     not_found;
@@ -1605,6 +1895,9 @@ e2e_client_id(Config) ->
             Rand
         ])
     ).
+
+rule_id(Config) ->
+    <<"rule_id_", (e2e_client_id(Config))/binary>>.
 
 connect(Config, ClientId) ->
     connect(Config, node(), ClientId).
@@ -1702,9 +1995,83 @@ apps_spec() ->
         emqx_opentelemetry
     ].
 
+apps_spec_with_rule_engine() ->
+    [
+        emqx,
+        emqx_conf,
+        emqx_management,
+        emqx_opentelemetry,
+        emqx_rule_engine,
+        emqx_connector,
+        emqx_bridge_mqtt,
+        emqx_bridge
+    ].
+
 build_query_string(Query = #{}) ->
     build_query_string(maps:to_list(Query));
 build_query_string(Query = [{_, _} | _]) ->
     uri_string:compose_query([{emqx_utils_conv:bin(K), emqx_utils_conv:bin(V)} || {K, V} <- Query]);
 build_query_string(QueryString) ->
     unicode:characters_to_list(QueryString).
+
+connector_config() ->
+    connector_config(_Overrides = #{}).
+
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"pool_size">> => 3,
+        <<"proto_ver">> => <<"v5">>,
+        <<"clean_start">> => true,
+        <<"connect_timeout">> => <<"5s">>,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1s">>,
+            <<"start_after_created">> => true,
+            <<"start_timeout">> => <<"5s">>
+        }
+    },
+    emqx_utils_maps:deep_merge(Defaults, Overrides).
+
+-define(PLEASE_OVERRIDE, <<"__PLEASE_OVERRIDE__">>).
+
+action_config(Overrides0) ->
+    Overrides = emqx_utils_maps:binary_key_map(Overrides0),
+    CommonConfig =
+        #{
+            <<"connector">> => ?PLEASE_OVERRIDE,
+            <<"enable">> => true,
+            <<"fallback_actions">> => [],
+            <<"parameters">> =>
+                #{
+                    <<"payload">> => <<"${payload}">>,
+                    <<"qos">> => 1,
+                    <<"retain">> => false,
+                    <<"topic">> => <<"pub/to/remote">>
+                },
+            <<"resource_opts">> =>
+                #{
+                    <<"health_check_interval">> => <<"15s">>,
+                    <<"query_mode">> => <<"async">>
+                }
+        },
+
+    maps:merge(CommonConfig, Overrides).
+
+source_config(Overrides0) ->
+    Overrides = emqx_utils_maps:binary_key_map(Overrides0),
+    CommonConfig =
+        #{
+            <<"connector">> => ?PLEASE_OVERRIDE,
+            <<"enable">> => true,
+            <<"parameters">> =>
+                #{
+                    <<"no_local">> => false,
+                    <<"qos">> => 1,
+                    <<"topic">> => <<"$share/group/fetch_from_cluster">>
+                },
+            <<"resource_opts">> =>
+                #{<<"health_check_interval">> => <<"15s">>}
+        },
+
+    maps:merge(CommonConfig, Overrides).
