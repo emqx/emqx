@@ -16,9 +16,6 @@
 
 -module(emqx_authn_redis).
 
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
-
 -behaviour(emqx_authn_provider).
 
 -export([
@@ -28,6 +25,9 @@
     destroy/1
 ]).
 
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include("emqx_auth_redis.hrl").
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -36,7 +36,7 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
     case parse_config(Config0) of
         {error, _} = Res ->
             Res;
@@ -44,14 +44,20 @@ create(Config0) ->
             {ok, _Data} = emqx_authn_utils:create_resource(
                 ResourceId,
                 emqx_redis,
-                Config
+                Config,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
             ),
             {ok, State#{resource_id => ResourceId}}
     end.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_redis, Config, ResourceId) of
+    case
+        emqx_authn_utils:update_resource(
+            emqx_redis, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+        )
+    of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

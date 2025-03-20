@@ -16,9 +16,6 @@
 
 -module(emqx_authz_mongodb).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authz.hrl").
-
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
@@ -29,6 +26,10 @@
     authorize/4
 ]).
 
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
+-include("emqx_auth_mongodb.hrl").
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -37,8 +38,8 @@
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
-    ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source, ?AUTHZ_TYPE),
     {Vars, FilterTemp} = emqx_auth_template:parse_deep(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
@@ -58,7 +59,7 @@ update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
+    case emqx_authz_utils:update_resource(emqx_mongodb, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

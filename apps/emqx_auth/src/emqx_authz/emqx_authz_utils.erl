@@ -25,9 +25,8 @@
 -export([
     cleanup_resources/0,
     make_resource_id/1,
-    create_resource/2,
-    create_resource/3,
-    update_resource/2,
+    create_resource/4,
+    update_resource/3,
     remove_resource/1,
     update_config/2,
     vars_for_rule_query/2,
@@ -43,8 +42,9 @@
     cached_simple_sync_query/3
 ]).
 
--define(DEFAULT_RESOURCE_OPTS, #{
-    start_after_created => false
+-define(DEFAULT_RESOURCE_OPTS(Type), #{
+    start_after_created => false,
+    owner_id => Type
 }).
 
 -include_lib("emqx/include/logger.hrl").
@@ -53,28 +53,24 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(Module, Config) ->
-    ResourceId = make_resource_id(Module),
-    create_resource(ResourceId, Module, Config).
-
-create_resource(ResourceId, Module, Config) ->
+create_resource(ResourceId, Module, Config, Type) ->
     Result = emqx_resource:create_local(
         ResourceId,
         ?AUTHZ_RESOURCE_GROUP,
         Module,
         Config,
-        ?DEFAULT_RESOURCE_OPTS
+        ?DEFAULT_RESOURCE_OPTS(Type)
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
-update_resource(Module, #{annotations := #{id := ResourceId}} = Config) ->
+update_resource(Module, #{annotations := #{id := ResourceId}} = Config, Type) ->
     Result =
         case
             emqx_resource:recreate_local(
                 ResourceId,
                 Module,
                 Config,
-                ?DEFAULT_RESOURCE_OPTS
+                ?DEFAULT_RESOURCE_OPTS(Type)
             )
         of
             {ok, _} -> {ok, ResourceId};
@@ -98,7 +94,7 @@ cleanup_resources() ->
     ).
 
 make_resource_id(Name) ->
-    NameBin = emqx_utils_conv:bin(Name),
+    NameBin = iolist_to_binary(["authz:", emqx_utils_conv:bin(Name)]),
     emqx_resource:generate_id(NameBin).
 
 update_config(Path, ConfigRequest) ->

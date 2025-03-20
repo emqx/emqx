@@ -15,10 +15,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_redis).
-
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authz.hrl").
-
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
@@ -28,6 +24,10 @@
     destroy/1,
     authorize/4
 ]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
+-include("emqx_auth_redis.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -39,8 +39,8 @@
 create(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source, ?AUTHZ_TYPE),
     Source#{
         annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
         cmd_template => CmdTemplate
@@ -49,7 +49,7 @@ create(#{cmd := CmdStr} = Source) ->
 update(#{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    case emqx_authz_utils:update_resource(emqx_redis, Source) of
+    case emqx_authz_utils:update_resource(emqx_redis, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

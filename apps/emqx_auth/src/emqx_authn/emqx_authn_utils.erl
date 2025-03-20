@@ -21,8 +21,8 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    create_resource/3,
-    update_resource/3,
+    create_resource/5,
+    update_resource/5,
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
@@ -38,27 +38,30 @@
     cached_simple_sync_query/3
 ]).
 
--define(DEFAULT_RESOURCE_OPTS, #{
-    start_after_created => false
+-define(DEFAULT_RESOURCE_OPTS(OWNER_ID), #{
+    start_after_created => false,
+    owner_id => OWNER_ID
 }).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(ResourceId, Module, Config) ->
+create_resource(ResourceId, Module, Config, Mechanism, Backend) ->
+    OwnerId = owner_id(Mechanism, Backend),
     Result = emqx_resource:create_local(
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
         Module,
         Config,
-        ?DEFAULT_RESOURCE_OPTS
+        ?DEFAULT_RESOURCE_OPTS(OwnerId)
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
-update_resource(Module, Config, ResourceId) ->
+update_resource(Module, Config, ResourceId, Mechanism, Backend) ->
+    OwnerId = owner_id(Mechanism, Backend),
     Result = emqx_resource:recreate_local(
-        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS
+        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS(OwnerId)
     ),
     start_resource_if_enabled(Result, ResourceId, Config).
 
@@ -131,8 +134,8 @@ ensure_apps_started(_) ->
     ok.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(X) -> X.
+bin(L) when is_list(L) -> iolist_to_binary(L);
+bin(X) when is_binary(X) -> X.
 
 cleanup_resources() ->
     lists:foreach(
@@ -141,7 +144,7 @@ cleanup_resources() ->
     ).
 
 make_resource_id(Name) ->
-    NameBin = bin(Name),
+    NameBin = bin([<<"authn:">>, bin(Name)]),
     emqx_resource:generate_id(NameBin).
 
 without_password(Credential) ->
@@ -197,3 +200,6 @@ without_password(Credential, [Name | Rest]) ->
         false ->
             without_password(Credential, Rest)
     end.
+
+owner_id(Mechanism, Backend) ->
+    bin([bin(Mechanism), ":", bin(Backend)]).

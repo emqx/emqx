@@ -16,17 +16,18 @@
 
 -module(emqx_authn_jwt).
 
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("jose/include/jose_jwk.hrl").
-
 -export([
     create/2,
     update/2,
     authenticate/2,
     destroy/1
 ]).
+
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("jose/include/jose_jwk.hrl").
+-include("emqx_auth_jwt.hrl").
 
 -define(ALLOWED_VARS, [
     ?VAR_CLIENTID,
@@ -173,7 +174,7 @@ create_authn_public_key(
     end.
 
 create_authn_public_key_with_jwks(Config) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_TYPE),
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
