@@ -503,10 +503,7 @@ handle_schema_encode_and_tag(OurSchemaName, RegistryName, Data, Args) ->
     end.
 
 create_external_http_resource(Name, Params) ->
-    %% It's fine to generate a node-local unique name here: this will be stored only in
-    %% local ETS serde table.
-    ResName = <<"schema_registry:external_http:", Name/binary>>,
-    ResourceId = emqx_resource:generate_id(ResName),
+    ResourceId = <<"schema_registry:external_http:", Name/binary>>,
     #{
         url := URL,
         max_retries := MaxRetries,
