@@ -156,6 +156,15 @@ fields(payload_serde_protobuf) ->
         {schema, mk(binary(), #{required => true, desc => ?DESC("payload_serde_protobuf_schema")})},
         {message_type,
             mk(binary(), #{required => true, desc => ?DESC("payload_serde_protobuf_message_type")})}
+    ];
+fields(payload_serde_external_http) ->
+    [
+        {type,
+            mk(external_http, #{
+                default => external_http, desc => ?DESC("payload_serde_external_http_type")
+            })},
+        {schema,
+            mk(binary(), #{required => true, desc => ?DESC("payload_serde_external_http_schema")})}
     ].
 
 %%------------------------------------------------------------------------------
@@ -192,7 +201,8 @@ payload_serde_refs() ->
         payload_serde_none,
         payload_serde_json,
         payload_serde_avro,
-        payload_serde_protobuf
+        payload_serde_protobuf,
+        payload_serde_external_http
     ].
 payload_serde_refs(#{<<"type">> := Type} = V) when is_atom(Type) ->
     payload_serde_refs(V#{<<"type">> := atom_to_binary(Type)});
@@ -204,6 +214,8 @@ payload_serde_refs(#{<<"type">> := <<"avro">>}) ->
     [ref(payload_serde_avro)];
 payload_serde_refs(#{<<"type">> := <<"protobuf">>}) ->
     [ref(payload_serde_protobuf)];
+payload_serde_refs(#{<<"type">> := <<"external_http">>}) ->
+    [ref(payload_serde_external_http)];
 payload_serde_refs(_Value) ->
     Expected = lists:join(
         " | ",
