@@ -59,7 +59,7 @@ t_inconsistent_chan_info(_Config) ->
 
     ClientIds = [
         ClientId
-     || {ClientId, _ConnState, _ConnInfo, _ClientInfo} <- emqx_utils_stream:consume(
+     || {ClientId, _ChanPid, _ConnState, _ConnInfo, _ClientInfo} <- emqx_utils_stream:consume(
             emqx_cm:all_channels_stream([emqx_connection])
         )
     ],
