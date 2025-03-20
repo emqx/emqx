@@ -170,13 +170,16 @@
         OWNER_ID when is_binary(OWNER_ID) ->
             ?SLOG(
                 LEVEL,
-                maps:merge(FIELDS, #{owner_id => OWNER_ID, internal_resid => DATA#data.id}),
+                maps:merge(FIELDS, #{
+                    owner_id => binary_to_list(OWNER_ID),
+                    internal_resid => binary_to_list(DATA#data.id)
+                }),
                 #{
                     tag => tag(DATA#data.group, DATA#data.type)
                 }
             );
         _ ->
-            ?SLOG(LEVEL, maps:merge(FIELDS, #{resource_id => DATA#data.id}), #{
+            ?SLOG(LEVEL, maps:merge(FIELDS, #{resource_id => binary_to_list(DATA#data.id)}), #{
                 tag => tag(DATA#data.group, DATA#data.type)
             })
     end
@@ -1069,12 +1072,7 @@ remove_channels_from_previous_incarnation(_ChannelIds, #data{state = undefined})
     %% No previous state, so nothing to do
     ok;
 remove_channels_from_previous_incarnation(ChannelIds, #data{} = PreviousIncarnationData) ->
-    #data{
-        id = ResId,
-        group = Group,
-        mod = Mod,
-        type = Type
-    } = PreviousIncarnationData,
+    #data{id = ResId, mod = Mod} = PreviousIncarnationData,
     IsDryRun = emqx_resource:is_dry_run(ResId),
     lists:foldl(
         fun(ChannelId, OldState0) ->
@@ -1083,15 +1081,14 @@ remove_channels_from_previous_incarnation(ChannelIds, #data{} = PreviousIncarnat
                     OldState;
                 {error, Reason} ->
                     %% Nothing much else to do; we are going to work with a new state.
-                    ?SLOG(
+                    ?LOG(
                         log_level(IsDryRun),
                         #{
                             msg => "remove_channel_failed",
-                            resource_id => ResId,
                             channel_id => ChannelId,
                             reason => Reason
                         },
-                        #{tag => tag(Group, Type)}
+                        PreviousIncarnationData
                     ),
                     OldState0
             end
