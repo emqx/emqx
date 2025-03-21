@@ -4126,7 +4126,7 @@ t_resource_and_channel_health_check_race(_Config) ->
             %%    state.
             ?tpal("2) Connector HC returns `disconnected'"),
             _ = emqx_utils_agent:get_and_update(Agent, fun(Old) ->
-                {Old, Old#{resource_health_check := connected}}
+                {Old, Old#{resource_health_check := {notify, Me, ?status_connected}}}
             end),
             {_, {ok, _}} =
                 ?wait_async_action(
@@ -4138,6 +4138,7 @@ t_resource_and_channel_health_check_race(_Config) ->
             ChanHCAlias1 ! {ChanHCAlias1, connected},
             %% 4) A new connector HC returns `connected'.
             ?tpal("4) A new connector HC returns `connected'"),
+            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
             ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
             ?assertMatch(
                 #{status := connected}, emqx_resource:channel_health_check(ConnResId, ChanId)
@@ -4912,5 +4913,105 @@ t_compress_channel_operations_existing_channel(Config) when is_list(Config) ->
                 ok
             end
         ]
+    ),
+    ok.
+
+%% Verifies that we do not perform connector resource health checks while in the
+%% `disconnected' state, so that a manual health check doesn't trigger an undue state
+%% change.
+t_health_check_while_resource_is_disconnected(_Config) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            %% 1) Resource will start successfully and enter connected state.
+            ConnResId = <<"connector:ctype:c">>,
+            TestPid = self(),
+            StartAgentState0 = #{
+                start_resource => [
+                    continue,
+                    {notify, TestPid, {error, <<"fail once">>}},
+                    {ask, TestPid},
+                    continue
+                ]
+            },
+            HCAgentState = #{
+                resource_health_check => [
+                    {notify, TestPid, ?status_connected},
+                    {notify, TestPid, ?status_disconnected},
+                    {ask, TestPid},
+                    {notify, TestPid, ?status_connected}
+                ]
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(HCAgentState),
+            {ok, StartAgent} = emqx_utils_agent:start_link(StartAgentState0),
+            ?tpal("creating connector resource"),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        start_resource_agent => StartAgent,
+                        health_check_agent => HCAgent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100,
+                        spawn_buffer_workers => false
+                    }
+                ),
+            ?tpal("waiting for first (successful) resource health check"),
+            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+
+            %% 2) The resource then enters the disconnected state.  It'll try to restart at
+            %%    least once and fail.  Note that this may destroy some resources related
+            %%    to the connector state.  For example, calling `emqx_resource_pool:start'
+            %%    using an already started pool will make it stop such pool before
+            %%    restarting.  If the restart then fails, we are left with no pool.
+            ?tpal("waiting connector to be disconnected"),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_disconnected}
+            ),
+            ?tpal("waiting connector to attempt and fail to restart"),
+            receive
+                {attempted_to_start_resource, ConnResId, {error, <<"fail once">>}} ->
+                    ok
+            after 500 ->
+                ct:fail("l. ~b: did not attempt a failed restart!", [?LINE])
+            end,
+
+            %% 3) While the resource manager process does not trigger health checks itself
+            %%    while `disconnected', an external caller might manyally trigger them.  In
+            %%    this case, this check will later return `connected', but before the
+            %%    resource has time to successfully restart its inner resource.
+            %%
+            %%    If we let this happen, the health check might return `connected', and the
+            %%    resource will incorrectly enter the `connected' state, without actually
+            %%    calling `on_start' and hence becoming corrupted (e.g. no pool).
+            %%
+            %%    After fixing the original issue (performing the health check while
+            %%    disconnected), manually calling the health check should return
+            %%    `disconnected' (the current state) before it's able to initialize its
+            %%    state.  Once initialized, it'll do its own normal health checks.
+            ?tpal("attempting manual resource health checks"),
+            ?assertMatch({ok, ?status_disconnected}, emqx_resource:health_check(ConnResId)),
+            ?assertMatch({ok, ?status_disconnected}, emqx_resource:health_check(ConnResId)),
+            %% Should not attempt health check before starting
+            ?assertNotReceive({waiting_health_check_result, _Alias, resource, ConnResId}),
+            ?tpal("waiting for resource to attempt another restart, which will succeed"),
+            {waiting_start_resource_result, Alias1, ConnResId} =
+                ?assertReceive({waiting_start_resource_result, _, ConnResId}),
+            Alias1 ! {Alias1, continue},
+            {waiting_health_check_result, Alias2, resource, ConnResId} =
+                ?assertReceive({waiting_health_check_result, _Alias, resource, ConnResId}),
+            Alias2 ! {Alias2, ?status_connected},
+            ?tpal("now it should return to normal"),
+            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertMatch({ok, ?status_connected}, emqx_resource:health_check(ConnResId)),
+
+            ok
+        end,
+        [log_consistency_prop()]
     ),
     ok.
