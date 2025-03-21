@@ -40,6 +40,7 @@
 
 -define(kick, kick).
 
+-define(BATCH_SIZE, 1_000).
 -define(KICK_INTERVAL, 250).
 
 %%------------------------------------------------------------------------------
@@ -142,23 +143,24 @@ child_spec(Ns) ->
 handle_kick(State0) ->
     #{
         ?ns := Ns,
-        ?last_seen_clientid := LastClientId
+        ?last_seen_clientid := LastSeenClientId
     } = State0,
-    case emqx_mt_state:list_clients(Ns, LastClientId, 1) of
+    case emqx_mt_state:list_clients(Ns, LastSeenClientId, ?BATCH_SIZE) of
         {ok, []} ->
             {stop, State0};
         {error, not_found} ->
             %% Impossible?
             {stop, State0};
-        {ok, [ClientId]} ->
-            _ = kick_client(ClientId),
+        {ok, ClientIds} ->
+            LastClientId = lists:last(ClientIds),
+            _ = kick_clients(ClientIds),
             start_kick_timer(),
-            State = State0#{?last_seen_clientid := ClientId},
+            State = State0#{?last_seen_clientid := LastClientId},
             {continue, State}
     end.
 
-kick_client(ClientId) ->
-    emqx_mgmt:kickout_client(ClientId).
+kick_clients(ClientIds) ->
+    emqx_mgmt:kickout_clients(ClientIds).
 
 start_kick_timer() ->
     _ = erlang:send_after(?KICK_INTERVAL, self(), ?kick),

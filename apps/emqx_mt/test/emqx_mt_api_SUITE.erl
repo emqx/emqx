@@ -949,6 +949,8 @@ t_kick_clients_when_deleting(_Config) ->
     ?assert(lists:all(fun is_process_alive/1, Clients3)),
 
     %% Create one of the NSs again
+    ct:pal("waiting for kicker to shut down"),
+    ?retry(250, 10, ?assertMatch({error, not_found}, emqx_mt_client_kicker:whereis_kicker(Ns1))),
     ct:pal("recreating namespace"),
     {204, _} = create_managed_ns(Ns1),
     Clients1B = [connect(ClientId, Ns1) || ClientId <- ClientIds1],
