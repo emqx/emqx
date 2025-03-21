@@ -3,7 +3,8 @@ emqx_bridge_tdengine_connector {
 server.desc:
 """The IPv4 or IPv6 address or the hostname to connect to.<br/>
 A host entry has the following form: `Host[:Port]`.<br/>
-The TDengine default port 6041 is used if `[:Port]` is not specified."""
+The TDengine default port 6041 is used if `[:Port]` is not specified.<br/>
+This field also supports an HTTPS URLs to connect to the TDengine Cloud. For example: `https://gw.us-west-2.aws.cloud.tdengine.com `"""
 
 server.label:
 """Server Host"""
@@ -13,5 +14,10 @@ desc_config.desc:
 
 desc_config.label:
 """TDengine Connector Configuration"""
+
+token.desc:
+"""The token used when connecting to TDengine Cloud. <br/>
+If this value is provided, it will override the authentication method of Username and Password.<br/>
+Default is empty."""
 
 }
