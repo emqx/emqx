@@ -32,6 +32,7 @@
 -export([
     register_channel/3,
     unregister_channel/1,
+    unregister_channel/2,
     insert_channel_info/3
 ]).
 
@@ -197,7 +198,11 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
 unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
-    do_unregister_channel({ClientId, self()}).
+    unregister_channel(ClientId, self()).
+
+-spec unregister_channel(emqx_types:clientid(), pid()) -> ok.
+unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
+    do_unregister_channel({ClientId, ChanPid}).
 
 %% @private
 do_unregister_channel({_ClientId, ChanPid} = Chan) ->
@@ -601,8 +606,8 @@ all_channels() ->
     }).
 all_channels_stream(ConnModuleList) ->
     Ms = ets:fun2ms(
-        fun({{ClientId, _ChanPid}, Info, _Stats}) ->
-            {ClientId, Info}
+        fun({{ClientId, ChanPid}, Info, _Stats}) ->
+            {ClientId, ChanPid, Info}
         end
     ),
     ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
@@ -611,7 +616,7 @@ all_channels_stream(ConnModuleList) ->
         (Cont) -> ets:select(Cont)
     end),
     WithModulesFilteredStream = emqx_utils_stream:filter(
-        fun({_, #{conninfo := #{conn_mod := ConnModule}}}) ->
+        fun({_ClientId, _ChanPid, #{conninfo := #{conn_mod := ConnModule}}}) ->
             sets:is_element(ConnModule, ConnModules)
         end,
         AllChanInfoStream
@@ -619,13 +624,13 @@ all_channels_stream(ConnModuleList) ->
     %% Map to the plain tuples
     emqx_utils_stream:map(
         fun(
-            {ClientId, #{
+            {ClientId, ChanPid, #{
                 conn_state := ConnState,
                 clientinfo := ClientInfo,
                 conninfo := ConnInfo
             }}
         ) ->
-            {ClientId, ConnState, ConnInfo, ClientInfo}
+            {ClientId, ChanPid, ConnState, ConnInfo, ClientInfo}
         end,
         WithModulesFilteredStream
     ).
