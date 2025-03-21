@@ -44,12 +44,17 @@
     ensure_installed/0,
     ensure_installed/1,
     ensure_installed/2,
+
+    get_plugin_tar_from_node/2,
+    get_plugin_config_from_node/2,
+
     ensure_uninstalled/1,
     ensure_enabled/1,
     ensure_enabled/2,
     ensure_enabled/3,
     ensure_disabled/1,
     purge/1,
+    purge_other_versions/1,
     delete_package/1
 ]).
 
@@ -208,7 +213,6 @@ ensure_installed() ->
 ensure_installed(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
         {ok, _} ->
-            ok,
             _ = maybe_ensure_plugin_config(NameVsn, ?normal);
         {error, _} ->
             ok = purge(NameVsn),
@@ -279,8 +283,25 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
+    ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
     _ = maybe_purge_plugin_config(NameVsn),
     purge_plugin(NameVsn).
+
+-spec purge_other_versions(name_vsn()) -> ok.
+purge_other_versions(NameVsn) ->
+    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    lists:foreach(
+        fun
+            (Dir) when Dir =:= NameVsn ->
+                ok;
+            (Path) ->
+                case filelib:is_dir(filename:join([install_dir(), Path])) of
+                    true -> purge(Path);
+                    false -> ok
+                end
+        end,
+        filelib:wildcard(atom_to_list(AppName) ++ "*", install_dir())
+    ).
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
@@ -769,6 +790,7 @@ do_ensure_started(NameVsn) ->
         fun() ->
             case ensure_exists_and_installed(NameVsn) of
                 ok ->
+                    _ = maybe_load_config_schema(NameVsn, ?normal),
                     Plugin = do_read_plugin(NameVsn),
                     ok = load_code_start_apps(NameVsn, Plugin);
                 {error, #{reason := Reason} = ReasonMap} ->
@@ -897,6 +919,9 @@ do_get_from_cluster(NameVsn) ->
             {error, ErrMeta}
     end.
 
+get_plugin_tar_from_node(Node, NameVsn) ->
+    get_plugin_tar_from_any_node([Node], NameVsn, []).
+
 get_plugin_tar_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
 get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
@@ -930,6 +955,9 @@ get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
         Err ->
             get_plugin_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
     end.
+
+get_plugin_config_from_node(Node, NameVsn) ->
+    get_plugin_config_from_any_node([Node], NameVsn, []).
 
 plugins_package_info(NameVsn, Info) ->
     case file:read_file(md5sum_file(NameVsn)) of
