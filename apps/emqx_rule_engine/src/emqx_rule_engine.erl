@@ -240,7 +240,7 @@ get_rules_for_topic(Topic) ->
         #{
             rule => Rule,
             trigger => Topic,
-            matched => emqx_topic:join(MBinaryOrWords)
+            matched => join(MBinaryOrWords)
         }
      || {MBinaryOrWords, _} = M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
         Rule <- lookup_rule(emqx_topic_index:get_id(M))
@@ -702,3 +702,8 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
         [] -> ok;
         _ -> {error, #{nonexistent_bridge_ids => NonExistentBridgeIds}}
     end.
+
+join(BinaryTF) when is_binary(BinaryTF) ->
+    BinaryTF;
+join(Words) when is_list(Words) ->
+    emqx_topic:join(Words).

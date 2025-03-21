@@ -327,6 +327,7 @@ rule_attrs(#{
         'client.clientid' => ?EXT_TRACE__RULE_INTERNAL_CLIENTID
     }.
 
+%% TODO: also rm `action.bridge_type' and `action.bridge_name' after bridge_v1 is deprecated
 action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
     #{
         'action.type' => <<"bridge">>,
