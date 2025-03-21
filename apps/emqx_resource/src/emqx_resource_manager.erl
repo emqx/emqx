@@ -1911,7 +1911,17 @@ handle_channel_health_check_worker_down_new_channels_and_status(
     %% updated while the health check was in progress. We can still reply with
     %% NewStatus because the health check must have been issued before the
     %% configuration changed or the channel got removed.
-    {AddedChannels, NewStatus}.
+    {AddedChannels, NewStatus};
+handle_channel_health_check_worker_down_new_channels_and_status(
+    _ChannelId,
+    ErrorExitResult,
+    _CurrentStatus,
+    AddedChannels
+) ->
+    %% This shouldn't happen normally.  If something not wrapped in `{ok, _}' arrives, it
+    %% means that the health check worker was killed (externally) before reaching
+    %% `exit({ok, Result})'.
+    {AddedChannels, {error, ErrorExitResult}}.
 
 reply_pending_channel_health_check_callers(
     ChannelId, Status0, Data0 = #data{hc_pending_callers = Pending0}
