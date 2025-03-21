@@ -57,4 +57,8 @@ emqx_mt_api {
         desc: "Upsert namespace configurations in bulk"
         label: "Upsert namespace configurations in bulk"
     }
+    kick_all_clients {
+        desc: "Kick all clients in namespace (async)"
+        label: "Kick all clients in namespace (async)"
+    }
 }

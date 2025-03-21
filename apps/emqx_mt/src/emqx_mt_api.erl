@@ -27,7 +27,8 @@
     '/mt/ns/:ns'/2,
     '/mt/ns/:ns/config'/2,
     '/mt/ns/:ns/client_list'/2,
-    '/mt/ns/:ns/client_count'/2
+    '/mt/ns/:ns/client_count'/2,
+    '/mt/ns/:ns/kick_all_clients'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -59,6 +60,7 @@ paths() ->
         "/mt/ns/:ns/client_count",
         "/mt/ns/:ns",
         "/mt/ns/:ns/config",
+        "/mt/ns/:ns/kick_all_clients",
         "/mt/bulk_import_configs"
     ].
 
@@ -153,7 +155,10 @@ schema("/mt/ns/:ns") ->
             responses =>
                 #{
                     204 => <<"">>,
-                    400 => error_schema('BAD_REQUEST', "Maximum number of configurations reached")
+                    400 => error_schema('BAD_REQUEST', "Maximum number of configurations reached"),
+                    409 => error_schema(
+                        'CONFLICT', "Clients from this namespace are still being kicked"
+                    )
                 }
         },
         delete => #{
@@ -164,6 +169,22 @@ schema("/mt/ns/:ns") ->
             responses =>
                 #{
                     204 => <<"">>
+                }
+        }
+    };
+schema("/mt/ns/:ns/kick_all_clients") ->
+    #{
+        'operationId' => '/mt/ns/:ns/kick_all_clients',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Kick all clients in namespace (async)">>,
+            description => ?DESC("kick_all_clients"),
+            parameters => [param_path_ns()],
+            responses =>
+                #{
+                    202 => <<"Kicking process started">>,
+                    409 => error_schema('CONFLICT', "Kick process already underway"),
+                    404 => error_schema('NOT_FOUND', "Namespace not found")
                 }
         }
     };
@@ -346,14 +367,7 @@ error_schema(Code, Message) ->
     ?OK(emqx_mt:list_managed_ns(LastNs, Limit)).
 
 '/mt/ns/:ns'(post, #{bindings := #{ns := Ns}}) ->
-    case emqx_mt_config:create_managed_ns(Ns) of
-        ok ->
-            ?NO_CONTENT;
-        {error, table_is_full} ->
-            ?BAD_REQUEST(<<"Maximum number of managed namespaces reached">>);
-        {error, Reason} ->
-            ?BAD_REQUEST(Reason)
-    end;
+    handle_create_managed_ns(Ns);
 '/mt/ns/:ns'(delete, #{bindings := #{ns := Ns}}) ->
     case emqx_mt_config:delete_managed_ns(Ns) of
         ok ->
@@ -370,6 +384,9 @@ error_schema(Code, Message) ->
 '/mt/bulk_import_configs'(post, #{body := Params}) ->
     handle_bulk_import_configs(Params).
 
+'/mt/ns/:ns/kick_all_clients'(post, #{bindings := #{ns := Ns}}) ->
+    with_known_ns(Ns, fun() -> handle_kick_all_clients(Ns) end).
+
 %%-------------------------------------------------------------------------------------------------
 %% Handler implementations
 %%-------------------------------------------------------------------------------------------------
@@ -380,6 +397,25 @@ handle_get_managed_ns_config(Ns) ->
             ?OK(configs_out(Configs));
         {error, not_found} ->
             managed_ns_not_found()
+    end.
+
+handle_create_managed_ns(Ns) ->
+    case emqx_mt_client_kicker:whereis_kicker(Ns) of
+        {error, not_found} ->
+            case emqx_mt_config:create_managed_ns(Ns) of
+                ok ->
+                    ?NO_CONTENT;
+                {error, table_is_full} ->
+                    ?BAD_REQUEST(<<"Maximum number of managed namespaces reached">>);
+                {error, Reason} ->
+                    ?BAD_REQUEST(Reason)
+            end;
+        {ok, _} ->
+            Msg = <<
+                "Clients from this namespace are still being kicked;"
+                " please try again later"
+            >>,
+            ?CONFLICT(Msg)
     end.
 
 handle_update_managed_ns_config(Ns, Configs) ->
@@ -422,6 +458,14 @@ handle_bulk_import_configs(Entries) ->
             ?BAD_REQUEST(Msg);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
+    end.
+
+handle_kick_all_clients(Ns) ->
+    case emqx_mt_client_kicker:start_kicking(Ns) of
+        ok ->
+            ?ACCEPTED;
+        {error, already_started} ->
+            ?CONFLICT(<<"Kick process already underway">>)
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -547,6 +591,17 @@ with_known_managed_ns(Ns, Fn) ->
         false ->
             managed_ns_not_found()
     end.
+
+with_known_ns(Ns, Fn) ->
+    case emqx_mt_state:is_known_ns(Ns) of
+        true ->
+            Fn();
+        false ->
+            ns_not_found()
+    end.
+
+ns_not_found() ->
+    ?NOT_FOUND(<<"Namespace not found">>).
 
 managed_ns_not_found() ->
     ?NOT_FOUND(<<"Managed namespace not found">>).
