@@ -841,7 +841,7 @@ t_e2e_cilent_publish_qos0(Config) ->
 
                 [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
                 5 = length(Spans),
-                %% 1, `client.publish` (ClientId1) Root span
+                %% 1. `client.publish` (ClientId1) Root span
                 %% 2.  ├─ `client.authz`
                 %% 3.  └─ `message.route`
                 %%         │
@@ -905,7 +905,7 @@ t_e2e_cilent_publish_qos1(Config) ->
 
                 [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
                 8 = length(Spans),
-                %% 1, `client.publish` (ClientId1) Root span
+                %% 1. `client.publish` (ClientId1) Root span
                 %% 2.  ├─ `client.authz`
                 %% 3.  ├─ `message.route`
                 %%     │   │
@@ -979,7 +979,7 @@ t_e2e_cilent_publish_qos2(Config) ->
 
                 [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
                 14 = length(Spans),
-                %% 1, `client.publish` (ClientId1) Root span
+                %% 1. `client.publish` (ClientId1) Root span
                 %% 2.  ├─ `client.authz`
                 %% 3.  ├─ `message.route`
                 %%     │   │
@@ -1088,7 +1088,7 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
                 %% Note: Ignoring spans and sorting by time may cause order problems
                 %% due to asynchronous requests. Manually sort by span name directly
                 %%
-                %% 1, `client.publish` (ClientId1) Root span
+                %% 1. `client.publish` (ClientId1) Root span
                 %% 2.  ├─ `client.authz`
                 %% 3.  ├─ `message.route`
                 %%     │   │
@@ -1321,7 +1321,7 @@ t_e2e_client_pub_qos2_trace_level_0(Config) ->
                 %% Note: Ignoring spans and sorting by time may cause order problems
                 %% due to asynchronous requests. Manually sort by span name directly
                 %%
-                %% 1, `client.publish` (ClientId1) Root span
+                %% 1. `client.publish` (ClientId1) Root span
                 %% 2.  ├─ `client.authz`
                 %% 3.  └─ `message.route`
                 %%         │
@@ -1431,7 +1431,7 @@ t_e2e_client_pub_qos2_trace_level_1(Config) ->
                 %% Note: Ignoring spans and sorting by time may cause order problems
                 %% due to asynchronous requests. Manually sort by span name directly
                 %%
-                %% 1, `client.publish` (ClientId1) Root span
+                %% 1. `client.publish` (ClientId1) Root span
                 %% 2.  ├─ `client.authz`
                 %% 3.  ├─ `message.route`
                 %%     │   │
@@ -1532,7 +1532,9 @@ t_e2e_client_source_republish_to_clients('init', Config) ->
         ]
     },
     {ok, _} = emqx_rule_engine:create_rule(Rule),
-    timer:sleep(500),
+
+    %% important: Wait for channels installed to connectors
+    timer:sleep(2_000),
 
     [
         {rule_id, RuleID},
