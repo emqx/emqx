@@ -523,22 +523,17 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
             {404, plugin_not_found_msg()}
     end;
 plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
-    Nodes = emqx:running_nodes(),
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, ?plugin_without_config_schema} ->
                     %% no plugin avro schema, just put the json map as-is
-                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, ?plugin_without_config_schema
-                    ),
-                    {204};
+                    update_plugin_config_in_cluster(
+                        NameVsn, AvroJsonMap, ?plugin_without_config_schema
+                    );
                 {ok, AvroValue} ->
                     %% cluster call with config in map (binary key-value)
-                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, AvroValue
-                    ),
-                    {204};
+                    update_plugin_config_in_cluster(NameVsn, AvroJsonMap, AvroValue);
                 {error, Reason} ->
                     {400, #{
                         code => 'BAD_CONFIG',
@@ -547,6 +542,36 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
             end;
         _ ->
             {404, plugin_not_found_msg()}
+    end.
+update_plugin_config_in_cluster(NameVsn, AvroJsonMap, AvroValue) ->
+    Nodes = emqx:running_nodes(),
+    case
+        emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
+            Nodes, NameVsn, AvroJsonMap, AvroValue
+        )
+    of
+        {Resl, []} ->
+            case lists:filter(fun(R) -> R =/= ok end, Resl) of
+                [] ->
+                    {204};
+                ErrorResl ->
+                    {400, #{
+                        code => 'UNEXPECTED_ERROR',
+                        message => iolist_to_binary([
+                            "Failed to update plugin config on ",
+                            integer_to_list(length(ErrorResl)),
+                            " node with error: ",
+                            io_lib:format("~p", [lists:usort(ErrorResl)])
+                        ])
+                    }}
+            end;
+        {_, BadNodes} ->
+            {400, #{
+                code => 'UNEXPECTED_ERROR',
+                message => iolist_to_binary([
+                    "Failed to rpc update plugin config", io_lib:format("~p", [BadNodes])
+                ])
+            }}
     end.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
@@ -647,9 +672,9 @@ ensure_action(Name, restart, _Opts) ->
     name_vsn(), map(), avro_value() | ?plugin_without_config_schema
 ) ->
     ok.
-do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
+do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
     %% TODO: maybe use `AvroValue` to validate config
-    emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
+    emqx_plugins:put_config_map(NameVsn, AvroJsonMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions
