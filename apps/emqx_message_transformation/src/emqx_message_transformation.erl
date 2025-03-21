@@ -532,6 +532,36 @@ decode(
             },
             {error, TraceFailureContext}
     end;
+decode(Payload, #{type := external_http, schema := SerdeName}, Transformation) when
+    is_binary(Payload)
+->
+    try
+        {ok, emqx_schema_registry_serde:decode(SerdeName, Payload)}
+    catch
+        error:{serde_not_found, _} ->
+            TraceFailureContext = #trace_failure_context{
+                transformation = Transformation,
+                tag = payload_decode_schema_not_found,
+                context = #{
+                    decoder => external_http,
+                    schema_name => SerdeName
+                }
+            },
+            {error, TraceFailureContext};
+        Class:Error:Stacktrace ->
+            TraceFailureContext = #trace_failure_context{
+                transformation = Transformation,
+                tag = payload_decode_schema_failure,
+                context = #{
+                    decoder => external_http,
+                    schema_name => SerdeName,
+                    kind => Class,
+                    reason => Error,
+                    stacktrace => Stacktrace
+                }
+            },
+            {error, TraceFailureContext}
+    end;
 decode(NotABinary, #{} = Decoder, Transformation) ->
     DecoderContext0 = maps:with([type, name, message_type], Decoder),
     DecoderContext1 = emqx_utils_maps:rename(name, schema_name, DecoderContext0),
@@ -622,6 +652,34 @@ encode(
                     encoder => protobuf,
                     schema_name => SerdeName,
                     message_type => MessageType,
+                    kind => Class,
+                    reason => Error,
+                    stacktrace => Stacktrace
+                }
+            },
+            {error, TraceFailureContext}
+    end;
+encode(Payload, #{type := external_http, schema := SerdeName}, Transformation) ->
+    try
+        {ok, emqx_schema_registry_serde:encode(SerdeName, Payload)}
+    catch
+        error:{serde_not_found, _} ->
+            TraceFailureContext = #trace_failure_context{
+                transformation = Transformation,
+                tag = payload_encode_schema_not_found,
+                context = #{
+                    encoder => external_http,
+                    schema_name => SerdeName
+                }
+            },
+            {error, TraceFailureContext};
+        Class:Error:Stacktrace ->
+            TraceFailureContext = #trace_failure_context{
+                transformation = Transformation,
+                tag = payload_encode_schema_failure,
+                context = #{
+                    encoder => external_http,
+                    schema_name => SerdeName,
                     kind => Class,
                     reason => Error,
                     stacktrace => Stacktrace

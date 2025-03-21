@@ -31,6 +31,8 @@
     eval_encode/2
 ]).
 
+-elvis([{elvis_style, no_match_in_condition, disable}]).
+
 %%------------------------------------------------------------------------------
 %% Type definitions
 %%------------------------------------------------------------------------------
@@ -198,39 +200,47 @@ with_serde(Name, F) ->
     end.
 
 -spec make_serde(serde_type(), schema_name(), schema_source()) -> serde().
-make_serde(avro, Name, Source) ->
+make_serde(?avro, Name, Source) ->
     Store0 = avro_schema_store:new([map]),
     %% import the schema into the map store with an assigned name
     %% if it's a named schema (e.g. struct), then Name is added as alias
     Store = avro_schema_store:import_schema_json(Name, Source, Store0),
     #serde{
         name = Name,
-        type = avro,
+        type = ?avro,
         eval_context = Store
     };
-make_serde(protobuf, Name, Source) ->
+make_serde(?protobuf, Name, Source) ->
     {CacheKey, SerdeMod} = make_protobuf_serde_mod(Name, Source),
     #serde{
         name = Name,
-        type = protobuf,
+        type = ?protobuf,
         eval_context = SerdeMod,
         extra = #{cache_key => CacheKey}
     };
-make_serde(json, Name, Source) ->
+make_serde(?json, Name, Source) ->
     case json_decode(Source) of
         SchemaObj when is_map(SchemaObj) ->
             %% jesse:add_schema adds any map() without further validation
             %% if it's not a map, then case_clause
             ok = jesse_add_schema(Name, SchemaObj),
-            #serde{name = Name, type = json};
+            #serde{name = Name, type = ?json};
         _NotMap ->
             error({invalid_json_schema, bad_schema_object})
-    end.
+    end;
+make_serde(?external_http, Name, Params) ->
+    Context = create_external_http_resource(Name, Params),
+    #serde{
+        name = Name,
+        type = ?external_http,
+        eval_context = Context,
+        extra = #{}
+    }.
 
-eval_decode(#serde{type = avro, name = Name, eval_context = Store}, [Data]) ->
+eval_decode(#serde{type = ?avro, name = Name, eval_context = Store}, [Data]) ->
     Opts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
     avro_binary_decoder:decode(Data, Name, Store, Opts);
-eval_decode(#serde{type = protobuf}, [#{} = DecodedData, MessageType]) ->
+eval_decode(#serde{type = ?protobuf}, [#{} = DecodedData, MessageType]) ->
     %% Already decoded, so it's an user error.
     throw(
         {schema_decode_error, #{
@@ -244,7 +254,7 @@ eval_decode(#serde{type = protobuf}, [#{} = DecodedData, MessageType]) ->
                 >>
         }}
     );
-eval_decode(#serde{type = protobuf, eval_context = SerdeMod}, [EncodedData, MessageType0]) ->
+eval_decode(#serde{type = ?protobuf, eval_context = SerdeMod}, [EncodedData, MessageType0]) ->
     MessageType = binary_to_existing_atom(MessageType0, utf8),
     try
         Decoded = apply(SerdeMod, decode_msg, [EncodedData, MessageType]),
@@ -263,19 +273,22 @@ eval_decode(#serde{type = protobuf, eval_context = SerdeMod}, [EncodedData, Mess
                 }}
             )
     end;
-eval_decode(#serde{type = json, name = Name}, [Data]) ->
+eval_decode(#serde{type = ?json, name = Name}, [Data]) ->
     true = is_binary(Data),
     Term = json_decode(Data),
     {ok, NewTerm} = jesse_validate(Name, Term),
-    NewTerm.
+    NewTerm;
+eval_decode(#serde{type = ?external_http, name = Name, eval_context = Context}, [Payload]) ->
+    Request = generate_external_http_request(Payload, decode, Name, Context),
+    exec_external_http_request(Request, Context).
 
-eval_encode(#serde{type = avro, name = Name, eval_context = Store}, [Data]) ->
+eval_encode(#serde{type = ?avro, name = Name, eval_context = Store}, [Data]) ->
     avro_binary_encoder:encode(Store, Name, Data);
-eval_encode(#serde{type = protobuf, eval_context = SerdeMod}, [DecodedData0, MessageName0]) ->
+eval_encode(#serde{type = ?protobuf, eval_context = SerdeMod}, [DecodedData0, MessageName0]) ->
     DecodedData = emqx_utils_maps:safe_atom_key_map(DecodedData0),
     MessageName = binary_to_existing_atom(MessageName0, utf8),
     apply(SerdeMod, encode_msg, [DecodedData, MessageName]);
-eval_encode(#serde{type = json, name = Name}, [Map]) ->
+eval_encode(#serde{type = ?json, name = Name}, [Map]) ->
     %% The input Map may not be a valid JSON term for jesse
     Data = iolist_to_binary(emqx_utils_json:encode(Map)),
     NewMap = json_decode(Data),
@@ -284,19 +297,26 @@ eval_encode(#serde{type = json, name = Name}, [Map]) ->
             Data;
         {error, Reason} ->
             error(Reason)
-    end.
+    end;
+eval_encode(#serde{type = ?external_http, name = Name, eval_context = Context}, [Payload]) ->
+    Request = generate_external_http_request(Payload, encode, Name, Context),
+    exec_external_http_request(Request, Context).
 
-destroy(#serde{type = avro, name = _Name}) ->
-    ?tp(serde_destroyed, #{type => avro, name => _Name}),
+destroy(#serde{type = ?avro = Type, name = _Name}) ->
+    ?tp(serde_destroyed, #{type => Type, name => _Name}),
     ok;
-destroy(#serde{type = protobuf, name = _Name, eval_context = SerdeMod} = Serde) ->
+destroy(#serde{type = ?protobuf = Type, name = _Name, eval_context = SerdeMod} = Serde) ->
     unload_code(SerdeMod),
     destroy_protobuf_code(Serde),
-    ?tp(serde_destroyed, #{type => protobuf, name => _Name}),
+    ?tp(serde_destroyed, #{type => Type, name => _Name}),
     ok;
-destroy(#serde{type = json, name = Name}) ->
+destroy(#serde{type = ?json = Type, name = Name}) ->
     ok = jesse_del_schema(Name),
-    ?tp(serde_destroyed, #{type => json, name => Name}),
+    ?tp(serde_destroyed, #{type => Type, name => Name}),
+    ok;
+destroy(#serde{type = ?external_http = Type, name = _Name, eval_context = Context}) ->
+    ok = destroy_external_http_resource(Context),
+    ?tp(serde_destroyed, #{type => Type, name => _Name}),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -481,3 +501,132 @@ handle_schema_encode_and_tag(OurSchemaName, RegistryName, Data, Args) ->
             #{tag => true}
         )
     end.
+
+create_external_http_resource(Name, Params) ->
+    ResourceId = <<"schema_registry:external_http:", Name/binary>>,
+    #{
+        url := URL,
+        max_retries := MaxRetries,
+        connect_timeout := ConnectTimeout,
+        request_timeout := RequestTimeout,
+        headers := Headers,
+        pool_type := PoolType,
+        pool_size := PoolSize,
+        external_params := ExternalParams
+    } = Params,
+    {ok, {Base, Path, QueryParams}} = emqx_schema_registry_schema:parse_url(URL),
+    ConnectorConfig = #{
+        request_base => Base,
+        connect_timeout => ConnectTimeout,
+        pool_type => PoolType,
+        pool_size => PoolSize
+    },
+    ResourceOpts = #{
+        start_after_created => true,
+        spawn_buffer_workers => false,
+        query_mode => simple_sync
+    },
+    {ok, _} = emqx_resource:create_local(
+        ResourceId,
+        ?SCHEMA_REGISTRY_RESOURCE_GROUP,
+        emqx_bridge_http_connector,
+        ConnectorConfig,
+        ResourceOpts
+    ),
+    #{
+        resource_id => ResourceId,
+        headers => maps:to_list(Headers),
+        path => Path,
+        query_params => QueryParams,
+        external_params => ExternalParams,
+        request_timeout => RequestTimeout,
+        max_retries => MaxRetries
+    }.
+
+destroy_external_http_resource(Context) ->
+    #{resource_id := ResourceId} = Context,
+    emqx_resource:remove_local(ResourceId).
+
+generate_external_http_request(Payload, EncodeOrDecode, Name, Context) ->
+    #{
+        headers := Headers,
+        path := Path,
+        query_params := QueryParams,
+        external_params := ExternalParams
+    } = Context,
+    PathWithQuery = append_query(Path, QueryParams),
+    Body = #{
+        <<"payload">> => base64:encode(Payload),
+        <<"type">> => EncodeOrDecode,
+        <<"schema_name">> => Name,
+        <<"opts">> => ExternalParams
+    },
+    BodyBin = emqx_utils_json:encode(Body),
+    {PathWithQuery, Headers, BodyBin}.
+
+exec_external_http_request(Request, Context) ->
+    #{
+        resource_id := ResourceId,
+        request_timeout := RequestTimeout,
+        max_retries := MaxRetries
+    } = Context,
+    Query = {
+        _ActionResId = undefined,
+        _KeyOrNum = undefined,
+        _Method = post,
+        Request,
+        RequestTimeout,
+        MaxRetries
+    },
+    Result = emqx_resource:query(ResourceId, Query),
+    handle_external_http_result(Result).
+
+handle_external_http_result({ok, 200, _RespHeaders, RespEncoded}) ->
+    try base64:decode(RespEncoded) of
+        Resp ->
+            Resp
+    catch
+        error:Reason ->
+            error(#{
+                msg => bad_external_http_response_format,
+                hint => <<"server response is not a valid base64-encoded string">>,
+                response => RespEncoded,
+                reason => Reason
+            })
+    end;
+handle_external_http_result({ok, StatusCode, _RespHeaders, RespBody}) ->
+    error(#{
+        msg => bad_external_http_response_status_code,
+        response => RespBody,
+        status_code => StatusCode
+    });
+handle_external_http_result({error, {unrecoverable_error, #{status_code := _} = Reason}}) ->
+    error(#{
+        msg => external_http_request_failed,
+        reason => maps:with([status_code, body], Reason)
+    });
+handle_external_http_result({error, {recoverable_error, #{status_code := _} = Reason}}) ->
+    error(#{
+        msg => external_http_request_failed,
+        reason => maps:with([status_code, body], Reason)
+    });
+handle_external_http_result({error, {unrecoverable_error, Reason}}) ->
+    error(#{
+        msg => external_http_request_failed,
+        reason => Reason
+    });
+handle_external_http_result({error, {recoverable_error, Reason}}) ->
+    error(#{
+        msg => external_http_request_failed,
+        reason => Reason
+    });
+handle_external_http_result({error, Reason}) ->
+    error(#{
+        msg => external_http_request_failed,
+        reason => Reason
+    }).
+
+append_query(Path, <<"">>) ->
+    Path;
+append_query(Path, Query) ->
+    [Path, $?, Query].
