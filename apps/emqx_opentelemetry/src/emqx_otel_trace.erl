@@ -45,7 +45,10 @@
 
     %% Start Span when `emqx_channel:handle_out/3` called.
     %% Stop when `emqx_channel:handle_outgoing/3` returned
-    outgoing/3
+    outgoing/3,
+
+    apply_rule/3,
+    handle_action/3
 ]).
 
 -export([
@@ -63,10 +66,19 @@
     set_status_error/1
 ]).
 
+%% --------------------------------------------------------------------
+%% Helper APIs
+
+-export([
+    with_action_metadata/2
+]).
+
 -include("emqx_otel_trace.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
@@ -559,7 +571,7 @@ broker_publish(Attrs, ?EXT_TRACE_START, Delivers) ->
 -spec outgoing(
     Attrs :: emqx_external_trace:attrs(),
     TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
-    Packet :: emqx_types:packet()
+    emqx_types:packet() | [emqx_types:packet()]
 ) ->
     Res :: emqx_external_trace:t_res().
 outgoing(Attrs, ?EXT_TRACE_START, Packet) ->
@@ -573,6 +585,62 @@ outgoing(Attrs, ?EXT_TRACE_STOP, Any) ->
     ?with_trace_mode(
         end_trace_send(Any),
         stop_outgoing_trace(Attrs, Any)
+    ).
+
+-spec apply_rule(
+    Attrs :: emqx_external_trace:attrs(),
+    ProcessFun :: emqx_external_trace:t_fun(),
+    Args :: emqx_external_trace:t_args()
+) ->
+    Res :: emqx_external_trace:t_res().
+apply_rule(Attrs, ProcessFun, [Envs] = Args) ->
+    ?with_trace_mode(
+        erlang:apply(ProcessFun, Args),
+        ?with_span(
+            ?BROKER_RULE_ENGINE_APPLY,
+            #{attributes => Attrs},
+            fun(_SpanCtx) ->
+                erlang:apply(ProcessFun, [
+                    Envs#{metadata => #{?EMQX_OTEL_CTX => otel_ctx:get_current()}}
+                ])
+            end
+        )
+    ).
+
+-spec handle_action(
+    Attrs :: emqx_external_trace:attrs(),
+    TraceAction :: ?EXT_TRACE_START | ?EXT_TRACE_STOP,
+    Any :: map()
+) ->
+    Res :: emqx_external_trace:t_res().
+handle_action(Attrs, ?EXT_TRACE_START, Envs) ->
+    ?with_trace_mode(
+        Envs,
+        begin
+            RootCtx = e2e_mode_root_ctx(Envs),
+            %% Start span here, but will end it after async action done
+            %% XXX: should end `action' span after fallback span?
+            %% FIXME: fix default OTEL_SPAN_SWEEPER_STRATEGY
+            %% https://hexdocs.pm/opentelemetry/1.5.0/readme.html#span-sweeper
+            SpanCtx = otel_tracer:start_span(
+                RootCtx,
+                ?current_tracer,
+                ?BROKER_RULE_ENGINE_ACTION,
+                #{attributes => Attrs}
+            ),
+            Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
+            put_ctx(Ctx, Envs)
+        end
+    );
+handle_action(_Attrs, ?EXT_TRACE_STOP, RequestContext) ->
+    ?with_trace_mode(
+        ok,
+        begin
+            Ctx = e2e_mode_root_ctx(RequestContext),
+            CurrentSpanCtx = otel_tracer:current_span_ctx(Ctx),
+            _ = set_status_by_request_result(CurrentSpanCtx, RequestContext),
+            otel_span:end_span(CurrentSpanCtx)
+        end
     ).
 
 %%--------------------------------------------------------------------
@@ -850,6 +918,43 @@ awaiting_span_name(?PUBCOMP) ->
     %% PUBCOMP (QoS=2)
     ?CLIENT_PUBCOMP_SPAN_NAME.
 
+set_status_by_request_result(SpanCtx, #{result := Result} = _RequestContext) ->
+    do_set_status_by_request_result(SpanCtx, Result);
+set_status_by_request_result(_SpanCtx, _RequestContext) ->
+    %% no manually set status, Span status will be ?OTEL_STATUS_UNSET
+    ok.
+
+do_set_status_by_request_result(SpanCtx, ?EMQX_TRACE_STOP_ACTION(_)) ->
+    set_status(SpanCtx, ?OTEL_STATUS_ERROR, <<"action_stopped_after_template_rendering">>);
+do_set_status_by_request_result(SpanCtx, ?RESOURCE_ERROR_M(_, _)) ->
+    set_status(SpanCtx, ?OTEL_STATUS_ERROR, <<"out_of_service">>);
+do_set_status_by_request_result(SpanCtx, {error, {recoverable_error, _}}) ->
+    set_status(SpanCtx, ?OTEL_STATUS_ERROR, <<"out_of_service">>);
+do_set_status_by_request_result(SpanCtx, {error, {unrecoverable_error, _}}) ->
+    set_status(SpanCtx, ?OTEL_STATUS_ERROR, <<"action_failed_unknown">>);
+do_set_status_by_request_result(SpanCtx, R) ->
+    case is_ok_result(R) of
+        false ->
+            set_status(SpanCtx, ?OTEL_STATUS_ERROR, <<"action_failed_unknown">>);
+        true ->
+            set_status(SpanCtx, ?OTEL_STATUS_OK)
+    end.
+
+is_ok_result(ok) ->
+    true;
+is_ok_result({async_return, R}) ->
+    is_ok_result(R);
+is_ok_result(R) when is_tuple(R) ->
+    ok == erlang:element(1, R);
+is_ok_result(_) ->
+    false.
+
+set_status(SpanCtx, StatusOrCode) ->
+    otel_span:set_status(SpanCtx, StatusOrCode).
+
+set_status(SpanCtx, StatusOrCode, Msg) ->
+    otel_span:set_status(SpanCtx, StatusOrCode, Msg).
+
 %%--------------------------------------------------------------------
 %% Span Attributes API
 %%--------------------------------------------------------------------
@@ -921,6 +1026,13 @@ msg_attr_props(#message{headers = #{properties := Props = #{}}}, Acc) ->
 msg_attr_props(_Msg, Acc) ->
     Acc.
 
+with_action_metadata(#{metadata := Metadata} = _Envs, RequestContext) when
+    is_map(RequestContext)
+->
+    RequestContext#{metadata => Metadata};
+with_action_metadata(_Envs, RequestContext) ->
+    RequestContext.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -959,6 +1071,13 @@ put_ctx(
     NProps = to_properties(?EMQX_OTEL_CTX, OtelCtx, Props),
     Packet#mqtt_packet{variable = PubAckPacket#mqtt_packet_puback{properties = NProps}};
 %% ====================
+%% Rule Columns Metadata
+put_ctx(
+    OtelCtx,
+    #{metadata := Metadata} = Envs
+) ->
+    Envs#{metadata => Metadata#{?EMQX_OTEL_CTX => OtelCtx}};
+%% ====================
 %% ignore
 put_ctx(
     _OtelCtx,
@@ -981,6 +1100,8 @@ get_ctx(#mqtt_packet{
             #{}
         )
     );
+get_ctx(#{metadata := Metadata} = _Columns) ->
+    maps:get(?EMQX_OTEL_CTX, Metadata, undefined);
 get_ctx(_) ->
     undefined.
 
@@ -1027,7 +1148,13 @@ e2e_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
             extract_traceparent_from_packet(PktVar);
         false ->
             otel_ctx:new()
-    end.
+    end;
+e2e_mode_root_ctx(#{metadata := #{?EMQX_OTEL_CTX := Ctx}}) ->
+    Ctx;
+e2e_mode_root_ctx(#{reply_to := {_, _, #{metadata := #{?EMQX_OTEL_CTX := Ctx}}}} = _RequestContext) ->
+    Ctx;
+e2e_mode_root_ctx(_) ->
+    otel_ctx:new().
 
 extract_traceparent_from_packet(PktVar) ->
     Ctx = otel_ctx:new(),

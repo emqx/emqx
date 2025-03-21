@@ -75,11 +75,7 @@ do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
         update_process_trace_metadata(StopAfterRender),
         FullContext0 = fill_default_values(hd(EventTopics), Context),
         FullContext = remove_internal_fields(FullContext0),
-        emqx_rule_runtime:apply_rule(
-            Rule,
-            FullContext,
-            apply_rule_environment()
-        )
+        emqx_rule_runtime:apply_rule(#{rule => Rule}, FullContext, apply_rule_environment())
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -163,7 +159,7 @@ test_rule(Sql, Select, Context, EventTopics) ->
     },
     FullContext = fill_default_values(hd(EventTopics), Context),
     set_is_test_runtime_env(),
-    try emqx_rule_runtime:apply_rule(Rule, FullContext, #{}) of
+    try emqx_rule_runtime:apply_rule(#{rule => Rule}, FullContext, #{}) of
         {ok, Data} ->
             {ok, flatten(Data)};
         {error, Reason} ->

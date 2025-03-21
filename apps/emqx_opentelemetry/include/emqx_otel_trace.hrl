@@ -37,6 +37,9 @@
 -define(MSG_FORWARD_SPAN_NAME, 'message.forward').
 -define(MSG_HANDLE_FORWARD_SPAN_NAME, 'message.handle_forward').
 
+-define(BROKER_RULE_ENGINE_APPLY, 'broker.rule_engine.apply').
+-define(BROKER_RULE_ENGINE_ACTION, 'broker.rule_engine.action').
+
 %% ====================
 %% OTEL sample whitelist/blacklist Table
 -define(EMQX_OTEL_SAMPLER, emqx_otel_sampler).
