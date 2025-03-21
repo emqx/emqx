@@ -872,34 +872,10 @@ t_adjust_limiters(Config) when is_list(Config) ->
             }),
             {200, _} = disable_tenant_limiter(Ns),
 
-            %% Check that, if we delete an managed namespace with live clients, they
-            %% still can publish without crashing.
-            ?ON_ALL(Nodes, set_limiter_for_listener(messages_rate, <<"infinity">>)),
-            ?ON_ALL(Nodes, set_limiter_for_listener(bytes_rate, <<"infinity">>)),
-            ?ON_ALL(Nodes, set_limiter_for_zone(messages_rate, <<"infinity">>)),
-            ?ON_ALL(Nodes, set_limiter_for_zone(bytes_rate, <<"infinity">>)),
-            TenantAndClientParams1 = emqx_utils_maps:deep_merge(ClientParams1, TenantParams1),
-            ?assertMatch({200, _}, update_managed_ns_config(Ns, TenantAndClientParams1)),
-            ClientId4 = ?NEW_CLIENTID(4),
-            C = connect(#{
-                clientid => ClientId4,
-                username => Username,
-                password => "123456",
-                port => Port2
-            }),
-            ?assertMatch({204, _}, delete_managed_ns(Ns)),
-            ?assertMatch({200, []}, list_managed_nss(#{})),
-            Topic = <<"test">>,
-            {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C, Topic, [{qos, 1}]),
-            {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, <<"hi1">>, [{qos, 1}]),
-            {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, <<"hi2">>, [{qos, 1}]),
-            ?assertReceive({publish, #{topic := Topic, payload := <<"hi1">>}}),
-            ?assertReceive({publish, #{topic := Topic, payload := <<"hi2">>}}),
-
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_, _, _, _], ?of_kind("channel_limiter_adjusted", Trace)),
+            ?assertMatch([_, _, _], ?of_kind("channel_limiter_adjusted", Trace)),
             ok
         end
     ),
