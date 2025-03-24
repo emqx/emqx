@@ -82,7 +82,7 @@ jobs:
           ./scripts/buildx.sh --profile ${{ matrix.profile }} --pkgtype tgz --builder "$EMQX_DOCKER_BUILD_FROM"
           PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_DOCKER_BUILD_FROM" ./pkg-vsn.sh "${{ matrix.profile }}")
           echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ matrix.profile }}-${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }}.tar.gz"
           path: "_packages/emqx*/emqx-*.tar.gz"
@@ -118,7 +118,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
-      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           pattern: "${{ matrix.profile[0] }}-*.tar.gz"
           path: _packages
@@ -141,14 +141,14 @@ jobs:
       - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Login to hub.docker.com
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         if: inputs.publish && contains(matrix.profile[1], 'docker.io')
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Login to AWS ECR
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         if: inputs.publish && contains(matrix.profile[1], 'public.ecr.aws')
         with:
           registry: public.ecr.aws
@@ -201,7 +201,7 @@ jobs:
         run: |
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
 
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ env.PROFILE }}-docker"
           path: "${{ env.PROFILE }}-docker-${{ env.PKG_VSN }}.tar.gz"
