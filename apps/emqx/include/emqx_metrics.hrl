@@ -196,12 +196,12 @@
     >>},
     %% Dropped qos0 message
     {counter, 'delivery.dropped.qos0_msg', <<
-        "Number of messages with QoS 0 that were dropped because the message "
-        "queue was full when sending"
+        "Number of messages with QoS 0 that were dropped because "
+        "mqtt.mqueue_store_qos0=false when sending"
     >>},
     %% Dropped due to queue full
     {counter, 'delivery.dropped.queue_full', <<
-        "Number of messages with a non-zero QoS that were dropped because the "
+        "Number of messages that were dropped because the "
         "message queue was full when sending"
     >>},
     %% Dropped due to expired
