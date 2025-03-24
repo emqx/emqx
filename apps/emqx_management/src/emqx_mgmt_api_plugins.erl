@@ -407,6 +407,7 @@ list_plugins(get, _) ->
 get_plugins() ->
     {node(), emqx_plugins:list()}.
 
+%% TODO encapsulate into emqx_plugins
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
@@ -415,7 +416,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
             case emqx_plugins:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
-                    AppDir = filename:join(emqx_plugins:install_dir(), AppName),
+                    AppDir = filename:join(emqx_plugins_fs:install_dir(), AppName),
                     case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
                         [] ->
                             do_install_package(NameVsn, FileName, Bin);
@@ -577,12 +578,12 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
-    File = filename:join(emqx_plugins:install_dir(), FileName),
+    File = filename:join(emqx_plugins_fs:install_dir(), FileName),
     ok = filelib:ensure_dir(File),
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Bin), lower),
-    ok = file:write_file(emqx_plugins:md5sum_file(PackageName), MD5),
+    ok = file:write_file(emqx_plugins_fs:md5sum_file(PackageName), MD5),
     case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;

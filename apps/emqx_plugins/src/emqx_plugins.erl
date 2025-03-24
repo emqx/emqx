@@ -76,9 +76,6 @@
 %% Package utils
 -export([
     decode_plugin_config_map/2,
-    install_dir/0,
-    avsc_file_path/1,
-    md5sum_file/1,
     with_plugin_avsc/1,
     ensure_ssl_files/2,
     ensure_ssl_files/3
@@ -113,6 +110,8 @@
 
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
+-define(CATCH(BODY), tryit(atom_to_list(?FUNCTION_NAME), fun() -> BODY end)).
+
 -define(APP, emqx_plugins).
 
 -define(allowed_installations, allowed_installations).
@@ -128,11 +127,11 @@ describe(NameVsn) ->
 
 -spec plugin_schema_json(name_vsn()) -> {ok, schema_json_map()} | {error, any()}.
 plugin_schema_json(NameVsn) ->
-    read_plugin_avsc(NameVsn).
+    ?CATCH({ok, emqx_plugins_fs:read_avsc(NameVsn)}).
 
 -spec plugin_i18n_json(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
 plugin_i18n_json(NameVsn) ->
-    read_plugin_i18n(NameVsn).
+    ?CATCH({ok, emqx_plugins_fs:read_i18n(NameVsn)}).
 
 -spec raw_plugin_config_content(name_vsn()) -> {ok, raw_plugin_config_content()} | {error, any()}.
 raw_plugin_config_content(NameVsn) ->
@@ -148,19 +147,6 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
 
 make_name_vsn_string(Name, Vsn) ->
     binary_to_list(iolist_to_binary([Name, "-", Vsn])).
-
-app_dir(AppName, Apps) ->
-    case
-        lists:filter(
-            fun(AppNameVsn) -> nomatch =/= string:prefix(AppNameVsn, AppName) end,
-            Apps
-        )
-    of
-        [AppNameVsn] ->
-            {ok, AppNameVsn};
-        _ ->
-            {error, not_found}
-    end.
 
 %% Note: this is only used for the HTTP API.
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
@@ -280,27 +266,13 @@ ensure_disabled(NameVsn) ->
 -spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
     _ = maybe_purge_plugin_config(NameVsn),
-    purge_plugin(NameVsn).
+    emqx_plugins_fs:purge_plugin(NameVsn).
 
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
 delete_package(NameVsn) ->
-    File = pkg_file_path(NameVsn),
     _ = emqx_plugins_serde:delete_schema(NameVsn),
-    case file:delete(File) of
-        ok ->
-            ?SLOG(info, #{msg => "purged_plugin_dir", path => File}),
-            ok;
-        {error, enoent} ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_delete_package_file",
-                path => File,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
+    emqx_plugins_fs:delete_tar(NameVsn).
 
 %%--------------------------------------------------------------------
 %% Plugin runtime management
@@ -310,7 +282,7 @@ delete_package(NameVsn) ->
 ensure_started() ->
     Fun = fun
         (#{name_vsn := NameVsn, enable := true}) ->
-            case do_ensure_started(NameVsn) of
+            case ?CATCH(do_ensure_started(NameVsn)) of
                 ok -> [];
                 {error, Reason} -> [{NameVsn, Reason}]
             end;
@@ -324,7 +296,7 @@ ensure_started() ->
 %% the input is a <name>-<vsn> string.
 -spec ensure_started(name_vsn()) -> ok | {error, term()}.
 ensure_started(NameVsn) ->
-    case do_ensure_started(NameVsn) of
+    case ?CATCH(do_ensure_started(NameVsn)) of
         ok ->
             ok;
         {error, ReasonMap} ->
@@ -457,10 +429,8 @@ list() ->
 
 -spec list(all | normal | hidden) -> [plugin_info()].
 list(Type) ->
-    Pattern = filename:join([install_dir(), "*", "release.json"]),
     All = lists:filtermap(
-        fun(JsonFilePath) ->
-            [_, NameVsn | _] = lists:reverse(filename:split(JsonFilePath)),
+        fun(NameVsn) ->
             case read_plugin_info(NameVsn, #{}) of
                 {ok, Info} ->
                     filter_plugin_of_type(Type, Info);
@@ -469,7 +439,7 @@ list(Type) ->
                     false
             end
         end,
-        filelib:wildcard(Pattern)
+        emqx_plugins_fs:list_name_vsn()
     ),
     do_list(configured(), All).
 
@@ -536,129 +506,15 @@ get_config_interal(Path, Default) ->
 put_config_internal(Key, Value) ->
     do_put_config_internal(Key, Value, _ConfLocation = local).
 
--spec get_tar(name_vsn()) -> {ok, binary()} | {error, any}.
-get_tar(NameVsn) ->
-    TarGz = pkg_file_path(NameVsn),
-    case file:read_file(TarGz) of
-        {ok, Content} ->
-            {ok, Content};
-        {error, _} ->
-            case maybe_create_tar(NameVsn, TarGz, install_dir()) of
-                ok ->
-                    file:read_file(TarGz);
-                Err ->
-                    Err
-            end
-    end.
-
 ensure_ssl_files(NameVsn, SSL) ->
-    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL).
+    emqx_tls_lib:ensure_ssl_files(emqx_plugins_fs:plugin_certs_dir(NameVsn), SSL).
 
 ensure_ssl_files(NameVsn, SSL, Opts) ->
-    emqx_tls_lib:ensure_ssl_files(plugin_certs_dir(NameVsn), SSL, Opts).
+    emqx_tls_lib:ensure_ssl_files(emqx_plugins_fs:plugin_certs_dir(NameVsn), SSL, Opts).
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
-
-maybe_create_tar(NameVsn, TarGzName, InstallDir) when is_binary(InstallDir) ->
-    maybe_create_tar(NameVsn, TarGzName, binary_to_list(InstallDir));
-maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
-    case filelib:wildcard(filename:join(plugin_dir(NameVsn), "**")) of
-        [_ | _] = PluginFiles ->
-            InstallDir1 = string:trim(InstallDir, trailing, "/") ++ "/",
-            PluginFiles1 = [{string:prefix(F, InstallDir1), F} || F <- PluginFiles],
-            erl_tar:create(TarGzName, PluginFiles1, [compressed]);
-        _ ->
-            {error, plugin_not_found}
-    end.
-
-write_tar_file_content(BaseDir, TarContent) ->
-    lists:foreach(
-        fun({Name, Bin}) ->
-            Filename = filename:join(BaseDir, Name),
-            ok = filelib:ensure_dir(Filename),
-            ok = file:write_file(Filename, Bin)
-        end,
-        TarContent
-    ).
-
-delete_tar_file_content(BaseDir, TarContent) ->
-    lists:foreach(
-        fun({Name, _}) ->
-            Filename = filename:join(BaseDir, Name),
-            case filelib:is_file(Filename) of
-                true ->
-                    TopDirOrFile = top_dir(BaseDir, Filename),
-                    ok = file:del_dir_r(TopDirOrFile);
-                false ->
-                    %% probably already deleted
-                    ok
-            end
-        end,
-        TarContent
-    ).
-
-top_dir(BaseDir0, DirOrFile) ->
-    BaseDir = normalize_dir(BaseDir0),
-    case filename:dirname(DirOrFile) of
-        RockBottom when RockBottom =:= "/" orelse RockBottom =:= "." ->
-            throw({out_of_bounds, DirOrFile});
-        BaseDir ->
-            DirOrFile;
-        Parent ->
-            top_dir(BaseDir, Parent)
-    end.
-
-normalize_dir(Dir) ->
-    %% Get rid of possible trailing slash
-    filename:join([Dir, ""]).
-
--ifdef(TEST).
-normalize_dir_test_() ->
-    [
-        ?_assertEqual("foo", normalize_dir("foo")),
-        ?_assertEqual("foo", normalize_dir("foo/")),
-        ?_assertEqual("/foo", normalize_dir("/foo")),
-        ?_assertEqual("/foo", normalize_dir("/foo/"))
-    ].
-
-top_dir_test_() ->
-    [
-        ?_assertEqual("base/foo", top_dir("base", filename:join(["base", "foo", "bar"]))),
-        ?_assertEqual("/base/foo", top_dir("/base", filename:join(["/", "base", "foo", "bar"]))),
-        ?_assertEqual("/base/foo", top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))),
-        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "base"]))),
-        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "foo", "bar"])))
-    ].
--endif.
-
-do_ensure_installed(NameVsn) ->
-    TarGz = pkg_file_path(NameVsn),
-    case erl_tar:extract(TarGz, [compressed, memory]) of
-        {ok, TarContent} ->
-            ok = write_tar_file_content(install_dir(), TarContent),
-            case read_plugin_info(NameVsn, #{}) of
-                {ok, _} ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
-                    ok = delete_tar_file_content(install_dir(), TarContent),
-                    {error, Reason}
-            end;
-        {error, {_, enoent}} ->
-            {error, #{
-                msg => "failed_to_extract_plugin_package",
-                path => TarGz,
-                reason => plugin_tarball_not_found
-            }};
-        {error, Reason} ->
-            {error, #{
-                msg => "bad_plugin_package",
-                path => TarGz,
-                reason => Reason
-            }}
-    end.
 
 ensure_delete(NameVsn0) ->
     NameVsn = bin(NameVsn0),
@@ -675,10 +531,7 @@ ensure_state(NameVsn, Position, State, ConfLocation) ->
                 name_vsn => NameVsn,
                 enable => State
             },
-            tryit(
-                "ensure_state",
-                fun() -> ensure_configured(Item, Position, ConfLocation) end
-            );
+            ?CATCH(ensure_configured(Item, Position, ConfLocation));
         {error, Reason} ->
             ?SLOG(error, #{msg => "ensure_plugin_states_failed", reason => Reason}),
             {error, Reason}
@@ -727,28 +580,6 @@ maybe_purge_plugin_config(NameVsn) ->
     _ = persistent_term:erase(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn)),
     ok.
 
-purge_plugin(NameVsn) ->
-    Dir = plugin_dir(NameVsn),
-    purge_plugin_dir(Dir).
-
-purge_plugin_dir(Dir) ->
-    case file:del_dir_r(Dir) of
-        ok ->
-            ?SLOG(info, #{
-                msg => "purged_plugin_dir",
-                dir => Dir
-            });
-        {error, enoent} ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_purge_plugin_dir",
-                dir => Dir,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
-
 %% Make sure configured ones are ordered in front.
 do_list([], All) ->
     All;
@@ -764,23 +595,18 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
     end.
 
 do_ensure_started(NameVsn) ->
-    tryit(
-        "start_plugins",
-        fun() ->
-            case ensure_exists_and_installed(NameVsn) of
-                ok ->
-                    Plugin = do_read_plugin(NameVsn),
-                    ok = load_code_start_apps(NameVsn, Plugin);
-                {error, #{reason := Reason} = ReasonMap} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_start_plugin",
-                        name_vsn => NameVsn,
-                        reason => Reason
-                    }),
-                    {error, ReasonMap}
-            end
-        end
-    ).
+    case ensure_exists_and_installed(NameVsn) of
+        ok ->
+            Plugin = do_read_plugin(NameVsn),
+            ok = load_code_start_apps(NameVsn, Plugin);
+        {error, #{reason := Reason} = ReasonMap} ->
+            ?SLOG(error, #{
+                msg => "failed_to_start_plugin",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
+            {error, ReasonMap}
+    end.
 
 %%--------------------------------------------------------------------
 
@@ -814,70 +640,39 @@ tryit(WhichOp, F) ->
 %% read plugin info from the JSON file
 %% returns {ok, Info} or {error, Reason}
 read_plugin_info(NameVsn, Options) ->
-    tryit(
-        atom_to_list(?FUNCTION_NAME),
-        fun() -> {ok, do_read_plugin(NameVsn, Options)} end
-    ).
+    ?CATCH({ok, do_read_plugin(NameVsn, Options)}).
 
 do_read_plugin(NameVsn) ->
     do_read_plugin(NameVsn, #{}).
 
-do_read_plugin(NameVsn, Option) ->
-    do_read_plugin(NameVsn, info_file_path(NameVsn), Option).
-
-do_read_plugin(NameVsn, InfoFilePath, Options) ->
-    {ok, PlainMap} = (read_file_fun(InfoFilePath, "bad_info_file", #{read_mode => ?JSON_MAP}))(),
-    Info0 = check_plugin(PlainMap, NameVsn, InfoFilePath),
-    Info1 = plugins_readme(NameVsn, Options, Info0),
-    Info2 = plugins_package_info(NameVsn, Info1),
-    plugin_status(NameVsn, Info2).
-
-read_plugin_avsc(NameVsn) ->
-    read_plugin_avsc(NameVsn, #{read_mode => ?JSON_MAP}).
-read_plugin_avsc(NameVsn, Options) ->
-    tryit(
-        atom_to_list(?FUNCTION_NAME),
-        read_file_fun(avsc_file_path(NameVsn), "bad_avsc_file", Options)
-    ).
-
-read_plugin_i18n(NameVsn) ->
-    read_plugin_i18n(NameVsn, #{read_mode => ?JSON_MAP}).
-read_plugin_i18n(NameVsn, Options) ->
-    tryit(
-        atom_to_list(?FUNCTION_NAME),
-        read_file_fun(i18n_file_path(NameVsn), "bad_i18n_file", Options)
-    ).
+do_read_plugin(NameVsn, Options) ->
+    Info0 = emqx_plugins_fs:read_info(NameVsn),
+    ok = check_plugin(Info0, NameVsn, emqx_plugins_fs:info_file_path(NameVsn)),
+    Info1 = populate_plugin_readme(NameVsn, Options, Info0),
+    Info2 = populate_plugin_package_info(NameVsn, Info1),
+    populate_plugin_status(NameVsn, Info2).
 
 read_plugin_hocon(NameVsn) ->
     read_plugin_hocon(NameVsn, #{read_mode => ?RAW_BIN}).
 read_plugin_hocon(NameVsn, Options) ->
-    tryit(
-        atom_to_list(?FUNCTION_NAME),
-        read_file_fun(plugin_config_file(NameVsn), "bad_hocon_file", Options)
-    ).
+    ?CATCH({ok, emqx_plugins_fs:read_hocon(NameVsn, Options)}).
 
 ensure_exists_and_installed(NameVsn) ->
-    case filelib:is_dir(plugin_dir(NameVsn)) of
-        true ->
+    case emqx_plugins_fs:ensure_installed(NameVsn) of
+        ok ->
             ok;
-        false ->
-            %% Do we have the package, but it's not extracted yet?
-            case get_tar(NameVsn) of
-                {ok, TarContent} ->
-                    ok = file:write_file(pkg_file_path(NameVsn), TarContent),
-                    do_ensure_installed(NameVsn);
-                _ ->
-                    %% If not, try to get it from the cluster.
-                    do_get_from_cluster(NameVsn)
-            end
+        {error, no_local_tar} ->
+            do_get_from_cluster(NameVsn);
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 do_get_from_cluster(NameVsn) ->
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     case get_plugin_tar_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
-            ok = file:write_file(pkg_file_path(NameVsn), TarContent),
-            ok = do_ensure_installed(NameVsn);
+            ok = emqx_plugins_fs:write_tar(NameVsn, TarContent),
+            ok = emqx_plugins_fs:install_from_local_tar(NameVsn);
         {error, NodeErrors} when Nodes =/= [] ->
             ErrMeta = #{
                 msg => "failed_to_copy_plugin_from_other_nodes",
@@ -896,6 +691,10 @@ do_get_from_cluster(NameVsn) ->
             ?SLOG(error, ErrMeta),
             {error, ErrMeta}
     end.
+
+%% RPC target
+get_tar(NameVsn) ->
+    emqx_plugins_fs:get_tar(NameVsn).
 
 get_plugin_tar_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
@@ -931,21 +730,15 @@ get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
             get_plugin_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
     end.
 
-plugins_package_info(NameVsn, Info) ->
-    case file:read_file(md5sum_file(NameVsn)) of
-        {ok, MD5} -> Info#{md5sum => MD5};
-        _ -> Info#{md5sum => <<>>}
-    end.
+populate_plugin_package_info(NameVsn, Info) ->
+    Info#{md5sum => emqx_plugins_fs:read_md5sum(NameVsn)}.
 
-plugins_readme(NameVsn, #{fill_readme := true}, Info) ->
-    case file:read_file(readme_file(NameVsn)) of
-        {ok, Bin} -> Info#{readme => Bin};
-        _ -> Info#{readme => <<>>}
-    end;
-plugins_readme(_NameVsn, _Options, Info) ->
+populate_plugin_readme(NameVsn, #{fill_readme := true}, Info) ->
+    Info#{readme => emqx_plugins_fs:read_readme(NameVsn)};
+populate_plugin_readme(_NameVsn, _Options, Info) ->
     Info.
 
-plugin_status(NameVsn, Info) ->
+populate_plugin_status(NameVsn, Info) ->
     {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
     RunningSt =
         case application:get_key(AppName, vsn) of
@@ -983,7 +776,7 @@ check_plugin(
         <<"rel_vsn">> := Vsn,
         <<"rel_apps">> := Apps,
         <<"description">> := _
-    } = Info,
+    },
     NameVsn,
     FilePath
 ) ->
@@ -1002,7 +795,7 @@ check_plugin(
                         hint => "A non-empty string list of app_name-app_vsn format"
                     })
             end,
-            Info;
+            ok;
         false ->
             throw(#{
                 msg => "name_vsn_mismatch",
@@ -1012,16 +805,16 @@ check_plugin(
                 rel_vsn => Vsn
             })
     end;
-check_plugin(_What, NameVsn, File) ->
+check_plugin(_What, NameVsn, FilePath) ->
     throw(#{
         msg => "bad_info_file_content",
         mandatory_fields => [rel_vsn, name, rel_apps, description],
         name_vsn => NameVsn,
-        path => File
+        path => FilePath
     }).
 
 load_code_start_apps(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
-    LibDir = filename:join([install_dir(), RelNameVsn]),
+    LibDir = emqx_plugins_fs:lib_dir(RelNameVsn),
     RunningApps = running_apps(),
     %% load plugin apps and beam code
     AppNames =
@@ -1260,9 +1053,6 @@ enable_disable_plugin(_NameVsn, _Diff) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-install_dir() ->
-    get_config_interal(install_dir, "").
-
 put_configured(Configured) ->
     put_configured(Configured, _ConfLocation = local).
 
@@ -1314,7 +1104,8 @@ maybe_ensure_state(NameVsn) ->
     ok.
 
 maybe_load_config_schema(NameVsn, Mode) ->
-    AvscPath = avsc_file_path(NameVsn),
+    %% TODO do not read directly.
+    AvscPath = emqx_plugins_fs:avsc_file_path(NameVsn),
     _ =
         with_plugin_avsc(NameVsn) andalso
             filelib:is_regular(AvscPath) andalso
@@ -1333,23 +1124,13 @@ maybe_create_config_dir(NameVsn, Mode) ->
         do_create_config_dir(NameVsn, Mode).
 
 do_create_config_dir(NameVsn, Mode) ->
-    case plugin_data_dir(NameVsn) of
-        {error, Reason} ->
-            {error, {gen_config_dir_failed, Reason}};
-        ConfigDir ->
-            case filelib:ensure_path(ConfigDir) of
-                ok ->
-                    %% get config from other nodes or get from tarball
-                    _ = maybe_ensure_plugin_config(NameVsn, Mode),
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "failed_to_create_plugin_config_dir",
-                        dir => ConfigDir,
-                        reason => Reason
-                    }),
-                    {error, {mkdir_failed, ConfigDir, Reason}}
-            end
+    case emqx_plugins_fs:ensure_config_dir(NameVsn) of
+        ok ->
+            %% get config from other nodes or get from tarball
+            _ = maybe_ensure_plugin_config(NameVsn, Mode),
+            ok;
+        {error, _} = Error ->
+            Error
     end.
 
 -spec maybe_ensure_plugin_config(name_vsn(), ?fresh_install | ?normal) -> ok.
@@ -1384,7 +1165,7 @@ ensure_plugin_config(NameVsn, Nodes) ->
     case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
         {ok, ConfigMap} when is_map(ConfigMap) ->
             HoconBin = hocon_pp:do(ConfigMap, #{}),
-            Path = plugin_config_file(NameVsn),
+            Path = emqx_plugins_fs:plugin_config_file(NameVsn),
             ok = filelib:ensure_dir(Path),
             ok = file:write_file(Path, HoconBin),
             ensure_config_map(NameVsn);
@@ -1396,8 +1177,8 @@ ensure_plugin_config(NameVsn, Nodes) ->
 -spec cp_default_config_file(name_vsn()) -> ok.
 cp_default_config_file(NameVsn) ->
     %% always copy default hocon file into config dir when can not get config from other nodes
-    Source = default_plugin_config_file(NameVsn),
-    Destination = plugin_config_file(NameVsn),
+    Source = emqx_plugins_fs:default_plugin_config_file(NameVsn),
+    Destination = emqx_plugins_fs:plugin_config_file(NameVsn),
     maybe
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
@@ -1461,7 +1242,7 @@ do_ensure_config_map(NameVsn, ConfigJsonMap) ->
 backup_and_write_hocon_bin(NameVsn, HoconBin) ->
     %% this may fail, but we don't care
     %% e.g. read-only file system
-    Path = plugin_config_file(NameVsn),
+    Path = emqx_plugins_fs:plugin_config_file(NameVsn),
     _ = filelib:ensure_dir(Path),
     TmpFile = Path ++ ".tmp",
     case file:write_file(TmpFile, HoconBin) of
@@ -1519,95 +1300,6 @@ prune_backup_files(Path) ->
         end,
         Deletes
     ).
-
-read_file_fun(Path, Msg, #{read_mode := ?RAW_BIN}) ->
-    fun() ->
-        case file:read_file(Path) of
-            {ok, Bin} ->
-                {ok, Bin};
-            {error, Reason} ->
-                ErrMeta = #{msg => Msg, reason => Reason},
-                throw(ErrMeta)
-        end
-    end;
-read_file_fun(Path, Msg, #{read_mode := ?JSON_MAP}) ->
-    fun() ->
-        case hocon:load(Path, #{format => richmap}) of
-            {ok, RichMap} ->
-                {ok, hocon_maps:ensure_plain(RichMap)};
-            {error, Reason} ->
-                ErrMeta = #{msg => Msg, reason => Reason},
-                throw(ErrMeta)
-        end
-    end.
-
-%% Directorys
--spec plugin_dir(name_vsn()) -> string().
-plugin_dir(NameVsn) ->
-    wrap_to_list(filename:join([install_dir(), NameVsn])).
-
--spec plugin_priv_dir(name_vsn()) -> string().
-plugin_priv_dir(NameVsn) ->
-    maybe
-        {ok, #{<<"name">> := Name, <<"rel_apps">> := Apps}} ?=
-            read_plugin_info(NameVsn, #{fill_readme => false}),
-        {ok, AppDir} ?= app_dir(Name, Apps),
-        wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]))
-    else
-        %% Otherwise assume the priv directory is under the plugin root directory
-        _ -> wrap_to_list(filename:join([install_dir(), NameVsn, "priv"]))
-    end.
-
--spec plugin_data_dir(name_vsn()) -> string() | {error, Reason :: string()}.
-plugin_data_dir(NameVsn) ->
-    case parse_name_vsn(NameVsn) of
-        {ok, NameAtom, _Vsn} ->
-            wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_generate_plugin_config_dir_for_plugin",
-                plugin_namevsn => NameVsn,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
-
-plugin_certs_dir(NameVsn) ->
-    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "certs"])).
-
-%% Files
--spec pkg_file_path(name_vsn()) -> string().
-pkg_file_path(NameVsn) ->
-    wrap_to_list(filename:join([install_dir(), bin([NameVsn, ".tar.gz"])])).
-
--spec info_file_path(name_vsn()) -> string().
-info_file_path(NameVsn) ->
-    wrap_to_list(filename:join([plugin_dir(NameVsn), "release.json"])).
-
--spec avsc_file_path(name_vsn()) -> string().
-avsc_file_path(NameVsn) ->
-    wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_schema.avsc"])).
-
--spec plugin_config_file(name_vsn()) -> string().
-plugin_config_file(NameVsn) ->
-    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "config.hocon"])).
-
-%% should only used when plugin installing
--spec default_plugin_config_file(name_vsn()) -> string().
-default_plugin_config_file(NameVsn) ->
-    wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config.hocon"])).
-
--spec i18n_file_path(name_vsn()) -> string().
-i18n_file_path(NameVsn) ->
-    wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
-
--spec md5sum_file(name_vsn()) -> string().
-md5sum_file(NameVsn) ->
-    plugin_dir(NameVsn) ++ ".tar.gz.md5sum".
-
--spec readme_file(name_vsn()) -> string().
-readme_file(NameVsn) ->
-    wrap_to_list(filename:join([plugin_dir(NameVsn), "README.md"])).
 
 running_apps() ->
     lists:map(

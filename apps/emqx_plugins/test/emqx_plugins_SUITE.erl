@@ -107,7 +107,7 @@ end_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({'end', Config}).
 
 get_demo_plugin_package() ->
-    get_demo_plugin_package(emqx_plugins:install_dir()).
+    get_demo_plugin_package(emqx_plugins_fs:install_dir()).
 
 get_demo_plugin_package(
     #{
@@ -372,7 +372,7 @@ t_legacy_plugins(Config) ->
 
 test_legacy_plugin(#{app_name := AppName} = LegacyPlugin, _Config) ->
     #{package := Package} = get_demo_plugin_package(LegacyPlugin#{
-        shdir => emqx_plugins:install_dir(), git_url => ?EMQX_PLUGIN_TEMPLATE_URL
+        shdir => emqx_plugins_fs:install_dir(), git_url => ?EMQX_PLUGIN_TEMPLATE_URL
     }),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_installed(NameVsn),
@@ -482,7 +482,7 @@ t_bad_tar_gz2(Config) ->
     ?assert(filelib:is_regular(TarGz)),
     %% failed to install, it also cleans up the bad content of .tar.gz file
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir(NameVsn))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
     %% but the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
@@ -510,8 +510,8 @@ t_tar_vsn_content_mismatch(Config) ->
     %% failed to install, it also cleans up content of the bad .tar.gz file even
     %% if in other directory
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir(NameVsn))),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins:plugin_dir("foo-0.2"))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir("foo-0.2"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
@@ -549,7 +549,7 @@ t_elixir_plugin({init, Config}) ->
             git_url => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
             vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN,
             tag => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG,
-            shdir => emqx_plugins:install_dir()
+            shdir => emqx_plugins_fs:install_dir()
         },
     Opts = #{package := Package} = get_demo_plugin_package(Opts0),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
@@ -963,12 +963,15 @@ t_start_node_with_plugin_enabled({'end', Config}) ->
 t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
     NodeSpecs = ?config(node_specs, Config),
     ?check_trace(
-        #{timetrap => 10_000},
+        #{timetrap => 30_000},
         begin
-            %% Hack: we use `restart' here to disable the clean slate verification, as we
+            ct:pal("restarting nodes"),
+            %% Hack: we use `restart' here to disable the clean state verification, as we
             %% just created and populated the `plugins' directory...
             [N1, N2 | _] = lists:flatmap(fun emqx_cth_cluster:restart/1, NodeSpecs),
+            ct:pal("checking N1 state"),
             ?ON(N1, assert_started_and_hooks_loaded()),
+            ct:pal("checking N2 state"),
             ?ON(N2, assert_started_and_hooks_loaded()),
             %% Now make them join.
             %% N.B.: We need to start autocluster so that applications are restarted in
@@ -993,9 +996,9 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
                     ?ON(N2, emqx_cluster:join(N1)),
                     #{?snk_kind := "emqx_plugins_app_started"}
                 ),
-            ct:pal("checking N1 state"),
+            ct:pal("checking N1 state after join"),
             ?ON(N1, assert_started_and_hooks_loaded()),
-            ct:pal("checking N2 state"),
+            ct:pal("checking N2 state after join"),
             ?ON(N2, assert_started_and_hooks_loaded()),
             ok
         end,

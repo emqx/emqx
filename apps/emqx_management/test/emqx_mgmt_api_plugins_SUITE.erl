@@ -79,7 +79,7 @@ end_per_testcase(_TestCase, _Config) ->
 t_plugins(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = get_demo_plugin_package(DemoShDir),
-    ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins:install_dir()]),
+    ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins_fs:install_dir()]),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
@@ -173,7 +173,7 @@ t_bad_plugin(Config) ->
         {error, enoent},
         file:delete(
             filename:join([
-                emqx_plugins:install_dir(),
+                emqx_plugins_fs:install_dir(),
                 filename:basename(PackagePath)
             ])
         )

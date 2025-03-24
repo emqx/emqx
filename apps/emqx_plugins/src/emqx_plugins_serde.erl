@@ -24,7 +24,6 @@
     start_link/0,
     lookup_serde/1,
     add_schema/2,
-    get_schema/1,
     delete_schema/1
 ]).
 
@@ -76,16 +75,6 @@ add_schema(NameVsn, Path) ->
                     }),
                     E
             end
-    end.
-
-get_schema(NameVsn) ->
-    Path = emqx_plugins:avsc_file_path(NameVsn),
-    case read_avsc_file(Path) of
-        {ok, Avsc} ->
-            {ok, Avsc};
-        {error, Reason} ->
-            ?SLOG(warning, Reason),
-            {error, Reason}
     end.
 
 -spec delete_schema(schema_name()) -> ok | {error, term()}.
@@ -151,7 +140,7 @@ terminate(_Reason, _State) ->
 
 -spec get_plugin_avscs() -> [{string(), string()}].
 get_plugin_avscs() ->
-    Pattern = filename:join([emqx_plugins:install_dir(), "*", "*", "priv", "config_schema.avsc"]),
+    Pattern = filename:join([emqx_plugins_fs:install_dir(), "*", "*", "priv", "config_schema.avsc"]),
     lists:foldl(
         fun(AvscPath, AccIn) ->
             [_, _, _, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
