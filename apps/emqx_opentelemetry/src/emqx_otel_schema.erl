@@ -320,6 +320,15 @@ fields("e2e_tracing_options") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
+        {trace_rule_engine,
+            ?HOCON(
+                boolean(),
+                #{
+                    desc => ?DESC(trace_rule_engine),
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
         {follow_traceparent,
             ?HOCON(
                 boolean(),

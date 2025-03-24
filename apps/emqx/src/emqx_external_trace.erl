@@ -99,6 +99,10 @@
     Packet :: emqx_types:packet()
 ) -> Res :: t_res().
 
+-callback apply_rule(attrs(), t_fun(), t_args()) -> t_res().
+
+-callback handle_action(attrs(), ?EXT_TRACE_START | ?EXT_TRACE_STOP, map()) -> t_res().
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 
@@ -115,6 +119,11 @@
 
 -callback set_status_error(unicode:unicode_binary()) -> ok.
 
+%% --------------------------------------------------------------------
+%% Helper APIs
+
+-callback with_action_metadata(map(), map()) -> t_res().
+
 -export([
     provider/0,
     register_provider/1,
@@ -127,7 +136,9 @@
     topic_attrs/1,
     authn_attrs/1,
     sub_authz_attrs/1,
-    disconnect_attrs/2
+    disconnect_attrs/2,
+    rule_attrs/1,
+    action_attrs/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -294,6 +305,51 @@ disconnect_attrs(takeover_kick, Channel) ->
 disconnect_attrs(sock_closed, Channel) ->
     ?ext_trace_disconnect_reason(sock_closed).
 
+rule_attrs(#{
+    rule := #{
+        id := Id,
+        name := Name,
+        created_at := CreatedAt,
+        updated_at := LastModifiedAt,
+        description := Descr
+    },
+    trigger := Topic,
+    matched := TopicFilter
+}) ->
+    #{
+        'rule.id' => Id,
+        'rule.name' => Name,
+        'rule.created_at' => format_datetime(CreatedAt),
+        'rule.updated_at' => format_datetime(LastModifiedAt),
+        'rule.description' => Descr,
+        'rule.trigger' => Topic,
+        'rule.matched' => TopicFilter,
+        'client.clientid' => ?EXT_TRACE__RULE_INTERNAL_CLIENTID
+    }.
+
+%% TODO: also rm `action.bridge_type' and `action.bridge_name' after bridge_v1 is deprecated
+action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
+    #{
+        'action.type' => <<"bridge">>,
+        'action.bridge_type' => BridgeType,
+        'action.bridge_name' => BridgeName,
+        'action.resource_id' => ResId,
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
+    };
+action_attrs({bridge_v2, BridgeType, BridgeName}) ->
+    #{
+        'action.type' => <<"bridge_v2">>,
+        'action.bridge_type' => BridgeType,
+        'action.bridge_name' => BridgeName,
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
+    };
+action_attrs(#{mod := Mod, func := Func}) ->
+    #{
+        'action.type' => <<"function">>,
+        'action.function' => printable_function_name(Mod, Func),
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
+    }.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -313,3 +369,14 @@ json_encode(Term) ->
 %% Properties is a map which may include 'User-Property' of key-value pairs
 json_encode_proplist(Properties) ->
     emqx_utils_json:encode_proplist(Properties).
+
+format_datetime(Timestamp) ->
+    format_datetime(Timestamp, millisecond).
+
+format_datetime(Timestamp, Unit) ->
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, Unit).
+
+printable_function_name(emqx_rule_actions, Func) ->
+    Func;
+printable_function_name(Mod, Func) ->
+    list_to_binary(lists:concat([Mod, ":", Func])).
