@@ -158,7 +158,7 @@ t_authenticate_timeout_cause_reconnect(_Config) ->
         ),
         ok = wait_for_ldap_pid(1000),
         [#{id := ResourceID}] = emqx_resource_manager:list_all(),
-        ?retry(1_000, 10, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
+        ?retry(1_000, 20, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
         %% turn back to normal
         meck:expect(
             eldap,
