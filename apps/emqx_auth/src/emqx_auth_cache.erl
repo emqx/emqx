@@ -292,7 +292,7 @@ cleanup(#{name := Name, tab := Tab}) ->
     }),
     ok.
 
-update_stats(#{tab := Tab, stat_tab := StatTab, name := Name} = PtState) ->
+update_stats(#{tab := Tab, stat_tab := StatTab} = PtState) ->
     #{count := Count, memory := Memory} = tab_stats(Tab),
     Stats = #stats{
         key = ?stat_key,
@@ -301,10 +301,6 @@ update_stats(#{tab := Tab, stat_tab := StatTab, name := Name} = PtState) ->
     },
     ok = set_gauge(PtState, ?metric_count, Count),
     ok = set_gauge(PtState, ?metric_memory, Memory),
-    ?tp(debug, auth_cache_update_stats, #{
-        name => Name,
-        stats => Stats
-    }),
     _ = ets:insert(StatTab, Stats),
     ok.
 
