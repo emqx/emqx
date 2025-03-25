@@ -44,7 +44,9 @@
     read_info/1,
     read_readme/1,
     read_md5sum/1,
-    read_avsc/1,
+    read_avsc_map/1,
+    read_avsc_bin/1,
+    read_avsc_bin_all/0,
     read_i18n/1,
     read_hocon/1,
 
@@ -106,10 +108,27 @@ read_readme(NameVsn) ->
             <<>>
     end.
 
--spec read_avsc(name_vsn()) -> map().
-read_avsc(NameVsn) ->
+-spec read_avsc_map(name_vsn()) -> map().
+read_avsc_map(NameVsn) ->
     AvscFilePath = avsc_file_path(NameVsn),
     read_file(AvscFilePath, "bad_avsc_file", #{read_mode => ?JSON_MAP}).
+
+-spec read_avsc_bin(name_vsn()) -> {ok, binary()} | {error, term()}.
+read_avsc_bin(NameVsn) ->
+    AvscFilePath = avsc_file_path(NameVsn),
+    read_file(AvscFilePath, "bad_avsc_file", #{read_mode => ?RAW_BIN}).
+
+-spec read_avsc_bin_all() -> [{name_vsn(), binary()}].
+read_avsc_bin_all() ->
+    lists:filtermap(
+        fun(NameVsn) ->
+            case read_avsc_bin(NameVsn) of
+                {ok, AvscBin} -> {true, {NameVsn, AvscBin}};
+                {error, _} -> false
+            end
+        end,
+        list_name_vsn()
+    ).
 
 -spec read_i18n(name_vsn()) -> map().
 read_i18n(NameVsn) ->
@@ -301,16 +320,14 @@ read_file(Path, Msg, #{read_mode := ?RAW_BIN}) ->
         {ok, Bin} ->
             {ok, Bin};
         {error, Reason} ->
-            ErrMeta = #{msg => Msg, reason => Reason},
-            {error, ErrMeta}
+            {error, #{msg => Msg, reason => Reason}}
     end;
 read_file(Path, Msg, #{read_mode := ?JSON_MAP}) ->
     case hocon:load(Path, #{format => richmap}) of
         {ok, RichMap} ->
             {ok, hocon_maps:ensure_plain(RichMap)};
         {error, Reason} ->
-            ErrMeta = #{msg => Msg, reason => Reason},
-            {error, ErrMeta}
+            {error, #{msg => Msg, reason => Reason}}
     end.
 
 plugin_priv_dir(NameVsn) ->

@@ -125,7 +125,7 @@ describe(NameVsn) ->
 
 -spec plugin_schema_json(name_vsn()) -> {ok, schema_json_map()} | {error, any()}.
 plugin_schema_json(NameVsn) ->
-    ?CATCH(emqx_plugins_fs:read_avsc(NameVsn)).
+    ?CATCH(emqx_plugins_fs:read_avsc_map(NameVsn)).
 
 -spec plugin_i18n_json(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
 plugin_i18n_json(NameVsn) ->
@@ -1115,16 +1115,17 @@ maybe_ensure_state(NameVsn) ->
     ok.
 
 maybe_load_config_schema(NameVsn, Mode) ->
-    %% TODO do not read directly.
-    AvscPath = emqx_plugins_fs:avsc_file_path(NameVsn),
     _ =
-        with_plugin_avsc(NameVsn) andalso
-            filelib:is_regular(AvscPath) andalso
-            do_load_config_schema(NameVsn, AvscPath),
+        case emqx_plugins_fs:read_avsc_bin(NameVsn) of
+            {ok, AvscBin} ->
+                do_load_config_schema(NameVsn, AvscBin);
+            {error, _} ->
+                ok
+        end,
     _ = maybe_create_config_dir(NameVsn, Mode).
 
-do_load_config_schema(NameVsn, AvscPath) ->
-    case emqx_plugins_serde:add_schema(bin(NameVsn), AvscPath) of
+do_load_config_schema(NameVsn, AvscBin) ->
+    case emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin) of
         ok -> ok;
         {error, already_exists} -> ok;
         {error, _Reason} -> ok
@@ -1230,8 +1231,10 @@ ensure_config_map(NameVsn) ->
                     }),
                     put_config(NameVsn, ConfigJsonMap, ?plugin_without_config_schema)
             end;
-        _ ->
-            ?SLOG(warning, #{msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn}),
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn, reason => Reason
+            }),
             ok
     end.
 
