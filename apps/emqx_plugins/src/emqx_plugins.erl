@@ -30,9 +30,7 @@
     describe/1,
     plugin_schema_json/1,
     plugin_i18n_json/1,
-    raw_plugin_config_content/1,
-    parse_name_vsn/1,
-    make_name_vsn_string/2
+    raw_plugin_config_content/1
 ]).
 
 %% Package operations
@@ -110,7 +108,7 @@
 
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
--define(CATCH(BODY), tryit(atom_to_list(?FUNCTION_NAME), fun() -> BODY end)).
+-define(CATCH(BODY), catch_errors(atom_to_list(?FUNCTION_NAME), fun() -> BODY end)).
 
 -define(APP, emqx_plugins).
 
@@ -127,26 +125,15 @@ describe(NameVsn) ->
 
 -spec plugin_schema_json(name_vsn()) -> {ok, schema_json_map()} | {error, any()}.
 plugin_schema_json(NameVsn) ->
-    ?CATCH({ok, emqx_plugins_fs:read_avsc(NameVsn)}).
+    ?CATCH(emqx_plugins_fs:read_avsc(NameVsn)).
 
 -spec plugin_i18n_json(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
 plugin_i18n_json(NameVsn) ->
-    ?CATCH({ok, emqx_plugins_fs:read_i18n(NameVsn)}).
+    ?CATCH(emqx_plugins_fs:read_i18n(NameVsn)).
 
 -spec raw_plugin_config_content(name_vsn()) -> {ok, raw_plugin_config_content()} | {error, any()}.
 raw_plugin_config_content(NameVsn) ->
-    read_plugin_hocon(NameVsn).
-
-parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
-    parse_name_vsn(binary_to_list(NameVsn));
-parse_name_vsn(NameVsn) when is_list(NameVsn) ->
-    case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
-        {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
-        _ -> {error, "bad_name_vsn"}
-    end.
-
-make_name_vsn_string(Name, Vsn) ->
-    binary_to_list(iolist_to_binary([Name, "-", Vsn])).
+    ?CATCH(read_plugin_hocon(NameVsn)).
 
 %% Note: this is only used for the HTTP API.
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
@@ -324,16 +311,18 @@ ensure_stopped() ->
 %% @doc Stop a plugin from Management API or CLI.
 -spec ensure_stopped(name_vsn()) -> ok | {error, term()}.
 ensure_stopped(NameVsn) ->
-    tryit(
-        "stop_plugin",
-        fun() ->
-            Plugin = do_read_plugin(NameVsn),
-            ensure_apps_stopped(Plugin)
-        end
-    ).
+    ?CATCH(do_ensure_stopped(NameVsn)).
+
+do_ensure_stopped(NameVsn) ->
+    case do_read_plugin(NameVsn) of
+        {ok, Plugin} ->
+            ensure_apps_stopped(Plugin);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 get_config(Name, Vsn, Opt, Default) ->
-    get_config(make_name_vsn_string(Name, Vsn), Opt, Default).
+    get_config(emqx_plugins_utils:make_name_vsn_string(Name, Vsn), Opt, Default).
 
 -spec get_config(name_vsn()) ->
     {ok, plugin_config_map() | any()}
@@ -541,16 +530,21 @@ ensure_configured(#{name_vsn := NameVsn} = Item, Position, ConfLocation) ->
     Configured = configured(),
     SplitFun = fun(#{name_vsn := NV}) -> bin(NV) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
-    NewConfigured =
-        case Rear of
-            [_ | More] when Position =:= no_move ->
-                Front ++ [Item | More];
-            [_ | More] ->
-                add_new_configured(Front ++ More, Position, Item);
-            [] ->
-                add_new_configured(Configured, Position, Item)
-        end,
-    ok = put_configured(NewConfigured, ConfLocation).
+    try
+        NewConfigured =
+            case Rear of
+                [_ | More] when Position =:= no_move ->
+                    Front ++ [Item | More];
+                [_ | More] ->
+                    add_new_configured(Front ++ More, Position, Item);
+                [] ->
+                    add_new_configured(Configured, Position, Item)
+            end,
+        ok = put_configured(NewConfigured, ConfLocation)
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
 
 add_new_configured(Configured, no_move, Item) ->
     %% default to rear
@@ -595,43 +589,39 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
     end.
 
 do_ensure_started(NameVsn) ->
-    case ensure_exists_and_installed(NameVsn) of
-        ok ->
-            Plugin = do_read_plugin(NameVsn),
-            ok = load_code_start_apps(NameVsn, Plugin);
-        {error, #{reason := Reason} = ReasonMap} ->
+    maybe
+        ok ?= ensure_exists_and_installed(NameVsn),
+        {ok, Plugin} ?= do_read_plugin(NameVsn),
+        ok ?= load_code_start_apps(NameVsn, Plugin)
+    else
+        {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_plugin",
                 name_vsn => NameVsn,
                 reason => Reason
             }),
-            {error, ReasonMap}
+            {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
 
-%% try the function, catch 'throw' exceptions as normal 'error' return
-%% other exceptions with stacktrace logged.
-tryit(WhichOp, F) ->
+-doc """
+Converts exception errors into `{error, Reason}` return values
+""".
+catch_errors(Label, F) ->
     try
         F()
     catch
-        throw:ReasonMap when is_map(ReasonMap) ->
-            %% thrown exceptions are known errors
-            %% translate to a return value without stacktrace
-            {error, ReasonMap};
-        throw:Reason ->
-            {error, #{reason => Reason}};
         error:Reason:Stacktrace ->
             %% unexpected errors, log stacktrace
             ?SLOG(warning, #{
                 msg => "plugin_op_failed",
-                which_op => WhichOp,
+                which_op => Label,
                 exception => Reason,
                 stacktrace => Stacktrace
             }),
             {error, #{
-                which_op => WhichOp,
+                which_op => Label,
                 exception => Reason,
                 stacktrace => Stacktrace
             }}
@@ -640,22 +630,25 @@ tryit(WhichOp, F) ->
 %% read plugin info from the JSON file
 %% returns {ok, Info} or {error, Reason}
 read_plugin_info(NameVsn, Options) ->
-    ?CATCH({ok, do_read_plugin(NameVsn, Options)}).
+    do_read_plugin(NameVsn, Options).
 
 do_read_plugin(NameVsn) ->
     do_read_plugin(NameVsn, #{}).
 
 do_read_plugin(NameVsn, Options) ->
-    Info0 = emqx_plugins_fs:read_info(NameVsn),
-    ok = check_plugin(Info0, NameVsn, emqx_plugins_fs:info_file_path(NameVsn)),
-    Info1 = populate_plugin_readme(NameVsn, Options, Info0),
-    Info2 = populate_plugin_package_info(NameVsn, Info1),
-    populate_plugin_status(NameVsn, Info2).
+    maybe
+        {ok, Info0} ?= emqx_plugins_fs:read_info(NameVsn),
+        ok ?= check_plugin(Info0, NameVsn, emqx_plugins_fs:info_file_path(NameVsn)),
+        Info1 = populate_plugin_readme(NameVsn, Options, Info0),
+        Info2 = populate_plugin_package_info(NameVsn, Info1),
+        Info = populate_plugin_status(NameVsn, Info2),
+        {ok, Info}
+    end.
 
 read_plugin_hocon(NameVsn) ->
     read_plugin_hocon(NameVsn, #{read_mode => ?RAW_BIN}).
 read_plugin_hocon(NameVsn, Options) ->
-    ?CATCH({ok, emqx_plugins_fs:read_hocon(NameVsn, Options)}).
+    emqx_plugins_fs:read_hocon(NameVsn, Options).
 
 ensure_exists_and_installed(NameVsn) ->
     case emqx_plugins_fs:ensure_installed(NameVsn) of
@@ -739,7 +732,7 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
     Info.
 
 populate_plugin_status(NameVsn, Info) ->
-    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    {ok, AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     RunningSt =
         case application:get_key(AppName, vsn) of
             {ok, _} ->
@@ -786,48 +779,64 @@ check_plugin(
                 %% assert
                 [_ | _] = Apps,
                 %% validate if the list is all <app>-<vsn> strings
-                lists:foreach(fun(App) -> {ok, _, _} = parse_name_vsn(App) end, Apps)
+                lists:foreach(
+                    fun(App) -> {ok, _, _} = emqx_plugins_utils:parse_name_vsn(App) end, Apps
+                )
             catch
                 _:_ ->
-                    throw(#{
+                    {error, #{
                         msg => "bad_rel_apps",
                         rel_apps => Apps,
                         hint => "A non-empty string list of app_name-app_vsn format"
-                    })
-            end,
-            ok;
+                    }}
+            end;
         false ->
-            throw(#{
+            {error, #{
                 msg => "name_vsn_mismatch",
                 name_vsn => NameVsn,
                 path => FilePath,
                 name => Name,
                 rel_vsn => Vsn
-            })
+            }}
     end;
 check_plugin(_What, NameVsn, FilePath) ->
-    throw(#{
+    {error, #{
         msg => "bad_info_file_content",
         mandatory_fields => [rel_vsn, name, rel_apps, description],
         name_vsn => NameVsn,
         path => FilePath
-    }).
+    }}.
 
 load_code_start_apps(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
     LibDir = emqx_plugins_fs:lib_dir(RelNameVsn),
     RunningApps = running_apps(),
     %% load plugin apps and beam code
-    AppNames =
-        lists:map(
-            fun(AppNameVsn) ->
-                {ok, AppName, AppVsn} = parse_name_vsn(AppNameVsn),
-                EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
-                ok = load_plugin_app(AppName, AppVsn, EbinDir, RunningApps),
-                AppName
+    try
+        AppNames =
+            lists:map(
+                fun(AppNameVsn) ->
+                    {ok, AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+                    EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
+                    case load_plugin_app(AppName, AppVsn, EbinDir, RunningApps) of
+                        ok -> AppName;
+                        {error, Reason} -> throw(Reason)
+                    end
+                end,
+                Apps
+            ),
+        ok = lists:foreach(
+            fun(AppName) ->
+                case start_app(AppName) of
+                    ok -> ok;
+                    {error, Reason} -> throw(Reason)
+                end
             end,
-            Apps
-        ),
-    lists:foreach(fun start_app/1, AppNames).
+            AppNames
+        )
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
 
 load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
     case lists:keyfind(AppName, 1, RunningApps) of
@@ -845,7 +854,8 @@ load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
                         name => AppName,
                         running_vsn => Vsn,
                         loading_vsn => AppVsn
-                    })
+                    }),
+                    ok
             end
     end.
 
@@ -854,34 +864,30 @@ do_load_plugin_app(AppName, Ebin) when is_binary(Ebin) ->
 do_load_plugin_app(AppName, Ebin) ->
     _ = code:add_patha(Ebin),
     Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
-    lists:foreach(
-        fun(BeamFile) ->
-            Module = list_to_atom(filename:basename(BeamFile, ".beam")),
-            _ = code:purge(Module),
-            case code:load_file(Module) of
-                {module, _} ->
-                    ok;
-                {error, Reason} ->
-                    throw(#{
-                        msg => "failed_to_load_plugin_beam",
-                        path => BeamFile,
-                        reason => Reason
-                    })
-            end
-        end,
-        Modules
-    ),
-    case application:load(AppName) of
-        ok ->
-            ok;
+    maybe
+        ok ?= load_modules(Modules),
+        ok ?= application:load(AppName)
+    else
         {error, {already_loaded, _}} ->
             ok;
         {error, Reason} ->
-            throw(#{
+            {error, #{
                 msg => "failed_to_load_plugin_app",
                 name => AppName,
                 reason => Reason
-            })
+            }}
+    end.
+
+load_modules([]) ->
+    ok;
+load_modules([BeamFile | Modules]) ->
+    Module = list_to_atom(filename:basename(BeamFile, ".beam")),
+    _ = code:purge(Module),
+    case code:load_file(Module) of
+        {module, _} ->
+            load_modules(Modules);
+        {error, Reason} ->
+            {error, #{msg => "failed_to_load_plugin_beam", path => BeamFile, reason => Reason}}
     end.
 
 start_app(App) ->
@@ -892,17 +898,17 @@ start_app(App) ->
                 false -> ok
             end;
         {ok, {error, Reason}} ->
-            throw(#{
+            {error, #{
                 msg => "failed_to_start_app",
                 app => App,
                 reason => Reason
-            });
+            }};
         {error, Reason} ->
-            throw(#{
+            {error, #{
                 msg => "failed_to_start_plugin_app",
                 app => App,
                 reason => Reason
-            })
+            }}
     end.
 
 %% Stop all apps installed by the plugin package,
@@ -910,7 +916,7 @@ start_app(App) ->
 ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
     %% load plugin apps and beam code
     AppsToStop = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
-    case tryit("stop_apps", fun() -> stop_apps(AppsToStop) end) of
+    case stop_apps(AppsToStop) of
         {ok, []} ->
             %% all apps stopped
             ok;
@@ -934,7 +940,7 @@ is_protected_app(iex) -> true;
 is_protected_app(_) -> false.
 
 parse_name_vsn_for_stopping(NameVsn) ->
-    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    {ok, AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     case is_protected_app(AppName) of
         true ->
             false;
@@ -944,7 +950,7 @@ parse_name_vsn_for_stopping(NameVsn) ->
 %% ELSE ifdef(EMQX_ELIXIR)
 -else.
 parse_name_vsn_for_stopping(NameVsn) ->
-    {ok, AppName, _AppVsn} = parse_name_vsn(NameVsn),
+    {ok, AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     {true, AppName}.
 %% END ifdef(EMQX_ELIXIR)
 -endif.
@@ -957,7 +963,8 @@ stop_apps(Apps) ->
         %% no progress
         {ok, Remain} when Remain =:= Apps -> {ok, Apps};
         %% try again
-        {ok, Remain} -> stop_apps(Remain)
+        {ok, Remain} -> stop_apps(Remain);
+        {error, Reason} -> {error, Reason}
     end.
 
 do_stop_apps([], Remain, _AllApps) ->
@@ -967,8 +974,12 @@ do_stop_apps([App | Apps], Remain, RunningApps) ->
         true ->
             do_stop_apps(Apps, [App | Remain], RunningApps);
         false ->
-            ok = stop_app(App),
-            do_stop_apps(Apps, Remain, RunningApps)
+            case stop_app(App) of
+                ok ->
+                    do_stop_apps(Apps, Remain, RunningApps);
+                {error, Reason} ->
+                    {error, Reason}
+            end
     end.
 
 stop_app(App) ->
@@ -980,7 +991,7 @@ stop_app(App) ->
             ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
             ok = unload_module_and_app(App);
         {error, Reason} ->
-            throw(#{msg => "failed_to_stop_app", app => App, reason => Reason})
+            {error, #{msg => "failed_to_stop_app", app => App, reason => Reason}}
     end.
 
 unload_module_and_app(App) ->
@@ -1165,7 +1176,7 @@ ensure_plugin_config(NameVsn, Nodes) ->
     case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
         {ok, ConfigMap} when is_map(ConfigMap) ->
             HoconBin = hocon_pp:do(ConfigMap, #{}),
-            Path = emqx_plugins_fs:plugin_config_file(NameVsn),
+            Path = emqx_plugins_fs:config_file_path(NameVsn),
             ok = filelib:ensure_dir(Path),
             ok = file:write_file(Path, HoconBin),
             ensure_config_map(NameVsn);
@@ -1177,8 +1188,8 @@ ensure_plugin_config(NameVsn, Nodes) ->
 -spec cp_default_config_file(name_vsn()) -> ok.
 cp_default_config_file(NameVsn) ->
     %% always copy default hocon file into config dir when can not get config from other nodes
-    Source = emqx_plugins_fs:default_plugin_config_file(NameVsn),
-    Destination = emqx_plugins_fs:plugin_config_file(NameVsn),
+    Source = emqx_plugins_fs:default_config_file_path(NameVsn),
+    Destination = emqx_plugins_fs:config_file_path(NameVsn),
     maybe
         true ?= filelib:is_regular(Source),
         %% destination path not existed (not configured)
@@ -1242,7 +1253,7 @@ do_ensure_config_map(NameVsn, ConfigJsonMap) ->
 backup_and_write_hocon_bin(NameVsn, HoconBin) ->
     %% this may fail, but we don't care
     %% e.g. read-only file system
-    Path = emqx_plugins_fs:plugin_config_file(NameVsn),
+    Path = emqx_plugins_fs:config_file_path(NameVsn),
     _ = filelib:ensure_dir(Path),
     TmpFile = Path ++ ".tmp",
     case file:write_file(TmpFile, HoconBin) of

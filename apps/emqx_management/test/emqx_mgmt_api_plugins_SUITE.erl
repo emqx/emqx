@@ -355,7 +355,7 @@ get_demo_plugin_package(Dir) ->
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),
-    {ok, NewName, _Vsn} = emqx_plugins:parse_name_vsn(NewNameVsn),
+    {ok, NewName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NewNameVsn),
     NewNameB = atom_to_binary(NewName, utf8),
     Content1 = lists:map(
         fun({F, B}) ->

@@ -414,7 +414,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:describe(NameVsn) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins:parse_name_vsn(FileName) of
+            case emqx_plugins_utils:parse_name_vsn(FileName) of
                 {ok, AppName, _Vsn} ->
                     AppDir = filename:join(emqx_plugins_fs:install_dir(), AppName),
                     case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
@@ -583,7 +583,7 @@ install_package(FileName, Bin) ->
     ok = file:write_file(File, Bin),
     PackageName = string:trim(FileName, trailing, ".tar.gz"),
     MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Bin), lower),
-    ok = file:write_file(emqx_plugins_fs:md5sum_file(PackageName), MD5),
+    ok = file:write_file(emqx_plugins_fs:md5sum_file_path(PackageName), MD5),
     case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
@@ -615,7 +615,7 @@ delete_package(NameVsn, _Opts) ->
             _ = emqx_plugins:ensure_disabled(NameVsn),
             _ = emqx_plugins:ensure_uninstalled(NameVsn),
             _ = emqx_plugins:delete_package(NameVsn),
-            _ = file:delete(emqx_plugins:md5sum_file(NameVsn)),
+            _ = file:delete(emqx_plugins:md5sum_file_path(NameVsn)),
             ok;
         Error ->
             Error

@@ -50,7 +50,7 @@
 
     %% TODO: remove
     avsc_file_path/1,
-    md5sum_file/1
+    md5sum_file_path/1
 ]).
 
 %% List all installed plugins
@@ -65,8 +65,8 @@
     %% To load and start plugin's apps
     lib_dir/1,
     %% To store plugin's configs
-    default_plugin_config_file/1,
-    plugin_config_file/1,
+    default_config_file_path/1,
+    config_file_path/1,
     ensure_config_dir/1
 ]).
 
@@ -91,14 +91,14 @@ read_info(NameVsn) ->
 
 -spec read_md5sum(name_vsn()) -> binary().
 read_md5sum(NameVsn) ->
-    case file:read_file(md5sum_file(NameVsn)) of
+    case file:read_file(md5sum_file_path(NameVsn)) of
         {ok, MD5} -> MD5;
         _ -> <<>>
     end.
 
 -spec read_readme(name_vsn()) -> binary().
 read_readme(NameVsn) ->
-    ReadmeFilePath = readme_file(NameVsn),
+    ReadmeFilePath = readme_file_path(NameVsn),
     case file:read_file(ReadmeFilePath) of
         {ok, Content} ->
             Content;
@@ -122,7 +122,7 @@ read_hocon(NameVsn) ->
 
 -spec read_hocon(name_vsn(), #{read_mode := ?RAW_BIN | ?JSON_MAP}) -> map().
 read_hocon(NameVsn, Options) ->
-    HoconFilePath = plugin_config_file(NameVsn),
+    HoconFilePath = config_file_path(NameVsn),
     read_file(HoconFilePath, "bad_hocon_file", Options).
 
 %% List all installed plugins
@@ -280,37 +280,37 @@ info_file_path(NameVsn) ->
 avsc_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_schema.avsc"])).
 
-plugin_config_file(NameVsn) ->
+config_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_data_dir(NameVsn), "config.hocon"])).
 
 %% should only used when plugin installing
-default_plugin_config_file(NameVsn) ->
+default_config_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config.hocon"])).
 
 i18n_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_priv_dir(NameVsn), "config_i18n.json"])).
 
-md5sum_file(NameVsn) ->
-    plugin_dir(NameVsn) ++ ".tar.gz.md5sum".
+md5sum_file_path(NameVsn) ->
+    tar_file_path(NameVsn) ++ ".md5sum".
 
-readme_file(NameVsn) ->
+readme_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_dir(NameVsn), "README.md"])).
 
 read_file(Path, Msg, #{read_mode := ?RAW_BIN}) ->
     case file:read_file(Path) of
         {ok, Bin} ->
-            Bin;
+            {ok, Bin};
         {error, Reason} ->
             ErrMeta = #{msg => Msg, reason => Reason},
-            throw(ErrMeta)
+            {error, ErrMeta}
     end;
 read_file(Path, Msg, #{read_mode := ?JSON_MAP}) ->
     case hocon:load(Path, #{format => richmap}) of
         {ok, RichMap} ->
-            hocon_maps:ensure_plain(RichMap);
+            {ok, hocon_maps:ensure_plain(RichMap)};
         {error, Reason} ->
             ErrMeta = #{msg => Msg, reason => Reason},
-            throw(ErrMeta)
+            {error, ErrMeta}
     end.
 
 plugin_priv_dir(NameVsn) ->
@@ -324,7 +324,7 @@ plugin_priv_dir(NameVsn) ->
     end.
 
 plugin_data_dir(NameVsn) ->
-    case parse_name_vsn(NameVsn) of
+    case emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {ok, NameAtom, _Vsn} ->
             wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
         {error, Reason} ->
@@ -380,13 +380,10 @@ delete_tar_file_content(BaseDir, TarContent) ->
     lists:foreach(
         fun({Name, _}) ->
             Filename = filename:join(BaseDir, Name),
-            case filelib:is_file(Filename) of
-                true ->
-                    TopDirOrFile = top_dir(BaseDir, Filename),
-                    ok = file:del_dir_r(TopDirOrFile);
-                false ->
-                    %% probably already deleted
-                    ok
+            maybe
+                true ?= filelib:is_file(Filename),
+                {ok, TopDirOrFile} ?= top_dir(BaseDir, Filename),
+                ok ?= file:del_dir_r(TopDirOrFile)
             end
         end,
         TarContent
@@ -396,9 +393,9 @@ top_dir(BaseDir0, DirOrFile) ->
     BaseDir = normalize_dir(BaseDir0),
     case filename:dirname(DirOrFile) of
         RockBottom when RockBottom =:= "/" orelse RockBottom =:= "." ->
-            throw({out_of_bounds, DirOrFile});
+            {error, {out_of_bounds, DirOrFile}};
         BaseDir ->
-            DirOrFile;
+            {ok, DirOrFile};
         Parent ->
             top_dir(BaseDir, Parent)
     end.
@@ -436,14 +433,6 @@ read_info_safe(NameVsn) ->
             {error, Reason}
     end.
 
-parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
-    parse_name_vsn(binary_to_list(NameVsn));
-parse_name_vsn(NameVsn) when is_list(NameVsn) ->
-    case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
-        {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
-        _ -> {error, "bad_name_vsn"}
-    end.
-
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
@@ -459,10 +448,16 @@ normalize_dir_test_() ->
 
 top_dir_test_() ->
     [
-        ?_assertEqual("base/foo", top_dir("base", filename:join(["base", "foo", "bar"]))),
-        ?_assertEqual("/base/foo", top_dir("/base", filename:join(["/", "base", "foo", "bar"]))),
-        ?_assertEqual("/base/foo", top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))),
-        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "base"]))),
-        ?_assertThrow({out_of_bounds, _}, top_dir("/base", filename:join(["/", "foo", "bar"])))
+        ?_assertEqual({ok, "base/foo"}, top_dir("base", filename:join(["base", "foo", "bar"]))),
+        ?_assertEqual(
+            {ok, "/base/foo"}, top_dir("/base", filename:join(["/", "base", "foo", "bar"]))
+        ),
+        ?_assertEqual(
+            {ok, "/base/foo"}, top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))
+        ),
+        ?_assertMatch({error, {out_of_bounds, _}}, top_dir("/base", filename:join(["/", "base"]))),
+        ?_assertMatch(
+            {error, {out_of_bounds, _}}, top_dir("/base", filename:join(["/", "foo", "bar"]))
+        )
     ].
 -endif.
