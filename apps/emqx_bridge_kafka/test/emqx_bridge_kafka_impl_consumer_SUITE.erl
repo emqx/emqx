@@ -92,6 +92,10 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    %% In CI, Kafka may take a while longer to reach an usable state.  If we run the test
+    %% suites too soon, we may get some flaky failures with error messages like these:
+    %% "The coordinator is not available."
+    emqx_bridge_kafka_impl_producer_SUITE:wait_until_kafka_is_up(15),
     [
         {apps, Apps},
         {bridge_type, <<"kafka_consumer">>}
@@ -2074,7 +2078,8 @@ t_begin_offset_earliest(Config) ->
             ),
 
             {ok, _} = create_bridge(Config, #{
-                <<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}
+                <<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>},
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
             }),
             ?retry(500, 20, ?assertEqual({ok, connected}, health_check(Config))),
 
@@ -2136,13 +2141,14 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
 
             {Res, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_bridge(
+                        Config,
+                        #{<<"resouce_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+                    ),
                     #{?snk_kind := kafka_consumer_subcriber_and_client_stopped},
                     10_000
                 ),
             case Res of
-                {error, {config_update_crashed, _}} ->
-                    ok;
                 {ok, _} ->
                     %% the new manager may have had time to startup
                     %% before the resource status cache is read...
@@ -2151,7 +2157,7 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
                     ct:fail("unexpected result: ~p", [Res])
             end,
             ?retry(
-                _Sleep = 50,
+                _Sleep = 100,
                 _Attempts = 50,
                 ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup))
             ),

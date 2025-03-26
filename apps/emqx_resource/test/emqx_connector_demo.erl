@@ -58,6 +58,10 @@
 -define(CM_KEY, {?MODULE, callback_mode}).
 -define(PT_CHAN_KEY(CONN_RES_ID), {?MODULE, chans, CONN_RES_ID}).
 
+-define(IS_STATUS(ST),
+    ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
+).
+
 roots() ->
     [
         {name, fun name/1},
@@ -110,25 +114,49 @@ callback_mode() ->
 set_callback_mode(Mode) ->
     persistent_term:put(?CM_KEY, Mode).
 
-on_start(_InstId, #{create_error := true}) ->
+on_start(_ConnResId, #{create_error := true}) ->
     ?tp(connector_demo_start_error, #{}),
     error("some error");
-on_start(InstId, #{create_error := {delay, Delay, Agent}} = State0) ->
+on_start(ConnResId, #{create_error := {delay, Delay, Agent}} = Opts) ->
     ?tp(connector_demo_start_delay, #{}),
-    State = maps:remove(create_error, State0),
     case emqx_utils_agent:get_and_update(Agent, fun(St) -> {St, called} end) of
         not_called ->
-            emqx_resource:allocate_resource(InstId, i_should_be_deallocated, yep),
+            emqx_resource:allocate_resource(ConnResId, i_should_be_deallocated, yep),
             timer:sleep(Delay),
-            on_start(InstId, State);
+            do_on_start(ConnResId, Opts);
         called ->
-            on_start(InstId, State)
+            do_on_start(ConnResId, Opts)
     end;
-on_start(InstId, #{name := Name} = Opts) ->
+on_start(ConnResId, #{start_resource_agent := Agent} = Opts) ->
+    case get_agent_action(Agent, start_resource) of
+        {ask, Pid} ->
+            Alias = alias([reply]),
+            ct:pal("~s on_start asking ~p how to proceed", [ConnResId, Pid]),
+            Pid ! {waiting_start_resource_result, Alias, ConnResId},
+            receive
+                {Alias, continue} ->
+                    ct:pal("~s on_start will continue", [ConnResId]),
+                    do_on_start(ConnResId, Opts);
+                {Alias, {error, _} = Error} ->
+                    ct:pal("~ps on_start will return ~p", [ConnResId, Error]),
+                    Error
+            end;
+        {notify, Pid, {error, _} = Error} ->
+            Pid ! {attempted_to_start_resource, ConnResId, Error},
+            Error;
+        continue ->
+            do_on_start(ConnResId, Opts);
+        {error, _} = Error ->
+            Error
+    end;
+on_start(ConnResId, Opts) ->
+    do_on_start(ConnResId, Opts).
+
+do_on_start(ConnResId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
     StopError = maps:get(stop_error, Opts, false),
     {ok, Opts#{
-        id => InstId,
+        id => ConnResId,
         stop_error => StopError,
         channels => #{},
         pid => spawn_counter_process(Name, Register)
@@ -396,13 +424,18 @@ on_get_status(ConnResId, #{health_check_agent := Agent}) ->
     case get_agent_action(Agent, resource_health_check) of
         {ask, Pid} ->
             Alias = alias([reply]),
+            ct:pal("~s on_get_status asking ~p how to proceed", [ConnResId, Pid]),
             Pid ! {waiting_health_check_result, Alias, resource, ConnResId},
             receive
                 {Alias, Result} ->
+                    ct:pal("~s on_get_status will return ~p", [ConnResId, Result]),
                     Result
             end;
-        Result ->
-            Result
+        {notify, Pid, Status} when ?IS_STATUS(Status) ->
+            Pid ! {returning_resource_health_check_result, ConnResId, Status},
+            Status;
+        Status when ?IS_STATUS(Status) ->
+            Status
     end;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),

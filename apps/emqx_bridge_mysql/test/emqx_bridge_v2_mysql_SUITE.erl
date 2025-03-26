@@ -154,7 +154,7 @@ connector_config(Name, Config) ->
             <<"username">> => Username,
             <<"password">> => iolist_to_binary(["file://", PassFile]),
             <<"resource_opts">> => #{
-                <<"health_check_interval">> => <<"15s">>,
+                <<"health_check_interval">> => <<"1s">>,
                 <<"start_after_created">> => true,
                 <<"start_timeout">> => <<"5s">>
             }
@@ -187,7 +187,7 @@ bridge_config(Name, ConnectorId) ->
                 <<"batch_time">> => <<"0ms">>,
                 <<"buffer_mode">> => <<"memory_only">>,
                 <<"buffer_seg_bytes">> => <<"10MB">>,
-                <<"health_check_interval">> => <<"15s">>,
+                <<"health_check_interval">> => <<"1s">>,
                 <<"inflight_window">> => 100,
                 <<"max_buffer_bytes">> => <<"256MB">>,
                 <<"metrics_flush_interval">> => <<"1s">>,

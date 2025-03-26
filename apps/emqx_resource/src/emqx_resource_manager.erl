@@ -195,6 +195,7 @@
 %% calls/casts/generic timeouts/internal events
 -record(add_channel, {channel_id :: channel_id(), config :: channel_config()}).
 -record(remove_channel, {channel_id :: channel_id()}).
+-record(manual_resource_health_check, {}).
 -record(start_channel_health_check, {channel_id :: channel_id()}).
 -record(retry_add_channel, {channel_id :: channel_id()}).
 -record(retry_remove_channel, {channel_id :: channel_id()}).
@@ -485,7 +486,7 @@ list_group(Group) ->
 
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
-    safe_call(ResId, health_check, ?T_OPERATION).
+    safe_call(ResId, #manual_resource_health_check{}, ?T_OPERATION).
 
 -spec channel_health_check(resource_id(), channel_id()) ->
     #{status := resource_status(), error := term()}.
@@ -763,13 +764,20 @@ handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
     Reply = {ok, Group, data_record_to_external_map(Data)},
     {keep_state_and_data, [{reply, From, Reply}]};
 % Called when doing a manual health check.
-handle_event({call, From}, health_check, ?state_stopped, _Data) ->
+handle_event({call, From}, #manual_resource_health_check{}, ?state_stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
 handle_event({call, From}, {channel_health_check, _}, ?state_stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
-handle_event({call, From}, health_check, _State, Data) ->
+handle_event({call, From}, #manual_resource_health_check{}, ?state_disconnected, _Data) ->
+    %% We must not perform health checks while disconnected, since the resource state
+    %% might not be correctly initialized (in case of restarts), and a spurious successful
+    %% response might make us enter `connected' state without properly starting the
+    %% resource state (e.g.: starting worker pools successfully).
+    Actions = [{reply, From, {ok, ?status_disconnected}}],
+    {keep_state_and_data, Actions};
+handle_event({call, From}, #manual_resource_health_check{}, _State, Data) ->
     handle_manual_resource_health_check(From, Data);
 handle_event({call, From}, {channel_health_check, ChannelId}, _State, Data) ->
     handle_manual_channel_health_check(From, Data, ChannelId);
@@ -817,7 +825,7 @@ handle_event(enter, _OldState, ?state_disconnected = State, Data0) ->
     {keep_state, Data, retry_actions(Data)};
 handle_event(state_timeout, auto_retry, ?state_disconnected, Data) ->
     ?tp(resource_auto_reconnect, #{}),
-    start_resource(Data, undefined);
+    start_resource(Data, _From = undefined);
 %%--------------------------
 %% State: STOPPED
 %% The stopped state is entered after the resource has been explicitly stopped
@@ -1911,7 +1919,17 @@ handle_channel_health_check_worker_down_new_channels_and_status(
     %% updated while the health check was in progress. We can still reply with
     %% NewStatus because the health check must have been issued before the
     %% configuration changed or the channel got removed.
-    {AddedChannels, NewStatus}.
+    {AddedChannels, NewStatus};
+handle_channel_health_check_worker_down_new_channels_and_status(
+    _ChannelId,
+    ErrorExitResult,
+    _CurrentStatus,
+    AddedChannels
+) ->
+    %% This shouldn't happen normally.  If something not wrapped in `{ok, _}' arrives, it
+    %% means that the health check worker was killed (externally) before reaching
+    %% `exit({ok, Result})'.
+    {AddedChannels, {error, ErrorExitResult}}.
 
 reply_pending_channel_health_check_callers(
     ChannelId, Status0, Data0 = #data{hc_pending_callers = Pending0}

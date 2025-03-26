@@ -1197,6 +1197,11 @@ t_start_stop(Config, StopTracePoint) ->
                     5_000
                 )
             ),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({error, resource_is_stopped}, health_check_connector(Config))
+            ),
 
             ResourceId = emqx_bridge_resource:resource_id(conf_root_key(Kind), Type, Name),
             #{resource_id => ResourceId}
