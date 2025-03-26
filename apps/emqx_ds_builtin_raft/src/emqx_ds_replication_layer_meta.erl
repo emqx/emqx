@@ -553,6 +553,13 @@ target_set(DB, Shard) ->
 
 %%================================================================================
 
+%% @doc Schedules a cleanup activity, which currently involves:
+%% 1. Erasing records of lost sites no longer assigned to any shards.
+schedule_cleanup() ->
+    gen_server:cast(?SERVER, cleanup).
+
+%%================================================================================
+
 subscribe(Pid, Subject) ->
     gen_server:call(?SERVER, {subscribe, Pid, Subject}, infinity).
 
@@ -574,9 +581,9 @@ init([]) ->
     ensure_tables(),
     run_migrations(),
     ensure_site(),
-    S = #s{},
+    schedule_cleanup(),
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
-    {ok, S}.
+    {ok, #s{}}.
 
 handle_call({subscribe, Pid, Subject}, _From, S) ->
     {reply, ok, handle_subscribe(Pid, Subject, S)};
@@ -585,6 +592,9 @@ handle_call({unsubscribe, Pid}, _From, S) ->
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
+handle_cast(cleanup, S) ->
+    forget_lost_sites(),
+    {noreply, S};
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
@@ -954,6 +964,19 @@ forget_node(Node) ->
             ok;
         {error, Reason} ->
             logger:error("Failed to forget leaving node ~p: ~p", [Node, Reason])
+    end.
+
+forget_lost_sites() ->
+    NodesLost = [R || R = #?NODE_TAB{node = N} <- all_nodes(), node_status(N) =:= lost],
+    lists:foreach(fun forget_lost_site/1, NodesLost).
+
+forget_lost_site(Node = #?NODE_TAB{site = Site}) ->
+    Result = transaction(fun ?MODULE:forget_site_trans/1, [Node]),
+    case Result of
+        ok ->
+            ok;
+        {error, Reason} ->
+            logger:notice("Failed to forget lost site ~s: ~p", [Site, Reason])
     end.
 
 %% @doc Returns sorted list of sites shards are replicated across.
