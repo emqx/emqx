@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include("../../emqx/include/emqx.hrl").
+-include("../../emqx/include/asserts.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -84,29 +85,80 @@ t_metadata(_Config) ->
         replication_factor => 1,
         replication_options => #{}
     },
-    try
-        ?assertMatch(ok, emqx_ds:open_db(DB, Options)),
-        %% Check metadata:
-        %%    We have only one site:
-        [Site] = emqx_ds_replication_layer_meta:sites(),
-        %%    Check all shards:
-        Shards = emqx_ds_replication_layer_meta:shards(DB),
-        %%    Since there is only one site all shards should be allocated
-        %%    to this site:
-        MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
-        ?assertEqual(NShards, length(Shards)),
-        lists:foreach(
-            fun(Shard) ->
-                ?assertEqual(
-                    [Site], emqx_ds_replication_layer_meta:replica_set(DB, Shard)
-                )
-            end,
-            Shards
-        ),
-        ?assertEqual(lists:sort(Shards), lists:sort(MyShards))
-    after
-        ?assertMatch(ok, emqx_ds:drop_db(DB))
-    end.
+    ?assertMatch(ok, emqx_ds:open_db(DB, Options)),
+    %% Check metadata:
+    %%    We have only one site:
+    [Site] = emqx_ds_replication_layer_meta:sites(),
+    %%    Check all shards:
+    Shards = emqx_ds_replication_layer_meta:shards(DB),
+    %%    Since there is only one site all shards should be allocated
+    %%    to this site:
+    MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
+    ?assertEqual(NShards, length(Shards)),
+    lists:foreach(
+        fun(Shard) ->
+            ?assertEqual(
+                [Site], emqx_ds_replication_layer_meta:replica_set(DB, Shard)
+            )
+        end,
+        Shards
+    ),
+    ?assertEqual(lists:sort(Shards), lists:sort(MyShards)).
+
+%% This testcase verifies that shards are allocated sanely during DB startup:
+%% * Lost sites are not assigned any shards.
+t_shards_allocation(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_shards_allocation1, #{apps => Apps}},
+            {t_shards_allocation2, #{apps => Apps}},
+            {t_shards_allocation3, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
+    ok = snabbkaffe:start_trace(),
+    [{nodes, Nodes}, {specs, NodeSpecs} | Config];
+t_shards_allocation('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)),
+    ok = snabbkaffe:stop().
+
+t_shards_allocation(Config) ->
+    %% Find out which sites are there.
+    Nodes = [NodeLost, Node | _] = ?config(nodes, Config),
+    [SiteLost | SitesLive] = [ds_repl_meta(N, this_site) || N <- Nodes],
+
+    %% Make the cluster consider `Node1` as lost.
+    ok = emqx_cth_peer:kill(NodeLost),
+    _ = ?retry(200, 5, [NodeLost] = [NodeLost] -- ?ON(Node, mria:cluster_nodes(running))),
+    ok = ?ON(Node, emqx_cluster:force_leave(NodeLost)),
+    ?assertEqual(
+        [SiteLost],
+        ?ON(Node, emqx_ds_replication_layer_meta:sites(lost))
+    ),
+
+    %% Initialize DB on all nodes and wait for it to be online.
+    %% Since there are only 2 live sites, these should be where DB is allocated.
+    DB = ?FUNCTION_NAME,
+    Opts = opts(Config, #{n_shards => 4, n_sites => 2, replication_factor => 3}),
+    emqx_ds_raft_test_helpers:assert_db_open(Nodes -- [NodeLost], DB, Opts),
+
+    ?assertSameSet(
+        SitesLive,
+        ?ON(Node, emqx_ds_replication_layer_meta:db_sites(DB))
+    ),
+
+    %% Restart `Node`.
+    [_SpecLost, Spec | _] = ?config(specs, Config),
+    [Node] = emqx_cth_cluster:restart(Spec),
+    emqx_ds_raft_test_helpers:assert_db_open([Node], DB, Opts),
+
+    %% It shuould cleanup metadata upon restart.
+    ?assertEqual(
+        [],
+        ?ON(Node, emqx_ds_replication_layer_meta:sites(lost))
+    ).
 
 t_replication_transfers_snapshots(init, Config) ->
     Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
@@ -1372,8 +1424,19 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {bitfield_lts, TCs -- [t_poll]},
-        {skipstream_lts, TCs}
+        {skipstream_lts, TCs},
+        {bitfield_lts,
+            TCs --
+                [
+                    %% Not sensitive to a choice of layout.
+                    t_metadata,
+                    t_shard_allocation,
+                    t_drop_generation,
+                    t_join_leave_errors,
+                    t_store_batch_fail,
+                    %% Not supported.
+                    t_poll
+                ]}
     ].
 
 init_per_group(Group, Config) ->
