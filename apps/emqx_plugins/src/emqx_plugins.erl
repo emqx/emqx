@@ -65,15 +65,12 @@
 -export([
     get_config/1,
     get_config/2,
-    put_config/3
+    put_config/2
 ]).
 
 %% Package utils
 -export([
-    decode_plugin_config_map/2,
-    with_plugin_avsc/1,
-    ensure_ssl_files/2,
-    ensure_ssl_files/3
+    decode_plugin_config_map/2
 ]).
 
 %% `emqx_config_handler' API
@@ -87,11 +84,6 @@
     get_config/3
 ]).
 
-%% Internal export
--export([
-    ensure_config_map/1,
-    do_ensure_started/1
-]).
 %% for test cases
 -export([put_config_internal/2]).
 
@@ -102,11 +94,6 @@
 
 %% Defines
 -define(PLUGIN_PERSIS_CONFIG_KEY(NameVsn), {?MODULE, NameVsn}).
-
--define(RAW_BIN, binary).
--define(JSON_MAP, json_map).
-
--define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
 -define(CATCH(BODY), catch_errors(atom_to_list(?FUNCTION_NAME), fun() -> BODY end)).
 
@@ -327,13 +314,12 @@ get_config(NameVsn, Default) ->
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
-%% The plugin config Json Map was valid by avro schema
+%% The plugin config Json Map was validated by avro schema
 %% Or: if no and plugin config ALWAYS be valid before calling this function.
-put_config(NameVsn, ConfigJsonMap, AvroValue) when (not is_binary(NameVsn)) ->
-    put_config(bin(NameVsn), ConfigJsonMap, AvroValue);
-put_config(NameVsn, ConfigJsonMap, _AvroValue) ->
-    HoconBin = hocon_pp:do(ConfigJsonMap, #{}),
-    ok = backup_and_write_hocon_bin(NameVsn, HoconBin),
+put_config(NameVsn, ConfigJsonMap) when (not is_binary(NameVsn)) ->
+    put_config(bin(NameVsn), ConfigJsonMap);
+put_config(NameVsn, ConfigJsonMap) ->
+    ok = emqx_plugins_local_config:backup_and_update(NameVsn, ConfigJsonMap),
     %% TODO: callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
     ok = maybe_call_on_config_changed(NameVsn, ConfigJsonMap),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), ConfigJsonMap),
@@ -423,17 +409,19 @@ filter_plugin_of_type(hidden, _Info) ->
     {ok, map() | ?plugin_without_config_schema}
     | {error, any()}.
 decode_plugin_config_map(NameVsn, AvroJsonMap) ->
-    case with_plugin_avsc(NameVsn) of
+    case has_avsc(NameVsn) of
         true ->
-            case emqx_plugins_serde:lookup_serde(NameVsn) of
-                {error, not_found} ->
+            case emqx_plugins_serde:decode(NameVsn, ensure_config_bin(AvroJsonMap)) of
+                {ok, Config} ->
+                    {ok, Config};
+                {error, #{reason := plugin_serde_not_found}} ->
                     Reason = "plugin_config_schema_serde_not_found",
                     ?SLOG(error, #{
                         msg => Reason, name_vsn => NameVsn, plugin_with_avro_schema => true
                     }),
                     {error, Reason};
-                {ok, _Serde} ->
-                    do_decode_plugin_config_map(NameVsn, AvroJsonMap)
+                {error, _} = Error ->
+                    Error
             end;
         false ->
             ?SLOG(debug, #{
@@ -443,16 +431,8 @@ decode_plugin_config_map(NameVsn, AvroJsonMap) ->
             {ok, ?plugin_without_config_schema}
     end.
 
-do_decode_plugin_config_map(NameVsn, AvroJsonMap) when is_map(AvroJsonMap) ->
-    do_decode_plugin_config_map(NameVsn, emqx_utils_json:encode(AvroJsonMap));
-do_decode_plugin_config_map(NameVsn, AvroJsonBin) ->
-    case emqx_plugins_serde:decode(NameVsn, AvroJsonBin) of
-        {ok, Config} -> {ok, Config};
-        {error, ReasonMap} -> {error, ReasonMap}
-    end.
-
--spec with_plugin_avsc(name_vsn()) -> boolean().
-with_plugin_avsc(NameVsn) ->
+-spec has_avsc(name_vsn()) -> boolean().
+has_avsc(NameVsn) ->
     case read_plugin_info(NameVsn, #{fill_readme => false}) of
         {ok, #{<<"with_config_schema">> := WithAvsc}} when is_boolean(WithAvsc) ->
             WithAvsc;
@@ -467,12 +447,6 @@ get_config_interal(Path, Default) ->
 
 put_config_internal(Key, Value) ->
     do_put_config_internal(Key, Value, _ConfLocation = local).
-
-ensure_ssl_files(NameVsn, SSL) ->
-    emqx_tls_lib:ensure_ssl_files(emqx_plugins_fs:plugin_certs_dir(NameVsn), SSL).
-
-ensure_ssl_files(NameVsn, SSL, Opts) ->
-    emqx_tls_lib:ensure_ssl_files(emqx_plugins_fs:plugin_certs_dir(NameVsn), SSL, Opts).
 
 %%--------------------------------------------------------------------
 %% Internal
@@ -1125,7 +1099,7 @@ do_load_config_schema(NameVsn, AvscBin) ->
     end.
 
 maybe_create_config_dir(NameVsn, Mode) ->
-    with_plugin_avsc(NameVsn) andalso
+    has_avsc(NameVsn) andalso
         do_create_config_dir(NameVsn, Mode).
 
 do_create_config_dir(NameVsn, Mode) ->
@@ -1140,173 +1114,77 @@ do_create_config_dir(NameVsn, Mode) ->
 
 -spec maybe_ensure_plugin_config(name_vsn(), ?fresh_install | ?normal) -> ok.
 maybe_ensure_plugin_config(NameVsn, Mode) ->
-    maybe
-        true ?= with_plugin_avsc(NameVsn),
-        _ = ensure_plugin_config({NameVsn, Mode})
-    else
-        _ -> ok
+    case has_avsc(NameVsn) of
+        true ->
+            _ = ensure_plugin_config({NameVsn, Mode});
+        false ->
+            ok
     end.
 
 -spec ensure_plugin_config({name_vsn(), ?fresh_install | ?normal}) -> ok.
-ensure_plugin_config({NameVsn, ?normal}) ->
-    ensure_plugin_config(NameVsn, [N || N <- mria:running_nodes(), N /= node()]);
-ensure_plugin_config({NameVsn, ?fresh_install}) ->
-    ?SLOG(debug, #{
-        msg => "default_plugin_config_used",
-        name_vsn => NameVsn,
-        hint => "fresh_install"
-    }),
-    cp_default_config_file(NameVsn).
+ensure_plugin_config({NameVsn, Mode}) ->
+    case ensure_local_config(NameVsn, Mode) of
+        ok ->
+            configure_from_local_config(NameVsn);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_ensure_plugin_config", name_vsn => NameVsn, reason => Reason
+            }),
+            ok
+    end.
 
--spec ensure_plugin_config(name_vsn(), list(node())) -> ok.
-ensure_plugin_config(NameVsn, []) ->
-    ?SLOG(debug, #{
-        msg => "local_plugin_config_used",
-        name_vsn => NameVsn,
-        reason => "no_other_running_nodes"
-    }),
-    cp_default_config_file(NameVsn);
-ensure_plugin_config(NameVsn, Nodes) ->
+ensure_local_config(NameVsn, ?fresh_install) ->
+    emqx_plugins_local_config:copy_default_config(NameVsn);
+ensure_local_config(NameVsn, ?normal) ->
+    Nodes = mria:running_nodes(),
     case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
-        {ok, ConfigMap} when is_map(ConfigMap) ->
-            HoconBin = hocon_pp:do(ConfigMap, #{}),
-            Path = emqx_plugins_fs:config_file_path(NameVsn),
-            ok = filelib:ensure_dir(Path),
-            ok = file:write_file(Path, HoconBin),
-            ensure_config_map(NameVsn);
-        _ ->
-            ?SLOG(error, #{msg => "config_not_found_from_cluster", name_vsn => NameVsn}),
-            cp_default_config_file(NameVsn)
+        {ok, Config} when is_map(Config) ->
+            emqx_plugins_local_config:update(NameVsn, Config);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_get_plugin_config_from_cluster",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
+            emqx_plugins_local_config:copy_default_config(NameVsn)
     end.
 
--spec cp_default_config_file(name_vsn()) -> ok.
-cp_default_config_file(NameVsn) ->
-    %% always copy default hocon file into config dir when can not get config from other nodes
-    Source = emqx_plugins_fs:default_config_file_path(NameVsn),
-    Destination = emqx_plugins_fs:config_file_path(NameVsn),
-    maybe
-        true ?= filelib:is_regular(Source),
-        %% destination path not existed (not configured)
-        false ?=
-            case filelib:is_regular(Destination) of
-                true ->
-                    ?SLOG(debug, #{msg => "plugin_config_file_already_existed", name_vsn => NameVsn});
-                false ->
-                    false
-            end,
-        ok = filelib:ensure_dir(Destination),
-        case file:copy(Source, Destination) of
-            {ok, _} ->
-                ensure_config_map(NameVsn);
-            {error, Reason} ->
-                ?SLOG(warning, #{
-                    msg => "failed_to_copy_plugin_default_hocon_config",
-                    source => Source,
-                    destination => Destination,
-                    reason => Reason
-                })
-        end
-    else
-        _ -> ensure_config_map(NameVsn)
+configure_from_local_config(NameVsn) ->
+    case validated_local_config(NameVsn) of
+        {ok, Config} ->
+            put_config(NameVsn, Config);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_validate_plugin_config", name_vsn => NameVsn, reason => Reason
+            }),
+            ok
     end.
 
-ensure_config_map(NameVsn) ->
+validated_local_config(NameVsn) ->
     case emqx_plugins_fs:read_hocon(NameVsn) of
         {ok, Config} ->
-            case with_plugin_avsc(NameVsn) of
+            case has_avsc(NameVsn) of
                 true ->
-                    do_ensure_config_map(NameVsn, Config);
+                    case decode_plugin_config_map(NameVsn, Config) of
+                        {ok, _} ->
+                            {ok, Config};
+                        {error, Reason} ->
+                            ?SLOG(error, #{
+                                msg => "plugin_config_validation_failed",
+                                name_vsn => NameVsn,
+                                reason => Reason
+                            }),
+                            {error, Reason}
+                    end;
                 false ->
-                    ?SLOG(debug, #{
-                        msg => "put_plugin_config_directly",
-                        hint => "plugin_without_config_schema",
-                        name_vsn => NameVsn
-                    }),
-                    put_config(NameVsn, Config, ?plugin_without_config_schema)
+                    {ok, Config}
             end;
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_read_plugin_config_hocon", name_vsn => NameVsn, reason => Reason
             }),
-            ok
+            {error, Reason}
     end.
-
-do_ensure_config_map(NameVsn, ConfigJsonMap) ->
-    case decode_plugin_config_map(NameVsn, ConfigJsonMap) of
-        {ok, AvroValue} ->
-            put_config(NameVsn, ConfigJsonMap, AvroValue);
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "plugin_config_validation_failed",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
-            ok
-    end.
-
-%% @private Backup the current config to a file with a timestamp suffix and
-%% then save the new config to the config file.
-backup_and_write_hocon_bin(NameVsn, HoconBin) ->
-    %% this may fail, but we don't care
-    %% e.g. read-only file system
-    Path = emqx_plugins_fs:config_file_path(NameVsn),
-    _ = filelib:ensure_dir(Path),
-    TmpFile = Path ++ ".tmp",
-    case file:write_file(TmpFile, HoconBin) of
-        ok ->
-            backup_and_replace(Path, TmpFile);
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_save_plugin_conf_file",
-                hint =>
-                    "The updated cluster config is not saved on this node, please check the file system.",
-                filename => TmpFile,
-                reason => Reason
-            }),
-            %% e.g. read-only, it's not the end of the world
-            ok
-    end.
-
-backup_and_replace(Path, TmpPath) ->
-    Backup = Path ++ "." ++ emqx_utils_calendar:now_time(millisecond) ++ ".bak",
-    case file:rename(Path, Backup) of
-        ok ->
-            ok = file:rename(TmpPath, Path),
-            ok = prune_backup_files(Path);
-        {error, enoent} ->
-            %% not created yet
-            ok = file:rename(TmpPath, Path);
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_backup_plugin_conf_file",
-                filename => Backup,
-                reason => Reason
-            }),
-            ok
-    end.
-
-prune_backup_files(Path) ->
-    Files0 = filelib:wildcard(Path ++ ".*"),
-    Re = "\\.[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{3}\\.bak$",
-    Files = lists:filter(fun(F) -> re:run(F, Re) =/= nomatch end, Files0),
-    Sorted = lists:reverse(lists:sort(Files)),
-    {_Keeps, Deletes} = lists:split(min(?MAX_KEEP_BACKUP_CONFIGS, length(Sorted)), Sorted),
-    lists:foreach(
-        fun(F) ->
-            case file:delete(F) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "failed_to_delete_backup_plugin_conf_file",
-                        filename => F,
-                        reason => Reason
-                    }),
-                    ok
-            end
-        end,
-        Deletes
-    ).
 
 running_apps() ->
     lists:map(
@@ -1315,6 +1193,11 @@ running_apps() ->
         end,
         application:which_applications(infinity)
     ).
+
+ensure_config_bin(AvroJsonMap) when is_map(AvroJsonMap) ->
+    emqx_utils_json:encode(AvroJsonMap);
+ensure_config_bin(AvroJsonBin) when is_binary(AvroJsonBin) ->
+    AvroJsonBin.
 
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);

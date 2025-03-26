@@ -60,8 +60,6 @@
 
 %% Plugin's directories that are used directly by other modules
 -export([
-    %% To convert certificates
-    plugin_certs_dir/1,
     %% To load and start plugin's apps
     lib_dir/1,
     %% To store plugin's configs
@@ -271,10 +269,6 @@ ensure_config_dir(NameVsn) ->
                     {error, {mkdir_failed, ConfigDir, Reason}}
             end
     end.
-
--spec plugin_certs_dir(name_vsn()) -> string().
-plugin_certs_dir(NameVsn) ->
-    wrap_to_list(filename:join([plugin_data_dir(NameVsn), "certs"])).
 
 -spec lib_dir(name_vsn()) -> string().
 lib_dir(NameVsn) ->

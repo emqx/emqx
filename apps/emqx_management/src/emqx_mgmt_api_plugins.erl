@@ -653,13 +653,10 @@ ensure_action(Name, restart, _Opts) ->
     ok.
 
 %% for RPC plugin avro encoded config update
--spec do_update_plugin_config(
-    name_vsn(), map(), avro_value() | ?plugin_without_config_schema
-) ->
+-spec do_update_plugin_config(name_vsn(), map(), any()) ->
     ok.
-do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
-    %% TODO: maybe use `AvroValue` to validate config
-    emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
+do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
+    emqx_plugins:put_config(NameVsn, AvroJsonMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions

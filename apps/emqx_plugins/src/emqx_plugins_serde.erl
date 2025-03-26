@@ -22,7 +22,6 @@
 %% API
 -export([
     start_link/0,
-    lookup_serde/1,
     add_schema/2,
     delete_schema/1
 ]).
@@ -57,15 +56,6 @@
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
--spec lookup_serde(schema_name()) -> {ok, plugin_schema_serde()} | {error, not_found}.
-lookup_serde(SchemaName) ->
-    case ets:lookup(?PLUGIN_SERDE_TAB, to_bin(SchemaName)) of
-        [] ->
-            {error, not_found};
-        [Serde] ->
-            {ok, Serde}
-    end.
 
 -spec add_schema(schema_name(), binary()) -> ok | {error, term()}.
 add_schema(NameVsn, AvscBin) ->
@@ -152,6 +142,14 @@ terminate(_Reason, _State) ->
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
+
+lookup_serde(SchemaName) ->
+    case ets:lookup(?PLUGIN_SERDE_TAB, to_bin(SchemaName)) of
+        [] ->
+            {error, not_found};
+        [Serde] ->
+            {ok, Serde}
+    end.
 
 build_serdes(Avscs) ->
     ok = lists:foreach(fun do_build_serde/1, Avscs).
