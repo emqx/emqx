@@ -22,8 +22,6 @@
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
 
--dialyzer({no_match, [format_plugin_avsc_and_i18n/1]}).
-
 -export([
     api_spec/0,
     fields/1,
@@ -407,35 +405,27 @@ list_plugins(get, _) ->
 get_plugins() ->
     {node(), emqx_plugins:list()}.
 
-%% TODO encapsulate into emqx_plugins
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
     %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
     case emqx_plugins:describe(NameVsn) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins_utils:parse_name_vsn(FileName) of
-                {ok, AppName, _Vsn} ->
-                    AppDir = filename:join(emqx_plugins_fs:install_dir(), AppName),
-                    case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
-                        [] ->
-                            do_install_package(NameVsn, FileName, Bin);
-                        OtherVsn ->
-                            {400, #{
-                                code => 'ALREADY_INSTALLED',
-                                message => iolist_to_binary(
-                                    io_lib:format(
-                                        "~p already installed",
-                                        [OtherVsn]
-                                    )
-                                )
-                            }}
-                    end;
-                {error, Reason} ->
-                    emqx_plugins:delete_package(NameVsn),
+            case emqx_plugins_fs:is_tar_already_installed(NameVsn) of
+                false ->
+                    do_install_package(NameVsn, FileName, Bin);
+                {true, TarGzs} ->
+                    %% TODO
+                    %% What if a tar file is present but is not unpacked, i.e.
+                    %% the plugin is not fully installed?
+                    {400, #{
+                        code => 'ALREADY_INSTALLED',
+                        message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
+                    }};
+                {error, bad_name_vsn} ->
                     {400, #{
                         code => 'BAD_PLUGIN_INFO',
-                        message => iolist_to_binary([Reason, ":", FileName])
+                        message => iolist_to_binary(["bad plugin file name: ", FileName])
                     }}
             end;
         {ok, _} ->
@@ -512,8 +502,8 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
             case emqx_plugins:get_config(NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found) of
-                {ok, AvroJson} when is_map(AvroJson) ->
-                    {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
+                {ok, Config} when is_map(Config) ->
+                    {200, #{<<"content-type">> => <<"'application/json'">>}, Config};
                 {ok, ?plugin_conf_not_found} ->
                     {400, #{
                         code => 'BAD_CONFIG',
@@ -578,18 +568,14 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
-    File = filename:join(emqx_plugins_fs:install_dir(), FileName),
-    ok = filelib:ensure_dir(File),
-    ok = file:write_file(File, Bin),
-    PackageName = string:trim(FileName, trailing, ".tar.gz"),
-    MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Bin), lower),
-    ok = file:write_file(emqx_plugins_fs:md5sum_file_path(PackageName), MD5),
-    case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    ok = emqx_plugins_fs:write_tar(NameVsn, Bin),
+    case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
-            _ = file:delete(File),
+            _ = emqx_plugins_fs:delete_tar(NameVsn),
             Error;
         Result ->
             Result
@@ -615,7 +601,6 @@ delete_package(NameVsn, _Opts) ->
             _ = emqx_plugins:ensure_disabled(NameVsn),
             _ = emqx_plugins:ensure_uninstalled(NameVsn),
             _ = emqx_plugins:delete_package(NameVsn),
-            _ = file:delete(emqx_plugins:md5sum_file_path(NameVsn)),
             ok;
         Error ->
             Error
@@ -742,23 +727,19 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
         ),
     aggregate_status(List, NewAcc).
 
--if(?EMQX_RELEASE_EDITION == ee).
 format_plugin_avsc_and_i18n(NameVsn) ->
-    #{
-        avsc => try_read_file(fun() -> emqx_plugins:plugin_schema_json(NameVsn) end),
-        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n_json(NameVsn) end)
-    }.
-
-try_read_file(Fun) ->
-    case Fun() of
-        {ok, Json} -> Json;
-        _ -> null
+    case emqx_release:edition() of
+        ee ->
+            #{
+                avsc => or_null(emqx_plugins:plugin_schema(NameVsn)),
+                i18n => or_null(emqx_plugins:plugin_i18n(NameVsn))
+            };
+        ce ->
+            #{avsc => null, i18n => null}
     end.
 
--else.
-format_plugin_avsc_and_i18n(_NameVsn) ->
-    #{avsc => null, i18n => null}.
--endif.
+or_null({ok, Value}) -> Value;
+or_null(_) -> null.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

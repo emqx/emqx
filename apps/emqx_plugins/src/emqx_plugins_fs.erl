@@ -34,6 +34,7 @@
     get_tar/1,
     write_tar/2,
     delete_tar/1,
+    is_tar_already_installed/1,
     install_from_local_tar/1,
     ensure_installed/1,
     purge_plugin/1
@@ -51,7 +52,6 @@
     read_hocon/1,
 
     %% TODO: remove
-    avsc_file_path/1,
     md5sum_file_path/1
 ]).
 
@@ -174,9 +174,27 @@ get_tar(NameVsn) ->
             end
     end.
 
+-spec is_tar_already_installed(name_vsn()) ->
+    false | {true, file:filename()} | {error, bad_name_vsn}.
+is_tar_already_installed(NameVsn) ->
+    case emqx_plugins_utils:parse_name_vsn(NameVsn) of
+        {ok, AppName, _Vsn} ->
+            Wildcard = tar_file_path(AppName ++ "-*"),
+            case filelib:wildcard(Wildcard) of
+                [] -> false;
+                TarGzs -> {true, TarGzs}
+            end;
+        {error, _} ->
+            {error, bad_name_vsn}
+    end.
+
 -spec write_tar(name_vsn(), iodata()) -> ok.
 write_tar(NameVsn, Content) ->
-    ok = file:write_file(tar_file_path(NameVsn), Content).
+    TarFilePath = tar_file_path(NameVsn),
+    ok = filelib:ensure_dir(TarFilePath),
+    ok = file:write_file(TarFilePath, Content),
+    MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Content), lower),
+    ok = file:write_file(md5sum_file_path(NameVsn), MD5).
 
 %%--------------------------------------------------------------------
 %% Plugin package extraction
@@ -232,17 +250,17 @@ ensure_installed(NameVsn) ->
 
 -spec delete_tar(name_vsn()) -> ok.
 delete_tar(NameVsn) ->
-    File = tar_file_path(NameVsn),
-    case file:delete(File) of
-        ok ->
-            ?SLOG(info, #{msg => "purged_plugin_dir", path => File}),
-            ok;
-        {error, enoent} ->
-            ok;
+    TarFilePath = tar_file_path(NameVsn),
+    MD5FilePath = md5sum_file_path(NameVsn),
+    maybe
+        ok ?= delete_file_if_exists(TarFilePath),
+        ok ?= delete_file_if_exists(MD5FilePath),
+        ok
+    else
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_delete_package_file",
-                path => File,
+                package => NameVsn,
                 reason => Reason
             }),
             {error, Reason}
@@ -448,6 +466,16 @@ read_info_safe(NameVsn) ->
     catch
         throw:Reason ->
             {error, Reason}
+    end.
+
+delete_file_if_exists(File) ->
+    case file:delete(File) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, Reason} ->
+            {error, {delete_file_failed, File, Reason}}
     end.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);

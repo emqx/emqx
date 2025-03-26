@@ -28,8 +28,8 @@
 
 -export([
     describe/1,
-    plugin_schema_json/1,
-    plugin_i18n_json/1,
+    plugin_schema/1,
+    plugin_i18n/1,
     raw_plugin_config_content/1
 ]).
 
@@ -123,12 +123,12 @@
 describe(NameVsn) ->
     read_plugin_info(NameVsn, #{fill_readme => true}).
 
--spec plugin_schema_json(name_vsn()) -> {ok, schema_json_map()} | {error, any()}.
-plugin_schema_json(NameVsn) ->
+-spec plugin_schema(name_vsn()) -> {ok, schema_json_map()} | {error, any()}.
+plugin_schema(NameVsn) ->
     ?CATCH(emqx_plugins_fs:read_avsc_map(NameVsn)).
 
--spec plugin_i18n_json(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
-plugin_i18n_json(NameVsn) ->
+-spec plugin_i18n(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
+plugin_i18n(NameVsn) ->
     ?CATCH(emqx_plugins_fs:read_i18n(NameVsn)).
 
 -spec raw_plugin_config_content(name_vsn()) -> {ok, raw_plugin_config_content()} | {error, any()}.
@@ -692,7 +692,7 @@ get_tar(NameVsn) ->
 get_plugin_tar_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
 get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
-    case emqx_plugins_proto_v1:get_tar(Node, NameVsn, infinity) of
+    case emqx_plugins_proto_v2:get_tar(Node, NameVsn, infinity) of
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_tar_from_cluster_successfully",
@@ -706,12 +706,15 @@ get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
 
 get_plugin_config_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
-get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
+get_plugin_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
     case
         emqx_plugins_proto_v2:get_config(
             Node, NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found, 5_000
         )
     of
+        {ok, ?plugin_conf_not_found} ->
+            Err = {error, {config_not_found_on_node, Node, NameVsn}},
+            get_plugin_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors]);
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_config_from_cluster_successfully",
@@ -720,7 +723,7 @@ get_plugin_config_from_any_node([Node | T], NameVsn, Errors) ->
             }),
             Res;
         Err ->
-            get_plugin_config_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+            get_plugin_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors])
     end.
 
 populate_plugin_package_info(NameVsn, Info) ->
@@ -1165,7 +1168,7 @@ ensure_plugin_config({NameVsn, ?fresh_install}) ->
     }),
     cp_default_config_file(NameVsn).
 
--spec ensure_plugin_config(name_vsn(), list()) -> ok.
+-spec ensure_plugin_config(name_vsn(), list(node())) -> ok.
 ensure_plugin_config(NameVsn, []) ->
     ?SLOG(debug, #{
         msg => "local_plugin_config_used",
