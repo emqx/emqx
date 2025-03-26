@@ -41,7 +41,6 @@
 -type plugin_info() :: map().
 -type schema_json_map() :: map().
 -type i18n_json_map() :: map().
--type raw_plugin_config_content() :: binary().
 -type plugin_config_map() :: map().
 -type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
 

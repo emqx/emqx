@@ -42,6 +42,7 @@
 
 -export([
     validate_name/1,
+    validate_file_name/2,
     get_plugins/0,
     install_package/2,
     delete_package/1,
@@ -52,11 +53,8 @@
     do_update_plugin_config/3
 ]).
 
--define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
+-define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w-.]*$").
 -define(TAGS, [<<"Plugins">>]).
-%% Plugin NameVsn must follow the pattern <app_name>-<vsn>,
-%% app_name must be a snake_case (no '-' allowed).
--define(VSN_WILDCARD, "-*.tar.gz").
 
 -define(CONTENT_PLUGIN, plugin).
 
@@ -95,6 +93,7 @@ schema("/plugins") ->
 schema("/plugins/install") ->
     #{
         'operationId' => upload_install,
+        filter => fun ?MODULE:validate_file_name/2,
         post => #{
             summary => <<"Install a new plugin">>,
             description =>
@@ -118,7 +117,13 @@ schema("/plugins/install") ->
             responses => #{
                 204 => <<"Install plugin successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO', 'FORBIDDEN']
+                    [
+                        'UNEXPECTED_ERROR',
+                        'ALREADY_INSTALLED',
+                        'BAD_PLUGIN_INFO',
+                        'BAD_FORM_DATA',
+                        'FORBIDDEN'
+                    ]
                 )
             }
         }
@@ -389,12 +394,40 @@ validate_name(Name) ->
     case NameLen > 0 andalso NameLen =< 256 of
         true ->
             case re:run(Name, ?NAME_RE) of
-                nomatch -> {error, "Name should be " ?NAME_RE};
-                _ -> ok
+                nomatch ->
+                    {
+                        error,
+                        "Name should be an application name"
+                        " (starting with a letter, containing letters, digits and underscores)"
+                        " followed with a dash and a version string "
+                        " (can contain letters, digits, dots, and dashes), "
+                        " e.g. emqx_plugin_template-5.0-rc.1"
+                    };
+                _ ->
+                    ok
             end;
         false ->
             {error, "Name Length must =< 256"}
     end.
+
+validate_file_name(#{body := #{<<"plugin">> := Plugin}} = Params, _Meta) when is_map(Plugin) ->
+    [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    case validate_name(NameVsn) of
+        ok ->
+            {ok, Params#{name => NameVsn, bin => Bin}};
+        {error, Reason} ->
+            {400, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => iolist_to_binary(["Bad plugin file name: ", FileName, ". ", Reason])
+            }}
+    end;
+validate_file_name(_Params, _Meta) ->
+    {400, #{
+        code => 'BAD_FORM_DATA',
+        message =>
+            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+    }}.
 
 %% API CallBack Begin
 list_plugins(get, _) ->
@@ -405,15 +438,12 @@ list_plugins(get, _) ->
 get_plugins() ->
     {node(), emqx_plugins:list()}.
 
-upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
-    [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
-    %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
-    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+upload_install(post, #{name := NameVsn, bin := Bin}) ->
     case emqx_plugins:describe(NameVsn) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins_fs:is_tar_already_installed(NameVsn) of
+            case emqx_plugins_fs:is_tar_present(NameVsn) of
                 false ->
-                    do_install_package(NameVsn, FileName, Bin);
+                    install_package_on_nodes(NameVsn, Bin);
                 {true, TarGzs} ->
                     %% TODO
                     %% What if a tar file is present but is not unpacked, i.e.
@@ -421,17 +451,12 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
                     {400, #{
                         code => 'ALREADY_INSTALLED',
                         message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
-                    }};
-                {error, bad_name_vsn} ->
-                    {400, #{
-                        code => 'BAD_PLUGIN_INFO',
-                        message => iolist_to_binary(["bad plugin file name: ", FileName])
                     }}
             end;
         {ok, _} ->
             {400, #{
                 code => 'ALREADY_INSTALLED',
-                message => iolist_to_binary(io_lib:format("~p is already installed", [FileName]))
+                message => iolist_to_binary(io_lib:format("~p is already installed", [NameVsn]))
             }}
     end;
 upload_install(post, #{}) ->
@@ -441,10 +466,10 @@ upload_install(post, #{}) ->
             <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
     }}.
 
-do_install_package(NameVsn, FileName, Bin) ->
+install_package_on_nodes(NameVsn, Bin) ->
     case emqx_plugins:is_allowed_installation(NameVsn) of
         true ->
-            do_install_package(FileName, Bin);
+            do_install_package_on_nodes(NameVsn, Bin);
         false ->
             Msg = iolist_to_binary([
                 <<"Package is not allowed installation;">>,
@@ -456,10 +481,10 @@ do_install_package(NameVsn, FileName, Bin) ->
             {403, #{code => 'FORBIDDEN', message => Msg}}
     end.
 
-do_install_package(FileName, Bin) ->
+do_install_package_on_nodes(NameVsn, Bin) ->
     %% TODO: handle bad nodes
     Nodes = emqx:running_nodes(),
-    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v3:install_package(Nodes, FileName, Bin),
+    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v3:install_package(Nodes, NameVsn, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
             {204};
@@ -479,7 +504,7 @@ do_install_package(FileName, Bin) ->
                 end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([bin(Reason), ": ", FileName])
+                message => iolist_to_binary([bin(Reason), ": ", NameVsn])
             }}
     end.
 
@@ -567,8 +592,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 %% API CallBack End
 
 %% For RPC upload_install/2
-install_package(FileName, Bin) ->
-    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+install_package(NameVsn, Bin) ->
     ok = emqx_plugins_fs:write_tar(NameVsn, Bin),
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->

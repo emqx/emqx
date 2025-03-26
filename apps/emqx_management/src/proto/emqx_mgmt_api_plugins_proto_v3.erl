@@ -38,8 +38,8 @@ get_plugins(Nodes) ->
     rpc:multicall(Nodes, emqx_mgmt_api_plugins, get_plugins, [], 15000).
 
 -spec install_package([node()], binary() | string(), binary()) -> emqx_rpc:multicall_result().
-install_package(Nodes, Filename, Bin) ->
-    rpc:multicall(Nodes, emqx_mgmt_api_plugins, install_package, [Filename, Bin], 25000).
+install_package(Nodes, NameVsn, Bin) ->
+    rpc:multicall(Nodes, emqx_mgmt_api_plugins, install_package, [NameVsn, Bin], 25000).
 
 -spec describe_package([node()], binary() | string()) -> emqx_rpc:multicall_result().
 describe_package(Nodes, Name) ->

@@ -26,18 +26,19 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(RAW_BIN, binary).
--define(JSON_MAP, json_map).
-
 %% Tarfile operations
 -export([
     get_tar/1,
     write_tar/2,
     delete_tar/1,
-    is_tar_already_installed/1,
-    install_from_local_tar/1,
-    ensure_installed/1,
-    purge_plugin/1
+    is_tar_present/1
+]).
+
+%% Unpack plugin tar/delete unpacked content
+-export([
+    ensure_installed/2,
+    purge_installed/1,
+    is_installed/1
 ]).
 
 %% Read individual plugin entries
@@ -49,10 +50,7 @@
     read_avsc_bin/1,
     read_avsc_bin_all/0,
     read_i18n/1,
-    read_hocon/1,
-
-    %% TODO: remove
-    md5sum_file_path/1
+    read_hocon/1
 ]).
 
 %% List all installed plugins
@@ -86,10 +84,10 @@
 
 %% Read plugin entries
 
--spec read_info(name_vsn()) -> map().
+-spec read_info(name_vsn()) -> {ok, map()} | {error, term()}.
 read_info(NameVsn) ->
     InfoFilePath = info_file_path(NameVsn),
-    read_file(InfoFilePath, "bad_info_file", #{read_mode => ?JSON_MAP}).
+    read_file_map(InfoFilePath, "bad_info_file").
 
 -spec read_md5sum(name_vsn()) -> binary().
 read_md5sum(NameVsn) ->
@@ -108,15 +106,15 @@ read_readme(NameVsn) ->
             <<>>
     end.
 
--spec read_avsc_map(name_vsn()) -> map().
+-spec read_avsc_map(name_vsn()) -> {ok, map()} | {error, term()}.
 read_avsc_map(NameVsn) ->
     AvscFilePath = avsc_file_path(NameVsn),
-    read_file(AvscFilePath, "bad_avsc_file", #{read_mode => ?JSON_MAP}).
+    read_file_map(AvscFilePath, "bad_avsc_file").
 
 -spec read_avsc_bin(name_vsn()) -> {ok, binary()} | {error, term()}.
 read_avsc_bin(NameVsn) ->
     AvscFilePath = avsc_file_path(NameVsn),
-    read_file(AvscFilePath, "bad_avsc_file", #{read_mode => ?RAW_BIN}).
+    read_file_bin(AvscFilePath, "bad_avsc_file").
 
 -spec read_avsc_bin_all() -> [{name_vsn(), binary()}].
 read_avsc_bin_all() ->
@@ -130,19 +128,15 @@ read_avsc_bin_all() ->
         list_name_vsn()
     ).
 
--spec read_i18n(name_vsn()) -> map().
+-spec read_i18n(name_vsn()) -> {ok, map()} | {error, term()}.
 read_i18n(NameVsn) ->
     I18nFilePath = i18n_file_path(NameVsn),
-    read_file(I18nFilePath, "bad_i18n_file", #{read_mode => ?JSON_MAP}).
+    read_file_map(I18nFilePath, "bad_i18n_file").
 
--spec read_hocon(name_vsn()) -> map().
+-spec read_hocon(name_vsn()) -> {ok, map()} | {error, term()}.
 read_hocon(NameVsn) ->
-    read_hocon(NameVsn, #{read_mode => ?RAW_BIN}).
-
--spec read_hocon(name_vsn(), #{read_mode := ?RAW_BIN | ?JSON_MAP}) -> map().
-read_hocon(NameVsn, Options) ->
     HoconFilePath = config_file_path(NameVsn),
-    read_file(HoconFilePath, "bad_hocon_file", Options).
+    read_file_map(HoconFilePath, "bad_hocon_file").
 
 %% List all installed plugins
 
@@ -166,7 +160,7 @@ get_tar(NameVsn) ->
         {ok, Content} ->
             {ok, Content};
         {error, _} ->
-            case maybe_create_tar(NameVsn, TarGz, install_dir()) of
+            case create_tar(NameVsn, TarGz) of
                 ok ->
                     file:read_file(TarGz);
                 Err ->
@@ -174,18 +168,14 @@ get_tar(NameVsn) ->
             end
     end.
 
--spec is_tar_already_installed(name_vsn()) ->
-    false | {true, file:filename()} | {error, bad_name_vsn}.
-is_tar_already_installed(NameVsn) ->
-    case emqx_plugins_utils:parse_name_vsn(NameVsn) of
-        {ok, AppName, _Vsn} ->
-            Wildcard = tar_file_path([bin(AppName), "-*"]),
-            case filelib:wildcard(Wildcard) of
-                [] -> false;
-                TarGzs -> {true, TarGzs}
-            end;
-        {error, _} ->
-            {error, bad_name_vsn}
+-spec is_tar_present(name_vsn()) ->
+    false | {true, file:filename()}.
+is_tar_present(NameVsn) ->
+    {AppName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    Wildcard = tar_file_path([bin(AppName), "-*"]),
+    case filelib:wildcard(Wildcard) of
+        [] -> false;
+        TarGzs -> {true, TarGzs}
     end.
 
 -spec write_tar(name_vsn(), iodata()) -> ok.
@@ -200,18 +190,16 @@ write_tar(NameVsn, Content) ->
 %% Plugin package extraction
 %%--------------------------------------------------------------------
 
--spec install_from_local_tar(name_vsn()) -> ok | {error, Reason :: map()}.
-install_from_local_tar(NameVsn) ->
+install_from_local_tar(NameVsn, InstallValidator) ->
     TarGz = tar_file_path(NameVsn),
     case erl_tar:extract(TarGz, [compressed, memory]) of
         {ok, TarContent} ->
             ok = write_tar_file_content(install_dir(), TarContent),
-            %% TODO: avoid cyclic dependency
-            case emqx_plugins:read_plugin_info(NameVsn, #{}) of
-                {ok, _} ->
+            case InstallValidator() of
+                ok ->
                     ok;
                 {error, Reason} ->
-                    ?SLOG(warning, Reason#{msg => "failed_to_read_after_install"}),
+                    ?SLOG(warning, #{msg => "failed_to_read_after_install", reason => Reason}),
                     ok = delete_tar_file_content(install_dir(), TarContent),
                     {error, Reason}
             end;
@@ -229,24 +217,18 @@ install_from_local_tar(NameVsn) ->
             }}
     end.
 
--spec ensure_installed(name_vsn()) -> ok | {error, no_local_tar | map()}.
-ensure_installed(NameVsn) ->
-    case filelib:is_dir(plugin_dir(NameVsn)) of
+-spec ensure_installed(name_vsn(), fun(() -> ok | {error, term()})) -> ok | {error, map()}.
+ensure_installed(NameVsn, InstallValidator) ->
+    case is_installed(NameVsn) of
         true ->
             ok;
         false ->
-            %% Do we have the package, but it's not extracted yet?
-            case get_tar(NameVsn) of
-                {ok, TarContent} ->
-                    %% TODO
-                    %% why we need to write the tar file again?
-                    %% probably we should just check if the tar file is already there
-                    ok = write_tar(NameVsn, TarContent),
-                    install_from_local_tar(NameVsn);
-                _ ->
-                    {error, no_local_tar}
-            end
+            install_from_local_tar(NameVsn, InstallValidator)
     end.
+
+-spec is_installed(name_vsn()) -> boolean().
+is_installed(NameVsn) ->
+    filelib:is_dir(plugin_dir(NameVsn)).
 
 -spec delete_tar(name_vsn()) -> ok.
 delete_tar(NameVsn) ->
@@ -266,8 +248,8 @@ delete_tar(NameVsn) ->
             {error, Reason}
     end.
 
--spec purge_plugin(name_vsn()) -> ok | {error, term()}.
-purge_plugin(NameVsn) ->
+-spec purge_installed(name_vsn()) -> ok | {error, term()}.
+purge_installed(NameVsn) ->
     Dir = plugin_dir(NameVsn),
     purge_plugin_dir(Dir).
 
@@ -333,14 +315,15 @@ md5sum_file_path(NameVsn) ->
 readme_file_path(NameVsn) ->
     wrap_to_list(filename:join([plugin_dir(NameVsn), "README.md"])).
 
-read_file(Path, Msg, #{read_mode := ?RAW_BIN}) ->
+read_file_bin(Path, Msg) ->
     case file:read_file(Path) of
         {ok, Bin} ->
             {ok, Bin};
         {error, Reason} ->
             {error, #{msg => Msg, reason => Reason}}
-    end;
-read_file(Path, Msg, #{read_mode := ?JSON_MAP}) ->
+    end.
+
+read_file_map(Path, Msg) ->
     case hocon:load(Path, #{format => richmap}) of
         {ok, RichMap} ->
             {ok, hocon_maps:ensure_plain(RichMap)};
@@ -350,7 +333,7 @@ read_file(Path, Msg, #{read_mode := ?JSON_MAP}) ->
 
 plugin_priv_dir(NameVsn) ->
     maybe
-        #{<<"name">> := Name, <<"rel_apps">> := Apps} ?= read_info_safe(NameVsn),
+        {ok, #{<<"name">> := Name, <<"rel_apps">> := Apps}} ?= read_info(NameVsn),
         {ok, AppDir} ?= app_dir(Name, Apps),
         wrap_to_list(filename:join([plugin_dir(NameVsn), AppDir, "priv"]))
     else
@@ -359,17 +342,8 @@ plugin_priv_dir(NameVsn) ->
     end.
 
 plugin_data_dir(NameVsn) ->
-    case emqx_plugins_utils:parse_name_vsn(NameVsn) of
-        {ok, NameAtom, _Vsn} ->
-            wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)]));
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_generate_plugin_config_dir_for_plugin",
-                plugin_namevsn => NameVsn,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
+    {NameAtom, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    wrap_to_list(filename:join([emqx:data_dir(), "plugins", atom_to_list(NameAtom)])).
 
 purge_plugin_dir(Dir) ->
     case file:del_dir_r(Dir) of
@@ -389,13 +363,11 @@ purge_plugin_dir(Dir) ->
             {error, Reason}
     end.
 
-maybe_create_tar(NameVsn, TarGzName, InstallDir) when is_binary(InstallDir) ->
-    maybe_create_tar(NameVsn, TarGzName, binary_to_list(InstallDir));
-maybe_create_tar(NameVsn, TarGzName, InstallDir) ->
+create_tar(NameVsn, TarGzName) ->
+    InstallDir = string:trim(install_dir(), trailing, "/") ++ "/",
     case filelib:wildcard(filename:join(plugin_dir(NameVsn), "**")) of
         [_ | _] = PluginFiles ->
-            InstallDir1 = string:trim(InstallDir, trailing, "/") ++ "/",
-            PluginFiles1 = [{string:prefix(F, InstallDir1), F} || F <- PluginFiles],
+            PluginFiles1 = [{string:prefix(F, InstallDir), F} || F <- PluginFiles],
             erl_tar:create(TarGzName, PluginFiles1, [compressed]);
         _ ->
             {error, plugin_not_found}
@@ -459,14 +431,6 @@ get_config_interal(Path, Default) ->
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
-
-read_info_safe(NameVsn) ->
-    try
-        {ok, read_info(NameVsn)}
-    catch
-        throw:Reason ->
-            {error, Reason}
-    end.
 
 delete_file_if_exists(File) ->
     case file:delete(File) of

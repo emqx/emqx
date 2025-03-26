@@ -29,8 +29,8 @@ parse_name_vsn(NameVsn) when is_binary(NameVsn) ->
     parse_name_vsn(binary_to_list(NameVsn));
 parse_name_vsn(NameVsn) when is_list(NameVsn) ->
     case lists:splitwith(fun(X) -> X =/= $- end, NameVsn) of
-        {AppName, [$- | Vsn]} -> {ok, list_to_atom(AppName), Vsn};
-        _ -> {error, "bad_name_vsn"}
+        {AppName, [$- | Vsn]} -> {list_to_atom(AppName), Vsn};
+        _ -> error(bad_name_vsn)
     end.
 
 make_name_vsn_string(Name, Vsn) ->
@@ -40,8 +40,8 @@ make_name_vsn_string(Name, Vsn) ->
 
 parse_name_vsn_test_() ->
     [
-        ?_assertEqual({error, "bad_name_vsn"}, parse_name_vsn("foo")),
-        ?_assertEqual({ok, foo, "1.0.0"}, parse_name_vsn("foo-1.0.0"))
+        ?_assertError(bad_name_vsn, parse_name_vsn("foo")),
+        ?_assertEqual({foo, "1.0.0"}, parse_name_vsn("foo-1.0.0"))
     ].
 
 make_name_vsn_string_test_() ->

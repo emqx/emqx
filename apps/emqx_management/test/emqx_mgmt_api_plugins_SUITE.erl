@@ -151,6 +151,13 @@ t_install_plugin_matching_exisiting_name(Config) ->
     {ok, _} = uninstall_plugin(NameVsn),
     {ok, _} = uninstall_plugin(NameVsn1).
 
+t_install_plugin_with_bad_form_data(_Config) ->
+    AuthHeader = emqx_common_test_http:default_auth_header(),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
+    {error, {"HTTP/1.1", 400, "Bad Request"}} = emqx_mgmt_api_test_util:request_api(
+        post, Path, "", AuthHeader, #{}
+    ).
+
 t_bad_plugin(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePathOrig = get_demo_plugin_package(DemoShDir),
@@ -180,7 +187,7 @@ t_bad_plugin(Config) ->
     ).
 
 t_delete_non_existing(_Config) ->
-    Path = emqx_mgmt_api_test_util:api_path(["plugins", "non_exists"]),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "non_exists-1.0.0"]),
     ?assertMatch(
         {error, {_, 404, _}},
         emqx_mgmt_api_test_util:request_api(delete, Path)
@@ -355,7 +362,7 @@ get_demo_plugin_package(Dir) ->
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),
-    {ok, NewName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NewNameVsn),
+    {NewName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NewNameVsn),
     NewNameB = atom_to_binary(NewName, utf8),
     Content1 = lists:map(
         fun({F, B}) ->
