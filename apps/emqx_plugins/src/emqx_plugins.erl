@@ -66,8 +66,6 @@
 -export([
     get_config/1,
     get_config/2,
-    get_config/3,
-    get_config/4,
     put_config/3
 ]).
 
@@ -84,8 +82,11 @@
     post_config_update/5
 ]).
 
-%% RPC call
--export([get_tar/1]).
+%% internal RPC targets
+-export([
+    get_tar/1,
+    get_config/3
+]).
 
 %% Internal export
 -export([
@@ -321,36 +322,19 @@ do_ensure_stopped(NameVsn) ->
             {error, Reason}
     end.
 
-get_config(Name, Vsn, Opt, Default) ->
-    get_config(emqx_plugins_utils:make_name_vsn_string(Name, Vsn), Opt, Default).
-
--spec get_config(name_vsn()) ->
-    {ok, plugin_config_map() | any()}
-    | {error, term()}.
+-spec get_config(name_vsn()) -> plugin_config_map().
 get_config(NameVsn) ->
-    get_config(NameVsn, ?CONFIG_FORMAT_MAP, #{}).
+    get_config(NameVsn, #{}).
 
--spec get_config(name_vsn(), ?CONFIG_FORMAT_MAP | ?CONFIG_FORMAT_BIN) ->
-    {ok, raw_plugin_config_content() | plugin_config_map() | any()}
-    | {error, term()}.
-get_config(NameVsn, ?CONFIG_FORMAT_MAP) ->
-    get_config(NameVsn, ?CONFIG_FORMAT_MAP, #{});
-get_config(NameVsn, ?CONFIG_FORMAT_BIN) ->
-    get_config_bin(NameVsn).
+-spec get_config(name_vsn(), term()) -> plugin_config_map().
+get_config(NameVsn, Default) ->
+    persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default).
 
-%% Present default config value only in map format.
+%% RPC target, kept for backward compatibility.
 -spec get_config(name_vsn(), ?CONFIG_FORMAT_MAP, any()) ->
-    {ok, plugin_config_map() | any()}
-    | {error, term()}.
+    {ok, plugin_config_map() | term()}.
 get_config(NameVsn, ?CONFIG_FORMAT_MAP, Default) ->
-    {ok, persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default)}.
-
-get_config_bin(NameVsn) ->
-    %% no default value when get raw binary config
-    case read_plugin_hocon(NameVsn) of
-        {ok, _Map} = Res -> Res;
-        {error, _Reason} = Err -> Err
-    end.
+    {ok, get_config(NameVsn, Default)}.
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.

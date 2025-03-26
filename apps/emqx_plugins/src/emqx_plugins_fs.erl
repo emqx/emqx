@@ -179,7 +179,7 @@ get_tar(NameVsn) ->
 is_tar_already_installed(NameVsn) ->
     case emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {ok, AppName, _Vsn} ->
-            Wildcard = tar_file_path(AppName ++ "-*"),
+            Wildcard = tar_file_path([bin(AppName), "-*"]),
             case filelib:wildcard(Wildcard) of
                 [] -> false;
                 TarGzs -> {true, TarGzs}
