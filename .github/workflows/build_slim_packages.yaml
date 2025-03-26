@@ -72,10 +72,6 @@ jobs:
         profile: ${{ matrix.profile }}
         otp: ${{ steps.env.outputs.OTP_VSN }}
         os: ${{ matrix.os }}
-        apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
-        apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
-        apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
-        apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
     - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
       with:
         name: ${{ matrix.os }}

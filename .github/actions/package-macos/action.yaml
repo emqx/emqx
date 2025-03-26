@@ -12,16 +12,16 @@ inputs:
     type: string
     default: macos-15
   apple_id_password:
-    required: true
+    required: false
     type: string
   apple_developer_identity:
-    required: true
+    required: false
     type: string
   apple_developer_id_bundle:
-    required: true
+    required: false
     type: string
   apple_developer_id_bundle_password:
-    required: true
+    required: false
     type: string
 
 runs:

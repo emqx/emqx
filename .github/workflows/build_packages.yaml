@@ -41,6 +41,10 @@ on:
         required: true
       APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:
         required: true
+      APPLE_DEVELOPER_ID_BUNDLE_NEW:
+        required: true
+      APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW:
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -94,8 +98,8 @@ jobs:
         os: ${{ matrix.os }}
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
-        apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
-        apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
+        apple_developer_id_bundle: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE }}
+        apple_developer_id_bundle_password: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
     - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
       if: success()
       with:

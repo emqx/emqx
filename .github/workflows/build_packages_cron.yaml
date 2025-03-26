@@ -22,7 +22,6 @@ jobs:
       matrix:
         profile:
           - ['emqx-enterprise', 'master']
-          - ['emqx-enterprise', 'release-58']
           - ['emqx-enterprise', 'release-59']
         os:
           - ubuntu22.04
@@ -101,8 +100,8 @@ jobs:
           os: ${{ matrix.os }}
           apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
           apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
-          apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
-          apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
+          apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW }}
+          apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW }}
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         if: success()
         with:
