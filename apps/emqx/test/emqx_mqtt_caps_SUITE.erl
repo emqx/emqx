@@ -64,7 +64,7 @@ t_check_sub(_) ->
     emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], false),
     timer:sleep(50),
     ClientInfo = #{zone => default},
-    ok = emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts),
+
     ?assertEqual(
         {error, ?RC_TOPIC_FILTER_INVALID},
         emqx_mqtt_caps:check_sub(ClientInfo, <<"a/b/c/d">>, SubOpts)
@@ -79,4 +79,49 @@ t_check_sub(_) ->
             ClientInfo, #share{group = <<"group">>, topic = <<"topic">>}, SubOpts
         )
     ),
+
+    %% return `ok` when allowed origin sub-qos (max_qos_allowed >= sub-qos)
+    %% and `{ok, QoS}` when granted qos lower than origin sub-qos
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_0),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_0})
+    ),
+    ?assertEqual(
+        {ok, ?QOS_0},
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_1})
+    ),
+    ?assertEqual(
+        {ok, ?QOS_0},
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
+    ),
+
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_0})
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_1})
+    ),
+    ?assertEqual(
+        {ok, ?QOS_1},
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
+    ),
+
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_2),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_0})
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_1})
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
+    ),
+
     emqx_config:put([zones], OldConf).
