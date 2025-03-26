@@ -187,7 +187,8 @@ action_config(Overrides) ->
                 <<"worker_pool_size">> => 1
             }
         },
-    emqx_utils_maps:deep_merge(CommonConfig, Overrides).
+    InnerConfig = emqx_utils_maps:deep_merge(CommonConfig, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE, <<"x">>, InnerConfig).
 
 create_connector_api(TCConfig) ->
     create_connector_api(TCConfig, _Overrides = #{}).
