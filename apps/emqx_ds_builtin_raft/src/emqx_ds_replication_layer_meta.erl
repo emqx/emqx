@@ -273,14 +273,15 @@ sites() ->
 
 %% @doc List sites.
 %% * `all`: all sites.
+%% * `cluster`: sites that are considered part of the cluster.
 %% * `lost`: sites that are no longer considered part of the cluster.
--spec sites(all | lost) -> [site()].
+-spec sites(all | cluster | lost) -> [site()].
 sites(all) ->
-    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
-    [S || #?NODE_TAB{site = S} <- Recs];
+    [S || #?NODE_TAB{site = S} <- all_nodes()];
+sites(cluster) ->
+    [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) =/= lost];
 sites(lost) ->
-    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
-    [S || #?NODE_TAB{site = S, node = N} <- Recs, node_status(N) == lost].
+    [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) == lost].
 
 -spec node(site()) -> node() | undefined.
 node(Site) ->
@@ -292,7 +293,7 @@ node(Site) ->
     end.
 
 -spec node_status(node()) -> up | down | lost.
-node_status(Node) ->
+node_status(Node) when is_atom(Node) ->
     case mria:cluster_status(Node) of
         running -> up;
         stopped -> down;
@@ -637,15 +638,14 @@ allocate_shards_trans(DB) ->
             ShardsAllocated = [Shard || #?SHARD_TAB{shard = {_DB, Shard}} <- Records],
             mnesia:abort({shards_already_allocated, ShardsAllocated})
     end,
-    Nodes = mnesia:match_object(?NODE_TAB, ?NODE_PAT(), read),
-    case length(Nodes) of
+    Sites = sites(cluster),
+    case length(Sites) of
         N when N >= NSites ->
             ok;
         _ ->
-            mnesia:abort({insufficient_sites_online, NSites, Nodes})
+            mnesia:abort({insufficient_sites_online, NSites, Sites})
     end,
     Shards = gen_shards(NShards),
-    Sites = [S || #?NODE_TAB{site = S} <- Nodes],
     Allocation = compute_allocation(Shards, Sites, Opts),
     lists:map(
         fun({Shard, ReplicaSet}) ->
