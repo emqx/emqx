@@ -2626,7 +2626,7 @@ do_check_sub_caps(ClientInfo, [TopicFilter = {{Topic, SubOpts}, ?RC_SUCCESS} | M
             do_check_sub_caps(ClientInfo, More, [TopicFilter | Acc]);
         {ok, MaxQoS} ->
             ?SLOG(
-                warning,
+                debug,
                 #{
                     msg => "subscribe_allowed_but_with_lower_granted_qos",
                     reason => emqx_reason_codes:name(MaxQoS)
