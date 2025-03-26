@@ -235,7 +235,7 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
-    _ = maybe_purge_plugin_config(NameVsn),
+    _ = purge_plugin_config(NameVsn),
     emqx_plugins_fs:purge_installed(NameVsn).
 
 %% @doc Delete the package file.
@@ -299,7 +299,7 @@ ensure_stopped(NameVsn) ->
 do_ensure_stopped(NameVsn) ->
     case do_read_plugin(NameVsn) of
         {ok, Plugin} ->
-            ensure_apps_stopped(Plugin);
+            emqx_plugins_apps:stop(Plugin);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -440,9 +440,9 @@ has_avsc(NameVsn) ->
             false
     end.
 
-get_config_interal(Key, Default) when is_atom(Key) ->
-    get_config_interal([Key], Default);
-get_config_interal(Path, Default) ->
+get_config_internal(Key, Default) when is_atom(Key) ->
+    get_config_internal([Key], Default);
+get_config_internal(Path, Default) ->
     emqx_conf:get([?CONF_ROOT | Path], Default).
 
 put_config_internal(Key, Value) ->
@@ -517,7 +517,7 @@ add_new_configured(Configured, {Action, NameVsn}, Item) ->
             Front ++ [Anchor, Item | Rear0]
     end.
 
-maybe_purge_plugin_config(NameVsn) ->
+purge_plugin_config(NameVsn) ->
     _ = persistent_term:erase(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn)),
     ok.
 
@@ -539,7 +539,7 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= ensure_exists_and_installed(NameVsn),
         {ok, Plugin} ?= do_read_plugin(NameVsn),
-        ok ?= load_code_start_apps(NameVsn, Plugin)
+        ok ?= emqx_plugins_apps:start(NameVsn, Plugin)
     else
         {error, Reason} ->
             ?SLOG(error, #{
@@ -606,7 +606,7 @@ do_read_plugin(NameVsn, Options) ->
     end.
 
 ensure_installed_locally(NameVsn) ->
-    emqx_plugins_fs:ensure_installed(
+    emqx_plugins_fs:ensure_installed_from_tar(
         NameVsn,
         fun() ->
             case do_read_plugin(NameVsn) of
@@ -774,219 +774,6 @@ check_plugin(_What, NameVsn, FilePath) ->
         path => FilePath
     }}.
 
-load_code_start_apps(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
-    LibDir = emqx_plugins_fs:lib_dir(RelNameVsn),
-    RunningApps = running_apps(),
-    %% load plugin apps and beam code
-    try
-        AppNames =
-            lists:map(
-                fun(AppNameVsn) ->
-                    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
-                    EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
-                    case load_plugin_app(AppName, AppVsn, EbinDir, RunningApps) of
-                        ok -> AppName;
-                        {error, Reason} -> throw(Reason)
-                    end
-                end,
-                Apps
-            ),
-        ok = lists:foreach(
-            fun(AppName) ->
-                case start_app(AppName) of
-                    ok -> ok;
-                    {error, Reason} -> throw(Reason)
-                end
-            end,
-            AppNames
-        )
-    catch
-        throw:Reason ->
-            {error, Reason}
-    end.
-
-load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
-    case lists:keyfind(AppName, 1, RunningApps) of
-        false ->
-            do_load_plugin_app(AppName, Ebin);
-        {_, Vsn} ->
-            case bin(Vsn) =:= bin(AppVsn) of
-                true ->
-                    %% already started on the exact version
-                    ok;
-                false ->
-                    %% running but a different version
-                    ?SLOG(warning, #{
-                        msg => "plugin_app_already_running",
-                        name => AppName,
-                        running_vsn => Vsn,
-                        loading_vsn => AppVsn
-                    }),
-                    ok
-            end
-    end.
-
-do_load_plugin_app(AppName, Ebin) when is_binary(Ebin) ->
-    do_load_plugin_app(AppName, binary_to_list(Ebin));
-do_load_plugin_app(AppName, Ebin) ->
-    _ = code:add_patha(Ebin),
-    Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
-    maybe
-        ok ?= load_modules(Modules),
-        ok ?= application:load(AppName)
-    else
-        {error, {already_loaded, _}} ->
-            ok;
-        {error, Reason} ->
-            {error, #{
-                msg => "failed_to_load_plugin_app",
-                name => AppName,
-                reason => Reason
-            }}
-    end.
-
-load_modules([]) ->
-    ok;
-load_modules([BeamFile | Modules]) ->
-    Module = list_to_atom(filename:basename(BeamFile, ".beam")),
-    _ = code:purge(Module),
-    case code:load_file(Module) of
-        {module, _} ->
-            load_modules(Modules);
-        {error, Reason} ->
-            {error, #{msg => "failed_to_load_plugin_beam", path => BeamFile, reason => Reason}}
-    end.
-
-start_app(App) ->
-    case run_with_timeout(application, ensure_all_started, [App], 10_000) of
-        {ok, {ok, Started}} ->
-            case Started =/= [] of
-                true -> ?SLOG(debug, #{msg => "started_plugin_apps", apps => Started});
-                false -> ok
-            end;
-        {ok, {error, Reason}} ->
-            {error, #{
-                msg => "failed_to_start_app",
-                app => App,
-                reason => Reason
-            }};
-        {error, Reason} ->
-            {error, #{
-                msg => "failed_to_start_plugin_app",
-                app => App,
-                reason => Reason
-            }}
-    end.
-
-%% Stop all apps installed by the plugin package,
-%% but not the ones shared with others.
-ensure_apps_stopped(#{<<"rel_apps">> := Apps}) ->
-    %% load plugin apps and beam code
-    AppsToStop = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
-    case stop_apps(AppsToStop) of
-        {ok, []} ->
-            %% all apps stopped
-            ok;
-        {ok, Left} ->
-            ?SLOG(warning, #{
-                msg => "unabled_to_stop_plugin_apps",
-                apps => Left,
-                reason => "running_apps_still_depends_on_this_apps"
-            }),
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-%% On one hand, Elixir plugins might include Elixir itself, when targetting a non-Elixir
-%% EMQX release.  If, on the other hand, the EMQX release already includes Elixir, we
-%% shouldn't stop Elixir nor IEx.
--ifdef(EMQX_ELIXIR).
-is_protected_app(elixir) -> true;
-is_protected_app(iex) -> true;
-is_protected_app(_) -> false.
-
-parse_name_vsn_for_stopping(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    case is_protected_app(AppName) of
-        true ->
-            false;
-        false ->
-            {true, AppName}
-    end.
-%% ELSE ifdef(EMQX_ELIXIR)
--else.
-parse_name_vsn_for_stopping(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    {true, AppName}.
-%% END ifdef(EMQX_ELIXIR)
--endif.
-
-stop_apps(Apps) ->
-    RunningApps = running_apps(),
-    case do_stop_apps(Apps, [], RunningApps) of
-        %% all stopped
-        {ok, []} -> {ok, []};
-        %% no progress
-        {ok, Remain} when Remain =:= Apps -> {ok, Apps};
-        %% try again
-        {ok, Remain} -> stop_apps(Remain);
-        {error, Reason} -> {error, Reason}
-    end.
-
-do_stop_apps([], Remain, _AllApps) ->
-    {ok, lists:reverse(Remain)};
-do_stop_apps([App | Apps], Remain, RunningApps) ->
-    case is_needed_by_any(App, RunningApps) of
-        true ->
-            do_stop_apps(Apps, [App | Remain], RunningApps);
-        false ->
-            case stop_app(App) of
-                ok ->
-                    do_stop_apps(Apps, Remain, RunningApps);
-                {error, Reason} ->
-                    {error, Reason}
-            end
-    end.
-
-stop_app(App) ->
-    case application:stop(App) of
-        ok ->
-            ?SLOG(debug, #{msg => "stop_plugin_successfully", app => App}),
-            ok = unload_module_and_app(App);
-        {error, {not_started, App}} ->
-            ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
-            ok = unload_module_and_app(App);
-        {error, Reason} ->
-            {error, #{msg => "failed_to_stop_app", app => App, reason => Reason}}
-    end.
-
-unload_module_and_app(App) ->
-    case application:get_key(App, modules) of
-        {ok, Modules} ->
-            lists:foreach(fun code:soft_purge/1, Modules);
-        _ ->
-            ok
-    end,
-    _ = application:unload(App),
-    ok.
-
-is_needed_by_any(AppToStop, RunningApps) ->
-    lists:any(
-        fun({RunningApp, _RunningAppVsn}) ->
-            is_needed_by(AppToStop, RunningApp)
-        end,
-        RunningApps
-    ).
-
-is_needed_by(AppToStop, AppToStop) ->
-    false;
-is_needed_by(AppToStop, RunningApp) ->
-    case application:get_key(RunningApp, applications) of
-        {ok, Deps} -> lists:member(AppToStop, Deps);
-        undefined -> false
-    end.
-
 do_put_config_internal(Key, Value, ConfLocation) when is_atom(Key) ->
     do_put_config_internal([Key], Value, ConfLocation);
 do_put_config_internal(Path, Values, _ConfLocation = local) when is_list(Path) ->
@@ -1038,7 +825,7 @@ put_configured(Configured, ConfLocation) ->
     ok = do_put_config_internal(states, bin_key(Configured), ConfLocation).
 
 configured() ->
-    get_config_interal(states, []).
+    get_config_internal(states, []).
 
 for_plugins(ActionFun) ->
     case lists:flatmap(ActionFun, configured()) of
@@ -1085,18 +872,12 @@ maybe_load_config_schema(NameVsn, Mode) ->
     _ =
         case emqx_plugins_fs:read_avsc_bin(NameVsn) of
             {ok, AvscBin} ->
-                do_load_config_schema(NameVsn, AvscBin);
+                _ = emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin),
+                ok;
             {error, _} ->
                 ok
         end,
     _ = maybe_create_config_dir(NameVsn, Mode).
-
-do_load_config_schema(NameVsn, AvscBin) ->
-    case emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin) of
-        ok -> ok;
-        {error, already_exists} -> ok;
-        {error, _Reason} -> ok
-    end.
 
 maybe_create_config_dir(NameVsn, Mode) ->
     has_avsc(NameVsn) andalso
@@ -1212,20 +993,3 @@ bin(B) when is_binary(B) -> B.
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
-
-run_with_timeout(Module, Function, Args, Timeout) ->
-    Self = self(),
-    Fun = fun() ->
-        Result = apply(Module, Function, Args),
-        Self ! {self(), Result}
-    end,
-    Pid = spawn(Fun),
-    TimerRef = erlang:send_after(Timeout, self(), {timeout, Pid}),
-    receive
-        {Pid, Result} ->
-            _ = erlang:cancel_timer(TimerRef),
-            {ok, Result};
-        {timeout, Pid} ->
-            exit(Pid, kill),
-            {error, timeout}
-    end.

@@ -36,7 +36,7 @@
 
 %% Unpack plugin tar/delete unpacked content
 -export([
-    ensure_installed/2,
+    ensure_installed_from_tar/2,
     purge_installed/1,
     is_installed/1
 ]).
@@ -215,8 +215,8 @@ install_from_local_tar(NameVsn, InstallValidator) ->
             }}
     end.
 
--spec ensure_installed(name_vsn(), fun(() -> ok | {error, term()})) -> ok | {error, map()}.
-ensure_installed(NameVsn, InstallValidator) ->
+-spec ensure_installed_from_tar(name_vsn(), fun(() -> ok | {error, term()})) -> ok | {error, map()}.
+ensure_installed_from_tar(NameVsn, InstallValidator) ->
     case is_installed(NameVsn) of
         true ->
             ok;
@@ -279,7 +279,7 @@ lib_dir(NameVsn) ->
 %%--------------------------------------------------------------------
 
 install_dir() ->
-    get_config_interal(install_dir, "").
+    emqx_config:get([?CONF_ROOT, install_dir], "").
 
 plugin_dir(NameVsn) ->
     wrap_to_list(filename:join([install_dir(), NameVsn])).
@@ -417,11 +417,6 @@ app_dir(AppName, Apps) ->
 normalize_dir(Dir) ->
     %% Get rid of possible trailing slash
     filename:join([Dir, ""]).
-
-get_config_interal(Key, Default) when is_atom(Key) ->
-    get_config_interal([Key], Default);
-get_config_interal(Path, Default) ->
-    emqx_conf:get([?CONF_ROOT | Path], Default).
 
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).

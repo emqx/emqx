@@ -397,6 +397,7 @@ t_enable_disable({'end', Config}) ->
 t_enable_disable(Config) ->
     NameVsn = proplists:get_value(name_vsn, Config),
     ok = emqx_plugins:ensure_installed(NameVsn),
+
     ?assertEqual([#{name_vsn => NameVsn, enable => false}], emqx_plugins:configured()),
     ok = emqx_plugins:ensure_enabled(NameVsn),
     ?assertEqual([#{name_vsn => NameVsn, enable => true}], emqx_plugins:configured()),
