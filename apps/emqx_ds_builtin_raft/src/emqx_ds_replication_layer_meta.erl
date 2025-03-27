@@ -273,14 +273,15 @@ sites() ->
 
 %% @doc List sites.
 %% * `all`: all sites.
+%% * `cluster`: sites that are considered part of the cluster.
 %% * `lost`: sites that are no longer considered part of the cluster.
--spec sites(all | lost) -> [site()].
+-spec sites(all | cluster | lost) -> [site()].
 sites(all) ->
-    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
-    [S || #?NODE_TAB{site = S} <- Recs];
+    [S || #?NODE_TAB{site = S} <- all_nodes()];
+sites(cluster) ->
+    [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) =/= lost];
 sites(lost) ->
-    Recs = mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()),
-    [S || #?NODE_TAB{site = S, node = N} <- Recs, node_status(N) == lost].
+    [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) == lost].
 
 -spec node(site()) -> node() | undefined.
 node(Site) ->
@@ -292,7 +293,7 @@ node(Site) ->
     end.
 
 -spec node_status(node()) -> up | down | lost.
-node_status(Node) ->
+node_status(Node) when is_atom(Node) ->
     case mria:cluster_status(Node) of
         running -> up;
         stopped -> down;
@@ -552,6 +553,13 @@ target_set(DB, Shard) ->
 
 %%================================================================================
 
+%% @doc Schedules a cleanup activity, which currently involves:
+%% 1. Erasing records of lost sites no longer assigned to any shards.
+schedule_cleanup() ->
+    gen_server:cast(?SERVER, cleanup).
+
+%%================================================================================
+
 subscribe(Pid, Subject) ->
     gen_server:call(?SERVER, {subscribe, Pid, Subject}, infinity).
 
@@ -573,9 +581,9 @@ init([]) ->
     ensure_tables(),
     run_migrations(),
     ensure_site(),
-    S = #s{},
+    schedule_cleanup(),
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
-    {ok, S}.
+    {ok, #s{}}.
 
 handle_call({subscribe, Pid, Subject}, _From, S) ->
     {reply, ok, handle_subscribe(Pid, Subject, S)};
@@ -584,6 +592,9 @@ handle_call({unsubscribe, Pid}, _From, S) ->
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
+handle_cast(cleanup, S) ->
+    forget_lost_sites(),
+    {noreply, S};
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
@@ -637,15 +648,14 @@ allocate_shards_trans(DB) ->
             ShardsAllocated = [Shard || #?SHARD_TAB{shard = {_DB, Shard}} <- Records],
             mnesia:abort({shards_already_allocated, ShardsAllocated})
     end,
-    Nodes = mnesia:match_object(?NODE_TAB, ?NODE_PAT(), read),
-    case length(Nodes) of
+    Sites = sites(cluster),
+    case length(Sites) of
         N when N >= NSites ->
             ok;
         _ ->
-            mnesia:abort({insufficient_sites_online, NSites, Nodes})
+            mnesia:abort({insufficient_sites_online, NSites, Sites})
     end,
     Shards = gen_shards(NShards),
-    Sites = [S || #?NODE_TAB{site = S} <- Nodes],
     Allocation = compute_allocation(Shards, Sites, Opts),
     lists:map(
         fun({Shard, ReplicaSet}) ->
@@ -954,6 +964,19 @@ forget_node(Node) ->
             ok;
         {error, Reason} ->
             logger:error("Failed to forget leaving node ~p: ~p", [Node, Reason])
+    end.
+
+forget_lost_sites() ->
+    NodesLost = [R || R = #?NODE_TAB{node = N} <- all_nodes(), node_status(N) =:= lost],
+    lists:foreach(fun forget_lost_site/1, NodesLost).
+
+forget_lost_site(Node = #?NODE_TAB{site = Site}) ->
+    Result = transaction(fun ?MODULE:forget_site_trans/1, [Node]),
+    case Result of
+        ok ->
+            ok;
+        {error, Reason} ->
+            logger:notice("Failed to forget lost site ~s: ~p", [Site, Reason])
     end.
 
 %% @doc Returns sorted list of sites shards are replicated across.
