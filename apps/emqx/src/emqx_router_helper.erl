@@ -131,7 +131,7 @@ post_start() ->
     %% Cleanup any routes left by old incarnations of this node (if any).
     %% Depending on the size of routing tables this can take signicant amount of time.
     _ = mria:wait_for_tables([?ROUTING_NODE]),
-    _ = purge_this_node(),
+    _ = purge_dead_node(node()),
     ignore.
 
 %% @doc Monitor routing node
@@ -139,10 +139,7 @@ post_start() ->
 monitor({_Group, Node}) ->
     monitor(Node);
 monitor(Node) when is_atom(Node) ->
-    case ets:member(?ROUTING_NODE, Node) of
-        true -> ok;
-        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
-    end.
+    add_routing_node(Node).
 
 %% @doc Is given node considered routable?
 %% I.e. should the broker attempt to forward messages there, even if there are
@@ -294,14 +291,20 @@ handle_reconcile(State) ->
     schedule_purges(TS, reconcile(NState)).
 
 reconcile(State = #{last_membership := MembersLast}) ->
-    %% Find if there are discrepancies in membership.
+    %% 1. Find if there are discrepancies in membership.
     %% Missing core nodes must have been "force-left" from the cluster.
     %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
     Members = emqx_maybe:define(cores(), MembersLast),
     ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
+    %% 2. Find out if there are (possibly) orphaned routes in the routing table.
+    %% Mark them as down: they are most likely replicants.
+    RunningNodes = mria:running_nodes(),
+    RoutingNodes = list_routing_nodes(),
+    OrphanNodes = [N || N <- RoutingNodes -- RunningNodes, lookup_node_status(N) == notfound],
+    ok = lists:foreach(fun(Node) -> record_node_down(Node) end, OrphanNodes),
+    %% 3. Avoid purging live nodes, if missed lifecycle events for whatever reason.
     %% This is a fallback mechanism.
-    %% Avoid purging live nodes, if missed lifecycle events for whatever reason.
-    ok = lists:foreach(fun record_node_alive/1, mria:running_nodes()),
+    ok = lists:foreach(fun record_node_alive/1, RunningNodes),
     State#{last_membership := Members}.
 
 select(Status) ->
@@ -316,9 +319,8 @@ select_outdated(Status, Since0) ->
     ),
     ets:select(?TAB_STATUS, MS).
 
-filter_replicants(Nodes) ->
-    Replicants = mria_membership:replicant_nodelist(),
-    [RN || RN <- Nodes, lists:member(RN, Replicants)].
+filter_replicants(Nodes, #{last_membership := Members}) ->
+    [RN || RN <- Nodes, not lists:member(RN, Members)].
 
 schedule_purges(TS, State) ->
     %% Safety measure: purge only dead replicants.
@@ -329,7 +331,7 @@ schedule_purges(TS, State) ->
     %%    `reconcile/1` should notice a discrepancy and schedule a purge.
     ok = lists:foreach(
         fun(Node) -> schedule_purge(Node, {replicant_down_for, ?PURGE_DEAD_TIMEOUT}) end,
-        filter_replicants(select_outdated(down, TS - ?PURGE_DEAD_TIMEOUT))
+        filter_replicants(select_outdated(down, TS - ?PURGE_DEAD_TIMEOUT), State)
     ),
     %% Trigger purges for "force-left" nodes found during reconcile, if resposible.
     ok = lists:foreach(
@@ -417,16 +419,26 @@ purge_dead_node_trans(Node) ->
             false
     end.
 
-purge_this_node() ->
-    %% TODO: Guard against possible `emqx_router_helper` restarts?
-    purge_dead_node(node()).
+cleanup_routes(Node) ->
+    emqx_router:cleanup_routes(Node),
+    remove_routing_node(Node).
+
+%%
+
+add_routing_node(Node) ->
+    case ets:member(?ROUTING_NODE, Node) of
+        true -> ok;
+        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+    end.
+
+remove_routing_node(Node) ->
+    mria:dirty_delete(?ROUTING_NODE, Node).
+
+list_routing_nodes() ->
+    ets:select(?ROUTING_NODE, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
 
 node_has_routes(Node) ->
     ets:member(?ROUTING_NODE, Node).
-
-cleanup_routes(Node) ->
-    emqx_router:cleanup_routes(Node),
-    mria:dirty_delete(?ROUTING_NODE, Node).
 
 %%
 

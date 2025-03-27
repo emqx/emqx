@@ -43,7 +43,9 @@ groups() ->
     ],
     ClusterReplicantTCs = [
         t_cluster_node_leaving,
+        t_cluster_node_force_leave,
         t_cluster_node_down,
+        t_cluster_node_orphan,
         t_cluster_node_restart
     ],
     SchemaTCs = [
@@ -183,6 +185,25 @@ t_cluster_node_down(Config) ->
     {ok, _Event} = snabbkaffe:receive_events(SRef),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
+t_cluster_node_orphan('init', Config) ->
+    Config;
+t_cluster_node_orphan('end', _Config) ->
+    ok.
+
+t_cluster_node_orphan(_Config) ->
+    OrphanNode = emqx_cth_cluster:node_name(cluster_node_orphan),
+    emqx_router:add_route(<<"orphan/b/#">>, OrphanNode),
+    emqx_router:add_route(<<"test/e/f">>, node()),
+    ?assertMatch([_, _], emqx_router:topics()),
+    {ok, SRef} = snabbkaffe:subscribe(
+        %% Should be purged after ~2 reconciliations.
+        ?match_event(#{?snk_kind := router_node_routing_table_purged, node := OrphanNode}),
+        1,
+        10_000
+    ),
+    {ok, _Event} = snabbkaffe:receive_events(SRef),
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+
 t_cluster_node_force_leave('init', Config) ->
     start_join_node(cluster_node_force_leave, Config);
 t_cluster_node_force_leave('end', Config) ->
@@ -202,8 +223,14 @@ t_cluster_node_force_leave(Config) ->
     ok = emqx_cth_peer:kill(ClusterNode),
     %% Give Mria some time to recognize the node is down.
     ok = timer:sleep(500),
-    %% Force-leave it.
-    ok = emqx_cluster:force_leave(ClusterNode),
+    case ?config(group_name, Config) of
+        cluster ->
+            %% Force-leave it.
+            ok = emqx_cluster:force_leave(ClusterNode);
+        cluster_replicant ->
+            %% Replicant is considered as "left" already
+            ok
+    end,
     {ok, _Event} = snabbkaffe:receive_events(SRef),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
