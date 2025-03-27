@@ -1034,7 +1034,7 @@ put_seqno(Key, Val, Rec) ->
 
 %%
 
--type rank_key() :: {emqx_persistent_session_ds:subscription_id(), emqx_ds:rank_x()}.
+-type rank_key() :: {emqx_persistent_session_ds:subscription_id(), emqx_ds:shard()}.
 
 -spec get_rank(rank_key(), t()) -> integer() | undefined.
 get_rank(Key, Rec) ->
@@ -1055,7 +1055,7 @@ fold_ranks(Fun, Acc, Rec) ->
 %% @doc Fold ranks for a specific subscription ID
 -spec fold_ranks(
     emqx_persistent_session_ds:subscription_id(),
-    fun((emqx_ds:rank_x(), emqx_ds:rank_y(), Acc) -> Acc),
+    fun((emqx_ds:shard(), emqx_ds:generation(), Acc) -> Acc),
     Acc,
     t()
 ) -> Acc.

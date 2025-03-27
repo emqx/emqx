@@ -311,7 +311,7 @@ mk_leader_topic(ID) ->
 
 -type stream_state() :: #{
     progress => emqx_persistent_session_ds_shared_subs:progress(),
-    rank => emqx_ds:stream_rank()
+    rank => emqx_ds:slab()
 }.
 
 -spec init(id()) -> t().

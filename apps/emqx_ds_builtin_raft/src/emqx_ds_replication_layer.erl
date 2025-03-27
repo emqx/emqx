@@ -196,7 +196,7 @@
     ?batch_preconditions => [emqx_ds:precondition()]
 }.
 
--type generation_rank() :: {shard_id(), term()}.
+-type slab() :: {shard_id(), term()}.
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
@@ -266,7 +266,7 @@ update_db_config(DB, CreateOpts) ->
     ).
 
 -spec list_generations_with_lifetimes(emqx_ds:db()) ->
-    #{generation_rank() => emqx_ds:generation_info()}.
+    #{slab() => emqx_ds:slab_info()}.
 list_generations_with_lifetimes(DB) ->
     Shards = list_shards(DB),
     lists:foldl(
@@ -290,7 +290,7 @@ list_generations_with_lifetimes(DB) ->
         Shards
     ).
 
--spec drop_generation(emqx_ds:db(), generation_rank()) -> ok | {error, _}.
+-spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
 drop_generation(DB, {Shard, GenId}) ->
     ra_drop_generation(DB, Shard, GenId).
 
@@ -342,7 +342,7 @@ store_batch_atomic(DB, Batch, _Opts) ->
     end.
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    [{emqx_ds:stream_rank(), stream()}].
+    [{emqx_ds:slab(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
@@ -727,7 +727,7 @@ do_add_generation_v2(_DB) ->
     error(obsolete_api).
 
 -spec do_list_generations_with_lifetimes_v3(emqx_ds:db(), shard_id()) ->
-    #{emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()}
+    #{emqx_ds:generation() => emqx_ds:slab_info()}
     | emqx_ds:error(storage_down).
 do_list_generations_with_lifetimes_v3(DB, Shard) ->
     ShardId = {DB, Shard},

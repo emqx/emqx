@@ -125,7 +125,7 @@ add_generation(Node, DB) ->
     emqx_ds_replication_layer:shard_id()
 ) ->
     #{
-        emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()
+        emqx_ds:generation() => emqx_ds:slab_info()
     }.
 list_generations_with_lifetimes(Node, DB, Shard) ->
     erpc:call(Node, emqx_ds_replication_layer, do_list_generations_with_lifetimes_v3, [DB, Shard]).

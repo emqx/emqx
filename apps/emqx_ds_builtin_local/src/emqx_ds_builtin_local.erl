@@ -116,7 +116,7 @@
         atomic_batches := boolean()
     }.
 
--type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.
+-type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
 
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
@@ -186,7 +186,7 @@ update_db_config(DB, CreateOpts) ->
     ).
 
 -spec list_generations_with_lifetimes(emqx_ds:db()) ->
-    #{emqx_ds:generation_rank() => emqx_ds:generation_info()}.
+    #{emqx_ds:slab() => emqx_ds:slab_info()}.
 list_generations_with_lifetimes(DB) ->
     lists:foldl(
         fun(Shard, Acc) ->
@@ -207,7 +207,7 @@ list_generations_with_lifetimes(DB) ->
         emqx_ds_builtin_local_meta:shards(DB)
     ).
 
--spec drop_generation(emqx_ds:db(), generation_rank()) -> ok | {error, _}.
+-spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
 drop_generation(DB, {Shard, GenId}) ->
     emqx_ds_storage_layer:drop_generation({DB, Shard}, GenId).
 
@@ -350,7 +350,7 @@ shard_of_key(DB, Key) ->
     integer_to_binary(Hash).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    [{emqx_ds:stream_rank(), emqx_ds:ds_specific_stream()}].
+    [{emqx_ds:slab(), emqx_ds:ds_specific_stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     lists:flatmap(

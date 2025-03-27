@@ -176,7 +176,7 @@
     emqx_ds_new_streams:watch() => emqx_persistent_session_ds:topic_filter()
 }.
 
--type stream_map() :: #{emqx_ds:rank_x() => [{emqx_ds:rank_y(), emqx_ds:stream()}]}.
+-type stream_map() :: #{emqx_ds:shard() => [{emqx_ds:generation(), emqx_ds:stream()}]}.
 
 %% Subscription-specific state:
 -record(sub_metadata, {
@@ -770,7 +770,7 @@ renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
 -spec renew_streams_for_x(
     emqx_persistent_session_ds_state:t(),
     emqx_persistent_session_ds:subscription_id(),
-    emqx_ds:rank_x(),
+    emqx_ds:shard(),
     t()
 ) ->
     ret().
@@ -801,10 +801,12 @@ renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0}) ->
     emqx_persistent_session_ds_state:t(),
     emqx_ds:topic_filter(),
     emqx_persistent_session_ds_subs:subscription(),
-    emqx_ds:rank_x(),
-    [{emqx_ds:rank_y(), emqx_ds:stream()}]
+    emqx_ds:shard(),
+    [{emqx_ds:generation(), emqx_ds:stream()}]
 ) ->
-    {[stream_key()], emqx_persistent_session_ds_state:t(), [{emqx_ds:rank_y(), emqx_ds:stream()}]}.
+    {[stream_key()], emqx_persistent_session_ds_state:t(), [
+        {emqx_ds:generation(), emqx_ds:stream()}
+    ]}.
 do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YStreamL) ->
     CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
     CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
@@ -1073,8 +1075,8 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
 -spec make_iterator(
     emqx_ds:topic_filter(),
     emqx_persistent_session_ds_subs:subscription(),
-    emqx_ds:rank_x(),
-    emqx_ds:rank_y(),
+    emqx_ds:shard(),
+    emqx_ds:generation(),
     emqx_ds:stream(),
     emqx_persistent_session_ds_state:t()
 ) ->

@@ -65,9 +65,9 @@
     stream/0,
     delete_stream/0,
     delete_selector/0,
-    rank_x/0,
-    rank_y/0,
-    stream_rank/0,
+    shard/0,
+    generation/0,
+    slab/0,
     iterator/0,
     delete_iterator/0,
     iterator_id/0,
@@ -83,11 +83,9 @@
 
     ds_specific_stream/0,
     ds_specific_iterator/0,
-    ds_specific_generation_rank/0,
     ds_specific_delete_stream/0,
     ds_specific_delete_iterator/0,
-    generation_rank/0,
-    generation_info/0,
+    slab_info/0,
 
     poll_iterators/0,
     poll_opts/0,
@@ -141,11 +139,11 @@
 -type precondition() ::
     {if_exists | unless_exists, message_matcher(iodata() | '_')}.
 
--type rank_x() :: term().
+-type shard() :: term().
 
--type rank_y() :: integer().
+-type generation() :: integer().
 
--type stream_rank() :: {rank_x(), rank_y()}.
+-type slab() :: {shard(), generation()}.
 
 %% TODO: Not implemented
 -type iterator_id() :: term().
@@ -163,8 +161,6 @@
 -type ds_specific_iterator() :: term().
 
 -type ds_specific_stream() :: term().
-
--type ds_specific_generation_rank() :: term().
 
 -type message_key() :: binary().
 
@@ -302,12 +298,7 @@
         atom() => _
     }.
 
-%% An opaque term identifying a generation.  Each implementation will possibly add
-%% information to this term to match its inner structure (e.g.: by embedding the shard id,
-%% in the case of `emqx_ds_replication_layer').
--opaque generation_rank() :: ds_specific_generation_rank().
-
--type generation_info() :: #{
+-type slab_info() :: #{
     created_at := time(),
     since := time(),
     until := time() | undefined
@@ -336,15 +327,15 @@
 -callback update_db_config(db(), create_db_opts()) -> ok | {error, _}.
 
 -callback list_generations_with_lifetimes(db()) ->
-    #{generation_rank() => generation_info()}.
+    #{slab() => slab_info()}.
 
--callback drop_generation(db(), generation_rank()) -> ok | {error, _}.
+-callback drop_generation(db(), slab()) -> ok | {error, _}.
 
 -callback drop_db(db()) -> ok | {error, _}.
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
--callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), ds_specific_stream()}].
+-callback get_streams(db(), topic_filter(), time()) -> [{slab(), ds_specific_stream()}].
 
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
     make_iterator_result(ds_specific_iterator()).
@@ -411,12 +402,12 @@ add_generation(DB) ->
 update_db_config(DB, Opts) ->
     ?module(DB):update_db_config(DB, set_db_defaults(Opts)).
 
--spec list_generations_with_lifetimes(db()) -> #{generation_rank() => generation_info()}.
+-spec list_generations_with_lifetimes(db()) -> #{slab() => slab_info()}.
 list_generations_with_lifetimes(DB) ->
     Mod = ?module(DB),
     call_if_implemented(Mod, list_generations_with_lifetimes, [DB], #{}).
 
--spec drop_generation(db(), ds_specific_generation_rank()) -> ok | {error, _}.
+-spec drop_generation(db(), generation()) -> ok | {error, _}.
 drop_generation(DB, GenId) ->
     Mod = ?module(DB),
     case erlang:function_exported(Mod, drop_generation, 2) of
@@ -473,19 +464,19 @@ store_batch(DB, Msgs) ->
 %%
 %% 2. Streams may depend on one another. Therefore, care should be
 %% taken while replaying them in parallel to avoid out-of-order
-%% replay. This function returns stream together with its
-%% "coordinate": `stream_rank()'.
+%% replay. This function returns stream together with identifier of
+%% the slab containing it.
 %%
-%% Stream rank is a tuple of two terms, let's call them X and Y. If
-%% X coordinate of two streams is different, they are independent and
-%% can be replayed in parallel. If it's the same, then the stream with
-%% smaller Y coordinate should be replayed first. If Y coordinates are
-%% equal, then the streams are independent.
+%% Slab ID is a tuple of two terms: *shard* and *generation*. If two
+%% streams reside in slabs with different shard, they are independent
+%% and can be replayed in parallel. If shard is the same, then the
+%% stream with smaller generation should be replayed first. If both
+%% shard and generations are equal, then the streams are independent.
 %%
 %% Stream is fully consumed when `next/3' function returns
 %% `end_of_stream'. Then and only then the client can proceed to
 %% replaying streams that depend on the given one.
--spec get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
+-spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
     ?module(DB):get_streams(DB, TopicFilter, StartTime).
 
