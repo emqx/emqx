@@ -475,7 +475,7 @@ do_update_listener(Type, Name, OldConf, NewConf = #{bind := ListenOn}) when
     Id = listener_id(Type, Name),
     case maps:get(bind, OldConf) of
         ListenOn ->
-            esockd:set_options({Id, ListenOn}, esockd_opts(Id, Type, Name, NewConf, OldConf));
+            esockd:reset_options({Id, ListenOn}, esockd_opts(Id, Type, Name, NewConf));
         _Different ->
             %% TODO
             %% Again, we're not strictly required to drop live connections in this case.

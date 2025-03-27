@@ -145,8 +145,9 @@ integral_versions(Type, Desired) when ?IS_STRING(Desired) ->
     integral_versions(Type, iolist_to_binary(Desired));
 integral_versions(Type, Desired) when is_binary(Desired) ->
     integral_versions(Type, parse_versions(Desired));
-integral_versions(Type, Desired) ->
+integral_versions(Type, DesiredIn) ->
     Available = available_versions(Type),
+    Desired = dedup(DesiredIn),
     case lists:filter(fun(V) -> lists:member(V, Available) end, Desired) of
         [] ->
             erlang:error(#{
@@ -591,71 +592,106 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
 
 %% @doc Convert hocon-checked ssl server options (map()) to
 %% proplist accepted by ssl library.
--spec to_server_opts(tls | dtls, map()) -> [{atom(), term()}].
+-spec to_server_opts(tls | dtls, map()) -> [ssl:tls_server_option()].
 to_server_opts(Type, Opts) ->
-    Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
-    Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
-    Path = fun(Key) -> resolve_cert_path_for_read_strict(maps:get(Key, Opts, undefined)) end,
-    Password = ensure_password(maps:get(password, Opts, undefined)),
-    ensure_valid_options(
-        maps:to_list(Opts#{
-            keyfile => Path(keyfile),
-            certfile => Path(certfile),
-            cacertfile => Path(cacertfile),
-            ciphers => Ciphers,
-            versions => Versions,
-            password => Password
-        }),
-        Versions
-    ).
+    Versions = integral_versions(Type, conf_get_opt(versions, Opts)),
+    Ciphers = integral_ciphers(Versions, conf_get_opt(ciphers, Opts)),
+    DefaultUserLookupFun =
+        case Versions of
+            ['tlsv1.3'] -> undefined;
+            [_ | _] -> {fun emqx_tls_psk:lookup/3, undefined}
+        end,
+    TLSServerOpts = [
+        {versions, Versions},
+        {ciphers, Ciphers}
+        | emqx_utils:flattermap(
+            fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
+            [
+                {keyfile, fun conf_resolve_path_strict/2},
+                {certfile, fun conf_resolve_path_strict/2},
+                {cacertfile, fun conf_resolve_path_strict/2},
+                {cacerts, fun conf_get_opt/2},
+                {password, fun conf_get_password/2},
+                {depth, fun conf_get_opt/2},
+                {dhfile, fun conf_get_opt/2},
+                {verify, fun conf_get_opt/2},
+                {fail_if_no_peer_cert, fun conf_get_opt/2},
+                {reuse_session, fun conf_get_opt/2, #{omit_if => true}},
+                {secure_renegotiate, fun conf_get_opt/2, #{omit_if => true}},
+                {honor_cipher_order, fun conf_get_opt/2},
+                {client_renegotiation, fun conf_get_opt/2, #{omit_if => true}},
+                {handshake_timeout, fun conf_get_opt/2},
+                {user_lookup_fun, fun conf_get_opt/2, #{default => DefaultUserLookupFun}},
+                {log_level, fun conf_get_opt/2},
+                {hibernate_after, fun conf_get_opt/2},
+                {gc_after_handshake, fun conf_get_opt/2, #{omit_if => false}},
+                {ocsp, fun conf_get_opt/2},
+                {enable_crl_check, fun conf_get_opt/2, #{omit_if => false}}
+            ]
+        )
+    ],
+    ensure_valid_options(TLSServerOpts).
 
 %% @doc Convert hocon-checked tls client options (map()) to
 %% proplist accepted by ssl library.
--spec to_client_opts(map()) -> [{atom(), term()}].
+-spec to_client_opts(map()) -> [ssl:tls_client_option()].
 to_client_opts(Opts) ->
     to_client_opts(tls, Opts).
 
 %% @doc Convert hocon-checked tls or dtls client options (map()) to
 %% proplist accepted by ssl library.
--spec to_client_opts(tls | dtls, map()) -> [{atom(), term()}].
-to_client_opts(Type, Opts) ->
-    GetD = fun(Key, Default) -> fuzzy_map_get(Key, Opts, Default) end,
-    Get = fun(Key) -> GetD(Key, undefined) end,
-    Path = fun(Key) -> resolve_cert_path_for_read_strict(Get(Key)) end,
-    case GetD(enable, false) of
-        true ->
-            KeyFile = Path(keyfile),
-            CertFile = Path(certfile),
-            CAFile = Path(cacertfile),
-            Verify = GetD(verify, verify_none),
-            SNI = ensure_sni(Get(server_name_indication)),
-            Versions = integral_versions(Type, Get(versions)),
-            Ciphers = integral_ciphers(Versions, Get(ciphers)),
-            ensure_valid_options(
+-spec to_client_opts(tls | dtls, map()) -> [ssl:tls_client_option()].
+to_client_opts(Type, Opts = #{enable := true}) ->
+    Versions = integral_versions(Type, conf_get_opt(versions, Opts)),
+    Ciphers = integral_ciphers(Versions, conf_get_opt(ciphers, Opts)),
+    Verify = conf_get_opt(verify, Opts, verify_none),
+    TLSClientOpts =
+        [
+            {versions, Versions},
+            {ciphers, Ciphers},
+            {verify, Verify}
+            | emqx_utils:flattermap(
+                fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
                 [
-                    {keyfile, KeyFile},
-                    {certfile, CertFile},
-                    {cacertfile, CAFile},
-                    {verify, Verify},
-                    {server_name_indication, SNI},
-                    {versions, Versions},
-                    {ciphers, Ciphers},
-                    {reuse_sessions, Get(reuse_sessions)},
-                    {depth, Get(depth)},
-                    {password, ensure_password(Get(password))},
-                    {secure_renegotiate, Get(secure_renegotiate)}
-                ] ++ hostname_check(Verify),
-                Versions
-            );
-        false ->
-            []
-    end.
+                    {keyfile, fun conf_resolve_path_strict/2},
+                    {certfile, fun conf_resolve_path_strict/2},
+                    {cacertfile, fun conf_resolve_path_strict/2},
+                    {password, fun conf_get_password/2},
+                    {depth, fun conf_get_opt/2},
+                    {verify, fun conf_get_opt/2},
+                    {server_name_indication, fun conf_get_sni/2},
+                    {customize_hostname_check, customize_hostname_check(Verify)},
+                    {reuse_sessions, fun conf_get_opt/2, #{omit_if => true}},
+                    {secure_renegotiate, fun conf_get_opt/2, #{omit_if => true}}
+                ]
+            )
+        ],
+    ensure_valid_options(TLSClientOpts);
+to_client_opts(_Type, #{}) ->
+    [].
 
-hostname_check(verify_none) ->
-    [];
-hostname_check(verify_peer) ->
+customize_hostname_check(verify_none) ->
+    undefined;
+customize_hostname_check(verify_peer) ->
     %% allow wildcard certificates
-    [{customize_hostname_check, [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}].
+    [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}].
+
+conf_extract_opt({Name, Fun}, Opts) ->
+    conf_extract_opt({Name, Fun, #{}}, Opts);
+conf_extract_opt({Name, Fun, Extra}, Opts) when is_function(Fun, 2) ->
+    V0 = Fun(Name, Opts),
+    conf_extract_opt(Name, V0, Extra);
+conf_extract_opt({Name, V0, Extra}, _Opts) ->
+    conf_extract_opt(Name, V0, Extra).
+
+conf_extract_opt(Name, V0, Extra) ->
+    V1 = emqx_maybe:define(V0, maps:get(default, Extra, undefined)),
+    case V1 of
+        undefined -> [];
+        "" -> [];
+        V when map_get(omit_if, Extra) == V -> [];
+        V -> {Name, V}
+    end.
 
 resolve_cert_path_for_read_strict(Path) ->
     case resolve_cert_path_for_read(Path) of
@@ -682,38 +718,26 @@ resolve_cert_path_for_read_strict(Path) ->
 resolve_cert_path_for_read(Path) ->
     emqx_schema:naive_env_interpolation(Path).
 
-ensure_valid_options(Options, Versions) ->
+ensure_valid_options(Options) ->
+    Versions = proplists:get_value(versions, Options),
     ensure_valid_options(Options, Versions, []).
 
 ensure_valid_options([], _, Acc) ->
     lists:reverse(Acc);
-ensure_valid_options([{K, undefined} | T], Versions, Acc) when
-    K =:= crl_check;
-    K =:= crl_cache
-->
-    %% Note: we must set crl options to `undefined' to unset them.  Otherwise,
-    %% `esockd' will retain such options when `esockd:merge_opts/2' is called and the SSL
-    %% options were previously enabled.
-    ensure_valid_options(T, Versions, [{K, undefined} | Acc]);
-ensure_valid_options([{_, undefined} | T], Versions, Acc) ->
-    ensure_valid_options(T, Versions, Acc);
-ensure_valid_options([{_, ""} | T], Versions, Acc) ->
-    ensure_valid_options(T, Versions, Acc);
 ensure_valid_options([{K, V} | T], Versions, Acc) ->
     case tls_option_compatible_versions(K) of
         all ->
             ensure_valid_options(T, Versions, [{K, V} | Acc]);
         CompatibleVersions ->
-            Enabled = sets:from_list(Versions),
-            Compatible = sets:from_list(CompatibleVersions),
-            case sets:size(sets:intersection(Enabled, Compatible)) > 0 of
-                true ->
-                    ensure_valid_options(T, Versions, [{K, V} | Acc]);
-                false ->
+            case Versions -- CompatibleVersions of
+                %% No intersection.
+                Versions ->
                     ?SLOG(warning, #{
                         msg => "drop_incompatible_tls_option", option => K, versions => Versions
                     }),
-                    ensure_valid_options(T, Versions, Acc)
+                    ensure_valid_options(T, Versions, Acc);
+                _ ->
+                    ensure_valid_options(T, Versions, [{K, V} | Acc])
             end
     end.
 
@@ -759,16 +783,27 @@ tls_option_compatible_versions(use_ticket) ->
 tls_option_compatible_versions(_) ->
     all.
 
--spec fuzzy_map_get(atom() | binary(), map(), any()) -> any().
-fuzzy_map_get(Key, Options, Default) ->
+-spec conf_get_opt(atom(), map()) -> any() | undefined.
+conf_get_opt(Key, Options) ->
+    conf_get_opt(Key, Options, undefined).
+
+-spec conf_get_opt(atom(), map(), Default :: any()) -> any().
+conf_get_opt(Key, Options, Default) ->
     case maps:find(Key, Options) of
-        {ok, Val} ->
-            Val;
-        error when is_atom(Key) ->
-            fuzzy_map_get(atom_to_binary(Key, utf8), Options, Default);
-        error ->
-            Default
+        {ok, Value} ->
+            Value;
+        _Otherwise ->
+            maps:get(atom_to_binary(Key, utf8), Options, Default)
     end.
+
+conf_resolve_path_strict(Key, Options) ->
+    resolve_cert_path_for_read_strict(conf_get_opt(Key, Options)).
+
+conf_get_password(Name, Opts) ->
+    ensure_password(conf_get_opt(Name, Opts)).
+
+conf_get_sni(Name, Opts) ->
+    ensure_sni(conf_get_opt(Name, Opts)).
 
 ensure_sni(disable) -> disable;
 ensure_sni(undefined) -> undefined;
