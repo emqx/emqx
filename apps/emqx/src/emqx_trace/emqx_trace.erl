@@ -332,7 +332,8 @@ format(Traces) ->
             Map0 = maps:from_list(lists:zip(Fields, Values)),
             Extra = maps:get(extra, Map0, #{}),
             Formatter = maps:get(formatter, Extra, text),
-            Map1 = Map0#{formatter => Formatter},
+            PayloadLimit = maps:get(payload_limit, Extra, ?DEFAULT_PAYLOAD_LIMIT),
+            Map1 = Map0#{formatter => Formatter, payload_limit => PayloadLimit},
             maps:remove(extra, Map1)
         end,
         Traces
