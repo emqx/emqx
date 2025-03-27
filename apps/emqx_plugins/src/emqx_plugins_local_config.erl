@@ -85,7 +85,8 @@ copy(NameVsn, Source, Destination) ->
     maybe
         ok ?= ensure_destination_absent(Destination),
         ok ?= filelib:ensure_dir(Destination),
-        ok ?= file:copy(Source, Destination)
+        {ok, _} ?= file:copy(Source, Destination),
+        ok
     else
         {error, destination_present} ->
             ?SLOG(debug, #{msg => "plugin_config_file_already_existed", name_vsn => NameVsn}),

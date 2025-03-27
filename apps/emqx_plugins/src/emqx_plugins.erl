@@ -164,27 +164,14 @@ ensure_installed() ->
 ensure_installed(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
         {ok, _} ->
-            ok,
-            _ = maybe_ensure_plugin_config(NameVsn, ?normal);
+            configure(NameVsn, ?normal);
         {error, _} ->
             ok = purge(NameVsn),
-            case ensure_exists_and_installed(NameVsn) of
-                ok ->
-                    maybe_post_op_after_installed(NameVsn, ?normal),
-                    ok;
-                {error, _Reason} = Err ->
-                    Err
-            end
+            install_and_configure(NameVsn, ?normal)
     end.
 
 ensure_installed(NameVsn, ?fresh_install = Mode) ->
-    case ensure_exists_and_installed(NameVsn) of
-        ok ->
-            maybe_post_op_after_installed(NameVsn, Mode),
-            ok;
-        {error, _Reason} = Err ->
-            Err
-    end.
+    install_and_configure(NameVsn, Mode).
 
 %% @doc Ensure files and directories for the given plugin are being deleted.
 %% If a plugin is running, or enabled, an error is returned.
@@ -297,7 +284,7 @@ ensure_stopped(NameVsn) ->
     ?CATCH(do_ensure_stopped(NameVsn)).
 
 do_ensure_stopped(NameVsn) ->
-    case do_read_plugin(NameVsn) of
+    case emqx_plugins_info:read(NameVsn) of
         {ok, Plugin} ->
             emqx_plugins_apps:stop(Plugin);
         {error, Reason} ->
@@ -308,7 +295,7 @@ do_ensure_stopped(NameVsn) ->
 get_config(NameVsn) ->
     get_config(NameVsn, #{}).
 
--spec get_config(name_vsn(), term()) -> plugin_config_map().
+-spec get_config(name_vsn(), term()) -> plugin_config_map() | term().
 get_config(NameVsn, Default) ->
     persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default).
 
@@ -338,7 +325,7 @@ maybe_call_on_config_changed(NameVsn, NewConf) ->
     maybe
         {ok, PluginAppModule} ?= app_module_name(NameVsn),
         true ?= erlang:function_exported(PluginAppModule, FuncName, 2),
-        {ok, OldConf} = get_config(NameVsn),
+        OldConf = get_config(NameVsn),
         try erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf]) of
             _ -> ok
         catch
@@ -537,8 +524,8 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
 
 do_ensure_started(NameVsn) ->
     maybe
-        ok ?= ensure_exists_and_installed(NameVsn),
-        {ok, Plugin} ?= do_read_plugin(NameVsn),
+        ok ?= install(NameVsn, ?normal),
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:start(NameVsn, Plugin)
     else
         {error, Reason} ->
@@ -590,26 +577,13 @@ catch_errors(Label, F) ->
 %% read plugin info from the JSON file
 %% returns {ok, Info} or {error, Reason}
 read_plugin_info(NameVsn, Options) ->
-    do_read_plugin(NameVsn, Options).
-
-do_read_plugin(NameVsn) ->
-    do_read_plugin(NameVsn, #{}).
-
-do_read_plugin(NameVsn, Options) ->
-    maybe
-        {ok, Info0} ?= emqx_plugins_fs:read_info(NameVsn),
-        ok ?= check_plugin(Info0, NameVsn, emqx_plugins_fs:info_file_path(NameVsn)),
-        Info1 = populate_plugin_readme(NameVsn, Options, Info0),
-        Info2 = populate_plugin_package_info(NameVsn, Info1),
-        Info = populate_plugin_status(NameVsn, Info2),
-        {ok, Info}
-    end.
+    emqx_plugins_info:read(NameVsn, Options).
 
 ensure_installed_locally(NameVsn) ->
     emqx_plugins_fs:ensure_installed_from_tar(
         NameVsn,
         fun() ->
-            case do_read_plugin(NameVsn) of
+            case emqx_plugins_info:read(NameVsn) of
                 {ok, _} ->
                     ok;
                 {error, _} = Error ->
@@ -618,22 +592,41 @@ ensure_installed_locally(NameVsn) ->
         end
     ).
 
-ensure_exists_and_installed(NameVsn) ->
-    case ensure_installed_locally(NameVsn) of
-        ok ->
+install_and_configure(NameVsn, Mode) ->
+    maybe
+        ok ?= install(NameVsn, Mode),
+        configure(NameVsn, Mode)
+    end.
+
+configure(NameVsn, Mode) ->
+    ok = load_config_schema(NameVsn),
+    maybe
+        ok ?= ensure_local_config(NameVsn, Mode),
+        configure_from_local_config(NameVsn)
+    end,
+    ensure_state(NameVsn).
+
+%% Install from local tarball or get tarball from cluster
+install(NameVsn, Mode) ->
+    case {ensure_installed_locally(NameVsn), Mode} of
+        {ok, _} ->
             ok;
-        {error, #{reason := plugin_tarball_not_found}} ->
-            do_get_from_cluster(NameVsn);
-        {error, Reason} ->
+        {{error, #{reason := plugin_tarball_not_found}}, ?normal} ->
+            case get_from_cluster(NameVsn) of
+                ok ->
+                    ensure_installed_locally(NameVsn);
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {{error, Reason}, _} ->
             {error, Reason}
     end.
 
-do_get_from_cluster(NameVsn) ->
+get_from_cluster(NameVsn) ->
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
     case get_plugin_tar_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
-            ok = emqx_plugins_fs:write_tar(NameVsn, TarContent),
-            ok = ensure_installed_locally(NameVsn);
+            emqx_plugins_fs:write_tar(NameVsn, TarContent);
         {error, NodeErrors} when Nodes =/= [] ->
             ErrMeta = #{
                 msg => "failed_to_copy_plugin_from_other_nodes",
@@ -689,90 +682,6 @@ get_plugin_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
         Err ->
             get_plugin_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors])
     end.
-
-populate_plugin_package_info(NameVsn, Info) ->
-    Info#{md5sum => emqx_plugins_fs:read_md5sum(NameVsn)}.
-
-populate_plugin_readme(NameVsn, #{fill_readme := true}, Info) ->
-    Info#{readme => emqx_plugins_fs:read_readme(NameVsn)};
-populate_plugin_readme(_NameVsn, _Options, Info) ->
-    Info.
-
-populate_plugin_status(NameVsn, Info) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    RunningSt =
-        case application:get_key(AppName, vsn) of
-            {ok, _} ->
-                case lists:keyfind(AppName, 1, running_apps()) of
-                    {AppName, _} -> running;
-                    _ -> loaded
-                end;
-            undefined ->
-                stopped
-        end,
-    Configured = lists:filtermap(
-        fun(#{name_vsn := NV, enable := St}) ->
-            case bin(NV) =:= bin(NameVsn) of
-                true -> {true, St};
-                false -> false
-            end
-        end,
-        configured()
-    ),
-    ConfSt =
-        case Configured of
-            [] -> not_configured;
-            [true] -> enabled;
-            [false] -> disabled
-        end,
-    Info#{
-        running_status => RunningSt,
-        config_status => ConfSt
-    }.
-
-check_plugin(
-    #{
-        <<"name">> := Name,
-        <<"rel_vsn">> := Vsn,
-        <<"rel_apps">> := Apps,
-        <<"description">> := _
-    },
-    NameVsn,
-    FilePath
-) ->
-    case bin(NameVsn) =:= bin([Name, "-", Vsn]) of
-        true ->
-            try
-                %% assert
-                [_ | _] = Apps,
-                %% validate if the list is all <app>-<vsn> strings
-                lists:foreach(
-                    fun(App) -> _ = emqx_plugins_utils:parse_name_vsn(App) end, Apps
-                )
-            catch
-                _:_ ->
-                    {error, #{
-                        msg => "bad_rel_apps",
-                        rel_apps => Apps,
-                        hint => "A non-empty string list of app_name-app_vsn format"
-                    }}
-            end;
-        false ->
-            {error, #{
-                msg => "name_vsn_mismatch",
-                name_vsn => NameVsn,
-                path => FilePath,
-                name => Name,
-                rel_vsn => Vsn
-            }}
-    end;
-check_plugin(_What, NameVsn, FilePath) ->
-    {error, #{
-        msg => "bad_info_file_content",
-        mandatory_fields => [rel_vsn, name, rel_apps, description],
-        name_vsn => NameVsn,
-        path => FilePath
-    }}.
 
 do_put_config_internal(Key, Value, ConfLocation) when is_atom(Key) ->
     do_put_config_internal([Key], Value, ConfLocation);
@@ -841,12 +750,7 @@ for_plugins(ActionFun) ->
             ok
     end.
 
-maybe_post_op_after_installed(NameVsn0, Mode) ->
-    NameVsn = wrap_to_list(NameVsn0),
-    _ = maybe_load_config_schema(NameVsn, Mode),
-    ok = maybe_ensure_state(NameVsn).
-
-maybe_ensure_state(NameVsn) ->
+ensure_state(NameVsn) ->
     EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->
         case NV of
             NameVsn ->
@@ -868,55 +772,21 @@ maybe_ensure_state(NameVsn) ->
     end,
     ok.
 
-maybe_load_config_schema(NameVsn, Mode) ->
-    _ =
-        case emqx_plugins_fs:read_avsc_bin(NameVsn) of
-            {ok, AvscBin} ->
-                _ = emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin),
-                ok;
-            {error, _} ->
-                ok
-        end,
-    _ = maybe_create_config_dir(NameVsn, Mode).
-
-maybe_create_config_dir(NameVsn, Mode) ->
-    has_avsc(NameVsn) andalso
-        do_create_config_dir(NameVsn, Mode).
-
-do_create_config_dir(NameVsn, Mode) ->
+ensure_local_config(NameVsn, Mode) ->
     case emqx_plugins_fs:ensure_config_dir(NameVsn) of
         ok ->
             %% get config from other nodes or get from tarball
-            _ = maybe_ensure_plugin_config(NameVsn, Mode),
-            ok;
+            do_ensure_local_config(NameVsn, Mode);
         {error, _} = Error ->
+            ?SLOG(warning, #{
+                msg => "failed_to_ensure_config_dir", name_vsn => NameVsn, reason => Error
+            }),
             Error
     end.
 
--spec maybe_ensure_plugin_config(name_vsn(), ?fresh_install | ?normal) -> ok.
-maybe_ensure_plugin_config(NameVsn, Mode) ->
-    case has_avsc(NameVsn) of
-        true ->
-            _ = ensure_plugin_config({NameVsn, Mode});
-        false ->
-            ok
-    end.
-
--spec ensure_plugin_config({name_vsn(), ?fresh_install | ?normal}) -> ok.
-ensure_plugin_config({NameVsn, Mode}) ->
-    case ensure_local_config(NameVsn, Mode) of
-        ok ->
-            configure_from_local_config(NameVsn);
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_ensure_plugin_config", name_vsn => NameVsn, reason => Reason
-            }),
-            ok
-    end.
-
-ensure_local_config(NameVsn, ?fresh_install) ->
-    emqx_plugins_local_config:copy_default_config(NameVsn);
-ensure_local_config(NameVsn, ?normal) ->
+do_ensure_local_config(NameVsn, ?fresh_install) ->
+    emqx_plugins_local_config:copy_default(NameVsn);
+do_ensure_local_config(NameVsn, ?normal) ->
     Nodes = mria:running_nodes(),
     case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
         {ok, Config} when is_map(Config) ->
@@ -927,7 +797,7 @@ ensure_local_config(NameVsn, ?normal) ->
                 name_vsn => NameVsn,
                 reason => Reason
             }),
-            emqx_plugins_local_config:copy_default_config(NameVsn)
+            emqx_plugins_local_config:copy_default(NameVsn)
     end.
 
 configure_from_local_config(NameVsn) ->
@@ -938,6 +808,15 @@ configure_from_local_config(NameVsn) ->
             ?SLOG(warning, #{
                 msg => "failed_to_validate_plugin_config", name_vsn => NameVsn, reason => Reason
             }),
+            ok
+    end.
+
+load_config_schema(NameVsn) ->
+    case emqx_plugins_fs:read_avsc_bin(NameVsn) of
+        {ok, AvscBin} ->
+            _ = emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin),
+            ok;
+        {error, _} ->
             ok
     end.
 
@@ -967,14 +846,6 @@ validated_local_config(NameVsn) ->
             {error, Reason}
     end.
 
-running_apps() ->
-    lists:map(
-        fun({N, _, V}) ->
-            {N, V}
-        end,
-        application:which_applications(infinity)
-    ).
-
 ensure_config_bin(AvroJsonMap) when is_map(AvroJsonMap) ->
     emqx_utils_json:encode(AvroJsonMap);
 ensure_config_bin(AvroJsonBin) when is_binary(AvroJsonBin) ->
@@ -990,6 +861,3 @@ bin_key(Term) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
-
-wrap_to_list(Path) ->
-    binary_to_list(iolist_to_binary(Path)).

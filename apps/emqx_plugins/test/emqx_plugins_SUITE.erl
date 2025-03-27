@@ -93,13 +93,7 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(TestCase, Config) ->
-    emqx_plugins:put_configured([]),
-    lists:foreach(
-        fun(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
-            emqx_plugins:purge(bin([Name, "-", Vsn]))
-        end,
-        emqx_plugins:list()
-    ),
+    emqx_plugins_test_helpers:purge_plugins(),
     ?MODULE:TestCase({init, Config}).
 
 end_per_testcase(TestCase, Config) ->
@@ -109,24 +103,8 @@ end_per_testcase(TestCase, Config) ->
 get_demo_plugin_package() ->
     get_demo_plugin_package(emqx_plugins_fs:install_dir()).
 
-get_demo_plugin_package(
-    #{
-        release_name := ReleaseName,
-        git_url := GitUrl,
-        vsn := PluginVsn,
-        tag := ReleaseTag,
-        shdir := WorkDir
-    } = Opts
-) ->
-    TargetName = lists:flatten([ReleaseName, "-", PluginVsn, ?PACKAGE_SUFFIX]),
-    FileURI = lists:flatten(lists:join("/", [GitUrl, ReleaseTag, TargetName])),
-    {ok, {_, _, PluginBin}} = httpc:request(FileURI),
-    Pkg = filename:join([
-        WorkDir,
-        TargetName
-    ]),
-    ok = file:write_file(Pkg, PluginBin),
-    Opts#{package => Pkg};
+get_demo_plugin_package(#{} = Opts) ->
+    emqx_plugins_test_helpers:get_demo_plugin_package(Opts);
 get_demo_plugin_package(Dir) ->
     get_demo_plugin_package(
         #{
@@ -729,7 +707,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
     CopyFromNode = proplists:get_value(copy_from_node, Config),
     CopyToNode = proplists:get_value(copy_to_node, Config),
     CopyToDir = proplists:get_value(to_install_dir, Config),
-    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config_interal, [[states], []]),
+    CopyFromPluginsState = rpc:call(CopyFromNode, emqx_plugins, get_config_internal, [[states], []]),
     NameVsn = proplists:get_value(name_vsn, Config),
     PluginName = proplists:get_value(plugin_name, Config),
     PluginApp = list_to_atom(PluginName),
@@ -813,7 +791,7 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     %% successfully even if it's not extracted yet.  Simply starting
     %% the node would crash if not working properly.
     ct:pal("~p config:\n  ~p", [
-        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config_interal, [[], #{}])
+        CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config_internal, [[], #{}])
     ]),
     ct:pal("~p install_dir:\n  ~p", [
         CopyToNode, erpc:call(CopyToNode, file, list_dir, [ToInstallDir])

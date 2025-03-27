@@ -167,7 +167,7 @@ get_tar(NameVsn) ->
     end.
 
 -spec is_tar_present(name_vsn()) ->
-    false | {true, file:filename()}.
+    false | {true, [file:filename()]}.
 is_tar_present(NameVsn) ->
     {AppName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     Wildcard = tar_file_path([bin(AppName), "-*"]),
@@ -253,21 +253,17 @@ purge_installed(NameVsn) ->
 
 -spec ensure_config_dir(name_vsn()) -> ok | {error, term()}.
 ensure_config_dir(NameVsn) ->
-    case plugin_data_dir(NameVsn) of
+    ConfigDir = plugin_data_dir(NameVsn),
+    case filelib:ensure_path(ConfigDir) of
+        ok ->
+            ok;
         {error, Reason} ->
-            {error, {gen_config_dir_failed, Reason}};
-        ConfigDir ->
-            case filelib:ensure_path(ConfigDir) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "failed_to_create_plugin_config_dir",
-                        dir => ConfigDir,
-                        reason => Reason
-                    }),
-                    {error, {mkdir_failed, ConfigDir, Reason}}
-            end
+            ?SLOG(warning, #{
+                msg => "failed_to_create_plugin_config_dir",
+                dir => ConfigDir,
+                reason => Reason
+            }),
+            {error, {mkdir_failed, ConfigDir, Reason}}
     end.
 
 -spec lib_dir(name_vsn()) -> string().
@@ -432,8 +428,7 @@ delete_file_if_exists(File) ->
     end.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
+bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8).
 
 -ifdef(TEST).
 normalize_dir_test_() ->

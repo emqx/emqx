@@ -18,12 +18,26 @@
 
 -export([
     stop/1,
-    start/2
+    start/2,
+    running_status/1
 ]).
 
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+
+-spec running_status(name_vsn()) -> running | loaded | stopped.
+running_status(NameVsn) ->
+    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    case application:get_key(AppName, vsn) of
+        {ok, _} ->
+            case lists:keyfind(AppName, 1, running_apps()) of
+                {AppName, _} -> running;
+                _ -> loaded
+            end;
+        undefined ->
+            stopped
+    end.
 
 %% Stop all apps installed by the plugin package,
 %% but not the ones shared with others.

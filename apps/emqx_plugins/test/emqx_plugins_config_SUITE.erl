@@ -96,9 +96,10 @@ t_plugin_with_avsc_config(_Config) ->
 
     ok = emqx_plugins:ensure_uninstalled(NameVsn).
 
-
 t_plugin_with_no_avsc_config(_Config) ->
-    #{name_vsn := NameVsn} = emqx_plugins_test_helpers:get_demo_plugin_package(?EMQX_PLUGIN_NO_AVSC),
+    #{name_vsn := NameVsn} = emqx_plugins_test_helpers:get_demo_plugin_package(
+        ?EMQX_PLUGIN_NO_AVSC
+    ),
     ok = emqx_plugins:ensure_installed(NameVsn),
 
     ?assertMatch(
@@ -107,5 +108,3 @@ t_plugin_with_no_avsc_config(_Config) ->
     ),
 
     ok = emqx_plugins:ensure_uninstalled(NameVsn).
-
-

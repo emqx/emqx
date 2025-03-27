@@ -526,10 +526,10 @@ update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:get_config(NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found) of
-                {ok, Config} when is_map(Config) ->
+            case emqx_plugins:get_config(NameVsn, ?plugin_conf_not_found) of
+                Config when is_map(Config) ->
                     {200, #{<<"content-type">> => <<"'application/json'">>}, Config};
-                {ok, ?plugin_conf_not_found} ->
+                ?plugin_conf_not_found ->
                     {400, #{
                         code => 'BAD_CONFIG',
                         message => <<"Plugin Config Not Found">>
