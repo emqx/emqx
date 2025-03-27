@@ -30,6 +30,7 @@
     which_dbs/0,
     update_db_config/2,
     add_generation/1,
+    shard_of/2,
     list_generations_with_lifetimes/1,
     drop_generation/2,
     drop_db/1
@@ -62,6 +63,8 @@
     operation/0,
     deletion/0,
     precondition/0,
+    get_streams_opts/0,
+    get_streams_result/0,
     stream/0,
     delete_stream/0,
     delete_selector/0,
@@ -151,6 +154,16 @@
 -opaque iterator() :: ds_specific_iterator().
 
 -opaque delete_iterator() :: ds_specific_delete_iterator().
+
+-type get_streams_opts() :: #{
+    shard => shard()
+}.
+
+-type get_streams_result() ::
+    {
+        _Streams :: [{slab(), stream()}],
+        _Errors :: [{shard(), emqx_ds:error(_)}]
+    }.
 
 -opaque stream() :: ds_specific_stream().
 
@@ -333,9 +346,11 @@
 
 -callback drop_db(db()) -> ok | {error, _}.
 
+-callback shard_of(db(), emqx_types:clientid() | topic()) -> shard().
+
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
--callback get_streams(db(), topic_filter(), time()) -> [{slab(), ds_specific_stream()}].
+-callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
 
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
     make_iterator_result(ds_specific_iterator()).
@@ -427,6 +442,15 @@ drop_db(DB) ->
             Module:drop_db(DB)
     end.
 
+%% @doc Get shard of a client ID or a topic.
+%%
+%% WARNING: This function does NOT check the type of input, and may
+%% return arbitrary result when called with topic as an argument for a
+%% DB using client ID for sharding and vice versa.
+-spec shard_of(db(), emqx_types:clientid() | topic()) -> shard().
+shard_of(DB, ClientId) ->
+    ?module(DB):shard_of(DB, ClientId).
+
 -spec store_batch(db(), batch(), message_store_opts()) -> store_batch_result().
 store_batch(DB, Msgs, Opts) ->
     ?module(DB):store_batch(DB, Msgs, Opts).
@@ -435,7 +459,17 @@ store_batch(DB, Msgs, Opts) ->
 store_batch(DB, Msgs) ->
     store_batch(DB, Msgs, #{}).
 
+%% @doc Simplified version of `get_streams/4' that ignores the errors.
+-spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
+get_streams(DB, TopicFilter, StartTime) ->
+    {Streams, _Errors} = get_streams(DB, TopicFilter, StartTime, #{}),
+    Streams.
+
 %% @doc Get a list of streams needed for replaying a topic filter.
+%%
+%% When `shard' key is present in the options, this function will
+%% query only the specified shard. Otherwise, it will query all
+%% shards.
 %%
 %% Motivation: under the hood, EMQX may store different topics at
 %% different locations or even in different databases. A wildcard
@@ -476,9 +510,9 @@ store_batch(DB, Msgs) ->
 %% Stream is fully consumed when `next/3' function returns
 %% `end_of_stream'. Then and only then the client can proceed to
 %% replaying streams that depend on the given one.
--spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
-get_streams(DB, TopicFilter, StartTime) ->
-    ?module(DB):get_streams(DB, TopicFilter, StartTime).
+-spec get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
+get_streams(DB, TopicFilter, StartTime, Opts) ->
+    ?module(DB):get_streams(DB, TopicFilter, StartTime, Opts).
 
 -spec make_iterator(db(), stream(), topic_filter(), time()) -> make_iterator_result().
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
