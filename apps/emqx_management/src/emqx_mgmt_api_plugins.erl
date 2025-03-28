@@ -45,12 +45,14 @@
     validate_file_name/2,
     get_plugins/0,
     install_package/2,
+    install_package_v4/2,
     delete_package/1,
     delete_package/2,
     describe_package/1,
     ensure_action/2,
     ensure_action/3,
-    do_update_plugin_config/3
+    do_update_plugin_config/3,
+    do_update_plugin_config_v4/2
 ]).
 
 -define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w-.]*$").
@@ -432,7 +434,7 @@ validate_file_name(_Params, _Meta) ->
 %% API CallBack Begin
 list_plugins(get, _) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, []} = emqx_mgmt_api_plugins_proto_v3:get_plugins(Nodes),
+    {Plugins, []} = emqx_mgmt_api_plugins_proto_v4:get_plugins(Nodes),
     {200, format_plugins(Plugins)}.
 
 get_plugins() ->
@@ -484,7 +486,7 @@ install_package_on_nodes(NameVsn, Bin) ->
 do_install_package_on_nodes(NameVsn, Bin) ->
     %% TODO: handle bad nodes
     Nodes = emqx:running_nodes(),
-    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v3:install_package(Nodes, NameVsn, Bin),
+    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v4:install_package(Nodes, NameVsn, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
             {204};
@@ -510,17 +512,17 @@ do_install_package_on_nodes(NameVsn, Bin) ->
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, _} = emqx_mgmt_api_plugins_proto_v3:describe_package(Nodes, NameVsn),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
     case format_plugins(Plugins) of
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => NameVsn}}
     end;
 plugin(delete, #{bindings := #{name := NameVsn}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v3:delete_package(NameVsn),
+    Res = emqx_mgmt_api_plugins_proto_v4:delete_package(NameVsn),
     return(204, Res).
 
 update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v3:ensure_action(NameVsn, Action),
+    Res = emqx_mgmt_api_plugins_proto_v4:ensure_action(NameVsn, Action),
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
@@ -545,14 +547,14 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, ?plugin_without_config_schema} ->
                     %% no plugin avro schema, just put the json map as-is
-                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, ?plugin_without_config_schema
+                    _Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
+                        Nodes, NameVsn, AvroJsonMap
                     ),
                     {204};
-                {ok, AvroValue} ->
+                {ok, _AvroValue} ->
                     %% cluster call with config in map (binary key-value)
-                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, AvroValue
+                    _Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
+                        Nodes, NameVsn, AvroJsonMap
                     ),
                     {204};
                 {error, Reason} ->
@@ -592,7 +594,11 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 %% API CallBack End
 
 %% For RPC upload_install/2
-install_package(NameVsn, Bin) ->
+install_package(FileName, Bin) ->
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    install_package_v4(NameVsn, Bin).
+
+install_package_v4(NameVsn, Bin) ->
     ok = emqx_plugins:write_package(NameVsn, Bin),
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
@@ -653,9 +659,16 @@ ensure_action(Name, restart, _Opts) ->
     ok.
 
 %% for RPC plugin avro encoded config update
--spec do_update_plugin_config(name_vsn(), map(), any()) ->
+-spec do_update_plugin_config(name_vsn(), map() | binary(), any()) ->
     ok.
 do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
+    do_update_plugin_config_v4(NameVsn, AvroJsonMap).
+
+-spec do_update_plugin_config_v4(name_vsn(), map() | binary()) ->
+    ok.
+do_update_plugin_config_v4(NameVsn, AvroJsonMap) when is_binary(AvroJsonMap) ->
+    do_update_plugin_config_v4(NameVsn, emqx_utils_json:decode(AvroJsonMap));
+do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
     emqx_plugins:put_config(NameVsn, AvroJsonMap).
 
 %%--------------------------------------------------------------------
