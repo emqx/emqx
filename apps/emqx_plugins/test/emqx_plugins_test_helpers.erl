@@ -50,7 +50,7 @@ get_demo_plugin_package(
 purge_plugins() ->
     emqx_plugins:put_configured([]),
     lists:foreach(
-        fun(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
+        fun(#{name := Name, rel_vsn := Vsn}) ->
             emqx_plugins:purge(bin([Name, "-", Vsn]))
         end,
         emqx_plugins:list()

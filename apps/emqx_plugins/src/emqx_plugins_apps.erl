@@ -16,10 +16,16 @@
 
 -module(emqx_plugins_apps).
 
+%% Plugin's app lifecycle
 -export([
     stop/1,
     start/2,
     running_status/1
+]).
+
+%% Triggering app's callbacks
+-export([
+    on_config_changed/3
 ]).
 
 -include("emqx_plugins.hrl").
@@ -41,7 +47,8 @@ running_status(NameVsn) ->
 
 %% Stop all apps installed by the plugin package,
 %% but not the ones shared with others.
-stop(#{<<"rel_apps">> := Apps}) ->
+-spec stop(emqx_plugins_info:t()) -> ok | {error, term()}.
+stop(#{rel_apps := Apps}) ->
     %% load plugin apps and beam code
     AppsToStop = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
     case stop_apps(AppsToStop) of
@@ -59,7 +66,8 @@ stop(#{<<"rel_apps">> := Apps}) ->
             {error, Reason}
     end.
 
-start(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
+-spec start(name_vsn(), emqx_plugins_info:t()) -> ok | {error, term()}.
+start(RelNameVsn, #{rel_apps := Apps}) ->
     LibDir = emqx_plugins_fs:lib_dir(RelNameVsn),
     RunningApps = running_apps(),
     %% load plugin apps and beam code
@@ -88,6 +96,31 @@ start(RelNameVsn, #{<<"rel_apps">> := Apps}) ->
     catch
         throw:Reason ->
             {error, Reason}
+    end.
+
+%% @doc Call plugin's callback on_config_changed/2
+on_config_changed(NameVsn, OldConf, NewConf) ->
+    FuncName = on_config_changed,
+    maybe
+        {ok, PluginAppModule} ?= app_module_name(NameVsn),
+        ok ?= is_callback_exported(PluginAppModule, FuncName, 2),
+        try erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf]) of
+            _ -> ok
+        catch
+            Class:CatchReason:Stacktrace ->
+                ?SLOG(error, #{
+                    msg => "failed_to_call_on_config_changed",
+                    exception => Class,
+                    reason => CatchReason,
+                    stacktrace => Stacktrace
+                }),
+                ok
+        end
+    else
+        {error, Reason} ->
+            ?SLOG(info, #{msg => "failed_to_call_on_config_changed", reason => Reason});
+        _ ->
+            ok
     end.
 
 load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
@@ -275,6 +308,21 @@ run_with_timeout(Module, Function, Args, Timeout) ->
         {timeout, Pid} ->
             exit(Pid, kill),
             {error, timeout}
+    end.
+
+app_module_name(NameVsn) ->
+    {AppName, _} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    case emqx_utils:safe_to_existing_atom(<<(bin(AppName))/binary, "_app">>) of
+        {ok, AppModule} ->
+            {ok, AppModule};
+        {error, Reason} ->
+            {error, {undefined_app_module, AppName, Reason}}
+    end.
+
+is_callback_exported(AppModule, FuncName, Arity) ->
+    case erlang:function_exported(AppModule, FuncName, Arity) of
+        true -> ok;
+        false -> {error, {callback_not_exported, AppModule, FuncName, Arity}}
     end.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);

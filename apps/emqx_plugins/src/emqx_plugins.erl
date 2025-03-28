@@ -106,7 +106,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Describe a plugin.
--spec describe(name_vsn()) -> {ok, plugin_info()} | {error, any()}.
+-spec describe(name_vsn()) -> {ok, emqx_plugins_info:t()} | {error, any()}.
 describe(NameVsn) ->
     read_plugin_info(NameVsn, #{fill_readme => true}).
 
@@ -159,7 +159,9 @@ ensure_installed() ->
     end,
     ok = for_plugins(Fun).
 
-%% @doc Install a .tar.gz package placed in install_dir.
+%% @doc
+%% * Install a .tar.gz package placed in install_dir
+%% * Configure the plugin
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
@@ -190,7 +192,7 @@ ensure_uninstalled(NameVsn) ->
             }};
         _ ->
             purge(NameVsn),
-            ensure_delete(NameVsn)
+            ensure_delete_state(NameVsn)
     end.
 
 %% @doc Ensure a plugin is enabled to the end of the plugins list.
@@ -301,14 +303,16 @@ get_config(NameVsn, Default) ->
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
-%% The plugin config Json Map was validated by avro schema
-%% Or: if no and plugin config ALWAYS be valid before calling this function.
+%% NOTE
+%% This function assumes that the config is valid
+%% i.e. was validated by avro schema if case of its presence.
 put_config(NameVsn, ConfigJsonMap) when (not is_binary(NameVsn)) ->
     put_config(bin(NameVsn), ConfigJsonMap);
 put_config(NameVsn, ConfigJsonMap) ->
     ok = emqx_plugins_local_config:backup_and_update(NameVsn, ConfigJsonMap),
-    %% TODO: callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
-    ok = maybe_call_on_config_changed(NameVsn, ConfigJsonMap),
+    %% TODO
+    %% callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
+    _ = emqx_plugins_apps:on_config_changed(NameVsn, get_config(NameVsn), ConfigJsonMap),
     ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), ConfigJsonMap),
     ok.
 
@@ -319,50 +323,13 @@ restart(NameVsn) ->
         {error, Reason} -> {error, Reason}
     end.
 
-%% @doc Call plugin's callback on_config_changed/2
-maybe_call_on_config_changed(NameVsn, NewConf) ->
-    FuncName = on_config_changed,
-    maybe
-        {ok, PluginAppModule} ?= app_module_name(NameVsn),
-        true ?= erlang:function_exported(PluginAppModule, FuncName, 2),
-        OldConf = get_config(NameVsn),
-        try erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf]) of
-            _ -> ok
-        catch
-            Class:CatchReason:Stacktrace ->
-                ?SLOG(error, #{
-                    msg => "failed_to_call_on_config_changed",
-                    exception => Class,
-                    reason => CatchReason,
-                    stacktrace => Stacktrace
-                }),
-                ok
-        end
-    else
-        {error, Reason} ->
-            ?SLOG(info, #{msg => "failed_to_call_on_config_changed", reason => Reason});
-        false ->
-            ?SLOG(info, #{msg => "on_config_changed_callback_not_exported"});
-        _ ->
-            ok
-    end.
-
-app_module_name(NameVsn) ->
-    case read_plugin_info(NameVsn, #{}) of
-        {ok, #{<<"name">> := Name} = _PluginInfo} ->
-            emqx_utils:safe_to_existing_atom(<<Name/binary, "_app">>);
-        {error, Reason} ->
-            ?SLOG(error, Reason#{msg => "failed_to_read_plugin_info"}),
-            {error, Reason}
-    end.
-
 %% @doc List all installed plugins.
 %% Including the ones that are installed, but not enabled in config.
--spec list() -> [plugin_info()].
+-spec list() -> [emqx_plugins_info:t()].
 list() ->
     list(normal).
 
--spec list(all | normal | hidden) -> [plugin_info()].
+-spec list(all | normal | hidden) -> [emqx_plugins_info:t()].
 list(Type) ->
     All = lists:filtermap(
         fun(NameVsn) ->
@@ -380,11 +347,11 @@ list(Type) ->
 
 filter_plugin_of_type(all, Info) ->
     {true, Info};
-filter_plugin_of_type(normal, #{<<"hidden">> := true}) ->
+filter_plugin_of_type(normal, #{hidden := true}) ->
     false;
 filter_plugin_of_type(normal, Info) ->
     {true, Info};
-filter_plugin_of_type(hidden, #{<<"hidden">> := true} = Info) ->
+filter_plugin_of_type(hidden, #{hidden := true} = Info) ->
     {true, Info};
 filter_plugin_of_type(hidden, _Info) ->
     false.
@@ -421,7 +388,7 @@ decode_plugin_config_map(NameVsn, AvroJsonMap) ->
 -spec has_avsc(name_vsn()) -> boolean().
 has_avsc(NameVsn) ->
     case read_plugin_info(NameVsn, #{fill_readme => false}) of
-        {ok, #{<<"with_config_schema">> := WithAvsc}} when is_boolean(WithAvsc) ->
+        {ok, #{with_config_schema := WithAvsc}} when is_boolean(WithAvsc) ->
             WithAvsc;
         _ ->
             false
@@ -439,7 +406,7 @@ put_config_internal(Key, Value) ->
 %% Internal
 %%--------------------------------------------------------------------
 
-ensure_delete(NameVsn0) ->
+ensure_delete_state(NameVsn0) ->
     NameVsn = bin(NameVsn0),
     List = configured(),
     put_configured(lists:filter(fun(#{name_vsn := N1}) -> bin(N1) =/= NameVsn end, List)),
@@ -512,7 +479,7 @@ purge_plugin_config(NameVsn) ->
 do_list([], All) ->
     All;
 do_list([#{name_vsn := NameVsn} | Rest], All) ->
-    SplitF = fun(#{<<"name">> := Name, <<"rel_vsn">> := Vsn}) ->
+    SplitF = fun(#{name := Name, rel_vsn := Vsn}) ->
         bin([Name, "-", Vsn]) =/= bin(NameVsn)
     end,
     case lists:splitwith(SplitF, All) of

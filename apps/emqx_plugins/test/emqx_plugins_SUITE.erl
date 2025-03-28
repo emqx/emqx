@@ -203,8 +203,8 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertMatch(
         [
             #{
-                <<"name">> := ReleaseNameBin,
-                <<"rel_vsn">> := PluginVsnBin
+                name := ReleaseNameBin,
+                rel_vsn := PluginVsnBin
             }
         ],
         emqx_plugins:list()
@@ -244,7 +244,7 @@ t_position(Config) ->
     ListFun = fun() ->
         lists:map(
             fun(
-                #{<<"name">> := Name, <<"rel_vsn">> := Vsn}
+                #{name := Name, rel_vsn := Vsn}
             ) ->
                 <<Name/binary, "-", Vsn/binary>>
             end,
@@ -583,8 +583,8 @@ t_elixir_plugin(Config) ->
     ?assertMatch(
         [
             #{
-                <<"name">> := ReleaseNameBin,
-                <<"rel_vsn">> := PluginVsnBin
+                name := ReleaseNameBin,
+                rel_vsn := PluginVsnBin
             }
         ],
         emqx_plugins:list()

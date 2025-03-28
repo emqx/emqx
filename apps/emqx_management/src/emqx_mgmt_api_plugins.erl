@@ -719,7 +719,7 @@ pack_plugin_in_order([], Acc, StatusAcc) ->
     {Acc, StatusAcc};
 pack_plugin_in_order(_, Acc, StatusAcc) when map_size(StatusAcc) =:= 0 -> {Acc, StatusAcc};
 pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
-    #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin0,
+    #{name := Name, rel_vsn := Vsn} = Plugin0,
     case maps:find({Name, Vsn}, StatusAcc) of
         {ok, Status} ->
             Plugin1 = maps:without([running_status, config_status], Plugin0),
@@ -738,7 +738,7 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
     NewAcc =
         lists:foldl(
             fun(Plugin, SubAcc) ->
-                #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
+                #{name := Name, rel_vsn := Vsn} = Plugin,
                 Key = {Name, Vsn},
                 Value = #{node => Node, status => plugin_status(Plugin)},
                 SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
