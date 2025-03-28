@@ -441,7 +441,7 @@ get_plugins() ->
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
     case emqx_plugins:describe(NameVsn) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins_fs:is_tar_present(NameVsn) of
+            case emqx_plugins:is_package_present(NameVsn) of
                 false ->
                     install_package_on_nodes(NameVsn, Bin);
                 {true, TarGzs} ->
@@ -593,13 +593,13 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 
 %% For RPC upload_install/2
 install_package(NameVsn, Bin) ->
-    ok = emqx_plugins_fs:write_tar(NameVsn, Bin),
+    ok = emqx_plugins:write_package(NameVsn, Bin),
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
-            _ = emqx_plugins_fs:delete_tar(NameVsn),
+            _ = emqx_plugins:delete_package(NameVsn),
             Error;
         Result ->
             Result

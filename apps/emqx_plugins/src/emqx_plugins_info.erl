@@ -34,6 +34,8 @@
     running_status := running | stopped | loaded,
     config_status := enabled | disabled | not_configured,
     %% Optional fields
+    with_config_schema => boolean(),
+    hidden => boolean(),
     date => binary(),
     md5sum => binary(),
     git_ref => binary(),

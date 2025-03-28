@@ -23,6 +23,7 @@
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
 -export([
+    read/1,
     update/2,
     backup_and_update/2,
     copy_default/1
@@ -31,6 +32,10 @@
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+
+-spec read(name_vsn()) -> {ok, map()} | {error, term()}.
+read(NameVsn) ->
+    emqx_plugins_fs:read_hocon(NameVsn).
 
 -spec update(name_vsn(), map()) -> ok.
 update(NameVsn, Config) ->

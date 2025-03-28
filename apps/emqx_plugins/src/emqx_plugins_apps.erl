@@ -66,9 +66,8 @@ stop(#{rel_apps := Apps}) ->
             {error, Reason}
     end.
 
--spec start(name_vsn(), emqx_plugins_info:t()) -> ok | {error, term()}.
-start(RelNameVsn, #{rel_apps := Apps}) ->
-    LibDir = emqx_plugins_fs:lib_dir(RelNameVsn),
+-spec start(emqx_plugins_info:t(), file:filename()) -> ok | {error, term()}.
+start(#{rel_apps := Apps}, LibDir) ->
     RunningApps = running_apps(),
     %% load plugin apps and beam code
     try

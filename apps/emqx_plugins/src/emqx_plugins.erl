@@ -47,6 +47,8 @@
     ensure_enabled/3,
     ensure_disabled/1,
     purge/1,
+    write_package/2,
+    is_package_present/1,
     delete_package/1
 ]).
 
@@ -227,6 +229,16 @@ purge(NameVsn) ->
     _ = purge_plugin_config(NameVsn),
     emqx_plugins_fs:purge_installed(NameVsn).
 
+%% @doc Write the package file.
+-spec write_package(name_vsn(), binary()) -> ok.
+write_package(NameVsn, Bin) ->
+    emqx_plugins_fs:write_tar(NameVsn, Bin).
+
+%% @doc Check if the package file is present.
+-spec is_package_present(name_vsn()) -> false | {true, [file:filename()]}.
+is_package_present(NameVsn) ->
+    emqx_plugins_fs:is_tar_present(NameVsn).
+
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
 delete_package(NameVsn) ->
@@ -361,7 +373,7 @@ filter_plugin_of_type(hidden, _Info) ->
 
 -spec decode_plugin_config_map(name_vsn(), map() | binary()) ->
     {ok, map() | ?plugin_without_config_schema}
-    | {error, any()}.
+    | {error, term()}.
 decode_plugin_config_map(NameVsn, AvroJsonMap) ->
     case has_avsc(NameVsn) of
         true ->
@@ -493,7 +505,7 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= install(NameVsn, ?normal),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
-        ok ?= emqx_plugins_apps:start(NameVsn, Plugin)
+        ok ?= emqx_plugins_apps:start(Plugin, emqx_plugins_fs:lib_dir(NameVsn))
     else
         {error, Reason} ->
             ?SLOG(error, #{
@@ -788,7 +800,7 @@ load_config_schema(NameVsn) ->
     end.
 
 validated_local_config(NameVsn) ->
-    case emqx_plugins_fs:read_hocon(NameVsn) of
+    case emqx_plugins_local_config:read(NameVsn) of
         {ok, Config} ->
             case has_avsc(NameVsn) of
                 true ->
