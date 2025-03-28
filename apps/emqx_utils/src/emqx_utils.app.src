@@ -9,7 +9,8 @@
         emqx_utils_binary,
         emqx_utils_ets,
         emqx_utils_json,
-        emqx_utils_maps
+        emqx_utils_maps,
+        emqx_utils_fmt
     ]},
     {registered, []},
     {applications, [

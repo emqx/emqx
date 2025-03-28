@@ -242,10 +242,15 @@ unload_event_hooks(Event) ->
 
 on_client_connected(ClientInfo, ConnInfo) ->
     Payload0 = common_infos(ClientInfo, ConnInfo),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    RcvMax = maps:get(receive_maximum, ConnInfo, 0),
     Payload = Payload0#{
+        conn_props => emqx_utils_maps:printable_props(ConnProps),
+        receive_maximum => RcvMax,
         keepalive => maps:get(keepalive, ConnInfo, 0),
         clean_start => maps:get(clean_start, ConnInfo, true),
-        expiry_interval => maps:get(expiry_interval, ConnInfo, 0)
+        expiry_interval => maps:get(expiry_interval, ConnInfo, 0),
+        client_attrs => maps:get(client_attrs, ClientInfo, #{})
     },
     publish(connected, Payload).
 
@@ -256,6 +261,10 @@ on_client_disconnected(
 ) ->
     Payload0 = common_infos(ClientInfo, ConnInfo),
     Payload = Payload0#{
+        disconn_props => emqx_utils_maps:printable_props(
+            maps:get(disconn_props, ConnInfo, #{})
+        ),
+        client_attrs => maps:get(client_attrs, ClientInfo, #{}),
         reason => reason(Reason),
         disconnected_at => DisconnectedAt
     },
