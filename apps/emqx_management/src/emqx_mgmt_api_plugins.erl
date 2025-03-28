@@ -748,6 +748,7 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
         ),
     aggregate_status(List, NewAcc).
 
+-dialyzer({nowarn_function, format_plugin_avsc_and_i18n/1}).
 format_plugin_avsc_and_i18n(NameVsn) ->
     case emqx_release:edition() of
         ee ->

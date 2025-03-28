@@ -59,11 +59,12 @@ describe(NameVsn, LogFun) ->
     end.
 
 allow_installation(NameVsn, LogFun) ->
-    case emqx_plugins:parse_name_vsn(NameVsn) of
-        {ok, _, _} ->
-            do_allow_installation(NameVsn, LogFun);
-        {error, _} = Error ->
-            ?PRINT(Error, LogFun)
+    try emqx_plugins_utils:parse_name_vsn(NameVsn) of
+        {_AppName, _Vsn} ->
+            do_allow_installation(NameVsn, LogFun)
+    catch
+        error:bad_name_vsn ->
+            ?PRINT({error, bad_name_vsn}, LogFun)
     end.
 
 do_allow_installation(NameVsn, LogFun) ->
@@ -87,11 +88,12 @@ do_allow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 disallow_installation(NameVsn, LogFun) ->
-    case emqx_plugins:parse_name_vsn(NameVsn) of
-        {ok, _, _} ->
-            do_disallow_installation(NameVsn, LogFun);
-        {error, _} = Error ->
-            ?PRINT(Error, LogFun)
+    try emqx_plugins_utils:parse_name_vsn(NameVsn) of
+        {_AppName, _Vsn} ->
+            do_disallow_installation(NameVsn, LogFun)
+    catch
+        error:bad_name_vsn ->
+            ?PRINT({error, bad_name_vsn}, LogFun)
     end.
 
 do_disallow_installation(NameVsn, LogFun) ->
