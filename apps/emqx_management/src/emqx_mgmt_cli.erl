@@ -166,13 +166,29 @@ cluster(["status", "--json"]) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Info)]);
 cluster(["discovery", "enable"]) ->
     enable_autocluster();
+cluster(["core", "rebalance", "plan"]) ->
+    Result = mria_rebalance:start(),
+    emqx_ctl:print("~p~n", [Result]);
+cluster(["core", "rebalance", "status"]) ->
+    Result = mria_rebalance:status(),
+    emqx_ctl:print("~p~n", [Result]);
+cluster(["core", "rebalance", "confirm"]) ->
+    Result = mria_rebalance:confirm(),
+    emqx_ctl:print("~p~n", [Result]);
+cluster(["core", "rebalance", "abort"]) ->
+    Result = mria_rebalance:abort(),
+    emqx_ctl:print("~p~n", [Result]);
 cluster(_) ->
     emqx_ctl:usage([
         {"cluster join <Node>", "Join the cluster"},
         {"cluster leave", "Leave the cluster"},
         {"cluster force-leave <Node>", "Force the node leave from cluster"},
         {"cluster status [--json]", "Cluster status"},
-        {"cluster discovery enable", "Enable and run automatic cluster discovery (if configured)"}
+        {"cluster discovery enable", "Enable and run automatic cluster discovery (if configured)"},
+        {"cluster core rebalance plan", "Plan rebalancing of replicants against cores"},
+        {"cluster core rebalance status", "Check status of replicant rebalance"},
+        {"cluster core rebalance confirm", "Execute the planned rebalance"},
+        {"cluster core rebalance abort", "Abort the ongoing rebalance"}
     ]).
 
 cluster_leave_safeguards() ->
