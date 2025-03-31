@@ -105,17 +105,17 @@ do_check_pub(_Flags, _Caps) ->
     emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts()
 ) ->
-    ok_or_error(emqx_types:reason_code()).
+    ok
+    | {ok, emqx_types:reason_code()}
+    | {error, emqx_types:reason_code()}.
 check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
     Caps = emqx_config:get_zone_conf(Zone, [mqtt]),
     Flags = #{
-        %% TODO: qos check
-        %% (max_qos_allowed, Map) ->
-        %% max_qos_allowed => maps:get(max_qos_allowed, Caps, 2),
         topic_levels => emqx_topic:levels(Topic),
         is_wildcard => emqx_topic:wildcard(Topic),
         is_shared => erlang:is_record(Topic, share),
-        is_exclusive => maps:get(is_exclusive, SubOpts, false)
+        is_exclusive => maps:get(is_exclusive, SubOpts, false),
+        qos => maps:get(qos, SubOpts, 0)
     },
     do_check_sub(Flags, Caps, ClientInfo, Topic).
 
@@ -138,10 +138,12 @@ do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientI
         _ ->
             ok
     end;
-%% for max_qos_allowed
-%% see: RC_GRANTED_QOS_0, RC_GRANTED_QOS_1, RC_GRANTED_QOS_2
-%% do_check_sub(_, _) ->
-%%     {ok, RC};
+do_check_sub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}, _, _) when
+    QoS > MaxQoS
+->
+    %% Accepted, but with a lower QoS
+    %% see: ?RC_GRANTED_QOS_0, ?RC_GRANTED_QOS_1, ?RC_GRANTED_QOS_2
+    {ok, MaxQoS};
 do_check_sub(_Flags, _Caps, _, _) ->
     ok.
 
