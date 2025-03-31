@@ -7,9 +7,3 @@ MongoDB.
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-Apache License, Version 2.0
-
-See [APL.txt](../../APL.txt).
