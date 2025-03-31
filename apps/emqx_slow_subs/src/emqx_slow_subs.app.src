@@ -7,7 +7,6 @@
     {applications, [kernel, stdlib, emqx]},
     {mod, {emqx_slow_subs_app, []}},
     {env, []},
-    {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, []}
 ]}.

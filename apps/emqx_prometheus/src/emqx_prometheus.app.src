@@ -8,7 +8,6 @@
     {applications, [kernel, stdlib, prometheus, emqx, emqx_auth, emqx_resource, emqx_management]},
     {mod, {emqx_prometheus_app, []}},
     {env, []},
-    {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [
         {"Homepage", "https://emqx.io/"}
