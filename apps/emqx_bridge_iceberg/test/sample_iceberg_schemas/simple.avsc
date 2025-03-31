@@ -1,0 +1,28 @@
+{
+  "type": "record",
+  "fields": [
+    {
+      "name": "foo",
+      "field-id": 1,
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "bar",
+      "field-id": 2,
+      "type": "int"
+    },
+    {
+      "name": "baz",
+      "field-id": 3,
+      "type": [
+        "null",
+        "boolean"
+      ],
+      "default": null
+    }
+  ]
+}

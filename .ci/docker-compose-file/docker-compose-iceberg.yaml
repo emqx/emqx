@@ -1,0 +1,123 @@
+## https://github.com/databricks/docker-spark-iceberg/blob/60754a31cbb2cea7eead2a16702f5c536a8e07ce/docker-compose.yml
+
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+---
+
+services:
+  ## If you need to debug the iceberg integration, uncomment this service and open
+  ## `localhost:8888` to access some notebooks that help inspect stuff.  In particular,
+  ## `emqx-iceberg-debug.ipynb` may be helpful to inspect data.
+  # spark-iceberg:
+  #   image: ghcr.io/emqx/spark:1.0.2
+  #   container_name: spark-iceberg
+  #   # build: spark/
+  #   networks:
+  #     emqx_bridge:
+  #   depends_on:
+  #     - iceberg-rest
+  #     - minio
+  #   volumes:
+  #     - ./spark/notebooks/emqx-iceberg-debug.ipynb:/home/iceberg/notebooks/emqx-iceberg-debug.ipynb
+  #   environment:
+  #     - AWS_ACCESS_KEY_ID=admin
+  #     - AWS_SECRET_ACCESS_KEY=password
+  #     - AWS_REGION=us-east-1
+  #   ports:
+  #     - 8888:8888
+  #     - 8080:8080
+  #     - 10000:10000
+  #     - 10001:10001
+  ## Remember to uncoment `minio`'s ports as well to easily inspect files, and `query`'s
+  ## 7890 for nREPL access
+
+  query:
+    image: ghcr.io/emqx/spark-query:1.0.2
+    container_name: query
+    # volumes:
+    #   - ./iceberg/query/:/server/
+    networks:
+      emqx_bridge:
+    expose:
+      - 8090
+      - 7890
+    # ports:
+    #   - 7890:7890
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=sa-east-1
+
+  rewrite-proxy:
+    image: public.ecr.aws/nginx/nginx:1.27-bookworm
+    container_name: iceberg-rest-proxy
+    networks:
+      emqx_bridge:
+    volumes:
+      - ./iceberg/nginx-rewrite-proxy.conf:/etc/nginx/conf.d/default.conf
+
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:1.8.1
+    container_name: iceberg-rest
+    networks:
+      emqx_bridge:
+    # ports:
+    #   - 8181:8181
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=sa-east-1
+      - CATALOG_WAREHOUSE=s3://warehouse/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_S3_ENDPOINT=http://minio.net:9000
+
+  minio:
+    image: quay.io/minio/minio:${MINIO_TAG}
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_DOMAIN=minio.net
+    networks:
+      emqx_bridge:
+        aliases:
+          - minio.net
+          - warehouse.minio.net
+    # ports:
+    #   - 9001:9001
+    #   - 9000:9000
+    command: ["server", "/data", "--console-address", ":9001"]
+
+  mc:
+    depends_on:
+      - minio
+    image: quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z
+    container_name: mc
+    networks:
+      emqx_bridge:
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=sa-east-1
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc rm -r --force minio/warehouse;
+      /usr/bin/mc mb minio/warehouse;
+      /usr/bin/mc anonymous set public minio/warehouse;
+      tail -f /dev/null
+      "

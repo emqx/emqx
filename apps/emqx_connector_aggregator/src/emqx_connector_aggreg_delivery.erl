@@ -128,7 +128,15 @@ mk_container(#{type := csv, column_order := OrderOpt}) ->
     {emqx_connector_aggreg_csv, emqx_connector_aggreg_csv:new(#{column_order => ColumnOrder})};
 mk_container(#{type := json_lines}) ->
     Opts = #{},
-    {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)}.
+    {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)};
+mk_container(#{type := avro, schema := Schema, root_type := RootType}) ->
+    Opts = #{
+        schema => Schema,
+        root_type => RootType
+    },
+    {emqx_connector_aggreg_avro, emqx_connector_aggreg_avro:new(Opts)};
+mk_container(#{type := custom, module := Mod, opts := Opts}) ->
+    {Mod, Mod:new(Opts)}.
 
 %%
 

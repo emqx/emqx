@@ -12,6 +12,8 @@
 -export([
     create/2,
 
+    get_object/2,
+
     put_object/3,
     put_object/4,
 
@@ -48,7 +50,7 @@
 -type erlcloud_headers() :: list({string(), iodata()}).
 
 -type bucket() :: string().
--type key() :: string().
+-type key() :: string() | binary().
 -type part_number() :: non_neg_integer().
 -type upload_id() :: string().
 -type etag() :: string().
@@ -76,6 +78,11 @@
 -type upload_options() :: #{
     acl => emqx_s3:acl() | undefined,
     headers => headers()
+}.
+
+-type get_object_response() :: #{
+    content := binary(),
+    atom() => term()
 }.
 
 -type s3_options() :: proplists:proplist().
@@ -119,6 +126,18 @@ put_object(
     end;
 put_object(#{aws_config := {error, Reason}}, _Key, _UploadOpts, _Content) ->
     {error, {config_error, Reason}}.
+
+-spec get_object(client(), key()) -> ok_or_error(get_object_response(), term()).
+get_object(#{bucket := Bucket, aws_config := AWSConfig = #aws_config{}}, Key) ->
+    ECKey = erlcloud_key(Key),
+    try erlcloud_s3:get_object(Bucket, ECKey, AWSConfig) of
+        Props when is_list(Props) ->
+            {ok, maps:from_list(Props)}
+    catch
+        error:{aws_error, Reason} ->
+            ?SLOG(debug, #{msg => "get_object_fail", key => Key, reason => Reason}),
+            {error, Reason}
+    end.
 
 -spec start_multipart(client(), key(), upload_options()) -> ok_or_error(upload_id(), term()).
 start_multipart(

@@ -1,0 +1,17 @@
+{application, emqx_bridge_iceberg, [
+    {description, "EMQX Enterprise Iceberg Bridge"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {mod, {emqx_bridge_iceberg_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_s3,
+        emqx_connector_aggregator
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

@@ -1,10 +1,10 @@
-defmodule EMQXS3.MixProject do
+defmodule EMQXBridgeIceberg.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_s3,
+      app: :emqx_bridge_iceberg,
       version: "0.1.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
@@ -21,17 +21,18 @@ defmodule EMQXS3.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_s3_app, []}]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_bridge_iceberg_app, []}
+    ]
   end
 
   def deps() do
     [
-      {:emqx_mix_utils, in_umbrella: true, runtime: false},
-      {:emqx, in_umbrella: true},
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:hackney),
+      {:emqx_resource, in_umbrella: true},
+      {:emqx_connector_aggregator, in_umbrella: true},
+      {:emqx_s3, in_umbrella: true},
       UMP.common_dep(:erlcloud),
-      {:emqx_bridge_http, in_umbrella: true, runtime: false},
     ]
   end
 

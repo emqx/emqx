@@ -1,0 +1,58 @@
+emqx_bridge_iceberg_connector_schema {
+  config_connector {
+    label: """Iceberg Connector Configuration"""
+    desc:
+    """Configuration for a connector to Iceberg tables."""
+  }
+
+  s3tables_connector_params {
+    label: """S3Tables parameters"""
+    desc:
+    """Parameters for Iceberg integration provided by S3Tables."""
+  }
+
+  parameters {
+    label: """Parameters"""
+    desc:
+    """Iceberg connection parameters."""
+  }
+
+  location_type_s3t {
+    label: """S3Tables"""
+    desc:
+    """Iceberg integration provided by S3Tables."""
+  }
+
+  location_s3t_access_key_id {
+    label: """Access Key Id"""
+    desc:
+    """The access key ID of the S3Tables bucket."""
+  }
+
+  location_s3t_secret_access_key {
+    label: """Secret Access Key"""
+    desc:
+    """The secret access key of the S3Tables bucket."""
+  }
+
+  location_s3t_bucket {
+    label: """S3Tables Bucket"""
+    desc:
+    """The S3Tables bucket."""
+  }
+
+  location_s3t_base_endpoint {
+    label: """S3Tables Iceberg Endpoint"""
+    desc:
+    """The S3Tables Iceberg API endpoint.  Typically, `https://s3tables.<REGION>.amazonaws.com/iceberg/v1`.  Note that it must contain the `/iceberg/v1` path, if applicable."""
+  }
+
+  s3_client {
+    label: """S3 Client Params"""
+    desc:
+    """S3 connection parameters for reading and writing objects to S3Tables bucket."""
+  }
+
+
+
+}

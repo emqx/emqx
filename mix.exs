@@ -290,9 +290,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.12", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
 
-  def common_dep(:erlavro) do
-    {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-1", override: true}
-  end
+  def common_dep(:erlavro),
+    do: {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-2", override: true}
+
+  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.7.0.3"}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
