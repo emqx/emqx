@@ -1,29 +1,16 @@
 %% -*- mode: erlang -*-
-IsCentos6 = fun() ->
-    case file:read_file("/etc/centos-release") of
-        {ok, <<"CentOS release 6", _/binary>>} ->
-            true;
-        _ ->
-            false
-    end
+
+NeedQuic = fun() ->
+    ("1" =/= os:getenv("BUILD_WITHOUT_QUIC")) andalso
+        ("true" =/= os:getenv("BUILD_WITHOUT_QUIC"))
 end,
 
-IsWin32 = fun() ->
-    win32 =:= element(1, os:type())
-end,
-
-IsQuicSupp = fun() ->
-    not (IsCentos6() orelse IsWin32() orelse
-        "1" =:= os:getenv("BUILD_WITHOUT_QUIC"))
-end,
-
-Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.3"}}},
 Quicer =
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.2.3"}}}.
 
 Dialyzer = fun(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
-    Extra = [quicer || IsQuicSupp()],
+    Extra = [quicer || NeedQuic()],
     NewDialyzerConfig = [{plt_extra_apps, Extra} | OldDialyzerConfig],
     lists:keystore(
         dialyzer,
@@ -36,9 +23,9 @@ end.
 ExtraDeps = fun(C) ->
     {deps, Deps0} = lists:keyfind(deps, 1, C),
     {erl_opts, ErlOpts0} = lists:keyfind(erl_opts, 1, C),
-    IsQuic = IsQuicSupp(),
+    IsQuic = NeedQuic(),
     New = [
-        {deps, Deps0 ++ [Bcrypt || not IsWin32()] ++ [Quicer || IsQuic]},
+        {deps, Deps0 ++ [Quicer || IsQuic]},
         {erl_opts, ErlOpts0 ++ [{d, 'BUILD_WITHOUT_QUIC'} || not IsQuic]}
     ],
     lists:foldl(
