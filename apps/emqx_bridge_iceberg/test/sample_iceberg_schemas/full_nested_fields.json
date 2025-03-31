@@ -1,0 +1,36 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "name": "foo",
+      "type": "string",
+      "required": false,
+      "doc": "foo doc",
+      "initial-default": "foo initial",
+      "write-default": "foo write"
+    },
+    {
+      "id": 2,
+      "name": "bar",
+      "type": "int",
+      "required": true,
+      "doc": "bar doc",
+      "initial-default": 42,
+      "write-default": 43
+    },
+    {
+      "id": 3,
+      "name": "baz",
+      "type": "boolean",
+      "required": false,
+      "doc": "baz doc",
+      "initial-default": true,
+      "write-default": false
+    }
+  ],
+  "schema-id": 1,
+  "identifier-field-ids": [
+    2
+  ]
+}

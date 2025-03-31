@@ -279,6 +279,9 @@ for dep in ${CT_DEPS}; do
         schema-registry)
           FILES+=( '.ci/docker-compose-file/docker-compose-confluent-schema-registry.yaml' )
             ;;
+        iceberg)
+            FILES+=( '.ci/docker-compose-file/docker-compose-iceberg.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
@@ -318,7 +321,7 @@ if [ "$STOP" = 'no' ]; then
     rm -f '.ci/docker-compose-file/redis/*.log'
     set +e
     # shellcheck disable=2086 # no quotes for UP
-    $DC $UP -d --build --remove-orphans
+    $DC $UP -d -t 0 --build --remove-orphans
     RESULT=$?
     if [ $RESULT -ne 0 ]; then
         mkdir -p _build/test/logs
