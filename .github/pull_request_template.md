@@ -1,6 +1,6 @@
 Fixes <issue-or-jira-number>
 
-Release version: v/e5.?
+Release version: 5.?
 
 ## Summary
 
@@ -9,8 +9,8 @@ Please convert it to a draft if any of the following conditions are not met. Rev
 
 - [ ] Added tests for the changes
 - [ ] Added property-based tests for code which performs user input validation
-- [ ] Changed lines covered in coverage report
-- [ ] Change log has been added to `changes/(ce|ee)/(feat|perf|fix|breaking)-<PR-id>.en.md` files
+- [ ] Changed lines covered by tests
+- [ ] Change log has been added to `changes/ee/(feat|perf|fix|breaking)-<PR-id>.en.md` files
 - [ ] For internal contributor: there is a jira ticket to track this change
 - [ ] Created PR to [emqx-docs](https://github.com/emqx/emqx-docs) if documentation update is required, or link to a follow-up jira ticket
 - [ ] Schema changes are backward compatible
