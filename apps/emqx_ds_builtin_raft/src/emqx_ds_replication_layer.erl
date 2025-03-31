@@ -20,7 +20,7 @@
     drop_generation/2,
     drop_db/1,
     store_batch/3,
-    get_streams/3,
+    get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
@@ -34,6 +34,7 @@
 
     current_timestamp/2,
 
+    shard_of/2,
     shard_of_operation/4,
     flush_buffer/4,
     init_buffer/3
@@ -196,7 +197,7 @@
     ?batch_preconditions => [emqx_ds:precondition()]
 }.
 
--type generation_rank() :: {shard_id(), term()}.
+-type slab() :: {shard_id(), term()}.
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
@@ -266,7 +267,7 @@ update_db_config(DB, CreateOpts) ->
     ).
 
 -spec list_generations_with_lifetimes(emqx_ds:db()) ->
-    #{generation_rank() => emqx_ds:generation_info()}.
+    #{slab() => emqx_ds:slab_info()}.
 list_generations_with_lifetimes(DB) ->
     Shards = list_shards(DB),
     lists:foldl(
@@ -290,7 +291,7 @@ list_generations_with_lifetimes(DB) ->
         Shards
     ).
 
--spec drop_generation(emqx_ds:db(), generation_rank()) -> ok | {error, _}.
+-spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
 drop_generation(DB, {Shard, GenId}) ->
     ra_drop_generation(DB, Shard, GenId).
 
@@ -341,42 +342,38 @@ store_batch_atomic(DB, Batch, _Opts) ->
             {error, unrecoverable, atomic_batch_spans_multiple_shards}
     end.
 
--spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    [{emqx_ds:stream_rank(), stream()}].
-get_streams(DB, TopicFilter, StartTime) ->
-    Shards = list_shards(DB),
-    lists:flatmap(
-        fun(Shard) ->
+-spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
+    emqx_ds:get_streams_result().
+get_streams(DB, TopicFilter, StartTime, Opts) ->
+    Shards =
+        case Opts of
+            #{shard := ReqShard} ->
+                [ReqShard];
+            _ ->
+                list_shards(DB)
+        end,
+    lists:foldl(
+        fun(Shard, {Acc, AccErr}) ->
             try ra_get_streams(DB, Shard, TopicFilter, StartTime) of
                 Streams when is_list(Streams) ->
-                    lists:map(
-                        fun({RankY, StorageLayerStream}) ->
-                            RankX = Shard,
-                            Rank = {RankX, RankY},
-                            {Rank, ?stream_v2(Shard, StorageLayerStream)}
+                    L = lists:map(
+                        fun({Generation, StorageLayerStream}) ->
+                            Slab = {Shard, Generation},
+                            {Slab, ?stream_v2(Shard, StorageLayerStream)}
                         end,
                         Streams
-                    );
-                {error, Class, Reason} ->
-                    ?tp(debug, ds_repl_get_streams_failed, #{
-                        db => DB,
-                        shard => Shard,
-                        class => Class,
-                        reason => Reason
-                    }),
-                    []
+                    ),
+                    {L ++ Acc, AccErr};
+                {error, _, _} = Err ->
+                    E = {Shard, Err},
+                    {Acc, [E | AccErr]}
             catch
                 EC:Err:Stack ->
-                    ?tp(debug, ds_repl_get_streams_failed, #{
-                        db => DB,
-                        shard => Shard,
-                        class => EC,
-                        reason => Err,
-                        stack => Stack
-                    }),
-                    []
+                    E = {Shard, ?err_rec({EC, Err, Stack})},
+                    {Acc, [E | AccErr]}
             end
         end,
+        {[], []},
         Shards
     ).
 
@@ -549,16 +546,16 @@ shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Optio
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of_key(DB, Key);
+    shard_of(DB, Key);
 shard_of_operation(DB, {_OpName, Matcher}, SerializeBy, _Options) ->
     #message_matcher{from = From, topic = Topic} = Matcher,
     case SerializeBy of
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of_key(DB, Key).
+    shard_of(DB, Key).
 
-shard_of_key(DB, Key) ->
+shard_of(DB, Key) ->
     N = emqx_ds_replication_shard_allocator:n_shards(DB),
     Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
@@ -727,7 +724,7 @@ do_add_generation_v2(_DB) ->
     error(obsolete_api).
 
 -spec do_list_generations_with_lifetimes_v3(emqx_ds:db(), shard_id()) ->
-    #{emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()}
+    #{emqx_ds:generation() => emqx_ds:slab_info()}
     | emqx_ds:error(storage_down).
 do_list_generations_with_lifetimes_v3(DB, Shard) ->
     ShardId = {DB, Shard},

@@ -53,8 +53,8 @@
 
 %%%%% Stream Replay State:
 -record(srs, {
-    rank_x :: emqx_ds:rank_x(),
-    rank_y :: emqx_ds:rank_y(),
+    rank_x :: emqx_ds:shard(),
+    rank_y :: emqx_ds:generation(),
     %% Iterators at the beginning and the end of the last batch:
     it_begin :: emqx_ds:iterator() | undefined,
     it_end :: emqx_ds:iterator() | end_of_stream,

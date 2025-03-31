@@ -195,7 +195,7 @@
         %% Flow control:
         flowcontrol :: flowcontrol(),
         %%
-        rank :: emqx_ds:stream_rank(),
+        rank :: emqx_ds:slab(),
         stream :: _Stream,
         topic_filter :: emqx_ds:topic_filter(),
         start_key :: emqx_ds:message_key(),
@@ -306,7 +306,7 @@
     stream := Stream,
     topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
-    rank := emqx_ds:stream_rank()
+    rank := emqx_ds:slab()
 }.
 
 -callback unpack_iterator(dbshard(), _Iterator) ->
@@ -756,7 +756,7 @@ generation_event(DBShard) ->
     %% worker:
     pending = [] :: [sub_state()],
     %% Generation cache:
-    generations :: #{emqx_ds:generation_rank() => emqx_ds:generation_info()}
+    generations :: #{emqx_ds:slab() => emqx_ds:slab_info()}
 }).
 
 -type d() :: #d{}.
