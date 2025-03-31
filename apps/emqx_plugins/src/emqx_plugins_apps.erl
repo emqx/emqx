@@ -6,8 +6,10 @@
 
 %% Plugin's app lifecycle
 -export([
+    start/1,
+    load/2,
+    unload/1,
     stop/1,
-    start/2,
     running_status/1
 ]).
 
@@ -23,15 +25,9 @@
 -spec running_status(name_vsn()) -> running | loaded | stopped.
 running_status(NameVsn) ->
     {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
-    case application:get_key(AppName, vsn) of
-        {ok, _} ->
-            case lists:keyfind(AppName, 1, running_apps()) of
-                {AppName, _} -> running;
-                _ -> loaded
-            end;
-        undefined ->
-            stopped
-    end.
+    RunningApps = running_apps(),
+    LoadedApps = loaded_apps(),
+    app_running_status(AppName, RunningApps, LoadedApps).
 
 %% Stop all apps installed by the plugin package,
 %% but not the ones shared with others.
@@ -54,24 +50,45 @@ stop(#{rel_apps := Apps}) ->
             {error, Reason}
     end.
 
--spec start(emqx_plugins_info:t(), file:filename()) -> ok | {error, term()}.
-start(#{rel_apps := Apps}, LibDir) ->
+-spec unload(emqx_plugins_info:t()) -> ok | {error, term()}.
+unload(#{rel_apps := Apps}) ->
     RunningApps = running_apps(),
+    LoadedApps = loaded_apps(),
+    unload_apps(Apps, RunningApps, LoadedApps).
+
+-spec load(emqx_plugins_info:t(), file:filename()) -> ok | {error, term()}.
+load(#{rel_apps := Apps}, LibDir) ->
+    LoadedApps = loaded_apps(),
     %% load plugin apps and beam code
     try
-        AppNames =
-            lists:map(
-                fun(AppNameVsn) ->
-                    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
-                    EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
-                    case load_plugin_app(AppName, AppVsn, EbinDir, RunningApps) of
-                        ok -> AppName;
-                        {error, Reason} -> throw(Reason)
-                    end
-                end,
-                Apps
-            ),
-        ok = lists:foreach(
+        lists:foreach(
+            fun(AppNameVsn) ->
+                {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+                EbinDir = filename:join([LibDir, AppNameVsn, "ebin"]),
+                case load_plugin_app(AppName, AppVsn, EbinDir, LoadedApps) of
+                    ok -> ok;
+                    {error, Reason} -> throw(Reason)
+                end
+            end,
+            Apps
+        )
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
+-spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
+start(#{rel_apps := Apps}) ->
+    AppNames =
+        lists:map(
+            fun(AppNameVsn) ->
+                {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+                AppName
+            end,
+            Apps
+        ),
+    try
+        lists:foreach(
             fun(AppName) ->
                 case start_app(AppName) of
                     ok -> ok;
@@ -86,45 +103,64 @@ start(#{rel_apps := Apps}, LibDir) ->
     end.
 
 %% @doc Call plugin's callback on_config_changed/2
+-spec on_config_changed(name_vsn(), map(), map()) -> ok | {error, term()}.
 on_config_changed(NameVsn, OldConf, NewConf) ->
     FuncName = on_config_changed,
     maybe
         {ok, PluginAppModule} ?= app_module_name(NameVsn),
         ok ?= is_callback_exported(PluginAppModule, FuncName, 2),
         try erlang:apply(PluginAppModule, FuncName, [OldConf, NewConf]) of
-            _ -> ok
+            ok -> ok;
+            {error, _} = Error -> Error;
+            Other -> {error, {bad_on_config_changed_return_value, Other}}
         catch
-            Class:CatchReason:Stacktrace ->
+            Class:Error:Stacktrace ->
                 ?SLOG(error, #{
                     msg => "failed_to_call_on_config_changed",
                     exception => Class,
-                    reason => CatchReason,
+                    reason => Error,
                     stacktrace => Stacktrace
                 }),
-                ok
+                {error, Error}
         end
     else
         {error, Reason} ->
-            ?SLOG(info, #{msg => "failed_to_call_on_config_changed", reason => Reason});
+            ?SLOG(info, #{msg => "on_config_changed_callback_not_found", reason => Reason}),
+            ok;
         _ ->
             ok
     end.
 
-load_plugin_app(AppName, AppVsn, Ebin, RunningApps) ->
-    case lists:keyfind(AppName, 1, RunningApps) of
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+app_running_status(AppName, RunningApps, LoadedApps) ->
+    case lists:keyfind(AppName, 1, LoadedApps) of
+        {AppName, _} ->
+            case lists:keyfind(AppName, 1, RunningApps) of
+                {AppName, _} -> running;
+                false -> loaded
+            end;
+        false ->
+            stopped
+    end.
+
+load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
+    case lists:keyfind(AppName, 1, LoadedApps) of
         false ->
             do_load_plugin_app(AppName, Ebin);
         {_, Vsn} ->
             case bin(Vsn) =:= bin(AppVsn) of
                 true ->
-                    %% already started on the exact version
+                    %% already loaded on the exact version
                     ok;
                 false ->
                     %% running but a different version
                     ?SLOG(warning, #{
-                        msg => "plugin_app_already_running",
+                        msg => "plugin_app_already_loaded",
                         name => AppName,
-                        running_vsn => Vsn,
+                        loaded_vsn => Vsn,
                         loading_vsn => AppVsn
                     }),
                     ok
@@ -234,19 +270,33 @@ do_stop_apps([App | Apps], Remain, RunningApps) ->
             end
     end.
 
+unload_apps([], _RunningApps, _LoadedApps) ->
+    ok;
+unload_apps([App | Apps], RunningApps, LoadedApps) ->
+    _ =
+        case app_running_status(App, RunningApps, LoadedApps) of
+            running ->
+                ?SLOG(warning, #{msg => "cannot_unload_running_app", app => App});
+            loaded ->
+                ok = unload_modules_and_app(App);
+            stopped ->
+                ok
+        end,
+    unload_apps(Apps, RunningApps, LoadedApps).
+
 stop_app(App) ->
     case application:stop(App) of
         ok ->
             ?SLOG(debug, #{msg => "stop_plugin_successfully", app => App}),
-            ok = unload_module_and_app(App);
+            ok;
         {error, {not_started, App}} ->
             ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
-            ok = unload_module_and_app(App);
+            ok;
         {error, Reason} ->
             {error, #{msg => "failed_to_stop_app", app => App, reason => Reason}}
     end.
 
-unload_module_and_app(App) ->
+unload_modules_and_app(App) ->
     case application:get_key(App, modules) of
         {ok, Modules} ->
             lists:foreach(fun code:soft_purge/1, Modules);
@@ -278,6 +328,14 @@ running_apps() ->
             {N, V}
         end,
         application:which_applications(infinity)
+    ).
+
+loaded_apps() ->
+    lists:map(
+        fun({N, _, V}) ->
+            {N, V}
+        end,
+        application:loaded_applications()
     ).
 
 run_with_timeout(Module, Function, Args, Timeout) ->

@@ -22,8 +22,21 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(EMQX_PLUGIN_TEMPLATE_NAME, "my_emqx_plugin").
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.1.0").
+-define(EMQX_PLUGIN_TEMPLATE_APP_NAME, my_emqx_plugin).
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.9.0-beta.2").
+-define(EMQX_PLUGIN_TEMPLATE_TAG, "5.9.0-beta.2").
+-define(EMQX_PLUGIN_TEMPLATE_URL,
+    "https://github.com/emqx/emqx-plugin-template/releases/download/"
+).
 -define(PACKAGE_SUFFIX, ".tar.gz").
+
+-define(EMQX_PLUGIN, #{
+    release_name => ?EMQX_PLUGIN_TEMPLATE_NAME,
+    app_name => ?EMQX_PLUGIN_TEMPLATE_APP_NAME,
+    git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+    vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+    tag => ?EMQX_PLUGIN_TEMPLATE_TAG
+}).
 
 -define(CLUSTER_API_SERVER(PORT), ("http://127.0.0.1:" ++ (integer_to_list(PORT)))).
 
@@ -35,9 +48,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    WorkDir = proplists:get_value(data_dir, Config),
-    DemoShDir1 = string:replace(WorkDir, "emqx_mgmt_api_plugins", "emqx_plugins"),
-    DemoShDir = lists:flatten(string:replace(DemoShDir1, "emqx_management", "emqx_plugins")),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -49,9 +59,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = filelib:ensure_dir(DemoShDir),
-    emqx_plugins:put_config_internal(install_dir, DemoShDir),
-    [{apps, Apps}, {demo_sh_dir, DemoShDir} | Config].
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
@@ -65,7 +73,9 @@ init_per_testcase(t_cluster_update_order = TestCase, Config0) ->
         {cluster, Cluster}
         | Config
     ];
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
+    ToInstallDir = filename:join(emqx_cth_suite:work_dir(TestCase, Config), "emqx_plugins"),
+    emqx_plugins:put_config_internal(install_dir, ToInstallDir),
     Config.
 
 end_per_testcase(t_cluster_update_order, Config) ->
@@ -76,10 +86,8 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
 
-t_plugins(Config) ->
-    DemoShDir = proplists:get_value(demo_sh_dir, Config),
-    PackagePath = get_demo_plugin_package(DemoShDir),
-    ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins_fs:install_dir()]),
+t_plugins(_Config) ->
+    PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
@@ -128,9 +136,52 @@ t_plugins(Config) ->
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok.
 
-t_install_plugin_matching_exisiting_name(Config) ->
-    DemoShDir = proplists:get_value(demo_sh_dir, Config),
-    PackagePath = get_demo_plugin_package(DemoShDir),
+t_update_config(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    OldConfig = emqx_plugins:get_config(NameVsn),
+
+    %% Check config update when plugin is not started
+    ?assertMatch(
+        {ok, 400, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"bad.host">>})
+    ),
+    ?assertMatch(
+        {ok, 204, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"localhost">>})
+    ),
+
+    %% Check config update when plugin is started
+    {ok, _} = update_plugin(NameVsn, "start"),
+    ?assertMatch(
+        {ok, 400, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"bad.host">>})
+    ),
+    ?assertMatch(
+        {ok, 204, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"localhost">>})
+    ),
+    {ok, []} = update_plugin(NameVsn, "stop"),
+
+    %% Check config update when plugin is stopped
+    ?assertMatch(
+        {ok, 400, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"bad.host">>})
+    ),
+    ?assertMatch(
+        {ok, 204, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"localhost">>})
+    ),
+
+    %% Clean up
+    {ok, []} = uninstall_plugin(NameVsn).
+
+t_install_plugin_matching_exisiting_name(_Config) ->
+    PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
@@ -158,9 +209,8 @@ t_install_plugin_with_bad_form_data(_Config) ->
         post, Path, "", AuthHeader, #{}
     ).
 
-t_bad_plugin(Config) ->
-    DemoShDir = proplists:get_value(demo_sh_dir, Config),
-    PackagePathOrig = get_demo_plugin_package(DemoShDir),
+t_bad_plugin(_Config) ->
+    PackagePathOrig = get_demo_plugin_package(),
     BackupPath = filename:join(["/tmp", [filename:basename(PackagePathOrig), ".backup"]]),
     {ok, _} = file:copy(PackagePathOrig, BackupPath),
     on_exit(fun() -> {ok, _} = file:rename(BackupPath, PackagePathOrig) end),
@@ -196,8 +246,7 @@ t_delete_non_existing(_Config) ->
 
 t_cluster_update_order(Config) ->
     [N1 | _] = ?config(cluster, Config),
-    DemoShDir = proplists:get_value(demo_sh_dir, Config),
-    PackagePath1 = get_demo_plugin_package(DemoShDir),
+    PackagePath1 = get_demo_plugin_package(),
     NameVsn1 = filename:basename(PackagePath1, ?PACKAGE_SUFFIX),
     Name2Str = ?EMQX_PLUGIN_TEMPLATE_NAME ++ "_a",
     NameVsn2 = Name2Str ++ "-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN,
@@ -287,6 +336,13 @@ describe_plugins(Name) ->
         Error -> Error
     end.
 
+update_plugin_config(Name, Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", Name, "config"]),
+    case emqx_mgmt_api_test_util:request_api_with_body(put, Path, Config) of
+        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
+        Error -> Error
+    end.
+
 install_plugin(FilePath) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
@@ -351,14 +407,12 @@ uninstall_plugin(Name) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
 
-get_demo_plugin_package(Dir) ->
-    #{package := Pkg} = emqx_plugins_SUITE:get_demo_plugin_package(),
-    FileName = ?EMQX_PLUGIN_TEMPLATE_NAME ++ "-" ++ ?EMQX_PLUGIN_TEMPLATE_VSN ++ ?PACKAGE_SUFFIX,
-    PluginPath = "./" ++ FileName,
-    Pkg = filename:join([Dir, FileName]),
-    _ = os:cmd("cp " ++ Pkg ++ " " ++ PluginPath),
-    true = filelib:is_regular(PluginPath),
-    PluginPath.
+get_demo_plugin_package() ->
+    #{package := Pkg} = emqx_plugins_test_helpers:get_demo_plugin_package(
+        maps:merge(?EMQX_PLUGIN, #{shdir => "./"})
+    ),
+    true = filelib:is_regular(Pkg),
+    Pkg.
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),

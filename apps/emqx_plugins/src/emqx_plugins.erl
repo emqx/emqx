@@ -67,7 +67,7 @@
 -export([
     get_config/1,
     get_config/2,
-    put_config/2
+    update_config/2
 ]).
 
 %% Package utils
@@ -95,7 +95,7 @@
 -endif.
 
 %% Defines
--define(PLUGIN_PERSIS_CONFIG_KEY(NameVsn), {?MODULE, NameVsn}).
+-define(PLUGIN_CONFIG_PT_KEY(NameVsn), {?MODULE, NameVsn}).
 
 -define(CATCH(BODY), catch_errors(atom_to_list(?FUNCTION_NAME), fun() -> BODY end)).
 
@@ -167,22 +167,26 @@ ensure_installed() ->
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
-        {ok, _} ->
-            configure(NameVsn, ?normal);
+        {ok, #{running_status := RunningSt}} ->
+            configure(NameVsn, ?normal, RunningSt);
         {error, _} ->
             ok = purge(NameVsn),
-            install_and_configure(NameVsn, ?normal)
+            install_and_configure(NameVsn, ?normal, stopped)
     end.
 
 ensure_installed(NameVsn, ?fresh_install = Mode) ->
-    install_and_configure(NameVsn, Mode).
+    %% TODO
+    %% Additionally check if the plugin is actually stopped/uninstalled.
+    %% Currently, external layers (API, CLI) are responsible for
+    %% not allowing to install a plugin that is already installed.
+    install_and_configure(NameVsn, Mode, stopped).
 
 %% @doc Ensure files and directories for the given plugin are being deleted.
 %% If a plugin is running, or enabled, an error is returned.
 -spec ensure_uninstalled(name_vsn()) -> ok | {error, any()}.
 ensure_uninstalled(NameVsn) ->
     case read_plugin_info(NameVsn, #{}) of
-        {ok, #{running_status := RunningSt}} when RunningSt =/= stopped ->
+        {ok, #{running_status := running}} ->
             {error, #{
                 msg => "bad_plugin_running_status",
                 hint => "stop_the_plugin_first"
@@ -192,8 +196,11 @@ ensure_uninstalled(NameVsn) ->
                 msg => "bad_plugin_config_status",
                 hint => "disable_the_plugin_first"
             }};
-        _ ->
-            purge(NameVsn),
+        {ok, Plugin} ->
+            ok = emqx_plugins_apps:unload(Plugin),
+            ok = purge(NameVsn),
+            ensure_delete_state(NameVsn);
+        {error, _Reason} ->
             ensure_delete_state(NameVsn)
     end.
 
@@ -226,7 +233,7 @@ ensure_disabled(NameVsn) ->
 %% reside in all the plugin install dirs.
 -spec purge(name_vsn()) -> ok.
 purge(NameVsn) ->
-    _ = purge_plugin_config(NameVsn),
+    ok = delete_cached_config(NameVsn),
     emqx_plugins_fs:purge_installed(NameVsn).
 
 %% @doc Write the package file.
@@ -311,22 +318,20 @@ get_config(NameVsn) ->
 
 -spec get_config(name_vsn(), term()) -> plugin_config_map() | term().
 get_config(NameVsn, Default) ->
-    persistent_term:get(?PLUGIN_PERSIS_CONFIG_KEY(bin(NameVsn)), Default).
+    get_cached_config(NameVsn, Default).
 
 %% @doc Update plugin's config.
 %% RPC call from Management API or CLI.
 %% NOTE
-%% This function assumes that the config is valid
-%% i.e. was validated by avro schema if case of its presence.
-put_config(NameVsn, ConfigJsonMap) when (not is_binary(NameVsn)) ->
-    put_config(bin(NameVsn), ConfigJsonMap);
-put_config(NameVsn, ConfigJsonMap) ->
-    ok = emqx_plugins_local_config:backup_and_update(NameVsn, ConfigJsonMap),
-    %% TODO
-    %% callback in plugin's on_config_upgraded (config vsn upgrade v1 -> v2)
-    _ = emqx_plugins_apps:on_config_changed(NameVsn, get_config(NameVsn), ConfigJsonMap),
-    ok = persistent_term:put(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn), ConfigJsonMap),
-    ok.
+%% This function assumes that the config is already validated
+%% by avro schema in case of its presence.
+update_config(NameVsn, Config) ->
+    maybe
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn, #{}),
+        ok ?= request_config_change(NameVsn, Plugin, Config),
+        ok = emqx_plugins_local_config:backup_and_update(NameVsn, Config),
+        ok = put_cached_config(NameVsn, Config)
+    end.
 
 %% @doc Stop and then start the plugin.
 restart(NameVsn) ->
@@ -483,10 +488,6 @@ add_new_configured(Configured, {Action, NameVsn}, Item) ->
             Front ++ [Anchor, Item | Rear0]
     end.
 
-purge_plugin_config(NameVsn) ->
-    _ = persistent_term:erase(?PLUGIN_PERSIS_CONFIG_KEY(NameVsn)),
-    ok.
-
 %% Make sure configured ones are ordered in front.
 do_list([], All) ->
     All;
@@ -505,7 +506,7 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= install(NameVsn, ?normal),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
-        ok ?= emqx_plugins_apps:start(Plugin, emqx_plugins_fs:lib_dir(NameVsn))
+        ok ?= emqx_plugins_apps:start(Plugin)
     else
         {error, Reason} ->
             ?SLOG(error, #{
@@ -563,25 +564,25 @@ ensure_installed_locally(NameVsn) ->
         NameVsn,
         fun() ->
             case emqx_plugins_info:read(NameVsn) of
-                {ok, _} ->
-                    ok;
+                {ok, Plugin} ->
+                    emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn));
                 {error, _} = Error ->
                     Error
             end
         end
     ).
 
-install_and_configure(NameVsn, Mode) ->
+install_and_configure(NameVsn, Mode, RunningSt) ->
     maybe
         ok ?= install(NameVsn, Mode),
-        configure(NameVsn, Mode)
+        configure(NameVsn, Mode, RunningSt)
     end.
 
-configure(NameVsn, Mode) ->
+configure(NameVsn, Mode, RunningSt) ->
     ok = load_config_schema(NameVsn),
     maybe
         ok ?= ensure_local_config(NameVsn, Mode),
-        configure_from_local_config(NameVsn)
+        configure_from_local_config(NameVsn, RunningSt)
     end,
     ensure_state(NameVsn).
 
@@ -779,16 +780,40 @@ do_ensure_local_config(NameVsn, ?normal) ->
             emqx_plugins_local_config:copy_default(NameVsn)
     end.
 
-configure_from_local_config(NameVsn) ->
+configure_from_local_config(NameVsn, RunningSt) ->
     case validated_local_config(NameVsn) of
-        {ok, Config} ->
-            put_config(NameVsn, Config);
+        {ok, NewConfig} ->
+            OldConfig = get_cached_config(NameVsn),
+            ok = notify_config_change(NameVsn, OldConfig, NewConfig, RunningSt),
+            ok = put_cached_config(NameVsn, NewConfig);
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_validate_plugin_config", name_vsn => NameVsn, reason => Reason
             }),
             ok
     end.
+
+notify_config_change(_NameVsn, _OldConfig, _NewConfig, stopped) ->
+    ok;
+notify_config_change(NameVsn, OldConfig, NewConfig, RunningSt) when
+    RunningSt =:= running orelse RunningSt =:= loaded
+->
+    %% NOTE
+    %% The new config here is the local config, so it is
+    %% * either vendored with the plugin;
+    %% * or fetched from another node where it was validated by the plugin before being updated.
+    %% In both cases, we do not expect the plugin to reject the config.
+    %% Even if it does, there is little that can be done.
+    %% So we ignore the result of the callback.
+    _ = emqx_plugins_apps:on_config_changed(NameVsn, OldConfig, NewConfig),
+    ok.
+
+request_config_change(NameVsn, #{running_status := stopped}, _Config) ->
+    {error, {plugin_apps_not_loaded, NameVsn}};
+request_config_change(NameVsn, #{running_status := RunningSt}, Config) when
+    RunningSt =:= running orelse RunningSt =:= loaded
+->
+    emqx_plugins_apps:on_config_changed(NameVsn, get_cached_config(NameVsn), Config).
 
 load_config_schema(NameVsn) ->
     case emqx_plugins_fs:read_avsc_bin(NameVsn) of
@@ -824,6 +849,19 @@ validated_local_config(NameVsn) ->
             }),
             {error, Reason}
     end.
+
+get_cached_config(NameVsn) ->
+    get_cached_config(NameVsn, #{}).
+
+get_cached_config(NameVsn, Default) ->
+    persistent_term:get(?PLUGIN_CONFIG_PT_KEY(bin(NameVsn)), Default).
+
+put_cached_config(NameVsn, Config) ->
+    persistent_term:put(?PLUGIN_CONFIG_PT_KEY(bin(NameVsn)), Config).
+
+delete_cached_config(NameVsn) ->
+    _ = persistent_term:erase(?PLUGIN_CONFIG_PT_KEY(bin(NameVsn))),
+    ok.
 
 ensure_config_bin(AvroJsonMap) when is_map(AvroJsonMap) ->
     emqx_utils_json:encode(AvroJsonMap);

@@ -24,7 +24,7 @@ get_demo_plugin_package(
 ) ->
     TargetName = lists:flatten([ReleaseName, "-", PluginVsn, ?PACKAGE_SUFFIX]),
     FileURI = lists:flatten(lists:join("/", [GitUrl, ReleaseTag, TargetName])),
-    {ok, {_, _, PluginBin}} = httpc:request(FileURI),
+    {ok, {_Status, _Headers, PluginBin}} = httpc:request(FileURI),
     Pkg = filename:join([
         WorkDir,
         TargetName
