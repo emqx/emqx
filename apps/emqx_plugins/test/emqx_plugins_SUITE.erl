@@ -24,6 +24,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(EMQX_PLUGIN_APP_NAME, my_emqx_plugin).
+-define(EMQX_PLUGIN_APP_NAME_BIN, <<"my_emqx_plugin">>).
 -define(EMQX_PLUGIN_TEMPLATE_RELEASE_NAME, atom_to_list(?EMQX_PLUGIN_APP_NAME)).
 -define(EMQX_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-plugin-template/releases/download/"
@@ -62,7 +63,8 @@ groups() ->
         {copy_plugin, [sequence], [
             group_t_copy_plugin_to_a_new_node,
             group_t_copy_plugin_to_a_new_node_single_node,
-            group_t_cluster_leave
+            group_t_cluster_leave,
+            group_t_cluster_force_sync_vsn
         ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
     ].
@@ -115,10 +117,6 @@ get_demo_plugin_package(Dir) ->
             shdir => Dir
         }
     ).
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
-bin(B) when is_binary(B) -> B.
 
 hookpoints() ->
     [
@@ -882,6 +880,173 @@ group_t_cluster_leave(Config) ->
     ),
     ok.
 
+group_t_cluster_force_sync_vsn({init, Config}) ->
+    OldInstallDir = filename:join(emqx_cth_suite:work_dir(?FUNCTION_NAME, Config), old),
+    ok = filelib:ensure_path(OldInstallDir),
+    NewInstallDir = filename:join(emqx_cth_suite:work_dir(?FUNCTION_NAME, Config), new),
+    ok = filelib:ensure_path(NewInstallDir),
+    #{package := OldPackage, release_name := OldPluginName} =
+        get_demo_plugin_package(#{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => "5.1.0",
+            tag => "5.1.0",
+            shdir => OldInstallDir
+        }),
+
+    #{package := NewPackage, release_name := NewPluginName} =
+        get_demo_plugin_package(#{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => "5.9.0-beta.1",
+            tag => "5.9.0-beta.1",
+            shdir => NewInstallDir
+        }),
+    Apps = [
+        emqx,
+        emqx_conf,
+        emqx_ctl,
+        emqx_plugins
+    ],
+    [SpecWithOld, SpecWithNew] =
+        emqx_cth_cluster:mk_nodespecs(
+            [
+                {node_with_old, #{role => core, apps => Apps}},
+                {node_with_new, #{role => core, apps => Apps}}
+            ],
+            #{
+                work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)
+            }
+        ),
+    %% Start two nodes
+    [NodeWithOld] = emqx_cth_cluster:start([SpecWithOld#{join_to => undefined}]),
+    ok = rpc:call(NodeWithOld, emqx_plugins, put_config_internal, [install_dir, OldInstallDir]),
+    [NodeWithNew] = emqx_cth_cluster:start([SpecWithNew#{join_to => undefined}]),
+    ok = rpc:call(NodeWithNew, emqx_plugins, put_config_internal, [install_dir, NewInstallDir]),
+
+    OldNameVsn = filename:basename(OldPackage, ?PACKAGE_SUFFIX),
+    NewNameVsn = filename:basename(NewPackage, ?PACKAGE_SUFFIX),
+    ?assertEqual(OldPluginName, NewPluginName),
+
+    lists:foreach(
+        fun({Node, NameVsn}) ->
+            ok = rpc:call(Node, emqx_plugins, ensure_installed, [NameVsn]),
+            ok = rpc:call(Node, emqx_plugins, ensure_started, [NameVsn]),
+            ok = rpc:call(Node, emqx_plugins, ensure_enabled, [NameVsn])
+        end,
+        [
+            {NodeWithOld, OldNameVsn},
+            {NodeWithNew, NewNameVsn}
+        ]
+    ),
+    [
+        {old_install_dir, OldInstallDir},
+        {new_install_dir, NewInstallDir},
+        {node_with_old, NodeWithOld},
+        {node_with_new, NodeWithNew},
+        {old_name_vsn, OldNameVsn},
+        {new_name_vsn, NewNameVsn},
+        {old_plugin_name, OldPluginName},
+        {new_plugin_name, NewPluginName}
+        | Config
+    ];
+group_t_cluster_force_sync_vsn({'end', Config}) ->
+    NodeWithOld = ?config(node_with_old, Config),
+    NodeWithNew = ?config(node_with_new, Config),
+    ok = emqx_cth_cluster:stop([NodeWithOld, NodeWithNew]);
+group_t_cluster_force_sync_vsn(Config) ->
+    NodeWithOld = ?config(node_with_old, Config),
+    NodeWithNew = ?config(node_with_new, Config),
+
+    Params = unused,
+    ?assertMatch(
+        {200, [
+            #{
+                name := ?EMQX_PLUGIN_APP_NAME_BIN,
+                rel_vsn := <<"5.1.0">>,
+                running_status := [#{node := NodeWithOld, status := running}]
+            }
+        ]},
+        erpc:call(NodeWithOld, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                name := ?EMQX_PLUGIN_APP_NAME_BIN,
+                rel_vsn := <<"5.9.0-beta.1">>,
+                running_status := [#{node := NodeWithNew, status := running}]
+            }
+        ]},
+        erpc:call(NodeWithNew, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+    ),
+
+    ok = erpc:call(NodeWithNew, ekka, join, [NodeWithOld]),
+    %% After `NodeWithNew` joined `NodeWithOld`,
+    %% The node: `NodeWithNew` should have the same plugin version as `NodeWithOld`
+    %% but the new version plugin directory should still exist
+    %% aka: the node will have the same plugin version as the node it joined
+    %% and it will keep the plugin directory before it joined, untill run `force_sync` action
+
+    %% expected: the new version plugin directory should still exist
+    %% list_plugins api will simply list the plugin directory and merge the result
+    %% both nodes running the old version plugin
+    %% note thet they have same app name `my_emqx_plugin`
+    %% so the running status all be `running`
+    lists:foreach(
+        fun(Node) ->
+            ?assertMatch(
+                {200, [
+                    #{
+                        name := ?EMQX_PLUGIN_APP_NAME_BIN,
+                        rel_vsn := <<"5.1.0">>,
+                        running_status := [#{node := NodeWithOld, status := running}]
+                    },
+                    #{
+                        name := ?EMQX_PLUGIN_APP_NAME_BIN,
+                        rel_vsn := <<"5.9.0-beta.1">>,
+                        running_status := [#{node := NodeWithNew, status := running}]
+                    }
+                ]},
+                erpc:call(Node, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+            )
+        end,
+        [NodeWithOld, NodeWithNew]
+    ),
+
+    {204} = erpc:call(NodeWithNew, emqx_mgmt_api_plugins, sync_plugin, [
+        post, #{body => #{<<"name">> => <<"my_emqx_plugin-5.9.0-beta.1">>}}
+    ]),
+    %% After `force_sync` action, the node should have the new version plugin
+    %% and the old version plugin directory should be removed
+    %% User should be able to start the new version plugin manually
+
+    NewNameVsn = ?config(new_name_vsn, Config),
+    {204} = erpc:call(NodeWithNew, emqx_mgmt_api_plugins, update_plugin, [
+        put, #{bindings => #{name => NewNameVsn, action => start}}
+    ]),
+
+    %% two nodes all running the new version plugin
+    lists:foreach(
+        fun(Node) ->
+            ?assertMatch(
+                {200, [
+                    #{
+                        name := ?EMQX_PLUGIN_APP_NAME_BIN,
+                        rel_vsn := <<"5.9.0-beta.1">>,
+                        running_status := [
+                            #{status := running},
+                            #{status := running}
+                        ]
+                    }
+                ]},
+                erpc:call(Node, emqx_mgmt_api_plugins, list_plugins, [get, Params])
+            )
+        end,
+        [NodeWithOld, NodeWithNew]
+    ),
+
+    ok.
+
 %% Checks that starting a node with a plugin enabled starts it correctly, and that the
 %% hooks added by the plugin's `application:start/2' callback are indeed in place.
 %% See also: https://github.com/emqx/emqx/issues/13378
@@ -1002,3 +1167,7 @@ make_tar(Cwd, NameWithVsn, TarfileVsn) ->
 ensure_state(NameVsn, Position, Enabled) ->
     %% NOTE: this is an internal function that is (legacy) exported in test builds only...
     emqx_plugins:ensure_state(NameVsn, Position, Enabled, _ConfLocation = local).
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
+bin(B) when is_binary(B) -> B.
