@@ -75,7 +75,6 @@ runs:
         cp rebar3 $HOME/bin/rebar3
         export PATH="$HOME/bin:$PATH"
         export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-        ls -l "$SDKROOT/usr/include/"
         make $PROFILE-tgz
     - name: test ${{ inputs.profile }}
       shell: bash

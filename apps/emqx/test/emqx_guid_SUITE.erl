@@ -29,8 +29,14 @@ t_guid_gen(_) ->
     <<_:128>> = Guid1,
     ?assert((Guid2 >= Guid1)),
     {Ts1, _, 0} = emqx_guid:new(),
+    erlang:yield(),
     Ts2 = emqx_guid:timestamp(emqx_guid:gen()),
-    ?assert(Ts2 > Ts1).
+    case Ts2 > Ts1 of
+        true ->
+            ok;
+        false ->
+            ct:fail({Ts1, Ts2})
+    end.
 
 t_guid_hexstr(_) ->
     Guid = emqx_guid:gen(),
