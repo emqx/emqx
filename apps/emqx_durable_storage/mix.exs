@@ -14,6 +14,8 @@ defmodule EMQXDurableStorage.MixProject do
       asn1_srcs: [
         %{src: "./asn.1/DurableMessage.asn",
           compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
+        %{src: "./asn.1/Blob.asn",
+          compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
       ],
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

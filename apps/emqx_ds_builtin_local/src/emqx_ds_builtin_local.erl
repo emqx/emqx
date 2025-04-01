@@ -36,6 +36,9 @@
     suback/3,
     subscription_info/2,
 
+    new_blob_tx/2,
+    commit_blob_tx/3,
+
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
@@ -107,6 +110,8 @@
 
 -type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
 
+-type tx_context() :: emqx_ds_storage_layer_tx:ctx().
+
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
 
@@ -138,6 +143,7 @@ close_db(DB) ->
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
+    %% FIXME: execute this in the serializer's context
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     Errors = lists:filtermap(
         fun(Shard) ->
@@ -221,6 +227,27 @@ store_batch(DB, Batch, Opts) ->
             store_batch_buffered(DB, Batch, Opts)
     end.
 
+-spec new_blob_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
+    {ok, tx_context()} | emqx_ds:error(_).
+new_blob_tx(DB, Options) ->
+    case emqx_ds_builtin_local_meta:db_config(DB) of
+        #{atomic_batches := true, store_blobs := true} ->
+            case Options of
+                #{owner := Owner} ->
+                    Shard = shard_of(DB, Owner);
+                #{shard := Shard} ->
+                    ok
+            end,
+            Now = emqx_ds_builtin_local_meta:current_timestamp(Shard),
+            emqx_ds_storage_layer_tx:new_blob_tx_ctx(DB, Shard, Options, Now);
+        _ ->
+            ?err_unrec(database_does_not_support_transactions)
+    end.
+
+-spec commit_blob_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
+commit_blob_tx(DB, Ctx, Ops) ->
+    emqx_ds_builtin_local_batch_serializer:commit_blob_tx(DB, Ctx, Ops).
+
 store_batch_buffered(DB, Messages, Opts) ->
     try
         emqx_ds_buffer:store_batch(DB, Messages, Opts)
@@ -237,7 +264,7 @@ store_batch_atomic(DB, Batch, Opts) ->
         [] ->
             ok;
         [_ | _] ->
-            {error, unrecoverable, atomic_batch_spans_multiple_shards}
+            ?err_unrec(atomic_batch_spans_multiple_shards)
     end.
 
 shards_of_batch(DB, #dsbatch{operations = Operations, preconditions = Preconditions}) ->

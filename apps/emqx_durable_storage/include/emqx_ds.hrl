@@ -49,4 +49,10 @@
 -define(err_rec(E), {error, recoverable, E}).
 -define(err_unrec(E), {error, unrecoverable, E}).
 
+%% Transaction tags
+-define(ds_tx_write, w).
+-define(ds_tx_delete_topic, dt).
+-define(ds_tx_expected, e).
+-define(ds_tx_unexpected, u).
+
 -endif.
