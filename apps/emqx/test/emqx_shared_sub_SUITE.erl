@@ -720,24 +720,25 @@ t_stats(Config) when is_list(Config) ->
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
-    ct:sleep(100),
-
-    ct:pal("Shared sub table: ~p", [ets:tab2list(emqx_shared_subscription)]),
     %% Verify LOCAL stats update
-    ?assertMatch(
-        #{'subscriptions.shared.count' := 1},
-        maps:from_list(emqx_stats:getstats())
+    ?retry(
+        100,
+        5,
+        ?assertMatch(
+            #{'subscriptions.shared.count' := 1},
+            maps:from_list(emqx_stats:getstats())
+        )
     ),
     emqtt:unsubscribe(ConnPid1, SharedTopic),
-    ct:sleep(100),
-
-    ct:pal("Shared sub table: ~p", [ets:tab2list(emqx_shared_subscription)]),
     %% Verify LOCAL stats update again
-    ?assertMatch(
-        #{'subscriptions.shared.count' := 0},
-        maps:from_list(emqx_stats:getstats())
+    ?retry(
+        100,
+        5,
+        ?assertMatch(
+            #{'subscriptions.shared.count' := 0},
+            maps:from_list(emqx_stats:getstats())
+        )
     ),
-
     %% Shutdown
     emqtt:stop(ConnPid1),
     stop_peer(Node),
