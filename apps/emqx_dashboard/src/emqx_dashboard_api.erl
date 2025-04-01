@@ -340,27 +340,43 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
         {error, Reason} ->
             {400, ?BAD_REQUEST, Reason}
     end;
-user(delete, #{bindings := #{username := Username0}, headers := Headers} = Req) ->
-    case Username0 == emqx_dashboard_admin:default_username() of
+user(delete, #{bindings := #{username := Username}} = Req) ->
+    DefaultUsername = emqx_dashboard_admin:default_username(),
+    case Username == DefaultUsername of
         true ->
+            handle_delete_default_admin(Req);
+        false ->
+            handle_delete_user(Req)
+    end.
+
+handle_delete_default_admin(#{bindings := #{username := Username0}} = Req) ->
+    AllAdminUsers = emqx_dashboard_admin:admin_users(),
+    OtherAdminUsers = lists:filter(fun(#{username := U}) -> U /= Username0 end, AllAdminUsers),
+    case OtherAdminUsers of
+        [_ | _] ->
+            %% There is at least one other admin user; we may delete the default user.
+            handle_delete_user(Req);
+        [] ->
+            %% There's no other admin user.
             ?SLOG(info, #{msg => "dashboard_delete_admin_user_failed", username => Username0}),
             Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username0])),
-            {400, ?NOT_ALLOWED, Message};
+            {400, ?NOT_ALLOWED, Message}
+    end.
+
+handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} = Req) ->
+    Username = username(Req, Username0),
+    case is_self_auth(Username0, Headers) of
+        true ->
+            {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
         false ->
-            Username = username(Req, Username0),
-            case is_self_auth(Username0, Headers) of
-                true ->
-                    {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
-                false ->
-                    case emqx_dashboard_admin:remove_user(Username) of
-                        {error, Reason} ->
-                            {404, ?USER_NOT_FOUND, Reason};
-                        {ok, _} ->
-                            ?SLOG(info, #{
-                                msg => "dashboard_delete_admin_user", username => Username0
-                            }),
-                            {204}
-                    end
+            case emqx_dashboard_admin:remove_user(Username) of
+                {error, Reason} ->
+                    {404, ?USER_NOT_FOUND, Reason};
+                {ok, _} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_delete_admin_user", username => Username0
+                    }),
+                    {204}
             end
     end.
 

@@ -38,7 +38,6 @@ start(_StartType, _StartArgs) ->
     case emqx_dashboard:start_listeners() of
         ok ->
             emqx_dashboard_cli:load(),
-            %emqx_dashboard_log:setup(),
             {ok, _} = emqx_dashboard_admin:add_default_user(),
             {ok, Sup};
         {error, Reason} ->

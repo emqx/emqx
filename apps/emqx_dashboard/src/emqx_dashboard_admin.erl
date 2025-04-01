@@ -42,6 +42,7 @@
     change_password/3,
     enable_mfa/2,
     all_users/0,
+    admin_users/0,
     check/2,
     check/3
 ]).
@@ -71,7 +72,7 @@
 -endif.
 
 -ifdef(TEST).
--export([unsafe_update_user/1]).
+-export([unsafe_update_user/1, default_password/0]).
 -endif.
 
 -export_type([
@@ -472,24 +473,27 @@ lookup_user(Username) ->
 
 -spec all_users() -> [map()].
 all_users() ->
-    lists:map(
-        fun(
-            #?ADMIN{
-                username = Username,
-                description = Desc,
-                role = Role,
-                extra = Extra
-            }
-        ) ->
-            flatten_username(#{
-                username => Username,
-                description => Desc,
-                role => ensure_role(Role),
-                mfa => format_mfa(Extra)
-            })
-        end,
-        ets:tab2list(?ADMIN)
-    ).
+    lists:map(fun to_external_user/1, ets:tab2list(?ADMIN)).
+
+-spec admin_users() -> [map()].
+admin_users() ->
+    Ms = ets:fun2ms(fun(#?ADMIN{role = ?ROLE_SUPERUSER} = User) -> User end),
+    Admins = ets:select(?ADMIN, Ms),
+    lists:map(fun to_external_user/1, Admins).
+
+to_external_user(UserRecord) ->
+    #?ADMIN{
+        username = Username,
+        description = Desc,
+        role = Role,
+        extra = Extra
+    } = UserRecord,
+    flatten_username(#{
+        username => Username,
+        description => Desc,
+        role => ensure_role(Role),
+        mfa => format_mfa(Extra)
+    }).
 
 format_mfa(#{mfa_state := #{mechanism := Mechanism}}) -> Mechanism;
 format_mfa(#{mfa_state := disabled}) -> disabled;
@@ -659,15 +663,27 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] ->
-            case do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>) of
-                {error, ?USERNAME_ALREADY_EXISTS_ERROR} ->
-                    %% race condition: multiple nodes booting at the same time?
-                    {ok, default_user_exists};
-                Res ->
-                    Res
+            AllAdminUsers = admin_users(),
+            OtherAdminUsers = lists:filter(
+                fun(#{username := U}) -> U /= Username end, AllAdminUsers
+            ),
+            case OtherAdminUsers of
+                [_ | _] ->
+                    %% Other admins exist; no need to create default one.
+                    {ok, other_admins_exist};
+                [] ->
+                    do_add_default_user(Username, Password)
             end;
         _ ->
             {ok, default_user_exists}
+    end.
+
+do_add_default_user(Username, Password) ->
+    maybe
+        {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
+            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>),
+        %% race condition: multiple nodes booting at the same time?
+        {ok, default_user_exists}
     end.
 
 %% ensure the `role` is correct when it is directly read from the table
