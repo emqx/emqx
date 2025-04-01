@@ -1,0 +1,7 @@
+DurableBlob DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  DurableBlob ::= SEQUENCE {
+    topic SEQUENCE OF OCTET STRING,
+    payload OCTET STRING
+  }
+END

@@ -18,8 +18,8 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
--export([verify/3]).
--export([matches/2]).
+-export([verify/3, matches/2]).
+-export([blob_verify/3]).
 
 -export_type([matcher/0, mismatch/0]).
 
@@ -92,6 +92,10 @@ matches_headers(_Message, MatchHeaders) when map_size(MatchHeaders) =:= 0 ->
     true;
 matches_headers(#message{headers = Headers}, MatchHeaders) ->
     maps:intersect(MatchHeaders, Headers) =:= MatchHeaders.
+
+blob_verify(_Mod, _Ctx, _Precondition) ->
+    %% FIXME:
+    ok.
 
 %% Basic tests
 
