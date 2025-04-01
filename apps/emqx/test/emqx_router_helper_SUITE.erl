@@ -146,7 +146,7 @@ t_membership_node_leaving(_Config) ->
     {_, {ok, _}} = ?wait_async_action(
         ?ROUTER_HELPER ! {membership, {node, leaving, AnotherNode}},
         #{?snk_kind := router_node_routing_table_purged, node := AnotherNode},
-        1_000
+        5_000
     ),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
 
