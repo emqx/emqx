@@ -74,6 +74,10 @@ runs:
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
         export PATH="$HOME/bin:$PATH"
+        # needed in latest macos-15 runner
+        export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+        # needed because https://github.com/emqx/mnesia_rocksdb/blame/a791148c3f195a87260dfa7ee3e8735a3461c378/rebar.config.script#L4 may overwrite it
+        export ERLANG_ROCKSDB_OPTS='-DWITH_BUNDLE_LZ4=ON -DWITH_BUNDLE_SNAPPY=ON'
         make $PROFILE-tgz
     - name: test ${{ inputs.profile }}
       shell: bash
@@ -85,10 +89,10 @@ runs:
         pkg_name=$(find _packages/$PROFILE -mindepth 1 -maxdepth 1 -iname \*.zip)
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
-        ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
-        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083
-        ./emqx/bin/emqx ping
-        ./emqx/bin/emqx help
-        ./emqx/bin/emqx ctl status
-        ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
-        rm -rf emqx
+        ./emqx/bin/emqx start && \
+        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083 && \
+        ./emqx/bin/emqx ping && \
+        ./emqx/bin/emqx help && \
+        ./emqx/bin/emqx ctl status && \
+        ./emqx/bin/emqx stop || \
+        (cat emqx/log/erlang.log.1 && cat emqx/log/emqx.log.1 && exit 1)
