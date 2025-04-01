@@ -28,6 +28,7 @@
 
 -export([
     describe/1,
+    describe/2,
     plugin_schema/1,
     plugin_i18n/1
 ]).
@@ -60,7 +61,8 @@
     ensure_stopped/1,
     restart/1,
     list/0,
-    list/1
+    list/1,
+    list/2
 ]).
 
 %% Plugin config APIs
@@ -110,7 +112,12 @@
 %% @doc Describe a plugin.
 -spec describe(name_vsn()) -> {ok, emqx_plugins_info:t()} | {error, any()}.
 describe(NameVsn) ->
-    read_plugin_info(NameVsn, #{fill_readme => true}).
+    describe(NameVsn, #{fill_readme => true, health_check => true}).
+
+-spec describe(name_vsn(), emqx_plugins_info:read_options()) ->
+    {ok, emqx_plugins_info:t()} | {error, any()}.
+describe(NameVsn, Options) ->
+    read_plugin_info(NameVsn, Options).
 
 -spec plugin_schema(name_vsn()) -> {ok, schema_json_map()} | {error, any()}.
 plugin_schema(NameVsn) ->
@@ -348,9 +355,13 @@ list() ->
 
 -spec list(all | normal | hidden) -> [emqx_plugins_info:t()].
 list(Type) ->
+    list(Type, #{}).
+
+-spec list(all | normal | hidden, emqx_plugins_info:read_options()) -> [emqx_plugins_info:t()].
+list(Type, Options) ->
     All = lists:filtermap(
         fun(NameVsn) ->
-            case read_plugin_info(NameVsn, #{}) of
+            case read_plugin_info(NameVsn, Options) of
                 {ok, Info} ->
                     filter_plugin_of_type(Type, Info);
                 {error, Reason} ->

@@ -22,6 +22,10 @@
     running_status := running | stopped | loaded,
     config_status := enabled | disabled | not_configured,
     %% Optional fields
+    health_status => #{
+        status := ok | error,
+        message => binary()
+    },
     with_config_schema => boolean(),
     hidden => boolean(),
     date => binary(),
@@ -41,7 +45,8 @@
 }.
 
 -type read_options() :: #{
-    fill_readme => boolean()
+    fill_readme => boolean(),
+    health_check => boolean()
 }.
 
 -export_type([t/0, read_options/0]).
@@ -60,7 +65,8 @@ read(NameVsn, Options) ->
         ok ?= check_plugin(Info1, NameVsn),
         Info2 = populate_plugin_readme(NameVsn, Options, Info1),
         Info3 = populate_plugin_package_info(NameVsn, Info2),
-        Info = populate_plugin_status(NameVsn, Info3),
+        Info4 = populate_plugin_status(NameVsn, Info3),
+        Info = populate_plugin_health_status(NameVsn, Options, Info4),
         {ok, Info}
     end.
 
@@ -97,6 +103,22 @@ populate_plugin_status(NameVsn, Info) ->
         running_status => RunningSt,
         config_status => ConfSt
     }.
+
+populate_plugin_health_status(
+    NameVsn, #{health_check := true} = _Options, #{running_status := running} = Info
+) ->
+    case emqx_plugins_apps:on_health_check(NameVsn, #{}) of
+        ok ->
+            Info#{health_status => #{status => ok, message => <<"">>}};
+        {error, Reason} ->
+            Info#{
+                health_status => #{
+                    status => error, message => emqx_utils:readable_error_msg(Reason)
+                }
+            }
+    end;
+populate_plugin_health_status(_NameVsn, _Options, Info) ->
+    Info.
 
 check_plugin(
     #{

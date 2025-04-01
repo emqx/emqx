@@ -23,8 +23,8 @@
 
 -define(EMQX_PLUGIN_TEMPLATE_NAME, "my_emqx_plugin").
 -define(EMQX_PLUGIN_TEMPLATE_APP_NAME, my_emqx_plugin).
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.9.0-beta.2").
--define(EMQX_PLUGIN_TEMPLATE_TAG, "5.9.0-beta.2").
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.9.0-beta.3").
+-define(EMQX_PLUGIN_TEMPLATE_TAG, "5.9.0-beta.3").
 -define(EMQX_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-plugin-template/releases/download/"
 ).
@@ -100,7 +100,6 @@ t_plugins(_Config) ->
     %% Now really allow it.
     ok = allow_installation(NameVsn),
     ok = install_plugin(PackagePath),
-    {ok, StopRes} = describe_plugins(NameVsn),
     Node = atom_to_binary(node()),
     ?assertMatch(
         #{
@@ -108,28 +107,26 @@ t_plugins(_Config) ->
                 #{<<"node">> := Node, <<"status">> := <<"stopped">>}
             ]
         },
-        StopRes
+        describe_plugin(NameVsn)
     ),
     {ok, StopRes1} = update_plugin(NameVsn, "start"),
     ?assertEqual([], StopRes1),
-    {ok, StartRes} = describe_plugins(NameVsn),
     ?assertMatch(
         #{
             <<"running_status">> := [
                 #{<<"node">> := Node, <<"status">> := <<"running">>}
             ]
         },
-        StartRes
+        describe_plugin(NameVsn)
     ),
     {ok, []} = update_plugin(NameVsn, "stop"),
-    {ok, StopRes2} = describe_plugins(NameVsn),
     ?assertMatch(
         #{
             <<"running_status">> := [
                 #{<<"node">> := Node, <<"status">> := <<"stopped">>}
             ]
         },
-        StopRes2
+        describe_plugin(NameVsn)
     ),
     {ok, []} = uninstall_plugin(NameVsn),
     %% Should forget that we allowed installation after uninstall
@@ -144,7 +141,6 @@ t_update_config(_Config) ->
     ok = allow_installation(NameVsn),
     ok = install_plugin(PackagePath),
     OldConfig = emqx_plugins:get_config(NameVsn),
-
     %% Check config update when plugin is not started
     ?assertMatch(
         {ok, 400, _},
@@ -154,7 +150,6 @@ t_update_config(_Config) ->
         {ok, 204, _},
         update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"localhost">>})
     ),
-
     %% Check config update when plugin is started
     {ok, _} = update_plugin(NameVsn, "start"),
     ?assertMatch(
@@ -166,7 +161,6 @@ t_update_config(_Config) ->
         update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"localhost">>})
     ),
     {ok, []} = update_plugin(NameVsn, "stop"),
-
     %% Check config update when plugin is stopped
     ?assertMatch(
         {ok, 400, _},
@@ -176,7 +170,72 @@ t_update_config(_Config) ->
         {ok, 204, _},
         update_plugin_config(NameVsn, OldConfig#{<<"hostname">> => <<"localhost">>})
     ),
+    %% Clean up
+    {ok, []} = uninstall_plugin(NameVsn).
 
+t_health_status(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    OldConfig = emqx_plugins:get_config(NameVsn),
+    Node = atom_to_binary(node()),
+    %% No health status for stopped plugin
+    ?assertNotMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := Node, <<"health_status">> := _}
+            ]
+        },
+        describe_plugin(NameVsn)
+    ),
+    %% Check health status when plugin is started
+    {ok, _} = update_plugin(NameVsn, "start"),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := Node, <<"health_status">> := #{<<"status">> := <<"ok">>}}
+            ]
+        },
+        describe_plugin(NameVsn)
+    ),
+    %% Check health status in /plugins
+    ?assertMatch(
+        [
+            #{
+                <<"running_status">> := [
+                    #{<<"node">> := Node, <<"health_status">> := #{<<"status">> := <<"ok">>}}
+                ]
+            }
+        ],
+        list_plugins()
+    ),
+    %% Change config to make plugin unhealthy. Unhealthines for ports other than
+    %% 3306 is baked in the plugin.
+    ?assertMatch(
+        {ok, 204, _},
+        update_plugin_config(NameVsn, OldConfig#{<<"port">> => 3307})
+    ),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := Node, <<"health_status">> := #{<<"status">> := <<"error">>}}
+            ]
+        },
+        describe_plugin(NameVsn)
+    ),
+    {ok, []} = update_plugin(NameVsn, "stop"),
+    %% Check health status when plugin is stopped
+    ?assertNotMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"node">> := Node, <<"health_status">> := _}
+            ]
+        },
+        describe_plugin(NameVsn)
+    ),
     %% Clean up
     {ok, []} = uninstall_plugin(NameVsn).
 
@@ -197,10 +256,10 @@ t_install_plugin_matching_exisiting_name(_Config) ->
     ok = allow_installation(NameVsn1),
     ok = install_plugin(PackagePath1),
     ok = install_plugin(PackagePath),
-    {ok, _} = describe_plugins(NameVsn),
-    {ok, _} = describe_plugins(NameVsn1),
-    {ok, _} = uninstall_plugin(NameVsn),
-    {ok, _} = uninstall_plugin(NameVsn1).
+    _ = describe_plugin(NameVsn),
+    _ = describe_plugin(NameVsn1),
+    _ = uninstall_plugin(NameVsn),
+    _ = uninstall_plugin(NameVsn1).
 
 t_install_plugin_with_bad_form_data(_Config) ->
     AuthHeader = emqx_common_test_http:default_auth_header(),
@@ -258,38 +317,38 @@ t_cluster_update_order(Config) ->
         ok = allow_installation(NameVsn1),
         ok = allow_installation(NameVsn2)
     end),
-    ok = install_plugin(Config, PackagePath1),
-    ok = install_plugin(Config, PackagePath2),
+    ok = install_plugin_into_cluster(Config, PackagePath1),
+    ok = install_plugin_into_cluster(Config, PackagePath2),
     %% to get them configured...
-    {ok, _} = update_plugin(Config, NameVsn1, "start"),
-    {ok, _} = update_plugin(Config, NameVsn2, "start"),
+    {ok, _} = update_plugin_in_cluster(Config, NameVsn1, "start"),
+    {ok, _} = update_plugin_in_cluster(Config, NameVsn2, "start"),
 
     ?assertMatch(
-        {ok, [
+        [
             #{<<"name">> := Name1},
             #{<<"name">> := Name2}
-        ]},
-        list_plugins(Config)
+        ],
+        list_plugins_from_cluster(Config)
     ),
 
     ct:pal("moving to rear"),
     ?assertMatch({ok, _}, update_boot_order(NameVsn1, #{position => rear}, Config)),
     ?assertMatch(
-        {ok, [
+        [
             #{<<"name">> := Name2},
             #{<<"name">> := Name1}
-        ]},
-        list_plugins(Config)
+        ],
+        list_plugins_from_cluster(Config)
     ),
 
     ct:pal("moving to front"),
     ?assertMatch({ok, _}, update_boot_order(NameVsn1, #{position => front}, Config)),
     ?assertMatch(
-        {ok, [
+        [
             #{<<"name">> := Name1},
             #{<<"name">> := Name2}
-        ]},
-        list_plugins(Config)
+        ],
+        list_plugins_from_cluster(Config)
     ),
 
     ct:pal("moving after"),
@@ -299,11 +358,11 @@ t_cluster_update_order(Config) ->
         update_boot_order(NameVsn1, #{position => <<"after:", NameVsn2Bin/binary>>}, Config)
     ),
     ?assertMatch(
-        {ok, [
+        [
             #{<<"name">> := Name2},
             #{<<"name">> := Name1}
-        ]},
-        list_plugins(Config)
+        ],
+        list_plugins_from_cluster(Config)
     ),
 
     ct:pal("moving before"),
@@ -312,28 +371,35 @@ t_cluster_update_order(Config) ->
         update_boot_order(NameVsn1, #{position => <<"before:", NameVsn2Bin/binary>>}, Config)
     ),
     ?assertMatch(
-        {ok, [
+        [
             #{<<"name">> := Name1},
             #{<<"name">> := Name2}
-        ]},
-        list_plugins(Config)
+        ],
+        list_plugins_from_cluster(Config)
     ),
 
     ok.
 
-list_plugins(Config) ->
+list_plugins_from_cluster(Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins"]),
     case emqx_mgmt_api_test_util:request_api(get, Path, Auth) of
-        {ok, Apps} -> {ok, emqx_utils_json:decode(Apps)};
-        Error -> Error
+        {ok, Apps} -> emqx_utils_json:decode(Apps);
+        {error, Reason} -> error(Reason)
     end.
 
-describe_plugins(Name) ->
+list_plugins() ->
+    Path = emqx_mgmt_api_test_util:api_path(["plugins"]),
+    case emqx_mgmt_api_test_util:request_api(get, Path) of
+        {ok, Apps} -> emqx_utils_json:decode(Apps);
+        {error, Reason} -> error(Reason)
+    end.
+
+describe_plugin(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
+        {ok, Res} -> emqx_utils_json:decode(Res);
+        {error, Reason} -> error(Reason)
     end.
 
 update_plugin_config(Name, Config) ->
@@ -360,7 +426,7 @@ install_plugin(FilePath) ->
         Error -> Error
     end.
 
-install_plugin(Config, FilePath) ->
+install_plugin_into_cluster(Config, FilePath) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", "install"]),
     case
@@ -381,7 +447,7 @@ update_plugin(Name, Action) ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins", Name, Action]),
     emqx_mgmt_api_test_util:request_api(put, Path).
 
-update_plugin(Config, Name, Action) when is_list(Config) ->
+update_plugin_in_cluster(Config, Name, Action) when is_list(Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", Name, Action]),
     emqx_mgmt_api_test_util:request_api(put, Path, Auth).
