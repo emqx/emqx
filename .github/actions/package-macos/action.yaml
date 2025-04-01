@@ -31,8 +31,8 @@ runs:
       shell: bash
       run: |
         brew update
-        brew install curl zip unzip unixodbc coreutils freetds autoconf automake cmake openssl kerl
-        brew upgrade curl zip unzip unixodbc coreutils freetds autoconf automake cmake openssl kerl
+        brew install curl zip unzip unixodbc coreutils freetds autoconf automake cmake kerl
+        brew upgrade curl zip unzip unixodbc coreutils freetds autoconf automake cmake kerl
     - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
       id: cache
       with:
