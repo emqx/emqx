@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -30,7 +31,8 @@ all() ->
         {group, smoke},
         {group, cleanup},
         {group, cluster},
-        {group, cluster_replicant}
+        {group, cluster_replicant},
+        t_cluster_migration
     ].
 
 groups() ->
@@ -265,6 +267,69 @@ t_message(_) ->
     gen_server:call(?ROUTER_HELPER, testing),
     ?assert(erlang:is_process_alive(Pid)),
     ?assertEqual(Pid, erlang:whereis(?ROUTER_HELPER)).
+
+%%
+
+t_cluster_migration('init', Config) ->
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    AppSpecs = [emqx],
+    NodeSpecs = [
+        {t_cluster_migration1, #{apps => AppSpecs}},
+        {t_cluster_migration2, #{apps => AppSpecs}},
+        {t_cluster_migration3, #{apps => AppSpecs}}
+    ],
+    Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
+    ok = snabbkaffe:start_trace(),
+    [{cluster, Nodes} | Config];
+t_cluster_migration('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(cluster, Config)).
+
+t_cluster_migration(Config) ->
+    %% Ensuse that the node to leave the cluster follow `emqx_machine` behavior.
+    [N1, N2, N3] = ?config(cluster, Config),
+    ok = erpc:call(N1, ekka, callback, [stop, fun() -> application:stop(emqx) end]),
+    ok = erpc:call(N1, ekka, callback, [start, fun() -> ?tp(leave_restart_complete, #{}) end]),
+
+    %% Start client that constantly subscribes to new, unique topics.
+    %% Let it run for a while.
+    {Client, CMRef} = connect_client(N1),
+    {Loadgen, LMRef} = erlang:spawn_monitor(?MODULE, loop_subscriber, [Client]),
+    ok = timer:sleep(1000),
+
+    %% Tell the cluster to "leave" the first node, the one that holds the client.
+    %% There's a tiny time window between "leave" announcement and the node actually
+    %% disconnecting the clients.
+    ok = erpc:call(N2, emqx_cluster, force_leave, [N1]),
+    ?block_until(#{?snk_kind := leave_restart_complete, ?snk_meta := #{node := N1}}),
+    ?assertEqual([N2, N3], erpc:call(N2, emqx, running_nodes, [])),
+
+    %% No routes are expected to be present in the global routing table.
+    ?block_until(#{?snk_kind := router_node_routing_table_purged, node := N1}),
+    ?assertEqual([], erpc:call(N2, emqx_router, topics, [])),
+    ?assertEqual([], erpc:call(N3, emqx_router, topics, [])),
+
+    %% The client should have been disconnected, and subscriber died as well.
+    ?assertReceive({'DOWN', CMRef, process, Client, _Disconnected}),
+    ?assertReceive({'DOWN', LMRef, process, Loadgen, _Disconnected}).
+
+connect_client(Node) ->
+    {_, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    {ok, Client} = emqtt:start_link([{port, Port}]),
+    {ok, _} = emqtt:connect(Client),
+    MRef = erlang:monitor(process, Client),
+    true = erlang:unlink(Client),
+    {Client, MRef}.
+
+loop_subscriber(Client) ->
+    Interval = 1,
+    loop_subscriber(1, Interval, Client).
+
+loop_subscriber(N, Interval, Client) ->
+    Topic = emqx_topic:join(["mig", integer_to_list(N), '#']),
+    {ok, _, [0]} = emqtt:subscribe(Client, Topic, 0),
+    ok = timer:sleep(Interval),
+    loop_subscriber(N + 1, Interval, Client).
 
 %%
 
