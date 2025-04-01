@@ -50,7 +50,7 @@ read_plugin_test() ->
     with_rand_install_dir(
         fun(_Dir) ->
             NameVsn = "bar-5",
-            InfoFile = emqx_plugins:info_file_path(NameVsn),
+            InfoFile = emqx_plugins_fs:info_file_path(NameVsn),
             FakeInfo =
                 "name=bar, rel_vsn=\"5\", rel_apps=[justname_no_vsn],"
                 "description=\"desc bar\"",
@@ -70,7 +70,7 @@ read_plugin_test() ->
 with_rand_install_dir(F) ->
     N = rand:uniform(10000000),
     TmpDir = integer_to_list(N),
-    OriginalInstallDir = emqx_plugins:install_dir(),
+    OriginalInstallDir = emqx_plugins_fs:install_dir(),
     ok = filelib:ensure_dir(filename:join([TmpDir, "foo"])),
     ok = emqx_plugins:put_config_internal(install_dir, TmpDir),
     try
@@ -91,14 +91,14 @@ delete_package_test() ->
     meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
-            File = emqx_plugins:pkg_file_path("a-1"),
+            File = emqx_plugins_fs:tar_file_path("a-1"),
             ok = write_file(File, "a"),
-            ok = emqx_plugins:delete_package("a-1"),
+            ok = emqx_plugins_fs:delete_tar("a-1"),
             %% delete again should be ok
-            ok = emqx_plugins:delete_package("a-1"),
+            ok = emqx_plugins_fs:delete_tar("a-1"),
             Dir = File,
             ok = filelib:ensure_dir(filename:join([Dir, "foo"])),
-            ?assertMatch({error, _}, emqx_plugins:delete_package("a-1"))
+            ?assertMatch({error, _}, emqx_plugins_fs:delete_tar("a-1"))
         end
     ),
     unmeck_emqx().
@@ -109,8 +109,8 @@ purge_test() ->
     meck_emqx(),
     with_rand_install_dir(
         fun(_Dir) ->
-            File = emqx_plugins:info_file_path("a-1"),
-            Dir = emqx_plugins:plugin_dir("a-1"),
+            File = emqx_plugins_fs:info_file_path("a-1"),
+            Dir = emqx_plugins_fs:plugin_dir("a-1"),
             ok = filelib:ensure_dir(File),
             ?assertMatch({ok, _}, file:read_file_info(Dir)),
             ?assertEqual(ok, emqx_plugins:purge("a-1")),

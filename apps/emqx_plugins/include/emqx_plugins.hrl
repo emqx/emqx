@@ -38,21 +38,9 @@
 %% "my_plugin-0.1.0"
 -type name_vsn() :: binary() | string().
 %% the parse result of the JSON info file
--type plugin_info() :: map().
 -type schema_json_map() :: map().
 -type i18n_json_map() :: map().
--type raw_plugin_config_content() :: binary().
 -type plugin_config_map() :: map().
 -type position() :: no_move | front | rear | {before, name_vsn()} | {behind, name_vsn()}.
-
--record(plugin_schema_serde, {
-    name :: schema_name(),
-    eval_context :: term(),
-    %% TODO: fields to mark schema import status
-    %% scheam_imported :: boolean(),
-    %% for future use
-    extra = []
-}).
--type plugin_schema_serde() :: #plugin_schema_serde{}.
 
 -endif.

@@ -22,8 +22,6 @@
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
 
--dialyzer({no_match, [format_plugin_avsc_and_i18n/1]}).
-
 -export([
     api_spec/0,
     fields/1,
@@ -44,21 +42,21 @@
 
 -export([
     validate_name/1,
+    validate_file_name/2,
     get_plugins/0,
     install_package/2,
+    install_package_v4/2,
     delete_package/1,
     delete_package/2,
     describe_package/1,
     ensure_action/2,
     ensure_action/3,
-    do_update_plugin_config/3
+    do_update_plugin_config/3,
+    do_update_plugin_config_v4/2
 ]).
 
--define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_.]*$").
+-define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w-.]*$").
 -define(TAGS, [<<"Plugins">>]).
-%% Plugin NameVsn must follow the pattern <app_name>-<vsn>,
-%% app_name must be a snake_case (no '-' allowed).
--define(VSN_WILDCARD, "-*.tar.gz").
 
 -define(CONTENT_PLUGIN, plugin).
 
@@ -97,6 +95,7 @@ schema("/plugins") ->
 schema("/plugins/install") ->
     #{
         'operationId' => upload_install,
+        filter => fun ?MODULE:validate_file_name/2,
         post => #{
             summary => <<"Install a new plugin">>,
             description =>
@@ -120,7 +119,13 @@ schema("/plugins/install") ->
             responses => #{
                 204 => <<"Install plugin successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO', 'FORBIDDEN']
+                    [
+                        'UNEXPECTED_ERROR',
+                        'ALREADY_INSTALLED',
+                        'BAD_PLUGIN_INFO',
+                        'BAD_FORM_DATA',
+                        'FORBIDDEN'
+                    ]
                 )
             }
         }
@@ -391,56 +396,69 @@ validate_name(Name) ->
     case NameLen > 0 andalso NameLen =< 256 of
         true ->
             case re:run(Name, ?NAME_RE) of
-                nomatch -> {error, "Name should be " ?NAME_RE};
-                _ -> ok
+                nomatch ->
+                    {
+                        error,
+                        "Name should be an application name"
+                        " (starting with a letter, containing letters, digits and underscores)"
+                        " followed with a dash and a version string "
+                        " (can contain letters, digits, dots, and dashes), "
+                        " e.g. emqx_plugin_template-5.0-rc.1"
+                    };
+                _ ->
+                    ok
             end;
         false ->
             {error, "Name Length must =< 256"}
     end.
 
+validate_file_name(#{body := #{<<"plugin">> := Plugin}} = Params, _Meta) when is_map(Plugin) ->
+    [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    case validate_name(NameVsn) of
+        ok ->
+            {ok, Params#{name => NameVsn, bin => Bin}};
+        {error, Reason} ->
+            {400, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => iolist_to_binary(["Bad plugin file name: ", FileName, ". ", Reason])
+            }}
+    end;
+validate_file_name(_Params, _Meta) ->
+    {400, #{
+        code => 'BAD_FORM_DATA',
+        message =>
+            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+    }}.
+
 %% API CallBack Begin
 list_plugins(get, _) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, []} = emqx_mgmt_api_plugins_proto_v3:get_plugins(Nodes),
+    {Plugins, []} = emqx_mgmt_api_plugins_proto_v4:get_plugins(Nodes),
     {200, format_plugins(Plugins)}.
 
 get_plugins() ->
     {node(), emqx_plugins:list()}.
 
-upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
-    [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
-    %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
-    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+upload_install(post, #{name := NameVsn, bin := Bin}) ->
     case emqx_plugins:describe(NameVsn) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins:parse_name_vsn(FileName) of
-                {ok, AppName, _Vsn} ->
-                    AppDir = filename:join(emqx_plugins:install_dir(), AppName),
-                    case filelib:wildcard(AppDir ++ ?VSN_WILDCARD) of
-                        [] ->
-                            do_install_package(NameVsn, FileName, Bin);
-                        OtherVsn ->
-                            {400, #{
-                                code => 'ALREADY_INSTALLED',
-                                message => iolist_to_binary(
-                                    io_lib:format(
-                                        "~p already installed",
-                                        [OtherVsn]
-                                    )
-                                )
-                            }}
-                    end;
-                {error, Reason} ->
-                    emqx_plugins:delete_package(NameVsn),
+            case emqx_plugins:is_package_present(NameVsn) of
+                false ->
+                    install_package_on_nodes(NameVsn, Bin);
+                {true, TarGzs} ->
+                    %% TODO
+                    %% What if a tar file is present but is not unpacked, i.e.
+                    %% the plugin is not fully installed?
                     {400, #{
-                        code => 'BAD_PLUGIN_INFO',
-                        message => iolist_to_binary([Reason, ":", FileName])
+                        code => 'ALREADY_INSTALLED',
+                        message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
                     }}
             end;
         {ok, _} ->
             {400, #{
                 code => 'ALREADY_INSTALLED',
-                message => iolist_to_binary(io_lib:format("~p is already installed", [FileName]))
+                message => iolist_to_binary(io_lib:format("~p is already installed", [NameVsn]))
             }}
     end;
 upload_install(post, #{}) ->
@@ -450,10 +468,10 @@ upload_install(post, #{}) ->
             <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
     }}.
 
-do_install_package(NameVsn, FileName, Bin) ->
+install_package_on_nodes(NameVsn, Bin) ->
     case emqx_plugins:is_allowed_installation(NameVsn) of
         true ->
-            do_install_package(FileName, Bin);
+            do_install_package_on_nodes(NameVsn, Bin);
         false ->
             Msg = iolist_to_binary([
                 <<"Package is not allowed installation;">>,
@@ -465,10 +483,10 @@ do_install_package(NameVsn, FileName, Bin) ->
             {403, #{code => 'FORBIDDEN', message => Msg}}
     end.
 
-do_install_package(FileName, Bin) ->
+do_install_package_on_nodes(NameVsn, Bin) ->
     %% TODO: handle bad nodes
     Nodes = emqx:running_nodes(),
-    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v3:install_package(Nodes, FileName, Bin),
+    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v4:install_package(Nodes, NameVsn, Bin),
     case lists:filter(fun(R) -> R =/= ok end, Res) of
         [] ->
             {204};
@@ -488,32 +506,32 @@ do_install_package(FileName, Bin) ->
                 end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([bin(Reason), ": ", FileName])
+                message => iolist_to_binary([bin(Reason), ": ", NameVsn])
             }}
     end.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, _} = emqx_mgmt_api_plugins_proto_v3:describe_package(Nodes, NameVsn),
+    {Plugins, _} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
     case format_plugins(Plugins) of
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => NameVsn}}
     end;
 plugin(delete, #{bindings := #{name := NameVsn}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v3:delete_package(NameVsn),
+    Res = emqx_mgmt_api_plugins_proto_v4:delete_package(NameVsn),
     return(204, Res).
 
 update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
-    Res = emqx_mgmt_api_plugins_proto_v3:ensure_action(NameVsn, Action),
+    Res = emqx_mgmt_api_plugins_proto_v4:ensure_action(NameVsn, Action),
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     case emqx_plugins:describe(NameVsn) of
         {ok, _} ->
-            case emqx_plugins:get_config(NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found) of
-                {ok, AvroJson} when is_map(AvroJson) ->
-                    {200, #{<<"content-type">> => <<"'application/json'">>}, AvroJson};
-                {ok, ?plugin_conf_not_found} ->
+            case emqx_plugins:get_config(NameVsn, ?plugin_conf_not_found) of
+                Config when is_map(Config) ->
+                    {200, #{<<"content-type">> => <<"'application/json'">>}, Config};
+                ?plugin_conf_not_found ->
                     {400, #{
                         code => 'BAD_CONFIG',
                         message => <<"Plugin Config Not Found">>
@@ -529,14 +547,14 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, ?plugin_without_config_schema} ->
                     %% no plugin avro schema, just put the json map as-is
-                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, ?plugin_without_config_schema
+                    _Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
+                        Nodes, NameVsn, AvroJsonMap
                     ),
                     {204};
-                {ok, AvroValue} ->
+                {ok, _AvroValue} ->
                     %% cluster call with config in map (binary key-value)
-                    _Res = emqx_mgmt_api_plugins_proto_v3:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap, AvroValue
+                    _Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
+                        Nodes, NameVsn, AvroJsonMap
                     ),
                     {204};
                 {error, Reason} ->
@@ -577,18 +595,17 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
 
 %% For RPC upload_install/2
 install_package(FileName, Bin) ->
-    File = filename:join(emqx_plugins:install_dir(), FileName),
-    ok = filelib:ensure_dir(File),
-    ok = file:write_file(File, Bin),
-    PackageName = string:trim(FileName, trailing, ".tar.gz"),
-    MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Bin), lower),
-    ok = file:write_file(emqx_plugins:md5sum_file(PackageName), MD5),
-    case emqx_plugins:ensure_installed(PackageName, ?fresh_install) of
+    NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    install_package_v4(NameVsn, Bin).
+
+install_package_v4(NameVsn, Bin) ->
+    ok = emqx_plugins:write_package(NameVsn, Bin),
+    case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
             ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
-            _ = file:delete(File),
+            _ = emqx_plugins:delete_package(NameVsn),
             Error;
         Result ->
             Result
@@ -614,7 +631,6 @@ delete_package(NameVsn, _Opts) ->
             _ = emqx_plugins:ensure_disabled(NameVsn),
             _ = emqx_plugins:ensure_uninstalled(NameVsn),
             _ = emqx_plugins:delete_package(NameVsn),
-            _ = file:delete(emqx_plugins:md5sum_file(NameVsn)),
             ok;
         Error ->
             Error
@@ -643,13 +659,17 @@ ensure_action(Name, restart, _Opts) ->
     ok.
 
 %% for RPC plugin avro encoded config update
--spec do_update_plugin_config(
-    name_vsn(), map(), avro_value() | ?plugin_without_config_schema
-) ->
+-spec do_update_plugin_config(name_vsn(), map() | binary(), any()) ->
     ok.
-do_update_plugin_config(NameVsn, AvroJsonMap, AvroValue) ->
-    %% TODO: maybe use `AvroValue` to validate config
-    emqx_plugins:put_config(NameVsn, AvroJsonMap, AvroValue).
+do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
+    do_update_plugin_config_v4(NameVsn, AvroJsonMap).
+
+-spec do_update_plugin_config_v4(name_vsn(), map() | binary()) ->
+    ok.
+do_update_plugin_config_v4(NameVsn, AvroJsonMap) when is_binary(AvroJsonMap) ->
+    do_update_plugin_config_v4(NameVsn, emqx_utils_json:decode(AvroJsonMap));
+do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
+    emqx_plugins:put_config(NameVsn, AvroJsonMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -712,7 +732,7 @@ pack_plugin_in_order([], Acc, StatusAcc) ->
     {Acc, StatusAcc};
 pack_plugin_in_order(_, Acc, StatusAcc) when map_size(StatusAcc) =:= 0 -> {Acc, StatusAcc};
 pack_plugin_in_order([Plugin0 | Plugins], Acc, StatusAcc) ->
-    #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin0,
+    #{name := Name, rel_vsn := Vsn} = Plugin0,
     case maps:find({Name, Vsn}, StatusAcc) of
         {ok, Status} ->
             Plugin1 = maps:without([running_status, config_status], Plugin0),
@@ -731,7 +751,7 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
     NewAcc =
         lists:foldl(
             fun(Plugin, SubAcc) ->
-                #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
+                #{name := Name, rel_vsn := Vsn} = Plugin,
                 Key = {Name, Vsn},
                 Value = #{node => Node, status => plugin_status(Plugin)},
                 SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
@@ -741,23 +761,20 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
         ),
     aggregate_status(List, NewAcc).
 
--if(?EMQX_RELEASE_EDITION == ee).
+-dialyzer({nowarn_function, format_plugin_avsc_and_i18n/1}).
 format_plugin_avsc_and_i18n(NameVsn) ->
-    #{
-        avsc => try_read_file(fun() -> emqx_plugins:plugin_schema_json(NameVsn) end),
-        i18n => try_read_file(fun() -> emqx_plugins:plugin_i18n_json(NameVsn) end)
-    }.
-
-try_read_file(Fun) ->
-    case Fun() of
-        {ok, Json} -> Json;
-        _ -> null
+    case emqx_release:edition() of
+        ee ->
+            #{
+                avsc => or_null(emqx_plugins:plugin_schema(NameVsn)),
+                i18n => or_null(emqx_plugins:plugin_i18n(NameVsn))
+            };
+        ce ->
+            #{avsc => null, i18n => null}
     end.
 
--else.
-format_plugin_avsc_and_i18n(_NameVsn) ->
-    #{avsc => null, i18n => null}.
--endif.
+or_null({ok, Value}) -> Value;
+or_null(_) -> null.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

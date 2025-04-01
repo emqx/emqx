@@ -22,9 +22,7 @@
 %% API
 -export([
     start_link/0,
-    lookup_serde/1,
     add_schema/2,
-    get_schema/1,
     delete_schema/1
 ]).
 
@@ -41,51 +39,56 @@
     encode/2
 ]).
 
+-define(SERVER, ?MODULE).
+
+%%-------------------------------------------------------------------------------------------------
+%% records
+%%-------------------------------------------------------------------------------------------------
+
+-record(plugin_schema_serde, {
+    name :: schema_name(),
+    eval_context :: term()
+}).
+
+%%-------------------------------------------------------------------------------------------------
+%% messages
+%%-------------------------------------------------------------------------------------------------
+
+-record(add_schema, {
+    name_vsn :: name_vsn(),
+    avsc_bin :: binary()
+}).
+
 %%-------------------------------------------------------------------------------------------------
 %% API
 %%-------------------------------------------------------------------------------------------------
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec lookup_serde(schema_name()) -> {ok, plugin_schema_serde()} | {error, not_found}.
-lookup_serde(SchemaName) ->
-    case ets:lookup(?PLUGIN_SERDE_TAB, to_bin(SchemaName)) of
-        [] ->
-            {error, not_found};
-        [Serde] ->
-            {ok, Serde}
-    end.
-
--spec add_schema(schema_name(), avsc_path()) -> ok | {error, term()}.
-add_schema(NameVsn, Path) ->
+-spec add_schema(schema_name(), binary()) -> ok | {error, term()}.
+add_schema(NameVsn, AvscBin) ->
     case lookup_serde(NameVsn) of
         {ok, _Serde} ->
             ?SLOG(warning, #{msg => "plugin_schema_already_exists", plugin => NameVsn}),
             {error, already_exists};
         {error, not_found} ->
-            case gen_server:call(?MODULE, {build_serdes, to_bin(NameVsn), Path}, infinity) of
+            case
+                gen_server:call(
+                    ?SERVER, #add_schema{name_vsn = NameVsn, avsc_bin = AvscBin}, infinity
+                )
+            of
                 ok ->
                     ?SLOG(debug, #{msg => "plugin_schema_added", plugin => NameVsn}),
                     ok;
-                {error, Reason} = E ->
+                {error, Reason} = Error ->
                     ?SLOG(error, #{
                         msg => "plugin_schema_add_failed",
                         plugin => NameVsn,
                         reason => emqx_utils:readable_error_msg(Reason)
                     }),
-                    E
+                    Error
             end
-    end.
-
-get_schema(NameVsn) ->
-    Path = emqx_plugins:avsc_file_path(NameVsn),
-    case read_avsc_file(Path) of
-        {ok, Avsc} ->
-            {ok, Avsc};
-        {error, Reason} ->
-            ?SLOG(warning, Reason),
-            {error, Reason}
     end.
 
 -spec delete_schema(schema_name()) -> ok | {error, term()}.
@@ -124,14 +127,14 @@ init(_) ->
         public, ordered_set, {keypos, #plugin_schema_serde.name}
     ]),
     State = #{},
-    AvscPaths = get_plugin_avscs(),
+    Avscs = emqx_plugins_fs:read_avsc_bin_all(),
     %% force build all schemas at startup
     %% otherwise plugin schema may not be available when needed
-    _ = build_serdes(AvscPaths),
+    _ = build_serdes(Avscs),
     {ok, State}.
 
-handle_call({build_serdes, NameVsn, AvscPath}, _From, State) ->
-    BuildRes = do_build_serde({NameVsn, AvscPath}),
+handle_call(#add_schema{name_vsn = NameVsn, avsc_bin = AvscBin}, _From, State) ->
+    BuildRes = do_build_serde({NameVsn, AvscBin}),
     {reply, BuildRes, State};
 handle_call(_Call, _From, State) ->
     {reply, {error, unknown_call}, State}.
@@ -149,24 +152,20 @@ terminate(_Reason, _State) ->
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
 
--spec get_plugin_avscs() -> [{string(), string()}].
-get_plugin_avscs() ->
-    Pattern = filename:join([emqx_plugins:install_dir(), "*", "*", "priv", "config_schema.avsc"]),
-    lists:foldl(
-        fun(AvscPath, AccIn) ->
-            [_, _, _, NameVsn | _] = lists:reverse(filename:split(AvscPath)),
-            [{to_bin(NameVsn), AvscPath} | AccIn]
-        end,
-        _Acc0 = [],
-        filelib:wildcard(Pattern)
-    ).
+lookup_serde(SchemaName) ->
+    case ets:lookup(?PLUGIN_SERDE_TAB, to_bin(SchemaName)) of
+        [] ->
+            {error, not_found};
+        [Serde] ->
+            {ok, Serde}
+    end.
 
-build_serdes(AvscPaths) ->
-    ok = lists:foreach(fun do_build_serde/1, AvscPaths).
+build_serdes(Avscs) ->
+    ok = lists:foreach(fun do_build_serde/1, Avscs).
 
-do_build_serde({NameVsn, AvscPath}) ->
+do_build_serde({NameVsn, AvscBin}) ->
     try
-        Serde = make_serde(NameVsn, AvscPath),
+        Serde = make_serde(NameVsn, AvscBin),
         true = ets:insert(?PLUGIN_SERDE_TAB, Serde),
         ok
     catch
@@ -184,10 +183,9 @@ do_build_serde({NameVsn, AvscPath}) ->
             {error, Error}
     end.
 
-make_serde(NameVsn, AvscPath) when not is_binary(NameVsn) ->
-    make_serde(to_bin(NameVsn), AvscPath);
-make_serde(NameVsn, AvscPath) ->
-    {ok, AvscBin} = read_avsc_file(AvscPath),
+make_serde(NameVsn, AvscBin) when not is_binary(NameVsn) ->
+    make_serde(to_bin(NameVsn), AvscBin);
+make_serde(NameVsn, AvscBin) ->
     Store0 = avro_schema_store:new([map]),
     %% import the schema into the map store with an assigned name
     %% if it's a named schema (e.g. struct), then Name is added as alias
@@ -262,17 +260,6 @@ which_op(Op) ->
 
 error_msg(Op) ->
     atom_to_list(Op) ++ "_avro_data".
-
-read_avsc_file(Path) ->
-    case file:read_file(Path) of
-        {ok, Bin} ->
-            {ok, Bin};
-        {error, _} ->
-            {error, #{
-                error => "failed_to_read_plugin_schema",
-                path => Path
-            }}
-    end.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(L) when is_list(L) -> iolist_to_binary(L);

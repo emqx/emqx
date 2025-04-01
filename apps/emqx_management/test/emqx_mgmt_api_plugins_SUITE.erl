@@ -79,7 +79,7 @@ end_per_testcase(_TestCase, _Config) ->
 t_plugins(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = get_demo_plugin_package(DemoShDir),
-    ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins:install_dir()]),
+    ct:pal("package_location:~p install dir:~p", [PackagePath, emqx_plugins_fs:install_dir()]),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
@@ -151,6 +151,13 @@ t_install_plugin_matching_exisiting_name(Config) ->
     {ok, _} = uninstall_plugin(NameVsn),
     {ok, _} = uninstall_plugin(NameVsn1).
 
+t_install_plugin_with_bad_form_data(_Config) ->
+    AuthHeader = emqx_common_test_http:default_auth_header(),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
+    {error, {"HTTP/1.1", 400, "Bad Request"}} = emqx_mgmt_api_test_util:request_api(
+        post, Path, "", AuthHeader, #{}
+    ).
+
 t_bad_plugin(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePathOrig = get_demo_plugin_package(DemoShDir),
@@ -173,14 +180,14 @@ t_bad_plugin(Config) ->
         {error, enoent},
         file:delete(
             filename:join([
-                emqx_plugins:install_dir(),
+                emqx_plugins_fs:install_dir(),
                 filename:basename(PackagePath)
             ])
         )
     ).
 
 t_delete_non_existing(_Config) ->
-    Path = emqx_mgmt_api_test_util:api_path(["plugins", "non_exists"]),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "non_exists-1.0.0"]),
     ?assertMatch(
         {error, {_, 404, _}},
         emqx_mgmt_api_test_util:request_api(delete, Path)
@@ -355,7 +362,7 @@ get_demo_plugin_package(Dir) ->
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),
-    {ok, NewName, _Vsn} = emqx_plugins:parse_name_vsn(NewNameVsn),
+    {NewName, _Vsn} = emqx_plugins_utils:parse_name_vsn(NewNameVsn),
     NewNameB = atom_to_binary(NewName, utf8),
     Content1 = lists:map(
         fun({F, B}) ->
