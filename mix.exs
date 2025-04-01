@@ -491,7 +491,8 @@ defmodule EMQXUmbrella.MixProject do
       [
         {:bbmustache, "1.10.0"},
         {:cth_readable, "1.5.1"},
-        {:proper, "1.4.0"},
+        # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
+        {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true},
         {:meck, "0.9.2"}
       ]
     else

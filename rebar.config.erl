@@ -140,7 +140,8 @@ test_deps() ->
     [
         {bbmustache, "1.10.0"},
         {meck, "0.9.2"},
-        {proper, "1.4.0"},
+        %% TODO: {proper, "1.5.0"} when it's published to hex.pm
+        {proper, {git, "https://github.com/proper-testing/proper", {tag, "v1.5.0"}}},
         {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}},
         {erl_csv, "0.2.0"},
         {eministat, "0.10.1"}
