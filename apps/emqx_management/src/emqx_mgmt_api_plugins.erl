@@ -214,7 +214,8 @@ schema("/plugins/:name/config") ->
                 400 => emqx_dashboard_swagger:error_codes(
                     ['BAD_CONFIG', 'UNEXPECTED_ERROR'], <<"Update plugin config failed">>
                 ),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>),
+                500 => emqx_dashboard_swagger:error_codes(['INTERNAL_ERROR'], <<"Internal Error">>)
             }
         }
     };
@@ -547,16 +548,16 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, ?plugin_without_config_schema} ->
                     %% no plugin avro schema, just put the json map as-is
-                    _Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
+                    Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
                         Nodes, NameVsn, AvroJsonMap
                     ),
-                    {204};
+                    return_config_update_result(Res);
                 {ok, _AvroValue} ->
                     %% cluster call with config in map (binary key-value)
-                    _Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
+                    Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
                         Nodes, NameVsn, AvroJsonMap
                     ),
-                    {204};
+                    return_config_update_result(Res);
                 {error, Reason} ->
                     {400, #{
                         code => 'BAD_CONFIG',
@@ -662,14 +663,17 @@ ensure_action(Name, restart, _Opts) ->
 -spec do_update_plugin_config(name_vsn(), map() | binary(), any()) ->
     ok.
 do_update_plugin_config(NameVsn, AvroJsonMap, _AvroValue) ->
-    do_update_plugin_config_v4(NameVsn, AvroJsonMap).
+    case do_update_plugin_config_v4(NameVsn, AvroJsonMap) of
+        ok -> ok;
+        {error, Reason} -> error(Reason)
+    end.
 
 -spec do_update_plugin_config_v4(name_vsn(), map() | binary()) ->
-    ok.
+    ok | {error, term()}.
 do_update_plugin_config_v4(NameVsn, AvroJsonMap) when is_binary(AvroJsonMap) ->
     do_update_plugin_config_v4(NameVsn, emqx_utils_json:decode(AvroJsonMap));
 do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
-    emqx_plugins:put_config(NameVsn, AvroJsonMap).
+    emqx_plugins:update_config(NameVsn, AvroJsonMap).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -682,6 +686,21 @@ return(_, {error, #{msg := Msg, reason := {enoent, Path} = Reason}}) ->
     {404, #{code => 'NOT_FOUND', message => iolist_to_binary([Path, " does not exist"])}};
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => readable_error_msg(Reason)}}.
+
+return_config_update_result({Responses, BadNodes}) ->
+    ResponseErrors = lists:filter(fun(Response) -> Response =/= ok end, Responses),
+    NodeErrors = [{badnode, Node} || Node <- BadNodes],
+    case {ResponseErrors, NodeErrors} of
+        {[], []} ->
+            {204};
+        {ResponseErrors, []} ->
+            {400, #{code => 'BAD_CONFIG', message => readable_error_msg(ResponseErrors)}};
+        {ResponseErrors, NodeErrors} ->
+            {500, #{
+                code => 'INTERNAL_ERROR',
+                message => readable_error_msg(ResponseErrors ++ NodeErrors)
+            }}
+    end.
 
 plugin_not_found_msg() ->
     #{
