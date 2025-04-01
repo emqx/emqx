@@ -3,13 +3,17 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds_builtin_local_batch_serializer).
 
+-feature(maybe_expr, enable).
+
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_storage_layer_tx.hrl").
 
 %% API
 -export([
     start_link/3,
 
-    store_batch_atomic/4
+    store_batch_atomic/4,
+    commit_blob_tx/3
 ]).
 
 %% `gen_server' API
@@ -27,6 +31,7 @@
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 
 -record(store_batch_atomic, {batch :: emqx_ds:batch(), opts :: emqx_ds:message_store_opts()}).
+-record(commit_blob_tx, {ctx :: emqx_ds_storage_layer_tx:ctx(), ops :: emqx_ds:blob_tx_ops()}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -38,23 +43,23 @@ start_link(DB, Shard, _Opts) ->
 store_batch_atomic(DB, Shard, Batch, Opts) ->
     gen_server:call(?via(DB, Shard), #store_batch_atomic{batch = Batch, opts = Opts}, infinity).
 
+commit_blob_tx(DB, #ds_tx_ctx{shard = Shard} = Ctx, Ops) ->
+    gen_server:call(?via(DB, Shard), #commit_blob_tx{ctx = Ctx, ops = Ops}).
+
 %%------------------------------------------------------------------------------
-%% `gen_server' API
+%% `gen_server' callbacks
 %%------------------------------------------------------------------------------
 
 init([DB, Shard]) ->
     process_flag(message_queue_data, off_heap),
-    State = #{
-        db => DB,
-        shard => Shard
-    },
-    {ok, State}.
+    {ok, {DB, Shard}}.
 
-handle_call(#store_batch_atomic{batch = Batch, opts = StoreOpts}, _From, State) ->
-    ShardId = shard_id(State),
-    DBOpts = db_config(State),
-    Result = do_store_batch_atomic(ShardId, Batch, DBOpts, StoreOpts),
-    {reply, Result, State};
+handle_call(#store_batch_atomic{batch = Batch, opts = StoreOpts}, _From, DBShard) ->
+    Result = do_store_batch_atomic(DBShard, Batch, StoreOpts),
+    {reply, Result, DBShard};
+handle_call(#commit_blob_tx{ctx = Ctx, ops = Ops}, _From, DBShard) ->
+    Result = blob_tx(DBShard, Ctx, Ops),
+    {reply, Result, DBShard};
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
@@ -62,49 +67,59 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 %%------------------------------------------------------------------------------
-%% Internal fns
+%% Internal functions
 %%------------------------------------------------------------------------------
 
-shard_id(#{db := DB, shard := Shard}) ->
-    {DB, Shard}.
-
-db_config(#{db := DB}) ->
-    emqx_ds_builtin_local_meta:db_config(DB).
+blob_tx({DB, _} = DBShard, Ctx = #ds_tx_ctx{generation = GenId}, Ops) ->
+    DispatchF = fun(Events) ->
+        emqx_ds_beamformer:shard_event(DBShard, Events)
+    end,
+    maybe
+        ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
+        {ok, CookedBatch} ?= emqx_ds_storage_layer:prepare_blob_tx(DBShard, GenId, Ops, #{}),
+        Result = emqx_ds_storage_layer:commit_batch(DBShard, CookedBatch, #{}),
+        emqx_ds_storage_layer:dispatch_events(DBShard, CookedBatch, DispatchF),
+        Result
+    end.
 
 -spec do_store_batch_atomic(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     emqx_ds:dsbatch(),
-    emqx_ds_builtin_local:db_opts(),
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-do_store_batch_atomic(ShardId, #dsbatch{} = Batch, DBOpts, StoreOpts) ->
+do_store_batch_atomic(DBShard, #dsbatch{} = Batch, StoreOpts) ->
+    DBOpts = db_config(DBShard),
     #dsbatch{
         operations = Operations0,
         preconditions = Preconditions
     } = Batch,
-    case emqx_ds_precondition:verify(emqx_ds_storage_layer, ShardId, Preconditions) of
+    case emqx_ds_precondition:verify(emqx_ds_storage_layer, DBShard, Preconditions) of
         ok ->
-            do_store_operations(ShardId, Operations0, DBOpts, StoreOpts);
+            do_store_operations(DBShard, Operations0, DBOpts, StoreOpts);
         {precondition_failed, _} = PreconditionFailed ->
             {error, unrecoverable, PreconditionFailed};
         Error ->
             Error
     end;
-do_store_batch_atomic(ShardId, Operations, DBOpts, StoreOpts) ->
-    do_store_operations(ShardId, Operations, DBOpts, StoreOpts).
+do_store_batch_atomic(DBShard, Operations, StoreOpts) ->
+    DBOpts = db_config(DBShard),
+    do_store_operations(DBShard, Operations, DBOpts, StoreOpts).
 
-do_store_operations(ShardId, Operations0, DBOpts, _StoreOpts) ->
+do_store_operations(DBShard, Operations0, DBOpts, _StoreOpts) ->
     ForceMonotonic = maps:get(force_monotonic_timestamps, DBOpts),
     {Latest, Operations} =
         emqx_ds_builtin_local:make_batch(
             ForceMonotonic,
-            current_timestamp(ShardId),
+            current_timestamp(DBShard),
             Operations0
         ),
-    Result = emqx_ds_storage_layer:store_batch(ShardId, Operations, _Options = #{}),
-    emqx_ds_builtin_local_meta:set_current_timestamp(ShardId, Latest),
+    Result = emqx_ds_storage_layer:store_batch(DBShard, Operations, _Options = #{}),
+    emqx_ds_builtin_local_meta:set_current_timestamp(DBShard, Latest),
     Result.
 
-current_timestamp(ShardId) ->
-    emqx_ds_builtin_local_meta:current_timestamp(ShardId).
+db_config(#{db := DB}) ->
+    emqx_ds_builtin_local_meta:db_config(DB).
+
+current_timestamp(DBShard) ->
+    emqx_ds_builtin_local_meta:current_timestamp(DBShard).

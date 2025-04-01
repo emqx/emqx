@@ -14,6 +14,7 @@
     open/5,
     drop/5,
     prepare_batch/4,
+    prepare_blob_tx/4,
     commit_batch/4,
     get_streams/4,
     get_delete_streams/4,
@@ -22,7 +23,7 @@
     update_iterator/4,
     next/6,
     delete_next/7,
-    lookup_message/3,
+    lookup_message/4,
 
     unpack_iterator/3,
     scan_stream/8,
@@ -163,7 +164,14 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev, DBOpts) ->
         with_guid => false,
         lts_threshold_spec => ?DEFAULT_LTS_THRESHOLD
     },
-    Schema = maps:merge(Defaults, Schema0),
+    Schema1 = maps:merge(Defaults, Schema0),
+    Schema =
+        case DBOpts of
+            #{store_blobs := true} ->
+                Schema1#{serialization_schema => blob};
+            _ ->
+                Schema1
+        end,
     ok = emqx_ds_msg_serializer:check_schema(maps:get(serialization_schema, Schema)),
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
@@ -237,6 +245,74 @@ cook(S, [{delete, #message_matcher{topic = Topic, timestamp = Timestamp}} | Rest
         undefined ->
             %% Topic is unknown, nothing to delete.
             cook(S, Rest, Acc)
+    end.
+
+prepare_blob_tx(DBShard, S, Ops, _Options) ->
+    _ = erase(?lts_persist_ops),
+    W = maps:get(?ds_tx_write, Ops, []),
+    DT = maps:get(?ds_tx_delete_topic, Ops, []),
+    try
+        OperationsCooked = cook_blob_deletes(DBShard, S, DT, cook_blob_writes(S, W, [])),
+        {ok, #{
+            ?cooked_msg_ops => OperationsCooked,
+            ?cooked_lts_ops => pop_lts_persist_ops()
+        }}
+    catch
+        {Type, Err} ->
+            {error, Type, Err}
+    end.
+
+cook_blob_writes(_, [], Acc) ->
+    lists:reverse(Acc);
+cook_blob_writes(S = #s{serialization_schema = SSchema}, [{Topic, Value} | Rest], Acc) ->
+    #s{trie = Trie, threshold_fun = TFun} = S,
+    {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Topic),
+    Bin = emqx_ds_msg_serializer:serialize(SSchema, {Varying, Value}),
+    cook_blob_writes(S, Rest, [?cooked_msg_op(0, Static, Varying, Bin) | Acc]).
+
+cook_blob_deletes(DBShard, S, Topics, Acc0) ->
+    lists:foldl(
+        fun(TopicFilter, Acc) ->
+            cook_blob_deletes1(DBShard, S, TopicFilter, Acc)
+        end,
+        Acc0,
+        Topics
+    ).
+
+cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
+    lists:foldl(
+        fun(Stream, Acc) ->
+            {ok, It} = make_iterator(DBShard, S, Stream, TopicFilter, 0),
+            TS = get_topic_structure(S#s.trie, Stream#stream.static_index),
+            cook_blob_deletes2(DBShard, S, TS, It, Acc)
+        end,
+        Acc0,
+        get_streams(S#s.trie, TopicFilter)
+    ).
+
+cook_blob_deletes2(DBShard, S, TS, It0, Acc0) ->
+    %% IsCurrent governs whether next returns `end_of_stream' or empty
+    %% batch when iteration ends, something we don't care about
+    IsCurrent = true,
+    %% Blobs don't have a timestamp, we can use any value here:
+    TMax = 1,
+    %% TODO: there's a lot of back and forth with unnecesary enriching
+    %% the messages, compressing and decompressing the topics.
+    case next(DBShard, S, It0, 100, TMax, IsCurrent) of
+        {ok, _It, []} ->
+            Acc0;
+        {ok, It, L} ->
+            #it{static_index = Static} = It,
+            Acc =
+                lists:foldl(
+                    fun({_DSKey, {Topic, _Blob}}, Acc) ->
+                        Varying = emqx_ds_lts:compress_topic(Static, TS, Topic),
+                        [?cooked_msg_op(0, Static, Varying, ?cooked_delete) | Acc]
+                    end,
+                    Acc0,
+                    L
+                ),
+            cook_blob_deletes2(DBShard, S, TS, It, Acc)
     end.
 
 commit_batch(
@@ -511,9 +587,10 @@ delete_next(Shard, S, It0, Selector, BatchSize, Now, IsCurrent) ->
 lookup_message(
     Shard,
     S = #s{db = DB, data_cf = CF, trie = Trie},
-    #message_matcher{topic = Topic, timestamp = Timestamp}
+    Topic,
+    Timestamp
 ) ->
-    case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
+    case emqx_ds_lts:lookup_topic_key(Trie, Topic) of
         {ok, {StaticIdx, Varying}} ->
             MHB = master_hash_bits(S, Varying),
             SK = mk_stream_key(Varying, Timestamp, MHB),
@@ -522,14 +599,14 @@ lookup_message(
                 {ok, Val} ->
                     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
                     Msg = deserialize(S, Val),
-                    enrich(Shard, S, TopicStructure, DSKey, Msg);
+                    {ok, enrich(Shard, S, TopicStructure, DSKey, Msg)};
                 not_found ->
-                    not_found;
+                    undefined;
                 {error, Reason} ->
                     ?err_unrec({rocksdb, Reason})
             end;
         undefined ->
-            not_found
+            undefined
     end.
 
 %%================================================================================
@@ -583,11 +660,20 @@ enrich(#ctx{shard = Shard, s = S, topic_structure = TopicStructure}, DSKey, Msg0
     enrich(Shard, S, TopicStructure, DSKey, Msg0).
 
 enrich(
+    _Shard,
+    _S,
+    TopicStructure,
+    _DSKey,
+    {Varying, Value}
+) ->
+    %% Enrich blob:
+    {emqx_ds_lts:decompress_topic(TopicStructure, Varying), Value};
+enrich(
     Shard,
     #s{with_guid = WithGuid},
     TopicStructure,
     DSKey,
-    Msg0
+    Msg0 = #message{}
 ) ->
     Tokens = words(Msg0#message.topic),
     Topic = emqx_topic:join(emqx_ds_lts:decompress_topic(TopicStructure, Tokens)),
@@ -811,7 +897,14 @@ next_step(
                             %% message for hash collisions and return
                             %% value:
                             Msg0 = deserialize(S, Blob),
-                            case emqx_topic:match(Msg0#message.topic, CompressedTF) of
+                            VerifyVarying =
+                                case Msg0 of
+                                    #message{topic = TTV} ->
+                                        emqx_topic:match(TTV, CompressedTF);
+                                    {TTV, _} ->
+                                        emqx_topic:match(TTV, emqx_ds:topic_words(CompressedTF))
+                                end,
+                            case VerifyVarying of
                                 true ->
                                     inc_counter(?DS_SKIPSTREAM_LTS_HIT),
                                     {ok, NextSK, Key, Msg0};
@@ -838,7 +931,15 @@ next_step(
                     %% past the point of time that can be safely read.
                     %% We don't handle it here.
                     inc_counter(?DS_SKIPSTREAM_LTS_MISS),
-                    {seek, NextSK}
+                    {seek, NextSK};
+                NextSK ->
+                    error(#{
+                        reason => internal_error,
+                        static => StaticIdx,
+                        next_sk => NextSK,
+                        expected_sk => ExpectedSK,
+                        n => N
+                    })
             end
     end.
 
@@ -1005,7 +1106,7 @@ topic_level_bin(TL) -> TL.
 %%%%%%%% LTS %%%%%%%%%%
 
 -spec restore_trie(
-    emqx_ds_storage_layer:shard_id(), pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()
+    emqx_ds_storage_layer:dbshard(), pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()
 ) -> emqx_ds_lts:trie().
 restore_trie(Shard, StaticIdxBytes, DB, CF) ->
     PersistCallback = fun(Key, Val) ->

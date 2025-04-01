@@ -27,8 +27,12 @@
 %% Message storage API:
 -export([store_batch/2, store_batch/3]).
 
+%% Transactional API (low-level):
+%% FIXME: do not export?
+-export([new_blob_tx/2, commit_blob_tx/3]).
+
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3]).
+-export([get_streams/3, get_streams/4, make_iterator/4, next/3]).
 -export([subscribe/3, unsubscribe/2, suback/3, subscription_info/2]).
 
 %% Message delete API:
@@ -38,6 +42,23 @@
 -export([count/1]).
 -export([timestamp_us/0]).
 -export([topic_words/1]).
+
+%% Utility functions:
+-export([
+    dirty_read/2,
+    dirty_read/3,
+
+    fold_topic/4,
+    fold_topic/5,
+    fold_topic/6,
+
+    trans/2,
+    tx_blob_write/2,
+    tx_del_topic/1,
+    tx_blob_assert/2,
+    tx_blob_assert_not/1,
+    reset_trans/0
+]).
 
 -export_type([
     create_db_opts/0,
@@ -85,7 +106,15 @@
     subscription_handle/0,
     sub_ref/0,
     sub_info/0,
-    sub_seqno/0
+    sub_seqno/0,
+
+    blob/0,
+    blob_matcher/0,
+
+    tx_context/0,
+    transaction_opts/0,
+    blob_tx_ops/0,
+    commit_result/0
 ]).
 
 %%================================================================================
@@ -119,6 +148,10 @@
 
 -type deletion() :: {delete, message_matcher('_')}.
 
+-type blob() :: {topic(), binary()}.
+
+-type blob_matcher() :: {message_key(), binary() | '_'}.
+
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
 %% or does not yet have (`unless_exists'). Here "matching" means that it either
@@ -127,8 +160,9 @@
 %% Useful to construct batches with "compare-and-set" semantics.
 %% Note: backends may not support this, but if they do only DBs with `atomic_batches'
 %% enabled are expected to support preconditions in batches.
--type precondition() ::
-    {if_exists | unless_exists, message_matcher(iodata() | '_')}.
+-type precondition(A) :: {if_exists | unless_exists, A}.
+
+-type precondition() :: precondition(message_matcher('_')).
 
 -type shard() :: term().
 
@@ -150,7 +184,7 @@
 -type get_streams_result() ::
     {
         _Streams :: [{slab(), stream()}],
-        _Errors :: [{shard(), emqx_ds:error(_)}]
+        _Errors :: [{shard(), error(_)}]
     }.
 
 -opaque stream() :: ds_specific_stream().
@@ -261,6 +295,8 @@
         %% The whole batch must be crafted so that it belongs to a single shard (if
         %% applicable to the backend).
         atomic_batches => boolean(),
+        %% Whether the DB stores values of type `#message{}' or `#ds_blob{}'
+        store_blobs => boolean(),
         %% Backend-specific options:
         _ => _
     }.
@@ -268,7 +304,8 @@
 -type db_opts() :: #{
     %% See respective `create_db_opts()` fields.
     append_only => boolean(),
-    atomic_batches => boolean()
+    atomic_batches => boolean(),
+    store_blobs => boolean()
 }.
 
 %% obsolete
@@ -292,8 +329,8 @@
 
 -type sub_info() ::
     #{
-        seqno := emqx_ds:sub_seqno(),
-        acked := emqx_ds:sub_seqno(),
+        seqno := sub_seqno(),
+        acked := sub_seqno(),
         window := non_neg_integer(),
         stuck := boolean(),
         atom() => _
@@ -305,12 +342,87 @@
     until := time() | undefined
 }.
 
+%% Subscription:
 -type subscription_handle() :: term().
 
 -type sub_ref() :: reference().
 
 -type sub_seqno() :: non_neg_integer().
 
+%% Low-level transaction types:
+-type tx_context() :: term().
+
+%% Note: the only guarantee about order of operations is that all
+%% deletions are executed before the writes.
+-type blob_tx_ops() :: #{
+    %% Write operations:
+    ?ds_tx_write => [blob()],
+    %% Deletions:
+    ?ds_tx_delete_topic => [topic_filter()],
+    %% Preconditions:
+    %%   List of objects that should be present in the database.
+    ?ds_tx_expected => [blob_matcher()],
+    %%   List of objects that should NOT be present in the database.
+    ?ds_tx_unexpected => [topic()]
+}.
+
+-type transaction_opts() :: #{
+    db := db(),
+    %% Either `owner' or `shard' field should be present. If `owner'
+    %% option is given, current sharding strategy will be used to
+    %% determine the shard.
+    %%
+    %% WARNING: combination of `owner' and `generation' options is
+    %% dangerous since number of shards may change, and shard
+    %% allocation for older generations could be different.
+    owner => emqx_types:clientid(),
+    shard => shard(),
+
+    %% If not specified, the last generation will be used:
+    generation => generation(),
+
+    %% Options that govern retry of recoverable errors:
+    retries => non_neg_integer(),
+    retry_interval => non_neg_integer()
+}.
+
+-type commit_result() :: ok | error(_).
+
+-type fold_fun(Acc) :: fun(
+    (
+        slab(),
+        stream(),
+        message_key(),
+        emqx_types:message() | blob(),
+        Acc
+    ) -> Acc
+).
+
+-type fold_options() ::
+    #{
+        errors => crash | report,
+        batch_size => pos_integer(),
+        shard => shard(),
+        generation => generation()
+    }.
+
+-record(fold_ctx, {
+    db :: db(),
+    tf :: topic_filter(),
+    start_time :: time(),
+    batch_size :: pos_integer(),
+    errors :: crash | report
+}).
+
+-type fold_ctx() :: #fold_ctx{}.
+
+-type fold_error() ::
+    {shard, shard(), error(_)}
+    | {stream, slab(), stream(), error(_)}.
+
+-type fold_result(R) :: {R, [fold_error()]} | R.
+
+%% Internal:
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
@@ -338,6 +450,7 @@
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
+%% Synchronous read API:
 -callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
 
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
@@ -345,6 +458,7 @@
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
+%% Deletion API:
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
 -callback make_delete_iterator(db(), ds_specific_delete_stream(), topic_filter(), time()) ->
@@ -353,7 +467,14 @@
 -callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
     delete_next_result(DeleteIterator).
 
+%% Statistics API:
 -callback count(db()) -> non_neg_integer().
+
+%% Blob transaction API:
+-callback new_blob_tx(db(), transaction_opts()) ->
+    {ok, tx_context()} | error(_).
+
+-callback commit_blob_tx(db(), tx_context(), blob_tx_ops()) -> commit_result().
 
 -optional_callbacks([
     list_generations_with_lifetimes/1,
@@ -378,14 +499,25 @@ register_backend(Name, Module) ->
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) ->
+open_db(DB, UserOpts) ->
+    Opts = #{backend := Backend} = set_db_defaults(UserOpts),
+    %% Santiy checks:
+    case Opts of
+        #{store_blobs := true, append_only := true} ->
+            %% Blobs don't have a builtin timestamp field, so we
+            %% cannot set it automatically:
+            error({incompatible_options, [store_blobs, append_only]});
+        _ ->
+            ok
+    end,
+    %% Call backend:
     case persistent_term:get({emqx_ds_backend_module, Backend}, undefined) of
         undefined ->
             error({no_such_backend, Backend});
         Module ->
             persistent_term:put(?persistent_term(DB), Module),
             emqx_ds_sup:register_db(DB, Backend),
-            ?module(DB):open_db(DB, set_db_defaults(Opts))
+            ?module(DB):open_db(DB, Opts)
     end.
 
 -spec close_db(db()) -> ok.
@@ -585,6 +717,180 @@ count(DB) ->
     Mod = ?module(DB),
     call_if_implemented(Mod, count, [DB], {error, not_implemented}).
 
+%% @hidden Low-level transaction API. Obtain context for an optimistic
+%% transaction that allows to execute a set of operations atomically.
+%%
+%% Note: transactions always apply to the *current* generation. Old
+%% generations are immutable.
+-spec new_blob_tx(db(), transaction_opts()) -> {ok, tx_context()} | error(_).
+new_blob_tx(DB, Opts) ->
+    ?module(DB):new_blob_tx(DB, Opts).
+
+%% @hidden Low-level transaction API. Try to commit a set of operations
+%% executed in a given transaction context.
+-spec commit_blob_tx(db(), tx_context(), blob_tx_ops()) ->
+    commit_result().
+commit_blob_tx(DB, TxContext, TxOps) ->
+    ?module(DB):commit_blob_tx(DB, TxContext, TxOps).
+
+%%================================================================================
+%% Utility functions
+%%================================================================================
+
+%% Transaction process dictionary keys:
+-define(tx_ops_write, emqx_ds_tx_ctx_write).
+-define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
+-define(tx_ops_expected, emqx_ds_tx_ctx_expected).
+-define(tx_ops_unexpected, emqx_ds_tx_ctx_unexpected).
+
+%% Transaction throws:
+-define(tx_reset, emqx_ds_tx_reset).
+
+%% @doc Execute a function in an environment where write and delete
+%% operations and asserts are deferred and then committed atomically.
+%%
+%% NOTE: This function is not as sophisticated as mnesia. In
+%% particular, side effects of writes and deletes are not visible
+%% until the commit.
+-spec trans(
+    transaction_opts(),
+    fun(() -> Ret)
+) ->
+    {ok, Ret} | error(_).
+trans(Opts = #{db := DB}, Fun) ->
+    case is_trans() of
+        false ->
+            Retries = maps:get(retries, Opts, 0),
+            trans(DB, Fun, Opts, Retries);
+        true ->
+            ?err_unrec(nested_transaction)
+    end.
+
+-spec tx_blob_write(topic(), binary()) -> ok.
+tx_blob_write(Topic, Value) ->
+    case is_topic(Topic) andalso is_binary(Value) of
+        true ->
+            tx_push_op(?tx_ops_write, {Topic, Value});
+        false ->
+            error(badarg)
+    end.
+
+-spec tx_del_topic(topic_filter()) -> ok.
+tx_del_topic(TopicFilter) ->
+    case is_topic_filter(TopicFilter) of
+        true ->
+            tx_push_op(?tx_ops_del_topic, TopicFilter);
+        false ->
+            error(badarg)
+    end.
+
+-spec tx_blob_assert(topic(), binary() | '_') -> ok.
+tx_blob_assert(Topic, Value) ->
+    case is_topic(Topic) andalso (Value =:= '_' orelse is_binary(Value)) of
+        true ->
+            tx_push_op(?tx_ops_expected, {Topic, Value});
+        false ->
+            error(badarg)
+    end.
+
+-spec tx_blob_assert_not(topic()) -> ok.
+tx_blob_assert_not(Topic) ->
+    case is_topic(Topic) of
+        true ->
+            tx_push_op(?tx_ops_unexpected, Topic);
+        false ->
+            error(badarg)
+    end.
+
+%% @doc Restart `trans'
+-spec reset_trans() -> no_return().
+reset_trans() ->
+    throw(?tx_reset).
+
+-spec dirty_read(db(), topic_filter()) ->
+    fold_result([blob() | emqx_types:message()]).
+dirty_read(DB, TopicFilter) ->
+    dirty_read(DB, TopicFilter, #{}).
+
+-spec dirty_read(db(), topic_filter(), fold_options()) ->
+    fold_result([blob() | emqx_types:message()]).
+dirty_read(DB, TopicFilter, Opts) ->
+    Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) -> [Object | Acc] end,
+    fold_topic(Fun, [], DB, TopicFilter, 0, Opts).
+
+-spec fold_topic(fold_fun(Acc), Acc, db(), topic_filter()) -> fold_result(Acc).
+fold_topic(Fun, Acc, DB, TopicFilter) ->
+    fold_topic(Fun, Acc, DB, TopicFilter, 0).
+
+-spec fold_topic(fold_fun(Acc), Acc, db(), topic_filter(), time()) ->
+    fold_result(Acc).
+fold_topic(Fun, Acc, DB, TopicFilter, StartTime) ->
+    fold_topic(Fun, Acc, DB, TopicFilter, StartTime, #{}).
+
+-spec fold_topic(
+    fold_fun(Acc),
+    Acc,
+    db(),
+    topic_filter(),
+    time(),
+    fold_options()
+) -> fold_result(Acc).
+fold_topic(Fun, AccIn, DB, TopicFilter, StartTime, UserOpts) ->
+    %% Merge config and make fold context:
+    Defaults = #{
+        batch_size => 100,
+        generation => '_',
+        errors => crash
+    },
+    #{
+        batch_size := BatchSize,
+        generation := GenerationMatcher,
+        errors := ErrorHandling
+    } = maps:merge(Defaults, UserOpts),
+    Ctx = #fold_ctx{
+        db = DB,
+        tf = TopicFilter,
+        start_time = StartTime,
+        batch_size = BatchSize,
+        errors = ErrorHandling
+    },
+    %% Get streams:
+    GetStreamOpts =
+        case UserOpts of
+            #{shard := ReqShard} -> #{shard => ReqShard};
+            _ -> #{}
+        end,
+    {Streams, ShardErrors0} = get_streams(DB, TopicFilter, StartTime, GetStreamOpts),
+    ShardErrors = [{shard, Shard, Err} || {Shard, Err} <- ShardErrors0],
+    %% Create iterators:
+    {Iterators, Errors} =
+        lists:foldl(
+            fun({Slab = {_, Generation}, Stream}, {Acc, ErrAcc}) ->
+                case
+                    (GenerationMatcher =:= '_' orelse GenerationMatcher =:= Generation) andalso
+                        make_iterator(DB, Stream, TopicFilter, StartTime)
+                of
+                    false ->
+                        {Acc, ErrAcc};
+                    {ok, It} ->
+                        {[{Slab, Stream, It} | Acc], ErrAcc};
+                    Err ->
+                        {Acc, [{stream, Slab, Stream, Err} | ErrAcc]}
+                end
+            end,
+            {[], ShardErrors},
+            Streams
+        ),
+    %% Fold over data:
+    case {Errors, ErrorHandling} of
+        {_, report} ->
+            {fold_streams(Fun, AccIn, Iterators, Ctx), Errors};
+        {[], crash} ->
+            fold_streams(Fun, AccIn, Iterators, Ctx);
+        {_, crash} ->
+            error(Errors)
+    end.
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
@@ -603,10 +909,17 @@ topic_words(Bin) -> emqx_topic:words(Bin).
 %% Internal functions
 %%================================================================================
 
+set_db_defaults(Opts = #{store_blobs := true}) ->
+    Defaults = #{
+        append_only => false,
+        atomic_batches => true
+    },
+    maps:merge(Defaults, Opts);
 set_db_defaults(Opts) ->
     Defaults = #{
         append_only => true,
-        atomic_batches => false
+        atomic_batches => false,
+        store_blobs => false
     },
     maps:merge(Defaults, Opts).
 
@@ -617,3 +930,123 @@ call_if_implemented(Mod, Fun, Args, Default) ->
         false ->
             Default
     end.
+
+-spec trans(
+    db(),
+    fun(() -> Ret),
+    transaction_opts(),
+    non_neg_integer()
+) ->
+    {ok, Ret} | error(_).
+trans(DB, Fun, Opts, Retries) ->
+    _ = put(?tx_ops_write, []),
+    _ = put(?tx_ops_del_topic, []),
+    _ = put(?tx_ops_expected, []),
+    _ = put(?tx_ops_unexpected, []),
+    RetryTimeout = maps:get(retry_interval, Opts, 1_000),
+    try
+        case new_blob_tx(DB, Opts) of
+            {ok, Ctx} ->
+                Ret = Fun(),
+                Tx = #{
+                    ?ds_tx_write => erase(?tx_ops_write),
+                    ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
+                    ?ds_tx_expected => erase(?tx_ops_expected),
+                    ?ds_tx_unexpected => erase(?tx_ops_unexpected)
+                },
+                case Tx of
+                    #{
+                        ?ds_tx_write := [],
+                        ?ds_tx_delete_topic := [],
+                        ?ds_tx_expected := [],
+                        ?ds_tx_unexpected := []
+                    } ->
+                        %% Nothing to commit:
+                        {ok, Ret};
+                    _ ->
+                        case commit_blob_tx(DB, Ctx, Tx) of
+                            ok ->
+                                {ok, Ret};
+                            ?err_unrec(_) = Err ->
+                                Err;
+                            ?err_rec(_) when Retries > 0 ->
+                                timer:sleep(RetryTimeout),
+                                trans(DB, Fun, Opts, Retries - 1)
+                        end
+                end;
+            ?err_rec(_) ->
+                timer:sleep(RetryTimeout),
+                trans(DB, Fun, Opts, Retries - 1);
+            ?err_unrec(_) = Err ->
+                Err
+        end
+    catch
+        ?tx_reset when Retries > 0 ->
+            timer:sleep(RetryTimeout),
+            trans(DB, Fun, Opts, Retries - 1)
+    after
+        _ = erase(?tx_ops_write),
+        _ = erase(?tx_ops_del_topic),
+        _ = erase(?tx_ops_expected),
+        _ = erase(?tx_ops_unexpected)
+    end.
+
+is_trans() ->
+    case get(?tx_ops_write) of
+        undefined ->
+            false;
+        _ ->
+            true
+    end.
+
+tx_push_op(K, A) ->
+    put(K, [A | get(K)]),
+    ok.
+
+-spec fold_streams(
+    fold_fun(Acc), Acc, [{slab(), stream(), iterator()}], fold_ctx()
+) -> Acc.
+fold_streams(_Fun, Acc, [], _Ctx) ->
+    Acc;
+fold_streams(Fun, Acc0, [{Slab, Stream, It} | Rest], Ctx) ->
+    Acc = fold_iterator(Fun, Acc0, Slab, Stream, It, Ctx),
+    fold_streams(Fun, Acc, Rest, Ctx).
+
+-spec fold_iterator(
+    fold_fun(Acc), Acc, slab(), stream(), iterator(), fold_ctx()
+) -> Acc.
+fold_iterator(Fun, Acc0, Slab, Stream, It0, Ctx) ->
+    #fold_ctx{db = DB, batch_size = BatchSize} = Ctx,
+    case next(DB, It0, BatchSize) of
+        {ok, _It, []} ->
+            Acc0;
+        {ok, end_of_stream} ->
+            Acc0;
+        {ok, It, Batch} ->
+            Acc = lists:foldl(
+                fun({MsgKey, Msg}, A) ->
+                    Fun(Slab, Stream, MsgKey, Msg, A)
+                end,
+                Acc0,
+                Batch
+            ),
+            fold_iterator(Fun, Acc, Slab, Stream, It, Ctx)
+    end.
+
+is_topic([]) ->
+    true;
+is_topic([B | Rest]) when is_binary(B) ->
+    is_topic(Rest);
+is_topic(_) ->
+    false.
+
+is_topic_filter([]) ->
+    true;
+is_topic_filter(['#']) ->
+    true;
+is_topic_filter(['+' | Rest]) ->
+    is_topic_filter(Rest);
+is_topic_filter([B | Rest]) when is_binary(B) ->
+    is_topic_filter(Rest);
+is_topic_filter(_) ->
+    false.
