@@ -183,7 +183,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.21.0", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.21.1", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.1", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.1", override: true}
@@ -252,7 +252,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
 
   def common_dep(:rocksdb),
-    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-6", override: true}
+    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-8", override: true}
 
   def common_dep(:emqx_http_lib),
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
