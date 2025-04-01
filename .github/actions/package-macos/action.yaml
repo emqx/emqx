@@ -86,10 +86,10 @@ runs:
         pkg_name=$(find _packages/$PROFILE -mindepth 1 -maxdepth 1 -iname \*.zip)
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
-        ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
-        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083
-        ./emqx/bin/emqx ping
-        ./emqx/bin/emqx help
-        ./emqx/bin/emqx ctl status
-        ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
-        rm -rf emqx
+        ./emqx/bin/emqx start && \
+        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083 && \
+        ./emqx/bin/emqx ping && \
+        ./emqx/bin/emqx help && \
+        ./emqx/bin/emqx ctl status && \
+        ./emqx/bin/emqx stop || \
+        (cat emqx/log/erlang.log.1 && cat emqx/log/emqx.log.1 && exit 1)
