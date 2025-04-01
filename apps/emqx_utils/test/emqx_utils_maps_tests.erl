@@ -16,7 +16,7 @@
 
 -module(emqx_utils_maps_tests).
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
+-include("../../emqx/include/emqx_mqtt.hrl").
 
 -import(emqx_utils_maps, [indent/3, unindent/2]).
 
