@@ -28,8 +28,8 @@
 -define(EMQX_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-plugin-template/releases/download/"
 ).
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.9.0-beta.2").
--define(EMQX_PLUGIN_TEMPLATE_TAG, "5.9.0-beta.2").
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.9.0-beta.3").
+-define(EMQX_PLUGIN_TEMPLATE_TAG, "5.9.0-beta.3").
 
 -define(EMQX_PLUGIN_TEMPLATES_LEGACY, [
     #{

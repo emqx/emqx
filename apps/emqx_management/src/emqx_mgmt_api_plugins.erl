@@ -318,7 +318,13 @@ fields(plugin) ->
                 example => "This is an demo plugin.",
                 desc => "only return when `GET /plugins/{name}`.",
                 required => false
-            })}
+            })},
+        {health_status, hoconsc:ref(?MODULE, health_status)}
+    ];
+fields(health_status) ->
+    [
+        {status, hoconsc:mk(hoconsc:enum([ok, error]), #{example => error})},
+        {message, hoconsc:mk(binary(), #{example => <<"Port unavailable: 3306">>})}
     ];
 fields(name) ->
     [
@@ -439,10 +445,10 @@ list_plugins(get, _) ->
     {200, format_plugins(Plugins)}.
 
 get_plugins() ->
-    {node(), emqx_plugins:list()}.
+    {node(), emqx_plugins:list(?normal, #{health_check => true})}.
 
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
-    case emqx_plugins:describe(NameVsn) of
+    case emqx_plugins:describe(NameVsn, #{}) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
             case emqx_plugins:is_package_present(NameVsn) of
                 false ->
@@ -527,7 +533,7 @@ update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
-    case emqx_plugins:describe(NameVsn) of
+    case emqx_plugins:describe(NameVsn, #{}) of
         {ok, _} ->
             case emqx_plugins:get_config(NameVsn, ?plugin_conf_not_found) of
                 Config when is_map(Config) ->
@@ -543,7 +549,7 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
     end;
 plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
     Nodes = emqx:running_nodes(),
-    case emqx_plugins:describe(NameVsn) of
+    case emqx_plugins:describe(NameVsn, #{}) of
         {ok, _} ->
             case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
                 {ok, ?plugin_without_config_schema} ->
@@ -569,7 +575,7 @@ plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
     end.
 
 plugin_schema(get, #{bindings := #{name := NameVsn}}) ->
-    case emqx_plugins:describe(NameVsn) of
+    case emqx_plugins:describe(NameVsn, #{}) of
         {ok, _Plugin} ->
             {200, format_plugin_avsc_and_i18n(NameVsn)};
         _ ->
@@ -772,7 +778,11 @@ aggregate_status([{Node, Plugins} | List], Acc) ->
             fun(Plugin, SubAcc) ->
                 #{name := Name, rel_vsn := Vsn} = Plugin,
                 Key = {Name, Vsn},
-                Value = #{node => Node, status => plugin_status(Plugin)},
+                Value0 = #{
+                    node => Node,
+                    status => plugin_status(Plugin)
+                },
+                Value = add_health_status(Value0, Plugin),
                 SubAcc#{Key => [Value | maps:get(Key, Acc, [])]}
             end,
             Acc,
@@ -803,3 +813,8 @@ bin(B) when is_binary(B) -> B.
 %% config_status: not_configured disable enable
 plugin_status(#{running_status := running}) -> running;
 plugin_status(_) -> stopped.
+
+add_health_status(StatusInfo, #{health_status := HealthStatus}) ->
+    StatusInfo#{health_status => HealthStatus};
+add_health_status(StatusInfo, _) ->
+    StatusInfo.
