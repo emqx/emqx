@@ -74,7 +74,10 @@ runs:
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
         export PATH="$HOME/bin:$PATH"
+        # needed in latest macos-15 runner
         export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+        # needed because https://github.com/emqx/mnesia_rocksdb/blame/a791148c3f195a87260dfa7ee3e8735a3461c378/rebar.config.script#L4 may overwrite it
+        export ERLANG_ROCKSDB_OPTS='-DWITH_BUNDLE_LZ4=ON -DWITH_BUNDLE_SNAPPY=ON'
         make $PROFILE-tgz
     - name: test ${{ inputs.profile }}
       shell: bash
