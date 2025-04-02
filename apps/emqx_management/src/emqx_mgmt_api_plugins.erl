@@ -833,10 +833,11 @@ parse_position(Position, _) ->
 parse_sync_plugin_name(#{<<"name">> := Name}) ->
     parse_sync_plugin_name(Name);
 parse_sync_plugin_name(Name) ->
-    case emqx_plugins:parse_name_vsn(Name) of
-        {ok, _AppName, _Vsn} ->
-            {ok, binary_to_list(Name)};
-        {error, _} ->
+    try emqx_plugins_utils:parse_name_vsn(Name) of
+        {_AppName, _Vsn} ->
+            {ok, binary_to_list(Name)}
+    catch
+        error:bad_name_vsn ->
             {error, {plugin_error, <<"Bad Plugin Name Vsn">>}}
     end.
 
