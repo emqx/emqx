@@ -571,17 +571,22 @@ read_plugin_info(NameVsn, Options) ->
     emqx_plugins_info:read(NameVsn, Options).
 
 ensure_installed_locally(NameVsn) ->
-    emqx_plugins_fs:ensure_installed_from_tar(
-        NameVsn,
-        fun() ->
-            case emqx_plugins_info:read(NameVsn) of
-                {ok, Plugin} ->
-                    emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn));
-                {error, _} = Error ->
-                    Error
-            end
-        end
-    ).
+    maybe
+        ok ?=
+            emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                validate_installation(NameVsn)
+            end),
+        {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        emqx_plugins_apps:load(Plugin, emqx_plugins_fs:lib_dir(NameVsn))
+    end.
+
+validate_installation(NameVsn) ->
+    case emqx_plugins_info:read(NameVsn) of
+        {ok, _Plugin} ->
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
 
 install_and_configure(NameVsn, Mode, RunningSt) ->
     maybe

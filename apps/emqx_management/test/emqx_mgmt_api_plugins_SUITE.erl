@@ -173,6 +173,30 @@ t_update_config(_Config) ->
     %% Clean up
     {ok, []} = uninstall_plugin(NameVsn).
 
+t_upload_download_config(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    DownloadPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config", "download"]),
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt_api_test_util:request_api(get, DownloadPath)
+    ),
+    OldConfig = emqx_plugins:get_config(NameVsn),
+    JSONData = emqx_utils_json:encode(OldConfig),
+    UploadPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config", "upload"]),
+    ?assertMatch(
+        {ok, 204, _},
+        emqx_dashboard_api_test_helpers:multipart_formdata_request(UploadPath, [], [
+            {config, "config.json", JSONData}
+        ])
+    ),
+    %% Clean up
+    {ok, []} = uninstall_plugin(NameVsn).
+
 t_health_status(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
