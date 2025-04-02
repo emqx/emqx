@@ -20,7 +20,7 @@ done
 shift $((OPTIND-1))
 
 if [ -z "${1:-}" ]; then
-    SCHEMA="${PROJ_ROOT}/_build/docgen/emqx/schema-en.json"
+    SCHEMA="${PROJ_ROOT}/_build/docgen/emqx-enterprise/schema-en.json"
 else
     SCHEMA="$(realpath "$1")"
 fi
