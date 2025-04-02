@@ -483,13 +483,13 @@ der_decode_file({_EncType, _EncDER, _EncryptionData} = EncryptedEntry, Password)
 %% To make it simple, the file is always overwritten.
 %% Also a potentially half-written PEM file (e.g. due to power outage)
 %% can be corrected with an overwrite.
-save_pem_file(Dir, RawDir, KeyPath, Pem, DryRun) ->
-    Path = pem_file_path(Dir, RawDir, KeyPath, Pem),
+save_pem_file(Dir, RawDir, KeyPath, PEM, DryRun) ->
+    Path = pem_file_path(Dir, RawDir, KeyPath, PEM),
     case filelib:ensure_dir(Path) of
         ok when DryRun ->
             {ok, Path};
         ok ->
-            case file:write_file(Path, Pem) of
+            case file:write_file(Path, PEM) of
                 ok -> {ok, Path};
                 {error, Reason} -> {error, #{failed_to_write_file => Reason, file_path => Path}}
             end;
@@ -507,13 +507,13 @@ is_managed_ssl_file(Filename) ->
         _ -> false
     end.
 
-pem_file_path(Dir, RawDir, KeyPath, Pem) ->
+pem_file_path(Dir, RawDir, KeyPath, PEM) ->
     % NOTE
     % Wee need to have the same filename on every cluster node.
     Segments = lists:map(fun ensure_bin/1, KeyPath),
     Filename0 = iolist_to_binary(lists:join(<<"_">>, Segments)),
     Filename1 = binary:replace(Filename0, <<"file">>, <<>>),
-    Fingerprint = crypto:hash(md5, [RawDir, Filename1, Pem]),
+    Fingerprint = crypto:hash(md5, [RawDir, Filename1, PEM]),
     Suffix = binary:encode_hex(binary:part(Fingerprint, 0, 8)),
     Filename = <<Filename1/binary, "-", Suffix/binary>>,
     filename:join([Dir, Filename]).
@@ -535,8 +535,8 @@ is_valid_pem_file(Path0, Type, Password) ->
     case is_valid_filename(Path) of
         true ->
             case file:read_file(Path) of
-                {ok, Pem} ->
-                    case is_pem(Pem) andalso try_validate_pem(Pem, Type, Password) of
+                {ok, PEM} ->
+                    case is_pem(PEM) andalso try_validate_pem(PEM, Type, Password) of
                         ok ->
                             true;
                         {error, #{reason := Reason}} ->
