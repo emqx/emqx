@@ -516,6 +516,7 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
 do_ensure_started(NameVsn) ->
     maybe
         ok ?= install(NameVsn, ?normal),
+        ok ?= load_config_schema(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
