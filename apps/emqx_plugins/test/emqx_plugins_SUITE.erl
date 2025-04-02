@@ -317,6 +317,8 @@ t_start_restart_and_stop(Config) ->
     assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = ensure_state(Bar2, rear, false),
 
+    %% wait for plugin application to remove hooks
+    timer:sleep(1000),
     %% Should have called the application stop callback, which removes the hooks.
     Hooks3 = get_hook_modules(),
     ?assertNot(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks3), #{hooks => Hooks3}),
