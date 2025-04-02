@@ -2403,7 +2403,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     typerefl:alias("string", any()),
                     #{
-                        default => <<"emqx_tls_psk:lookup">>,
+                        required => false,
                         converter => fun ?MODULE:user_lookup_fun_tr/2,
                         importance => ?IMPORTANCE_HIDDEN,
                         desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
@@ -3030,8 +3030,8 @@ parse_ka_int(Bin, Name, Min, Max) ->
             throw(#{reason => lists:flatten(Msg), value => I})
     end.
 
-user_lookup_fun_tr(undefined, Opts) ->
-    user_lookup_fun_tr(<<"emqx_tls_psk:lookup">>, Opts);
+user_lookup_fun_tr(undefined, _Opts) ->
+    undefined;
 user_lookup_fun_tr(Lookup, #{make_serializable := true}) ->
     fmt_user_lookup_fun(Lookup);
 user_lookup_fun_tr(Lookup, _) ->
