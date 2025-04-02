@@ -97,10 +97,6 @@
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 -define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
 
--define(LIMITER_BYTES_IN, bytes).
--define(LIMITER_MESSAGE_IN, messages).
--define(LIMITER_CONNECTION, max_conn).
-
 -spec id_example() -> atom().
 id_example() -> 'tcp:default'.
 
