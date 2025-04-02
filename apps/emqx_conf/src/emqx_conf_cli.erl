@@ -880,7 +880,7 @@ print_inconsistent(Conf, Fmt, Options) when Conf =/= #{} ->
     emqx_ctl:warning(Fmt, [Target, TargetTnxId, Key, Node, NodeTnxId]),
     NodeRawConf = emqx_conf_proto_v4:get_raw_config(Node, [Key]),
     TargetRawConf = emqx_conf_proto_v4:get_raw_config(Target, [Key]),
-    {TargetConf, NodeConf} =
+    {NodeConf, TargetConf} =
         maps:fold(
             fun(SubKey, _, {NewAcc, OldAcc}) ->
                 SubNew0 = maps:get(atom_to_binary(SubKey), NodeRawConf, undefined),
