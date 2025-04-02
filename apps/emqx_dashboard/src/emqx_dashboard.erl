@@ -28,7 +28,7 @@
 %% Authorization
 -export([authorize/1]).
 
--export([save_dispatch_eterm/1]).
+-export([save_dispatch_eterm/1, save_dispatch_eterm/2]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
@@ -124,8 +124,12 @@ minirest_option(Options) ->
 
 %% save dispatch to priv dir.
 save_dispatch_eterm(SchemaMod) ->
+    save_dispatch_eterm(SchemaMod, _ConfigToMerge = #{}).
+
+save_dispatch_eterm(SchemaMod, ConfigToMerge) ->
     Dir = code:priv_dir(emqx_dashboard),
-    emqx_config:put([dashboard], #{i18n_lang => en, swagger_support => false}),
+    Config = maps:merge(ConfigToMerge, #{i18n_lang => en, swagger_support => false}),
+    emqx_config:put([dashboard], Config),
     os:putenv("SCHEMA_MOD", atom_to_list(SchemaMod)),
     DispatchFile = filename:join([Dir, ?DISPATCH_FILE]),
     io:format(user, "===< Generating: ~s~n", [DispatchFile]),
