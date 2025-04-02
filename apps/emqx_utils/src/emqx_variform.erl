@@ -35,6 +35,7 @@
 -export_type([compiled/0]).
 
 -type compiled() :: #{expr := string(), form := term()}.
+-type opts() :: #{eval_coalesce => boolean()}.
 -define(BIF_MOD, emqx_variform_bif).
 -define(IS_ALLOWED_MOD(M),
     (M =:= ?BIF_MOD orelse
@@ -64,10 +65,11 @@
 %% For unresolved variables, empty string (but not "undefined") is used.
 %% In case of runtime exeption, an error is returned.
 %% In case of unbound variable is referenced, error is returned.
--spec render(string(), map()) -> {ok, binary()} | {error, term()}.
+-spec render(string() | compiled(), map()) -> {ok, binary()} | {error, term()}.
 render(Expression, Bindings) ->
     render(Expression, Bindings, #{}).
 
+-spec render(string() | compiled(), map(), opts()) -> {ok, binary()} | {error, term()}.
 render(#{form := Form}, Bindings, Opts) ->
     eval_render(Form, Bindings, Opts);
 render(Expression, Bindings, Opts) ->

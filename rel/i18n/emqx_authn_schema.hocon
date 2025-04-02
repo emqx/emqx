@@ -165,4 +165,31 @@ settings.desc:
 settings.label:
 """Authentication Settings"""
 
+precondition.label: "Precondition"
+precondition.desc: """~
+  A Variform expression to evaluate with a set of pre-bound variables derived from the client information.
+
+  Supported variables:
+  - `username`: The username of the client
+  - `password`: The password of the client
+  - `clientid`: The client ID of the client
+  - `client_attrs.*`: The client attributes of the client
+  - `cert_common_name`: The subject field from the client's TLS certificate
+  - `cert_subject`: The common name (CN) from the client's TLS certificate
+  - `peersni`: The SNI (Server Name Indication) sent by TLS client
+  - `listener`: The listener ID (e.g. `tcp:default`)
+  - `zone`: The associated config zone.
+
+  The expression must evaluate to a string value of 'true' for this authenticator to be invoked.
+  If the expression evaluates to any other value, this authenticator will be skipped.
+
+  Examples:
+  - Only invoke if the client is connected from listener `ssl:letsencryt`:
+    `str_eq(listener, 'ssl:letsencryt')`
+  - Skip if username is empty:
+    `not(is_empty_val(username))`
+  - Only invoke if password exists and zone is 'zone1':
+    `iif(is_empty_val(password), false, str_eq(zone, 'zone1'))`
+
+  Find more information about Variform expressions in EMQX doc.~"""
 }

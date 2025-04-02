@@ -35,6 +35,7 @@
     id :: binary(),
     provider :: module(),
     enable :: boolean(),
+    precondition :: undefined | emqx_variform:compiled(),
     state :: map()
 }).
 
@@ -747,7 +748,39 @@ maybe_add_stacktrace('throw', Data, _Stacktrace) ->
 maybe_add_stacktrace(_, Data, Stacktrace) ->
     Data#{stacktrace => Stacktrace}.
 
-authenticate_with_provider(#authenticator{id = ID, provider = Provider, state = State}, Credential) ->
+check_precondition(undefined, _) ->
+    true;
+check_precondition(Precondition, Credential0) ->
+    Credential = add_cert_info(Credential0),
+    case emqx_variform:render(Precondition, Credential) of
+        {ok, <<"true">>} ->
+            true;
+        Other ->
+            Other
+    end.
+
+%% Add cert info to credential if it exists to aid the authentication placeholders.
+add_cert_info(#{cn := CN, dn := DN} = Credential) ->
+    Credential#{cert_common_name => CN, cert_subject => DN};
+add_cert_info(Credential) ->
+    Credential.
+
+authenticate_with_provider(#authenticator{precondition = Precondition} = A, Credential) ->
+    case check_precondition(Precondition, Credential) of
+        true ->
+            do_authenticate_with_provider(A, Credential);
+        Other ->
+            ?TRACE_AUTHN("precondition_not_met", #{
+                authenticator => A#authenticator.id,
+                expression => emqx_variform:decompile(Precondition),
+                result => Other
+            }),
+            ignore
+    end.
+
+do_authenticate_with_provider(
+    #authenticator{id = ID, provider = Provider, state = State}, Credential
+) ->
     AuthnResult = Provider:authenticate(Credential, State),
     ?TRACE_AUTHN("authenticator_result", #{
         authenticator => ID,
@@ -802,24 +835,55 @@ hook() ->
 unhook() ->
     ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate, []}).
 
-do_create_authenticator(AuthenticatorID, #{enable := Enable} = Config, Providers) ->
+do_create_authenticator(AuthenticatorID, Config, Providers) ->
     Type = authn_type(Config),
     case maps:get(Type, Providers, undefined) of
         undefined ->
-            {error, {no_available_provider_for, Type}};
+            {error, #{cause => "no_available_provider", type => Type}};
         Provider ->
-            case Provider:create(AuthenticatorID, Config) of
-                {ok, State} ->
-                    Authenticator = #authenticator{
-                        id = AuthenticatorID,
-                        provider = Provider,
-                        enable = Enable,
-                        state = State
-                    },
-                    {ok, Authenticator};
-                {error, Reason} ->
-                    {error, Reason}
-            end
+            do_create_authenticator2(AuthenticatorID, Config, Provider)
+    end.
+
+%% Compile precondition and create authenticator
+do_create_authenticator2(AuthenticatorID, Config, Provider) ->
+    case compile_precondition(Config) of
+        {ok, Precondition} ->
+            do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition);
+        {error, Reason} ->
+            {error, #{cause => "bad_precondition_expression", reason => Reason}}
+    end.
+
+%% Create authenticator with precondition
+do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition) ->
+    #{enable := Enable} = Config,
+    case Provider:create(AuthenticatorID, Config) of
+        {ok, State} ->
+            Authenticator = #authenticator{
+                id = AuthenticatorID,
+                provider = Provider,
+                enable = Enable,
+                state = State,
+                precondition = Precondition
+            },
+            {ok, Authenticator};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+compile_precondition(Config) ->
+    Expr = maps:get(precondition, Config, undefined),
+    do_compile_precondition(Expr).
+
+do_compile_precondition(undefined) ->
+    {ok, undefined};
+do_compile_precondition(<<>>) ->
+    {ok, undefined};
+do_compile_precondition(Expr) ->
+    case emqx_variform:compile(Expr) of
+        {ok, Compiled} ->
+            {ok, Compiled};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 do_delete_authenticators(MatchFun, #chain{name = Name, authenticators = Authenticators} = Chain) ->

@@ -105,7 +105,8 @@ t_conflict_mix_conf(Config) ->
                 <<"mechanism">> => <<"password_based">>,
                 %% password_hash_algorithm {name = sha256, salt_position = suffix}
                 <<"redis_type">> => <<"single">>,
-                <<"server">> => <<"127.0.0.1:6379">>
+                <<"server">> => <<"127.0.0.1:6379">>,
+                <<"precondition">> => <<>>
             },
             AuthN = #{<<"authentication">> => [Redis]},
             ConfBin = hocon_pp:do(AuthN, #{}),
@@ -114,8 +115,8 @@ t_conflict_mix_conf(Config) ->
             ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
             [RedisRaw] = emqx_conf:get_raw([authentication]),
             ?assertEqual(
-                maps:to_list(Redis),
-                maps:to_list(maps:remove(<<"ssl">>, RedisRaw)),
+                lists:sort(maps:to_list(Redis)),
+                lists:sort(maps:to_list(maps:remove(<<"ssl">>, RedisRaw))),
                 {Redis, RedisRaw}
             ),
             %% change redis type from single to cluster

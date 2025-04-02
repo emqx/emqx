@@ -80,11 +80,13 @@
 -define(EXCEPTION_ALLOW(IsSuperuser), {ok, #{is_superuser := IsSuperuser}}).
 -define(EXCEPTION_DENY, {error, not_authorized}).
 -define(EXCEPTION_IGNORE, ignore).
+-define(CLIENTID(N), iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-", integer_to_binary(N)])).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_utils:interactive_load(emqx_variform_bif),
     Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
         work_dir => ?config(priv_dir, Config)
     }),
@@ -98,15 +100,26 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(Case, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
     {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
-    Config.
+    try
+        ?MODULE:Case(init, Config)
+    catch
+        error:undef ->
+            Config
+    end.
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(Case, Config) ->
+    try
+        ?MODULE:Case('end', Config)
+    catch
+        error:undef ->
+            ok
+    end,
     _ = emqx_auth_cache:reset(?AUTHN_CACHE),
     ok = emqx_authn_test_lib:enable_node_cache(false),
     ok = emqx_authn_http_test_server:stop().
@@ -135,7 +148,8 @@ t_create_invalid(_Config) ->
             AuthConfig#{<<"url">> => <<"localhost">>},
             AuthConfig#{<<"url">> => <<"http://foo.com/xxx#fragment">>},
             AuthConfig#{<<"url">> => <<"http://${foo}.com/xxx">>},
-            AuthConfig#{<<"url">> => <<"//foo.com/xxx">>}
+            AuthConfig#{<<"url">> => <<"//foo.com/xxx">>},
+            AuthConfig#{<<"precondition">> => <<"not a valid precondition">>}
         ],
 
     lists:foreach(
@@ -715,9 +729,156 @@ test_acl({deny, Topic}, C) ->
         emqtt:subscribe(C, Topic)
     ).
 
+t_precondition_check_listener_id(_Config) ->
+    Config = raw_http_auth_config(),
+    Config1 = Config#{
+        <<"precondition">> => <<"str_eq(listener, 'tcp:default')">>
+    },
+
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config1}
+    ),
+
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+
+    % Test TCP listener - should succeed
+    {ok, C1} = emqtt:start_link([
+        {host, "127.0.0.1"},
+        {port, 1883},
+        {clean_start, true},
+        {clientid, ?CLIENTID(1)},
+        {username, <<"plain">>},
+        {password, <<"plain">>}
+    ]),
+    {ok, _} = emqtt:connect(C1),
+    ok = emqtt:disconnect(C1),
+
+    % Test SSL listener - should fail
+    {ok, C2} = emqtt:start_link([
+        {host, "127.0.0.1"},
+        {port, 8883},
+        {clean_start, true},
+        {clientid, ?CLIENTID(2)},
+        {username, <<"plain">>},
+        {password, <<"plain">>},
+        {ssl, true},
+        {ssl_opts, [{verify, verify_none}]}
+    ]),
+    unlink(C2),
+    _ = monitor(process, C2),
+    ?assertMatch({error, {unauthorized_client, _}}, emqtt:connect(C2)),
+    receive
+        {'DOWN', _Ref, process, C2, Reason} ->
+            ?assertMatch({shutdown, unauthorized_client}, Reason)
+    after 1000 ->
+        error(timeout)
+    end,
+    ok.
+
+t_precondition_check_cert_cn(init, Config) ->
+    %% Change the listener SSL configuration: require peer certificate.
+    {ok, _} = emqx:update_config(
+        [listeners, ssl, default],
+        {update, #{
+            <<"ssl_options">> => #{
+                <<"verify">> => verify_peer,
+                <<"fail_if_no_peer_cert">> => true
+            }
+        }}
+    ),
+    Config;
+t_precondition_check_cert_cn('end', _Config) ->
+    %% Restore the listener SSL configuration to default.
+    {ok, _} = emqx:update_config(
+        [listeners, ssl, default],
+        {update, #{
+            <<"ssl_options">> => #{
+                <<"verify">> => verify_none,
+                <<"fail_if_no_peer_cert">> => false
+            }
+        }}
+    ),
+    ok.
+
+t_precondition_check_cert_cn(_Config) ->
+    Config = raw_http_auth_config(),
+    %% if cert_common_name is empty, the client will be denied
+    Config1 = Config#{
+        <<"precondition">> => <<"not(is_empty_val(cert_common_name))">>
+    },
+
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, Config1}
+    ),
+
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+
+    % Test TCP listener - no cert_common_name, should be denied
+    {ok, C1} = emqtt:start_link([
+        {host, "127.0.0.1"},
+        {port, 1883},
+        {clean_start, true},
+        {clientid, ?CLIENTID(1)},
+        {username, <<"plain">>},
+        {password, <<"plain">>}
+    ]),
+    unlink(C1),
+    _ = monitor(process, C1),
+    ?assertMatch({error, {unauthorized_client, _}}, emqtt:connect(C1)),
+    receive
+        {'DOWN', _Ref, process, C1, Reason} ->
+            ?assertMatch({shutdown, unauthorized_client}, Reason)
+    after 1000 ->
+        error(timeout)
+    end,
+
+    % Test SSL listener - with cert_common_name, should be allowed
+    {ok, C2} = emqtt:start_link([
+        {host, "127.0.0.1"},
+        {port, 8883},
+        {clean_start, true},
+        {clientid, ?CLIENTID(2)},
+        {username, <<"plain">>},
+        {password, <<"plain">>},
+        {ssl, true},
+        {ssl_opts, [
+            {verify, verify_none},
+            {certfile, cert_path("client-cert.pem")},
+            {keyfile, cert_path("client-key.pem")}
+        ]}
+    ]),
+    {ok, _} = emqtt:connect(C2),
+    ok = emqtt:disconnect(C2).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+
+cert_path(FileName) ->
+    Dir = code:lib_dir(emqx),
+    filename:join([Dir, <<"etc/certs">>, FileName]).
 
 raw_http_auth_config() ->
     #{

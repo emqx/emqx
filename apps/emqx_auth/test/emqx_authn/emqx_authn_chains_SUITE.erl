@@ -166,7 +166,7 @@ t_authenticator(Config) when is_list(Config) ->
     % Create an authenticator when the provider does not exist
 
     ?assertEqual(
-        {error, {no_available_provider_for, {password_based, built_in_database}}},
+        {error, #{cause => "no_available_provider", type => {password_based, built_in_database}}},
         ?AUTHN:create_authenticator(ChainName, AuthenticatorConfig1)
     ),
 
