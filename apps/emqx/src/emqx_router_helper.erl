@@ -87,6 +87,7 @@
 %% How often to reconcile nodes state? (ms)
 %% Introduce some jitter to avoid concerted firing on different nodes.
 -define(RECONCILE_INTERVAL, {2 * 60_000, '±', 15_000}).
+-define(RECONCILE_TURBULENCE_DELAY, 10_000).
 %% How soon should a dead node be purged? (ms)
 -define(PURGE_DEAD_TIMEOUT, 15 * 60_000).
 %% How soon should a left node be purged? (ms)
@@ -95,9 +96,11 @@
 
 -ifdef(TEST).
 -undef(RECONCILE_INTERVAL).
+-undef(RECONCILE_TURBULENCE_DELAY).
 -undef(PURGE_DEAD_TIMEOUT).
 -undef(PURGE_LEFT_TIMEOUT).
 -define(RECONCILE_INTERVAL, {2_000, '±', 500}).
+-define(RECONCILE_TURBULENCE_DELAY, 1_000).
 -define(PURGE_DEAD_TIMEOUT, 3_000).
 -define(PURGE_LEFT_TIMEOUT, 1_000).
 -endif.
@@ -131,7 +134,7 @@ post_start() ->
     %% Cleanup any routes left by old incarnations of this node (if any).
     %% Depending on the size of routing tables this can take signicant amount of time.
     _ = mria:wait_for_tables([?ROUTING_NODE]),
-    _ = purge_this_node(),
+    _ = purge_dead_node(node()),
     ignore.
 
 %% @doc Monitor routing node
@@ -139,10 +142,7 @@ post_start() ->
 monitor({_Group, Node}) ->
     monitor(Node);
 monitor(Node) when is_atom(Node) ->
-    case ets:member(?ROUTING_NODE, Node) of
-        true -> ok;
-        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
-    end.
+    add_routing_node(Node).
 
 %% @doc Is given node considered routable?
 %% I.e. should the broker attempt to forward messages there, even if there are
@@ -195,7 +195,7 @@ init([]) ->
     ok = ekka:monitor(membership),
     %% Setup periodic stats reporting.
     ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
-    TRef = schedule_task(reconcile, ?RECONCILE_INTERVAL),
+    TRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
     State = #{
         last_membership => emqx_maybe:define(cores(), []),
         tab_node_status => Tab,
@@ -215,7 +215,14 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, Event}, State) ->
-    NState = handle_membership_event(Event, State),
+    %% NOTE
+    %% By the time we receive `leaving` membership event, a node has essentially just
+    %% started leaving, and not finished yet. To avoid doing things too eagerly, let's
+    %% just debounce _any_ membership event, resuming reconciliation once the cluster
+    %% is stable.
+    State1 = handle_membership_event(Event, State),
+    State2 = update_known_membership(Event, State1),
+    NState = debounce_reconcile(State2),
     {noreply, NState};
 handle_info({timeout, _TRef, {start, Task}}, State) ->
     NState = handle_task(Task, State),
@@ -239,15 +246,19 @@ handle_membership_event({node, down, Node}, State) ->
     _ = record_node_down(Node),
     State;
 handle_membership_event({node, leaving, Node}, State) ->
-    _ = schedule_purge_left(Node),
     _ = record_node_left(Node),
     State;
 handle_membership_event({node, up, Node}, State) ->
     _ = record_node_alive(Node),
     State;
-handle_membership_event({mnesia, up, Node}, State = #{last_membership := Membership}) ->
-    State#{last_membership := lists:usort([Node | Membership])};
 handle_membership_event(_Event, State) ->
+    State.
+
+update_known_membership({mnesia, up, Node}, State = #{last_membership := Membership}) ->
+    State#{last_membership := Membership -- [Node]};
+update_known_membership({node, leaving, Node}, State = #{last_membership := Membership}) ->
+    State#{last_membership := lists:usort([Node | Membership])};
+update_known_membership(_Event, State) ->
     State.
 
 record_node_down(Node) ->
@@ -275,6 +286,8 @@ record_node_left(Node) ->
     },
     ets:insert(?TAB_STATUS, NS).
 
+record_node_alive(Node) when Node == node() ->
+    ok;
 record_node_alive(Node) ->
     forget_node(Node).
 
@@ -293,15 +306,29 @@ handle_reconcile(State) ->
     TS = erlang:monotonic_time(millisecond),
     schedule_purges(TS, reconcile(NState)).
 
+debounce_reconcile(State = #{timer_reconcile := TRef}) ->
+    ok = emqx_utils:cancel_timer(TRef),
+    NTRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
+    State#{timer_reconcile := NTRef}.
+
 reconcile(State = #{last_membership := MembersLast}) ->
-    %% Find if there are discrepancies in membership.
+    %% 1. Find if there are discrepancies in membership.
     %% Missing core nodes must have been "force-left" from the cluster.
     %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
     Members = emqx_maybe:define(cores(), MembersLast),
     ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
-    %% This is a fallback mechanism.
-    %% Avoid purging live nodes, if missed lifecycle events for whatever reason.
-    ok = lists:foreach(fun record_node_alive/1, mria:running_nodes()),
+    %% 2. Find out if there are (possibly) orphaned routes in the routing table.
+    %% Mark them as down: they are most likely replicants.
+    RunningNodes = mria:running_nodes(),
+    RoutingNodes = list_routing_nodes(),
+    OrphanNodes = [N || N <- RoutingNodes -- RunningNodes, lookup_node_status(N) == notfound],
+    ok = lists:foreach(fun(Node) -> record_node_down(Node) end, OrphanNodes),
+    %% 3. Avoid purging live nodes, if missed lifecycle events for whatever reason.
+    %% This is a fallback mechanism. It's also possible a node "leave" that triggered
+    %% this reconcile has not yet finished "leaving". Since it's extremely unlikely,
+    %% do nothing special about it: once "leave" finally finishes, the node will either
+    %% go down or be marked as left on the next reconcile.
+    ok = lists:foreach(fun record_node_alive/1, RunningNodes),
     State#{last_membership := Members}.
 
 select(Status) ->
@@ -316,9 +343,8 @@ select_outdated(Status, Since0) ->
     ),
     ets:select(?TAB_STATUS, MS).
 
-filter_replicants(Nodes) ->
-    Replicants = mria_membership:replicant_nodelist(),
-    [RN || RN <- Nodes, lists:member(RN, Replicants)].
+filter_replicants(Nodes, #{last_membership := Members}) ->
+    [RN || RN <- Nodes, not lists:member(RN, Members)].
 
 schedule_purges(TS, State) ->
     %% Safety measure: purge only dead replicants.
@@ -329,7 +355,7 @@ schedule_purges(TS, State) ->
     %%    `reconcile/1` should notice a discrepancy and schedule a purge.
     ok = lists:foreach(
         fun(Node) -> schedule_purge(Node, {replicant_down_for, ?PURGE_DEAD_TIMEOUT}) end,
-        filter_replicants(select_outdated(down, TS - ?PURGE_DEAD_TIMEOUT))
+        filter_replicants(select_outdated(down, TS - ?PURGE_DEAD_TIMEOUT), State)
     ),
     %% Trigger purges for "force-left" nodes found during reconcile, if resposible.
     ok = lists:foreach(
@@ -417,16 +443,26 @@ purge_dead_node_trans(Node) ->
             false
     end.
 
-purge_this_node() ->
-    %% TODO: Guard against possible `emqx_router_helper` restarts?
-    purge_dead_node(node()).
+cleanup_routes(Node) ->
+    emqx_router:cleanup_routes(Node),
+    remove_routing_node(Node).
+
+%%
+
+add_routing_node(Node) ->
+    case ets:member(?ROUTING_NODE, Node) of
+        true -> ok;
+        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
+    end.
+
+remove_routing_node(Node) ->
+    mria:dirty_delete(?ROUTING_NODE, Node).
+
+list_routing_nodes() ->
+    ets:select(?ROUTING_NODE, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
 
 node_has_routes(Node) ->
     ets:member(?ROUTING_NODE, Node).
-
-cleanup_routes(Node) ->
-    emqx_router:cleanup_routes(Node),
-    mria:dirty_delete(?ROUTING_NODE, Node).
 
 %%
 

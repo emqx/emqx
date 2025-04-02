@@ -132,7 +132,9 @@ t_shards_allocation(Config) ->
     %% Make the cluster consider `Node1` as lost.
     ok = emqx_cth_peer:kill(NodeLost),
     _ = ?retry(200, 5, [NodeLost] = [NodeLost] -- ?ON(Node, mria:cluster_nodes(running))),
-    ok = ?ON(Node, emqx_cluster:force_leave(NodeLost)),
+    %% Simulate node loss that went unnoticed, taken from `mria:force_leave/1`.
+    true = ?ON(Node, mnesia_lib:del(extra_db_nodes, Node)),
+    ok = ?ON(Node, mria_mnesia:del_schema_copy(NodeLost)),
     ?assertEqual(
         [SiteLost],
         ?ON(Node, emqx_ds_replication_layer_meta:sites(lost))
