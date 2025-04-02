@@ -445,7 +445,7 @@ do_start_listener(Type, Name, Id, #{bind := ListenOn} = Opts) when ?ESOCKD_LISTE
     esockd:open(
         Id,
         ListenOn,
-        esockd_opts(Id, Type, Name, Opts, _OldOpts = undefined)
+        esockd_opts(Id, Type, Name, Opts)
     );
 %% Start MQTT/WS listener
 do_start_listener(Type, Name, Id, Opts) when ?COWBOY_LISTENER(Type) ->
@@ -593,7 +593,7 @@ perform_listener_change(update, {{Type, Name, ConfOld}, {_, _, ConfNew}}) ->
 perform_listener_change(stop, {Type, Name, Conf}) ->
     stop_listener(Type, Name, Conf).
 
-esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
+esockd_opts(ListenerId, Type, Name, Opts0) ->
     Zone = zone(Opts0),
     PacketTcpOpts = choose_packet_opts(Opts0),
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
@@ -619,7 +619,7 @@ esockd_opts(ListenerId, Type, Name, Opts0, OldOpts) ->
                     tcp_options => TcpOpts
                 };
             ssl ->
-                OptsWithCRL = inject_crl_config(Opts0, OldOpts),
+                OptsWithCRL = inject_crl_config(Opts0),
                 OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
                 OptsWithRootFun = inject_root_fun(OptsWithSNI),
                 OptsWithVerifyFun = inject_verify_fun(OptsWithRootFun),
@@ -989,9 +989,7 @@ inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapl
 inject_sni_fun(_ListenerId, Conf) ->
     Conf.
 
-inject_crl_config(
-    Conf = #{ssl_options := #{enable_crl_check := true} = SSLOpts}, _OldOpts
-) ->
+inject_crl_config(Conf = #{ssl_options := #{enable_crl_check := true} = SSLOpts}) ->
     HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
     Conf#{
         ssl_options := SSLOpts#{
@@ -1000,16 +998,7 @@ inject_crl_config(
             crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
         }
     };
-inject_crl_config(#{ssl_options := SSLOpts0} = Conf0, #{} = OldOpts) ->
-    %% Note: we must set crl options to `undefined' to unset them.  Otherwise,
-    %% `esockd' will retain such options when `esockd:merge_opts/2' is called and the SSL
-    %% options were previously enabled.
-    WasEnabled = emqx_utils_maps:deep_get([ssl_options, enable_crl_check], OldOpts, false),
-    Undefine = fun(Acc, K) -> emqx_utils_maps:put_if(Acc, K, undefined, WasEnabled) end,
-    SSLOpts1 = Undefine(SSLOpts0, crl_check),
-    SSLOpts = Undefine(SSLOpts1, crl_cache),
-    Conf0#{ssl_options := SSLOpts};
-inject_crl_config(Conf, undefined = _OldOpts) ->
+inject_crl_config(Conf) ->
     Conf.
 
 maybe_unregister_ocsp_stapling_refresh(
