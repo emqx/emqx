@@ -1,0 +1,112 @@
+#!/bin/bash
+set -euo pipefail
+# ===================================
+# Add/Del FW rules for the EMQX
+# ===================================
+
+# Error handling wrapper for nft commands
+nft_cmd() {
+    if ! nft "$@"; then
+        echo "Error executing nft command: nft $*" >&2
+        exit 1
+    fi
+}
+
+# Add cleanup function
+cleanup() {
+    local tab=$1
+    # Check if table exists before attempting deletion
+    if nft list table ip "$tab" &>/dev/null; then
+        nft_cmd delete table ip "$tab"
+        echo "Cleaned up table $tab due to error" >&2
+    fi
+}
+
+usage() {
+    local Script
+    Script=$(basename "$0")
+    echo "
+Firewall rules to protect EMQX listeners.
+
+(requires root or netcap privilege)
+
+Usage:
+        # Ratelimit TCP SYN 2500/s(avg) burst 500 from network interface: eth0
+        $Script add_tcp_syn_rate eth0 1883 2500 500
+
+        # Remove the Ratelimit above
+        $Script del_tcp_syn_rate eth0 1883
+    "
+}
+
+tab_name_tcp_syn_rate() {
+    local dev=$1
+    local port=$2
+    echo "EMQX_TCP_${dev}_${port}"
+}
+
+add_tcp_syn_rate() {
+    local dev=$1
+    local port=$2
+    local rate=$3
+    local burst=$4
+
+    local tab
+    tab=$(tab_name_tcp_syn_rate "$dev" "$port")
+
+    # Set cleanup trap for errors
+    trap 'cleanup "$tab"' ERR
+
+    # Create standalone table
+    nft_cmd add table ip "$tab"
+
+    # Create INPUT chain, legacy `iptables` filter table INPUT chain
+    nft_cmd add chain ip "$tab" INPUT '{ type filter hook input priority 0;}'
+
+    # Create Chain for limiting TCP SYN
+    nft_cmd add chain ip "$tab" tcp_syn_limit
+
+    # tcp_syn_limit chain
+    nft_cmd add rule ip "$tab" tcp_syn_limit tcp 'flags & (fin|syn|rst|ack) == syn' limit rate "$rate"/second burst "$burst" packets counter accept
+    nft_cmd add rule ip "$tab" tcp_syn_limit counter drop
+
+    # In filter table INPUT chain, matching tcp SYN then jump to tcp_syn_limit chain
+    nft_cmd insert rule ip "$tab" INPUT iifname "$dev" tcp dport "$port" tcp 'flags & (fin|syn|rst|ack) == syn' counter jump tcp_syn_limit
+
+    # Remove error trap after successful completion
+    trap - ERR
+}
+
+del_tcp_syn_rate() {
+    local dev=$1
+    local port=$2
+
+    local tab
+    tab=$(tab_name_tcp_syn_rate "$dev" "$port")
+
+    nft_cmd delete table ip "$tab"
+}
+
+# Check for nft availability and suggest alternative
+check_nft() {
+    if ! command -v nft >/dev/null 2>&1; then
+        echo "Error: nft command not found." >&2
+        echo "Please install nftables or use emqx_fw script instead for iptables-based firewall rules." >&2
+        exit 1
+    fi
+}
+
+main() {
+    check_nft
+
+    if [[ $# -lt 3 ]]; then
+        usage
+        exit 1
+    fi
+
+    fun=$1;
+    shift 1;
+    $fun "$@"
+}
+
+main "$@"
