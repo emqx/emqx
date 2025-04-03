@@ -624,13 +624,26 @@ to_server_opts(Type, Opts) ->
                 {user_lookup_fun, fun conf_get_opt/2, #{default => DefaultUserLookupFun}},
                 {log_level, fun conf_get_opt/2},
                 {hibernate_after, fun conf_get_opt/2},
+                %% esockd-only
                 {gc_after_handshake, fun conf_get_opt/2, #{omit_if => false}},
-                {ocsp, fun conf_get_opt/2},
-                {enable_crl_check, fun conf_get_opt/2, #{omit_if => false}}
+                {crl_check, conf_crl_check(Opts)},
+                {crl_cache, conf_crl_cache(Opts)}
             ]
         )
     ],
     ensure_valid_options(TLSServerOpts).
+
+conf_crl_check(#{enable_crl_check := true}) ->
+    %% `{crl_check, true}' doesn't work
+    peer;
+conf_crl_check(#{}) ->
+    undefined.
+
+conf_crl_cache(#{enable_crl_check := true}) ->
+    HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
+    {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}};
+conf_crl_cache(#{}) ->
+    undefined.
 
 %% @doc Convert hocon-checked tls client options (map()) to
 %% proplist accepted by ssl library.

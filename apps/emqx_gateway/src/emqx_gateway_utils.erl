@@ -706,8 +706,6 @@ ssl_opts(Name, Opts) ->
     emqx_utils:run_fold(
         [
             fun ensure_dtls_protocol/2,
-            fun ssl_opts_crl_config/2,
-            fun ssl_opts_drop_unsupported/2,
             fun ssl_partial_chain/2,
             fun ssl_verify_fun/2,
             fun ssl_server_opts/2
@@ -720,22 +718,6 @@ ensure_dtls_protocol(SSLOpts, dtls_options) ->
     SSLOpts#{protocol => dtls};
 ensure_dtls_protocol(SSLOpts, _) ->
     SSLOpts.
-
-ssl_opts_crl_config(#{enable_crl_check := true} = SSLOpts, _Name) ->
-    HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
-    NSSLOpts = maps:remove(enable_crl_check, SSLOpts),
-    NSSLOpts#{
-        %% `crl_check => true' doesn't work
-        crl_check => peer,
-        crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
-    };
-ssl_opts_crl_config(SSLOpts, _Name) ->
-    %% NOTE: Removing this because DTLS doesn't like any unknown options.
-    maps:remove(enable_crl_check, SSLOpts).
-
-ssl_opts_drop_unsupported(SSLOpts, _Name) ->
-    %% TODO: Support OCSP stapling
-    maps:without([ocsp], SSLOpts).
 
 ssl_server_opts(SSLOpts, ssl_options) ->
     emqx_tls_lib:to_server_opts(tls, SSLOpts);

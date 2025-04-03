@@ -615,11 +615,10 @@ esockd_opts(ListenerId, Type, Name, Opts0) ->
                     tcp_options => TcpOpts
                 };
             ssl ->
-                OptsWithCRL = inject_crl_config(Opts0),
-                OptsWithSNI = inject_sni_fun(ListenerId, OptsWithCRL),
-                OptsWithRootFun = inject_root_fun(OptsWithSNI),
-                OptsWithVerifyFun = inject_verify_fun(OptsWithRootFun),
-                SSLOpts = ssl_opts(OptsWithVerifyFun),
+                SSLOpts0 = ssl_opts(Opts0),
+                SSLOpts1 = inject_sni_fun(ListenerId, Opts0, SSLOpts0),
+                SSLOpts2 = inject_root_fun(SSLOpts1),
+                SSLOpts = inject_verify_fun(SSLOpts2),
                 Opts2#{
                     ssl_options => SSLOpts,
                     tcp_options => TcpOpts
@@ -975,27 +974,16 @@ quic_listener_optional_settings() ->
         stateless_operation_expiration_ms
     ].
 
-inject_root_fun(#{ssl_options := SSLOpts} = Opts) ->
-    Opts#{ssl_options := emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts)}.
-inject_verify_fun(#{ssl_options := SSLOpts} = Opts) ->
-    Opts#{ssl_options := emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts)}.
+inject_root_fun(SSLOpts) ->
+    emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts).
 
-inject_sni_fun(ListenerId, Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}}) ->
-    emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf);
-inject_sni_fun(_ListenerId, Conf) ->
-    Conf.
+inject_verify_fun(SSLOpts) ->
+    emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts).
 
-inject_crl_config(Conf = #{ssl_options := #{enable_crl_check := true} = SSLOpts}) ->
-    HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
-    Conf#{
-        ssl_options := SSLOpts#{
-            %% `crl_check => true' doesn't work
-            crl_check => peer,
-            crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
-        }
-    };
-inject_crl_config(Conf) ->
-    Conf.
+inject_sni_fun(ListenerId, Conf = #{ocsp := #{enable_ocsp_stapling := true}}, SSLOpts) ->
+    emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf, SSLOpts);
+inject_sni_fun(_ListenerId, _Conf = #{}, SSLOpts) ->
+    SSLOpts.
 
 maybe_unregister_ocsp_stapling_refresh(
     ssl = Type, Name, #{ssl_options := #{ocsp := #{enable_ocsp_stapling := false}}} = _Conf
