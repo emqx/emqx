@@ -972,8 +972,12 @@ quic_listener_optional_settings() ->
         stateless_operation_expiration_ms
     ].
 
-inject_sni_fun(ListenerId, Conf = #{ocsp := #{enable_ocsp_stapling := true}}, SSLOpts) ->
-    emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf, SSLOpts);
+inject_sni_fun(
+    ListenerId,
+    Conf = #{ssl_options := #{ocsp := #{enable_ocsp_stapling := true}}},
+    SSLOpts
+) ->
+    emqx_ocsp_cache:opt_sni_fun(ListenerId, Conf) ++ SSLOpts;
 inject_sni_fun(_ListenerId, _Conf = #{}, SSLOpts) ->
     SSLOpts.
 
