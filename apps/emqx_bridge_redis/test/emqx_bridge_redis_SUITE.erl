@@ -165,7 +165,6 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(Testcase, Config0) ->
-    emqx_logger:set_log_level(debug),
     ok = delete_all_rules(),
     ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
