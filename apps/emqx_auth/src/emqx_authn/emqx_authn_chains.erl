@@ -751,19 +751,13 @@ maybe_add_stacktrace(_, Data, Stacktrace) ->
 check_precondition(undefined, _) ->
     true;
 check_precondition(Precondition, Credential0) ->
-    Credential = add_cert_info(Credential0),
+    Credential = emqx_auth_template:rename_client_info_vars(Credential0),
     case emqx_variform:render(Precondition, Credential) of
         {ok, <<"true">>} ->
             true;
         Other ->
             Other
     end.
-
-%% Add cert info to credential if it exists to aid the authentication placeholders.
-add_cert_info(#{cn := CN, dn := DN} = Credential) ->
-    Credential#{cert_common_name => CN, cert_subject => DN};
-add_cert_info(Credential) ->
-    Credential.
 
 authenticate_with_provider(#authenticator{precondition = Precondition} = A, Credential) ->
     case check_precondition(Precondition, Credential) of
