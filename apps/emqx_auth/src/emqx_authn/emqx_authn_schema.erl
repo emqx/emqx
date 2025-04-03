@@ -209,8 +209,20 @@ backend(Name) ->
         desc => ?DESC("backend")
     }).
 
+precondition() ->
+    ?HOCON(
+        binary(),
+        #{
+            default => <<>>,
+            desc => ?DESC("precondition")
+        }
+    ).
+
 common_fields() ->
-    [{enable, fun enable/1}].
+    [
+        {enable, fun enable/1},
+        {precondition, precondition()}
+    ].
 
 enable(type) -> boolean();
 enable(default) -> true;
