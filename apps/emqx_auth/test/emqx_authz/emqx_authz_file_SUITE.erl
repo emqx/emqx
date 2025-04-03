@@ -128,12 +128,72 @@ t_zone_as_who_condition(_Config) ->
     ),
     ok.
 
+t_zone_as_who_condition_re(_Config) ->
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = ClientInfo0#{zone => zone1},
+
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, {zone, {re, \"^zone1$\"}}, all, [\"t/1/#\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo#{zone => zone2}, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/#">>)
+    ),
+    ok.
+
 t_listener(_Config) ->
     ClientInfo0 = emqx_authz_test_lib:base_client_info(),
     ClientInfo = ClientInfo0#{listener => 'tcp:a'},
 
     ok = setup_config(?RAW_SOURCE#{
         <<"rules">> => <<"{allow, {listener, \"tcp:a\"}, all, [\"t/1/#\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            ClientInfo#{listener => 'ssl:a'}, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+        )
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/#">>)
+    ),
+    ok.
+
+t_listener_re(_Config) ->
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = ClientInfo0#{listener => 'tcp:a'},
+
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> => <<"{allow, {listener, {re, \"^tcp:.*\"}}, all, [\"t/1/#\"]}.">>
     }),
 
     ?assertEqual(
