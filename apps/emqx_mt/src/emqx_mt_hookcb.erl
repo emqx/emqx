@@ -72,6 +72,7 @@ on_authenticate(
                     AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
                     case AllowOnlyManagedNSs of
                         true ->
+                            ?TRACE("deny_due_to_no_tenant_namespace", #{}),
                             {stop, {error, not_authorized}};
                         false ->
                             ?TRACE("first_clientid_in_namespace", #{}),
@@ -83,8 +84,9 @@ on_authenticate(_, DefaultResult) ->
     AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
     case AllowOnlyManagedNSs of
         true ->
+            ?TRACE("deny_due_to_no_tenant_namespace", #{}),
             {stop, {error, not_authorized}};
         false ->
-            ?TRACE("new_tenant_namespace", #{}),
+            ?TRACE("no_tenant_namespace", #{}),
             DefaultResult
     end.
