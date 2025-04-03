@@ -23,7 +23,6 @@ schemas() ->
 
 schemas(Edition) ->
     mria(Edition) ++
-        auth_ext(Edition) ++
         cluster_linking(Edition) ++
         authn(Edition) ++
         authz() ++
@@ -33,9 +32,6 @@ schemas(Edition) ->
 
 mria(ee) ->
     [emqx_enterprise_schema].
-
-auth_ext(ee) ->
-    [emqx_auth_ext_schema].
 
 cluster_linking(ee) ->
     [emqx_cluster_link_schema].

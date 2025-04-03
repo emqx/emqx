@@ -2349,7 +2349,27 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
-    ] ++ emqx_schema_hooks:list_injection_point('common_ssl_opts_schema').
+    ] ++ common_ssl_auth_ext_fields().
+
+common_ssl_auth_ext_fields() ->
+    [
+        {"partial_chain",
+            sc(
+                hoconsc:enum([true, false, two_cacerts_from_cacertfile, cacert_from_cacertfile]),
+                #{
+                    required => false,
+                    desc => ?DESC(common_ssl_opts_schema_partial_chain)
+                }
+            )},
+        {"verify_peer_ext_key_usage",
+            sc(
+                string(),
+                #{
+                    required => false,
+                    desc => ?DESC(common_ssl_opts_verify_peer_ext_key_usage)
+                }
+            )}
+    ].
 
 %% @doc Make schema for SSL listener options.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().

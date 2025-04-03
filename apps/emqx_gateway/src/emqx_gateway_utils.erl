@@ -702,33 +702,19 @@ udp_opts(Opts) ->
     ).
 
 ssl_opts(Name, Opts) ->
-    SSLOpts = maps:get(Name, Opts, #{}),
-    emqx_utils:run_fold(
-        [
-            fun ensure_dtls_protocol/2,
-            fun ssl_partial_chain/2,
-            fun ssl_verify_fun/2,
-            fun ssl_server_opts/2
-        ],
-        SSLOpts,
-        Name
-    ).
+    SSLConf = maps:get(Name, Opts, #{}),
+    SSLOpts = ssl_server_opts(Name, SSLConf),
+    ensure_dtls_protocol(Name, SSLOpts).
 
-ensure_dtls_protocol(SSLOpts, dtls_options) ->
-    SSLOpts#{protocol => dtls};
-ensure_dtls_protocol(SSLOpts, _) ->
+ensure_dtls_protocol(dtls_options, SSLOpts) ->
+    [{protocol, dtls} | SSLOpts];
+ensure_dtls_protocol(_, SSLOpts) ->
     SSLOpts.
 
-ssl_server_opts(SSLOpts, ssl_options) ->
+ssl_server_opts(ssl_options, SSLOpts) ->
     emqx_tls_lib:to_server_opts(tls, SSLOpts);
-ssl_server_opts(SSLOpts, dtls_options) ->
+ssl_server_opts(dtls_options, SSLOpts) ->
     emqx_tls_lib:to_server_opts(dtls, SSLOpts).
-
-ssl_partial_chain(SSLOpts, _Options) ->
-    emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts).
-
-ssl_verify_fun(SSLOpts, _Options) ->
-    emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts).
 
 ranch_opts(Type, ListenOn, Opts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),

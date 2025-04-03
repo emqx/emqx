@@ -616,9 +616,7 @@ esockd_opts(ListenerId, Type, Name, Opts0) ->
                 };
             ssl ->
                 SSLOpts0 = ssl_opts(Opts0),
-                SSLOpts1 = inject_sni_fun(ListenerId, Opts0, SSLOpts0),
-                SSLOpts2 = inject_root_fun(SSLOpts1),
-                SSLOpts = inject_verify_fun(SSLOpts2),
+                SSLOpts = inject_sni_fun(ListenerId, Opts0, SSLOpts0),
                 Opts2#{
                     ssl_options => SSLOpts,
                     tcp_options => TcpOpts
@@ -973,12 +971,6 @@ quic_listener_optional_settings() ->
         max_binding_stateless_operations,
         stateless_operation_expiration_ms
     ].
-
-inject_root_fun(SSLOpts) ->
-    emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts).
-
-inject_verify_fun(SSLOpts) ->
-    emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts).
 
 inject_sni_fun(ListenerId, Conf = #{ocsp := #{enable_ocsp_stapling := true}}, SSLOpts) ->
     emqx_ocsp_cache:inject_sni_fun(ListenerId, Conf, SSLOpts);

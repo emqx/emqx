@@ -2,8 +2,8 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_ext_tls_const_v1).
--elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*(_SUITE)?$"}}]).
+-module(emqx_tls_lib_const_v1).
+-elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*$"}}]).
 
 -export([
     make_tls_root_fun/2,

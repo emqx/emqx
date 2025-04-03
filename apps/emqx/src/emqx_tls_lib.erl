@@ -48,13 +48,10 @@
     to_client_opts/2
 ]).
 
--export([maybe_inject_ssl_fun/2]).
-
 %% ssl:tls_version/0 is not exported.
 -type tls_version() :: tlsv1 | 'tlsv1.1' | 'tlsv1.2' | 'tlsv1.3'.
 
 -include("logger.hrl").
--include("emqx_schema.hrl").
 
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
@@ -631,7 +628,11 @@ to_server_opts(Type, Opts) ->
             ]
         )
     ],
-    ensure_valid_options(TLSServerOpts).
+    TLSAuthExt = lists:append(
+        emqx_tls_lib_auth_ext:opt_partial_chain(Opts),
+        emqx_tls_lib_auth_ext:opt_verify_fun(Opts)
+    ),
+    ensure_valid_options(TLSServerOpts ++ TLSAuthExt).
 
 conf_crl_check(#{enable_crl_check := true}) ->
     %% `{crl_check, true}' doesn't work
@@ -862,14 +863,3 @@ format_key_paths(Paths) ->
 
 format_key_path(Path) ->
     iolist_to_binary(lists:join(".", [ensure_bin(S) || S <- Path])).
-
--spec maybe_inject_ssl_fun(root_fun | verify_fun, map()) -> map().
-maybe_inject_ssl_fun(FunName, SslOpts) ->
-    case persistent_term:get(?EMQX_SSL_FUN_MFA(FunName), undefined) of
-        undefined ->
-            SslOpts;
-        {M, F, A} ->
-            %% We should have one entry not a list of {M,F,A},
-            %% as ordering matters in validations
-            erlang:apply(M, F, [SslOpts | A])
-    end.

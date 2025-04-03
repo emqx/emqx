@@ -2,7 +2,7 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_ext_listener_tls_verify_keyusage_SUITE).
+-module(emqx_tls_auth_ext_listener_verify_keyusage_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -39,8 +39,6 @@ groups() ->
 
 init_per_suite(Config) ->
     generate_tls_certs(Config),
-    %% injection happens when module is loaded.
-    code:load_file(emqx_auth_ext),
     Apps = emqx_cth_suite:start(
         [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
