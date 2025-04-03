@@ -43,8 +43,8 @@
     ensure_installed/1,
     ensure_installed/2,
 
-    get_plugin_tar_from_node/2,
-    get_plugin_config_from_node/2,
+    get_package_from_node/2,
+    get_config_from_node/2,
 
     ensure_uninstalled/1,
     ensure_enabled/1,
@@ -261,21 +261,31 @@ is_package_present(NameVsn) ->
 
 -spec purge_other_versions(name_vsn()) -> ok.
 purge_other_versions(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    AppNameBin = bin(AppName),
+    ?SLOG(debug, #{
+        msg => "purge_plugin_other_versions",
+        keep_plugin => NameVsn,
+        reason => "cluster_sync"
+    }),
     lists:foreach(
         fun
-            (Dir) when Dir =:= NameVsn ->
+            (#{name := Name, rel_vsn := RelVsn}) when
+                AppNameBin =:= Name, AppVsn =:= RelVsn
+            ->
                 ok;
-            (Path) ->
-                case emqx_plugins_fs:is_installed(Path) of
+            (#{name := Name, rel_vsn := RelVsn}) ->
+                case AppNameBin =:= Name of
                     true ->
-                        ok = delete_cached_config(Path),
-                        emqx_plugins_fs:purge_installed(Path);
+                        NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
+                        ensure_stopped(NameVsn1),
+                        ensure_uninstalled(NameVsn1),
+                        ok;
                     false ->
                         ok
                 end
         end,
-        filelib:wildcard(atom_to_list(AppName) ++ "*", emqx_plugins_fs:install_dir())
+        emqx_plugins:list()
     ).
 
 %% @doc Delete the package file.
@@ -641,7 +651,7 @@ install(NameVsn, Mode) ->
 
 get_from_cluster(NameVsn) ->
     Nodes = [N || N <- mria:running_nodes(), N /= node()],
-    case get_plugin_tar_from_any_node(Nodes, NameVsn, []) of
+    case get_package_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
             emqx_plugins_fs:write_tar(NameVsn, TarContent);
         {error, NodeErrors} when Nodes =/= [] ->
@@ -663,12 +673,12 @@ get_from_cluster(NameVsn) ->
             {error, ErrMeta}
     end.
 
-get_plugin_tar_from_node(Node, NameVsn) ->
-    get_plugin_tar_from_any_node([Node], NameVsn, []).
+get_package_from_node(Node, NameVsn) ->
+    get_package_from_any_node([Node], NameVsn, []).
 
-get_plugin_tar_from_any_node([], _NameVsn, Errors) ->
+get_package_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
-get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
+get_package_from_any_node([Node | T], NameVsn, Errors) ->
     case emqx_plugins_proto_v2:get_tar(Node, NameVsn, infinity) of
         {ok, _} = Res ->
             ?SLOG(debug, #{
@@ -678,15 +688,15 @@ get_plugin_tar_from_any_node([Node | T], NameVsn, Errors) ->
             }),
             Res;
         Err ->
-            get_plugin_tar_from_any_node(T, NameVsn, [{Node, Err} | Errors])
+            get_package_from_any_node(T, NameVsn, [{Node, Err} | Errors])
     end.
 
-get_plugin_config_from_node(Node, NameVsn) ->
-    get_plugin_config_from_any_node([Node], NameVsn, []).
+get_config_from_node(Node, NameVsn) ->
+    get_config_from_any_node([Node], NameVsn, []).
 
-get_plugin_config_from_any_node([], _NameVsn, Errors) ->
+get_config_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
-get_plugin_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
+get_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
     case
         emqx_plugins_proto_v2:get_config(
             Node, NameVsn, ?CONFIG_FORMAT_MAP, ?plugin_conf_not_found, 5_000
@@ -694,7 +704,7 @@ get_plugin_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
     of
         {ok, ?plugin_conf_not_found} ->
             Err = {error, {config_not_found_on_node, Node, NameVsn}},
-            get_plugin_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors]);
+            get_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors]);
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_config_from_cluster_successfully",
@@ -703,7 +713,7 @@ get_plugin_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
             }),
             Res;
         Err ->
-            get_plugin_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors])
+            get_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors])
     end.
 
 do_put_config_internal(Key, Value, ConfLocation) when is_atom(Key) ->
@@ -811,7 +821,7 @@ do_ensure_local_config(NameVsn, ?fresh_install) ->
     emqx_plugins_local_config:copy_default(NameVsn);
 do_ensure_local_config(NameVsn, ?normal) ->
     Nodes = mria:running_nodes(),
-    case get_plugin_config_from_any_node(Nodes, NameVsn, []) of
+    case get_config_from_any_node(Nodes, NameVsn, []) of
         {ok, Config} when is_map(Config) ->
             emqx_plugins_local_config:update(NameVsn, Config);
         {error, Reason} ->

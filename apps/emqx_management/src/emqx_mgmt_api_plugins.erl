@@ -761,7 +761,7 @@ sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
     ok;
 sync_plugin_cluster(Node, NameVsn) ->
     _ = emqx_plugins:purge_other_versions(NameVsn),
-    emqx_plugins:get_plugin_tar_from_node(Node, NameVsn).
+    emqx_plugins:get_package_from_node(Node, NameVsn).
 
 %%--------------------------------------------------------------------
 %% Helper functions
