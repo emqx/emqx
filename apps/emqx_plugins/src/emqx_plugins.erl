@@ -278,9 +278,17 @@ purge_other_versions(NameVsn) ->
                 case AppNameBin =:= Name of
                     true ->
                         NameVsn1 = emqx_plugins_utils:make_name_vsn_string(Name, RelVsn),
-                        ensure_stopped(NameVsn1),
-                        ensure_uninstalled(NameVsn1),
-                        ok;
+                        maybe
+                            ok ?= ensure_stopped(NameVsn1),
+                            ok ?= ensure_uninstalled(NameVsn1)
+                        else
+                            {error, Reason} ->
+                                ?SLOG(error, #{
+                                    msg => "failed_to_purge_plugin",
+                                    name_vsn => NameVsn1,
+                                    reason => Reason
+                                })
+                        end;
                     false ->
                         ok
                 end
