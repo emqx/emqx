@@ -589,6 +589,12 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
 
 %% @doc Convert hocon-checked ssl server options (map()) to
 %% proplist accepted by ssl library.
+%% Every field defined in `emqx_schema:server_ssl_opts_schema/2` is
+%% taken care of, except for:
+%%  * `ocsp`: current machinery is tied to `emqx_listeners`, this
+%%            is where OCSP setup is happening.
+%% If you plan to make changes here, please take care to follow the
+%% spec and avoid introducing options not recognizable by `ssl`.
 -spec to_server_opts(tls | dtls, map()) -> [ssl:tls_server_option()].
 to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, conf_get_opt(versions, Opts)),
@@ -654,6 +660,14 @@ to_client_opts(Opts) ->
 
 %% @doc Convert hocon-checked tls or dtls client options (map()) to
 %% proplist accepted by ssl library.
+%% Every field defined in `emqx_schema:server_ssl_opts_schema/2` is
+%% taken care of, except for:
+%%  * `dhfile`
+%%  * `cacerts`
+%%  * `log_level`
+%%  * `hibernate_after`
+%%  * `partial_chain`: mostly makes sense in server context.
+%%  * `verify_peer_ext_key_usage`: mostly makes sense in server context.
 -spec to_client_opts(tls | dtls, map()) -> [ssl:tls_client_option()].
 to_client_opts(Type, Opts = #{enable := true}) ->
     Versions = integral_versions(Type, conf_get_opt(versions, Opts)),
