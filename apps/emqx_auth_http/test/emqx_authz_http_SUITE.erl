@@ -93,7 +93,7 @@ t_response_handling(_Config) ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     %% OK, get, body & headers
@@ -254,7 +254,7 @@ t_query_params(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     ?assertEqual(
@@ -307,7 +307,7 @@ t_path(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     ?assertEqual(
@@ -366,7 +366,7 @@ t_json_body(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     ?assertEqual(
@@ -435,7 +435,8 @@ t_placeholder_and_body(_Config) ->
                     <<"access">> := <<"2">>,
                     <<"the_group">> := <<"g1">>,
                     <<"CN">> := ?PH_CERT_CN_NAME,
-                    <<"CS">> := ?PH_CERT_SUBJECT
+                    <<"CS">> := ?PH_CERT_SUBJECT,
+                    <<"listener_id">> := <<"tcp:default">>
                 },
                 maps:from_list(PostVars)
             ),
@@ -454,7 +455,8 @@ t_placeholder_and_body(_Config) ->
                 <<"access">> => <<"${access}">>,
                 <<"the_group">> => <<"${client_attrs.group}">>,
                 <<"CN">> => ?PH_CERT_CN_NAME,
-                <<"CS">> => ?PH_CERT_SUBJECT
+                <<"CS">> => ?PH_CERT_SUBJECT,
+                <<"listener_id">> => <<"${listener}">>
             },
             <<"headers">> => #{
                 <<"content-type">> => <<"application/x-www-form-urlencoded">>,
@@ -470,7 +472,7 @@ t_placeholder_and_body(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         client_attrs => #{<<"group">> => <<"g1">>},
         cn => ?PH_CERT_CN_NAME,
         dn => ?PH_CERT_SUBJECT
@@ -528,7 +530,7 @@ t_bad_response_content_type(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         cn => ?PH_CERT_CN_NAME,
         dn => ?PH_CERT_SUBJECT
     },
@@ -582,7 +584,7 @@ t_bad_response(_Config) ->
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         cn => ?PH_CERT_CN_NAME,
         dn => ?PH_CERT_SUBJECT
     },
@@ -664,7 +666,7 @@ t_no_value_for_placeholder(_Config) ->
         peerhost => {127, 0, 0, 1},
         protocol => <<"MQTT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     ?assertEqual(
@@ -697,7 +699,7 @@ t_node_cache(_Config) ->
         peerhost => {127, 0, 0, 1},
         protocol => <<"MQTT">>,
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         cn => <<"cn">>,
         dn => <<"dn">>
     },
@@ -763,7 +765,7 @@ t_disallowed_placeholders_preserved(_Config) ->
         peerhost => {127, 0, 0, 1},
         protocol => <<"MQTT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     ?assertEqual(
@@ -787,7 +789,7 @@ t_disallowed_placeholders_path(_Config) ->
         peerhost => {127, 0, 0, 1},
         protocol => <<"MQTT">>,
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     % % NOTE: disallowed placeholder left intact, which makes the URL invalid
@@ -802,7 +804,7 @@ t_create_replace(_Config) ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     },
 
     ValidConfig = raw_http_authz_config(),
