@@ -36,6 +36,8 @@
     plugin/2,
     update_plugin/2,
     plugin_config/2,
+    upload_plugin_config/2,
+    download_plugin_config/2,
     plugin_schema/2,
     update_boot_order/2
 ]).
@@ -74,6 +76,8 @@ paths() ->
         "/plugins/install",
         "/plugins/:name/:action",
         "/plugins/:name/config",
+        "/plugins/:name/config/download",
+        "/plugins/:name/config/upload",
         "/plugins/:name/schema",
         "/plugins/:name/move"
     ].
@@ -206,6 +210,55 @@ schema("/plugins/:name/config") ->
                         schema => #{
                             type => object
                         }
+                    }
+                }
+            },
+            responses => #{
+                204 => <<"Config updated successfully">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], <<"Update plugin config failed">>
+                ),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>),
+                500 => emqx_dashboard_swagger:error_codes(['INTERNAL_ERROR'], <<"Internal Error">>)
+            }
+        }
+    };
+schema("/plugins/:name/config/download") ->
+    #{
+        'operationId' => download_plugin_config,
+        get => #{
+            summary => <<"Download plugin config">>,
+            description => "Download plugin config",
+            tags => ?TAGS,
+            parameters => [hoconsc:ref(name)],
+            responses => #{
+                200 => hoconsc:mk(binary()),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_CONFIG'], <<"Plugin Config Not Found">>
+                ),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+            }
+        }
+    };
+schema("/plugins/:name/config/upload") ->
+    #{
+        'operationId' => upload_plugin_config,
+        post => #{
+            summary =>
+                <<"Upload plugin config">>,
+            description => "Upload plugin config",
+            tags => ?TAGS,
+            parameters => [hoconsc:ref(name)],
+            'requestBody' => #{
+                content => #{
+                    'multipart/form-data' => #{
+                        schema => #{
+                            type => object,
+                            properties => #{
+                                config => #{type => string, format => binary}
+                            }
+                        },
+                        encoding => #{config => #{'contentType' => 'application/json'}}
                     }
                 }
             },
@@ -533,6 +586,29 @@ update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
     return(204, Res).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
+    get_plugin_config(NameVsn);
+plugin_config(put, #{bindings := #{name := NameVsn}, body := Config}) ->
+    put_plugin_config(NameVsn, Config).
+
+upload_plugin_config(post, #{
+    bindings := #{name := NameVsn}, body := #{<<"config">> := #{type := _} = ConfigUpload}
+}) ->
+    [{_FileName, ConfigBin}] = maps:to_list(maps:without([type], ConfigUpload)),
+    put_plugin_config(NameVsn, ConfigBin).
+
+download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
+    case get_plugin_config(NameVsn) of
+        {200, Headers0, Config} ->
+            Headers = Headers0#{
+                <<"content-disposition">> =>
+                    <<"attachment; filename=\"", NameVsn/binary, ".json\"">>
+            },
+            {200, Headers, Config};
+        FailureResponse ->
+            FailureResponse
+    end.
+
+get_plugin_config(NameVsn) ->
     case emqx_plugins:describe(NameVsn, #{}) of
         {ok, _} ->
             case emqx_plugins:get_config(NameVsn, ?plugin_conf_not_found) of
@@ -546,22 +622,23 @@ plugin_config(get, #{bindings := #{name := NameVsn}}) ->
             end;
         _ ->
             {404, plugin_not_found_msg()}
-    end;
-plugin_config(put, #{bindings := #{name := NameVsn}, body := AvroJsonMap}) ->
+    end.
+
+put_plugin_config(NameVsn, Config) ->
     Nodes = emqx:running_nodes(),
     case emqx_plugins:describe(NameVsn, #{}) of
         {ok, _} ->
-            case emqx_plugins:decode_plugin_config_map(NameVsn, AvroJsonMap) of
+            case emqx_plugins:decode_plugin_config_map(NameVsn, Config) of
                 {ok, ?plugin_without_config_schema} ->
                     %% no plugin avro schema, just put the json map as-is
                     Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap
+                        Nodes, NameVsn, Config
                     ),
                     return_config_update_result(Res);
                 {ok, _AvroValue} ->
                     %% cluster call with config in map (binary key-value)
                     Res = emqx_mgmt_api_plugins_proto_v4:update_plugin_config(
-                        Nodes, NameVsn, AvroJsonMap
+                        Nodes, NameVsn, Config
                     ),
                     return_config_update_result(Res);
                 {error, Reason} ->

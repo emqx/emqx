@@ -107,7 +107,12 @@ load(#{rel_apps := Apps}, LibDir) ->
 unload(#{rel_apps := Apps}) ->
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
-    unload_apps(Apps, RunningApps, LoadedApps).
+    AppsForUnload = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
+    ?SLOG(info, #{
+        msg => "emqx_plugins_unloading_apps",
+        apps => AppsForUnload
+    }),
+    unload_apps(AppsForUnload, RunningApps, LoadedApps).
 
 %%--------------------------------------------------------------------
 %% API for triggering app's callbacks
@@ -295,10 +300,12 @@ unload_apps([App | Apps], RunningApps, LoadedApps) ->
     _ =
         case app_running_status(App, RunningApps, LoadedApps) of
             running ->
-                ?SLOG(warning, #{msg => "cannot_unload_running_app", app => App});
+                ?SLOG(warning, #{msg => "emqx_plugins_cannot_unload_running_app", app => App});
             loaded ->
+                ?SLOG(debug, #{msg => "emqx_plugins_unloading_loaded_app", app => App}),
                 ok = unload_modules_and_app(App);
             stopped ->
+                ?SLOG(debug, #{msg => "emqx_plugins_app_already_unloaded", app => App}),
                 ok
         end,
     unload_apps(Apps, RunningApps, LoadedApps).
@@ -306,23 +313,25 @@ unload_apps([App | Apps], RunningApps, LoadedApps) ->
 stop_app(App) ->
     case application:stop(App) of
         ok ->
-            ?SLOG(debug, #{msg => "stop_plugin_successfully", app => App}),
+            ?SLOG(debug, #{msg => "emqx_plugins_stop_plugin_successfully", app => App}),
             ok;
         {error, {not_started, App}} ->
-            ?SLOG(debug, #{msg => "plugin_not_started", app => App}),
+            ?SLOG(debug, #{msg => "emqx_plugins_plugin_not_started", app => App}),
             ok;
         {error, Reason} ->
-            {error, #{msg => "failed_to_stop_app", app => App, reason => Reason}}
+            {error, #{msg => "emqx_plugins_failed_to_stop_app", app => App, reason => Reason}}
     end.
 
 unload_modules_and_app(App) ->
     case application:get_key(App, modules) of
         {ok, Modules} ->
+            ?SLOG(debug, #{msg => "emqx_plugins_purging_modules", app => App, modules => Modules}),
             lists:foreach(fun code:soft_purge/1, Modules);
         _ ->
             ok
     end,
-    _ = application:unload(App),
+    Result = application:unload(App),
+    ?SLOG(debug, #{msg => "emqx_plugins_unloaded_app", app => App, result => Result}),
     ok.
 
 is_needed_by_any(AppToStop, RunningApps) ->

@@ -172,16 +172,18 @@ t_demo_install_start_stop_uninstall(Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% idempotent
     ok = emqx_plugins:ensure_installed(NameVsn),
+    ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ?assert(is_app_loaded(map_sets)),
     {ok, Info} = emqx_plugins:describe(NameVsn),
     ?assertEqual([maps:without([readme], Info)], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
-    ok = assert_app_running(map_sets, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ?assert(is_app_running(map_sets)),
     %% start (idempotent)
     ok = emqx_plugins:ensure_started(bin(NameVsn)),
-    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
-    ok = assert_app_running(map_sets, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ?assert(is_app_running(map_sets)),
 
     %% running app can not be un-installed
     ?assertMatch(
@@ -191,12 +193,16 @@ t_demo_install_start_stop_uninstall(Config) ->
 
     %% stop
     ok = emqx_plugins:ensure_stopped(NameVsn),
-    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
-    ok = assert_app_running(map_sets, false),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ?assertNot(is_app_running(map_sets)),
+    ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ?assert(is_app_loaded(map_sets)),
     %% stop (idempotent)
     ok = emqx_plugins:ensure_stopped(bin(NameVsn)),
-    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
-    ok = assert_app_running(map_sets, false),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ?assertNot(is_app_running(map_sets)),
+    ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ?assert(is_app_loaded(map_sets)),
     %% still listed after stopped
     ReleaseNameBin = list_to_binary(ReleaseName),
     PluginVsnBin = list_to_binary(PluginVsn),
@@ -210,6 +216,8 @@ t_demo_install_start_stop_uninstall(Config) ->
         emqx_plugins:list()
     ),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ?assertNot(is_app_loaded(map_sets)),
     ?assertEqual([], emqx_plugins:list()),
     ?assertMatch([<<"[]">>], emqx_plugins_cli:list(fun(_, L) -> L end)),
     ok.
@@ -290,9 +298,9 @@ t_start_restart_and_stop(Config) ->
     %% fake a disabled plugin in config
     ok = ensure_state(Bar2, front, false),
 
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ok = emqx_plugins:ensure_started(),
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
 
     %% Should have called the application start callback, which in turn adds hooks.
     Hooks2 = get_hook_modules(),
@@ -312,11 +320,11 @@ t_start_restart_and_stop(Config) ->
         end
     ),
     %% but demo plugin should still be running
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
 
     %% stop all
     ok = emqx_plugins:ensure_stopped(),
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ok = ensure_state(Bar2, rear, false),
 
     %% Should have called the application stop callback, which removes the hooks.
@@ -324,10 +332,10 @@ t_start_restart_and_stop(Config) ->
     ?assertNot(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks3), #{hooks => Hooks3}),
 
     ok = emqx_plugins:restart(NameVsn),
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     %% repeat
     ok = emqx_plugins:restart(NameVsn),
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
 
     ok = emqx_plugins:ensure_stopped(),
     ok = emqx_plugins:ensure_disabled(NameVsn),
@@ -356,12 +364,12 @@ test_legacy_plugin(#{app_name := AppName} = LegacyPlugin, _Config) ->
     ok = emqx_plugins:ensure_installed(NameVsn),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = assert_app_running(AppName, true),
-    ok = assert_app_running(map_sets, true),
+    ?assert(is_app_running(AppName)),
+    ?assert(is_app_running(map_sets)),
     %% stop
     ok = emqx_plugins:ensure_stopped(NameVsn),
-    ok = assert_app_running(AppName, false),
-    ok = assert_app_running(map_sets, false),
+    ?assertNot(is_app_running(AppName)),
+    ?assert(is_app_loaded(map_sets)),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
     ok.
@@ -396,18 +404,19 @@ t_enable_disable(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_disabled(NameVsn)),
     ok.
 
-assert_app_running(Name, true) ->
+is_app_running(Name) ->
     AllApps = application:which_applications(),
-    ?assertMatch({Name, _, _}, lists:keyfind(Name, 1, AllApps));
-assert_app_running(Name, false) ->
-    AllApps = application:which_applications(),
-    ?assertEqual(false, lists:keyfind(Name, 1, AllApps)).
+    lists:keyfind(Name, 1, AllApps) /= false.
+
+is_app_loaded(Name) ->
+    AllApps = application:loaded_applications(),
+    lists:keyfind(Name, 1, AllApps) /= false.
 
 assert_started_and_hooks_loaded() ->
     PluginConfig = emqx_plugins:list(),
     ct:pal("plugin config:\n  ~p", [PluginConfig]),
     ?assertMatch([_], PluginConfig),
-    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     Hooks = get_hook_modules(),
     ?assert(lists:member(?EMQX_PLUGIN_APP_NAME, Hooks), #{hooks => Hooks}),
     ok.
@@ -552,12 +561,12 @@ t_elixir_plugin(Config) ->
     ?assertEqual([Info], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = assert_app_running(elixir_plugin_template, true),
-    ok = assert_app_running(hallux, true),
+    ?assert(is_app_running(elixir_plugin_template)),
+    ?assert(is_app_running(hallux)),
     %% start (idempotent)
     ok = emqx_plugins:ensure_started(bin(NameVsn)),
-    ok = assert_app_running(elixir_plugin_template, true),
-    ok = assert_app_running(hallux, true),
+    ?assert(is_app_running(elixir_plugin_template)),
+    ?assert(is_app_running(hallux)),
 
     %% call an elixir function
     1 = 'Elixir.ElixirPluginTemplate':ping(),
@@ -571,12 +580,12 @@ t_elixir_plugin(Config) ->
 
     %% stop
     ok = emqx_plugins:ensure_stopped(NameVsn),
-    ok = assert_app_running(elixir_plugin_template, false),
-    ok = assert_app_running(hallux, false),
+    ?assertNot(is_app_running(elixir_plugin_template)),
+    ?assertNot(is_app_running(hallux)),
     %% stop (idempotent)
     ok = emqx_plugins:ensure_stopped(bin(NameVsn)),
-    ok = assert_app_running(elixir_plugin_template, false),
-    ok = assert_app_running(hallux, false),
+    ?assertNot(is_app_running(elixir_plugin_template)),
+    ?assertNot(is_app_running(hallux)),
     %% still listed after stopped
     ReleaseNameBin = list_to_binary(ReleaseName),
     PluginVsnBin = list_to_binary(PluginVsn),
