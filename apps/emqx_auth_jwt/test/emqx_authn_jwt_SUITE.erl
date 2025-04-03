@@ -566,8 +566,6 @@ t_jwks_config_update(_Config) ->
 %% may connect to servers whose certificate uses wildcards.
 %% See also: https://github.com/emqx/emqx/issues/14842
 t_jwks_verify_hostname(Config) ->
-    PrivateKey = test_rsa_key(private),
-    Payload0 = #{<<"username">> => <<"myuser">>},
     SSLOpts = maps:merge(
         client_ssl_opts(),
         #{
