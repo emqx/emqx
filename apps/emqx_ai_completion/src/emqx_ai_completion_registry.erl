@@ -44,7 +44,9 @@ create_tab() ->
 create(Name, Module, Options) ->
     try
         State = Module:create(Options),
-        _ = ets:insert(?TAB, #completion{name = Name, module = Module, options = Options, state = State}),
+        _ = ets:insert(?TAB, #completion{
+            name = Name, module = Module, options = Options, state = State
+        }),
         ok
     catch
         _:Reason ->
@@ -87,7 +89,6 @@ update(Name, Options) ->
         not_found ->
             error(completion_not_found)
     end.
-
 
 call(Name, Prompt, Data) ->
     case lookup(Name) of

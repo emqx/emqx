@@ -676,14 +676,17 @@ external_functions_specs(Module, Prefix) ->
     PrefixBin = atom_to_binary(Prefix, utf8),
     PrefixLen = byte_size(PrefixBin),
     lists:filtermap(
-        fun({FunctionName, 1}) ->
-            case atom_to_binary(FunctionName, utf8) of
-                <<PrefixBin:PrefixLen/binary, FunctionRSNameBin/binary>> ->
-                    FunctionRSName = binary_to_atom(FunctionRSNameBin, utf8),
-                    {true, {FunctionRSName, {Module, FunctionName}}};
-                _ -> false
-            end;
-            (_) -> false
+        fun
+            ({FunctionName, 1}) ->
+                case atom_to_binary(FunctionName, utf8) of
+                    <<PrefixBin:PrefixLen/binary, FunctionRSNameBin/binary>> ->
+                        FunctionRSName = binary_to_atom(FunctionRSNameBin, utf8),
+                        {true, {FunctionRSName, {Module, FunctionName}}};
+                    _ ->
+                        false
+                end;
+            (_) ->
+                false
         end,
         Module:module_info(exports)
     ).

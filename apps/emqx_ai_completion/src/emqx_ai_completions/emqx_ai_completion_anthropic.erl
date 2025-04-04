@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ai_completion_openai).
+-module(emqx_ai_completion_anthropic).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -20,8 +20,8 @@
 }.
 
 -spec create(map()) -> state().
-create(#{model := Model, api_key := ApiKey}) ->
-    #{model => Model, client => create_client(ApiKey)}.
+create(#{model := Model, api_key := ApiKey, anthropic_version := AnthropicVersion}) ->
+    #{model => Model, client => create_client(ApiKey, AnthropicVersion)}.
 
 update_options(State, #{model := Model}) ->
     State#{model => Model}.
@@ -33,19 +33,20 @@ call_completion(#{model := Model, client := Client}, Prompt, Data) ->
     Request = #{
         model => Model,
         messages => [
-            #{role => <<"system">>, content => Prompt},
             #{role => <<"user">>, content => Data}
-        ]
+        ],
+        max_tokens => 1000,
+        system => Prompt
     },
     ?tp(warning, emqx_ai_completion_on_message_publish_request, #{
         request => Request
     }),
-    case emqx_ai_completion_client:api_post(Client, {chat, completions}, Request) of
-        {ok, #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Content}}]}} ->
+    case emqx_ai_completion_client:api_post(Client, messages, Request) of
+        {ok, #{<<"content">> := [#{<<"type">> := <<"text">>, <<"text">> := Result} | _]}} ->
             ?tp(warning, emqx_ai_completion_on_message_publish_result, #{
-                result => Content
+                result => Result
             }),
-            Content;
+            Result;
         {error, Reason} ->
             ?tp(error, emqx_ai_completion_on_message_publish_error, #{
                 reason => Reason
@@ -57,12 +58,13 @@ call_completion(#{model := Model, client := Client}, Prompt, Data) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(ApiKey) ->
+create_client(ApiKey, AnthropicVersion) ->
     emqx_ai_completion_client:new(#{
-        host => <<"api.openai.com">>,
+        host => <<"api.anthropic.com">>,
         base_path => <<"/v1/">>,
         headers => [
             {<<"Content-Type">>, <<"application/json">>},
-            {<<"Authorization">>, fun() -> <<"Bearer ", ApiKey/binary>> end}
+            {<<"x-api-key">>, fun() -> ApiKey end},
+            {<<"anthropic-version">>, AnthropicVersion}
         ]
     }).
