@@ -140,6 +140,7 @@
             emqx_bridge_syskeeper,
             emqx_bridge_confluent,
             emqx_bridge_disk_log,
+            emqx_bridge_iceberg,
             emqx_ds_shared_sub,
             emqx_auth_kerberos,
             emqx_cluster_link,

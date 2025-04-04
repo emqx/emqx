@@ -36,7 +36,7 @@ end_per_suite(Config) ->
 init_transfer_state(_Buffer, Opts) ->
     #{opts => Opts}.
 
-process_append(_IOData, State) ->
+process_append(_IOData, _WriteMetadata, State) ->
     State.
 
 process_write(State) ->

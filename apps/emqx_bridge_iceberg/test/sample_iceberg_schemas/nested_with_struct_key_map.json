@@ -1,0 +1,170 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "name": "foo",
+      "type": "string",
+      "required": true
+    },
+    {
+      "id": 2,
+      "name": "bar",
+      "type": "int",
+      "required": true
+    },
+    {
+      "id": 3,
+      "name": "baz",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "id": 4,
+      "name": "qux",
+      "type": {
+        "type": "list",
+        "element-id": 5,
+        "element": "string",
+        "element-required": true
+      },
+      "required": true
+    },
+    {
+      "id": 6,
+      "name": "quux",
+      "type": {
+        "type": "map",
+        "key-id": 7,
+        "key": "string",
+        "value-id": 8,
+        "value": {
+          "type": "map",
+          "key-id": 9,
+          "key": "string",
+          "value-id": 10,
+          "value": "int",
+          "value-required": true
+        },
+        "value-required": true
+      },
+      "required": true
+    },
+    {
+      "id": 11,
+      "name": "location",
+      "type": {
+        "type": "map",
+        "key-id": 18,
+        "key": {
+          "type": "struct",
+          "fields": [
+            {
+              "id": 21,
+              "name": "address",
+              "type": "string",
+              "required": true
+            },
+            {
+              "id": 22,
+              "name": "city",
+              "type": "string",
+              "required": true
+            },
+            {
+              "id": 23,
+              "name": "zip",
+              "type": "int",
+              "required": true
+            }
+          ]
+        },
+        "value-id": 19,
+        "value": {
+          "type": "struct",
+          "fields": [
+            {
+              "id": 13,
+              "name": "latitude",
+              "type": "float",
+              "required": true
+            },
+            {
+              "id": 14,
+              "name": "longitude",
+              "type": "float",
+              "required": true
+            }
+          ]
+        },
+        "value-required": true
+      },
+      "required": true
+    },
+    {
+      "id": 15,
+      "name": "person",
+      "type": {
+        "type": "struct",
+        "fields": [
+          {
+            "id": 16,
+            "name": "name",
+            "type": "string",
+            "required": false
+          },
+          {
+            "id": 17,
+            "name": "age",
+            "type": "int",
+            "required": true
+          }
+        ]
+      },
+      "required": false
+    },
+    {
+      "id": 24,
+      "name": "points",
+      "type": {
+        "type": "list",
+        "element-id": 25,
+        "element": {
+          "type": "struct",
+          "fields": [
+            {
+              "id": 26,
+              "name": "x",
+              "type": "long",
+              "required": true
+            },
+            {
+              "id": 27,
+              "name": "y",
+              "type": "long",
+              "required": true
+            }
+          ]
+        },
+        "element-required": false
+      },
+      "required": false
+    },
+    {
+      "id": 28,
+      "name": "float",
+      "type": "float",
+      "required": true
+    },
+    {
+      "id": 29,
+      "name": "double",
+      "type": "double",
+      "required": true
+    }
+  ],
+  "schema-id": 1,
+  "identifier-field-ids": [
+    1
+  ]
+}

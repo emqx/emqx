@@ -28,8 +28,8 @@
 
 -behaviour(emqx_connector_aggreg_delivery).
 -export([
-    init_transfer_state/2,
-    process_append/2,
+    init_transfer_state_and_container_opts/2,
+    process_append/3,
     process_write/1,
     process_complete/1,
     process_format_status/1,
@@ -38,6 +38,9 @@
 
 -behaviour(emqx_template).
 -export([lookup/2]).
+
+%% Internal exports
+-export([do_on_get_status/1]).
 
 -type config() :: #{
     access_key_id => string(),
@@ -136,6 +139,10 @@ on_stop(_InstId, _State = #{pool_name := PoolName}) ->
 -spec on_get_status(_InstanceId :: resource_id(), state()) ->
     health_check_status().
 on_get_status(_InstId, #{client_config := Config}) ->
+    do_on_get_status(Config).
+
+%% Note: `emqx_bridge_iceberg_impl` reuses this functions.
+do_on_get_status(Config) ->
     case emqx_s3_client:aws_config(Config) of
         {error, Reason} ->
             {?status_disconnected, map_error_details(Reason)};
@@ -319,7 +326,7 @@ on_batch_query(InstId, [{Tag, Data0} | Rest], #{channels := Channels}) ->
 
 run_simple_upload(
     InstId,
-    ChannelID,
+    ChannelId,
     Data,
     #{
         bucket := BucketTemplate,
@@ -333,7 +340,7 @@ run_simple_upload(
     Client = emqx_s3_client:create(Bucket, Config),
     Key = render_key(KeyTemplate, Data),
     Content = render_content(ContentTemplate, Data),
-    emqx_trace:rendered_action_template(ChannelID, #{
+    emqx_trace:rendered_action_template(ChannelId, #{
         bucket => Bucket,
         key => Key,
         content => #emqx_trace_format_func_data{
@@ -353,9 +360,9 @@ run_simple_upload(
             {error, map_error(Reason)}
     end.
 
-run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
+run_aggregated_upload(InstId, ChannelId, Records, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
-    emqx_trace:rendered_action_template(ChannelID, #{
+    emqx_trace:rendered_action_template(ChannelId, #{
         mode => aggregated,
         records => Records
     }),
@@ -446,22 +453,23 @@ extract_xml_text(false) ->
 
 %% `emqx_connector_aggreg_delivery` APIs
 
--spec init_transfer_state(buffer(), map()) -> emqx_s3_upload:t().
-init_transfer_state(Buffer, Opts) ->
+-spec init_transfer_state_and_container_opts(buffer(), map()) -> {ok, emqx_s3_upload:t(), map()}.
+init_transfer_state_and_container_opts(Buffer, Opts) ->
     #{
         bucket := Bucket,
         upload_options := UploadOpts,
+        container := ContainerOpts,
         client_config := Config,
         uploader_config := UploaderConfig
     } = Opts,
     Client = emqx_s3_client:create(Bucket, Config),
     Key = mk_object_key(Buffer, Opts),
-    emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
+    {ok, emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig), ContainerOpts}.
 
 mk_object_key(Buffer, #{action := AggregId, key := Template}) ->
     emqx_template:render_strict(Template, {?MODULE, {AggregId, Buffer}}).
 
-process_append(Writes, Upload0) ->
+process_append(Writes, _WriteMetadata, Upload0) ->
     {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
     Upload.
 
