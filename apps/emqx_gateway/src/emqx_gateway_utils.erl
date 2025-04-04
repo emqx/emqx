@@ -702,51 +702,19 @@ udp_opts(Opts) ->
     ).
 
 ssl_opts(Name, Opts) ->
-    SSLOpts = maps:get(Name, Opts, #{}),
-    emqx_utils:run_fold(
-        [
-            fun ensure_dtls_protocol/2,
-            fun ssl_opts_crl_config/2,
-            fun ssl_opts_drop_unsupported/2,
-            fun ssl_partial_chain/2,
-            fun ssl_verify_fun/2,
-            fun ssl_server_opts/2
-        ],
-        SSLOpts,
-        Name
-    ).
+    SSLConf = maps:get(Name, Opts, #{}),
+    SSLOpts = ssl_server_opts(Name, SSLConf),
+    ensure_dtls_protocol(Name, SSLOpts).
 
-ensure_dtls_protocol(SSLOpts, dtls_options) ->
-    SSLOpts#{protocol => dtls};
-ensure_dtls_protocol(SSLOpts, _) ->
+ensure_dtls_protocol(dtls_options, SSLOpts) ->
+    [{protocol, dtls} | SSLOpts];
+ensure_dtls_protocol(_, SSLOpts) ->
     SSLOpts.
 
-ssl_opts_crl_config(#{enable_crl_check := true} = SSLOpts, _Name) ->
-    HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
-    NSSLOpts = maps:remove(enable_crl_check, SSLOpts),
-    NSSLOpts#{
-        %% `crl_check => true' doesn't work
-        crl_check => peer,
-        crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
-    };
-ssl_opts_crl_config(SSLOpts, _Name) ->
-    %% NOTE: Removing this because DTLS doesn't like any unknown options.
-    maps:remove(enable_crl_check, SSLOpts).
-
-ssl_opts_drop_unsupported(SSLOpts, _Name) ->
-    %% TODO: Support OCSP stapling
-    maps:without([ocsp], SSLOpts).
-
-ssl_server_opts(SSLOpts, ssl_options) ->
+ssl_server_opts(ssl_options, SSLOpts) ->
     emqx_tls_lib:to_server_opts(tls, SSLOpts);
-ssl_server_opts(SSLOpts, dtls_options) ->
+ssl_server_opts(dtls_options, SSLOpts) ->
     emqx_tls_lib:to_server_opts(dtls, SSLOpts).
-
-ssl_partial_chain(SSLOpts, _Options) ->
-    emqx_tls_lib:maybe_inject_ssl_fun(root_fun, SSLOpts).
-
-ssl_verify_fun(SSLOpts, _Options) ->
-    emqx_tls_lib:maybe_inject_ssl_fun(verify_fun, SSLOpts).
 
 ranch_opts(Type, ListenOn, Opts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),

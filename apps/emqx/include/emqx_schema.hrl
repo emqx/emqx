@@ -21,9 +21,4 @@
 -define(TOMBSTONE_CONFIG_CHANGE_REQ, mark_it_for_deletion).
 -define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
 
-%%--------------------------------------------------------------------
-%% EE injections
-%%--------------------------------------------------------------------
--define(EMQX_SSL_FUN_MFA(Name), {emqx_ssl_fun_mfa, Name}).
-
 -endif.

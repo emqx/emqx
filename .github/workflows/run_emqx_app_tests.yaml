@@ -90,14 +90,13 @@ jobs:
             export SUITEGROUP=${{ matrix.type }}
             SUITES=$(../../scripts/find-suites.sh apps/emqx | \
                        sed -e 's|apps/emqx/test/||g' | \
-                       sed -Ee 's|,?apps/emqx/integration_test/.*||g' | \
                        sed -e 's/\.erl//g')
             echo "Suites: $SUITES"
-            ./rebar3 as standalone_test ct --name 'test@127.0.0.1' -v --readable=true --suite="$SUITES"
+            ./rebar3 ct --name 'test@127.0.0.1' -v --readable=true --suite="$SUITES"
         fi
     - name: compress logs
       if: failure()
-      run: tar -czf logs.tar.gz apps/emqx/_build/{,standalone_test+}test/logs || true
+      run: tar -czf logs.tar.gz apps/emqx/_build/test/logs || true
     - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
       if: failure()
       with:

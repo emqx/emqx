@@ -382,6 +382,73 @@ t_ssl_update_opts(Config) ->
         ok = emqtt:stop(C3)
     end).
 
+t_ssl_update_versions(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Name = ?FUNCTION_NAME,
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key"),
+            <<"verify">> => verify_none
+        }
+    },
+    ClientSSLOpts = [
+        {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+        {verify, verify_peer},
+        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
+    ],
+    with_listener(ssl, Name, Conf, fun() ->
+        %% Client connects successfully.
+        ct:pal("attempting successful connection"),
+        C1 = emqtt_connect_ssl(Host, Port, ClientSSLOpts),
+
+        %% Change the listener SSL configuration: force TLSv1.3.
+        ct:pal("updating config"),
+        {ok, _} = emqx:update_config(
+            [listeners, ssl, Name],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"versions">> => [<<"tlsv1.3">>]
+                }
+            }}
+        ),
+
+        C2 = emqtt_connect_ssl(Host, Port, ClientSSLOpts),
+
+        %% Change the listener SSL configuration: require peer certificate.
+        {ok, _} = emqx:update_config(
+            [listeners, ssl, Name],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"versions">> => [<<"tlsv1.2">>, <<"tlsv1.3">>],
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true,
+                    <<"client_renegotiation">> => false
+                }
+            }}
+        ),
+
+        C3 = emqtt_connect_ssl(Host, Port, [
+            {certfile, filename:join(PrivDir, "client.pem")},
+            {keyfile, filename:join(PrivDir, "client.key")}
+            | ClientSSLOpts
+        ]),
+
+        %% Both pre- and post-update clients should be alive.
+        ?assertEqual(pong, emqtt:ping(C1)),
+        ?assertEqual(pong, emqtt:ping(C2)),
+        ?assertEqual(pong, emqtt:ping(C3)),
+
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2),
+        ok = emqtt:stop(C3)
+    end).
+
 t_wss_update_opts(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",

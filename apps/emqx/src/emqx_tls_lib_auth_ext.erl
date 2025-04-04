@@ -2,8 +2,8 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_auth_ext_tls_lib).
--elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*(_SUITE)?$"}}]).
+-module(emqx_tls_lib_auth_ext).
+-elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*$"}}]).
 
 -export([
     opt_partial_chain/1,
@@ -12,28 +12,28 @@
 
 -include_lib("emqx/include/logger.hrl").
 
--define(CONST_MOD_V1, emqx_auth_ext_tls_const_v1).
+-define(CONST_MOD_V1, emqx_tls_lib_const_v1).
 %% @doc enable TLS partial_chain validation
--spec opt_partial_chain(SslOpts :: map()) -> NewSslOpts :: map().
-opt_partial_chain(#{partial_chain := false} = SslOpts) ->
+-spec opt_partial_chain(Conf :: map()) -> SslOpts :: [ssl:tls_option()].
+opt_partial_chain(#{partial_chain := false}) ->
     %% For config update scenario, we must set it to override
     %% the 'existing' partial_chain in the listener
-    SslOpts#{partial_chain := fun ?CONST_MOD_V1:default_root_fun/1};
+    [{partial_chain, fun ?CONST_MOD_V1:default_root_fun/1}];
 opt_partial_chain(#{partial_chain := true} = SslOpts) ->
-    SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(1, SslOpts)};
+    [{partial_chain, rootfun_trusted_ca_from_cacertfile(1, SslOpts)}];
 opt_partial_chain(#{partial_chain := cacert_from_cacertfile} = SslOpts) ->
-    SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(1, SslOpts)};
+    [{partial_chain, rootfun_trusted_ca_from_cacertfile(1, SslOpts)}];
 opt_partial_chain(#{partial_chain := two_cacerts_from_cacertfile} = SslOpts) ->
-    SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(2, SslOpts)};
-opt_partial_chain(SslOpts) ->
-    SslOpts.
+    [{partial_chain, rootfun_trusted_ca_from_cacertfile(2, SslOpts)}];
+opt_partial_chain(_Conf) ->
+    [].
 
 %% @doc make verify_fun if set.
--spec opt_verify_fun(SslOpts :: map()) -> NewSslOpts :: map().
-opt_verify_fun(#{verify_peer_ext_key_usage := V} = SslOpts) when V =/= undefined ->
-    SslOpts#{verify_fun => ?CONST_MOD_V1:make_tls_verify_fun(verify_cert_extKeyUsage, V)};
-opt_verify_fun(SslOpts) ->
-    SslOpts.
+-spec opt_verify_fun(Conf :: map()) -> SslOpts :: [ssl:tls_option()].
+opt_verify_fun(#{verify_peer_ext_key_usage := V}) when V =/= undefined ->
+    [{verify_fun, ?CONST_MOD_V1:make_tls_verify_fun(verify_cert_extKeyUsage, V)}];
+opt_verify_fun(_Conf) ->
+    [].
 
 %% @doc Helper, make TLS root_fun
 rootfun_trusted_ca_from_cacertfile(NumOfCerts, #{cacertfile := Cacertfile}) ->
