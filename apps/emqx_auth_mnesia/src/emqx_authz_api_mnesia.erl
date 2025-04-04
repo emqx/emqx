@@ -405,6 +405,38 @@ fields(rule_item) ->
                     example => <<"user[0-9]+">>
                 }
             )},
+        {zone,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(zone),
+                    example => <<"zone1">>
+                }
+            )},
+        {zone_re,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(zone_re),
+                    example => <<"zone[0-9]+">>
+                }
+            )},
+        {listener,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(listener),
+                    example => <<"tcp:default">>
+                }
+            )},
+        {listener_re,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(listener_re),
+                    example => <<"^tcp:.+">>
+                }
+            )},
         {ipaddr,
             mk(
                 binary(),

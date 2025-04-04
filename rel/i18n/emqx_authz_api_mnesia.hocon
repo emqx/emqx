@@ -157,4 +157,24 @@ bad_request.desc:
 bad_request.label:
 """Bad request"""
 
+zone.desc:
+"""Zone name for filtering applied rules. For example: 'zone1', 'zone2', 'default'"""
+zone.label:
+"""Zone"""
+
+zone_re.desc:
+"""Zone regex for filtering applied rules. For example: 'zone[0-9]+', '^zone-.*$'"""
+zone_re.label:
+"""Zone regex"""
+
+listener.desc:
+"""Listener name for filtering applied rules. For example: 'tcp:default', 'ws:default'"""
+listener.label:
+"""Listener"""
+
+listener_re.desc:
+"""Listener regex for filtering applied rules. For example: '^tcp:.*$', '^ws:.*$'"""
+listener_re.label:
+"""Listener regex"""
+
 }

@@ -199,7 +199,120 @@ t_authz(_Config) ->
             }
         },
         {ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>}
-    ).
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone">> => <<"zone1">>
+            }
+        },
+        {ClientInfo#{zone => zone1}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone">> => <<"zone1">>
+            }
+        },
+        {ClientInfo#{zone => zone2}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone_re">> => <<"^zone\\d+">>
+            }
+        },
+        {ClientInfo#{zone => zone1}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone_re">> => <<"^zone\\d+">>
+            }
+        },
+        {ClientInfo#{zone => other}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener">> => <<"tcp:default">>
+            }
+        },
+        {ClientInfo#{listener => 'tcp:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener">> => <<"tcp:default">>
+            }
+        },
+        {ClientInfo#{listener => 'ws:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener_re">> => <<"^tcp:">>
+            }
+        },
+        {ClientInfo#{listener => 'tcp:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener_re">> => <<"^tcp:">>
+            }
+        },
+        {ClientInfo#{listener => 'ws:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    ok.
 
 test_authz(Expected, ExpectedNoRichActions, {Who, Rule}, {ClientInfo, Action, Topic}) ->
     test_authz_with_rich_actions(true, Expected, {Who, Rule}, {ClientInfo, Action, Topic}),
