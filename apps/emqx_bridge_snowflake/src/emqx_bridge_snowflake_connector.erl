@@ -49,7 +49,7 @@
 %% `emqx_connector_aggreg_delivery' API
 -export([
     init_transfer_state_and_container_opts/2,
-    process_append/2,
+    process_append/3,
     process_write/1,
     process_complete/1
 ]).
@@ -491,9 +491,9 @@ init_transfer_state_and_container_opts(Buffer, Opts) ->
     },
     {ok, TransferState, ContainerOpts}.
 
--spec process_append(iodata(), transfer_state()) ->
+-spec process_append(iodata(), map(), transfer_state()) ->
     transfer_state().
-process_append(IOData, TransferState0) ->
+process_append(IOData, _WriteMetadata, TransferState0) ->
     #{min_block_size := MinBlockSize} = TransferState0,
     Size = iolist_size(IOData),
     %% Open and write to file until minimum is reached

@@ -26,6 +26,8 @@
 
 -type options() :: #{}.
 
+-type write_metadata() :: emqx_connector_aggreg_container:write_metadata().
+
 %%------------------------------------------------------------------------------
 %% `emqx_connector_aggreg_container' API
 %%------------------------------------------------------------------------------
@@ -34,11 +36,12 @@
 new(_Opts) ->
     #jsonl{}.
 
--spec fill([emqx_connector_aggregator:record()], container()) -> {iodata(), container()}.
+-spec fill([emqx_connector_aggregator:record()], container()) ->
+    {iodata(), write_metadata(), container()}.
 fill(Records, JSONL) ->
     Output = lists:map(fun(Record) -> [emqx_utils_json:encode(Record), $\n] end, Records),
-    {Output, JSONL}.
+    {Output, #{}, JSONL}.
 
--spec close(container()) -> iodata().
+-spec close(container()) -> {iodata(), write_metadata()}.
 close(#jsonl{}) ->
-    [].
+    {[], #{}}.

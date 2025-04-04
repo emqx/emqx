@@ -16,8 +16,8 @@ new_opts() ->
     #{}.
 
 fill_close(Records, JSONL) ->
-    {Output, JSONLFinal} = emqx_connector_aggreg_json_lines:fill(Records, JSONL),
-    Trailer = emqx_connector_aggreg_json_lines:close(JSONLFinal),
+    {Output, _, JSONLFinal} = emqx_connector_aggreg_json_lines:fill(Records, JSONL),
+    {Trailer, _} = emqx_connector_aggreg_json_lines:close(JSONLFinal),
     iolist_to_binary([Output, Trailer]).
 
 decode(Binary) ->
