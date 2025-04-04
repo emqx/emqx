@@ -319,7 +319,7 @@ on_batch_query(InstId, [{Tag, Data0} | Rest], #{channels := Channels}) ->
 
 run_simple_upload(
     InstId,
-    ChannelID,
+    ChannelId,
     Data,
     #{
         bucket := BucketTemplate,
@@ -333,7 +333,7 @@ run_simple_upload(
     Client = emqx_s3_client:create(Bucket, Config),
     Key = render_key(KeyTemplate, Data),
     Content = render_content(ContentTemplate, Data),
-    emqx_trace:rendered_action_template(ChannelID, #{
+    emqx_trace:rendered_action_template(ChannelId, #{
         bucket => Bucket,
         key => Key,
         content => #emqx_trace_format_func_data{
@@ -353,9 +353,9 @@ run_simple_upload(
             {error, map_error(Reason)}
     end.
 
-run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
+run_aggregated_upload(InstId, ChannelId, Records, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
-    emqx_trace:rendered_action_template(ChannelID, #{
+    emqx_trace:rendered_action_template(ChannelId, #{
         mode => aggregated,
         records => Records
     }),

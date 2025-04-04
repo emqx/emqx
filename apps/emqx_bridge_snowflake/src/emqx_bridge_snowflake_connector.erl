@@ -300,12 +300,8 @@ on_query(
 ) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    case InstalledActions of
-        %% #{ActionResId := #{mode := direct} = _ActionState} ->
-        %%     {ok, todo};
-        #{ActionResId := #{mode := aggregated} = ActionState} ->
-            run_aggregated_action([Data], ActionState)
-    end;
+    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
+    run_aggregated_action([Data], ActionState);
 on_query(
     _ConnResId,
     #insert_report{action_res_id = ActionResId, opts = Opts},
@@ -323,13 +319,9 @@ on_query(_ConnResId, Query, _ConnState) ->
 on_batch_query(_ConnResId, [{ActionResId, _} | _] = Batch0, #{installed_actions := InstalledActions}) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    case InstalledActions of
-        %% #{ActionResId := #{mode := direct} = _ActionState} ->
-        %%     {ok, todo};
-        #{ActionResId := #{mode := aggregated} = ActionState} ->
-            Batch = [Data || {_, Data} <- Batch0],
-            run_aggregated_action(Batch, ActionState)
-    end;
+    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
+    Batch = [Data || {_, Data} <- Batch0],
+    run_aggregated_action(Batch, ActionState);
 on_batch_query(_ConnResId, Batch, _ConnState) ->
     {error, {unrecoverable_error, {bad_batch, Batch}}}.
 
