@@ -1772,6 +1772,8 @@ client_attrs_init_expression {
     - `clientid`: MQTT Client ID.
     - `username`: MQTT Client's username.
     - `user_property.{NAME}`: User properties in the CONNECT packet.
+    - `zone`: Listener's config zone.
+    - `listener`: The ID (like `tcp:default`) of the listener from which the client is connected.
     For TLS clients, connected directly or via proxy-protocol (v2) enabled load balancer,
     some extra variables can be used:
     - `cn`: Client's TLS certificate common name.

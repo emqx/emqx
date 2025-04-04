@@ -27,7 +27,7 @@
     username => <<"test">>,
     peerhost => {127, 0, 0, 1},
     zone => default,
-    listener => {tcp, default}
+    listener => 'tcp:default'
 }).
 
 all() ->
@@ -718,7 +718,34 @@ t_invalid_rule(_) ->
     ?assertThrow(
         #{reason := invalid_client_match_condition},
         emqx_authz_rule:compile({allow, who, all, ["topic/test"]})
-    ).
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := clientid},
+        emqx_authz_rule:compile({allow, {clientid, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := username},
+        emqx_authz_rule:compile({allow, {username, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := zone},
+        emqx_authz_rule:compile({allow, {zone, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := listener},
+        emqx_authz_rule:compile({allow, {listener, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := {client_attr, "a"}},
+        emqx_authz_rule:compile({allow, {client_attr, "a", {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ok.
 
 t_match_client_attr(_) ->
     Topic = <<"test/topic">>,

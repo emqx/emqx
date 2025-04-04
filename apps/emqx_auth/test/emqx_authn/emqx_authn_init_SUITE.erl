@@ -25,7 +25,7 @@
 
 -define(CLIENTINFO, #{
     zone => default,
-    listener => {tcp, default},
+    listener => 'tcp:default',
     protocol => mqtt,
     peerhost => {127, 0, 0, 1},
     clientid => <<"clientid">>,

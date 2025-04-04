@@ -348,7 +348,6 @@ case01_update_not_restart_listener(Config) ->
     UdpSock = ?config(sock, Config),
     Epn = "urn:oma:lwm2m:oma:3",
     MsgId = 12,
-    SubTopic = list_to_binary("lwm2m/" ++ Epn ++ "/dn/#"),
 
     test_send_coap_request(
         UdpSock,

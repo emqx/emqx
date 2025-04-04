@@ -213,7 +213,8 @@
     ?VAR_CLIENTID,
     ?VAR_USERNAME,
     ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
+    ?VAR_NS_CLIENT_ATTRS,
+    ?VAR_LISTENER
 ]).
 
 -define(AUTHZ_CACHE, emqx_authz_cache).

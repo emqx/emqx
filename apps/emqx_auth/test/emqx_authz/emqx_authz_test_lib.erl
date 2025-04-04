@@ -107,7 +107,7 @@ base_client_info() ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
         zone => default,
-        listener => {tcp, default}
+        listener => 'tcp:default'
     }.
 
 client_info(Overrides) ->

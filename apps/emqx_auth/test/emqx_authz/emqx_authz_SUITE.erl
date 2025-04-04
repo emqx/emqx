@@ -680,7 +680,7 @@ t_sikpped_as_superuser(_Config) ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         is_superuser => true
     },
     ?check_trace(

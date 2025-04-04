@@ -121,7 +121,7 @@ t_open_session(_) ->
 
     ClientInfo = #{
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         clientid => <<"clientid">>,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1}
@@ -152,7 +152,7 @@ t_open_session_race_condition(_) ->
     ClientId = rand_client_id(),
     ClientInfo = #{
         zone => default,
-        listener => {tcp, default},
+        listener => 'tcp:default',
         clientid => ClientId,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1}
