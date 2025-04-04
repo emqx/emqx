@@ -22,9 +22,7 @@ Several APIs are provided for bridge management, refer to [API Docs - Bridges](h
 Please see our [contributing guide](../../CONTRIBUTING.md).
 
 
-# License
-
-Apache License 2.0, see [LICENSE](../../APL.txt).
+# Refernces
 
 [1]: https://docs.oasis-open.org/mqtt/mqtt/v3.1.1
 [2]: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html

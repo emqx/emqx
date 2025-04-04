@@ -1,7 +1,0 @@
-Source code in this repository is variously licensed under below licenses.
-
-For Default: Apache License 2.0, see APL.txt,
-which applies to all source files except for folders applied with Business Source License.
-
-For EMQX Enterprise (since version 5.0): Business Source License 1.1,
-see apps/emqx_bridge_kafka/BSL.txt as an example, please check license files under sub directory of apps.

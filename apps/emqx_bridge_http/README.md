@@ -25,10 +25,7 @@ information, refer to [API Docs -Bridges][4].
 For those interested in contributing, please consult our
 [contributing guide](../../CONTRIBUTING.md).
 
-# License
-
-This software is under the Apache License 2.0. For more details, see
-[LICENSE](../../APL.txt).
+# Refs
 
 [1]: https://tools.ietf.org/html/rfc2616
 [2]: https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html
