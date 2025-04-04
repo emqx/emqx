@@ -61,7 +61,8 @@ when
     ContainerOpts :: map().
 
 %% @doc Append data to the transfer before sending.  Usually should not fail.
--callback process_append(iodata(), transfer_state()) -> transfer_state().
+-callback process_append(iodata(), WriteMetadata, transfer_state()) -> transfer_state() when
+    WriteMetadata :: map().
 
 %% @doc Push appended transfer data to its destination (e.g.: upload a part of a
 %% multi-part upload).  May fail.
@@ -164,8 +165,9 @@ process_append_records(
         transfer = Transfer0
     }
 ) ->
-    {Writes, Container} = emqx_connector_aggreg_container:fill(ContainerMod, Records, Container0),
-    Transfer = Mod:process_append(Writes, Transfer0),
+    {Writes, WriteMetadata, Container} =
+        emqx_connector_aggreg_container:fill(ContainerMod, Records, Container0),
+    Transfer = Mod:process_append(Writes, WriteMetadata, Transfer0),
     Delivery#delivery{
         container = {ContainerMod, Container},
         transfer = Transfer,
@@ -190,8 +192,8 @@ process_complete(#delivery{
     container = {ContainerMod, Container},
     transfer = Transfer0
 }) ->
-    Trailer = emqx_connector_aggreg_container:close(ContainerMod, Container),
-    Transfer = Mod:process_append(Trailer, Transfer0),
+    {Trailer, WriteMetadata} = emqx_connector_aggreg_container:close(ContainerMod, Container),
+    Transfer = Mod:process_append(Trailer, WriteMetadata, Transfer0),
     case Mod:process_complete(Transfer) of
         {ok, Completed} ->
             ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => Completed}),
