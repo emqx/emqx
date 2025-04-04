@@ -29,7 +29,8 @@ make_name_vsn_string(Name, Vsn) ->
 parse_name_vsn_test_() ->
     [
         ?_assertError(bad_name_vsn, parse_name_vsn("foo")),
-        ?_assertEqual({foo, "1.0.0"}, parse_name_vsn("foo-1.0.0"))
+        ?_assertEqual({foo, "1.0.0"}, parse_name_vsn("foo-1.0.0")),
+        ?_assertEqual({bar_plugin, "5.9.0-beta.1"}, parse_name_vsn(<<"bar_plugin-5.9.0-beta.1">>))
     ].
 
 make_name_vsn_string_test_() ->

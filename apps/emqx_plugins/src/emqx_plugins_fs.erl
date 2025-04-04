@@ -56,7 +56,7 @@
     ensure_config_dir/1
 ]).
 
-%% For testing
+%% Intelnal export
 -export([
     install_dir/0,
     tar_file_path/1,
