@@ -28,7 +28,7 @@
 
 -behaviour(emqx_connector_aggreg_delivery).
 -export([
-    init_transfer_state/2,
+    init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
     process_complete/1,
@@ -446,17 +446,18 @@ extract_xml_text(false) ->
 
 %% `emqx_connector_aggreg_delivery` APIs
 
--spec init_transfer_state(buffer(), map()) -> emqx_s3_upload:t().
-init_transfer_state(Buffer, Opts) ->
+-spec init_transfer_state_and_container_opts(buffer(), map()) -> {ok, emqx_s3_upload:t(), map()}.
+init_transfer_state_and_container_opts(Buffer, Opts) ->
     #{
         bucket := Bucket,
         upload_options := UploadOpts,
+        container := ContainerOpts,
         client_config := Config,
         uploader_config := UploaderConfig
     } = Opts,
     Client = emqx_s3_client:create(Bucket, Config),
     Key = mk_object_key(Buffer, Opts),
-    emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
+    {ok, emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig), ContainerOpts}.
 
 mk_object_key(Buffer, #{action := AggregId, key := Template}) ->
     emqx_template:render_strict(Template, {?MODULE, {AggregId, Buffer}}).
