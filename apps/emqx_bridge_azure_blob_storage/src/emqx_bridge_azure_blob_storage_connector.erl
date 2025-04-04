@@ -38,7 +38,7 @@
 %% `emqx_connector_aggreg_delivery' API
 -export([
     init_transfer_state_and_container_opts/2,
-    process_append/2,
+    process_append/3,
     process_write/1,
     process_complete/1
 ]).
@@ -118,6 +118,7 @@
 -type driver_state() :: _.
 
 -type transfer_opts() :: #{
+    container := map(),
     upload_options := #{
         action := binary(),
         blob := emqx_template:t(),
@@ -329,9 +330,9 @@ init_transfer_state_and_container_opts(Buffer, Opts) ->
 mk_blob_name_key(Buffer, ActionName, BlobTemplate) ->
     emqx_template:render_strict(BlobTemplate, {?MODULE, {ActionName, Buffer}}).
 
--spec process_append(iodata(), transfer_state()) ->
+-spec process_append(iodata(), map(), transfer_state()) ->
     transfer_state().
-process_append(IOData, TransferState0) ->
+process_append(IOData, _WriteMetadata, TransferState0) ->
     #{
         buffer := Buffer,
         buffer_size := BufferSize0,

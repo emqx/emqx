@@ -29,7 +29,7 @@
 -behaviour(emqx_connector_aggreg_delivery).
 -export([
     init_transfer_state_and_container_opts/2,
-    process_append/2,
+    process_append/3,
     process_write/1,
     process_complete/1,
     process_format_status/1,
@@ -462,7 +462,7 @@ init_transfer_state_and_container_opts(Buffer, Opts) ->
 mk_object_key(Buffer, #{action := AggregId, key := Template}) ->
     emqx_template:render_strict(Template, {?MODULE, {AggregId, Buffer}}).
 
-process_append(Writes, Upload0) ->
+process_append(Writes, _WriteMetadata, Upload0) ->
     {ok, Upload} = emqx_s3_upload:append(Writes, Upload0),
     Upload.
 
