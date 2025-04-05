@@ -10,7 +10,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/../../"
 
-HAPROXY_PORTS=(-p 18083:18083 -p 1883:1883 -p 8883:8883 -p 8084:8084)
+HAPROXY_PORTS=(-p 18083:18083 -p 1883:1883 -p 8883:8883 -p 8884:8884)
 
 NET='emqx.io'
 NODE1="node1.$NET"
@@ -50,7 +50,7 @@ do
     case $opt in
         # -P option is treated similarly to docker run -P:
         # publish ports to random available host ports
-        P) HAPROXY_PORTS=(-p 18083 -p 1883 -p 8883 -p 8084);;
+        P) HAPROXY_PORTS=(-p 18083 -p 1883 -p 8883 -p 8884);;
         c) cleanup; exit 0;;
         h) show_help; exit 0;;
         6) IPV6=1;;
@@ -105,7 +105,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LICENSE__KEY=evaluation \
+  -e EMQX_LICENSE__KEY="${EMQX_LICENSE__KEY1:-evaluation}" \
   "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
@@ -120,7 +120,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LICENSE__KEY=evaluation \
+  -e EMQX_LICENSE__KEY="${EMQX_LICENSE__KEY2:-evaluation}" \
   "$IMAGE2"
 
 mkdir -p tmp
@@ -190,7 +190,7 @@ frontend emqx_ssl
 frontend emqx_wss
     mode tcp
     option tcplog
-    bind *:8084 ssl crt /tmp/emqx.pem ca-file /usr/local/etc/haproxy/certs/cacert.pem verify required no-sslv3
+    bind *:8884 ssl crt /tmp/emqx.pem ca-file /usr/local/etc/haproxy/certs/cacert.pem verify required no-sslv3
     default_backend emqx_backend_ws
 
 backend emqx_backend_tcp
@@ -219,17 +219,17 @@ haproxy_cid=$(docker run -d --name haproxy \
                               cat certs/cert.pem certs/key.pem > /tmp/emqx.pem;
                               haproxy -f haproxy.cfg')
 
-haproxy_ssl_port=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "8084/tcp") 0).HostPort}}' "$haproxy_cid")
+haproxy_ssl_port=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "8884/tcp") 0).HostPort}}' "$haproxy_cid")
 
-wait_limit=60
 wait_for_emqx() {
     container="$1"
     wait_limit="$2"
     wait_sec=0
-    while ! docker exec "$container" emqx ctl status; do
+    while ! docker exec "$container" emqx ctl status >/dev/null 2>&1; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for EMQX"
+            docker logs "$container"
             exit 1
         fi
         echo -n '.'
@@ -237,15 +237,20 @@ wait_for_emqx() {
     done
 }
 
+## Probe wss listener by haproxy.
+probe_wss_listener() {
+    openssl s_client \
+        -CAfile apps/emqx/etc/certs/cacert.pem \
+        -cert apps/emqx/etc/certs/client-cert.pem \
+        -key apps/emqx/etc/certs/client-key.pem \
+        -connect localhost:"$haproxy_ssl_port" </dev/null >/dev/null 2>&1
+}
+
 wait_for_haproxy() {
     wait_sec=0
     wait_limit="$1"
     set +x
-    while ! openssl s_client \
-                -CAfile apps/emqx/etc/certs/cacert.pem \
-                -cert apps/emqx/etc/certs/cert.pem \
-                -key apps/emqx/etc/certs/key.pem \
-                localhost:"$haproxy_ssl_port" </dev/null; do
+    while ! probe_wss_listener; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for haproxy"
@@ -256,10 +261,16 @@ wait_for_haproxy() {
     done
 }
 
-wait_for_emqx "$NODE1" 30
+wait_for_emqx "$NODE1" 60
 wait_for_emqx "$NODE2" 30
-wait_for_haproxy 10
+wait_for_haproxy 30
 
 echo
 
-docker exec $NODE1 emqx ctl cluster join "emqx@$NODE2"
+docker exec "${NODE2}" emqx ctl cluster join "emqx@$NODE1"
+
+RUNNING_NODES="$(docker exec -t "$NODE1" emqx ctl cluster status --json | jq '.running_nodes | length')"
+if ! [ "${RUNNING_NODES}" -eq "${EXPECTED_RUNNING_NODES:-2}" ]; then
+    echo "Expected running nodes is ${EXPECTED_RUNNING_NODES}, but got ${RUNNING_NODES}"
+    exit 1
+fi
