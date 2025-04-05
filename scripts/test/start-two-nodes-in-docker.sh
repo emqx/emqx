@@ -105,7 +105,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LICENSE__KEY=evaluation \
+  -e EMQX_LICENSE__KEY="${EMQX_LICENSE__KEY1:-evaluation}" \
   "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
@@ -120,7 +120,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LICENSE__KEY=evaluation \
+  -e EMQX_LICENSE__KEY="${EMQX_LICENSE__KEY2:-evaluation}" \
   "$IMAGE2"
 
 mkdir -p tmp
@@ -226,7 +226,7 @@ wait_for_emqx() {
     container="$1"
     wait_limit="$2"
     wait_sec=0
-    while ! docker exec "$container" emqx ctl status; do
+    while ! docker exec "$container" emqx ctl status >/dev/null 2>&1; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for EMQX"
@@ -262,4 +262,10 @@ wait_for_haproxy 10
 
 echo
 
-docker exec $NODE1 emqx ctl cluster join "emqx@$NODE2"
+docker exec "${NODE2}" emqx ctl cluster join "emqx@$NODE1"
+
+RUNNING_NODES="$(docker exec -t "$NODE1" emqx ctl cluster status --json | jq '.running_nodes | length')"
+if ! [ "${RUNNING_NODES}" -eq "${EXPECTED_RUNNING_NODES:-2}" ]; then
+    echo "Expected running nodes is ${EXPECTED_RUNNING_NODES}, but got ${RUNNING_NODES}"
+    exit 1
+fi
