@@ -187,6 +187,7 @@ jobs:
             HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
             ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
             docker rm -f $CID
+            ./scripts/test/cluster-smoke-test.sh $tag
           done
 
       - name: dashboard tests
