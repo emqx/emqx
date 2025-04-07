@@ -349,8 +349,9 @@ commit_batch(
                         ok = rocksdb:batch_put(Batch, DataCF, MasterKey, Payload),
                         mk_index(Batch, DataCF, HashBytes, MHB, Static, Varying, StreamKey);
                     ?cooked_delete ->
-                        ok = rocksdb:batch_delete(Batch, DataCF, MasterKey),
-                        delete_index(Batch, DataCF, HashBytes, MHB, Static, Varying, Timestamp)
+                        %% Note: deletion is done in the reverse order: first indices, then message.
+                        delete_index(Batch, DataCF, HashBytes, MHB, Static, Varying, Timestamp),
+                        ok = rocksdb:batch_delete(Batch, DataCF, MasterKey)
                 end
             end,
             Operations
@@ -902,6 +903,7 @@ next_step(
                                     #message{topic = TTV} ->
                                         emqx_topic:match(TTV, CompressedTF);
                                     {TTV, _} ->
+                                        %% FIXME: don't "topic_word" it every time
                                         emqx_topic:match(TTV, emqx_ds:topic_words(CompressedTF))
                                 end,
                             case VerifyVarying of
