@@ -60,13 +60,8 @@ jobs:
         # produces proper.coverdata
       - run: make proper
 
+      # build coverage report
       - run: make cover
-
-      - name: send to coveralls
-        if: github.repository == 'emqx/emqx'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make coveralls
 
       - run: cat rebar3.crashdump || true
         if: failure()
@@ -116,12 +111,6 @@ jobs:
         run: |
           docker exec -e PROFILE="$PROFILE" -t erlang make cover
 
-      - name: send to coveralls
-        if: github.repository == 'emqx/emqx'
-        run: |
-          ls _build/test/cover/*.coverdata || exit 0
-          docker exec -e PROFILE="$PROFILE" -t erlang make coveralls
-
       - name: rebar3.crashdump
         if: failure()
         run: cat rebar3.crashdump || true
@@ -170,15 +159,8 @@ jobs:
       - name: run common tests
         run: make "${{ matrix.app }}-ct"
 
+      # build coverage report
       - run: make cover
-
-      - name: send to coveralls
-        if: github.repository == 'emqx/emqx'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ls _build/test/cover/*.coverdata || exit 0
-          make coveralls
 
       - run: cat rebar3.crashdump || true
         if: failure()
@@ -208,12 +190,4 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Coveralls finished
-        if: github.repository == 'emqx/emqx'
-        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
-        with:
-          parallel-finished: true
-          git-branch: ${{ github.ref }}
-          git-commit: ${{ github.sha }}
-
       - run: echo "All tests passed"
