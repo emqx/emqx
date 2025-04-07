@@ -203,6 +203,54 @@ t_export_bad_root_keys(Config) ->
     ),
     ok.
 
+%% Checks that we import schema registry serdes before schema validations / message
+%% transformations.
+%% Note: this test cannot reproduce the issue reliably even before the fix that introduced
+%% it.  It serves just as a canary for regressions, if it ever manages to catch it.
+t_schema_registry_import_order(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    SerdeName = <<"test">>,
+    SchemaSource = #{
+        <<"$schema">> => <<"http://json-schema.org/draft-06/schema#">>,
+        <<"type">> => <<"object">>
+    },
+    CreateParams = #{
+        type => json,
+        source => emqx_utils_json:encode(SchemaSource)
+    },
+    MTName = <<"mt">>,
+    PayloadSerde = #{
+        <<"type">> => <<"json">>,
+        <<"schema">> => SerdeName
+    },
+    Operation = emqx_message_transformation_http_api_SUITE:operation(
+        <<"payload.name">>, <<"concat(['hello'])">>
+    ),
+    Transformation = emqx_message_transformation_http_api_SUITE:transformation(
+        MTName, [Operation], #{
+            <<"payload_decoder">> => PayloadSerde,
+            <<"payload_encoder">> => PayloadSerde
+        }
+    ),
+    SVName = <<"sv">>,
+    Check = emqx_schema_validation_http_api_SUITE:schema_check(json, SerdeName),
+    Validation = emqx_schema_validation_http_api_SUITE:validation(SVName, [Check]),
+
+    ?ON(N1, begin
+        ok = emqx_schema_registry:add_schema(SerdeName, CreateParams),
+        emqx_message_transformation:insert(Transformation),
+        emqx_schema_validation:insert(Validation),
+
+        ok
+    end),
+    ExportBody = #{},
+    {200, #{<<"filename">> := Filepath}} = export_backup2(?NODE1_PORT, Auth, ExportBody),
+    %% Remove schema so it's absent when importing stuff back
+    ?ON(N1, ok = emqx_schema_registry:delete_schema(SerdeName)),
+    {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
+    ok.
+
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
@@ -505,6 +553,14 @@ test_case_specific_apps_spec(TestCase) when
         emqx_auth,
         emqx_auth_mnesia,
         emqx_schema_registry
+    ];
+test_case_specific_apps_spec(TestCase) when
+    TestCase =:= t_schema_registry_import_order
+->
+    [
+        emqx_schema_registry,
+        emqx_schema_validation,
+        emqx_message_transformation
     ];
 test_case_specific_apps_spec(_TC) ->
     [].
