@@ -178,7 +178,7 @@ on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
         {client_opts, emqtt_client_opts(?MSG_CLIENTID_SUFFIX, ClusterConf)}
     ],
-    ok = emqx_resource:allocate_resource(ResourceId, pool_name, PoolName),
+    ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
             {ok, #{pool_name => PoolName, topic => ?MSG_FWD_TOPIC}};

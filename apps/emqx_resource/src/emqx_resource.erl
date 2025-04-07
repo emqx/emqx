@@ -79,13 +79,14 @@
     simple_sync_query/2,
     %% functions used by connectors to register resources that must be
     %% freed when stopping or even when a resource manager crashes.
-    allocate_resource/3,
+    allocate_resource/4,
     has_allocated_resources/1,
+    get_allocated_resource_module/1,
     get_allocated_resources/1,
     get_allocated_resources_list/1,
     forget_allocated_resources/1,
     deallocate_resource/2,
-    clean_allocated_resources/2,
+    clean_allocated_resources/1,
     %% Get channel config from resource
     call_get_channel_config/3,
     % Call the format query result function
@@ -543,7 +544,7 @@ call_start(ResId, Mod, Config) ->
         begin
             %% If the previous manager process crashed without cleaning up
             %% allocated resources, clean them up.
-            clean_allocated_resources(ResId, Mod),
+            clean_allocated_resources(ResId),
             Mod:on_start(ResId, Config)
         end
     ).
@@ -708,8 +709,11 @@ apply_reply_fun({F, A}, Result) when is_function(F) ->
 apply_reply_fun(From, Result) ->
     gen_server:reply(From, Result).
 
--spec allocate_resource(resource_id(), any(), term()) -> ok.
-allocate_resource(InstanceId, Key, Value) ->
+-define(RES_MOD_KEY, {?MODULE, resource_mod}).
+
+-spec allocate_resource(resource_id(), module(), any(), term()) -> ok.
+allocate_resource(InstanceId, ResourceMod, Key, Value) ->
+    _ = ets:insert_new(?RESOURCE_ALLOCATION_TAB, {InstanceId, ?RES_MOD_KEY, ResourceMod}),
     true = ets:insert(?RESOURCE_ALLOCATION_TAB, {InstanceId, Key, Value}),
     ok.
 
@@ -717,14 +721,28 @@ allocate_resource(InstanceId, Key, Value) ->
 has_allocated_resources(InstanceId) ->
     ets:member(?RESOURCE_ALLOCATION_TAB, InstanceId).
 
+-spec get_allocated_resource_module(resource_id()) -> {ok, module()} | error.
+get_allocated_resource_module(InstanceId) ->
+    MS = [{{InstanceId, ?RES_MOD_KEY, '$1'}, [], ['$1']}],
+    case ets:select(?RESOURCE_ALLOCATION_TAB, MS) of
+        [ResourceMod] ->
+            {ok, ResourceMod};
+        [] ->
+            error
+    end.
+
 -spec get_allocated_resources(resource_id()) -> map().
 get_allocated_resources(InstanceId) ->
-    Objects = ets:lookup(?RESOURCE_ALLOCATION_TAB, InstanceId),
+    Objects = get_allocated_resources_list(InstanceId),
     maps:from_list([{K, V} || {_InstanceId, K, V} <- Objects]).
 
 -spec get_allocated_resources_list(resource_id()) -> list(tuple()).
 get_allocated_resources_list(InstanceId) ->
-    ets:lookup(?RESOURCE_ALLOCATION_TAB, InstanceId).
+    [
+        {Id, K, V}
+     || {Id, K, V} <- ets:lookup(?RESOURCE_ALLOCATION_TAB, InstanceId),
+        K =/= ?RES_MOD_KEY
+    ].
 
 -spec forget_allocated_resources(resource_id()) -> ok.
 forget_allocated_resources(InstanceId) ->
@@ -734,6 +752,8 @@ forget_allocated_resources(InstanceId) ->
 deallocate_resource(InstanceId, Key) ->
     true = ets:match_delete(?RESOURCE_ALLOCATION_TAB, {InstanceId, Key, '_'}),
     ok.
+
+-undef(RES_MOD_KEY).
 
 -spec create_metrics(resource_id()) -> ok.
 create_metrics(ResId) ->
@@ -772,14 +792,15 @@ rate_metrics() ->
 filter_instances(Filter) ->
     [Id || #{id := Id, mod := Mod} <- list_instances_verbose(), Filter(Id, Mod)].
 
-clean_allocated_resources(ResourceId, ResourceMod) ->
-    case emqx_resource:has_allocated_resources(ResourceId) of
-        true ->
+clean_allocated_resources(ResourceId) ->
+    case emqx_resource:get_allocated_resource_module(ResourceId) of
+        {ok, ResourceMod} ->
             %% The resource entries in the ETS table are erased inside
             %% `call_stop' if the call is successful.
             ok = call_stop(ResourceId, ResourceMod, _ResourceState = undefined),
             ok;
-        false ->
+        error ->
+            %% Nothing allocated
             ok
     end.
 

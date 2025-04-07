@@ -144,8 +144,8 @@ on_start(InstId, Config0) ->
         ] ++ database(Config),
 
     State = #{pool_name => InstId, type => Type},
-    ok = emqx_resource:allocate_resource(InstId, type, Type),
-    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, type, Type),
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, pool_name, InstId),
     case Type of
         cluster ->
             case eredis_cluster:start_pool(InstId, Opts) of

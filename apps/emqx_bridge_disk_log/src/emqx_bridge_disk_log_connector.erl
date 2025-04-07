@@ -218,7 +218,7 @@ do_open_log(ConnResId, ConnConfig) ->
         max_file_size := MaxFileSize,
         max_file_number := MaxFileNumber
     } = ConnConfig,
-    ok = emqx_resource:allocate_resource(ConnResId, ?disk_log, ConnResId),
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, ?disk_log, ConnResId),
     Filepath = unicode:characters_to_list(FilepathBin, utf8),
     ArgL = [
         {name, ConnResId},

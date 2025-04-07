@@ -80,7 +80,7 @@ on_start(ConnResId, Config) ->
     #{servers := Servers0, ssl := SSL} = Config,
     Servers = format_servers(Servers0),
     ClientId = make_client_id(ConnResId),
-    ok = emqx_resource:allocate_resource(ConnResId, ?pulsar_client_id, ClientId),
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, ?pulsar_client_id, ClientId),
     SSLOpts = emqx_tls_lib:to_client_opts(SSL),
     ConnectTimeout = maps:get(connect_timeout, Config, timer:seconds(10)),
     ClientOpts = #{
@@ -454,6 +454,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
     ?tp(pulsar_producer_about_to_start_producers, #{producer_name => ProducerName}),
     ok = emqx_resource:allocate_resource(
         ConnResId,
+        ?MODULE,
         {?telemetry_handler_id, ActionResId},
         ActionResId
     ),
@@ -462,6 +463,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
         {ok, Producers} ->
             ok = emqx_resource:allocate_resource(
                 ConnResId,
+                ?MODULE,
                 {?pulsar_producers, ActionResId},
                 Producers
             ),
