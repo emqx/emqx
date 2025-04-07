@@ -185,7 +185,7 @@ on_start(ConnectorResId, Config) ->
     }}.
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
-on_stop(ConnectorResId, _State = undefined) ->
+on_stop(ConnectorResId, _State) ->
     SubscribersStopped =
         maps:fold(
             fun
@@ -201,26 +201,14 @@ on_stop(ConnectorResId, _State = undefined) ->
         ),
     case SubscribersStopped > 0 of
         true ->
-            ?tp(kafka_consumer_subcriber_and_client_stopped, #{}),
+            ?tp(kafka_consumer_subcriber_and_client_stopped, #{instance_id => ConnectorResId}),
+            ?tp("kafka_consumer_stopped", #{instance_id => ConnectorResId}),
             ok;
         false ->
-            ?tp(kafka_consumer_just_client_stopped, #{}),
+            ?tp(kafka_consumer_just_client_stopped, #{instance_id => ConnectorResId}),
+            ?tp("kafka_consumer_stopped", #{instance_id => ConnectorResId}),
             ok
-    end;
-on_stop(ConnectorResId, State) ->
-    #{
-        installed_sources := InstalledSources,
-        kafka_client_id := ClientID
-    } = State,
-    maps:foreach(
-        fun(_SourceResId, #{subscriber_id := SubscriberId}) ->
-            stop_subscriber(SubscriberId)
-        end,
-        InstalledSources
-    ),
-    stop_client(ClientID),
-    ?tp(kafka_consumer_subcriber_and_client_stopped, #{instance_id => ConnectorResId}),
-    ok.
+    end.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
