@@ -63,6 +63,14 @@ jobs:
       # build coverage report
       - run: make cover
 
+      # upload coverdata as artifact
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: coverdata-${{ matrix.profile }}-eunit-proper
+          path: _build/test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 7
+
       - run: cat rebar3.crashdump || true
         if: failure()
 
@@ -110,6 +118,14 @@ jobs:
       - name: make cover
         run: |
           docker exec -e PROFILE="$PROFILE" -t erlang make cover
+
+      # upload coverdata as artifact
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: coverdata-${{ matrix.profile }}-${{ matrix.app }}-${{ matrix.suitegroup }}
+          path: _build/test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 7
 
       - name: rebar3.crashdump
         if: failure()
@@ -162,6 +178,14 @@ jobs:
       # build coverage report
       - run: make cover
 
+      # upload coverdata as artifact
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
+          path: _build/test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 7
+
       - run: cat rebar3.crashdump || true
         if: failure()
 
@@ -190,5 +214,4 @@ jobs:
       pull-requests: write
 
     steps:
-
       - run: echo "All tests passed"
