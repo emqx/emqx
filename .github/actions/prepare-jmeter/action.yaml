@@ -15,7 +15,7 @@ runs:
         architecture: x64 # (x64 or x86) - defaults to x64
         # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
         distribution: 'zulu'
-    - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+    - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
       with:
         name: apache-jmeter.tgz
     - name: install jmeter
