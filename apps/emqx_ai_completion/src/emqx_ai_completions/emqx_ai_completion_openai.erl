@@ -4,32 +4,21 @@
 
 -module(emqx_ai_completion_openai).
 
+-behaviour(emqx_ai_completion).
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    create/1,
-    update_options/2,
-    destroy/1,
-    call_completion/3
+    call/3
 ]).
 
--type state() :: #{
-    model := binary(),
-    client := emqx_ai_completion_client:t()
-}.
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
--spec create(map()) -> state().
-create(#{model := Model, api_key := ApiKey}) ->
-    #{model => Model, client => create_client(ApiKey)}.
-
-update_options(State, #{model := Model}) ->
-    State#{model => Model}.
-
-destroy(State) ->
-    State.
-
-call_completion(#{model := Model, client := Client}, Prompt, Data) ->
+call(#{model := Model, system_prompt := SystemPrompt} = Profile, Data, Options) ->
+    Prompt = maps:get(prompt, Options, SystemPrompt),
+    Client = create_client(Profile),
     Request = #{
         model => Model,
         messages => [
@@ -37,17 +26,17 @@ call_completion(#{model := Model, client := Client}, Prompt, Data) ->
             #{role => <<"user">>, content => Data}
         ]
     },
-    ?tp(warning, emqx_ai_completion_on_message_publish_request, #{
+    ?tp(warning, emqx_ai_completion_request, #{
         request => Request
     }),
     case emqx_ai_completion_client:api_post(Client, {chat, completions}, Request) of
         {ok, #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Content}}]}} ->
-            ?tp(warning, emqx_ai_completion_on_message_publish_result, #{
+            ?tp(warning, emqx_ai_completion_result, #{
                 result => Content
             }),
             Content;
         {error, Reason} ->
-            ?tp(error, emqx_ai_completion_on_message_publish_error, #{
+            ?tp(error, emqx_ai_completion_error, #{
                 reason => Reason
             }),
             <<"">>
@@ -57,12 +46,13 @@ call_completion(#{model := Model, client := Client}, Prompt, Data) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(ApiKey) ->
+create_client(#{credential := #{api_key := ApiKey}}) ->
     emqx_ai_completion_client:new(#{
         host => <<"api.openai.com">>,
         base_path => <<"/v1/">>,
         headers => [
             {<<"Content-Type">>, <<"application/json">>},
-            {<<"Authorization">>, fun() -> <<"Bearer ", ApiKey/binary>> end}
+            {<<"Authorization">>,
+                emqx_secret:wrap(<<"Bearer ", (emqx_secret:unwrap(ApiKey))/binary>>)}
         ]
     }).
