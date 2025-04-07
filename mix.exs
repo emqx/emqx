@@ -851,6 +851,12 @@ defmodule EMQXUmbrella.MixProject do
     # So, this should be run before the release.
     # TODO: run as a "compiler" step???
     render_template(
+      "apps/emqx/etc/ssl_dist.conf",
+      assigns,
+      Path.join(etc, "ssl_dist.conf")
+    )
+
+    render_template(
       "apps/emqx_conf/etc/emqx.conf.all",
       assigns,
       Path.join(etc, "emqx.conf")
