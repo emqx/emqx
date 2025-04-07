@@ -411,7 +411,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
     %% note: the group id should be the same for all nodes in the
     %% cluster, so that the load gets distributed between all
     %% consumers and we don't repeat messages in the same cluster.
-    GroupID = consumer_group_id(Params0, BridgeName),
+    GroupId = consumer_group_id(Params0, BridgeName),
     %% earliest or latest
     BeginOffset = OffsetResetPolicy0,
     OffsetResetPolicy =
@@ -434,7 +434,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
     GroupSubscriberConfig =
         #{
             client => ClientID,
-            group_id => GroupID,
+            group_id => GroupId,
             topics => KafkaTopics,
             cb_module => ?MODULE,
             init_data => InitialState,
