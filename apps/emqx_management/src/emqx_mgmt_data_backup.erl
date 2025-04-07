@@ -90,10 +90,14 @@
     [<<"cluster">>, <<"links">>]
 ]).
 
-%% emqx_bridge_v2 depends on emqx_connector, so connectors need to be imported first
+%% emqx_bridge_v2 depends on emqx_connector, so connectors need to be imported first.
+%% So do message transformation and schema validation on schema registry.
 -define(IMPORT_ORDER, [
     emqx_connector,
-    emqx_bridge_v2
+    emqx_bridge_v2,
+    emqx_schema_registry_config,
+    emqx_schema_validation_config,
+    emqx_message_transformation_config
 ]).
 
 -define(DEFAULT_OPTS, #{}).
