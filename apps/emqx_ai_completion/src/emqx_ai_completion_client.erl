@@ -15,13 +15,13 @@
 -type options() :: #{
     host := binary(),
     base_path := binary(),
-    headers := [{binary(), binary() | fun(() -> binary())}]
+    headers := [{binary(), emqx_secret:t(binary())}]
 }.
 
 -export_type([t/0, options/0]).
 
 -record(state, {
-    headers :: [{binary(), binary() | fun(() -> binary())}],
+    headers :: [{binary(), emqx_secret:t(binary())}],
     host :: binary(),
     base_path :: binary()
 }).
@@ -96,10 +96,8 @@ api_url_base(#state{host = Host, base_path = BasePath}) ->
 headers(#state{headers = Headers}) ->
     [eval_header(Header) || Header <- Headers].
 
-eval_header({Name, Value}) when is_function(Value, 0) ->
-    {Name, Value()};
 eval_header({Name, Value}) ->
-    {Name, Value}.
+    {Name, emqx_secret:unwrap(Value)}.
 
 bin(A) when is_atom(A) ->
     atom_to_binary(A, utf8);
