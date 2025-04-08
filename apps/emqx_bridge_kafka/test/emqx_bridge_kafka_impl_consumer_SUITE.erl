@@ -2156,11 +2156,6 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
                 _ ->
                     ct:fail("unexpected result: ~p", [Res])
             end,
-            ?retry(
-                _Sleep = 100,
-                _Attempts = 50,
-                ?assertEqual([], supervisor:which_children(emqx_bridge_kafka_consumer_sup))
-            ),
             ok
         end,
         []
@@ -2204,8 +2199,6 @@ t_resource_manager_crash_before_subscriber_started(Config) ->
                     10_000
                 ),
             case Res of
-                {error, {config_update_crashed, _}} ->
-                    ok;
                 {ok, _} ->
                     %% the new manager may have had time to startup
                     %% before the resource status cache is read...

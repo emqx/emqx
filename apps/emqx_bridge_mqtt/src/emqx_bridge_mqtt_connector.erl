@@ -262,7 +262,7 @@ start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
         {client_opts, ClientOpts},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
-    ok = emqx_resource:allocate_resource(ResourceId, pool_name, PoolName),
+    ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
             {ok, #{pool_name => PoolName, available_clientids => AvailableClientids}};

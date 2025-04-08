@@ -78,7 +78,7 @@ on_start(
     %% we need record only when the listen is successed
     case esockd:open(?MODULE, ListenOn, Options, MFArgs) of
         {ok, _} ->
-            ok = emqx_resource:allocate_resource(InstanceId, listen_on, ListenOn),
+            ok = emqx_resource:allocate_resource(InstanceId, ?MODULE, listen_on, ListenOn),
             {ok, #{listen_on => ListenOn}};
         {error, {already_started, _}} ->
             {error, eaddrinuse};

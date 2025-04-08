@@ -95,7 +95,7 @@ on_start(InstId, Config) ->
         ssl => C(ssl)
     },
     ClientId = InstId,
-    emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
+    emqx_resource:allocate_resource(InstId, ?MODULE, ?kafka_client_id, ClientId),
     ok = ensure_client(ClientId, Hosts, ClientConfig),
     %% Note: we must return `{error, _}' here if the client cannot connect so that the
     %% connector will immediately enter the `?status_disconnected' state, and then avoid
@@ -186,10 +186,10 @@ create_producers_for_bridge_v2(
                     )
             end,
             ok = emqx_resource:allocate_resource(
-                ConnResId, {?kafka_producers, ActionResId}, Producers
+                ConnResId, ?MODULE, {?kafka_producers, ActionResId}, Producers
             ),
             ok = emqx_resource:allocate_resource(
-                ConnResId, {?kafka_telemetry_id, ActionResId}, ActionResId
+                ConnResId, ?MODULE, {?kafka_telemetry_id, ActionResId}, ActionResId
             ),
             _ = maybe_install_wolff_telemetry_handlers(ActionResId),
             {ok, #{

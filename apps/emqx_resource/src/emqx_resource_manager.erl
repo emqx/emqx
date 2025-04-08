@@ -372,6 +372,7 @@ remove(ResId, ClearMetrics) when is_binary(ResId) ->
 do_remove(ResId, ClearMetrics) ->
     case gproc:whereis_name(?NAME(ResId)) of
         undefined ->
+            try_clean_allocated_resources(ResId),
             ok;
         Pid when is_pid(Pid) ->
             MRef = monitor(process, Pid),
@@ -649,6 +650,7 @@ get_error(_ResId, #{error := Error}) ->
 force_kill(ResId, MRef0) ->
     case gproc:whereis_name(?NAME(ResId)) of
         undefined ->
+            try_clean_allocated_resources(ResId),
             ok;
         Pid when is_pid(Pid) ->
             MRef =
@@ -666,16 +668,11 @@ force_kill(ResId, MRef0) ->
     end.
 
 try_clean_allocated_resources(ResId) ->
-    case emqx_resource_cache:read_mod(ResId) of
-        {ok, Mod} ->
-            try emqx_resource:clean_allocated_resources(ResId, Mod) of
-                _ ->
-                    ok
-            catch
-                _:_ ->
-                    ok
-            end;
-        not_found ->
+    try emqx_resource:clean_allocated_resources(ResId) of
+        _ ->
+            ok
+    catch
+        _:_ ->
             ok
     end.
 

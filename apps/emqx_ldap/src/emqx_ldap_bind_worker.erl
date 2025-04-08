@@ -44,7 +44,7 @@ on_start(InstId, #{method := #{bind_password := _}} = Config, Options, State) ->
         pool => PoolName
     }),
 
-    ok = emqx_resource:allocate_resource(InstId, ?MODULE, PoolName),
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?MODULE, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
             {ok, prepare_template(Config, State#{bind_pool_name => PoolName})};

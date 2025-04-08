@@ -292,7 +292,7 @@ t_start_stop(matrix) ->
         [tls, sasl_auth_plain]
     ];
 t_start_stop(Config) ->
-    ok = emqx_bridge_v2_testlib:t_start_stop(Config, kafka_consumer_subcriber_and_client_stopped),
+    ok = emqx_bridge_v2_testlib:t_start_stop(Config, "kafka_consumer_stopped"),
     ok.
 
 t_create_via_http(Config) ->

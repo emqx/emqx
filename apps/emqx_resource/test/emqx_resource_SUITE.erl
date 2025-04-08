@@ -4169,6 +4169,11 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
+            %% Important: we must use a resource id with this format so that the resouce
+            %% manager child spawned has `temporary` restart type instead of `transient`.
+            Id = ?PROBE_ID_NEW(),
+
+            %% Kill the caller process while it's blocked during an `on_stop` call.
             ?force_ordering(
                 #{?snk_kind := connector_demo_on_stop_will_delay},
                 #{?snk_kind := will_kill_request}
@@ -4176,7 +4181,9 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
 
             %% Simulates a cowboy request process.
             {ok, StartAgent} = emqx_utils_agent:start_link(not_called),
-            {ok, StopAgent} = emqx_utils_agent:start_link({delay, 1_000}),
+            %% Note: this should be larger than `emqx_resource_manager:?T_OPERATION`.
+            StopDelay = 6_000,
+            {ok, StopAgent} = emqx_utils_agent:start_link({delay, StopDelay}),
             HowToStop = fun() ->
                 %% Delay only the first time, so test cleanup is faster.
                 Action = emqx_utils_agent:get_and_update(StopAgent, fun
@@ -4196,7 +4203,7 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
             end,
             {Pid, MRef} = spawn_monitor(fun() ->
                 Res = dryrun(
-                    ?ID,
+                    Id,
                     ?TEST_RESOURCE,
                     #{
                         name => test_resource,
@@ -4232,6 +4239,9 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
             ?assertEqual([], supervisor:which_children(emqx_resource_manager_sup)),
             %% Cache should be clean too
             ?assertEqual([], emqx_resource:list_instances()),
+            %% Deallocations should evenutally happen, when cache cleaner runs.
+
+            ?assertEqual(#{}, emqx_resource:get_allocated_resources(Id)),
 
             ok
         end,

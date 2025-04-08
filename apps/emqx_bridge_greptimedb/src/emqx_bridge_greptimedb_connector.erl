@@ -295,7 +295,7 @@ start_client(InstId, Config) ->
     }),
     try do_start_client(InstId, ClientConfig, Config) of
         Res = {ok, #{client := Client}} ->
-            ok = emqx_resource:allocate_resource(InstId, ?greptime_client, Client),
+            ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?greptime_client, Client),
             Res;
         {error, Reason} ->
             {error, Reason}

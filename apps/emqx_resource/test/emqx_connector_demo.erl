@@ -121,7 +121,7 @@ on_start(ConnResId, #{create_error := {delay, Delay, Agent}} = Opts) ->
     ?tp(connector_demo_start_delay, #{}),
     case emqx_utils_agent:get_and_update(Agent, fun(St) -> {St, called} end) of
         not_called ->
-            emqx_resource:allocate_resource(ConnResId, i_should_be_deallocated, yep),
+            emqx_resource:allocate_resource(ConnResId, ?MODULE, i_should_be_deallocated, yep),
             timer:sleep(Delay),
             do_on_start(ConnResId, Opts);
         called ->
