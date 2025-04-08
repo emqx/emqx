@@ -61,15 +61,14 @@ jobs:
       - run: make proper
 
       # build coverage report
-      - run: make cover
+      - name: make cover report
+        run: make cover
 
-      # upload coverdata as artifact
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - name: upload cover report
+        uses: codecov/codecov-action@v3
         with:
-          name: coverdata-${{ matrix.profile }}-eunit-proper
-          path: _build/test/cover/*.coverdata
-          compression-level: 0
-          retention-days: 7
+          flags: 'eunit_and_proper'
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - run: cat rebar3.crashdump || true
         if: failure()
@@ -115,17 +114,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }} --keep-up
 
-      - name: make cover
+      - name: make cover report
         run: |
           docker exec -e PROFILE="$PROFILE" -t erlang make cover
 
-      # upload coverdata as artifact
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - name: upload cover report
+        uses: codecov/codecov-action@v3
         with:
-          name: coverdata-${{ matrix.profile }}-${{ matrix.app }}-${{ matrix.suitegroup }}
-          path: _build/test/cover/*.coverdata
-          compression-level: 0
-          retention-days: 7
+          flags: ${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: rebar3.crashdump
         if: failure()
@@ -175,16 +172,14 @@ jobs:
       - name: run common tests
         run: make "${{ matrix.app }}-ct"
 
-      # build coverage report
-      - run: make cover
+      - name: make cover report
+        run: make cover
 
-      # upload coverdata as artifact
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - name: upload cover report
+        uses: codecov/codecov-action@v3
         with:
-          name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
-          path: _build/test/cover/*.coverdata
-          compression-level: 0
-          retention-days: 7
+          flags: ${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - run: cat rebar3.crashdump || true
         if: failure()
