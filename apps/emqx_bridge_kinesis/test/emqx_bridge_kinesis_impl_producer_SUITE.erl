@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -define(BRIDGE_TYPE, kinesis_producer).
 -define(BRIDGE_TYPE_BIN, <<"kinesis_producer">>).
@@ -168,7 +169,7 @@ kinesis_config(Config) ->
             "\n   max_retries = ~b"
             "\n   pool_size = 1"
             "\n   resource_opts = {"
-            "\n     health_check_interval = \"3s\""
+            "\n     health_check_interval = \"1s\""
             "\n     request_ttl = 30s"
             "\n     resume_interval = 1s"
             "\n     metrics_flush_interval = \"700ms\""
@@ -257,7 +258,7 @@ create_bridge(Config, KinesisConfigOverrides, Removes) ->
     KinesisConfig1 = emqx_utils_maps:deep_merge(KinesisConfig0, KinesisConfigOverrides),
     KinesisConfig = emqx_utils_maps:deep_remove(Removes, KinesisConfig1),
     ct:pal("creating bridge: ~p", [KinesisConfig]),
-    Res = emqx_bridge:create(TypeBin, Name, KinesisConfig),
+    Res = emqx_bridge_testlib:create_bridge_api(TypeBin, Name, KinesisConfig),
     ct:pal("bridge creation result: ~p", [Res]),
     Res.
 
@@ -417,9 +418,13 @@ assert_metrics(ExpectedMetrics, ResourceId) ->
     CurrentMetrics = current_metrics(ResourceId),
     TelemetryTable = get(telemetry_table),
     RecordedEvents = ets:tab2list(TelemetryTable),
-    ?assertEqual(ExpectedMetrics, Metrics, #{
-        current_metrics => CurrentMetrics, recorded_events => RecordedEvents
-    }),
+    ?retry(
+        1_000,
+        10,
+        ?assertEqual(ExpectedMetrics, Metrics, #{
+            current_metrics => CurrentMetrics, recorded_events => RecordedEvents
+        })
+    ),
     ok.
 
 assert_empty_metrics(ResourceId) ->
@@ -519,17 +524,23 @@ t_start_failed_then_fix(Config) ->
     ProxyName = ?config(proxy_name, Config),
     Name = ?config(kinesis_name, Config),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ct:sleep(1000),
-        ?wait_async_action(
-            create_bridge(Config),
-            #{?snk_kind := emqx_bridge_kinesis_impl_producer_start_failed},
-            20_000
+        ct:sleep(500),
+        ?assertMatch(
+            {ok,
+                {{_, 201, _}, _, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := <<"Connection refused">>
+                }}},
+            create_bridge(Config)
         )
     end),
     ?retry(
         _Sleep1 = 1_000,
         _Attempts1 = 30,
-        ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name))
+        ?assertMatch(
+            #{status := ?status_connected},
+            emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+        )
     ),
     ok.
 
@@ -537,7 +548,7 @@ t_stop(Config) ->
     Name = ?config(kinesis_name, Config),
     {ok, _} = create_bridge(Config),
     ?check_trace(
-        ?wait_async_action(
+        {_, {ok, _}} = ?wait_async_action(
             emqx_bridge_resource:stop(?BRIDGE_TYPE, Name),
             #{?snk_kind := kinesis_stop},
             5_000
@@ -552,7 +563,9 @@ t_stop(Config) ->
 t_get_status_ok(Config) ->
     Name = ?config(kinesis_name, Config),
     {ok, _} = create_bridge(Config),
-    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)),
+    ?assertMatch(
+        #{status := ?status_connected}, emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+    ),
     ok.
 
 t_create_unhealthy(Config) ->
@@ -561,7 +574,7 @@ t_create_unhealthy(Config) ->
     {ok, _} = create_bridge(Config),
     ?assertMatch(
         #{
-            status := disconnected,
+            status := ?status_disconnected,
             error := {unhealthy_target, _}
         },
         emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
@@ -573,7 +586,7 @@ t_get_status_unhealthy(Config) ->
     {ok, _} = create_bridge(Config),
     ?assertMatch(
         #{
-            status := connected
+            status := ?status_connected
         },
         emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
     ),
@@ -584,7 +597,7 @@ t_get_status_unhealthy(Config) ->
         fun() ->
             ?assertMatch(
                 #{
-                    status := disconnected,
+                    status := ?status_disconnected,
                     error := {unhealthy_target, _}
                 },
                 emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
@@ -749,7 +762,7 @@ t_publish_unhealthy(Config) ->
     ),
     ?assertMatch(
         #{
-            status := disconnected,
+            status := ?status_disconnected,
             error := {unhealthy_target, _}
         },
         emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
@@ -801,7 +814,7 @@ t_publish_connection_down(Config0) ->
         _Sleep1 = 1_000,
         _Attempts1 = 30,
         ?assertMatch(
-            #{status := connected},
+            #{status := ?status_connected},
             emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
         )
     ),
@@ -830,15 +843,13 @@ t_publish_connection_down(Config0) ->
         _Sleep3 = 1_000,
         _Attempts3 = 20,
         ?assertMatch(
-            #{status := connected},
+            #{status := ?status_connected},
             emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
         )
     ),
     Record = wait_record(Config, ShardIt, 2000, 10),
     %% to avoid test flakiness
     wait_telemetry_event(TelemetryTable, retried_success, ResourceId),
-    wait_until_gauge_is(queuing, 0, 500),
-    wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
         #{
             dropped => 0,
@@ -869,7 +880,7 @@ t_wrong_server(Config) ->
                 <<"health_check_interval">> => <<"60s">>
             }
         },
-    % probe
+    %% probe
     KinesisConfig = emqx_utils_maps:deep_merge(KinesisConfig0, Overrides),
     Params = KinesisConfig#{<<"type">> => TypeBin, <<"name">> => Name},
     ProbePath = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
@@ -878,14 +889,20 @@ t_wrong_server(Config) ->
         {error, {_, 400, _}},
         emqx_mgmt_api_test_util:request_api(post, ProbePath, "", AuthHeader, Params)
     ),
-    % create
-    ?wait_async_action(
+    %% create
+    {ok,
+        {{_, 201, _}, _, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := ErrMsg
+        }}} =
         create_bridge(Config, Overrides),
-        #{?snk_kind := start_pool_failed},
-        30_000
+    ?assertEqual(
+        match,
+        re:run(ErrMsg, <<"Could not resolve host">>, [{capture, none}]),
+        #{msg => ErrMsg}
     ),
     ?assertMatch(
-        {ok, _, #{error := {start_pool_failed, ResourceId, _}}},
+        {ok, _, #{error := nxdomain}},
         emqx_resource_manager:lookup_cached(ResourceId)
     ),
     ok.
@@ -904,19 +921,25 @@ t_access_denied(Config) ->
         list_streams,
         fun() -> {error, AccessError} end,
         fun() ->
-            % probe
+            %% probe
             ?assertMatch(
                 {error, {_, 400, _}},
                 emqx_mgmt_api_test_util:request_api(post, ProbePath, "", AuthHeader, Params)
             ),
-            % create
-            ?wait_async_action(
+            %% create
+            {ok,
+                {{_, 201, _}, _, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := ErrMsg
+                }}} =
                 create_bridge(Config),
-                #{?snk_kind := kinesis_init_failed},
-                30_000
+            ?assertEqual(
+                match,
+                re:run(ErrMsg, <<"AccessDeniedException">>, [{capture, none}]),
+                #{msg => ErrMsg}
             ),
             ?assertMatch(
-                {ok, _, #{error := {start_pool_failed, ResourceId, AccessError}}},
+                {ok, _, #{error := {<<"AccessDeniedException">>, <<"">>}}},
                 emqx_resource_manager:lookup_cached(ResourceId)
             ),
             ok
