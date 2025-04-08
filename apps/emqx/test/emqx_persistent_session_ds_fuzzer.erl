@@ -564,7 +564,7 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
          %% disables takeover. This condition should be removed when
          %% takeover is fixed.
          [{1,  connect_(S)}                     || not Conn] ++
-         [{2,  {call, ?MODULE, add_generation, []}},
+         [%{2,  {call, ?MODULE, add_generation, []}},
           %% Publish some messages occasionally even when there are no
           %% subs:
           {2,  publish_(S)}
