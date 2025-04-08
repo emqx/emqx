@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_trace_formatter).
 -include("emqx_mqtt.hrl").
+-include("emqx_trace.hrl").
 
 -export([format/2]).
 
@@ -37,9 +38,10 @@ format(Event, Config) ->
 
 format_meta_map(Meta, PayloadFmtOpts) ->
     format_meta_map(Meta, PayloadFmtOpts, [
-        {packet, fun format_packet/2},
-        {payload, fun format_payload/2},
-        {<<"payload">>, fun format_payload/2}
+        {?FORMAT_META_KEY_PACKET, fun format_packet/2},
+        {?FORMAT_META_KEY_PAYLOAD, fun format_payload/2},
+        {?FORMAT_META_KEY_PAYLOAD_BIN, fun format_payload/2},
+        {?FORMAT_META_KEY_RESULT, fun format_result/2}
     ]).
 
 format_meta_map(Meta, _PayloadFmtOpts, []) ->
@@ -102,6 +104,45 @@ format_payload(Payload, PayloadFmtOpts) when is_binary(Payload) ->
     {Payload1, #{payload_encode => Type1}};
 format_payload(Payload, #{payload_encode := Type}) ->
     {Payload, #{payload_encode => Type}}.
+
+format_result(undefined, #{payload_encode := Type}) ->
+    {"", #{payload_encode => Type}};
+format_result(Result0, PayloadFmtOpts) ->
+    Result = iolist_to_binary(to_iolist(Result0)),
+    Type = maps:get(payload_encode, PayloadFmtOpts),
+    Limit = maps:get(truncate_above, PayloadFmtOpts, ?MAX_PAYLOAD_FORMAT_SIZE),
+    TruncateTo = maps:get(truncate_to, PayloadFmtOpts, ?TRUNCATED_PAYLOAD_SIZE),
+    format_truncated_result(Type, Limit, TruncateTo, Result).
+
+format_truncated_result(Type, Limit, TruncateTo, Result) when
+    size(Result) > Limit
+->
+    {NType, Part, TruncatedBytes} = truncate_result(Type, TruncateTo, Result),
+    {?TRUNCATED_IOLIST(do_format_result(NType, Part), TruncatedBytes), #{payload_encode => NType}};
+format_truncated_result(Type, _Limit, _TruncateTo, Result) ->
+    %% truncate to itself size
+    {NType, _Part, _TruncatedBytes} = truncate_result(Type, size(Result), Result),
+    {do_format_result(NType, Result), #{payload_encode => NType}}.
+
+truncate_result(hex, Limit, Result) ->
+    <<Part:Limit/binary, Rest/binary>> = Result,
+    {hex, Part, size(Rest)};
+truncate_result(text, Limit, Result) ->
+    case emqx_utils_fmt:find_complete_utf8_len(Limit, Result) of
+        {ok, Len} ->
+            <<Part:Len/binary, Rest/binary>> = Result,
+            {text, Part, size(Rest)};
+        error ->
+            %% not a valid utf8 string, force hex
+            <<Part:Limit/binary, Rest/binary>> = Result,
+            {hex, Part, size(Rest)}
+    end.
+
+do_format_result(text, Bytes) ->
+    %% utf8 ensured
+    Bytes;
+do_format_result(hex, Bytes) ->
+    binary:encode_hex(Bytes).
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);

@@ -41,4 +41,13 @@
 
 -define(DEFAULT_PAYLOAD_LIMIT, 1024).
 
+-define(FORMAT_META_KEY_PACKET, packet).
+-define(FORMAT_META_KEY_PAYLOAD, payload).
+-define(FORMAT_META_KEY_PAYLOAD_BIN, <<"payload">>).
+-define(FORMAT_META_KEY_RESULT, result).
+
+-define(TRUNCATED_IOLIST(PART, TRUNCATEDBYTES), [
+    PART, "...(", integer_to_list(TRUNCATEDBYTES), " bytes)"
+]).
+
 -endif.
