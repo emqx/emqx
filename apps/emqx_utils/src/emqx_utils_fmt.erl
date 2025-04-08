@@ -276,3 +276,18 @@ transpose_head([], Pad) -> Pad.
 
 transpose_tail([_ | T]) -> T;
 transpose_tail([]) -> [].
+
+find_complete_utf8_len(Limit, Payload) ->
+    case trim_utf8(Limit, Payload) of
+        {ok, TailLen} ->
+            {ok, size(Payload) - TailLen};
+        error ->
+            error
+    end.
+
+trim_utf8(Count, <<_/utf8, Rest/binary>> = All) when Count > 0 ->
+    trim_utf8(Count - (size(All) - size(Rest)), Rest);
+trim_utf8(Count, Bytes) when Count =< 0 ->
+    {ok, size(Bytes)};
+trim_utf8(_Count, _Rest) ->
+    error.
