@@ -1828,8 +1828,17 @@ continue_channel_health_check_connected_no_update_during_check(ChannelId, OldSta
 -spec handle_start_channel_health_check(data(), channel_id()) ->
     gen_statem:event_handler_result(state(), data()).
 handle_start_channel_health_check(Data0, ChannelId) ->
-    Data = start_channel_health_check(Data0, ChannelId),
-    {keep_state, Data}.
+    #data{added_channels = AddedChannels} = Data0,
+    maybe
+        {ok, ChannelStatus} ?= maps:find(ChannelId, AddedChannels),
+        true ?= channel_status_is_channel_added(ChannelStatus),
+        Data = start_channel_health_check(Data0, ChannelId),
+        {keep_state, Data}
+    else
+        _ ->
+            %% Stale health check timeout event
+            keep_state_and_data
+    end.
 
 -spec start_channel_health_check(data(), channel_id()) -> data().
 start_channel_health_check(
