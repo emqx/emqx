@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx-enterprise", "emqx/emqx-enterprise:5.0.1"]
+          - ["emqx-enterprise", "emqx/emqx-enterprise:5.4.0"]
 
     env:
       EMQX_NAME: ${{ matrix.profile[0] }}
@@ -42,8 +42,10 @@ jobs:
           docker compose up --abort-on-container-exit --exit-code-from selenium
       - name: test two nodes cluster with proto_dist=inet_tls in docker
         run: |
-          ## -d 1 means only put node 1 (latest version) behind haproxy
-          ./scripts/test/start-two-nodes-in-docker.sh -d 1 -P $_EMQX_DOCKER_IMAGE_TAG $EMQX_IMAGE_OLD_VERSION_TAG
+          export LICENSE_KEY1='default' # for old version
+          export LICENSE_KEY2='evaluation' # for new version
+          ## -d 2 means only put node 2 (latest version) behind haproxy
+          ./scripts/test/start-two-nodes-in-docker.sh -d 2 -P $EMQX_IMAGE_OLD_VERSION_TAG $_EMQX_DOCKER_IMAGE_TAG
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' haproxy)
           ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
           ## -c menas 'cleanup'
