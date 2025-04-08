@@ -16,6 +16,13 @@
     tags/0
 ]).
 
+-export([
+    completion_profile_sctype/0,
+    completion_profile_sctype_api/0,
+    credential_sctype/0,
+    credential_sctype_api/0
+]).
+
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
 %%------------------------------------------------------------------------------
@@ -32,70 +39,44 @@ fields(ai) ->
     [
         {credentials,
             mk(
-                hoconsc:array(ref(credentials)),
+                hoconsc:array(credential_sctype()),
                 #{
                     default => [],
-                    desc => ?DESC(credentials)
+                    desc => ?DESC(credential)
                 }
             )},
         {completion_profiles,
             mk(
-                hoconsc:array(
-                    emqx_schema:mkunion(
-                        type,
-                        #{
-                            <<"openai">> => ref(openai_completion_profile),
-                            <<"anthropic">> => ref(anthropic_completion_profile)
-                        },
-                        <<"openai">>
-                    )
-                ),
+                hoconsc:array(completion_profile_sctype()),
                 #{
                     default => [],
                     desc => ?DESC(ai_completion_profiles)
                 }
             )}
     ];
-fields(credentials) ->
+fields(credential_api) ->
     [
         {type,
             mk(hoconsc:enum([openai, anthropic]), #{
                 default => openai, required => true, desc => ?DESC(type)
             })},
-        {name,
-            mk(binary(), #{
-                default => <<>>,
-                required => true,
-                desc => ?DESC(name),
-                validator => fun emqx_schema:non_empty_string/1
-            })},
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})}
     ];
-fields(openai_completion_profile) ->
+fields(credential) ->
+    [name_field()] ++ fields(credential_api);
+fields(openai_completion_profile_api) ->
     [
-        {name,
-            mk(binary(), #{
-                default => <<>>,
-                required => true,
-                desc => ?DESC(name),
-                validator => fun emqx_schema:non_empty_string/1
-            })},
         {type, mk(openai, #{default => openai, required => true, desc => ?DESC(type)})},
-        {credential, mk(binary(), #{required => true, desc => ?DESC(credential)})},
+        {credential_name, mk(binary(), #{required => true, desc => ?DESC(credential_name)})},
         {system_prompt, mk(binary(), #{default => <<>>, desc => ?DESC(system_prompt)})},
         {model, mk(enum(['gpt-4o', 'gpt-4o-mini']), #{default => 'gpt-4o', desc => ?DESC(model)})}
     ];
-fields(anthropic_completion_profile) ->
+fields(openai_completion_profile) ->
+    [name_field()] ++ fields(openai_completion_profile_api);
+fields(anthropic_completion_profile_api) ->
     [
-        {name,
-            mk(binary(), #{
-                default => <<>>,
-                required => true,
-                desc => ?DESC(name),
-                validator => fun emqx_schema:non_empty_string/1
-            })},
         {type, mk(anthropic, #{default => anthropic, required => true, desc => ?DESC(type)})},
-        {credential, mk(binary(), #{required => true, desc => ?DESC(credential)})},
+        {credential_name, mk(binary(), #{required => true, desc => ?DESC(credential_name)})},
         {anthropic_version,
             mk(enum(['2023-06-01']), #{default => '2023-06-01', desc => ?DESC(anthropic_version)})},
         {system_prompt, mk(binary(), #{default => <<>>, desc => ?DESC(system_prompt)})},
@@ -104,7 +85,9 @@ fields(anthropic_completion_profile) ->
                 default => 'claude-3-5-sonnet-20240620', desc => ?DESC(model)
             })},
         {max_tokens, mk(pos_integer(), #{default => 100, desc => ?DESC(max_tokens)})}
-    ].
+    ];
+fields(anthropic_completion_profile) ->
+    [name_field()] ++ fields(anthropic_completion_profile_api).
 
 desc(credentials) ->
     ?DESC("ai_credentials");
@@ -114,6 +97,41 @@ desc(anthropic_completion_profile) ->
     ?DESC("ai_completion_profile_anthropic");
 desc(_) ->
     undefined.
+
+name_field() ->
+    {name,
+        mk(binary(), #{
+            default => <<>>,
+            required => true,
+            desc => ?DESC(name),
+            validator => fun emqx_schema:non_empty_string/1
+        })}.
+
+completion_profile_sctype() ->
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"openai">> => ref(openai_completion_profile),
+            <<"anthropic">> => ref(anthropic_completion_profile)
+        },
+        <<"openai">>
+    ).
+
+completion_profile_sctype_api() ->
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"openai">> => ref(openai_completion_profile_api),
+            <<"anthropic">> => ref(anthropic_completion_profile_api)
+        },
+        <<"openai">>
+    ).
+
+credential_sctype() ->
+    ref(credential).
+
+credential_sctype_api() ->
+    ref(credential_api).
 
 %%------------------------------------------------------------------------------
 %% Internal fns

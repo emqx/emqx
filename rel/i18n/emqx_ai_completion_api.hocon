@@ -1,0 +1,27 @@
+emqx_ai_completion_api {
+
+ai_credentials_list.desc:
+"""List AI provider credentials."""
+
+ai_credentials_create.desc:
+"""Create credential entry for an AI provider."""
+
+ai_credentials_update.desc:
+"""Update credential entry for an AI provider."""
+
+ai_credentials_delete.desc:
+"""Delete credential entry for an AI provider."""
+
+ai_completion_profiles_list.desc:
+"""List all AI completion profiles."""
+
+ai_completion_profiles_create.desc:
+"""Create AI completion profile."""
+
+ai_completion_profiles_update.desc:
+"""Update AI completion profile."""
+
+ai_completion_profiles_delete.desc:
+"""Delete AI completion profile"""
+
+}
