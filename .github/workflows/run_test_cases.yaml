@@ -60,13 +60,13 @@ jobs:
         # produces proper.coverdata
       - run: make proper
 
-      - run: make cover
-
-      - name: send to coveralls
-        if: github.repository == 'emqx/emqx'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make coveralls
+      # upload coverdata as artifact
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: coverdata-${{ matrix.profile }}-eunit-proper
+          path: _build/test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 1
 
       - run: cat rebar3.crashdump || true
         if: failure()
@@ -116,11 +116,12 @@ jobs:
         run: |
           docker exec -e PROFILE="$PROFILE" -t erlang make cover
 
-      - name: send to coveralls
-        if: github.repository == 'emqx/emqx'
-        run: |
-          ls _build/test/cover/*.coverdata || exit 0
-          docker exec -e PROFILE="$PROFILE" -t erlang make coveralls
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
+          path: _build/test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 1
 
       - name: rebar3.crashdump
         if: failure()
@@ -170,15 +171,12 @@ jobs:
       - name: run common tests
         run: make "${{ matrix.app }}-ct"
 
-      - run: make cover
-
-      - name: send to coveralls
-        if: github.repository == 'emqx/emqx'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ls _build/test/cover/*.coverdata || exit 0
-          make coveralls
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
+          path: _build/test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 1
 
       - run: cat rebar3.crashdump || true
         if: failure()
@@ -200,20 +198,44 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ubuntu-22.04
+    runs-on: 'ubuntu-22.04'
     strategy:
       fail-fast: false
+    container: ${{ inputs.builder }}
 
     permissions:
       pull-requests: write
 
     steps:
-      - name: Coveralls finished
-        if: github.repository == 'emqx/emqx'
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+      # download emqx-enterprise source code
+      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
-          parallel-finished: true
-          git-branch: ${{ github.ref }}
-          git-commit: ${{ github.sha }}
-
-      - run: echo "All tests passed"
+          name: emqx-enterprise
+      - name: extract artifact
+        run: |
+          unzip -o -q emqx-enterprise.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # download coverdata artifacts
+      - name: download coverdata
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        with:
+          pattern: 'coverdata-*'
+      - name: extract coverdata and move to _build/test/cover/
+        shell: bash
+        run: |
+          mkdir -p _build/test/cover/
+          # Find and move coverdata files
+          coverdata_files=$(find . -name "*.coverdata")
+          echo "coverdata_files: $coverdata_files"
+          if [ -n "$coverdata_files" ]; then
+            while IFS= read -r file; do
+              mv "$file" _build/test/cover/
+            done <<< "$coverdata_files"
+          fi
+      - name: convert coverdata to cobertura
+        run: |
+          ./scripts/covertool-2.1.0-emqx-1 -cover _build/test/cover -appname emqx -lookup apps
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
