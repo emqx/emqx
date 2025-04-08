@@ -697,7 +697,6 @@ pmap_del(
     case maps:take(Key, Cache0) of
         {Val, Cache} ->
             Topic = emqx_persistent_session_ds_state_v2:pmap_topic(Name, SessionId, Key, Val),
-            ct:pal("OHAYO!! ~p", [Topic]),
             Pmap#pmap{
                 cache = Cache,
                 dirty = Dirty#{Key => {del, Topic}}
@@ -710,20 +709,9 @@ pmap_del(
 pmap_fold(Fun, Acc, #pmap{cache = Cache}) ->
     maps:fold(Fun, Acc, Cache).
 
--spec pmap_format(pmap(_K, _V)) -> map().
-pmap_format(#pmap{cache = Cache}) ->
-    Cache.
-
 -spec pmap_size(pmap(_K, _V)) -> non_neg_integer().
 pmap_size(#pmap{cache = Cache}) ->
     maps:size(Cache).
-
-%% exact_matcher(SessionId, Domain, IntK, ExpectedPayload) ->
-%%     #message_matcher{
-%%         from = SessionId,
-%%         topic = to_topic(Domain, SessionId, key_encode(Domain, IntK)),
-%%         payload = ExpectedPayload
-%%     }.
 
 %%
 
