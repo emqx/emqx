@@ -355,14 +355,8 @@ safe_atom(Atom) when is_atom(Atom) -> Atom.
 
 parse_opts(Conf, Opts0) ->
     Opts1 = emqx_resource:fetch_creation_opts(Conf),
-    Opts2 = maps:merge(Opts1, Opts0),
-    Opts = override_start_after_created(Conf, Opts2),
+    Opts = maps:merge(Opts1, Opts0),
     set_no_buffer_workers(Opts).
-
-override_start_after_created(Config, Opts) ->
-    Enabled = maps:get(enable, Config, true),
-    StartAfterCreated = Enabled andalso maps:get(start_after_created, Opts, Enabled),
-    Opts#{start_after_created => StartAfterCreated}.
 
 set_no_buffer_workers(Opts) ->
     Opts#{spawn_buffer_workers => false}.

@@ -121,6 +121,8 @@ rabbitmq_action(TestCase, Exchange) ->
                     },
                     <<"resource_opts">> => #{
                         <<"health_check_interval">> => <<"1s">>,
+                        <<"metrics_flush_interval">> => <<"500ms">>,
+                        <<"request_ttl">> => <<"2s">>,
                         <<"inflight_window">> => 1
                     }
                 }
@@ -348,8 +350,11 @@ t_action_not_exist_exchange(_Config) ->
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
+    ct:pal("waiting for alarms"),
     waiting_for_disconnected_alarms(InstanceId),
+    ct:pal("waiting for dropped counts"),
     waiting_for_dropped_count(InstanceId),
+    ct:pal("done"),
     #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
     %% dropped + 1
     ?assertMatch(
@@ -485,48 +490,38 @@ t_action_dynamic(Config) ->
     ok.
 
 waiting_for_disconnected_alarms(InstanceId) ->
-    waiting_for_disconnected_alarms(InstanceId, 0).
-
-waiting_for_disconnected_alarms(_InstanceId, 200) ->
-    throw(not_receive_disconnect_alarm);
-waiting_for_disconnected_alarms(InstanceId, Count) ->
-    case emqx_alarm:get_alarms(activated) of
-        [] ->
-            ct:sleep(100),
-            waiting_for_disconnected_alarms(InstanceId, Count + 1);
-        [Alarm] ->
-            ?assertMatch(
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            [
                 #{
                     message :=
                         <<"resource down: #{error => not_connected,status => disconnected}">>,
                     name := InstanceId
-                },
-                Alarm
-            )
-    end.
+                }
+            ],
+            emqx_alarm:get_alarms(activated)
+        )
+    ).
 
 waiting_for_dropped_count(InstanceId) ->
-    waiting_for_dropped_count(InstanceId, 0).
-
-waiting_for_dropped_count(_InstanceId, 400) ->
-    throw(not_receive_dropped_count);
-waiting_for_dropped_count(InstanceId, Count) ->
-    #{
-        counters := #{
-            dropped := Dropped,
-            success := 0,
-            matched := 1,
-            failed := 0,
-            received := 0
-        }
-    } = emqx_resource:get_metrics(InstanceId),
-    case Dropped of
-        1 ->
-            ok;
-        0 ->
-            ct:sleep(400),
-            waiting_for_dropped_count(InstanceId, Count + 1)
-    end.
+    ?retry(
+        400,
+        10,
+        ?assertMatch(
+            #{
+                counters := #{
+                    dropped := 1,
+                    success := 0,
+                    matched := 1,
+                    failed := 0,
+                    received := 0
+                }
+            },
+            emqx_resource:get_metrics(InstanceId)
+        )
+    ).
 
 receive_messages(Count) ->
     receive_messages(Count, []).

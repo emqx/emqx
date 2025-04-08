@@ -589,10 +589,11 @@ combine_connector_and_bridge_v2_config(
         ConnectorConfig ->
             ConnectorCreationOpts = emqx_resource:fetch_creation_opts(ConnectorConfig),
             BridgeV2CreationOpts = emqx_resource:fetch_creation_opts(BridgeV2Config),
-            CombinedCreationOpts = emqx_utils_maps:deep_merge(
+            CombinedCreationOpts0 = emqx_utils_maps:deep_merge(
                 ConnectorCreationOpts,
                 BridgeV2CreationOpts
             ),
+            CombinedCreationOpts = remove_connector_only_resource_opts(CombinedCreationOpts0),
             BridgeV2Config#{resource_opts => CombinedCreationOpts}
     catch
         _:_ ->
@@ -604,6 +605,9 @@ combine_connector_and_bridge_v2_config(
                 connector_name => ConnectorName
             }}
     end.
+
+remove_connector_only_resource_opts(ResourceOpts) ->
+    maps:without([start_after_created, start_timeout], ResourceOpts).
 
 %%====================================================================
 %% Operations
@@ -1182,10 +1186,10 @@ pre_config_update([ConfRootKey, Type, Name], Conf = #{}, _OldConf) when
     convert_from_connector(ConfRootKey, Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
-pre_config_update([ConfRootKey], Conf = #{}, _OldConfs) when
+pre_config_update([ConfRootKey], Conf = #{}, OldConfs) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    {ok, convert_from_connectors(ConfRootKey, Conf)}.
+    {ok, convert_from_connectors(ConfRootKey, Conf, OldConfs)}.
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
@@ -2043,13 +2047,15 @@ referenced_connectors_exist(BridgeType, ConnectorNameBin, BridgeName) ->
             ok
     end.
 
-convert_from_connectors(ConfRootKey, Conf) ->
+convert_from_connectors(ConfRootKey, Conf, OldRootConfig) ->
     maps:map(
         fun(ActionType, Actions) ->
             maps:map(
                 fun(ActionName, Action0) ->
                     Action1 = ensure_created_at(Action0),
-                    Action = ensure_last_modified_at(Action1),
+                    Action = ensure_last_modified_at(
+                        Action1, ActionType, ActionName, OldRootConfig
+                    ),
                     case convert_from_connector(ConfRootKey, ActionType, ActionName, Action) of
                         {ok, NewAction} -> NewAction;
                         {error, _} -> Action
@@ -2079,6 +2085,16 @@ convert_from_connector(ConfRootKey, Type, Name, Action = #{<<"connector">> := Co
 
 ensure_last_modified_at(RawConfig) ->
     RawConfig#{<<"last_modified_at">> => now_ms()}.
+
+ensure_last_modified_at(ChannelRawConfig, Type, Name, OldRootRawConfig) ->
+    case emqx_utils_maps:deep_get([Type, Name], OldRootRawConfig, undefined) of
+        #{<<"last_modified_at">> := _} = ChannelRawConfig ->
+            %% No changes
+            ChannelRawConfig;
+        _ ->
+            %% New config contains changes, or config lacks modification date
+            ensure_last_modified_at(ChannelRawConfig)
+    end.
 
 ensure_created_at(RawConfig) when is_map_key(<<"created_at">>, RawConfig) ->
     RawConfig;
