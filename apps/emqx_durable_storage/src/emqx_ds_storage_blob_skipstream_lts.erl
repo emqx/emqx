@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -141,6 +141,23 @@
     hash :: binary()
 }).
 
+%% Loop context:
+-record(ctx, {
+    shard,
+    %% Generation runtime state:
+    s,
+    %% Fold function:
+    f,
+    %% RocksDB iterators:
+    iters,
+    %% Cached topic structure for the static index:
+    topic_structure,
+    %% Effective master hash bitsize:
+    master_hash_bits,
+    %% Compressed topic filter, split into words:
+    filter
+}).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -258,10 +275,9 @@ cook_blob_deletes2(DBShard, S, TS, It0, Acc0) ->
     %% batch when iteration ends, something we don't care about
     IsCurrent = true,
     %% Blobs don't have a timestamp, we can use any value here:
-    TMax = ?max_ts - 1,
     %% TODO: there's a lot of back and forth with unnecesary enriching
     %% the messages, compressing and decompressing the topics.
-    case next(DBShard, S, It0, 100, TMax, IsCurrent) of
+    case next(DBShard, S, It0, 100, IsCurrent) of
         {ok, _It, []} ->
             Acc0;
         {ok, It, L} ->
@@ -518,21 +534,39 @@ iterator_match_context(_Shard, GenData, Iterator) ->
             emqx_topic:match(CT, CTF)
     end.
 
-next(ShardId = {_DB, Shard}, S, ItSeed, BatchSize, TMax, IsCurrent) ->
+next(DBShard, S, ItSeed, BatchSize, IsCurrent, _TMax) ->
+    Acc0 = [],
+    Result =
+        fold(
+            DBShard,
+            S,
+            ItSeed,
+            BatchSize,
+            Acc0,
+            fun(Ctx, _DSKey, CompressedTopic, Val, Acc) ->
+                Topic = emqx_ds_lts:decompress_topic(Ctx#ctx.topic_structure, CompressedTopic),
+                [{Topic, Val} | Acc]
+            end
+        ),
+    case Result of
+        {ok, It, []} when not IsCurrent ->
+            {ok, end_of_stream};
+        {ok, It, Batch} ->
+            {ok, It, Batch};
+        {error, EC, Err} ->
+            {error, EC, Err}
+    end.
+
+fold(DBShard = {_DB, Shard}, S, ItSeed, BatchSize, Acc0, Fun) ->
     init_counters(),
     {Snapshot, PerLevelIterators} = init_iterators(S, ItSeed),
     %% ?tp(notice, skipstream_init_iters, #{it => It, its => Iterators}),
     try
-        case start_next_loop(Shard, S, ItSeed, PerLevelIterators, BatchSize, TMax) of
-            {ok, _, []} when not IsCurrent ->
-                {ok, end_of_stream};
-            Result ->
-                Result
-        end
+        start_fold_loop(Shard, S, ItSeed, PerLevelIterators, BatchSize, Acc0, Fun)
     after
         free_iterators(PerLevelIterators),
         rocksdb:release_snapshot(Snapshot),
-        collect_counters(ShardId)
+        collect_counters(DBShard)
     end.
 
 delete_next(Shard, S, It0, Selector, BatchSize, Now, IsCurrent) ->
@@ -575,23 +609,6 @@ lookup_message(
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-%% Loop context:
--record(ctx, {
-    shard,
-    %% Generation runtime state
-    s,
-    %% RocksDB iterators:
-    iters,
-    %% Cached topic structure for the static index:
-    topic_structure,
-    %% Maximum time:
-    max_key,
-    %% Effective master hash bitsize:
-    master_hash_bits,
-    %% Compressed topic filter, split into words:
-    filter
-}).
 
 get_streams(Trie, TopicFilter) ->
     lists:map(
@@ -638,7 +655,7 @@ batch_delete(S = #s{db = DB, data_cf = CF, hash_bytes = HashBytes}, It, Selector
                 {Acc, WildcardIdx + 1}
         end,
         {[], 1},
-        words(CompressedTF)
+        CompressedTF
     ),
     KeyFamily = [{0, <<>>} | Indices],
     {ok, Batch} = rocksdb:batch(),
@@ -680,7 +697,7 @@ do_delete(CF, Batch, MHB, Static, KeyFamily, MsgKey) ->
 %% @doc Init iterators per level, order is important: e.g. [L1, L2, L3, L0].
 init_iterators(S, #it{static_index = Static, compressed_tf = CompressedTF}) ->
     {ok, Snapshot} = rocksdb:snapshot(S#s.db),
-    {Snapshot, do_init_iterators(S, Snapshot, Static, words(CompressedTF), 1)}.
+    {Snapshot, do_init_iterators(S, Snapshot, Static, CompressedTF, 1)}.
 
 do_init_iterators(S, Snapshot, Static, ['#'], WildcardLevel) ->
     do_init_iterators(S, Snapshot, Static, [], WildcardLevel);
@@ -689,7 +706,7 @@ do_init_iterators(S, Snapshot, Static, ['+' | TopicFilter], WildcardLevel) ->
     do_init_iterators(S, Snapshot, Static, TopicFilter, WildcardLevel + 1);
 do_init_iterators(S, Snapshot, Static, [Constraint | TopicFilter], WildcardLevel) ->
     %% Create iterator for the index stream:
-    #s{hash_bytes = HashBytes, db = DB, data_cf = DataCF} = S,
+    #s{db = DB, data_cf = DataCF} = S,
     Hash = hash_topic_level(HashBytes, Constraint),
     {ok, ItHandle} = rocksdb:iterator(
         DB, DataCF, get_key_range(Snapshot, Static, WildcardLevel, Hash)
@@ -713,13 +730,14 @@ do_init_iterators(S, Snapshot, Static, [], _WildcardLevel) ->
         }
     ].
 
-start_next_loop(
+start_fold_loop(
     Shard,
     S = #s{trie = Trie},
     ItSeed = #it{static_index = StaticIdx, last_key = LSK, compressed_tf = CompressedTF},
     PerLevelIterators,
     BatchSize,
-    TMax
+    Acc,
+    Fun
 ) ->
     %% cache it?
     TopicStructure = get_topic_structure(Trie, StaticIdx),
@@ -727,14 +745,13 @@ start_next_loop(
     Ctx = #ctx{
         shard = Shard,
         s = S,
+        f = Fun,
         iters = PerLevelIterators,
         topic_structure = TopicStructure,
-        filter = words(CompressedTF),
-        %stream_key(TMax + 1, 0, MHB),
-        max_key = undefined,
+        filter = CompressedTF,
         master_hash_bits = MHB
     },
-    next_loop(Ctx, ItSeed, BatchSize, {seek, inc_stream_key(LSK, MHB)}, []).
+    fold_loop(Ctx, ItSeed, BatchSize, {seek, inc_stream_key(LSK, MHB)}, Acc).
 
 get_topic_structure(Trie, StaticIdx) ->
     case emqx_ds_lts:reverse_lookup(Trie, StaticIdx) of
@@ -747,46 +764,34 @@ get_topic_structure(Trie, StaticIdx) ->
             })
     end.
 
-next_loop(_Ctx, It, 0, _Op, Acc) ->
-    finalize_loop(It, Acc);
-next_loop(Ctx, It0, BatchSize, Op, Acc) ->
+fold_loop(_Ctx, It, 0, _Op, Acc) ->
+    {ok, It, Acc};
+fold_loop(Ctx, It0, BatchSize, Op, Acc) ->
     %% ?tp(notice, skipstream_loop, #{
     %%     ts => It0#it.ts, tf => It0#it.compressed_tf, bs => BatchSize, tmax => TMax, op => Op
     %% }),
-    #ctx{s = S, max_key = MaxSK, master_hash_bits = MHB, iters = Iterators} = Ctx,
+    #ctx{s = S, f = Fun, master_hash_bits = MHB, iters = Iterators} = Ctx,
     #it{static_index = StaticIdx, compressed_tf = CompressedTF} = It0,
     %% Note: `next_step' function destructively updates RocksDB
     %% iterators in `ctx.iters' (they are handles, not values!),
     %% therefore a recursive call with the same arguments is not a
     %% bug.
-    case next_step(S, StaticIdx, MHB, CompressedTF, Iterators, any, Op) of
+    case fold_step(S, StaticIdx, MHB, CompressedTF, Iterators, any, Op) of
         none ->
             %% ?tp(notice, skipstream_loop_result, #{r => none}),
             inc_counter(?DS_SKIPSTREAM_LTS_EOS),
-            finalize_loop(It0, Acc);
-        {seek, SK} when SK >= MaxSK ->
-            %% ?tp(notice, skipstream_loop_result, #{r => seek_future, ts => TS}),
-            inc_counter(?DS_SKIPSTREAM_LTS_FUTURE),
-            finalize_loop(It0, Acc);
-        {ok, SK, _Key, _Msg0} when SK >= MaxSK ->
-            %% ?tp(notice, skipstream_loop_result, #{r => ok_future, ts => TS, key => _Key}),
-            inc_counter(?DS_SKIPSTREAM_LTS_FUTURE),
-            finalize_loop(It0, Acc);
+            {ok, It0, Acc};
         {seek, SK} ->
             %% ?tp(notice, skipstream_loop_result, #{r => seek, ts => TS}),
             It = It0#it{last_key = SK},
-            next_loop(Ctx, It, BatchSize, {seek, SK}, Acc);
-        {ok, SK, DSKey, Msg0} ->
+            fold_loop(Ctx, It, BatchSize, {seek, SK}, Acc);
+        {ok, SK, DSKey, CompressedTopic, Val} ->
             %% ?tp(notice, skipstream_loop_result, #{r => ok, ts => TS, key => Key}),
-            Message = enrich(Ctx, DSKey, Msg0),
             It = It0#it{last_key = SK},
-            next_loop(Ctx, It, BatchSize - 1, next, [{DSKey, Message} | Acc])
+            fold_loop(Ctx, It, BatchSize - 1, next, Fun(Ctx, DSKey, CompressedTopic, Val, Acc))
     end.
 
-finalize_loop(It, Acc) ->
-    {ok, It, lists:reverse(Acc)}.
-
-next_step(
+fold_step(
     S,
     StaticIdx,
     MHB,
@@ -828,19 +833,11 @@ next_step(
                             %% This is data stream as well. Check
                             %% message for hash collisions and return
                             %% value:
-                            Msg0 = deserialize(S, Blob),
-                            VerifyVarying =
-                                case Msg0 of
-                                    #message{topic = TTV} ->
-                                        emqx_topic:match(TTV, CompressedTF);
-                                    {TTV, _} ->
-                                        %% FIXME: don't "topic_word" it every time
-                                        emqx_topic:match(TTV, words(CompressedTF))
-                                end,
-                            case VerifyVarying of
+                            {CompressedTopic, Val} = deserialize(S, Blob),
+                            case emqx_topic:match(CompressedTopic, CompressedTF) of
                                 true ->
                                     inc_counter(?DS_SKIPSTREAM_LTS_HIT),
-                                    {ok, NextSK, Key, Msg0};
+                                    {ok, NextSK, Key, CompressedTopic, Val};
                                 false ->
                                     %% Hash collision. Advance to the
                                     %% next timestamp:
@@ -849,7 +846,7 @@ next_step(
                             end;
                         _ ->
                             %% This is index stream. Keep matching NextSK in other levels.
-                            next_step(
+                            fold_step(
                                 S, StaticIdx, MHB, CompressedTF, Iterators, NextSK, {seek, NextSK}
                             )
                     end;
@@ -887,24 +884,24 @@ free_iterators(Its) ->
 
 %%%%%%%% Indexes %%%%%%%%%%
 
-mk_index(Batch, CF, HashBytes, MHB, Static, Varying, Timestamp) ->
-    mk_index(Batch, CF, HashBytes, MHB, Static, Timestamp, 1, Varying).
+mk_index(Batch, CF, HashBytes, MHB, Static, Varying) ->
+    mk_index(Batch, CF, HashBytes, MHB, Static, 1, Varying).
 
-mk_index(Batch, CF, HashBytes, MHB, Static, Timestamp, N, [TopicLevel | Varying]) ->
-    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), Timestamp, MHB),
+mk_index(Batch, CF, HashBytes, MHB, Static, N, [TopicLevel | Varying]) ->
+    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), MHB),
     ok = rocksdb:batch_put(Batch, CF, Key, <<>>),
-    mk_index(Batch, CF, HashBytes, MHB, Static, Timestamp, N + 1, Varying);
-mk_index(_Batch, _CF, _HashBytes, _MHB, _Static, _Timestamp, _N, []) ->
+    mk_index(Batch, CF, HashBytes, MHB, Static, N + 1, Varying);
+mk_index(_Batch, _CF, _HashBytes, _MHB, _Static, _N, []) ->
     ok.
 
-delete_index(Batch, CF, HashBytes, MHB, Static, Varying, Timestamp) ->
-    delete_index(Batch, CF, HashBytes, MHB, Static, Timestamp, 1, Varying).
+delete_index(Batch, CF, HashBytes, MHB, Static, Varying) ->
+    delete_index(Batch, CF, HashBytes, MHB, Static, 1, Varying).
 
-delete_index(Batch, CF, HashBytes, MHB, Static, Timestamp, N, [TopicLevel | Varying]) ->
-    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), Timestamp, MHB),
+delete_index(Batch, CF, HashBytes, MHB, Static, N, [TopicLevel | Varying]) ->
+    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), MHB),
     ok = rocksdb:batch_delete(Batch, CF, Key),
-    delete_index(Batch, CF, HashBytes, MHB, Static, Timestamp, N + 1, Varying);
-delete_index(_Batch, _CF, _HashBytes, _MHB, _Static, _Timestamp, _N, []) ->
+    delete_index(Batch, CF, HashBytes, MHB, Static, N + 1, Varying);
+delete_index(_Batch, _CF, _HashBytes, _MHB, _Static, _N, []) ->
     ok.
 
 %%%%%%%% Keys %%%%%%%%%%
@@ -912,8 +909,8 @@ delete_index(_Batch, _CF, _HashBytes, _MHB, _Static, _Timestamp, _N, []) ->
 get_key_range(Snapshot, StaticIdx, WildcardIdx, Hash) ->
     %% NOTE: Assuming `?max_ts` is not a valid message timestamp.
     [
-        {iterate_lower_bound, mk_key(StaticIdx, WildcardIdx, Hash, 0, 0)},
-        {iterate_upper_bound, mk_key(StaticIdx, WildcardIdx, Hash, ?max_ts, 0)},
+        {iterate_lower_bound, mk_key(StaticIdx, WildcardIdx, Hash, 0)},
+        {iterate_upper_bound, mk_key(StaticIdx, WildcardIdx, Hash, 0)},
         {snapshot, Snapshot}
     ].
 
