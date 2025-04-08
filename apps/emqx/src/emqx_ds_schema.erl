@@ -7,7 +7,7 @@
 
 %% API:
 -export([schema/0, db_schema/1, db_schema/2]).
--export([db_config/1]).
+-export([db_config/1, session_config/0]).
 
 %% Internal exports:
 -export([translate_builtin_raft/1, translate_builtin_local/1]).
@@ -43,6 +43,16 @@
 db_config(Path) ->
     ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
     apply(Module, Function, [ConfigTree]).
+
+-spec session_config() -> emqx_ds:create_db_opts().
+session_config() ->
+    %% FIXME:
+    #{
+        n_shards => 64,
+        n_sites => 1,
+        replication_options => #{},
+        replication_factor => 1
+    }.
 
 translate_builtin_raft(
     Backend = #{

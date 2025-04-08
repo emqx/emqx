@@ -768,6 +768,7 @@ trans(Opts = #{db := DB}, Fun) ->
 
 -spec tx_blob_write(topic(), binary()) -> ok.
 tx_blob_write(Topic, Value) ->
+    ct:pal("OHAYO))) ~p", [Topic]),
     case is_topic(Topic) andalso is_binary(Value) of
         true ->
             tx_push_op(?tx_ops_write, {Topic, Value});

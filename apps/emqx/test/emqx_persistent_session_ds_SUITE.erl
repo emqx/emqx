@@ -643,6 +643,47 @@ t_replay_deleted_generation(_Config) ->
         []
     ).
 
+t_session_state_fuzz(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_session_state_fuzz(_Config) ->
+    NTests = 100,
+    MaxSize = 100,
+    NCommandsFactor = 3,
+    Mod = emqx_persistent_session_ds_state_fuzzer,
+    ?run_prop(
+        #{
+            proper => #{
+                timeout => 30_000,
+                numtests => NTests,
+                max_size => MaxSize,
+                start_size => MaxSize,
+                max_shrinks => 0
+            }
+        },
+        ?FORALL(
+            Cmds,
+            proper_statem:more_commands(
+                NCommandsFactor,
+                commands(Mod)
+            ),
+            try
+                %% Initialize the system and run commands:
+                Mod:init(self()),
+                {_History, State, Result} = run_commands(
+                    emqx_persistent_session_ds_state_fuzzer, Cmds
+                ),
+                %% Print debug information:
+                ct:pal("*** Result:~n~p", [Result]),
+                ct:pal("*** Model state:~n~p", [State]),
+                ct:pal("*** SUT cache:~n~p", [Mod:sut_state()]),
+                ct:pal("*** DB state:~n~p", [emqx_ds:dirty_read(sessions, ['#'])]),
+                Result =:= ok
+            after
+                Mod:clean()
+            end
+        )
+    ).
+
 t_fuzz(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
 t_fuzz(_Config) ->
@@ -653,9 +694,9 @@ t_fuzz(_Config) ->
     %% values to avoid blowing up CI. Hence it's recommended to
     %% increase the max_size and numtests when doing local
     %% development:
-    NTests = 10,
-    MaxSize = 100,
-    NCommandsFactor = 1,
+    NTests = 100,
+    MaxSize = 300,
+    NCommandsFactor = 3,
     ?run_prop(
         #{
             proper => #{
@@ -691,6 +732,10 @@ t_fuzz(_Config) ->
                 ct:log(info, "*** Model state:~n  ~p~n", [State]),
                 ct:log(info, "*** Session state:~n  ~p~n", [
                     emqx_persistent_session_ds_fuzzer:sut_state()
+                ]),
+                %% TODO: this is for debugging, remove:
+                ct:log(info, "*** Persistent session DB:~n  ~p~n", [
+                    emqx_ds:dirty_read(sessions, ['#'])
                 ]),
                 ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)

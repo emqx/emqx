@@ -86,10 +86,7 @@
 
 %% session table operations
 -export([sync/1]).
--ifndef(STORE_STATE_IN_DS).
 -export([create_tables/0]).
-%% END ifndef(STORE_STATE_IN_DS).
--endif.
 
 %% internal export used by session GC process
 -export([destroy_session/1]).
@@ -256,7 +253,7 @@
     session().
 create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     State = ensure_new_session_state(ClientID, ClientInfo, ConnInfo, MaybeWillMsg),
-    create_session(true, ClientID, State, ConnInfo, Conf).
+    create_session(new, ClientID, State, ConnInfo, Conf).
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
@@ -272,7 +269,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         false ->
             false;
         State ->
-            Session = create_session(false, ClientID, State, ConnInfo, Conf),
+            Session = create_session(takeover, ClientID, State, ConnInfo, Conf),
             {true, do_expire(ClientInfo, Session), []}
     end.
 
@@ -880,7 +877,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
-    _ = commit(Session#{s := S}, #{terminate => true}),
+    _ = commit(Session#{s := S}, #{lifetime => terminate}),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
@@ -934,11 +931,8 @@ get_client_subscription(ClientID, TopicFilter) ->
 %% Session tables operations
 %%--------------------------------------------------------------------
 
--ifndef(STORE_STATE_IN_DS).
 create_tables() ->
-    emqx_persistent_session_ds_state:create_tables().
-%% END ifndef(STORE_STATE_IN_DS).
--endif.
+    emqx_persistent_session_ds_state:open_db(emqx_ds_schema:session_config()).
 
 %% @doc Force commit of the transient state to persistent storage
 sync(ClientID) ->
@@ -1354,27 +1348,27 @@ do_drain_buffer_of_stream(
 %%--------------------------------------------------------------------------------
 
 -spec create_session(
-    boolean(),
+    emqx_persistent_session_ds_state:lifetime(),
     emqx_types:clientid(),
     emqx_persistent_session_ds_state:t(),
     emqx_types:conninfo(),
     emqx_session:conf()
 ) -> session().
-create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
+create_session(Lifetime, ClientID, S0, ConnInfo, Conf) ->
     {S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:init(S0),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
     %% Create or init shared subscription state:
-    case IsNew of
-        false ->
+    case Lifetime of
+        new ->
+            S2 = S1,
+            SharedSubS = emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(ClientID));
+        _ ->
             {ok, S2, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
                 S1, shared_sub_opts(ClientID)
-            );
-        true ->
-            S2 = S1,
-            SharedSubS = emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(ClientID))
+            )
     end,
-    S = emqx_persistent_session_ds_state:commit(S2, #{ensure_new => IsNew}),
+    S = emqx_persistent_session_ds_state:commit(S2, #{lifetime => Lifetime}),
     #{
         id => ClientID,
         s => S,
@@ -1780,7 +1774,7 @@ maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
         #{} = SubState ->
             {SRS, SubState};
         undefined ->
-            error({unknown_state_id, SRS})
+            error({unknown_state_id, SRS, S})
     end.
 
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
@@ -1802,10 +1796,10 @@ set_timer(Timer, Time, Session) ->
 %%--------------------------------------------------------------------
 
 commit(Session) ->
-    commit(Session, _Opts = #{}).
+    commit(Session, _Opts = #{lifetime => up}).
 
 commit(Session = #{s := S0}, Opts) ->
-    ?tp(debug, ?sessds_commit, #{}),
+    ?tp(warning, ?sessds_commit, #{s => S0}),
     S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
     S = emqx_persistent_session_ds_state:commit(S1, Opts),
     cancel_state_commit_timer(Session#{s := S}).
