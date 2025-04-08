@@ -16,6 +16,6 @@
 introduced_in() ->
     "5.9.0".
 
--spec can_i_join(node(), node()) -> ok | {error, string()} | {badrpc, term()}.
+-spec can_i_join(node(), node()) -> ok | {error, string()}.
 can_i_join(SelfNode, PeerNode) ->
     erpc:call(PeerNode, emqx_cluster, can_i_join, [SelfNode]).
