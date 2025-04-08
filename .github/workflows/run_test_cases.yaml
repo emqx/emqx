@@ -68,7 +68,7 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           flags: 'eunit_and_proper'
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ secrets.CODECOV_TOKEN_PER_REPO }}
 
       - run: cat rebar3.crashdump || true
         if: failure()
@@ -122,7 +122,7 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           flags: ${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ secrets.CODECOV_TOKEN_PER_REPO }}
 
       - name: rebar3.crashdump
         if: failure()
@@ -179,7 +179,7 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           flags: ${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ secrets.CODECOV_TOKEN_PER_REPO }}
 
       - run: cat rebar3.crashdump || true
         if: failure()
