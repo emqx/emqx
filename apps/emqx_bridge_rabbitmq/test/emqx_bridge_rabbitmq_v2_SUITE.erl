@@ -17,6 +17,7 @@
 
 -import(emqx_bridge_rabbitmq_test_utils, [
     rabbit_mq_exchange/0,
+    rabbit_mq_default_exchange/0,
     rabbit_mq_routing_key/0,
     rabbit_mq_queue/0,
     rabbit_mq_host/0,
@@ -489,6 +490,59 @@ t_action_dynamic(Config) ->
 
     ok.
 
+t_action_use_default_exchange(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    create_action(?FUNCTION_NAME, Name, rabbit_mq_default_exchange()),
+    Actions = emqx_bridge_v2:list(actions),
+    Any = fun(#{name := BName}) -> BName =:= Name end,
+    ?assert(lists:any(Any, Actions), Actions),
+    Topic = <<"rabbit/use/default/exchange">>,
+    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+        #{
+            sql => <<"select * from \"", Topic/binary, "\"">>,
+            id => atom_to_binary(?FUNCTION_NAME),
+            actions => [<<"rabbitmq:", Name/binary>>],
+            description => <<"bridge_v2 send msg to rabbitmq action">>
+        }
+    ),
+    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, C1} = emqtt:start_link([{clean_start, true}]),
+    {ok, _} = emqtt:connect(C1),
+    Payload = payload(?FUNCTION_NAME),
+    PayloadBin = emqx_utils_json:encode(Payload),
+    {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
+    Msg = receive_message_from_rabbitmq(Config),
+    ?assertMatch(Payload, Msg),
+    ok = emqtt:disconnect(C1),
+    InstanceId = instance_id(actions, Name),
+    ?retry(
+        _Interval0 = 500,
+        _NAttempts0 = 10,
+        begin
+            #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
+            ?assertMatch(
+                #{
+                    dropped := 0,
+                    success := 1,
+                    matched := 1,
+                    failed := 0,
+                    received := 0
+                },
+                Counters
+            )
+        end
+    ),
+
+    ok = delete_action(Name),
+    ActionsAfterDelete = emqx_bridge_v2:list(actions),
+    ?assertNot(lists:any(Any, ActionsAfterDelete), ActionsAfterDelete),
+
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
 waiting_for_disconnected_alarms(InstanceId) ->
     ?retry(
         100,
@@ -543,8 +597,9 @@ payload() ->
     #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000}.
 
 payload(t_action_dynamic) ->
-    Payload = payload(),
-    Payload#{<<"e">> => rabbit_mq_exchange(), <<"r">> => rabbit_mq_routing_key()}.
+    (payload())#{<<"e">> => rabbit_mq_exchange(), <<"r">> => rabbit_mq_routing_key()};
+payload(t_action_use_default_exchange) ->
+    (payload())#{<<"e">> => rabbit_mq_default_exchange(), <<"r">> => rabbit_mq_queue()}.
 
 send_test_message_to_rabbitmq(Config) ->
     #{channel := Channel} = get_channel_connection(Config),
@@ -583,5 +638,7 @@ rabbit_mq_exchange(_) ->
 
 rabbit_mq_routing_key(t_action_dynamic) ->
     <<"${payload.r}">>;
+rabbit_mq_routing_key(t_action_use_default_exchange) ->
+    rabbit_mq_queue();
 rabbit_mq_routing_key(_) ->
     rabbit_mq_routing_key().
