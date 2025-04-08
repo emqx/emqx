@@ -4,15 +4,23 @@
 
 -module(emqx_ai_completion_config).
 
--include_lib("hocon/include/hocon.hrl").
-
 -behaviour(emqx_config_handler).
 
 -export([load/0, unload/0]).
 
 -export([pre_config_update/3, post_config_update/5]).
 
--export([get_credential/1, get_completion_profile/1]).
+-export([
+    get_credential/1,
+    get_completion_profile/1
+]).
+
+-export([
+    update_credentials_raw/1,
+    get_credentials_raw/0,
+    update_completion_profiles_raw/1,
+    get_completion_profiles_raw/0
+]).
 
 %%--------------------------------------------------------------------
 %% Definitions
@@ -28,7 +36,6 @@
 %% Types
 %%--------------------------------------------------------------------
 
--type config_path() :: list(atom()).
 -type raw_credential() :: map().
 -type raw_completion_profile() :: map().
 -type credential_name() :: binary().
@@ -46,8 +53,7 @@
     name := completion_profile_name(),
     type := ai_type(),
     credential := credential(),
-    system_prompt := binary(),
-    model := binary()
+    _ => _
 }.
 
 -type update_credentials_request() ::
@@ -67,8 +73,7 @@
     | credential_not_found.
 
 -type update_completion_profiles_error_reason() ::
-    credential_not_found
-    | duplicate_completion_profile_name
+    duplicate_completion_profile_name
     | completion_profile_credential_not_found
     | completion_profile_credential_type_mismatch
     | completion_profile_not_found.
@@ -106,11 +111,6 @@ unload() ->
 
 %% Config handler callbacks
 
--spec pre_config_update
-    (config_path(), update_credentials_request(), emqx_config:raw_config()) ->
-        {ok, emqx_config:raw_config()} | {error, update_credentials_error()};
-    (config_path(), update_completion_profiles_request(), emqx_config:raw_config()) ->
-        {ok, emqx_config:raw_config()} | {error, update_completion_profiles_error()}.
 %%
 %% Credential update
 %%
@@ -152,7 +152,10 @@ pre_config_update(
 ) ->
     case find_completion_profile(Name, OldProfiles) of
         {error, #{reason := completion_profile_not_found}} ->
-            {ok, OldProfiles ++ [Profile]};
+            maybe
+                ok ?= validate_completion_profile_add(Profile),
+                {ok, OldProfiles ++ [Profile]}
+            end;
         {ok, _} ->
             {error, #{
                 reason => duplicate_completion_profile_name,
@@ -183,11 +186,39 @@ pre_config_update(_Path, Request, _OldConf) ->
     }}.
 
 post_config_update(?CREDENTIAL_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
-    cache_credentials(NewConf);
+    ok = cache_credentials(NewConf);
 post_config_update(?COMPLETION_PROFILE_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
-    cache_completion_profiles(NewConf).
+    ok = cache_completion_profiles(NewConf).
 
 %% Config accessors
+
+-spec update_credentials_raw(update_credentials_request()) ->
+    ok
+    | {error, update_credentials_error()}
+    %% Unexpected emqx_conf errors
+    | {error, term()}.
+update_credentials_raw(Request) ->
+    wrap_config_update_error(
+        emqx_conf:update(?CREDENTIAL_CONFIG_PATH, Request, #{override_to => cluster})
+    ).
+
+-spec get_credentials_raw() -> [raw_credential()].
+get_credentials_raw() ->
+    emqx_config:get_raw([ai, credentials], []).
+
+-spec update_completion_profiles_raw(update_completion_profiles_request()) ->
+    ok
+    | {error, update_completion_profiles_error()}
+    %% Unexpected emqx_conf errors
+    | {error, term()}.
+update_completion_profiles_raw(Request) ->
+    wrap_config_update_error(
+        emqx_conf:update(?COMPLETION_PROFILE_CONFIG_PATH, Request, #{override_to => cluster})
+    ).
+
+-spec get_completion_profiles_raw() -> [raw_completion_profile()].
+get_completion_profiles_raw() ->
+    emqx_config:get_raw([ai, completion_profiles], []).
 
 -spec get_credential(credential_name()) -> {ok, credential()} | not_found.
 get_credential(Name) ->
@@ -201,10 +232,12 @@ get_credential(Name) ->
 -spec get_completion_profile(completion_profile_name()) -> {ok, completion_profile()} | not_found.
 get_completion_profile(Name) ->
     case persistent_term:get(?COMPLETION_PROFILE_PT_KEY, #{}) of
-        #{Name := #{credential := CredentialName} = CompletionProfile} ->
+        #{Name := #{credential_name := CredentialName} = CompletionProfile0} ->
             maybe
                 {ok, Credential} ?= get_credential(CredentialName),
-                {ok, CompletionProfile#{credential => Credential}}
+                CompletionProfile1 = maps:without([credential_name], CompletionProfile0),
+                CompletionProfile = CompletionProfile1#{credential => Credential},
+                {ok, CompletionProfile}
             end;
         _ ->
             not_found
@@ -253,7 +286,7 @@ validate_credential_update(OldCredential, _NewCredential) ->
 
 validate_credential_not_used(#{<<"name">> := Name} = _Credential) ->
     UsingProfiles = lists:filter(
-        fun(#{<<"credential">> := N}) -> N =:= Name end,
+        fun(#{<<"credential_name">> := N}) -> N =:= Name end,
         get_completion_profiles_raw()
     ),
     case UsingProfiles of
@@ -262,7 +295,7 @@ validate_credential_not_used(#{<<"name">> := Name} = _Credential) ->
         _ ->
             {error, #{
                 reason => credential_in_use,
-                credential => Name
+                credential_name => Name
             }}
     end.
 
@@ -287,7 +320,7 @@ validate_credential_presence(Credentials, CompletionProfiles) ->
     end.
 
 validate_credential_presence_for_profile(
-    #{<<"credential">> := Name, <<"type">> := Type, <<"name">> := ProfileName}, Credentials
+    #{<<"credential_name">> := Name, <<"type">> := Type, <<"name">> := ProfileName}, Credentials
 ) ->
     case find_credential(Name, Credentials) of
         {ok, #{<<"type">> := Type}} ->
@@ -297,24 +330,24 @@ validate_credential_presence_for_profile(
                 reason => completion_profile_credential_type_mismatch,
                 profile_name => ProfileName,
                 profile_type => Type,
-                credential => Name,
+                credential_name => Name,
                 credential_type => OtherType
             }};
-        {error, not_found} ->
+        {error, #{reason := credential_not_found}} ->
             {error, #{
                 reason => completion_profile_credential_not_found,
                 profile_name => ProfileName,
-                credential => Name
+                credential_name => Name
             }}
     end.
 
 validate_completion_profile_update(CompletionProfile) ->
     validate_credential_presence_for_profile(CompletionProfile, get_credentials_raw()).
 
-%% Completion profile management
+validate_completion_profile_add(CompletionProfile) ->
+    validate_credential_presence_for_profile(CompletionProfile, get_credentials_raw()).
 
-get_completion_profiles_raw() ->
-    emqx_config:get_raw([ai, completion_profiles], []).
+%% Completion profile management
 
 find_completion_profile(Name, Profiles) ->
     wrap_completion_profile_not_found(
@@ -344,9 +377,6 @@ wrap_completion_profile_not_found(_Name, Result) ->
 
 %% Credential management
 
-get_credentials_raw() ->
-    emqx_config:get_raw([ai, credentials], []).
-
 find_credential(Name, Credentials) ->
     wrap_credential_not_found(
         Name,
@@ -365,15 +395,24 @@ update_credential(Name, Credential, Credentials) ->
         update_by_key(<<"name">>, Name, Credential, Credentials)
     ).
 
+%% Helpers
+
 wrap_credential_not_found(Name, not_found) ->
     {error, #{
         reason => credential_not_found,
-        credential => Name
+        credential_name => Name
     }};
 wrap_credential_not_found(_Name, Result) ->
     Result.
 
-%% Helpers
+wrap_config_update_error({error, {pre_config_update, ?MODULE, Error}}) ->
+    {error, Error};
+wrap_config_update_error({error, {post_config_update, ?MODULE, Error}}) ->
+    {error, Error};
+wrap_config_update_error({error, Error}) ->
+    {error, Error};
+wrap_config_update_error({ok, #{config := _Config}}) ->
+    ok.
 
 find_by_key(Key, Value, Entries) ->
     MatchingEntries = lists:filter(fun(#{Key := V} = _Entry) -> V =:= Value end, Entries),
