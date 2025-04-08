@@ -589,10 +589,11 @@ combine_connector_and_bridge_v2_config(
         ConnectorConfig ->
             ConnectorCreationOpts = emqx_resource:fetch_creation_opts(ConnectorConfig),
             BridgeV2CreationOpts = emqx_resource:fetch_creation_opts(BridgeV2Config),
-            CombinedCreationOpts = emqx_utils_maps:deep_merge(
+            CombinedCreationOpts0 = emqx_utils_maps:deep_merge(
                 ConnectorCreationOpts,
                 BridgeV2CreationOpts
             ),
+            CombinedCreationOpts = remove_connector_only_resource_opts(CombinedCreationOpts0),
             BridgeV2Config#{resource_opts => CombinedCreationOpts}
     catch
         _:_ ->
@@ -604,6 +605,9 @@ combine_connector_and_bridge_v2_config(
                 connector_name => ConnectorName
             }}
     end.
+
+remove_connector_only_resource_opts(ResourceOpts) ->
+    maps:without([start_after_created, start_timeout], ResourceOpts).
 
 %%====================================================================
 %% Operations

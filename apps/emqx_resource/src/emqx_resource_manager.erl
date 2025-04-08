@@ -706,7 +706,9 @@ init({DataIn, Opts}) ->
     set_label(Data#data.id),
     ok = set_log_meta(Data),
     emqx_resource_cache_cleaner:add_cache(Data#data.id, self()),
-    case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
+    IsEnabled = maps:get(enable, Data#data.config, true),
+    StartAfterCreated = maps:get(start_after_created, Opts, IsEnabled),
+    case IsEnabled andalso StartAfterCreated of
         true ->
             %% init the cache so that lookup/1 will always return something
             UpdatedData = update_state(Data#data{status = ?status_connecting}),
