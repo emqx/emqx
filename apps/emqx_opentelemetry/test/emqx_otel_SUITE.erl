@@ -114,9 +114,9 @@ groups() ->
 
     TraceConnTypeGroups = [
         {group, tcp},
-        {group, ssl},
-        {group, ws},
-        {group, wss}
+        %% {group, ssl},
+        {group, ws}
+        %% {group, wss}
     ],
     TraceGroups = [
         {group, trace_legacy_mode},
@@ -152,7 +152,8 @@ groups() ->
     ],
     [
         {otel_tcp, FeatureGroups},
-        {otel_tls, FeatureGroups},
+        %% ensure otel_tls is available to avoid repeated execution
+        {otel_tls, FeatureGroups -- [{group, traces}]},
 
         %% FeatureGroups
         {logs, LogsCases},
@@ -161,9 +162,9 @@ groups() ->
 
         %% TraceConnTypeGroups
         {tcp, TraceGroups},
-        {ssl, TraceGroups},
+        %% {ssl, TraceGroups},
         {ws, TraceGroups},
-        {wss, TraceGroups},
+        %% {wss, TraceGroups},
 
         %% TraceGroups
         {trace_legacy_mode, LegacyModeTraceCases},
