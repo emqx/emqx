@@ -15,14 +15,14 @@ permissions:
 jobs:
   linux:
     if: github.repository_owner == 'emqx'
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
       matrix:
         profile:
-          - ['emqx', 'master']
-          - ['emqx', 'release-58']
+          - ['emqx-enterprise', 'master']
+          - ['emqx-enterprise', 'release-59']
         os:
           - ubuntu22.04
           - amzn2023
@@ -76,11 +76,12 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - emqx
+          - emqx-enterprise
         branch:
           - master
+          - release-59
         os:
-          - macos-14-arm64
+          - macos-15
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
