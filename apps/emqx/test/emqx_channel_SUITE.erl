@@ -513,13 +513,17 @@ t_quota_qos0(_) ->
 
     Metric = 'messages.dropped.quota_exceeded',
     M1 = emqx_metrics:val(Metric),
+    ParentMetric = 'messages.dropped',
+    M2 = emqx_metrics:val(ParentMetric),
     {ok, Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, Chann2} = emqx_channel:handle_in(Pub, Chann1),
     ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
+    ?assertEqual(M2 + 1, emqx_metrics:val(ParentMetric)),
     timer:sleep(1200),
     {ok, _} = emqx_channel:handle_in(Pub, Chann2),
     %% No longer exceeds quota
     ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
+    ?assertEqual(M2 + 1, emqx_metrics:val(ParentMetric)),
     ok.
 
 t_quota_qos1(_) ->

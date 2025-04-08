@@ -648,6 +648,7 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
             case QoS of
                 ?QOS_0 ->
+                    ok = emqx_metrics:inc('messages.dropped'),
                     ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
                     {ok, NChannel};
                 ?QOS_1 ->
