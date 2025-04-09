@@ -163,7 +163,8 @@ del_license_hook() ->
 
 do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
-        {ok, _License} ->
+        {ok, License} ->
+            ok = forbid_single_node_license_if_clusterd(License),
             Conf#{<<"key">> => Content};
         {error, Reason} ->
             erlang:throw(Reason)
@@ -182,6 +183,14 @@ do_update({setting, Setting0}, Conf) ->
 do_update(NewConf, _PrevConf) ->
     #{<<"key">> := NewKey} = NewConf,
     do_update({key, NewKey}, NewConf).
+
+forbid_single_node_license_if_clusterd(License) ->
+    case emqx_license_parser:is_single_node(License) andalso length(emqx:cluster_nodes(all)) > 1 of
+        true ->
+            throw(single_node_license_not_allowed_when_clusterd);
+        false ->
+            ok
+    end.
 
 %% Return 'true' if it is a client new to the cluster.
 %% A client is new when it cannot be found in session registry.

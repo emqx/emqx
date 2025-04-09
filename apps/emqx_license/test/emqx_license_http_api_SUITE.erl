@@ -42,12 +42,12 @@ end_per_suite(Config) ->
     emqx_license_test_lib:unmock_parser(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(Case, Config) ->
+    ?MODULE:Case({init, Config}).
 
-end_per_testcase(_TestCase, _Config) ->
-    ok = reset_license(),
-    ok.
+end_per_testcase(Case, Config) ->
+    ?MODULE:Case({'end', Config}),
+    ok = reset_license().
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -87,6 +87,10 @@ assert_untouched_license() ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+t_license_info({init, Config}) ->
+    Config;
+t_license_info({'end', _Config}) ->
+    ok;
 t_license_info(_Config) ->
     Res = request(get, uri(["license"]), []),
     ?assertMatch({ok, 200, _}, Res),
@@ -107,6 +111,10 @@ t_license_info(_Config) ->
     ),
     ok.
 
+t_set_default_license({init, Config}) ->
+    Config;
+t_set_default_license({'end', _Config}) ->
+    ok;
 t_set_default_license(_Config) ->
     NewKey = <<"default">>,
     Res = request(
@@ -120,6 +128,44 @@ t_set_default_license(_Config) ->
     ?assertMatch(#{<<"customer">> := _}, emqx_utils_json:decode(Payload)),
     ok.
 
+t_set_evaluation_license({init, Config}) ->
+    NewKey = <<"evaluation">>,
+    Res = request(
+        post,
+        uri(["license"]),
+        #{key => NewKey}
+    ),
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Payload} = Res,
+    ?assertMatch(#{<<"customer">> := _}, emqx_utils_json:decode(Payload)),
+    %% mock emqx:cluster_nodes/1 to return 2 nodes to test cluster mode
+    meck:new(emqx, [passthrough, no_history]),
+    meck:expect(emqx, cluster_nodes, fun(all) -> [node(), node()] end),
+    Config;
+t_set_evaluation_license({'end', _Config}) ->
+    meck:unload(emqx),
+    ok;
+t_set_evaluation_license(_Config) ->
+    %% do not allow setting to "default" license key or any community license key
+    Key1 = <<"default">>,
+    LType = integer_to_list(?COMMUNITY),
+    Key2 = emqx_license_test_lib:make_license(#{max_sessions => "100", license_type => LType}),
+    {ok, 400, Message1} = request(post, uri(["license"]), #{key => Key1}),
+    {ok, 400, Message2} = request(post, uri(["license"]), #{key => Key2}),
+    ?assertEqual(Message1, Message2),
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_REQUEST">>,
+            <<"message">> => <<"single_node_license_not_allowed_when_clusterd">>
+        },
+        emqx_utils_json:decode(Message1)
+    ),
+    ok.
+
+t_license_upload_key_success({init, Config}) ->
+    Config;
+t_license_upload_key_success({'end', _Config}) ->
+    ok;
 t_license_upload_key_success(_Config) ->
     NewKey = emqx_license_test_lib:make_license(#{max_sessions => "999"}),
     Res = request(
@@ -149,6 +195,10 @@ t_license_upload_key_success(_Config) ->
     ),
     ok.
 
+t_license_upload_key_bad_key({init, Config}) ->
+    Config;
+t_license_upload_key_bad_key({'end', _Config}) ->
+    ok;
 t_license_upload_key_bad_key(_Config) ->
     BadKey = <<"bad key">>,
     Res = request(
@@ -161,13 +211,17 @@ t_license_upload_key_bad_key(_Config) ->
     ?assertEqual(
         #{
             <<"code">> => <<"BAD_REQUEST">>,
-            <<"message">> => <<"Bad license key">>
+            <<"message">> => <<"Bad license key, see logs for more details">>
         },
         emqx_utils_json:decode(Payload)
     ),
     assert_untouched_license(),
     ok.
 
+t_license_upload_key_not_json({init, Config}) ->
+    Config;
+t_license_upload_key_not_json({'end', _Config}) ->
+    ok;
 t_license_upload_key_not_json(_Config) ->
     Res = request(
         post,
@@ -186,6 +240,10 @@ t_license_upload_key_not_json(_Config) ->
     assert_untouched_license(),
     ok.
 
+t_license_setting({init, Config}) ->
+    Config;
+t_license_setting({'end', _Config}) ->
+    ok;
 t_license_setting(_Config) ->
     %% get
     GetRes = request(get, uri(["license", "setting"]), []),
@@ -229,6 +287,10 @@ t_license_setting(_Config) ->
     ),
     ok.
 
+t_license_setting_updated_from_cli({init, Config}) ->
+    Config;
+t_license_setting_updated_from_cli({'end', _Config}) ->
+    ok;
 t_license_setting_updated_from_cli(_Config) ->
     %% update license from cli
     LicenseValue = binary_to_list(
@@ -238,6 +300,10 @@ t_license_setting_updated_from_cli(_Config) ->
     ?assertMatch(#{<<"max_sessions">> := 201}, request_dump()),
     ok.
 
+t_license_setting_bc({init, Config}) ->
+    Config;
+t_license_setting_bc({'end', _Config}) ->
+    ok;
 t_license_setting_bc(_Config) ->
     %% Create a BC license
     Key = emqx_license_test_lib:make_license(#{

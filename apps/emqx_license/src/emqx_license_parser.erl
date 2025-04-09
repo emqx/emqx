@@ -62,7 +62,8 @@
     expiry_date/1,
     max_sessions/1,
     max_uptime_seconds/1,
-    is_business_critical/1
+    is_business_critical/1,
+    is_single_node/1
 ]).
 
 %% for testing purpose
@@ -168,6 +169,12 @@ is_business_critical(#{module := Module, data := LicenseData}) ->
 is_business_critical(Key) when is_binary(Key) ->
     {ok, License} = parse(Key),
     is_business_critical(License).
+
+%% @doc Check if the license is a single node license.
+%% currently, community license = single node license.
+-spec is_single_node(license()) -> boolean().
+is_single_node(License) ->
+    license_type(License) =:= ?COMMUNITY.
 
 %%--------------------------------------------------------------------
 %% Private functions

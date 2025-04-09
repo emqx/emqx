@@ -237,10 +237,10 @@ check_license(#{license := License, start_time := StartTime} = _State) ->
     }.
 
 ensure_cluster_mode(License) ->
-    case emqx_license_parser:license_type(License) of
-        ?COMMUNITY ->
+    case emqx_license_parser:is_single_node(License) of
+        true ->
             ok = emqx_cluster:ensure_singleton_mode();
-        _ ->
+        false ->
             ok = emqx_cluster:ensure_normal_mode()
     end.
 

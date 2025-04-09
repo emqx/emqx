@@ -138,7 +138,12 @@ error_msg(Code, Msg) ->
                 },
                 #{tag => "LICENSE"}
             ),
-            {400, error_msg(?BAD_REQUEST, <<"Bad license key">>)};
+            Msg =
+                case is_atom(Error) orelse is_binary(Error) of
+                    true -> Error;
+                    false -> <<"Bad license key, see logs for more details">>
+                end,
+            {400, error_msg(?BAD_REQUEST, Msg)};
         {ok, _} ->
             ?SLOG(info, #{msg => "updated_license_key"}, #{tag => "LICENSE"}),
             {200, license_info()}
