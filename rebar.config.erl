@@ -9,7 +9,7 @@ do(Dir, CONFIG) ->
         <<".">> ->
             C1 = deps(CONFIG),
             Config = dialyzer(C1),
-            maybe_dump(Config ++ [{overrides, overrides()}] ++ coveralls() ++ config());
+            maybe_dump(Config ++ [{overrides, overrides()}] ++ config());
         _ ->
             CONFIG
     end.
@@ -132,8 +132,7 @@ plugins() ->
 
 test_plugins() ->
     [
-        {rebar3_proper, "0.12.1"},
-        {coveralls, {git, "https://github.com/emqx/coveralls-erl", {tag, "v2.2.0-emqx-5"}}}
+        {rebar3_proper, "0.12.1"}
     ].
 
 test_deps() ->
@@ -499,30 +498,6 @@ dialyzer(Config) ->
         Config,
         {dialyzer, NewDialyzerConfig}
     ).
-
-coveralls() ->
-    case {os:getenv("GITHUB_ACTIONS"), os:getenv("GITHUB_TOKEN")} of
-        {"true", Token} when is_list(Token) ->
-            Cfgs = [
-                {coveralls_repo_token, Token},
-                {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
-                {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
-                {coveralls_coverdata, "_build/test/cover/*.coverdata"},
-                {coveralls_parallel, true},
-                {coveralls_service_name, "github"}
-            ],
-            case
-                os:getenv("GITHUB_EVENT_NAME") =:= "pull_request" andalso
-                    string:tokens(os:getenv("GITHUB_REF"), "/")
-            of
-                [_, "pull", PRNO, _] ->
-                    [{coveralls_service_pull_request, PRNO} | Cfgs];
-                _ ->
-                    Cfgs
-            end;
-        _ ->
-            []
-    end.
 
 app_names() -> list_dir("apps").
 
