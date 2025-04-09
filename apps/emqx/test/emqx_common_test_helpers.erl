@@ -738,7 +738,8 @@ start_peer(Name, Opts) when is_map(Opts) ->
             Envs = [
                 {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
                 {"EMQX_NODE__COOKIE", Cookie},
-                {"EMQX_NODE__DATA_DIR", NodeDataDir}
+                {"EMQX_NODE__DATA_DIR", NodeDataDir},
+                {"EMQX_LICENSE__KEY", "evaluation"}
             ],
             emqx_cth_peer:start(Node, erl_flags(), Envs)
         end,
