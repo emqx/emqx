@@ -871,7 +871,7 @@ hocon_schema_fields(Module, StructName) ->
 namespace(Module) ->
     case hocon_schema:namespace(Module) of
         undefined -> Module;
-        NameSpace -> re:replace(to_bin(NameSpace), ":", "-", [global])
+        Namespace -> re:replace(to_bin(Namespace), ":", "-", [global])
     end.
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
