@@ -34,7 +34,7 @@ init_per_suite(Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [N1 | _] = Cluster,
-    Sites = [?ON(N, emqx_ds_replication_layer_meta:this_site()) || N <- Cluster],
+    Sites = [?ON(N, emqx_ds_builtin_raft_meta:this_site()) || N <- Cluster],
     ApiAuth = ?ON(N1, emqx_common_test_http:default_auth_header()),
     [{cluster, Cluster}, {sites, Sites}, {api_auth, ApiAuth} | Config].
 

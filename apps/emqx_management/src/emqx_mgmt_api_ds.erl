@@ -343,18 +343,18 @@ check_db_exists(Request, _ReqMeta) ->
     {ok, Request}.
 
 list_sites(get, _Params) ->
-    {200, emqx_ds_replication_layer_meta:sites()}.
+    {200, emqx_ds_builtin_raft_meta:sites()}.
 
 get_site(get, #{bindings := #{site := Site}}) ->
-    case lists:member(Site, emqx_ds_replication_layer_meta:sites()) of
+    case lists:member(Site, emqx_ds_builtin_raft_meta:sites()) of
         false ->
             ?NOT_FOUND(<<"Site not found: ", Site/binary>>);
         true ->
-            Node = emqx_ds_replication_layer_meta:node(Site),
+            Node = emqx_ds_builtin_raft_meta:node(Site),
             Shards = shards_of_site(Site),
             ?OK(#{
                 node => Node,
-                up => emqx_ds_replication_layer_meta:node_status(Node) == up,
+                up => emqx_ds_builtin_raft_meta:node_status(Node) == up,
                 shards => Shards
             })
     end.
@@ -369,7 +369,7 @@ get_db(get, #{bindings := #{ds := DB}}) ->
     }).
 
 db_replicas(get, #{bindings := #{ds := DB}}) ->
-    Replicas = emqx_ds_replication_layer_meta:db_sites(DB),
+    Replicas = emqx_ds_builtin_raft_meta:db_sites(DB),
     ?OK(Replicas);
 db_replicas(put, #{bindings := #{ds := DB}, body := Sites}) ->
     case update_db_sites(DB, Sites, rest) of
@@ -396,8 +396,8 @@ db_replica(delete, #{bindings := #{ds := DB, site := Site}}) ->
             ?BAD_REQUEST(400, Description)
     end.
 
--spec update_db_sites(emqx_ds:db(), [emqx_ds_replication_layer_meta:site()], rest | cli) ->
-    {ok, [emqx_ds_replication_layer_meta:site()]} | {error, _}.
+-spec update_db_sites(emqx_ds:db(), [emqx_ds_builtin_raft_meta:site()], rest | cli) ->
+    {ok, [emqx_ds_builtin_raft_meta:site()]} | {error, _}.
 update_db_sites(DB, Sites, Via) when is_list(Sites) ->
     ?SLOG(notice, #{
         msg => "durable_storage_rebalance_request",
@@ -405,12 +405,12 @@ update_db_sites(DB, Sites, Via) when is_list(Sites) ->
         sites => Sites,
         via => Via
     }),
-    meta_result_to_binary(emqx_ds_replication_layer_meta:assign_db_sites(DB, Sites));
+    meta_result_to_binary(emqx_ds_builtin_raft_meta:assign_db_sites(DB, Sites));
 update_db_sites(_, _, _) ->
     {error, <<"Bad type">>}.
 
--spec join(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) ->
-    {ok, unchanged | [emqx_ds_replication_layer_meta:site()]} | {error, _}.
+-spec join(emqx_ds:db(), emqx_ds_builtin_raft_meta:site(), rest | cli) ->
+    {ok, unchanged | [emqx_ds_builtin_raft_meta:site()]} | {error, _}.
 join(DB, Site, Via) ->
     ?SLOG(notice, #{
         msg => "durable_storage_join_request",
@@ -418,10 +418,10 @@ join(DB, Site, Via) ->
         site => Site,
         via => Via
     }),
-    meta_result_to_binary(emqx_ds_replication_layer_meta:join_db_site(DB, Site)).
+    meta_result_to_binary(emqx_ds_builtin_raft_meta:join_db_site(DB, Site)).
 
--spec leave(emqx_ds:db(), emqx_ds_replication_layer_meta:site(), rest | cli) ->
-    {ok, unchanged | [emqx_ds_replication_layer_meta:site()]} | {error, _}.
+-spec leave(emqx_ds:db(), emqx_ds_builtin_raft_meta:site(), rest | cli) ->
+    {ok, unchanged | [emqx_ds_builtin_raft_meta:site()]} | {error, _}.
 leave(DB, Site, Via) ->
     ?SLOG(notice, #{
         msg => "durable_storage_leave_request",
@@ -429,9 +429,9 @@ leave(DB, Site, Via) ->
         site => Site,
         via => Via
     }),
-    meta_result_to_binary(emqx_ds_replication_layer_meta:leave_db_site(DB, Site)).
+    meta_result_to_binary(emqx_ds_builtin_raft_meta:leave_db_site(DB, Site)).
 
--spec forget(emqx_ds_replication_layer_meta:site(), rest | cli) ->
+-spec forget(emqx_ds_builtin_raft_meta:site(), rest | cli) ->
     ok | {error, _}.
 forget(Site, Via) ->
     ?SLOG(warning, #{
@@ -439,21 +439,21 @@ forget(Site, Via) ->
         site => Site,
         via => Via
     }),
-    meta_result_to_binary(emqx_ds_replication_layer_meta:forget_site(Site)).
+    meta_result_to_binary(emqx_ds_builtin_raft_meta:forget_site(Site)).
 
 -spec shards_of_this_site() -> [sites_shard()].
 shards_of_this_site() ->
-    try emqx_ds_replication_layer_meta:this_site() of
+    try emqx_ds_builtin_raft_meta:this_site() of
         Site -> shards_of_site(Site)
     catch
         error:badarg -> []
     end.
 
--spec shards_of_site(emqx_ds_replication_layer_meta:site()) -> [sites_shard()].
+-spec shards_of_site(emqx_ds_builtin_raft_meta:site()) -> [sites_shard()].
 shards_of_site(Site) ->
     lists:flatmap(
         fun({DB, Shard}) ->
-            ShardInfo = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ShardInfo = emqx_ds_builtin_raft_meta:shard_info(DB, Shard),
             ReplicaSet = maps:get(replica_set, ShardInfo),
             TargetSet = maps:get(target_set, ShardInfo, #{}),
             TransitionSet = get_transition_set(ShardInfo),
@@ -482,7 +482,7 @@ shards_of_site(Site) ->
         [
             {DB, Shard}
          || DB <- dbs(),
-            Shard <- emqx_ds_replication_layer_meta:shards(DB)
+            Shard <- emqx_ds_builtin_raft_meta:shards(DB)
         ]
     ).
 
@@ -542,17 +542,17 @@ param_storage_id() ->
 
 example_site() ->
     try
-        emqx_ds_replication_layer_meta:this_site()
+        emqx_ds_builtin_raft_meta:this_site()
     catch
         _:_ ->
             <<"AFA18CB1C22F0157">>
     end.
 
 dbs() ->
-    [DB || DB <- emqx_ds_replication_layer_meta:dbs(), db_config(DB) =/= undefined].
+    [DB || DB <- emqx_ds_builtin_raft_meta:dbs(), db_config(DB) =/= undefined].
 
 db_config(DB) ->
-    case emqx_ds_replication_layer_meta:db_config(DB) of
+    case emqx_ds_builtin_raft_meta:db_config(DB) of
         Config = #{backend := _Builtin} ->
             Config;
         _ ->
@@ -562,7 +562,7 @@ db_config(DB) ->
 list_shards(DB) ->
     [
         begin
-            ShardInfo = emqx_ds_replication_layer_meta:shard_info(DB, Shard),
+            ShardInfo = emqx_ds_builtin_raft_meta:shard_info(DB, Shard),
             ReplicaSet = maps:get(replica_set, ShardInfo),
             Transitions = maps:get(transitions, ShardInfo, []),
             Replicas = maps:fold(
@@ -597,7 +597,7 @@ list_shards(DB) ->
                     }
             end
         end
-     || Shard <- emqx_ds_replication_layer_meta:shards(DB)
+     || Shard <- emqx_ds_builtin_raft_meta:shards(DB)
     ].
 
 meta_to_transition(add) -> joining;

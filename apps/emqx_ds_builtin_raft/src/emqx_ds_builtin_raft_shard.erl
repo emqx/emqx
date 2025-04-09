@@ -2,12 +2,21 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_replication_layer_shard).
+%% @doc Shard represents a collection of servers managing replicas of DS data,
+%% i.e. replica set of the shard. Each server is running an instance of Raft protocol.
+%% This module is responsible for both managing shard membership and local server
+%% lifecycle.
+%% Each DB shard runs a single shard server, if the local node is part of the
+%% current shard replica set.
+-module(emqx_ds_builtin_raft_shard).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 
-%% API:
--export([start_link/3]).
+%% Server API
+-export([
+    start_link/3,
+    server_info/2
+]).
 
 %% Static server configuration
 -export([
@@ -34,8 +43,7 @@
     add_local_server/2,
     drop_local_server/2,
     remove_server/3,
-    forget_server/3,
-    server_info/2
+    forget_server/3
 ]).
 
 -behaviour(gen_server).
@@ -71,6 +79,9 @@
 
 %%
 
+%% @doc Starts a local server, an Erlang process running an instance of Raft
+%% protocol for a single shard on this node. Together with other servers of the shard
+%% it forms a Raft consensus group.
 start_link(DB, Shard, Opts) ->
     gen_server:start_link(?MODULE, {DB, Shard, Opts}, []).
 
@@ -80,7 +91,7 @@ start_link(DB, Shard, Opts) ->
 %% cluster, but may at times be out-of-sync with the actual Ra cluster membership.
 -spec shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> [server()].
 shard_servers(DB, Shard) ->
-    ReplicaSet = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
+    ReplicaSet = emqx_ds_builtin_raft_meta:replica_set(DB, Shard),
     shard_servers(DB, Shard, ReplicaSet).
 
 shard_servers(DB, Shard, [Site | Rest]) ->
@@ -103,10 +114,10 @@ known_shard_servers(DB, Shard) ->
 -spec shard_server(
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
-    emqx_ds_replication_layer_meta:site()
+    emqx_ds_builtin_raft_meta:site()
 ) -> server() | undefined.
 shard_server(DB, Shard, Site) ->
-    case emqx_ds_replication_layer_meta:node(Site) of
+    case emqx_ds_builtin_raft_meta:node(Site) of
         Node when Node =/= undefined ->
             {server_name(DB, Shard, Site), Node};
         undefined ->
@@ -208,10 +219,10 @@ get_local_server(DB, Shard) ->
     memoize(fun local_server/2, [DB, Shard]).
 
 get_shard_servers(DB, Shard) ->
-    maps:get(servers, emqx_ds_replication_shard_allocator:shard_meta(DB, Shard)).
+    maps:get(servers, emqx_ds_builtin_raft_shard_allocator:shard_meta(DB, Shard)).
 
 local_site() ->
-    emqx_ds_replication_layer_meta:this_site().
+    emqx_ds_builtin_raft_meta:this_site().
 
 %%
 

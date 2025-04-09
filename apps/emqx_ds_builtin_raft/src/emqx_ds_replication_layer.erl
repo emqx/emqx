@@ -123,7 +123,7 @@
 
 -define(SHARD_RPC(DB, SHARD, NODE, BODY),
     case
-        emqx_ds_replication_layer_shard:servers(
+        emqx_ds_builtin_raft_shard:servers(
             DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
         )
     of
@@ -162,7 +162,7 @@
 -opaque stream_v1() ::
     #{
         ?tag := ?STREAM,
-        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?shard := shard_id(),
         ?enc := emqx_ds_storage_layer:stream_v1()
     }.
 
@@ -176,14 +176,14 @@
 -opaque iterator() ::
     #{
         ?tag := ?IT,
-        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?shard := shard_id(),
         ?enc := emqx_ds_storage_layer:iterator()
     }.
 
 -opaque delete_iterator() ::
     #{
         ?tag := ?DELETE_IT,
-        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?shard := shard_id(),
         ?enc := emqx_ds_storage_layer:delete_iterator()
     }.
 
@@ -224,7 +224,7 @@
 
 -spec list_shards(emqx_ds:db()) -> [shard_id()].
 list_shards(DB) ->
-    emqx_ds_replication_layer_meta:shards(DB).
+    emqx_ds_builtin_raft_meta:shards(DB).
 
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts0) ->
@@ -257,7 +257,7 @@ add_generation(DB, Since) ->
 
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
-    Opts = #{} = emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts),
+    Opts = #{} = emqx_ds_builtin_raft_meta:update_db_config(DB, CreateOpts),
     Since = emqx_ds:timestamp_us(),
     foreach_shard(
         DB,
@@ -299,7 +299,7 @@ drop_db(DB) ->
         {ok, _} = ra_drop_shard(DB, Shard)
     end),
     _ = emqx_ds_proto_v5:drop_db(list_nodes(), DB),
-    emqx_ds_replication_layer_meta:drop_db(DB).
+    emqx_ds_builtin_raft_meta:drop_db(DB).
 
 -spec store_batch(emqx_ds:db(), emqx_ds:batch(), emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
@@ -307,7 +307,7 @@ store_batch(DB, Batch = #dsbatch{preconditions = [_ | _]}, Opts) ->
     %% NOTE: Atomic batch is implied, will not check with DB config.
     store_batch_atomic(DB, Batch, Opts);
 store_batch(DB, Batch, Opts) ->
-    case emqx_ds_replication_layer_meta:db_config(DB) of
+    case emqx_ds_builtin_raft_meta:db_config(DB) of
         #{atomic_batches := true} ->
             store_batch_atomic(DB, Batch, Opts);
         #{} ->
@@ -506,7 +506,7 @@ foreach_shard(DB, Fun) ->
 
 %% @doc Messages have been replicated up to this timestamp on the
 %% local server
--spec current_timestamp(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> emqx_ds:time().
+-spec current_timestamp(emqx_ds:db(), shard_id()) -> emqx_ds:time().
 current_timestamp(DB, Shard) ->
     emqx_ds_builtin_raft_sup:get_gvar(DB, ?gv_timestamp(Shard), 0).
 
@@ -538,7 +538,7 @@ flush_buffer(DB, Shard, Messages, State) ->
     clientid | topic,
     _Options
 ) ->
-    emqx_ds_replication_layer:shard_id().
+    shard_id().
 shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Options) ->
     case SerializeBy of
         clientid -> Key = From;
@@ -554,7 +554,7 @@ shard_of_operation(DB, {_OpName, Matcher}, SerializeBy, _Options) ->
     shard_of(DB, Key).
 
 shard_of(DB, Key) ->
-    N = emqx_ds_replication_shard_allocator:n_shards(DB),
+    N = emqx_ds_builtin_raft_shard_allocator:n_shards(DB),
     Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
 
@@ -594,7 +594,7 @@ shards_of_batch(_DB, [], Acc) ->
 
 -spec do_drop_db_v1(emqx_ds:db()) -> ok | {error, _}.
 do_drop_db_v1(DB) ->
-    MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
+    MyShards = emqx_ds_builtin_raft_meta:my_shards(DB),
     emqx_ds_builtin_raft_sup:stop_db(DB),
     lists:foreach(
         fun(Shard) ->
@@ -605,7 +605,7 @@ do_drop_db_v1(DB) ->
 
 -spec do_store_batch_v1(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     batch(),
     emqx_ds:message_store_opts()
 ) ->
@@ -615,7 +615,7 @@ do_store_batch_v1(_DB, _Shard, _Batch, _Options) ->
 
 -spec do_get_streams_v2(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
@@ -629,7 +629,7 @@ do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
 
 -spec do_make_iterator_v2(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     emqx_ds_storage_layer:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
@@ -644,7 +644,7 @@ do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
 
 -spec do_make_delete_iterator_v4(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     emqx_ds_storage_layer:delete_stream(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
@@ -655,7 +655,7 @@ do_make_delete_iterator_v4(DB, Shard, Stream, TopicFilter, StartTime) ->
 
 -spec do_update_iterator_v2(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     emqx_ds_storage_layer:iterator(),
     emqx_ds:message_key()
 ) ->
@@ -665,7 +665,7 @@ do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
 
 -spec do_next_v1(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     emqx_ds_storage_layer:iterator(),
     pos_integer()
 ) ->
@@ -674,14 +674,12 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
         ShardId,
-        emqx_ds_storage_layer:next(
-            ShardId, Iter, BatchSize, emqx_ds_replication_layer:current_timestamp(DB, Shard)
-        )
+        emqx_ds_storage_layer:next(ShardId, Iter, BatchSize, current_timestamp(DB, Shard))
     ).
 
 -spec do_delete_next_v4(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    shard_id(),
     emqx_ds_storage_layer:delete_iterator(),
     emqx_ds:delete_selector(),
     pos_integer()
@@ -693,7 +691,7 @@ do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
         Iter,
         Selector,
         BatchSize,
-        emqx_ds_replication_layer:current_timestamp(DB, Shard)
+        current_timestamp(DB, Shard)
     ).
 
 -spec do_add_generation_v2(emqx_ds:db()) -> no_return().
@@ -716,7 +714,7 @@ do_drop_generation_v3(_DB, _ShardId, _GenId) ->
     error(obsolete_api).
 
 -spec do_get_delete_streams_v4(
-    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
+    emqx_ds:db(), shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     [emqx_ds_storage_layer:delete_stream()].
 do_get_delete_streams_v4(DB, Shard, TopicFilter, StartTime) ->
@@ -768,7 +766,7 @@ list_nodes() ->
 -define(RA_RELEASE_LOG_MIN_FREQ, 1_000).
 -endif.
 
--spec ra_store_batch(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:batch()) ->
+-spec ra_store_batch(emqx_ds:db(), shard_id(), emqx_ds:batch()) ->
     ok | {timeout, _} | emqx_ds:error(_).
 ra_store_batch(DB, Shard, Batch) ->
     case Batch of
@@ -784,8 +782,8 @@ ra_store_batch(DB, Shard, Batch) ->
                 ?batch_operations => Operations
             }
     end,
-    Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
-    case emqx_ds_replication_layer_shard:process_command(Servers, Command, ?RA_TIMEOUT) of
+    Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
+    case emqx_ds_builtin_raft_shard:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
         {timeout, _} = Timeout ->
@@ -814,7 +812,7 @@ ra_drop_generation(DB, Shard, GenId) ->
     ra_command(DB, Shard, Command, 10).
 
 ra_command(DB, Shard, Command, Retries) ->
-    Servers = emqx_ds_replication_layer_shard:servers(DB, Shard, leader_preferred),
+    Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
     case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
         {ok, Result, _Leader} ->
             Result;
@@ -914,7 +912,7 @@ ra_list_generations_with_lifetimes(DB, Shard) ->
     end.
 
 ra_drop_shard(DB, Shard) ->
-    ra:delete_cluster(emqx_ds_replication_layer_shard:shard_servers(DB, Shard), ?RA_TIMEOUT).
+    ra:delete_cluster(emqx_ds_builtin_raft_shard:shard_servers(DB, Shard), ?RA_TIMEOUT).
 
 %% Ra Machine implementation
 %%
@@ -1108,7 +1106,7 @@ assign_timestamps(DB, Latest, Messages) ->
 force_monotonic_timestamps(DB) ->
     case erlang:get(?pd_ra_force_monotonic) of
         undefined ->
-            DBConfig = emqx_ds_replication_layer_meta:db_config(DB),
+            DBConfig = emqx_ds_builtin_raft_meta:db_config(DB),
             Flag = maps:get(force_monotonic_timestamps, DBConfig, _Default = true),
             erlang:put(?pd_ra_force_monotonic, Flag);
         Flag ->
@@ -1149,7 +1147,7 @@ update_storage_raidx(DBShard, RaftIdx) ->
 try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
     %% NOTE
     %% Because cursor release means storage flush (see
-    %% `emqx_ds_replication_snapshot:write/3`), we should do that not too often
+    %% `emqx_ds_builtin_raft_server_snapshot:write/3`), we should do that not too often
     %% (so the storage is happy with L0 SST sizes) and not too rarely (so we don't
     %% accumulate huge Raft logs).
     case inc_bytes_need_release(BatchSize) of
@@ -1203,7 +1201,7 @@ reset_bytes_need_release() ->
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(TimeMs, #{db_shard := DBShard, latest := Latest}) ->
-    %% Leader = emqx_ds_replication_layer_shard:lookup_leader(DB, Shard),
+    %% Leader = emqx_ds_builtin_raft_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
     handle_custom_event(DBShard, Timestamp, ra_tick).
 
@@ -1244,7 +1242,7 @@ timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
 
 snapshot_module() ->
-    emqx_ds_replication_snapshot.
+    emqx_ds_builtin_raft_server_snapshot.
 
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).

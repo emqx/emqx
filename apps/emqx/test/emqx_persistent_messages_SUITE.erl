@@ -41,11 +41,12 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
+    ok = snabbkaffe:start_trace(),
     Cluster = cluster(),
     Nodes = emqx_cth_cluster:start(Cluster, #{
         work_dir => emqx_cth_suite:work_dir(TestCase, Config)
     }),
-    _ = wait_shards_online(Nodes),
+    emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, ?PERSISTENT_MESSAGE_DB),
     [{nodes, Nodes} | Config];
 init_per_testcase(t_message_gc = TestCase, Config) ->
     DurableSessonsOpts = #{<<"message_retention_period">> => <<"3s">>},
@@ -96,6 +97,7 @@ common_init_per_testcase(TestCase, Config, Opts0) ->
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
+    ok = snabbkaffe:stop(),
     ok = emqx_cth_cluster:stop(Nodes);
 end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
@@ -510,7 +512,7 @@ t_replication_options(_Config) ->
                 resend_window := 60
             }
         },
-        emqx_ds_replication_layer_meta:db_config(?PERSISTENT_MESSAGE_DB)
+        emqx_ds_builtin_raft_meta:db_config(?PERSISTENT_MESSAGE_DB)
     ),
     ?assertMatch(
         #{
@@ -598,13 +600,6 @@ cluster() ->
         {persistent_messages_SUITE1, Spec},
         {persistent_messages_SUITE2, Spec}
     ].
-
-wait_shards_online(Nodes = [Node | _]) ->
-    NShards = erpc:call(Node, emqx_ds_replication_layer_meta, n_shards, [?PERSISTENT_MESSAGE_DB]),
-    ?retry(500, 10, [?assertEqual(NShards, shards_online(N)) || N <- Nodes]).
-
-shards_online(Node) ->
-    length(erpc:call(Node, emqx_ds_builtin_raft_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),

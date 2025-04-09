@@ -986,7 +986,7 @@ ds(Cmd) ->
     end.
 
 do_ds(["info"]) ->
-    emqx_ds_replication_layer_meta:print_status(),
+    emqx_ds_builtin_raft_meta:print_status(),
     ok;
 do_ds(["set-replicas", DBStr | SitesStr]) ->
     case emqx_utils:safe_to_existing_atom(DBStr) of

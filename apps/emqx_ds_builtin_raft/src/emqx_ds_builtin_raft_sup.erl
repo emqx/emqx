@@ -110,7 +110,7 @@ init(?top) ->
     %% Children:
     MetadataServer = #{
         id => metadata_server,
-        start => {emqx_ds_replication_layer_meta, start_link, []},
+        start => {emqx_ds_builtin_raft_meta, start_link, []},
         restart => permanent,
         type => worker,
         shutdown => 5000
