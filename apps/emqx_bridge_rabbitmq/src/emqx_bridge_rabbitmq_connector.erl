@@ -388,7 +388,12 @@ publish_messages(
             ),
             case WaitForPublishConfirmations of
                 true ->
-                    case amqp_channel:wait_for_confirms(Channel, PublishConfirmationTimeout) of
+                    case
+                        amqp_channel:wait_for_confirms(
+                            Channel,
+                            {PublishConfirmationTimeout, millisecond}
+                        )
+                    of
                         true ->
                             ok;
                         false ->
