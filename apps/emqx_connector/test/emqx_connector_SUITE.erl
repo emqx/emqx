@@ -184,14 +184,20 @@ t_connector_lifecycle(_Config) ->
     ?assert(meck:validate(?CONNECTOR)),
     ?assertMatch(
         [
+            %% Creation
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            %% Disable
+            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
+            %% Enable (restart); it attempts to stop again
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            %% Update
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            %% Remove
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok}
         ],
         lists:filter(
