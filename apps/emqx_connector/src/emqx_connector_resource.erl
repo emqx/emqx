@@ -155,7 +155,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
     %% without restarting the connector.
     %%
     Conf = Conf0#{connector_type => bin(Type), connector_name => bin(Name)},
-    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
+    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf0) of
         false ->
             ?SLOG(info, #{
                 msg => "update connector",
@@ -179,7 +179,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
             end;
         true ->
             %% we don't need to recreate the connector if this config change is only to
-            %% toggole the config 'connector.{type}.{name}.enable'
+            %% toggle the config 'connector.{type}.{name}.enable'
             _ =
                 case maps:get(enable, Conf, true) of
                     true ->
