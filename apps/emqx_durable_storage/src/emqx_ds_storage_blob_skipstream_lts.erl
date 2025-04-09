@@ -89,10 +89,8 @@
 
 -type wildcard_hash() :: binary().
 
-%% Stream-level key.
--type stream_key() :: non_neg_integer().
-
--type n_bits() :: non_neg_integer().
+%% Stream-level key is the hash of all varying topic levels.
+-type stream_key() :: binary().
 
 %% Permanent state:
 -type schema() ::
@@ -116,6 +114,7 @@
     trie :: emqx_ds_lts:trie(),
     trie_cf :: rocksdb:cf_handle(),
     serialization_schema :: emqx_ds_msg_serializer:schema(),
+    hash_bytes :: pos_integer(),
     threshold_fun :: emqx_ds_lts:threshold_fun()
 }).
 
@@ -130,8 +129,7 @@
     %% Key of the last visited message:
     last_key :: stream_key(),
     %% Compressed topic filter:
-    compressed_tf :: binary(),
-    misc = []
+    compressed_tf :: binary()
 }).
 
 %% Level iterator:
@@ -155,7 +153,11 @@
     %% Effective master hash bitsize:
     master_hash_bits,
     %% Compressed topic filter, split into words:
-    filter
+    filter,
+    %% Ignore all keys that are less than this one. Can be `undefined'
+    %% in case of a fresh iterator. According to the term order, atom
+    %% is less than any binary.
+    min_key
 }).
 
 %%================================================================================
@@ -166,7 +168,7 @@
 %% behavior callbacks
 %%================================================================================
 
-create(_ShardId, DBHandle, GenId, Schema0, SPrev, DBOpts) ->
+create(_ShardId, DBHandle, GenId, Schema0, SPrev, _DBOpts) ->
     Defaults = #{
         wildcard_hash_bytes => 8,
         topic_index_bytes => 8,
@@ -210,6 +212,7 @@ open(
         trie_cf = TrieCF,
         trie = Trie,
         serialization_schema = SSchema,
+        hash_bytes = WCBytes,
         threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec)
     }.
 
@@ -270,33 +273,18 @@ cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
         get_streams(S#s.trie, TopicFilter)
     ).
 
-cook_blob_deletes2(DBShard, S, TS, It0, Acc0) ->
-    %% IsCurrent governs whether next returns `end_of_stream' or empty
-    %% batch when iteration ends, something we don't care about
-    IsCurrent = true,
-    %% Blobs don't have a timestamp, we can use any value here:
-    %% TODO: there's a lot of back and forth with unnecesary enriching
-    %% the messages, compressing and decompressing the topics.
-    case next(DBShard, S, It0, 100, IsCurrent) of
-        {ok, _It, []} ->
-            Acc0;
-        {ok, It, L} ->
-            #it{static_index = Static} = It,
-            Acc =
-                lists:foldl(
-                    fun({_DSKey, {Topic, _Blob}}, Acc) ->
-                        Varying = emqx_ds_lts:compress_topic(Static, TS, Topic),
-                        [?cooked_msg_op(Static, Varying, ?cooked_delete) | Acc]
-                    end,
-                    Acc0,
-                    L
-                ),
+cook_blob_deletes2(DBShard, S, TS, It0 = #it{static_index = Static}, Acc0) ->
+    Fun = fun(_Ctx, _DSKey, Varying, _Val, Acc) ->
+        [?cooked_msg_op(Static, Varying, ?cooked_delete) | Acc]
+    end,
+    case fold(DBShard, S, It0, 100, Acc0, Fun) of
+        {ok, It, Acc} ->
             cook_blob_deletes2(DBShard, S, TS, It, Acc)
     end.
 
 commit_batch(
     ShardId,
-    S = #s{db = DB, trie_cf = TrieCF, data_cf = DataCF, trie = Trie, hash_bytes = HashBytes},
+    #s{db = DB, trie_cf = TrieCF, data_cf = DataCF, trie = Trie, hash_bytes = HashBytes},
     #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations},
     Options
 ) ->
@@ -320,15 +308,14 @@ commit_batch(
         %% Commit payloads:
         lists:foreach(
             fun(?cooked_msg_op(Static, Varying, Op)) ->
-                MHB = master_hash_bits(S, Varying),
-                StreamKey = mk_stream_key(Varying, Timestamp, MHB),
-                MasterKey = mk_master_key(Static, StreamKey, MHB),
+                StreamKey = mk_stream_key(Varying),
+                MasterKey = mk_master_key(Static, StreamKey),
                 case Op of
                     Payload when is_binary(Payload) ->
                         ok = rocksdb:batch_put(Batch, DataCF, MasterKey, Payload),
-                        mk_index(Batch, DataCF, HashBytes, MHB, Static, Varying, StreamKey);
+                        mk_index(Batch, DataCF, HashBytes, Static, Varying, StreamKey);
                     ?cooked_delete ->
-                        delete_index(Batch, DataCF, HashBytes, MHB, Static, Varying, StreamKey),
+                        delete_index(Batch, DataCF, HashBytes, Static, Varying, StreamKey),
                         ok = rocksdb:batch_delete(Batch, DataCF, MasterKey)
                 end
             end,
@@ -357,9 +344,9 @@ batch_events(
 ) ->
     EventMap = lists:foldl(
         fun
-            (?cooked_msg_op(_Timestamp, _Static, _Varying, ?cooked_delete), Acc) ->
+            (?cooked_msg_op(_Static, _Varying, ?cooked_delete), Acc) ->
                 Acc;
-            (?cooked_msg_op(_Timestamp, Static, _Varying, _ValBlob), Acc) ->
+            (?cooked_msg_op(Static, _Varying, _ValBlob), Acc) ->
                 maps:put(#stream{static_index = Static}, 1, Acc)
         end,
         #{},
@@ -375,7 +362,7 @@ get_delete_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
 
 make_iterator(
     _Shard,
-    S = #s{store_blobs = true, trie = Trie},
+    #s{trie = Trie},
     #stream{static_index = StaticIdx},
     TopicFilter,
     _TS
@@ -385,8 +372,8 @@ make_iterator(
     }),
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    MHB = master_hash_bits(S, CompressedTF),
-    LastSK = dec_stream_key(stream_key(0, 0, MHB), MHB),
+    %% FIXME: this is sketchy
+    LastSK = undefined,
     {ok, #it{
         static_index = StaticIdx,
         last_key = LastSK,
@@ -395,11 +382,10 @@ make_iterator(
 
 message_matcher(
     _Shard,
-    #s{trie = Trie} = S,
+    #s{trie = Trie},
     #it{static_index = StaticIdx, last_key = LastSK, compressed_tf = CTF}
 ) ->
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    MHB = master_hash_bits(S, CTF),
     TF = emqx_ds_lts:decompress_topic(TopicStructure, CTF),
     fun(TopicTokens, MsgKey, _Message) ->
         case match_stream_key(StaticIdx, MsgKey) of
@@ -418,10 +404,7 @@ message_matcher(
                     topic_filter => TF,
                     its => SK
                 }),
-                %% Timestamp stored in the iterator follows modulo
-                %% 2^64 arithmetic, so in this context `?max_ts' means
-                %% 0.
-                (stream_key_ts(LastSK, MHB) =:= ?max_ts orelse SK > LastSK) andalso
+                (SK > LastSK) andalso
                     emqx_topic:match(TopicTokens, TF)
         end
     end.
@@ -429,8 +412,7 @@ message_matcher(
 unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
     static_index = StaticIdx, compressed_tf = CTF, last_key = LSK
 }) ->
-    MHB = master_hash_bits(S, CTF),
-    DSKey = mk_master_key(StaticIdx, LSK, MHB),
+    DSKey = mk_master_key(StaticIdx, LSK),
     TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), CTF),
     {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
 
@@ -523,35 +505,25 @@ message_match_context(_Shard, GenData, Stream, MsgKey, #message{topic = Topic}) 
             {ok, #match_ctx{compressed_topic = CT, stream_key = SK}}
     end.
 
-iterator_match_context(_Shard, GenData, Iterator) ->
+iterator_match_context(_Shard, _GenData, Iterator) ->
     #it{last_key = LastSK, compressed_tf = CTF} = Iterator,
-    MHB = master_hash_bits(GenData, CTF),
     fun(#match_ctx{compressed_topic = CT, stream_key = SK}) ->
-        %% Timestamp stored in the iterator follows modulo
-        %% 2^64 arithmetic, so in this context `?max_ts' means
-        %% 0.
-        (stream_key_ts(LastSK, MHB) =:= ?max_ts orelse SK > LastSK) andalso
+        (SK > LastSK) andalso
             emqx_topic:match(CT, CTF)
     end.
 
 next(DBShard, S, ItSeed, BatchSize, IsCurrent, _TMax) ->
     Acc0 = [],
-    Result =
-        fold(
-            DBShard,
-            S,
-            ItSeed,
-            BatchSize,
-            Acc0,
-            fun(Ctx, _DSKey, CompressedTopic, Val, Acc) ->
-                Topic = emqx_ds_lts:decompress_topic(Ctx#ctx.topic_structure, CompressedTopic),
-                [{Topic, Val} | Acc]
-            end
-        ),
+    Fun = fun(Ctx, _DSKey, Varying, Val, Acc) ->
+        Topic = emqx_ds_lts:decompress_topic(Ctx#ctx.topic_structure, Varying),
+        [{Topic, Val} | Acc]
+    end,
+    Result = fold(DBShard, S, ItSeed, BatchSize, Acc0, Fun),
     case Result of
-        {ok, It, []} when not IsCurrent ->
+        {ok, _It, []} when not IsCurrent ->
             {ok, end_of_stream};
         {ok, It, Batch} ->
+            %% Note: we don't reverse the batch here.
             {ok, It, Batch};
         {error, EC, Err} ->
             {error, EC, Err}
@@ -578,21 +550,19 @@ delete_next(Shard, S, It0, Selector, BatchSize, Now, IsCurrent) ->
     end.
 
 lookup_message(
-    Shard,
+    _Shard,
     S = #s{db = DB, data_cf = CF, trie = Trie},
     Topic,
-    Timestamp
+    _Timestamp
 ) ->
     case emqx_ds_lts:lookup_topic_key(Trie, Topic) of
         {ok, {StaticIdx, Varying}} ->
-            MHB = master_hash_bits(S, Varying),
-            SK = mk_stream_key(Varying, Timestamp, MHB),
-            DSKey = mk_master_key(StaticIdx, SK, MHB),
+            SK = mk_stream_key(Varying),
+            DSKey = mk_master_key(StaticIdx, SK),
             case rocksdb:get(DB, CF, DSKey, []) of
-                {ok, Val} ->
-                    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-                    Msg = deserialize(S, Val),
-                    {ok, enrich(Shard, S, TopicStructure, DSKey, Msg)};
+                {ok, Bin} ->
+                    {_, Val} = deserialize(S, Bin),
+                    {ok, {Topic, Val}};
                 not_found ->
                     undefined;
                 {error, Reason} ->
@@ -620,21 +590,6 @@ get_streams(Trie, TopicFilter) ->
 
 %%%%%%%% Value (de)serialization %%%%%%%%%%
 
-serialize(#s{serialization_schema = SSchema, with_guid = WithGuid}, Varying, Msg0) ->
-    %% Replace original topic with the varying parts:
-    Msg = Msg0#message{
-        id =
-            case WithGuid of
-                true -> Msg0#message.id;
-                false -> <<>>
-            end,
-        topic = emqx_topic:join(Varying)
-    },
-    emqx_ds_msg_serializer:serialize(SSchema, Msg).
-
-enrich(#ctx{topic_structure = TopicStructure}, DSKey, {Varying, Value}) ->
-    {emqx_ds_lts:decompress_topic(TopicStructure, Varying), Value}.
-
 deserialize(
     #s{serialization_schema = SSchema},
     Blob
@@ -643,7 +598,7 @@ deserialize(
 
 %%%%%%%% Deletion %%%%%%%%%%
 
-batch_delete(S = #s{db = DB, data_cf = CF, hash_bytes = HashBytes}, It, Selector, KVs) ->
+batch_delete(S = #s{db = DB, data_cf = CF}, It, Selector, KVs) ->
     #it{static_index = Static, compressed_tf = CompressedTF} = It,
     MHB = master_hash_bits(S, CompressedTF),
     {Indices, _} = lists:foldl(
@@ -741,7 +696,6 @@ start_fold_loop(
 ) ->
     %% cache it?
     TopicStructure = get_topic_structure(Trie, StaticIdx),
-    MHB = master_hash_bits(S, CompressedTF),
     Ctx = #ctx{
         shard = Shard,
         s = S,
@@ -749,9 +703,15 @@ start_fold_loop(
         iters = PerLevelIterators,
         topic_structure = TopicStructure,
         filter = CompressedTF,
-        master_hash_bits = MHB
+        min_key = LSK
     },
-    fold_loop(Ctx, ItSeed, BatchSize, {seek, inc_stream_key(LSK, MHB)}, Acc).
+    case LSK of
+        undefined ->
+            StartPos = <<>>;
+        StartPos when is_binary(LSK) ->
+            ok
+    end,
+    fold_loop(Ctx, ItSeed, BatchSize, {seek, StartPos}, Acc).
 
 get_topic_structure(Trie, StaticIdx) ->
     case emqx_ds_lts:reverse_lookup(Trie, StaticIdx) of
@@ -884,24 +844,24 @@ free_iterators(Its) ->
 
 %%%%%%%% Indexes %%%%%%%%%%
 
-mk_index(Batch, CF, HashBytes, MHB, Static, Varying) ->
-    mk_index(Batch, CF, HashBytes, MHB, Static, 1, Varying).
+mk_index(Batch, CF, HashBytes, Static, Varying, StreamKey) ->
+    do_mk_index(Batch, CF, HashBytes, Static, 1, Varying, StreamKey).
 
-mk_index(Batch, CF, HashBytes, MHB, Static, N, [TopicLevel | Varying]) ->
-    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), MHB),
+do_mk_index(Batch, CF, HashBytes, Static, N, [TopicLevel | Varying], StreamKey) ->
+    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), StreamKey),
     ok = rocksdb:batch_put(Batch, CF, Key, <<>>),
-    mk_index(Batch, CF, HashBytes, MHB, Static, N + 1, Varying);
-mk_index(_Batch, _CF, _HashBytes, _MHB, _Static, _N, []) ->
+    do_mk_index(Batch, CF, HashBytes, Static, N + 1, Varying, StreamKey);
+do_mk_index(_Batch, _CF, _HashBytes, _Static, _N, [], _StreamKey) ->
     ok.
 
-delete_index(Batch, CF, HashBytes, MHB, Static, Varying) ->
-    delete_index(Batch, CF, HashBytes, MHB, Static, 1, Varying).
+delete_index(Batch, CF, HashBytes, Static, Varying, StreamKey) ->
+    do_delete_index(Batch, CF, HashBytes, Static, 1, Varying, StreamKey).
 
-delete_index(Batch, CF, HashBytes, MHB, Static, N, [TopicLevel | Varying]) ->
-    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), MHB),
+do_delete_index(Batch, CF, HashBytes, Static, N, [TopicLevel | Varying], StreamKey) ->
+    Key = mk_key(Static, N, hash_topic_level(HashBytes, TopicLevel), StreamKey),
     ok = rocksdb:batch_delete(Batch, CF, Key),
-    delete_index(Batch, CF, HashBytes, MHB, Static, N + 1, Varying);
-delete_index(_Batch, _CF, _HashBytes, _MHB, _Static, _N, []) ->
+    do_delete_index(Batch, CF, HashBytes, Static, N + 1, Varying, StreamKey);
+do_delete_index(_Batch, _CF, _HashBytes, _Static, _N, [], _StreamKey) ->
     ok.
 
 %%%%%%%% Keys %%%%%%%%%%
@@ -954,51 +914,25 @@ match_key_prefix(StaticIdx, Idx, Hash, Key) when Idx > 0 ->
             false
     end.
 
--spec master_hash_bits(s(), [emqx_ds_lts:level()] | emqx_types:topic()) -> n_bits().
-master_hash_bits(#s{master_hash_bits = MHB}, Varying) ->
-    case Varying of
-        %% Do not attach / expect master hash if it's a single topic stream.
-        [] -> 0;
-        <<>> -> 0;
-        _NonEmpty -> MHB
-    end.
-
--spec mk_key(emqx_ds_lts:static_key(), wildcard_idx(), wildcard_hash(), stream_key(), n_bits()) ->
+-spec mk_key(emqx_ds_lts:static_key(), wildcard_idx(), wildcard_hash(), stream_key()) ->
     binary().
-mk_key(StaticIdx, 0, <<>>, StreamKey, MHB) ->
-    mk_master_key(StaticIdx, StreamKey, MHB);
-mk_key(StaticIdx, N, Hash, StreamKey, MHB) when N > 0 ->
-    mk_index_key(StaticIdx, N, Hash, StreamKey, MHB).
+mk_key(StaticIdx, 0, <<>>, StreamKey) ->
+    mk_master_key(StaticIdx, StreamKey);
+mk_key(StaticIdx, N, Hash, StreamKey) when N > 0 ->
+    mk_index_key(StaticIdx, N, Hash, StreamKey).
 
-mk_master_key(StaticIdx, StreamKey, MHB) ->
+mk_stream_key([]) ->
+    <<>>;
+mk_stream_key(Varying) when is_list(Varying) ->
+    erlang:md5(Varying).
+
+mk_master_key(StaticIdx, StreamKey) ->
     %% Data stream is identified by wildcard level = 0
-    <<StaticIdx/binary, 0:?wcb, StreamKey:(?tsb + MHB)>>.
+    <<StaticIdx/binary, 0:?wcb, StreamKey/binary>>.
 
-mk_index_key(StaticIdx, N, Hash, StreamKey, MHB) ->
+mk_index_key(StaticIdx, N, Hash, StreamKey) ->
     %% Index stream:
-    <<StaticIdx/binary, N:?wcb, Hash/binary, StreamKey:(?tsb + MHB)>>.
-
--spec mk_stream_key([emqx_ds_lts:level()], ts(), n_bits()) -> stream_key().
-mk_stream_key(_Varying, Timestamp, 0) ->
-    Timestamp;
-mk_stream_key(Varying, Timestamp, MHB) ->
-    Hash = first_n_bits(MHB, hash_topic_levels(Varying)),
-    stream_key(Timestamp, Hash, MHB).
-
-stream_key(Timestamp, Hash, MHB) ->
-    (Timestamp bsl MHB) bor Hash.
-
-inc_stream_key(StreamKey, MHB) ->
-    case stream_key_ts(StreamKey, MHB) of
-        ?max_ts -> 0;
-        TS when TS < ?max_ts -> StreamKey + 1
-    end.
-
-dec_stream_key(StreamKey, MHB) ->
-    case stream_key_ts(StreamKey, MHB) of
-        0 when StreamKey =:= 0 -> stream_key(?max_ts, 0, MHB);
-        TS when TS =< ?max_ts -> StreamKey - 1
-    end.
+    <<StaticIdx/binary, N:?wcb, Hash/binary, StreamKey/binary>>.
 
 % encode_stream_key(StreamKey, MHB) ->
 %     <<StreamKey:(?tsb + MHB)>>.
