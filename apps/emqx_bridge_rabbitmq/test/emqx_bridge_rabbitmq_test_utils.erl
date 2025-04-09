@@ -140,6 +140,9 @@ rabbit_mq_port() ->
 rabbit_mq_exchange() ->
     <<"messages">>.
 
+rabbit_mq_default_exchange() ->
+    <<>>.
+
 rabbit_mq_queue() ->
     <<"test_queue">>.
 

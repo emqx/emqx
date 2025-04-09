@@ -77,7 +77,7 @@ fields(action_parameters) ->
             hoconsc:mk(
                 emqx_schema:template(),
                 #{
-                    required => true,
+                    default => <<>>,
                     desc => ?DESC(?CONNECTOR_SCHEMA, "exchange")
                 }
             )},

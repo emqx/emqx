@@ -52,9 +52,9 @@ init_per_group(Group, Config) ->
 end_per_group(Group, Config) ->
     emqx_bridge_rabbitmq_test_utils:end_per_group(Group, Config).
 
-% %%------------------------------------------------------------------------------
-% %% Testcases
-% %%------------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
 
 t_lifecycle(Config) ->
     perform_lifecycle_check(
@@ -124,9 +124,9 @@ perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
     % Should not even be able to get the resource data out of ets now unlike just stopping.
     ?assertEqual({error, not_found}, emqx_resource:get_instance(ResourceID)).
 
-% %%------------------------------------------------------------------------------
-% %% Helpers
-% %%------------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
 
 check_config(Config) ->
     {ok, #{config := CheckedConfig}} =
