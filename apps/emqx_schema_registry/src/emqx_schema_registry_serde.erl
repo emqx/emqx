@@ -116,7 +116,7 @@ rsf_avro_encode([RegistryName, Data | Args]) ->
     end.
 
 rsf_avro_decode([RegistryName, Data | Args]) ->
-    case emqx_schema_registry_external:decode(RegistryName, Data, Args, _Opts = #{}) of
+    case emqx_schema_registry_external:decode(RegistryName, Data, Args, #{}) of
         {ok, Decoded} ->
             Decoded;
         {error, Reason} ->
@@ -132,7 +132,7 @@ rsf_schema_encode_and_tag([OurSchemaName, RegistryName, Data | Args]) ->
     end.
 
 rsf_schema_decode_tagged([RegistryName, Data | Args]) ->
-    case emqx_schema_registry_external:decode(RegistryName, Data, Args, _Opts = #{}) of
+    case emqx_schema_registry_external:decode(RegistryName, Data, Args, #{}) of
         {ok, Decoded} ->
             Decoded;
         {error, Reason} ->

@@ -688,7 +688,7 @@ external_functions_specs(Module, Prefix) ->
             (_) ->
                 false
         end,
-        Module:module_info(exports)
+        apply(Module, module_info, [exports])
     ).
 
 -spec get_external_function(atom()) -> {ok, module(), atom()} | {error, not_found}.

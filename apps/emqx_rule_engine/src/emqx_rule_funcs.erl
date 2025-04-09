@@ -1254,7 +1254,7 @@ timezone_to_offset_seconds(TimeZone) ->
 '$handle_undefined_function'(FunctionName, Args) ->
     case emqx_rule_engine:get_external_function(FunctionName) of
         {ok, Module, Function} ->
-            Module:Function(Args);
+            apply(Module, Function, [Args]);
         {error, not_found} ->
             throw_sql_function_not_supported(FunctionName, Args)
     end.

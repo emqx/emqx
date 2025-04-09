@@ -28,14 +28,11 @@
 %%------------------------------------------------------------------------------
 
 rsf_ai_completion([Name, Prompt, Data]) ->
-    ?tp(warning, ai_completion_call, #{name => Name, prompt => Prompt, data => Data}),
     call_completion(Name, Data, #{prompt => Prompt});
 rsf_ai_completion([Name, Data]) ->
-    ?tp(warning, ai_completion_call, #{name => Name, data => Data}),
     call_completion(Name, Data, #{});
-rsf_ai_completion(_Args) ->
-    ?tp(warning, ai_completion_call_error, #{args => _Args}),
-    error({args_count_error, {ai_completion, _Args}}).
+rsf_ai_completion(Args) ->
+    error({args_count_error, {ai_completion, Args}}).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
