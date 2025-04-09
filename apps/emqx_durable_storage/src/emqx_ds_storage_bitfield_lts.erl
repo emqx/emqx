@@ -37,7 +37,7 @@
     update_iterator/4,
     next/6,
     delete_next/7,
-    lookup_message/3,
+    lookup_message/4,
 
     handle_event/4,
 
@@ -198,7 +198,7 @@
 %%================================================================================
 
 -spec create(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     options(),
@@ -245,7 +245,7 @@ create(_ShardId, DBHandle, GenId, Options, SPrev, _DBOpts) ->
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
 -spec open(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     emqx_ds_storage_layer:cf_refs(),
@@ -287,7 +287,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
     }.
 
 -spec drop(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     emqx_ds_storage_layer:cf_refs(),
@@ -304,7 +304,7 @@ drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
     ok.
 
 -spec prepare_batch(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     emqx_ds_storage_layer:batch(),
     emqx_ds_storage_layer:batch_store_opts()
@@ -333,7 +333,7 @@ prepare_batch(_ShardId, S, Batch, _Options) ->
     }}.
 
 -spec commit_batch(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     cooked_batch(),
     emqx_ds_storage_layer:batch_store_opts()
@@ -387,7 +387,7 @@ commit_batch(
     end.
 
 -spec get_streams(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
@@ -396,7 +396,7 @@ get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     emqx_ds_lts:match_topics(Trie, TopicFilter).
 
 -spec get_delete_streams(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
@@ -405,7 +405,7 @@ get_delete_streams(Shard, State, TopicFilter, StartTime) ->
     get_streams(Shard, State, TopicFilter, StartTime).
 
 -spec make_iterator(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     stream(),
     emqx_ds:topic_filter(),
@@ -426,7 +426,7 @@ make_iterator(
     }}.
 
 -spec make_delete_iterator(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     delete_stream(),
     emqx_ds:topic_filter(),
@@ -447,7 +447,7 @@ make_delete_iterator(
     }}.
 
 -spec update_iterator(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     s(),
     iterator(),
     emqx_ds:message_key()
@@ -601,21 +601,20 @@ delete_next_until(
         rocksdb:iterator_close(ITHandle)
     end.
 
--spec lookup_message(emqx_ds_storage_layer:shard_id(), s(), emqx_ds_precondition:matcher()) ->
-    emqx_types:message() | not_found | emqx_ds:error(_).
 lookup_message(
     _ShardId,
     S = #s{db = DB, data = CF},
-    #message_matcher{topic = Topic, timestamp = Timestamp}
+    Topic,
+    Timestamp
 ) ->
     Key = lookup_key(S, Timestamp, Topic),
     case is_binary(Key) andalso rocksdb:get(DB, CF, Key, _ReadOpts = []) of
         {ok, Blob} ->
-            deserialize(Blob);
+            {ok, deserialize(Blob)};
         not_found ->
-            not_found;
+            undefined;
         false ->
-            not_found;
+            undefined;
         Error ->
             {error, unrecoverable, {rocksdb, Error}}
     end.

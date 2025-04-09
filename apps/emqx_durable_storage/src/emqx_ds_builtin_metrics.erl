@@ -212,7 +212,7 @@ observe_buffer_flush_time(Id, FlushTime) ->
 observe_buffer_latency(Id, FlushTime) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_LATENCY, FlushTime)).
 
--spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec observe_store_batch_time(emqx_ds_storage_layer:dbshard(), non_neg_integer()) -> ok.
 observe_store_batch_time({DB, _}, StoreTime) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_STORE_BATCH_TIME, StoreTime)).
 
@@ -249,19 +249,19 @@ observe_beamformer_scan_time(Id, Time) ->
 observe_beamsplitter_fanout_time(DB, Time) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_SUBS_FANOUT_TIME, Time)).
 
--spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec inc_lts_seek_counter(emqx_ds_storage_layer:dbshard(), non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_SEEK_COUNTER, Inc)).
 
--spec inc_lts_next_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec inc_lts_next_counter(emqx_ds_storage_layer:dbshard(), non_neg_integer()) -> ok.
 inc_lts_next_counter({DB, _}, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_NEXT_COUNTER, Inc)).
 
--spec inc_lts_collision_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec inc_lts_collision_counter(emqx_ds_storage_layer:dbshard(), non_neg_integer()) -> ok.
 inc_lts_collision_counter({DB, _}, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_COLLISION_COUNTER, Inc)).
 
--spec collect_shard_counter(emqx_ds_storage_layer:shard_id(), atom(), non_neg_integer()) -> ok.
+-spec collect_shard_counter(emqx_ds_storage_layer:dbshard(), atom(), non_neg_integer()) -> ok.
 collect_shard_counter({DB, _}, Key, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, Key, Inc)).
 
