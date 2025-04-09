@@ -80,6 +80,36 @@ fields("dashboard") ->
                     deprecated => {since, "5.1.0"},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {unsuccessful_login_max_attempts,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    desc => ?DESC(unsuccessful_login_max_attempts),
+                    required => false,
+                    default => 5,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {unsuccessful_login_lock_duration,
+            ?HOCON(
+                emqx_schema:duration_s(),
+                #{
+                    desc => ?DESC(unsuccessful_login_lock_duration),
+                    required => false,
+                    default => <<"10m">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {unsuccessful_login_interval,
+            ?HOCON(
+                emqx_schema:duration_s(),
+                #{
+                    desc => ?DESC(unsuccessful_login_interval),
+                    required => false,
+                    default => <<"5m">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ] ++ ee_fields();
 fields("listeners") ->

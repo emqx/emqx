@@ -424,8 +424,11 @@ change_password(Username, OldPasswd, NewPasswd, MfaToken) ->
 %% @doc Change password from CLI.
 change_password_trusted(Username, Password) when is_binary(Username), is_binary(Password) ->
     case legal_password(Password) of
-        ok -> change_password_hash(Username, hash(Password));
-        Error -> Error
+        ok ->
+            ok = emqx_dashboard_login_lock:reset(Username),
+            change_password_hash(Username, hash(Password));
+        Error ->
+            Error
     end.
 
 change_password_hash(Username, PasswordHash) ->
@@ -620,6 +623,7 @@ sign_token(Username, Password) ->
 sign_token(Username, Password, MfaToken) ->
     ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
     maybe
+        ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
         {ok, Role, Token} ?= emqx_dashboard_token:sign(User, Password),

@@ -34,5 +34,6 @@ init([]) ->
         {{one_for_one, 5, 100}, [
             ?CHILD(emqx_dashboard_listener, brutal_kill),
             ?CHILD(emqx_dashboard_token, 5000),
-            ?CHILD(emqx_dashboard_monitor, 5000)
+            ?CHILD(emqx_dashboard_monitor, 5000),
+            ?CHILD(emqx_dashboard_login_lock, 5000)
         ]}}.
