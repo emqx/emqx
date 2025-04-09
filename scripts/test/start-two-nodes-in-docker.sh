@@ -45,7 +45,7 @@ show_help() {
     echo "       when starting two different versions of EMQX."
 }
 
-while getopts "hc6P:d:" opt
+while getopts "hc6Pd:" opt
 do
     case $opt in
         # -P option is treated similarly to docker run -P:
@@ -105,7 +105,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LICENSE__KEY="${EMQX_LICENSE__KEY1:-evaluation}" \
+  -e EMQX_LICENSE__KEY="${LICENSE_KEY1:-evaluation}" \
   "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
@@ -120,7 +120,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LICENSE__KEY="${EMQX_LICENSE__KEY2:-evaluation}" \
+  -e EMQX_LICENSE__KEY="${LICENSE_KEY2:-evaluation}" \
   "$IMAGE2"
 
 mkdir -p tmp

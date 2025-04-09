@@ -54,11 +54,11 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
       with:
-        name: emqx-docker
+        name: emqx-enterprise-docker
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-enterprise-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -116,11 +116,11 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
       with:
-        name: emqx-docker
+        name: emqx-enterprise-docker
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-enterprise-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -186,11 +186,11 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
       with:
-        name: emqx-docker
+        name: emqx-enterprise-docker
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-enterprise-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -248,11 +248,11 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
       with:
-        name: emqx-docker
+        name: emqx-enterprise-docker
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-enterprise-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up
@@ -307,11 +307,11 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
       with:
-        name: emqx-docker
+        name: emqx-enterprise-docker
     - name: load docker image
       shell: bash
       run: |
-        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-docker-*.tar.gz | sed 's/Loaded image: //g')
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < emqx-enterprise-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
     - uses: ./.github/actions/prepare-jmeter
     - name: docker compose up

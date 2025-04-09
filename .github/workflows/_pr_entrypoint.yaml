@@ -235,3 +235,21 @@ jobs:
     uses: ./.github/workflows/check_deps_integrity.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
+
+  run_jmeter_tests:
+    needs:
+      - sanity-checks
+      - build_docker_emqx_enterprise
+    uses: ./.github/workflows/run_jmeter_tests.yaml
+
+  run_docker_tests:
+    needs:
+      - sanity-checks
+      - build_docker_emqx_enterprise
+    uses: ./.github/workflows/run_docker_tests.yaml
+
+  run_helm_tests:
+    needs:
+      - sanity-checks
+      - build_docker_emqx_enterprise
+    uses: ./.github/workflows/run_helm_tests.yaml
