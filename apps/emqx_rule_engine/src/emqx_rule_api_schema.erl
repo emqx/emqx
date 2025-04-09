@@ -105,8 +105,21 @@ fields("rule_info") ->
                     desc => ?DESC("ri_last_modified_at"),
                     example => "2021-12-24T15:00:44.153+08:00"
                 }
+            )},
+        {"action_details",
+            sc(
+                hoconsc:array(ref("action_details")),
+                #{
+                    desc => ?DESC("ri_action_details")
+                }
             )}
     ] ++ fields("rule_creation");
+fields("action_details") ->
+    [
+        {"type", sc(binary(), #{desc => ?DESC("ri_action_details_type")})},
+        {"name", sc(binary(), #{desc => ?DESC("ri_action_details_name")})},
+        {"status", sc(binary(), #{desc => ?DESC("ri_action_details_status")})}
+    ];
 fields("rule_metrics") ->
     [
         rule_id(),

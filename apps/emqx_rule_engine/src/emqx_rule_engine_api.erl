@@ -44,7 +44,7 @@
 ]).
 
 %% query callback
--export([qs2ms/2, run_fuzzy_match/2, format_rule_info_resp/1]).
+-export([qs2ms/2, run_fuzzy_match/2, format_rule_info_resp/2]).
 
 -define(RPC_GET_METRICS_TIMEOUT, 5000).
 
@@ -379,7 +379,7 @@ param_path_id() ->
             QueryString,
             ?RULE_QS_SCHEMA,
             fun ?MODULE:qs2ms/2,
-            fun ?MODULE:format_rule_info_resp/1
+            mk_format_fn()
         )
     of
         {error, page_limit_invalid} ->
@@ -403,7 +403,8 @@ param_path_id() ->
                     ConfPath = ?RULE_PATH(Id),
                     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
                         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
-                            ?CREATED(format_rule_info_resp(Rule));
+                            FormatFn = mk_format_fn(),
+                            ?CREATED(FormatFn(Rule));
                         {error, Reason} ->
                             ?SLOG(
                                 info,
@@ -460,7 +461,8 @@ param_path_id() ->
 '/rules/:id'(get, #{bindings := #{id := Id}}) ->
     case emqx_rule_engine:get_rule(Id) of
         {ok, Rule} ->
-            {200, format_rule_info_resp(Rule)};
+            FormatFn = mk_format_fn(),
+            {200, FormatFn(Rule)};
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
@@ -470,7 +472,8 @@ param_path_id() ->
     ConfPath = ?RULE_PATH(Id),
     case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
-            {200, format_rule_info_resp(Rule)};
+            FormatFn = mk_format_fn(),
+            {200, FormatFn(Rule)};
         {error, Reason} ->
             ?SLOG(
                 info,
@@ -561,24 +564,50 @@ encode_nested_error(RuleError, Reason) ->
             {RuleError, Reason}
     end.
 
-format_rule_info_resp({Id, Rule}) ->
-    format_rule_info_resp(Rule#{id => Id});
-format_rule_info_resp(#{
-    id := Id,
-    name := Name,
-    created_at := CreatedAt,
-    updated_at := LastModifiedAt,
-    from := Topics,
-    actions := Action,
-    sql := SQL,
-    enable := Enable,
-    description := Descr
-}) ->
+mk_format_fn() ->
+    SummaryIndex =
+        maybe
+            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(actions),
+            lists:foldl(
+                fun(#{name := N, type := T, status := S}, Acc) ->
+                    Acc#{{T, N} => S}
+                end,
+                #{},
+                Summary
+            )
+        else
+            {error, Reason} ->
+                ?SLOG(warning, #{
+                    msg => "failed_to_fetch_action_summary_for_rules", reason => Reason
+                }),
+                #{}
+        end,
+    fun(Row) ->
+        ?MODULE:format_rule_info_resp(Row, #{action_summary_index => SummaryIndex})
+    end.
+
+format_rule_info_resp({Id, Rule}, Context) ->
+    format_rule_info_resp(Rule#{id => Id}, Context);
+format_rule_info_resp(
+    #{
+        id := Id,
+        name := Name,
+        created_at := CreatedAt,
+        updated_at := LastModifiedAt,
+        from := Topics,
+        actions := Actions,
+        sql := SQL,
+        enable := Enable,
+        description := Descr
+    },
+    Context
+) ->
     #{
         id => Id,
         name => Name,
         from => Topics,
-        actions => format_action(Action),
+        actions => format_action(Actions),
+        action_details => format_action_details(Actions, Context),
         sql => SQL,
         enable => Enable,
         created_at => format_datetime(CreatedAt, millisecond),
@@ -608,6 +637,34 @@ do_format_action(#{mod := Mod, func := Func}) ->
     #{
         function => printable_function_name(Mod, Func)
     }.
+
+format_action_details(RuleActions, Context) ->
+    #{action_summary_index := SummaryIndex} = Context,
+    Actions0 =
+        lists:filtermap(
+            fun
+                ({bridge, Type, Name}) ->
+                    {true, {bin(Type), bin(Name)}};
+                ({bridge_v2, Type, Name}) ->
+                    {true, {bin(Type), bin(Name)}};
+                (_) ->
+                    false
+            end,
+            RuleActions
+        ),
+    Actions = lists:sort(Actions0),
+    lists:foldl(
+        fun({T, N}, Acc) ->
+            case SummaryIndex of
+                #{{T, N} := S} ->
+                    [#{type => T, name => N, status => S} | Acc];
+                _ ->
+                    [#{type => T, name => N, status => not_found} | Acc]
+            end
+        end,
+        [],
+        Actions
+    ).
 
 printable_function_name(emqx_rule_actions, Func) ->
     Func;
@@ -848,3 +905,5 @@ ensure_last_modified_at(RawConfig) ->
         RawConfig,
         #{<<"metadata">> => #{<<"last_modified_at">> => emqx_rule_engine:now_ms()}}
     ).
+
+bin(X) -> emqx_utils_conv:bin(X).

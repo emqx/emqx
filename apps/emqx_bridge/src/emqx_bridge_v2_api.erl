@@ -78,6 +78,9 @@
     wait_for_ready_local_node_v7/3
 ]).
 
+%% Internal exports; used by rule engine api
+-export([do_handle_summary/1]).
+
 -define(BPAPI_NAME, emqx_bridge).
 
 -define(BRIDGE_NOT_FOUND(BRIDGE_TYPE, BRIDGE_NAME),
@@ -885,13 +888,19 @@ handle_list(ConfRootKey) ->
     end.
 
 handle_summary(ConfRootKey) ->
-    Nodes = nodes_supporting_bpapi_version(7),
-    NodeReplies = emqx_bridge_proto_v7:v2_list_summary_v7(Nodes, ConfRootKey),
-    case is_ok(NodeReplies) of
-        {ok, AllBridges} ->
-            ?OK(zip_bridges(ConfRootKey, AllBridges));
+    case do_handle_summary(ConfRootKey) of
+        {ok, ZippedBridges} ->
+            ?OK(ZippedBridges);
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
+    end.
+
+do_handle_summary(ConfRootKey) ->
+    Nodes = nodes_supporting_bpapi_version(7),
+    NodeReplies = emqx_bridge_proto_v7:v2_list_summary_v7(Nodes, ConfRootKey),
+    maybe
+        {ok, AllBridges} ?= is_ok(NodeReplies),
+        {ok, zip_bridges(ConfRootKey, AllBridges)}
     end.
 
 handle_create(ConfRootKey, Type, Name, Conf0) ->
