@@ -1,18 +1,61 @@
 # EMQX AI Completion
 
-## Creating Rule
+## Create Credentials
 
+```bash
+curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/ai/credentials \
+-d '{
+    "name": "openai-credential",
+    "type": "openai",
+    "api_key": "'${EMQX_OPENAI_API_KEY}'"
+}'
+```
+
+List all credentials
+```bash
+curl -s -u key:secret -X GET -H "Content-Type: application/json" "http://localhost:18083/api/v5/ai/credentials" | jq
+```
+
+## Create Completion Profile
+
+```bash
+curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/ai/completion_profiles \
+-d '{
+    "name": "openai-profile",
+    "type": "openai",
+    "model": "gpt-4o",
+    "credential_name": "openai-credential",
+    "system_prompt": "pls add numbers. print the result only."
+}'
+```
+
+List all completion profiles
+```bash
+curl -s -u key:secret -X GET -H "Content-Type: application/json" "http://localhost:18083/api/v5/ai/completion_profiles" | jq
+```
+
+## Create Rule
 ```bash
 curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/rules \
 -d '{
-    "sql": "SELECT * FROM \"t/#\"",
+    "sql": 
+        "SELECT
+            ai_completion('"'"'openai-profile'"'"', payload) as result
+        FROM
+            '"'"'t/#'"'"'
+    ",
     "name": "ai_completion_rule",
     "description": "AI Completion Rule",
     "actions": [{
-        "function": "emqx_ai_completion:action",
+        "function": "republish",
         "args": {
-            "tool_names": ["publish"],
-            "prompt": "The user provides MQTT messages in JSON format.\nFor user message, if the payload has comma-separated integer values\n* calculate the sum of the values\n* use the sum as the payload of a new message\n* publish the new message to the topic ai_completion/{original_topic}\n* use the qos of the original message as the qos of the new message.\n\nDo nothing for other messages."
+            "topic": "republish_topic",
+            "qos": 0,
+            "retain": false,
+            "payload": "${result}",
+            "mqtt_properties": {},
+            "user_properties": "",
+            "direct_dispatch": false
         }
     }]
 }' | jq
