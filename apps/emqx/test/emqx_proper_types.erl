@@ -668,7 +668,7 @@ large_raw_duration() ->
 raw_byte_size() ->
     ?LET(
         {Value, Unit},
-        {pos_integer(), oneof([<<"gb">>, <<"mb">>, <<"kb">>, <<"">>])},
+        {pos_integer(), oneof([<<"gb">>, <<"mb">>, <<"kb">>, <<"b">>, <<"">>])},
         <<(integer_to_binary(Value))/binary, Unit/binary>>
     ).
 

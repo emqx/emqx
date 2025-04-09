@@ -179,7 +179,7 @@ do_parse_rate(Str) ->
     Regex = """
         ^
         # Capacity with optional unit
-        (\d+)(kb|mb|gb|)
+        (\d+)(kb|mb|gb|b|)
         # Optional interval with required unit
         (?:
             /(\d*)([mshd]{1,2})
@@ -213,6 +213,7 @@ capacity_from_str(ValueStr, UnitStr) ->
     end.
 
 unit_scale("") -> {ok, 1};
+unit_scale("b") -> {ok, 1};
 unit_scale("kb") -> {ok, ?KILOBYTE};
 unit_scale("mb") -> {ok, ?MEGABYTE};
 unit_scale("gb") -> {ok, ?GIGABYTE};
