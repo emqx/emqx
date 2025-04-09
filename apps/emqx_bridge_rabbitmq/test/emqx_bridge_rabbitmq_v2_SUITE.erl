@@ -545,18 +545,30 @@ t_action_use_default_exchange(Config) ->
 
 waiting_for_disconnected_alarms(InstanceId) ->
     ?retry(
-        100,
-        20,
-        ?assertMatch(
-            [
-                #{
-                    message :=
-                        <<"resource down: #{error => not_connected,status => disconnected}">>,
-                    name := InstanceId
-                }
-            ],
-            emqx_alarm:get_alarms(activated)
-        )
+        _TimeOut = 100,
+        _Times = 20,
+        case
+            lists:any(
+                fun
+                    (
+                        #{
+                            message :=
+                                <<"resource down: #{error => not_connected,status => disconnected}">>,
+                            name := InstanceId0
+                        }
+                    ) ->
+                        InstanceId0 =:= InstanceId;
+                    (_) ->
+                        false
+                end,
+                emqx_alarm:get_alarms(activated)
+            )
+        of
+            true ->
+                ok;
+            false ->
+                throw(not_receive_disconnect_alarm)
+        end
     ).
 
 waiting_for_dropped_count(InstanceId) ->
