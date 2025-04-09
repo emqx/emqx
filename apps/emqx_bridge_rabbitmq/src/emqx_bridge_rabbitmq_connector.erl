@@ -69,19 +69,19 @@ resource_type() -> rabbitmq.
 
 callback_mode() -> always_sync.
 
-on_start(InstanceID, Config) ->
+on_start(InstanceId, Config) ->
     ?SLOG(info, #{
         msg => "starting_rabbitmq_connector",
-        connector => InstanceID,
+        connector => InstanceId,
         config => emqx_utils:redact(Config)
     }),
     init_secret(),
     Options = [
         {config, Config},
         {pool_size, maps:get(pool_size, Config)},
-        {pool, InstanceID}
+        {pool, InstanceId}
     ],
-    case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
+    case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
             {ok, #{channels => #{}}};
         {error, Reason} ->
@@ -557,8 +557,11 @@ try_unsubscribe(ChannelId, Channels) ->
     end.
 
 close_channels(Pids) ->
-    _ =
-        catch emqx_utils:pforeach(
+    try
+        emqx_utils:pforeach(
             fun(Pid) -> amqp_channel:close(Pid) end, Pids, ?CHANNEL_CLOSE_TIMEOUT
-        ),
-    ok.
+        )
+    catch
+        _:_ ->
+            ok
+    end.
