@@ -217,10 +217,10 @@ cancel_timer(State, Key) ->
 
 -spec no_violation(license()) -> ok | {error, atom()}.
 no_violation(License) ->
+    IsSingleNodeLicense = emqx_license_parser:is_single_node(License),
     %% check only running nodes to allow once misconfigured cluster recover
-    case
-        emqx_license_parser:is_single_node(License) andalso length(emqx:cluster_nodes(running)) > 1
-    of
+    IsClustered = length(emqx:cluster_nodes(running)) > 1,
+    case IsSingleNodeLicense andalso IsClustered of
         true -> {error, 'SINGLE_NODE_LICENSE'};
         false -> ok
     end.

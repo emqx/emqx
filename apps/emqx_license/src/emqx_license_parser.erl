@@ -69,6 +69,7 @@
 %% for testing purpose
 -export([
     default/0,
+    community/0,
     evaluation/0,
     pubkey/0
 ]).
@@ -100,11 +101,12 @@
 
 pubkey() -> ?PUBKEY.
 evaluation() -> ?DEFAULT_EVALUATION_LICENSE_KEY.
+community() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
 -ifdef(TEST).
 %% Allow common tests to run without setting license key.
 default() -> evaluation().
 -else.
-default() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
+default() -> community().
 -endif.
 
 %% @doc Parse license key.

@@ -72,7 +72,7 @@ t_update(_Config) ->
 t_update_with_invalid_license_value({init, Config}) ->
     _ = emqx_license_cli:license(["update", "evaluation"]),
     meck:new(emqx, [passthrough, no_history]),
-    meck:expect(emqx, cluster_nodes, fun(all) -> [node(), node()] end),
+    meck:expect(emqx, cluster_nodes, fun(running) -> [node(), node()] end),
     Config;
 t_update_with_invalid_license_value({'end', _Config}) ->
     meck:unload(emqx),
