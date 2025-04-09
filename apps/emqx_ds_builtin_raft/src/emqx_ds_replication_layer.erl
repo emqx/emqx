@@ -44,7 +44,6 @@
 -export([
     %% RPC Targets:
     do_drop_db_v1/1,
-    do_get_streams_v1/4,
     do_get_streams_v2/4,
     do_make_iterator_v2/5,
     do_update_iterator_v2/4,
@@ -56,7 +55,6 @@
     do_poll_v1/5,
     %% Obsolete:
     do_store_batch_v1/4,
-    do_make_iterator_v1/5,
     do_add_generation_v2/1,
     do_drop_generation_v3/3,
 
@@ -300,7 +298,7 @@ drop_db(DB) ->
     foreach_shard(DB, fun(Shard) ->
         {ok, _} = ra_drop_shard(DB, Shard)
     end),
-    _ = emqx_ds_proto_v4:drop_db(list_nodes(), DB),
+    _ = emqx_ds_proto_v5:drop_db(list_nodes(), DB),
     emqx_ds_replication_layer_meta:drop_db(DB).
 
 -spec store_batch(emqx_ds:db(), emqx_ds:batch(), emqx_ds:message_store_opts()) ->
@@ -615,15 +613,6 @@ do_drop_db_v1(DB) ->
 do_store_batch_v1(_DB, _Shard, _Batch, _Options) ->
     error(obsolete_api).
 
-%% Remove me in EMQX 5.6
--dialyzer({nowarn_function, do_get_streams_v1/4}).
--spec do_get_streams_v1(
-    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
-) ->
-    [{integer(), emqx_ds_storage_layer:stream_v1()}].
-do_get_streams_v1(_DB, _Shard, _TopicFilter, _StartTime) ->
-    error(obsolete_api).
-
 -spec do_get_streams_v2(
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
@@ -637,18 +626,6 @@ do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
         ShardId,
         emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime)
     ).
-
--dialyzer({nowarn_function, do_make_iterator_v1/5}).
--spec do_make_iterator_v1(
-    emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
-    emqx_ds_storage_layer:stream_v1(),
-    emqx_ds:topic_filter(),
-    emqx_ds:time()
-) ->
-    emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
-do_make_iterator_v1(_DB, _Shard, _Stream, _TopicFilter, _StartTime) ->
-    error(obsolete_api).
 
 -spec do_make_iterator_v2(
     emqx_ds:db(),
@@ -854,7 +831,7 @@ ra_get_streams(DB, Shard, TopicFilter, Time) ->
         DB,
         Shard,
         Node,
-        ?SAFE_ERPC(emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, TimestampUs))
+        ?SAFE_ERPC(emqx_ds_proto_v5:get_streams(Node, DB, Shard, TopicFilter, TimestampUs))
     ).
 
 ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
@@ -862,7 +839,7 @@ ra_get_delete_streams(DB, Shard, TopicFilter, Time) ->
         DB,
         Shard,
         Node,
-        ?SAFE_ERPC(emqx_ds_proto_v4:get_delete_streams(Node, DB, Shard, TopicFilter, Time))
+        ?SAFE_ERPC(emqx_ds_proto_v5:get_delete_streams(Node, DB, Shard, TopicFilter, Time))
     ).
 
 ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
@@ -871,7 +848,7 @@ ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
         DB,
         Shard,
         Node,
-        ?SAFE_ERPC(emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs))
+        ?SAFE_ERPC(emqx_ds_proto_v5:make_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs))
     ).
 
 ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
@@ -881,7 +858,7 @@ ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
         Shard,
         Node,
         ?SAFE_ERPC(
-            emqx_ds_proto_v4:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)
+            emqx_ds_proto_v5:make_delete_iterator(Node, DB, Shard, Stream, TopicFilter, TimeUs)
         )
     ).
 
@@ -890,7 +867,7 @@ ra_make_delete_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
 %%         DB,
 %%         Shard,
 %%         Node,
-%%         ?SAFE_ERPC(emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey))
+%%         ?SAFE_ERPC(emqx_ds_proto_v5:update_iterator(Node, DB, Shard, Iter, DSKey))
 %%     ).
 
 ra_next(DB, Shard, Iter, BatchSize) ->
@@ -898,7 +875,7 @@ ra_next(DB, Shard, Iter, BatchSize) ->
         DB,
         Shard,
         Node,
-        case emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize) of
+        case emqx_ds_proto_v5:next(Node, DB, Shard, Iter, BatchSize) of
             Err = {badrpc, _} ->
                 {error, recoverable, Err};
             Ret ->
@@ -911,7 +888,7 @@ ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
         DB,
         Shard,
         Node,
-        ?SAFE_ERPC(emqx_ds_proto_v4:delete_next(Node, DB, Shard, Iter, Selector, BatchSize))
+        ?SAFE_ERPC(emqx_ds_proto_v5:delete_next(Node, DB, Shard, Iter, Selector, BatchSize))
     ).
 
 ra_list_generations_with_lifetimes(DB, Shard) ->
@@ -919,7 +896,7 @@ ra_list_generations_with_lifetimes(DB, Shard) ->
         DB,
         Shard,
         Node,
-        ?SAFE_ERPC(emqx_ds_proto_v4:list_generations_with_lifetimes(Node, DB, Shard))
+        ?SAFE_ERPC(emqx_ds_proto_v5:list_generations_with_lifetimes(Node, DB, Shard))
     ),
     case Reply of
         Gens = #{} ->
