@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   mongosharded1:
     hostname: mongosharded1
