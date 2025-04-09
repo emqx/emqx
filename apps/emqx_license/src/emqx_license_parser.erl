@@ -99,8 +99,13 @@
 %%--------------------------------------------------------------------
 
 pubkey() -> ?PUBKEY.
-default() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
 evaluation() -> ?DEFAULT_EVALUATION_LICENSE_KEY.
+-ifdef(TEST).
+%% Allow common tests to run without setting license key.
+default() -> evaluation().
+-else.
+default() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
+-endif.
 
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",

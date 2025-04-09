@@ -23,7 +23,7 @@
 -define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx_durable_storage, emqx]).
 
 %% If any of these applications crash, the entire EMQX node shuts down:
--define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).
+-define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx, emqx_license]).
 
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:

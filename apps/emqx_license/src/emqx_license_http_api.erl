@@ -139,8 +139,8 @@ error_msg(Code, Msg) ->
                 #{tag => "LICENSE"}
             ),
             Msg =
-                case is_atom(Error) orelse is_binary(Error) of
-                    true -> Error;
+                case is_atom(Error) of
+                    true -> atom_to_binary(Error);
                     false -> <<"Bad license key, see logs for more details">>
                 end,
             {400, error_msg(?BAD_REQUEST, Msg)};

@@ -20,12 +20,7 @@
 -define(CLUSTER_MODE_NORMAL, normal).
 -define(CLUSTER_MODE_SINGLE, singleton).
 
-%% Allow cluster when running tests
--ifdef(TEST).
--define(DEFAULT_MODE, ?CLUSTER_MODE_NORMAL).
--else.
 -define(DEFAULT_MODE, ?CLUSTER_MODE_SINGLE).
--endif.
 
 join(PeerNode) ->
     %% Local node starts with default license (singleton mode),

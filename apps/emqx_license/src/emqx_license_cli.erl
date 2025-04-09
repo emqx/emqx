@@ -24,6 +24,8 @@ license(["update", EncodedLicense]) ->
         {ok, Warnings} ->
             ok = print_warnings(Warnings),
             ok = ?PRINT_MSG("ok~n");
+        {error, Reason} when is_atom(Reason) ->
+            ?PRINT("Error: ~s~n", [Reason]);
         {error, Reason} ->
             ?PRINT("Error: ~p~n", [Reason])
     end;

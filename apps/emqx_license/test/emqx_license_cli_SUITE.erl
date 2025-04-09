@@ -84,7 +84,7 @@ t_update_with_invalid_license_value(_Config) ->
     T = integer_to_list(?TRIAL),
     Key2 = emqx_license_test_lib:make_license(#{max_sessions => "100", license_type => C}),
     Key3 = emqx_license_test_lib:make_license(#{max_sessions => "100", license_type => T}),
-    Err = <<"Error: single_node_license_not_allowed_when_clusterd\n">>,
+    Err = <<"Error: SINGLE_NODE_LICENSE\n">>,
     ?assertEqual({ok, [Err]}, ?CAPTURE(emqx_license_cli:license(["update", binary_to_list(Key1)]))),
     ?assertEqual({ok, [Err]}, ?CAPTURE(emqx_license_cli:license(["update", binary_to_list(Key2)]))),
     ?assertEqual(

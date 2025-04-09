@@ -156,7 +156,7 @@ t_set_evaluation_license(_Config) ->
     ?assertEqual(
         #{
             <<"code">> => <<"BAD_REQUEST">>,
-            <<"message">> => <<"single_node_license_not_allowed_when_clusterd">>
+            <<"message">> => <<"SINGLE_NODE_LICENSE">>
         },
         emqx_utils_json:decode(Message1)
     ),

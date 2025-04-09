@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_license_sup).
+-feature(maybe_expr, enable).
 
 -behaviour(supervisor).
 
@@ -14,31 +15,43 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok,
-        {
-            #{
-                strategy => one_for_one,
-                intensity => 10,
-                period => 100
-            },
-
-            [
+    Loader = fun emqx_license:read_license/0,
+    maybe
+        ok ?= validate_license(Loader),
+        {ok,
+            {
                 #{
-                    id => license_checker,
-                    start => {emqx_license_checker, start_link, [fun emqx_license:read_license/0]},
-                    restart => permanent,
-                    shutdown => 5000,
-                    type => worker,
-                    modules => [emqx_license_checker]
+                    strategy => one_for_one,
+                    intensity => 2,
+                    period => 10
                 },
+                [
+                    #{
+                        id => license_checker,
+                        start => {emqx_license_checker, start_link, [Loader]},
+                        restart => permanent,
+                        shutdown => 5000,
+                        type => worker,
+                        modules => [emqx_license_checker]
+                    },
 
-                #{
-                    id => license_resources,
-                    start => {emqx_license_resources, start_link, []},
-                    restart => permanent,
-                    shutdown => 5000,
-                    type => worker,
-                    modules => [emqx_license_resources]
-                }
-            ]
-        }}.
+                    #{
+                        id => license_resources,
+                        start => {emqx_license_resources, start_link, []},
+                        restart => permanent,
+                        shutdown => 5000,
+                        type => worker,
+                        modules => [emqx_license_resources]
+                    }
+                ]
+            }}
+    end.
+
+%% License violation check is done here (but not before boot)
+%% because we must allow default single-node license to join cluster,
+%% then check if the **fetched** license from peer node allows clustering.
+validate_license(Loader) ->
+    maybe
+        {ok, License} ?= Loader(),
+        ok ?= emqx_license_checker:no_violation(License)
+    end.
