@@ -46,7 +46,7 @@ call(#{model := Model, system_prompt := SystemPrompt, provider := Provider}, Dat
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(#{api_key := ApiKey}) ->
+create_client(#{api_key := ApiKey, transport_options := TransportOptions}) ->
     emqx_ai_completion_client:new(#{
         host => <<"api.openai.com">>,
         base_path => <<"/v1/">>,
@@ -54,5 +54,6 @@ create_client(#{api_key := ApiKey}) ->
             {<<"Content-Type">>, <<"application/json">>},
             {<<"Authorization">>,
                 emqx_secret:wrap(<<"Bearer ", (emqx_secret:unwrap(ApiKey))/binary>>)}
-        ]
+        ],
+        transport_options => TransportOptions
     }).

@@ -40,13 +40,19 @@
 -type raw_completion_profile() :: map().
 -type provider_name() :: binary().
 -type completion_profile_name() :: binary().
+-type transport_options() :: #{
+    connect_timeout => pos_integer(),
+    recv_timeout => pos_integer(),
+    checkout_timeout => pos_integer()
+}.
 
 -type ai_type() :: openai | anthropic.
 
 -type provider() :: #{
     name := provider_name(),
     type := ai_type(),
-    api_key := fun(() -> binary())
+    api_key := fun(() -> binary()),
+    transport_options := transport_options()
 }.
 
 -type completion_profile() :: #{
@@ -86,7 +92,8 @@
 -export_type([
     ai_type/0,
     provider/0,
-    completion_profile/0
+    completion_profile/0,
+    transport_options/0
 ]).
 
 %%--------------------------------------------------------------------

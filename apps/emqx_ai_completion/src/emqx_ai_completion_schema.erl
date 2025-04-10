@@ -64,7 +64,37 @@ fields(provider) ->
             mk(hoconsc:enum([openai, anthropic]), #{
                 default => openai, required => true, desc => ?DESC(type)
             })},
-        {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})}
+        {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
+        {transport_options,
+            mk(ref(transport_options), #{
+                default => #{},
+                desc => ?DESC(transport_options),
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+    ];
+fields(transport_options) ->
+    [
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                required => false,
+                default => <<"1s">>,
+                desc => ?DESC(connect_timeout),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {recv_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                required => false,
+                default => <<"5s">>,
+                desc => ?DESC(recv_timeout),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {checkout_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                required => false,
+                default => <<"1s">>,
+                desc => ?DESC(checkout_timeout),
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields(provider_api_get) ->
     without_fields([api_key], fields(provider));
