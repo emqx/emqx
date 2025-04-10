@@ -42,7 +42,7 @@ fields(ai) ->
                 hoconsc:array(credential_sctype()),
                 #{
                     default => [],
-                    desc => ?DESC(credential)
+                    desc => ?DESC(credentials)
                 }
             )},
         {completion_profiles,
@@ -50,7 +50,7 @@ fields(ai) ->
                 hoconsc:array(completion_profile_sctype()),
                 #{
                     default => [],
-                    desc => ?DESC(ai_completion_profiles)
+                    desc => ?DESC(completion_profiles)
                 }
             )}
     ];
@@ -63,7 +63,7 @@ fields(credential_api) ->
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})}
     ];
 fields(credential) ->
-    [name_field()] ++ fields(credential_api);
+    [name_field(credential_name)] ++ fields(credential_api);
 fields(openai_completion_profile_api) ->
     [
         {type, mk(openai, #{default => openai, required => true, desc => ?DESC(type)})},
@@ -72,7 +72,7 @@ fields(openai_completion_profile_api) ->
         {model, mk(enum(['gpt-4o', 'gpt-4o-mini']), #{default => 'gpt-4o', desc => ?DESC(model)})}
     ];
 fields(openai_completion_profile) ->
-    [name_field()] ++ fields(openai_completion_profile_api);
+    [name_field(completion_profile_name)] ++ fields(openai_completion_profile_api);
 fields(anthropic_completion_profile_api) ->
     [
         {type, mk(anthropic, #{default => anthropic, required => true, desc => ?DESC(type)})},
@@ -87,23 +87,31 @@ fields(anthropic_completion_profile_api) ->
         {max_tokens, mk(pos_integer(), #{default => 100, desc => ?DESC(max_tokens)})}
     ];
 fields(anthropic_completion_profile) ->
-    [name_field()] ++ fields(anthropic_completion_profile_api).
+    [name_field(completion_profile_name)] ++ fields(anthropic_completion_profile_api).
 
-desc(credentials) ->
-    ?DESC("ai_credentials");
+desc(ai) ->
+    "AI functions settings.";
+desc(credential_api) ->
+    "AI provider credential used in HTTP API.";
+desc(credential) ->
+    "AI provider credential.";
+desc(openai_completion_profile_api) ->
+    "AI completion profile for OpenAI used in HTTP API.";
 desc(openai_completion_profile) ->
-    ?DESC("ai_completion_profile_openai");
+    "AI completion profile for OpenAI.";
+desc(anthropic_completion_profile_api) ->
+    "AI completion profile for Anthropic used in HTTP API.";
 desc(anthropic_completion_profile) ->
-    ?DESC("ai_completion_profile_anthropic");
+    "AI completion profile for Anthropic.";
 desc(_) ->
     undefined.
 
-name_field() ->
+name_field(Desc) ->
     {name,
         mk(binary(), #{
             default => <<>>,
             required => true,
-            desc => ?DESC(name),
+            desc => ?DESC(Desc),
             validator => fun emqx_schema:non_empty_string/1
         })}.
 

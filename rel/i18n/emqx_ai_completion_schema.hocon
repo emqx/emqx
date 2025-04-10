@@ -1,0 +1,63 @@
+emqx_ai_completion_schema {
+
+type.desc:
+"""Type of AI provider: OpenAI or Anthropic."""
+
+type.label:
+"""AI Provider Type"""
+
+api_key.desc:
+"""API key for the AI provider."""
+
+api_key.label:
+"""API Key"""
+
+credential_name.desc:
+"""Name of the credential."""
+
+credential_name.label:
+"""Credential Name"""
+
+system_prompt.desc:
+"""System prompt for the AI completion."""
+
+system_prompt.label:
+"""System Prompt"""
+
+model.desc:
+"""Model to use for the AI completion."""
+
+model.label:
+"""Model"""
+
+anthropic_version.desc:
+"""Version of the Anthropic API to use."""
+
+anthropic_version.label:
+"""Anthropic Version"""
+
+max_tokens.desc:
+"""Maximum number of tokens to generate."""
+
+max_tokens.label:
+"""Max Tokens"""
+
+completion_profile_name.desc:
+"""Name of the completion profile."""
+
+completion_profile_name.label:
+"""Completion Profile Name"""
+
+credentials.desc:
+"""List of AI provider credentials."""
+
+credentials.label:
+"""Credentials"""
+
+completion_profiles.desc:
+"""List of AI completion profiles."""
+
+completion_profiles.label:
+"""Completion Profiles"""
+
+}
