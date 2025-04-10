@@ -16,9 +16,9 @@
 %% API
 %%------------------------------------------------------------------------------
 
-call(#{model := Model, system_prompt := SystemPrompt} = Profile, Data, Options) ->
+call(#{model := Model, system_prompt := SystemPrompt, provider := Provider}, Data, Options) ->
     Prompt = maps:get(prompt, Options, SystemPrompt),
-    Client = create_client(Profile),
+    Client = create_client(Provider),
     Request = #{
         model => Model,
         messages => [
@@ -46,7 +46,7 @@ call(#{model := Model, system_prompt := SystemPrompt} = Profile, Data, Options) 
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(#{credential := #{api_key := ApiKey}}) ->
+create_client(#{api_key := ApiKey}) ->
     emqx_ai_completion_client:new(#{
         host => <<"api.openai.com">>,
         base_path => <<"/v1/">>,

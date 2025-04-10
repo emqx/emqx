@@ -12,11 +12,11 @@ api_key.desc:
 api_key.label:
 """API Key"""
 
-credential_name.desc:
-"""Name of the credential."""
+provider_name.desc:
+"""Name of the provider."""
 
-credential_name.label:
-"""Credential Name"""
+provider_name.label:
+"""Provider Name"""
 
 system_prompt.desc:
 """System prompt for the AI completion."""
@@ -48,11 +48,11 @@ completion_profile_name.desc:
 completion_profile_name.label:
 """Completion Profile Name"""
 
-credentials.desc:
-"""List of AI provider credentials."""
+providers.desc:
+"""List of AI provider providers."""
 
-credentials.label:
-"""Credentials"""
+providers.label:
+"""Providers"""
 
 completion_profiles.desc:
 """List of AI completion profiles."""

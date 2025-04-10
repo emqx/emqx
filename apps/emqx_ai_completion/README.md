@@ -1,19 +1,19 @@
 # EMQX AI Completion
 
-## Create Credentials
+## Create Providers
 
 ```bash
-curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/ai/credentials \
+curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/ai/providers \
 -d '{
-    "name": "openai-credential",
+    "name": "openai-provider",
     "type": "openai",
     "api_key": "'${EMQX_OPENAI_API_KEY}'"
 }'
 ```
 
-List all credentials
+List all providers
 ```bash
-curl -s -u key:secret -X GET -H "Content-Type: application/json" "http://localhost:18083/api/v5/ai/credentials" | jq
+curl -s -u key:secret -X GET -H "Content-Type: application/json" "http://localhost:18083/api/v5/ai/providers" | jq
 ```
 
 ## Create Completion Profile
@@ -24,7 +24,7 @@ curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localho
     "name": "openai-profile",
     "type": "openai",
     "model": "gpt-4o",
-    "credential_name": "openai-credential",
+    "provider_name": "openai-provider",
     "system_prompt": "pls add numbers. print the result only."
 }'
 ```
@@ -38,7 +38,7 @@ curl -s -u key:secret -X GET -H "Content-Type: application/json" "http://localho
 ```bash
 curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/rules \
 -d '{
-    "sql": 
+    "sql":
         "SELECT
             ai_completion('"'"'openai-profile'"'"', payload) as result
         FROM

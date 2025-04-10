@@ -22,7 +22,7 @@ init_per_suite(Config) ->
             emqx_conf,
             emqx,
             emqx_rule_engine,
-            {emqx_ai_completion, #{config => "ai.credentials = [], ai.completion_profiles = []"}}
+            {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -33,14 +33,14 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    ok = emqx_ai_completion_test_helpers:clean_credentials(),
+    ok = emqx_ai_completion_test_helpers:clean_providers(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_ai_completion_test_helpers:unmock_ai_client(),
     ok = emqx_rule_engine:delete_rule(?RULE_ID),
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    ok = emqx_ai_completion_test_helpers:clean_credentials().
+    ok = emqx_ai_completion_test_helpers:clean_providers().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -48,17 +48,17 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_completion(_Config) ->
     %% Setup completion profiles
-    ok = emqx_ai_completion_config:update_credentials_raw(
+    ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"openai">>,
-            <<"name">> => <<"openai-credential">>,
+            <<"name">> => <<"openai-provider">>,
             <<"api_key">> => <<"sk-proj-1234567890">>
         }}
     ),
-    ok = emqx_ai_completion_config:update_credentials_raw(
+    ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"anthropic">>,
-            <<"name">> => <<"anthropic-credential">>,
+            <<"name">> => <<"anthropic-provider">>,
             <<"api_key">> => <<"sk-ant-api03-1234567890">>
         }}
     ),
@@ -67,7 +67,7 @@ t_completion(_Config) ->
             <<"name">> => <<"openai-profile">>,
             <<"type">> => <<"openai">>,
             <<"model">> => <<"gpt-4o">>,
-            <<"credential_name">> => <<"openai-credential">>,
+            <<"provider_name">> => <<"openai-provider">>,
             <<"system_prompt">> => <<"pls do something">>
         }}
     ),
@@ -76,7 +76,7 @@ t_completion(_Config) ->
             <<"name">> => <<"anthropic-profile">>,
             <<"type">> => <<"anthropic">>,
             <<"model">> => <<"claude-3-5-sonnet-20240620">>,
-            <<"credential_name">> => <<"anthropic-credential">>,
+            <<"provider_name">> => <<"anthropic-provider">>,
             <<"system_prompt">> => <<"pls do something else">>
         }}
     ),

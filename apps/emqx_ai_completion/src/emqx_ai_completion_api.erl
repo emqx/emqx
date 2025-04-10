@@ -17,8 +17,8 @@
 
 %% API callbacks
 -export([
-    '/ai/credentials'/2,
-    '/ai/credentials/:name'/2,
+    '/ai/providers'/2,
+    '/ai/providers/:name'/2,
     '/ai/completion_profiles'/2,
     '/ai/completion_profiles/:name'/2
 ]).
@@ -36,24 +36,24 @@ api_spec() ->
 
 paths() ->
     [
-        "/ai/credentials",
-        "/ai/credentials/:name",
+        "/ai/providers",
+        "/ai/providers/:name",
         "/ai/completion_profiles",
         "/ai/completion_profiles/:name"
     ].
 
-schema("/ai/credentials") ->
+schema("/ai/providers") ->
     #{
-        'operationId' => '/ai/credentials',
+        'operationId' => '/ai/providers',
         get => #{
             tags => ?TAGS,
-            summary => <<"List all AI credentials">>,
-            description => ?DESC(ai_credentials_list),
+            summary => <<"List all AI providers">>,
+            description => ?DESC(ai_providers_list),
             parameters => [],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    hoconsc:array(emqx_ai_completion_schema:credential_sctype()),
-                    [get_credential_example()]
+                    hoconsc:array(emqx_ai_completion_schema:provider_sctype_api(get)),
+                    [get_provider_example()]
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
@@ -62,16 +62,16 @@ schema("/ai/credentials") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Create AI credential">>,
-            description => ?DESC(ai_credentials_create),
+            summary => <<"Create AI provider">>,
+            description => ?DESC(ai_providers_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                emqx_ai_completion_schema:credential_sctype(),
-                post_credential_example()
+                emqx_ai_completion_schema:provider_sctype_api(post),
+                post_provider_example()
             ),
             responses => #{
                 204 => <<"Operation success">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], <<"Invalid credential">>
+                    ['INVALID_CREDENTIAL'], <<"Invalid provider">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
@@ -79,25 +79,25 @@ schema("/ai/credentials") ->
             }
         }
     };
-schema("/ai/credentials/:name") ->
+schema("/ai/providers/:name") ->
     #{
-        'operationId' => '/ai/credentials/:name',
+        'operationId' => '/ai/providers/:name',
         put => #{
             tags => ?TAGS,
-            summary => <<"Update AI credential">>,
-            description => ?DESC(ai_credentials_update),
+            summary => <<"Update AI provider">>,
+            description => ?DESC(ai_providers_update),
             parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                emqx_ai_completion_schema:credential_sctype_api(),
-                put_credential_example()
+                emqx_ai_completion_schema:provider_sctype_api(put),
+                put_provider_example()
             ),
             responses => #{
                 204 => <<"Operation success">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Credential not found">>
+                    ['NOT_FOUND'], <<"Provider not found">>
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], <<"Invalid credential">>
+                    ['INVALID_CREDENTIAL'], <<"Invalid provider">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
@@ -106,13 +106,13 @@ schema("/ai/credentials/:name") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete AI credential">>,
-            description => ?DESC(ai_credentials_delete),
+            summary => <<"Delete AI provider">>,
+            description => ?DESC(ai_providers_delete),
             parameters => [name_param()],
             responses => #{
                 204 => <<"Operation success">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Credential not found">>
+                    ['NOT_FOUND'], <<"Provider not found">>
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
                     ['INVALID_CREDENTIAL'], <<"Invalid request">>
@@ -133,7 +133,7 @@ schema("/ai/completion_profiles") ->
             parameters => [],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    emqx_ai_completion_schema:completion_profile_sctype(),
+                    emqx_ai_completion_schema:completion_profile_sctype_api(get),
                     [get_completion_profile_example()]
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
@@ -146,7 +146,7 @@ schema("/ai/completion_profiles") ->
             summary => <<"Create AI completion profile">>,
             description => ?DESC(ai_completion_profiles_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                emqx_ai_completion_schema:completion_profile_sctype(),
+                emqx_ai_completion_schema:completion_profile_sctype_api(post),
                 post_completion_profile_example()
             ),
             responses => #{
@@ -169,7 +169,7 @@ schema("/ai/completion_profiles/:name") ->
             description => ?DESC(ai_completion_profiles_update),
             parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                emqx_ai_completion_schema:completion_profile_sctype_api(),
+                emqx_ai_completion_schema:completion_profile_sctype_api(put),
                 put_completion_profile_example()
             ),
             responses => #{
@@ -219,25 +219,25 @@ name_param() ->
             in => path
         })}.
 
-put_credential_example() ->
+put_provider_example() ->
     #{
         <<"type">> => <<"openai">>,
         <<"api_key">> => <<"sk-1234567890">>
     }.
 
-get_credential_example() ->
+get_provider_example() ->
     maps:merge(
-        #{<<"name">> => <<"my_credential">>},
-        put_credential_example()
+        #{<<"name">> => <<"my_provider">>},
+        put_provider_example()
     ).
 
-post_credential_example() ->
-    get_credential_example().
+post_provider_example() ->
+    get_provider_example().
 
 put_completion_profile_example() ->
     #{
         <<"type">> => <<"openai">>,
-        <<"credential_name">> => <<"my_credential">>,
+        <<"provider_name">> => <<"my_provider">>,
         <<"system_prompt">> => <<"You are a helpful assistant.">>,
         <<"model">> => <<"gpt-4o">>
     }.
@@ -255,15 +255,15 @@ post_completion_profile_example() ->
 %% Minirest handlers
 %%--------------------------------------------------------------------
 
-'/ai/credentials'(get, _Params) ->
-    {200, get_credentials()};
-'/ai/credentials'(post, #{body := NewCredential}) ->
-    update_credentials({add, NewCredential}).
+'/ai/providers'(get, _Params) ->
+    {200, get_providers()};
+'/ai/providers'(post, #{body := NewProvider}) ->
+    update_providers({add, NewProvider}).
 
-'/ai/credentials/:name'(put, #{body := UpdatedCredential, bindings := #{name := Name}}) ->
-    update_credentials({update, UpdatedCredential#{<<"name">> => Name}});
-'/ai/credentials/:name'(delete, #{bindings := #{name := Name}}) ->
-    update_credentials({delete, Name}).
+'/ai/providers/:name'(put, #{body := UpdatedProvider, bindings := #{name := Name}}) ->
+    update_providers({update, UpdatedProvider#{<<"name">> => Name}});
+'/ai/providers/:name'(delete, #{bindings := #{name := Name}}) ->
+    update_providers({delete, Name}).
 
 '/ai/completion_profiles'(get, _Params) ->
     {200, get_completion_profiles()};
@@ -281,20 +281,28 @@ post_completion_profile_example() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-get_credentials() ->
+get_providers() ->
     emqx_schema:fill_defaults_for_type(
-        hoconsc:array(emqx_ai_completion_schema:credential_sctype()),
-        emqx_ai_completion_config:get_credentials_raw()
+        hoconsc:array(emqx_ai_completion_schema:provider_sctype_api(get)),
+        get_providers_raw()
     ).
 
 get_completion_profiles() ->
     emqx_schema:fill_defaults_for_type(
-        hoconsc:array(emqx_ai_completion_schema:completion_profile_sctype()),
+        hoconsc:array(emqx_ai_completion_schema:completion_profile_sctype_api(get)),
         emqx_ai_completion_config:get_completion_profiles_raw()
     ).
 
-update_credentials(Request) ->
-    wrap_update_error(emqx_ai_completion_config:update_credentials_raw(Request)).
+get_providers_raw() ->
+    lists:map(
+        fun(Provider) ->
+            maps:without([<<"api_key">>], Provider)
+        end,
+        emqx_ai_completion_config:get_providers_raw()
+    ).
+
+update_providers(Request) ->
+    wrap_update_error(emqx_ai_completion_config:update_providers_raw(Request)).
 
 update_completion_profiles(Request) ->
     wrap_update_error(emqx_ai_completion_config:update_completion_profiles_raw(Request)).
@@ -313,18 +321,18 @@ wrap_update_error({error, Reason}) ->
         message => emqx_utils:readable_error_msg(Reason)
     }}.
 
-error_response(duplicate_credential_name) ->
-    {'INVALID_CREDENTIAL', <<"Duplicate credential name">>};
-error_response(credential_in_use) ->
-    {'INVALID_CREDENTIAL', <<"Credential in use">>};
-error_response(completion_profile_credential_type_mismatch) ->
-    {'INVALID_COMPLETION_PROFILE', <<"Completion profile type does not match credential type">>};
-error_response(credential_not_found) ->
-    {'NOT_FOUND', <<"Credential not found">>};
+error_response(duplicate_provider_name) ->
+    {'INVALID_CREDENTIAL', <<"Duplicate provider name">>};
+error_response(provider_in_use) ->
+    {'INVALID_CREDENTIAL', <<"Provider in use">>};
+error_response(completion_profile_provider_type_mismatch) ->
+    {'INVALID_COMPLETION_PROFILE', <<"Completion profile type does not match provider type">>};
+error_response(provider_not_found) ->
+    {'NOT_FOUND', <<"Provider not found">>};
 error_response(duplicate_completion_profile_name) ->
     {'INVALID_COMPLETION_PROFILE', <<"Duplicate completion profile name">>};
-error_response(completion_profile_credential_not_found) ->
-    {'INVALID_COMPLETION_PROFILE', <<"Completion profile credential not found">>};
+error_response(completion_profile_provider_not_found) ->
+    {'INVALID_COMPLETION_PROFILE', <<"Completion profile provider not found">>};
 error_response(completion_profile_not_found) ->
     {'NOT_FOUND', <<"Completion profile not found">>};
 error_response(UnknownError) ->

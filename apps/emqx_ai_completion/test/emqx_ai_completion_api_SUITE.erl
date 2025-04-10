@@ -28,7 +28,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx,
-            {emqx_ai_completion, #{config => "ai.credentials = [], ai.completion_profiles = []"}},
+            {emqx_ai_completion, #{config => "ai.providers = [], ai.completion_profiles = []"}},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -41,50 +41,50 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TestCase, Config) ->
     emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    emqx_ai_completion_test_helpers:clean_credentials(),
+    emqx_ai_completion_test_helpers:clean_providers(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
     emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    emqx_ai_completion_test_helpers:clean_credentials().
+    emqx_ai_completion_test_helpers:clean_providers().
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
 t_crud(_Config) ->
-    %% Fail to create invalid credentials
+    %% Fail to create invalid providers
     ?assertMatch(
         {ok, 400, _},
-        api_post([ai, credentials], #{<<"foo">> => <<"bar">>})
+        api_post([ai, providers], #{<<"foo">> => <<"bar">>})
     ),
 
-    %% Create valid credentials
+    %% Create valid providers
     ?assertMatch(
         {ok, 204},
-        api_post([ai, credentials], #{
-            name => <<"test-credential">>,
+        api_post([ai, providers], #{
+            name => <<"test-provider">>,
             type => <<"openai">>,
             api_key => <<"test-api-key">>
         })
     ),
 
-    %% Fail to create credential with duplicate name
+    %% Fail to create provider with duplicate name
     ?assertMatch(
         {ok, 400, _},
-        api_post([ai, credentials], #{
-            name => <<"test-credential">>,
+        api_post([ai, providers], #{
+            name => <<"test-provider">>,
             type => <<"openai">>,
             api_key => <<"test-api-key">>
         })
     ),
 
-    %% Succeed to fetch credentials
+    %% Succeed to fetch providers
     ?assertMatch(
         {ok, 200, [
-            #{<<"name">> := <<"test-credential">>, <<"type">> := <<"openai">>}
+            #{<<"name">> := <<"test-provider">>, <<"type">> := <<"openai">>}
         ]},
-        api_get([ai, credentials])
+        api_get([ai, providers])
     ),
 
     %% Fail to create invalid completion profile
@@ -93,24 +93,24 @@ t_crud(_Config) ->
         api_post([ai, completion_profiles], #{<<"foo">> => <<"bar">>})
     ),
 
-    %% Fail to create with invalid credential
+    %% Fail to create with invalid provider
     ?assertMatch(
         {ok, 400, _},
         api_post([ai, completion_profiles], #{
             name => <<"test-completion-profile">>,
             type => <<"openai">>,
-            credential_name => <<"non-existent-credential">>,
+            provider_name => <<"non-existent-provider">>,
             model => <<"gpt-4o">>
         })
     ),
 
-    %% Fail to create with mismatching credential type
+    %% Fail to create with mismatching provider type
     ?assertMatch(
         {ok, 400, _},
         api_post([ai, completion_profiles], #{
             name => <<"test-completion-profile">>,
             type => <<"anthropic">>,
-            credential_name => <<"test-credential">>
+            provider_name => <<"test-provider">>
         })
     ),
 
@@ -120,7 +120,7 @@ t_crud(_Config) ->
         api_post([ai, completion_profiles], #{
             name => <<"test-completion-profile">>,
             type => <<"openai">>,
-            credential_name => <<"test-credential">>,
+            provider_name => <<"test-provider">>,
             model => <<"gpt-4o">>
         })
     ),
@@ -131,7 +131,7 @@ t_crud(_Config) ->
         api_post([ai, completion_profiles], #{
             name => <<"test-completion-profile">>,
             type => <<"openai">>,
-            credential_name => <<"test-credential">>,
+            provider_name => <<"test-provider">>,
             model => <<"gpt-4o">>
         })
     ),
@@ -144,25 +144,25 @@ t_crud(_Config) ->
         api_get([ai, completion_profiles])
     ),
 
-    %% Fail to update credential type of the used credential
+    %% Fail to update provider type of the used provider
     ?assertMatch(
         {ok, 400, _},
-        api_put([ai, credentials, <<"test-credential">>], #{
+        api_put([ai, providers, <<"test-provider">>], #{
             type => <<"anthropic">>,
             api_key => <<"test-api-key">>
         })
     ),
 
-    %% Fail to delete the used credential
+    %% Fail to delete the used provider
     ?assertMatch(
         {ok, 400, _},
-        api_delete([ai, credentials, <<"test-credential">>])
+        api_delete([ai, providers, <<"test-provider">>])
     ),
 
-    %% Succeed to update the used credential
+    %% Succeed to update the used provider
     ?assertMatch(
         {ok, 204},
-        api_put([ai, credentials, <<"test-credential">>], #{
+        api_put([ai, providers, <<"test-provider">>], #{
             type => <<"openai">>,
             api_key => <<"new-test-api-key">>
         })
@@ -173,7 +173,7 @@ t_crud(_Config) ->
         {ok, 400, _},
         api_put([ai, completion_profiles, <<"test-completion-profile">>], #{
             type => <<"anthropic">>,
-            credential_name => <<"test-credential">>
+            provider_name => <<"test-provider">>
         })
     ),
 
@@ -188,7 +188,7 @@ t_crud(_Config) ->
         {ok, 204},
         api_put([ai, completion_profiles, <<"test-completion-profile">>], #{
             type => <<"openai">>,
-            credential_name => <<"test-credential">>,
+            provider_name => <<"test-provider">>,
             model => <<"gpt-4o-mini">>
         })
     ),
@@ -199,16 +199,16 @@ t_crud(_Config) ->
         api_delete([ai, completion_profiles, <<"test-completion-profile">>])
     ),
 
-    %% Fail to delete unknown credential
+    %% Fail to delete unknown provider
     ?assertMatch(
         {ok, 404, _},
-        api_delete([ai, credentials, <<"unknown-credential">>])
+        api_delete([ai, providers, <<"unknown-provider">>])
     ),
 
-    %% Succeed to delete the credential
+    %% Succeed to delete the provider
     ?assertMatch(
         {ok, 204},
-        api_delete([ai, credentials, <<"test-credential">>])
+        api_delete([ai, providers, <<"test-provider">>])
     ).
 
 %%--------------------------------------------------------------------
