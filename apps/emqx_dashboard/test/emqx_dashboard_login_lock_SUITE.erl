@@ -181,7 +181,7 @@ t_check_cleanup(_) ->
         _Inteval = 500,
         _Attempts = 4,
         ?assertMatch(
-            #{failed_attempt_records := 0, lock_records := 0},
+            #{failed_attempt_records := 0},
             emqx_dashboard_login_lock:info()
         )
     ).

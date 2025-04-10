@@ -34,6 +34,9 @@
     clear_mfa_state/1,
     set_mfa_state/2,
     get_mfa_state/1,
+    clear_login_lock/1,
+    set_login_lock/2,
+    get_login_lock/1,
     force_add_user/4,
     remove_user/1,
     update_user/3,
@@ -147,13 +150,13 @@ get_mfa_enabled_state(Username) ->
     end.
 
 get_mfa_state(Username) ->
-    case ets:lookup(?ADMIN, Username) of
-        [#?ADMIN{extra = #{mfa_state := S}}] ->
+    case get_extra(Username) of
+        {ok, #{mfa_state := S}} ->
             {ok, S};
-        [_] ->
+        {ok, _} ->
             {error, no_mfa_state};
-        [] ->
-            {error, username_not_found}
+        {error, _} = Error ->
+            Error
     end.
 
 %% @doc Delete MFA state from user record.
@@ -163,13 +166,7 @@ clear_mfa_state(Username) ->
     return(Res).
 
 clear_mfa_state2(Username) ->
-    case mnesia:wread({?ADMIN, Username}) of
-        [] ->
-            mnesia:abort(<<"username_not_found">>);
-        [Admin] ->
-            Extra = Admin#?ADMIN.extra,
-            ok = mnesia:write(Admin#?ADMIN{extra = maps:without([mfa_state], Extra)})
-    end.
+    update_extra(Username, fun(Extra) -> maps:without([mfa_state], Extra) end).
 
 %% @doc Change `mfa_state' to `disabled'.
 disable_mfa(Username) ->
@@ -177,13 +174,7 @@ disable_mfa(Username) ->
     return(Res).
 
 disable_mfa2(Username) ->
-    case mnesia:wread({?ADMIN, Username}) of
-        [] ->
-            mnesia:abort(<<"username_not_found">>);
-        [Admin] ->
-            Extra = Admin#?ADMIN.extra,
-            ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => disabled}})
-    end.
+    update_extra(Username, fun(Extra) -> Extra#{mfa_state => disabled} end).
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
@@ -209,12 +200,46 @@ set_mfa_state(Username, MfaState) ->
     return(Res).
 
 set_mfa_state2(Username, MfaState) ->
+    update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end).
+
+set_login_lock(Username, LockedUntil) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_login_lock2/2, [Username, LockedUntil]),
+    return(Res).
+
+set_login_lock2(Username, LockedUntil) ->
+    update_extra(Username, fun(Extra) -> Extra#{login_lock => LockedUntil} end).
+
+get_login_lock(Username) ->
+    case get_extra(Username) of
+        {ok, #{login_lock := LockedUntil}} ->
+            {ok, LockedUntil};
+        _ ->
+            not_found
+    end.
+
+clear_login_lock(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun clear_login_lock2/1, [Username]),
+    return(Res).
+
+clear_login_lock2(Username) ->
+    update_extra(Username, fun(Extra) -> maps:without([login_lock], Extra) end).
+
+%% @doc Management of `extra' field.
+
+update_extra(Username, Fun) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             mnesia:abort(<<"username_not_found">>);
-        [Admin] ->
-            Extra = Admin#?ADMIN.extra,
-            ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => MfaState}})
+        [#?ADMIN{extra = Extra0} = Admin] ->
+            ok = mnesia:write(Admin#?ADMIN{extra = Fun(Extra0)})
+    end.
+
+get_extra(Username) ->
+    case ets:lookup(?ADMIN, Username) of
+        [#?ADMIN{extra = Extra}] ->
+            {ok, Extra};
+        [] ->
+            {error, username_not_found}
     end.
 
 %% 0-9 or A-Z or a-z or $_

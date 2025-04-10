@@ -36,14 +36,8 @@
     info/0
 ]).
 
--type time_s() :: non_neg_integer().
 -type time_us() :: non_neg_integer().
 -type username() :: binary().
-
--record(login_lock, {
-    username :: username() | '_',
-    locked_until :: time_s() | '_'
-}).
 
 %% NOTE
 %% We ignore the fact that we may lose some attempts
@@ -54,7 +48,6 @@
 }).
 
 -define(TAB_ATTEMPTS, login_attempts).
--define(TAB_LOCK, login_lock).
 
 -ifdef(TEST).
 -define(CLEANUP_INTERVAL, 100).
@@ -79,8 +72,8 @@ register_unsuccessful_login(Username) ->
 -spec verify(username()) -> ok | {error, login_locked}.
 verify(Username) ->
     Now = erlang:system_time(second),
-    case mnesia:dirty_read(?TAB_LOCK, Username) of
-        [#login_lock{locked_until = LockedUntil}] when LockedUntil > Now ->
+    case emqx_dashboard_admin:get_login_lock(Username) of
+        {ok, LockedUntil} when LockedUntil > Now ->
             {error, login_locked};
         _ ->
             ok
@@ -98,13 +91,11 @@ reset(Username) ->
 
 -spec info() ->
     #{
-        failed_attempt_records := non_neg_integer(),
-        lock_records := non_neg_integer()
+        failed_attempt_records := non_neg_integer()
     }.
 info() ->
     #{
-        failed_attempt_records => mnesia:table_info(?TAB_ATTEMPTS, size),
-        lock_records => mnesia:table_info(?TAB_LOCK, size)
+        failed_attempt_records => mnesia:table_info(?TAB_ATTEMPTS, size)
     }.
 
 %%--------------------------------------------------------------------
@@ -125,20 +116,7 @@ create_tables() ->
             ]}
         ]}
     ]),
-    ok = mria:create_table(?TAB_LOCK, [
-        {type, set},
-        {rlog_shard, ?DASHBOARD_SHARD},
-        {storage, disc_copies},
-        {record_name, login_lock},
-        {attributes, record_info(fields, login_lock)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]),
-    [?TAB_ATTEMPTS, ?TAB_LOCK].
+    [?TAB_ATTEMPTS].
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -215,16 +193,14 @@ max_attempts_reached(Username, MinTimeUs, MaxCount, CurrentKey, Count) ->
 
 lock(Username, NowUs) ->
     LockedUntil = lock_duration_s() + erlang:convert_time_unit(NowUs, microsecond, second),
-    ok = mria:dirty_write(?TAB_LOCK, #login_lock{username = Username, locked_until = LockedUntil}).
+    {ok, _} = emqx_dashboard_admin:set_login_lock(Username, LockedUntil).
 
 cleanup_all() ->
     {atomic, ok} = mria:clear_table(?TAB_ATTEMPTS),
-    {atomic, ok} = mria:clear_table(?TAB_LOCK),
     ok.
 
 cleanup_all(NowUs) ->
-    cleanup_attempts(NowUs),
-    cleanup_locks(NowUs).
+    cleanup_attempts(NowUs).
 
 cleanup_attempts(NowUs) ->
     MaxAttemptTimeUs = NowUs - erlang:convert_time_unit(interval_s(), second, microsecond),
@@ -242,24 +218,8 @@ cleanup_attempts(NowUs) ->
         Stream1
     ).
 
-cleanup_locks(NowUs) ->
-    MaxLockTimeS = erlang:convert_time_unit(NowUs, microsecond, second),
-    Stream0 = ets_stream(?TAB_LOCK, #login_lock{_ = '_'}),
-    Stream1 = emqx_utils_stream:filter(
-        fun(#login_lock{locked_until = LockedUntil}) ->
-            LockedUntil < MaxLockTimeS
-        end,
-        Stream0
-    ),
-    emqx_utils_stream:foreach(
-        fun(#login_lock{username = Username}) ->
-            mria:dirty_delete(?TAB_LOCK, Username)
-        end,
-        Stream1
-    ).
-
 cleanup(Username) ->
-    _ = mria:dirty_delete(?TAB_LOCK, Username),
+    _ = emqx_dashboard_admin:clear_login_lock(Username),
     Stream = ets_stream(?TAB_ATTEMPTS, #login_attempts{key = {Username, '_'}, _ = '_'}),
     emqx_utils_stream:foreach(
         fun(#login_attempts{key = Key}) ->
