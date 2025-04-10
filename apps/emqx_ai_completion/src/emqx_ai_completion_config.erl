@@ -11,13 +11,13 @@
 -export([pre_config_update/3, post_config_update/5]).
 
 -export([
-    get_credential/1,
+    get_provider/1,
     get_completion_profile/1
 ]).
 
 -export([
-    update_credentials_raw/1,
-    get_credentials_raw/0,
+    update_providers_raw/1,
+    get_providers_raw/0,
     update_completion_profiles_raw/1,
     get_completion_profiles_raw/0
 ]).
@@ -26,25 +26,25 @@
 %% Definitions
 %%--------------------------------------------------------------------
 
--define(CREDENTIAL_PT_KEY, {?MODULE, ai_credentials}).
+-define(CREDENTIAL_PT_KEY, {?MODULE, ai_providers}).
 -define(COMPLETION_PROFILE_PT_KEY, {?MODULE, ai_completion_profiles}).
 
--define(CREDENTIAL_CONFIG_PATH, [ai, credentials]).
+-define(CREDENTIAL_CONFIG_PATH, [ai, providers]).
 -define(COMPLETION_PROFILE_CONFIG_PATH, [ai, completion_profiles]).
 
 %%--------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------
 
--type raw_credential() :: map().
+-type raw_provider() :: map().
 -type raw_completion_profile() :: map().
--type credential_name() :: binary().
+-type provider_name() :: binary().
 -type completion_profile_name() :: binary().
 
 -type ai_type() :: openai | anthropic.
 
--type credential() :: #{
-    name := credential_name(),
+-type provider() :: #{
+    name := provider_name(),
     type := ai_type(),
     api_key := fun(() -> binary())
 }.
@@ -52,40 +52,40 @@
 -type completion_profile() :: #{
     name := completion_profile_name(),
     type := ai_type(),
-    credential := credential(),
+    provider := provider(),
     _ => _
 }.
 
--type update_credentials_request() ::
-    {add, raw_credential()}
-    | {update, raw_credential()}
-    | {delete, credential_name()}.
+-type update_providers_request() ::
+    {add, raw_provider()}
+    | {update, raw_provider()}
+    | {delete, provider_name()}.
 
 -type update_completion_profiles_request() ::
     {add, raw_completion_profile()}
     | {update, raw_completion_profile()}
     | {delete, completion_profile_name()}.
 
--type update_credentials_error_reason() ::
-    duplicate_credential_name
-    | credential_in_use
-    | completion_profile_credential_type_mismatch
-    | credential_not_found.
+-type update_providers_error_reason() ::
+    duplicate_provider_name
+    | provider_in_use
+    | completion_profile_provider_type_mismatch
+    | provider_not_found.
 
 -type update_completion_profiles_error_reason() ::
     duplicate_completion_profile_name
-    | completion_profile_credential_not_found
-    | completion_profile_credential_type_mismatch
+    | completion_profile_provider_not_found
+    | completion_profile_provider_type_mismatch
     | completion_profile_not_found.
 
--type update_credentials_error() ::
-    #{reason => update_credentials_error_reason(), _ => _}.
+-type update_providers_error() ::
+    #{reason => update_providers_error_reason(), _ => _}.
 -type update_completion_profiles_error() ::
     #{reason => update_completion_profiles_error_reason(), _ => _}.
 
 -export_type([
     ai_type/0,
-    credential/0,
+    provider/0,
     completion_profile/0
 ]).
 
@@ -99,7 +99,7 @@
 load() ->
     ok = emqx_config_handler:add_handler(?CREDENTIAL_CONFIG_PATH, ?MODULE),
     ok = emqx_config_handler:add_handler(?COMPLETION_PROFILE_CONFIG_PATH, ?MODULE),
-    ok = cache_credentials(),
+    ok = cache_providers(),
     ok = cache_completion_profiles().
 
 -spec unload() -> ok.
@@ -112,38 +112,38 @@ unload() ->
 %% Config handler callbacks
 
 %%
-%% Credential update
+%% Provider update
 %%
 pre_config_update(
-    ?CREDENTIAL_CONFIG_PATH, {add, #{<<"name">> := Name} = Credential}, OldCredentials
+    ?CREDENTIAL_CONFIG_PATH, {add, #{<<"name">> := Name} = Provider}, OldProviders
 ) ->
-    case find_credential(Name, OldCredentials) of
-        {error, #{reason := credential_not_found}} ->
-            {ok, OldCredentials ++ [Credential]};
+    case find_provider(Name, OldProviders) of
+        {error, #{reason := provider_not_found}} ->
+            {ok, OldProviders ++ [Provider]};
         {ok, _} ->
             {error, #{
-                reason => duplicate_credential_name,
-                credential => Name
+                reason => duplicate_provider_name,
+                provider => Name
             }}
     end;
 pre_config_update(
-    ?CREDENTIAL_CONFIG_PATH, {update, #{<<"name">> := Name} = Credential}, OldCredentials
+    ?CREDENTIAL_CONFIG_PATH, {update, #{<<"name">> := Name} = Provider}, OldProviders
 ) ->
     maybe
-        {ok, OldCredential, NewCredentials} ?= update_credential(Name, Credential, OldCredentials),
-        ok ?= validate_credential_update(OldCredential, Credential),
-        {ok, NewCredentials}
+        {ok, OldProvider, NewProviders} ?= update_provider(Name, Provider, OldProviders),
+        ok ?= validate_provider_update(OldProvider, Provider),
+        {ok, NewProviders}
     end;
-pre_config_update(?CREDENTIAL_CONFIG_PATH, {delete, Name}, OldCredentials) ->
+pre_config_update(?CREDENTIAL_CONFIG_PATH, {delete, Name}, OldProviders) ->
     maybe
-        {ok, OldCredential, NewCredentials} ?= remove_credential(Name, OldCredentials),
-        ok ?= validate_credential_not_used(OldCredential),
-        {ok, NewCredentials}
+        {ok, OldProvider, NewProviders} ?= remove_provider(Name, OldProviders),
+        ok ?= validate_provider_not_used(OldProvider),
+        {ok, NewProviders}
     end;
-pre_config_update(?CREDENTIAL_CONFIG_PATH, NewCredentials, _OldCredentials) when
-    is_list(NewCredentials)
+pre_config_update(?CREDENTIAL_CONFIG_PATH, NewProviders, _OldProviders) when
+    is_list(NewProviders)
 ->
-    validate_credential_presence(NewCredentials, get_completion_profiles_raw());
+    validate_provider_presence(NewProviders, get_completion_profiles_raw());
 %%
 %% Completion profile update
 %%
@@ -178,7 +178,7 @@ pre_config_update(?COMPLETION_PROFILE_CONFIG_PATH, {delete, Name}, OldProfiles) 
 pre_config_update(?COMPLETION_PROFILE_CONFIG_PATH, NewProfiles, _OldProfiles) when
     is_list(NewProfiles)
 ->
-    validate_credential_presence(get_credentials_raw(), NewProfiles);
+    validate_provider_presence(get_providers_raw(), NewProfiles);
 pre_config_update(_Path, Request, _OldConf) ->
     {error, #{
         reason => bad_config,
@@ -186,25 +186,25 @@ pre_config_update(_Path, Request, _OldConf) ->
     }}.
 
 post_config_update(?CREDENTIAL_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
-    ok = cache_credentials(NewConf);
+    ok = cache_providers(NewConf);
 post_config_update(?COMPLETION_PROFILE_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
     ok = cache_completion_profiles(NewConf).
 
 %% Config accessors
 
--spec update_credentials_raw(update_credentials_request()) ->
+-spec update_providers_raw(update_providers_request()) ->
     ok
-    | {error, update_credentials_error()}
+    | {error, update_providers_error()}
     %% Unexpected emqx_conf errors
     | {error, term()}.
-update_credentials_raw(Request) ->
+update_providers_raw(Request) ->
     wrap_config_update_error(
         emqx_conf:update(?CREDENTIAL_CONFIG_PATH, Request, #{override_to => cluster})
     ).
 
--spec get_credentials_raw() -> [raw_credential()].
-get_credentials_raw() ->
-    emqx_config:get_raw([ai, credentials], []).
+-spec get_providers_raw() -> [raw_provider()].
+get_providers_raw() ->
+    emqx_config:get_raw([ai, providers], []).
 
 -spec update_completion_profiles_raw(update_completion_profiles_request()) ->
     ok
@@ -220,11 +220,11 @@ update_completion_profiles_raw(Request) ->
 get_completion_profiles_raw() ->
     emqx_config:get_raw([ai, completion_profiles], []).
 
--spec get_credential(credential_name()) -> {ok, credential()} | not_found.
-get_credential(Name) ->
+-spec get_provider(provider_name()) -> {ok, provider()} | not_found.
+get_provider(Name) ->
     case persistent_term:get(?CREDENTIAL_PT_KEY, #{}) of
-        #{Name := Credential} ->
-            {ok, Credential};
+        #{Name := Provider} ->
+            {ok, Provider};
         _ ->
             not_found
     end.
@@ -232,11 +232,11 @@ get_credential(Name) ->
 -spec get_completion_profile(completion_profile_name()) -> {ok, completion_profile()} | not_found.
 get_completion_profile(Name) ->
     case persistent_term:get(?COMPLETION_PROFILE_PT_KEY, #{}) of
-        #{Name := #{credential_name := CredentialName} = CompletionProfile0} ->
+        #{Name := #{provider_name := ProviderName} = CompletionProfile0} ->
             maybe
-                {ok, Credential} ?= get_credential(CredentialName),
-                CompletionProfile1 = maps:without([credential_name], CompletionProfile0),
-                CompletionProfile = CompletionProfile1#{credential => Credential},
+                {ok, Provider} ?= get_provider(ProviderName),
+                CompletionProfile1 = maps:without([provider_name], CompletionProfile0),
+                CompletionProfile = CompletionProfile1#{provider => Provider},
                 {ok, CompletionProfile}
             end;
         _ ->
@@ -249,19 +249,19 @@ get_completion_profile(Name) ->
 
 %% Cache management
 
-cache_credentials() ->
-    cache_credentials(emqx_config:get(?CREDENTIAL_CONFIG_PATH, [])).
+cache_providers() ->
+    cache_providers(emqx_config:get(?CREDENTIAL_CONFIG_PATH, [])).
 
-cache_credentials(Config) ->
-    Credentials = maps:from_list(
+cache_providers(Config) ->
+    Providers = maps:from_list(
         lists:map(
-            fun(#{name := Name} = Credential) ->
-                {Name, Credential}
+            fun(#{name := Name} = Provider) ->
+                {Name, Provider}
             end,
             Config
         )
     ),
-    persistent_term:put(?CREDENTIAL_PT_KEY, Credentials).
+    persistent_term:put(?CREDENTIAL_PT_KEY, Providers).
 
 cache_completion_profiles() ->
     cache_completion_profiles(emqx_config:get(?COMPLETION_PROFILE_CONFIG_PATH, [])).
@@ -277,16 +277,16 @@ cache_completion_profiles(Config) ->
     ),
     persistent_term:put(?COMPLETION_PROFILE_PT_KEY, CompletionProfiles).
 
-%% Credential validations
+%% Provider validations
 
-validate_credential_update(#{<<"type">> := Type} = _Old, #{<<"type">> := Type} = _New) ->
+validate_provider_update(#{<<"type">> := Type} = _Old, #{<<"type">> := Type} = _New) ->
     ok;
-validate_credential_update(OldCredential, _NewCredential) ->
-    validate_credential_not_used(OldCredential).
+validate_provider_update(OldProvider, _NewProvider) ->
+    validate_provider_not_used(OldProvider).
 
-validate_credential_not_used(#{<<"name">> := Name} = _Credential) ->
+validate_provider_not_used(#{<<"name">> := Name} = _Provider) ->
     UsingProfiles = lists:filter(
-        fun(#{<<"credential_name">> := N}) -> N =:= Name end,
+        fun(#{<<"provider_name">> := N}) -> N =:= Name end,
         get_completion_profiles_raw()
     ),
     case UsingProfiles of
@@ -294,18 +294,18 @@ validate_credential_not_used(#{<<"name">> := Name} = _Credential) ->
             ok;
         _ ->
             {error, #{
-                reason => credential_in_use,
-                credential_name => Name
+                reason => provider_in_use,
+                provider_name => Name
             }}
     end.
 
 %% Completion profile validations
 
-validate_credential_presence(Credentials, CompletionProfiles) ->
+validate_provider_presence(Providers, CompletionProfiles) ->
     try
         lists:foreach(
             fun(CompletionProfile) ->
-                case validate_credential_presence_for_profile(CompletionProfile, Credentials) of
+                case validate_provider_presence_for_profile(CompletionProfile, Providers) of
                     ok ->
                         ok;
                     {error, Error} ->
@@ -319,33 +319,33 @@ validate_credential_presence(Credentials, CompletionProfiles) ->
             {error, Error}
     end.
 
-validate_credential_presence_for_profile(
-    #{<<"credential_name">> := Name, <<"type">> := Type, <<"name">> := ProfileName}, Credentials
+validate_provider_presence_for_profile(
+    #{<<"provider_name">> := Name, <<"type">> := Type, <<"name">> := ProfileName}, Providers
 ) ->
-    case find_credential(Name, Credentials) of
+    case find_provider(Name, Providers) of
         {ok, #{<<"type">> := Type}} ->
             ok;
         {ok, #{<<"type">> := OtherType}} ->
             {error, #{
-                reason => completion_profile_credential_type_mismatch,
+                reason => completion_profile_provider_type_mismatch,
                 profile_name => ProfileName,
                 profile_type => Type,
-                credential_name => Name,
-                credential_type => OtherType
+                provider_name => Name,
+                provider_type => OtherType
             }};
-        {error, #{reason := credential_not_found}} ->
+        {error, #{reason := provider_not_found}} ->
             {error, #{
-                reason => completion_profile_credential_not_found,
+                reason => completion_profile_provider_not_found,
                 profile_name => ProfileName,
-                credential_name => Name
+                provider_name => Name
             }}
     end.
 
 validate_completion_profile_update(CompletionProfile) ->
-    validate_credential_presence_for_profile(CompletionProfile, get_credentials_raw()).
+    validate_provider_presence_for_profile(CompletionProfile, get_providers_raw()).
 
 validate_completion_profile_add(CompletionProfile) ->
-    validate_credential_presence_for_profile(CompletionProfile, get_credentials_raw()).
+    validate_provider_presence_for_profile(CompletionProfile, get_providers_raw()).
 
 %% Completion profile management
 
@@ -375,34 +375,34 @@ wrap_completion_profile_not_found(Name, not_found) ->
 wrap_completion_profile_not_found(_Name, Result) ->
     Result.
 
-%% Credential management
+%% Provider management
 
-find_credential(Name, Credentials) ->
-    wrap_credential_not_found(
+find_provider(Name, Providers) ->
+    wrap_provider_not_found(
         Name,
-        find_by_key(<<"name">>, Name, Credentials)
+        find_by_key(<<"name">>, Name, Providers)
     ).
 
-remove_credential(Name, Credentials) ->
-    wrap_credential_not_found(
+remove_provider(Name, Providers) ->
+    wrap_provider_not_found(
         Name,
-        remove_by_key(<<"name">>, Name, Credentials)
+        remove_by_key(<<"name">>, Name, Providers)
     ).
 
-update_credential(Name, Credential, Credentials) ->
-    wrap_credential_not_found(
+update_provider(Name, Provider, Providers) ->
+    wrap_provider_not_found(
         Name,
-        update_by_key(<<"name">>, Name, Credential, Credentials)
+        update_by_key(<<"name">>, Name, Provider, Providers)
     ).
 
 %% Helpers
 
-wrap_credential_not_found(Name, not_found) ->
+wrap_provider_not_found(Name, not_found) ->
     {error, #{
-        reason => credential_not_found,
-        credential_name => Name
+        reason => provider_not_found,
+        provider_name => Name
     }};
-wrap_credential_not_found(_Name, Result) ->
+wrap_provider_not_found(_Name, Result) ->
     Result.
 
 wrap_config_update_error({error, {pre_config_update, ?MODULE, Error}}) ->

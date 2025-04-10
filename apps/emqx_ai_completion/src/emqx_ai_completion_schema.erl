@@ -17,10 +17,8 @@
 ]).
 
 -export([
-    completion_profile_sctype/0,
-    completion_profile_sctype_api/0,
-    credential_sctype/0,
-    credential_sctype_api/0
+    completion_profile_sctype_api/1,
+    provider_sctype_api/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -37,12 +35,12 @@ tags() ->
 
 fields(ai) ->
     [
-        {credentials,
+        {providers,
             mk(
-                hoconsc:array(credential_sctype()),
+                hoconsc:array(provider_sctype()),
                 #{
                     default => [],
-                    desc => ?DESC(credentials)
+                    desc => ?DESC(providers)
                 }
             )},
         {completion_profiles,
@@ -54,47 +52,77 @@ fields(ai) ->
                 }
             )}
     ];
-fields(credential_api) ->
+fields(provider) ->
     [
+        {name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(provider_name),
+                validator => fun emqx_schema:non_empty_string/1
+            })},
         {type,
             mk(hoconsc:enum([openai, anthropic]), #{
                 default => openai, required => true, desc => ?DESC(type)
             })},
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})}
     ];
-fields(credential) ->
-    [name_field(credential_name)] ++ fields(credential_api);
-fields(openai_completion_profile_api) ->
+fields(provider_api_get) ->
+    without_fields([api_key], fields(provider));
+fields(provider_api_put) ->
+    without_fields([name], fields(provider));
+fields(openai_completion_profile) ->
     [
+        {name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(completion_profile_name),
+                validator => fun emqx_schema:non_empty_string/1
+            })},
         {type, mk(openai, #{default => openai, required => true, desc => ?DESC(type)})},
-        {credential_name, mk(binary(), #{required => true, desc => ?DESC(credential_name)})},
+        {provider_name, mk(binary(), #{required => true, desc => ?DESC(provider_name)})},
         {system_prompt, mk(binary(), #{default => <<>>, desc => ?DESC(system_prompt)})},
         {model, mk(enum(['gpt-4o', 'gpt-4o-mini']), #{default => 'gpt-4o', desc => ?DESC(model)})}
     ];
-fields(openai_completion_profile) ->
-    [name_field(completion_profile_name)] ++ fields(openai_completion_profile_api);
-fields(anthropic_completion_profile_api) ->
+fields(openai_completion_profile_api_get) ->
+    fields(openai_completion_profile);
+fields(openai_completion_profile_api_put) ->
+    without_fields([name], fields(openai_completion_profile));
+fields(anthropic_completion_profile) ->
     [
+        {name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(completion_profile_name),
+                validator => fun emqx_schema:non_empty_string/1
+            })},
         {type, mk(anthropic, #{default => anthropic, required => true, desc => ?DESC(type)})},
-        {credential_name, mk(binary(), #{required => true, desc => ?DESC(credential_name)})},
+        {provider_name, mk(binary(), #{required => true, desc => ?DESC(provider_name)})},
         {anthropic_version,
-            mk(enum(['2023-06-01']), #{default => '2023-06-01', desc => ?DESC(anthropic_version)})},
-        {system_prompt, mk(binary(), #{default => <<>>, desc => ?DESC(system_prompt)})},
+            mk(enum(['2023-06-01']), #{
+                default => '2023-06-01', desc => ?DESC(anthropic_version), required => false
+            })},
+        {system_prompt,
+            mk(binary(), #{required => false, default => <<>>, desc => ?DESC(system_prompt)})},
         {model,
             mk(enum(['claude-3-5-sonnet-20240620', 'claude-3-5-haiku-20240307']), #{
-                default => 'claude-3-5-sonnet-20240620', desc => ?DESC(model)
+                required => false,
+                default => 'claude-3-5-sonnet-20240620',
+                desc => ?DESC(model)
             })},
-        {max_tokens, mk(pos_integer(), #{default => 100, desc => ?DESC(max_tokens)})}
+        {max_tokens,
+            mk(pos_integer(), #{required => false, default => 100, desc => ?DESC(max_tokens)})}
     ];
-fields(anthropic_completion_profile) ->
-    [name_field(completion_profile_name)] ++ fields(anthropic_completion_profile_api).
+fields(anthropic_completion_profile_api_get) ->
+    fields(anthropic_completion_profile);
+fields(anthropic_completion_profile_api_put) ->
+    without_fields([name], fields(anthropic_completion_profile)).
 
 desc(ai) ->
     "AI functions settings.";
-desc(credential_api) ->
-    "AI provider credential used in HTTP API.";
-desc(credential) ->
-    "AI provider credential.";
+desc(provider_api_put) ->
+    "AI provider used in HTTP API.";
+desc(provider) ->
+    "AI provider.";
 desc(openai_completion_profile_api) ->
     "AI completion profile for OpenAI used in HTTP API.";
 desc(openai_completion_profile) ->
@@ -106,15 +134,6 @@ desc(anthropic_completion_profile) ->
 desc(_) ->
     undefined.
 
-name_field(Desc) ->
-    {name,
-        mk(binary(), #{
-            default => <<>>,
-            required => true,
-            desc => ?DESC(Desc),
-            validator => fun emqx_schema:non_empty_string/1
-        })}.
-
 completion_profile_sctype() ->
     emqx_schema:mkunion(
         type,
@@ -125,21 +144,36 @@ completion_profile_sctype() ->
         <<"openai">>
     ).
 
-completion_profile_sctype_api() ->
+completion_profile_sctype_api(get) ->
     emqx_schema:mkunion(
         type,
         #{
-            <<"openai">> => ref(openai_completion_profile_api),
-            <<"anthropic">> => ref(anthropic_completion_profile_api)
+            <<"openai">> => ref(openai_completion_profile_api_get),
+            <<"anthropic">> => ref(anthropic_completion_profile_api_get)
         },
         <<"openai">>
-    ).
+    );
+completion_profile_sctype_api(put) ->
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"openai">> => ref(openai_completion_profile_api_put),
+            <<"anthropic">> => ref(anthropic_completion_profile_api_put)
+        },
+        <<"openai">>
+    );
+completion_profile_sctype_api(post) ->
+    completion_profile_sctype().
 
-credential_sctype() ->
-    ref(credential).
+provider_sctype() ->
+    ref(provider).
 
-credential_sctype_api() ->
-    ref(credential_api).
+provider_sctype_api(put) ->
+    ref(provider_api_put);
+provider_sctype_api(get) ->
+    ref(provider_api_get);
+provider_sctype_api(post) ->
+    provider_sctype().
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -148,3 +182,11 @@ credential_sctype_api() ->
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Name) -> hoconsc:ref(?MODULE, Name).
 enum(Values) -> hoconsc:enum(Values).
+
+without_fields(FieldNames, Fields) ->
+    lists:filter(
+        fun({Name, _}) ->
+            not lists:member(Name, FieldNames)
+        end,
+        Fields
+    ).

@@ -6,7 +6,7 @@
 
 -export([
     clean_completion_profiles/0,
-    clean_credentials/0,
+    clean_providers/0,
     mock_ai_client/1,
     unmock_ai_client/0
 ]).
@@ -19,12 +19,12 @@ clean_completion_profiles() ->
         emqx_ai_completion_config:get_completion_profiles_raw()
     ).
 
-clean_credentials() ->
+clean_providers() ->
     ok = lists:foreach(
         fun(#{<<"name">> := Name}) ->
-            ok = emqx_ai_completion_config:update_credentials_raw({delete, Name})
+            ok = emqx_ai_completion_config:update_providers_raw({delete, Name})
         end,
-        emqx_ai_completion_config:get_credentials_raw()
+        emqx_ai_completion_config:get_providers_raw()
     ).
 
 mock_ai_client(AICompletion) ->

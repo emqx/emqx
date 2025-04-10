@@ -18,12 +18,18 @@
 %%------------------------------------------------------------------------------
 
 call(
-    #{model := Model, system_prompt := SystemPrompt, max_tokens := MaxTokens} = Profile,
+    #{
+        model := Model,
+        system_prompt := SystemPrompt,
+        max_tokens := MaxTokens,
+        provider := Provider,
+        anthropic_version := AnthropicVersion
+    },
     Data,
     Options
 ) ->
     Prompt = maps:get(prompt, Options, SystemPrompt),
-    Client = create_client(Profile),
+    Client = create_client(Provider, AnthropicVersion),
     Request = #{
         model => Model,
         messages => [
@@ -52,7 +58,7 @@ call(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(#{credential := #{api_key := ApiKey}, anthropic_version := AnthropicVersion}) ->
+create_client(#{api_key := ApiKey}, AnthropicVersion) ->
     emqx_ai_completion_client:new(#{
         host => <<"api.anthropic.com">>,
         base_path => <<"/v1/">>,
