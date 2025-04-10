@@ -2,7 +2,7 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_replication_snapshot).
+-module(emqx_ds_builtin_raft_server_snapshot).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 

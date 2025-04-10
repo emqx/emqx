@@ -7,7 +7,7 @@
 %% Currently metadata is stored in mria; that's not ideal, but
 %% eventually we'll replace it, so it's important not to leak
 %% implementation details from this module.
--module(emqx_ds_replication_layer_meta).
+-module(emqx_ds_builtin_raft_meta).
 
 -feature(maybe_expr, enable).
 -compile(inline).

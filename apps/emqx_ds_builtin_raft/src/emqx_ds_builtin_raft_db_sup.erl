@@ -84,7 +84,7 @@ stop_shard({DB, Shard}) ->
 -spec shard_info(emqx_ds_storage_layer:shard_id(), ready) -> boolean() | down.
 shard_info(ShardId = {DB, Shard}, Info) ->
     case sentinel_alive(ShardId) of
-        true -> emqx_ds_replication_layer_shard:shard_info(DB, Shard, Info);
+        true -> emqx_ds_builtin_raft_shard:shard_info(DB, Shard, Info);
         false -> down
     end.
 
@@ -151,7 +151,7 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
     logger:notice("Starting DS DB ~p", [DB]),
     emqx_ds_builtin_raft_sup:clean_gvars(DB),
     emqx_ds_builtin_metrics:init_for_db(DB),
-    Opts = emqx_ds_replication_layer_meta:open_db(DB, DefaultOpts),
+    Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [
         sup_spec(#?shards_sup{db = DB}, []),
@@ -188,7 +188,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         intensity => 10,
         period => 100
     },
-    Opts = emqx_ds_replication_layer_meta:db_config(DB),
+    Opts = emqx_ds_builtin_raft_meta:db_config(DB),
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_replication_spec(DB, Shard, Opts),
@@ -281,7 +281,7 @@ shard_storage_spec(DB, Shard, Opts) ->
 shard_replication_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_replication_layer_shard, start_link, [DB, Shard, Opts]},
+        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Opts]},
         shutdown => 10_000,
         restart => permanent,
         type => worker
@@ -290,7 +290,7 @@ shard_replication_spec(DB, Shard, Opts) ->
 shard_allocator_spec(DB) ->
     #{
         id => shard_allocator,
-        start => {emqx_ds_replication_shard_allocator, start_link, [DB]},
+        start => {emqx_ds_builtin_raft_shard_allocator, start_link, [DB]},
         restart => permanent,
         type => worker
     }.

@@ -2,7 +2,11 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_replication_shard_allocator).
+%% @doc Shard allocator is a process responsible for orchestrating initial allocation
+%% and subsequent transitions of each shard's replica set to the desired state,
+%% according to the Metadata DB.
+%% Each DB runs a single shard allocator.
+-module(emqx_ds_builtin_raft_shard_allocator).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -66,7 +70,7 @@ shard_meta(DB, Shard) ->
 
 -record(transhdl, {
     shard :: emqx_ds_replication_layer:shard_id(),
-    trans :: emqx_ds_replication_layer_meta:transition(),
+    trans :: emqx_ds_builtin_raft_meta:transition(),
     pid :: pid()
 }).
 
@@ -105,7 +109,7 @@ handle_cast(_Cast, State) ->
 
 -spec handle_info(Info, state()) -> {noreply, state()} when
     Info ::
-        emqx_ds_replication_layer_meta:subscription_event()
+        emqx_ds_builtin_raft_meta:subscription_event()
         | {timeout, reference(), allocate | fallback}
         | {'EXIT', pid(), _Reason}.
 handle_info({timeout, TRef, Name}, State0) ->
@@ -159,10 +163,10 @@ handle_allocate_shards(State0) ->
     end.
 
 subscribe_db_changes(#{db := DB}) ->
-    emqx_ds_replication_layer_meta:subscribe(self(), DB).
+    emqx_ds_builtin_raft_meta:subscribe(self(), DB).
 
 unsubscribe_db_changes(_State) ->
-    emqx_ds_replication_layer_meta:unsubscribe(self()).
+    emqx_ds_builtin_raft_meta:unsubscribe(self()).
 
 start_allocate_timer(State) ->
     restart_timer(allocate, ?ALLOCATE_RETRY_TIMEOUT, State).
@@ -202,7 +206,7 @@ handle_pending_transitions(State = #{db := DB, shards := Shards}) ->
     ).
 
 next_transitions(DB, Shard) ->
-    emqx_ds_replication_layer_meta:replica_set_transitions(DB, Shard).
+    emqx_ds_builtin_raft_meta:replica_set_transitions(DB, Shard).
 
 handle_shard_transitions(_Shard, _, [], State) ->
     %% We reached the target allocation.
@@ -216,7 +220,7 @@ handle_shard_transitions(Shard, Scope, [Trans | _Rest], State) ->
     end.
 
 transition_handler(Shard, Scope, Trans, _State = #{db := DB}) ->
-    ThisSite = catch emqx_ds_replication_layer_meta:this_site(),
+    ThisSite = catch emqx_ds_builtin_raft_meta:this_site(),
     case Trans of
         {add, ThisSite} ->
             {Shard, {fun trans_claim/4, [fun trans_add_local/3]}};
@@ -227,7 +231,7 @@ transition_handler(Shard, Scope, Trans, _State = #{db := DB}) ->
             %% Letting the replica handle its own removal first, acting on the
             %% transition only when triggered explicitly or by `?TRIGGER_PENDING_TIMEOUT`
             %% timer. In other cases `Scope` is `local`.
-            ReplicaSet = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
+            ReplicaSet = emqx_ds_builtin_raft_meta:replica_set(DB, Shard),
             case lists:member(Site, ReplicaSet) of
                 true ->
                     Handler = {fun trans_claim/4, [fun trans_rm_unresponsive/3]},
@@ -278,7 +282,7 @@ trans_add_local(DB, Shard, {add, Site}) ->
 
 do_add_local(membership = Stage, DB, Shard) ->
     ok = start_shard(DB, Shard),
-    case emqx_ds_replication_layer_shard:add_local_server(DB, Shard) of
+    case emqx_ds_builtin_raft_shard:add_local_server(DB, Shard) of
         ok ->
             do_add_local(readiness, DB, Shard);
         {error, recoverable, Reason} ->
@@ -292,8 +296,8 @@ do_add_local(membership = Stage, DB, Shard) ->
             do_add_local(Stage, DB, Shard)
     end;
 do_add_local(readiness = Stage, DB, Shard) ->
-    LocalServer = emqx_ds_replication_layer_shard:local_server(DB, Shard),
-    case emqx_ds_replication_layer_shard:server_info(readiness, LocalServer) of
+    LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
+    case emqx_ds_builtin_raft_shard:server_info(readiness, LocalServer) of
         ready ->
             ?tp(info, "Local shard replica ready", #{db => DB, shard => Shard});
         Status ->
@@ -312,7 +316,7 @@ trans_drop_local(DB, Shard, {del, Site}) ->
     do_drop_local(DB, Shard).
 
 do_drop_local(DB, Shard) ->
-    case emqx_ds_replication_layer_shard:drop_local_server(DB, Shard) of
+    case emqx_ds_builtin_raft_shard:drop_local_server(DB, Shard) of
         ok ->
             ok = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
             ok = emqx_ds_storage_layer:drop_shard({DB, Shard}),
@@ -333,8 +337,8 @@ trans_rm_unresponsive(DB, Shard, {del, Site}) ->
     do_rm_unresponsive(DB, Shard, Site, 1).
 
 do_rm_unresponsive(DB, Shard, Site, NAttempt) ->
-    Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
-    case emqx_ds_replication_layer_shard:remove_server(DB, Shard, Server) of
+    Server = emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site),
+    case emqx_ds_builtin_raft_shard:remove_server(DB, Shard, Server) of
         ok ->
             ?tp(notice, "Unresponsive shard replica removed", #{
                 db => DB,
@@ -355,8 +359,8 @@ do_rm_unresponsive(DB, Shard, Site, NAttempt) ->
     end.
 
 do_forget_lost(DB, Shard, Site) ->
-    Server = emqx_ds_replication_layer_shard:shard_server(DB, Shard, Site),
-    case emqx_ds_replication_layer_shard:forget_server(DB, Shard, Server) of
+    Server = emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site),
+    case emqx_ds_builtin_raft_shard:forget_server(DB, Shard, Server) of
         ok ->
             ?tp(notice, "Unresponsive shard replica forcefully forgotten", #{
                 db => DB,
@@ -417,10 +421,10 @@ ensure_transition(Track, Shard, Trans, Handler, State = #{transitions := Ts}) ->
     end.
 
 claim_transition(DB, Shard, Trans) ->
-    emqx_ds_replication_layer_meta:claim_transition(DB, Shard, Trans).
+    emqx_ds_builtin_raft_meta:claim_transition(DB, Shard, Trans).
 
 commit_transition(Shard, Trans, #{db := DB}) ->
-    emqx_ds_replication_layer_meta:update_replica_set(DB, Shard, Trans).
+    emqx_ds_builtin_raft_meta:update_replica_set(DB, Shard, Trans).
 
 start_transition_handler(Shard, Trans, Handler, #{db := DB}) ->
     proc_lib:spawn_link(?MODULE, handle_transition, [DB, Shard, Trans, Handler]).
@@ -469,10 +473,10 @@ handle_transition_exit(Shard, Trans, Reason, State = #{db := DB}) ->
 %%
 
 allocate_shards(State = #{db := DB}) ->
-    case emqx_ds_replication_layer_meta:allocate_shards(DB) of
+    case emqx_ds_builtin_raft_meta:allocate_shards(DB) of
         {ok, Shards} ->
             logger:info(#{msg => "Shards allocated", shards => Shards}),
-            ok = start_shards(DB, emqx_ds_replication_layer_meta:my_shards(DB)),
+            ok = start_shards(DB, emqx_ds_builtin_raft_meta:my_shards(DB)),
             ok = start_egresses(DB, Shards),
             ok = save_db_meta(DB, Shards),
             ok = save_shards_meta(DB, Shards),
@@ -509,7 +513,7 @@ save_shards_meta(DB, Shards) ->
     lists:foreach(fun(Shard) -> save_shard_meta(DB, Shard) end, Shards).
 
 save_shard_meta(DB, Shard) ->
-    Servers = emqx_ds_replication_layer_shard:shard_servers(DB, Shard),
+    Servers = emqx_ds_builtin_raft_shard:shard_servers(DB, Shard),
     persistent_term:put(?shard_meta(DB, Shard), #{
         servers => Servers
     }).

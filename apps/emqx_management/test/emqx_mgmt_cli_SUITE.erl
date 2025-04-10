@@ -377,7 +377,7 @@ t_leave_rejected_ds_nonempty('end', Config) ->
 t_leave_rejected_ds_nonempty(Config) ->
     _Specs = [_, NS2] = ?config(nodespecs, Config),
     Nodes = [N1, N2] = ?config(cluster, Config),
-    S2 = ?ON(N2, emqx_ds_replication_layer_meta:this_site()),
+    S2 = ?ON(N2, emqx_ds_builtin_raft_meta:this_site()),
     DB = messages,
     DBArg = "messages",
     S2Arg = binary_to_list(S2),
@@ -398,13 +398,12 @@ t_leave_rejected_ds_nonempty(Config) ->
 
     %% Now leave the cluster again, wait until N1 forgets about S2.
     ?assertEqual(ok, ?ON(N2, emqx_mgmt_cli:cluster(["leave"]))),
-    ?retry(500, 10, undefined = ?ON(N1, emqx_ds_replication_layer_meta:node(S2))),
+    ?retry(500, 10, undefined = ?ON(N1, emqx_ds_builtin_raft_meta:node(S2))),
     ?ON(N1, emqx_mgmt_cli:ds(["info"])),
 
     %% Join the cluster again.
     ?assertEqual(ok, ?ON(N2, emqx_mgmt_cli:cluster(["join", atom_to_list(N1)]))),
     [N2] = emqx_cth_cluster:restart(NS2),
-    % ?retry(500, 10, N2 = ?ON(N1, emqx_ds_replication_layer_meta:node(S2))),
     ?ON(N1, emqx_mgmt_cli:ds(["info"])),
 
     %% Ask to be DS DB replication site again.
