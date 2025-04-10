@@ -706,7 +706,7 @@ t_connack_client_id_unavailable(Config) ->
         unlink(Client),
         {error, ConnAck} = emqtt:ConnFun(Client),
         ?assertMatch(
-            {client_identifier_not_valid, #{
+            {server_busy, #{
                 'Reason-String' := <<"THROTTLED">>
             }},
             ConnAck

@@ -69,7 +69,8 @@
 %% Test/debug interface
 -export([
     all_channels/0,
-    all_client_ids/0
+    all_client_ids/0,
+    do_unregister_channel/1
 ]).
 
 %% Client management

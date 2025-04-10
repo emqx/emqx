@@ -609,7 +609,7 @@ post_process_connect(
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             ReasonString = <<"THROTTLED">>,
-            handle_out(connack, {?RC_CLIENT_IDENTIFIER_NOT_VALID, ReasonString}, Channel);
+            handle_out(connack, {?RC_SERVER_BUSY, ReasonString}, Channel);
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
