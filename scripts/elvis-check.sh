@@ -33,8 +33,10 @@ else
     compare_base="$remote/$base"
 fi
 
+
+IGNORE_COMMEENTS='(^[^\s?%])'
 git_diff() {
-    git diff --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
+    git diff --ignore-blank-lines -G "$IGNORE_COMMEENTS" --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
 }
 
 bad_file_count=0

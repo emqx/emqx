@@ -1,7 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% @doc EMQX License Management CLI.
 %%--------------------------------------------------------------------
 
 -ifndef(_EMQX_LICENSE_).
