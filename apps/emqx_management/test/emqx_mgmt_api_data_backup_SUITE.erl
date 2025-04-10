@@ -240,6 +240,29 @@ t_schema_registry_import_order(Config) ->
     {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
     ok.
 
+%% (EMQX-14099) Attempts to export an invalid configuration and then re-import it using
+%% CLI.  Should not crash, even if the import fails.
+t_exhook_backup(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    Name = <<"myhook">>,
+    ExhookConf = #{
+        <<"name">> => Name,
+        %% Bad URL when importing back...
+        <<"url">> => <<"127.0.0.1">>
+    },
+    {ok, _} = ?ON(N1, emqx_exhook_mgr:update_config([exhook, servers], {add, ExhookConf})),
+    ExportBody = #{},
+    {200, #{<<"filename">> := Filepath}} = export_backup2(?NODE1_PORT, Auth, ExportBody),
+    {ok, _} = ?ON(N1, emqx_exhook_mgr:update_config([exhook, servers], {delete, Name})),
+    %% Need to explicitly load the commands because they are loaded by `emqx_machine'...
+    ?ON(N1, emqx_mgmt_cli:load()),
+    %% Original bug (EMQX-14099): this crashed with a `badarg` error when printing the
+    %% error message due to a bug in exhook....
+    %% The import fails because the configuration is invalid, but it shouldn't crash.
+    ?ON(N1, emqx_ctl:run_command(["data", "import", Filepath])),
+    ok.
+
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
@@ -550,6 +573,12 @@ test_case_specific_apps_spec(TestCase) when
         emqx_schema_registry,
         emqx_schema_validation,
         emqx_message_transformation
+    ];
+test_case_specific_apps_spec(TestCase) when
+    TestCase =:= t_exhook_backup
+->
+    [
+        emqx_exhook
     ];
 test_case_specific_apps_spec(_TC) ->
     [].
