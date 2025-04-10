@@ -13,7 +13,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SERVERS, [exhook, servers]).
--define(EXHOOK, [exhook]).
+-define(EXHOOK_ROOT, exhook).
+-define(EXHOOK, [?EXHOOK_ROOT]).
 
 %% APIs
 -export([start_link/0]).
@@ -191,12 +192,12 @@ import_config(#{<<"exhook">> := #{<<"servers">> := Servers} = ExHook}) ->
         {ok, #{raw_config := #{<<"servers">> := NewRawServers}}} ->
             Changed = maps:get(changed, emqx_utils:diff_lists(NewRawServers, OldServers, KeyFun)),
             ChangedPaths = [?SERVERS ++ [Name] || {#{<<"name">> := Name}, _} <- Changed],
-            {ok, #{root_key => ?EXHOOK, changed => ChangedPaths}};
+            {ok, #{root_key => ?EXHOOK_ROOT, changed => ChangedPaths}};
         Error ->
-            {error, #{root_key => ?EXHOOK, reason => Error}}
+            {error, #{root_key => ?EXHOOK_ROOT, reason => Error}}
     end;
 import_config(_RawConf) ->
-    {ok, #{root_key => ?EXHOOK, changed => []}}.
+    {ok, #{root_key => ?EXHOOK_ROOT, changed => []}}.
 
 %%----------------------------------------------------------------------------------------
 %% gen_server callbacks
