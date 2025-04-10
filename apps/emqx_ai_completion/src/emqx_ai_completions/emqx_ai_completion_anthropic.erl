@@ -58,7 +58,7 @@ call(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(#{api_key := ApiKey}, AnthropicVersion) ->
+create_client(#{api_key := ApiKey, transport_options := TransportOptions}, AnthropicVersion) ->
     emqx_ai_completion_client:new(#{
         host => <<"api.anthropic.com">>,
         base_path => <<"/v1/">>,
@@ -66,5 +66,6 @@ create_client(#{api_key := ApiKey}, AnthropicVersion) ->
             {<<"Content-Type">>, <<"application/json">>},
             {<<"x-api-key">>, ApiKey},
             {<<"anthropic-version">>, atom_to_binary(AnthropicVersion, utf8)}
-        ]
+        ],
+        transport_options => TransportOptions
     }).

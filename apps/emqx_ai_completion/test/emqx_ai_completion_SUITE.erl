@@ -81,6 +81,8 @@ t_completion(_Config) ->
         }}
     ),
     %% Mock actual API client
+    %% TODO:
+    %% Use container with OpenAI/Anthropic compatible API
     ok = emqx_ai_completion_test_helpers:mock_ai_client(<<"some completion">>),
 
     %% Setup republish rule

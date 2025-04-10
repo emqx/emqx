@@ -12,10 +12,13 @@
     api_delete/2
 ]).
 
+-type transport_options() :: emqx_ai_completion_config:transport_options().
+
 -type options() :: #{
     host := binary(),
     base_path := binary(),
-    headers := [{binary(), emqx_secret:t(binary())}]
+    headers := [{binary(), emqx_secret:t(binary())}],
+    transport_options := transport_options()
 }.
 
 -export_type([t/0, options/0]).
@@ -23,7 +26,8 @@
 -record(state, {
     headers :: [{binary(), emqx_secret:t(binary())}],
     host :: binary(),
-    base_path :: binary()
+    base_path :: binary(),
+    transport_options :: transport_options()
 }).
 
 -type t() :: #state{}.
@@ -33,8 +37,18 @@
 %%------------------------------------------------------------------------------
 
 -spec new(options()) -> t().
-new(#{host := Host, base_path := BasePath, headers := Headers}) ->
-    #state{host = Host, base_path = BasePath, headers = Headers}.
+new(#{
+    host := Host,
+    base_path := BasePath,
+    headers := Headers,
+    transport_options := TransportOptions
+}) ->
+    #state{
+        host = Host,
+        base_path = BasePath,
+        headers = Headers,
+        transport_options = TransportOptions
+    }.
 
 api_get(State, Path) ->
     Result = make_request(State, {get, Path}),
@@ -57,13 +71,17 @@ api_delete(State, Path) ->
 %%------------------------------------------------------------------------------
 
 make_request(State, {get, Path}) ->
-    hackney:request(get, api_url(State, Path), headers(State));
+    hackney:request(get, api_url(State, Path), headers(State), <<>>, req_options(State));
 make_request(State, {post, Path, Body}) ->
-    hackney:request(post, api_url(State, Path), headers(State), emqx_utils_json:encode(Body));
+    hackney:request(
+        post, api_url(State, Path), headers(State), emqx_utils_json:encode(Body), req_options(State)
+    );
 make_request(State, {put, Path, Body}) ->
-    hackney:request(put, api_url(State, Path), headers(State), emqx_utils_json:encode(Body));
+    hackney:request(
+        put, api_url(State, Path), headers(State), emqx_utils_json:encode(Body), req_options(State)
+    );
 make_request(State, {delete, Path}) ->
-    hackney:request(delete, api_url(State, Path), headers(State)).
+    hackney:request(delete, api_url(State, Path), headers(State), <<>>, req_options(State)).
 
 handle_result({ok, Code, _Headers, ClientRef}) when Code >= 200 andalso Code < 300 ->
     {ok, Json} = hackney:body(ClientRef),
@@ -107,3 +125,6 @@ bin(I) when is_integer(I) ->
     integer_to_binary(I);
 bin(L) when is_list(L) ->
     iolist_to_binary(L).
+
+req_options(#state{transport_options = TransportOptions}) ->
+    maps:to_list(TransportOptions).

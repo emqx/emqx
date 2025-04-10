@@ -60,4 +60,22 @@ completion_profiles.desc:
 completion_profiles.label:
 """Completion Profiles"""
 
+connect_timeout.desc:
+"""Connect timeout to the AI provider."""
+
+connect_timeout.label:
+"""Connect Timeout"""
+
+recv_timeout.desc:
+"""Receive timeout to the AI provider."""
+
+recv_timeout.label:
+"""Receive Timeout"""
+
+checkout_timeout.desc:
+"""Timeout for the checkout from connection pool for a request to the AI provider."""
+
+checkout_timeout.label:
+"""Checkout Timeout"""
+
 }
