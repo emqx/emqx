@@ -115,6 +115,7 @@ t_cancel_lock_with_successful_login(_) ->
         {ok, _},
         api_post([login], #{username => ?USERNAME, password => ?PASSWORD})
     ),
+    ?assertEqual(0, failed_attempt_record_count()),
 
     %% now unsuccessful logins should be allowed again
     ok = lists:foreach(
@@ -154,7 +155,7 @@ t_cancel_lock_with_cli(_Config) ->
         api_post([login], #{username => ?USERNAME, password => <<"new_password">>})
     ).
 
-t_check_cleanup(_) ->
+t_cleanup(_) ->
     %% Set small timeouts for records
     emqx_config:put([dashboard, unsuccessful_login_lock_duration], 1),
     emqx_config:put([dashboard, unsuccessful_login_interval], 1),
@@ -180,11 +181,56 @@ t_check_cleanup(_) ->
     ?retry(
         _Inteval = 500,
         _Attempts = 4,
-        ?assertMatch(
-            #{failed_attempt_records := 0},
-            emqx_dashboard_login_lock:info()
-        )
+        ?assertEqual(0, failed_attempt_record_count())
     ).
+
+t_no_record_for_invalid_username(_) ->
+    %% Check that no record is created for invalid username
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_USERNAME_OR_PWD">>}},
+        api_post([login], #{username => <<"invalid_username">>, password => <<"wrong_password">>})
+    ),
+    ?assertEqual(0, failed_attempt_record_count()).
+
+t_cleanup_many(_) ->
+    %% This test checks that batch accumulation and deletion works properly
+    %% during cleanup.
+
+    %% Create 2222 interleaving records, 1111 outdated and 1111 actual
+    lists:foreach(
+        fun(I) ->
+            Username = <<"user_", (integer_to_binary(I))/binary, "_a">>,
+            emqx_dashboard_login_lock:register_unsuccessful_login(Username)
+        end,
+        lists:seq(1, 1111)
+    ),
+    NowUs =
+        erlang:system_time(microsecond) +
+            erlang:convert_time_unit(
+                emqx_config:get([dashboard, unsuccessful_login_interval]), second, microsecond
+            ),
+    ct:sleep(1),
+    lists:foreach(
+        fun(I) ->
+            Username = <<"user_", (integer_to_binary(I))/binary, "_b">>,
+            emqx_dashboard_login_lock:register_unsuccessful_login(Username)
+        end,
+        lists:seq(1, 1111)
+    ),
+    ct:sleep(100),
+    ?assertEqual(2222, failed_attempt_record_count()),
+
+    %% Cleanup all outdated records
+    ok = emqx_dashboard_login_lock:cleanup_all(NowUs),
+    ct:sleep(100),
+
+    %% Check that only the actual records are left
+    ?assertEqual(1111, failed_attempt_record_count()),
+
+    %% Check that no-op cleanup also works
+    ok = emqx_dashboard_login_lock:cleanup_all(NowUs),
+    ct:sleep(100),
+    ?assertEqual(1111, failed_attempt_record_count()).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -205,3 +251,6 @@ api_post(Path, Data) ->
 
 noauth_header() ->
     emqx_common_test_http:auth_header("invalid", "password").
+
+failed_attempt_record_count() ->
+    length(mnesia:dirty_all_keys(login_attempts)).

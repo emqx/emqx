@@ -33,7 +33,7 @@
 %% For testing/debugging
 -export([
     cleanup_all/0,
-    info/0
+    cleanup_all/1
 ]).
 
 -type time_us() :: non_neg_integer().
@@ -43,7 +43,7 @@
 %% We ignore the fact that we may lose some attempts
 %% if they happen in the same microsecond.
 -record(login_attempts, {
-    key :: {username(), time_us()} | {'_', '_'} | '_',
+    key :: {username(), time_us() | '$1'},
     extra :: map() | '_'
 }).
 
@@ -55,7 +55,7 @@
 -define(CLEANUP_INTERVAL, timer:minutes(30)).
 -endif.
 
--define(ETS_CHUNK_SIZE, 100).
+-define(CLEANUP_CHUNK_SIZE, 100).
 
 %%--------------------------------------------------------------------
 %% API
@@ -89,15 +89,6 @@ is_login_locked_error(_) ->
 reset(Username) ->
     cleanup(Username).
 
--spec info() ->
-    #{
-        failed_attempt_records := non_neg_integer()
-    }.
-info() ->
-    #{
-        failed_attempt_records => mnesia:table_info(?TAB_ATTEMPTS, size)
-    }.
-
 %%--------------------------------------------------------------------
 %% Internal API
 %%--------------------------------------------------------------------
@@ -106,15 +97,9 @@ create_tables() ->
     ok = mria:create_table(?TAB_ATTEMPTS, [
         {type, ordered_set},
         {rlog_shard, ?DASHBOARD_SHARD},
-        {storage, disc_copies},
+        {storage, rocksdb_copies},
         {record_name, login_attempts},
-        {attributes, record_info(fields, login_attempts)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
+        {attributes, record_info(fields, login_attempts)}
     ]),
     [?TAB_ATTEMPTS].
 
@@ -204,37 +189,44 @@ cleanup_all(NowUs) ->
 
 cleanup_attempts(NowUs) ->
     MaxAttemptTimeUs = NowUs - erlang:convert_time_unit(interval_s(), second, microsecond),
-    Stream0 = ets_stream(?TAB_ATTEMPTS, #login_attempts{_ = '_'}),
-    Stream1 = emqx_utils_stream:filter(
-        fun(#login_attempts{key = {_, TimeUs}}) ->
-            TimeUs < MaxAttemptTimeUs
-        end,
-        Stream0
-    ),
-    emqx_utils_stream:foreach(
-        fun(#login_attempts{key = Key}) ->
-            mria:dirty_delete(?TAB_ATTEMPTS, Key)
-        end,
-        Stream1
-    ).
+    cleanup_attempts(MaxAttemptTimeUs, mnesia:dirty_first(?TAB_ATTEMPTS), []).
+
+cleanup_attempts(_MaxAttemptTimeUs, '$end_of_table', []) ->
+    ok;
+cleanup_attempts(_MaxAttemptTimeUs, '$end_of_table', KeysAcc) ->
+    ok = delete_attempts(KeysAcc);
+cleanup_attempts(MaxAttemptTimeUs, Key, KeysAcc) when length(KeysAcc) >= ?CLEANUP_CHUNK_SIZE ->
+    ok = delete_attempts(KeysAcc),
+    cleanup_attempts(MaxAttemptTimeUs, Key, []);
+cleanup_attempts(MaxAttemptTimeUs, {_, TimeUs} = Key, KeysAcc0) when TimeUs < MaxAttemptTimeUs ->
+    cleanup_attempts(MaxAttemptTimeUs, mnesia:dirty_next(?TAB_ATTEMPTS, Key), [Key | KeysAcc0]);
+cleanup_attempts(MaxAttemptTimeUs, Key, KeysAcc) ->
+    cleanup_attempts(MaxAttemptTimeUs, mnesia:dirty_next(?TAB_ATTEMPTS, Key), KeysAcc).
 
 cleanup(Username) ->
     _ = emqx_dashboard_admin:clear_login_lock(Username),
-    Stream = ets_stream(?TAB_ATTEMPTS, #login_attempts{key = {Username, '_'}, _ = '_'}),
-    emqx_utils_stream:foreach(
-        fun(#login_attempts{key = Key}) ->
-            mria:dirty_delete(?TAB_ATTEMPTS, Key)
-        end,
-        Stream
-    ).
+    Keys = user_attempt_keys(Username),
+    delete_attempts(Keys).
 
-ets_stream(Tab, MatchSpec) ->
-    emqx_utils_stream:ets(
-        fun
-            (undefined) -> ets:match_object(Tab, MatchSpec, ?ETS_CHUNK_SIZE);
-            (Cont) -> ets:match_object(Cont)
-        end
-    ).
+user_attempt_keys(Username) ->
+    mnesia:dirty_select(?TAB_ATTEMPTS, [
+        {
+            #login_attempts{key = {Username, '$1'}, _ = '_'},
+            [],
+            [{{Username, '$1'}}]
+        }
+    ]).
+
+delete_attempts(Keys) ->
+    _ = mria:async_dirty(?DASHBOARD_SHARD, fun() ->
+        lists:foreach(
+            fun(Key) ->
+                _ = mria:dirty_delete(?TAB_ATTEMPTS, Key)
+            end,
+            Keys
+        )
+    end),
+    ok.
 
 now_us() ->
     erlang:system_time(microsecond).
