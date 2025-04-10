@@ -93,10 +93,15 @@ ensure_apps_started() ->
 
 start_one_app(App) ->
     ?SLOG(debug, #{msg => "starting_app", app => App}),
-    case application:ensure_all_started(App, restart_type(App)) of
+    Type = restart_type(App),
+    case application:ensure_all_started(App, Type) of
         {ok, Apps} ->
             ?SLOG(debug, #{msg => "started_apps", apps => Apps});
+        {error, Reason} when Type =:= permanent ->
+            %% log debug and wait for application_master to terminate the node
+            ?SLOG(debug, #{msg => "failed_to_start_app", app => App, reason => Reason});
         {error, Reason} ->
+            %% this is unexpected, fail loudly (this also results in a crash dump)
             ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
             error({failed_to_start_app, App, Reason})
     end.

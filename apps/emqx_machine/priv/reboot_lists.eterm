@@ -39,6 +39,7 @@
             emqx,
             emqx_conf,
             emqx_utils,
+            emqx_license,
             emqx_durable_storage,
             emqx_ds_backends,
             emqx_http_lib,
@@ -86,7 +87,6 @@
     %% must always be of type `load'
     ee_business_apps =>
         [
-            emqx_license,
             emqx_enterprise,
             emqx_opentelemetry,
             emqx_mt,
