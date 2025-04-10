@@ -225,6 +225,17 @@ t_import_config(_Config) ->
         emqx:get_config([license])
     ).
 
+t_app_cannot_start_with_inalid_license(_Config) ->
+    meck:new(emqx_license, [passthrough, no_history]),
+    meck:expect(emqx_license, read_license, fun() -> {error, 'SINGLE_NODE_LICENSE'} end),
+    try
+        ?assertMatch(
+            {error, "SINGLE_NODE_LICENSE," ++ _}, emqx_license_app:start(normal, permanent)
+        )
+    after
+        meck:unload(emqx_license)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
