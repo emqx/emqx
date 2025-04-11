@@ -61,14 +61,14 @@
 -define(supervisor, supervisor).
 
 %% Aggregated delivery / transfer state fields
+-define(action_res_id, action_res_id).
 -define(base_path, base_path).
 -define(bucket, bucket).
 -define(data_file_key, data_file_key).
 -define(data_size, data_size).
--define(loaded_table, loaded_table).
+-define(inner_transfer, inner_transfer).
 -define(n_attempt, n_attempt).
 -define(namespace, namespace).
--define(num_records, num_records).
 -define(s3_client, s3_client).
 -define(s3_client_config, s3_client_config).
 -define(s3_transfer_state, s3_transfer_state).
@@ -78,7 +78,6 @@
 -define(table_uuid, table_uuid).
 -define(write_uuid, write_uuid).
 
--define(ROOT_SC_TYPE, <<"root">>).
 -define(MEGABYTE, 1024 * 1024).
 -define(GIGABYTE, 1024 * ?MEGABYTE).
 %% 2^63 - 1
@@ -94,6 +93,9 @@
 
 -define(MANIFEST_ENTRY_PT_KEY, {?MODULE, manifest_entry}).
 -define(MANIFEST_FILE_PT_KEY, {?MODULE, manifest_file}).
+
+-record(single_transfer, {data_file_key, data_size = 0, num_records = 0, state}).
+-record(partitioned_transfer, {state}).
 
 -type connector_config() :: #{}.
 -type connector_state() :: #{
@@ -112,6 +114,7 @@
 
 -type transfer_opts() :: #{
     upload_options := #{
+        ?action_res_id := action_resource_id(),
         ?client := iceberg_client(),
         ?location_client := location_client(),
         ?namespace := namespace(),
@@ -119,18 +122,39 @@
     }
 }.
 
+-type inner_transfer() :: single_transfer() | partitioned_transfer().
+
+-type single_transfer() :: #single_transfer{
+    data_file_key :: binary(),
+    data_size :: non_neg_integer(),
+    num_records :: non_neg_integer(),
+    state :: emqx_s3_upload:t()
+}.
+
+-type partitioned_transfer() :: #partitioned_transfer{
+    state :: #{
+        [partition_key()] => #{
+            ?data_file_key := binary(),
+            ?data_size := non_neg_integer(),
+            ?num_records := non_neg_integer(),
+            ?s3_transfer_state := emqx_s3_upload:t()
+        }
+    }
+}.
+
 -type transfer_state() :: #{
+    ?action_res_id := action_resource_id(),
     ?base_path := binary(),
     ?bucket := binary(),
     ?client := iceberg_client(),
-    ?data_file_key := binary(),
-    ?data_size := non_neg_integer(),
+    ?iceberg_schema := map(),
+    ?inner_transfer := inner_transfer(),
     ?loaded_table := map(),
     ?n_attempt := non_neg_integer(),
     ?namespace := namespace(),
-    ?num_records := non_neg_integer(),
+    ?partition_spec := emqx_bridge_iceberg_logic:partition_spec_parsed(),
+    ?partition_spec_id := integer(),
     ?s3_client := emqx_s3_client:client(),
-    ?s3_transfer_state := emqx_s3_upload:t(),
     ?schema_id := integer(),
     ?seq_num := integer(),
     ?table := table_name(),
@@ -149,6 +173,8 @@
 
 -type namespace() :: binary().
 -type table_name() :: binary().
+
+-type partition_key() :: emqx_bridge_iceberg_aggreg_partitioned:partition_key().
 
 %%------------------------------------------------------------------------------
 %% `emqx_resource' API
@@ -279,22 +305,24 @@ on_batch_query(_ConnResId, Queries, _ConnectorState) ->
 
 -spec load_and_memoize_schema_files() -> ok.
 load_and_memoize_schema_files() ->
-    do_load_and_memoize_schema_files(?MANIFEST_ENTRY_PT_KEY, "manifest-entry.avsc"),
-    do_load_and_memoize_schema_files(?MANIFEST_FILE_PT_KEY, "manifest-file.avsc"),
-    ok.
-
-do_load_and_memoize_schema_files(PTKey, File) ->
     {ok, ScJSON} = file:read_file(
-        filename:join([code:lib_dir(emqx_bridge_iceberg), "priv", File])
+        filename:join([code:lib_dir(emqx_bridge_iceberg), "priv", "manifest-file.avsc"])
     ),
     Sc = avro:decode_schema(ScJSON),
     Header = avro_ocf:make_header(Sc),
-    persistent_term:put(PTKey, #{schema => Sc, header => Header}).
+    persistent_term:put(?MANIFEST_FILE_PT_KEY, #{schema => Sc, header => Header}),
+    %% Entry schema varies with partition spec.
+    {ok, EntryScJSONRaw} = file:read_file(
+        filename:join([code:lib_dir(emqx_bridge_iceberg), "priv", "manifest-entry.avsc"])
+    ),
+    EntryScJSON = emqx_utils_json:decode(EntryScJSONRaw),
+    persistent_term:put(?MANIFEST_ENTRY_PT_KEY, #{json_schema => EntryScJSON}),
+    ok.
 
 -spec forget_schema_files() -> ok.
 forget_schema_files() ->
-    _ = persistent_term:erase(?MANIFEST_ENTRY_PT_KEY),
     _ = persistent_term:erase(?MANIFEST_FILE_PT_KEY),
+    _ = persistent_term:erase(?MANIFEST_ENTRY_PT_KEY),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -306,6 +334,7 @@ forget_schema_files() ->
 init_transfer_state_and_container_opts(_Buffer, Opts) ->
     #{
         upload_options := #{
+            ?action_res_id := ActionResId,
             ?client := Client,
             ?location_client := #{?s3_client_config := S3ClientConfig},
             ?namespace := Namespace,
@@ -313,47 +342,46 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
         }
     } = Opts,
     maybe
-        {ok,
-            #{
-                <<"metadata">> := #{
-                    <<"current-schema-id">> := SchemaId,
-                    <<"last-sequence-number">> := LastSeqNum,
-                    <<"location">> := Location,
-                    <<"table-uuid">> := TableUUID
-                }
-            } = LoadedTable} ?= load_table(Client, Namespace, Table),
+        {ok, #{
+            ?loaded_table := LoadedTable,
+            ?avro_schema := AvroSchema,
+            ?iceberg_schema := IcebergSchema,
+            ?partition_spec := PartSpec,
+            ?partition_spec_id := PartitionSpecId
+        }} ?=
+            validate_table(Client, Namespace, Table),
+        #{
+            <<"metadata">> := #{
+                <<"current-schema-id">> := SchemaId,
+                <<"last-sequence-number">> := LastSeqNum,
+                <<"location">> := Location,
+                <<"table-uuid">> := TableUUID
+            }
+        } = LoadedTable,
         #{bucket := Bucket, base_path := BasePath} = parse_location(Location),
         WriteUUID = uuid4(),
-        %% fixme: might need fixing if using partitions and if
-        %% `write.object-storage.partitioned-paths` is true (default is true).....
-        DataKey = mk_data_file_key(BasePath, WriteUUID, "avro"),
         S3Client = emqx_s3_client:create(binary_to_list(Bucket), S3ClientConfig),
-        %% todo: make configurable?
-        S3UploaderConfig = #{
-            min_part_size => 5 * ?MEGABYTE,
-            max_part_size => 5 * ?GIGABYTE
+        InnerOpts = #{
+            ?avro_schema => AvroSchema,
+            ?base_path => BasePath,
+            ?s3_client => S3Client,
+            ?write_uuid => WriteUUID
         },
-        S3UploadOpts = #{},
-        S3TransferState = emqx_s3_upload:new(S3Client, DataKey, S3UploadOpts, S3UploaderConfig),
-        {ok, IceSchema} ?= emqx_bridge_iceberg_logic:find_current_schema(LoadedTable, SchemaId),
-        {ok, AvroSchema} ?= ice_schema_to_avro(IceSchema),
-        ContainerOpts = #{
-            type => avro,
-            schema => AvroSchema,
-            root_type => ?ROOT_SC_TYPE
-        },
+        {ContainerOpts, InnerTransferState} =
+            mk_container_opts_and_inner_transfer_state(PartSpec, InnerOpts),
         TransferState = #{
+            ?action_res_id => ActionResId,
             ?base_path => BasePath,
             ?bucket => Bucket,
             ?client => Client,
-            ?data_file_key => DataKey,
-            ?data_size => 0,
+            ?iceberg_schema => IcebergSchema,
+            ?inner_transfer => InnerTransferState,
             ?loaded_table => LoadedTable,
             ?n_attempt => 0,
             ?namespace => Namespace,
-            ?num_records => 0,
+            ?partition_spec => PartSpec,
+            ?partition_spec_id => PartitionSpecId,
             ?s3_client => S3Client,
-            ?s3_transfer_state => S3TransferState,
             ?schema_id => SchemaId,
             ?seq_num => LastSeqNum + 1,
             ?table => Table,
@@ -363,50 +391,118 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
         {ok, TransferState, ContainerOpts}
     end.
 
--spec process_append(iodata(), write_metadata(), transfer_state()) ->
+-spec process_append(
+    iodata() | #{[partition_key()] => iodata()}, write_metadata(), transfer_state()
+) ->
     transfer_state().
-process_append(IOData, WriteMetadata, TransferState0) ->
+process_append(IOData, WriteMetadata, #{?inner_transfer := #single_transfer{}} = TransferState0) ->
     #{num_records := N1} = WriteMetadata,
     #{
-        ?num_records := N0,
-        ?data_size := S0,
-        ?s3_transfer_state := S3TransferState0
+        ?inner_transfer := #single_transfer{
+            data_size = S0,
+            num_records = N0,
+            state = S3TransferState0
+        } = Inner0
     } = TransferState0,
     S1 = iolist_size(IOData),
     {ok, S3TransferState} = emqx_s3_upload:append(IOData, S3TransferState0),
     TransferState0#{
-        ?num_records := N0 + N1,
-        ?data_size := S0 + S1,
-        ?s3_transfer_state := S3TransferState
+        ?inner_transfer := Inner0#single_transfer{
+            data_size = S0 + S1,
+            num_records = N0 + N1,
+            state = S3TransferState
+        }
+    };
+process_append(
+    IOMap, WriteMetadata, #{?inner_transfer := #partitioned_transfer{}} = TransferState0
+) ->
+    #{
+        ?base_path := BasePath,
+        ?inner_transfer := #partitioned_transfer{state = PartSt0} = Inner0,
+        ?partition_spec := PartSpec,
+        ?s3_client := S3Client,
+        ?write_uuid := WriteUUID
+    } = TransferState0,
+    PartSt =
+        maps:fold(
+            fun
+                (PK, IOData, AccSt0) when is_map_key(PK, AccSt0) ->
+                    #{PK := St0} = AccSt0,
+                    #{
+                        ?data_size := S0,
+                        ?num_records := N0,
+                        ?s3_transfer_state := S3TransferState0
+                    } = St0,
+                    #{PK := #{num_records := N1}} = WriteMetadata,
+                    S1 = iolist_size(IOData),
+                    {ok, S3TransferState} = emqx_s3_upload:append(IOData, S3TransferState0),
+                    St = St0#{
+                        ?data_size := S0 + S1,
+                        ?num_records := N0 + N1,
+                        ?s3_transfer_state := S3TransferState
+                    },
+                    AccSt0#{PK := St};
+                (PK, IOData, AccSt0) ->
+                    %% New partition key
+                    #{PK := #{num_records := N0}} = WriteMetadata,
+                    N = map_size(AccSt0),
+                    Segments =
+                        emqx_bridge_iceberg_logic:partition_keys_to_segments(
+                            PK,
+                            PartSpec
+                        ),
+                    {DataFileKey, S3TransferState0} =
+                        init_inner_s3_transfer_state(BasePath, Segments, N, S3Client, WriteUUID),
+                    S1 = iolist_size(IOData),
+                    {ok, S3TransferState} = emqx_s3_upload:append(IOData, S3TransferState0),
+                    St = #{
+                        ?data_file_key => DataFileKey,
+                        ?data_size => S1,
+                        ?num_records => N0,
+                        ?s3_transfer_state => S3TransferState
+                    },
+                    AccSt0#{PK => St}
+            end,
+            PartSt0,
+            IOMap
+        ),
+    TransferState0#{
+        ?inner_transfer := Inner0#partitioned_transfer{state = PartSt}
     }.
 
 -spec process_write(transfer_state()) ->
     {ok, transfer_state()} | {error, term()}.
-process_write(TransferState0) ->
+process_write(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
     #{
-        ?s3_transfer_state := S3TransferState0
+        ?inner_transfer := #single_transfer{state = S3TransferState0} = Inner0
     } = TransferState0,
     case emqx_s3_upload:write(S3TransferState0) of
         {ok, S3TransferState} ->
             TransferState = TransferState0#{
-                ?s3_transfer_state := S3TransferState
+                ?inner_transfer := Inner0#single_transfer{state = S3TransferState}
             },
             {ok, TransferState};
         {cont, S3TransferState} ->
             TransferState = TransferState0#{
-                ?s3_transfer_state := S3TransferState
+                ?inner_transfer := Inner0#single_transfer{state = S3TransferState}
             },
             process_write(TransferState);
         {error, Reason} ->
             _ = emqx_s3_upload:abort(S3TransferState0),
             {error, Reason}
-    end.
+    end;
+process_write(#{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
+    #{
+        ?inner_transfer := #partitioned_transfer{state = ParSt0}
+    } = TransferState0,
+    PKs = maps:keys(ParSt0),
+    do_process_write_partitioned(PKs, TransferState0).
 
 -spec process_complete(transfer_state()) ->
     {ok, term()} | no_return().
-process_complete(TransferState0) ->
+process_complete(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
     #{
-        ?s3_transfer_state := S3TransferState
+        ?inner_transfer := #single_transfer{state = S3TransferState}
     } = TransferState0,
     case emqx_s3_upload:complete(S3TransferState) of
         {ok, _S3Completed} ->
@@ -415,7 +511,13 @@ process_complete(TransferState0) ->
         {error, Reason} ->
             _ = emqx_s3_upload:abort(S3TransferState),
             exit({upload_failed, {data_file, Reason}})
-    end.
+    end;
+process_complete(#{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
+    #{
+        ?inner_transfer := #partitioned_transfer{state = ParSt0}
+    } = TransferState0,
+    PKs = maps:keys(ParSt0),
+    do_process_complete_partitioned(PKs, TransferState0).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -481,7 +583,7 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
     },
     _ = ?AGGREG_SUP:delete_child(AggregId),
     maybe
-        ok ?= validate_table(Client, Namespace, Table),
+        {ok, _} ?= validate_table(Client, Namespace, Table),
         {ok, SupPid} ?=
             ?AGGREG_SUP:start_child(#{
                 id => AggregId,
@@ -499,13 +601,29 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
     else
         {error, not_found} ->
             {error, {unhealthy_target, <<"Namespace or table does not exist">>}};
-        {error, {unsupported_type, Type}} ->
+        {error, timeout} ->
+            {error, <<"Timeout loading table">>};
+        {error, {unsupported_format_version, FormatVsn}} ->
             Msg = iolist_to_binary(
-                io_lib:format("Schema contains unsupported data type: ~p", [Type])
+                io_lib:format("Table uses unsupported Iceberg format version: ~p", [FormatVsn])
             ),
             {error, {unhealthy_target, Msg}};
-        {error, not_found} ->
+        {error, {unsupported_type, IceType}} ->
+            IceTypeFormatted =
+                case is_binary(IceType) of
+                    true -> IceType;
+                    false -> emqx_utils_json:encode(IceType)
+                end,
+            Msg = iolist_to_binary(
+                io_lib:format("Schema contains unsupported data type: ~s", [IceTypeFormatted])
+            ),
+            {error, {unhealthy_target, Msg}};
+        {error, schema_not_found} ->
             {error, {unhealthy_target, <<"Current schema could not be found">>}};
+        {error, partition_spec_not_found} ->
+            {error, {unhealthy_target, <<"Current partition spec could not be found">>}};
+        {error, invalid_spec} ->
+            {error, {unhealthy_target, <<"Partition spec is invalid">>}};
         Error ->
             Error
     end.
@@ -528,24 +646,11 @@ channel_status(_ConnResId, _ChanResId, ChanState) ->
 validate_table(Client, Namespace, Table) ->
     maybe
         {ok, LoadedTable} ?= load_table(Client, Namespace, Table),
-        {ok, IceSchema} ?= emqx_bridge_iceberg_logic:find_current_schema(LoadedTable),
-        {ok, _} ?= ice_schema_to_avro(IceSchema),
-        ok
+        emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable)
     end.
 
 work_dir(Type, Name) ->
     filename:join([emqx:data_dir(), bridge, Type, Name]).
-
-ice_schema_to_avro(IceSchema) ->
-    try emqx_bridge_iceberg_logic:convert_iceberg_schema_to_avro(IceSchema) of
-        AvroSchema0 ->
-            AvroSchema1 = AvroSchema0#{<<"name">> => <<"root">>},
-            AvroSchema = avro:decode_schema(emqx_utils_json:encode(AvroSchema1)),
-            {ok, AvroSchema}
-    catch
-        throw:{unsupported_type, Type} ->
-            {error, {unsupported_type, Type}}
-    end.
 
 -spec gen_snapshot_id() -> integer().
 gen_snapshot_id() ->
@@ -577,15 +682,14 @@ split_ns(Namespace) ->
 -spec upload_manifests(transfer_state()) -> {ok, term()} | no_return().
 upload_manifests(TransferState) ->
     #{
+        ?action_res_id := ActionResId,
         ?base_path := BasePath,
         ?bucket := Bucket,
         ?client := Client,
-        ?data_file_key := DataFileKey,
-        ?data_size := DataSize,
         ?loaded_table := LoadedTable,
         ?n_attempt := NAttempt,
         ?namespace := Namespace,
-        ?num_records := NumRecords,
+        ?partition_spec_id := PartitionSpecId,
         ?s3_client := S3Client,
         ?schema_id := SchemaId,
         ?seq_num := SeqNum,
@@ -594,35 +698,13 @@ upload_manifests(TransferState) ->
         ?write_uuid := WriteUUID
     } = TransferState,
 
-    #{
-        schema := ManifestEntrySc,
-        header := ManifestEntryHeader
-    } = persistent_term:get(?MANIFEST_ENTRY_PT_KEY),
-
     NewSnapshotId = gen_snapshot_id(),
 
-    %% todo: will need to abstract this once we support more locations...
-    DataS3Path = make_s3_path(Bucket, DataFileKey),
-    ManifestEntry = #{
-        <<"status">> => ?MANIFEST_ENTRY_STATUS_ADDED,
-        <<"snapshot_id">> => NewSnapshotId,
-        <<"data_file">> => #{
-            <<"content">> => ?DATA_FILE_CONTENT_DATA,
-            %% FIXME: TODO: Support partitions...
-            <<"partition">> => #{},
-            <<"file_path">> => DataS3Path,
-            <<"file_format">> => ?DATA_FILE_FORMAT_AVRO,
-            <<"record_count">> => NumRecords,
-            <<"file_size_in_bytes">> => DataSize
-        }
-    },
-    ManifestEntryBin = avro_binary_encoder:encode(
-        ManifestEntrySc, <<"manifest_entry">>, ManifestEntry
-    ),
-    ManifestEntryKey = mk_manifest_entry_key(BasePath, WriteUUID),
-    ManifestEntryOCF = avro_ocf:make_ocf(ManifestEntryHeader, [ManifestEntryBin]),
-    %% TODO: handle errors
-    ok = emqx_s3_client:put_object(S3Client, ManifestEntryKey, ManifestEntryOCF),
+    #{
+        key := ManifestEntryKey,
+        size := ManifestSize,
+        num_records := NumRecords
+    } = upload_manifest_entries(NewSnapshotId, TransferState),
 
     #{
         schema := ManifestFileSc,
@@ -630,14 +712,13 @@ upload_manifests(TransferState) ->
     } = persistent_term:get(?MANIFEST_FILE_PT_KEY),
 
     ManifestEntryS3Path = make_s3_path(Bucket, ManifestEntryKey),
-    ManifestLength = iolist_size(ManifestEntryOCF),
     ManifestFile = #{
         <<"manifest_path">> => ManifestEntryS3Path,
-        <<"manifest_length">> => ManifestLength,
-        %% TODO: FIXME: support partitions....
-        <<"partition_spec_id">> => 0,
+        <<"manifest_length">> => ManifestSize,
+        <<"partition_spec_id">> => PartitionSpecId,
         <<"content">> => ?MANIFEST_LIST_CONTENT_DATA,
         <<"sequence_number">> => SeqNum,
+        %% TODO: check all manifests, including ones not written here?
         <<"min_sequence_number">> => SeqNum,
         <<"added_snapshot_id">> => NewSnapshotId,
         <<"added_files_count">> => 1,
@@ -646,26 +727,31 @@ upload_manifests(TransferState) ->
         <<"added_rows_count">> => NumRecords,
         <<"existing_rows_count">> => 0,
         <<"deleted_rows_count">> => 0,
-        %% TODO: FIXME: support partitions....
+        %% TODO: apparently not strictly required, but contains statistics for readers to
+        %% plan stuff...
         <<"partitions">> => []
     },
     %% TODO: handle errors, retries...
-    {ok, PrevManifestList} = load_previous_manifest_file(S3Client, LoadedTable),
-    ManifestFileBin =
-        lists:map(
-            fun(ManifestFileIn) ->
-                avro_binary_encoder:encode(ManifestFileSc, <<"manifest_file">>, ManifestFileIn)
-            end,
-            [ManifestFile | PrevManifestList]
-        ),
-    ManifestFileKey = mk_manifest_file_key(BasePath, NewSnapshotId, WriteUUID, NAttempt),
+    {ok, PrevManifestListBin} = load_previous_manifest_file(S3Client, LoadedTable),
+    ManifestFileBin0 = avro_binary_encoder:encode(
+        ManifestFileSc, <<"manifest_file">>, ManifestFile
+    ),
+    ManifestFileBin = [ManifestFileBin0 | PrevManifestListBin],
     ManifestFileOCF = avro_ocf:make_ocf(ManifestFileHeader, ManifestFileBin),
+    ManifestFileKey = mk_manifest_file_key(BasePath, NewSnapshotId, WriteUUID, NAttempt),
     %% TODO: handle errors
+    ?SLOG(info, #{
+        msg => "iceberg_uploading_manifest_list",
+        action => ActionResId,
+        key => ManifestFileKey,
+        snapshot_id => NewSnapshotId,
+        record_count => NumRecords
+    }),
     ok = emqx_s3_client:put_object(S3Client, ManifestFileKey, ManifestFileOCF),
 
     ManifestFileS3Path = make_s3_path(Bucket, ManifestFileKey),
     CommitContext = #{
-        data_size => DataSize,
+        data_size => ManifestSize,
         num_records => NumRecords,
         loaded_table => LoadedTable,
         manifest_file_path => ManifestFileS3Path,
@@ -686,6 +772,13 @@ upload_manifests(TransferState) ->
         {ok, Result} ->
             {ok, Result};
         {error, conflict} ->
+            ?SLOG(info, #{
+                msg => "iceberg_commit_conflict",
+                action => ActionResId,
+                snapshot_id => NewSnapshotId,
+                num_attempt => NAttempt,
+                write_uuid => WriteUUID
+            }),
             retry_upload_manifests(TransferState);
         {error, Reason} ->
             exit({upload_failed, {commit, Reason}})
@@ -714,6 +807,8 @@ retry_upload_manifests(TransferState0) ->
                 <<"last-sequence-number">> := LastSeqNum
             }
         } = LoadedTable} = load_table(Client, Namespace, Table),
+    %% TODO: check if schema and partitions changed since start...
+    {ok, _} = emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable),
     TransferState = TransferState0#{
         ?loaded_table := LoadedTable,
         ?n_attempt := NAttempt,
@@ -732,12 +827,19 @@ uuid4() ->
     %% Note: this useless `bin` is to trick dialyzer due to incorrect typespec....
     bin(uuid:uuid_to_string(uuid:get_v4(), binary_standard)).
 
-mk_data_file_key(BasePath, WriteUUID, Ext) ->
-    K = iolist_to_binary(["00000-0-", WriteUUID, ".", Ext]),
-    make_key(BasePath, ["data", K]).
+mk_data_file_key(BasePath, ExtraSegments, N, WriteUUID, Ext) ->
+    K = iolist_to_binary(["00000-", bin(N), "-", WriteUUID, ".", Ext]),
+    make_key(BasePath, ["data"] ++ ExtraSegments ++ [K]).
 
-mk_manifest_entry_key(BasePath, WriteUUID) ->
-    K = iolist_to_binary([WriteUUID, "-m0.avro"]),
+%% N.B.: in the original pyiceberg implementation, there's no attempt number in the
+%% filename.  However, when running against real s3tables, it has the (as fas as I know)
+%% undocumented behavior which is equivalent to having an implicit `If-None-Match` header
+%% in the `PutObject` request when uploading metadata, which means that retrying to upload
+%% the manifest entries/lists with the exact same key always fails.  Attempting to delete
+%% the already uploaded file is also forbidden, apparently.  So, to circumvent that, we
+%% just add the attempt number to the filename...
+mk_manifest_entry_key(BasePath, NAttempt, WriteUUID) ->
+    K = iolist_to_binary([WriteUUID, "-", bin(NAttempt), "-m0.avro"]),
     make_key(BasePath, ["metadata", K]).
 
 mk_manifest_file_key(BasePath, SnapshotId, WriteUUID, NAttempt) ->
@@ -748,7 +850,7 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 -spec load_previous_manifest_file(emqx_s3_client:client(), map()) ->
-    {ok, [map()]} | {error, term()}.
+    {ok, [iodata()]} | {error, term()}.
 load_previous_manifest_file(S3Client, LoadedTable) ->
     maybe
         #{<<"manifest-list">> := ManifestListLocation} ?=
@@ -756,9 +858,11 @@ load_previous_manifest_file(S3Client, LoadedTable) ->
         #{base_path := Key} = parse_location(ManifestListLocation),
         %% TODO: retry on errors??
         {ok, #{content := PrevManifestBin}} ?= emqx_s3_client:get_object(S3Client, Key),
-        DecodeOpts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
-        {_Header, _Schema, Blocks} = avro_ocf:decode_binary(PrevManifestBin, DecodeOpts),
-        {ok, Blocks}
+        #{schema := ManifestFileSc} = persistent_term:get(?MANIFEST_FILE_PT_KEY),
+        BlocksBin = emqx_bridge_iceberg_logic:prepare_previous_manifest_files(
+            PrevManifestBin, ManifestFileSc
+        ),
+        {ok, BlocksBin}
     else
         no_snapshot -> {ok, []};
         Error -> Error
@@ -773,3 +877,227 @@ check_aggreg_upload_errors(AggregId) ->
         [] ->
             ok
     end.
+
+mk_container_opts_and_inner_transfer_state(#unpartitioned{}, Opts) ->
+    #{
+        ?avro_schema := AvroSchema,
+        ?base_path := BasePath,
+        ?s3_client := S3Client,
+        ?write_uuid := WriteUUID
+    } = Opts,
+    {DataFileKey, S3TransferState} =
+        init_inner_s3_transfer_state(BasePath, [], 0, S3Client, WriteUUID),
+    ContainerOpts = #{
+        type => avro,
+        schema => AvroSchema,
+        root_type => ?ROOT_AVRO_TYPE
+    },
+    InnerTransferState = #single_transfer{
+        data_file_key = DataFileKey,
+        data_size = 0,
+        num_records = 0,
+        state = S3TransferState
+    },
+    {ContainerOpts, InnerTransferState};
+mk_container_opts_and_inner_transfer_state(#partitioned{fields = PartitionFields}, Opts) ->
+    #{
+        ?avro_schema := AvroSchema
+    } = Opts,
+    PartContOpts = #{
+        inner_container_opts => #{
+            type => avro,
+            schema => AvroSchema,
+            root_type => ?ROOT_AVRO_TYPE
+        },
+        partition_fields => PartitionFields
+    },
+    ContainerOpts = #{
+        type => custom,
+        module => emqx_bridge_iceberg_aggreg_partitioned,
+        opts => PartContOpts
+    },
+    InnerTransferState = #partitioned_transfer{
+        state = #{}
+    },
+    {ContainerOpts, InnerTransferState}.
+
+init_inner_s3_transfer_state(BasePath, Segments, N, S3Client, WriteUUID) ->
+    %% fixme: might need fixing if using partitions and if
+    %% `write.object-storage.partitioned-paths` is true (default is true).....
+    DataFileKey = mk_data_file_key(BasePath, Segments, N, WriteUUID, "avro"),
+    %% todo: make configurable?
+    S3UploaderConfig = #{
+        min_part_size => 5 * ?MEGABYTE,
+        max_part_size => 5 * ?GIGABYTE
+    },
+    S3UploadOpts = #{},
+    S3TransferState = emqx_s3_upload:new(S3Client, DataFileKey, S3UploadOpts, S3UploaderConfig),
+    {DataFileKey, S3TransferState}.
+
+do_process_write_partitioned([PK | PKs], TransferState0) ->
+    #{?inner_transfer := #partitioned_transfer{} = ParSt0} = TransferState0,
+    #partitioned_transfer{state = #{PK := #{?s3_transfer_state := S3TransferState0} = InSt0} = St0} =
+        ParSt0,
+    case emqx_s3_upload:write(S3TransferState0) of
+        {ok, S3TransferState} ->
+            InSt = InSt0#{?s3_transfer_state := S3TransferState},
+            St = St0#{PK := InSt},
+            ParSt = ParSt0#partitioned_transfer{state = St},
+            TransferState = TransferState0#{?inner_transfer := ParSt},
+            do_process_write_partitioned(PKs, TransferState);
+        {cont, S3TransferState} ->
+            InSt = InSt0#{?s3_transfer_state := S3TransferState},
+            St = St0#{PK := InSt},
+            ParSt = ParSt0#partitioned_transfer{state = St},
+            TransferState = TransferState0#{?inner_transfer := ParSt},
+            do_process_write_partitioned([PK | PKs], TransferState);
+        {error, Reason} ->
+            maps:foreach(
+                fun(_PK, #{?s3_transfer_state := S3TransferState}) ->
+                    _ = emqx_s3_upload:abort(S3TransferState)
+                end,
+                St0
+            ),
+            %% TODO: prettify partition key
+            {error, {PK, Reason}}
+    end;
+do_process_write_partitioned([], TransferState) ->
+    {ok, TransferState}.
+
+do_process_complete_partitioned([PK | PKs], TransferState0) ->
+    #{?inner_transfer := #partitioned_transfer{} = ParSt0} = TransferState0,
+    #partitioned_transfer{state = #{PK := #{?s3_transfer_state := S3TransferState0}} = St0} =
+        ParSt0,
+    case emqx_s3_upload:complete(S3TransferState0) of
+        {ok, _S3Completed} ->
+            do_process_complete_partitioned(PKs, TransferState0);
+        {error, Reason} ->
+            maps:foreach(
+                fun(_PK, #{?s3_transfer_state := S3TransferState}) ->
+                    _ = emqx_s3_upload:abort(S3TransferState)
+                end,
+                St0
+            ),
+            %% TODO: prettify partition key
+            exit({upload_failed, {data_file, PK, Reason}})
+    end;
+do_process_complete_partitioned([], TransferState0) ->
+    ?tp("iceberg_upload_manifests_enter", #{}),
+    upload_manifests(TransferState0).
+
+upload_manifest_entries(NewSnapshotId, #{?inner_transfer := #single_transfer{}} = TransferState) ->
+    #{
+        ?iceberg_schema := IcebergSchema,
+        ?inner_transfer := #single_transfer{
+            data_size = DataSize,
+            data_file_key = DataFileKey,
+            num_records = NumRecords
+        },
+        ?partition_spec := #unpartitioned{} = PartSpec
+    } = TransferState,
+    {ManifestEntryHeader, ManifestEntrySc} =
+        manifest_entry_avro_schema(PartSpec, IcebergSchema),
+    %% No partition keys
+    PKs = [],
+    DataFiles = #{
+        PKs => #{
+            ?data_file_key => DataFileKey,
+            ?data_size => DataSize,
+            ?num_records => NumRecords
+        }
+    },
+    PartitionFields = [],
+    do_upload_manifest_entries(
+        NewSnapshotId,
+        DataFiles,
+        PartitionFields,
+        ManifestEntryHeader,
+        ManifestEntrySc,
+        TransferState
+    );
+upload_manifest_entries(
+    NewSnapshotId, #{?inner_transfer := #partitioned_transfer{}} = TransferState
+) ->
+    #{
+        ?iceberg_schema := IcebergSchema,
+        ?inner_transfer := #partitioned_transfer{state = PartSt},
+        ?partition_spec := #partitioned{fields = PartitionFields} = PartSpec
+    } = TransferState,
+    {ManifestEntryHeader, ManifestEntrySc} =
+        manifest_entry_avro_schema(PartSpec, IcebergSchema),
+    do_upload_manifest_entries(
+        NewSnapshotId, PartSt, PartitionFields, ManifestEntryHeader, ManifestEntrySc, TransferState
+    ).
+
+do_upload_manifest_entries(
+    NewSnapshotId, DataFiles, PartitionFields, ManifestEntryHeader, ManifestEntrySc, TransferState
+) ->
+    #{
+        ?action_res_id := ActionResId,
+        ?base_path := BasePath,
+        ?bucket := Bucket,
+        ?n_attempt := NAttempt,
+        ?s3_client := S3Client,
+        ?write_uuid := WriteUUID
+    } = TransferState,
+    {ManifestEntriesBins, NumRecords} =
+        maps:fold(
+            fun(PKs, St, {AccBin, AccN}) ->
+                #{
+                    ?data_file_key := DataFileKey,
+                    ?data_size := DataSize,
+                    ?num_records := NumRecords
+                } = St,
+                %% todo: will need to abstract this once we support more locations...
+                DataS3Path = make_s3_path(Bucket, DataFileKey),
+                Partition = partition_keys_to_record(PKs, PartitionFields),
+                ManifestEntry = #{
+                    <<"status">> => ?MANIFEST_ENTRY_STATUS_ADDED,
+                    <<"snapshot_id">> => NewSnapshotId,
+                    <<"data_file">> => #{
+                        <<"content">> => ?DATA_FILE_CONTENT_DATA,
+                        <<"partition">> => Partition,
+                        <<"file_path">> => DataS3Path,
+                        <<"file_format">> => ?DATA_FILE_FORMAT_AVRO,
+                        <<"record_count">> => NumRecords,
+                        <<"file_size_in_bytes">> => DataSize
+                    }
+                },
+                ManifestEntryBin = avro_binary_encoder:encode(
+                    ManifestEntrySc, <<"manifest_entry">>, ManifestEntry
+                ),
+                {[ManifestEntryBin | AccBin], AccN + NumRecords}
+            end,
+            {[], 0},
+            DataFiles
+        ),
+    ManifestEntryKey = mk_manifest_entry_key(BasePath, NAttempt, WriteUUID),
+    ManifestEntryOCF = avro_ocf:make_ocf(ManifestEntryHeader, ManifestEntriesBins),
+    %% TODO: handle errors
+    ?SLOG(info, #{
+        msg => "iceberg_uploading_manifest_entry",
+        action => ActionResId,
+        key => ManifestEntryKey,
+        snapshot_id => NewSnapshotId,
+        record_count => NumRecords
+    }),
+    ok = emqx_s3_client:put_object(S3Client, ManifestEntryKey, ManifestEntryOCF),
+    ManifestSize = iolist_size(ManifestEntryOCF),
+    #{
+        key => ManifestEntryKey,
+        size => ManifestSize,
+        num_records => NumRecords
+    }.
+
+partition_keys_to_record(PKs, PartitionFields) ->
+    lists:foldl(
+        fun({PK, #{name := Name}}, Acc) ->
+            Acc#{Name => PK}
+        end,
+        #{},
+        lists:zip(PKs, PartitionFields)
+    ).
+
+manifest_entry_avro_schema(PartSpec, IcebergSchema) ->
+    #{json_schema := AvroSchemaJSON} = persistent_term:get(?MANIFEST_ENTRY_PT_KEY),
+    emqx_bridge_iceberg_logic:manifest_entry_avro_schema(PartSpec, AvroSchemaJSON, IcebergSchema).

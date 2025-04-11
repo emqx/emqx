@@ -23,7 +23,7 @@ services:
   ## `localhost:8888` to access some notebooks that help inspect stuff.  In particular,
   ## `emqx-iceberg-debug.ipynb` may be helpful to inspect data.
   # spark-iceberg:
-  #   image: ghcr.io/emqx/spark:1.0.2
+  #   image: ghcr.io/emqx/spark:1.0.3
   #   container_name: spark-iceberg
   #   # build: spark/
   #   networks:
@@ -46,7 +46,7 @@ services:
   ## 7890 for nREPL access
 
   query:
-    image: ghcr.io/emqx/spark-query:1.0.2
+    image: ghcr.io/emqx/spark-query:1.0.4
     container_name: query
     # volumes:
     #   - ./iceberg/query/:/server/

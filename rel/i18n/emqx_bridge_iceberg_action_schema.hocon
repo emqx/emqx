@@ -11,6 +11,12 @@ emqx_bridge_iceberg_action_schema {
     """Set of parameters for the action."""
   }
 
+  s3_upload {
+    label: """S3 upload parameters"""
+    desc:
+    """Set of parameters to control S3 uploads."""
+  }
+
   aggregation {
     label: """Aggregation parameters"""
     desc:

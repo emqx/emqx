@@ -983,10 +983,13 @@ t_rule_action(TCConfig, Opts) ->
         end
     ),
     RuleCreationOpts = maps:with([sql, rule_topic], Opts),
+    CreateBridgeFn = maps:get(create_bridge_fn, Opts, fun() ->
+        ?assertMatch({ok, _}, create_bridge_api(TCConfig))
+    end),
     ?check_trace(
         begin
             #{type := Type} = get_common_values(TCConfig),
-            ?assertMatch({ok, _}, create_bridge_api(TCConfig)),
+            CreateBridgeFn(),
             RuleTopic = maps:get(
                 rule_topic,
                 RuleCreationOpts,

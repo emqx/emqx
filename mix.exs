@@ -161,7 +161,9 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:erlavro),
       # in conflict by erlavro
       common_dep(:snappyer),
-      common_dep(:crc32cer)
+      common_dep(:crc32cer),
+      # transitive dependency of pulsar-client-erl, and direct dep in iceberg bridge
+      common_dep(:murmerl3)
     ]
   end
 
@@ -291,9 +293,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
 
   def common_dep(:erlavro),
-    do: {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-2", override: true}
+    do: {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-3", override: true}
 
   def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.7.0.3"}
+
+  # transitive dependency of pulsar-client-erl, and direct dep in iceberg bridge
+  def common_dep(:murmerl3),
+    do: {:murmerl3, github: "emqx/murmerl3", tag: "0.1.0-emqx.1", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK

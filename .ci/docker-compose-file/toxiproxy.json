@@ -265,6 +265,12 @@
     "enabled": true
   },
   {
+    "name": "iceberg_rest",
+    "listen": "0.0.0.0:8181",
+    "upstream": "iceberg-rest-proxy:80",
+    "enabled": true
+  },
+  {
     "name": "datalayers_tcp",
     "listen": "0.0.0.0:8361",
     "upstream": "datalayers_tcp:8361",

@@ -50,3 +50,14 @@ So, the generated expected output for the `nested` and `nested_with_struct_key_m
 (root field `quux`) was adjusted to accomodate this difference in implementation: the
 field ids for the nested keys and values were changed to match their original fields,
 rather than repeating them.
+
+Another difference between `pyiceberg` and our port here is that, when one has a schema
+with nested structs (inside a map, for example), `pyiceberg` does not assign a record name
+to the leaf fields.  However, `erlavro` doesn't like that, and it is indeed breaking the
+[Avro spec](https://avro.apache.org/docs/1.12.0/specification/#schema-record), which
+states that the `name` of a field is required.  So we inject a name into those.  This was
+done to the following answer files:
+
+- `nested_with_struct_key_map.avsc`
+  - `location.$K`
+  - `location.$V`

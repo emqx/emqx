@@ -78,6 +78,11 @@ fields(s3tables_connector_params) ->
         {base_endpoint,
             mk(binary(), #{required => true, desc => ?DESC("location_s3t_base_endpoint")})},
         {bucket, mk(binary(), #{required => true, desc => ?DESC("location_s3t_bucket")})},
+        {request_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"30s">>,
+                desc => ?DESC(emqx_bridge_http_connector, "request_timeout")
+            })},
         {s3_client,
             mk(hoconsc:ref(emqx_s3_schema, s3_client), #{
                 required => true, desc => ?DESC("s3_client")
@@ -89,8 +94,6 @@ desc(Name) when
     Name =:= s3tables_connector_params
 ->
     ?DESC(Name);
-desc(resource_opts) ->
-    ?DESC(emqx_resource_schema, resource_opts);
 desc(_Name) ->
     undefined.
 
@@ -139,6 +142,7 @@ connector_example(put, s3tables = _LocationProvider) ->
             secret_access_key => <<"******">>,
             base_endpoint => <<"https://s3tables.sa-east-1.amazonaws.com/iceberg/v1">>,
             bucket => <<"my-s3tables-bucket">>,
+            request_timeout => <<"10s">>,
             s3_client => #{
                 access_key_id => <<"12345">>,
                 secret_access_key => <<"******">>,
@@ -176,7 +180,7 @@ parse_base_endpoint(Endpoint) ->
             authority := #{
                 host := Host
             }
-        } = Parsed ?= emqx_utils_uri:parse(Endpoint),
+        } = Parsed ?= parse_uri(Endpoint),
         true ?= lists:member(Scheme, [<<"https">>, <<"http">>]) orelse
             {error, {bad_scheme, Scheme}},
         HostStr = to_str(Host),
@@ -203,3 +207,10 @@ mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 
 to_str(X) -> emqx_utils_conv:str(iolist_to_binary(X)).
+
+parse_uri(Endpoint) ->
+    %% When the URI has no scheme, the hostname/authority might be interpret as path...
+    maybe
+        #{scheme := undefined, authority := undefined} ?= emqx_utils_uri:parse(Endpoint),
+        parse_uri(<<"https://", Endpoint/binary>>)
+    end.

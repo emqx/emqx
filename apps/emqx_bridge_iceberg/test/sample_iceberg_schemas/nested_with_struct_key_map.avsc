@@ -85,6 +85,7 @@
               "name": "key",
               "type": {
                 "type": "record",
+                "name": "k18",
                 "fields": [
                   {
                     "name": "address",
@@ -109,6 +110,7 @@
               "name": "value",
               "type": {
                 "type": "record",
+                "name": "v19",
                 "fields": [
                   {
                     "name": "latitude",

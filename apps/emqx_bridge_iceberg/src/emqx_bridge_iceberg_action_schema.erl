@@ -69,8 +69,21 @@ fields(action_parameters) ->
     [
         {aggregation, mk(ref(aggregation), #{required => true, desc => ?DESC("aggregation")})},
         {namespace, mk(binary(), #{required => true, desc => ?DESC("namespace")})},
-        {table, mk(binary(), #{required => true, desc => ?DESC("table")})}
+        {table, mk(binary(), #{required => true, desc => ?DESC("table")})},
+        %% How can we handle different location providers other than S3 in the future?
+        %% Specially since S3 http pool options live in the connector schema...
+        {s3,
+            mk(ref(s3_upload), #{
+                desc => ?DESC("s3_upload"),
+                validator => emqx_s3_schema:validators(s3_uploader),
+                default => #{
+                    <<"min_part_size">> => <<"5mb">>,
+                    <<"max_part_size">> => <<"5gb">>
+                }
+            })}
     ];
+fields(s3_upload) ->
+    emqx_s3_schema:fields(s3_uploader);
 fields(aggregation) ->
     [
         {time_interval,
@@ -103,6 +116,7 @@ desc(Name) when
     Name =:= ?ACTION_TYPE;
     Name =:= action_parameters;
     Name =:= aggregation;
+    Name =:= s3_upload;
     Name =:= parameters
 ->
     ?DESC(Name);

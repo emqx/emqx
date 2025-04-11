@@ -33,6 +33,7 @@ defmodule EMQXBridgeIceberg.MixProject do
       {:emqx_connector_aggregator, in_umbrella: true},
       {:emqx_s3, in_umbrella: true},
       UMP.common_dep(:erlcloud),
+      UMP.common_dep(:murmerl3),
     ]
   end
 

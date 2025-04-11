@@ -30,6 +30,9 @@
 -define(SERVICE, s3tables).
 -define(SERVICE_STR, "s3tables").
 
+%% 30 s
+-define(DEFAULT_REQUEST_TIMEOUT, 30_000).
+
 -define(aws_config, aws_config).
 -define(account_id, account_id).
 -define(bucket, bucket).
@@ -48,6 +51,7 @@
     base_endpoint := string(),
     bucket := string(),
     account_id => string(),
+    request_timeout => pos_integer(),
     any() => term()
 }.
 
@@ -75,10 +79,14 @@ new(Params) ->
         base_endpoint := BaseEndpoint,
         bucket := Bucket
     } = Params,
+    RequestTimeout = maps:get(request_timeout, Params, ?DEFAULT_REQUEST_TIMEOUT),
     SecretAccessKey1 = emqx_secret:unwrap(SecretAccessKey0),
     AWSConfig0 = erlcloud_config:new(str(AccessKeyId), str(SecretAccessKey1)),
-    %% todo: make configurable?
-    AWSConfig = AWSConfig0#aws_config{retry_num = 3},
+    AWSConfig = AWSConfig0#aws_config{
+        timeout = RequestTimeout,
+        %% todo: make configurable?
+        retry_num = 3
+    },
     maybe
         {ok, #{
             host := Host,
@@ -171,6 +179,8 @@ map_aws_response(AWSResponse) ->
                 {error, _} -> Body
             end,
         {ok, Response}
+    else
+        Error -> map_socket_errors(Error)
     end.
 
 aws_result_fn(#aws_request{response_type = ok} = Request) ->
@@ -286,3 +296,10 @@ infer_account_id(_Params, AWSConfig) ->
     end.
 
 str(X) -> emqx_utils_conv:str(X).
+
+map_socket_errors({error, {socket_error, timeout = Reason}}) ->
+    {error, Reason};
+map_socket_errors({error, {socket_error, {econnrefused = Reason, _Stacktrace}}}) ->
+    {error, Reason};
+map_socket_errors(Error) ->
+    Error.
