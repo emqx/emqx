@@ -104,6 +104,8 @@
     restart_node_ds/2
 ]).
 
+-export([capture_io_format/1]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
@@ -736,7 +738,8 @@ start_peer(Name, Opts) when is_map(Opts) ->
             Envs = [
                 {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
                 {"EMQX_NODE__COOKIE", Cookie},
-                {"EMQX_NODE__DATA_DIR", NodeDataDir}
+                {"EMQX_NODE__DATA_DIR", NodeDataDir},
+                {"EMQX_LICENSE__KEY", "evaluation"}
             ],
             emqx_cth_peer:start(Node, erl_flags(), Envs)
         end,
@@ -1510,4 +1513,55 @@ wait_nodeup(Node) ->
         _Sleep0 = 500,
         _Attempts0 = 50,
         pong = net_adm:ping(Node)
+    ).
+
+capture_io_format(Fn) ->
+    Owner = self(),
+    {GL, _} = spawn_monitor(fun() -> gl_sink(Owner, []) end),
+    {Runner, _} = spawn_monitor(fun() ->
+        group_leader(GL, self()),
+        exit({self(), result, Fn()})
+    end),
+    Result =
+        receive
+            {'DOWN', _, process, Runner, {_, result, Res}} ->
+                Res
+        after 1000 ->
+            exit(Runner, kill),
+            error(timeout)
+        end,
+    GL ! stop,
+    Prints =
+        receive
+            {'DOWN', _, process, GL, {_, prints, IoRequests}} ->
+                IoRequests
+        after 1000 ->
+            exit(GL, kill),
+            error(timeout)
+        end,
+    {Result, format_io_requests(Prints)}.
+
+gl_sink(Owner, Acc) ->
+    receive
+        {io_request, From, ReplyAs, Request} ->
+            From ! {io_reply, ReplyAs, ok},
+            gl_sink(Owner, [Request | Acc]);
+        stop ->
+            exit({self(), prints, lists:reverse(Acc)});
+        _ ->
+            gl_sink(Owner, Acc)
+    end.
+
+format_io_requests(IoRequests) ->
+    lists:map(
+        fun(Request) ->
+            case Request of
+                {put_chars, unicode, M, F, A} ->
+                    IoDat = apply(M, F, A),
+                    unicode:characters_to_binary(IoDat);
+                _ ->
+                    error({unknown_io_request, Request})
+            end
+        end,
+        IoRequests
     ).

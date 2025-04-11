@@ -74,7 +74,7 @@
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
     connection_rejected_due_to_trial_license_uptime_limit,
-    connection_rejected_due_to_max_uptime_reached,
+    connection_rejected_due_to_license_expired,
     listener_accept_throttled_due_to_quota_exceeded,
     failed_to_consume_from_limiter,
     failed_to_put_back_to_limiter,

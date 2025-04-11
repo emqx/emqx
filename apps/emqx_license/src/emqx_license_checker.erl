@@ -35,7 +35,8 @@
     limits/0,
     print_warnings/1,
     get_max_sessions/1,
-    get_dynamic_max_sessions/0
+    get_dynamic_max_sessions/0,
+    no_violation/1
 ]).
 
 %% gen_server callbacks
@@ -98,23 +99,19 @@ purge() ->
 %%------------------------------------------------------------------------------
 
 init([LicenseFetcher, CheckInterval]) ->
-    case LicenseFetcher() of
-        {ok, License} ->
-            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
-                set, protected, named_table, {read_concurrency, true}
-            ]),
-            State0 = ensure_check_license_timer(#{
-                check_license_interval => CheckInterval,
-                license => License,
-                start_time => erlang:monotonic_time(seconds)
-            }),
-            State1 = ensure_refresh_timer(State0),
-            State = ensure_check_expiry_timer(State1),
-            ok = print_warnings(check_license(State)),
-            {ok, State};
-        {error, Reason} ->
-            {stop, Reason}
-    end.
+    {ok, License} = LicenseFetcher(),
+    ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
+        set, protected, named_table, {read_concurrency, true}
+    ]),
+    State0 = ensure_check_license_timer(#{
+        check_license_interval => CheckInterval,
+        license => License,
+        start_time => erlang:monotonic_time(seconds)
+    }),
+    State1 = ensure_refresh_timer(State0),
+    State = ensure_check_expiry_timer(State1),
+    ok = print_warnings(check_license(State)),
+    {ok, State}.
 
 handle_call({update, License}, _From, #{license := Old} = State0) ->
     ok = expiry_early_alarm(License),
@@ -218,6 +215,16 @@ cancel_timer(State, Key) ->
             ok
     end.
 
+-spec no_violation(license()) -> ok | {error, atom()}.
+no_violation(License) ->
+    IsSingleNodeLicense = emqx_license_parser:is_single_node(License),
+    %% check only running nodes to allow once misconfigured cluster recover
+    IsClustered = length(emqx:cluster_nodes(running)) > 1,
+    case IsSingleNodeLicense andalso IsClustered of
+        true -> {error, 'SINGLE_NODE_LICENSE'};
+        false -> ok
+    end.
+
 check_license(#{license := License, start_time := StartTime} = _State) ->
     DaysLeft = days_left(License),
     IsOverdue = is_overdue(License, DaysLeft),
@@ -237,10 +244,10 @@ check_license(#{license := License, start_time := StartTime} = _State) ->
     }.
 
 ensure_cluster_mode(License) ->
-    case emqx_license_parser:license_type(License) of
-        ?COMMUNITY ->
+    case emqx_license_parser:is_single_node(License) of
+        true ->
             ok = emqx_cluster:ensure_singleton_mode();
-        _ ->
+        false ->
             ok = emqx_cluster:ensure_normal_mode()
     end.
 

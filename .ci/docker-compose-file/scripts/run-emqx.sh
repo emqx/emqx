@@ -24,6 +24,7 @@ esac
   echo "EMQX_MQTT__MAX_TOPIC_ALIAS=10"
   echo "EMQX_AUTHORIZATION__SOURCES=[]"
   echo "EMQX_AUTHORIZATION__NO_MATCH=allow"
+  echo "EMQX_LICENSE__KEY=evaluation"
 } >> .ci/docker-compose-file/conf.cluster.env
 
 is_node_up() {

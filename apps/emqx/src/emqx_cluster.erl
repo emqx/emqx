@@ -20,8 +20,8 @@
 -define(CLUSTER_MODE_NORMAL, normal).
 -define(CLUSTER_MODE_SINGLE, singleton).
 
-%% Allow cluster when running tests
 -ifdef(TEST).
+%% Some tests run cluster without emqx_license app
 -define(DEFAULT_MODE, ?CLUSTER_MODE_NORMAL).
 -else.
 -define(DEFAULT_MODE, ?CLUSTER_MODE_SINGLE).

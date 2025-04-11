@@ -62,12 +62,14 @@
     expiry_date/1,
     max_sessions/1,
     max_uptime_seconds/1,
-    is_business_critical/1
+    is_business_critical/1,
+    is_single_node/1
 ]).
 
 %% for testing purpose
 -export([
     default/0,
+    community/0,
     evaluation/0,
     pubkey/0
 ]).
@@ -98,8 +100,14 @@
 %%--------------------------------------------------------------------
 
 pubkey() -> ?PUBKEY.
-default() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
 evaluation() -> ?DEFAULT_EVALUATION_LICENSE_KEY.
+community() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
+-ifdef(TEST).
+%% Allow common tests to run without setting license key.
+default() -> evaluation().
+-else.
+default() -> community().
+-endif.
 
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",
@@ -168,6 +176,12 @@ is_business_critical(#{module := Module, data := LicenseData}) ->
 is_business_critical(Key) when is_binary(Key) ->
     {ok, License} = parse(Key),
     is_business_critical(License).
+
+%% @doc Check if the license is a single node license.
+%% currently, community license = single node license.
+-spec is_single_node(license()) -> boolean().
+is_single_node(License) ->
+    license_type(License) =:= ?COMMUNITY.
 
 %%--------------------------------------------------------------------
 %% Private functions

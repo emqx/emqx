@@ -6,39 +6,38 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/1]).
 
 -export([init/1]).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+start_link(Reader) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [Reader]).
 
-init([]) ->
-    {ok,
-        {
+init([Reader]) ->
+    Strategy =
+        #{
+            strategy => one_for_one,
+            intensity => 2,
+            period => 10
+        },
+    Children =
+        [
             #{
-                strategy => one_for_one,
-                intensity => 10,
-                period => 100
+                id => license_checker,
+                start => {emqx_license_checker, start_link, [Reader]},
+                restart => permanent,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_license_checker]
             },
 
-            [
-                #{
-                    id => license_checker,
-                    start => {emqx_license_checker, start_link, [fun emqx_license:read_license/0]},
-                    restart => permanent,
-                    shutdown => 5000,
-                    type => worker,
-                    modules => [emqx_license_checker]
-                },
-
-                #{
-                    id => license_resources,
-                    start => {emqx_license_resources, start_link, []},
-                    restart => permanent,
-                    shutdown => 5000,
-                    type => worker,
-                    modules => [emqx_license_resources]
-                }
-            ]
-        }}.
+            #{
+                id => license_resources,
+                start => {emqx_license_resources, start_link, []},
+                restart => permanent,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_license_resources]
+            }
+        ],
+    {ok, {Strategy, Children}}.

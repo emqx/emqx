@@ -272,6 +272,13 @@ t_empty_string(_Config) ->
         emqx_license_parser:parse(<<>>)
     ).
 
+t_default_is_not_community_in_ct(_Config) ->
+    Default = emqx_license_parser:default(),
+    Community = emqx_license_parser:community(),
+    Evaluation = emqx_license_parser:evaluation(),
+    ?assertEqual(Evaluation, Default),
+    ?assertNotEqual(Community, Default).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

@@ -163,7 +163,8 @@ del_license_hook() ->
 
 do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
-        {ok, _License} ->
+        {ok, License} ->
+            ok = no_violation(License),
             Conf#{<<"key">> => Content};
         {error, Reason} ->
             erlang:throw(Reason)
@@ -182,6 +183,14 @@ do_update({setting, Setting0}, Conf) ->
 do_update(NewConf, _PrevConf) ->
     #{<<"key">> := NewKey} = NewConf,
     do_update({key, NewKey}, NewConf).
+
+no_violation(License) ->
+    case emqx_license_checker:no_violation(License) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 %% Return 'true' if it is a client new to the cluster.
 %% A client is new when it cannot be found in session registry.

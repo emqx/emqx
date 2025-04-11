@@ -16,6 +16,7 @@ services:
       - "EMQX_HOST=node1.emqx.io"
       - "EMQX_NODE__DB_BACKEND=mnesia"
       - "EMQX_NODE__DB_ROLE=core"
+      - "EMQX_LICENSE__KEY=evaluation"
 
   emqx2:
     <<: *default-emqx
@@ -27,3 +28,4 @@ services:
       - "EMQX_HOST=node2.emqx.io"
       - "EMQX_NODE__DB_BACKEND=mnesia"
       - "EMQX_NODE__DB_ROLE=core"
+      - "EMQX_LICENSE__KEY=evaluation"
