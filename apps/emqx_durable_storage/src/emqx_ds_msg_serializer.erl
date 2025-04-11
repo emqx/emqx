@@ -65,7 +65,7 @@ check_schema(blob) ->
 check_schema(_) ->
     {error, "Unknown schema type"}.
 
--spec serialize(schema(), emqx_types:message() | emqx_ds:blob()) -> binary().
+-spec serialize(schema(), tuple()) -> binary().
 serialize(v1, Msg) ->
     serialize_v1(Msg);
 serialize(asn1, Msg) ->
@@ -73,7 +73,7 @@ serialize(asn1, Msg) ->
 serialize(blob, Blob) ->
     serialize_blob(Blob).
 
--spec deserialize(schema(), binary()) -> emqx_types:message() | emqx_ds:blob().
+-spec deserialize(schema(), binary()) -> tuple().
 deserialize(v1, Blob) ->
     deserialize_v1(Blob);
 deserialize(asn1, Blob) ->
