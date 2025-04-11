@@ -119,7 +119,7 @@
     master_hash_bits :: n_bits(),
     threshold_fun :: emqx_ds_lts:threshold_fun(),
     with_guid :: boolean(),
-    store_blobs :: boolean()
+    store_kv :: boolean()
 }).
 
 -type s() :: #s{}.
@@ -168,8 +168,8 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev, DBOpts) ->
     Schema1 = maps:merge(Defaults, Schema0),
     Schema =
         case DBOpts of
-            #{store_blobs := true} ->
-                Schema1#{serialization_schema => blob, store_blobs => true};
+            #{store_kv := true} ->
+                Schema1#{serialization_schema => blob, store_kv => true};
             _ ->
                 Schema1
         end,
@@ -215,7 +215,7 @@ open(
         serialization_schema = SSchema,
         threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec),
         with_guid = WithGuid,
-        store_blobs = maps:get(store_blobs, Schema, false)
+        store_kv = maps:get(store_kv, Schema, false)
     }.
 
 drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{data_cf = DataCF, trie_cf = TrieCF, trie = Trie}) ->
@@ -282,11 +282,9 @@ cook_blob_deletes(DBShard, S, Topics, Acc0) ->
     ).
 
 cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
-    ct:pal("cbd1 ~p", [TopicFilter]),
     lists:foldl(
         fun(Stream, Acc) ->
             {ok, It} = make_iterator(DBShard, S, Stream, TopicFilter, 0),
-            ct:pal("cbd2 ~p ~p", [TopicFilter, Stream]),
             TS = get_topic_structure(S#s.trie, Stream#stream.static_index),
             cook_blob_deletes2(DBShard, S, TS, It, Acc)
         end,
@@ -311,7 +309,6 @@ cook_blob_deletes2(DBShard, S, TS, It0, Acc0) ->
                 lists:foldl(
                     fun({_DSKey, {Topic, _Blob}}, Acc) ->
                         Varying = emqx_ds_lts:compress_topic(Static, TS, Topic),
-                        ct:pal("cbd3 ~p ~p", [Topic, _DSKey]),
                         [?cooked_msg_op(0, Static, Varying, ?cooked_delete) | Acc]
                     end,
                     Acc0,
@@ -401,7 +398,7 @@ get_delete_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
 
 make_iterator(
     _Shard,
-    S = #s{store_blobs = true, trie = Trie},
+    S = #s{store_kv = true, trie = Trie},
     #stream{static_index = StaticIdx},
     TopicFilter,
     _TS
@@ -827,8 +824,7 @@ start_next_loop(
         iters = PerLevelIterators,
         topic_structure = TopicStructure,
         filter = words(CompressedTF),
-        %stream_key(TMax + 1, 0, MHB),
-        max_key = undefined,
+        max_key = stream_key(TMax + 1, 0, MHB),
         master_hash_bits = MHB
     },
     next_loop(Ctx, ItSeed, BatchSize, {seek, inc_stream_key(LSK, MHB)}, []).

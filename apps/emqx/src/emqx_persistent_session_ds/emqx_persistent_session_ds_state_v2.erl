@@ -351,7 +351,7 @@ pmap_delete(ClientId, #pmap{name = Name}) ->
 %% == Operations over PMap KV pairs ==
 
 %% @doc Write a single key-value pair that belongs to a pmap:
--spec write_pmap_kv(atom(), emqx_persistent_session_ds:id(), _, _) -> emqx_ds:blob().
+-spec write_pmap_kv(atom(), emqx_persistent_session_ds:id(), _, _) -> emqx_ds:kv_pair().
 write_pmap_kv(Name, ClientId, Key, Val) ->
     emqx_ds:tx_blob_write(
         pmap_topic(Name, ClientId, Key, Val),

@@ -13,9 +13,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_ds_storage_blob_skipstream_lts).
+-module(emqx_ds_storage_kv_skipstream_lts).
 
--behaviour(emqx_ds_storage_layer).
+-behaviour(emqx_ds_storage_layer_kv).
 
 %% API:
 -export([]).
@@ -25,22 +25,14 @@
     create/6,
     open/5,
     drop/5,
-    prepare_batch/4,
     prepare_blob_tx/4,
     commit_batch/4,
-    get_streams/4,
-    get_delete_streams/4,
+    get_streams/3,
     make_iterator/5,
-    %% make_delete_iterator/5,
-    update_iterator/4,
-    next/6,
-    %% delete_next/7,
+    next/4,
     lookup_message/4,
 
-    %% unpack_iterator/3,
-    %% scan_stream/8,
     message_matcher/3,
-    %% fast_forward/5,
     message_match_context/5,
     iterator_match_context/3,
 
@@ -150,15 +142,16 @@
     iters,
     %% Cached topic structure for the static index:
     topic_structure,
-    %% Effective master hash bitsize:
-    master_hash_bits,
     %% Compressed topic filter, split into words:
     filter,
-    %% Ignore all keys that are less than this one. Can be `undefined'
-    %% in case of a fresh iterator. According to the term order, atom
-    %% is less than any binary.
-    min_key
+    %% Lower and upper endpoints of an _open_ interval for the table scan.
+    lower_endpoint,
+    upper_endpoint
 }).
+
+%% Last Seen Key placeholder that is used to indicate that the
+%% iterator points at the beginning of the topic.
+-define(lsk_begin, '').
 
 %%================================================================================
 %% API functions
@@ -221,14 +214,6 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{data_cf = DataCF, trie_cf = TrieCF,
     ok = rocksdb:drop_column_family(DBHandle, DataCF),
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
     ok.
-
-prepare_batch(_ShardId, S, Operations, _Options) ->
-    _ = erase(?lts_persist_ops),
-    %% FIXME:
-    {ok, #{
-        ?cooked_msg_ops => [],
-        ?cooked_lts_ops => pop_lts_persist_ops()
-    }}.
 
 prepare_blob_tx(DBShard, S, Ops, _Options) ->
     _ = erase(?lts_persist_ops),
@@ -308,7 +293,7 @@ commit_batch(
         %% Commit payloads:
         lists:foreach(
             fun(?cooked_msg_op(Static, Varying, Op)) ->
-                StreamKey = mk_stream_key(Varying),
+                StreamKey = hash_topic_levels(Varying),
                 MasterKey = mk_master_key(Static, StreamKey),
                 case Op of
                     Payload when is_binary(Payload) ->
@@ -354,10 +339,7 @@ batch_events(
     ),
     maps:keys(EventMap).
 
-get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
-    get_streams(Trie, TopicFilter).
-
-get_delete_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
+get_streams(_Shard, #s{trie = Trie}, TopicFilter) ->
     get_streams(Trie, TopicFilter).
 
 make_iterator(
@@ -365,14 +347,19 @@ make_iterator(
     #s{trie = Trie},
     #stream{static_index = StaticIdx},
     TopicFilter,
-    _TS
+    StartPos
 ) ->
     ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_blob_iterator, #{
         static_index => StaticIdx, topic_filter => TopicFilter
     }),
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    LastSK = undefined,
+    case StartPos of
+        beginning ->
+            LastSK = ?lsk_begin;
+        LastSK when is_binary(LastSK) ->
+            ok
+    end,
     {ok, #it{
         static_index = StaticIdx,
         last_key = LastSK,
@@ -408,83 +395,6 @@ message_matcher(
         end
     end.
 
-%% unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
-%%     static_index = StaticIdx, compressed_tf = CTF, last_key = LSK
-%% }) ->
-%%     DSKey = mk_master_key(StaticIdx, LSK),
-%%     TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), CTF),
-%%     {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
-
-%% scan_stream(
-%%     Shard,
-%%     S = #s{trie = Trie},
-%%     #stream{static_index = StaticIdx},
-%%     TopicFilter,
-%%     LastSeenKey,
-%%     BatchSize,
-%%     TMax,
-%%     IsCurrent
-%% ) ->
-%%     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-%%     Varying = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-%%     ItSeed = #it{
-%%         static_index = StaticIdx,
-%%         compressed_tf = emqx_topic:join(Varying),
-%%         last_key = match_stream_key(StaticIdx, LastSeenKey)
-%%     },
-%%     case next(Shard, S, ItSeed, BatchSize, TMax, IsCurrent) of
-%%         {ok, #it{last_key = LSK}, Batch} ->
-%%             DSKey = mk_master_key(StaticIdx, LSK),
-%%             {ok, DSKey, Batch};
-%%         Other ->
-%%             Other
-%%     end.
-
-%% make_delete_iterator(Shard, Data, Stream, TopicFilter, StartTime) ->
-%%     make_iterator(Shard, Data, Stream, TopicFilter, StartTime).
-
-update_iterator(_Shard, _Data, OldIter, DSKey) ->
-    case match_stream_key(OldIter#it.static_index, DSKey) of
-        false ->
-            ?err_unrec("Invalid datastream key");
-        StreamKey ->
-            {ok, OldIter#it{last_key = StreamKey}}
-    end.
-
-%% fast_forward(
-%%     ShardId,
-%%     S = #s{master_hash_bits = MHB},
-%%     It0 = #it{last_key = LastSeenKey0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
-%%     FFToKey,
-%%     TMax
-%% ) ->
-%%     case match_stream_key(It0#it.static_index, FFToKey) of
-%%         false ->
-%%             ?err_unrec(<<"Invalid datastream key">>);
-%%         FFToStreamKey ->
-%%             LastSeenTS = stream_key_ts(LastSeenKey0, MHB),
-%%             case stream_key_ts(FFToStreamKey, MHB) of
-%%                 FFToTimestamp when FFToTimestamp > TMax ->
-%%                     ?err_unrec(<<"Key is too far in the future">>);
-%%                 FFToTimestamp when FFToTimestamp =< LastSeenTS ->
-%%                     %% The new position is earlier than the current position.
-%%                     %% We keep the original position to prevent duplication of
-%%                     %% messages. De-duplication is performed by
-%%                     %% `message_matcher' callback that filters out messages
-%%                     %% with TS older than the iterator's.
-%%                     {ok, It0};
-%%                 _FFToTimestamp ->
-%%                     case next(ShardId, S, It0, 1, TMax, true) of
-%%                         {ok, #it{last_key = LastSeenKey}, [_]} when LastSeenKey =< FFToKey ->
-%%                             ?err_unrec(has_data);
-%%                         {ok, It, _} ->
-%%                             {ok, It};
-%%                         Err ->
-%%                             Err
-%%                     end
-%%             end
-%%     end.
-
 -record(match_ctx, {compressed_topic, stream_key}).
 
 message_match_context(_Shard, GenData, Stream, MsgKey, #message{topic = Topic}) ->
@@ -510,22 +420,14 @@ iterator_match_context(_Shard, _GenData, Iterator) ->
             emqx_topic:match(CT, CTF)
     end.
 
-next(DBShard, S, ItSeed, BatchSize, IsCurrent, _TMax) ->
+next(DBShard, S, ItSeed, BatchSize) ->
     Acc0 = [],
-    Fun = fun(Ctx, _DSKey, Varying, Val, Acc) ->
+    Fun = fun(Ctx, DSKey, Varying, Val, Acc) ->
         Topic = emqx_ds_lts:decompress_topic(Ctx#ctx.topic_structure, Varying),
-        [{Topic, Val} | Acc]
+        [{DSKey, {Topic, Val}} | Acc]
     end,
-    Result = fold(DBShard, S, ItSeed, BatchSize, Acc0, Fun),
-    case Result of
-        {ok, _It, []} when not IsCurrent ->
-            {ok, end_of_stream};
-        {ok, It, Batch} ->
-            %% Note: we don't reverse the batch here.
-            {ok, It, Batch};
-        {error, EC, Err} ->
-            {error, EC, Err}
-    end.
+    %% Note: we don't reverse the batch here.
+    fold(DBShard, S, ItSeed, BatchSize, Acc0, Fun).
 
 fold(DBShard = {_DB, Shard}, S, ItSeed, BatchSize, Acc0, Fun) ->
     init_counters(),
@@ -555,7 +457,7 @@ lookup_message(
 ) ->
     case emqx_ds_lts:lookup_topic_key(Trie, Topic) of
         {ok, {StaticIdx, Varying}} ->
-            SK = mk_stream_key(Varying),
+            SK = hash_topic_levels(Varying),
             DSKey = mk_master_key(StaticIdx, SK),
             case rocksdb:get(DB, CF, DSKey, []) of
                 {ok, Bin} ->
@@ -594,57 +496,6 @@ deserialize(
 ) ->
     emqx_ds_msg_serializer:deserialize(SSchema, Blob).
 
-%%%%%%%% Deletion %%%%%%%%%%
-
-%% batch_delete(S = #s{db = DB, data_cf = CF}, It, Selector, KVs) ->
-%%     #it{static_index = Static, compressed_tf = CompressedTF} = It,
-%%     MHB = master_hash_bits(S, CompressedTF),
-%%     {Indices, _} = lists:foldl(
-%%         fun
-%%             ('+', {Acc, WildcardIdx}) ->
-%%                 {Acc, WildcardIdx + 1};
-%%             (LevelFilter, {Acc0, WildcardIdx}) ->
-%%                 Acc = [{WildcardIdx, hash_topic_level(HashBytes, LevelFilter)} | Acc0],
-%%                 {Acc, WildcardIdx + 1}
-%%         end,
-%%         {[], 1},
-%%         CompressedTF
-%%     ),
-%%     KeyFamily = [{0, <<>>} | Indices],
-%%     {ok, Batch} = rocksdb:batch(),
-%%     try
-%%         Ndeleted = lists:foldl(
-%%             fun({MsgKey, Val}, Acc) ->
-%%                 case Selector(Val) of
-%%                     true ->
-%%                         do_delete(CF, Batch, MHB, Static, KeyFamily, MsgKey),
-%%                         Acc + 1;
-%%                     false ->
-%%                         Acc
-%%                 end
-%%             end,
-%%             0,
-%%             KVs
-%%         ),
-%%         case rocksdb:write_batch(DB, Batch, []) of
-%%             ok ->
-%%                 {ok, It, Ndeleted, length(KVs)};
-%%             {error, {error, Reason}} ->
-%%                 ?err_unrec({rocksdb, Reason})
-%%         end
-%%     after
-%%         rocksdb:release_batch(Batch)
-%%     end.
-
-%% do_delete(CF, Batch, MHB, Static, KeyFamily, MsgKey) ->
-%%     SK = match_stream_key(Static, MsgKey),
-%%     lists:foreach(
-%%         fun({WildcardIdx, Hash}) ->
-%%             ok = rocksdb:batch_delete(Batch, CF, mk_key(Static, WildcardIdx, Hash, SK, MHB))
-%%         end,
-%%         KeyFamily
-%%     ).
-
 %%%%%%%% Iteration %%%%%%%%%%
 
 %% @doc Init iterators per level, order is important: e.g. [L1, L2, L3, L0].
@@ -659,7 +510,7 @@ do_init_iterators(S, Snapshot, Static, ['+' | TopicFilter], WildcardLevel) ->
     do_init_iterators(S, Snapshot, Static, TopicFilter, WildcardLevel + 1);
 do_init_iterators(S, Snapshot, Static, [Constraint | TopicFilter], WildcardLevel) ->
     %% Create iterator for the index stream:
-    #s{db = DB, data_cf = DataCF} = S,
+    #s{db = DB, data_cf = DataCF, hash_bytes = HashBytes} = S,
     Hash = hash_topic_level(HashBytes, Constraint),
     {ok, ItHandle} = rocksdb:iterator(
         DB, DataCF, get_key_range(Snapshot, Static, WildcardLevel, Hash)
@@ -694,6 +545,11 @@ start_fold_loop(
 ) ->
     %% cache it?
     TopicStructure = get_topic_structure(Trie, StaticIdx),
+    %% Note on deduplication: actual scan goes over a half-open
+    %% interval [Infimum, ∞). However, we don't want to return
+    %% `last_key' of the iterator multiple times. Hence, inside the
+    %% loop we drop elements that are lesser than the `LSK'. So the
+    %% user sees elements from the open interval (LSK, ∞)
     Ctx = #ctx{
         shard = Shard,
         s = S,
@@ -701,15 +557,15 @@ start_fold_loop(
         iters = PerLevelIterators,
         topic_structure = TopicStructure,
         filter = CompressedTF,
-        min_key = LSK
+        lower_endpoint = LSK
     },
     case LSK of
-        undefined ->
-            StartPos = <<>>;
-        StartPos when is_binary(LSK) ->
+        ?lsk_begin ->
+            Infimum = <<>>;
+        Infimum when is_binary(LSK) ->
             ok
     end,
-    fold_loop(Ctx, ItSeed, BatchSize, {seek, StartPos}, Acc).
+    fold_loop(Ctx, ItSeed, BatchSize, {seek, Infimum}, Acc).
 
 get_topic_structure(Trie, StaticIdx) ->
     case emqx_ds_lts:reverse_lookup(Trie, StaticIdx) of
@@ -724,35 +580,37 @@ get_topic_structure(Trie, StaticIdx) ->
 
 fold_loop(_Ctx, It, 0, _Op, Acc) ->
     {ok, It, Acc};
-fold_loop(Ctx, It0, BatchSize, Op, Acc) ->
+fold_loop(Ctx, It0, BatchSize, Op, Acc0) ->
     %% ?tp(notice, skipstream_loop, #{
     %%     ts => It0#it.ts, tf => It0#it.compressed_tf, bs => BatchSize, tmax => TMax, op => Op
     %% }),
-    #ctx{s = S, f = Fun, master_hash_bits = MHB, iters = Iterators} = Ctx,
+    #ctx{s = S, f = Fun, iters = Iterators} = Ctx,
     #it{static_index = StaticIdx, compressed_tf = CompressedTF} = It0,
     %% Note: `next_step' function destructively updates RocksDB
     %% iterators in `ctx.iters' (they are handles, not values!),
     %% therefore a recursive call with the same arguments is not a
     %% bug.
-    case fold_step(S, StaticIdx, MHB, CompressedTF, Iterators, any, Op) of
+    case fold_step(S, StaticIdx, CompressedTF, Iterators, any, Op) of
         none ->
             %% ?tp(notice, skipstream_loop_result, #{r => none}),
             inc_counter(?DS_SKIPSTREAM_LTS_EOS),
-            {ok, It0, Acc};
+            {ok, It0, Acc0};
+        {seek, SK} when SK >= Ctx#ctx.upper_endpoint ->
+            {ok, It, Acc};
         {seek, SK} ->
             %% ?tp(notice, skipstream_loop_result, #{r => seek, ts => TS}),
             It = It0#it{last_key = SK},
-            fold_loop(Ctx, It, BatchSize, {seek, SK}, Acc);
+            fold_loop(Ctx, It, BatchSize, {seek, SK}, Acc0);
         {ok, SK, DSKey, CompressedTopic, Val} ->
             %% ?tp(notice, skipstream_loop_result, #{r => ok, ts => TS, key => Key}),
             It = It0#it{last_key = SK},
-            fold_loop(Ctx, It, BatchSize - 1, next, Fun(Ctx, DSKey, CompressedTopic, Val, Acc))
+            Acc = Fun(Ctx, DSKey, CompressedTopic, Val, Acc0),
+            fold_loop(Ctx, It, BatchSize - 1, next, Acc)
     end.
 
 fold_step(
     S,
     StaticIdx,
-    MHB,
     CompressedTF,
     [#l{hash = Hash, handle = IH, n = N} | Iterators],
     ExpectedSK,
@@ -765,7 +623,7 @@ fold_step(
                 rocksdb:iterator_move(IH, next);
             {seek, SK} ->
                 inc_counter(?DS_SKIPSTREAM_LTS_SEEK),
-                rocksdb:iterator_move(IH, {seek, mk_key(StaticIdx, N, Hash, SK, MHB)})
+                rocksdb:iterator_move(IH, {seek, mk_key(StaticIdx, N, Hash, SK)})
         end,
     case Result of
         {error, invalid_iterator} ->
@@ -805,7 +663,7 @@ fold_step(
                         _ ->
                             %% This is index stream. Keep matching NextSK in other levels.
                             fold_step(
-                                S, StaticIdx, MHB, CompressedTF, Iterators, NextSK, {seek, NextSK}
+                                S, StaticIdx, CompressedTF, Iterators, NextSK, {seek, NextSK}
                             )
                     end;
                 NextSK when NextSK > ExpectedSK, N > 0 ->
@@ -879,7 +737,7 @@ match_stream_key(StaticIdx, Key) ->
         false ->
             false;
         StreamKey ->
-            decode_stream_key(StreamKey)
+            StreamKey
     end.
 
 -spec match_stream_key(emqx_ds_lts:static_key(), wildcard_idx(), wildcard_hash(), binary()) ->
@@ -889,7 +747,7 @@ match_stream_key(StaticIdx, WildcardIdx, Hash, Key) ->
         false ->
             false;
         StreamKey ->
-            decode_stream_key(StreamKey)
+            StreamKey
     end.
 
 -spec match_key_prefix(emqx_ds_lts:static_key(), wildcard_idx(), wildcard_hash(), binary()) ->
@@ -919,11 +777,6 @@ mk_key(StaticIdx, 0, <<>>, StreamKey) ->
 mk_key(StaticIdx, N, Hash, StreamKey) when N > 0 ->
     mk_index_key(StaticIdx, N, Hash, StreamKey).
 
-mk_stream_key([]) ->
-    <<>>;
-mk_stream_key(Varying) when is_list(Varying) ->
-    erlang:md5(Varying).
-
 mk_master_key(StaticIdx, StreamKey) ->
     %% Data stream is identified by wildcard level = 0
     <<StaticIdx/binary, 0:?wcb, StreamKey/binary>>.
@@ -931,15 +784,6 @@ mk_master_key(StaticIdx, StreamKey) ->
 mk_index_key(StaticIdx, N, Hash, StreamKey) ->
     %% Index stream:
     <<StaticIdx/binary, N:?wcb, Hash/binary, StreamKey/binary>>.
-
-% encode_stream_key(StreamKey, MHB) ->
-%     <<StreamKey:(?tsb + MHB)>>.
-
-decode_stream_key(StreamKey) ->
-    binary:decode_unsigned(StreamKey).
-
-stream_key_ts(StreamKey, MHB) ->
-    StreamKey bsr MHB.
 
 hash_topic_level(HashBytes, TopicLevel) ->
     first_n_bytes(HashBytes, hash_topic_level(TopicLevel)).
@@ -958,10 +802,6 @@ hash_topic_levels([], HashCtx) ->
 
 first_n_bytes(NBytes, Hash) ->
     <<Part:NBytes/binary, _/binary>> = Hash,
-    Part.
-
-first_n_bits(NBits, Hash) ->
-    <<Part:NBits, _/bitstring>> = Hash,
     Part.
 
 topic_level_bin('') -> <<>>;

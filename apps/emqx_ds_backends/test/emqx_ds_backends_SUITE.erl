@@ -985,7 +985,7 @@ t_13_smoke_blob_tx(Config) ->
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{store_blobs => true}),
+            Opts = maps:merge(opts(Config), #{store_kv => true}),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)
@@ -1140,7 +1140,7 @@ t_14_tx_wrapper(Config) ->
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{store_blobs => true}),
+            Opts = maps:merge(opts(Config), #{store_kv => true}),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)

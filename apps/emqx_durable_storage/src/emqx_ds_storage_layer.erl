@@ -260,7 +260,7 @@
 -define(STORAGE_LAYOUT_DB_OPTS, [
     append_only,
     atomic_batches,
-    store_blobs
+    store_kv
 ]).
 
 -define(GLOBAL(K), <<"G/", K/binary>>).
@@ -364,7 +364,7 @@
 
 %% Lookup a single message, for preconditions to work.
 -callback lookup_message(dbshard(), generation_data(), emqx_ds:topic(), emqx_ds:time()) ->
-    {ok, emqx_types:message() | emqx_ds:blob()} | undefined | emqx_ds:error(_).
+    {ok, emqx_types:message() | emqx_ds:kv_pair()} | undefined | emqx_ds:error(_).
 
 -callback handle_event(dbshard(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
@@ -841,7 +841,7 @@ lookup_message(ShardId, #message_matcher{timestamp = Time, topic = Topic}) ->
     end.
 
 -spec lookup_blob(dbshard(), emqx_ds:generation(), emqx_ds:topic()) ->
-    {ok, emqx_ds:blob()} | undefined | emqx_ds:error(_).
+    {ok, emqx_ds:kv_pair()} | undefined | emqx_ds:error(_).
 lookup_blob(DBShard, Generation, Topic) ->
     case generation_get(DBShard, Generation) of
         not_found ->
