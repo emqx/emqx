@@ -211,8 +211,10 @@ is_enabled() ->
 ensure_report_timer(State = #state{report_interval = ReportInterval}) ->
     ensure_report_timer(ReportInterval, State).
 
-ensure_report_timer(ReportInterval, State) ->
-    State#state{timer = emqx_utils:start_timer(ReportInterval, time_to_report_telemetry_data)}.
+ensure_report_timer(ReportInterval, #state{timer = undefined} = State) ->
+    State#state{timer = emqx_utils:start_timer(ReportInterval, time_to_report_telemetry_data)};
+ensure_report_timer(_ReportInterval, State) ->
+    State.
 
 os_info() ->
     case erlang:system_info(os_type) of
