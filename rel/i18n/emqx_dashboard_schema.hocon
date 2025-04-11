@@ -180,4 +180,23 @@ https_listener_settings.desc:
 https_listener_settings.label:
 """HTTPS Listener Settings"""
 
+unsuccessful_login_max_attempts.desc:
+"""The maximum number of unsuccessful login attempts allowed for a user.
+After this number is reached within the configured time interval
+the user will be forbidden to login for a period of time"""
+
+unsuccessful_login_max_attempts.label:
+"""Unsuccessful login max attempts"""
+
+unsuccessful_login_lock_duration.desc:
+"""The duration of the lock period for a user after reaching the maximum number of unsuccessful login attempts."""
+
+unsuccessful_login_lock_duration.label:
+"""Login lock duration"""
+
+unsuccessful_login_interval.desc:
+"""The time interval for accumulating the number of unsuccessful login attempts."""
+
+unsuccessful_login_interval.label:
+"""Unsuccessful login accumulation time interval"""
 }

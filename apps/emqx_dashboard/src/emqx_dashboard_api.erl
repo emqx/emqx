@@ -37,6 +37,7 @@
 -define(ERROR_PWD_NOT_MATCH, 'ERROR_PWD_NOT_MATCH').
 -define(NOT_ALLOWED, 'NOT_ALLOWED').
 -define(BAD_REQUEST, 'BAD_REQUEST').
+-define(LOGIN_LOCKED, 'LOGIN_LOCKED').
 
 namespace() -> "dashboard".
 
@@ -54,7 +55,7 @@ paths() ->
     ].
 
 schema("/login") ->
-    ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN],
+    ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN, ?LOGIN_LOCKED],
     #{
         'operationId' => login,
         post => #{
@@ -260,6 +261,7 @@ login(post, #{body := Params}) ->
     case emqx_dashboard_admin:sign_token(Username, Password, MfaToken) of
         {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
+            ok = emqx_dashboard_login_lock:reset(Username),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200,
                 filter_result(Result#{
@@ -267,14 +269,22 @@ login(post, #{body := Params}) ->
                     license => #{edition => emqx_release:edition()}
                 })};
         {error, R} ->
+            ok = register_unsuccessful_login(Username, R),
             ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
-            %% check if this error was created by emqx_dashboard_mfa
-            case emqx_dashboard_mfa:is_mfa_error(R) of
-                true ->
-                    {401, ?BAD_MFA_TOKEN, R};
-                false ->
-                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
-            end
+            format_login_failed_error(R)
+    end.
+
+format_login_failed_error(Reason) ->
+    maybe
+        {is_mfa_error, false} ?= {is_mfa_error, emqx_dashboard_mfa:is_mfa_error(Reason)},
+        {is_login_locked_error, false} ?=
+            {is_login_locked_error, emqx_dashboard_login_lock:is_login_locked_error(Reason)},
+        {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+    else
+        {is_mfa_error, true} ->
+            {401, ?BAD_MFA_TOKEN, Reason};
+        {is_login_locked_error, true} ->
+            {401, ?LOGIN_LOCKED, <<"Login locked">>}
     end.
 
 logout(_, #{
@@ -447,6 +457,11 @@ change_mfa(post, #{bindings := #{username := Username}, body := Settings}) ->
             ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
             {404, ?USER_NOT_FOUND, <<"User not found">>}
     end.
+
+register_unsuccessful_login(Username, <<"password_error">>) ->
+    emqx_dashboard_login_lock:register_unsuccessful_login(Username);
+register_unsuccessful_login(_, _) ->
+    ok.
 
 mk(Type, Props) ->
     hoconsc:mk(Type, Props).
