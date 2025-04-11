@@ -108,8 +108,8 @@
     sub_info/0,
     sub_seqno/0,
 
-    blob/0,
-    blob_matcher/0,
+    kv_pair/0,
+    kv_matcher/0,
 
     tx_context/0,
     transaction_opts/0,
@@ -148,9 +148,9 @@
 
 -type deletion() :: {delete, message_matcher('_')}.
 
--type blob() :: {topic(), binary()}.
+-type kv_pair() :: {topic(), binary()}.
 
--type blob_matcher() :: {message_key(), binary() | '_'}.
+-type kv_matcher() :: {message_key(), binary() | '_'}.
 
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
@@ -296,7 +296,7 @@
         %% applicable to the backend).
         atomic_batches => boolean(),
         %% Whether the DB stores values of type `#message{}' or `#ds_blob{}'
-        store_blobs => boolean(),
+        store_kv => boolean(),
         %% Backend-specific options:
         _ => _
     }.
@@ -305,7 +305,7 @@
     %% See respective `create_db_opts()` fields.
     append_only => boolean(),
     atomic_batches => boolean(),
-    store_blobs => boolean()
+    store_kv => boolean()
 }.
 
 %% obsolete
@@ -356,12 +356,12 @@
 %% deletions are executed before the writes.
 -type blob_tx_ops() :: #{
     %% Write operations:
-    ?ds_tx_write => [blob()],
+    ?ds_tx_write => [kv_pair()],
     %% Deletions:
     ?ds_tx_delete_topic => [topic_filter()],
     %% Preconditions:
     %%   List of objects that should be present in the database.
-    ?ds_tx_expected => [blob_matcher()],
+    ?ds_tx_expected => [kv_matcher()],
     %%   List of objects that should NOT be present in the database.
     ?ds_tx_unexpected => [topic()]
 }.
@@ -393,7 +393,7 @@
         slab(),
         stream(),
         message_key(),
-        emqx_types:message() | blob(),
+        emqx_types:message() | kv_pair(),
         Acc
     ) -> Acc
 ).
@@ -503,10 +503,10 @@ open_db(DB, UserOpts) ->
     Opts = #{backend := Backend} = set_db_defaults(UserOpts),
     %% Santiy checks:
     case Opts of
-        #{store_blobs := true, append_only := true} ->
+        #{store_kv := true, append_only := true} ->
             %% Blobs don't have a builtin timestamp field, so we
             %% cannot set it automatically:
-            error({incompatible_options, [store_blobs, append_only]});
+            error({incompatible_options, [store_kv, append_only]});
         _ ->
             ok
     end,
@@ -809,12 +809,12 @@ reset_trans() ->
     throw(?tx_reset).
 
 -spec dirty_read(db(), topic_filter()) ->
-    fold_result([blob() | emqx_types:message()]).
+    fold_result([kv_pair() | emqx_types:message()]).
 dirty_read(DB, TopicFilter) ->
     dirty_read(DB, TopicFilter, #{}).
 
 -spec dirty_read(db(), topic_filter(), fold_options()) ->
-    fold_result([blob() | emqx_types:message()]).
+    fold_result([kv_pair() | emqx_types:message()]).
 dirty_read(DB, TopicFilter, Opts) ->
     Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) -> [Object | Acc] end,
     fold_topic(Fun, [], DB, TopicFilter, 0, Opts).
@@ -910,7 +910,7 @@ topic_words(Bin) -> emqx_topic:words(Bin).
 %% Internal functions
 %%================================================================================
 
-set_db_defaults(Opts = #{store_blobs := true}) ->
+set_db_defaults(Opts = #{store_kv := true}) ->
     Defaults = #{
         append_only => false,
         atomic_batches => true
@@ -920,7 +920,7 @@ set_db_defaults(Opts) ->
     Defaults = #{
         append_only => true,
         atomic_batches => false,
-        store_blobs => false
+        store_kv => false
     },
     maps:merge(Defaults, Opts).
 

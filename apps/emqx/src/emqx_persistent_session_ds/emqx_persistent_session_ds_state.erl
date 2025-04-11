@@ -173,7 +173,7 @@ open_db(Config) ->
         backend => ?DEFAULT_BACKEND,
         atomic_batches => true,
         append_only => false,
-        store_blobs => true,
+        store_kv => true,
         storage => Storage
     }).
 

@@ -231,7 +231,7 @@ store_batch(DB, Batch, Opts) ->
     {ok, tx_context()} | emqx_ds:error(_).
 new_blob_tx(DB, Options) ->
     case emqx_ds_builtin_local_meta:db_config(DB) of
-        #{atomic_batches := true, store_blobs := true} ->
+        #{atomic_batches := true, store_kv := true} ->
             case Options of
                 #{owner := Owner} ->
                     Shard = shard_of(DB, Owner);
