@@ -71,8 +71,8 @@ append(WriteData, #{buffer := Buffer, buffer_size := BufferSize} = Upload) ->
     case is_valid_part(WriteData, Upload) of
         true ->
             {ok, Upload#{
-                buffer => [Buffer, WriteData],
-                buffer_size => BufferSize + iolist_size(WriteData)
+                buffer := [Buffer, WriteData],
+                buffer_size := BufferSize + iolist_size(WriteData)
             }};
         false ->
             {error, {too_large, iolist_size(WriteData)}}
