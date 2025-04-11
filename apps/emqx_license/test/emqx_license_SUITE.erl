@@ -225,7 +225,7 @@ t_import_config(_Config) ->
         emqx:get_config([license])
     ).
 
-t_app_cannot_start_with_inalid_license(_Config) ->
+t_app_cannot_start_with_invalid_license(_Config) ->
     meck:new(emqx_license, [passthrough, no_history]),
     meck:expect(emqx_license, read_license, fun() -> {error, 'SINGLE_NODE_LICENSE'} end),
     try
