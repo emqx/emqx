@@ -78,7 +78,7 @@ init_per_testcase(TestCase, TCConfig) ->
     ConnectorName = atom_to_binary(TestCase),
     ConnectorConfig = connector_config(),
     ActionName = ConnectorName,
-    #{ns := Ns, table := Table} = simple_setup_table(TestCase),
+    #{ns := Ns, table := Table} = simple_setup_table(TestCase, TCConfig),
     ActionConfig = action_config(#{
         <<"connector">> => ConnectorName,
         <<"parameters">> => #{
@@ -252,7 +252,7 @@ delete_table(Client, Namespace, Table) ->
     emqx_bridge_iceberg_client_s3t:do_request(Client, Context).
 
 ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
-    %% on_exit(fun() -> ensure_table_deleted(Client, Namespace, Table) end),
+    on_exit(fun() -> ensure_table_deleted(Client, Namespace, Table) end),
     case create_table(Client, Namespace, Table, Schema, Opts) of
         {ok, _} ->
             ct:pal("table ~p.~p created", [Namespace, Table]),
@@ -313,6 +313,25 @@ simple_schema1() ->
         ]
     }.
 
+simple_schema1_partition_spec1() ->
+    #{
+        <<"spec-id">> => 1,
+        <<"fields">> => [
+            #{
+                <<"field-id">> => 1001,
+                <<"source-id">> => 1,
+                <<"name">> => <<"str">>,
+                <<"transform">> => <<"identity">>
+            },
+            #{
+                <<"field-id">> => 1002,
+                <<"source-id">> => 5,
+                <<"name">> => <<"int">>,
+                <<"transform">> => <<"identity">>
+            }
+        ]
+    }.
+
 simple_payload_all() ->
     simple_payload_all(_Overrides = #{}).
 
@@ -346,7 +365,7 @@ simple_payload_null(Overrides) ->
     },
     maps:merge(Defaults, Overrides).
 
-simple_setup_table(TestCase) ->
+simple_setup_table(TestCase, TCConfig) ->
     Client = make_client(),
     TestCaseBin = atom_to_binary(TestCase),
     N = erlang:unique_integer([positive]),
@@ -355,7 +374,9 @@ simple_setup_table(TestCase) ->
     Table = Name,
     Schema = simple_schema1(),
     ok = ensure_namespace_created(Client, Namespace),
-    ok = ensure_table_created(Client, Namespace, Table, Schema, _ExtraOpts = #{}),
+    ExtraOptsFn = get_tc_prop(TestCase, table_extra_opts_fn, fun(_) -> #{} end),
+    ExtraOpts = ExtraOptsFn(TCConfig),
+    ok = ensure_table_created(Client, Namespace, Table, Schema, ExtraOpts),
     #{ns => join_ns(Namespace), table => Table}.
 
 scan_table(Namespace, Table) ->
@@ -373,6 +394,24 @@ scan_table(Namespace, Table) ->
     ),
     {ok, {{_, 200, _}, _, Body}} = httpc:request(Method, {URI, []}, [], [{body_format, binary}]),
     emqx_utils_json:decode(Body).
+
+get_table_partitions(Namespace, Table) ->
+    Method = get,
+    URI = iolist_to_binary(
+        lists:join(
+            "/",
+            [
+                ?QUERY_ENDPOINT,
+                "partitions",
+                Namespace,
+                Table
+            ]
+        )
+    ),
+    {ok, {{_, 200, _}, _, Body}} = httpc:request(Method, {URI, []}, [], [{body_format, binary}]),
+    Res0 = emqx_utils_json:decode(Body),
+    Res1 = maps:update_with(<<"from-data">>, fun lists:sort/1, Res0),
+    maps:update_with(<<"from-meta">>, fun lists:sort/1, Res1).
 
 gen_long() ->
     <<N:32>> = crypto:strong_rand_bytes(4),
@@ -449,11 +488,23 @@ t_start_stop(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, "iceberg_connector_stop").
 
 t_rule_action() ->
-    [{matrix, true}].
+    TableExtraOptsFn = fun(TCConfig) ->
+        case group_path(TCConfig, [s3tables, not_partitioned]) of
+            [_, not_partitioned] ->
+                #{};
+            [_, partitioned] ->
+                #{<<"partition-spec">> => simple_schema1_partition_spec1()}
+        end
+    end,
+    [
+        {matrix, true},
+        {table_extra_opts_fn, TableExtraOptsFn}
+    ].
 t_rule_action(matrix) ->
-    [[s3tables]];
+    [[s3tables, not_partitioned], [s3tables, partitioned]];
 t_rule_action(Config) when is_list(Config) ->
     ct:timetrap({seconds, 15}),
+    [_Location, IsPartitioned] = group_path(Config, [s3tables, not_partitioned]),
     Ns = emqx_bridge_v2_testlib:get_value(namespace, Config),
     Table = emqx_bridge_v2_testlib:get_value(table, Config),
     RuleTopic = atom_to_binary(?FUNCTION_NAME),
@@ -510,6 +561,26 @@ t_rule_action(Config) when is_list(Config) ->
             Rows,
             #{payloads => Payloads}
         ),
+        case IsPartitioned of
+            not_partitioned ->
+                ok;
+            partitioned ->
+                ExpectedPartitions0 = lists:map(
+                    fun(P) ->
+                        #{<<"str">> => P, <<"int">> => 4321}
+                    end,
+                    [P1, P2, P3]
+                ),
+                ExpectedPartitions = lists:sort(ExpectedPartitions0),
+                ?assertMatch(
+                    #{
+                        <<"from-data">> := ExpectedPartitions,
+                        <<"from-meta">> := ExpectedPartitions
+                    },
+                    get_table_partitions(Ns, Table)
+                )
+        end,
+
         ok
     end,
     Opts = #{

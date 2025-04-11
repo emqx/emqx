@@ -61,7 +61,9 @@ when
     ContainerOpts :: map().
 
 %% @doc Append data to the transfer before sending.  Usually should not fail.
--callback process_append(iodata(), WriteMetadata, transfer_state()) -> transfer_state() when
+-callback process_append(iodata() | term(), WriteMetadata, transfer_state()) ->
+    transfer_state()
+when
     WriteMetadata :: map().
 
 %% @doc Push appended transfer data to its destination (e.g.: upload a part of a
