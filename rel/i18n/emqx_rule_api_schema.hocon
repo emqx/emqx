@@ -220,7 +220,7 @@ metrics_sql_matched_rate.desc:
 """The rate of matched, times/second"""
 
 metrics_sql_matched_rate.label:
-"""命中速率"""
+"""Matched Rate"""
 
 event_proto_ver.desc:
 """Protocol Version"""
