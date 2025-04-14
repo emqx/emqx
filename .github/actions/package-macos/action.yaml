@@ -31,13 +31,26 @@ runs:
       shell: bash
       run: |
         brew update
-        brew install curl zip unzip unixodbc coreutils freetds autoconf automake cmake openssl kerl
-        brew upgrade curl zip unzip unixodbc coreutils freetds autoconf automake cmake openssl kerl
+        brew install curl zip unzip unixodbc coreutils freetds autoconf automake openssl kerl
+        brew upgrade curl zip unzip unixodbc coreutils freetds autoconf automake openssl kerl
+    # Homebrew installs CMake v4, while RocksDB requires CMake 3.x
+    - name: Install cmake 3.x
+      shell: bash
+      run: |
+        curl -LO https://cmake.org/files/v3.31/cmake-3.31.7-macos-universal.tar.gz
+        tar -xzf cmake-3.31.7-macos-universal.tar.gz
+        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin/
+        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/share/cmake-3.31 /usr/local/share/
+        sudo rm -rf cmake-3.31.7-macos-universal
+        export CMAKE_ROOT=/usr/local/share/cmake-3.31
+        echo "CMAKE_ROOT=/usr/local/share/cmake-3.31" >> $GITHUB_ENV
+        hash -r
+        cmake --version
     - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
       id: cache
       with:
         path: ~/.kerl/installations/${{ inputs.otp }}
-        key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-disable-jit-20250325
+        key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-jit-20250325
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -46,7 +59,7 @@ runs:
       run: |
         export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
         export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
-        export KERL_CONFIGURE_OPTIONS="--disable-jit --with-ssl=$(brew --prefix openssl) --with-odbc=$(brew --prefix unixodbc)"
+        export KERL_CONFIGURE_OPTIONS="--disable-jit --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl) --with-odbc=$(brew --prefix unixodbc)"
         export MAKEFLAGS=-j$(nproc)
         kerl build git https://github.com/emqx/otp.git OTP-$OTP_VERSION $OTP_VERSION
         kerl install $OTP_VERSION ~/.kerl/installations/$OTP_VERSION
