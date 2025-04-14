@@ -13,7 +13,6 @@
 -export([start_link/1]).
 
 -export([n_shards/1, shards/1]).
--export([shard_meta/2]).
 
 %% Maintenace purposes:
 -export([trigger_transitions/1]).
@@ -30,7 +29,6 @@
 -export([handle_transition/4]).
 
 -define(db_meta(DB), {?MODULE, DB}).
--define(shard_meta(DB, SHARD), {?MODULE, DB, SHARD}).
 
 -define(ALLOCATE_RETRY_TIMEOUT, 1_000).
 -define(TRIGGER_PENDING_TIMEOUT, 60_000).
@@ -62,9 +60,6 @@ trigger_transitions(Pid) ->
 n_shards(DB) ->
     Meta = persistent_term:get(?db_meta(DB)),
     maps:get(n_shards, Meta).
-
-shard_meta(DB, Shard) ->
-    persistent_term:get(?shard_meta(DB, Shard)).
 
 -spec shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 shards(DB) ->
@@ -142,8 +137,8 @@ handle_timer(fallback, _TRef, State0) ->
 -spec terminate(_Reason, state()) -> _Ok.
 terminate(_Reason, State = #{db := DB, shards := Shards}) ->
     unsubscribe_db_changes(State),
-    erase_db_meta(DB),
-    erase_shards_meta(DB, Shards);
+    clear_shard_cache(DB, Shards),
+    erase_db_meta(DB);
 terminate(_Reason, #{}) ->
     ok.
 
@@ -198,7 +193,7 @@ clear_timer(Name, State = #{timers := Timers}) ->
 %%
 
 handle_shard_changed(Shard, State = #{db := DB}) ->
-    ok = save_shard_meta(DB, Shard),
+    ok = cache_shard_info(DB, Shard),
     handle_shard_transitions(Shard, local, next_transitions(DB, Shard), State).
 
 handle_pending_transitions(State = #{db := DB, shards := Shards}) ->
@@ -488,7 +483,7 @@ allocate_shards(State = #{db := DB}) ->
             ok = start_shards(DB, emqx_ds_builtin_raft_meta:my_shards(DB)),
             ok = start_egresses(DB, Shards),
             ok = save_db_meta(DB, Shards),
-            ok = save_shards_meta(DB, Shards),
+            ok = cache_shard_info(DB, Shards),
             ok = lists:foreach(
                 fun(S) -> ok = emqx_ds_builtin_raft_metrics:init_local_shard(DB, S) end,
                 Shards
@@ -522,20 +517,15 @@ save_db_meta(DB, Shards) ->
         n_shards => length(Shards)
     }).
 
-save_shards_meta(DB, Shards) ->
-    lists:foreach(fun(Shard) -> save_shard_meta(DB, Shard) end, Shards).
-
-save_shard_meta(DB, Shard) ->
-    Servers = emqx_ds_builtin_raft_shard:shard_servers(DB, Shard),
-    persistent_term:put(?shard_meta(DB, Shard), #{
-        servers => Servers
-    }).
+cache_shard_info(DB, Shards) when is_list(Shards) ->
+    lists:foreach(fun(Shard) -> cache_shard_info(DB, Shard) end, Shards);
+cache_shard_info(DB, Shard) ->
+    emqx_ds_builtin_raft_shard:cache_shard_servers(DB, Shard).
 
 erase_db_meta(DB) ->
     persistent_term:erase(?db_meta(DB)).
 
-erase_shards_meta(DB, Shards) ->
-    lists:foreach(fun(Shard) -> erase_shard_meta(DB, Shard) end, Shards).
-
-erase_shard_meta(DB, Shard) ->
-    persistent_term:erase(?shard_meta(DB, Shard)).
+clear_shard_cache(DB, Shards) when is_list(Shards) ->
+    lists:foreach(fun(Shard) -> clear_shard_cache(DB, Shard) end, Shards);
+clear_shard_cache(DB, Shard) ->
+    emqx_ds_builtin_raft_shard:clear_cache(DB, Shard).
