@@ -1001,7 +1001,7 @@ do_wait_subscription([CPid | Rest]) ->
     end.
 
 kick_client(Ctx, ClientId) ->
-    ok = emqx_cm:kick_session(ClientId),
+    _ = emqx_cm:kick_session(ClientId),
     Ctx.
 
 publish_msg(Ctx, Msg) ->

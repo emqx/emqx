@@ -25,8 +25,11 @@
 
 -export([is_enabled/0, is_hist_enabled/0]).
 
+-export([max_channel/1]).
+
 -export([
     register_channel/1,
+    register_channel/3,
     register_channel2/1,
     unregister_channel/1,
     unregister_channel2/1
@@ -34,6 +37,10 @@
 
 -export([lookup_channels/1]).
 
+-export([
+    read_channels/1,
+    local_lookup_channel_max/1
+]).
 %% gen_server callbacks
 -export([
     init/1,
@@ -94,6 +101,66 @@ register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) 
             ok
     end.
 
+%% @doc Register a global channel transactionally.
+register_channel({ClientId, ChanPid}, MyVsn, CachedMax) when
+    is_binary(ClientId),
+    is_pid(ChanPid),
+    is_integer(MyVsn)
+->
+    Record = record(ClientId, ChanPid, MyVsn),
+    IsHistEnabled = is_hist_enabled(),
+    case is_enabled() of
+        true when IsHistEnabled ->
+            %% @TODO
+            mria:async_dirty(?CM_SHARD, fun ?MODULE:register_channel2/1, [Record]);
+        true ->
+            Res = mria:transaction(
+                ?CM_SHARD,
+                fun() ->
+                    %% Read from source of truth
+                    OtherChannels = mnesia:read(?CHAN_REG_TAB, ClientId, write),
+                    case max_channel(OtherChannels) of
+                        #channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
+                            mnesia:abort(channel_outdated);
+                        %% @NOTE: include `undefined'
+                        CachedMax ->
+                            %% took over or discarded the correct version
+                            mnesia:write(?CHAN_REG_TAB, Record, write),
+                            ok;
+                        #channel{} = NewerChannel ->
+                            %% Takeover from wrong session, abort and restart
+                            mnesia:abort({restart_takeover, NewerChannel, CachedMax, MyVsn})
+                    end
+                end
+            ),
+            case Res of
+                {atomic, ok} ->
+                    ok;
+                {aborted, Reason} ->
+                    {error, Reason}
+            end;
+        false ->
+            ok
+    end.
+
+%% @doc find last channel with the highest version
+-spec max_channel([#channel{}]) -> option(#channel{}).
+max_channel([]) ->
+    undefined;
+max_channel(Channels) ->
+    lists:foldl(
+        fun
+            (#channel{vsn = Vsn, pid = Pid} = This, #channel{vsn = Max}) when
+                Vsn > Max andalso is_pid(Pid)
+            ->
+                This;
+            (_, Max) ->
+                Max
+        end,
+        #channel{pid = '$1', vsn = 0},
+        Channels
+    ).
+
 %% @private
 register_channel2(#channel{chid = ClientId} = Record) ->
     _ = delete_hist_d(ClientId),
@@ -137,6 +204,17 @@ is_pid_alive(Pid) when is_pid(Pid) andalso node(Pid) =:= node() ->
 is_pid_alive(_) ->
     unknown.
 
+-spec read_channels(emqx_types:clientid()) -> list(#channel{}).
+read_channels(ClientId) ->
+    mnesia:dirty_read(?CHAN_REG_TAB, ClientId).
+
+%% @doc Lookup max vsn of a channel locally
+-spec local_lookup_channel_max(emqx_types:clientid()) -> #channel{} | undefined.
+local_lookup_channel_max(ClientId) ->
+    max_channel(read_channels(ClientId)).
+
+record(ClientId, ChanPid, Vsn) ->
+    #channel{chid = ClientId, pid = ChanPid, vsn = Vsn}.
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.
 
@@ -198,6 +276,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% @TODO review this
 cleanup_channels(Node) ->
     global:trans(
         {?NODE_DOWN_CLEANUP_LOCK, self()},

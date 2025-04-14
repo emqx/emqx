@@ -36,7 +36,8 @@
 -record(channel, {
     chid :: emqx_types:clientid() | '_',
     %% pid field is extended in 5.6.0 to support recording unregistration timestamp.
-    pid :: pid() | non_neg_integer() | '$1'
+    pid :: pid() | non_neg_integer() | '$1',
+    vsn :: integer() | undefined | '_'
 }).
 
 %% Map from channel pid to connection module and client ID.

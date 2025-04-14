@@ -235,7 +235,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
     CleanSession = false,
     Channel = channel(ConnInfo, ClientInfo),
     case emqx_cm:open_session(CleanSession, ClientInfo, ConnInfo, MaybeWillMsg) of
-        {ok, #{present := false}} ->
+        {ok, #{present := false, replay := undefined}} ->
             ?SLOG(
                 info,
                 #{
@@ -265,7 +265,8 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+            {_, OldChan} = RCtx,
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo, OldChan),
             ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
             ?SLOG(
                 info,
@@ -276,17 +277,20 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
                 }
             ),
             {ok, NChannel};
-        {error, Reason} = Error ->
+        {ok, #{session := _Session, present := false, replay := {_, Chan}}} ->
+            %% @TODO error with retries
+            %{error, Reason} = Error ->
             ?SLOG(
                 error,
                 #{
                     msg => "session_open_failed",
                     clientid => ClientId,
                     node => node(),
-                    reason => Reason
+                    chan => Chan,
+                    reason => takeover_fail
                 }
             ),
-            Error
+            {error, takeover_fail}
     end.
 
 conninfo(OldConnInfo) ->

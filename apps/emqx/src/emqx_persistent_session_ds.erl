@@ -271,7 +271,7 @@ create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     create_session(true, ClientID, State, ConnInfo, Conf).
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
-    {_IsPresent :: true, session(), []} | false.
+    {_IsPresent :: true, session(), emqx_cm:takeover_state()} | {false, emqx_cm:takeover_state()}.
 open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
@@ -279,13 +279,13 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% have disconnected channels holding onto session state. Ideally, we should
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
-    ok = emqx_cm:takeover_kick(ClientID),
+    CachedMaxChannel = emqx_cm:takeover_kick(ClientID),
     case open_session_state(ClientID, ClientInfo, ConnInfo, MaybeWillMsg) of
         false ->
-            false;
+            {false, {?MODULE, CachedMaxChannel}};
         State ->
             Session = create_session(false, ClientID, State, ConnInfo, Conf),
-            {true, do_expire(ClientInfo, Session), []}
+            {true, do_expire(ClientInfo, Session), {?MODULE, CachedMaxChannel}}
     end.
 
 -spec destroy(session() | clientinfo()) -> ok.
@@ -723,9 +723,9 @@ shared_sub_opts(SessionId) ->
 %% Replay of old messages during session restart
 %%--------------------------------------------------------------------
 
--spec replay(clientinfo(), [], session()) ->
+-spec replay(clientinfo(), _, session()) ->
     {ok, replies(), session()}.
-replay(ClientInfo, [], Session0 = #{s := S0}) ->
+replay(ClientInfo, _, Session0 = #{s := S0}) ->
     Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S0),
     Session = replay_streams(Session0#{replay := Streams}, ClientInfo),
     {ok, [], Session}.

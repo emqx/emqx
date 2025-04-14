@@ -265,7 +265,7 @@ create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
-    {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
+    {_IsPresent :: boolean(), t(), _ReplayContext} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
     Mods = [Default | _] = choose_impl_candidates(ClientInfo, ConnInfo),
@@ -275,6 +275,9 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
         {_IsPresent = true, _, _} = Present ->
             Present;
+        {false, TakeoverState} ->
+            %% We found session but failed to open it due to reasons.
+            {false, create(Default, ClientInfo, ConnInfo, MaybeWillMsg, Conf), TakeoverState};
         false ->
             %% NOTE
             %% Nothing was found, create a new session with the `Default` implementation.

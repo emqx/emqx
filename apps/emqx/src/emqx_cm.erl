@@ -30,7 +30,7 @@
 -export([start_link/0]).
 
 -export([
-    register_channel/3,
+    register_channel/4,
     unregister_channel/1,
     unregister_channel/2,
     insert_channel_info/3
@@ -113,7 +113,8 @@
 
 -export_type([
     channel_info/0,
-    chan_pid/0
+    chan_pid/0,
+    takeover_state/0
 ]).
 
 -type chan_pid() :: pid().
@@ -124,7 +125,11 @@
     _Stats :: emqx_types:stats()
 }.
 
--type takeover_state() :: {_ConnMod :: module(), _ChanPid :: pid()}.
+-type takeover_state() ::
+    {_ConnMod :: module(), chan_pid()}
+    | {_ConnMod :: module(), #channel{}}.
+
+-type max_channel() :: option(#channel{}).
 
 -define(BPAPI_NAME, emqx_cm).
 
@@ -183,17 +188,26 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
 %% the conn_mod first for taking up the clientid access right.
 %%
 %% Note that: It should be called on a lock transaction
-register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
+register_channel(
+    ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at := TSTrptStart}, MaxChannel
+) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
 ->
     Chan = {ClientId, ChanPid},
-    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{pid = ChanPid, mod = ConnMod, clientid = ClientId}),
-    %% cast (for process monitor) after inserting the conn table
-    ok = cast({registered, ChanPid}),
-    true = ets:insert(?CHAN_TAB, Chan),
-    ok = emqx_cm_registry:register_channel(Chan),
-    ok = mark_channel_connected(ChanPid),
-    ok.
+    case emqx_cm_registry:register_channel(Chan, TSTrptStart, MaxChannel) of
+        ok ->
+            true = ets:insert(?CHAN_CONN_TAB, #chan_conn{
+                pid = ChanPid, mod = ConnMod, clientid = ClientId
+            }),
+            %% cast (for process monitor) after inserting the conn table
+            ok = cast({registered, ChanPid}),
+            true = ets:insert(?CHAN_TAB, Chan),
+            ok = mark_channel_connected(ChanPid);
+        {error, _Reason} = E ->
+            %% @doc new abort error code
+            %% @TODO handle error here
+            E
+    end.
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
@@ -278,6 +292,9 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     end.
 
 %% @doc Open a session.
+%%      Returns Opened Session which maybe created or taken over from previous owner.
+%%              `replay' contains the taken over channel or discard channel from local cm registry cache.
+%% @end
 -spec open_session(
     _CleanStart :: boolean(),
     emqx_types:clientinfo(),
@@ -291,41 +308,55 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     }}
     | {error, Reason :: term()}.
 open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
-    emqx_cm_locker:trans(ClientId, fun(_) ->
-        ok = discard_session(ClientId),
-        ok = emqx_session:destroy(ClientInfo, ConnInfo),
-        Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
-        {ok, #{session => Session, present => false}}
-    end);
-open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
-    emqx_cm_locker:trans(ClientId, fun(_) ->
-        case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
-            {true, Session, ReplayContext} ->
-                {ok, #{session => Session, present => true, replay => ReplayContext}};
-            {false, Session} ->
-                {ok, #{session => Session, present => false}}
-        end
-    end).
+    CachedMax = discard_session(ClientId),
+    ok = emqx_session:destroy(ClientInfo, ConnInfo),
+    Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
+    {ok, #{session => Session, present => false, replay => {'__unused__', CachedMax}}};
+open_session(
+    _CleanStart = false,
+    ClientInfo,
+    ConnInfo,
+    MaybeWillMsg
+) ->
+    case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
+        {true, Session, ReplayContext} ->
+            {ok, #{session => Session, present => true, replay => ReplayContext}};
+        {false, Session, ReplayContext} ->
+            {ok, #{session => Session, present => false, replay => ReplayContext}};
+        {false, Session} ->
+            {ok, #{session => Session, present => false, replay => undefined}}
+    end.
 
 %% @doc Try to takeover a session from existing channel.
+%%      return {ok, Session, {ConnMod, Channel}} if takeover is successful.
+%%      return {error, Err, Channel} if takeover is unsuccessful.
 -spec takeover_session_begin(emqx_types:clientid()) ->
-    {ok, emqx_session_mem:session(), takeover_state()} | none.
+    {ok, emqx_session_mem:session(), takeover_state()}
+    | {error, _Err, #channel{}}
+    | none.
 takeover_session_begin(ClientId) ->
-    takeover_session_begin(ClientId, pick_channel(ClientId)).
+    Channel = pick_channel_max(ClientId),
+    takeover_session_begin(ClientId, Channel).
 
-takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
+takeover_session_begin(ClientId, #channel{pid = ChanPid} = Channel) when
+    is_pid(ChanPid)
+->
     case takeover_session(ClientId, ChanPid) of
         {living, ConnMod, ChanPid, Session} ->
-            {ok, Session, {ConnMod, ChanPid}};
-        _ ->
-            none
+            {ok, Session, {ConnMod, Channel}};
+        none ->
+            {error, none, Channel};
+        {error, Err} ->
+            {error, Err, Channel}
     end;
-takeover_session_begin(_ClientId, undefined) ->
+takeover_session_begin(_ClientId, _NoChannel = undefined) ->
     none.
 
 %% @doc Conclude the session takeover process.
 -spec takeover_session_end(takeover_state()) ->
     {ok, _ReplayContext} | {error, _Reason}.
+takeover_session_end({ConnMod, #channel{pid = ChanPid}}) ->
+    takeover_session_end({ConnMod, ChanPid});
 takeover_session_end({ConnMod, ChanPid}) ->
     case emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid) of
         {ok, Pendings} ->
@@ -354,20 +385,31 @@ pick_channel(ClientId) ->
             ChanPid
     end.
 
-%% Used by `emqx_persistent_session_ds'
--spec takeover_kick(emqx_types:clientid()) -> ok.
-takeover_kick(ClientId) ->
-    case lookup_channels(ClientId) of
-        [] ->
-            ok;
-        ChanPids ->
-            lists:foreach(
-                fun(Pid) ->
-                    do_takeover_session(ClientId, Pid)
-                end,
-                ChanPids
-            )
+-spec pick_channel_max(emqx_types:clientid()) ->
+    option(#channel{}).
+pick_channel_max(ClientId) ->
+    emqx_cm_registry:max_channel(read_channels(ClientId)).
+
+read_channels(ClientId) ->
+    case emqx_cm_registry:is_enabled() of
+        true ->
+            emqx_cm_registry:read_channels(ClientId);
+        false ->
+            ets:lookup(?CHAN_TAB, ClientId)
     end.
+
+%% Used by `emqx_persistent_session_ds'
+-spec takeover_kick(emqx_types:clientid()) -> max_channel().
+takeover_kick(ClientId) ->
+    Channels = read_channels(ClientId),
+    ChanPids = [ChanPid || #channel{pid = ChanPid} <- Channels, is_pid(ChanPid)],
+    lists:foreach(
+        fun(Pid) ->
+            do_takeover_session(ClientId, Pid)
+        end,
+        ChanPids
+    ),
+    emqx_cm_registry:max_channel(Channels).
 
 %% Used by `emqx_persistent_session_ds'.
 %% We stop any running channels with reason `takenover' so that correct reason codes and
@@ -396,10 +438,11 @@ takeover_session(ClientId, Pid) ->
         do_takeover_begin(ClientId, Pid)
     catch
         %% request_stepdown/3
+        %% @todo type these errors
         error:R when R == noproc; R == timeout; R == unexpected_exception ->
-            none;
+            {error, R};
         error:{erpc, _} ->
-            none
+            {error, erpc}
     end.
 
 do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
@@ -418,12 +461,16 @@ do_takeover_begin(ClientId, ChanPid) ->
     emqx_cm_proto_v3:takeover_session(ClientId, ChanPid).
 
 %% @doc Discard all the sessions identified by the ClientId.
--spec discard_session(emqx_types:clientid()) -> ok.
+-spec discard_session(emqx_types:clientid()) -> max_channel().
 discard_session(ClientId) when is_binary(ClientId) ->
-    case lookup_channels(ClientId) of
-        [] -> ok;
-        ChanPids -> lists:foreach(fun(Pid) -> discard_session(ClientId, Pid) end, ChanPids)
-    end.
+    Channels = read_channels(ClientId),
+    lists:foreach(
+        fun(#channel{pid = Pid}) ->
+            discard_session(ClientId, Pid)
+        end,
+        Channels
+    ),
+    emqx_cm_registry:max_channel(Channels).
 
 %% @private Kick a local stale session to force it step down.
 %% If failed to kick (e.g. timeout) force a kill.
@@ -560,17 +607,14 @@ takeover_kick_session(ClientId, ChanPid) ->
     end.
 
 kick_session(ClientId) ->
-    case lookup_channels(ClientId) of
-        [] ->
-            ?SLOG(
-                warning,
-                #{msg => "kicked_an_unknown_session"},
-                #{clientid => ClientId}
-            ),
-            ok;
-        ChanPids ->
-            kick_session_chans(ClientId, ChanPids)
-    end.
+    Channels = read_channels(ClientId),
+    ChanPids = [
+        ChanPid
+     || #channel{pid = ChanPid} <- Channels,
+        is_pid(ChanPid)
+    ],
+    _ = kick_session_chans(ClientId, ChanPids),
+    emqx_cm_registry:max_channel(Channels).
 
 try_kick_session(ClientId) ->
     case lookup_channels(ClientId) of

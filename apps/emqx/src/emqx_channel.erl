@@ -226,7 +226,9 @@ info(timers, #channel{timers = Timers}) ->
 info(session_state, #channel{session = Session}) ->
     Session;
 info(impl, #channel{session = Session}) ->
-    emqx_session:info(impl, Session).
+    emqx_session:info(impl, Session);
+info(takeover, #channel{takeover = Takeover}) ->
+    Takeover.
 
 -spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
@@ -585,22 +587,30 @@ post_process_connect(
     }
 ) ->
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
-        {ok, #{session := Session, present := false}} ->
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+        {ok, #{session := Session, present := false, replay := ReplayContext}} ->
+            OldChan =
+                case ReplayContext of
+                    {_, Chan} ->
+                        Chan;
+                    undefined ->
+                        undefined
+                end,
+            %% @TODO: handle retry
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo, OldChan),
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, replay := ReplayContext}} ->
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+            {_, OldChan} = ReplayContext,
+            %% @TODO: handle retry
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo, OldChan),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = ReplayContext
             },
-            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
-        {error, client_id_unavailable} ->
-            handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
-            handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
+            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel))
+        %% {error, Reason} ->
+        %%     ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
+        %%     handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
 %%--------------------------------------------------------------------

@@ -217,7 +217,9 @@ destroy(_Session) ->
 %%--------------------------------------------------------------------
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
-    {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
+    {_IsPresent :: true, session(), replayctx()}
+    | {false, replayctx()}
+    | false.
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, SessionRemote, TakeoverState} ->
@@ -226,6 +228,9 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
             Session2 = apply_conf(Conf, Session1),
             Session = fliter_remote_session(Session2),
             {true, Session, TakeoverState};
+        {error, _Err, OldChannel} ->
+            %% @TODO we could cust the error handling here
+            {false, {?MODULE, OldChannel}};
         none ->
             false
     end.

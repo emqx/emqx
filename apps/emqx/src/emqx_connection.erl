@@ -304,6 +304,7 @@ init_state(
         peercert => Peercert,
         peersni => PeerSNI,
         conn_mod => ?MODULE,
+        trpt_started_at => erlang:system_time(millisecond),
         sock => Socket
     },
 
