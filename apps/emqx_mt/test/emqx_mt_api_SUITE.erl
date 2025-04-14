@@ -283,8 +283,7 @@ set_limiter_for_zone(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),
     MqttConf0 = emqx_config:fill_defaults(#{<<"mqtt">> => emqx:get_raw_config([<<"mqtt">>])}),
     MqttConf1 = emqx_utils_maps:deep_put([<<"mqtt">>, <<"limiter">>, KeyBin], MqttConf0, Value),
-    {ok, _} = emqx:update_config([mqtt], maps:get(<<"mqtt">>, MqttConf1)),
-    ok = emqx_limiter:update_zone_limiters().
+    {ok, _} = emqx:update_config([mqtt], maps:get(<<"mqtt">>, MqttConf1)).
 
 set_limiter_for_listener(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),

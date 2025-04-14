@@ -140,16 +140,101 @@ t_metrics_quota_exceeded(_Config) ->
         )
     ).
 
+t_add_new_zone_and_listener(_Config) ->
+    %% Add a new zone
+    emqx:update_config([mqtt, limiter], #{<<"messages_rate">> => <<"1/500ms">>}),
+    OldZoneConfig = emqx_config:get_raw([zones]),
+    NewZoneConfig = OldZoneConfig#{
+        <<"myzone1">> => #{
+            <<"mqtt">> => #{<<"limiter">> => #{<<"messages_rate">> => <<"100/500ms">>}}
+        },
+        <<"myzone2">> => #{}
+    },
+    {ok, _} = emqx:update_config([zones], NewZoneConfig),
+
+    %% Check that limiters are configured for the new zone
+    %% For zone `myzone1`, the limiter is inherited from the default zone.
+    {_, LimiterOptions1} = emqx_limiter_registry:find_group({zone, myzone1}),
+    ?assertMatch(
+        #{capacity := 100},
+        proplists:get_value(messages, LimiterOptions1)
+    ),
+    %% For zone `myzone2`, the limiter is overridden by.
+    {_, LimiterOptions2} = emqx_limiter_registry:find_group({zone, myzone2}),
+    ?assertMatch(
+        #{capacity := 1},
+        proplists:get_value(messages, LimiterOptions2)
+    ),
+
+    %% Check that a listener is created successfully,
+    %% i.e. is able to connect to zone's limiters.
+    OldListenerConfig = emqx_config:get_raw([listeners]),
+    NewListenerConfig0 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"mylistener">>],
+        OldListenerConfig,
+        #{
+            <<"zone">> => <<"myzone1">>,
+            <<"bind">> => random_bind()
+        }
+    ),
+    NewListenerConfig = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"mylistener">>],
+        NewListenerConfig0,
+        #{
+            <<"zone">> => <<"myzone2">>,
+            <<"bind">> => random_bind()
+        }
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx:update_config([listeners], NewListenerConfig)
+    ),
+
+    %% Remove the listeners and zone
+    {ok, _} = emqx:update_config([listeners], OldListenerConfig),
+    {ok, _} = emqx:update_config([zones], OldZoneConfig),
+
+    %% Check that limiters are removed
+    ?assertEqual(
+        undefined,
+        emqx_limiter_registry:find_group({zone, myzone1})
+    ),
+    ?assertEqual(
+        undefined,
+        emqx_limiter_registry:find_group({zone, myzone2})
+    ).
+
+t_handle_global_zone_change(_Config) ->
+    %% Add a new zone without explicit limits (thus inherited from the global defaults)
+    emqx:update_config([mqtt, limiter], #{}),
+    OldZoneConfig = emqx_config:get_raw([zones]),
+    NewZoneConfig = OldZoneConfig#{<<"myzone">> => #{}},
+    {ok, _} = emqx:update_config([zones], NewZoneConfig),
+    {_, LimiterOptions0} = emqx_limiter_registry:find_group({zone, myzone}),
+    ?assertMatch(
+        #{capacity := infinity},
+        proplists:get_value(messages, LimiterOptions0)
+    ),
+
+    %% Update the global defaults to have limits
+    emqx:update_config([mqtt, limiter], #{<<"messages_rate">> => <<"1/500ms">>}),
+
+    %% Check that the zone's limiter has applied the new limits
+    {_, LimiterOptions1} = emqx_limiter_registry:find_group({zone, myzone}),
+    ?assertMatch(
+        #{capacity := 1},
+        proplists:get_value(messages, LimiterOptions1)
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 set_limiter_for_zone(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),
-    MqttConf0 = emqx_config:fill_defaults(#{<<"mqtt">> => emqx:get_raw_config([<<"mqtt">>])}),
+    MqttConf0 = emqx_config:fill_defaults(#{<<"mqtt">> => emqx:get_raw_config([mqtt])}),
     MqttConf1 = emqx_utils_maps:deep_put([<<"mqtt">>, <<"limiter">>, KeyBin], MqttConf0, Value),
-    {ok, _} = emqx:update_config([mqtt], maps:get(<<"mqtt">>, MqttConf1)),
-    ok = emqx_limiter:update_zone_limiters().
+    {ok, _} = emqx:update_config([mqtt], maps:get(<<"mqtt">>, MqttConf1)).
 
 set_limiter_for_listener(Key, Value) ->
     KeyBin = atom_to_binary(Key, utf8),
@@ -189,3 +274,8 @@ run_publisher(C, PayloadSize, QoS) ->
     _ = emqtt:publish(C, <<"test">>, binary:copy(<<"a">>, PayloadSize), QoS),
     ct:sleep(10),
     run_publisher(C, PayloadSize, QoS).
+
+random_bind() ->
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    iolist_to_binary(emqx_listeners:format_bind({Host, Port})).

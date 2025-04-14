@@ -3,26 +3,25 @@
 %%--------------------------------------------------------------------
 -module(emqx_config_zones).
 
--behaviour(emqx_config_handler).
+-export([post_update/2]).
 
 %% API
--export([add_handler/0, remove_handler/0, pre_config_update/3]).
 -export([is_olp_enabled/0]).
 -export([assert_zone_exists/1]).
 
--define(ZONES, [zones]).
-
-add_handler() ->
-    ok = emqx_config_handler:add_handler(?ZONES, ?MODULE),
-    ok.
-
-remove_handler() ->
-    ok = emqx_config_handler:remove_handler(?ZONES),
-    ok.
-
-%% replace the old config with the new config
-pre_config_update(?ZONES, NewRaw, _OldRaw) ->
-    {ok, NewRaw}.
+%% NOTE
+%% Zone configs are implicitly updated with the global zone configuration
+%% when the global zone configuration changes.
+%% Therefore, zone config updates cannot be handled by `emqx_config_handler' callbacks.
+%%
+%% So we introduce a special callback and call it directly.
+%%
+%% NOTE
+%% This callback is called first time with initial values
+%% _before_ most of the EMQX applications are started.
+post_update(OldZones, NewZones) ->
+    ok = emqx_flapping:update_config(),
+    ok = emqx_limiter:post_zone_config_update(OldZones, NewZones).
 
 is_olp_enabled() ->
     maps:fold(
