@@ -12,7 +12,7 @@
 
 -export([start_link/1]).
 
--export([n_shards/1]).
+-export([n_shards/1, shards/1]).
 -export([shard_meta/2]).
 
 %% Maintenace purposes:
@@ -65,6 +65,11 @@ n_shards(DB) ->
 
 shard_meta(DB, Shard) ->
     persistent_term:get(?shard_meta(DB, Shard)).
+
+-spec shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+shards(DB) ->
+    Meta = persistent_term:get(?db_meta(DB)),
+    maps:get(shards, Meta, []).
 
 %%
 
@@ -255,6 +260,7 @@ handle_transition(DB, Shard, Trans, Handler) ->
         dsrepl_shard_transition_begin,
         #{shard => Shard, db => DB, transition => Trans, pid => self()}
     ),
+    emqx_ds_builtin_raft_metrics:shard_transition_started(DB, Shard, Trans),
     apply_handler(Handler, DB, Shard, Trans).
 
 apply_handler({Fun, Args}, DB, Shard, Trans) ->
@@ -276,15 +282,15 @@ trans_claim(DB, Shard, Trans, TransHandler) ->
             exit({shutdown, skipped})
     end.
 
-trans_add_local(DB, Shard, {add, Site}) ->
+trans_add_local(DB, Shard, Trans = {add, Site}) ->
     ?tp(info, "Adding new local shard replica", #{site => Site, db => DB, shard => Shard}),
-    do_add_local(membership, DB, Shard).
+    do_add_local(membership, DB, Shard, Trans).
 
-do_add_local(membership = Stage, DB, Shard) ->
+do_add_local(membership = Stage, DB, Shard, Trans) ->
     ok = start_shard(DB, Shard),
     case emqx_ds_builtin_raft_shard:add_local_server(DB, Shard) of
         ok ->
-            do_add_local(readiness, DB, Shard);
+            do_add_local(readiness, DB, Shard, Trans);
         {error, recoverable, Reason} ->
             ?tp(warning, "Adding local shard replica failed", #{
                 db => DB,
@@ -292,10 +298,11 @@ do_add_local(membership = Stage, DB, Shard) ->
                 reason => Reason,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
+            emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
             ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_add_local(Stage, DB, Shard)
+            do_add_local(Stage, DB, Shard, Trans)
     end;
-do_add_local(readiness = Stage, DB, Shard) ->
+do_add_local(readiness = Stage, DB, Shard, Trans) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
     case emqx_ds_builtin_raft_shard:server_info(readiness, LocalServer) of
         ready ->
@@ -308,14 +315,14 @@ do_add_local(readiness = Stage, DB, Shard) ->
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
             ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_add_local(Stage, DB, Shard)
+            do_add_local(Stage, DB, Shard, Trans)
     end.
 
-trans_drop_local(DB, Shard, {del, Site}) ->
+trans_drop_local(DB, Shard, Trans = {del, Site}) ->
     ?tp(notice, "Dropping local shard replica", #{site => Site, db => DB, shard => Shard}),
-    do_drop_local(DB, Shard).
+    do_drop_local(DB, Shard, Trans).
 
-do_drop_local(DB, Shard) ->
+do_drop_local(DB, Shard, Trans) ->
     case emqx_ds_builtin_raft_shard:drop_local_server(DB, Shard) of
         ok ->
             ok = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
@@ -328,15 +335,16 @@ do_drop_local(DB, Shard) ->
                 reason => Reason,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
+            emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
             ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_drop_local(DB, Shard)
+            do_drop_local(DB, Shard, Trans)
     end.
 
-trans_rm_unresponsive(DB, Shard, {del, Site}) ->
+trans_rm_unresponsive(DB, Shard, Trans = {del, Site}) ->
     ?tp(notice, "Removing unresponsive shard replica", #{site => Site, db => DB, shard => Shard}),
-    do_rm_unresponsive(DB, Shard, Site, 1).
+    do_rm_unresponsive(DB, Shard, Trans, 1).
 
-do_rm_unresponsive(DB, Shard, Site, NAttempt) ->
+do_rm_unresponsive(DB, Shard, Trans = {del, Site}, NAttempt) ->
     Server = emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site),
     case emqx_ds_builtin_raft_shard:remove_server(DB, Shard, Server) of
         ok ->
@@ -354,11 +362,12 @@ do_rm_unresponsive(DB, Shard, Site, NAttempt) ->
                 attempt => NAttempt,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
+            emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
             ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            retry_rm_unresponsive(DB, Shard, Site, Reason, NAttempt)
+            retry_rm_unresponsive(DB, Shard, Trans, Reason, NAttempt)
     end.
 
-do_forget_lost(DB, Shard, Site) ->
+do_forget_lost(DB, Shard, Trans = {del, Site}) ->
     Server = emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site),
     case emqx_ds_builtin_raft_shard:forget_server(DB, Shard, Server) of
         ok ->
@@ -375,8 +384,9 @@ do_forget_lost(DB, Shard, Site) ->
                 reason => Reason,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
+            emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
             ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_forget_lost(DB, Shard, Site);
+            do_forget_lost(DB, Shard, Trans);
         {error, unrecoverable, Reason} ->
             %% NOTE: Revert to `rm_unresponsive/3` on next `?TRIGGER_PENDING_TIMEOUT`.
             ?tp(warning, "Forgetting shard replica error", #{
@@ -388,23 +398,23 @@ do_forget_lost(DB, Shard, Site) ->
             exit({shutdown, {forget_lost_error, Reason}})
     end.
 
-retry_rm_unresponsive(DB, Shard, Site, _Reason, NAttempt) when NAttempt < 2 ->
+retry_rm_unresponsive(DB, Shard, Trans, _Reason, NAttempt) when NAttempt < 2 ->
     %% Retry regular safe replica removal first couple of times.
-    do_rm_unresponsive(DB, Shard, Site, NAttempt + 1);
-retry_rm_unresponsive(DB, Shard, Site, Reason, NAttempt) ->
+    do_rm_unresponsive(DB, Shard, Trans, NAttempt + 1);
+retry_rm_unresponsive(DB, Shard, Trans, Reason, NAttempt) ->
     %% If unsuccessful, perhaps it's time to tell cluster to "forget" it forcefully.
     %% We only do that if:
     case Reason of
         %% Cluster change times out, quorum is probably lost and unreachable.
         {timeout, _Server} ->
-            do_forget_lost(DB, Shard, Site);
+            do_forget_lost(DB, Shard, Trans);
         %% Cluster change is in the Ra log, but couldn't be confired, quorum is
         %% probably lost and unreachable.
         {error, _Server, cluster_change_not_permitted} ->
-            do_forget_lost(DB, Shard, Site);
+            do_forget_lost(DB, Shard, Trans);
         %% Otherwise, let's try the safe way.
         _Otherwise ->
-            do_rm_unresponsive(DB, Shard, Site, NAttempt + 1)
+            do_rm_unresponsive(DB, Shard, Trans, NAttempt + 1)
     end.
 
 %%
@@ -440,19 +450,17 @@ handle_exit(Pid, Reason, State0 = #{db := DB, transitions := Ts}) ->
             State = State0#{transitions := maps:remove(Track, Ts)},
             handle_transition_exit(Shard, Trans, Reason, State);
         [] ->
-            %% NOTE
-            %% Actually, it's sort of expected to have a portion of exit signals here,
-            %% because of `mria:with_middleman/3`. But it's impossible to tell them apart
-            %% from other singals.
             logger:warning(#{msg => "Unexpected exit signal", pid => Pid, reason => Reason}),
             State0
     end.
 
-handle_transition_exit(Shard, Trans, normal, State) ->
+handle_transition_exit(Shard, Trans, normal, State = #{db := DB}) ->
     %% NOTE: This will trigger the next transition if any.
+    emqx_ds_builtin_raft_metrics:shard_transition_complete(DB, Shard, Trans),
     ok = commit_transition(Shard, Trans, State),
     State;
-handle_transition_exit(_Shard, _Trans, {shutdown, skipped}, State) ->
+handle_transition_exit(Shard, Trans, {shutdown, skipped}, State = #{db := DB}) ->
+    emqx_ds_builtin_raft_metrics:shard_transition_skipped(DB, Shard, Trans),
     State;
 handle_transition_exit(Shard, Trans, {shutdown, Reason}, State) ->
     handle_transition_exit(Shard, Trans, Reason, State);
@@ -468,6 +476,7 @@ handle_transition_exit(Shard, Trans, Reason, State = #{db := DB}) ->
         reason => Reason,
         retry_in => ?TRIGGER_PENDING_TIMEOUT
     }),
+    emqx_ds_builtin_raft_metrics:shard_transition_crashed(DB, Shard, Trans),
     State.
 
 %%
@@ -480,6 +489,10 @@ allocate_shards(State = #{db := DB}) ->
             ok = start_egresses(DB, Shards),
             ok = save_db_meta(DB, Shards),
             ok = save_shards_meta(DB, Shards),
+            ok = lists:foreach(
+                fun(S) -> ok = emqx_ds_builtin_raft_metrics:init_local_shard(DB, S) end,
+                Shards
+            ),
             {ok, State#{shards => Shards, status := ready}};
         {error, Reason} ->
             {error, Reason}
