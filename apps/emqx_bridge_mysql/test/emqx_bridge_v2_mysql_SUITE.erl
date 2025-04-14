@@ -238,7 +238,10 @@ t_create_via_http(Config) ->
     ok.
 
 t_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
+    %% Depending on the exact way that the connection cut manifests, it may report as
+    %% connecting or disconnected (if `mysql_protocol:send_packet` crashes with `badmatch`
+    %% error...)
+    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => [connecting, disconnected]}),
     ok.
 
 t_start_action_or_source_with_disabled_connector(Config) ->
