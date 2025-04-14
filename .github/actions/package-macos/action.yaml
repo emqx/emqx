@@ -33,7 +33,7 @@ runs:
         brew update
         brew install curl zip unzip unixodbc coreutils freetds autoconf automake openssl kerl
         brew upgrade curl zip unzip unixodbc coreutils freetds autoconf automake openssl kerl
-  # Homebrew installes CMake v4, while RocksDB requires CMake 3.x
+    # Homebrew installs CMake v4, while RocksDB requires CMake 3.x
     - name: Install cmake 3.x
       shell: bash
       run: |
@@ -46,7 +46,7 @@ runs:
       id: cache
       with:
         path: ~/.kerl/installations/${{ inputs.otp }}
-        key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-disable-jit-20250325
+        key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-jit-20250325
     - name: build erlang
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
@@ -55,7 +55,7 @@ runs:
       run: |
         export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
         export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
-        export KERL_CONFIGURE_OPTIONS="--disable-jit --with-ssl=$(brew --prefix openssl) --with-odbc=$(brew --prefix unixodbc)"
+        export KERL_CONFIGURE_OPTIONS="--disable-jit --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl) --with-odbc=$(brew --prefix unixodbc)"
         export MAKEFLAGS=-j$(nproc)
         kerl build git https://github.com/emqx/otp.git OTP-$OTP_VERSION $OTP_VERSION
         kerl install $OTP_VERSION ~/.kerl/installations/$OTP_VERSION
