@@ -555,6 +555,15 @@ apply_after(Time, Fn) ->
 fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch) ->
     fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, _Opts = #{}).
 
+-doc """"
+Options:
+  - `fallback_fn`: the function that will be called by the resource itself to trigger
+    the fallback actions.
+  - `assert_expected_callmode`: if true, asserts that the expected query mode in buffer
+    worker was called.
+  - `adjust_resource_config_fn`: a function that receives the default resource config for
+    this scenario and returns a new resource config.
+"""".
 fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts) ->
     ChanResourceOptsOverride = maps:get(chan_resource_opts_override, Opts, #{}),
     emqx_connector_demo:set_callback_mode(CallbackMode),
@@ -582,12 +591,14 @@ fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch,
         end
     end,
     ConnResId = connector_res_id(ConnName),
+    AdjustConnConfigFn = maps:get(adjust_conn_config_fn, Opts, fun(Cfg) -> Cfg end),
+    ConnConfig = AdjustConnConfigFn(#{name => test_resource}),
     {ok, _} =
         create(
             ConnResId,
             ?DEFAULT_RESOURCE_GROUP,
             ?TEST_RESOURCE,
-            #{name => test_resource},
+            ConnConfig,
             #{
                 health_check_interval => 100,
                 start_timeout => 100
@@ -602,14 +613,15 @@ fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch,
         ResourceOpts0,
         ChanResourceOptsOverride
     ]),
+    ChanConfig = #{
+        force_query_mode => ChanQueryMode,
+        resource_opts => ChanResourceOpts
+    },
     ok =
         add_channel(
             ConnResId,
             ChanId,
-            #{
-                force_query_mode => ChanQueryMode,
-                resource_opts => ChanResourceOpts
-            }
+            ChanConfig
         ),
     FallbackFn = maps:get(
         fallback_fn,
@@ -4617,6 +4629,101 @@ t_fallback_actions_expired_internal_buffer(Config) when is_list(Config) ->
             ?assertMatch([_, _], ?of_kind("buffer_worker_internal_buffer_async_expired", Trace)),
             ok
         end
+    ),
+    ok.
+
+%% When a resource/channel is an "unhealthy target", messages do not even reach the
+%% buffering layer, where most of the fallback actions logic live.  So we have to deal
+%% with fallback actions outside it.
+t_fallback_actions_unhealthy_target(Config) ->
+    ConnName = <<"fallback_actions_unhealthy_target">>,
+    ChanQueryMode = sync,
+    CallbackMode = always_sync,
+    ShouldBatch = no_batch,
+    ?check_trace(
+        begin
+            AgentState0 = #{
+                resource_health_check => ?status_connected,
+                channel_health_check =>
+                    {?status_disconnected, {unhealthy_target, <<"something is wrong">>}}
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(AgentState0),
+            AdjustConnConfigFn = fun(Cfg) ->
+                Cfg#{health_check_agent => HCAgent}
+            end,
+            Opts = #{adjust_conn_config_fn => AdjustConnConfigFn},
+            Ctx0 = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts
+            ),
+            Ctx = Ctx0#{assert_expected_callmode => false},
+            ConnResId = maps:get(conn_res_id, Ctx),
+            ChanId = maps:get(chan_id, Ctx),
+            ?assertMatch(
+                #{
+                    status := ?status_disconnected,
+                    error := {unhealthy_target, <<"something is wrong">>}
+                },
+                emqx_resource:channel_health_check(ConnResId, ChanId)
+            ),
+            Results1 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            ?assertMatch([?RESOURCE_ERROR(unhealthy_target)], Results1),
+
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{
+                    channel_health_check :=
+                        {?status_disconnected, unhealthy_target}
+                }}
+            end),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    #{
+                        status := ?status_disconnected,
+                        error := unhealthy_target
+                    },
+                    emqx_resource:channel_health_check(ConnResId, ChanId)
+                )
+            ),
+            Results2 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            ?assertMatch([?RESOURCE_ERROR(unhealthy_target)], Results2),
+
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{
+                    %% Not entirely sure if this path is reached in reality, but adding this case
+                    %% to cover the corresponding code path in
+                    %% `emqx_resource_buffer_worker:call_query`.
+                    resource_health_check := {?status_connecting, unhealthy_target},
+
+                    channel_health_check := ?status_connected
+                }}
+            end),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    %% Connecting, because connector is not connected
+                    #{status := ?status_connecting},
+                    emqx_resource:channel_health_check(ConnResId, ChanId)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {ok, ?status_connecting},
+                    emqx_resource:health_check(ConnResId)
+                )
+            ),
+            Results3 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            ?assertMatch([{error, {unrecoverable_error, unhealthy_target}}], Results3),
+
+            ok
+        end,
+        []
     ),
     ok.
 

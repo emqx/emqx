@@ -422,6 +422,8 @@ on_get_status(ConnResId, #{health_check_agent := Agent}) ->
         {notify, Pid, Status} when ?IS_STATUS(Status) ->
             Pid ! {returning_resource_health_check_result, ConnResId, Status},
             Status;
+        {Status, Msg} when ?IS_STATUS(Status) ->
+            {Status, Msg};
         Status when ?IS_STATUS(Status) ->
             Status
     end;

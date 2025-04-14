@@ -55,6 +55,9 @@
     handle_async_internal_buffer_reply/2
 ]).
 
+%% Internal exports for `emqx_resource`.
+-export([unhealthy_target_maybe_trigger_fallback_actions/3]).
+
 -export([clear_disk_queue_dir/2]).
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
@@ -2544,6 +2547,27 @@ request_context(QueryOpts) ->
 -spec result_context([queue_query()]) -> query_result_context().
 result_context(Queries) ->
     #{?queries => Queries}.
+
+-doc """
+This an internal export to be used only in `emqx_resourcee` application in places where
+the request is fropped/fails before it even reaches the buffering layer (here).  An
+example of such situation is when the resource is deemed an "unhealthy target".
+""".
+-spec unhealthy_target_maybe_trigger_fallback_actions(
+    action_resource_id(), request(), query_opts()
+) ->
+    ok.
+unhealthy_target_maybe_trigger_fallback_actions(ConnResId, Req, QueryOpts0) ->
+    QueryOpts1 = ensure_timeout_query_opts(QueryOpts0, sync),
+    QueryOpts = ensure_expire_at(QueryOpts1),
+    ReplyFun = maps:get(async_reply_fun, QueryOpts, undefined),
+    HasBeenSent = false,
+    ExpireAt = maps:get(expire_at, QueryOpts),
+    RequestContext = request_context(QueryOpts),
+    TraceCtx = maps:get(trace_ctx, QueryOpts, undefined),
+    Query = ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt, RequestContext, TraceCtx),
+    ResultContext = result_context([Query]),
+    maybe_trigger_fallback_actions(ConnResId, ResultContext).
 
 %% Should be called for individual queries, not batches.
 %% `batch_reply_caller_defer_metrics' handles splitting a batch into individual result
