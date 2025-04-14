@@ -65,6 +65,9 @@
 -define(ACTION_TYPE_2, ?SOURCE_TYPE).
 -define(KAFKA_BRIDGE(Name, Connector), ?RESOURCE(Name, ?ACTION_TYPE)#{
     <<"connector">> => Connector,
+    <<"fallback_actions">> => [
+        #{<<"kind">> => <<"republish">>, <<"args">> => #{<<"topic">> => <<Name/binary, "/fba">>}}
+    ],
     <<"kafka">> => #{
         <<"buffer">> => #{
             <<"memory_overload_protection">> => true,

@@ -370,7 +370,8 @@ find_req_apispec(#{module := Module, path := Path, method := Method}) ->
     Spec.
 
 check_and_translate(Schema, Map, Opts) ->
-    hocon_tconf:check_plain(Schema, Map, Opts).
+    Checked = hocon_tconf:check_plain(Schema, Map, Opts),
+    emqx_config:remove_computed_fields(Checked).
 
 check_only(Schema, Map, Opts) ->
     _ = hocon_tconf:check_plain(Schema, Map, Opts),
