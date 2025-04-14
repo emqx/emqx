@@ -183,6 +183,7 @@ init({#?egress_sup{db = _DB}, _}) ->
     },
     {ok, {SupFlags, []}};
 init({#?shard_sup{db = DB, shard = Shard}, _}) ->
+    ok = emqx_ds_builtin_raft_metrics:init_local_shard(DB, Shard),
     SupFlags = #{
         strategy => rest_for_one,
         intensity => 10,
