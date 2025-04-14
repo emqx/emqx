@@ -64,6 +64,8 @@
 -define(REGISTRY, ?MODULE).
 -define(NODE_DOWN_CLEANUP_LOCK, {?MODULE, cleanup_down}).
 
+-type channel() :: emqx_cm:channel().
+
 %% @doc Start the global channel registry.
 -spec start_link() -> startlink_ret().
 start_link() ->
@@ -144,7 +146,7 @@ register_channel({ClientId, ChanPid}, MyVsn, CachedMax) when
     end.
 
 %% @doc find last channel with the highest version
--spec max_channel([#channel{}]) -> option(#channel{}).
+-spec max_channel([channel()]) -> option(channel()).
 max_channel([]) ->
     undefined;
 max_channel(Channels) ->
@@ -204,12 +206,12 @@ is_pid_alive(Pid) when is_pid(Pid) andalso node(Pid) =:= node() ->
 is_pid_alive(_) ->
     unknown.
 
--spec read_channels(emqx_types:clientid()) -> list(#channel{}).
+-spec read_channels(emqx_types:clientid()) -> list(channel()).
 read_channels(ClientId) ->
     mnesia:dirty_read(?CHAN_REG_TAB, ClientId).
 
 %% @doc Lookup max vsn of a channel locally
--spec local_lookup_channel_max(emqx_types:clientid()) -> #channel{} | undefined.
+-spec local_lookup_channel_max(emqx_types:clientid()) -> channel() | undefined.
 local_lookup_channel_max(ClientId) ->
     max_channel(read_channels(ClientId)).
 

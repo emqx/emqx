@@ -114,6 +114,7 @@
 -export_type([
     channel_info/0,
     chan_pid/0,
+    channel/0,
     takeover_state/0
 ]).
 
@@ -129,7 +130,8 @@
     {_ConnMod :: module(), chan_pid()}
     | {_ConnMod :: module(), #channel{}}.
 
--type max_channel() :: option(#channel{}).
+-type channel() :: #channel{}.
+-type max_channel() :: option(channel()).
 
 -define(BPAPI_NAME, emqx_cm).
 
@@ -332,7 +334,7 @@ open_session(
 %%      return {error, Err, Channel} if takeover is unsuccessful.
 -spec takeover_session_begin(emqx_types:clientid()) ->
     {ok, emqx_session_mem:session(), takeover_state()}
-    | {error, _Err, #channel{}}
+    | {error, _Err, channel()}
     | none.
 takeover_session_begin(ClientId) ->
     Channel = pick_channel_max(ClientId),
@@ -386,7 +388,7 @@ pick_channel(ClientId) ->
     end.
 
 -spec pick_channel_max(emqx_types:clientid()) ->
-    option(#channel{}).
+    option(channel()).
 pick_channel_max(ClientId) ->
     emqx_cm_registry:max_channel(read_channels(ClientId)).
 
