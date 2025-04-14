@@ -35,4 +35,9 @@ get_prom_message_transformation.desc:
 get_prom_message_transformation.label:
 """Prometheus Metrics for Message Validation"""
 
+get_prom_ds_builtin_raft.desc:
+"""Get Prometheus Metrics for DS Raft builtin backend"""
+get_prom_ds_builtin_raft.label:
+"""Prometheus Metrics for DS Raft builtin backend"""
+
 }

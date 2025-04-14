@@ -38,14 +38,13 @@
     auth/2,
     data_integration/2,
     schema_validation/2,
-    message_transformation/2
+    message_transformation/2,
+    ds_builtin_raft/2
 ]).
 
 -export([lookup_from_local_nodes/3]).
 
 -define(TAGS, [<<"Monitor">>]).
--define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
--define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
 namespace() -> undefined.
 
@@ -156,6 +155,19 @@ schema("/prometheus/message_transformation") ->
                 responses =>
                     #{200 => prometheus_data_schema()}
             }
+    };
+schema("/prometheus/ds_builtin_raft") ->
+    #{
+        'operationId' => ds_builtin_raft,
+        get =>
+            #{
+                description => ?DESC(get_prom_ds_builtin_raft),
+                tags => ?TAGS,
+                parameters => [ref(mode)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
     }.
 
 security() ->
@@ -233,6 +245,9 @@ schema_validation(get, #{headers := Headers, query_string := Qs}) ->
 
 message_transformation(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_message_transformation, collect_opts(Headers, Qs)).
+
+ds_builtin_raft(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_ds_builtin_raft, collect_opts(Headers, Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
