@@ -2549,8 +2549,8 @@ result_context(Queries) ->
     #{?queries => Queries}.
 
 -doc """
-This an internal export to be used only in `emqx_resourcee` application in places where
-the request is fropped/fails before it even reaches the buffering layer (here).  An
+This an internal export to be used only in `emqx_resource` application in places where
+the request is dropped/fails before it even reaches the buffering layer (here).  An
 example of such situation is when the resource is deemed an "unhealthy target".
 """.
 -spec unhealthy_target_maybe_trigger_fallback_actions(
