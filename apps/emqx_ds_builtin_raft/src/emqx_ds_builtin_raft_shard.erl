@@ -23,7 +23,10 @@
     shard_servers/2,
     known_shard_servers/2,
     shard_server/3,
-    local_server/2
+    local_server/2,
+    %% Caching
+    cache_shard_servers/2,
+    clear_cache/2
 ]).
 
 %% Dynamic server location API
@@ -140,6 +143,15 @@ server_name(DB, Shard, Site) ->
     DBBin = atom_to_binary(DB),
     binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
 
+-spec cache_shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> ok.
+cache_shard_servers(DB, Shard) ->
+    Servers = shard_servers(DB, Shard),
+    persistent_term:put(?PTERM(DB, Shard, servers), Servers).
+
+-spec clear_cache(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> boolean().
+clear_cache(DB, Shard) ->
+    persistent_term:erase(?PTERM(DB, Shard, servers)).
+
 %%
 
 %% @doc Return list of servers for the shard, taking into account runtime information
@@ -219,7 +231,7 @@ get_local_server(DB, Shard) ->
     memoize(fun local_server/2, [DB, Shard]).
 
 get_shard_servers(DB, Shard) ->
-    maps:get(servers, emqx_ds_builtin_raft_shard_allocator:shard_meta(DB, Shard)).
+    persistent_term:get(?PTERM(DB, Shard, servers)).
 
 local_site() ->
     emqx_ds_builtin_raft_meta:this_site().
