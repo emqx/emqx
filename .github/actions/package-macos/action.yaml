@@ -39,12 +39,17 @@ runs:
       run: |
         curl -LO https://cmake.org/files/v3.31/cmake-3.31.7-macos-universal.tar.gz
         tar -xzf cmake-3.31.7-macos-universal.tar.gz
-        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin
+        ls -al cmake-3.31.7-macos-universal/CMake.app/Contents/share/
+        ls -al cmake-3.31.7-macos-universal/CMake.app/Contents/share/cmake-3.31
+        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin/
         sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/share/cmake-3.31 /usr/local/share/
         sudo rm -rf cmake-3.31.7-macos-universal
         export CMAKE_ROOT=/usr/local/share/cmake-3.31
         echo "CMAKE_ROOT=/usr/local/share/cmake-3.31" >> $GITHUB_ENV
+        hash -r
         cmake --version
+        ls -al $CMAKE_ROOT
+        ls -al $CMAKE_ROOT/Modules
     - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
       id: cache
       with:
