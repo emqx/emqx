@@ -496,18 +496,19 @@ iterator_match_context(_Shard, GenData, Iterator) ->
             emqx_topic:match(CT, CTFTokens)
     end.
 
-next(_ShardId, S, It, BatchSize, _TMax, IsCurrent) ->
+next(_ShardId, S, It, BatchSize, TMax, IsCurrent) ->
     #s{gen_lts_s = GS, master_hash_bits = MHB} = S,
     #it{static_index = Static, last_key = LSK0, compressed_tf = CompTF} = It,
     Varying = words(CompTF),
     StreamKeySize = ?tsb + master_hash_bits(S, Varying),
-    %% FIXME: take TMax into account
+    MaxStreamKey = inc_stream_key(),
+
     Interval =
         case LSK0 of
             ?max_ts ->
-                {'[', <<0:StreamKeySize>>, infinity};
+                {'[', <<0:StreamKeySize>>, <<(TMax + 1):?tsb>>};
             _ ->
-                {'(', <<LSK0:StreamKeySize>>, infinity}
+                {'(', <<LSK0:StreamKeySize>>, <<(TMax + 1):?tsb>>}
         end,
     Result = emqx_ds_gen_skipstream_lts:fold(
         GS,
@@ -745,11 +746,11 @@ mk_stream_key(Varying, Timestamp, MHB) ->
 stream_key(Timestamp, Hash, MHB) ->
     (Timestamp bsl MHB) bor Hash.
 
-%% inc_stream_key(StreamKey, MHB) ->
-%%     case stream_key_ts(StreamKey, MHB) of
-%%         ?max_ts -> 0;
-%%         TS when TS < ?max_ts -> StreamKey + 1
-%%     end.
+inc_stream_key(StreamKey, MHB) ->
+    case stream_key_ts(StreamKey, MHB) of
+        ?max_ts -> 0;
+        TS when TS < ?max_ts -> StreamKey + 1
+    end.
 
 dec_stream_key(StreamKey, MHB) ->
     case stream_key_ts(StreamKey, MHB) of
@@ -883,28 +884,28 @@ topic_of_message(#message{topic = Topic}) ->
 %% Tests
 %%================================================================================
 
-%% -ifdef(TEST).
+-ifdef(TEST).
 
-%% inc_dec_test_() ->
-%%     Numbers = [0, 1, 100, ?max_ts - 1, ?max_ts],
-%%     [
-%%         ?_assertEqual(
-%%             stream_key(N, _Hash = 0, MHB),
-%%             dec_stream_key(inc_stream_key(stream_key(N, 0, MHB), MHB), MHB)
-%%         )
-%%      || N <- Numbers,
-%%         MHB <- [0, 32]
-%%     ].
+inc_dec_test_() ->
+    Numbers = [0, 1, 100, ?max_ts - 1, ?max_ts],
+    [
+        ?_assertEqual(
+            stream_key(N, _Hash = 0, MHB),
+            dec_stream_key(inc_stream_key(stream_key(N, 0, MHB), MHB), MHB)
+        )
+     || N <- Numbers,
+        MHB <- [0, 32]
+    ].
 
-%% dec_inc_test_() ->
-%%     Numbers = [0, 1, 100, ?max_ts - 1, ?max_ts],
-%%     [
-%%         ?_assertEqual(
-%%             stream_key(N, _Hash = 0, MHB),
-%%             inc_stream_key(dec_stream_key(stream_key(N, 0, MHB), MHB), MHB)
-%%         )
-%%      || N <- Numbers,
-%%         MHB <- [0, 32]
-%%     ].
+dec_inc_test_() ->
+    Numbers = [0, 1, 100, ?max_ts - 1, ?max_ts],
+    [
+        ?_assertEqual(
+            stream_key(N, _Hash = 0, MHB),
+            inc_stream_key(dec_stream_key(stream_key(N, 0, MHB), MHB), MHB)
+        )
+     || N <- Numbers,
+        MHB <- [0, 32]
+    ].
 
-%% -endif.
+-endif.
