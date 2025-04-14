@@ -360,10 +360,22 @@ roots() ->
             [] ->
                 [
                     {actions,
-                        ?HOCON(hoconsc:map(name, typerefl:map()), #{importance => ?IMPORTANCE_LOW})}
+                        ?HOCON(
+                            hoconsc:map(name, typerefl:map()),
+                            #{
+                                importance => ?IMPORTANCE_LOW,
+                                computed => fun fallback_actions_reverse_index_compute/2
+                            }
+                        )}
                 ];
             _ ->
-                [{actions, ?HOCON(?R_REF(actions), #{importance => ?IMPORTANCE_LOW})}]
+                [
+                    {actions,
+                        ?HOCON(?R_REF(actions), #{
+                            importance => ?IMPORTANCE_LOW,
+                            computed => fun fallback_actions_reverse_index_compute/2
+                        })}
+                ]
         end,
     SourcesRoot =
         [{sources, ?HOCON(?R_REF(sources), #{importance => ?IMPORTANCE_LOW})}],
@@ -652,6 +664,50 @@ actions_convert_from_connectors(RawConf) ->
 fallback_actions_republish_compute(Args0, _HoconOpts) ->
     Args = emqx_utils_maps:unsafe_atom_key_map(Args0),
     emqx_rule_actions:pre_process_args(emqx_rule_actions, republish, Args).
+
+%% Creates a mapping from Referenced Actions (`{Type :: binary(), Name :: binary()}`) to
+%% lists of Referencing Actions that have it as their Fallback Action.
+fallback_actions_reverse_index_compute(ActionsRootRawConfig, _HoconOpts) ->
+    Index = maps:fold(
+        fun(ReferencingType, NameAndConfs, Acc0) ->
+            maps:fold(
+                fun
+                    (ReferencingName, #{<<"fallback_actions">> := FBAs}, Acc1) ->
+                        lists:foldl(
+                            fun
+                                (
+                                    #{<<"kind">> := reference, <<"type">> := T, <<"name">> := N},
+                                    Acc2
+                                ) ->
+                                    ReferencingAction = #{
+                                        type => bin(ReferencingType),
+                                        name => bin(ReferencingName)
+                                    },
+                                    maps:update_with(
+                                        {bin(T), bin(N)},
+                                        fun(Refs) -> [ReferencingAction | Refs] end,
+                                        [ReferencingAction],
+                                        Acc2
+                                    );
+                                (_, Acc2) ->
+                                    Acc2
+                            end,
+                            Acc1,
+                            FBAs
+                        );
+                    (_Name, _Conf, Acc1) ->
+                        Acc1
+                end,
+                Acc0,
+                NameAndConfs
+            )
+        end,
+        #{},
+        ActionsRootRawConfig
+    ),
+    #{fallback_actions_index => Index}.
+
+bin(X) -> emqx_utils_conv:bin(X).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").

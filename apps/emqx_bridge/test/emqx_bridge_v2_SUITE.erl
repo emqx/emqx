@@ -25,6 +25,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("hocon/include/hocon.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -207,7 +208,12 @@ setup_mocks() ->
     meck:expect(
         emqx_bridge_v2,
         bridge_v2_type_to_connector_type,
-        fun(Type) when Type =:= BridgeType; Type =:= BridgeTypeBin -> con_type() end
+        fun
+            (Type) when Type =:= BridgeType; Type =:= BridgeTypeBin ->
+                con_type();
+            (Type) ->
+                meck:passthrough([Type])
+        end
     ),
     meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
 
@@ -806,7 +812,7 @@ t_load_config_success(_Config) ->
     BridgeNameBin = atom_to_binary(BridgeName),
 
     %% pre-condition
-    ?assertEqual(#{}, emqx_config:get([actions])),
+    ?assertEqual(#{}, maps:remove(?COMPUTED, emqx_config:get([actions]))),
 
     %% create
     RootConf0 = #{BridgeTypeBin => #{BridgeNameBin => Conf}},

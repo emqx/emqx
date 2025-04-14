@@ -744,6 +744,7 @@ summary_scenarios_setup(Config) ->
     #{
         type => Type,
         name => Name,
+        config => CreateConfig,
         summarize => Summarize
     }.
 
@@ -2027,4 +2028,52 @@ t_delete_when_dual_has_dependencies(Config) when is_list(Config) ->
             )
     end,
 
+    ok.
+
+%% Checks that we return configured fallback actions in API responses for a single action
+%% and for summary.
+t_fallback_actions_returned_info(matrix) ->
+    [
+        [single, actions],
+        [cluster, actions]
+    ];
+t_fallback_actions_returned_info(Config) ->
+    Opts = summary_scenarios_setup(Config),
+    #{
+        summarize := Summarize,
+        config := ActionConfig0,
+        name := ReferencedName,
+        type := Type
+    } = Opts,
+    ReferencingName = <<"action_that_uses_fallback">>,
+    ActionConfig = emqx_utils_maps:deep_merge(
+        ActionConfig0,
+        #{
+            <<"fallback_actions">> => [
+                #{<<"kind">> => <<"reference">>, <<"type">> => Type, <<"name">> => ReferencedName}
+            ]
+        }
+    ),
+    ?assertMatch(
+        {201, #{<<"fallback_actions">> := [#{<<"kind">> := <<"reference">>}]}},
+        create_action_api(ReferencingName, Type, ActionConfig)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := ReferencingName,
+                <<"referenced_as_fallback_action_by">> := []
+            },
+            #{
+                <<"name">> := ReferencedName,
+                <<"referenced_as_fallback_action_by">> := [
+                    #{
+                        <<"type">> := Type,
+                        <<"name">> := ReferencingName
+                    }
+                ]
+            }
+        ]},
+        Summarize()
+    ),
     ok.

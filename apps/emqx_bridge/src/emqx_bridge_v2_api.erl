@@ -19,6 +19,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
@@ -900,7 +901,8 @@ do_handle_summary(ConfRootKey) ->
     NodeReplies = emqx_bridge_proto_v7:v2_list_summary_v7(Nodes, ConfRootKey),
     maybe
         {ok, AllBridges} ?= is_ok(NodeReplies),
-        {ok, zip_bridges(ConfRootKey, AllBridges)}
+        ZippedBridges = zip_bridges(ConfRootKey, AllBridges),
+        {ok, add_fallback_actions_references(ConfRootKey, ZippedBridges)}
     end.
 
 handle_create(ConfRootKey, Type, Name, Conf0) ->
@@ -1258,7 +1260,9 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
+%% Note: this must be called on the local node handling the request, not during RPCs.
 zip_bridges(ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
+    %% TODO: make this a `lists:map`...
     lists:foldl(
         fun(#{type := Type, name := Name}, Acc) ->
             Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
@@ -1267,6 +1271,24 @@ zip_bridges(ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
         [],
         BridgesFirstNode
     ).
+
+%% This works on the output of `zip_bridges`.
+add_fallback_actions_references(?ROOT_KEY_ACTIONS = ConfRootKey, ZippedBridges) ->
+    #{?COMPUTED := #{fallback_actions_index := Index}} = emqx_config:get([ConfRootKey]),
+    lists:map(
+        fun(#{type := ReferencedType, name := ReferencedName} = Info) ->
+            Referencing0 = maps:get(
+                {bin(ReferencedType), bin(ReferencedName)},
+                Index,
+                []
+            ),
+            Referencing = lists:map(fun(R) -> maps:with([type, name], R) end, Referencing0),
+            Info#{referenced_as_fallback_action_by => Referencing}
+        end,
+        ZippedBridges
+    );
+add_fallback_actions_references(?ROOT_KEY_SOURCES, ZippedBridges) ->
+    ZippedBridges.
 
 pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
     lists:foldl(
@@ -1296,8 +1318,9 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
         BridgesAllNodes
     ).
 
+%% Note: this must be called on the local node handling the request, not during RPCs.
 format_bridge_info(ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
-    Res = maps:remove(node, FirstBridge),
+    Res0 = maps:remove(node, FirstBridge),
     NodeStatus = node_status(Bridges),
     Id = emqx_bridge_resource:bridge_id(Type, Name),
     Rules =
@@ -1305,11 +1328,12 @@ format_bridge_info(ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
             actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Id);
             sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Id)
         end,
-    redact(Res#{
+    Res1 = Res0#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         rules => lists:sort(Rules)
-    }).
+    },
+    redact(Res1).
 
 node_status(Bridges) ->
     [maps:with([node, status, status_reason], B) || B <- Bridges].
