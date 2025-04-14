@@ -108,10 +108,10 @@ ensure_shard(Shard) ->
 ensure_egress(Shard) ->
     ensure_started(start_egress(Shard)).
 
--spec which_shards(emqx_ds:db()) ->
-    [_Child].
+-spec which_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 which_shards(DB) ->
-    supervisor:which_children(?via(#?shards_sup{db = DB})).
+    Key = {n, l, #?shard_sup{db = DB, shard = '$1', _ = '_'}},
+    gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
 
 %% @doc Return the list of builtin DS databases that are currently
 %% active on the node.
