@@ -129,7 +129,7 @@ clean_cache(delete, _) ->
     end.
 
 node_cache(get, _) ->
-    RawConfig = emqx:get_raw_config([authorization, node_cache]),
+    RawConfig = emqx:get_raw_config([authorization, node_cache], #{}),
     {200, emqx_auth_cache_schema:fill_defaults(RawConfig)};
 node_cache(put, #{body := Config}) ->
     case update_config([authorization, node_cache], Config) of
