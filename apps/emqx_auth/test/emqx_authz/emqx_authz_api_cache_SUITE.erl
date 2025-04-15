@@ -145,6 +145,21 @@ t_node_cache(_) ->
     ),
     ok.
 
+%% Check that some default values are provided even if the config is not set
+t_node_cache_get(_Config) ->
+    RawConfig0 = emqx:get_raw_config([authorization]),
+    RawConfig1 = maps:without([<<"node_cache">>], RawConfig0),
+    {ok, _} = emqx:update_config([authorization], RawConfig1),
+
+    {ok, 200, CacheData0} = request(
+        get,
+        uri(["authorization", "node_cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := false},
+        emqx_utils_json:decode(CacheData0)
+    ).
+
 t_node_cache_reset(_) ->
     {ok, 204, _} = request(
         post,
