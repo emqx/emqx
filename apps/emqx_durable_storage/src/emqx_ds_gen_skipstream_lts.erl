@@ -9,6 +9,11 @@
 %% API:
 -export([
     open/1,
+    %% Trie management:
+    restore_trie/4,
+    pop_lts_persist_ops/0,
+    notify_new_streams/3,
+    copy_previous_trie/3,
     %% DB key management:
     mk_key/4,
     stream_key/2,
@@ -24,7 +29,8 @@
 
 -export_type([
     fold_fun/1,
-    s/0
+    s/0,
+    stream_key/0
 ]).
 
 %% inline small functions:
@@ -125,9 +131,69 @@
 -define(dbg(K, A), ok).
 -endif.
 
+-define(lts_persist_ops, emqx_ds_storage_gen_skipstream_lts_ops).
+
 %%================================================================================
 %% API functions
 %%================================================================================
+
+%%%% Trie
+
+-spec restore_trie(
+    emqx_ds_storage_layer:dbshard(), pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()
+) -> emqx_ds_lts:trie().
+restore_trie(Shard, StaticIdxBytes, DB, CF) ->
+    PersistCallback = fun(Key, Val) ->
+        push_lts_persist_op(Key, Val),
+        ok
+    end,
+    {ok, It} = rocksdb:iterator(DB, CF, []),
+    try
+        Dump = read_persisted_trie(It, rocksdb:iterator_move(It, first)),
+        TrieOpts = #{
+            persist_callback => PersistCallback,
+            static_key_bytes => StaticIdxBytes,
+            reverse_lookups => true
+        },
+        Trie = emqx_ds_lts:trie_restore(TrieOpts, Dump),
+        notify_new_streams(Shard, Trie, Dump),
+        Trie
+    after
+        rocksdb:iterator_close(It)
+    end.
+
+%% Send notifications about new streams:
+notify_new_streams({DB, _Shard}, Trie, Dump) ->
+    [
+        emqx_ds_new_streams:notify_new_stream(DB, TopicFilter)
+     || TopicFilter <- emqx_ds_lts:updated_topics(Trie, Dump)
+    ],
+    ok.
+
+-spec pop_lts_persist_ops() -> emqx_ds_lts:dump().
+pop_lts_persist_ops() ->
+    case erlang:erase(?lts_persist_ops) of
+        undefined ->
+            [];
+        L when is_list(L) ->
+            L
+    end.
+
+-spec copy_previous_trie(rocksdb:db_handle(), rocksdb:cf_handle(), emqx_ds_lts:trie()) ->
+    ok.
+copy_previous_trie(RocksDB, TrieCF, TriePrev) ->
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(
+        fun({Key, Val}) ->
+            ok = rocksdb:batch_put(Batch, TrieCF, term_to_binary(Key), term_to_binary(Val))
+        end,
+        emqx_ds_lts:trie_dump(TriePrev, wildcard)
+    ),
+    Result = rocksdb:write_batch(RocksDB, Batch, []),
+    rocksdb:release_batch(Batch),
+    Result.
+
+%%%% Data
 
 %% @doc Initialize the module.
 -spec open(#{
@@ -138,7 +204,7 @@
     serialization_schema := emqx_ds_msg_serializer:schema(),
     stream_key_size := pos_integer(),
     get_topic := fun((_) -> emqx_ds:topic()),
-    hash_bytes := pos_integer()
+    wildcard_hash_bytes := pos_integer()
 }) ->
     s().
 open(
@@ -150,7 +216,7 @@ open(
         serialization_schema := SerSchema,
         stream_key_size := StreamKeySize,
         get_topic := GetTopic,
-        hash_bytes := HashBytes
+        wildcard_hash_bytes := HashBytes
     }
 ) ->
     #s{
@@ -231,10 +297,12 @@ match_key(StaticIdx, Idx, Hash, Key) when Idx > 0 ->
 
 %% @doc Lookup a message by LTS static index and stream key.
 %%
-%% Note: the returned message is deserialized, but no further
+%% Note: the returned message is *deserialized*, but no further
 %% transformation or enrichment is performed.
 -spec lookup_message(s(), emqx_ds_lts:static_key(), stream_key()) ->
-    {ok, emqx_ds:message_key(), _Value} | undefined | emqx_ds:error(_).
+    {ok, emqx_ds:message_key(), tuple()}
+    | undefined
+    | emqx_ds:error(_).
 lookup_message(
     S = #s{db = DB, data_cf = CF},
     Static,
@@ -350,6 +418,24 @@ fold(
 %%================================================================================
 %% Internal functions
 %%===============================================================================
+
+%%%% Trie
+
+push_lts_persist_op(Key, Val) ->
+    case erlang:get(?lts_persist_ops) of
+        undefined ->
+            erlang:put(?lts_persist_ops, [{Key, Val}]);
+        L when is_list(L) ->
+            erlang:put(?lts_persist_ops, [{Key, Val} | L])
+    end.
+
+read_persisted_trie(It, {ok, KeyB, ValB}) ->
+    [
+        {binary_to_term(KeyB), binary_to_term(ValB)}
+        | read_persisted_trie(It, rocksdb:iterator_move(It, next))
+    ];
+read_persisted_trie(_It, {error, invalid_iterator}) ->
+    [].
 
 %%%% Fold %%%%
 
