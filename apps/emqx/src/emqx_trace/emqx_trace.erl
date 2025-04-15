@@ -5,11 +5,12 @@
 
 -behaviour(gen_server).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-include("emqx.hrl").
+-include("logger.hrl").
+-include("emqx_trace.hrl").
+
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
--include_lib("emqx/include/emqx_trace.hrl").
 
 -export([
     publish/1,
@@ -320,7 +321,7 @@ format(Traces) ->
             Map0 = maps:from_list(lists:zip(Fields, Values)),
             Extra = maps:get(extra, Map0, #{}),
             Formatter = maps:get(formatter, Extra, text),
-            PayloadLimit = maps:get(payload_limit, Extra, ?DEFAULT_PAYLOAD_LIMIT),
+            PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
             Map1 = Map0#{formatter => Formatter, payload_limit => PayloadLimit},
             maps:remove(extra, Map1)
         end,
@@ -479,7 +480,7 @@ start_trace(Trace) ->
         extra = Extra
     } = Trace,
     Formatter = maps:get(formatter, Extra, text),
-    PayloadLimit = maps:get(payload_limit, Extra, ?DEFAULT_PAYLOAD_LIMIT),
+    PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
     Who = #{
         name => Name,
         type => Type,
