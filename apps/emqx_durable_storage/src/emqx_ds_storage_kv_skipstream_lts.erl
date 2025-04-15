@@ -247,7 +247,7 @@ cook_blob_deletes2(GS, Static, Varying, LSK, Acc0) ->
 
 commit_batch(
     ShardId,
-    #s{db = DB, trie_cf = TrieCF, trie = Trie, gs = GS, serialization_schema = SSchema},
+    #s{db = DB, trie_cf = TrieCF, trie = Trie, gs = GS},
     #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations},
     Options
 ) ->
