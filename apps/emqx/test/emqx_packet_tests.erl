@@ -4,8 +4,8 @@
 
 -module(emqx_packet_tests).
 
+-include("emqx_trace.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(HEX(P), {bin(P), hex}).
 -define(HIDDEN(P), {bin(P), hidden}).
