@@ -12,16 +12,6 @@
     init/0
 ]).
 
-%% Zone limiter management
--export([
-    create_zone_limiters/0,
-    update_zone_limiters/0,
-    delete_zone_limiters/0,
-    create_zone_limiters/1,
-    update_zone_limiters/1,
-    delete_zone_limiters/1
-]).
-
 %% Listener limiter management
 -export([
     create_listener_limiters/2,
@@ -45,10 +35,7 @@
 
 %% Config Listener
 -export([
-    add_handler/0,
-    remove_handler/0,
-    post_config_update/5,
-    propagated_post_config_update/5
+    post_zone_config_update/2
 ]).
 
 %%  Config helpers
@@ -62,7 +49,7 @@
 
 -export_type([zone/0, group/0, name/0, id/0, options/0]).
 
--type zone() :: group().
+-type zone() :: atom().
 -type group() :: term().
 -type name() :: atom().
 -type id() :: {group(), name()}.
@@ -106,43 +93,16 @@ init() ->
 
 -spec create_zone_limiters() -> ok.
 create_zone_limiters() ->
-    lists:foreach(
-        fun(Zone) ->
-            create_zone_limiters(Zone)
-        end,
-        maps:keys(emqx_config:get([zones]))
-    ).
-
--spec update_zone_limiters() -> ok.
-update_zone_limiters() ->
-    ?SLOG(debug, #{
-        msg => "update_zone_limiters",
-        zones => maps:keys(emqx_config:get([zones]))
-    }),
-    lists:foreach(
-        fun(Zone) ->
-            update_zone_limiters(Zone)
-        end,
-        maps:keys(emqx_config:get([zones]))
-    ).
-
--spec delete_zone_limiters() -> ok.
-delete_zone_limiters() ->
-    lists:foreach(
-        fun(Zone) ->
-            delete_zone_limiters(Zone)
-        end,
-        maps:keys(emqx_config:get([zones]))
-    ).
+    create_limiters_for_zones(zones()).
 
 -spec create_listener_limiters(listener_id(), term()) -> ok.
 create_listener_limiters(ListenerId, ListenerConfig) ->
-    ListenerLimiters = config_limiters(ListenerConfig),
+    ListenerLimiters = limiter_options(ListenerConfig),
     create_group(exclusive, listener_group(ListenerId), ListenerLimiters).
 
 -spec update_listener_limiters(listener_id(), term()) -> ok.
 update_listener_limiters(ListenerId, ListenerConfig) ->
-    ListenerLimiters = config_limiters(ListenerConfig),
+    ListenerLimiters = limiter_options(ListenerConfig),
     update_group(listener_group(ListenerId), ListenerLimiters).
 
 -spec delete_listener_limiters(listener_id()) -> ok.
@@ -211,19 +171,33 @@ delete_group(Group) ->
 %% Zone config update
 %%--------------------------------------------------------------------
 
-add_handler() ->
-    ok = emqx_config_handler:add_handler([mqtt, limiter], ?MODULE),
+-spec post_zone_config_update(emqx_config:config(), emqx_config:config()) -> ok.
+post_zone_config_update(OldZoneConfig, NewZoneConfig) ->
+    do_post_zone_config_update(is_initialized(), OldZoneConfig, NewZoneConfig).
+
+do_post_zone_config_update(true, OldZoneConfig, NewZoneConfig) ->
+    #{
+        added := Added,
+        removed := Removed,
+        changed := Changed
+    } = emqx_utils_maps:diff_maps(NewZoneConfig, OldZoneConfig),
+
+    ok = maps:foreach(
+        fun(Zone, ZoneConfig) ->
+            create_limiters_for_zone(Zone, limiter_config_for_zone(ZoneConfig))
+        end,
+        Added
+    ),
+    ok = maps:foreach(
+        fun(Zone, {_OldZoneConfig, ZoneConfig}) ->
+            update_limiters_for_zone(Zone, limiter_config_for_zone(ZoneConfig))
+        end,
+        Changed
+    ),
+    %% Never delete the default zone
+    ok = delete_limiters_for_zones(maps:keys(Removed) -- [default]);
+do_post_zone_config_update(false, _OldZoneConfig, _NewZoneConfig) ->
     ok.
-
-remove_handler() ->
-    ok = emqx_config_handler:remove_handler([mqtt, limiter]),
-    ok.
-
-post_config_update([mqtt, limiter], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
-    update_zone_limiters().
-
-propagated_post_config_update([mqtt, limiter], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
-    update_zone_limiters().
 
 %%--------------------------------------------------------------------
 %% Config helpers
@@ -322,20 +296,31 @@ config_from_rate_and_burst({Capacity, Interval}, {BurstCapacity, BurstInterval})
 zone_group(Zone) when is_atom(Zone) ->
     {zone, Zone}.
 
-zone_limiters(Zone) when is_atom(Zone) ->
-    Config = emqx_config:get_zone_conf(Zone, [mqtt, limiter], #{}),
-    config_limiters(Config).
+create_limiters_for_zone(Zone) ->
+    create_limiters_for_zone(Zone, limiter_config_for_zone(Zone)).
 
-create_zone_limiters(Zone) ->
-    ZoneLimiters = zone_limiters(Zone),
+create_limiters_for_zone(Zone, LimiterConfig) ->
+    ZoneLimiters = limiter_options(LimiterConfig),
     create_group(shared, zone_group(Zone), ZoneLimiters).
 
-update_zone_limiters(Zone) ->
-    ZoneLimiters = zone_limiters(Zone),
+update_limiters_for_zone(Zone, LimiterConfig) ->
+    ZoneLimiters = limiter_options(LimiterConfig),
     update_group(zone_group(Zone), ZoneLimiters).
 
-delete_zone_limiters(Zone) ->
+delete_limiters_for_zone(Zone) ->
     delete_group(zone_group(Zone)).
+
+create_limiters_for_zones(Zones) ->
+    lists:foreach(
+        fun create_limiters_for_zone/1,
+        Zones
+    ).
+
+delete_limiters_for_zones(Zones) ->
+    lists:foreach(
+        fun delete_limiters_for_zone/1,
+        Zones
+    ).
 
 %% Listener-related
 
@@ -373,10 +358,21 @@ to_burst_key(Name) ->
     NameStr = emqx_utils_conv:str(Name),
     list_to_atom(NameStr ++ "_burst").
 
-config_limiters(Config) ->
+limiter_options(Config) ->
     lists:map(
         fun(Name) ->
             {Name, config(Name, Config)}
         end,
         emqx_limiter_schema:mqtt_limiter_names()
     ).
+
+zones() ->
+    maps:keys(emqx_config:get([zones])).
+
+limiter_config_for_zone(Zone) when is_atom(Zone) ->
+    emqx_config:get_zone_conf(Zone, [mqtt, limiter], #{});
+limiter_config_for_zone(Zone) when is_map(Zone) ->
+    emqx_utils_maps:deep_get([mqtt, limiter], Zone, #{}).
+
+is_initialized() ->
+    emqx_limiter_registry:find_group(zone_group(default)) =/= undefined.
