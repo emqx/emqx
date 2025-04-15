@@ -261,6 +261,28 @@ wait_for_haproxy() {
     done
 }
 
+wait_for_running_nodes() {
+    local container="$1"
+    local expected_running_nodes="$2"
+    local wait_limit="$3"
+    local wait_sec=0
+    while [ "${wait_sec}" -lt "${wait_limit}" ]; do
+        running_nodes="$(docker exec -t "$container" emqx ctl cluster status --json | jq '.running_nodes | length')"
+        if [ "${running_nodes}" -eq "${expected_running_nodes}" ]; then
+            echo "Successfully confirmed ${running_nodes} running nodes"
+            exit 0
+        fi
+        if [ "$wait_sec" -gt "$wait_limit" ]; then
+            echo "Expected running nodes is ${expected_running_nodes}, but got ${running_nodes} after ${wait_limit} seconds"
+            docker logs "$container"
+            exit 1
+        fi
+        wait_sec=$(( wait_sec + 1 ))
+        echo -n '.'
+        sleep 1
+    done
+}
+
 wait_for_emqx "$NODE1" 60
 wait_for_emqx "$NODE2" 30
 wait_for_haproxy 30
@@ -269,8 +291,4 @@ echo
 
 docker exec "${NODE2}" emqx ctl cluster join "emqx@$NODE1"
 
-RUNNING_NODES="$(docker exec -t "$NODE1" emqx ctl cluster status --json | jq '.running_nodes | length')"
-if ! [ "${RUNNING_NODES}" -eq "${EXPECTED_RUNNING_NODES:-2}" ]; then
-    echo "Expected running nodes is ${EXPECTED_RUNNING_NODES}, but got ${RUNNING_NODES}"
-    exit 1
-fi
+wait_for_running_nodes "$NODE1" "${EXPECTED_RUNNING_NODES:-2}" 30

@@ -14,8 +14,8 @@ cd -P -- "$(dirname -- "$0")"
 
 ## can join cluster by default
 echo '======== Allow clustering with "evaluation" license'
-env ICENSE_KEY1='evaluation' \
-    ICENSE_KEY2='default' \
+env LICENSE_KEY1='evaluation' \
+    LICENSE_KEY2='default' \
 ./start-two-nodes-in-docker.sh "${DOCKER_IMAGE_TAG}"
 
 ## cannot join cluster if node1 does not have a license
