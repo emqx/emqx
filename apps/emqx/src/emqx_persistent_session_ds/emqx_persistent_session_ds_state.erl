@@ -165,8 +165,7 @@
 -spec open_db(emqx_ds:create_db_opts()) -> ok.
 open_db(Config) ->
     Storage =
-        {emqx_ds_storage_skipstream_lts, #{
-            master_hash_bits => 128,
+        {emqx_ds_storage_kv_skipstream_lts, #{
             lts_threshold_spec => {mf, emqx_persistent_session_ds_state_v2, lts_threshold_cb}
         }},
     emqx_ds:open_db(?DB, Config#{

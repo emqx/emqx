@@ -76,7 +76,10 @@
 ) -> ok | emqx_ds:error(_).
 
 -callback get_streams(
-    emqx_ds_storage_layer:dbshard(), emqx_ds_storage_layer:generation_data(), emqx_ds:topic_filter()
+    emqx_ds_storage_layer:dbshard(),
+    emqx_ds_storage_layer:generation_data(),
+    emqx_ds:topic_filter(),
+    _Time
 ) ->
     [_Stream].
 
@@ -93,7 +96,10 @@
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     Iter,
-    pos_integer()
+    pos_integer(),
+    %% FIXME: remove
+    _,
+    _
 ) ->
     {ok, Iter, [{emqx_ds:key(), emqx_ds:kv_pair()}]} | emqx_ds:error(_).
 
