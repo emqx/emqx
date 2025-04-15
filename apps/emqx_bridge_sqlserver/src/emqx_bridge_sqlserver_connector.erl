@@ -417,8 +417,12 @@ format_instance_name(Name) ->
 -spec connect(Options :: list()) -> {ok, connection_reference()} | {error, term()}.
 connect(Options) ->
     ConnectStr = lists:concat(conn_str(Options, [])),
+    %% Note: we don't use `emqx_secret:wrap/1` here because its return type is opaque, and
+    %% dialyzer then complains that it's being fed to a function that doesn't expect
+    %% something opaque...
+    ConnectStrWrapped = fun() -> ConnectStr end,
     Opts = proplists:get_value(options, Options, []),
-    odbc:connect(ConnectStr, Opts).
+    odbc:connect(ConnectStrWrapped, Opts).
 
 -spec disconnect(connection_reference()) -> ok | {error, term()}.
 disconnect(ConnectionPid) ->
