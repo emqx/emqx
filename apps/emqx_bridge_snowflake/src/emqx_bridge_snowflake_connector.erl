@@ -350,8 +350,12 @@ insert_report(ActionResId, Opts) ->
 
 connect(Opts) ->
     ConnectStr = conn_str(Opts),
+    %% Note: we don't use `emqx_secret:wrap/1` here because its return type is opaque, and
+    %% dialyzer then complains that it's being fed to a function that doesn't expect
+    %% something opaque...
+    ConnectStrWrapped = fun() -> ConnectStr end,
     DriverOpts = proplists:get_value(driver_options, Opts, []),
-    odbc:connect(ConnectStr, DriverOpts).
+    odbc:connect(ConnectStrWrapped, DriverOpts).
 
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
