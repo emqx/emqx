@@ -112,10 +112,19 @@ fields(check_sql) ->
                 validator => fun validate_sql/1
             })}
     ];
+fields(check_external_http) ->
+    [
+        {type,
+            mk(external_http, #{
+                default => external_http,
+                desc => ?DESC("check_external_http_type")
+            })},
+        {schema, mk(binary(), #{required => true, desc => ?DESC("check_external_http_schema")})}
+    ];
 fields(check_json) ->
     [
         {type, mk(json, #{default => json, desc => ?DESC("check_json_type")})},
-        {schema, mk(binary(), #{required => true, desc => ?DESC("check_json_type")})}
+        {schema, mk(binary(), #{required => true, desc => ?DESC("check_json_schema")})}
     ];
 fields(check_protobuf) ->
     [
@@ -143,7 +152,8 @@ check_types() ->
         check_sql,
         check_json,
         check_avro,
-        check_protobuf
+        check_protobuf,
+        check_external_http
     ].
 
 checks_refs(#{<<"type">> := TypeAtom} = Value) when is_atom(TypeAtom) ->
@@ -156,6 +166,8 @@ checks_refs(#{<<"type">> := <<"avro">>}) ->
     [ref(check_avro)];
 checks_refs(#{<<"type">> := <<"protobuf">>}) ->
     [ref(check_protobuf)];
+checks_refs(#{<<"type">> := <<"external_http">>}) ->
+    [ref(check_external_http)];
 checks_refs(_Value) ->
     Expected = lists:join(
         " | ",

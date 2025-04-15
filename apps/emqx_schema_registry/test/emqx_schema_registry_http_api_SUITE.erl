@@ -387,6 +387,32 @@ publish_context1(Payload) ->
 bin2hex(Bin) ->
     emqx_rule_funcs:bin2hexstr(Bin).
 
+mk_external_http_create_params(Opts) ->
+    #{name := SchemaName, port := Port} = Opts,
+    URL = maps:get(
+        url,
+        Opts,
+        <<"http://127.0.0.1:", (integer_to_binary(Port))/binary, "/sr?qp=123">>
+    ),
+    #{
+        <<"type">> => <<"external_http">>,
+        <<"parameters">> => #{
+            <<"url">> => URL,
+            <<"external_params">> => <<"xor">>,
+            <<"headers">> => #{<<"extra">> => <<"headers">>},
+            <<"request_timeout">> => <<"1s">>,
+            <<"max_retries">> => 1,
+            <<"connect_timeout">> => <<"2s">>,
+            <<"pool_type">> => <<"random">>,
+            <<"pool_size">> => 2,
+            <<"enable_pipelining">> => 100,
+            <<"max_inactive">> => <<"1s">>,
+            <<"ssl">> => #{<<"enable">> => false}
+        },
+        <<"name">> => SchemaName,
+        <<"description">> => <<"My external schema">>
+    }.
+
 start_external_http_serde_server() ->
     on_exit(fun emqx_utils_http_test_server:stop/0),
     {ok, {Port, _ServerPid}} = emqx_utils_http_test_server:start_link(random, "/sr"),
@@ -835,25 +861,7 @@ t_smoke_test_external_registry_confluent(_Config) ->
 t_external_http_serde(_Config) ->
     {ok, Port} = start_external_http_serde_server(),
     SchemaName = <<"my_external_http_serde">>,
-    URL = <<"http://127.0.0.1:", (integer_to_binary(Port))/binary, "/sr?qp=123">>,
-    Params = #{
-        <<"type">> => <<"external_http">>,
-        <<"parameters">> => #{
-            <<"url">> => URL,
-            <<"external_params">> => <<"xor">>,
-            <<"headers">> => #{<<"extra">> => <<"headers">>},
-            <<"request_timeout">> => <<"1s">>,
-            <<"max_retries">> => 1,
-            <<"connect_timeout">> => <<"2s">>,
-            <<"pool_type">> => <<"random">>,
-            <<"pool_size">> => 2,
-            <<"enable_pipelining">> => 100,
-            <<"max_inactive">> => <<"1s">>,
-            <<"ssl">> => #{<<"enable">> => false}
-        },
-        <<"name">> => SchemaName,
-        <<"description">> => <<"My external schema">>
-    },
+    Params = mk_external_http_create_params(#{name => SchemaName, port => Port}),
     ?assertMatch({201, _}, create_schema(Params)),
 
     NodeBin = atom_to_binary(node()),
@@ -950,11 +958,8 @@ t_external_http_serde(_Config) ->
 
     %% Update resource
     NewURL = <<"http://127.0.0.1:", (integer_to_binary(Port))/binary, "/sr?qp=456">>,
-    NewParams0 = maps:remove(<<"name">>, Params),
-    NewParams = emqx_utils_maps:deep_merge(
-        NewParams0,
-        #{<<"parameters">> => #{<<"url">> => NewURL}}
-    ),
+    NewParams0 = mk_external_http_create_params(#{name => SchemaName, port => Port, url => NewURL}),
+    NewParams = maps:remove(<<"name">>, NewParams0),
     ?assertMatch([_], emqx_resource:list_group_instances(?SCHEMA_REGISTRY_RESOURCE_GROUP)),
     ?assertMatch({200, _}, update_schema(SchemaName, NewParams)),
     ?assertMatch([_], emqx_resource:list_group_instances(?SCHEMA_REGISTRY_RESOURCE_GROUP)),
