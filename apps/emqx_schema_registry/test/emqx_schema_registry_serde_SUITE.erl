@@ -175,13 +175,13 @@ t_serde_not_found(_Config) ->
     ),
     ?assertError(
         {serde_not_found, NonexistentSerde},
-        emqx_schema_registry_serde:handle_rule_function(schema_check, [
+        emqx_schema_registry_serde:rsf_schema_check([
             NonexistentSerde, EncodeData
         ])
     ),
     ?assertError(
         {serde_not_found, NonexistentSerde},
-        emqx_schema_registry_serde:handle_rule_function(schema_check, [
+        emqx_schema_registry_serde:rsf_schema_check([
             NonexistentSerde, DecodeData
         ])
     ),
@@ -312,16 +312,16 @@ t_json_validation(_Config) ->
     SerdeName = my_json_schema,
     Params = schema_params(json),
     ok = emqx_schema_registry:add_schema(SerdeName, Params),
-    F = fun(Fn, Data) ->
-        emqx_schema_registry_serde:handle_rule_function(Fn, [SerdeName, Data])
+    CheckFn = fun(Data) ->
+        emqx_schema_registry_serde:rsf_schema_check([SerdeName, Data])
     end,
     OK = #{<<"foo">> => 1, <<"bar">> => 2},
     NotOk = #{<<"bar">> => 2},
-    ?assert(F(schema_check, OK)),
-    ?assert(F(schema_check, <<"{\"foo\": 1, \"bar\": 2}">>)),
-    ?assertNot(F(schema_check, NotOk)),
-    ?assertNot(F(schema_check, <<"{\"bar\": 2}">>)),
-    ?assertNot(F(schema_check, <<"{\"foo\": \"notinteger\", \"bar\": 2}">>)),
+    ?assert(CheckFn(OK)),
+    ?assert(CheckFn(<<"{\"foo\": 1, \"bar\": 2}">>)),
+    ?assertNot(CheckFn(NotOk)),
+    ?assertNot(CheckFn(<<"{\"bar\": 2}">>)),
+    ?assertNot(CheckFn(<<"{\"foo\": \"notinteger\", \"bar\": 2}">>)),
     ok.
 
 t_is_existing_type(_Config) ->

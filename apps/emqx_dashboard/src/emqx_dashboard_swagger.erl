@@ -31,6 +31,7 @@
 -export([relative_uri/1, get_relative_uri/1]).
 -export([compose_filters/2]).
 -export([validate_content_type_json/2, validate_content_type/3]).
+-export([hocon_schema_to_spec/2, components/2]).
 
 -export([
     filter_check_request/2,
@@ -870,7 +871,7 @@ hocon_schema_fields(Module, StructName) ->
 namespace(Module) ->
     case hocon_schema:namespace(Module) of
         undefined -> Module;
-        NameSpace -> re:replace(to_bin(NameSpace), ":", "-", [global])
+        Namespace -> re:replace(to_bin(Namespace), ":", "-", [global])
     end.
 
 hocon_schema_to_spec(?R_REF(Module, StructName), _LocalModule) ->
