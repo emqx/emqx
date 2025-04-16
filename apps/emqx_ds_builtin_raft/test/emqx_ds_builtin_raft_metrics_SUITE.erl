@@ -27,7 +27,7 @@ opts(Overrides) ->
             n_sites => 1,
             replication_factor => 3,
             replication_options => #{
-                wal_max_size_bytes => 64,
+                wal_max_size_bytes => 4096,
                 wal_max_batch_size => 1024,
                 snapshot_interval => 128
             }
@@ -317,6 +317,121 @@ t_transitions_metrics(Config) ->
     ?assertMatch(
         [_ | _],
         [Metric || Metric = {_, N} <- MTransitionErrors, N > 0]
+    ).
+
+t_snapshot_metrics(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_snapshot_metrics1, #{apps => Apps}},
+            {t_snapshot_metrics2, #{apps => Apps}},
+            {t_snapshot_metrics3, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    ok = snabbkaffe:start_trace(),
+    [{specs, NodeSpecs} | Config];
+t_snapshot_metrics('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(specs, Config)),
+    ok = snabbkaffe:stop().
+
+t_snapshot_metrics(Config) ->
+    %% Start first node.
+    [NS1, NS2, NS3] = ?config(specs, Config),
+    [N1] = emqx_cth_cluster:start([NS1]),
+    %% Initialize DB on the first node and wait for it to be online.
+    Opts = opts(#{n_shards => 2, n_sites => 1, replication_factor => 3}),
+    emqx_ds_raft_test_helpers:assert_db_open([N1], ?DB, Opts),
+    %% Start rest of the nodes.
+    [N2, N3] = emqx_cth_cluster:start([NS2, NS3]),
+    emqx_ds_raft_test_helpers:assert_db_open([N2, N3], ?DB, Opts),
+
+    %% Spin up workload large enough to require snapshot transfers later.
+    {Stream, _} = emqx_ds_test_helpers:interleaved_topic_messages(?FUNCTION_NAME, 5, 200),
+    emqx_ds_raft_test_helpers:apply_stream(?DB, [N1], Stream),
+    ok = ?ON(N1, emqx_ds:add_generation(?DB)),
+
+    %% Assign rest of nodes as DB replication sites.
+    Nodes = [N1, N2, N3],
+    Sites = ?ON(Nodes, emqx_ds_builtin_raft_meta:this_site()),
+    {ok, _} = ?ON(N1, emqx_ds_builtin_raft_meta:assign_db_sites(?DB, Sites)),
+    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+
+    %% Verify snapshot metrics are updated.
+    [N1MShard, N2MShard, N3MShard] = ?ON(Nodes, emqx_ds_builtin_raft_metrics:local_shards([])),
+    ?assertMatch(
+        #{
+            snapshot_reads := [
+                {[{status, started}, {db, ?DB}, {shard, <<"0">>}], 2},
+                {[{status, completed}, {db, ?DB}, {shard, <<"0">>}], 2},
+                {[{status, started}, {db, ?DB}, {shard, <<"1">>}], 2},
+                {[{status, completed}, {db, ?DB}, {shard, <<"1">>}], 2}
+            ],
+            snapshot_read_errors := [
+                {[{db, ?DB}, {shard, <<"0">>}], 0},
+                {[{db, ?DB}, {shard, <<"1">>}], 0}
+            ],
+            snapshot_read_chunks := [
+                {[{db, ?DB}, {shard, <<"0">>}], NC0},
+                {[{db, ?DB}, {shard, <<"1">>}], _}
+            ],
+            snapshot_read_chunk_bytes := [
+                {[{db, ?DB}, {shard, <<"0">>}], NBytes0},
+                {[{db, ?DB}, {shard, <<"1">>}], _}
+            ]
+        } when NC0 > 2 andalso NBytes0 > 4096 * 2,
+        N1MShard
+    ),
+    ?assertMatch(
+        #{
+            snapshot_writes := [
+                {[{status, started}, {db, ?DB}, {shard, <<"0">>}], 1},
+                {[{status, completed}, {db, ?DB}, {shard, <<"0">>}], 1},
+                {[{status, started}, {db, ?DB}, {shard, <<"1">>}], 1},
+                {[{status, completed}, {db, ?DB}, {shard, <<"1">>}], 1}
+            ],
+            snapshot_write_errors := [
+                {[{db, ?DB}, {shard, <<"0">>}], 0},
+                {[{db, ?DB}, {shard, <<"1">>}], 0}
+            ],
+            snapshot_write_chunks := [
+                {[{db, ?DB}, {shard, <<"0">>}], NC0},
+                {[{db, ?DB}, {shard, <<"1">>}], _}
+            ],
+            snapshot_write_chunk_bytes := [
+                {[{db, ?DB}, {shard, <<"0">>}], NBytes0},
+                {[{db, ?DB}, {shard, <<"1">>}], _}
+            ]
+        } when NC0 > 1 andalso NBytes0 > 4096,
+        N2MShard
+    ),
+
+    %% Number of chunks / bytes should be consistent across source / recepient nodes.
+    ?assertEqual(
+        %% Aggregate of chunks / bytes read:
+        #{
+            chunks => lists:sum([
+                V
+             || {_Labels, V} <- maps:get(snapshot_read_chunks, N1MShard)
+            ]),
+            bytes => lists:sum([
+                V
+             || {_Labels, V} <- maps:get(snapshot_read_chunk_bytes, N1MShard)
+            ])
+        },
+        %% Aggregate of chunks / bytes written:
+        #{
+            chunks => lists:sum([
+                V
+             || Ms <- [N2MShard, N3MShard],
+                {_Labels, V} <- maps:get(snapshot_write_chunks, Ms)
+            ]),
+            bytes => lists:sum([
+                V
+             || Ms <- [N2MShard, N3MShard],
+                {_Labels, V} <- maps:get(snapshot_write_chunk_bytes, Ms)
+            ])
+        }
     ).
 
 %%
