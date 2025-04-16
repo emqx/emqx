@@ -101,8 +101,6 @@ desc(_) ->
 adjust_fields(Fields, HasDatabase) ->
     lists:filtermap(
         fun
-            ({username, OrigUsernameFn}) ->
-                {true, {username, add_default_fn(OrigUsernameFn, <<"root">>)}};
             ({password, _}) ->
                 {true, {password, emqx_connector_schema_lib:password_field(#{required => false})}};
             ({database, _}) ->
@@ -112,12 +110,6 @@ adjust_fields(Fields, HasDatabase) ->
         end,
         Fields
     ).
-
-add_default_fn(OrigFn, Default) ->
-    fun
-        (default) -> Default;
-        (Field) -> OrigFn(Field)
-    end.
 
 server() ->
     Meta = #{
@@ -185,7 +177,6 @@ on_start(
     InstanceId,
     #{
         server := Server,
-        username := Username,
         pool_size := PoolSize
     } = Config
 ) ->
@@ -207,7 +198,7 @@ on_start(
     Options = [
         {host, to_bin(Host)},
         {port, Port},
-        {username, Username},
+        {username, maps:get(username, Config, undefined)},
         {password, maps:get(password, Config, undefined)},
         {token, maps:get(token, Config, undefined)},
         {pool_size, PoolSize},
