@@ -206,8 +206,9 @@ destroy(_Session) ->
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
-open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
-    case emqx_cm:takeover_session_begin(ClientId) of
+
+open(ClientInfo, ConnInfo, _MaybeWillMsg, Conf) ->
+    case do_open(ClientInfo) of
         {ok, SessionRemote, TakeoverState} ->
             Session0 = resume(ClientInfo, SessionRemote),
             Session1 = resize_inflight(ConnInfo, Session0),
@@ -217,6 +218,17 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
         none ->
             false
     end.
+
+do_open(#{predecessor := undefined}) ->
+    %% For emqx_linear_channel_registry
+    none;
+do_open(#{clientid := ClientId, predecessor := Predecessor}) ->
+    %% For emqx_linear_channel_registry
+    PredecessorPid = emqx_linear_channel_registry:ch_pid(Predecessor),
+    emqx_cm:takeover_session_begin(ClientId, PredecessorPid);
+do_open(#{clientid := ClientId}) ->
+    %% For emqx_cm_registry
+    emqx_cm:takeover_session_begin(ClientId).
 
 resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = Inflight}) ->
     Session#session{

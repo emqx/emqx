@@ -564,7 +564,69 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
             handle_out(connack, ReasonCode, NChannel)
     end.
 
-post_process_connect(
+post_process_connect(AckProps, Channel) ->
+    case emqx:get_config([broker, enable_linear_channel_registry], false) of
+        false ->
+            open_session_with_cm_registry(AckProps, Channel);
+        true ->
+            open_session_in_lcr(AckProps, Channel)
+    end.
+
+open_session_in_lcr(
+    AckProps, #channel{clientinfo = #{clientid := ClientId} = ClientInfo0} = Channel
+) ->
+    Predecessor = emqx_linear_channel_registry:max_channel_d(ClientId),
+    ClientInfo1 = ClientInfo0#{predecessor => Predecessor},
+    case
+        do_open_session_in_lcr(
+            ClientInfo1,
+            Channel#channel.conninfo,
+            Channel#channel.will_msg,
+            _Retries = 3
+        )
+    of
+        {ok, #{session := Session, present := false}} ->
+            %% takeover success
+            NChannel = Channel#channel{session = Session},
+            handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
+        {ok, #{session := Session, present := true, replay := ReplayContext}} ->
+            NChannel = Channel#channel{
+                session = Session,
+                resuming = ReplayContext
+            },
+            handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
+        {error, max_retries} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => max_retries}),
+            handle_out(connack, ?RC_SERVER_BUSY, Channel);
+        {error, channel_outdated} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => channel_outdated}),
+            handle_out(connack, ?RC_SESSION_TAKEN_OVER, Channel);
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
+            handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
+    end.
+
+do_open_session_in_lcr(_ClientInfo, _ConnInfo, _MaybeWillMsg, 0) ->
+    {error, max_retries};
+do_open_session_in_lcr(ClientInfo, ConnInfo, MaybeWillMsg, Retries) ->
+    {ok, _} = Res = emqx_cm:open_session_lcr(ClientInfo, ConnInfo, MaybeWillMsg),
+    case emqx_cm:register_channel(ClientInfo, self(), ConnInfo) of
+        ok ->
+            Res;
+        {error, {restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
+            %% retries ...
+            %% @TODO will Predecessor be undefined?
+            ?FUNCTION_NAME(
+                ClientInfo#{predecessor := NewPredecessor},
+                ConnInfo,
+                MaybeWillMsg,
+                Retries - 1
+            );
+        {error, _Other} = E ->
+            E
+    end.
+
+open_session_with_cm_registry(
     AckProps,
     Channel = #channel{
         conninfo = #{clean_start := CleanStart} = ConnInfo,

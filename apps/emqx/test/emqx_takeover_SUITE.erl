@@ -48,6 +48,9 @@ tc_v5_only() ->
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
+    %% dbg:tracer(process, {fun dbg:dhandler/2,group_leader()}),
+    %% dbg:p(all, c),
+    %% dbg:tpl(emqx_cm,cx),
     Config.
 
 end_per_suite(_Config) ->
@@ -67,6 +70,7 @@ init_per_group(persistence_enabled = Group, Config) ->
         start_emqx_conf => false,
         work_dir => emqx_cth_suite:work_dir(Group, Config)
     },
+    emqx_config:put([broker, enable_linear_channel_registry], true),
     [
         {persistence_enabled, true}
         | emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts)
@@ -76,6 +80,7 @@ init_per_group(persistence_disabled = Group, Config) ->
         [{emqx, "durable_sessions.enable = false"}],
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
+    emqx_config:put([broker, enable_linear_channel_registry], true),
     [
         {apps, Apps},
         {persistence_enabled, false}
@@ -989,7 +994,7 @@ do_wait_subscription([CPid | Rest]) ->
     end.
 
 kick_client(Ctx, ClientId) ->
-    ok = emqx_cm:kick_session(ClientId),
+    _ = emqx_cm:kick_session(ClientId),
     Ctx.
 
 publish_msg(Ctx, Msg) ->

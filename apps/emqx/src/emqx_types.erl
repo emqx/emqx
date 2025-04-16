@@ -180,9 +180,10 @@
     anonymous => boolean(),
     cn => binary(),
     dn => binary(),
+    %% Following fields are never used in RPC calls.
     %% Extra client attributes, commented out for bpapi spec backward compatibility.
-    %% This field is never used in RPC calls.
     %% client_attrs => client_attrs(),
+    %% predecessor => emqx_linear_channel_registry:lcr_channel(),
     atom() => term()
 }.
 -type client_attrs() :: #{binary() => binary()}.

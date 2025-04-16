@@ -10,6 +10,7 @@
 -define(COMMON_SHARD, emqx_common_shard).
 -define(SHARED_SUB_SHARD, emqx_shared_sub_shard).
 -define(CM_SHARD, emqx_cm_shard).
+-define(LCR_SHARD, emqx_lcr_shard).
 -define(ROUTE_SHARD, route_shard).
 -define(PS_ROUTER_SHARD, persistent_session_router_shard).
 

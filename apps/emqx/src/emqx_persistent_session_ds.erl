@@ -261,13 +261,7 @@ create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
 open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    %% NOTE
-    %% The fact that we need to concern about discarding all live channels here
-    %% is essentially a consequence of the in-memory session design, where we
-    %% have disconnected channels holding onto session state. Ideally, we should
-    %% somehow isolate those idling not-yet-expired sessions into a separate process
-    %% space, and move this call back into `emqx_cm` where it belongs.
-    ok = emqx_cm:takeover_kick(ClientID),
+    ok = takeover_kick(ClientInfo),
     case open_session_state(ClientID, ClientInfo, ConnInfo, MaybeWillMsg) of
         false ->
             false;
@@ -275,6 +269,20 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
             Session = create_session(false, ClientID, State, ConnInfo, Conf),
             {true, do_expire(ClientInfo, Session), []}
     end.
+
+takeover_kick(#{predecessor := undefined}) ->
+    ok;
+takeover_kick(#{predecessor := Predecessor, clientid := ClientID}) ->
+    PredecessorPid = emqx_linear_channel_registry:ch_pid(Predecessor),
+    ok = emqx_cm:takeover_kick(ClientID, PredecessorPid);
+takeover_kick(#{clientid := ClientID}) ->
+    %% NOTE
+    %% The fact that we need to concern about discarding all live channels here
+    %% is essentially a consequence of the in-memory session design, where we
+    %% have disconnected channels holding onto session state. Ideally, we should
+    %% somehow isolate those idling not-yet-expired sessions into a separate process
+    %% space, and move this call back into `emqx_cm` where it belongs.
+    ok = emqx_cm:takeover_kick(ClientID).
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
