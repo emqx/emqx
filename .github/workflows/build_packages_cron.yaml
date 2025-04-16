@@ -105,7 +105,7 @@ jobs:
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         if: success()
         with:
-          name: ${{ matrix.profile }}-${{ matrix.os }}
+          name: ${{ matrix.profile }}-${{ matrix.branch }}-${{ matrix.os }}
           path: _packages/${{ matrix.profile }}/
           retention-days: 7
       - name: Send notification to Slack
