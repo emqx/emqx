@@ -38,7 +38,7 @@
 ]).
 
 -type metric_type() :: gauge | counter.
--type metric_meta() :: {_Name :: atom(), metric_type()}.
+-type metric_meta() :: {_Name :: atom(), metric_type(), _Desc :: iodata()}.
 
 %% Single metric:
 %% Compatible with what `prometheus` / `emqx_prometheus` expects.
@@ -133,7 +133,7 @@ shard_transition_error(DB, Shard, _Transition) ->
 -spec cluster_meta() -> [metric_meta()].
 cluster_meta() ->
     [
-        {cluster_sites_num, gauge}
+        {cluster_sites_num, gauge, <<"Number of sites in the DS cluster.">>}
     ].
 
 -spec cluster() -> metrics().
@@ -152,8 +152,8 @@ sites_num(lost) ->
 -spec dbs_meta() -> [metric_meta()].
 dbs_meta() ->
     [
-        {db_shards_num, gauge},
-        {db_sites_num, gauge}
+        {db_shards_num, gauge, <<"Number of shards DB is split into.">>},
+        {db_sites_num, gauge, <<"Number of current / assigned sites a DB is replicated across.">>}
     ].
 
 %% Cluster-wide metrics of all known DBs.
@@ -186,8 +186,9 @@ db_sites_num(assigned, DB, Ls) ->
 -spec shards_meta() -> [metric_meta()].
 shards_meta() ->
     [
-        {shard_replication_factor, gauge},
-        {shard_transition_queue_len, gauge}
+        {shard_replication_factor, gauge, <<"Number of replicas in a DB shard replica set.">>},
+        {shard_transition_queue_len, gauge,
+            <<"Number of pending replica set transitions for a DB shard.">>}
     ].
 
 %% Cluster-wide metrics of each DB's each shard.
@@ -226,8 +227,15 @@ shard_transition_queue_lengths(DB, Shard, Ls) ->
 -spec local_shards_meta() -> [metric_meta()].
 local_shards_meta() ->
     [
-        {shard_transitions, counter},
-        {shard_transition_errors, counter}
+        %% Shard replica set transitions:
+        {shard_transitions, counter, <<
+            "Counts number of started / completed / skipped / crashed replica set "
+            "transitions of a DB shard."
+        >>},
+        {shard_transition_errors, counter, <<
+            "Counts number of transient errors occured during orchestration of "
+            "replica set transitions of a DB shard."
+        >>}
     ].
 
 %% Node-local metrics of each opened DB's each shard.

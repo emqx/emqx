@@ -75,14 +75,16 @@ collect(<<"json">>) ->
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DSRAFT_REGISTRY).
 
-collect_metric_families(Callback, Meta, Metrics) ->
-    _ = [collect_metric_family(Callback, Name, Type, Metrics) || {Name, Type} <- Meta],
+collect_metric_families(Callback, [Meta | Rest], Metrics) ->
+    collect_metric_family(Callback, Meta, Metrics),
+    collect_metric_families(Callback, Rest, Metrics);
+collect_metric_families(_Callback, [], _Metrics) ->
     ok.
 
-collect_metric_family(Callback, Name, Type, Metrics) ->
+collect_metric_family(Callback, {Name, Type, Desc}, Metrics) ->
     MVs = collect_mvs(Name, Type, Metrics),
     PromName = [?METRIC_PREFIX, atom_to_binary(Name)],
-    Callback(prometheus_model_helpers:create_mf(PromName, _Help = <<"">>, Type, MVs)).
+    Callback(prometheus_model_helpers:create_mf(PromName, Desc, Type, MVs)).
 
 collect_mvs(Name, Type, Metrics) ->
     collect_mvs(Type, maps:get(Name, Metrics, [])).
