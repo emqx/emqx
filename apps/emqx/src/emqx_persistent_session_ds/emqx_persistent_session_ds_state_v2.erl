@@ -52,6 +52,9 @@
 
 -export_type([]).
 
+-include_lib("emqx/src/emqx_tracepoints.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("pmap.hrl").
 -include("session_internals.hrl").
 
@@ -83,7 +86,7 @@
 -spec open(emqx_ds:generation(), emqx_types:clientid(), boolean()) ->
     {ok, emqx_persistent_session_ds_state:t()} | undefined.
 open(Generation, ClientId, Verify) ->
-    {ok, Result} = emqx_ds:trans(
+    {ok, _TXSerial, Result} = emqx_ds:trans(
         #{db => ?DB, generation => Generation, owner => ClientId},
         fun() -> open_tx(Generation, ClientId, Verify) end
     ),
@@ -112,22 +115,17 @@ commit(
     },
     #{lifetime := Lifetime}
 ) ->
+    NewGuard = Lifetime =:= takeover orelse Lifetime =:= new,
     Result =
         emqx_ds:trans(
             #{db => ?DB, owner => ClientId, generation => Generation},
             fun() ->
                 %% Generate a new guard if needed:
-                if
-                    Lifetime =:= takeover; Lifetime =:= new ->
-                        Guard = rand:bytes(8),
-                        write_guard(ClientId, Guard);
-                    true ->
-                        Guard = Guard0
-                end,
+                NewGuard andalso
+                    write_guard(ClientId, ?ds_tx_serial),
                 %% Ensure continuity of the session:
                 assert_guard(ClientId, Guard0),
                 Rec0#{
-                    ?guard := Guard,
                     ?metadata := pmap_commit(ClientId, Metadata),
                     ?subscriptions := pmap_commit(ClientId, Subs),
                     ?subscription_states := pmap_commit(ClientId, SubStates),
@@ -140,18 +138,27 @@ commit(
             end
         ),
     case Result of
-        {ok, Rec} ->
+        {ok, TXSerial, Rec} when NewGuard ->
+            %% This is a new incarnation of the client. Update the
+            %% guard:
+            Rec#{?guard := TXSerial};
+        {ok, _, Rec} ->
             Rec;
-        {error, unrecoverable, {precondition_failed, [#{got := undefined}]}} when
+        {error, unrecoverable, {precondition_failed, Conflict}} when
             Lifetime =:= terminate
         ->
-            %% Expected race: when kicking a session, we will first destroy it, then call
-            %% `emqx_session:terminate', which always attempts to commit the session.  We
-            %% don't want to re-insert the session data into the DB, so we ignore this
-            %% error.
+            %% Don't interrupt graceful channel shut down even when
+            %% guard is invalidated:
+            ?tp(warning, ?sessds_takeover_conflict, #{id => ClientId, conflict => Conflict}),
             Rec0;
         {error, Class, Reason} ->
-            error({failed_to_commit_session, {Class, Reason}})
+            error(
+                {failed_to_commit_session, #{
+                    id => ClientId,
+                    lifetime => Lifetime,
+                    Class => Reason
+                }}
+            )
     end.
 
 -spec set_offline_info(
@@ -183,7 +190,7 @@ delete(
         ?awaiting_rel := AwaitingRels
     }
 ) ->
-    {ok, _} =
+    {ok, _, _} =
         emqx_ds:trans(
             #{db => ?DB, owner => ClientId, generation => Generation},
             fun() ->
@@ -289,7 +296,7 @@ assert_guard(ClientId, undefined) ->
 assert_guard(ClientId, Guard) when is_binary(Guard) ->
     emqx_ds:tx_blob_assert([?top_guard, ClientId], Guard).
 
--spec write_guard(emqx_persistent_session_ds:id(), binary()) -> ok.
+-spec write_guard(emqx_persistent_session_ds:id(), binary() | ?ds_tx_serial) -> ok.
 write_guard(ClientId, Guard) ->
     emqx_ds:tx_blob_write([?top_guard, ClientId], Guard).
 

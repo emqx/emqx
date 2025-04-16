@@ -27,11 +27,18 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
+
 -define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 
 -record(store_batch_atomic, {batch :: emqx_ds:batch(), opts :: emqx_ds:message_store_opts()}).
 -record(commit_blob_tx, {ctx :: emqx_ds_storage_layer_tx:ctx(), ops :: emqx_ds:blob_tx_ops()}).
+
+-record(s, {
+    dbshard :: emqx_ds_storage_layer:dbshard(),
+    serial :: atomics:atomics_ref()
+}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -52,34 +59,42 @@ commit_blob_tx(DB, #ds_tx_ctx{shard = Shard} = Ctx, Ops) ->
 
 init([DB, Shard]) ->
     process_flag(message_queue_data, off_heap),
-    {ok, {DB, Shard}}.
+    DBShard = {DB, Shard},
+    S = #s{
+        dbshard = DBShard,
+        serial = open_serial(DBShard)
+    },
+    {ok, S}.
 
-handle_call(#store_batch_atomic{batch = Batch, opts = StoreOpts}, _From, DBShard) ->
+handle_call(#store_batch_atomic{batch = Batch, opts = StoreOpts}, _From, S = #s{dbshard = DBShard}) ->
     Result = do_store_batch_atomic(DBShard, Batch, StoreOpts),
-    {reply, Result, DBShard};
-handle_call(#commit_blob_tx{ctx = Ctx, ops = Ops}, _From, DBShard) ->
-    Result = blob_tx(DBShard, Ctx, Ops),
-    {reply, Result, DBShard};
-handle_call(Call, _From, State) ->
-    {reply, {error, {unknown_call, Call}}, State}.
+    {reply, Result, S};
+handle_call(#commit_blob_tx{ctx = Ctx, ops = Ops}, _From, S) ->
+    Result = blob_tx(S, Ctx, Ops),
+    {reply, Result, S};
+handle_call(Call, _From, S) ->
+    {reply, {error, {unknown_call, Call}}, S}.
 
-handle_cast(_Cast, State) ->
-    {noreply, State}.
+handle_cast(_Cast, S) ->
+    {noreply, S}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-blob_tx({DB, _} = DBShard, Ctx = #ds_tx_ctx{generation = GenId}, Ops) ->
+blob_tx(S0, Ctx = #ds_tx_ctx{generation = GenId}, Ops) ->
+    #s{dbshard = DBShard = {DB, _}, serial = SerRef} = S0,
     DispatchF = fun(Events) ->
         emqx_ds_beamformer:shard_event(DBShard, Events)
     end,
     maybe
         ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
-        {ok, CookedBatch} ?= emqx_ds_storage_layer:prepare_blob_tx(DBShard, GenId, Ops, #{}),
-        Result = emqx_ds_storage_layer:commit_batch(DBShard, CookedBatch, #{}),
+        CommitSerial = term_to_binary(new_serial(DBShard, SerRef)),
+        {ok, CookedBatch} ?=
+            emqx_ds_storage_layer:prepare_blob_tx(DBShard, GenId, CommitSerial, Ops, #{}),
+        ok ?= emqx_ds_storage_layer:commit_batch(DBShard, CookedBatch, #{}),
         emqx_ds_storage_layer:dispatch_events(DBShard, CookedBatch, DispatchF),
-        Result
+        {ok, CommitSerial}
     end.
 
 -spec do_store_batch_atomic(
@@ -123,3 +138,25 @@ db_config(#{db := DB}) ->
 
 current_timestamp(DBShard) ->
     emqx_ds_builtin_local_meta:current_timestamp(DBShard).
+
+open_serial(DBShard) ->
+    case emqx_ds_storage_layer:fetch_global(DBShard, ?serial_key) of
+        {ok, <<Val:64>>} ->
+            A = atomics:new(1, [{signed, false}]),
+            atomics:put(A, 1, Val),
+            A;
+        not_found ->
+            ok = emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<0:64>>}, #{}),
+            open_serial(DBShard)
+    end.
+
+new_serial(DBShard, A) ->
+    Epoch = 1 bsl 16,
+    case atomics:add_get(A, 1, 1) of
+        Val when Val rem Epoch =:= 0 ->
+            NextEpoch = <<(Val + Epoch):64>>,
+            ok = emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => NextEpoch}, #{}),
+            Val;
+        Val ->
+            Val
+    end.

@@ -233,6 +233,8 @@
 %% Earliest possible timestamp is 0.
 -type time() :: non_neg_integer().
 
+-type tx_serial() :: binary().
+
 -type message_store_opts() ::
     #{
         %% Whether to wait until the message storage has been acknowledged to return from
@@ -356,7 +358,7 @@
 %% deletions are executed before the writes.
 -type blob_tx_ops() :: #{
     %% Write operations:
-    ?ds_tx_write => [kv_pair()],
+    ?ds_tx_write => [kv_pair() | {topic(), ?ds_tx_serial}],
     %% Deletions:
     ?ds_tx_delete_topic => [topic_filter()],
     %% Preconditions:
@@ -386,7 +388,7 @@
     retry_interval => non_neg_integer()
 }.
 
--type commit_result() :: ok | error(_).
+-type commit_result() :: {ok, tx_serial()} | error(_).
 
 -type fold_fun(Acc) :: fun(
     (
@@ -756,7 +758,7 @@ commit_blob_tx(DB, TxContext, TxOps) ->
     transaction_opts(),
     fun(() -> Ret)
 ) ->
-    {ok, Ret} | error(_).
+    {ok, tx_serial(), Ret} | error(_).
 trans(Opts = #{db := DB}, Fun) ->
     case is_trans() of
         false ->
@@ -766,10 +768,9 @@ trans(Opts = #{db := DB}, Fun) ->
             ?err_unrec(nested_transaction)
     end.
 
--spec tx_blob_write(topic(), binary()) -> ok.
+-spec tx_blob_write(topic(), binary() | ?ds_tx_serial) -> ok.
 tx_blob_write(Topic, Value) ->
-    ct:pal("OHAYO))) ~p", [Topic]),
-    case is_topic(Topic) andalso is_binary(Value) of
+    case is_topic(Topic) andalso (is_binary(Value) orelse Value =:= ?ds_tx_serial) of
         true ->
             tx_push_op(?tx_ops_write, {Topic, Value});
         false ->
@@ -963,11 +964,12 @@ trans(DB, Fun, Opts, Retries) ->
                         ?ds_tx_unexpected := []
                     } ->
                         %% Nothing to commit:
-                        {ok, Ret};
+                        %% FIXME: what should we return as the serial?
+                        {ok, undefined, Ret};
                     _ ->
                         case commit_blob_tx(DB, Ctx, Tx) of
-                            ok ->
-                                {ok, Ret};
+                            {ok, CommitTXId} ->
+                                {ok, CommitTXId, Ret};
                             ?err_unrec(_) = Err ->
                                 Err;
                             ?err_rec(_) when Retries > 0 ->

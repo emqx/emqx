@@ -63,6 +63,7 @@
 -callback prepare_blob_tx(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
+    emqx_ds:tx_serial(),
     emqx_ds:blob_tx_ops(),
     emqx_ds_storage_layer:batch_prepare_opts()
 ) ->

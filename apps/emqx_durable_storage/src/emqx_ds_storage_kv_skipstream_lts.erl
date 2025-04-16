@@ -25,7 +25,7 @@
     create/6,
     open/5,
     drop/5,
-    prepare_blob_tx/4,
+    prepare_blob_tx/5,
     commit_batch/4,
     get_streams/4,
     make_iterator/5,
@@ -185,12 +185,12 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{data_cf = DataCF, trie_cf = TrieCF,
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
     ok.
 
-prepare_blob_tx(DBShard, S, Ops, _Options) ->
+prepare_blob_tx(DBShard, S, TXID, Ops, _Options) ->
     _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
     W = maps:get(?ds_tx_write, Ops, []),
     DT = maps:get(?ds_tx_delete_topic, Ops, []),
     try
-        OperationsCooked = cook_blob_deletes(DBShard, S, DT, cook_blob_writes(S, W, [])),
+        OperationsCooked = cook_blob_deletes(DBShard, S, DT, cook_blob_writes(S, TXID, W, [])),
         {ok, #{
             ?cooked_msg_ops => OperationsCooked,
             ?cooked_lts_ops => emqx_ds_gen_skipstream_lts:pop_lts_persist_ops()
@@ -200,13 +200,20 @@ prepare_blob_tx(DBShard, S, Ops, _Options) ->
             {error, Type, Err}
     end.
 
-cook_blob_writes(_, [], Acc) ->
+cook_blob_writes(_, _TXID, [], Acc) ->
     lists:reverse(Acc);
-cook_blob_writes(S = #s{serialization_schema = SSchema}, [{Topic, Value} | Rest], Acc) ->
+cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, Value0} | Rest], Acc) ->
     #s{trie = Trie, threshold_fun = TFun} = S,
     {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Topic),
+    Value =
+        case Value0 of
+            ?ds_tx_serial ->
+                TXID;
+            _ when is_binary(Value0) ->
+                Value0
+        end,
     Bin = emqx_ds_msg_serializer:serialize(SSchema, {Varying, Value}),
-    cook_blob_writes(S, Rest, [?cooked_msg_op(Static, Varying, Bin) | Acc]).
+    cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, Bin) | Acc]).
 
 cook_blob_deletes(DBShard, S, Topics, Acc0) ->
     lists:foldl(
