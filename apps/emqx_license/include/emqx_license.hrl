@@ -11,10 +11,14 @@
 -define(COMMUNITY_LICENSE_LOG,
     "\n"
     "=====================================================================\n"
-    "You are using a single-node license!\n"
-    "Visit https://emqx.com/apply-licenses/emqx to apply a license for:\n"
-    " - Clustered deployment\n"
-    " - Education or Non-profit use (clustered deployment, free of charge)\n"
+    "You are currently using the EMQX Community License included with this software.\n"
+    "Permitted Use: Free use of a single node in your internal environment.\n"
+    "What Requires a Different License:\n"
+    " - Clustered deployments (more than one node).\n"
+    " - Commercial use in SaaS, hosted services, or embedded/resold products.\n"
+    "To enable clustering or use EMQX for external commercial purposes, a commercial license is required.\n"
+    "Visit https://emqx.com/apply-licenses/emqx to apply for a license.\n"
+    "(Clustering for non-profit or educational purposes may qualify for a free license - please inquire via the link above)\n"
     "=====================================================================\n"
 ).
 
