@@ -16,7 +16,7 @@
     store_batch/3,
     store_batch/4,
     prepare_batch/3,
-    prepare_blob_tx/4,
+    prepare_blob_tx/5,
     commit_batch/3,
     dispatch_events/3,
 
@@ -364,7 +364,7 @@
 
 %% Lookup a single message, for preconditions to work.
 -callback lookup_message(dbshard(), generation_data(), emqx_ds:topic(), emqx_ds:time()) ->
-    {ok, emqx_types:message() | emqx_ds:kv_pair()} | undefined | emqx_ds:error(_).
+    emqx_types:message() | undefined | emqx_ds:error(_).
 
 -callback handle_event(dbshard(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
@@ -479,9 +479,11 @@ batch_starts_at([]) ->
 
 %% @doc Transform a transaction into a "cooked batch" that can
 %% be stored in the transaction log or transfered over the network.
--spec prepare_blob_tx(dbshard(), gen_id(), emqx_ds:blob_tx_ops(), batch_prepare_opts()) ->
+-spec prepare_blob_tx(
+    dbshard(), gen_id(), emqx_ds:tx_serial(), emqx_ds:blob_tx_ops(), batch_prepare_opts()
+) ->
     {ok, cooked_batch()} | ignore | emqx_ds:error(_).
-prepare_blob_tx(Shard, GenId, Tx, Options) ->
+prepare_blob_tx(Shard, GenId, TXSerial, Tx, Options) ->
     ?tp(emqx_ds_storage_layer_prepare_blob_tx, #{
         shard => Shard, generation => GenId, batch => Tx, options => Options
     }),
@@ -489,7 +491,7 @@ prepare_blob_tx(Shard, GenId, Tx, Options) ->
         #{module := Mod, data := GenData} ->
             T0 = erlang:monotonic_time(microsecond),
             Result =
-                case Mod:prepare_blob_tx(Shard, GenData, Tx, Options) of
+                case Mod:prepare_blob_tx(Shard, GenData, TXSerial, Tx, Options) of
                     {ok, CookedBatch} ->
                         {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
                     Error = {error, _, _} ->
@@ -847,6 +849,7 @@ lookup_blob(DBShard, Generation, Topic) ->
         not_found ->
             ?err_unrec(generation_not_found);
         #{module := Mod, data := GenData} ->
+            %% FIXME: this should go to kv
             Mod:lookup_message(DBShard, GenData, Topic, 0)
     end.
 

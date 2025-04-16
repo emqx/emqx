@@ -45,4 +45,6 @@
 -define(sessds_unexpected_ds_batch, sessds_unexpected_ds_batch).
 -define(sessds_sub_down, sessds_sub_down).
 
+-define(sessds_takeover_conflict, sessds_takeover_conflict).
+
 -endif.
