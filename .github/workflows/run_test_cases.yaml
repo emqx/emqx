@@ -46,7 +46,7 @@ jobs:
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: ${{ matrix.profile }}
 
@@ -61,7 +61,7 @@ jobs:
       - run: make proper
 
       # upload coverdata as artifact
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverdata-${{ matrix.profile }}-eunit-proper
           path: _build/test/cover/*.coverdata
@@ -87,7 +87,7 @@ jobs:
       PROFILE: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: ${{ matrix.profile }}
       - name: extract artifact
@@ -116,7 +116,7 @@ jobs:
         run: |
           docker exec -e PROFILE="$PROFILE" -t erlang make cover
 
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
           path: _build/test/cover/*.coverdata
@@ -131,7 +131,7 @@ jobs:
         if: failure()
         run: tar -czf logs.tar.gz _build/test/logs
 
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
@@ -159,7 +159,7 @@ jobs:
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-sg${{ matrix.suitegroup }}
 
     steps:
-      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: ${{ matrix.profile }}
       - name: extract artifact
@@ -171,7 +171,7 @@ jobs:
       - name: run common tests
         run: make "${{ matrix.app }}-ct"
 
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
           path: _build/test/cover/*.coverdata
@@ -185,7 +185,7 @@ jobs:
         if: failure()
         run: tar -czf logs.tar.gz _build/test/logs
 
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-sg${{ matrix.suitegroup }}
@@ -208,7 +208,7 @@ jobs:
 
     steps:
       # download emqx-enterprise source code
-      - uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           name: emqx-enterprise
       - name: extract artifact
@@ -217,7 +217,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # download coverdata artifacts
       - name: download coverdata
-        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
           pattern: 'coverdata-*'
       - name: extract coverdata and move to _build/test/cover/
