@@ -1241,13 +1241,29 @@ t_on_get_status(Config, Opts) ->
             ok;
         _ ->
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-                ?retry(
-                    _Interval0 = 100,
-                    _Attempts0 = 20,
-                    ?assertEqual(
-                        {ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId)
-                    )
-                )
+                case is_list(FailureStatus) of
+                    true ->
+                        ?retry(
+                            _Interval0 = 100,
+                            _Attempts0 = 20,
+                            begin
+                                BadHCRes = emqx_resource_manager:health_check(ResourceId),
+                                Expected = lists:map(fun(S) -> {ok, S} end, FailureStatus),
+                                ?assert(
+                                    lists:member(BadHCRes, Expected),
+                                    #{expected => FailureStatus, got => BadHCRes}
+                                )
+                            end
+                        );
+                    false ->
+                        ?retry(
+                            _Interval0 = 100,
+                            _Attempts0 = 20,
+                            ?assertEqual(
+                                {ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId)
+                            )
+                        )
+                end
             end),
             %% Check that it recovers itself.
             ?retry(
