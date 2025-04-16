@@ -55,10 +55,8 @@ logic_sum_metrics() ->
 %% Collector API
 %%--------------------------------------------------------------------
 
-%% @private
 deregister_cleanup(_) -> ok.
 
-%% @private
 -spec collect_mf(_Registry, Callback) -> ok when
     _Registry :: prometheus_registry:registry(),
     Callback :: prometheus_collector:collect_mf_callback().
@@ -68,12 +66,9 @@ collect_mf(?PROMETHEUS_DSRAFT_REGISTRY, Callback) ->
 collect_mf(_, _) ->
     ok.
 
-%% @private
 collect(<<"json">>) ->
-    #{
-        %% TODO
-        ds_builtin_raft => #{}
-    };
+    %% NOTE: Currently, no need to expose separate set of JSON metrics.
+    #{};
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DSRAFT_REGISTRY).
 
