@@ -1330,6 +1330,36 @@ t_schema_check_protobuf(_Config) ->
 
     ok.
 
+t_schema_check_external_http(_Config) ->
+    SerdeName = <<"myserde">>,
+    {ok, Port} = emqx_schema_registry_http_api_SUITE:start_external_http_serde_server(),
+    Opts = #{name => SerdeName, port => Port},
+    Params = emqx_schema_registry_http_api_SUITE:mk_external_http_create_params(Opts),
+
+    on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
+    {201, _} = emqx_schema_registry_http_api_SUITE:create_schema(Params),
+
+    Name1 = <<"foo">>,
+    Check1 = schema_check(external_http, SerdeName),
+    Validation1 = validation(Name1, [Check1]),
+    {201, _} = insert(Validation1),
+
+    C = connect(<<"c1">>),
+    {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+
+    %% Payload for this mocked server doesn't matter
+    ok = publish(C, <<"t/1">>, #{<<"whatever">> => true}),
+    ?assertReceive({publish, _}),
+    %% ... only if we make it return non-200 results, crash, or return invalid responses...
+    emqx_utils_http_test_server:set_handler(fun(Req, State) ->
+        Rep = cowboy_req:reply(400, #{}, <<"I didn't like your payload">>, Req),
+        {ok, Rep, State}
+    end),
+    ok = publish(C, <<"t/1">>, #{<<"whatever">> => true}),
+    ?assertNotReceive({publish, _}),
+
+    ok.
+
 %% Tests that restoring a backup config works.
 %%   * Existing validations (identified by `name') are left untouched.
 %%   * No validations are removed.
