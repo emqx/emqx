@@ -80,6 +80,7 @@
             emqx_mysql,
             emqx_postgresql,
             emqx_plugins,
+            emqx_mcp_gateway,
             quicer,
             bcrypt,
             emqx_telemetry

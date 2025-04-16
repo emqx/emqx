@@ -564,14 +564,12 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
             handle_out(connack, ReasonCode, NChannel)
     end.
 
-post_process_connect(
-    AckProps,
-    Channel = #channel{
+post_process_connect(AckProps, Channel0) ->
+    #channel{
         conninfo = #{clean_start := CleanStart} = ConnInfo,
         clientinfo = #{clientid := ClientId} = ClientInfo,
         will_msg = MaybeWillMsg
-    }
-) ->
+    } = Channel = run_session_creating_hook(Channel0),
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
@@ -590,6 +588,27 @@ post_process_connect(
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
+
+run_session_creating_hook(
+    Channel = #channel{
+        conninfo = ConnInfo0,
+        clientinfo = ClientInfo0,
+        will_msg = MaybeWillMsg0
+    }
+) ->
+    %% This hook gives the callback almost full control over the channel data, after
+    %% authentication completed successfully and before creating the session.
+    #{clientinfo := ClientInfo, conninfo := ConnInfo, will_msg := MaybeWillMsg} =
+        emqx_hooks:run_fold('session.creating', [], #{
+            clientinfo => ClientInfo0,
+            conninfo => ConnInfo0,
+            will_msg => MaybeWillMsg0
+        }),
+    Channel#channel{
+        clientinfo = ClientInfo,
+        conninfo = ConnInfo,
+        will_msg = MaybeWillMsg
+    }.
 
 %%--------------------------------------------------------------------
 %% Process Publish
