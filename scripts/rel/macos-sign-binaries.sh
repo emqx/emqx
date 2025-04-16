@@ -30,7 +30,7 @@ fi
 pushd "${RELX_TEMP_DIR}"
 
 PKSC12_FILE="$HOME/developer-id-application.p12"
-base64 --decode > "${PKSC12_FILE}" <<<"${APPLE_DEVELOPER_ID_BUNDLE}"
+printf '%s' "${APPLE_DEVELOPER_ID_BUNDLE}" | base64 --decode > "${PKSC12_FILE}"
 
 KEYCHAIN="emqx-$(date +%s).keychain-db"
 KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
@@ -40,6 +40,7 @@ trap cleanup EXIT
 function cleanup {
     set +e
     security delete-keychain "${KEYCHAIN}" 2>/dev/null
+    rm -f "${RELX_TEMP_DIR}/certificate.crt"
 }
 
 security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
@@ -47,7 +48,12 @@ security set-keychain-settings "${KEYCHAIN}"
 security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
 security import "${PKSC12_FILE}" -P "${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD}" -t cert -f pkcs12 -k "${KEYCHAIN}" -T /usr/bin/codesign
 security set-key-partition-list -S "apple-tool:,apple:,codesign:" -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
-security verify-cert -k "${KEYCHAIN}" -c "${PKSC12_FILE}"
+if [ "$(sw_vers -productVersion | cut -d'.' -f1)" -ge 15 ]; then
+  openssl pkcs12 -in "${PKSC12_FILE}" -clcerts -nokeys -out certificate.crt --passin "pass:${APPLE_DEVELOPER_ID_BUNDLE_PASSWORD}"
+  security verify-cert -k "${KEYCHAIN}" -c certificate.crt
+else
+  security verify-cert -k "${KEYCHAIN}" -c "${PKSC12_FILE}"
+fi
 security find-identity -p codesigning "${KEYCHAIN}"
 
 # add new keychain into the search path for codesign, otherwise the stuff does not work
