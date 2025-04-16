@@ -286,13 +286,13 @@ for dep in ${CT_DEPS}; do
     esac
 done
 
-if [ "$SQLSERVER_ODBC_REQUEST" = 'yes' ]; then
+if [ "$SQLSERVER_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
     INSTALL_SQLSERVER_ODBC="./scripts/install-msodbc-driver.sh"
 else
     INSTALL_SQLSERVER_ODBC="echo 'msodbc driver not requested'"
 fi
 
-if [ "$SNOWFLAKE_ODBC_REQUEST" = 'yes' ]; then
+if [ "$SNOWFLAKE_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
     INSTALL_SNOWFLAKE_ODBC="./scripts/install-snowflake-driver.sh"
 else
     INSTALL_SNOWFLAKE_ODBC="echo 'snowflake driver not requested'"
