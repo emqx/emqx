@@ -59,8 +59,7 @@ check_fmt_lazy_values_only_in_debug_level_events(FormatModule) ->
 check_fmt_payload(FormatModule) ->
     %% For performace reason we only search for lazy values to evaluate if log level is debug
     WarningEvent = (event_with_lazy_value())#{level => info},
-    Conf = conf(),
-    LogEntryIOData = FormatModule:format(WarningEvent, Conf#{payload_encode => hidden}),
+    LogEntryIOData = FormatModule:format(WarningEvent, (conf())#{payload_encode => hidden}),
     LogEntryBin = unicode:characters_to_binary(LogEntryIOData),
     %% The input data for the formatting should exist
     ?assertEqual(nomatch, binary:match(LogEntryBin, [<<"content">>])),
@@ -75,7 +74,8 @@ conf() ->
         depth => 100,
         single_line => true,
         template => ["[", level, "] ", msg, "\n"],
-        timestamp_format => auto
+        timestamp_format => auto,
+        payload_encode => text
     }.
 
 event_with_lazy_value() ->
