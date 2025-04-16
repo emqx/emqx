@@ -32,6 +32,8 @@
 
 %% Local (node-wide) metrics & metadata:
 -export([
+    local_dbs_meta/0,
+    local_dbs/1,
     local_shards_meta/0,
     local_shards/1,
     local_shard/3
@@ -223,6 +225,30 @@ shard_transition_queue_lengths(DB, Shard, Ls) ->
     ].
 
 %%
+
+-spec local_dbs_meta() -> [metric_meta()].
+local_dbs_meta() ->
+    [
+        {db_shards_online_num, gauge, <<"Number of DB shards actively mananged on this node.">>}
+    ].
+
+-spec local_dbs(_Labels0 :: [label()]) -> metrics().
+local_dbs(Labels) ->
+    gather_metrics(
+        fun(DB) -> local_db(DB, Labels) end,
+        emqx_ds_builtin_raft_db_sup:which_dbs()
+    ).
+
+-spec local_db(emqx_ds:db(), _Labels0 :: [label()]) -> metrics().
+local_db(DB, Labels0) ->
+    Labels = [{db, DB} | Labels0],
+    #{
+        db_shards_online_num => db_shards_online(DB, Labels)
+    }.
+
+db_shards_online(DB, Ls) ->
+    ShardsOnline = emqx_ds_builtin_raft_db_sup:which_shards(DB),
+    [{Ls, length(ShardsOnline)}].
 
 -spec local_shards_meta() -> [metric_meta()].
 local_shards_meta() ->

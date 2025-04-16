@@ -33,7 +33,9 @@
 %% `emqx_prometheus_cluster' API
 
 fetch_from_local_node(Mode) ->
-    Acc = emqx_ds_builtin_raft_metrics:local_shards(with_node_label(Mode, [])),
+    Labels0 = with_node_label(Mode, []),
+    Acc1 = emqx_ds_builtin_raft_metrics:local_dbs(Labels0),
+    Acc = maps:merge(emqx_ds_builtin_raft_metrics:local_shards(Labels0), Acc1),
     {node(), Acc}.
 
 fetch_cluster_consistented_data() ->
@@ -101,7 +103,8 @@ metrics_meta() ->
         local_metrics_meta().
 
 local_metrics_meta() ->
-    emqx_ds_builtin_raft_metrics:local_shards_meta().
+    emqx_ds_builtin_raft_metrics:local_dbs_meta() ++
+        emqx_ds_builtin_raft_metrics:local_shards_meta().
 
 %% Helpers
 
