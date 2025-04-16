@@ -153,9 +153,23 @@ t_cluster_metrics(Config) ->
         },
         ?ON(N1, emqx_ds_builtin_raft_metrics:shards())
     ),
+    ?assertMatch(
+        [
+            #{db_shards_online_num := [{[{db, ?DB}], 8}]},
+            #{db_shards_online_num := [{[{db, ?DB}], 8}]},
+            %% No DBs / shards are online there yet:
+            #{} = N3Ms
+        ] when not is_map_key(db_shards_online_num, N3Ms),
+        ?ON(Nodes, emqx_ds_builtin_raft_metrics:local_dbs([]))
+    ),
 
     %% Spin DB up and wait until transitions are complete.
     emqx_ds_raft_test_helpers:assert_db_open([N3], ?DB, Opts),
+    ?assertMatch(
+        #{db_shards_online_num := [{[{db, ?DB}], N}]} when N < 8,
+        ?ON(N3, emqx_ds_builtin_raft_metrics:local_dbs([]))
+    ),
+
     ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
 
     %% Verify DB metrics changed again.
@@ -167,6 +181,14 @@ t_cluster_metrics(Config) ->
             ]
         },
         ?ON(N1, emqx_ds_builtin_raft_metrics:dbs())
+    ),
+    ?assertMatch(
+        [
+            #{db_shards_online_num := [{[{db, ?DB}], 8}]},
+            #{db_shards_online_num := [{[{db, ?DB}], 8}]},
+            #{db_shards_online_num := [{[{db, ?DB}], 8}]}
+        ],
+        ?ON(Nodes, emqx_ds_builtin_raft_metrics:local_dbs([]))
     ).
 
 t_transitions_metrics(init, Config) ->
