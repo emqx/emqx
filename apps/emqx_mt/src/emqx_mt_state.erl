@@ -16,6 +16,7 @@
     evict_ccache/0,
     evict_ccache/1,
     list_clients/3,
+    list_clients_no_check/3,
     is_known_client/2
 ]).
 
@@ -47,7 +48,7 @@
 %% In-transaction fns
 -export([
     create_managed_ns_txn/1,
-    delete_managed_ns_txn/1,
+    delete_ns_txn/1,
     update_root_configs_txn/2,
     bulk_update_root_configs_txn/1
 ]).
@@ -268,9 +269,14 @@ list_clients(Ns, LastClientId, Limit) ->
         false ->
             {error, not_found};
         true ->
-            PrevKey = ?RECORD_KEY(Ns, LastClientId, ?MIN_PID),
-            {ok, do_list_clients(PrevKey, Limit, [])}
+            {ok, list_clients_no_check(Ns, LastClientId, Limit)}
     end.
+
+-spec list_clients_no_check(tns(), clientid(), non_neg_integer()) ->
+    [clientid()].
+list_clients_no_check(Ns, LastClientId, Limit) ->
+    PrevKey = ?RECORD_KEY(Ns, LastClientId, ?MIN_PID),
+    do_list_clients(PrevKey, Limit, []).
 
 do_list_clients(_Key, 0, Acc) ->
     lists:reverse(Acc);
@@ -382,7 +388,7 @@ delete_managed_ns(Ns) ->
     %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
     %% do any limiting when it fails to fetch the missing limiter group configuration.
     %% The user may choose to later kick all clients from this namespace.
-    transaction(fun delete_managed_ns_txn/1, [Ns]).
+    transaction(fun delete_ns_txn/1, [Ns]).
 
 -spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
 is_known_managed_ns(Ns) ->
@@ -445,7 +451,8 @@ create_managed_ns_txn(Ns) ->
             {error, already_exists}
     end.
 
-delete_managed_ns_txn(Ns) ->
+delete_ns_txn(Ns) ->
+    ok = mnesia:delete(?NS_TAB, Ns, write),
     case mnesia:read(?CONFIG_TAB, Ns, write) of
         [] ->
             {ok, #{}};
