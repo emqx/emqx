@@ -55,10 +55,8 @@
 
 -record(lcr_channel, {
     id :: channel_id(),
-    pid :: pid(),
-    vsn :: integer(),
-    %% reserved for future use
-    prop :: undefined
+    pid :: pid() | undefined,
+    vsn :: integer() | undefined
 }).
 
 -type lcr_channel() :: #lcr_channel{}.
@@ -83,8 +81,7 @@ register_channel(
     Ch = #lcr_channel{
         id = ClientId,
         pid = Pid,
-        vsn = TsMs,
-        prop = undefined
+        vsn = TsMs
     },
     do_register_channel(Ch, CachedMax).
 
@@ -92,8 +89,7 @@ unregister_channel({ClientId, ChanPid}, Vsn) ->
     Ch = #lcr_channel{
         id = ClientId,
         pid = ChanPid,
-        vsn = Vsn,
-        prop = undefined
+        vsn = Vsn
     },
     mria:dirty_delete_object(?LCR_TAB, Ch),
     ok.
@@ -119,7 +115,7 @@ max_channel(Channels) ->
             (_, Max) ->
                 Max
         end,
-        #lcr_channel{pid = '$1', vsn = 0},
+        #lcr_channel{vsn = 0},
         Channels
     ).
 
@@ -200,8 +196,6 @@ do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
             %% Read from source of truth
             OtherChannels = mnesia:read(?LCR_TAB, ClientId, write),
             case max_channel(OtherChannels) of
-                #lcr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
-                    mnesia:abort(channel_outdated);
                 undefined ->
                     mnesia:write(?LCR_TAB, Ch, write),
                     ok;
@@ -209,6 +203,8 @@ do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
                     %% took over or discarded the correct version
                     mnesia:write(?LCR_TAB, Ch, write),
                     ok;
+                #lcr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
+                    mnesia:abort(channel_outdated);
                 #lcr_channel{} = NewerChannel ->
                     %% Takeover from wrong session, abort and restart
                     mnesia:abort({restart_takeover, NewerChannel, CachedMax, MyVsn})
