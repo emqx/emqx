@@ -63,7 +63,7 @@ count(Since) ->
     IsCountAll = (not ?IS_HIST_ENABLED(Retain) orelse (Now - Retain >= Since)),
     case IsCountAll of
         true ->
-            mnesia:table_info(?CHAN_REG_TAB, size);
+            emqx_cm_registry:count_local_d();
         false ->
             %% make a gen call to avoid many callers doing the same concurrently
             gen_server:call(?MODULE, {count, Since}, infinity)

@@ -148,7 +148,7 @@ node_info() ->
         max_fds => esockd:ulimit(),
         connections => ets:info(?CHAN_TAB, size),
         live_connections => ets:info(?CHAN_LIVE_TAB, size),
-        cluster_sessions => ets:info(?CHAN_REG_TAB, size),
+        cluster_sessions => emqx_cm:global_chan_cnt(),
         node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
