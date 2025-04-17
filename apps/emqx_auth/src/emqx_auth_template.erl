@@ -24,7 +24,8 @@
     render_sql_params/2,
     render_strict/2,
     escape_disallowed_placeholders_str/2,
-    rename_client_info_vars/1
+    rename_client_info_vars/1,
+    to_string_for_raw/2
 ]).
 
 -define(POSSIBLE_CACHE_KEY_IDS, [clientid, username, cert_common_name]).

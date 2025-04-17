@@ -245,7 +245,7 @@ on_query(
 ) ->
     Base = emqx_placeholder:proc_tmpl(BaseTks, Data),
     FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data, #{
-        return => full_binary, var_trans => fun filter_escape/1
+        return => full_binary, var_trans => fun filter_escape/2
     }),
     case emqx_ldap_filter_parser:scan_and_parse(FilterBin) of
         {ok, Filter} ->
@@ -358,6 +358,17 @@ prepare_template(filter, V, State) ->
     State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)};
 prepare_template(_Entry, _, State) ->
     State.
+
+%% TODO
+%% LDAP connector is used only for auth
+%% but does not support handling of already rendered queries
+%% which is required for auth.
+%% We use auth renderer to render the query, but actually we need
+%% * drop rendering from the LDAP connector
+%% * move the rendering to the auth modules
+filter_escape([Name0], Value) ->
+    Name = binary_to_list(Name0),
+    filter_escape(emqx_auth_template:to_string_for_raw(Name, Value)).
 
 filter_escape(Binary) when is_binary(Binary) ->
     filter_escape(erlang:binary_to_list(Binary));
