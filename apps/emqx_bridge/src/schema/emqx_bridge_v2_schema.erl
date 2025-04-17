@@ -668,44 +668,56 @@ fallback_actions_republish_compute(Args0, _HoconOpts) ->
 %% Creates a mapping from Referenced Actions (`{Type :: binary(), Name :: binary()}`) to
 %% lists of Referencing Actions that have it as their Fallback Action.
 fallback_actions_reverse_index_compute(ActionsRootRawConfig, _HoconOpts) ->
-    Index = maps:fold(
-        fun(ReferencingType, NameAndConfs, Acc0) ->
-            maps:fold(
-                fun
-                    (ReferencingName, #{<<"fallback_actions">> := FBAs}, Acc1) ->
-                        lists:foldl(
-                            fun
-                                (
-                                    #{<<"kind">> := reference, <<"type">> := T, <<"name">> := N},
-                                    Acc2
-                                ) ->
-                                    ReferencingAction = #{
-                                        type => bin(ReferencingType),
-                                        name => bin(ReferencingName)
-                                    },
-                                    maps:update_with(
-                                        {bin(T), bin(N)},
-                                        fun(Refs) -> [ReferencingAction | Refs] end,
-                                        [ReferencingAction],
-                                        Acc2
-                                    );
-                                (_, Acc2) ->
-                                    Acc2
-                            end,
-                            Acc1,
-                            FBAs
-                        );
-                    (_Name, _Conf, Acc1) ->
-                        Acc1
-                end,
-                Acc0,
-                NameAndConfs
-            )
+    Index = fold_config(
+        fun
+            (ReferencingType, ReferencingName, #{<<"fallback_actions">> := FBAs}, Acc) ->
+                add_fallback_actions_to_index(ReferencingType, ReferencingName, FBAs, Acc);
+            (_Type, _Name, _Conf, Acc) ->
+                Acc
         end,
         #{},
         ActionsRootRawConfig
     ),
     #{fallback_actions_index => Index}.
+
+add_fallback_actions_to_index(ReferencingType, ReferencingName, FBAs, Index) ->
+    lists:foldl(
+        fun
+            (
+                #{<<"kind">> := reference, <<"type">> := T, <<"name">> := N},
+                Acc
+            ) ->
+                ReferencingAction = #{
+                    type => bin(ReferencingType),
+                    name => bin(ReferencingName)
+                },
+                maps:update_with(
+                    {bin(T), bin(N)},
+                    fun(Refs) -> [ReferencingAction | Refs] end,
+                    [ReferencingAction],
+                    Acc
+                );
+            (_, Acc) ->
+                Acc
+        end,
+        Index,
+        FBAs
+    ).
+
+fold_config(Fn, Acc, RootRawConfig) ->
+    maps:fold(
+        fun(Type, NameAndConfs, Acc0) ->
+            maps:fold(
+                fun(Name, Conf, Acc1) ->
+                    Fn(Type, Name, Conf, Acc1)
+                end,
+                Acc0,
+                NameAndConfs
+            )
+        end,
+        Acc,
+        RootRawConfig
+    ).
 
 bin(X) -> emqx_utils_conv:bin(X).
 
