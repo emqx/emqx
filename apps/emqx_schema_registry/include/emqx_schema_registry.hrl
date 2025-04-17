@@ -26,6 +26,7 @@
 -define(protobuf, protobuf).
 -define(json, json).
 -define(external_http, external_http).
+-define(external_http_bin, <<"external_http">>).
 
 -type schema_name() :: binary().
 -type schema_source() :: binary().

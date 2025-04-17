@@ -862,13 +862,27 @@ t_external_http_serde(_Config) ->
     {ok, Port} = start_external_http_serde_server(),
     SchemaName = <<"my_external_http_serde">>,
     Params = mk_external_http_create_params(#{name => SchemaName, port => Port}),
-    ?assertMatch({201, _}, create_schema(Params)),
+    ?assertMatch(
+        {201, #{
+            <<"parameters">> := #{
+                <<"connect_timeout">> := <<"2s">>,
+                <<"request_timeout">> := <<"1s">>,
+                <<"max_inactive">> := <<"1s">>
+            }
+        }},
+        create_schema(Params)
+    ),
 
     NodeBin = atom_to_binary(node()),
     ?assertMatch(
         {200, #{
             <<"status">> := <<"connected">>,
-            <<"node_status">> := #{NodeBin := <<"connected">>}
+            <<"node_status">> := #{NodeBin := <<"connected">>},
+            <<"parameters">> := #{
+                <<"connect_timeout">> := <<"2s">>,
+                <<"request_timeout">> := <<"1s">>,
+                <<"max_inactive">> := <<"1s">>
+            }
         }},
         get_schema(SchemaName)
     ),
@@ -961,7 +975,16 @@ t_external_http_serde(_Config) ->
     NewParams0 = mk_external_http_create_params(#{name => SchemaName, port => Port, url => NewURL}),
     NewParams = maps:remove(<<"name">>, NewParams0),
     ?assertMatch([_], emqx_resource:list_group_instances(?SCHEMA_REGISTRY_RESOURCE_GROUP)),
-    ?assertMatch({200, _}, update_schema(SchemaName, NewParams)),
+    ?assertMatch(
+        {200, #{
+            <<"parameters">> := #{
+                <<"connect_timeout">> := <<"2s">>,
+                <<"request_timeout">> := <<"1s">>,
+                <<"max_inactive">> := <<"1s">>
+            }
+        }},
+        update_schema(SchemaName, NewParams)
+    ),
     ?assertMatch([_], emqx_resource:list_group_instances(?SCHEMA_REGISTRY_RESOURCE_GROUP)),
     ?assertMatch(
         {200, #{

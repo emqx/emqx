@@ -32,7 +32,10 @@
 -define(TAGS, [<<"Schema Registry">>]).
 -define(BPAPI_NAME, emqx_schema_registry_http_api).
 
--define(IS_TYPE_WITH_RESOURCE(CONFIG), (map_get(type, CONFIG) == ?external_http)).
+-define(IS_TYPE_WITH_RESOURCE(CONFIG),
+    (map_get(<<"type">>, CONFIG) == ?external_http_bin orelse
+        map_get(type, CONFIG) == ?external_http)
+).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -246,8 +249,8 @@ schema("/schema_registry_external/registry/:name") ->
             {error, not_found} ->
                 case emqx_schema_registry:add_schema(Name, Params) of
                     ok ->
-                        {ok, Res} = emqx_schema_registry:get_schema(Name),
-                        {201, Res#{name => Name}};
+                        {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
+                        {201, Res#{<<"name">> => Name}};
                     {error, Error} ->
                         ?BAD_REQUEST(Error)
                 end;
@@ -262,13 +265,13 @@ schema("/schema_registry_external/registry/:name") ->
     end.
 
 '/schema_registry/:name'(get, #{bindings := #{name := Name}}) ->
-    case emqx_schema_registry:get_schema(Name) of
+    case emqx_schema_registry:get_schema_raw_with_defaults(Name) of
         {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
         {ok, Schema} when ?IS_TYPE_WITH_RESOURCE(Schema) ->
             add_resource_info(Name, Schema);
         {ok, Schema} ->
-            ?OK(Schema#{name => Name})
+            ?OK(Schema#{<<"name">> => Name})
     end;
 '/schema_registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
     case emqx_schema_registry:get_schema(Name) of
@@ -277,8 +280,8 @@ schema("/schema_registry_external/registry/:name") ->
         {ok, _} ->
             case emqx_schema_registry:add_schema(Name, Params) of
                 ok ->
-                    {ok, Res} = emqx_schema_registry:get_schema(Name),
-                    ?OK(Res#{name => Name});
+                    {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
+                    ?OK(Res#{<<"name">> => Name});
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
@@ -527,9 +530,9 @@ add_resource_info(Name, SchemaConfig) ->
             NodeStatus = nodes_status(NodeResources),
             Status = aggregate_status(NodeStatus),
             ?OK(SchemaConfig#{
-                name => Name,
-                status => Status,
-                node_status => NodeStatus
+                <<"name">> => Name,
+                <<"status">> => Status,
+                <<"node_status">> => NodeStatus
             });
         {error, NodeErrors} ->
             ?INTERNAL_ERROR(NodeErrors)
@@ -551,7 +554,7 @@ aggregate_status(NodeStatus) ->
     end.
 
 lookup_resource_from_all_nodes(Name, SchemaConfig) ->
-    #{type := Type} = SchemaConfig,
+    #{<<"type">> := Type} = SchemaConfig,
     Nodes = nodes_supporting_bpapi_version(1),
     Results = emqx_schema_registry_http_api_proto_v1:lookup_resource_from_all_nodes(
         Nodes, Type, Name

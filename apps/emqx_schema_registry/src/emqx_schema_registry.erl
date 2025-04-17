@@ -14,6 +14,7 @@
     start_link/0,
     add_schema/2,
     get_schema/1,
+    get_schema_raw_with_defaults/1,
     is_existing_type/1,
     is_existing_type/2,
     delete_schema/1,
@@ -94,6 +95,29 @@ get_schema(SchemaName) ->
             {error, not_found};
         Config ->
             {ok, Config}
+    catch
+        throw:#{reason := ?BAD_SCHEMA_NAME} ->
+            {error, not_found};
+        throw:not_found ->
+            {error, not_found}
+    end.
+
+get_schema_raw_with_defaults(Name) ->
+    try
+        emqx_config:get_raw(
+            [
+                ?CONF_KEY_ROOT_BIN,
+                <<"schemas">>,
+                schema_name_bin_to_atom(Name)
+            ],
+            undefined
+        )
+    of
+        undefined ->
+            {error, not_found};
+        Raw ->
+            RawConfWithDefaults = fill_schema_defaults(Raw),
+            {ok, RawConfWithDefaults}
     catch
         throw:#{reason := ?BAD_SCHEMA_NAME} ->
             {error, not_found};
@@ -307,3 +331,15 @@ schema_name_bin_to_atom(Bin) ->
         error:badarg ->
             throw(not_found)
     end.
+
+fill_schema_defaults(RawConf) ->
+    Name = <<"schema_name">>,
+    RootConf = #{?CONF_KEY_ROOT_BIN => #{<<"schemas">> => #{Name => RawConf}}},
+    #{
+        ?CONF_KEY_ROOT_BIN := #{
+            <<"schemas">> := #{
+                Name := RawConfWithDefaults
+            }
+        }
+    } = emqx_config:fill_defaults(emqx_schema_registry_schema, RootConf, #{}),
+    RawConfWithDefaults.
