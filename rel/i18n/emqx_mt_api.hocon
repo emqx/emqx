@@ -42,7 +42,7 @@ emqx_mt_api {
         label: "Create managed namespace"
     }
     delete_ns {
-        desc: "Delete namespace"
+        desc: "Delete namespace. This will cause all the clients under this namespace to be kicked out asynchronously."
         label: "Delete namespace"
     }
     get_managed_ns_config {
