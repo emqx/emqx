@@ -94,7 +94,6 @@
 ]).
 
 -export([ensure_atom_conf_path/2]).
--export([remove_computed_fields/1]).
 -export([load_config_files/2]).
 -export([upgrade_raw_conf/2]).
 
@@ -956,24 +955,6 @@ put_config_post_change_actions(_Key, _NewValue) ->
 
 config_files() ->
     application:get_env(emqx, config_files, []).
-
-remove_computed_fields(Config) ->
-    do_remove_computed_fields(Config).
-
-do_remove_computed_fields(Config) when is_map(Config) ->
-    maps:filtermap(
-        fun
-            (?COMPUTED, _V) ->
-                false;
-            (_K, V) ->
-                {true, do_remove_computed_fields(V)}
-        end,
-        Config
-    );
-do_remove_computed_fields(Xs) when is_list(Xs) ->
-    lists:map(fun do_remove_computed_fields/1, Xs);
-do_remove_computed_fields(X) ->
-    X.
 
 unsafe_atom_checked_hocon_key_map(Map) ->
     do_unsafe_atom_checked_hocon_key_map(Map).
