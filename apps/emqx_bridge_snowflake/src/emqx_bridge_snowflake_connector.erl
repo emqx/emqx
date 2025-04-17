@@ -350,8 +350,9 @@ insert_report(ActionResId, Opts) ->
 
 connect(Opts) ->
     ConnectStr = conn_str(Opts),
+    ConnectStrWrapped = emqx_secret:wrap(ConnectStr),
     DriverOpts = proplists:get_value(driver_options, Opts, []),
-    odbc:connect(ConnectStr, DriverOpts).
+    odbc:connect(ConnectStrWrapped, DriverOpts).
 
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).

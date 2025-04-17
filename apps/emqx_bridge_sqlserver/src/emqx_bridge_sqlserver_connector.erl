@@ -417,8 +417,9 @@ format_instance_name(Name) ->
 -spec connect(Options :: list()) -> {ok, connection_reference()} | {error, term()}.
 connect(Options) ->
     ConnectStr = lists:concat(conn_str(Options, [])),
+    ConnectStrWrapped = emqx_secret:wrap(ConnectStr),
     Opts = proplists:get_value(options, Options, []),
-    odbc:connect(ConnectStr, Opts).
+    odbc:connect(ConnectStrWrapped, Opts).
 
 -spec disconnect(connection_reference()) -> ok | {error, term()}.
 disconnect(ConnectionPid) ->
