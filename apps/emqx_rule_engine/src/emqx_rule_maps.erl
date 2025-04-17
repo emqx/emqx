@@ -78,29 +78,29 @@ general_find(KeyOrIndex, Data, OrgData, Handler) when is_binary(Data) ->
         _:_ -> Handler(not_found)
     end;
 general_find({key, Key}, Map, _OrgData, Handler) when is_map(Map) ->
-    case maps:find(Key, Map) of
-        {ok, Val} ->
+    case Map of
+        #{Key := Val} ->
             Handler({found, {{key, Key}, Val}});
-        error when is_atom(Key) ->
+        _ when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
             BinKey = atom_to_binary(Key),
-            case maps:find(BinKey, Map) of
-                {ok, Val} -> Handler({equivalent, {{key, BinKey}, Val}});
-                error -> Handler(not_found)
+            case Map of
+                #{BinKey := Val} -> Handler({equivalent, {{key, BinKey}, Val}});
+                #{} -> Handler(not_found)
             end;
-        error when is_binary(Key) ->
+        _ when is_binary(Key) ->
             %% the map may have an equivalent atom-form key
             try
                 AtomKey = list_to_existing_atom(binary_to_list(Key)),
-                case maps:find(AtomKey, Map) of
-                    {ok, Val} -> Handler({equivalent, {{key, AtomKey}, Val}});
-                    error -> Handler(not_found)
+                case Map of
+                    #{AtomKey := Val} -> Handler({equivalent, {{key, AtomKey}, Val}});
+                    #{} -> Handler(not_found)
                 end
             catch
                 error:badarg ->
                     Handler(not_found)
             end;
-        error ->
+        _ ->
             Handler(not_found)
     end;
 general_find({key, _Key}, _Map, _OrgData, Handler) ->
@@ -114,7 +114,7 @@ general_find({index, _}, List, _OrgData, Handler) when not is_list(List) ->
     Handler(not_found).
 
 do_put({key, Key}, Val, Map, _OrgData) when is_map(Map) ->
-    maps:put(Key, Val, Map);
+    Map#{Key => Val};
 do_put({key, Key}, Val, Data, _OrgData) when not is_map(Data) ->
     #{Key => Val};
 do_put({index, {const, Index}}, Val, List, _OrgData) ->
