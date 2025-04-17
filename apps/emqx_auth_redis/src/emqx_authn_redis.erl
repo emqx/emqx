@@ -24,32 +24,28 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
-    case parse_config(Config0) of
-        {error, _} = Res ->
-            Res;
-        {Config, State} ->
-            {ok, _Data} = emqx_authn_utils:create_resource(
+    maybe
+        {ok, Config, State} ?= parse_config(Config0),
+        ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
+        {ok, _} ?=
+            emqx_authn_utils:create_resource(
                 ResourceId,
                 emqx_redis,
                 Config,
                 ?AUTHN_MECHANISM_BIN,
                 ?AUTHN_BACKEND_BIN
             ),
-            {ok, State#{resource_id => ResourceId}}
+        {ok, State#{resource_id => ResourceId}}
     end.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
-    {Config, NState} = parse_config(Config0),
-    case
-        emqx_authn_utils:update_resource(
-            emqx_redis, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
-        )
-    of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, _} ->
-            {ok, NState#{resource_id => ResourceId}}
+    maybe
+        {ok, Config, State} ?= parse_config(Config0),
+        {ok, _} ?=
+            emqx_authn_utils:update_resource(
+                emqx_redis, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State#{resource_id => ResourceId}}
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -124,7 +120,7 @@ parse_config(
             ok = emqx_authn_utils:ensure_apps_started(Algorithm),
             State = maps:with([password_hash_algorithm, salt_position], Config),
             CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-            {Config, State#{cmd => Cmd, cache_key_template => CacheKeyTemplate}};
+            {ok, Config, State#{cmd => Cmd, cache_key_template => CacheKeyTemplate}};
         {error, _} = Error ->
             Error
     end.
