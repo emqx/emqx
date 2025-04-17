@@ -32,7 +32,7 @@
     pid :: pid() | '_' | '$1',
     mod :: module() | '_',
     clientid :: emqx_types:clientid() | '_',
-    vsn :: undefined | integer()
+    vsn :: '_' | integer()
 }).
 
 -endif.
