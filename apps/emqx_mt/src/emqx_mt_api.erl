@@ -163,8 +163,8 @@ schema("/mt/ns/:ns") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete managed namespace">>,
-            description => ?DESC("delete_managed_ns"),
+            summary => <<"Delete namespace">>,
+            description => ?DESC("delete_ns"),
             parameters => [param_path_ns()],
             responses =>
                 #{

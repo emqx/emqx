@@ -145,13 +145,10 @@ handle_kick(State0) ->
         ?ns := Ns,
         ?last_seen_clientid := LastSeenClientId
     } = State0,
-    case emqx_mt_state:list_clients(Ns, LastSeenClientId, ?BATCH_SIZE) of
-        {ok, []} ->
+    case emqx_mt_state:list_clients_no_check(Ns, LastSeenClientId, ?BATCH_SIZE) of
+        [] ->
             {stop, State0};
-        {error, not_found} ->
-            %% Impossible?
-            {stop, State0};
-        {ok, ClientIds} ->
+        [_ | _] = ClientIds ->
             LastClientId = lists:last(ClientIds),
             _ = kick_clients(ClientIds),
             start_kick_timer(),

@@ -467,6 +467,62 @@ t_managed_namespaces_crud(_Config) ->
 
     ok.
 
+%% Checks that we can delete implicit namespace (`?NS_TAB`) entries when calling the
+%% endpoint for deleting managed namespaces (originally meant only for them).
+t_delete_implicit_namespaces(_Config) ->
+    %% Sanity checks
+    ?assertMatch({200, []}, list_managed_nss(#{})),
+    ?assertMatch({200, []}, list_nss(#{})),
+
+    Ns1 = <<"ns1">>,
+    ?assertMatch({204, _}, delete_managed_ns(Ns1)),
+
+    %% Create implicit NS
+    ClientId1 = ?NEW_CLIENTID(1),
+    {Pid1, {ok, _}} =
+        ?wait_async_action(
+            connect(ClientId1, Ns1),
+            #{?snk_kind := multi_tenant_client_added}
+        ),
+    ?assertMatch({200, []}, list_managed_nss(#{})),
+    ?assertMatch({200, [_]}, list_nss(#{})),
+
+    %% Delete implicit NS.  Should kick client as a side-effect.
+    ?assertMatch({204, _}, delete_managed_ns(Ns1)),
+    receive
+        {'DOWN', _, process, Pid1, _} ->
+            ok
+    after 1_000 -> ct:fail("~b: client ~p didn't get kicked", [?LINE, Pid1])
+    end,
+    ?assertMatch({200, []}, list_managed_nss(#{})),
+    ?assertMatch({200, []}, list_nss(#{})),
+
+    %% Create managed NS
+    ct:pal("waiting for kicker to shut down"),
+    ?retry(250, 10, ?assertMatch({error, not_found}, emqx_mt_client_kicker:whereis_kicker(Ns1))),
+    ?assertMatch({204, _}, create_managed_ns(Ns1)),
+
+    ClientId2 = ?NEW_CLIENTID(2),
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(ClientId2, Ns1),
+            #{?snk_kind := multi_tenant_client_added}
+        ),
+    ?assertMatch({200, [_]}, list_managed_nss(#{})),
+    ?assertMatch({200, [_]}, list_nss(#{})),
+
+    %% Delete implicit NS.  Should kick client as a side-effect.
+    ?assertMatch({204, _}, delete_managed_ns(Ns1)),
+    receive
+        {'DOWN', _, process, Pid2, _} ->
+            ok
+    after 1_000 -> ct:fail("~b: client ~p didn't get kicked", [?LINE, Pid1])
+    end,
+    ?assertMatch({200, []}, list_managed_nss(#{})),
+    ?assertMatch({200, []}, list_nss(#{})),
+
+    ok.
+
 %% Checks that managedly declared namespaces use their own maximum session count instead
 %% of global defaults.
 t_session_limit_exceeded(_Config) ->
