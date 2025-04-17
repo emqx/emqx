@@ -325,7 +325,7 @@ select_and_collect(Fields, Columns) ->
 
 select_and_collect([{as, Field, {_, A} = Alias}], Columns, {Action, _}) ->
     Val = eval(Field, [Action, Columns]),
-    {nested_put(Alias, Val, Action), {A, ensure_list(Val)}};
+    {nested_put(Alias, Val, Action), {A, ensure_list(Field, Val)}};
 select_and_collect([{as, Field, Alias} | More], Columns, {Action, LastKV}) ->
     Val = eval(Field, [Action, Columns]),
     select_and_collect(
@@ -336,7 +336,7 @@ select_and_collect([{as, Field, Alias} | More], Columns, {Action, LastKV}) ->
 select_and_collect([Field], Columns, {Action, _}) ->
     Val = eval(Field, [Action, Columns]),
     Key = alias(Field, Columns),
-    {nested_put(Key, Val, Action), {'item', ensure_list(Val)}};
+    {nested_put(Key, Val, Action), {'item', ensure_list(Field, Val)}};
 select_and_collect([Field | More], Columns, {Action, LastKV}) ->
     Val = eval(Field, [Action, Columns]),
     Key = alias(Field, Columns),
@@ -785,6 +785,11 @@ safe_decode_and_cache(MaybeJson) ->
     catch
         _:_ -> error({decode_json_failed, MaybeJson})
     end.
+
+ensure_list({var, <<"payload">>}, Payload) ->
+    ensure_list(maybe_decode_payload(Payload));
+ensure_list(_, Any) ->
+    ensure_list(Any).
 
 ensure_list(List) when is_list(List) -> List;
 ensure_list(_NotList) -> [].
