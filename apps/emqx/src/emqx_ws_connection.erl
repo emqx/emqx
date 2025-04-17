@@ -264,6 +264,7 @@ websocket_init([Req, Opts]) ->
                 peercert => PeerCert,
                 peersni => PeerSNI,
                 ws_cookie => WsCookie,
+                trpt_started_at => erlang:system_time(millisecond),
                 conn_mod => ?MODULE
             },
             MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),

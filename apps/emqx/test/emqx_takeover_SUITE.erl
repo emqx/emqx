@@ -21,13 +21,21 @@
 
 all() ->
     [
-        {group, persistence_disabled},
-        {group, persistence_enabled}
+        {group, lcr_off},
+        {group, lcr}
     ].
 
 groups() ->
     MQTTGroups = [{group, G} || G <- [mqttv3, mqttv5]],
     [
+        {lcr, [
+            {group, persistence_enabled},
+            {group, persistence_disabled}
+        ]},
+        {lcr_off, [
+            {group, persistence_enabled},
+            {group, persistence_disabled}
+        ]},
         {persistence_enabled, MQTTGroups},
         {persistence_disabled, MQTTGroups},
         {mqttv3, [], emqx_common_test_helpers:all(?MODULE) -- tc_v5_only()},
@@ -56,6 +64,10 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(lcr, Config) ->
+    [{lcr, true} | proplists:delete(lcr, Config)];
+init_per_group(lcr_off, Config) ->
+    [{lcr, false} | proplists:delete(lcr, Config)];
 init_per_group(persistence_enabled = Group, Config) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
@@ -70,7 +82,7 @@ init_per_group(persistence_enabled = Group, Config) ->
         start_emqx_conf => false,
         work_dir => emqx_cth_suite:work_dir(Group, Config)
     },
-    emqx_config:put([broker, enable_linear_channel_registry], true),
+    emqx_config:put([broker, enable_linear_channel_registry], ?config(lcr, Config)),
     [
         {persistence_enabled, true}
         | emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts)
@@ -80,7 +92,7 @@ init_per_group(persistence_disabled = Group, Config) ->
         [{emqx, "durable_sessions.enable = false"}],
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
-    emqx_config:put([broker, enable_linear_channel_registry], true),
+    emqx_config:put([broker, enable_linear_channel_registry], ?config(lcr, Config)),
     [
         {apps, Apps},
         {persistence_enabled, false}
