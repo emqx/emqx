@@ -9,6 +9,7 @@
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("hocon/include/hocon.hrl").
 
 -export([
     init_load/1,
@@ -470,7 +471,7 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
-    {AppEnvs, emqx_utils_maps:unsafe_atom_key_map(CheckedConf)}.
+    {AppEnvs, unsafe_atom_checked_hocon_key_map(CheckedConf)}.
 
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
@@ -934,3 +935,25 @@ put_config_post_change_actions(_Key, _OldValue, _NewValue) ->
 
 config_files() ->
     application:get_env(emqx, config_files, []).
+
+unsafe_atom_checked_hocon_key_map(Map) ->
+    do_unsafe_atom_checked_hocon_key_map(Map).
+
+do_unsafe_atom_checked_hocon_key_map(Map) when is_map(Map) ->
+    maps:fold(
+        fun
+            (?COMPUTED = K, V, Acc) ->
+                %% Do not enter computed values
+                Acc#{K => V};
+            (K, V, Acc) when is_atom(K) ->
+                Acc#{K => do_unsafe_atom_checked_hocon_key_map(V)};
+            (K, V, Acc) when is_binary(K) ->
+                Acc#{binary_to_atom(K, utf8) => do_unsafe_atom_checked_hocon_key_map(V)}
+        end,
+        #{},
+        Map
+    );
+do_unsafe_atom_checked_hocon_key_map(List) when is_list(List) ->
+    lists:map(fun do_unsafe_atom_checked_hocon_key_map/1, List);
+do_unsafe_atom_checked_hocon_key_map(X) ->
+    X.

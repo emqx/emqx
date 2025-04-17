@@ -358,7 +358,7 @@ find_req_apispec(#{module := Module, path := Path, method := Method}) ->
     Spec.
 
 check_and_translate(Schema, Map, Opts) ->
-    hocon_tconf:check_plain(Schema, Map, Opts).
+    hocon_tconf:check_plain(Schema, Map, Opts#{computed_fields => false}).
 
 check_only(Schema, Map, Opts) ->
     _ = hocon_tconf:check_plain(Schema, Map, Opts),

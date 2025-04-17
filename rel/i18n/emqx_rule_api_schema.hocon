@@ -330,6 +330,26 @@ ri_last_modified_at.desc:
 ri_last_modified_at.label:
 """Rule Last Modified Time"""
 
+ri_action_details.desc:
+"""Details about the referenced Actions."""
+ri_action_details.label:
+"""Action Details"""
+
+ri_action_details_type.desc:
+"""Type of the referenced Action."""
+ri_action_details_type.label:
+"""Type"""
+
+ri_action_details_name.desc:
+"""Name of the referenced Action."""
+ri_action_details_name.label:
+"""Name"""
+
+ri_action_details_status.desc:
+"""Status of the referenced Action."""
+ri_action_details_status.label:
+"""Status"""
+
 event_dup.desc:
 """The DUP flag of the MQTT message"""
 

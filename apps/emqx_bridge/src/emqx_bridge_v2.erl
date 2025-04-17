@@ -13,6 +13,7 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("hocon/include/hocon.hrl").
 
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
@@ -180,15 +181,18 @@ load() ->
 
 load_bridges(RootName) ->
     Bridges = emqx:get_config([RootName], #{}),
-    _ = emqx_utils:pmap(
-        fun({Type, Bridge}) ->
-            emqx_utils:pmap(
-                fun({Name, BridgeConf}) ->
-                    install_bridge_v2(RootName, Type, Name, BridgeConf)
-                end,
-                maps:to_list(Bridge),
-                infinity
-            )
+    emqx_utils:pforeach(
+        fun
+            ({?COMPUTED, _}) ->
+                ok;
+            ({Type, Bridge}) ->
+                emqx_utils:pmap(
+                    fun({Name, BridgeConf}) ->
+                        install_bridge_v2(RootName, Type, Name, BridgeConf)
+                    end,
+                    maps:to_list(Bridge),
+                    infinity
+                )
         end,
         maps:to_list(Bridges),
         infinity
@@ -205,15 +209,18 @@ unload() ->
 
 unload_bridges(ConfRootKey) ->
     Bridges = emqx:get_config([ConfRootKey], #{}),
-    _ = emqx_utils:pmap(
-        fun({Type, Bridge}) ->
-            emqx_utils:pmap(
-                fun({Name, BridgeConf}) ->
-                    uninstall_bridge_v2(ConfRootKey, Type, Name, BridgeConf)
-                end,
-                maps:to_list(Bridge),
-                infinity
-            )
+    emqx_utils:pforeach(
+        fun
+            ({?COMPUTED, _}) ->
+                ok;
+            ({Type, Bridge}) ->
+                emqx_utils:pmap(
+                    fun({Name, BridgeConf}) ->
+                        uninstall_bridge_v2(ConfRootKey, Type, Name, BridgeConf)
+                    end,
+                    maps:to_list(Bridge),
+                    infinity
+                )
         end,
         maps:to_list(Bridges),
         infinity
@@ -837,7 +844,8 @@ create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawCo
                 emqx_bridge_v2_schema,
                 #{make_serializable => false}
             ),
-            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2Conf0),
+            BridgeV2Conf1 = maps:remove(?COMPUTED, BridgeV2Conf0),
+            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2Conf1),
             AugmentedConf = augment_channel_config(
                 ConfRootKey,
                 BridgeV2Type,
@@ -890,13 +898,16 @@ load_message_publish_hook() ->
 
 load_message_publish_hook(Bridges) ->
     lists:foreach(
-        fun({Type, Bridge}) ->
-            lists:foreach(
-                fun({_Name, BridgeConf}) ->
-                    do_load_message_publish_hook(Type, BridgeConf)
-                end,
-                maps:to_list(Bridge)
-            )
+        fun
+            ({?COMPUTED, _}) ->
+                ok;
+            ({Type, Bridge}) ->
+                lists:foreach(
+                    fun({_Name, BridgeConf}) ->
+                        do_load_message_publish_hook(Type, BridgeConf)
+                    end,
+                    maps:to_list(Bridge)
+                )
         end,
         maps:to_list(Bridges)
     ).
@@ -951,14 +962,17 @@ send_to_matched_egress_bridges(Topic, Msg) ->
 get_matched_egress_bridges(Topic) ->
     Bridges = emqx:get_config([?ROOT_KEY_ACTIONS], #{}),
     maps:fold(
-        fun(BType, Conf, Acc0) ->
-            maps:fold(
-                fun(BName, BConf, Acc1) ->
-                    get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
-                end,
-                Acc0,
-                Conf
-            )
+        fun
+            (?COMPUTED, _, Acc) ->
+                Acc;
+            (BType, Conf, Acc0) ->
+                maps:fold(
+                    fun(BName, BConf, Acc1) ->
+                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
+                    end,
+                    Acc0,
+                    Conf
+                )
         end,
         [],
         Bridges
