@@ -577,12 +577,13 @@ open_session_in_lcr(
 ) ->
     Predecessor = emqx_linear_channel_registry:max_channel_d(ClientId),
     ClientInfo1 = ClientInfo0#{predecessor => Predecessor},
+    Retries = 3,
     case
         do_open_session_in_lcr(
             ClientInfo1,
             Channel#channel.conninfo,
             Channel#channel.will_msg,
-            _Retries = 3
+            Retries
         )
     of
         {ok, #{session := Session, present := false}} ->
