@@ -41,7 +41,7 @@ do_apply_rule(
             case emqx_topic:match_any(InTopic, EventTopics) of
                 true ->
                     do_apply_matched_rule(
-                        Rule,
+                        #{rule => Rule, trigger => InTopic, matched => join(EventTopics)},
                         Context,
                         StopAfterRender,
                         EventTopics
@@ -53,19 +53,24 @@ do_apply_rule(
             case lists:member(InTopic, EventTopics) of
                 true ->
                     %% the rule is for both publish and events, test it directly
-                    do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics);
+                    do_apply_matched_rule(
+                        #{rule => Rule, trigger => InTopic, matched => join(EventTopics)},
+                        Context,
+                        StopAfterRender,
+                        EventTopics
+                    );
                 false ->
                     {error, nomatch}
             end
     end.
 
-do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
+do_apply_matched_rule(RichedRule, Context, StopAfterRender, EventTopics) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         update_process_trace_metadata(StopAfterRender),
         FullContext0 = fill_default_values(hd(EventTopics), Context),
         FullContext = remove_internal_fields(FullContext0),
-        emqx_rule_runtime:apply_rule(#{rule => Rule}, FullContext, apply_rule_environment())
+        emqx_rule_runtime:apply_rule(RichedRule, FullContext, apply_rule_environment())
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -232,3 +237,8 @@ maybe_infer_in_topic(Context, 'message.publish') ->
     maps:get(topic, Context, <<>>);
 maybe_infer_in_topic(_Context, Event) ->
     emqx_rule_events:event_topic(Event).
+
+join(BinaryTF) when is_binary(BinaryTF) ->
+    BinaryTF;
+join(Words) when is_list(Words) ->
+    emqx_topic:join(Words).
