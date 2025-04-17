@@ -31,7 +31,8 @@
 -record(chan_conn, {
     pid :: pid() | '_' | '$1',
     mod :: module() | '_',
-    clientid :: emqx_types:clientid() | '_'
+    clientid :: emqx_types:clientid() | '_',
+    vsn :: undefined | integer()
 }).
 
 -endif.

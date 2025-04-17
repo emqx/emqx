@@ -33,7 +33,9 @@
     is_enabled/0,
     lookup_channels_d/1,
     max_channel_d/1,
-    register_channel/3
+    register_channel/3,
+    unregister_channel/2,
+    count_local_d/0
 ]).
 
 %% getters
@@ -73,33 +75,6 @@ is_enabled() ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
-    Res = mria:transaction(
-        ?LCR_SHARD,
-        fun() ->
-            %% Read from source of truth
-            OtherChannels = mnesia:read(?LCR_TAB, ClientId, write),
-            case max_channel(OtherChannels) of
-                #lcr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
-                    mnesia:abort(channel_outdated);
-                %% @NOTE: include `undefined'
-                CachedMax ->
-                    %% took over or discarded the correct version
-                    mnesia:write(?LCR_TAB, Ch, write),
-                    ok;
-                #lcr_channel{} = NewerChannel ->
-                    %% Takeover from wrong session, abort and restart
-                    mnesia:abort({restart_takeover, NewerChannel, CachedMax, MyVsn})
-            end
-        end
-    ),
-    case Res of
-        {atomic, ok} ->
-            ok;
-        {aborted, Reason} ->
-            {error, Reason}
-    end.
-
 register_channel(
     #{clientid := ClientId, predecessor := CachedMax},
     Pid,
@@ -111,7 +86,17 @@ register_channel(
         vsn = TsMs,
         prop = undefined
     },
-    register_channel(Ch, CachedMax).
+    do_register_channel(Ch, CachedMax).
+
+unregister_channel({ClientId, ChanPid}, Vsn) ->
+    Ch = #lcr_channel{
+        id = ClientId,
+        pid = ChanPid,
+        vsn = Vsn,
+        prop = undefined
+    },
+    mria:dirty_delete_object(?LCR_TAB, Ch),
+    ok.
 
 lookup_channels_d(ClientId) ->
     mnesia:dirty_read(?LCR_TAB, ClientId).
@@ -142,6 +127,14 @@ ch_pid(undefined) ->
     undefined;
 ch_pid(#lcr_channel{pid = Pid}) ->
     Pid.
+
+count_local_d() ->
+    try
+        ets:info(?LCR_TAB, size)
+    catch
+        error:badarg ->
+            0
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -198,3 +191,33 @@ code_change(_OldVsn, State, _Extra) ->
 cleanup_channels(_) ->
     %% @TODO maybe not needed to handle here
     ok.
+
+%% Internals
+do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
+    Res = mria:transaction(
+        ?LCR_SHARD,
+        fun() ->
+            %% Read from source of truth
+            OtherChannels = mnesia:read(?LCR_TAB, ClientId, write),
+            case max_channel(OtherChannels) of
+                #lcr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
+                    mnesia:abort(channel_outdated);
+                undefined ->
+                    mnesia:write(?LCR_TAB, Ch, write),
+                    ok;
+                CachedMax ->
+                    %% took over or discarded the correct version
+                    mnesia:write(?LCR_TAB, Ch, write),
+                    ok;
+                #lcr_channel{} = NewerChannel ->
+                    %% Takeover from wrong session, abort and restart
+                    mnesia:abort({restart_takeover, NewerChannel, CachedMax, MyVsn})
+            end
+        end
+    ),
+    case Res of
+        {atomic, ok} ->
+            ok;
+        {aborted, Reason} ->
+            {error, Reason}
+    end.

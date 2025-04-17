@@ -37,6 +37,8 @@
     do_cleanup_channels/1
 ]).
 
+-export([count_local_d/0]).
+
 -include("emqx.hrl").
 -include("emqx_cm.hrl").
 -include("logger.hrl").
@@ -53,6 +55,13 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+count_local_d() ->
+    try
+        ets:info(?CHAN_REG_TAB, size)
+    catch
+        error:badarg ->
+            0
+    end.
 
 %% @doc Is the global registry enabled?
 -spec is_enabled() -> boolean().
