@@ -1494,7 +1494,7 @@ handle_call(
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
     Interval = interval(expire_takeover, Channel),
     NChannel = reset_timer(expire_session, Interval, Channel),
-    ok = emqx_cm:unregister_channel(ClientId),
+    ok = emqx_cm:unregister_channel(ClientId, self()),
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},

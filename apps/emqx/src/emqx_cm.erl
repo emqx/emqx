@@ -102,6 +102,9 @@
     do_get_chann_conn_mod/2
 ]).
 
+%% for mgmt
+-export([global_chan_cnt/0]).
+
 -export_type([
     channel_info/0,
     chan_pid/0
@@ -174,10 +177,10 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
 %% the conn_mod first for taking up the clientid access right.
 %%
 %% Note that: It should be called on a lock transaction
-register_channel(#{clientid := ClientId} = ClientInfo, ChanPid, ConnInfo) ->
+register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid, ConnInfo) ->
     case emqx_linear_channel_registry:register_channel(ClientInfo, ChanPid, ConnInfo) of
         ok ->
-            local_register_channel(ClientId, ChanPid, ConnInfo);
+            register_channel_local(ClientId, ChanPid, ConnInfo);
         {error, _} = Err ->
             Err
     end;
@@ -186,13 +189,15 @@ register_channel(ClientId, ChanPid, ConnInfo) when
 ->
     Chan = {ClientId, ChanPid},
     ok = emqx_cm_registry:register_channel(Chan),
-    local_register_channel(ClientId, ChanPid, ConnInfo).
+    register_channel_local(ClientId, ChanPid, ConnInfo).
 
-local_register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
+register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at := Vsn}) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
 ->
     Chan = {ClientId, ChanPid},
-    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{pid = ChanPid, mod = ConnMod, clientid = ClientId}),
+    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{
+        pid = ChanPid, mod = ConnMod, clientid = ClientId, vsn = Vsn
+    }),
     %% cast (for process monitor) after inserting the conn table
     ok = cast({registered, ChanPid}),
     true = ets:insert(?CHAN_TAB, Chan),
@@ -206,15 +211,36 @@ unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
 
 -spec unregister_channel(emqx_types:clientid(), pid()) -> ok.
 unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
-    do_unregister_channel({ClientId, ChanPid}).
+    %% @TODO this local get could be removed if caller the provides the vsn
+    try ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.vsn) of
+        Vsn ->
+            do_unregister_channel({ClientId, ChanPid}, Vsn)
+    catch
+        error:badarg ->
+            ok
+    end.
 
 %% @private
-do_unregister_channel({_ClientId, ChanPid} = Chan) ->
-    ok = emqx_cm_registry:unregister_channel(Chan),
+do_unregister_channel(Chan) ->
+    _ = emqx_cm_registry:unregister_channel(Chan),
+    do_unregister_channel_local(Chan).
+
+do_unregister_channel(Chan, Vsn) ->
+    _ = do_unregister_channel_global(Chan, Vsn),
+    do_unregister_channel_local(Chan).
+
+do_unregister_channel_local({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, ChanPid),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
     ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]).
+
+%% @doc cluster wide global channel unregistration
+do_unregister_channel_global(Chan, Vsn) ->
+    emqx_cm_registry:is_enabled() andalso
+        emqx_cm_registry:unregister_channel(Chan),
+    emqx_linear_channel_registry:is_enabled() andalso
+        emqx_linear_channel_registry:unregister_channel(Chan, Vsn).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
@@ -279,6 +305,14 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
         ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})
     catch
         error:badarg -> false
+    end.
+
+global_chan_cnt() ->
+    case emqx_linear_channel_registry:is_enabled() of
+        true ->
+            emqx_linear_channel_registry:count_local_d();
+        false ->
+            emqx_cm_registry:count_local_d()
     end.
 
 %% @doc Open a session.
