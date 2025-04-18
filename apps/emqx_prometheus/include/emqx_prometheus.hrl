@@ -6,34 +6,25 @@
 -define(PROMETHEUS, [prometheus]).
 
 -define(PROMETHEUS_DEFAULT_REGISTRY, default).
+%% See `emqx_prometheus_auth`.
 -define(PROMETHEUS_AUTH_REGISTRY, '/prometheus/auth').
--define(PROMETHEUS_AUTH_COLLECTOR, emqx_prometheus_auth).
+%% See `emqx_prometheus_data_integration`.
 -define(PROMETHEUS_DATA_INTEGRATION_REGISTRY, '/prometheus/data_integration').
--define(PROMETHEUS_DATA_INTEGRATION_COLLECTOR, emqx_prometheus_data_integration).
+%% See `emqx_prometheus_schema_validation`.
 -define(PROMETHEUS_SCHEMA_VALIDATION_REGISTRY, '/prometheus/schema_validation').
--define(PROMETHEUS_SCHEMA_VALIDATION_COLLECTOR, emqx_prometheus_schema_validation).
+%% See `emqx_prometheus_message_transformation`.
 -define(PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY, '/prometheus/message_transformation').
--define(PROMETHEUS_MESSAGE_TRANSFORMATION_COLLECTOR, emqx_prometheus_message_transformation).
+%% See `emqx_prometheus_ds_builtin_raft`.
+-define(PROMETHEUS_DSRAFT_REGISTRY, '/prometheus/ds_builtin_raft').
 
--if(?EMQX_RELEASE_EDITION == ee).
--define(PROMETHEUS_EE_REGISTRIES, [
+-define(PROMETHEUS_ALL_REGISTRIES, [
+    ?PROMETHEUS_DEFAULT_REGISTRY,
+    ?PROMETHEUS_AUTH_REGISTRY,
+    ?PROMETHEUS_DATA_INTEGRATION_REGISTRY,
     ?PROMETHEUS_SCHEMA_VALIDATION_REGISTRY,
-    ?PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY
+    ?PROMETHEUS_MESSAGE_TRANSFORMATION_REGISTRY,
+    ?PROMETHEUS_DSRAFT_REGISTRY
 ]).
-%% ELSE if(?EMQX_RELEASE_EDITION == ee).
--else.
--define(PROMETHEUS_EE_REGISTRIES, []).
-%% END if(?EMQX_RELEASE_EDITION == ee).
--endif.
-
--define(PROMETHEUS_ALL_REGISTRIES,
-    ?PROMETHEUS_EE_REGISTRIES ++
-        [
-            ?PROMETHEUS_DEFAULT_REGISTRY,
-            ?PROMETHEUS_AUTH_REGISTRY,
-            ?PROMETHEUS_DATA_INTEGRATION_REGISTRY
-        ]
-).
 
 -define(PROM_DATA_MODE__NODE, node).
 -define(PROM_DATA_MODE__ALL_NODES_AGGREGATED, all_nodes_aggregated).

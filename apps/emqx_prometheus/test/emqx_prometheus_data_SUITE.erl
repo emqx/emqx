@@ -97,15 +97,6 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    meck:new(emqx_retainer, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_retainer, retained_count, fun() -> 0 end),
-    meck:expect(
-        emqx_authz_file,
-        acl_conf_file,
-        fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
-        end
-    ),
     ok = emqx_prometheus_SUITE:maybe_meck_license(),
     emqx_prometheus_SUITE:start_mock_pushgateway(9091),
 
@@ -137,7 +128,6 @@ init_per_suite(Config) ->
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    meck:unload([emqx_retainer]),
     emqx_prometheus_SUITE:maybe_unmeck_license(),
     emqx_prometheus_SUITE:stop_mock_pushgateway(),
     emqx_cth_suite:stop(?config(apps, Config)),
@@ -169,27 +159,9 @@ init_per_group(_Group, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-init_per_testcase(t_collect_prom_data, Config) ->
-    meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_utils, gen_id, fun() -> "fake" end),
-
-    meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(
-        emqx,
-        data_dir,
-        fun() ->
-            {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
-            Data
-        end
-    ),
-    Config;
 init_per_testcase(_, Config) ->
     Config.
 
-end_per_testcase(t_collect_prom_data, _Config) ->
-    meck:unload(emqx_utils),
-    meck:unload(emqx),
-    ok;
 end_per_testcase(_, _Config) ->
     ok.
 

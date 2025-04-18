@@ -205,6 +205,7 @@ audit_log_conf() ->
 tr_prometheus_collectors(Conf) ->
     [
         {'/prometheus/schema_validation', emqx_prometheus_schema_validation},
-        {'/prometheus/message_transformation', emqx_prometheus_message_transformation}
+        {'/prometheus/message_transformation', emqx_prometheus_message_transformation},
+        {'/prometheus/ds_builtin_raft', emqx_prometheus_ds_builtin_raft}
         | emqx_conf_schema:tr_prometheus_collectors(Conf)
     ].
