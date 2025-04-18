@@ -155,7 +155,7 @@ trie_create(UserOpts) ->
                 StaticKeySize = 16,
                 true
         end,
-    Trie = ets:new(trie, [{keypos, #trans.key}, set, public]),
+    Trie = ets:new(trie, [{keypos, #trans.key}, set, public, {read_concurrency, true}]),
     Stats = ets:new(stats, [{keypos, 1}, set, public]),
     #trie{
         persist = Persist,

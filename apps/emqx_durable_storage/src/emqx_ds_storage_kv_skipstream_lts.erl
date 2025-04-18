@@ -72,8 +72,6 @@
     #{
         %% Number of index key bytes allocated for the hash of topic level.
         wildcard_hash_bytes := pos_integer(),
-        %% Number of data / index key bytes allocated for the static topic index.
-        topic_index_bytes := pos_integer(),
         serialization_schema := emqx_ds_msg_serializer:schema(),
         with_guid := boolean(),
         lts_threshold_spec => emqx_ds_lts:threshold_spec()
@@ -164,9 +162,10 @@ open(
             data_cf => DataCF,
             trie => Trie,
             serialization_schema => SSchema,
-            %% Byte size of md5 hash:
-            stream_key_size => 16,
-            get_topic => fun({Topic, _}) -> Topic end,
+            get_topic => fun(StreamKey, _Val) ->
+                {ok, Varying} = 'DurableBlob':decode('Topic', StreamKey),
+                Varying
+            end,
             wildcard_hash_bytes => WCBytes
         }
     ),
@@ -212,7 +211,7 @@ cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, Value0} 
             _ when is_binary(Value0) ->
                 Value0
         end,
-    Bin = emqx_ds_msg_serializer:serialize(SSchema, {Varying, Value}),
+    Bin = emqx_ds_msg_serializer:serialize(SSchema, Value),
     cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, Bin) | Acc]).
 
 cook_blob_deletes(DBShard, S, Topics, Acc0) ->
@@ -278,7 +277,7 @@ commit_batch(
         %% Commit payloads:
         lists:foreach(
             fun(?cooked_msg_op(Static, Varying, Op)) ->
-                StreamKey = hash_topic_levels(Varying),
+                StreamKey = stream_key(Varying),
                 case Op of
                     Payload when is_binary(Payload) ->
                         emqx_ds_gen_skipstream_lts:batch_put(
@@ -356,7 +355,7 @@ make_iterator(
     }}.
 
 next(_DBShard, #s{gs = GS}, ItSeed, BatchSize, _, _) ->
-    Fun = fun(TopicStructure, DSKey, Varying, {_, Val}, Acc) ->
+    Fun = fun(TopicStructure, DSKey, Varying, Val, Acc) ->
         Topic = emqx_ds_lts:decompress_topic(TopicStructure, Varying),
         [{DSKey, {Topic, Val}} | Acc]
     end,
@@ -378,8 +377,8 @@ lookup_message(
 ) ->
     maybe
         {ok, {Static, Varying}} ?= emqx_ds_lts:lookup_topic_key(Trie, Topic),
-        StreamKey = hash_topic_levels(Varying),
-        {ok, _DSKey, {_, Value}} ?=
+        StreamKey = stream_key(Varying),
+        {ok, _DSKey, Value} ?=
             emqx_ds_gen_skipstream_lts:lookup_message(GS, Static, StreamKey),
         {ok, {Topic, Value}}
     end.
@@ -402,8 +401,9 @@ get_streams(Trie, TopicFilter) ->
 
 %%%%%%%% Keys %%%%%%%%%%
 
-hash_topic_levels(Varying) ->
-    erlang:md5(Varying).
+stream_key(Varying) ->
+    {ok, StreamKey} = 'DurableBlob':encode('Topic', Varying),
+    StreamKey.
 
 %%%%%%%% Column families %%%%%%%%%%
 

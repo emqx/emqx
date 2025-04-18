@@ -31,7 +31,12 @@
     message_match_context/5,
     iterator_match_context/3,
 
-    batch_events/3
+    batch_events/3,
+
+    stream_to_asn1/1,
+    asn1_to_stream/1,
+    iterator_to_asn1/1,
+    asn1_to_iterator/1
 ]).
 
 %% internal exports:
@@ -46,6 +51,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
 -include("emqx_ds_metrics.hrl").
+-include("../gen_src/DurableBlob.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -532,6 +538,26 @@ lookup_message(
         undefined ->
             undefined
     end.
+
+stream_to_asn1(#stream{static_index = Static}) ->
+    {skipstreamLtsV1, Static}.
+
+asn1_to_stream({skipstreamLtsV1, Static}) ->
+    #stream{static_index = Static}.
+
+iterator_to_asn1(#it{static_index = Static, last_key = LSK, compressed_tf = CTF}) ->
+    {skipstreamLtsV1, #'ItSkipstreamV1'{
+        static = Static,
+        lastKey = LSK,
+        compressedTf = CTF
+    }}.
+
+asn1_to_iterator(#'ItSkipstreamV1'{static = Static, lastKey = LSK, compressedTf = CTF}) ->
+    #it{
+        static_index = Static,
+        last_key = LSK,
+        compressed_tf = CTF
+    }.
 
 %%================================================================================
 %% Internal exports

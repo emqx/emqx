@@ -37,7 +37,12 @@
     shard_of/2,
     shard_of_operation/4,
     flush_buffer/4,
-    init_buffer/3
+    init_buffer/3,
+
+    stream_to_binary/2,
+    binary_to_stream/2,
+    iterator_to_binary/2,
+    binary_to_iterator/2
 ]).
 
 %% internal exports:
@@ -509,6 +514,24 @@ foreach_shard(DB, Fun) ->
 -spec current_timestamp(emqx_ds:db(), shard_id()) -> emqx_ds:time().
 current_timestamp(DB, Shard) ->
     emqx_ds_builtin_raft_sup:get_gvar(DB, ?gv_timestamp(Shard), 0).
+
+stream_to_binary(DB, ?stream_v2(Shard, Inner)) ->
+    emqx_ds_storage_layer:stream_to_binary(DB, Shard, Inner).
+
+binary_to_stream(DB, Bin) ->
+    maybe
+        {Shard, Inner} ?= emqx_ds_storage_layer:binary_to_stream(DB, Bin),
+        {ok, ?stream_v2(Shard, Inner)}
+    end.
+
+iterator_to_binary(DB, #{?tag := ?IT, ?shard := Shard, ?enc := Inner}) ->
+    emqx_ds_storage_layer:iterator_to_binary(DB, Shard, Inner).
+
+binary_to_iterator(DB, Bin) ->
+    maybe
+        {Shard, Inner} ?= emqx_ds_storage_layer:binary_to_iterator(DB, Bin),
+        {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Inner}}
+    end.
 
 %%================================================================================
 %% emqx_ds_buffer callbacks

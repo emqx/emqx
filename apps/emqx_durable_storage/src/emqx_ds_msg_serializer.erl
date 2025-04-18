@@ -59,7 +59,7 @@ serialize(v1, Msg) ->
 serialize(asn1, Msg) ->
     serialize_asn1(Msg);
 serialize(blob, Blob) ->
-    serialize_blob(Blob).
+    Blob.
 
 -spec deserialize(schema(), binary()) -> tuple().
 deserialize(v1, Blob) ->
@@ -67,7 +67,7 @@ deserialize(v1, Blob) ->
 deserialize(asn1, Blob) ->
     deserialize_asn1(Blob);
 deserialize(blob, Blob) ->
-    deserialize_blob(Blob).
+    Blob.
 
 %%================================================================================
 %% Internal functions
@@ -109,24 +109,6 @@ value_v1_to_message({Id, Qos, From, Flags, Headers, Topic, Payload, Timestamp, E
         timestamp = Timestamp,
         extra = Extra
     }.
-
-%%--------------------------------------------------------------------------------
-%% Blob encoding
-%%--------------------------------------------------------------------------------
-
-serialize_blob({Topic, Payload}) ->
-    {ok, Bin} = 'DurableBlob':encode('DurableBlob', #'DurableBlob'{
-        topic = Topic,
-        payload = Payload
-    }),
-    Bin.
-
-deserialize_blob(Bin) ->
-    {ok, #'DurableBlob'{
-        topic = Topic,
-        payload = Payload
-    }} = 'DurableBlob':decode('DurableBlob', Bin),
-    {Topic, Payload}.
 
 %%--------------------------------------------------------------------------------
 %% Message encoding based on ASN1.

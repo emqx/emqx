@@ -53,10 +53,12 @@
 -export_type([]).
 
 -include_lib("emqx/src/emqx_tracepoints.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("pmap.hrl").
 -include("session_internals.hrl").
+-include_lib("emqx/gen_src/DurableSession.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -394,20 +396,211 @@ pmap_topic(Name, ClientId, Key) ->
 
 ser_pmap_key(?metadata, MetaKey, _Val) ->
     atom_to_binary(MetaKey, latin1);
+ser_pmap_key(?streams, Key, _Val) ->
+    ser_stream_key(Key);
+ser_pmap_key(?subscriptions, Topic, _Val) ->
+    'DurableSession':encode('TopicFilter', wrap_topic(Topic));
 ser_pmap_key(_, Key, _Val) ->
     term_to_binary(Key).
 
 deser_pmap_key(?metadata, Key) ->
     binary_to_atom(Key, latin1);
+deser_pmap_key(?streams, Bin) ->
+    deser_stream_key(Bin);
+deser_pmap_key(?subscriptions, Key) ->
+    unwrap_topic('DurableSession':decode('TopicFilter', Key));
 deser_pmap_key(_, Key) ->
     binary_to_term(Key).
 
 %% Payload (de)serialization:
 
+ser_payload(?streams, _Key, SRS) ->
+    ser_srs(SRS);
+ser_payload(?subscriptions, _Key, Sub) ->
+    ser_sub(Sub);
+ser_payload(?subscription_states, _Key, SState) ->
+    ser_sub_state(SState);
 ser_payload(_Name, _Key, Val) ->
     term_to_binary(Val).
 
+deser_payload(?streams, Bin) ->
+    deser_srs(Bin);
+deser_payload(?subscriptions, Bin) ->
+    deser_sub(Bin);
+deser_payload(?subscription_states, Bin) ->
+    deser_sub_state(Bin);
 deser_payload(_, Bin) ->
     binary_to_term(Bin).
 
-%% Misc.
+%% Topic
+
+wrap_topic(T) ->
+    case T of
+        #share{group = Group, topic = Topic} ->
+            ok;
+        Topic when is_binary(Topic) ->
+            Group = asn1_NOVALUE
+    end,
+    #'TopicFilter'{
+        topic = Topic, group = Group
+    }.
+
+unwrap_topic(Rec) ->
+    #'TopicFilter'{topic = Topic, group = Group} = Rec,
+    case Group of
+        asn1_NOVALUE ->
+            Topic;
+        _ ->
+            #share{topic = Topic, group = Group}
+    end.
+
+%% Stream
+
+ser_stream_key({SubId, Stream}) ->
+    {ok, StreamBin} = emqx_ds:stream_to_binary(?PERSISTENT_MESSAGE_DB, Stream),
+    Rec = #'StreamKey'{subId = SubId, stream = StreamBin},
+    'DurableSession':encode('StreamKey', Rec).
+
+deser_stream_key(Bin) ->
+    #'StreamKey'{subId = SubId, stream = StreamBin} =
+        'DurableSession':decode('StreamKey', Bin),
+    {ok, Stream} = emqx_ds:binary_to_stream(?PERSISTENT_MESSAGE_DB, StreamBin),
+    {SubId, Stream}.
+
+ser_srs(#srs{
+    rank_x = Shard,
+    rank_y = Generation,
+    it_begin = ItBegin,
+    it_end = ItEnd,
+    batch_size = BS,
+    first_seqno_qos1 = FSN1,
+    first_seqno_qos2 = FSN2,
+    last_seqno_qos1 = LSN1,
+    last_seqno_qos2 = LSN2,
+    unsubscribed = Unsub,
+    sub_state_id = SSid
+}) ->
+    {ok, ItBeginB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItBegin),
+    {ok, ItEndB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItEnd),
+    Rec = #'SRS'{
+        shard = Shard,
+        generation = Generation,
+        itBegin = ItBeginB,
+        itEnd = ItEndB,
+        batchSize = BS,
+        firstSeqNoQoS1 = FSN1,
+        firstSeqNoQoS2 = FSN2,
+        lastSeqNoQoS1 = LSN1,
+        lastSeqNoQoS2 = LSN2,
+        unsubscribed = Unsub,
+        subscriptionState = SSid
+    },
+    'DurableSession':encode('SRS', Rec).
+
+deser_srs(Bin) ->
+    #'SRS'{
+        shard = Shard,
+        generation = Generation,
+        itBegin = ItBeginB,
+        itEnd = ItEndB,
+        batchSize = BS,
+        firstSeqNoQoS1 = FSN1,
+        firstSeqNoQoS2 = FSN2,
+        lastSeqNoQoS1 = LSN1,
+        lastSeqNoQoS2 = LSN2,
+        unsubscribed = Unsub,
+        subscriptionState = SSid
+    } = 'DurableSession':decode('SRS', Bin),
+    {ok, ItBegin} = emqx_ds:binary_to_iterator(?PERSISTENT_MESSAGE_DB, ItBeginB),
+    {ok, ItEnd} = emqx_ds:binary_to_iterator(?PERSISTENT_MESSAGE_DB, ItEndB),
+    #srs{
+        rank_x = Shard,
+        rank_y = Generation,
+        it_begin = ItBegin,
+        it_end = ItEnd,
+        batch_size = BS,
+        first_seqno_qos1 = FSN1,
+        first_seqno_qos2 = FSN2,
+        last_seqno_qos1 = LSN1,
+        last_seqno_qos2 = LSN2,
+        unsubscribed = Unsub,
+        sub_state_id = SSid
+    }.
+
+%% Subscription
+
+ser_sub(#{id := Id, current_state := CS, start_time := T}) ->
+    Rec = #'Subscription'{id = Id, currentState = CS, startTime = T},
+    'DurableSession':encode('Subscription', Rec).
+
+deser_sub(Bin) ->
+    #'Subscription'{id = Id, currentState = CS, startTime = T} =
+        'DurableSession':decode('Subscription', Bin),
+    #{id => Id, current_state => CS, start_time => T}.
+
+%% Subscription state
+
+ser_sub_state(#{parent_subscription := PSub, upgrade_qos := UQ, subopts := SubOpts} = SState) ->
+    Misc = wrap_subopts(SubOpts),
+    Share =
+        case SState of
+            #{share_topic_filter := T} ->
+                wrap_topic(T);
+            _ ->
+                asn1_NOVALUE
+        end,
+    Rec = #'SubState'{
+        parentSub = PSub,
+        upgradeQos = UQ,
+        supersededBy = maps:get(superseded_by, SState, asn1_NOVALUE),
+        shareTopicFilter = Share,
+        miscSubopts = Misc
+    },
+    'DurableSession':encode('SubState', Rec).
+
+deser_sub_state(Bin) ->
+    #'SubState'{
+        parentSub = PSub,
+        upgradeQos = UQ,
+        supersededBy = SupBy,
+        shareTopicFilter = Share,
+        miscSubopts = Misc
+    } = 'DurableSession':decode('SubState', Bin),
+    SubOpts = unwrap_subopts(Misc),
+    M1 = #{
+        parent_subscription => PSub,
+        upgrade_qos => UQ,
+        subopts => SubOpts
+    },
+    M2 =
+        case SupBy of
+            asn1_NOVALUE ->
+                M1;
+            _ ->
+                M1#{superseded_by => SupBy}
+        end,
+    case Share of
+        asn1_NOVALUE ->
+            M2;
+        _ ->
+            M2#{share_topic_filter => unwrap_topic(Share)}
+    end.
+
+wrap_subopts(SubOpts) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            [#'Misc'{key = atom_to_binary(K), val = term_to_binary(V)} | Acc]
+        end,
+        [],
+        SubOpts
+    ).
+
+unwrap_subopts(Misc) ->
+    maps:from_list(
+        lists:map(
+            fun(#'Misc'{key = K, val = V}) ->
+                {binary_to_atom(K), binary_to_term(V)}
+            end,
+            Misc
+        )
+    ).

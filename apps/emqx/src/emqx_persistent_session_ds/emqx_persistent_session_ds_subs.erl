@@ -219,7 +219,6 @@ gc(S0) ->
         AliveSet0,
         S0
     ),
-    ct:pal("Alive set~p", [AliveSet]),
     %% Delete subscription states that don't belong to the alive set:
     emqx_persistent_session_ds_state:fold_subscription_states(
         fun(SStateId, _, S) ->
