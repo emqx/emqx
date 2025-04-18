@@ -85,6 +85,7 @@ groups() ->
             t_sqlparse_foreach_7,
             t_sqlparse_foreach_8,
             t_sqlparse_foreach_9,
+            t_sqlparse_foreach_10,
             t_sqlparse_case_when_1,
             t_sqlparse_case_when_2,
             t_sqlparse_case_when_3,
@@ -2706,13 +2707,13 @@ t_sqlparse_foreach_9(_Config) ->
             }
         )
     ),
-    %% doesn't work if we don't decode it first
+    %% also work if we don't decode it first
     Sql2 =
         "foreach payload as p "
         "do p.ts as ts "
         "from \"t/#\" ",
     ?assertMatch(
-        {ok, []},
+        {ok, [#{<<"ts">> := 1451649600512}]},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql2,
@@ -2721,6 +2722,29 @@ t_sqlparse_foreach_9(_Config) ->
         )
     ),
     ok.
+
+t_sqlparse_foreach_10(_Config) ->
+    Sql =
+        "foreach payload as item "
+        "do item.data as next_data "
+        "from \"t/#\" ",
+
+    ?assertMatch(
+        {ok, [
+            #{<<"next_data">> := <<"value1">>},
+            #{<<"next_data">> := <<"value2">>}
+        ]},
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql,
+                context =>
+                    #{
+                        payload => <<"[{\"data\": \"value1\"}, {\"data\": \"value2\"}]">>,
+                        topic => <<"t/a">>
+                    }
+            }
+        )
+    ).
 
 t_sqlparse_case_when_1(_Config) ->
     %% case-when-else clause
