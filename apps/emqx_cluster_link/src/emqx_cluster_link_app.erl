@@ -20,7 +20,7 @@ start(_StartType, _StartArgs) ->
         _ ->
             ok
     end,
-    {ok, Sup} = emqx_cluster_link_sup:start_link(LinksConf),
+    {ok, Sup} = emqx_cluster_link_sup:start_link(),
     ok = create_metrics(LinksConf),
     {ok, Sup}.
 
