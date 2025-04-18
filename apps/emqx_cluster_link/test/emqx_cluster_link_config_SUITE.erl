@@ -119,7 +119,7 @@ t_config_update(Config) ->
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% Num nodes = num actors (durable storage is disabled)
         length(ClusterA) + length(ClusterB),
         30_000
@@ -128,7 +128,7 @@ t_config_update(Config) ->
     ?assertMatch({ok, _}, update(NodeB1, [LinkConfB], Config)),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
@@ -151,7 +151,7 @@ t_config_update(Config) ->
     ?assertNotReceive({publish, _Message = #{}}),
 
     {ok, SubRef1} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         length(ClusterA),
         30_000
     ),
@@ -161,14 +161,14 @@ t_config_update(Config) ->
     ?assertMatch({ok, _}, update(NodeA1, [LinkConfA1], Config)),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
 
     %% wait for route sync on ClientA node
     {{ok, _, _}, {ok, _}} = ?wait_async_action(
         emqtt:subscribe(ClientA, <<"t/new/1">>, qos1),
-        #{?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := NodeA1}},
+        #{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := NodeA1}},
         10_000
     ),
 
@@ -370,7 +370,7 @@ t_config_update_ds(Config) ->
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% 2 cores = 4 actors (durable storage enabled) + 2 replicants = 2 more actors
         6,
         30_000
@@ -386,7 +386,7 @@ t_config_update_ds(Config) ->
     ),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
@@ -397,18 +397,18 @@ t_config_update_ds(Config) ->
         {publish, #{
             topic := <<"t/test-topic">>, payload := <<"hello-from-a">>, client_pid := ClientB
         }},
-        30_000
+        10_000
     ),
     ?assertReceive(
         {publish, #{
             topic := <<"t/test/1/1">>, payload := <<"hello-from-b">>, client_pid := ClientA
         }},
-        30_000
+        10_000
     ),
     %% no more messages expected
     ?assertNotReceive({publish, _Message = #{}}),
     {ok, SubRef1} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% 2 nodes (1 replicant) in cluster a (3 actors including ds)
         3,
         30_000
@@ -420,7 +420,7 @@ t_config_update_ds(Config) ->
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA1]])),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
 
@@ -428,9 +428,10 @@ t_config_update_ds(Config) ->
     {{ok, _, _}, {ok, _}} = ?wait_async_action(
         emqtt:subscribe(ClientA, <<"t/new/1">>, qos1),
         #{
-            ?snk_kind := clink_route_sync_complete,
+            ?snk_kind := "cluster_link_route_sync_complete",
             ?snk_meta := #{node := NodeA1},
-            actor := {<<"ps-routes-v1">>, 1}
+            actor := <<"ps-routes-v1">>,
+            incarnation := 1
         },
         10_000
     ),
@@ -439,7 +440,7 @@ t_config_update_ds(Config) ->
     {ok, _} = emqtt:publish(ClientB, <<"t/new/1">>, <<"hello-from-b-1">>, qos1),
     ?assertReceive(
         {publish, #{topic := <<"t/new/1">>, payload := <<"hello-from-b-1">>, client_pid := ClientA}},
-        30_000
+        10_000
     ),
     ?assertNotReceive({publish, _Message = #{}}),
 
@@ -507,32 +508,20 @@ t_misconfigured_links(Config) ->
     {{ok, _}, {ok, _}} = ?wait_async_action(
         erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA]]),
         #{
-            ?snk_kind := clink_handshake_error,
+            ?snk_kind := "cluster_link_handshake_rejected",
             reason := <<"bad_remote_cluster_link_name">>,
             ?snk_meta := #{node := NodeA1}
         },
         10_000
     ),
-    timer:sleep(10),
-    ?assertMatch(
-        #{error := <<"bad_remote_cluster_link_name">>},
-        erpc:call(NodeA1, emqx_cluster_link_router_syncer, status, [<<"bad-b-name">>])
-    ),
 
     {{ok, _}, {ok, _}} = ?wait_async_action(
         erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
-            ?snk_kind := clink_route_bootstrap_complete,
+            ?snk_kind := "cluster_link_bootstrap_complete",
             ?snk_meta := #{node := NodeA1}
         },
         10_000
-    ),
-    ?assertMatch(
-        #{status := connected, error := undefined},
-        erpc:call(NodeA1, emqx_cluster_link_router_syncer, status, [NameB])
-    ),
-    ?assertEqual(
-        undefined, erpc:call(NodeA1, emqx_cluster_link_router_syncer, status, [<<"bad-b-name">>])
     ),
 
     ?assertMatch(
@@ -556,16 +545,11 @@ t_misconfigured_links(Config) ->
     {{ok, _}, {ok, _}} = ?wait_async_action(
         erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
-            ?snk_kind := clink_handshake_error,
+            ?snk_kind := "cluster_link_handshake_rejected",
             reason := <<"cluster_link_disabled">>,
             ?snk_meta := #{node := NodeA1}
         },
         10_000
-    ),
-    timer:sleep(10),
-    ?assertMatch(
-        #{error := <<"cluster_link_disabled">>},
-        erpc:call(NodeA1, emqx_cluster_link_router_syncer, status, [NameB])
     ),
 
     ?assertMatch(
@@ -579,16 +563,11 @@ t_misconfigured_links(Config) ->
     {{ok, _}, {ok, _}} = ?wait_async_action(
         erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
-            ?snk_kind := clink_handshake_error,
+            ?snk_kind := "cluster_link_handshake_rejected",
             reason := <<"unknown_cluster">>,
             ?snk_meta := #{node := NodeA1}
         },
         10_000
-    ),
-    timer:sleep(10),
-    ?assertMatch(
-        #{error := <<"unknown_cluster">>},
-        erpc:call(NodeA1, emqx_cluster_link_router_syncer, status, [NameB])
     ),
 
     ok = emqtt:stop(ClientA),

@@ -10,7 +10,7 @@
 -include("emqx_cluster_link.hrl").
 
 -export([
-    init/3,
+    init/4,
     next_batch/1
 ]).
 
@@ -18,31 +18,30 @@
 
 -record(bootstrap, {
     target :: _ClusterName :: binary(),
+    actor :: atom(),
     filters :: [emqx_types:topic()],
     stash :: [{emqx_types:topic(), _RouteID}],
-    max_batch_size :: non_neg_integer(),
-    is_persistent_route :: boolean()
+    max_batch_size :: non_neg_integer()
 }).
 
 %%
 
-init(TargetCluster, LinkFilters, Options) ->
-    IsPersistentRoute = maps:get(is_persistent_route, Options, false),
+init(Actor, TargetCluster, LinkFilters, Options) ->
     #bootstrap{
         target = TargetCluster,
+        actor = Actor,
         filters = LinkFilters,
         stash = [],
-        max_batch_size = maps:get(max_batch_size, Options, ?MAX_BATCH_SIZE),
-        is_persistent_route = IsPersistentRoute
+        max_batch_size = maps:get(max_batch_size, Options, ?MAX_BATCH_SIZE)
     }.
 
 next_batch(B = #bootstrap{stash = S0 = [_ | _], max_batch_size = MBS}) ->
     {Batch, Stash} = mk_batch(S0, MBS),
     {Batch, B#bootstrap{stash = Stash}};
-next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], is_persistent_route = false}) ->
-    next_batch(B0#bootstrap{filters = [], stash = routes_by_wildcards(Filters)});
-next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], is_persistent_route = true}) ->
+next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], actor = ?PS_ROUTE_ACTOR}) ->
     next_batch(B0#bootstrap{filters = [], stash = ps_routes_by_wildcards(Filters)});
+next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], actor = _Node}) ->
+    next_batch(B0#bootstrap{filters = [], stash = routes_by_wildcards(Filters)});
 next_batch(#bootstrap{filters = [], stash = []}) ->
     done.
 

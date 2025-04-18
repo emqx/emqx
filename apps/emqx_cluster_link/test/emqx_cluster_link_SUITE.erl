@@ -187,7 +187,7 @@ t_message_forwarding(Config) ->
 
     {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
     {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
-    {ok, _} = ?block_until(#{?snk_kind := clink_route_sync_complete}),
+    {ok, _} = ?block_until(#{?snk_kind := "cluster_link_route_sync_complete"}),
     {ok, _} = emqtt:publish(SourceC1, <<"t/42">>, <<"hello">>, qos1),
     ?assertReceive(
         {publish, #{topic := <<"t/42">>, payload := <<"hello">>, client_pid := TargetC1}}
@@ -231,10 +231,10 @@ t_target_extrouting_gc(Config) ->
     {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, TopicFilter1), qos1),
     {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, TopicFilter2), qos1),
     {ok, _} = ?block_until(#{
-        ?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TargetNode1}
+        ?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode1}
     }),
     {ok, _} = ?block_until(#{
-        ?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TargetNode2}
+        ?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TargetNode2}
     }),
     {ok, _} = emqtt:publish(SourceC1, <<"t/1">>, <<"HELLO1">>, qos1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/2/ext">>, <<"HELLO2">>, qos1),
@@ -298,6 +298,9 @@ t_disconnect_on_errors('init', Config) ->
     SourceNodes = emqx_cth_cluster:start(mk_source_cluster(?FUNCTION_NAME, Config)),
     [TargetNodeSpec | _] = mk_target_cluster(?FUNCTION_NAME, Config),
     TargetNodes = emqx_cth_cluster:start([TargetNodeSpec]),
+    % ?ON(hd(SourceNodes), dbg:tracer()),
+    % ?ON(hd(SourceNodes), dbg:p(all, c)),
+    % ?ON(hd(SourceNodes), dbg:tpl({emqx_cluster_link_routerepl, '_', '_'}, x)),
     _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
     ok = snabbkaffe:start_trace(),
     [
@@ -310,7 +313,7 @@ t_disconnect_on_errors('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 t_disconnect_on_errors(Config) ->
-    ct:timetrap({seconds, 20}),
+    ct:timetrap({seconds, 10}),
     [SN1 | _] = nodes_source(Config),
     [TargetNode] = nodes_target(Config),
     SC1 = emqx_cluster_link_cth:connect_client("t_disconnect_on_errors", SN1),
@@ -388,11 +391,12 @@ t_restart_connection_on_actor_init_timeout(Config) ->
             ct:pal("starting cluster link"),
             ?wait_async_action(
                 start_cluster_link(SourceNodes ++ TargetNodes, Config),
-                #{?snk_kind := "remote_actor_init_timeout"}
+                #{?snk_kind := "cluster_link_handshake_timeout"}
             ),
 
             %% Fix the authorization config, it should reconnect.
             ct:pal("fixing config"),
+            ok = timer:sleep(100),
             ?wait_async_action(
                 begin
                     ok = ?ON(
@@ -411,7 +415,7 @@ t_restart_connection_on_actor_init_timeout(Config) ->
                         emqx_conf:update([authorization, no_match], allow, #{override_to => cluster})
                     )
                 end,
-                #{?snk_kind := clink_route_bootstrap_complete}
+                #{?snk_kind := "cluster_link_bootstrap_complete"}
             ),
 
             ok
@@ -419,8 +423,8 @@ t_restart_connection_on_actor_init_timeout(Config) ->
         fun(Trace) ->
             ?assert(
                 ?strict_causality(
-                    #{?snk_kind := "remote_actor_init_timeout", ?snk_meta := #{node := _N1}},
-                    #{?snk_kind := "clink_stop_link_client", ?snk_meta := #{node := _N2}},
+                    #{?snk_kind := "cluster_link_handshake_timeout", ?snk_meta := #{node := _N1}},
+                    #{?snk_kind := "cluster_link_stop_link_client", ?snk_meta := #{node := _N2}},
                     _N1 =:= _N2,
                     Trace
                 )
@@ -520,7 +524,7 @@ t_graceful_retry_on_actor_error(Config) ->
                     )
                 end,
                 #{
-                    ?snk_kind := clink_route_bootstrap_complete,
+                    ?snk_kind := "cluster_link_bootstrap_complete",
                     ?snk_meta := #{node := SN}
                 }
             )

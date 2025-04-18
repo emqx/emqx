@@ -695,7 +695,7 @@ t_metrics(Config) ->
                 {ok, _, _} = emqtt:subscribe(TargetC1, <<"t/tc1">>),
                 {ok, _, _} = emqtt:subscribe(TargetC2, <<"t/tc2">>)
             end,
-            #{?snk_kind := clink_route_sync_complete}
+            #{?snk_kind := "cluster_link_route_sync_complete"}
         ),
 
     %% Routes = 2 in source cluster, because the target cluster has some topic filters
@@ -730,7 +730,7 @@ t_metrics(Config) ->
             begin
                 {ok, _, _} = emqtt:unsubscribe(TargetC1, <<"t/tc1">>)
             end,
-            #{?snk_kind := clink_route_sync_complete}
+            #{?snk_kind := "cluster_link_route_sync_complete"}
         ),
 
     ?retry(
@@ -893,8 +893,8 @@ t_disable_reenable(Config) ->
     {ok, _, _} = emqtt:subscribe(TargetC1, Topic1),
     {ok, _, _} = emqtt:subscribe(TargetC2, Topic2),
     %% fixme: use snabbkaffe subscription
-    ?block_until(#{?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TN1}}),
-    ?block_until(#{?snk_kind := clink_route_sync_complete, ?snk_meta := #{node := TN2}}),
+    ?block_until(#{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TN1}}),
+    ?block_until(#{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := TN2}}),
     {ok, _} = emqtt:publish(SourceC1, Topic1, <<"1">>, [{qos, 1}]),
     {ok, _} = emqtt:publish(SourceC1, Topic2, <<"2">>, [{qos, 1}]),
     %% Sanity check: link is working, initially.
