@@ -39,6 +39,19 @@
 
 -define(EMQX_TRACE_STOP_ACTION_MATCH, ?EMQX_TRACE_STOP_ACTION(_)).
 
--define(DEFAULT_PAYLOAD_LIMIT, 1024).
+-define(MAX_PAYLOAD_FORMAT_SIZE, 1024).
+-define(TRUNCATED_PAYLOAD_SIZE, 100).
+
+-define(FORMAT_META_KEY_PACKET, packet).
+-define(FORMAT_META_KEY_PAYLOAD, payload).
+-define(FORMAT_META_KEY_PAYLOAD_BIN, <<"payload">>).
+-define(FORMAT_META_KEY_RESULT, result).
+-define(FORMAT_META_KEY_DATA, data).
+-define(FORMAT_META_KEY_SQL, sql).
+-define(FORMAT_META_KEY_QUERY, query).
+
+-define(TRUNCATED_IOLIST(PART, TRUNCATEDBYTES), [
+    PART, "...(", integer_to_list(TRUNCATEDBYTES), " bytes)"
+]).
 
 -endif.

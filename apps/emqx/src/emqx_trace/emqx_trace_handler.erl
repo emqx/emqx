@@ -70,7 +70,7 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
         filter => ensure_bin(Filter),
         name => ensure_bin(Name),
         payload_encode => payload_encode(),
-        payload_limit => ?DEFAULT_PAYLOAD_LIMIT,
+        payload_limit => ?MAX_PAYLOAD_FORMAT_SIZE,
         formatter => Formatter
     },
     install(Who, Level, LogFile).
