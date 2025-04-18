@@ -164,7 +164,6 @@ nodes_target(Config) ->
 t_message_forwarding('init', Config) ->
     SourceNodes = emqx_cth_cluster:start(mk_source_cluster(?FUNCTION_NAME, Config)),
     TargetNodes = emqx_cth_cluster:start(mk_target_cluster(?FUNCTION_NAME, Config)),
-    _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
     ok = snabbkaffe:start_trace(),
     [
         {source_nodes, SourceNodes},
@@ -177,17 +176,20 @@ t_message_forwarding('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 t_message_forwarding(Config) ->
-    [SourceNode1 | _] = nodes_source(Config),
-    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
-
-    SourceC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding", SourceNode1),
+    IsShared = ?config(is_shared_sub, Config),
+    SourceNodes = [SourceNode1 | _] = nodes_source(Config),
+    TargetNodes = [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    %% Connect client to the target cluster.
     TargetC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding1", TargetNode1),
     TargetC2 = emqx_cluster_link_cth:connect_client("t_message_forwarding2", TargetNode2),
-    IsShared = ?config(is_shared_sub, Config),
-
+    %% Subscribe both to "t/+".
     {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
-    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
-    {ok, _} = ?block_until(#{?snk_kind := "cluster_link_route_sync_complete"}),
+    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/+">>), qos1),
+    %% Start cluster link, existing routes should be replicated.
+    _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
+    {ok, _} = ?block_until(#{?snk_kind := "cluster_link_bootstrap_complete"}),
+    %% Connect a client to the source cluster and publish a message.
+    SourceC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding", SourceNode1),
     {ok, _} = emqtt:publish(SourceC1, <<"t/42">>, <<"hello">>, qos1),
     ?assertReceive(
         {publish, #{topic := <<"t/42">>, payload := <<"hello">>, client_pid := TargetC1}}
@@ -195,7 +197,25 @@ t_message_forwarding(Config) ->
     ?assertReceive(
         {publish, #{topic := <<"t/42">>, payload := <<"hello">>, client_pid := TargetC2}}
     ),
-    ?assertNotReceive({publish, _Message = #{}}),
+    ?assertNotReceive(
+        {publish, #{}}
+    ),
+    %% Subscribe both clients to "t/#" while cluster link is active.
+    {ok, _, _} = emqtt:subscribe(TargetC1, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
+    {ok, _, _} = emqtt:subscribe(TargetC2, maybe_shared_topic(IsShared, <<"t/#">>), qos1),
+    {ok, _} = ?block_until(#{?snk_kind := "cluster_link_route_sync_complete"}),
+    %% Publish another message.
+    {ok, _} = emqtt:publish(SourceC1, <<"t/1/2/3">>, <<"heh">>, qos1),
+    ?assertReceive(
+        {publish, #{topic := <<"t/1/2/3">>, payload := <<"heh">>, client_pid := TargetC1}}
+    ),
+    ?assertReceive(
+        {publish, #{topic := <<"t/1/2/3">>, payload := <<"heh">>, client_pid := TargetC2}}
+    ),
+    ?assertNotReceive(
+        {publish, #{}}
+    ),
+    %% Stop clients.
     ok = emqtt:stop(SourceC1),
     ok = emqtt:stop(TargetC1),
     ok = emqtt:stop(TargetC2).
