@@ -341,8 +341,6 @@ handshaking(
             ok = stop_link_client(St),
             keep_state_and_data
     end;
-handshaking(info, {publish, _Uncorrelated = #{}}, _St) ->
-    keep_state_and_data;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
     ?tp(error, "cluster_link_handshake_timeout", #{
         target_cluster => target_cluster(St),
@@ -352,8 +350,8 @@ handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
     keep_state_and_data;
 handshaking(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
     enter_disconnected(Reason, St);
-handshaking(info, {disconnected, RC, _}, St) ->
-    handle_disconnect(RC, St).
+handshaking(Type, Event, St) ->
+    handle_event(Type, Event, St).
 
 enter_bootstrap(_NeedBootstrap, St = #st{bootstrapped = false}) ->
     enter_bootstrapping(St);
@@ -372,13 +370,11 @@ enter_online(St) ->
 online(info, {timeout, _TRef, heartbeat}, St = #st{}) ->
     ok = heartbeat(St),
     {keep_state, schedule_heartbeat(St#st{heartbeat_timer = undefined})};
-online(info, {publish, _Uncorrelated = #{}}, _St) ->
-    keep_state_and_data;
 online(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid, actor = Actor}) ->
     ok = suspend_syncer(target_cluster(St), Actor),
     enter_disconnected(Reason, cancel_heartbeat(St));
-online(info, {disconnected, RC, _}, St) ->
-    handle_disconnect(RC, St).
+online(Type, Event, St) ->
+    handle_event(Type, Event, St).
 
 schedule_heartbeat(St = #st{heartbeat_timer = undefined}) ->
     Interval = emqx_cluster_link_config:actor_heartbeat_interval(),
@@ -425,10 +421,22 @@ disconnected(internal, retry, St = #st{client = undefined, reconnect_at = Reconn
     end;
 disconnected(state_timeout, connect, St) ->
     enter_connecting(St);
-disconnected(info, {publish, #{}}, _St) ->
-    keep_state_and_data;
 disconnected(info, {disconnected, _RC, _}, _St) ->
-    keep_state_and_data.
+    keep_state_and_data;
+disconnected(Type, Event, St) ->
+    handle_event(Type, Event, St).
+
+handle_event(info, {publish, _Uncorrelated = #{}}, _St) ->
+    %% MQTT response not correlated to our handshake request.
+    keep_state_and_data;
+handle_event(info, {disconnected, RC, _}, St) ->
+    %% MQTT disconnect packet.
+    handle_disconnect(RC, St);
+handle_event(Event, Payload, _St) ->
+    ?tp(warning, "cluster_link_routerepl_unexpected_event", #{
+        event => Event,
+        payload => Payload
+    }).
 
 terminate(_Reason, _St) ->
     ok.
@@ -444,12 +452,10 @@ enter_bootstrapping(St) ->
 
 bootstrapping(internal, go, St = #st{}) ->
     bootstrap(St);
-bootstrapping(info, {publish, _Uncorrelated = #{}}, _St) ->
-    keep_state_and_data;
 bootstrapping(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
     enter_disconnected(Reason, St);
-bootstrapping(info, {disconnected, RC, _}, St) ->
-    handle_disconnect(RC, St).
+bootstrapping(Type, Event, St) ->
+    handle_event(Type, Event, St).
 
 bootstrap(St = #st{link = #{name := TargetCluster, topics := Topics}, actor = Actor}) ->
     Bootstrap = emqx_cluster_link_router_bootstrap:init(Actor, TargetCluster, Topics, #{}),
