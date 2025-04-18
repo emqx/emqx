@@ -262,8 +262,6 @@ connector_config_str(_IsCloud = true) ->
     "connectors.~s.~s {\n"
     "  enable = true\n"
     "  server = \"~s\"\n"
-    "  username = ~p\n"
-    "  password = ~p\n"
     "  token = ~s\n"
     "}\n";
 connector_config_str(_NotCloud) ->
@@ -279,7 +277,7 @@ connector_config_params(_IsCloud = true, Name, Config) ->
     Host = ?config(mock_svr_host, Config),
     Port = ?config(mock_svr_port, Config),
     Server = Host ++ ":" ++ integer_to_list(Port),
-    [Type, Name, Server, ?TD_USERNAME, ?TD_PASSWORD, ?TD_TOKEN];
+    [Type, Name, Server, ?TD_TOKEN];
 connector_config_params(_NotCloud, Name, Config) ->
     Type = ?config(bridge_type, Config),
     Host = ?config(td_host, Config),
