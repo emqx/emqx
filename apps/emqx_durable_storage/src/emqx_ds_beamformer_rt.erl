@@ -17,7 +17,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([process_stream_event/4]).
+-export([do_process_stream_event/3]).
 
 -export_type([]).
 
@@ -287,7 +287,19 @@ do_enqueue(
 
 process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
     T0 = erlang:monotonic_time(microsecond),
-    do_process_stream_event(Parent, RetryOnEmpty, Stream, S),
+    Parent = self(),
+    %% Poor man's arena:
+    Child = erlang:spawn_opt(
+        fun() ->
+            Result = do_process_stream_event(RetryOnEmpty, Stream, S),
+            Parent ! {self(), Result}
+        end,
+        [link, {min_heap_size, 10_000}]
+    ),
+    receive
+        {Child, _Result} ->
+            ok
+    end,
     emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
         S#s.metrics_id,
         erlang:monotonic_time(microsecond) - T0

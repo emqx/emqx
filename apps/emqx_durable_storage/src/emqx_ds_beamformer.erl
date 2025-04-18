@@ -1317,7 +1317,8 @@ send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
     }),
     case node() of
         Node ->
-            %% TODO: Introduce a separate worker for local fanout?
+            %% TODO: this may block the worker. Introduce a separate
+            %% worker for local fanout?
             emqx_ds_beamsplitter:dispatch_v2(DB, Pack, Destinations, #{});
         _ ->
             emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, DB, Pack, Destinations, #{})
