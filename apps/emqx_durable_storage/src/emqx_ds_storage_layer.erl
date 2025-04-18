@@ -60,7 +60,13 @@
     accept_snapshot/1,
 
     %% Custom events
-    handle_event/3
+    handle_event/3,
+
+    %% Serialization helpers:
+    stream_to_binary/3,
+    binary_to_stream/2,
+    iterator_to_binary/3,
+    binary_to_iterator/2
 ]).
 
 %% gen_server
@@ -98,6 +104,7 @@
 ]).
 
 -include("emqx_ds.hrl").
+-include("../gen_src/DurableBlob.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
@@ -1398,6 +1405,64 @@ handle_event(Shard, Time, ?storage_event(GenId, Event)) ->
 handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
+
+stream_to_binary(_DB, Shard, ?stream_v2(GenId, Inner)) ->
+    %% FIXME:
+    InnerRec =
+        case Inner of
+            {stream, Str} ->
+                {skipstreamLtsV1, Str}
+        end,
+    Rec = #'Stream'{
+        shard = Shard,
+        generation = GenId,
+        inner = InnerRec
+    },
+    'DurableBlob':encode('Stream', Rec).
+
+binary_to_stream(_DB, Bin) ->
+    maybe
+        {ok, Rec} ?= 'DurableBlob':decode('Stream', Bin),
+        #'Stream'{
+            shard = Shard,
+            generation = GenId,
+            inner = InnerRec
+        } = Rec,
+        %% FIXME:
+        Inner =
+            case InnerRec of
+                {skipstreamLtsV1, Str} ->
+                    {stream, Str}
+            end,
+        {Shard, ?stream_v2(GenId, Inner)}
+    end.
+
+iterator_to_binary(_DB, Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
+    %% FIXME:
+    InnerRec = emqx_ds_storage_skipstream_lts:iterator_to_asn1(Inner),
+    Rec = #'Iterator'{
+        shard = Shard,
+        generation = GenId,
+        inner = InnerRec
+    },
+    'DurableBlob':encode('Iterator', Rec).
+
+binary_to_iterator(_DB, Bin) ->
+    maybe
+        {ok, Rec} ?= 'DurableBlob':decode('Iterator', Bin),
+        #'Iterator'{
+            shard = Shard,
+            generation = GenId,
+            inner = InnerRec
+        } = Rec,
+        %% FIXME:
+        Inner =
+            case InnerRec of
+                {skipstreamLtsV1, It} ->
+                    emqx_ds_storage_skipstream_lts:asn1_to_iterator(It)
+            end,
+        {Shard, #{?tag => ?IT, ?generation => GenId, ?enc => Inner}}
+    end.
 
 filter_layout_db_opts(Options) ->
     maps:with(?STORAGE_LAYOUT_DB_OPTS, Options).

@@ -51,7 +51,7 @@ store_batch_atomic(DB, Shard, Batch, Opts) ->
     gen_server:call(?via(DB, Shard), #store_batch_atomic{batch = Batch, opts = Opts}, infinity).
 
 commit_blob_tx(DB, #ds_tx_ctx{shard = Shard} = Ctx, Ops) ->
-    gen_server:call(?via(DB, Shard), #commit_blob_tx{ctx = Ctx, ops = Ops}).
+    gen_server:call(?via(DB, Shard), #commit_blob_tx{ctx = Ctx, ops = Ops}, infinity).
 
 %%------------------------------------------------------------------------------
 %% `gen_server' callbacks

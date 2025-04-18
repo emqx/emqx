@@ -39,6 +39,11 @@
     new_blob_tx/2,
     commit_blob_tx/3,
 
+    stream_to_binary/2,
+    binary_to_stream/2,
+    iterator_to_binary/2,
+    binary_to_iterator/2,
+
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
@@ -530,6 +535,24 @@ delete_next(DB, Iter, Selector, N) ->
     {ok, _, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
         {Ref, Result} -> Result
+    end.
+
+stream_to_binary(DB, ?stream(Shard, Inner)) ->
+    emqx_ds_storage_layer:stream_to_binary(DB, Shard, Inner).
+
+binary_to_stream(DB, Bin) ->
+    maybe
+        {Shard, Inner} ?= emqx_ds_storage_layer:binary_to_stream(DB, Bin),
+        {ok, ?stream(Shard, Inner)}
+    end.
+
+iterator_to_binary(DB, #{?tag := ?IT, ?shard := Shard, ?enc := Inner}) ->
+    emqx_ds_storage_layer:iterator_to_binary(DB, Shard, Inner).
+
+binary_to_iterator(DB, Bin) ->
+    maybe
+        {Shard, Inner} ?= emqx_ds_storage_layer:binary_to_iterator(DB, Bin),
+        {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Inner}}
     end.
 
 %%================================================================================

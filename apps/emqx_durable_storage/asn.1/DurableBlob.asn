@@ -1,7 +1,35 @@
 DurableBlob DEFINITIONS AUTOMATIC TAGS ::=
 BEGIN
-  DurableBlob ::= SEQUENCE {
-    topic SEQUENCE OF OCTET STRING,
-    payload OCTET STRING
+  Topic ::= SEQUENCE OF OCTET STRING
+
+  StreamSkipstreamLtsV1 ::= OCTET STRING
+
+  StorageStream ::= CHOICE {
+    skipstreamLtsV1 StreamSkipstreamLtsV1,
+    ...
+  }
+
+  -- More efficient binary encoding of stream
+  Stream ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner StorageStream
+  }
+
+  ItSkipstreamV1 ::= SEQUENCE {
+    static OCTET STRING,
+    lastKey INTEGER,
+    compressedTf OCTET STRING
+  }
+
+  StorageIterator ::= CHOICE {
+    skipstreamLtsV1 ItSkipstreamV1,
+    ...
+  }
+
+  Iterator ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner StorageIterator
   }
 END

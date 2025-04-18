@@ -122,9 +122,9 @@ subscription_gen() ->
     ).
 
 uniq_id() ->
-    %% FIXME: nondeterministic hack, however some code _DOES_ require
-    %% IDs to be unique.
-    exactly(erlang:unique_integer()).
+    %% TODO: Not so unique. However, currently we don't have code that
+    %% relies on uniqueness.
+    non_neg_integer().
 
 %% Proper generator for subscription states.
 sub_state_gen() ->

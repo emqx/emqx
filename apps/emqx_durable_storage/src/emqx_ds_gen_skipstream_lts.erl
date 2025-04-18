@@ -49,6 +49,9 @@
 -type wildcard_idx() :: 0..16#ffff.
 -type wildcard_hash() :: binary().
 
+%% Deserialized value:
+-type deser_value() :: term().
+
 %% Key that identifies a message in the stream. It's the suffix of
 %% `emqx_ds:message_key'.
 -type stream_key() :: binary().
@@ -60,13 +63,10 @@
     data_cf :: rocksdb:cf_handle(),
     trie :: emqx_ds_lts:trie(),
     serialization_schema :: emqx_ds_msg_serializer:schema(),
-    %% Maximum possible value of stream key, assuming size of the
-    %% stream key is constant or has an upper bound. For example, if
-    %% stream key size is 1 byte, then `max_stream_key' is
-    %% <<255, 255>> (i.e. 2 bytes):
-    max_stream_key :: binary(),
-    %% Position of compressed topic in the deserialized record:
-    get_topic :: fun((_) -> emqx_ds:topic()),
+    %% A callback that returns varying parts of the topic from stream
+    %% key or deserialized message. It's used to check for hash
+    %% collisions.
+    get_topic :: fun((stream_key(), _) -> emqx_ds:topic()),
     %% Number of bytes per wildcard topic level:
     hash_bytes :: pos_integer()
 }).
@@ -202,8 +202,7 @@ copy_previous_trie(RocksDB, TrieCF, TriePrev) ->
     data_cf := rocksdb:cf_handle(),
     trie := emqx_ds_lts:trie(),
     serialization_schema := emqx_ds_msg_serializer:schema(),
-    stream_key_size := pos_integer(),
-    get_topic := fun((_) -> emqx_ds:topic()),
+    get_topic := fun((stream_key(), deser_value()) -> emqx_ds:topic()),
     wildcard_hash_bytes := pos_integer()
 }) ->
     s().
@@ -214,7 +213,6 @@ open(
         data_cf := DataCF,
         trie := Trie,
         serialization_schema := SerSchema,
-        stream_key_size := StreamKeySize,
         get_topic := GetTopic,
         wildcard_hash_bytes := HashBytes
     }
@@ -225,7 +223,6 @@ open(
         data_cf = DataCF,
         trie = Trie,
         serialization_schema = SerSchema,
-        max_stream_key = list_to_binary([255 || _ <- lists:seq(0, StreamKeySize)]),
         get_topic = GetTopic,
         hash_bytes = HashBytes
     }.
@@ -300,7 +297,7 @@ match_key(StaticIdx, Idx, Hash, Key) when Idx > 0 ->
 %% Note: the returned message is *deserialized*, but no further
 %% transformation or enrichment is performed.
 -spec lookup_message(s(), emqx_ds_lts:static_key(), stream_key()) ->
-    {ok, emqx_ds:message_key(), tuple()}
+    {ok, emqx_ds:message_key(), deser_value()}
     | undefined
     | emqx_ds:error(_).
 lookup_message(
@@ -389,13 +386,7 @@ fold(
                     '[' ->
                         '-infinity'
                 end,
-            upper_endpoint =
-                case UpperEndpoint of
-                    'infinity' ->
-                        S#s.max_stream_key;
-                    _ ->
-                        UpperEndpoint
-                end
+            upper_endpoint = UpperEndpoint
         },
         StartPoint =
             case LowerEndpoint of
@@ -479,7 +470,7 @@ do_init_iterators(S, Snapshot, Static, [], Interval, _WildcardLevel) ->
         }
     ].
 
-get_key_range(S, Snapshot, Static, {_, Lower, Upper}, WildcardLevel, Hash) ->
+get_key_range(_S, Snapshot, Static, {_, Lower, Upper}, WildcardLevel, Hash) ->
     %% Note: rocksdb treats lower bound as inclusive
     L =
         case Lower of
@@ -489,14 +480,22 @@ get_key_range(S, Snapshot, Static, {_, Lower, Upper}, WildcardLevel, Hash) ->
     %% Note: rocksdb treats upper bound as non-inclusive
     U =
         case Upper of
-            'infinity' -> S#s.max_stream_key;
-            _ -> Upper
+            'infinity' ->
+                stream_limit(Static, WildcardLevel, Hash);
+            _ ->
+                mk_key(Static, WildcardLevel, Hash, Upper)
         end,
     [
         {iterate_lower_bound, mk_key(Static, WildcardLevel, Hash, L)},
-        {iterate_upper_bound, mk_key(Static, WildcardLevel, Hash, U)},
+        {iterate_upper_bound, U},
         {snapshot, Snapshot}
     ].
+
+stream_limit(Static, 0, _) ->
+    mk_key(Static, 1, <<>>, <<>>);
+stream_limit(Static, N, _WCHash) ->
+    %% FIXME: not the most optimal strategy, since it doesn't take hash into account
+    mk_key(Static, N + 1, <<>>, <<>>).
 
 free_iterators(Its) ->
     lists:foreach(
@@ -512,7 +511,14 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
     ?dbg(skipstream_loop, #{
         sk => SK0, tf => Ctx#fold_ctx.filter, bs => BatchSize, op => Op
     }),
-    #fold_ctx{s = S, f = Fun, iters = Iterators, static = StaticIdx, filter = CompressedTF} = Ctx,
+    #fold_ctx{
+        s = S,
+        f = Fun,
+        iters = Iterators,
+        static = StaticIdx,
+        filter = CompressedTF,
+        upper_endpoint = UpperEndpoint
+    } = Ctx,
     %% Note: `next_step' function destructively updates RocksDB
     %% iterators in `ctx.iters' (they are handles, not values!),
     %% therefore a recursive call with the same arguments is not a
@@ -522,7 +528,7 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
             ?dbg(skipstream_loop_result, #{r => none}),
             inc_counter(?DS_SKIPSTREAM_LTS_EOS),
             {ok, SK0, Acc0};
-        {seek, SK} when SK >= Ctx#fold_ctx.upper_endpoint ->
+        {seek, SK} when is_atom(UpperEndpoint), SK >= UpperEndpoint ->
             {ok, SK0, Acc0};
         {seek, SK} ->
             ?dbg(skipstream_loop_result, #{r => seek, sk => SK}),
@@ -580,7 +586,7 @@ fold_step(
                             %% message for hash collisions and return
                             %% value:
                             Val = deserialize(S, Blob),
-                            CompressedTopic = GetTopic(Val),
+                            CompressedTopic = GetTopic(NextSK, Val),
                             case emqx_topic:match(CompressedTopic, CompressedTF) of
                                 true ->
                                     inc_counter(?DS_SKIPSTREAM_LTS_HIT),

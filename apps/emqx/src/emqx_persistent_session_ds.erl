@@ -1799,7 +1799,7 @@ commit(Session) ->
     commit(Session, _Opts = #{lifetime => up}).
 
 commit(Session = #{s := S0}, Opts) ->
-    ?tp(warning, ?sessds_commit, #{s => S0}),
+    ?tp(?sessds_commit, #{s => S0}),
     S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
     S = emqx_persistent_session_ds_state:commit(S1, Opts),
     cancel_state_commit_timer(Session#{s := S}).

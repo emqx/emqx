@@ -45,6 +45,12 @@
 
 %% Utility functions:
 -export([
+    stream_to_binary/2,
+    binary_to_stream/2,
+
+    iterator_to_binary/2,
+    binary_to_iterator/2,
+
     dirty_read/2,
     dirty_read/3,
 
@@ -469,6 +475,14 @@
 -callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
     delete_next_result(DeleteIterator).
 
+-callback stream_to_binary(db(), ds_specific_stream()) -> binary().
+
+-callback binary_to_stream(db(), binary()) -> {ok, ds_specific_stream()} | {error, _}.
+
+-callback iterator_to_binary(db(), ds_specific_iterator()) -> binary().
+
+-callback binary_to_iterator(db(), binary()) -> {ok, ds_specific_iterator()} | {error, _}.
+
 %% Statistics API:
 -callback count(db()) -> non_neg_integer().
 
@@ -808,6 +822,26 @@ tx_blob_assert_not(Topic) ->
 -spec reset_trans() -> no_return().
 reset_trans() ->
     throw(?tx_reset).
+
+%% @doc Serialize stream to a compact binary representation
+-spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+stream_to_binary(DB, Stream) ->
+    ?module(DB):stream_to_binary(DB, Stream).
+
+%% @doc Deserialize stream from a binary produced by `stream_to_binary'
+-spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_stream(DB, Bin) ->
+    ?module(DB):binary_to_stream(DB, Bin).
+
+%% @doc Serialize iterator to a compact binary representation
+-spec iterator_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+iterator_to_binary(DB, Stream) ->
+    ?module(DB):iterator_to_binary(DB, Stream).
+
+%% @doc Deserialize iterator from a binary produced by `iterator_to_binary'
+-spec binary_to_iterator(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_iterator(DB, Bin) ->
+    ?module(DB):binary_to_iterator(DB, Bin).
 
 -spec dirty_read(db(), topic_filter()) ->
     fold_result([kv_pair() | emqx_types:message()]).

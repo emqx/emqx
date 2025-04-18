@@ -1,0 +1,4 @@
+*.erl
+*.hrl
+*.beam
+*.asn1db

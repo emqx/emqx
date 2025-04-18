@@ -1,0 +1,50 @@
+DurableSession DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  ID ::= INTEGER(0..MAX)
+
+  TopicFilter ::= SEQUENCE {
+    topic OCTET STRING,
+    group OCTET STRING OPTIONAL
+  }
+
+  Subscription ::= SEQUENCE {
+    id ID,
+    currentState ID,
+    startTime INTEGER
+  }
+
+  Misc ::= SEQUENCE {
+    key OCTET STRING,
+    val OCTET STRING
+  }
+
+  SubState ::= SEQUENCE {
+    parentSub ID,
+    -- Flags
+    upgradeQos BOOLEAN,
+    --
+    supersededBy ID OPTIONAL,
+    shareTopicFilter TopicFilter OPTIONAL,
+    --
+    miscSubopts SEQUENCE OF Misc
+  }
+
+  StreamKey ::= SEQUENCE {
+    subId ID,
+    stream OCTET STRING
+  }
+
+  SRS ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    itBegin OCTET STRING,
+    itEnd OCTET STRING,
+    batchSize INTEGER,
+    firstSeqNoQoS1 INTEGER,
+    firstSeqNoQoS2 INTEGER,
+    lastSeqNoQoS1 INTEGER,
+    lastSeqNoQoS2 INTEGER,
+    unsubscribed BOOLEAN,
+    subscriptionState ID
+  }
+END
