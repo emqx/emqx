@@ -24,18 +24,19 @@ max_conn_burst.label:
 messages_rate.desc:
 """Used to limit the number of messages a single client can send to EMQX per second.
 
-Once the limit is reached, EMQX will pause reading data from the receive-buffer, thus slowing down or even temporarily hanging the sender.
+Once the limit is reached, EMQX will drop QoS 0 messages and reject QoS 1 and QoS 2 messages
+with "Quota Exceeded" error code (0x97).
 
 For example:
 
-- `500/s`: Only 500 messages will be received per second, and the remaining messages will be delayed.
-- `500/10s`: Only 500 messages will be received every 10 seconds and the remaining messages will be delayed."""
+- `500/s`: Only 500 messages will be received per second, and the remaining messages will be dropped/rejected.
+- `500/10s`: Only 500 messages will be received every 10 seconds and the remaining messages will be dropped/rejected."""
 
 messages_rate.label:
 """Messages Publish Rate"""
 
 messages_burst.desc:
-"""Number of messages that can be sent in a burst.
+"""Additional number of messages that can be sent in a burst.
 
 For example: `10000/60m`: Once in 60 minutes, up to 10000 messages can be sent in a short period of time."""
 
@@ -45,20 +46,21 @@ messages_burst.label:
 bytes_rate.desc:
 """Used to limit the number of bytes a single client can send to EMQX per second.
 
-Once the limit is reached, EMQX will pause reading data from the receive-buffer, thus slowing down or even temporarily hanging the sender.
+Once the limit is reached, EMQX will drop QoS 0 messages and reject QoS 1 and QoS 2 messages
+with "Quota Exceeded" error code (0x97).
 
 The unit of the bytes could be: B, KB, MB, GB.
 
 For example:
 
-- `500KB/s`: Only 500 kilobytes per second will be received, and the remaining bytes will be delayed.
-- `500MB/10s`: Only 500 megabytes will be received every 10 seconds, and the remaining bytes will be delayed."""
+- `500KB/s`: Only 500 kilobytes per second will be received, and the remaining bytes will be dropped/rejected.
+- `500MB/10s`: Only 500 megabytes will be received every 10 seconds, and the remaining bytes will be dropped/rejected."""
 
 bytes_rate.label:
 """Data Publish Rate"""
 
 bytes_burst.desc:
-"""Number of bytes that can be sent in a burst.
+"""Additional number of bytes that can be sent in a burst.
 
 For example: `100MB/60m`: Once in 60 minutes, up to 100 megabytes can be sent in a short period of time."""
 
@@ -67,11 +69,5 @@ bytes_burst.label:
 
 mqtt.desc:
 """MQTT related limiters."""
-
-alloc_interval.desc:
-"""Token allocation interval for shared limiter."""
-
-burst.desc:
-"""How many tokens are allowed when the rate is exceeded."""
 
 }
