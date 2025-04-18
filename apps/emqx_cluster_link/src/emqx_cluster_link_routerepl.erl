@@ -312,6 +312,7 @@ handshaking(
                 target_cluster => TargetCluster,
                 actor => Actor
             }),
+            %% Ensure client is stopped, will move into `disconnected` once it is.
             ok = stop_link_client(St0),
             keep_state_and_data
     end;
@@ -338,6 +339,7 @@ handshaking(
                 actor => Actor,
                 remote_link_proto_ver => maps:get(proto_ver, Ack, undefined)
             }),
+            %% Stop client, will move into `disconnected` once it is.
             ok = stop_link_client(St),
             keep_state_and_data
     end;
@@ -346,6 +348,7 @@ handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
         target_cluster => target_cluster(St),
         actor => Actor
     }),
+    %% Stop client, will move into `disconnected` once it is.
     ok = stop_link_client(St),
     keep_state_and_data;
 handshaking(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid}) ->
@@ -361,6 +364,9 @@ enter_bootstrap(_NeedBootstrap = false, St = #st{bootstrapped = true}) ->
     enter_bootstrapped(St).
 
 enter_bootstrapped(St = #st{actor = Actor}) ->
+    %% Bootstrap is complete.
+    %% Activate route syncer: route ops accumulated since the start of bootstrap
+    %% will start flowing across MQTT channel.
     ok = activate_syncer(target_cluster(St), Actor),
     enter_online(St#st{bootstrapped = true}).
 
@@ -371,6 +377,10 @@ online(info, {timeout, _TRef, heartbeat}, St = #st{}) ->
     ok = heartbeat(St),
     {keep_state, schedule_heartbeat(St#st{heartbeat_timer = undefined})};
 online(info, {'EXIT', ClientPid, Reason}, St = #st{client = ClientPid, actor = Actor}) ->
+    %% Occasional client disconnects are expected.
+    %% Suspend route syncer: it will start accumulating route ops in the state.
+    %% Assuming this is transient condition. otherwise route syncer heap risks
+    %% growing indefinitely.
     ok = suspend_syncer(target_cluster(St), Actor),
     enter_disconnected(Reason, cancel_heartbeat(St));
 online(Type, Event, St) ->
@@ -401,7 +411,9 @@ handle_disconnect(RC, St = #st{actor = Actor}) ->
 
 enter_disconnected(Reason, St = #st{actor = Actor, reconnect_at = ReconnectAt}) ->
     case Reason of
+        %% Emit only debug message if stopped manually.
         normal -> Level = debug;
+        %% Otherwise info message since interruptions are expected.
         _ -> Level = info
     end,
     ?tp(Level, "cluster_link_connection_down", #{
@@ -413,6 +425,7 @@ enter_disconnected(Reason, St = #st{actor = Actor, reconnect_at = ReconnectAt}) 
     {next_state, disconnected, St#st{client = undefined}, {next_event, internal, retry}}.
 
 disconnected(internal, retry, St = #st{client = undefined, reconnect_at = ReconnectAt}) ->
+    %% Reconnect no more than once every `?RECONNECT_TIMEOUT`.
     case ReconnectAt - erlang:system_time(millisecond) of
         Behind when Behind =< 0 ->
             enter_connecting(St);
@@ -484,6 +497,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
                         target_cluster => TargetCluster,
                         actor => Actor
                     }),
+                    %% Ensure client is stopped, will move into `disconnected` once it is.
                     ok = stop_link_client(St),
                     keep_state_and_data
             end
@@ -548,9 +562,13 @@ start_link_client(Actor, ClientMarker, Link) ->
     end.
 
 stop_link_client(#st{client = ClientPid}) when is_pid(ClientPid) ->
+    %% Stop the client, tolerate if it's dead / stopping right now.
     ?tp("cluster_link_stop_link_client", #{}),
-    _ = catch emqtt:stop(ClientPid),
-    ok.
+    try
+        emqtt:stop(ClientPid)
+    catch
+        exit:_ -> ok
+    end.
 
 flush_link_signal(Pid) ->
     receive
