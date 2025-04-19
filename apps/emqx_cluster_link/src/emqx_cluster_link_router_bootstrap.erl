@@ -4,7 +4,7 @@
 -module(emqx_cluster_link_router_bootstrap).
 
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_shared_sub.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/src/emqx_persistent_session_ds/emqx_ps_ds_int.hrl").
 
 -include("emqx_cluster_link.hrl").
@@ -54,9 +54,7 @@ mk_batch(Stash, MaxBatchSize) ->
 %%
 
 routes_by_wildcards(Wildcards) ->
-    Routes = select_routes_by_wildcards(Wildcards),
-    SharedRoutes = select_shared_sub_routes_by_wildcards(Wildcards),
-    Routes ++ SharedRoutes.
+    select_routes_by_wildcards(Wildcards).
 
 ps_routes_by_wildcards(Wildcards) ->
     emqx_persistent_session_ds_router:foldl_routes(
@@ -74,21 +72,17 @@ ps_route_id(#ps_route{topic = T, dest = SessionId}) ->
 
 select_routes_by_wildcards(Wildcards) ->
     emqx_broker:foldl_topics(
-        fun(Topic, Acc) ->
+        fun(TopicSub, Acc) ->
+            case TopicSub of
+                #share{group = Group, topic = Topic} ->
+                    RouteID = ?SHARED_ROUTE_ID(Topic, Group);
+                Topic ->
+                    RouteID = Topic
+            end,
             Intersections = emqx_cluster_link_router:compute_intersections(Topic, Wildcards),
-            [encode_route(I, Topic) || I <- Intersections] ++ Acc
+            [encode_route(I, RouteID) || I <- Intersections] ++ Acc
         end,
         []
-    ).
-
-select_shared_sub_routes_by_wildcards(Wildcards) ->
-    emqx_utils_ets:keyfoldl(
-        fun({Group, Topic}, Acc) ->
-            Intersections = emqx_cluster_link_router:compute_intersections(Topic, Wildcards),
-            [encode_route(I, ?SHARED_ROUTE_ID(Topic, Group)) || I <- Intersections] ++ Acc
-        end,
-        [],
-        ?SHARED_SUBSCRIBER
     ).
 
 encode_route(Topic, RouteID) ->
