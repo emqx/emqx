@@ -103,7 +103,6 @@ t_create_invalid(_Config) ->
     ).
 
 t_authenticate(_Config) ->
-    ct:print("user_seeds: ~p", [user_seeds()]),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
@@ -150,7 +149,8 @@ t_destroy(_Config) ->
     {ok, _} = emqx_authn_ldap:authenticate(
         #{
             username => <<"mqttuser0001">>,
-            password => <<"mqttuser0001">>
+            password => <<"mqttuser0001">>,
+            peerhost => {127, 0, 0, 1}
         },
         State
     ),
@@ -166,7 +166,8 @@ t_destroy(_Config) ->
         emqx_authn_ldap:authenticate(
             #{
                 username => <<"mqttuser0001">>,
-                password => <<"mqttuser0001">>
+                password => <<"mqttuser0001">>,
+                peerhost => {127, 0, 0, 1}
             },
             State
         )
@@ -190,7 +191,8 @@ t_update(_Config) ->
             username => <<"mqttuser0001">>,
             password => <<"mqttuser0001">>,
             listener => 'tcp:default',
-            protocol => mqtt
+            protocol => mqtt,
+            peerhost => {127, 0, 0, 1}
         }
     ),
 
@@ -205,7 +207,8 @@ t_update(_Config) ->
             username => <<"mqttuser0001">>,
             password => <<"mqttuser0001">>,
             listener => 'tcp:default',
-            protocol => mqtt
+            protocol => mqtt,
+            peerhost => {127, 0, 0, 1}
         }
     ).
 
@@ -223,7 +226,8 @@ t_node_cache(_Config) ->
         protocol => mqtt,
         username => <<"mqttuser0001">>,
         password => <<"mqttuser0001">>,
-        cn => <<"testdevice">>
+        cn => <<"testdevice">>,
+        peerhost => {127, 0, 0, 1}
     },
 
     %% First time should be a miss, second time should be a hit
@@ -259,7 +263,7 @@ raw_ldap_auth_config() ->
         <<"backend">> => <<"ldap">>,
         <<"server">> => ldap_server(),
         <<"base_dn">> => <<"ou=testdevice,dc=emqx,dc=io">>,
-        <<"filter">> => <<"(uid=${username})">>,
+        <<"filter">> => <<"(|(uid=${username})(uid=${peerhost}))">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
         <<"pool_size">> => 8,
@@ -274,7 +278,8 @@ user_seeds() ->
         #{
             credentials => #{
                 username => Username,
-                password => Password
+                password => Password,
+                peerhost => {127, 0, 0, 1}
             },
             config_params => #{},
             result => Result
