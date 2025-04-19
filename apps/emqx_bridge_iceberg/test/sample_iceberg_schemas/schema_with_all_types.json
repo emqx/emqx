@@ -1,0 +1,139 @@
+{
+  "type": "struct",
+  "fields": [
+    {
+      "id": 1,
+      "name": "boolean",
+      "type": "boolean",
+      "required": true
+    },
+    {
+      "id": 2,
+      "name": "integer",
+      "type": "int",
+      "required": true
+    },
+    {
+      "id": 3,
+      "name": "long",
+      "type": "long",
+      "required": true
+    },
+    {
+      "id": 4,
+      "name": "float",
+      "type": "float",
+      "required": true
+    },
+    {
+      "id": 5,
+      "name": "double",
+      "type": "double",
+      "required": true
+    },
+    {
+      "id": 6,
+      "name": "decimal",
+      "type": "decimal(32, 3)",
+      "required": true
+    },
+    {
+      "id": 7,
+      "name": "date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "id": 8,
+      "name": "time",
+      "type": "time",
+      "required": true
+    },
+    {
+      "id": 9,
+      "name": "timestamp",
+      "type": "timestamp",
+      "required": true
+    },
+    {
+      "id": 10,
+      "name": "timestamptz",
+      "type": "timestamptz",
+      "required": true
+    },
+    {
+      "id": 11,
+      "name": "string",
+      "type": "string",
+      "required": true
+    },
+    {
+      "id": 12,
+      "name": "uuid",
+      "type": "uuid",
+      "required": true
+    },
+    {
+      "id": 14,
+      "name": "fixed",
+      "type": "fixed[12]",
+      "required": true
+    },
+    {
+      "id": 13,
+      "name": "binary",
+      "type": "binary",
+      "required": true
+    },
+    {
+      "id": 15,
+      "name": "list",
+      "type": {
+        "type": "list",
+        "element-id": 16,
+        "element": "string",
+        "element-required": true
+      },
+      "required": true
+    },
+    {
+      "id": 17,
+      "name": "map",
+      "type": {
+        "type": "map",
+        "key-id": 18,
+        "key": "string",
+        "value-id": 19,
+        "value": "int",
+        "value-required": true
+      },
+      "required": true
+    },
+    {
+      "id": 20,
+      "name": "struct",
+      "type": {
+        "type": "struct",
+        "fields": [
+          {
+            "id": 21,
+            "name": "inner_string",
+            "type": "string",
+            "required": false
+          },
+          {
+            "id": 22,
+            "name": "inner_int",
+            "type": "int",
+            "required": true
+          }
+        ]
+      },
+      "required": false
+    }
+  ],
+  "schema-id": 1,
+  "identifier-field-ids": [
+    2
+  ]
+}
