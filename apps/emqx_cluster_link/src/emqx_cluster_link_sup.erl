@@ -43,8 +43,8 @@ init(root) ->
 init({routerepl, LinkConf}) ->
     SupFlags = #{
         strategy => one_for_one,
-        intensity => 10,
-        period => 1
+        intensity => 5,
+        period => 5
     },
     ChildSpecs = [routerepl_spec(Type, Actor, LinkConf) || {Type, Actor} <- actors()],
     {ok, {SupFlags, ChildSpecs}}.

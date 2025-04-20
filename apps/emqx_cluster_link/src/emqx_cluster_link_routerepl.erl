@@ -178,12 +178,12 @@ init({manager, State}) ->
     init_manager(State).
 
 init_supervisor(Actor, ActorMF, LinkConf) ->
-    %% FIXME: Intensity.
+    %% NOTE: Propagate crashes to the parent supervisor.
     SupFlags = #{
         %% TODO: one_for_one?
         strategy => one_for_all,
-        intensity => 10,
-        period => 60
+        intensity => 1,
+        period => 1
     },
     Children = [
         child_spec_manager(Actor, ActorMF, LinkConf)
