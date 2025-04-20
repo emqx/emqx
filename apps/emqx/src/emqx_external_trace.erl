@@ -293,25 +293,17 @@ disconnect_attrs(takeover_kick, Channel) ->
 disconnect_attrs(sock_closed, Channel) ->
     ?ext_trace_disconnect_reason(sock_closed).
 
-rule_attrs(#{
-    rule := #{
-        id := Id,
-        name := Name,
-        created_at := CreatedAt,
-        updated_at := LastModifiedAt,
-        description := Descr
-    },
-    trigger := Topic,
-    matched := TopicFilter
-}) ->
+-define(MG(K, M), maps:get(K, M, undefined)).
+
+rule_attrs(#{rule := Rule} = RichedRule) ->
     #{
-        'rule.id' => Id,
-        'rule.name' => Name,
-        'rule.created_at' => format_datetime(CreatedAt),
-        'rule.updated_at' => format_datetime(LastModifiedAt),
-        'rule.description' => Descr,
-        'rule.trigger' => Topic,
-        'rule.matched' => TopicFilter,
+        'rule.id' => ?MG(id, Rule),
+        'rule.name' => ?MG(name, Rule),
+        'rule.created_at' => format_datetime(?MG(created_at, Rule)),
+        'rule.updated_at' => format_datetime(?MG(updated_at, Rule)),
+        'rule.description' => ?MG(description, Rule),
+        'rule.trigger' => ?MG(trigger, RichedRule),
+        'rule.matched' => ?MG(matched, RichedRule),
         'client.clientid' => ?EXT_TRACE__RULE_INTERNAL_CLIENTID
     }.
 
@@ -358,6 +350,8 @@ json_encode(Term) ->
 json_encode_proplist(Properties) ->
     emqx_utils_json:encode_proplist(Properties).
 
+format_datetime(undefined) ->
+    undefined;
 format_datetime(Timestamp) ->
     format_datetime(Timestamp, millisecond).
 

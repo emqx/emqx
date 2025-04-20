@@ -34,38 +34,26 @@ do_apply_rule(
     }
 ) ->
     InTopic = get_in_topic(Context),
-    EventTopics = maps:get(from, Rule, []),
-    case lists:all(fun is_publish_topic/1, EventTopics) of
-        true ->
-            %% test if the topic matches the topic filters in the rule
-            case emqx_topic:match_any(InTopic, EventTopics) of
-                true ->
-                    do_apply_matched_rule(
-                        Rule,
-                        Context,
-                        StopAfterRender,
-                        EventTopics
-                    );
-                false ->
-                    {error, nomatch}
-            end;
-        false ->
-            case lists:member(InTopic, EventTopics) of
-                true ->
-                    %% the rule is for both publish and events, test it directly
-                    do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics);
-                false ->
-                    {error, nomatch}
-            end
+    Topics = maps:get(from, Rule, []),
+    case match_any(InTopic, Topics) of
+        {ok, Filter} ->
+            do_apply_matched_rule(
+                riched_rule(Rule, InTopic, Filter),
+                Context,
+                StopAfterRender,
+                Topics
+            );
+        nomatch ->
+            {error, nomatch}
     end.
 
-do_apply_matched_rule(Rule, Context, StopAfterRender, EventTopics) ->
+do_apply_matched_rule(RichedRule, Context, StopAfterRender, EventTopics) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         update_process_trace_metadata(StopAfterRender),
         FullContext0 = fill_default_values(hd(EventTopics), Context),
         FullContext = remove_internal_fields(FullContext0),
-        emqx_rule_runtime:apply_rule(#{rule => Rule}, FullContext, apply_rule_environment())
+        emqx_rule_runtime:apply_rule(RichedRule, FullContext, apply_rule_environment())
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -98,25 +86,13 @@ remove_internal_fields(Context) ->
 test(#{sql := Sql, context := Context}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
-            InTopic = get_in_topic(Context),
+            Topic = get_in_topic(Context),
             EventTopics = emqx_rule_sqlparser:select_from(Select),
-            case lists:all(fun is_publish_topic/1, EventTopics) of
-                true ->
-                    %% test if the topic matches the topic filters in the rule
-                    case emqx_topic:match_any(InTopic, EventTopics) of
-                        true ->
-                            test_rule(Sql, Select, Context, EventTopics);
-                        false ->
-                            {error, nomatch}
-                    end;
-                false ->
-                    case emqx_topic:match_any(InTopic, EventTopics) of
-                        true ->
-                            %% the rule is for both publish and events, test it directly
-                            test_rule(Sql, Select, Context, EventTopics);
-                        false ->
-                            {error, nomatch}
-                    end
+            case match_any(Topic, EventTopics) of
+                {ok, Filter} ->
+                    test_rule(riched_rule(rule(Sql, Select, EventTopics), Topic, Filter), Context);
+                nomatch ->
+                    {error, nomatch}
             end;
         {error, Reason} ->
             ?SLOG(
@@ -131,25 +107,10 @@ test(#{sql := Sql, context := Context}) ->
             {error, Reason}
     end.
 
-test_rule(Sql, Select, Context, EventTopics) ->
-    RuleId = iolist_to_binary(["sql_tester:", emqx_utils:gen_id(16)]),
-    ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId),
-    Rule = #{
-        id => RuleId,
-        sql => Sql,
-        from => EventTopics,
-        actions => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
-        enable => true,
-        is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
-        fields => emqx_rule_sqlparser:select_fields(Select),
-        doeach => emqx_rule_sqlparser:select_doeach(Select),
-        incase => emqx_rule_sqlparser:select_incase(Select),
-        conditions => emqx_rule_sqlparser:select_where(Select),
-        created_at => erlang:system_time(millisecond)
-    },
+test_rule(#{rule := #{id := RuleId, from := EventTopics}} = RichedRule, Context) ->
     FullContext = fill_default_values(hd(EventTopics), Context),
     set_is_test_runtime_env(),
-    try emqx_rule_runtime:apply_rule(#{rule => Rule}, FullContext, #{}) of
+    try emqx_rule_runtime:apply_rule(RichedRule, FullContext, #{}) of
         {ok, Data} ->
             {ok, flatten(Data)};
         {error, Reason} ->
@@ -162,10 +123,6 @@ test_rule(Sql, Select, Context, EventTopics) ->
 get_selected_data(Selected, Envs, Args) ->
     ?TRACE("RULE", "testing_rule_sql_ok", #{selected => Selected, envs => Envs, args => Args}),
     {ok, Selected}.
-
-is_publish_topic(<<"$events/", _/binary>>) -> false;
-is_publish_topic(<<"$bridges/", _/binary>>) -> false;
-is_publish_topic(_Topic) -> true.
 
 flatten([]) ->
     [];
@@ -213,14 +170,14 @@ is_test_runtime_env() ->
 %% Most events have the original `topic' input, but their own topic (i.e.: `$events/...')
 %% is different from `topic'.
 get_in_topic(Context) ->
-    case maps:find(event_topic, Context) of
-        {ok, EventTopic} ->
+    case Context of
+        #{event_topic := EventTopic} ->
             EventTopic;
-        error ->
-            case maps:find(event, Context) of
-                {ok, Event} ->
+        #{} ->
+            case Context of
+                #{event := Event} ->
                     maybe_infer_in_topic(Context, Event);
-                error ->
+                #{} ->
                     maps:get(topic, Context, <<>>)
             end
     end.
@@ -232,3 +189,34 @@ maybe_infer_in_topic(Context, 'message.publish') ->
     maps:get(topic, Context, <<>>);
 maybe_infer_in_topic(_Context, Event) ->
     emqx_rule_events:event_topic(Event).
+
+rule(Sql, Select, EventTopics) ->
+    RuleId = iolist_to_binary(["sql_tester:", emqx_utils:gen_id(16)]),
+    ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId),
+    _Rule = #{
+        id => RuleId,
+        sql => Sql,
+        from => EventTopics,
+        actions => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
+        enable => true,
+        is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
+        fields => emqx_rule_sqlparser:select_fields(Select),
+        doeach => emqx_rule_sqlparser:select_doeach(Select),
+        incase => emqx_rule_sqlparser:select_incase(Select),
+        conditions => emqx_rule_sqlparser:select_where(Select),
+        created_at => erlang:system_time(millisecond)
+    }.
+
+riched_rule(Rule, InTopic, Matched) ->
+    #{rule => Rule, trigger => InTopic, matched => Matched}.
+
+-spec match_any(binary(), list(binary())) ->
+    {ok, binary()}
+    | nomatch.
+match_any(_Topic, []) ->
+    nomatch;
+match_any(Topic, [Filter | Rest]) ->
+    case emqx_topic:match(Topic, Filter) of
+        true -> {ok, Filter};
+        false -> match_any(Topic, Rest)
+    end.
