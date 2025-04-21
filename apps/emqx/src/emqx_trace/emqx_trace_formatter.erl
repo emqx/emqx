@@ -3,8 +3,11 @@
 %%--------------------------------------------------------------------
 -module(emqx_trace_formatter).
 -include("emqx_mqtt.hrl").
+-include("emqx_trace.hrl").
 
 -export([format/2]).
+
+-export([format_term/2]).
 
 %% logger_formatter:config/0 is not exported.
 -type config() :: map().
@@ -36,11 +39,25 @@ format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
 format_meta_map(Meta, PayloadFmtOpts) ->
-    format_meta_map(Meta, PayloadFmtOpts, [
-        {packet, fun format_packet/2},
-        {payload, fun format_payload/2},
-        {<<"payload">>, fun format_payload/2}
-    ]).
+    format_meta_map(
+        Meta,
+        PayloadFmtOpts,
+        [
+            {?FORMAT_META_KEY_PACKET, fun format_packet/2},
+            {?FORMAT_META_KEY_PAYLOAD, fun format_payload/2},
+            {?FORMAT_META_KEY_PAYLOAD_BIN, fun format_payload/2}
+        ] ++ need_truncate_log_metas()
+    ).
+
+need_truncate_log_metas() ->
+    %% emqx_trace:rendered_action_template/2
+    [
+        {MetaKey, fun format_term/2}
+     || MetaKey <- [
+            ?FORMAT_META_KEY_INPUT,
+            ?FORMAT_META_KEY_RESULT
+        ]
+    ].
 
 format_meta_map(Meta, _PayloadFmtOpts, []) ->
     Meta;
@@ -102,6 +119,48 @@ format_payload(Payload, PayloadFmtOpts) when is_binary(Payload) ->
     {Payload1, #{payload_encode => Type1}};
 format_payload(Payload, #{payload_encode := Type}) ->
     {Payload, #{payload_encode => Type}}.
+
+format_term(undefined, #{payload_encode := Type}) ->
+    {"", #{payload_encode => Type}};
+format_term(Term, PayloadFmtOpts) ->
+    BinTerm = iolist_to_binary(to_iolist(Term)),
+    Type = maps:get(payload_encode, PayloadFmtOpts),
+    Limit = maps:get(truncate_above, PayloadFmtOpts, ?MAX_PAYLOAD_FORMAT_SIZE),
+    TruncateTo = maps:get(truncate_to, PayloadFmtOpts, ?TRUNCATED_PAYLOAD_SIZE),
+    {FTerm, #{payload_encode := Encode}} = format_truncated_term(Type, Limit, TruncateTo, BinTerm),
+    {[io_lib:format("Encoded(~s)=", [Encode]), FTerm], #{payload_encode => Encode}}.
+
+format_truncated_term(Type, Limit, TruncateTo, BinTerm) when
+    size(BinTerm) > Limit
+->
+    {NType, Part, TruncatedBytes} = truncate_term(Type, TruncateTo, BinTerm),
+    {?TRUNCATED_IOLIST(do_format_term(NType, Part), TruncatedBytes), #{payload_encode => NType}};
+format_truncated_term(Type, _Limit, _TruncateTo, Result) ->
+    %% truncate to itself size
+    {NType, _Part, _TruncatedBytes} = truncate_term(Type, size(Result), Result),
+    {do_format_term(NType, Result), #{payload_encode => NType}}.
+
+truncate_term(hex, Limit, Term) ->
+    %% <<Part:Limit/binary, Rest/binary>> = Payload,
+    %% {hex, Part, size(Rest)};
+    <<Part:Limit/binary, Rest/binary>> = Term,
+    {hex, Part, size(Rest)};
+truncate_term(text, Limit, Term) ->
+    case emqx_utils_fmt:find_complete_utf8_len(Limit, Term) of
+        {ok, Len} ->
+            <<Part:Len/binary, Rest/binary>> = Term,
+            {text, Part, size(Rest)};
+        error ->
+            %% not a valid utf8 string, force hex
+            <<Part:Limit/binary, Rest/binary>> = Term,
+            {hex, Part, size(Rest)}
+    end.
+
+do_format_term(text, Bytes) ->
+    %% utf8 ensured
+    Bytes;
+do_format_term(hex, Bytes) ->
+    binary:encode_hex(Bytes).
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);

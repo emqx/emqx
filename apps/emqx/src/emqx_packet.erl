@@ -8,6 +8,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_trace.hrl").
 
 %% Header APIs
 -export([
@@ -650,7 +651,7 @@ format_truncated_payload(Type0, Payload, TruncateTo) when size(Payload) > Trunca
     case TruncatedBytes > 0 of
         true ->
             {
-                [do_format_payload(Type, Part), "...(", integer_to_list(TruncatedBytes), " bytes)"],
+                ?TRUNCATED_IOLIST(do_format_payload(Type, Part), TruncatedBytes),
                 Type
             };
         false ->
@@ -673,7 +674,7 @@ do_format_payload(hex, Bytes) ->
     binary:encode_hex(Bytes).
 
 is_utf8(Bytes) ->
-    case trim_utf8(size(Bytes), Bytes) of
+    case emqx_utils_fmt:trim_utf8(size(Bytes), Bytes) of
         {ok, 0} ->
             true;
         _ ->
@@ -684,29 +685,15 @@ truncate_payload(hex, Limit, Payload) ->
     <<Part:Limit/binary, Rest/binary>> = Payload,
     {hex, Part, size(Rest)};
 truncate_payload(text, Limit, Payload) ->
-    case find_complete_utf8_len(Limit, Payload) of
+    case emqx_utils_fmt:find_complete_utf8_len(Limit, Payload) of
         {ok, Len} ->
             <<Part:Len/binary, Rest/binary>> = Payload,
             {text, Part, size(Rest)};
         error ->
+            %% not a valid utf8 string, force hex
             <<Part:Limit/binary, Rest/binary>> = Payload,
             {hex, Part, size(Rest)}
     end.
-
-find_complete_utf8_len(Limit, Payload) ->
-    case trim_utf8(Limit, Payload) of
-        {ok, TailLen} ->
-            {ok, size(Payload) - TailLen};
-        error ->
-            error
-    end.
-
-trim_utf8(Count, <<_/utf8, Rest/binary>> = All) when Count > 0 ->
-    trim_utf8(Count - (size(All) - size(Rest)), Rest);
-trim_utf8(Count, Bytes) when Count =< 0 ->
-    {ok, size(Bytes)};
-trim_utf8(_Count, _Rest) ->
-    error.
 
 i(true) -> 1;
 i(false) -> 0;

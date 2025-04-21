@@ -139,7 +139,8 @@ groups() ->
             t_rule_metrics_async_fail
         ]},
         {tracing, [], [
-            t_trace_rule_id
+            t_trace_rule_id,
+            t_trace_truncated
         ]},
         {command_line, [], [
             t_command_line_list_print_rule
@@ -307,6 +308,13 @@ init_per_testcase(t_events, Config) ->
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
     meck:new(emqx_bridge, [passthrough, no_link, no_history]),
     meck:expect(emqx_bridge, lookup, fun(_Type, _Name) -> {ok, #{mocked => true}} end),
+    Config;
+init_per_testcase(Case, Config) when
+    Case =:= t_trace_rule_id orelse
+        Case =:= t_trace_truncated
+->
+    emqx_trace_SUITE:reload(),
+    ok = emqx_trace:clear(),
     Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -3877,7 +3885,6 @@ filesync(Name0, Type, Retry) ->
 
 t_trace_rule_id(_Config) ->
     %% Start MQTT Client
-    emqx_trace_SUITE:reload(),
     {ok, T} = emqtt:start_link(emqtt_client_config()),
     emqtt:connect(T),
     %% Create rules
@@ -3944,6 +3951,77 @@ t_trace_rule_id(_Config) ->
     ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-2">>),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
+
+t_trace_truncated(_Config) ->
+    %% Start MQTT Client
+    {ok, T} = emqtt:start_link(emqtt_client_config()),
+    emqtt:connect(T),
+
+    %% Create rule
+    create_rule(
+        <<"test_rule_truncated">>,
+        <<"select 2 as rule_number from \"rule_2_topic\"">>
+    ),
+
+    %% Start tracing
+    ok = emqx_trace_handler:install(
+        #{
+            type => ruleid,
+            filter => <<"test_rule_truncated">>,
+            name => <<"CLI-RULE-3">>,
+            payload_encode => text,
+            %% limit 1 Byte to make truncated to "input: Encoded(text)=[...(xxx bytes)"
+            %% The only byte not truncated is the `[`         where is ^
+            payload_limit => 1,
+            formatter => text
+        },
+        all,
+        "tmp/rule_trace_truncated.log"
+    ),
+    emqx_trace:check(),
+    ok = filesync("CLI-RULE-3", ruleid),
+
+    %% Verify the tracing file exits
+    ?assert(filelib:is_regular("tmp/rule_trace_truncated.log")),
+
+    %% Get current traces
+    ?assertMatch(
+        [
+            #{
+                type := ruleid,
+                filter := <<"test_rule_truncated">>,
+                level := debug,
+                dst := "tmp/rule_trace_truncated.log",
+                name := <<"CLI-RULE-3">>
+            }
+        ],
+        emqx_trace_handler:running()
+    ),
+
+    %% Trigger rule, payload size bigger than payload_limit 20
+    emqtt:publish(T, <<"rule_2_topic">>, <<"{\"msg\":\"123456789012345678901234567890\"}">>),
+    ?retry(
+        100,
+        5,
+        begin
+            ok = filesync(<<"CLI-RULE-3">>, ruleid),
+            {ok, Bin} = file:read_file("tmp/rule_trace_truncated.log"),
+            ?assertNotEqual(
+                nomatch,
+                binary:match(Bin, [
+                    <<"input: Encoded(text)=[...(">>,
+                    <<"result: Encoded(text)=[...(">>
+                ])
+            )
+        end
+    ),
+
+    %% Stop tracing
+    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-3">>),
+    ?assertEqual([], emqx_trace_handler:running()),
+    emqtt:disconnect(T),
+
+    ok.
 
 t_sqlselect_client_attr(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
