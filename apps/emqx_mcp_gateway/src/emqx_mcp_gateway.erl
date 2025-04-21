@@ -33,6 +33,7 @@ post_config_update(_KeyPath, _UpdateReq, #{enable := true} = _NewConf, _OldConf,
 %% APIs
 %%==============================================================================
 enable() ->
+    start_mcp_servers(emqx:get_config([mcp, servers])),
     register_hook(),
     emqx_conf:add_handler([mcp], emqx_mcp_gateway),
     emqx_ctl:register_command(mcp, {emqx_mcp_gateway_cli, cmd}).
@@ -40,10 +41,11 @@ enable() ->
 disable() ->
     unregister_hook(),
     emqx_conf:remove_handler([mcp]),
-    emqx_ctl:unregister_command(mcp).
+    emqx_ctl:unregister_command(mcp),
+    stop_mcp_servers().
 
 list() ->
-    emqx_conf:get_raw([mcp], []).
+    emqx:get_raw_config([mcp], []).
 
 %%==============================================================================
 %% Hooks
@@ -148,3 +150,38 @@ hook(HookPoint, MFA) ->
 
 unhook(HookPoint, MFA) ->
     ok = emqx_hooks:del(HookPoint, MFA).
+
+%%==============================================================================
+%% Internal functions
+%%==============================================================================
+start_mcp_servers(Servers) ->
+    %% Start all MCP servers
+    maps:foreach(
+        fun(_Name, #{enable := true} = ServerConf) ->
+            #{server_type := SType, server_name := ServerName} = ServerConf,
+            Mod = mcp_server_callback_module(SType),
+            ServerConf1 = maps:without([server_type, enable], ServerConf),
+            %% TODO: change to start a pool of servers, where the pool name is the server name
+            case emqx_mcp_server:start_supervised(ServerName, Mod, ServerConf1, #{}) of
+                {ok, _Pid} ->
+                    ok;
+                {error, {already_started, _Pid}} ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => "failed_to_start_mcp_server", reason => Reason})
+            end
+        end,
+        Servers
+    ).
+
+stop_mcp_servers() ->
+    emqx_mcp_server:stop_supervised_all().
+
+mcp_server_callback_module(stdio) ->
+    emqx_mcp_server_stdio;
+mcp_server_callback_module(http) ->
+    emqx_mcp_server_http;
+mcp_server_callback_module(internal) ->
+    emqx_mcp_server_internal;
+mcp_server_callback_module(SType) ->
+    throw({error, {invalid_mcp_server_type, SType}}).

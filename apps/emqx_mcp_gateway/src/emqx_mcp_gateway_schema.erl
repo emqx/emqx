@@ -4,6 +4,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([roots/0, fields/1, desc/1, namespace/0]).
+-export([validate_cmd/1, validate_env/1]).
 
 namespace() -> mcp.
 
@@ -86,6 +87,7 @@ fields(stdio_server) ->
                 binary(),
                 #{
                     desc => ?DESC(command),
+                    validator => fun ?MODULE:validate_cmd/1,
                     required => true
                 }
             )},
@@ -102,6 +104,7 @@ fields(stdio_server) ->
                 map(),
                 #{
                     desc => ?DESC(env),
+                    validator => fun ?MODULE:validate_env/1,
                     default => #{}
                 }
             )}
@@ -192,6 +195,26 @@ fields(internal_server) ->
                 }
             )}
     ].
+
+validate_cmd(Cmd) ->
+    %% must be a absolute path
+    case filename:pathtype(Cmd) of
+        absolute -> ok;
+        _ -> throw({only_absolute_path_is_allowed, Cmd})
+    end.
+
+validate_env(Env) when is_map(Env) ->
+    maps:foreach(
+        fun
+            (<<>>, _V) ->
+                throw(empty_env_key_not_allowed);
+            (K, V) when is_binary(K) andalso (is_binary(V) orelse V =:= false) ->
+                ok;
+            (K, V) ->
+                throw({invalid_env_key_or_value, {K, V}})
+        end,
+        Env
+    ).
 
 desc(mcp) ->
     "MCP Gateway configuration";
