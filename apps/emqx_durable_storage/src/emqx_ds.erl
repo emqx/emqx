@@ -28,7 +28,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Transactional API (low-level):
--export([new_blob_tx/2, commit_blob_tx/3]).
+-export([new_kv_tx/2, commit_kv_tx/3]).
 
 %% Message replay API:
 -export([get_streams/3, get_streams/4, make_iterator/4, next/3]).
@@ -58,10 +58,10 @@
     fold_topic/6,
 
     trans/2,
-    tx_blob_write/2,
+    tx_kv_write/2,
     tx_del_topic/1,
-    tx_blob_assert/2,
-    tx_blob_assert_not/1,
+    tx_kv_assert_present/2,
+    tx_kv_assert_absent/1,
     reset_trans/0
 ]).
 
@@ -390,8 +390,8 @@
 
     %% Options that govern retry of recoverable errors:
     retries => non_neg_integer(),
-    retry_interval => non_neg_integer(),
-    timeout => async | timeout()
+    timeout => async | timeout(),
+    retry_interval => non_neg_integer()
 }.
 
 -type commit_result() :: reference() | {ok, tx_serial()} | error(_).
@@ -487,10 +487,10 @@
 -callback count(db()) -> non_neg_integer().
 
 %% Blob transaction API:
--callback new_blob_tx(db(), transaction_opts()) ->
+-callback new_kv_tx(db(), transaction_opts()) ->
     {ok, tx_context()} | error(_).
 
--callback commit_blob_tx(db(), tx_context(), blob_tx_ops()) -> commit_result().
+-callback commit_kv_tx(db(), tx_context(), blob_tx_ops()) -> commit_result().
 
 -optional_callbacks([
     list_generations_with_lifetimes/1,
@@ -735,19 +735,16 @@ count(DB) ->
 
 %% @hidden Low-level transaction API. Obtain context for an optimistic
 %% transaction that allows to execute a set of operations atomically.
-%%
-%% Note: transactions always apply to the *current* generation. Old
-%% generations are immutable.
--spec new_blob_tx(db(), transaction_opts()) -> {ok, tx_context()} | error(_).
-new_blob_tx(DB, Opts) ->
-    ?module(DB):new_blob_tx(DB, Opts).
+-spec new_kv_tx(db(), transaction_opts()) -> {ok, tx_context()} | error(_).
+new_kv_tx(DB, Opts) ->
+    ?module(DB):new_kv_tx(DB, Opts).
 
 %% @hidden Low-level transaction API. Try to commit a set of operations
 %% executed in a given transaction context.
--spec commit_blob_tx(db(), tx_context(), blob_tx_ops()) ->
+-spec commit_kv_tx(db(), tx_context(), blob_tx_ops()) ->
     commit_result().
-commit_blob_tx(DB, TxContext, TxOps) ->
-    ?module(DB):commit_blob_tx(DB, TxContext, TxOps).
+commit_kv_tx(DB, TxContext, TxOps) ->
+    ?module(DB):commit_kv_tx(DB, TxContext, TxOps).
 
 %%================================================================================
 %% Utility functions
@@ -756,18 +753,88 @@ commit_blob_tx(DB, TxContext, TxOps) ->
 %% Transaction process dictionary keys:
 -define(tx_ops_write, emqx_ds_tx_ctx_write).
 -define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
--define(tx_ops_expected, emqx_ds_tx_ctx_expected).
--define(tx_ops_unexpected, emqx_ds_tx_ctx_unexpected).
+-define(tx_ops_assert_present, emqx_ds_tx_ctx_assert_present).
+-define(tx_ops_assert_absent, emqx_ds_tx_ctx_assert_absent).
 
 %% Transaction throws:
 -define(tx_reset, emqx_ds_tx_reset).
 
-%% @doc Execute a function in an environment where write and delete
-%% operations and asserts are deferred and then committed atomically.
+%% @doc Execute a function in the environment where writes, deletes
+%% and asserts are deferred, and then committed atomically.
 %%
-%% NOTE: This function is not as sophisticated as mnesia. In
-%% particular, side effects of writes and deletes are not visible
-%% until the commit.
+%% == Order of operations ==
+%%
+%% When transaction commits, its side effects may be applied in an
+%% order different from their execution in the transaction fun.
+%%
+%% The following is guaranteed, though:
+%%
+%% 1. Preconditions are checked first
+%%
+%% 2. Deletions are applied (in any order)
+%%
+%% 3. Finally, writes are applied (in any order)
+%%
+%% == Limitations ==
+%%
+%% - Transactions can't span multiple shards.
+%%
+%% - This function is not as sophisticated as, say, mnesia. In
+%% particular, transaction side effects become visible _eventually_
+%% after the successful commit.
+%%
+%% - Currently this API is supported only for DBs created with
+%% `store_kv' = `true'.
+%%
+%% - Transaction API is entirely optimistic, and it's not at all
+%% optimized to handle conflicts. When DS _suspects_ a potential
+%% conflict, it refuses to commit any or all transactions involved in
+%% it. If a lot of conflicts is expected, it's up to user to create an
+%% external locking mechanism.
+%%
+%% == Options ==
+%%
+%% - `db': name of the database
+%%
+%% - `owner': Client ID. This option is used for sharding. When
+%% `owner' is specified, shard is derived based on the current mapping
+%% of client IDs to shards.
+%%
+%% - `shard': Specify the shard directly. Can't be used together with
+%% `owner'.
+%%
+%% - `generation': Specify generation for the transaction. If omitted,
+%% current generation is assumed.
+%%
+%% - `timeout': sets timeout waiting for the commit.
+%%
+%%   + If set to a positive integer, function may return
+%%     `{error, recoverable, timeout}'.
+%%
+%%   + If set to `async', this function returns immediately.
+%%
+%% - `retries': Retry transaction that results in a recoverable error
+%% other than `timeout'. This option has no effect when `timeout' =
+%% `async'.
+%%
+%% - `retry_interval': sets pause between retries.
+%%
+%% == Return values ==
+%%
+%% - When transaction doesn't have any side effects (writes, deletes
+%% or asserts), `{nop, Ret}' is returned regardless of other factors.
+%% `Ret' is the return value of the transaction fun.
+%%
+%% - When `timeout' option is set `async', this function returns
+%% `{async, Ref, Ret}' tuple where `Ref' is a reference. Result of the
+%% commit is sent to the caller asynchronously as a message of type
+%% `#ds_tx_commit_reply{}' with `ref' field set to `Ref'.
+%%
+%% - Otherwise, `{atomic, Serial, Ret}' tuple is returned on
+%% successful commit. `Serial' is a shard-unique monotonically
+%% increasing token identifying the transaction.
+%%
+%% - Errors are returned as usual for DS.
 -spec trans(
     transaction_opts(),
     fun(() -> Ret)
@@ -782,8 +849,11 @@ trans(Opts = #{db := DB}, Fun) ->
             ?err_unrec(nested_transaction)
     end.
 
--spec tx_blob_write(topic(), binary() | ?ds_tx_serial) -> ok.
-tx_blob_write(Topic, Value) ->
+%% @doc Schedule a transactional write of a given value to the topic.
+%% Value can be a binary or `?ds_tx_serial'. The latter is substituted
+%% with the transaction serial.
+-spec tx_kv_write(topic(), binary() | ?ds_tx_serial) -> ok.
+tx_kv_write(Topic, Value) ->
     case is_topic(Topic) andalso (is_binary(Value) orelse Value =:= ?ds_tx_serial) of
         true ->
             tx_push_op(?tx_ops_write, {Topic, Value});
@@ -791,6 +861,9 @@ tx_blob_write(Topic, Value) ->
             error(badarg)
     end.
 
+%% @doc Schedule a transactional deletion of all values stored in
+%% topics matching the filter. Deletion is performed on the latest
+%% version of the data.
 -spec tx_del_topic(topic_filter()) -> ok.
 tx_del_topic(TopicFilter) ->
     case is_topic_filter(TopicFilter) of
@@ -800,20 +873,28 @@ tx_del_topic(TopicFilter) ->
             error(badarg)
     end.
 
--spec tx_blob_assert(topic(), binary() | '_') -> ok.
-tx_blob_assert(Topic, Value) ->
+%% @doc Add a transaction precondition that asserts presence of the
+%% given value in the topic.
+%%
+%% This operation is considered side effect.
+-spec tx_kv_assert_present(topic(), binary() | '_') -> ok.
+tx_kv_assert_present(Topic, Value) ->
     case is_topic(Topic) andalso (Value =:= '_' orelse is_binary(Value)) of
         true ->
-            tx_push_op(?tx_ops_expected, {Topic, Value});
+            tx_push_op(?tx_ops_assert_present, {Topic, Value});
         false ->
             error(badarg)
     end.
 
--spec tx_blob_assert_not(topic()) -> ok.
-tx_blob_assert_not(Topic) ->
+%% @doc Add a transaction precondition that asserts absense of value
+%% in the topic.
+%%
+%% This operation is considered side effect.
+-spec tx_kv_assert_absent(topic()) -> ok.
+tx_kv_assert_absent(Topic) ->
     case is_topic(Topic) of
         true ->
-            tx_push_op(?tx_ops_unexpected, Topic);
+            tx_push_op(?tx_ops_assert_absent, Topic);
         false ->
             error(badarg)
     end.
@@ -980,18 +1061,18 @@ call_if_implemented(Mod, Fun, Args, Default) ->
 trans(DB, Fun, Opts, Retries) ->
     _ = put(?tx_ops_write, []),
     _ = put(?tx_ops_del_topic, []),
-    _ = put(?tx_ops_expected, []),
-    _ = put(?tx_ops_unexpected, []),
+    _ = put(?tx_ops_assert_present, []),
+    _ = put(?tx_ops_assert_absent, []),
     RetryTimeout = maps:get(retry_interval, Opts, 1_000),
     try
-        case new_blob_tx(DB, Opts) of
+        case new_kv_tx(DB, Opts) of
             {ok, Ctx} ->
                 Ret = Fun(),
                 Tx = #{
                     ?ds_tx_write => erase(?tx_ops_write),
                     ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
-                    ?ds_tx_expected => erase(?tx_ops_expected),
-                    ?ds_tx_unexpected => erase(?tx_ops_unexpected)
+                    ?ds_tx_expected => erase(?tx_ops_assert_present),
+                    ?ds_tx_unexpected => erase(?tx_ops_assert_absent)
                 },
                 case Tx of
                     #{
@@ -1003,7 +1084,7 @@ trans(DB, Fun, Opts, Retries) ->
                         %% Nothing to commit
                         {nop, Ret};
                     _ ->
-                        case commit_blob_tx(DB, Ctx, Tx) of
+                        case commit_kv_tx(DB, Ctx, Tx) of
                             {ok, CommitTXId} ->
                                 {atomic, CommitTXId, Ret};
                             Ref when is_reference(Ref) ->
@@ -1017,6 +1098,8 @@ trans(DB, Fun, Opts, Retries) ->
                                 Err
                         end
                 end;
+            ?err_rec(timeout) = Err ->
+                Err;
             ?err_rec(_) ->
                 timer:sleep(RetryTimeout),
                 trans(DB, Fun, Opts, Retries - 1);
@@ -1030,8 +1113,8 @@ trans(DB, Fun, Opts, Retries) ->
     after
         _ = erase(?tx_ops_write),
         _ = erase(?tx_ops_del_topic),
-        _ = erase(?tx_ops_expected),
-        _ = erase(?tx_ops_unexpected)
+        _ = erase(?tx_ops_assert_present),
+        _ = erase(?tx_ops_assert_absent)
     end.
 
 is_trans() ->

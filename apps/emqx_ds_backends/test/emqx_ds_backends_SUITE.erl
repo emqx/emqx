@@ -991,7 +991,7 @@ t_13_smoke_blob_tx(Config) ->
                 emqx_ds_open_db(DB, Opts)
             ),
             %% 1. Start a write-only transaction to create some data:
-            {ok, Tx1} = emqx_ds:new_blob_tx(DB, #{
+            {ok, Tx1} = emqx_ds:new_kv_tx(DB, #{
                 generation => 1, shard => emqx_ds:shard_of(DB, Owner)
             }),
             Ops1 = #{
@@ -1001,7 +1001,7 @@ t_13_smoke_blob_tx(Config) ->
                     {[<<"t">>, <<"2">>], <<"payload2">>}
                 ]
             },
-            ?assertMatch(ok, emqx_ds:commit_blob_tx(DB, Tx1, Ops1)),
+            ?assertMatch(ok, emqx_ds:commit_kv_tx(DB, Tx1, Ops1)),
             %% Verify that the data is there:
             ?assertEqual(
                 [{[<<"t">>, <<"1">>], <<"payload1">>}],
@@ -1021,13 +1021,13 @@ t_13_smoke_blob_tx(Config) ->
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             ),
             %% 2. Create a transaction that deletes one of the topics:
-            {ok, Tx2} = emqx_ds:new_blob_tx(DB, #{
+            {ok, Tx2} = emqx_ds:new_kv_tx(DB, #{
                 generation => 1, owner => Owner
             }),
             Ops2 = #{
                 ?ds_tx_delete_topic => [[<<"t">>, <<"2">>]]
             },
-            ?assertMatch(ok, emqx_ds:commit_blob_tx(DB, Tx2, Ops2)),
+            ?assertMatch(ok, emqx_ds:commit_kv_tx(DB, Tx2, Ops2)),
             %% Verify that data in t/2 is gone:
             ?assertMatch(
                 [
@@ -1037,14 +1037,14 @@ t_13_smoke_blob_tx(Config) ->
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             ),
             %% 3. Verify wildcard deletions. Insert more data:
-            {ok, Tx3} = emqx_ds:new_blob_tx(DB, #{owner => Owner}),
+            {ok, Tx3} = emqx_ds:new_kv_tx(DB, #{owner => Owner}),
             Ops3 = #{
                 ?ds_tx_write => [
                     {[<<"t">>, integer_to_binary(I)], integer_to_binary(I)}
                  || I <- lists:seq(1, 100)
                 ]
             },
-            ?assertEqual(ok, emqx_ds:commit_blob_tx(DB, Tx3, Ops3)),
+            ?assertEqual(ok, emqx_ds:commit_kv_tx(DB, Tx3, Ops3)),
             %% Verify that all data has been inserted:
             ?assertEqual(
                 100,
@@ -1056,17 +1056,17 @@ t_13_smoke_blob_tx(Config) ->
                 )
             ),
             %% Issue a new transaction that deletes it:
-            {ok, Tx4} = emqx_ds:new_blob_tx(DB, #{owner => Owner}),
+            {ok, Tx4} = emqx_ds:new_kv_tx(DB, #{owner => Owner}),
             Ops4 = #{
                 ?ds_tx_delete_topic => [[<<"t">>, '+']]
             },
-            ?assertEqual(ok, emqx_ds:commit_blob_tx(DB, Tx4, Ops4)),
+            ?assertEqual(ok, emqx_ds:commit_kv_tx(DB, Tx4, Ops4)),
             ?assertEqual(
                 [{[<<"foo">>], <<"payload0">>}],
                 emqx_ds:dirty_read(DB, ['#'])
             ),
             %% 4.1 Preconditions, successful.
-            {ok, Tx5} = emqx_ds:new_blob_tx(DB, #{owner => Owner}),
+            {ok, Tx5} = emqx_ds:new_kv_tx(DB, #{owner => Owner}),
             Ops5 = #{
                 ?ds_tx_expected => [
                     {[<<"foo">>], '_'},
@@ -1077,21 +1077,21 @@ t_13_smoke_blob_tx(Config) ->
             },
             ?assertEqual(
                 ok,
-                emqx_ds:commit_blob_tx(DB, Tx5, Ops5)
+                emqx_ds:commit_kv_tx(DB, Tx5, Ops5)
             ),
             ?assertEqual(
                 [{[<<"foo">>], <<"payload0'">>}],
                 emqx_ds:dirty_read(DB, ['#'])
             ),
             %% 4.2 Precondictions, fail, unexpected message:
-            {ok, Tx6} = emqx_ds:new_blob_tx(DB, #{owner => Owner}),
+            {ok, Tx6} = emqx_ds:new_kv_tx(DB, #{owner => Owner}),
             Ops6 = #{
                 ?ds_tx_unexpected => [[<<"foo">>]],
                 ?ds_tx_write => [{[<<"foo">>], <<"fail">>}]
             },
             ?assertMatch(
                 ?err_unrec({precondition_failed, _}),
-                emqx_ds:commit_blob_tx(DB, Tx6, Ops6)
+                emqx_ds:commit_kv_tx(DB, Tx6, Ops6)
             ),
             %% Side effects of Tx6 weren't applied:
             ?assertEqual(
@@ -1099,14 +1099,14 @@ t_13_smoke_blob_tx(Config) ->
                 emqx_ds:dirty_read(DB, ['#'])
             ),
             %% 4.3 Preconditions, fail, expected message not found:
-            {ok, Tx7} = emqx_ds:new_blob_tx(DB, #{owner => Owner}),
+            {ok, Tx7} = emqx_ds:new_kv_tx(DB, #{owner => Owner}),
             Ops7 = #{
                 ?ds_tx_expected => [{[<<"bar">>], '_'}],
                 ?ds_tx_write => [{[<<"bar">>], <<"fail">>}]
             },
             ?assertMatch(
                 ?err_unrec({precondition_failed, _}),
-                emqx_ds:commit_blob_tx(DB, Tx7, Ops7)
+                emqx_ds:commit_kv_tx(DB, Tx7, Ops7)
             ),
             %% Side effects of Tx7 weren't applied:
             ?assertEqual(
@@ -1114,7 +1114,7 @@ t_13_smoke_blob_tx(Config) ->
                 emqx_ds:dirty_read(DB, ['#'])
             ),
             %% 4.4 Preconditions, fail, value is different:
-            {ok, Tx8} = emqx_ds:new_blob_tx(DB, #{owner => Owner}),
+            {ok, Tx8} = emqx_ds:new_kv_tx(DB, #{owner => Owner}),
             Ops8 = #{
                 ?ds_tx_expected => [{[<<"foo">>], <<"payload0''">>}],
                 ?ds_tx_write => [{[<<"foo">>], <<"payload0''">>}]
@@ -1123,7 +1123,7 @@ t_13_smoke_blob_tx(Config) ->
                 ?err_unrec(
                     {precondition_failed, [#{expected := <<"payload0''">>, got := <<"payload0'">>}]}
                 ),
-                emqx_ds:commit_blob_tx(DB, Tx8, Ops8)
+                emqx_ds:commit_kv_tx(DB, Tx8, Ops8)
             ),
             %% Side effects of Tx8 weren't applied:
             ?assertEqual(
@@ -1166,8 +1166,8 @@ t_14_tx_wrapper(Config) ->
                 emqx_ds:trans(
                     #{db => DB, owner => <<"me">>},
                     fun() ->
-                        emqx_ds:tx_blob_write([<<"foo">>], <<"1">>),
-                        emqx_ds:tx_blob_write([<<"t">>, <<"1">>], <<"2">>)
+                        emqx_ds:tx_kv_write([<<"foo">>], <<"1">>),
+                        emqx_ds:tx_kv_write([<<"t">>, <<"1">>], <<"2">>)
                     end
                 )
             ),

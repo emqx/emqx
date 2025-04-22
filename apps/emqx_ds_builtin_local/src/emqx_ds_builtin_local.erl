@@ -36,8 +36,8 @@
     suback/3,
     subscription_info/2,
 
-    new_blob_tx/2,
-    commit_blob_tx/3,
+    new_kv_tx/2,
+    commit_kv_tx/3,
 
     stream_to_binary/2,
     binary_to_stream/2,
@@ -233,9 +233,9 @@ store_batch(DB, Batch, Opts) ->
             store_batch_buffered(DB, Batch, Opts)
     end.
 
--spec new_blob_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
+-spec new_kv_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
     {ok, tx_context()} | emqx_ds:error(_).
-new_blob_tx(DB, Options) ->
+new_kv_tx(DB, Options) ->
     case emqx_ds_builtin_local_meta:db_config(DB) of
         #{atomic_batches := true, store_kv := true} ->
             case Options of
@@ -245,13 +245,13 @@ new_blob_tx(DB, Options) ->
                     ok
             end,
             Now = emqx_ds_builtin_local_meta:current_timestamp(Shard),
-            emqx_ds_storage_layer_tx:new_blob_tx_ctx(DB, Shard, Options, Now);
+            emqx_ds_storage_layer_tx:new_kv_tx_ctx(DB, Shard, Options, Now);
         _ ->
             ?err_unrec(database_does_not_support_transactions)
     end.
 
--spec commit_blob_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
-commit_blob_tx(DB, Ctx = #ds_tx_ctx{opts = Options}, Ops) ->
+-spec commit_kv_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
+commit_kv_tx(DB, Ctx = #ds_tx_ctx{opts = Options}, Ops) ->
     Ref = make_ref(),
     emqx_ds_builtin_local_batch_serializer:blob_tx(DB, #ds_tx{
         ctx = Ctx, ops = Ops, from = self(), ref = Ref
