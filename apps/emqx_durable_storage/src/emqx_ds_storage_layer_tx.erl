@@ -19,7 +19,7 @@
 
 %% API:
 -export([
-    new_blob_tx_ctx/4,
+    new_kv_tx_ctx/4,
     verify_preconditions/3
 ]).
 
@@ -43,9 +43,9 @@
 %% API functions
 %%================================================================================
 
--spec new_blob_tx_ctx(emqx_ds:db(), emqx_ds:shard(), emqx_ds:transaction_opts(), emqx_ds:time()) ->
+-spec new_kv_tx_ctx(emqx_ds:db(), emqx_ds:shard(), emqx_ds:transaction_opts(), emqx_ds:time()) ->
     ctx().
-new_blob_tx_ctx(DB, Shard, Options, _Now) ->
+new_kv_tx_ctx(DB, Shard, Options, _Now) ->
     %% Add current generation as a guard to the context to make sure
     %% the transaction doesn't span multiple generations:
     {Generation, _} = emqx_ds_storage_layer:find_generation({DB, Shard}, current),

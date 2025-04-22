@@ -183,7 +183,7 @@ set_offline_info(Generation, ClientId, Data) ->
     emqx_ds:trans(
         #{db => ?DB, owner => ClientId, generation => Generation},
         fun() ->
-            emqx_ds:tx_blob_write([?top_offline_info, ClientId], term_to_binary(Data))
+            emqx_ds:tx_kv_write([?top_offline_info, ClientId], term_to_binary(Data))
         end
     ).
 
@@ -304,13 +304,13 @@ guard(ClientId, Shard, Generation) ->
     emqx_persistent_session_ds_state:guard() | undefined
 ) -> ok.
 assert_guard(ClientId, undefined) ->
-    emqx_ds:tx_blob_assert_not([?top_guard, ClientId]);
+    emqx_ds:tx_kv_assert_absent([?top_guard, ClientId]);
 assert_guard(ClientId, Guard) when is_binary(Guard) ->
-    emqx_ds:tx_blob_assert([?top_guard, ClientId], Guard).
+    emqx_ds:tx_kv_assert_present([?top_guard, ClientId], Guard).
 
 -spec write_guard(emqx_persistent_session_ds:id(), binary() | ?ds_tx_serial) -> ok.
 write_guard(ClientId, Guard) ->
-    emqx_ds:tx_blob_write([?top_guard, ClientId], Guard).
+    emqx_ds:tx_kv_write([?top_guard, ClientId], Guard).
 
 -spec delete_guard(emqx_persistent_session_ds:id()) -> ok.
 delete_guard(ClientId) ->
@@ -372,7 +372,7 @@ pmap_delete(ClientId, #pmap{name = Name}) ->
 %% @doc Write a single key-value pair that belongs to a pmap:
 -spec write_pmap_kv(atom(), emqx_persistent_session_ds:id(), _, _) -> emqx_ds:kv_pair().
 write_pmap_kv(Name, ClientId, Key, Val) ->
-    emqx_ds:tx_blob_write(
+    emqx_ds:tx_kv_write(
         pmap_topic(Name, ClientId, Key, Val),
         ser_payload(Name, Key, Val)
     ).
