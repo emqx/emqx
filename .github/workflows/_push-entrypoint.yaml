@@ -264,26 +264,43 @@ jobs:
         id: extract_version
         run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
 
-      - name: Create PR in emqx/public.broker.io
-        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
         with:
-          token: ${{ secrets.PUBLIC_BROKER_REPO_PAT }}
-          repository: emqx/public.broker.io
-          event-type: release
-          client-payload: |
-            {
-              "version": "${{ steps.extract_version.outputs.version }}"
-            }
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Dispatch release event to emqx/public.broker.io
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/emqx/public.broker.io/dispatches \
+            -f "event_type=release" \
+            -F "client_payload[version]=${{ steps.extract_version.outputs.version }}"
 
   trigger_regression_testing:
     runs-on: ubuntu-latest
     if: ${{ !cancelled() && contains(join(needs.*.result, ','), 'success') }}
     needs:
       - build_packages
-    env:
-      GH_TOKEN: ${{ secrets.PAT_EMQX_QA_RW }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Trigger EMQX Regression Testing Workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         shell: bash
         run: |
           gh --repo emqx/emqx-qa workflow run regression_testing_emqx.yaml \
