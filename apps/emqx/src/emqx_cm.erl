@@ -38,6 +38,7 @@
 
 -export([
     open_session/4,
+    open_session_with_predecessor/5,
     open_session_lcr/3,
     discard_session/1,
     discard_session/2,
@@ -169,15 +170,14 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
     ?tp(debug, insert_channel_info, #{clientid => ClientId}),
     ok.
 
-%% @private
-%% @doc Register a channel with pid and conn_mod.
-%%
+%% @doc Register a channel with pid and conn_mod, globally and locally.
+%% It maybe called twice for two global registration backends.
 %% There is a Race-Condition on one node or cluster when many connections
 %% login to Broker with the same clientid. We should register it and save
 %% the conn_mod first for taking up the clientid access right.
-%%
-%% Note that: It should be called on a lock transaction
+%% @end
 register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid, ConnInfo) ->
+    %% used by lcr only.
     case emqx_linear_channel_registry:register_channel(ClientInfo, ChanPid, ConnInfo) of
         ok ->
             register_channel_local(ClientId, ChanPid, ConnInfo);
@@ -187,9 +187,16 @@ register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid
 register_channel(ClientId, ChanPid, ConnInfo) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
 ->
+    %% Note that: It maybe be called in a locked transaction.
     Chan = {ClientId, ChanPid},
     ok = emqx_cm_registry:register_channel(Chan),
-    register_channel_local(ClientId, ChanPid, ConnInfo).
+    case emqx_linear_channel_registry:is_enabled() of
+        true ->
+            %% skip local register_channel_local
+            ok;
+        false ->
+            register_channel_local(ClientId, ChanPid, ConnInfo)
+    end.
 
 register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at := Vsn}) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
@@ -202,7 +209,13 @@ register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at
     ok = cast({registered, ChanPid}),
     true = ets:insert(?CHAN_TAB, Chan),
     ok = mark_channel_connected(ChanPid),
-    ok.
+    ok;
+register_channel_local(ClientId, ChanPid, ConnInfo) ->
+    %% For backward compatibility.
+    %% when trpt_started_at is absent, that means it is a call from older EMQX version
+    %% where the connected time must be known, but defaults to 0 for safty.
+    TS = maps:get(connected_at, ConnInfo, 0),
+    register_channel_local(ClientId, ChanPid, ConnInfo#{trpt_started_at => TS}).
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
@@ -211,7 +224,7 @@ unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
 
 -spec unregister_channel(emqx_types:clientid(), pid()) -> ok.
 unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
-    %% @TODO this local get could be removed if caller the provides the vsn
+    %% @TODO this local get could be removed if caller provides the vsn
     try ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.vsn) of
         Vsn ->
             do_unregister_channel({ClientId, ChanPid}, Vsn)
@@ -328,14 +341,29 @@ global_chan_cnt() ->
         replay => _ReplayContext
     }}
     | {error, Reason :: term()}.
-open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+
+open_session(CleanStart, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+    case emqx_linear_channel_registry:is_enabled() of
+        true ->
+            Retries = 3,
+            Predecessor = emqx_linear_channel_registry:max_channel_d(ClientId),
+            open_session_with_predecessor(Predecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries);
+        false ->
+            open_session_with_cm_locker(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg)
+    end.
+
+open_session_with_cm_locker(
+    _CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg
+) ->
     emqx_cm_locker:trans(ClientId, fun(_) ->
         ok = discard_session(ClientId),
         ok = emqx_session:destroy(ClientInfo, ConnInfo),
         Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
         {ok, #{session => Session, present => false}}
     end);
-open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+open_session_with_cm_locker(
+    _CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg
+) ->
     emqx_cm_locker:trans(ClientId, fun(_) ->
         case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
             {true, Session, ReplayContext} ->
@@ -345,18 +373,33 @@ open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo
         end
     end).
 
+%% @doc Open channel with predecessor and retires.
+open_session_with_predecessor(_Predecessor, _ClientInfo, _ConnInfo, _MaybeWillMsg, Retries) when
+    Retries < 0
+->
+    {error, max_retries};
+open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, Retries) ->
+    ClientInfo = ClientInfo0#{predecessor => Predecessor},
+    {ok, Res} = open_session_lcr(ClientInfo, ConnInfo, MaybeWillMsg),
+    case emqx_cm:register_channel(ClientInfo, self(), ConnInfo) of
+        ok ->
+            {ok, Res};
+        {error, {restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
+            %% retries ...
+            %% @TODO will Predecessor be undefined?
+            ?FUNCTION_NAME(NewPredecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries - 1);
+        {error, _Other} = E ->
+            E
+    end.
+
 open_session_lcr(
-    #{
-        predecessor := Predecessor,
-        clientid := ClientId
-    } = ClientInfo,
+    #{clientid := ClientId, predecessor := Predecessor} = ClientInfo,
     #{clean_start := true} = ConnInfo,
     MaybeWillMsg
 ) ->
     ok = discard_session(ClientId, emqx_linear_channel_registry:ch_pid(Predecessor)),
     ok = emqx_session:destroy(ClientInfo, ConnInfo),
     Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
-    %% @TODO: register session here
     {ok, #{session => Session, present => false}};
 open_session_lcr(ClientInfo, #{clean_start := false} = ConnInfo, MaybeWillMsg) ->
     case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
@@ -867,7 +910,7 @@ clean_down(Pid) when is_pid(Pid) ->
 
 do_clean_down(ClientId, ChanPid) ->
     try
-        do_unregister_channel({ClientId, ChanPid})
+        unregister_channel(ClientId, ChanPid)
     catch
         error:badarg -> ok
     end,
