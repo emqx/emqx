@@ -249,7 +249,7 @@ authn_attrs({ok, _Properties, Channel}) ->
         'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
         'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
     };
-authn_attrs({error, _Reason}) ->
+authn_attrs({error, _Reason, _Channel}) ->
     #{
         'client.connect.authn.result' => error,
         'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
