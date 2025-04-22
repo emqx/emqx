@@ -28,6 +28,8 @@
 -export([
     t_e2e_connect_disconnect/1,
     t_e2e_abnormal_disconnect/1,
+    t_e2e_authn_failed/1,
+    t_e2e_authn_failed/2,
     t_e2e_cilent_sub_unsub/1,
     t_e2e_cilent_publish_qos0/1,
     t_e2e_cilent_publish_qos1/1,
@@ -72,6 +74,47 @@
 -define(WITH_RULE_ENGINE(TC),
     (TC =:= t_e2e_client_source_republish_to_clients)
 ).
+
+-define(MATCH_ROOT_SPAN(SpanID, TraceID), #{
+    <<"spanID">> := SpanID, <<"traceID">> := TraceID, <<"references">> := []
+}).
+
+-define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
+    <<"tags">> := Tags,
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := []
+}).
+
+-define(MATCH_SUB_SPAN(SpanID, ParentSpanID, TraceID), #{
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := [
+        #{
+            <<"refType">> := <<"CHILD_OF">>,
+            <<"traceID">> := TraceID,
+            <<"spanID">> := ParentSpanID
+        }
+    ]
+}).
+
+-define(MATCH_SUB_SPAN(SpanID, ParentSpanID, Tags, TraceID), #{
+    <<"tags">> := Tags,
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := [
+        #{
+            <<"refType">> := <<"CHILD_OF">>,
+            <<"traceID">> := TraceID,
+            <<"spanID">> := ParentSpanID
+        }
+    ]
+}).
+
+-define(F(TagKeyName, TagSeq), fun(OperationName, Spans) ->
+    sort_spans_by_key_sequence(TagKeyName, TagSeq, OperationName, Spans)
+end).
+
 %% How to run it locally:
 %%
 %% run ct in docker container
@@ -135,6 +178,7 @@ groups() ->
     E2EModeTraceCases = [
         t_e2e_connect_disconnect,
         t_e2e_abnormal_disconnect,
+        t_e2e_authn_failed,
         t_e2e_cilent_sub_unsub,
         t_e2e_cilent_publish_qos0,
         t_e2e_cilent_publish_qos1,
@@ -338,11 +382,11 @@ t_trace(Config) ->
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     TopicNoSubs = <<"t/trace/test/nosub/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
 
-    SubConn1 = connect(Config, <<"sub1">>),
+    {ok, SubConn1} = connect(Config, <<"sub1">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn1, Topic),
-    SubConn2 = connect(Config, <<"sub2">>),
+    {ok, SubConn2} = connect(Config, <<"sub2">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn2, Topic),
-    PubConn = connect(Config, <<"pub">>),
+    {ok, PubConn} = connect(Config, <<"pub">>),
 
     TraceParent = traceparent(true),
     TraceParentNotSampled = traceparent(false),
@@ -389,9 +433,9 @@ t_trace_disabled(Config) ->
 
     Topic = <<"t/trace/test", (atom_to_binary(?FUNCTION_NAME))/binary>>,
 
-    SubConn = connect(Config, <<"sub">>),
+    {ok, SubConn} = connect(Config, <<"sub">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn, Topic),
-    PubConn = connect(Config, <<"pub">>),
+    {ok, PubConn} = connect(Config, <<"pub">>),
 
     TraceParent = traceparent(true),
     emqtt:publish(PubConn, Topic, props(TraceParent), <<>>, []),
@@ -427,7 +471,7 @@ t_trace_all(Config) ->
 
     Topic = <<"t/trace/test", (atom_to_binary(?FUNCTION_NAME))/binary>>,
     ClientId = <<"pub-", (integer_to_binary(erlang:system_time(nanosecond)))/binary>>,
-    PubConn = connect(Config, ClientId),
+    {ok, PubConn} = connect(Config, ClientId),
     emqtt:publish(PubConn, Topic, #{}, <<>>, []),
 
     ?assertEqual(
@@ -472,14 +516,14 @@ t_distributed_trace(Config) ->
     ),
     Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
 
-    SubConn1 = connect(Config, Core1, <<"sub1">>),
+    {ok, SubConn1} = connect(Config, Core1, <<"sub1">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn1, Topic),
-    SubConn2 = connect(Config, Core2, <<"sub2">>),
+    {ok, SubConn2} = connect(Config, Core2, <<"sub2">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn2, Topic),
-    SubConn3 = connect(Config, Repl, <<"sub3">>),
+    {ok, SubConn3} = connect(Config, Repl, <<"sub3">>),
     {ok, _, [0]} = emqtt:subscribe(SubConn3, Topic),
 
-    PubConn = connect(Config, Repl, <<"pub">>),
+    {ok, PubConn} = connect(Config, Repl, <<"pub">>),
 
     TraceParent = traceparent(true),
     TraceParentNotSampled = traceparent(false),
@@ -529,7 +573,7 @@ t_e2e_connect_disconnect(Config) ->
     ConnectTraceParent = traceparent(true),
     DisconnectTraceParent = traceparent(true),
 
-    Conn = connect(Config, node(), ClientId, props(WithTraceparent, ConnectTraceParent)),
+    {ok, Conn} = connect(Config, node(), ClientId, props(WithTraceparent, ConnectTraceParent)),
     timer:sleep(500),
     _ = emqtt:disconnect(Conn, ?RC_SUCCESS, props(WithTraceparent, DisconnectTraceParent)),
     ?assertEqual(
@@ -617,7 +661,7 @@ t_e2e_abnormal_disconnect(Config) ->
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
     ClientId = e2e_client_id(Config),
-    Conn = connect(Config, ClientId),
+    {ok, Conn} = connect(Config, ClientId),
     timer:sleep(500),
     _ = stop_conn(Conn),
     ?assertEqual(
@@ -645,6 +689,82 @@ t_e2e_abnormal_disconnect(Config) ->
     ),
     ok.
 
+t_e2e_authn_failed('init', Config) ->
+    _ = meck:new(emqx_access_control, [passthrough, no_history]),
+    _ = meck:expect(emqx_access_control, authenticate, fun(_) -> {error, not_authorized} end),
+    Config;
+t_e2e_authn_failed('end', _Config) ->
+    ok.
+
+t_e2e_authn_failed(Config) ->
+    OtelConf = enabled_e2e_trace_conf_all(Config),
+    {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
+
+    ClientId = e2e_client_id(Config),
+
+    WithTraceparent = ?config(otel_follow_traceparent, Config),
+    ConnectTraceParent = traceparent(true),
+
+    process_flag(trap_exit, true),
+    ?assertMatch(
+        {error, {not_authorized, _}},
+        connect(
+            Config, node(), ClientId, props(WithTraceparent, ConnectTraceParent)
+        )
+    ),
+    timer:sleep(500),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := ConnectTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    "client.connect",
+                    #{
+                        <<"client.clientid">> => ClientId,
+                        <<"cluster.id">> => <<"emqxcl">>
+                    }
+                ),
+                [#{<<"spans">> := ConnectSpans}] = ConnectTraces,
+
+                [ClientConnect_Span] = filter_spans(<<"client.connect">>, ConnectSpans),
+                [ClientAuthN_Span] = filter_spans(<<"client.authn">>, ConnectSpans),
+
+                %% `client.connect` span
+                #{
+                    <<"spanID">> := ClientConnect_SpanID,
+                    <<"traceID">> := ClientConnect_TraceID,
+                    <<"references">> := Refs1
+                } = ClientConnect_Span,
+
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs1),
+                true = trace_id_assert(
+                    WithTraceparent, ClientConnect_TraceID, trace_id(ConnectTraceParent)
+                ),
+
+                %% `client.authn` span
+                #{
+                    <<"spanID">> := _ClientAuthN_SpanID,
+                    <<"traceID">> := _ClientAuthN_TraceID,
+                    <<"references">> := [
+                        #{
+                            <<"refType">> := <<"CHILD_OF">>,
+                            <<"traceID">> := ClientConnect_TraceID,
+                            <<"spanID">> := ClientConnect_SpanID
+                        }
+                    ]
+                } = ClientAuthN_Span,
+
+                true
+            end,
+            10_000
+        )
+    ),
+    ok.
+
 t_e2e_cilent_sub_unsub(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
@@ -658,7 +778,7 @@ t_e2e_cilent_sub_unsub(Config) ->
     SubTraceParent = traceparent(true),
     UnsubTraceParent = traceparent(true),
 
-    Conn = connect(Config, ClientId),
+    {ok, Conn} = connect(Config, ClientId),
     timer:sleep(500),
     {ok, _, [QoS]} = emqtt:subscribe(Conn, props(WithTraceparent, SubTraceParent), Topic, QoS),
     timer:sleep(500),
@@ -757,46 +877,6 @@ t_e2e_cilent_sub_unsub(Config) ->
     ),
     ok.
 
--define(MATCH_ROOT_SPAN(SpanID, TraceID), #{
-    <<"spanID">> := SpanID, <<"traceID">> := TraceID, <<"references">> := []
-}).
-
--define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
-    <<"tags">> := Tags,
-    <<"spanID">> := SpanID,
-    <<"traceID">> := TraceID,
-    <<"references">> := []
-}).
-
--define(MATCH_SUB_SPAN(SpanID, ParentSpanID, TraceID), #{
-    <<"spanID">> := SpanID,
-    <<"traceID">> := TraceID,
-    <<"references">> := [
-        #{
-            <<"refType">> := <<"CHILD_OF">>,
-            <<"traceID">> := TraceID,
-            <<"spanID">> := ParentSpanID
-        }
-    ]
-}).
-
--define(MATCH_SUB_SPAN(SpanID, ParentSpanID, Tags, TraceID), #{
-    <<"tags">> := Tags,
-    <<"spanID">> := SpanID,
-    <<"traceID">> := TraceID,
-    <<"references">> := [
-        #{
-            <<"refType">> := <<"CHILD_OF">>,
-            <<"traceID">> := TraceID,
-            <<"spanID">> := ParentSpanID
-        }
-    ]
-}).
-
--define(F(TagKeyName, TagSeq), fun(OperationName, Spans) ->
-    sort_spans_by_key_sequence(TagKeyName, TagSeq, OperationName, Spans)
-end).
-
 t_e2e_cilent_publish_qos0(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
@@ -807,8 +887,8 @@ t_e2e_cilent_publish_qos0(Config) ->
     BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
-    Conn1 = connect(Config, ClientId1),
-    Conn2 = connect(Config, ClientId2),
+    {ok, Conn1} = connect(Config, ClientId1),
+    {ok, Conn2} = connect(Config, ClientId2),
 
     timer:sleep(200),
     %% both subscribe the topic
@@ -874,8 +954,8 @@ t_e2e_cilent_publish_qos1(Config) ->
     BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
-    Conn1 = connect(Config, ClientId1),
-    Conn2 = connect(Config, ClientId2),
+    {ok, Conn1} = connect(Config, ClientId1),
+    {ok, Conn2} = connect(Config, ClientId2),
 
     timer:sleep(200),
     %% both subscribe the topic
@@ -948,8 +1028,8 @@ t_e2e_cilent_publish_qos2(Config) ->
     BaseClientId = e2e_client_id(Config),
     ClientId1 = <<BaseClientId/binary, "-1">>,
     ClientId2 = <<BaseClientId/binary, "-2">>,
-    Conn1 = connect(Config, ClientId1),
-    Conn2 = connect(Config, ClientId2),
+    {ok, Conn1} = connect(Config, ClientId1),
+    {ok, Conn2} = connect(Config, ClientId2),
 
     timer:sleep(200),
     %% both subscribe the topic
@@ -1047,11 +1127,11 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
     ClientId2 = <<BaseClientId/binary, "-2">>,
     ClientId3 = <<BaseClientId/binary, "-3">>,
 
-    Conn1 = connect(Config, Core1, ClientId1),
+    {ok, Conn1} = connect(Config, Core1, ClientId1),
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
-    Conn2 = connect(Config, Core2, ClientId2),
+    {ok, Conn2} = connect(Config, Core2, ClientId2),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
-    Conn3 = connect(Config, Repl, ClientId3),
+    {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [QoS]} = emqtt:subscribe(Conn3, Topic, QoS),
 
     timer:sleep(200),
@@ -1195,11 +1275,11 @@ t_e2e_cilent_borker_publish_whitelist(Config) ->
     ok = rpc:call(Core1, emqx_otel_sampler, store_rule, [clientid, ClientId2]),
     ok = rpc:call(Core1, emqx_otel_sampler, store_rule, [clientid, ClientId3]),
 
-    Conn1 = connect(Config, Core1, ClientId1),
+    {ok, Conn1} = connect(Config, Core1, ClientId1),
     {ok, _, [PubQoS]} = emqtt:subscribe(Conn1, Topic, PubQoS),
-    Conn2 = connect(Config, Core2, ClientId2),
+    {ok, Conn2} = connect(Config, Core2, ClientId2),
     {ok, _, [?QOS_1]} = emqtt:subscribe(Conn2, Topic, ?QOS_1),
-    Conn3 = connect(Config, Repl, ClientId3),
+    {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [?QOS_2]} = emqtt:subscribe(Conn3, Topic, ?QOS_2),
 
     timer:sleep(50),
@@ -1280,11 +1360,11 @@ t_e2e_client_pub_qos2_trace_level_0(Config) ->
     ClientId2 = <<BaseClientId/binary, "-2">>,
     ClientId3 = <<BaseClientId/binary, "-3">>,
 
-    Conn1 = connect(Config, Core1, ClientId1),
+    {ok, Conn1} = connect(Config, Core1, ClientId1),
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
-    Conn2 = connect(Config, Core2, ClientId2),
+    {ok, Conn2} = connect(Config, Core2, ClientId2),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
-    Conn3 = connect(Config, Repl, ClientId3),
+    {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [QoS]} = emqtt:subscribe(Conn3, Topic, QoS),
 
     timer:sleep(200),
@@ -1390,11 +1470,11 @@ t_e2e_client_pub_qos2_trace_level_1(Config) ->
     ClientId2 = <<BaseClientId/binary, "-2">>,
     ClientId3 = <<BaseClientId/binary, "-3">>,
 
-    Conn1 = connect(Config, Core1, ClientId1),
+    {ok, Conn1} = connect(Config, Core1, ClientId1),
     {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
-    Conn2 = connect(Config, Core2, ClientId2),
+    {ok, Conn2} = connect(Config, Core2, ClientId2),
     {ok, _, [QoS]} = emqtt:subscribe(Conn2, Topic, QoS),
-    Conn3 = connect(Config, Repl, ClientId3),
+    {ok, Conn3} = connect(Config, Repl, ClientId3),
     {ok, _, [?QOS_1]} = emqtt:subscribe(Conn3, Topic, ?QOS_1),
 
     timer:sleep(200),
@@ -1556,8 +1636,8 @@ t_e2e_client_source_republish_to_clients(Config) ->
     PubToTriggerSourceClientId = <<BaseClientId/binary, "-publish-to-trigger-source">>,
     SubRepublishClientId = <<BaseClientId/binary, "-sub-republish">>,
 
-    TriggerSourcePid = connect(Config, PubToTriggerSourceClientId),
-    SubRepublishPid = connect(Config, SubRepublishClientId),
+    {ok, TriggerSourcePid} = connect(Config, PubToTriggerSourceClientId),
+    {ok, SubRepublishPid} = connect(Config, SubRepublishClientId),
 
     RepublishTopic = ?config(republish_topic, Config),
     {ok, _, [?QOS_2]} = emqtt:subscribe(SubRepublishPid, RepublishTopic, ?QOS_2),
@@ -1911,8 +1991,12 @@ connect(Config, {Host, Port}, ClientId, Props) ->
             {properties, Props}
         ] ++ ConnOpts
     ),
-    {ok, _} = ConnFun(ConnPid),
-    ConnPid.
+    case ConnFun(ConnPid) of
+        {ok, _} ->
+            {ok, ConnPid};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
