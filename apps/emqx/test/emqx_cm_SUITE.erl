@@ -157,10 +157,16 @@ t_open_session(_) ->
     {ok, #{session := Session1, present := false}} =
         open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
-    {ok, #{session := Session2, present := false}} =
-        open_session(true, ClientInfo, ConnInfo),
-    ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
 
+    case emqx_linear_channel_registry:is_enabled() of
+        false ->
+            {ok, #{session := Session2, present := false}} =
+                open_session(true, ClientInfo, ConnInfo),
+            ?assertEqual(100, emqx_session:info(inflight_max, Session2));
+        true ->
+            %% unsupported
+            skip
+    end,
     emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
 

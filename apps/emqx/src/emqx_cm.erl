@@ -234,10 +234,6 @@ unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
     end.
 
 %% @private
-do_unregister_channel(Chan) ->
-    _ = emqx_cm_registry:unregister_channel(Chan),
-    do_unregister_channel_local(Chan).
-
 do_unregister_channel(Chan, Vsn) ->
     _ = do_unregister_channel_global(Chan, Vsn),
     do_unregister_channel_local(Chan).
