@@ -13,14 +13,15 @@
     start_link/3,
 
     store_batch_atomic/4,
-    commit_blob_tx/3
+    blob_tx/2
 ]).
 
 %% `gen_server' API
 -export([
     init/1,
     handle_call/3,
-    handle_cast/2
+    handle_cast/2,
+    handle_info/2
 ]).
 
 %%------------------------------------------------------------------------------
@@ -29,15 +30,19 @@
 
 -define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
 
+-define(flush_transactions, flush_transactions).
+
 -define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 
 -record(store_batch_atomic, {batch :: emqx_ds:batch(), opts :: emqx_ds:message_store_opts()}).
--record(commit_blob_tx, {ctx :: emqx_ds_storage_layer_tx:ctx(), ops :: emqx_ds:blob_tx_ops()}).
+-record(commit_kv_transactions, {txs :: [#ds_tx{}]}).
 
 -record(s, {
     dbshard :: emqx_ds_storage_layer:dbshard(),
-    serial :: atomics:atomics_ref()
+    serial :: atomics:atomics_ref(),
+    buffer = [],
+    flush_timer :: undefined | reference()
 }).
 
 %%------------------------------------------------------------------------------
@@ -50,8 +55,8 @@ start_link(DB, Shard, _Opts) ->
 store_batch_atomic(DB, Shard, Batch, Opts) ->
     gen_server:call(?via(DB, Shard), #store_batch_atomic{batch = Batch, opts = Opts}, infinity).
 
-commit_blob_tx(DB, #ds_tx_ctx{shard = Shard} = Ctx, Ops) ->
-    gen_server:call(?via(DB, Shard), #commit_blob_tx{ctx = Ctx, ops = Ops}, infinity).
+blob_tx(DB, TX = #ds_tx{ctx = #ds_tx_ctx{shard = Shard}}) ->
+    gen_server:call(?via(DB, Shard), TX, infinity).
 
 %%------------------------------------------------------------------------------
 %% `gen_server' callbacks
@@ -69,11 +74,31 @@ init([DB, Shard]) ->
 handle_call(#store_batch_atomic{batch = Batch, opts = StoreOpts}, _From, S = #s{dbshard = DBShard}) ->
     Result = do_store_batch_atomic(DBShard, Batch, StoreOpts),
     {reply, Result, S};
-handle_call(#commit_blob_tx{ctx = Ctx, ops = Ops}, _From, S) ->
-    Result = blob_tx(S, Ctx, Ops),
-    {reply, Result, S};
+handle_call(Tx = #ds_tx{}, _From, S0 = #s{buffer = Buffer, flush_timer = FT}) ->
+    S = S0#s{
+        buffer = [Tx | Buffer],
+        flush_timer =
+            case FT of
+                undefined ->
+                    %% FIXME (use buffer settings from conf)
+                    erlang:send_after(100, self(), ?flush_transactions);
+                _ ->
+                    FT
+            end
+    },
+    {reply, ok, S};
+handle_call(#commit_kv_transactions{txs = Txs}, _From, S) ->
+    commit_kv_batch(S, lists:reverse(Txs)),
+    {reply, ok, S};
 handle_call(Call, _From, S) ->
     {reply, {error, {unknown_call, Call}}, S}.
+
+handle_info(?flush_transactions, S0 = #s{buffer = Buf}) ->
+    S = S0#s{flush_timer = undefined, buffer = []},
+    commit_kv_batch(S, Buf),
+    {noreply, S};
+handle_info(_, S) ->
+    {noreply, S}.
 
 handle_cast(_Cast, S) ->
     {noreply, S}.
@@ -82,19 +107,61 @@ handle_cast(_Cast, S) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-blob_tx(S0, Ctx = #ds_tx_ctx{generation = GenId}, Ops) ->
-    #s{dbshard = DBShard = {DB, _}, serial = SerRef} = S0,
-    DispatchF = fun(Events) ->
-        emqx_ds_beamformer:shard_event(DBShard, Events)
+commit_kv_batch(S, Txs) ->
+    #s{dbshard = DBShard} = S,
+    %% Verify the preconditions and cook valid transactions:
+    {CookedBatch, Replies} = prepare_blob_tx(S, Txs),
+    case CookedBatch of
+        undefined ->
+            ok;
+        _ ->
+            ok = emqx_ds_storage_layer:commit_batch(DBShard, CookedBatch, #{list => true})
     end,
+    %% Dispatch events to event subscribers (FIXME):
+    %% DispatchF = fun(Events) ->
+    %%     emqx_ds_beamformer:shard_event(DBShard, Events)
+    %% end,
+    %% lists:foreach(
+    %%     fun(CookedBatch) ->
+    %%         emqx_ds_storage_layer:dispatch_events(DBShard, CookedBatch, DispatchF)
+    %%     end,
+    %%     CookedBatches
+    %% ),
+    %% Send replies to the committers:
+    lists:foreach(
+        fun({From, Reply}) ->
+            From ! Reply
+        end,
+        Replies
+    ).
+
+prepare_blob_tx(S, L) ->
+    prepare_blob_tx(S, L, undefined, []).
+
+prepare_blob_tx(_S, [], CookedBatch, Replies) ->
+    {CookedBatch, Replies};
+prepare_blob_tx(
+    S, [#ds_tx{ctx = Ctx, ops = Ops, from = From, ref = Ref} | Rest], CookedBatchAcc, Replies
+) ->
+    %% FIXME take generation into account
+    #s{dbshard = DBShard = {DB, _}, serial = SerRef} = S,
+    #ds_tx_ctx{generation = GenId} = Ctx,
     maybe
         ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
         CommitSerial = term_to_binary(new_serial(DBShard, SerRef)),
         {ok, CookedBatch} ?=
-            emqx_ds_storage_layer:prepare_blob_tx(DBShard, GenId, CommitSerial, Ops, #{}),
-        ok ?= emqx_ds_storage_layer:commit_batch(DBShard, CookedBatch, #{}),
-        emqx_ds_storage_layer:dispatch_events(DBShard, CookedBatch, DispatchF),
-        {ok, CommitSerial}
+            emqx_ds_storage_layer:prepare_blob_tx(
+                DBShard, GenId, CommitSerial, Ops, CookedBatchAcc, #{}
+            ),
+        Reply = #ds_tx_commit_reply{
+            ref = Ref,
+            payload = {ok, CommitSerial}
+        },
+        prepare_blob_tx(S, Rest, CookedBatch, [{From, Reply} | Replies])
+    else
+        Error ->
+            From ! #ds_tx_commit_reply{ref = Ref, payload = Error},
+            prepare_blob_tx(S, Rest, CookedBatchAcc, Replies)
     end.
 
 -spec do_store_batch_atomic(

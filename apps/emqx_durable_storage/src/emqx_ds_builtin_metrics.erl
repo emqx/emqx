@@ -66,7 +66,7 @@
 ]).
 
 -define(STORAGE_LAYER_METRICS, [
-    {counter, slide, ?DS_STORE_BATCH_TIME},
+    {counter, hist, ?DS_STORE_BATCH_TIME},
     {counter, counter, ?DS_BITFIELD_LTS_SEEK_COUNTER},
     {counter, counter, ?DS_BITFIELD_LTS_NEXT_COUNTER},
     {counter, counter, ?DS_BITFIELD_LTS_COLLISION_COUNTER},
@@ -91,7 +91,7 @@
     {counter, counter, ?DS_BUFFER_BATCHES_FAILED},
     {counter, counter, ?DS_BUFFER_MESSAGES},
     {counter, counter, ?DS_BUFFER_BYTES},
-    {gauge, slide, ?DS_BUFFER_FLUSH_TIME},
+    {gauge, hist, ?DS_BUFFER_FLUSH_TIME},
     {gauge, slide, ?DS_BUFFER_LATENCY}
 ]).
 
@@ -100,9 +100,15 @@
     {counter, counter, ?DS_SUBS_HANDOVER},
     {counter, counter, ?DS_SUBS_BEAMS_SENT_TOTAL},
     {gauge, slide, ?DS_SUBS_REQUEST_SHARING},
+<<<<<<< HEAD
     {counter, slide, ?DS_SUBS_FULFILL_TIME},
     {counter, slide, ?DS_SUBS_PROCESS_COMMANDS_TIME},
     {counter, slide, ?DS_SUBS_SCAN_TIME}
+=======
+    {counter, hist, ?DS_SUBS_FULFILL_TIME},
+    {counter, hist, ?DS_SUBS_PROCESS_COMMANDS_TIME},
+    {counter, hist, ?DS_SUBS_SCAN_TIME}
+>>>>>>> f34c33562 (Somewhat working with transaction batching)
 ]).
 
 -type shard_metrics_id() :: binary().

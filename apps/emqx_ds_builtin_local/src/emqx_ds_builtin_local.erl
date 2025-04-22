@@ -74,6 +74,7 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_storage_layer_tx.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -251,7 +252,16 @@ new_blob_tx(DB, Options) ->
 
 -spec commit_blob_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
 commit_blob_tx(DB, Ctx, Ops) ->
-    emqx_ds_builtin_local_batch_serializer:commit_blob_tx(DB, Ctx, Ops).
+    Ref = make_ref(),
+    emqx_ds_builtin_local_batch_serializer:blob_tx(DB, #ds_tx{
+        ctx = Ctx, ops = Ops, from = self(), ref = Ref
+    }),
+    receive
+        #ds_tx_commit_reply{ref = Ref, payload = Result} ->
+            Result
+    after 5_000 ->
+        ?err_rec(timeout)
+    end.
 
 store_batch_buffered(DB, Messages, Opts) ->
     try
@@ -306,6 +316,9 @@ init_buffer(DB, Shard, Options) ->
 
 -spec flush_buffer(emqx_ds:db(), shard(), [emqx_types:message()], buffer_state()) ->
     {buffer_state(), emqx_ds:store_batch_result()}.
+flush_buffer(DB, Shard, Transactions, S = #bs{options = #{store_kv := true}}) ->
+    Result = emqx_ds_builtin_local_batch_serializer:commit_kv_transactions(DB, Shard, Transactions),
+    {S, Result};
 flush_buffer(DB, Shard, Messages, S0 = #bs{options = Options}) ->
     ShardId = {DB, Shard},
     ForceMonotonic = maps:get(force_monotonic_timestamps, Options),
@@ -363,7 +376,9 @@ shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, Serial
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of(DB, Key).
+    shard_of(DB, Key);
+shard_of_operation(_DB, #ds_tx{ctx = #ds_tx_ctx{shard = Shard}}, _SerializeBy, _Options) ->
+    Shard.
 
 shard_of(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),

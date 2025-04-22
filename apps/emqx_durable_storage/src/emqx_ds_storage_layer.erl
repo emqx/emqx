@@ -16,7 +16,7 @@
     store_batch/3,
     store_batch/4,
     prepare_batch/3,
-    prepare_blob_tx/5,
+    prepare_blob_tx/6,
     commit_batch/3,
     dispatch_events/3,
 
@@ -168,7 +168,10 @@
         %% writes are in general unsafe but require much less resources, i.e. with RocksDB
         %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
         %% Default: `true'.
-        durable => boolean()
+        durable => boolean(),
+        %% Whether the argument is a list of cooked batches instead of
+        %% a single batch. Default: `false'.
+        list => boolean()
     }.
 
 %% Options affecting how batches should be prepared.
@@ -327,7 +330,7 @@
 -callback commit_batch(
     dbshard(),
     generation_data(),
-    _CookedBatch,
+    _CookedBatch | [_CookedBatch],
     batch_store_opts()
 ) -> ok | emqx_ds:error(_).
 
@@ -487,10 +490,21 @@ batch_starts_at([]) ->
 %% @doc Transform a transaction into a "cooked batch" that can
 %% be stored in the transaction log or transfered over the network.
 -spec prepare_blob_tx(
-    dbshard(), gen_id(), emqx_ds:tx_serial(), emqx_ds:blob_tx_ops(), batch_prepare_opts()
+    dbshard(),
+    gen_id(),
+    emqx_ds:tx_serial(),
+    emqx_ds:blob_tx_ops(),
+    cooked_batch() | undefined,
+    batch_prepare_opts()
 ) ->
-    {ok, cooked_batch()} | ignore | emqx_ds:error(_).
-prepare_blob_tx(Shard, GenId, TXSerial, Tx, Options) ->
+    {ok, cooked_batch()} | emqx_ds:error(_).
+prepare_blob_tx(Shard, GenId, TXSerial, Tx, OldBatch, Options) ->
+    case OldBatch of
+        undefined ->
+            Acc = [];
+        #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Acc} ->
+            ok
+    end,
     ?tp(emqx_ds_storage_layer_prepare_blob_tx, #{
         shard => Shard, generation => GenId, batch => Tx, options => Options
     }),
@@ -500,7 +514,11 @@ prepare_blob_tx(Shard, GenId, TXSerial, Tx, Options) ->
             Result =
                 case Mod:prepare_blob_tx(Shard, GenData, TXSerial, Tx, Options) of
                     {ok, CookedBatch} ->
-                        {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
+                        {ok, #{
+                            ?tag => ?COOKED_BATCH,
+                            ?generation => GenId,
+                            ?enc => [CookedBatch | Acc]
+                        }};
                     Error = {error, _, _} ->
                         Error
                 end,

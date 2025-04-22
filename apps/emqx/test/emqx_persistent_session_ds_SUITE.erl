@@ -649,7 +649,15 @@ t_replay_deleted_generation(_Config) ->
 %% restore actions and verifies that the session state is consistent
 %% with the model.
 t_state_fuzz(init, Config) ->
-    start_local(?FUNCTION_NAME, Config).
+    meck:new(emqx_ds, [passthrough, no_history]),
+    meck:expect(emqx_ds, stream_to_binary, fun(_, A) -> {ok, term_to_binary(A)} end),
+    meck:expect(emqx_ds, binary_to_stream, fun(_, A) -> {ok, binary_to_term(A)} end),
+    meck:expect(emqx_ds, iterator_to_binary, fun(_, A) -> {ok, term_to_binary(A)} end),
+    meck:expect(emqx_ds, binary_to_iterator, fun(_, A) -> {ok, binary_to_term(A)} end),
+    Cleanup = fun() ->
+        meck:unload(emqx_ds)
+    end,
+    start_local(?FUNCTION_NAME, [{cleanup, Cleanup} | Config]).
 t_state_fuzz(_Config) ->
     NTests = 100,
     MaxSize = 100,

@@ -42,6 +42,11 @@
     lagging :: boolean() | undefined
 }).
 
+-record(ds_tx_commit_reply, {
+    ref :: reference(),
+    payload :: {ok, emqx_ds:tx_serial()} | emqx_ds:error(_)
+}).
+
 -record(new_stream_event, {
     subref :: emqx_ds_new_streams:watch()
 }).
