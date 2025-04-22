@@ -159,8 +159,37 @@ null_badarg_test_() ->
         ?_assertError(badarg, emqx_variform_bif:find(null, <<"a">>)),
         ?_assertError(badarg, emqx_variform_bif:find(undefined, <<"a">>, <<"trailing">>)),
         ?_assertError(badarg, emqx_variform_bif:find(null, <<"a">>, <<"trailing">>)),
-        ?_assertError(badarg, emqx_variform_bif:join_to_string(undefined, <<"a">>)),
-        ?_assertError(badarg, emqx_variform_bif:join_to_string(null, <<"a">>)),
         ?_assertError(badarg, emqx_variform_bif:unescape(undefined)),
         ?_assertError(badarg, emqx_variform_bif:unescape(null))
+    ].
+
+atom_input_test_() ->
+    [
+        ?_assertEqual(<<"ATOM">>, emqx_variform_bif:upper('atom')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:lower('ATOM')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:ltrim('atom')),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:ltrim('atom', <<"a">>)),
+        ?_assertEqual(<<"mota">>, emqx_variform_bif:reverse('atom')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:rtrim('atom')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:rtrim('atom', <<"a">>)),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:rm_prefix('atom', <<"a">>)),
+        ?_assertEqual(4, emqx_variform_bif:strlen('atom')),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:substr('atom', 1)),
+        ?_assertEqual(<<"to">>, emqx_variform_bif:substr('atom', 1, 2)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:trim('atom')),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:trim('atom', <<"a">>)),
+        ?_assertEqual([<<"tom">>], emqx_variform_bif:split('atom', <<"a">>)),
+        ?_assertEqual([<<>>, <<"tom">>], emqx_variform_bif:split('atom', <<"a">>, <<"notrim">>)),
+        ?_assertEqual([<<"tom">>], emqx_variform_bif:tokens('atom', <<"a">>)),
+        ?_assertEqual(<<"atom ">>, emqx_variform_bif:pad('atom', 5, <<"trailing">>)),
+        ?_assertEqual(<<"atomx">>, emqx_variform_bif:pad('atom', 5, <<"trailing">>, <<"x">>)),
+        ?_assertEqual(<<"btom">>, emqx_variform_bif:replace('atom', <<"a">>, <<"b">>)),
+        ?_assertEqual(<<"btom">>, emqx_variform_bif:replace('atom', <<"a">>, <<"b">>, <<"all">>)),
+        ?_assertEqual(true, emqx_variform_bif:regex_match('atom', <<"^atom$">>)),
+        ?_assertEqual(<<"btom">>, emqx_variform_bif:regex_replace('atom', <<"a">>, <<"b">>)),
+        ?_assertEqual([<<"atom">>], emqx_variform_bif:regex_extract('atom', <<"(atom)">>)),
+        ?_assertEqual(97, emqx_variform_bif:ascii(a)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:find('atom', <<"a">>)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:find('atom', <<"a">>, <<"trailing">>)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:unescape('atom'))
     ].

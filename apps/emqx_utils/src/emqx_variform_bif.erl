@@ -97,38 +97,52 @@
 
 lower(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+lower(A) when is_atom(A) ->
+    lower(atom_to_binary(A, utf8));
 lower(S) when is_binary(S) ->
     string:lowercase(S).
 
 ltrim(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+ltrim(A) when is_atom(A) ->
+    ltrim(atom_to_binary(A, utf8));
 ltrim(S) ->
     string:trim(S, leading).
 
 ltrim(S, _) when ?IS_NULL(S) ->
     error(badarg);
+ltrim(S, Chars) when is_atom(S) ->
+    ltrim(atom_to_binary(S, utf8), Chars);
 ltrim(S, Chars) ->
-    string:trim(S, leading, Chars).
+    string:trim(S, leading, unicode:characters_to_list(Chars, utf8)).
 
 reverse(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+reverse(A) when is_atom(A) ->
+    reverse(atom_to_binary(A, utf8));
 reverse(S) when is_binary(S) ->
     iolist_to_binary(string:reverse(S)).
 
 rtrim(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+rtrim(A) when is_atom(A) ->
+    rtrim(atom_to_binary(A, utf8));
 rtrim(S) when is_binary(S) ->
     string:trim(S, trailing).
 
 rtrim(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+rtrim(S, Chars) when is_atom(S) ->
+    rtrim(atom_to_binary(S, utf8), Chars);
 rtrim(S, Chars) when is_binary(S) ->
-    string:trim(S, trailing, Chars).
+    string:trim(S, trailing, unicode:characters_to_list(Chars, utf8)).
 
 %% @doc Remove the prefix of a string if there is a match.
 %% The original stirng is returned if there is no match.
 rm_prefix(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+rm_prefix(S, Prefix) when is_atom(S) ->
+    rm_prefix(atom_to_binary(S, utf8), Prefix);
 rm_prefix(S, Prefix) ->
     Size = size(Prefix),
     case S of
@@ -140,16 +154,22 @@ rm_prefix(S, Prefix) ->
 
 strlen(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+strlen(A) when is_atom(A) ->
+    strlen(atom_to_binary(A, utf8));
 strlen(S) when is_binary(S) ->
     string:length(S).
 
 substr(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+substr(S, Start) when is_atom(S) ->
+    substr(atom_to_binary(S, utf8), Start);
 substr(S, Start) when is_binary(S), is_integer(Start) ->
     string:slice(S, Start).
 
 substr(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+substr(S, Start, Length) when is_atom(S) ->
+    substr(atom_to_binary(S, utf8), Start, Length);
 substr(S, Start, Length) when
     is_binary(S),
     is_integer(Start),
@@ -159,26 +179,36 @@ substr(S, Start, Length) when
 
 trim(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+trim(S) when is_atom(S) ->
+    trim(atom_to_binary(S, utf8));
 trim(S) when is_binary(S) ->
     string:trim(S).
 
 trim(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+trim(S, Chars) when is_atom(S) ->
+    trim(atom_to_binary(S, utf8), Chars);
 trim(S, Chars) when is_binary(S) ->
-    string:trim(S, both, Chars).
+    string:trim(S, both, unicode:characters_to_list(Chars, utf8)).
 
 upper(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+upper(A) when is_atom(A) ->
+    upper(atom_to_binary(A, utf8));
 upper(S) when is_binary(S) ->
     string:uppercase(S).
 
 split(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+split(S, P) when is_atom(S) ->
+    split(atom_to_binary(S, utf8), P);
 split(S, P) when is_binary(S), is_binary(P) ->
     [R || R <- string:split(S, P, all), R =/= <<>> andalso R =/= ""].
 
 split(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+split(S, P, Option) when is_atom(S) ->
+    split(atom_to_binary(S, utf8), P, Option);
 split(S, P, <<"notrim">>) ->
     string:split(S, P, all);
 split(S, P, <<"leading_notrim">>) ->
@@ -192,11 +222,15 @@ split(S, P, <<"trailing">>) when is_binary(S), is_binary(P) ->
 
 tokens(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+tokens(S, Separators) when is_atom(S) ->
+    tokens(atom_to_binary(S, utf8), Separators);
 tokens(S, Separators) ->
     [list_to_binary(R) || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators))].
 
 tokens(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+tokens(S, Separators, <<"nocrlf">>) when is_atom(S) ->
+    tokens(atom_to_binary(S, utf8), Separators, <<"nocrlf">>);
 tokens(S, Separators, <<"nocrlf">>) ->
     [
         list_to_binary(R)
@@ -217,11 +251,15 @@ sprintf_s(Format, Args) when is_list(Args) ->
 
 pad(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+pad(S, Len) when is_atom(S) ->
+    pad(atom_to_binary(S, utf8), Len);
 pad(S, Len) when is_binary(S), is_integer(Len) ->
     iolist_to_binary(string:pad(S, Len, trailing)).
 
 pad(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+pad(S, Len, Option) when is_atom(S) ->
+    pad(atom_to_binary(S, utf8), Len, Option);
 pad(S, Len, <<"trailing">>) when is_binary(S), is_integer(Len) ->
     iolist_to_binary(string:pad(S, Len, trailing));
 pad(S, Len, <<"both">>) when is_binary(S), is_integer(Len) ->
@@ -231,6 +269,8 @@ pad(S, Len, <<"leading">>) when is_binary(S), is_integer(Len) ->
 
 pad(NULL, _, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+pad(S, Len, Option, Char) when is_atom(S) ->
+    pad(atom_to_binary(S, utf8), Len, Option, Char);
 pad(S, Len, <<"trailing">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
     Chars = unicode:characters_to_list(Char, utf8),
     iolist_to_binary(string:pad(S, Len, trailing, Chars));
@@ -243,11 +283,15 @@ pad(S, Len, <<"leading">>, Char) when is_binary(S), is_integer(Len), is_binary(C
 
 replace(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+replace(SrcStr, P, RepStr) when is_atom(SrcStr) ->
+    replace(atom_to_binary(SrcStr, utf8), P, RepStr);
 replace(SrcStr, P, RepStr) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, all)).
 
 replace(NULL, _, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+replace(SrcStr, P, RepStr, Option) when is_atom(SrcStr) ->
+    replace(atom_to_binary(SrcStr, utf8), P, RepStr, Option);
 replace(SrcStr, P, RepStr, <<"all">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, all));
 replace(SrcStr, P, RepStr, <<"trailing">>) when
@@ -259,6 +303,8 @@ replace(SrcStr, P, RepStr, <<"leading">>) when is_binary(SrcStr), is_binary(P), 
 
 regex_match(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+regex_match(Str, RE) when is_atom(Str) ->
+    regex_match(atom_to_binary(Str, utf8), RE);
 regex_match(Str, RE) ->
     case re:run(Str, RE, [global, {capture, none}]) of
         match -> true;
@@ -267,6 +313,8 @@ regex_match(Str, RE) ->
 
 regex_replace(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+regex_replace(SrcStr, RE, RepStr) when is_atom(SrcStr) ->
+    regex_replace(atom_to_binary(SrcStr, utf8), RE, RepStr);
 regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
 
@@ -284,6 +332,8 @@ regex_replace(SrcStr, RE, RepStr) ->
 -spec regex_extract(null() | string() | binary(), string() | binary()) -> [binary()].
 regex_extract(NULL, _) when ?IS_NULL(NULL) ->
     error(badarg);
+regex_extract(Str, Regexp) when is_atom(Str) ->
+    regex_extract(atom_to_binary(Str, utf8), Regexp);
 regex_extract(Str, Regexp) ->
     case re:run(Str, Regexp, [{capture, all_but_first, binary}]) of
         {match, CapturedGroups} ->
@@ -294,25 +344,24 @@ regex_extract(Str, Regexp) ->
 
 ascii(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
-ascii(Char) when is_binary(Char) ->
-    [FirstC | _] = binary_to_list(Char),
-    FirstC.
+ascii(Char) when is_atom(Char) ->
+    ascii(atom_to_binary(Char, utf8));
+ascii(<<Char:8, _/binary>>) ->
+    Char.
 
-find(NULL, _) when ?IS_NULL(NULL) ->
-    error(badarg);
-find(S, P) when is_binary(S), is_binary(P) ->
+find(S, P) ->
     find_s(S, P, leading).
 
-find(NULL, _, _) when ?IS_NULL(NULL) ->
-    error(badarg);
-find(S, P, <<"trailing">>) when is_binary(S), is_binary(P) ->
+find(S, P, <<"trailing">>) ->
     find_s(S, P, trailing);
-find(S, P, <<"leading">>) when is_binary(S), is_binary(P) ->
+find(S, P, <<"leading">>) ->
     find_s(S, P, leading).
 
 find_s(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
-find_s(S, P, Dir) ->
+find_s(S, P, Dir) when is_atom(S) ->
+    find_s(atom_to_binary(S, utf8), P, Dir);
+find_s(S, P, Dir) when is_binary(S), is_binary(P) ->
     case string:find(S, P, Dir) of
         nomatch -> <<"">>;
         SubStr -> SubStr
@@ -321,13 +370,13 @@ find_s(S, P, Dir) ->
 join_to_string(List) when is_list(List) ->
     join_to_string(<<", ">>, List).
 
-join_to_string(NULL, _) when ?IS_NULL(NULL) ->
-    error(badarg);
 join_to_string(Sep, List) when is_list(List), is_binary(Sep) ->
     iolist_to_binary(lists:join(Sep, [any_to_str(Item) || Item <- List])).
 
 unescape(NULL) when ?IS_NULL(NULL) ->
     error(badarg);
+unescape(Atom) when is_atom(Atom) ->
+    unescape(atom_to_binary(Atom, utf8));
 unescape(Bin) when is_binary(Bin) ->
     UnicodeList = unicode:characters_to_list(Bin, utf8),
     UnescapedUnicodeList = unescape_string(UnicodeList),
@@ -568,6 +617,8 @@ hash(Type, Bin) when is_atom(Type) ->
 %% @doc Hash binary data to an integer within a specified range [Min, Max]
 hash_to_range(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
+hash_to_range(Bin, Min, Max) when is_atom(Bin) ->
+    hash_to_range(atom_to_binary(Bin, utf8), Min, Max);
 hash_to_range(Bin, Min, Max) when
     is_binary(Bin) andalso
         size(Bin) > 0 andalso
@@ -583,7 +634,12 @@ hash_to_range(_, _, _) ->
 
 map_to_range(NULL, _, _) when ?IS_NULL(NULL) ->
     error(badarg);
-map_to_range(Bin, Min, Max) when is_binary(Bin) andalso size(Bin) > 0 ->
+map_to_range(Bin, Min, Max) when is_atom(Bin) ->
+    map_to_range(atom_to_binary(Bin, utf8), Min, Max);
+map_to_range(Bin, Min, Max) when
+    is_binary(Bin) andalso
+        size(Bin) > 0
+->
     HashNum = binary:decode_unsigned(Bin),
     map_to_range(HashNum, Min, Max);
 map_to_range(Int, Min, Max) when
