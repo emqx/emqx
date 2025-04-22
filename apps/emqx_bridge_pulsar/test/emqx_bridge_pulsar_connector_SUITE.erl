@@ -499,6 +499,29 @@ receive_consumed(Timeout) ->
         ct:fail("no message consumed")
     end.
 
+receive_consumed_until_seqno(SeqNo, Timeout) ->
+    do_receive_consumed_until_seqno(SeqNo, Timeout, _Acc = #{}).
+
+do_receive_consumed_until_seqno(SeqNo, _Timeout, Acc) when map_size(Acc) == SeqNo ->
+    maps:values(Acc);
+do_receive_consumed_until_seqno(SeqNo, Timeout, Acc0) ->
+    receive
+        {pulsar_message, #{payloads := Payloads0}} ->
+            Payloads = lists:map(fun try_decode_json/1, Payloads0),
+            %% Pulsar apparently may resend some duplicate messages during/after
+            %% connectivity problems.
+            Acc = lists:foldl(
+                fun(#{<<"payload">> := N} = P, AccIn) ->
+                    AccIn#{N => P}
+                end,
+                Acc0,
+                Payloads
+            ),
+            do_receive_consumed_until_seqno(SeqNo, Timeout, Acc)
+    after Timeout ->
+        maps:values(Acc0)
+    end.
+
 flush_consumed() ->
     receive
         {pulsar_message, _} -> flush_consumed()
@@ -1244,13 +1267,30 @@ t_resilience(Config) ->
                     {done, SeqNo} -> SeqNo
                 after 1_000 -> ct:fail("producer didn't stop!")
                 end,
-            Consumed = lists:flatmap(
-                fun(_) -> receive_consumed(10_000) end, lists:seq(1, NumProduced)
-            ),
-            ?assertEqual(NumProduced, length(Consumed)),
-            ExpectedPayloads = lists:map(fun integer_to_binary/1, lists:seq(1, NumProduced)),
+            Consumed = receive_consumed_until_seqno(NumProduced, _Timeout = 10_000),
             ?assertEqual(
-                ExpectedPayloads, lists:map(fun(#{<<"payload">> := P}) -> P end, Consumed)
+                NumProduced,
+                length(Consumed),
+                #{
+                    num_produced => NumProduced,
+                    consumed => Consumed
+                }
+            ),
+            ExpectedPayloads = lists:map(fun integer_to_binary/1, lists:seq(1, NumProduced)),
+            ConsumedPayloads = lists:sort(
+                fun(ABin, BBin) -> binary_to_integer(ABin) =< binary_to_integer(BBin) end,
+                lists:map(
+                    fun(#{<<"payload">> := P}) -> P end,
+                    Consumed
+                )
+            ),
+            ?assertEqual(
+                ExpectedPayloads,
+                ConsumedPayloads,
+                #{
+                    missing => ExpectedPayloads -- ConsumedPayloads,
+                    unexpected => ConsumedPayloads -- ExpectedPayloads
+                }
             ),
             ok
         end,
