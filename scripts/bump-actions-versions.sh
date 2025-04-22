@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-actions=( 'actions/checkout' 'actions/cache' 'actions/stale' 'actions/upload-artifact' 'actions/download-artifact' 'aws-actions/configure-aws-credentials' 'ossf/scorecard-action' 'erlef/setup-beam' 'slackapi/slack-github-action' 'hashicorp/setup-terraform' 'docker/login-action' 'docker/setup-buildx-action' 'docker/setup-qemu-action' 'actions/setup-java' 'peter-evans/repository-dispatch' 'rtCamp/action-slack-notify' 'codecov/codecov-action')
+actions=( 'actions/checkout' 'actions/cache' 'actions/stale' 'actions/upload-artifact' 'actions/download-artifact' 'aws-actions/configure-aws-credentials' 'ossf/scorecard-action' 'erlef/setup-beam' 'slackapi/slack-github-action' 'hashicorp/setup-terraform' 'docker/login-action' 'docker/setup-buildx-action' 'docker/setup-qemu-action' 'actions/setup-java' 'rtCamp/action-slack-notify' 'codecov/codecov-action' 'actions/create-github-app-token' )
 for a in "${actions[@]}"; do
     # shellcheck disable=SC2086
     TAG=$(curl -sSfL -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/$a/releases/latest | jq -r '.tag_name')
