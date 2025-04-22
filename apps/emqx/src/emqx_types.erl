@@ -150,6 +150,7 @@
     peername := peername(),
     peercert => nossl | undefined | esockd_peercert:peercert(),
     conn_mod := module(),
+    trpt_started_at := integer(),
     proto_name => binary(),
     proto_ver => proto_ver(),
     clean_start => boolean(),

@@ -22,6 +22,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include_lib("emqx/include/emqx_lcr.hrl").
 -include("types.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -53,15 +54,7 @@
 
 -define(LCR_TAB, ?MODULE).
 
--record(lcr_channel, {
-    id :: channel_id(),
-    pid :: pid() | undefined,
-    vsn :: integer() | undefined
-}).
-
 -type lcr_channel() :: #lcr_channel{}.
-
--type channel_id() :: emqx_types:clientid().
 
 %%% API
 
