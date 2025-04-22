@@ -1,9 +1,9 @@
 emqx_limiter_schema {
 
 max_conn_rate.desc:
-"""Used to limit the rate at which the current listener accepts connections.
+"""Limits how quickly this listener accepts connections, per each node.
 
-Once the limit is reached, EMQX will pause fetching connections from the Accept queue, thereby delaying or rejecting new connections.
+Once the limit is reached, EMQX will pause serving connections from the Accept queue, thereby delaying or rejecting new connections.
 
 For example:
 
@@ -14,15 +14,15 @@ max_conn_rate.label:
 """Maximum Connection Rate"""
 
 max_conn_burst.desc:
-"""Number of connections that can be accepted in a burst.
+"""Number of connections that can be accepted in a burst, on top of regular rate, per each node.
 
-For example: `10000/60m`: Once in 60 minutes, up to 10000 connections can be accepted in a short period of time."""
+For example: `10000/60m`: Once every 60 minutes, up to 10000 connections can be accepted in a short period of time."""
 
 max_conn_burst.label:
 """Maximum Connection Burst"""
 
 messages_rate.desc:
-"""Used to limit the number of messages a single client can send to EMQX per second.
+"""Limits the number of messages a single client can send to the broker, per each node.
 
 Once the limit is reached, EMQX will drop QoS 0 messages and reject QoS 1 and QoS 2 messages
 with "Quota Exceeded" error code (0x97).
@@ -36,7 +36,7 @@ messages_rate.label:
 """Messages Publish Rate"""
 
 messages_burst.desc:
-"""Additional number of messages that can be sent in a burst.
+"""Number of messages that can be sent in a burst, on top of regular `messages_rate`, per each node.
 
 For example: `10000/60m`: Once in 60 minutes, up to 10000 messages can be sent in a short period of time."""
 
@@ -44,7 +44,7 @@ messages_burst.label:
 """Messages Publish Burst"""
 
 bytes_rate.desc:
-"""Used to limit the number of bytes a single client can send to EMQX per second.
+"""Limits the number of bytes a single client can send to the broker, per each node.
 
 Once the limit is reached, EMQX will drop QoS 0 messages and reject QoS 1 and QoS 2 messages
 with "Quota Exceeded" error code (0x97).
@@ -60,9 +60,9 @@ bytes_rate.label:
 """Data Publish Rate"""
 
 bytes_burst.desc:
-"""Additional number of bytes that can be sent in a burst.
+"""Number of bytes that can be sent in a burst, on top of regular `bytes_rate`.
 
-For example: `100MB/60m`: Once in 60 minutes, up to 100 megabytes can be sent in a short period of time."""
+For example: `100MB/60m`: Once every 60 minutes, up to 100 megabytes can be sent in a short period of time."""
 
 bytes_burst.label:
 """Data Publish Burst"""
