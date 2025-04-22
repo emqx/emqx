@@ -87,31 +87,48 @@
 
 -define(CACHE(Key), {?MODULE, Key}).
 -define(ENV_CACHE(Env), ?CACHE({env, Env})).
+-define(IS_NULL(S), (S =:= null orelse S =:= undefined)).
+
+-type null() :: null | undefined.
 
 %%------------------------------------------------------------------------------
 %% String Funcs
 %%------------------------------------------------------------------------------
 
+lower(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 lower(S) when is_binary(S) ->
     string:lowercase(S).
 
-ltrim(S) when is_binary(S) ->
+ltrim(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
+ltrim(S) ->
     string:trim(S, leading).
 
+ltrim(S, _) when ?IS_NULL(S) ->
+    error(badarg);
 ltrim(S, Chars) ->
     string:trim(S, leading, Chars).
 
+reverse(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 reverse(S) when is_binary(S) ->
     iolist_to_binary(string:reverse(S)).
 
+rtrim(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 rtrim(S) when is_binary(S) ->
     string:trim(S, trailing).
 
+rtrim(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 rtrim(S, Chars) when is_binary(S) ->
     string:trim(S, trailing, Chars).
 
 %% @doc Remove the prefix of a string if there is a match.
 %% The original stirng is returned if there is no match.
+rm_prefix(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 rm_prefix(S, Prefix) ->
     Size = size(Prefix),
     case S of
@@ -121,12 +138,18 @@ rm_prefix(S, Prefix) ->
             S
     end.
 
+strlen(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 strlen(S) when is_binary(S) ->
     string:length(S).
 
+substr(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 substr(S, Start) when is_binary(S), is_integer(Start) ->
     string:slice(S, Start).
 
+substr(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 substr(S, Start, Length) when
     is_binary(S),
     is_integer(Start),
@@ -134,18 +157,28 @@ substr(S, Start, Length) when
 ->
     string:slice(S, Start, Length).
 
+trim(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 trim(S) when is_binary(S) ->
     string:trim(S).
 
+trim(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 trim(S, Chars) when is_binary(S) ->
     string:trim(S, both, Chars).
 
+upper(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 upper(S) when is_binary(S) ->
     string:uppercase(S).
 
+split(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 split(S, P) when is_binary(S), is_binary(P) ->
     [R || R <- string:split(S, P, all), R =/= <<>> andalso R =/= ""].
 
+split(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 split(S, P, <<"notrim">>) ->
     string:split(S, P, all);
 split(S, P, <<"leading_notrim">>) ->
@@ -157,9 +190,13 @@ split(S, P, <<"trailing_notrim">>) ->
 split(S, P, <<"trailing">>) when is_binary(S), is_binary(P) ->
     [R || R <- string:split(S, P, trailing), R =/= <<>> andalso R =/= ""].
 
+tokens(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 tokens(S, Separators) ->
     [list_to_binary(R) || R <- string:lexemes(binary_to_list(S), binary_to_list(Separators))].
 
+tokens(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 tokens(S, Separators, <<"nocrlf">>) ->
     [
         list_to_binary(R)
@@ -178,9 +215,13 @@ concat(List) ->
 sprintf_s(Format, Args) when is_list(Args) ->
     erlang:iolist_to_binary(io_lib:format(binary_to_list(Format), Args)).
 
+pad(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 pad(S, Len) when is_binary(S), is_integer(Len) ->
     iolist_to_binary(string:pad(S, Len, trailing)).
 
+pad(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 pad(S, Len, <<"trailing">>) when is_binary(S), is_integer(Len) ->
     iolist_to_binary(string:pad(S, Len, trailing));
 pad(S, Len, <<"both">>) when is_binary(S), is_integer(Len) ->
@@ -188,6 +229,8 @@ pad(S, Len, <<"both">>) when is_binary(S), is_integer(Len) ->
 pad(S, Len, <<"leading">>) when is_binary(S), is_integer(Len) ->
     iolist_to_binary(string:pad(S, Len, leading)).
 
+pad(NULL, _, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 pad(S, Len, <<"trailing">>, Char) when is_binary(S), is_integer(Len), is_binary(Char) ->
     Chars = unicode:characters_to_list(Char, utf8),
     iolist_to_binary(string:pad(S, Len, trailing, Chars));
@@ -198,9 +241,13 @@ pad(S, Len, <<"leading">>, Char) when is_binary(S), is_integer(Len), is_binary(C
     Chars = unicode:characters_to_list(Char, utf8),
     iolist_to_binary(string:pad(S, Len, leading, Chars)).
 
+replace(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 replace(SrcStr, P, RepStr) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, all)).
 
+replace(NULL, _, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 replace(SrcStr, P, RepStr, <<"all">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, all));
 replace(SrcStr, P, RepStr, <<"trailing">>) when
@@ -210,12 +257,16 @@ replace(SrcStr, P, RepStr, <<"trailing">>) when
 replace(SrcStr, P, RepStr, <<"leading">>) when is_binary(SrcStr), is_binary(P), is_binary(RepStr) ->
     iolist_to_binary(string:replace(SrcStr, P, RepStr, leading)).
 
+regex_match(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 regex_match(Str, RE) ->
     case re:run(Str, RE, [global, {capture, none}]) of
         match -> true;
         nomatch -> false
     end.
 
+regex_replace(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 regex_replace(SrcStr, RE, RepStr) ->
     re:replace(SrcStr, RE, RepStr, [global, {return, binary}]).
 
@@ -230,7 +281,9 @@ regex_replace(SrcStr, RE, RepStr) ->
 %%  ("Hello, world!", "(\\w+).*\s(\\w+)") -> [<<"Hello">>, <<"world">>]
 %%  ("No numbers here!", "(\\d+)") -> []
 %%  ("Date: 2021-05-20", "(\\d{4})-(\\d{2})-(\\d{2})") -> [<<"2021">>, <<"05">>, <<"20">>]
--spec regex_extract(string() | binary(), string() | binary()) -> [binary()].
+-spec regex_extract(null() | string() | binary(), string() | binary()) -> [binary()].
+regex_extract(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 regex_extract(Str, Regexp) ->
     case re:run(Str, Regexp, [{capture, all_but_first, binary}]) of
         {match, CapturedGroups} ->
@@ -239,18 +292,26 @@ regex_extract(Str, Regexp) ->
             []
     end.
 
+ascii(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 ascii(Char) when is_binary(Char) ->
     [FirstC | _] = binary_to_list(Char),
     FirstC.
 
+find(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 find(S, P) when is_binary(S), is_binary(P) ->
     find_s(S, P, leading).
 
+find(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 find(S, P, <<"trailing">>) when is_binary(S), is_binary(P) ->
     find_s(S, P, trailing);
 find(S, P, <<"leading">>) when is_binary(S), is_binary(P) ->
     find_s(S, P, leading).
 
+find_s(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 find_s(S, P, Dir) ->
     case string:find(S, P, Dir) of
         nomatch -> <<"">>;
@@ -260,9 +321,13 @@ find_s(S, P, Dir) ->
 join_to_string(List) when is_list(List) ->
     join_to_string(<<", ">>, List).
 
+join_to_string(NULL, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 join_to_string(Sep, List) when is_list(List), is_binary(Sep) ->
     iolist_to_binary(lists:join(Sep, [any_to_str(Item) || Item <- List])).
 
+unescape(NULL) when ?IS_NULL(NULL) ->
+    error(badarg);
 unescape(Bin) when is_binary(Bin) ->
     UnicodeList = unicode:characters_to_list(Bin, utf8),
     UnescapedUnicodeList = unescape_string(UnicodeList),
@@ -501,6 +566,8 @@ hash(Type, Bin) when is_atom(Type) ->
     emqx_utils:bin_to_hexstr(crypto:hash(Type, Bin), lower).
 
 %% @doc Hash binary data to an integer within a specified range [Min, Max]
+hash_to_range(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 hash_to_range(Bin, Min, Max) when
     is_binary(Bin) andalso
         size(Bin) > 0 andalso
@@ -514,6 +581,8 @@ hash_to_range(Bin, Min, Max) when
 hash_to_range(_, _, _) ->
     throw(#{reason => badarg, function => ?FUNCTION_NAME}).
 
+map_to_range(NULL, _, _) when ?IS_NULL(NULL) ->
+    error(badarg);
 map_to_range(Bin, Min, Max) when is_binary(Bin) andalso size(Bin) > 0 ->
     HashNum = binary:decode_unsigned(Bin),
     map_to_range(HashNum, Min, Max);
