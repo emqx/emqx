@@ -251,16 +251,22 @@ new_blob_tx(DB, Options) ->
     end.
 
 -spec commit_blob_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
-commit_blob_tx(DB, Ctx, Ops) ->
+commit_blob_tx(DB, Ctx = #ds_tx_ctx{opts = Options}, Ops) ->
     Ref = make_ref(),
     emqx_ds_builtin_local_batch_serializer:blob_tx(DB, #ds_tx{
         ctx = Ctx, ops = Ops, from = self(), ref = Ref
     }),
-    receive
-        #ds_tx_commit_reply{ref = Ref, payload = Result} ->
-            Result
-    after 5_000 ->
-        ?err_rec(timeout)
+    Sync = maps:get(sync, Options, 5_000),
+    case Sync of
+        async ->
+            Ref;
+        _ ->
+            receive
+                #ds_tx_commit_reply{ref = Ref, payload = Result} ->
+                    Result
+            after Sync ->
+                ?err_rec(timeout)
+            end
     end.
 
 store_batch_buffered(DB, Messages, Opts) ->

@@ -156,7 +156,7 @@
 
 -type lifetime() :: new | terminate | takeover | up.
 
--type commit_opts() :: #{lifetime := lifetime()}.
+-type commit_opts() :: #{lifetime := lifetime(), sync := async | timeout()}.
 
 %%================================================================================
 %% API functions
@@ -225,10 +225,10 @@ delete(Rec) when is_map(Rec) ->
 
 -spec commit(t()) -> t().
 commit(Rec) ->
-    commit(Rec, #{lifetime => up}).
+    commit(Rec, #{lifetime => up, sync => async}).
 
 -spec commit(t(), commit_opts()) -> t().
-commit(Rec, Opts = #{lifetime := _}) ->
+commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     check_sequence(Rec),
     ?tp(psds_commit, Rec),
     emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).

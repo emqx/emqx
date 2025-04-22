@@ -81,7 +81,7 @@ handle_call(Tx = #ds_tx{}, _From, S0 = #s{buffer = Buffer, flush_timer = FT}) ->
             case FT of
                 undefined ->
                     %% FIXME (use buffer settings from conf)
-                    erlang:send_after(100, self(), ?flush_transactions);
+                    erlang:send_after(1, self(), ?flush_transactions);
                 _ ->
                     FT
             end
