@@ -48,6 +48,7 @@ fields(server) ->
         {url,
             ?HOCON(binary(), #{
                 required => true,
+                validator => fun validate_url/1,
                 desc => ?DESC(url),
                 example => <<"http://127.0.0.1:9000">>
             })},
@@ -127,3 +128,13 @@ validate_name(Name) ->
 
 server_config() ->
     fields(server).
+
+validate_url(URL) ->
+    case uri_string:parse(URL) of
+        #{scheme := <<"http">>} ->
+            ok;
+        #{scheme := <<"https">>} ->
+            ok;
+        _ ->
+            throw("bad_server_url")
+    end.

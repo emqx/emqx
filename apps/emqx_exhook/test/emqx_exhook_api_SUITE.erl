@@ -31,6 +31,8 @@ all() ->
         t_get,
         t_add,
         t_add_duplicate,
+        t_add_with_bad_name,
+        t_add_with_bad_url,
         t_move_front,
         t_move_rear,
         t_move_before,
@@ -182,6 +184,23 @@ t_add_with_bad_name(Cfg) ->
 
     ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
 
+t_add_with_bad_url(Cfg) ->
+    Template = proplists:get_value(template, Cfg),
+    Instance = Template#{
+        <<"name">> => <<"test2">>,
+        <<"url">> => "bad_url"
+    },
+    {error, {400, RespBody}} = request_api(
+        post,
+        api_path(["exhooks"]),
+        "",
+        auth_header_(),
+        Instance
+    ),
+    #{<<"message">> := ErrMsg} = RespBody,
+    ?assertEqual(match, re:run(ErrMsg, <<"bad_server_url">>, [{capture, none}])),
+    ?assertMatch([<<"default">>, <<"test1">>], emqx_exhook_mgr:running()).
+
 t_move_front(_) ->
     Result = request_api(
         post,
@@ -307,8 +326,9 @@ do_request_api(Method, Request) ->
             Code =:= 200 orelse Code =:= 204 orelse Code =:= 201
         ->
             {ok, Return};
-        {ok, {Reason, _, _}} ->
-            {error, Reason}
+        {ok, {{_, Code, _}, _, Body}} ->
+            Body1 = emqx_utils_json:decode(Body),
+            {error, {Code, Body1}}
     end.
 
 auth_header_() ->
