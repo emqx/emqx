@@ -674,7 +674,7 @@ handle_info(
     ),
     Session#{s := S, stream_scheduler_s := SchedS};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
-    Session = commit(Session0),
+    Session = commit(Session0, #{lifetime => up, sync => 5_000}),
     From ! Ref,
     Session;
 handle_info(
@@ -693,6 +693,9 @@ handle_info(
                 buffer := Buf
             }
     end;
+handle_info(#ds_tx_commit_reply{}, Session, _ClientInfo) ->
+    %% FIXME
+    Session;
 handle_info(Msg, Session, _ClientInfo) ->
     ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
     Session.
@@ -877,7 +880,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
-    _ = commit(Session#{s := S}, #{lifetime => terminate}),
+    _ = commit(Session#{s := S}, #{lifetime => terminate, sync => 5_000}),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
@@ -1368,7 +1371,7 @@ create_session(Lifetime, ClientID, S0, ConnInfo, Conf) ->
                 S1, shared_sub_opts(ClientID)
             )
     end,
-    S = emqx_persistent_session_ds_state:commit(S2, #{lifetime => Lifetime}),
+    S = emqx_persistent_session_ds_state:commit(S2, #{lifetime => Lifetime, sync => 5_000}),
     #{
         id => ClientID,
         s => S,
@@ -1796,7 +1799,7 @@ set_timer(Timer, Time, Session) ->
 %%--------------------------------------------------------------------
 
 commit(Session) ->
-    commit(Session, _Opts = #{lifetime => up}).
+    commit(Session, #{lifetime => up, sync => async}).
 
 commit(Session = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0}),

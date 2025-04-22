@@ -28,7 +28,6 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Transactional API (low-level):
-%% FIXME: do not export?
 -export([new_blob_tx/2, commit_blob_tx/3]).
 
 %% Message replay API:
@@ -391,10 +390,11 @@
 
     %% Options that govern retry of recoverable errors:
     retries => non_neg_integer(),
-    retry_interval => non_neg_integer()
+    retry_interval => non_neg_integer(),
+    timeout => async | timeout()
 }.
 
--type commit_result() :: {ok, tx_serial()} | error(_).
+-type commit_result() :: reference() | {ok, tx_serial()} | error(_).
 
 -type fold_fun(Acc) :: fun(
     (
@@ -973,7 +973,10 @@ call_if_implemented(Mod, Fun, Args, Default) ->
     transaction_opts(),
     non_neg_integer()
 ) ->
-    {ok, tx_serial() | undefined, Ret} | error(_).
+    {atomic, tx_serial(), Ret}
+    | {nop, Ret}
+    | {async, reference(), Ret}
+    | error(_).
 trans(DB, Fun, Opts, Retries) ->
     _ = put(?tx_ops_write, []),
     _ = put(?tx_ops_del_topic, []),
@@ -998,11 +1001,13 @@ trans(DB, Fun, Opts, Retries) ->
                         ?ds_tx_unexpected := []
                     } ->
                         %% Nothing to commit
-                        {ok, undefined, Ret};
+                        {nop, Ret};
                     _ ->
                         case commit_blob_tx(DB, Ctx, Tx) of
                             {ok, CommitTXId} ->
-                                {ok, CommitTXId, Ret};
+                                {atomic, CommitTXId, Ret};
+                            Ref when is_reference(Ref) ->
+                                {async, Ref, Ret};
                             ?err_unrec(_) = Err ->
                                 Err;
                             ?err_rec(_) when Retries > 0 ->

@@ -88,11 +88,16 @@
 -spec open(emqx_ds:generation(), emqx_types:clientid(), boolean()) ->
     {ok, emqx_persistent_session_ds_state:t()} | undefined.
 open(Generation, ClientId, Verify) ->
-    {ok, _TXSerial, Result} = emqx_ds:trans(
+    Ret = emqx_ds:trans(
         #{db => ?DB, generation => Generation, owner => ClientId},
         fun() -> open_tx(Generation, ClientId, Verify) end
     ),
-    Result.
+    case Ret of
+        {atomic, _TXSerial, Result} ->
+            Result;
+        {nop, Result} ->
+            Result
+    end.
 
 -spec commit(
     emqx_ds:generation(),
@@ -115,12 +120,12 @@ commit(
         ?ranks := Ranks,
         ?awaiting_rel := AwaitingRels
     },
-    #{lifetime := Lifetime}
+    #{lifetime := Lifetime, sync := Sync}
 ) ->
     NewGuard = Lifetime =:= takeover orelse Lifetime =:= new,
     Result =
         emqx_ds:trans(
-            #{db => ?DB, owner => ClientId, generation => Generation},
+            #{db => ?DB, owner => ClientId, generation => Generation, sync => Sync},
             fun() ->
                 %% Generate a new guard if needed:
                 NewGuard andalso
@@ -140,11 +145,16 @@ commit(
             end
         ),
     case Result of
-        {ok, TXSerial, Rec} when NewGuard ->
+        {atomic, TXSerial, Rec} when NewGuard ->
             %% This is a new incarnation of the client. Update the
             %% guard:
             Rec#{?guard := TXSerial};
-        {ok, _, Rec} ->
+        {atomic, _TXSerial, Rec} ->
+            Rec;
+        {nop, Rec} ->
+            Rec;
+        {async, _Ref, Rec} ->
+            %% FIXME: giant hack, don't ignore ref and reply
             Rec;
         {error, unrecoverable, {precondition_failed, Conflict}} when
             Lifetime =:= terminate
@@ -192,7 +202,7 @@ delete(
         ?awaiting_rel := AwaitingRels
     }
 ) ->
-    {ok, _, _} =
+    {atomic, _, _} =
         emqx_ds:trans(
             #{db => ?DB, owner => ClientId, generation => Generation},
             fun() ->

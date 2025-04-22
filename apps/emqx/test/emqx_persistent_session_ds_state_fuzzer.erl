@@ -423,12 +423,14 @@ initial_state() ->
 %% Operations
 %%================================================================================
 
+-define(sync, sync => 5_000).
+
 create_new(SessionId) ->
     ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     S = emqx_persistent_session_ds_state:create_new(SessionId),
     put_state(
         SessionId,
-        emqx_persistent_session_ds_state:commit(S, #{lifetime => new})
+        emqx_persistent_session_ds_state:commit(S, #{lifetime => new, ?sync})
     ).
 
 delete(SessionId) ->
@@ -440,14 +442,14 @@ commit(SessionId) ->
     ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     put_state(
         SessionId,
-        emqx_persistent_session_ds_state:commit(get_state(SessionId))
+        emqx_persistent_session_ds_state:commit(get_state(SessionId), #{lifetime => up, ?sync})
     ).
 
 reopen(SessionId) ->
     ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     _ = emqx_persistent_session_ds_state:commit(
         get_state(SessionId),
-        #{lifetime => takeover}
+        #{lifetime => takeover, ?sync}
     ),
     {ok, S} = emqx_persistent_session_ds_state:open(SessionId),
     %% Return a tuple containing previous and new state:
