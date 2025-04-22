@@ -1015,3 +1015,48 @@ t_external_http_serde(_Config) ->
     ),
 
     ok.
+
+%% Check that we convert input TLS certificates.
+t_external_http_serde_ssl(_Config) ->
+    {ok, Port} = start_external_http_serde_server(),
+    SchemaName = <<"my_external_http_serde">>,
+    Params0 = mk_external_http_create_params(#{name => SchemaName, port => Port}),
+    GetPEM = fun(File) ->
+        Path = emqx_common_test_helpers:app_path(
+            emqx,
+            filename:join(["etc", "certs", File])
+        ),
+        {ok, Contents} = file:read_file(Path),
+        Contents
+    end,
+    Params = emqx_utils_maps:deep_merge(
+        Params0,
+        #{
+            <<"parameters">> => #{
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"cacertfile">> => GetPEM("cacert.pem"),
+                    <<"certfile">> => GetPEM("cert.pem"),
+                    <<"keyfile">> => GetPEM("key.pem")
+                }
+            }
+        }
+    ),
+    %% Contents were saved to files in data dir.
+    DataDir = list_to_binary(emqx:data_dir()),
+    DataDirSize = byte_size(DataDir),
+    ?assertMatch(
+        {201, #{
+            <<"parameters">> := #{
+                <<"ssl">> := #{
+                    <<"enable">> := true,
+                    <<"cacertfile">> := <<DataDir:DataDirSize/binary, _/binary>>,
+                    <<"certfile">> := <<DataDir:DataDirSize/binary, _/binary>>,
+                    <<"keyfile">> := <<DataDir:DataDirSize/binary, _/binary>>
+                }
+            }
+        }},
+        create_schema(Params),
+        #{data_dir => DataDir}
+    ),
+    ok.

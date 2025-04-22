@@ -59,4 +59,9 @@
     module_binary :: binary()
 }.
 
+-define(IS_TYPE_WITH_RESOURCE(CONFIG),
+    (map_get(<<"type">>, CONFIG) == ?external_http_bin orelse
+        map_get(type, CONFIG) == ?external_http)
+).
+
 -endif.

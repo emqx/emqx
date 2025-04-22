@@ -426,6 +426,16 @@ protobuf_unique_cache_hit_spec(#{serde_type := protobuf} = Res, Trace) ->
 protobuf_unique_cache_hit_spec(_Res, _Trace) ->
     ok.
 
+eval_encode(Serde, Args) ->
+    emqx_schema_registry_serde:eval_encode(Serde, Args).
+
+eval_decode(Serde, Args) ->
+    emqx_schema_registry_serde:eval_decode(Serde, Args).
+
+encode_then_decode(Serde, Payload, ExtraArgs) ->
+    Encoded = eval_encode(Serde, [Payload | ExtraArgs]),
+    eval_decode(Serde, [Encoded | ExtraArgs]).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -1012,13 +1022,3 @@ t_sparkplug_decode_encode_with_message_name(_Config) ->
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
-
-eval_encode(Serde, Args) ->
-    emqx_schema_registry_serde:eval_encode(Serde, Args).
-
-eval_decode(Serde, Args) ->
-    emqx_schema_registry_serde:eval_decode(Serde, Args).
-
-encode_then_decode(Serde, Payload, ExtraArgs) ->
-    Encoded = eval_encode(Serde, [Payload | ExtraArgs]),
-    eval_decode(Serde, [Encoded | ExtraArgs]).
