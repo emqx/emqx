@@ -6,6 +6,9 @@
 
 -feature(maybe_expr, enable).
 
+-behaviour(emqx_config_backup).
+-behaviour(emqx_db_backup).
+
 %% API
 -export([
     get_max_sessions/1,
@@ -46,7 +49,15 @@
     side_effect/0
 ]).
 
+%% `emqx_config_backup' API
+-export([import_config/1]).
+
+%% `emqx_db_backup' API
+-export([backup_tables/0, on_backup_table_imported/2]).
+
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_mt.hrl").
+-include("emqx_mt_internal.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -237,6 +248,61 @@ cleanup_managed_ns_configs_v1(Ns, ConfigsList, _ClusterRPCOpts) ->
     do_cleanup_managed_ns_configs(Ns, ConfigsList).
 
 %%------------------------------------------------------------------------------
+%% `emqx_config_backup' API
+%%------------------------------------------------------------------------------
+
+import_config(#{?CONF_ROOT_KEY_BIN := #{} = RawConf}) ->
+    Result = emqx_conf:update(
+        [?CONF_ROOT_KEY],
+        RawConf,
+        #{override_to => cluster, rawconf_with_defaults => true}
+    ),
+    case Result of
+        {error, Reason} ->
+            {error, #{root_key => ?CONF_ROOT_KEY, reason => Reason}};
+        {ok, _} ->
+            Keys0 = maps:keys(RawConf),
+            Keys = lists:map(fun(K) -> [K] end, Keys0),
+            {ok, #{root_key => ?CONF_ROOT_KEY, changed => Keys}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => ?CONF_ROOT_KEY, changed => []}}.
+
+%%------------------------------------------------------------------------------
+%% `emqx_db_backup' API
+%%------------------------------------------------------------------------------
+
+backup_tables() -> {<<"mt">>, emqx_mt_state:tables_to_backup()}.
+
+on_backup_table_imported(?CONFIG_TAB, _Opts) ->
+    Errors =
+        emqx_mt_state:fold_managed_nss(
+            fun(#{ns := Ns, configs := Configs}, Acc) ->
+                emqx_mt_state:ensure_ns_added(Ns),
+                %% By this point, the tables have already been overwritten...  So we assume
+                %% that all NSs remaining have "just been added"...
+                Diffs = #{added => Configs, changed => #{}},
+                SideEffects = compute_config_update_side_effects(Diffs, Ns),
+                Errors = execute_side_effects(SideEffects),
+                case Errors of
+                    [] ->
+                        Acc;
+                    _ ->
+                        Acc#{Ns => Errors}
+                end
+            end,
+            #{}
+        ),
+    case map_size(Errors) == 0 of
+        true ->
+            ok;
+        false ->
+            {error, Errors}
+    end;
+on_backup_table_imported(_Tab, _Opts) ->
+    ok.
+
+%%------------------------------------------------------------------------------
 %% Internal exports
 %%------------------------------------------------------------------------------
 
@@ -267,7 +333,7 @@ handle_root_configs_update(Ns, NewConfig) ->
     end.
 
 execute_side_effects(SideEffects) ->
-    %% Foreced to wrap erros in `{ok, _}' by cluster RPC...
+    %% Foreced to wrap errors in `{ok, _}' by cluster RPC...
     {ok, Errors} = emqx_mt_config_proto_v1:execute_side_effects(SideEffects),
     Errors.
 

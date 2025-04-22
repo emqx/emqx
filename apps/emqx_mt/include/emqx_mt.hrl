@@ -14,4 +14,7 @@
 
 -define(LOG(Level, Msg), ?SLOG(Level, Msg, #{domain => [emqx, mt]})).
 
+-define(CONF_ROOT_KEY, multi_tenancy).
+-define(CONF_ROOT_KEY_BIN, <<"multi_tenancy">>).
+
 -endif.

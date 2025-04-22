@@ -33,6 +33,7 @@
     create_managed_ns/1,
     delete_managed_ns/1,
     is_known_managed_ns/1,
+    fold_managed_nss/2,
 
     get_root_configs/1,
     update_root_configs/2,
@@ -53,11 +54,18 @@
     bulk_update_root_configs_txn/1
 ]).
 
+%% Internal exports for `emqx_mt_config`.
+-export([
+    tables_to_backup/0,
+    ensure_ns_added/1
+]).
+
 -ifdef(TEST).
 -export([update_ccache/1]).
 -endif.
 
 -include("emqx_mt.hrl").
+-include("emqx_mt_internal.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -66,12 +74,6 @@
 %%------------------------------------------------------------------------------
 
 -define(EMQX_MT_SHARD, emqx_mt_shard).
-
-%% mria tables
--define(RECORD_TAB, emqx_mt_record).
--define(COUNTER_TAB, emqx_mt_counter).
--define(NS_TAB, emqx_mt_ns).
--define(CONFIG_TAB, emqx_mt_config).
 
 %% ets tables
 -define(MONITOR_TAB, emqx_mt_monitor).
@@ -175,6 +177,9 @@ create_tables() ->
     ]),
     ok.
 
+tables_to_backup() ->
+    [?CONFIG_TAB].
+
 %% @doc List namespaces.
 %% The second argument is the last namespace from the previous page.
 %% The third argument is the number of namespaces to return.
@@ -202,6 +207,21 @@ The third argument is the number of namespaces to return.
 -spec list_managed_ns(tns(), pos_integer()) -> [tns()].
 list_managed_ns(LastNs, Limit) ->
     do_list_ns(?CONFIG_TAB, LastNs, Limit).
+
+fold_managed_nss(Fn, Acc) ->
+    do_fold_managed_nss(ets:first(?CONFIG_TAB), Fn, Acc).
+
+do_fold_managed_nss('$end_of_table', _Fn, Acc) ->
+    Acc;
+do_fold_managed_nss(Ns, Fn, Acc) ->
+    case ets:lookup(?CONFIG_TAB, Ns) of
+        [#?CONFIG_TAB{configs = Configs}] ->
+            NewAcc = Fn(#{ns => Ns, configs => Configs}, Acc),
+            do_fold_managed_nss(ets:next(?CONFIG_TAB, Ns), Fn, NewAcc);
+        [] ->
+            %% Race?
+            do_fold_managed_nss(ets:next(?CONFIG_TAB, Ns), Fn, Acc)
+    end.
 
 %% @doc count the number of clients for a given tns.
 -spec count_clients(tns()) -> {ok, non_neg_integer()} | {error, not_found}.

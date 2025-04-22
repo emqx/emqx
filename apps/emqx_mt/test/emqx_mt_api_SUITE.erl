@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include("emqx_mt.hrl").
 
 -define(NEW_CLIENTID(I),
     iolist_to_binary("c-" ++ atom_to_list(?FUNCTION_NAME) ++ "-" ++ integer_to_list(I))
@@ -24,6 +25,8 @@
 
 -define(MAX_NUM_TNS_CONFIGS, 1_000).
 -define(AUTH_HEADER_PD_KEY, {?MODULE, auth_header}).
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 %%------------------------------------------------------------------------------
 %% CT Boilerplate
@@ -76,11 +79,13 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(t_adjust_limiters, Config) ->
     Cluster = ?config(cluster, Config),
     snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_cluster:stop(Cluster),
     ok;
 end_per_testcase(_TestCase, Config) ->
     Apps = ?config(apps, Config),
     snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
@@ -228,6 +233,15 @@ disable_tenant_limiter(Ns) ->
 disable_client_limiter(Ns) ->
     Body = #{<<"limiter">> => #{<<"client">> => <<"disabled">>}},
     update_managed_ns_config(Ns, Body).
+
+export_backup() ->
+    URL = emqx_mgmt_api_test_util:api_path(["data", "export"]),
+    simple_request(#{method => post, url => URL, body => {raw, <<"">>}}).
+
+import_backup(BackupName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["data", "import"]),
+    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    simple_request(#{method => post, url => URL, body => Body}).
 
 tenant_limiter_params() ->
     tenant_limiter_params(_Overrides = #{}).
@@ -1028,5 +1042,85 @@ t_kick_all_ns_clients(_Config) ->
     ct:pal("waiting for clients to be kicked (again)"),
     wait_downs(MRefs2, Timeout),
     ct:pal("clients kicked"),
+
+    ok.
+
+%% Simple test to check we are able to export and import MT config.
+t_backup_export_and_import(_Config) ->
+    ClientParams = client_limiter_params(),
+    TenantParams = tenant_limiter_params(),
+    SessionParams = session_params(),
+    MTConfig0 = emqx_utils_maps:deep_merge(ClientParams, TenantParams),
+    MTConfig = emqx_utils_maps:deep_merge(MTConfig0, SessionParams),
+    Ns = <<"ns1">>,
+    LimiterGroupsBefore = emqx_limiter_registry:list_groups(),
+    ?assertMatch({204, _}, create_managed_ns(Ns)),
+    ?assertMatch({200, _}, update_managed_ns_config(Ns, MTConfig)),
+    LimiterGroupsAfter = emqx_limiter_registry:list_groups(),
+    ?assertNotEqual(LimiterGroupsBefore, LimiterGroupsAfter),
+
+    ok = emqx_mt_config:set_allow_only_managed_namespaces(true),
+    {ok, _} = emqx_conf:update([?CONF_ROOT_KEY, default_max_sessions], 13, #{override_to => cluster}),
+
+    {200, #{<<"filename">> := BackupName}} = export_backup(),
+
+    ?assertMatch({204, _}, delete_managed_ns(Ns)),
+    ok = emqx_mt_config:set_allow_only_managed_namespaces(false),
+    {ok, _} = emqx_conf:update([?CONF_ROOT_KEY, default_max_sessions], 10, #{override_to => cluster}),
+
+    ?assertEqual(LimiterGroupsBefore, emqx_limiter_registry:list_groups()),
+
+    ?assertMatch({204, _}, import_backup(BackupName)),
+
+    ?assertMatch(
+        {200, #{
+            <<"limiter">> := #{
+                <<"client">> := #{},
+                <<"tenant">> := #{}
+            },
+            <<"session">> := #{}
+        }},
+        get_managed_ns_config(Ns)
+    ),
+    %% Must have created limiters as side-effect of importing config.
+    ?assertEqual(LimiterGroupsAfter, emqx_limiter_registry:list_groups()),
+
+    ?assertMatch({200, [Ns]}, list_managed_nss(#{})),
+    ?assertMatch({200, [Ns]}, list_nss(#{})),
+
+    ?assertMatch(
+        #{
+            default_max_sessions := 13,
+            allow_only_managed_namespaces := true
+        },
+        emqx_config:get([multi_tenancy])
+    ),
+
+    %% Idempotency
+    ?assertMatch({204, _}, import_backup(BackupName)),
+    ?assertMatch(
+        {200, #{
+            <<"limiter">> := #{
+                <<"client">> := #{},
+                <<"tenant">> := #{}
+            },
+            <<"session">> := #{}
+        }},
+        get_managed_ns_config(Ns)
+    ),
+    ?assertEqual(LimiterGroupsAfter, emqx_limiter_registry:list_groups()),
+    ?assertMatch({200, [Ns]}, list_managed_nss(#{})),
+    ?assertMatch({200, [Ns]}, list_nss(#{})),
+
+    %% Simulate errors when executing side-effects.
+    on_exit(fun meck:unload/0),
+    ok = meck:new(emqx_mt_config_proto_v1, [passthrough, no_history]),
+    ok = meck:expect(emqx_mt_config_proto_v1, execute_side_effects, fun(_) ->
+        {ok, [
+            #{path => [sessions], op => {mocked, error}, error => {throw, <<"mocked_error">>}}
+        ]}
+    end),
+    {400, #{<<"message">> := Msg}} = import_backup(BackupName),
+    ?assertEqual(match, re:run(Msg, <<"mocked_error">>, [global, {capture, none}])),
 
     ok.
