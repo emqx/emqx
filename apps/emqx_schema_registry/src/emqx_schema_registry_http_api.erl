@@ -32,11 +32,6 @@
 -define(TAGS, [<<"Schema Registry">>]).
 -define(BPAPI_NAME, emqx_schema_registry_http_api).
 
--define(IS_TYPE_WITH_RESOURCE(CONFIG),
-    (map_get(<<"type">>, CONFIG) == ?external_http_bin orelse
-        map_get(type, CONFIG) == ?external_http)
-).
-
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
 %%-------------------------------------------------------------------------------------------------
