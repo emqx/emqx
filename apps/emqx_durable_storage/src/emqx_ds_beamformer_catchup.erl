@@ -84,6 +84,8 @@ pool(Shard) ->
 
 init([CBM, ShardId, Name, _Opts]) ->
     process_flag(trap_exit, true),
+    %% FIXME: remove this and other similar lines
+    system_monitor:add_vip(self()),
     logger:update_process_metadata(#{dbshard => ShardId, name => Name}),
     %% Attach this worker to the pool:
     gproc_pool:add_worker(pool(ShardId), Name),

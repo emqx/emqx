@@ -38,7 +38,10 @@ BEGIN
     shard OCTET STRING,
     generation INTEGER,
     itBegin OCTET STRING,
-    itEnd OCTET STRING,
+    -- Strictly speaking, we don't have to store itEnd, as can be
+    -- derived from batchSize and itBegin. It's used as for some
+    -- checks, so it's worth having.
+    itEnd OCTET STRING OPTIONAL,
     batchSize INTEGER,
     firstSeqNoQoS1 INTEGER,
     firstSeqNoQoS2 INTEGER,
