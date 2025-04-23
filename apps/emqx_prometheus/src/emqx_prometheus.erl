@@ -23,7 +23,6 @@
 -include("emqx_prometheus.hrl").
 
 -include_lib("public_key/include/public_key.hrl").
--include_lib("prometheus/include/prometheus_model.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
 
@@ -226,6 +225,13 @@ maybe_add_ds_collect_family(Callback, RawData) ->
         true ->
             add_collect_family(
                 Callback, emqx_ds_builtin_metrics:prometheus_meta(), ?MG(ds_data, RawData)
+            ),
+            DSRaftPrefix = <<"emqx_ds_raft_">>,
+            prefix_collect_helpful_family(
+                Callback, DSRaftPrefix, ds_raft_node_meta(), ?MG(ds_raft_node_data, RawData)
+            ),
+            prefix_collect_helpful_family(
+                Callback, DSRaftPrefix, ds_raft_cluster_meta(), ?MG(ds_raft_cluster_data, RawData)
             );
         false ->
             ok
@@ -234,10 +240,33 @@ maybe_add_ds_collect_family(Callback, RawData) ->
 maybe_collect_ds_data(Mode) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            #{ds_data => emqx_ds_builtin_metrics:prometheus_collect(Mode)};
+            #{
+                ds_data => emqx_ds_builtin_metrics:prometheus_collect(with_node_label(Mode, [])),
+                ds_raft_node_data => collect_ds_raft_node_data(Mode)
+            };
         false ->
             #{}
     end.
+
+maybe_collect_ds_cluster_data(Acc) ->
+    case emqx_persistent_message:is_persistence_enabled() of
+        true ->
+            Acc#{
+                ds_raft_cluster_data => collect_ds_raft_cluster_data()
+            };
+        false ->
+            Acc
+    end.
+
+collect_ds_raft_node_data(Mode) ->
+    Labels0 = with_node_label(Mode, []),
+    Acc = emqx_ds_builtin_raft_metrics:local_dbs(Labels0),
+    maps:merge(emqx_ds_builtin_raft_metrics:local_shards(Labels0), Acc).
+
+collect_ds_raft_cluster_data() ->
+    Acc1 = emqx_ds_builtin_raft_metrics:cluster(),
+    Acc2 = maps:merge(emqx_ds_builtin_raft_metrics:dbs(), Acc1),
+    maps:merge(emqx_ds_builtin_raft_metrics:shards(), Acc2).
 
 %% @private
 collect(<<"json">>) ->
@@ -272,6 +301,16 @@ add_collect_family(Callback, MetricWithType, Data) ->
 add_collect_family(Name, Data, Callback, Type) ->
     Callback(prometheus_model_helpers:create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
+prefix_collect_helpful_family(Callback, Prefix, MetricsTypeAndHelp, Metrics) ->
+    lists:foreach(
+        fun({Name, Type, Help}) ->
+            %% Using `create_mf/4` that doesn't call back into `collect_metrics/2.`
+            PromName = [Prefix, atom_to_binary(Name)],
+            Callback(prometheus_model_helpers:create_mf(PromName, Help, Type, ?MG(Name, Metrics)))
+        end,
+        MetricsTypeAndHelp
+    ).
+
 %% behaviour
 fetch_from_local_node(Mode) ->
     {node(), (maybe_collect_ds_data(Mode))#{
@@ -292,7 +331,9 @@ fetch_from_local_node(Mode) ->
     }}.
 
 fetch_cluster_consistented_data() ->
-    (maybe_license_fetch_data())#{
+    Acc1 = maybe_license_fetch_data(),
+    Acc = maybe_collect_ds_cluster_data(Acc1),
+    Acc#{
         stats_data_cluster_consistented => stats_data_cluster_consistented(),
         cert_data => cert_data()
     }.
@@ -732,11 +773,21 @@ maybe_add_ds_meta() ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
             #{
-                ds_data => meta_to_init_from(emqx_ds_builtin_metrics:prometheus_meta())
+                ds_data => meta_to_init_from(emqx_ds_builtin_metrics:prometheus_meta()),
+                ds_raft_node_data => meta_to_init_from(ds_raft_node_meta())
             };
         false ->
             #{}
     end.
+
+ds_raft_node_meta() ->
+    emqx_ds_builtin_raft_metrics:local_dbs_meta() ++
+        emqx_ds_builtin_raft_metrics:local_shards_meta().
+
+ds_raft_cluster_meta() ->
+    emqx_ds_builtin_raft_metrics:cluster_meta() ++
+        emqx_ds_builtin_raft_metrics:dbs_meta() ++
+        emqx_ds_builtin_raft_metrics:shards_meta().
 
 %%==========
 %% Bytes && Packets
@@ -1230,7 +1281,7 @@ with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
 with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
     Labels;
 with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
-    [{node, node(self())} | Labels].
+    [{node, node()} | Labels].
 
 %%--------------------------------------------------------------------
 %% bpapi
