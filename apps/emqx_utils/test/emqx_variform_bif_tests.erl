@@ -78,7 +78,14 @@ system_test() ->
     EnvVal = erlang:atom_to_list(?FUNCTION_NAME),
     EnvNameBin = erlang:list_to_binary(EnvName),
     os:putenv("EMQXVAR_" ++ EnvName, EnvVal),
-    ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)).
+    try
+        ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)),
+        %% read from persistent_term
+        ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)),
+        ?assertEqual(<<"">>, emqx_variform_bif:getenv(<<"EMQXVAR_NOT_EXIST">>))
+    after
+        os:unsetenv("EMQXVAR_" ++ EnvName)
+    end.
 
 empty_val_test_() ->
     F = fun(X) -> emqx_variform_bif:is_empty_val(X) end,
@@ -175,13 +182,15 @@ invalid_hash_algorithm_test() ->
         emqx_variform_bif:hash(<<"unknown_algorithm">>, <<"a">>)
     ).
 
-int2hexstr_test() ->
-    ?assertEqual(<<"0">>, emqx_variform_bif:int2hexstr(0)),
-    ?assertEqual(<<"1">>, emqx_variform_bif:int2hexstr(1)),
-    ?assertEqual(<<"A">>, emqx_variform_bif:int2hexstr(10)),
-    ?assertEqual(<<"F">>, emqx_variform_bif:int2hexstr(15)),
-    ?assertEqual(<<"10">>, emqx_variform_bif:int2hexstr(16)),
-    ?assertEqual(<<"1A">>, emqx_variform_bif:int2hexstr(26)).
+int2hexstr_test_() ->
+    [
+        ?_assertEqual(<<"0">>, emqx_variform_bif:int2hexstr(0)),
+        ?_assertEqual(<<"1">>, emqx_variform_bif:int2hexstr(1)),
+        ?_assertEqual(<<"A">>, emqx_variform_bif:int2hexstr(10)),
+        ?_assertEqual(<<"F">>, emqx_variform_bif:int2hexstr(15)),
+        ?_assertEqual(<<"10">>, emqx_variform_bif:int2hexstr(16)),
+        ?_assertEqual(<<"1A">>, emqx_variform_bif:int2hexstr(26))
+    ].
 
 atom_input_test_() ->
     [
@@ -202,6 +211,7 @@ atom_input_test_() ->
         ?_assertEqual([<<"tom">>], emqx_variform_bif:split('atom', <<"a">>)),
         ?_assertEqual([<<>>, <<"tom">>], emqx_variform_bif:split('atom', <<"a">>, <<"notrim">>)),
         ?_assertEqual([<<"tom">>], emqx_variform_bif:tokens('atom', <<"a">>)),
+        ?_assertEqual([<<"tom">>], emqx_variform_bif:tokens('atom', <<"a">>, <<"nocrlf">>)),
         ?_assertEqual(<<"atom ">>, emqx_variform_bif:pad('atom', 5, <<"trailing">>)),
         ?_assertEqual(<<"atomx">>, emqx_variform_bif:pad('atom', 5, <<"trailing">>, <<"x">>)),
         ?_assertEqual(<<"btom">>, emqx_variform_bif:replace('atom', <<"a">>, <<"b">>)),
@@ -214,6 +224,7 @@ atom_input_test_() ->
         ?_assertEqual(<<"atom">>, emqx_variform_bif:find('atom', <<"a">>, <<"trailing">>)),
         ?_assertEqual(<<"atom">>, emqx_variform_bif:unescape('atom')),
         ?_assert(is_binary(emqx_variform_bif:hash(sha, 'atom'))),
+        ?_assert(is_binary(emqx_variform_bif:hash(<<"sha256">>, 'atom'))),
         ?_assert(is_integer(emqx_variform_bif:hash_to_range(sha, 1, 10))),
         ?_assert(is_integer(emqx_variform_bif:map_to_range(sha, 1, 10))),
         ?_assertEqual(<<"atom ">>, emqx_variform_bif:pad('atom', 5)),
