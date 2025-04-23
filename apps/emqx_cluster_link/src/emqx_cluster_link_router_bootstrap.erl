@@ -4,13 +4,13 @@
 -module(emqx_cluster_link_router_bootstrap).
 
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_shared_sub.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/src/emqx_persistent_session_ds/emqx_ps_ds_int.hrl").
 
 -include("emqx_cluster_link.hrl").
 
 -export([
-    init/3,
+    init/4,
     next_batch/1
 ]).
 
@@ -18,31 +18,30 @@
 
 -record(bootstrap, {
     target :: _ClusterName :: binary(),
+    actor :: atom(),
     filters :: [emqx_types:topic()],
     stash :: [{emqx_types:topic(), _RouteID}],
-    max_batch_size :: non_neg_integer(),
-    is_persistent_route :: boolean()
+    max_batch_size :: non_neg_integer()
 }).
 
 %%
 
-init(TargetCluster, LinkFilters, Options) ->
-    IsPersistentRoute = maps:get(is_persistent_route, Options, false),
+init(Actor, TargetCluster, LinkFilters, Options) ->
     #bootstrap{
         target = TargetCluster,
+        actor = Actor,
         filters = LinkFilters,
         stash = [],
-        max_batch_size = maps:get(max_batch_size, Options, ?MAX_BATCH_SIZE),
-        is_persistent_route = IsPersistentRoute
+        max_batch_size = maps:get(max_batch_size, Options, ?MAX_BATCH_SIZE)
     }.
 
 next_batch(B = #bootstrap{stash = S0 = [_ | _], max_batch_size = MBS}) ->
     {Batch, Stash} = mk_batch(S0, MBS),
     {Batch, B#bootstrap{stash = Stash}};
-next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], is_persistent_route = false}) ->
-    next_batch(B0#bootstrap{filters = [], stash = routes_by_wildcards(Filters)});
-next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], is_persistent_route = true}) ->
+next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], actor = ?PS_ROUTE_ACTOR}) ->
     next_batch(B0#bootstrap{filters = [], stash = ps_routes_by_wildcards(Filters)});
+next_batch(B0 = #bootstrap{filters = Filters = [_ | _], stash = [], actor = _Node}) ->
+    next_batch(B0#bootstrap{filters = [], stash = routes_by_wildcards(Filters)});
 next_batch(#bootstrap{filters = [], stash = []}) ->
     done.
 
@@ -55,9 +54,7 @@ mk_batch(Stash, MaxBatchSize) ->
 %%
 
 routes_by_wildcards(Wildcards) ->
-    Routes = select_routes_by_wildcards(Wildcards),
-    SharedRoutes = select_shared_sub_routes_by_wildcards(Wildcards),
-    Routes ++ SharedRoutes.
+    select_routes_by_wildcards(Wildcards).
 
 ps_routes_by_wildcards(Wildcards) ->
     emqx_persistent_session_ds_router:foldl_routes(
@@ -75,21 +72,17 @@ ps_route_id(#ps_route{topic = T, dest = SessionId}) ->
 
 select_routes_by_wildcards(Wildcards) ->
     emqx_broker:foldl_topics(
-        fun(Topic, Acc) ->
+        fun(TopicSub, Acc) ->
+            case TopicSub of
+                #share{group = Group, topic = Topic} ->
+                    RouteID = ?SHARED_ROUTE_ID(Topic, Group);
+                Topic ->
+                    RouteID = Topic
+            end,
             Intersections = emqx_cluster_link_router:compute_intersections(Topic, Wildcards),
-            [encode_route(I, Topic) || I <- Intersections] ++ Acc
+            [encode_route(I, RouteID) || I <- Intersections] ++ Acc
         end,
         []
-    ).
-
-select_shared_sub_routes_by_wildcards(Wildcards) ->
-    emqx_utils_ets:keyfoldl(
-        fun({Group, Topic}, Acc) ->
-            Intersections = emqx_cluster_link_router:compute_intersections(Topic, Wildcards),
-            [encode_route(I, ?SHARED_ROUTE_ID(Topic, Group)) || I <- Intersections] ++ Acc
-        end,
-        [],
-        ?SHARED_SUBSCRIBER
     ).
 
 encode_route(Topic, RouteID) ->

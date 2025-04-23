@@ -61,11 +61,8 @@
 
 -define(MSG_CLIENTID_SUFFIX, ":msg:").
 
--define(MQTT_HOST_OPTS, #{default_port => 1883}).
-
 -define(MSG_POOL_PREFIX, "emqx_cluster_link_mqtt:msg:").
 -define(RES_NAME(Prefix, ClusterName), <<Prefix, ClusterName/binary>>).
--define(ROUTE_POOL_NAME(ClusterName), ?RES_NAME(?ROUTE_POOL_PREFIX, ClusterName)).
 -define(MSG_RES_ID(ClusterName), ?RES_NAME(?MSG_POOL_PREFIX, ClusterName)).
 -define(HEALTH_CHECK_TIMEOUT, 1000).
 -define(RES_GROUP, <<"emqx_cluster_link">>).
@@ -90,8 +87,6 @@
 -define(F_NEED_BOOTSTRAP, 16).
 
 -define(ROUTE_DELETE, 100).
-
--define(PUB_TIMEOUT, 10_000).
 
 -define(AUTO_RECONNECT_INTERVAL_S, 2).
 
@@ -181,7 +176,8 @@ on_start(ResourceId, #{pool_size := PoolSize} = ClusterConf) ->
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
-            {ok, #{pool_name => PoolName, topic => ?MSG_FWD_TOPIC}};
+            LocalCluster = emqx_cluster_link_config:cluster(),
+            {ok, #{pool_name => PoolName, topic => ?MSG_FWD_TOPIC(LocalCluster)}};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.
@@ -348,6 +344,7 @@ connect(Options) ->
 %%% New leader-less Syncer/Actor implementation
 
 publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incarnation) ->
+    Topic = ?ROUTE_TOPIC(emqx_cluster_link_config:cluster()),
     Payload = #{
         ?F_OPERATION => ?OP_ACTOR_INIT,
         ?F_PROTO_VER => ?PROTO_VER,
@@ -359,7 +356,7 @@ publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incar
         'Response-Topic' => RespTopic,
         'Correlation-Data' => ReqId
     },
-    emqtt:publish(ClientPid, ?ROUTE_TOPIC, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
+    emqtt:publish(ClientPid, Topic, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
 
 actor_init_ack_resp_msg(Actor, InitRes, MsgIn) ->
     Payload = #{
@@ -393,21 +390,23 @@ with_res_and_bootstrap(Payload, Error) ->
     }.
 
 publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
+    Topic = ?ROUTE_TOPIC(emqx_cluster_link_config:cluster()),
     Payload = #{
         ?F_OPERATION => ?OP_ROUTE,
         ?F_ACTOR => Actor,
         ?F_INCARNATION => Incarnation,
         ?F_ROUTES => Updates
     },
-    emqtt:publish(ClientPid, ?ROUTE_TOPIC, ?ENCODE(Payload), ?QOS_1).
+    emqtt:publish(ClientPid, Topic, ?ENCODE(Payload), ?QOS_1).
 
 publish_heartbeat(ClientPid, Actor, Incarnation) ->
+    Topic = ?ROUTE_TOPIC(emqx_cluster_link_config:cluster()),
     Payload = #{
         ?F_OPERATION => ?OP_HEARTBEAT,
         ?F_ACTOR => Actor,
         ?F_INCARNATION => Incarnation
     },
-    emqtt:publish_async(ClientPid, ?ROUTE_TOPIC, ?ENCODE(Payload), ?QOS_0, {fun(_) -> ok end, []}).
+    emqtt:publish_async(ClientPid, Topic, ?ENCODE(Payload), ?QOS_0, {fun(_) -> ok end, []}).
 
 decode_route_op(Payload) ->
     decode_route_op1(?DECODE(Payload)).

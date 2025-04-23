@@ -4,6 +4,8 @@
 
 -module(emqx_cluster_link_router).
 
+-include("emqx_cluster_link.hrl").
+
 -export([
     push_update/3,
     push_update_persistent/3,
@@ -16,10 +18,16 @@
 %%--------------------------------------------------------------------
 
 push_update(Op, Topic, RouteID) ->
-    push_update(Op, Topic, RouteID, fun emqx_cluster_link_router_syncer:push/4).
+    push_update(Op, Topic, RouteID, fun push_regular_route/4).
 
 push_update_persistent(Op, Topic, RouteID) ->
-    push_update(Op, Topic, RouteID, fun emqx_cluster_link_router_syncer:push_persistent_route/4).
+    push_update(Op, Topic, RouteID, fun push_persistent_route/4).
+
+push_regular_route(Cluster, Op, Intersection, RouteID) ->
+    emqx_cluster_link_routerepl:push(Cluster, node(), Op, Intersection, RouteID).
+
+push_persistent_route(Cluster, Op, Intersection, RouteID) ->
+    emqx_cluster_link_routerepl:push(Cluster, ?PS_ROUTE_ACTOR, Op, Intersection, RouteID).
 
 push_update(Op, Topic, RouteID, PushFun) ->
     push_update(Op, Topic, RouteID, PushFun, emqx_cluster_link_config:enabled_links()).
