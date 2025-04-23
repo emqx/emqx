@@ -54,8 +54,8 @@
 %% by a single beam:
 -define(DS_SUBS_REQUEST_SHARING, emqx_ds_subs_request_sharing).
 %% Number of subscription stuck/unstuck events:
--define(DS_SUBS_STUCK_TOTAL, emqsx_ds_subs_stuck_total).
--define(DS_SUBS_UNSTUCK_TOTAL, emqsx_ds_subs_unstuck_total).
+-define(DS_SUBS_STUCK_TOTAL, emqx_ds_subs_stuck_total).
+-define(DS_SUBS_UNSTUCK_TOTAL, emqx_ds_subs_unstuck_total).
 %% Sliding average of time spent fulfilling requests per worker type (μs):
 -define(DS_SUBS_FULFILL_TIME, emqx_ds_subs_fulfill_time).
 %% Sliding average of time spent scanning the DB (μs):
