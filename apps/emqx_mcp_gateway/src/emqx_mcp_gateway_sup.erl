@@ -27,8 +27,19 @@ init([]) ->
         id => emqx_mcp_server_name_manager,
         start => {emqx_mcp_server_name_manager, start_link, []},
         restart => permanent,
-        shutdown => 1000,
         type => worker
     },
-    ChildSpecs = [ServerNameManager],
+    Dispatcher = #{
+        id => emqx_mcp_server_dispatcher,
+        start => {emqx_mcp_server_dispatcher, start_link, []},
+        restart => permanent,
+        type => worker
+    },
+    ServerSup = #{
+        id => emqx_mcp_server_sup,
+        start => {emqx_mcp_server_sup, start_link, []},
+        restart => permanent,
+        type => supervisor
+    },
+    ChildSpecs = [ServerSup, Dispatcher, ServerNameManager],
     {ok, {SupFlags, ChildSpecs}}.

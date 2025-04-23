@@ -1,1 +1,5 @@
 -define(MCP_VERSION, <<"2024-11-05">>).
+-define(TAB_MCP_ESTAB_SERVERS, emqx_mcp_established_servers).
+-define(INIT_TIMEOUT, 5_000).
+-define(RPC_TIMEOUT, 5_000).
+-define(MCP_SERVER_ID(NAME), <<"$mcp-gateway:", NAME/binary>>).

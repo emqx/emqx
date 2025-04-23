@@ -42,7 +42,9 @@ disable() ->
     unregister_hook(),
     emqx_conf:remove_handler([mcp]),
     emqx_ctl:unregister_command(mcp),
-    stop_mcp_servers().
+    stop_mcp_servers(),
+    %% Restart the dispatcher to clean up the state
+    emqx_mcp_server_dispatcher:restart().
 
 list() ->
     emqx:get_raw_config([mcp], []).
@@ -157,19 +159,16 @@ unhook(HookPoint, MFA) ->
 start_mcp_servers(Servers) ->
     %% Start all MCP servers
     maps:foreach(
-        fun(_Name, #{enable := true} = ServerConf) ->
+        fun(Name, #{enable := true} = ServerConf) ->
             #{server_type := SType, server_name := ServerName} = ServerConf,
-            Mod = mcp_server_callback_module(SType),
-            ServerConf1 = maps:without([server_type, enable], ServerConf),
-            %% TODO: change to start a pool of servers, where the pool name is the server name
-            case emqx_mcp_server:start_supervised(ServerName, Mod, ServerConf1, #{}) of
-                {ok, _Pid} ->
-                    ok;
-                {error, {already_started, _Pid}} ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{msg => "failed_to_start_mcp_server", reason => Reason})
-            end
+            Conf = #{
+                name => Name,
+                server_name => ServerName,
+                server_conf => maps:without([server_type, enable], ServerConf),
+                mod => mcp_server_callback_module(SType),
+                opts => #{}
+            },
+            ok = emqx_mcp_server_dispatcher:start_server_pool(Conf)
         end,
         Servers
     ).
