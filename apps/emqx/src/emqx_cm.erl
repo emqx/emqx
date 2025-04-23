@@ -11,6 +11,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_lcr.hrl").
 -include("emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -380,7 +381,7 @@ open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, 
     case emqx_cm:register_channel(ClientInfo, self(), ConnInfo) of
         ok ->
             {ok, Res};
-        {error, {restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
+        {error, {?lcr_err_restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
             %% retries ...
             %% @TODO will Predecessor be undefined?
             ?FUNCTION_NAME(NewPredecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries - 1);

@@ -150,7 +150,6 @@
     peername := peername(),
     peercert => nossl | undefined | esockd_peercert:peercert(),
     conn_mod := module(),
-    trpt_started_at := integer(),
     proto_name => binary(),
     proto_ver => proto_ver(),
     clean_start => boolean(),
@@ -164,6 +163,7 @@
     receive_maximum => non_neg_integer(),
     expiry_interval => non_neg_integer(),
     atom() => term()
+    % trpt_started_at => integer(),
 }.
 -type clientinfo() :: #{
     zone := option(zone()),

@@ -197,10 +197,10 @@ do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
                     mnesia:write(?LCR_TAB, Ch, write),
                     ok;
                 #lcr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
-                    mnesia:abort(channel_outdated);
+                    mnesia:abort(?lcr_err_channel_outdated);
                 #lcr_channel{} = NewerChannel ->
                     %% Takeover from wrong session, abort and restart
-                    mnesia:abort({restart_takeover, NewerChannel, CachedMax, MyVsn})
+                    mnesia:abort({?lcr_err_restart_takeover, NewerChannel, CachedMax, MyVsn})
             end
         end
     ),
