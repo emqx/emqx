@@ -36,10 +36,7 @@ opts(Overrides) ->
     ).
 
 appspec(emqx_durable_storage) ->
-    {emqx_durable_storage, #{
-        before_start => fun snabbkaffe:fix_ct_logging/0,
-        override_env => [{egress_flush_interval, 1}]
-    }};
+    {emqx_durable_storage, #{override_env => [{egress_flush_interval, 1}]}};
 appspec(emqx_ds_builtin_raft) ->
     {emqx_ds_builtin_raft, #{}}.
 
@@ -432,6 +429,75 @@ t_snapshot_metrics(Config) ->
                 {_Labels, V} <- maps:get(snapshot_write_chunk_bytes, Ms)
             ])
         }
+    ).
+
+%%
+
+t_replication_metrics(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {t_replication_metrics1, #{apps => Apps}},
+            {t_replication_metrics2, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    ok = snabbkaffe:start_trace(),
+    [{nodes, Nodes} | Config];
+t_replication_metrics('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)),
+    ok = snabbkaffe:stop().
+
+t_replication_metrics(Config) ->
+    %% Initialize DB and wait for it to be online.
+    Nodes = [N1 | _] = ?config(nodes, Config),
+    TS0 = ?ON(N1, emqx_ds:timestamp_us()),
+    Opts = opts(#{n_shards => 2, n_sites => 1, replication_factor => 3}),
+    emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    %% Spin up non-trivial workload.
+    {Stream, _} = emqx_ds_test_helpers:interleaved_topic_messages(?FUNCTION_NAME, 25, 80),
+    emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
+    ok = ?ON(N1, emqx_ds:add_generation(?DB)),
+    ok = timer:sleep(1_000),
+    %% Verify metrics
+    ?assertMatch(
+        #{
+            current_timestamp_us := [
+                {[{db, ?DB}, {shard, <<"0">>}], TSShard},
+                {[{db, ?DB}, {shard, <<"1">>}], _}
+            ],
+            rasrvs_started := [{[{db, ?DB}, {shard, <<"0">>}], 1} | _],
+            rasrvs_terminated := [{[{db, ?DB}, {shard, <<"0">>}], 0} | _],
+            rasrv_term := [{[{db, ?DB}, {shard, <<"0">>}], Term} | _],
+            rasrv_index := [
+                {[{kind, commit}, {db, ?DB}, {shard, <<"0">>}], IdxCommit},
+                {[{kind, last_applied}, {db, ?DB}, {shard, <<"0">>}], IdxLastApplied},
+                {[{kind, last_written}, {db, ?DB}, {shard, <<"0">>}], _},
+                {[{kind, snapshot}, {db, ?DB}, {shard, <<"0">>}], IdxSnapshot}
+                | _
+            ],
+            rasrv_state_changes := [
+                {[{state, candidate}, {db, ?DB}, {shard, <<"0">>}], _},
+                {[{state, follower}, {db, ?DB}, {shard, <<"0">>}], NFollower},
+                {[{state, leader}, {db, ?DB}, {shard, <<"0">>}], _}
+                | _
+            ],
+            rasrv_commands := [{[{db, ?DB}, {shard, <<"0">>}], _} | _],
+            rasrv_snapshot_writes := [{[{db, ?DB}, {shard, <<"0">>}], NSnapshots} | _],
+            rasrv_replication_msgs := [
+                {[{kind, sent}, {db, ?DB}, {shard, <<"0">>}], NReplMsgs},
+                {[{kind, dropped}, {db, ?DB}, {shard, <<"0">>}], 0}
+                | _
+            ]
+        } when
+            TSShard > TS0 andalso
+                Term > 0 andalso
+                NFollower > 0 andalso
+                NReplMsgs > 0 andalso
+                IdxCommit >= IdxLastApplied andalso
+                IdxSnapshot > 0 andalso
+                NSnapshots > 0,
+        ?ON(N1, emqx_ds_builtin_raft_metrics:local_shards([]))
     ).
 
 %%

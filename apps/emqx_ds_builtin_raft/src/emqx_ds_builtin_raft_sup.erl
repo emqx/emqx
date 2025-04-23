@@ -81,12 +81,7 @@ set_gvar(DB, Key, Val) ->
 
 -spec get_gvar(emqx_ds:db(), _Key, Val) -> Val.
 get_gvar(DB, Key, Default) ->
-    case ets:lookup(?gvar_tab, {DB, Key}) of
-        [#gvar{v = Val}] ->
-            Val;
-        [] ->
-            Default
-    end.
+    ets:lookup_element(?gvar_tab, {DB, Key}, #gvar.v, Default).
 
 -spec clean_gvars(emqx_ds:db()) -> ok.
 clean_gvars(DB) ->

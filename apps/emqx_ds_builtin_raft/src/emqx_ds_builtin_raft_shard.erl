@@ -15,7 +15,8 @@
 %% Server API
 -export([
     start_link/3,
-    server_info/2
+    server_info/2,
+    server_metrics/1
 ]).
 
 %% Static server configuration
@@ -436,6 +437,24 @@ force_forget_server(_Server, []) ->
     %% situation will likely be handled by `add_local_server/3` first.
     ok.
 
+-spec server_metrics(server()) ->
+    #{atom() => integer()} | undefined.
+server_metrics(Server) ->
+    %% NOTE:
+    %% Hooking into non-public `ra` APIs. Be careful when upgrading.
+    ra_counters:counters(Server, [
+        commands,
+        msgs_sent,
+        dropped_sends,
+        term,
+        last_applied,
+        commit_index,
+        last_written_index,
+        snapshot_index,
+        snapshots_written,
+        commit_latency
+    ]).
+
 -spec server_info
     (readiness, server()) -> ready | {unready, _Details} | unknown;
     (leader, server()) -> server() | unknown;
@@ -602,7 +621,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
     Servers = known_shard_servers(DB, Shard),
-    MutableConfig = #{tick_timeout => 100},
+    MutableConfig = #{},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
             UID = server_uid(DB, Shard),

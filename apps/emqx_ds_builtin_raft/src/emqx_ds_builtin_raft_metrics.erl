@@ -27,6 +27,9 @@
     snapshot_writer_complete/1,
     snapshot_writer_error/2
 ]).
+-export([
+    rasrv_state_changed/3
+]).
 
 %% Cluster-wide metrics & metadata:
 -export([
@@ -45,8 +48,7 @@
     local_dbs_meta/0,
     local_dbs/1,
     local_shards_meta/0,
-    local_shards/1,
-    local_shard/3
+    local_shards/1
 ]).
 
 -type metric_type() :: gauge | counter.
@@ -67,6 +69,12 @@
 -define(WORKER, ?MODULE).
 
 -define(MID_SHARD(DB, SHARD), <<(atom_to_binary(DB))/binary, "/", (SHARD)/binary>>).
+
+-define(rasrv_state_changed__candidate, 'rasrv.state_changed.candidate').
+-define(rasrv_state_changed__follower, 'rasrv.state_changed.follower').
+-define(rasrv_state_changed__leader, 'rasrv.state_changed.leader').
+-define(rasrv_started, 'rasrv.started').
+-define(rasrv_terminated, 'rasrv.terminated').
 
 -define(shard_transitions__started__add, 'transitions.started.add').
 -define(shard_transitions__started__del, 'transitions.started.del').
@@ -91,12 +99,23 @@
 -define(shard_transition_errors, 'transitions_errors').
 
 -define(LOCAL_SHARD_METRICS,
-    ?SHARD_TRANSITIONS_METRICS ++
+    ?RASRV_STATE_METRICS ++
+        ?RASRV_LIFECYCLE_METRICS ++
+        ?SHARD_TRANSITIONS_METRICS ++
         ?SHARD_TRANSITION_ERRORS_METRICS ++
         ?SNAPSHOT_READS_METRICS ++
         ?SNAPSHOT_WRITES_METRICS ++
         ?SNAPSHOT_TRANSFER_METRICS
 ).
+-define(RASRV_STATE_METRICS, [
+    {counter, ?rasrv_state_changed__candidate, [{state, candidate}]},
+    {counter, ?rasrv_state_changed__follower, [{state, follower}]},
+    {counter, ?rasrv_state_changed__leader, [{state, leader}]}
+]).
+-define(RASRV_LIFECYCLE_METRICS, [
+    {counter, ?rasrv_started, []},
+    {counter, ?rasrv_terminated, []}
+]).
 -define(SHARD_TRANSITIONS_METRICS, [
     {counter, ?shard_transitions__started__add, [{type, add}, {status, started}]},
     {counter, ?shard_transitions__started__del, [{type, del}, {status, started}]},
@@ -147,36 +166,56 @@ init_local_shard(DB, Shard) ->
 
 %%
 
+rasrv_state_changed(DB, Shard, RaState) ->
+    case RaState of
+        recover ->
+            inc_shard_metric(DB, Shard, ?rasrv_started);
+        candidate ->
+            inc_shard_metric(DB, Shard, ?rasrv_state_changed__candidate);
+        follower ->
+            inc_shard_metric(DB, Shard, ?rasrv_state_changed__follower);
+        leader ->
+            inc_shard_metric(DB, Shard, ?rasrv_state_changed__leader);
+        terminating_leader ->
+            inc_shard_metric(DB, Shard, ?rasrv_terminated);
+        terminating_follower ->
+            inc_shard_metric(DB, Shard, ?rasrv_terminated);
+        eol ->
+            %% NOTE: Not really expected during normal operations.
+            ok;
+        _ ->
+            ok
+    end.
+
+%%
+
 shard_transition_started(DB, Shard, {add, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__started__add);
+    inc_shard_metric(DB, Shard, ?shard_transitions__started__add);
 shard_transition_started(DB, Shard, {del, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__started__del).
+    inc_shard_metric(DB, Shard, ?shard_transitions__started__del).
 
 shard_transition_complete(DB, Shard, {add, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__completed__add);
+    inc_shard_metric(DB, Shard, ?shard_transitions__completed__add);
 shard_transition_complete(DB, Shard, {del, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__completed__del).
+    inc_shard_metric(DB, Shard, ?shard_transitions__completed__del).
 
 shard_transition_skipped(DB, Shard, {add, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__skipped__add);
+    inc_shard_metric(DB, Shard, ?shard_transitions__skipped__add);
 shard_transition_skipped(DB, Shard, {del, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__skipped__del).
+    inc_shard_metric(DB, Shard, ?shard_transitions__skipped__del).
 
 shard_transition_crashed(DB, Shard, {add, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__crashed__add);
+    inc_shard_metric(DB, Shard, ?shard_transitions__crashed__add);
 shard_transition_crashed(DB, Shard, {del, _}) ->
-    inc_shard_transition(DB, Shard, ?shard_transitions__crashed__del).
-
-inc_shard_transition(DB, Shard, Counter) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), Counter, 1)).
+    inc_shard_metric(DB, Shard, ?shard_transitions__crashed__del).
 
 shard_transition_error(DB, Shard, _Transition) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?shard_transition_errors, 1)).
+    inc_shard_metric(DB, Shard, ?shard_transition_errors).
 
 %%
 
 snapshot_reader_started({DB, Shard}) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?snap_reads__started)).
+    inc_shard_metric(DB, Shard, ?snap_reads__started).
 
 snapshot_chunk_read({DB, Shard}, Chunk) ->
     MID = ?MID_SHARD(DB, Shard),
@@ -184,13 +223,13 @@ snapshot_chunk_read({DB, Shard}, Chunk) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, MID, ?snap_read__chunk_bs, byte_size(Chunk))).
 
 snapshot_reader_complete({DB, Shard}) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?snap_reads__completed)).
+    inc_shard_metric(DB, Shard, ?snap_reads__completed).
 
 snapshot_reader_error({DB, Shard}, _Reason) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?snap_read__errors)).
+    inc_shard_metric(DB, Shard, ?snap_read__errors).
 
 snapshot_writer_started({DB, Shard}) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?snap_writes__started)).
+    inc_shard_metric(DB, Shard, ?snap_writes__started).
 
 snapshot_chunk_written({DB, Shard}, Chunk) ->
     MID = ?MID_SHARD(DB, Shard),
@@ -198,10 +237,13 @@ snapshot_chunk_written({DB, Shard}, Chunk) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, MID, ?snap_write__chunk_bs, byte_size(Chunk))).
 
 snapshot_writer_complete({DB, Shard}) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?snap_writes__completed)).
+    inc_shard_metric(DB, Shard, ?snap_writes__completed).
 
 snapshot_writer_error({DB, Shard}, _Reason) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), ?snap_write__errors)).
+    inc_shard_metric(DB, Shard, ?snap_write__errors).
+
+inc_shard_metric(DB, Shard, Counter) ->
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, ?MID_SHARD(DB, Shard), Counter)).
 
 %%
 
@@ -326,6 +368,38 @@ db_shards_online(DB, Ls) ->
 -spec local_shards_meta() -> [metric_meta()].
 local_shards_meta() ->
     [
+        %% Replication:
+        {current_timestamp_us, gauge, <<
+            "Latest operation timestamp currently replicated by a shard server (us)."
+        >>},
+        {rasrvs_started, counter, <<
+            "Counts number of times a shard Raft server have been started."
+        >>},
+        {rasrvs_terminated, counter, <<
+            "Counts number of times a shard Raft server has been terminated."
+        >>},
+        {rasrv_state_changes, counter, <<
+            "Counts number of times Raft server turned into canidate / follower / leader."
+        >>},
+        {rasrv_commands, counter, <<
+            "Counts number of commands received by a shard server as Raft leader."
+        >>},
+        {rasrv_replication_msgs, counter, <<
+            "Counts number of (sent in total / dropped due to unreachability) "
+            "replication protocol messages."
+        >>},
+        {rasrv_term, gauge, <<"Current Raft term, as seen by a shard server.">>},
+        {rasrv_index, gauge, <<
+            "Current commit / last applied / last fully written and fsynced / latest "
+            "snapshot Raft index."
+        >>},
+        {rasrv_snapshot_writes, counter, <<
+            "Counts number of times a shard server written Raft machine snapshot to disk."
+        >>},
+        {rasrv_commit_latency_ms, gauge, <<
+            "Latest observed approximate time taken for an entry written to the Raft "
+            "log to be committed (ms)."
+        >>},
         %% Shard replica set transitions:
         {shard_transitions, counter, <<
             "Counts number of started / completed / skipped / crashed replica set "
@@ -378,27 +452,78 @@ local_shards(Labels) ->
 
 -spec local_shards(emqx_ds:db(), _Labels0 :: [label()]) -> metrics().
 local_shards(DB, Labels) ->
+    Shards = emqx_ds_builtin_raft_shard_allocator:shards(DB),
+    ShardsActive = emqx_ds_builtin_raft_db_sup:which_shards(DB),
     gather_metrics(
-        fun(Shard) -> local_shard(DB, Shard, Labels) end,
-        emqx_ds_builtin_raft_shard_allocator:shards(DB)
+        fun(Shard) ->
+            local_shard(DB, Shard, lists:member(Shard, ShardsActive), Labels)
+        end,
+        Shards
     ).
 
--spec local_shard(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), _Labels0 :: [label()]) ->
+-spec local_shard(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), boolean(), [label()]) ->
     metrics().
-local_shard(DB, Shard, Labels0) ->
+local_shard(DB, Shard, IsActive, Labels0) ->
     Labels = [{db, DB}, {shard, Shard} | Labels0],
     Counters = emqx_metrics_worker:get_counters(?WORKER, ?MID_SHARD(DB, Shard)),
-    #{
+    Metrics0 = #{
         shard_transitions => shard_transitions(Counters, Labels),
-        shard_transition_errors => metric(?shard_transition_errors, Counters, Labels),
-        snapshot_reads => snapshot_reads(Counters, Labels),
-        snapshot_read_errors => metric(?snap_read__errors, Counters, Labels),
-        snapshot_read_chunks => metric(?snap_read__chunks, Counters, Labels),
-        snapshot_read_chunk_bytes => metric(?snap_read__chunk_bs, Counters, Labels),
-        snapshot_writes => snapshot_writes(Counters, Labels),
-        snapshot_write_errors => metric(?snap_write__errors, Counters, Labels),
-        snapshot_write_chunks => metric(?snap_write__chunks, Counters, Labels),
-        snapshot_write_chunk_bytes => metric(?snap_write__chunk_bs, Counters, Labels)
+        shard_transition_errors => [metric(?shard_transition_errors, Counters, Labels)]
+    },
+    case IsActive of
+        %% Report following metrics only for shards operating on the node:
+        true ->
+            Metrics1 = Metrics0#{
+                current_timestamp_us => current_timestamp(DB, Shard, Labels)
+            },
+            Metrics2 = rasrv_lifecycle(Counters, Labels, Metrics1),
+            Metrics3 = rasrv_raft_metrics(DB, Shard, Labels, Metrics2),
+            Metrics = snapshot_transfers(Counters, Labels, Metrics3),
+            Metrics;
+        false ->
+            Metrics0
+    end.
+
+current_timestamp(DB, Shard, Ls) ->
+    [{Ls, emqx_ds_replication_layer:current_timestamp(DB, Shard)}].
+
+rasrv_lifecycle(Counters, Ls, Acc) ->
+    Acc#{
+        rasrvs_started => [metric(?rasrv_started, Counters, Ls)],
+        rasrvs_terminated => [metric(?rasrv_terminated, Counters, Ls)],
+        rasrv_state_changes => metrics(?RASRV_STATE_METRICS, Counters, Ls)
+    }.
+
+rasrv_raft_metrics(DB, Shard, Ls, Acc) ->
+    Server = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
+    SMs = emqx_maybe:define(emqx_ds_builtin_raft_shard:server_metrics(Server), #{}),
+    Acc#{
+        rasrv_commands => [metric(commands, SMs, Ls)],
+        rasrv_replication_msgs => [
+            metric(msgs_sent, SMs, [{kind, sent} | Ls]),
+            metric(dropped_sends, SMs, [{kind, dropped} | Ls])
+        ],
+        rasrv_term => [metric(term, SMs, Ls)],
+        rasrv_index => [
+            metric(commit_index, SMs, [{kind, commit} | Ls]),
+            metric(last_applied, SMs, [{kind, last_applied} | Ls]),
+            metric(last_written_index, SMs, [{kind, last_written} | Ls]),
+            metric(snapshot_index, SMs, [{kind, snapshot} | Ls])
+        ],
+        rasrv_snapshot_writes => [metric(snapshots_written, SMs, Ls)],
+        rasrv_commit_latency_ms => [metric(commit_latency, SMs, Ls)]
+    }.
+
+snapshot_transfers(Counters, Ls, Acc) ->
+    Acc#{
+        snapshot_reads => snapshot_reads(Counters, Ls),
+        snapshot_read_errors => [metric(?snap_read__errors, Counters, Ls)],
+        snapshot_read_chunks => [metric(?snap_read__chunks, Counters, Ls)],
+        snapshot_read_chunk_bytes => [metric(?snap_read__chunk_bs, Counters, Ls)],
+        snapshot_writes => snapshot_writes(Counters, Ls),
+        snapshot_write_errors => [metric(?snap_write__errors, Counters, Ls)],
+        snapshot_write_chunks => [metric(?snap_write__chunks, Counters, Ls)],
+        snapshot_write_chunk_bytes => [metric(?snap_write__chunk_bs, Counters, Ls)]
     }.
 
 shard_transitions(Counters, Ls) ->
@@ -417,7 +542,7 @@ metrics(List, Metrics, Ls) ->
     ].
 
 metric(Name, Metrics, Ls) ->
-    [{Ls, maps:get(Name, Metrics, 0)}].
+    {Ls, maps:get(Name, Metrics, 0)}.
 
 %%
 
