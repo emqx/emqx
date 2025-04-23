@@ -406,6 +406,79 @@ t_update(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+t_update_precondition(_Config) ->
+    %% always allow
+    ok = emqx_authn_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+
+    CorrectConfig = raw_http_auth_config(),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, CorrectConfig}
+    ),
+    InvalidPreconditionConfig =
+        CorrectConfig#{<<"precondition">> => <<"not a valid precondition">>},
+
+    ?assertMatch(
+        {error, {post_config_update, emqx_authn_config, #{cause := "bad_precondition_expression"}}},
+        emqx:update_config(
+            ?PATH,
+            {update_authenticator, ?GLOBAL, <<"password_based:http">>, InvalidPreconditionConfig}
+        )
+    ),
+
+    Connect = fun(ClientId) ->
+        {ok, Pid} = emqtt:start_link([
+            {host, "127.0.0.1"},
+            {port, 1883},
+            {clean_start, true},
+            {clientid, ClientId},
+            {username, <<"plain">>},
+            {password, <<"plain">>}
+        ]),
+        unlink(Pid),
+        _ = monitor(process, Pid),
+        R =
+            case emqtt:connect(Pid) of
+                {ok, _} ->
+                    ok = emqtt:disconnect(Pid);
+                {error, _} = Err ->
+                    Err
+            end,
+        receive
+            {'DOWN', _Ref, process, Pid, _Reason} ->
+                ok
+        after 1000 ->
+            error(timeout)
+        end,
+        R
+    end,
+
+    %% allowed without precondition
+    ?assertMatch(ok, Connect(<<"c1-123">>)),
+    ?assertMatch(ok, Connect(<<"c2-123">>)),
+
+    %% allow only clientid starting with c1-
+    ValidPreconditionConfig =
+        CorrectConfig#{<<"precondition">> => <<"regex_match(clientid, 'c1-.*')">>},
+
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, <<"password_based:http">>, ValidPreconditionConfig}
+    ),
+    ?assertMatch(ok, Connect(<<"c1-123">>)),
+    ?assertMatch({error, {unauthorized_client, _}}, Connect(<<"c2-123">>)),
+    ok.
+
 t_node_cache(_Config) ->
     Config = maps:merge(
         raw_http_auth_config(),

@@ -568,30 +568,41 @@ handle_update_authenticator(Chain, AuthenticatorID, Config) ->
     case lists:keyfind(AuthenticatorID, #authenticator.id, Authenticators) of
         false ->
             {error, {not_found, {authenticator, AuthenticatorID}}};
-        #authenticator{provider = Provider, state = ST} = Authenticator ->
+        #authenticator{} = Authenticator ->
             case AuthenticatorID =:= authenticator_id(Config) of
                 true ->
-                    NConfig = insert_user_group(Chain, Config),
-                    case Provider:update(NConfig, ST) of
-                        {ok, NewST} ->
-                            NewAuthenticator = Authenticator#authenticator{
-                                state = NewST,
-                                enable = maps:get(enable, NConfig)
-                            },
-                            NewAuthenticators = replace_authenticator(
-                                AuthenticatorID,
-                                NewAuthenticator,
-                                Authenticators
-                            ),
-                            NewChain = Chain#chain{authenticators = NewAuthenticators},
-                            Result = {ok, serialize_authenticator(NewAuthenticator)},
-                            {ok, Result, NewChain};
-                        {error, Reason} ->
-                            {error, Reason}
-                    end;
+                    handle_update_authenticator2(Chain, Authenticator, Config);
                 false ->
                     {error, change_of_authentication_type_is_not_allowed}
             end
+    end.
+
+handle_update_authenticator2(Chain, Authenticator, Config) ->
+    #chain{authenticators = Authenticators} = Chain,
+    #authenticator{id = AuthenticatorID, provider = Provider, state = ST} = Authenticator,
+    NConfig = insert_user_group(Chain, Config),
+    case compile_precondition(NConfig) of
+        {ok, Precondition} ->
+            case Provider:update(NConfig, ST) of
+                {ok, NewST} ->
+                    NewAuthenticator = Authenticator#authenticator{
+                        state = NewST,
+                        enable = maps:get(enable, NConfig),
+                        precondition = Precondition
+                    },
+                    NewAuthenticators = replace_authenticator(
+                        AuthenticatorID,
+                        NewAuthenticator,
+                        Authenticators
+                    ),
+                    NewChain = Chain#chain{authenticators = NewAuthenticators},
+                    Result = {ok, serialize_authenticator(NewAuthenticator)},
+                    {ok, Result, NewChain};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, #{cause => "bad_precondition_expression", reason => Reason}}
     end.
 
 handle_delete_authenticator(Chain, AuthenticatorID) ->
