@@ -2354,6 +2354,7 @@ common_ssl_auth_ext_fields() ->
                 string(),
                 #{
                     required => false,
+                    example => <<>>,
                     desc => ?DESC(common_ssl_opts_verify_peer_ext_key_usage)
                 }
             )}
