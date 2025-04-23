@@ -41,6 +41,7 @@ authenticate(
                 )
             of
                 {ok, #{result := ok}} ->
+                    %% TODO: take is_superuser_attribute from Entry
                     {ok, #{is_superuser => false}};
                 {ok, #{result := 'invalidCredentials'}} ->
                     ?TRACE_AUTHN_PROVIDER(info, "ldap_bind_failed", #{
