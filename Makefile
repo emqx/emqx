@@ -235,7 +235,13 @@ $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
 define download-relup-packages
 $1-relup-downloads:
-	@if [ "$${EMQX_RELUP}" = "true" ]; then $(SCRIPTS)/relup-build/download-base-packages.sh $1; fi
+	@if [ "$(shell uname -s)" = "Darwin" ]; then \
+		echo "relup is not supported on macOS"; \
+	elif [ "$(EMQX_RELUP)" = "true" ]; then \
+		$(SCRIPTS)/relup-build/download-base-packages.sh $1; \
+	else \
+		echo "Skipping relup base packages download for $1"; \
+	fi
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))

@@ -12,10 +12,17 @@ if [ "${DEBUG:-0}" -eq 1 ]; then
     export DIAGNOSTIC=1
 fi
 
+log() {
+    local msg="$1"
+    # rebar3 prints ===>, so we print ===<
+    echo "===< $msg"
+}
+
 log_red() {
-  local RED='\033[0;31m' # Red
-  local NC='\033[0m' # No Color
-  echo -e "${RED}${1}${NC}"
+    local msg="$1"
+    local RED='\033[0;31m' # Red
+    local NC='\033[0m' # No Color
+    echo -e "${RED}===< ${msg}${NC}"
 }
 
 PROFILE_ARG="$1"
@@ -59,7 +66,7 @@ SYSTEM="$(./scripts/get-distro.sh)"
 
 if [[ $SYSTEM == "el7" ]];
 then
-    echo "WARNING: NO SECURITY UPDATES for CentOS 7 QUIC transport"
+    log_red "WARNING: NO SECURITY UPDATES for CentOS 7 QUIC transport"
     export QUICER_TLS_VER=openssl
 fi
 
@@ -100,12 +107,6 @@ else
     FIND='find'
     TAR='tar'
 fi
-
-log() {
-    local msg="$1"
-    # rebar3 prints ===>, so we print ===<
-    echo "===< $msg"
-}
 
 prepare_erl_libs() {
     local libs_dir="$1"
@@ -216,6 +217,12 @@ make_elixir_rel() {
 }
 
 make_relup() {
+    case "$SYSTEM" in
+        macos*)
+          log_red "WARNING: relup is not supported on macOS"
+          exit 0
+          ;;
+    esac
     RELUP_TARGET_VSN="$(./pkg-vsn.sh "$PROFILE" --long)"
     export RELUP_TARGET_VSN
     ./rebar3 emqx relup_gen --relup-dir=./rel/relup
@@ -482,7 +489,7 @@ export_elixir_release_vars() {
       export ELIXIR_MAKE_TAR=${ELIXIR_MAKE_TAR:-yes}
       ;;
     *)
-      echo Invalid profile "$profile"
+      log_red "Invalid profile $profile"
       exit 1
   esac
   export MIX_ENV="$profile"
@@ -537,7 +544,7 @@ case "$ARTIFACT" in
         make_elixir_rel
         ;;
     *)
-        log "Unknown artifact $ARTIFACT"
+        log_red "Unknown artifact $ARTIFACT"
         exit 1
         ;;
 esac
