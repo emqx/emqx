@@ -1,11 +1,9 @@
 #!/usr/bin/env bats
 
 # https://github.com/bats-core/bats-core
-# env PROFILE=emqx bats -t -p --verbose-run scripts/test/emqx-boot.bats
+# env PROFILE=emqx-enterprise bats -t -p --verbose-run scripts/test/emqx-boot.bats
 
-@test "PROFILE must be set" {
-    [[ -n "$PROFILE" ]]
-}
+PROFILE=${PROFILE:-emqx-enterprise}
 
 @test "emqx boot with invalid node name" {
     output="$(env EMQX_NODE_NAME="invliadename#" ./_build/$PROFILE/rel/emqx/bin/emqx console 2>&1|| true)"

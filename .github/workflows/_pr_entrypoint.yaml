@@ -228,6 +228,15 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
 
+  run_boot_tests:
+    needs:
+      - init
+      - sanity-checks
+      - compile
+    uses: ./.github/workflows/run_boot_tests.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+
   check_deps_integrity:
     needs:
       - init
