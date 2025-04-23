@@ -187,6 +187,7 @@ jobs:
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
       ct-host: ${{ needs.sanity-checks.outputs.ct-host }}
       ct-docker: ${{ needs.sanity-checks.outputs.ct-docker }}
+    secrets: inherit
 
   static_checks:
     needs:
