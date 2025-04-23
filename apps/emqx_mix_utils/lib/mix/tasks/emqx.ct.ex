@@ -6,8 +6,6 @@ defmodule Mix.Tasks.Emqx.Ct do
 
   @impl true
   def run(args) do
-    Mix.debug(true)
-
     opts = parse_args!(args)
 
     Enum.each([:common_test, :eunit, :mnesia], &add_to_path_and_cache/1)
@@ -43,6 +41,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     # {_, _, _} = ["test_server:do_init_tc_call -> return"] |> Enum.map(&to_charlist/1) |> :redbug.start()
 
     maybe_start_cover()
+    if cover_enabled?(), do: cover_compile_files()
 
     results = :ct.run_test(
       abort_if_missing_suites: true,
@@ -50,7 +49,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
       group: opts |> Map.fetch!(:group_paths) |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
       testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
-      readable: 'true',
+      readable: ~c"true",
       name: node_name,
       ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
       logdir: to_charlist(logdir)
@@ -63,7 +62,8 @@ defmodule Mix.Tasks.Emqx.Ct do
         Mix.raise("failures running tests: #{failed} failed, #{auto_skipped} auto skipped")
 
       {success, _failed = 0, {user_skipped, _auto_skipped = 0}} ->
-        Mix.shell().info("Test suites ran successfully.  #{success} succeeded, #{user_skipped} skipped by the user")
+        info("Test suites ran successfully.  #{success} succeeded, #{user_skipped} skipped by the user")
+        if cover_enabled?(), do: write_coverdata(opts)
     end
   end
 
@@ -125,6 +125,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     ])
   end
 
+  # Links `test/*_data` directories inside the build dir, so that CT picks them up.
   defp hack_test_data_dirs!(suites) do
     project_root = Path.dirname(Mix.Project.project_file())
 
@@ -134,7 +135,6 @@ defmodule Mix.Tasks.Emqx.Ct do
         project_root
         |> Path.join(Path.rootname(suite_path) <> "_data")
       data_dir_exists? = File.dir?(src_data_dir)
-      IO.inspect(binding())
       if data_dir_exists? do
         suite_mod =
           suite_path
@@ -154,7 +154,6 @@ defmodule Mix.Tasks.Emqx.Ct do
           {:error, :eexist} ->
             :ok
         end
-        IO.inspect(binding())
       end
     end)
     |> Stream.run()
@@ -198,6 +197,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     {opts, _rest} = OptionParser.parse!(
       args,
       strict: [
+        cover_export_name: :string,
         suites: :string,
         group_paths: :string,
         cases: :string])
@@ -213,6 +213,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
 
     %{
+      cover_export_name: Keyword.get(opts, :cover_export_name, "ct"),
       suites: suites,
       group_paths: group_paths,
       cases: cases
@@ -233,31 +234,133 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
   end
 
-  defp maybe_start_cover() do
+  def maybe_start_cover() do
     if cover_enabled?() do
       {:ok, _} = start_cover()
     end
   end
 
-  defp start_cover() do
+  def start_cover() do
     case :cover.start() do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
     end
   end
 
-  defp symlink_to_last_run(log_dir) do
+  defp symlink_to_last_run(logdir) do
     last_dir =
-      log_dir
+      logdir
       |> File.ls!()
       |> Stream.filter(& &1 =~ ~r/^ct_run/)
       |> Enum.sort()
       |> List.last()
 
     if last_dir do
-      dest = Path.join(log_dir, "last")
+      dest = Path.join(logdir, "last")
       File.rm(dest)
       File.ln_s!(last_dir, dest)
     end
+  end
+
+  def cover_compile_files() do
+    info("Cover compiling project modules...")
+    real_modules = real_modules()
+
+    Mix.Dep.Umbrella.loaded()
+    |> Stream.flat_map(fn umbrella_app ->
+      beams_dir = Path.join(umbrella_app.opts[:build], "ebin")
+
+      beams_dir
+      |> Path.join("*.beam")
+      |> Path.wildcard()
+    end)
+    |> Stream.filter(fn beam_path ->
+      mod_bin = Path.basename(beam_path, ".beam")
+      mod_bin in real_modules
+    end)
+    |> Stream.map(fn beam_path ->
+      mod_bin = Path.basename(beam_path, ".beam")
+      mod = String.to_atom(mod_bin)
+      {mod, beam_path}
+    end)
+    |> Enum.map(&do_cover_compile_file_async/1)
+    |> Task.await_many(:infinity)
+    info("Cover compiled project modules.")
+  end
+
+  defp do_cover_compile_file_async({mod, beam_path}) do
+    Task.async(fn ->
+      try do
+        case :cover.is_compiled(mod) do
+          {:file, _} ->
+            debug("Module already cover-compiled: #{mod}")
+            :ok
+
+          false ->
+            debug("cover-compiling: #{beam_path}")
+            beam_path
+            |> to_charlist()
+            |> :cover.compile_beam()
+            |> case do
+                 {:ok, _} ->
+                   :ok
+
+                 {:error, reason} ->
+                   warn("Cover compilation failed: #{inspect(reason, pretty: true)}")
+               end
+        end
+      catch
+        kind, reason ->
+          warn("Cover compilation failed: #{inspect({kind, reason}, pretty: true)}")
+      end
+    end)
+  end
+
+  # Set of "real" module names in the project as strings, i.e., excluding test modules
+  defp real_modules() do
+    Mix.Dep.Umbrella.loaded()
+    |> Stream.flat_map(fn dep ->
+      dep.opts[:path]
+      |> Path.join("{src,gen_src}/**/*.erl")
+      |> Path.wildcard()
+    end)
+    |> MapSet.new(& Path.basename(&1, ".erl"))
+  end
+
+  def write_coverdata(opts) do
+    with [_ | _] = modules <- :cover.modules() do
+      cover_dir = Path.join([Mix.Project.build_path(), "cover"])
+      File.mkdir_p!(cover_dir)
+      cover_export_name = opts.cover_export_name
+
+      export_file = Path.join(cover_dir, "#{cover_export_name}.coverdata")
+      case :cover.export(export_file) do
+        :ok ->
+          info("Cover data written to #{export_file}")
+          :ok = :cover.reset()
+          :ok
+
+        {:error, reason} ->
+          warn("Cover data export failed:\n  #{inspect(reason, pretty: true)}")
+      end
+    else
+      [] ->
+        warn("No cover-compiled modules found")
+        :ok
+    end
+  end
+
+  def debug(iodata) do
+    if Mix.debug?() do
+      Mix.shell().info(IO.ANSI.format([:cyan, iodata]))
+    end
+  end
+
+  def info(iodata) do
+    Mix.shell().info(IO.ANSI.format(iodata))
+  end
+
+  def warn(iodata) do
+    Mix.shell().info(IO.ANSI.format([:yellow,iodata]))
   end
 end
