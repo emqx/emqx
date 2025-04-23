@@ -1,4 +1,4 @@
-emqx_dashboard_api {
+emqx_dashboard_sso_api {
 
 list_running.desc:
 """List all running SSO backends"""
