@@ -521,7 +521,9 @@ create_external_http_resource(Name, Params) ->
         pool_type => PoolType,
         pool_size => PoolSize
     },
+    AsyncStart = maps:get(async_start, Params, false),
     ResourceOpts = #{
+        async_start => AsyncStart,
         start_after_created => true,
         spawn_buffer_workers => false,
         query_mode => simple_sync

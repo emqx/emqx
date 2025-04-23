@@ -169,7 +169,8 @@ init(_) ->
     {ok, State, {continue, {build_serdes, Schemas}}}.
 
 handle_continue({build_serdes, Schemas}, State) ->
-    do_build_serdes(Schemas),
+    Opts = #{initial_load => true},
+    do_build_serdes(Schemas, Opts),
     {noreply, State}.
 
 handle_call(_Call, _From, State) ->
@@ -208,12 +209,15 @@ create_tables() ->
     ok.
 
 do_build_serdes(Schemas) ->
+    do_build_serdes(Schemas, _Opts = #{}).
+
+do_build_serdes(Schemas, Opts) ->
     %% We build a special serde for the Sparkplug B payload. This serde is used
     %% by the rule engine functions sparkplug_decode/1 and sparkplug_encode/1.
     ok = maybe_build_sparkplug_b_serde(),
     %% TODO: use some kind of mutex to make each core build a
     %% different serde to avoid duplicate work.  Maybe ekka_locker?
-    maps:foreach(fun do_build_serde/2, Schemas),
+    maps:foreach(fun(Name, Serde) -> do_build_serde(Name, Serde, Opts) end, Schemas),
     ?tp(schema_registry_serdes_built, #{}).
 
 maybe_build_sparkplug_b_serde() ->
@@ -262,11 +266,19 @@ build_serdes([{Name, Params} | Rest], Acc0) ->
 build_serdes([], _Acc) ->
     ok.
 
-do_build_serde(Name, Serde) when not is_binary(Name) ->
-    do_build_serde(to_bin(Name), Serde);
-do_build_serde(Name, #{type := external_http = Type, parameters := Params}) ->
+do_build_serde(Name, Serde) ->
+    do_build_serde(Name, Serde, _Opts = #{}).
+
+do_build_serde(Name, Serde, Opts) when not is_binary(Name) ->
+    do_build_serde(to_bin(Name), Serde, Opts);
+do_build_serde(Name, #{type := external_http = Type, parameters := Params0}, Opts) ->
+    Params =
+        case maps:get(initial_load, Opts, false) of
+            true -> Params0#{async_start => true};
+            false -> Params0
+        end,
     do_build_serde1(Name, Type, Params);
-do_build_serde(Name, #{type := Type, source := Source}) ->
+do_build_serde(Name, #{type := Type, source := Source}, _Opts) ->
     do_build_serde1(Name, Type, Source).
 
 do_build_serde1(Name, Type, Params) ->

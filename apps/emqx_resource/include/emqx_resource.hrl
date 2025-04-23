@@ -107,6 +107,9 @@
     %% Only for `emqx_resource_manager' usage.  If false, prevents spawning buffer
     %% workers, regardless of resource query mode.
     spawn_buffer_workers => boolean(),
+    %% Used by resource manager to decide whether to wait for resource to be
+    %% `?status_connected` before returning or timing out.  Defaults to `false`.
+    async_start => boolean(),
     %% used only for authn authz resources to indicate the owner authenticator or authorizer
     owner_id => binary() | atom()
 }.
