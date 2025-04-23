@@ -494,29 +494,8 @@ do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
     emqx_types:clientinfo(),
     emqx_maybe:t(emqx_types:message())
 ) -> supervisor:startchild_ret().
-do_evict_session_channel_v4(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
-    ?SLOG(info, #{
-        msg => "evict_session_channel",
-        client_id => ClientId,
-        conn_info => ConnInfo,
-        client_info => ClientInfo
-    }),
-    Result = emqx_eviction_agent_channel:start_supervised(
-        #{
-            conninfo => ConnInfo,
-            clientinfo => ClientInfo,
-            will_message => MaybeWillMsg
-        }
-    ),
-    ?SLOG(
-        info,
-        #{
-            msg => "evict_session_channel_result",
-            client_id => ClientId,
-            result => Result
-        }
-    ),
-    Result.
+do_evict_session_channel_v4(ClientId, #{trpt_started_at := _} = ConnInfo, ClientInfo, MaybeWillMsg) ->
+    do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg).
 
 disconnect_channel(ChanPid, ServerReference) ->
     ChanPid !
