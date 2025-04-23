@@ -4635,7 +4635,7 @@ t_fallback_actions_expired_internal_buffer(Config) when is_list(Config) ->
 %% When a resource/channel is an "unhealthy target", messages do not even reach the
 %% buffering layer, where most of the fallback actions logic live.  So we have to deal
 %% with fallback actions outside it.
-t_fallback_actions_unhealthy_target(Config) ->
+t_fallback_actions_unhealthy_target(_Config) ->
     ConnName = <<"fallback_actions_unhealthy_target">>,
     ChanQueryMode = sync,
     CallbackMode = always_sync,
