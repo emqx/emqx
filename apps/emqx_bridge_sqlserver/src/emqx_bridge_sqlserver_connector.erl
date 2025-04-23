@@ -704,6 +704,8 @@ proc_msg(Tokens, Msg, #{undefined_vars_as_null := true}) ->
 proc_msg(Tokens, Msg, _) ->
     emqx_placeholder:proc_sqlserver_param_str(Tokens, Msg).
 
+to_bin(B) when is_binary(B) ->
+    B;
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).
 
@@ -711,7 +713,9 @@ validate_connected_instance_name(#{server := ParsedServer} = ConnState) ->
     ExpectedInstanceName = maps:get(instance_name, ParsedServer, undefined),
     maybe
         {ok, InstanceName} ?= infer_instance_name(ConnState),
-        case InstanceName == ExpectedInstanceName of
+        InstanceName1 = emqx_maybe:apply(fun to_bin/1, InstanceName),
+        ExpectedInstanceName1 = emqx_maybe:apply(fun to_bin/1, ExpectedInstanceName),
+        case InstanceName1 == ExpectedInstanceName1 of
             true ->
                 ok;
             false ->
