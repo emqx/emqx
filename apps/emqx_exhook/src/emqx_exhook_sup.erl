@@ -56,7 +56,7 @@ init([]) ->
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 
--spec stop_grpc_client_channel(binary()) -> ok.
+-spec stop_grpc_client_channel(binary()) -> ok | {error, term()}.
 stop_grpc_client_channel(Name) ->
     %% Avoid crash due to hot-upgrade had unloaded
     %% grpc application

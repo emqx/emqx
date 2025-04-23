@@ -71,7 +71,10 @@
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
--elvis([{elvis_style, dont_repeat_yourself, disable}, {elvis_style, no_catch_expressions, disable}]).
+-elvis([
+    {elvis_style, dont_repeat_yourself, disable},
+    {elvis_style, no_catch_expressions, disable}
+]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
@@ -107,7 +110,7 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
                                 prefix => Prefix
                             }};
                         {error, Reason} ->
-                            emqx_exhook_sup:stop_grpc_client_channel(Name),
+                            _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
                             {load_error, Reason}
                     end;
                 {error, _} = E ->
