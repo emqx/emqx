@@ -153,6 +153,33 @@ t_cert_fields_as_alias(_) ->
         end
     ).
 
+t_listener_starts_with_ssl(_) ->
+    Checks = [
+        #{
+            is_match => [
+                <<"regex_match(listener, 'ssl:')">>
+            ],
+            result => allow
+        },
+        #{
+            is_match => <<"true">>,
+            result => deny
+        }
+    ],
+    with_checks(
+        Checks,
+        fun(State) ->
+            ?assertEqual(
+                {error, bad_username_or_password},
+                emqx_authn_cinfo:authenticate(#{listener => <<"tcp:default">>}, State)
+            ),
+            ?assertMatch(
+                {ok, #{}},
+                emqx_authn_cinfo:authenticate(#{listener => <<"ssl:default">>}, State)
+            )
+        end
+    ).
+
 t_peerhost_matches_username(_) ->
     Checks = [
         #{
