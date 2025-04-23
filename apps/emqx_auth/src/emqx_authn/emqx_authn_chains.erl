@@ -602,7 +602,7 @@ handle_update_authenticator2(Chain, Authenticator, Config) ->
                     {error, Reason}
             end;
         {error, Reason} ->
-            {error, Reason}
+            {error, #{cause => "bad_precondition_expression", reason => Reason}}
     end.
 
 handle_delete_authenticator(Chain, AuthenticatorID) ->

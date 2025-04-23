@@ -421,6 +421,10 @@ t_update_precondition(_Config) ->
     ),
 
     CorrectConfig = raw_http_auth_config(),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, CorrectConfig}
+    ),
     InvalidPreconditionConfig =
         CorrectConfig#{<<"precondition">> => <<"not a valid precondition">>},
 
@@ -428,7 +432,7 @@ t_update_precondition(_Config) ->
         {error, {post_config_update, emqx_authn_config, #{cause := "bad_precondition_expression"}}},
         emqx:update_config(
             ?PATH,
-            {create_authenticator, ?GLOBAL, InvalidPreconditionConfig}
+            {update_authenticator, ?GLOBAL, <<"password_based:http">>, InvalidPreconditionConfig}
         )
     ),
 
@@ -469,7 +473,7 @@ t_update_precondition(_Config) ->
 
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, ValidPreconditionConfig}
+        {update_authenticator, ?GLOBAL, <<"password_based:http">>, ValidPreconditionConfig}
     ),
     ?assertMatch(ok, Connect(<<"c1-123">>)),
     ?assertMatch({error, {unauthorized_client, _}}, Connect(<<"c2-123">>)),
