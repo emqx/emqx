@@ -409,7 +409,9 @@ handle_disconnect(RC, St = #st{actor = Actor}) ->
     ok = stop_link_client(St),
     keep_state_and_data.
 
-enter_disconnected(Reason, St = #st{actor = Actor, reconnect_at = ReconnectAt}) ->
+enter_disconnected(Reason, St0 = #st{actor = Actor, reconnect_at = ReconnectAt}) ->
+    %% Reconnect no more than once every `?RECONNECT_TIMEOUT`.
+    ReconnectIn = max(0, ReconnectAt - erlang:system_time(millisecond)),
     case Reason of
         %% Emit only debug message if stopped manually.
         normal -> Level = debug;
@@ -418,20 +420,17 @@ enter_disconnected(Reason, St = #st{actor = Actor, reconnect_at = ReconnectAt}) 
     end,
     ?tp(Level, "cluster_link_connection_down", #{
         reason => Reason,
-        target_cluster => target_cluster(St),
+        target_cluster => target_cluster(St0),
         actor => Actor,
-        reconnect_at => ReconnectAt
+        reconnect_in_ms => ReconnectIn
     }),
-    {next_state, disconnected, St#st{client = undefined}, {next_event, internal, retry}}.
+    St = St0#st{client = undefined},
+    {next_state, disconnected, St, {next_event, internal, {retry, ReconnectIn}}}.
 
-disconnected(internal, retry, St = #st{client = undefined, reconnect_at = ReconnectAt}) ->
-    %% Reconnect no more than once every `?RECONNECT_TIMEOUT`.
-    case ReconnectAt - erlang:system_time(millisecond) of
-        Behind when Behind =< 0 ->
-            enter_connecting(St);
-        Ahead ->
-            {keep_state, St, {state_timeout, Ahead, connect}}
-    end;
+disconnected(internal, {retry, ReconnectIn}, St = #st{client = undefined}) when ReconnectIn > 0 ->
+    {keep_state, St, {state_timeout, ReconnectIn, connect}};
+disconnected(internal, {retry, _Now}, St = #st{client = undefined}) ->
+    enter_connecting(St);
 disconnected(state_timeout, connect, St) ->
     enter_connecting(St);
 disconnected(info, {disconnected, _RC, _}, _St) ->
