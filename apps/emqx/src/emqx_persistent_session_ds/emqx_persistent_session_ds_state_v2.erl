@@ -52,6 +52,7 @@
 
 -export_type([]).
 
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("emqx/src/emqx_tracepoints.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -323,6 +324,9 @@ delete_guard(ClientId) ->
     emqx_persistent_session_ds_state:pmap(K, V)
 ) ->
     emqx_persistent_session_ds_state:pmap(K, V).
+%% pmap_commit(_, Pmap = #pmap{name = N}) when N =:= ?streams ->
+%%     %% FIXME: shunted for performance test
+%%     Pmap#pmap{dirty = #{}};
 pmap_commit(
     ClientId, Pmap = #pmap{name = Name, dirty = Dirty, cache = Cache}
 ) ->
@@ -410,6 +414,9 @@ ser_pmap_key(?streams, Key, _Val) ->
     ser_stream_key(Key);
 ser_pmap_key(?subscriptions, Topic, _Val) ->
     'DurableSession':encode('TopicFilter', wrap_topic(Topic));
+ser_pmap_key(?seqnos, Track, _Val) ->
+    ?assert(Track < 255),
+    <<Track:8>>;
 ser_pmap_key(_, Key, _Val) ->
     term_to_binary(Key).
 
@@ -419,6 +426,9 @@ deser_pmap_key(?streams, Bin) ->
     deser_stream_key(Bin);
 deser_pmap_key(?subscriptions, Key) ->
     unwrap_topic('DurableSession':decode('TopicFilter', Key));
+deser_pmap_key(?seqnos, Bin) ->
+    <<Track:8>> = Bin,
+    Track;
 deser_pmap_key(_, Key) ->
     binary_to_term(Key).
 
@@ -481,7 +491,7 @@ ser_srs(#srs{
     rank_x = Shard,
     rank_y = Generation,
     it_begin = ItBegin,
-    it_end = ItEnd,
+    it_end = _ItEnd,
     batch_size = BS,
     first_seqno_qos1 = FSN1,
     first_seqno_qos2 = FSN2,
@@ -491,12 +501,12 @@ ser_srs(#srs{
     sub_state_id = SSid
 }) ->
     {ok, ItBeginB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItBegin),
-    {ok, ItEndB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItEnd),
+    %% {ok, ItEndB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItEnd),
     Rec = #'SRS'{
         shard = Shard,
         generation = Generation,
         itBegin = ItBeginB,
-        itEnd = ItEndB,
+        itEnd = asn1_NOVALUE,
         batchSize = BS,
         firstSeqNoQoS1 = FSN1,
         firstSeqNoQoS2 = FSN2,
@@ -522,7 +532,12 @@ deser_srs(Bin) ->
         subscriptionState = SSid
     } = 'DurableSession':decode('SRS', Bin),
     {ok, ItBegin} = emqx_ds:binary_to_iterator(?PERSISTENT_MESSAGE_DB, ItBeginB),
-    {ok, ItEnd} = emqx_ds:binary_to_iterator(?PERSISTENT_MESSAGE_DB, ItEndB),
+    case ItEndB of
+        asn1_NOVALUE ->
+            ItEnd = undefined;
+        _ ->
+            {ok, ItEnd} = emqx_ds:binary_to_iterator(?PERSISTENT_MESSAGE_DB, ItEndB)
+    end,
     #srs{
         rank_x = Shard,
         rank_y = Generation,

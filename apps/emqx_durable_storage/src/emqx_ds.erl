@@ -302,7 +302,8 @@
         %% The whole batch must be crafted so that it belongs to a single shard (if
         %% applicable to the backend).
         atomic_batches => boolean(),
-        %% Whether the DB stores values of type `#message{}' or `#ds_blob{}'
+        %% Whether the DB stores values of type `#message{}' or raw
+        %% binaries.
         store_kv => boolean(),
         %% Backend-specific options:
         _ => _
@@ -798,7 +799,7 @@ commit_kv_tx(DB, TxContext, TxOps) ->
 %%
 %% - `owner': Client ID. This option is used for sharding. When
 %% `owner' is specified, shard is derived based on the current mapping
-%% of client IDs to shards.
+%% of client IDs to shard ID.
 %%
 %% - `shard': Specify the shard directly. Can't be used together with
 %% `owner'.
@@ -828,7 +829,7 @@ commit_kv_tx(DB, TxContext, TxOps) ->
 %% - When `timeout' option is set `async', this function returns
 %% `{async, Ref, Ret}' tuple where `Ref' is a reference. Result of the
 %% commit is sent to the caller asynchronously as a message of type
-%% `#ds_tx_commit_reply{}' with `ref' field set to `Ref'.
+%% `#ds_tx_commit_reply{}' with `ref' field equal to `Ref'.
 %%
 %% - Otherwise, `{atomic, Serial, Ret}' tuple is returned on
 %% successful commit. `Serial' is a shard-unique monotonically

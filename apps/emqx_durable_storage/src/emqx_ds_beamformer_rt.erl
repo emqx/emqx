@@ -101,6 +101,8 @@ seal_generation(DBShard, Rank) ->
 
 init([CBM, DBShard, Name, _Opts]) ->
     process_flag(trap_exit, true),
+    %% FIXME: remove
+    system_monitor:add_vip(self()),
     logger:update_process_metadata(#{dbshard => DBShard, name => Name}),
     Pool = pool(DBShard),
     gproc_pool:add_worker(Pool, Name),
@@ -208,8 +210,8 @@ do_enqueue(
     Reply =
         case high_watermark(Stream, S) of
             {ok, HighWatermark} ->
-                %% FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark),
-                FFRes = fake_forward(CBM, Shard, It0, HighWatermark),
+                FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark),
+                %% FFRes = fake_forward(CBM, Shard, It0, HighWatermark),
                 case FFRes of
                     {ok, It} ->
                         ?tp(beamformer_push_rt, #{
@@ -248,8 +250,8 @@ do_enqueue(
     S.
 
 %% FIXME: it's fake, right.
-fake_forward(_, _, It, _) ->
-    {ok, It}.
+%% fake_forward(_, _, It, _) ->
+%%     {ok, It}.
 
 process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
     T0 = erlang:monotonic_time(microsecond),

@@ -757,6 +757,7 @@ callback_mode() ->
 
 init([DBShard = {DB, Shard}, CBM]) ->
     process_flag(trap_exit, true),
+    system_monitor:add_vip(self()),
     logger:update_process_metadata(#{dbshard => DBShard}),
     emqx_ds_builtin_metrics:init_for_beamformer(DB, Shard),
     %% For catchup pool we don't expect high degree of batch sharing.
@@ -1292,6 +1293,10 @@ remove_subscription(
     case ets:take(owner_tab(DBShard), SubId) of
         [#owner_tab{owner = Owner, mref = MRef}] ->
             %% Remove client monitoring:
+
+            %% TODO (perf): This BIF tends to become extremely costly
+            %% when multiple (~10k) subscriptions are detached at the
+            %% same time. Avoid scanning the MQ every time.
             demonitor(MRef, [flush]),
             ets:delete(MTab, MRef),
             %% Remove stuck subscription (if stuck):
