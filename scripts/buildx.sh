@@ -8,7 +8,7 @@
 ## i.e. will not work if docker command has to be executed with sudo
 
 ## example:
-## ./scripts/buildx.sh --profile emqx --pkgtype tgz
+## ./scripts/buildx.sh --pkgtype tgz
 
 set -euo pipefail
 
@@ -18,27 +18,30 @@ help() {
     echo "    To display this usage information"
     echo ""
     echo "--profile <PROFILE>:"
-    echo "    EMQX profile to build (emqx|emqx-enterprise)"
+    echo "    EMQX profile to build, default is emqx-enterprise"
     echo ""
     echo "--pkgtype tgz|pkg|rel|relup:"
     echo "    Specify which package to build, tgz for .tar.gz,"
-    echo "    pkg for .rpm or .deb, rel for release only"
+    echo "    pkg for .rpm or .deb, rel for release only."
+    echo "    Defaults to tgz."
     echo ""
     echo "--elixir:"
     echo "    Specify if the release should be built with Elixir, "
     echo "    defaults to 'no'."
     echo ""
     echo "--arch amd64|arm64:"
-    echo "    Target arch to build the EMQX package for"
+    echo "    Target arch to build the EMQX package for."
+    echo "    Default is host machine's arch."
     echo ""
     echo "--src_dir <SRC_DIR>:"
-    echo "    EMQX source code in this dir, default to PWD"
+    echo "    EMQX source code in this dir, defaults to PWD"
     echo ""
     echo "--builder <BUILDER>:"
     echo "    Docker image to use for building"
     echo "    E.g. ghcr.io/emqx/emqx-builder/5.5-0:1.17.3-27.2-2-debian12"
     echo "    For hot upgrading tar.gz, specify a builder image with the same OS distribution as the running one."
     echo "    Specifically, for EMQX's docker containers hot upgrading, please use the debian12-based builder. "
+    echo "    Defaults to builder configured in env.sh."
 }
 
 die() {
@@ -52,6 +55,8 @@ die() {
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 # shellcheck disable=SC1091
 source ./env.sh
+PROFILE=emqx-enterprise
+PKGTYPE=tgz
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -117,9 +122,6 @@ if [[ $(uname -m) == "x86_64" ]]; then
 elif [[ $(uname -m) == "aarch64" ]]; then
     NATIVE_ARCH='arm64'
 elif [[ $(uname -m) == "arm64" ]]; then
-    NATIVE_ARCH='arm64'
-elif [[ $(uname -m) == "armv7l" ]]; then
-    # CHECKME: really ?
     NATIVE_ARCH='arm64'
 fi
 ARCH="${ARCH:-${NATIVE_ARCH:-}}"

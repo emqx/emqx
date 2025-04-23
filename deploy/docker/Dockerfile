@@ -37,7 +37,8 @@ RUN mkdir -p /emqx-rel/emqx && \
       git config --global --add safe.directory '*' && \
       make ${PROFILE}-tgz && \
       tar zxf _packages/${PROFILE}/*.tar.gz -C /emqx-rel/emqx; \
-    fi
+    fi && \
+    rm -rf /emqx-rel/emqx/dynlibs
 
 FROM $RUN_FROM
 ARG EXTRA_DEPS=''
