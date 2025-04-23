@@ -274,6 +274,7 @@ quickrun:
 	./dev -p $(PROFILE)
 
 ## Take the currently set PROFILE
+.PHONY: docker
 docker:
 	@$(BUILD) $(PROFILE) docker
 
