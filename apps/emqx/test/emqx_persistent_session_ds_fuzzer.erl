@@ -563,7 +563,7 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
          %% to serialization problems. `|| not Conn]` effectively
          %% disables takeover. This condition should be removed when
          %% takeover is fixed.
-         [{1,  connect_(S)}                     ] ++
+         [{1,  connect_(S)}                     || not Conn] ++
          [%{2,  {call, ?MODULE, add_generation, []}},
           %% Publish some messages occasionally even when there are no
           %% subs:

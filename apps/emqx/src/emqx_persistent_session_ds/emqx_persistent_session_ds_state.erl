@@ -24,7 +24,14 @@
 -export([open_db/1]).
 
 -export([
-    open/1, create_new/1, delete/1, commit/1, commit/2, format/1, print_session/1, list_sessions/0
+    open/1,
+    create_new/1,
+    delete/1,
+    async_checkpoint/1,
+    commit/2,
+    format/1,
+    print_session/1,
+    list_sessions/0
 ]).
 -export([is_dirty/1]).
 -export([get_created_at/1, set_created_at/2]).
@@ -223,14 +230,14 @@ delete(Id) when is_binary(Id) ->
 delete(Rec) when is_map(Rec) ->
     emqx_persistent_session_ds_state_v2:delete(generation(), Rec).
 
--spec commit(t()) -> t().
-commit(Rec) ->
+-spec async_checkpoint(t()) -> {async, reference(), t()}.
+async_checkpoint(Rec) ->
     commit(Rec, #{lifetime => up, sync => async}).
 
--spec commit(t(), commit_opts()) -> t().
+-spec commit(t(), commit_opts()) ->
+    t().
 commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     check_sequence(Rec),
-    ?tp(psds_commit, Rec),
     emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().

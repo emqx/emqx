@@ -179,7 +179,7 @@ session_open(Node, ClientId) ->
 force_last_alive_at(ClientId, Time) ->
     {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
     S = emqx_persistent_session_ds_state:set_last_alive_at(Time, S0),
-    _ = emqx_persistent_session_ds_state:commit(S),
+    _ = emqx_persistent_session_ds_state:async_checkpoint(S),
     ok.
 
 stop_and_commit(Client) ->

@@ -102,7 +102,6 @@ seal_generation(DBShard, Rank) ->
 init([CBM, DBShard, Name, _Opts]) ->
     process_flag(trap_exit, true),
     %% FIXME: remove
-    system_monitor:add_vip(self()),
     logger:update_process_metadata(#{dbshard => DBShard, name => Name}),
     Pool = pool(DBShard),
     gproc_pool:add_worker(Pool, Name),
