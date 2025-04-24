@@ -611,8 +611,8 @@ t_sub_shard_down_notify(Config) ->
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
-            ?assertMatch(ok, emqx_ds:close_db(DB)),
-            ?assertMatch([MRef], collect_down_msgs())
+            ?assertEqual(ok, emqx_ds:close_db(DB)),
+            ?assertEqual([MRef], collect_down_msgs())
         end,
         []
     ).

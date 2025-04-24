@@ -23,10 +23,10 @@
 %%================================================================================
 
 %% @doc The caller will receive message of type `{reference(), Result | {error, unrecoverable, map()}'
--spec with_worker(module(), atom(), list()) -> {ok, reference()}.
+-spec with_worker(module(), atom(), list()) -> {ok, pid(), reference()}.
 with_worker(Mod, Function, Args) ->
     ReplyTo = alias([reply]),
-    _ = spawn_opt(
+    Pid = spawn_opt(
         fun() ->
             Result =
                 try
@@ -43,7 +43,7 @@ with_worker(Mod, Function, Args) ->
         end,
         [link, {min_heap_size, 10000}]
     ),
-    {ok, ReplyTo}.
+    {ok, Pid, ReplyTo}.
 
 -spec terminate(module(), _Reason, map()) -> ok.
 terminate(Module, Reason, Misc) when Reason =:= shutdown; Reason =:= normal ->
