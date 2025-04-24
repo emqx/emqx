@@ -43,6 +43,7 @@
     ?VAR_CERT_PEM,
     ?VAR_ACCESS,
     ?VAR_NS_CLIENT_ATTRS,
+    ?VAR_ZONE,
     ?VAR_LISTENER
 ]).
 

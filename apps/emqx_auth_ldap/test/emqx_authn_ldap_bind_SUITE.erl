@@ -209,6 +209,57 @@ t_update(_Config) ->
         }
     ).
 
+t_update_with_zone_and_listener(_Config) ->
+    Tester = self(),
+    ZoneListener = "default-tcp:default",
+    meck:new(eldap, [passthrough, no_link, no_history]),
+    meck:expect(eldap, search, fun(_Pid, SearchOptions) ->
+        {_, Base} = lists:keyfind(base, 1, SearchOptions),
+        case iolist_to_binary(Base) of
+            <<"cn=checkalive">> ->
+                {ok, []};
+            Base1 ->
+                {_, Filter} = lists:keyfind(filter, 1, SearchOptions),
+                %% Filter is a deep tuple, we do not want to
+                %% assert its layout, just to check if ZoneListener is in it
+                Filter1 = iolist_to_binary(io_lib:format("~0p", [Filter])),
+                Tester ! {check, Base1, Filter1},
+                {error, 'noSuchObject'}
+        end
+    end),
+    try
+        CorrectConfig = raw_ldap_auth_config(),
+        IncorrectConfig =
+            CorrectConfig#{
+                <<"base_dn">> => <<"ou=${zone}-${listener},dc=emqx,dc=io">>,
+                <<"filter">> => <<"(objectClass=${zone}-${listener})">>
+            },
+
+        {ok, _} = emqx:update_config(
+            ?PATH,
+            {create_authenticator, ?GLOBAL, IncorrectConfig}
+        ),
+
+        {error, not_authorized} = emqx_access_control:authenticate(
+            #{
+                username => <<"mqttuser0001">>,
+                password => <<"mqttuser0001">>,
+                listener => 'tcp:default',
+                zone => default,
+                protocol => mqtt
+            }
+        ),
+        receive
+            {check, Base, Filter} ->
+                ?assertMatch({match, _}, re:run(Base, ZoneListener)),
+                ?assertMatch({match, _}, re:run(Filter, ZoneListener))
+        after 5000 ->
+            ct:fail("the eldap:search function is not called")
+        end
+    after
+        meck:unload(eldap)
+    end.
+
 t_node_cache(_Config) ->
     Config = maps:merge(raw_ldap_auth_config(), #{
         <<"base_dn">> => <<"ou=${cert_common_name},dc=emqx,dc=io">>
@@ -283,17 +334,18 @@ user_seeds() ->
 
     Normal = lists:map(
         fun(Idx) ->
-            erlang:iolist_to_binary(io_lib:format("mqttuser000~b", [Idx]))
+            {erlang:iolist_to_binary(io_lib:format("mqttuser000~b", [Idx])), false}
         end,
         lists:seq(1, 5)
     ),
 
-    Specials = [<<"mqttuser0008 (test)">>, <<"mqttuser0009 \\\\test\\\\">>],
+    %% TODO: should be 'true' for IsSuperuser
+    Specials = [{<<"mqttuser0008 (test)">>, false}, {<<"mqttuser0009 \\\\test\\\\">>, false}],
 
     Valid =
         lists:map(
-            fun(Username) ->
-                New(Username, Username, {ok, #{is_superuser => false}})
+            fun({Username, IsSuperuser}) ->
+                New(Username, Username, {ok, #{is_superuser => IsSuperuser}})
             end,
             Normal ++ Specials
         ),

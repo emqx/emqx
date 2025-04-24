@@ -359,6 +359,8 @@ prepare_template(filter, V, State) ->
 prepare_template(_Entry, _, State) ->
     State.
 
+filter_escape(Atom) when is_atom(Atom) ->
+    filter_escape(atom_to_list(Atom));
 filter_escape(Binary) when is_binary(Binary) ->
     filter_escape(erlang:binary_to_list(Binary));
 filter_escape([Char | T]) ->
