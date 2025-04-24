@@ -154,14 +154,13 @@ commit(
             Rec;
         {nop, Rec} ->
             Rec;
-        {async, _Ref, Rec} ->
-            %% FIXME: giant hack, don't ignore ref and reply
-            Rec;
+        {async, Ref, Rec} ->
+            {async, Ref, Rec};
         {error, unrecoverable, {precondition_failed, Conflict}} when
             Lifetime =:= terminate
         ->
             %% Don't interrupt graceful channel shut down even when
-            %% guard is invalidated:
+            %% the guard is invalidated:
             ?tp(warning, ?sessds_takeover_conflict, #{id => ClientId, conflict => Conflict}),
             Rec0;
         {error, Class, Reason} ->

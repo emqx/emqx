@@ -395,6 +395,12 @@
     retry_interval => non_neg_integer()
 }.
 
+-type transaction_result(Ret) ::
+    {atomic, tx_serial(), Ret}
+    | {nop, Ret}
+    | {async, reference(), Ret}
+    | error(_).
+
 -type commit_result() :: reference() | {ok, tx_serial()} | error(_).
 
 -type fold_fun(Acc) :: fun(
@@ -840,7 +846,7 @@ commit_kv_tx(DB, TxContext, TxOps) ->
     transaction_opts(),
     fun(() -> Ret)
 ) ->
-    {ok, tx_serial(), Ret} | error(_).
+    transaction_result(Ret).
 trans(Opts = #{db := DB}, Fun) ->
     case is_trans() of
         false ->
@@ -1055,10 +1061,7 @@ call_if_implemented(Mod, Fun, Args, Default) ->
     transaction_opts(),
     non_neg_integer()
 ) ->
-    {atomic, tx_serial(), Ret}
-    | {nop, Ret}
-    | {async, reference(), Ret}
-    | error(_).
+    transaction_result(Ret).
 trans(DB, Fun, Opts, Retries) ->
     _ = put(?tx_ops_write, []),
     _ = put(?tx_ops_del_topic, []),

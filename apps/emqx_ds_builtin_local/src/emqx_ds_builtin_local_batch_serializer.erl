@@ -64,7 +64,6 @@ blob_tx(DB, TX = #ds_tx{ctx = #ds_tx_ctx{shard = Shard}}) ->
 
 init([DB, Shard]) ->
     process_flag(message_queue_data, off_heap),
-    system_monitor:add_vip(self()),
     DBShard = {DB, Shard},
     S = #s{
         dbshard = DBShard,
