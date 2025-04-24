@@ -552,14 +552,21 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {error, ErrStr} ->
                 IsConnectionClosedError = is_connection_closed_error(ErrStr),
                 IsConnectionBrokenError = is_connection_broken_error(ErrStr),
+                ErrStr1 =
+                    case is_table_or_view_not_found_error(ErrStr) of
+                        true ->
+                            <<"table_or_view_not_found">>;
+                        false ->
+                            ErrStr
+                    end,
                 {LogLevel, Err} =
                     case IsConnectionClosedError orelse IsConnectionBrokenError of
                         true ->
                             {info, {recoverable_error, <<"connection_closed">>}};
                         false ->
-                            {error, {unrecoverable_error, {invalid_request, ErrStr}}}
+                            {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
                     end,
-                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr}),
+                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
                 {error, Err}
         end
     catch
@@ -586,6 +593,18 @@ is_connection_closed_error(MsgStr) ->
 %% https://learn.microsoft.com/en-us/sql/connect/odbc/connection-resiliency?view=sql-server-ver16
 is_connection_broken_error(MsgStr) ->
     case re:run(MsgStr, <<"SQLSTATE IS: IMC0[1-6]">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
+    end.
+
+%% https://learn.microsoft.com/en-us/sql/odbc/reference/appendixes/appendix-a-odbc-error-codes?view=sql-server-ver15
+%% In some occasions, non-printable bytes/chars may be returned in the error message,
+%% making it non-loggable.
+%% See also: https://emqx.atlassian.net/browse/EMQX-14171
+is_table_or_view_not_found_error(MsgStr) ->
+    case re:run(MsgStr, <<"SQLSTATE IS: 42S02">>, [{capture, none}]) of
         match ->
             true;
         nomatch ->
