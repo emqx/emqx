@@ -6,6 +6,7 @@
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -210,10 +211,8 @@ t_qos0_only_many_streams(_Config) ->
     ClientId = <<?MODULE_STRING "_sub">>,
     Sub = connect(ClientId, true, 30),
     Pub = connect(<<?MODULE_STRING "_pub">>, true, 0),
-    [ConnPid] = emqx_cm:lookup_channels(ClientId),
     try
         {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, [{qos, 1}]),
-
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
@@ -226,9 +225,6 @@ t_qos0_only_many_streams(_Config) ->
             [_, _, _],
             receive_messages(3)
         ),
-
-        Inflight0 = get_session_inflight(ConnPid),
-
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
@@ -239,17 +235,12 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [
-                #{payload := P1},
-                #{payload := P2},
-                #{payload := P3}
-            ] when
-                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
-                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
-                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
-
-            receive_messages(3)
+                #{topic := <<"t/1">>, payload := <<"baz">>},
+                #{topic := <<"t/2">>, payload := <<"foo">>},
+                #{topic := <<"t/2">>, payload := <<"bar">>}
+            ],
+            group_by(topic, receive_messages(3))
         ),
-
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
@@ -260,24 +251,13 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [
-                #{payload := P1},
-                #{payload := P2},
-                #{payload := P3}
-            ] when
-                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
-                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
-                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
-
-            receive_messages(3)
+                #{topic := <<"t/2">>, payload := <<"baz">>},
+                #{topic := <<"t/3">>, payload := <<"foo">>},
+                #{topic := <<"t/3">>, payload := <<"bar">>}
+            ],
+            group_by(topic, receive_messages(3))
         ),
-
-        Inflight1 = get_session_inflight(ConnPid),
-
-        %% TODO: Kinda stupid way to verify that the runtime state is not growing.
-        ?assert(
-            erlang:external_size(Inflight1) - erlang:external_size(Inflight0) < 16,
-            Inflight1
-        )
+        ?assertNotReceive(_)
     after
         emqtt:stop(Sub),
         emqtt:stop(Pub)
@@ -513,6 +493,10 @@ receive_messages(Count, Msgs, Timeout) ->
     after Timeout ->
         Msgs
     end.
+
+group_by(K, Maps) ->
+    Values = lists:usort([maps:get(K, M) || M <- Maps]),
+    [M || V <- Values, M <- Maps, map_get(K, M) =:= V].
 
 publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).
