@@ -25,10 +25,13 @@
 
     observe_sharing/2,
     set_subs_count/3,
+    inc_handover/1,
+    dec_handover/1,
     inc_beams_sent/2,
     inc_subs_stuck_total/1,
     inc_subs_unstuck_total/1,
     observe_beamformer_fulfill_time/2,
+    observer_beamformer_cmds_time/2,
     observe_beamformer_scan_time/2,
     observe_beamsplitter_fanout_time/2,
 
@@ -94,9 +97,11 @@
 
 -define(BEAMFORMER_METRICS, [
     {gauge, counter, ?DS_SUBS},
+    {counter, counter, ?DS_SUBS_HANDOVER},
     {counter, counter, ?DS_SUBS_BEAMS_SENT_TOTAL},
     {gauge, slide, ?DS_SUBS_REQUEST_SHARING},
     {counter, slide, ?DS_SUBS_FULFILL_TIME},
+    {counter, slide, ?DS_SUBS_PROCESS_COMMANDS_TIME},
     {counter, slide, ?DS_SUBS_SCAN_TIME}
 ]).
 
@@ -200,7 +205,7 @@ observe_buffer_flush_time(Id, FlushTime) ->
 observe_buffer_latency(Id, FlushTime) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_BUFFER_LATENCY, FlushTime)).
 
--spec observe_store_batch_time(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec observe_store_batch_time({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
 observe_store_batch_time({DB, _}, StoreTime) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_STORE_BATCH_TIME, StoreTime)).
 
@@ -217,6 +222,12 @@ observe_sharing(Id, Sharing) ->
 set_subs_count(Id, Worker, Len) ->
     ?CATCH(emqx_metrics_worker:set_gauge(?WORKER, Id, Worker, ?DS_SUBS, Len)).
 
+inc_handover(Id) ->
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_HANDOVER)).
+
+dec_handover(Id) ->
+    ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_HANDOVER, -1)).
+
 inc_beams_sent(Id, N) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, Id, ?DS_SUBS_BEAMS_SENT_TOTAL, N)).
 
@@ -230,6 +241,10 @@ inc_subs_unstuck_total(Id) ->
 observe_beamformer_fulfill_time(Id, Time) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_FULFILL_TIME, Time)).
 
+%% @doc Add a sample of elapsed time spent forming and casting a beam
+observer_beamformer_cmds_time(Id, Time) ->
+    ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_PROCESS_COMMANDS_TIME, Time)).
+
 %% @doc Add a sample of elapsed time spent scanning the DB stream
 observe_beamformer_scan_time(Id, Time) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, Id, ?DS_SUBS_SCAN_TIME, Time)).
@@ -237,19 +252,19 @@ observe_beamformer_scan_time(Id, Time) ->
 observe_beamsplitter_fanout_time(DB, Time) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_SUBS_FANOUT_TIME, Time)).
 
--spec inc_lts_seek_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec inc_lts_seek_counter({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
 inc_lts_seek_counter({DB, _}, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_SEEK_COUNTER, Inc)).
 
--spec inc_lts_next_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec inc_lts_next_counter({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
 inc_lts_next_counter({DB, _}, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_NEXT_COUNTER, Inc)).
 
--spec inc_lts_collision_counter(emqx_ds_storage_layer:shard_id(), non_neg_integer()) -> ok.
+-spec inc_lts_collision_counter({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
 inc_lts_collision_counter({DB, _}, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_COLLISION_COUNTER, Inc)).
 
--spec collect_shard_counter(emqx_ds_storage_layer:shard_id(), atom(), non_neg_integer()) -> ok.
+-spec collect_shard_counter({emqx_ds:db(), emqx_ds:shard()}, atom(), non_neg_integer()) -> ok.
 collect_shard_counter({DB, _}, Key, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, Key, Inc)).
 
