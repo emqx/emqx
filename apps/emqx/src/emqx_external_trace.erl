@@ -375,11 +375,8 @@ action_attrs(_) ->
     ?fallback_attrs().
 
 fallback_attrs(FunctionName) ->
-    Msg = <<"Generate Attributes Failed">>,
-    ?SLOG(
-        error,
-        #{msg => Msg, func => FunctionName}
-    ),
+    Msg = "failed_to_generate_trace_attribute",
+    ?SLOG(debug, #{msg => Msg, func => FunctionName}),
     #{'fallback_attr.msg' => Msg}.
 
 %%--------------------------------------------------------------------
