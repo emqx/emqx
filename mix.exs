@@ -1277,6 +1277,7 @@ defmodule EMQXUmbrella.MixProject do
   defp aliases() do
     [
       ct: &do_ct/1,
+      cover: &do_cover/1,
       eunit: &do_eunit/1,
       proper: &do_proper/1,
       dialyzer: &do_dialyzer/1
@@ -1291,6 +1292,12 @@ defmodule EMQXUmbrella.MixProject do
     set_test_env!(true)
 
     Mix.Task.run("emqx.ct", args)
+  end
+
+  defp do_cover(args) do
+    ensure_test_mix_env!()
+    set_test_env!(true)
+    Mix.Task.run("emqx.cover", args)
   end
 
   defp do_eunit(args) do

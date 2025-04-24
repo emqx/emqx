@@ -1,0 +1,17 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Coverage Summary</title>
+  </head>
+  <body>
+    <h1>Summary</h1>
+    <table>
+      <tr><th>module</th><th>coverage %</th></tr>
+
+      <%= for line <- lines do %>
+      <tr><td><a href="<%= line.mod_report_path %>"><%= line.mod %></td><td><%= line.cover_percentage %>%</td></tr>
+      <% end %>
+    </table>
+  </body>
+</html>

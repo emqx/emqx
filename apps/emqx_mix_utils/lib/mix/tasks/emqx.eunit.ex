@@ -8,10 +8,6 @@ defmodule Mix.Tasks.Emqx.Eunit do
 
   @impl true
   def run(args) do
-    Mix.debug(true)
-    IO.inspect(args)
-
-
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
 
     ECt.ensure_whole_emqx_project_is_loaded()
@@ -29,17 +25,25 @@ defmodule Mix.Tasks.Emqx.Eunit do
 
     :emqx_common_test_helpers.clear_screen()
 
-    args
-    |> parse_args!()
+    ECt.maybe_start_cover()
+    if ECt.cover_enabled?(), do: ECt.cover_compile_files()
+
+    opts = parse_args!(args)
+
+    opts
     |> discover_tests()
     |> :eunit.test(
       verbose: true,
       print_depth: 100
     )
     |> case do
-         :ok -> :ok
-         :error -> Mix.raise("errors found in tests")
-       end
+       :ok ->
+         if ECt.cover_enabled?(), do: ECt.write_coverdata(opts)
+         :ok
+
+       :error ->
+         Mix.raise("errors found in tests")
+     end
   end
 
   defp add_to_path_and_cache(lib_name) do
@@ -56,6 +60,7 @@ defmodule Mix.Tasks.Emqx.Eunit do
     {opts, _rest} = OptionParser.parse!(
       args,
       strict: [
+        cover_export_name: :string,
         cases: :string,
         modules: :string,
       ]
@@ -70,6 +75,7 @@ defmodule Mix.Tasks.Emqx.Eunit do
       |> Enum.map(&String.to_atom/1)
 
     %{
+      cover_export_name: Keyword.get(opts, :cover_export_name, "eunit"),
       cases: cases,
       modules: modules,
     }
@@ -83,11 +89,11 @@ defmodule Mix.Tasks.Emqx.Eunit do
 
   defp resolve_test_fns!(mod_fn_str) do
     {mod, fun} = case String.split(mod_fn_str, ":") do
-                   [mod, fun] ->
-                     {String.to_atom(mod), String.to_atom(fun)}
-                   _ ->
-                     Mix.raise("Bad test case spec; must of `MOD:FUN` form.  Got: #{mod_fn_str}`")
-                 end
+      [mod, fun] ->
+        {String.to_atom(mod), String.to_atom(fun)}
+      _ ->
+        Mix.raise("Bad test case spec; must of `MOD:FUN` form.  Got: #{mod_fn_str}`")
+    end
     if not has_test_case?(mod, fun) do
       Mix.raise("Module #{mod} does not export test case #{fun}")
     end
