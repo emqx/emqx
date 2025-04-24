@@ -741,8 +741,12 @@ generation_event(DBShard) ->
     cbm :: module(),
     monitor_tab = ets:tid(),
     %% List of subscription states waiting for dispatching to the
+<<<<<<< HEAD
     %% workers. Subscription requests can be retained in this queue
     %% while the workers are recovering from failure:
+=======
+    %% workers:
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     pending = [] :: [sub_state()],
     %% Storage for the ongoing ownership transfers:
     inflight = gen_server:reqids_new() :: gen_server:request_id_collection(),
@@ -763,8 +767,12 @@ init([DBShard = {DB, Shard}, CBM]) ->
     %% For catchup pool we don't expect high degree of batch sharing.
     %% It's actually better to distribute subscriptions evenly.
     gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), round_robin, [{auto_size, true}]),
+<<<<<<< HEAD
     %% RT pool uses hash of the stream to maximize batch sharing. It's
     %% critical to use hash-based strategy here:
+=======
+    %% RT pool uses hash of the stream to maximize batch sharing:
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     gproc_pool:new(emqx_ds_beamformer_rt:pool(DBShard), hash, [{auto_size, true}]),
     logger:debug(#{
         msg => started_bf, shard => DBShard, cbm => CBM
@@ -808,9 +816,14 @@ handle_event(ET, Event, State, D0) ->
                     %% later.
                     %%
                     %% TODO: currently this will pause dispatching of
+<<<<<<< HEAD
                     %% subscriptions to *all* workers in the shard.
                     %% Ideally, error handling should be more
                     %% targeted.
+=======
+                    %% subscriptions to *all* workers. Ideally, error
+                    %% handling should be more targeted.
+>>>>>>> 6eca81aff (Async handover to catchup worker)
                     ?tp(
                         error,
                         emqx_ds_beamformer_delegate_error,
@@ -821,6 +834,7 @@ handle_event(ET, Event, State, D0) ->
             end;
         _ ->
             %% Handle everything else:
+<<<<<<< HEAD
             do_handle_event(ET, Event, State, D0)
     end.
 
@@ -829,6 +843,16 @@ handle_event(ET, Event, State, D0) ->
     gen_statem:event_handler_result(state()).
 %% Handle subscribe call:
 do_handle_event(
+=======
+            handle__event(ET, Event, State, D0)
+    end.
+
+%% Handle all events that are not async gen_server replies
+-spec handle__event(gen_statem:event_type(), _Event, state(), d()) ->
+    gen_statem:event_handler_result(state()).
+%% Handle subscribe call:
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     {call, From},
     #sub_req{client = Client, it = It, opts = Opts, mref = SubRef},
     State,
@@ -894,7 +918,11 @@ do_handle_event(
             {keep_state_and_data, {reply, From, Error}}
     end;
 %% Handle unsubscribe call:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     {call, From},
     #unsub_req{id = SubId},
     _State,
@@ -903,7 +931,11 @@ do_handle_event(
     {Ret, D} = remove_subscription(SubId, D0),
     {keep_state, D, {reply, From, Ret}};
 %% Handle disown request:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     cast,
     #disown_stuck_req{sub_state = SubState},
     _State,
@@ -923,7 +955,11 @@ do_handle_event(
     end,
     keep_state_and_data;
 %% Handle wakeup subscription call:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     {call, From},
     #wakeup_sub_req{id = SubId},
     State,
@@ -946,7 +982,11 @@ do_handle_event(
             {keep_state_and_data, Reply}
     end;
 %% Handle worker crash:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     info,
     {'ETS-TRANSFER', ETS, FromPid, ?heir_info},
     _State,
@@ -959,7 +999,11 @@ do_handle_event(
     ets:delete(ETS),
     {next_state, ?recovering, D};
 %% Handle recoverable errors:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     {call, From},
     #handle_recoverable_req{sub_states = SubStates},
     _State,
@@ -968,7 +1012,11 @@ do_handle_event(
     ?tp(info, emqx_ds_beamformer_handle_recoverable, #{pid => From}),
     {next_state, ?recovering, D#d{pending = SubStates ++ Pending}};
 %% Handle unknown call:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     {call, From},
     Call,
     State,
@@ -981,7 +1029,11 @@ do_handle_event(
     ),
     {keep_state_and_data, {reply, From, ?err_unrec({unknown_call, Call})}};
 %% Handle down event:
+<<<<<<< HEAD
 do_handle_event(
+=======
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     info,
     {'DOWN', MRef, process, _Pid, _Info},
     _State,
@@ -997,6 +1049,7 @@ do_handle_event(
             keep_state_and_data
     end;
 %% Set up state timeouts:
+<<<<<<< HEAD
 do_handle_event(enter, _OldState, ?initializing, _D) ->
     {keep_state_and_data, {state_timeout, 0, ?init_timeout}};
 do_handle_event(enter, _OldState, ?busy, _D) ->
@@ -1004,14 +1057,30 @@ do_handle_event(enter, _OldState, ?busy, _D) ->
     %% workers as soon as possible:
     {keep_state_and_data, {state_timeout, 0, ?schedule_timeout}};
 do_handle_event(enter, _OldState, ?recovering, _D) ->
+=======
+handle__event(enter, _OldState, ?initializing, _D) ->
+    {keep_state_and_data, {state_timeout, 0, ?init_timeout}};
+handle__event(enter, _OldState, ?busy, _D) ->
+    %% In `busy' state we try to hand over subscriptions to the
+    %% workers as soon as possible:
+    {keep_state_and_data, {state_timeout, 0, ?schedule_timeout}};
+handle__event(enter, _OldState, ?recovering, _D) ->
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     %% In `recovering' state we delay handover to the worker to let
     %% the system stabilize:
     Cooldown = 1000,
     {keep_state_and_data, {state_timeout, Cooldown, ?schedule_timeout}};
+<<<<<<< HEAD
 do_handle_event(enter, _OldState, _NewState, _D) ->
     keep_state_and_data;
 %% Perform initialization:
 do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
+=======
+handle__event(enter, _OldState, _NewState, _D) ->
+    keep_state_and_data;
+%% Perform initialization:
+handle__event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     try emqx_ds:list_generations_with_lifetimes(DB) of
         Generations ->
             {next_state, ?busy, D#d{generations = Generations}}
@@ -1019,6 +1088,7 @@ do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {D
         _:_ ->
             {keep_state_and_data, {state_timeout, 1000, ?init_timeout}}
     end;
+<<<<<<< HEAD
 do_handle_event(_Kind, _Event, ?initializing, _D) ->
     %% Ignore events until fulliy initialized:
     keep_state_and_data;
@@ -1028,6 +1098,17 @@ do_handle_event(state_timeout, ?schedule_timeout, _State, D0) ->
     {next_state, ?idle, D};
 %% Handle changes to the generations:
 do_handle_event(
+=======
+handle__event(_Kind, _Event, ?initializing, _D) ->
+    %% Ignore events until fulliy initialized:
+    keep_state_and_data;
+%% Handover subscriptions to the workers:
+handle__event(state_timeout, ?schedule_timeout, _State, D0) ->
+    D = do_schedule(D0),
+    {next_state, ?idle, D};
+%% Handle changes to the generations:
+handle__event(
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     cast,
     #generation_event{},
     _State,
@@ -1040,7 +1121,11 @@ do_handle_event(
     %% Notify the RT workers:
     _ = [emqx_ds_beamformer_rt:seal_generation(DBShard, I) || I <- Sealed],
     {keep_state, D#d{generations = Gens}};
+<<<<<<< HEAD
 do_handle_event(EventType, Event, State, D) ->
+=======
+handle__event(EventType, Event, State, D) ->
+>>>>>>> 6eca81aff (Async handover to catchup worker)
     ?tp(
         error,
         emqx_ds_beamformer_unknown_event,
