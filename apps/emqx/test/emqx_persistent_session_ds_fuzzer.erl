@@ -607,7 +607,11 @@ next_state(S, Ret, {call, ?MODULE, connect, [_, Opts]}) ->
     S#{
         conninfo := Ret,
         connected := true,
-        conn_opts := Opts
+        conn_opts := Opts,
+        subs := maps:map(
+            fun(_Topic, SubOpts) -> maps:remove(durable, SubOpts) end,
+            maps:get(subs, S)
+        )
     };
 %% Disconnect:
 next_state(S, _Ret, {call, ?MODULE, disconnect, _}) ->
@@ -629,10 +633,17 @@ next_state(S, _Ret, {call, ?MODULE, consume, _}) ->
 next_state(S, _Ret, {call, ?MODULE, add_generation, _}) ->
     S;
 %% Subscribe/unsubscribe topics:
-next_state(S = #{subs := Subs0}, _Ret, {call, ?MODULE, subscribe, [Topic, QoS]}) ->
-    Subs = Subs0#{Topic => #{qos => QoS}},
+next_state(S = #{subs := Subs}, _Ret, {call, ?MODULE, subscribe, [Topic, QoS]}) ->
+    case Subs of
+        #{Topic := #{durable := true}} ->
+            Sub = #{qos => QoS, durable => true};
+        #{Topic := #{qos := PrevQoS}} when QoS =:= ?QOS_0, PrevQoS > ?QOS_0 ->
+            Sub = #{qos => QoS, durable => true};
+        _ ->
+            Sub = #{qos => QoS}
+    end,
     S#{
-        subs := Subs
+        subs := Subs#{Topic => Sub}
     };
 next_state(S = #{subs := Subs0}, _Ret, {call, ?MODULE, unsubscribe, [Topic]}) ->
     Subs = maps:remove(Topic, Subs0),
