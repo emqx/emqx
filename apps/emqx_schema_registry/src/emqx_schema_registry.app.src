@@ -13,7 +13,8 @@
         gpb,
         jesse,
         avlizer,
-        emqx
+        emqx,
+        emqx_bridge_http
     ]},
     {env, []},
     {modules, []},
