@@ -1317,6 +1317,9 @@ check_stream_state_transitions(StreamId = {ClientId, Key}, [To | Rest], State) -
         {bq12, bq2} -> ok;
         %% U
         {u, u} -> ok;
+        %% This is allowed because a subscription may be QoS0 downgraded
+        %% and then upgraded back:
+        {u, r} -> ok;
         _ ->
             error(#{
                 kind => invalid_state_transition,
