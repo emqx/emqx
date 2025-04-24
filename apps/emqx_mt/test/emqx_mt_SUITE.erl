@@ -36,7 +36,8 @@ init_per_suite(Config) ->
         [
             emqx,
             {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
-            emqx_mt
+            emqx_mt,
+            emqx_management
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
