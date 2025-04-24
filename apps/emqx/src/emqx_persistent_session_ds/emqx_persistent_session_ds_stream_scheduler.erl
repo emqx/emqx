@@ -1215,23 +1215,25 @@ runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
 offline_state_invariants(_ModelState, #{s := S}) ->
     invariant_active_streams_y_ranks(S).
 
-%% Verify that each active topic subscription has a new stream watch:
+%% Verify that each active durable topic subscription has a new stream watch:
 invariant_new_stream_subscriptions(#{subs := Subs}, #s{
     new_stream_subs = Watches, sub_metadata = SubStates
 }) ->
-    ExpectedTopics = lists:sort(maps:keys(Subs)),
+    ExpectedTopics = lists:sort(
+        [Topic || {Topic, #{qos := QoS}} <- maps:to_list(Subs), QoS > 0]
+    ),
     ?defer_assert(
         ?assertEqual(
             ExpectedTopics,
             lists:sort(maps:keys(SubStates)),
-            "There's a 1:1 relationship between subscribed topics and the scheduler's new stream watches"
+            "There's a 1:1 relationship between durable subscriptions and the scheduler's new stream watches"
         )
     ),
     ?defer_assert(
         ?assertEqual(
             ExpectedTopics,
             lists:sort(maps:values(Watches)),
-            "There's a 1:1 relationship between subscribed topics and the values of scheduler's watch reference => topic lookup table"
+            "There's a 1:1 relationship between durable subscriptions and the values of scheduler's watch reference => topic lookup table"
         )
     ),
     true.
