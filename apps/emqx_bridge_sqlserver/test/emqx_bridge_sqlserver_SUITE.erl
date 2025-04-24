@@ -100,11 +100,13 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     NonBatchCases = [t_write_timeout],
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
+    SyncNoBatchCases = [t_table_not_found],
     [
         {async, BatchingGroups},
         {sync, BatchingGroups},
-        {with_batch, TCs -- NonBatchCases},
-        {without_batch, TCs},
+        {with_batch, TCs -- (NonBatchCases ++ SyncNoBatchCases)},
+        {without_batch, TCs -- SyncNoBatchCases},
+        {sync_no_batch, SyncNoBatchCases},
         {health_check, [health_check_return_error]}
     ].
 
@@ -121,11 +123,17 @@ init_per_group(without_batch, Config0) ->
 init_per_group(health_check, Config0) ->
     Config = [{query_mode, async}, {enable_batch, false}, {pool_size, 1} | Config0],
     common_init(Config);
+init_per_group(sync_no_batch, Config0) ->
+    Config = [{query_mode, sync}, {enable_batch, false}, {pool_size, 1} | Config0],
+    common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when
-    Group =:= with_batch; Group =:= without_batch; Group =:= health_check
+    Group =:= with_batch;
+    Group =:= without_batch;
+    Group =:= sync_no_batch;
+    Group =:= health_check
 ->
     connect_and_drop_table(Config),
     connect_and_drop_db(Config),
@@ -509,6 +517,20 @@ t_named_instance_mismatch(Config) ->
             <<"connected instance does not match desired instance name">>,
             [global, {capture, none}]
         )
+    ),
+    ok.
+
+t_table_not_found(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{<<"sql">> => <<"insert into i_don_exist(id) values (${id})">>}
+        )
+    ),
+    ?assertEqual(
+        {error, {unrecoverable_error, {invalid_request, <<"table_or_view_not_found">>}}},
+        send_message(Config, #{id => <<"123">>})
     ),
     ok.
 
