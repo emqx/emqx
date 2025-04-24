@@ -4,6 +4,7 @@
 -module(emqx_external_trace).
 
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 -include("emqx_external_trace.hrl").
 
 %% Legacy
@@ -160,6 +161,15 @@ provider() ->
 %% Trace Attrs Helper
 %%--------------------------------------------------------------------
 
+-define(fallback_attrs(), fallback_attrs(?FUNCTION_NAME)).
+-define(wrap(EXPR),
+    try
+        EXPR
+    catch
+        _:_ -> ?fallback_attrs()
+    end
+).
+
 %% Client Channel info not be available before `process_connect/2`
 %% The initial attrs should be extracted from packet and update them during `process_connect/2`
 connect_attrs(
@@ -198,32 +208,54 @@ connect_attrs(
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
         'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel))
-    }.
+    };
+connect_attrs(_, _) ->
+    ?fallback_attrs().
 
 basic_attrs(Channel) ->
-    #{
+    ?wrap(#{
         'client.clientid' => emqx_channel:info(clientid, Channel),
         'client.username' => emqx_channel:info(username, Channel)
-    }.
+    }).
 
 topic_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
-    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{
-        'client.subscribe.topics' => json_encode(lists:reverse(TFs)),
-        'client.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
-    };
+    ?wrap(
+        begin
+            {TFs, SubOpts} = do_topic_filters_attrs(
+                subscribe, emqx_packet:info(topic_filters, PktVar)
+            ),
+            #{
+                'client.subscribe.topics' => json_encode(lists:reverse(TFs)),
+                'client.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
+            }
+        end
+    );
 topic_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
-    {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{'client.unsubscribe.topics' => json_encode(TFs)};
+    ?wrap(
+        begin
+            {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
+            #{'client.unsubscribe.topics' => json_encode(TFs)}
+        end
+    );
 topic_attrs({subscribe, TopicFilters}) ->
-    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
-    #{
-        'broker.subscribe.topics' => json_encode(lists:reverse(TFs)),
-        'broker.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
-    };
+    ?wrap(
+        begin
+            {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
+            #{
+                'broker.subscribe.topics' => json_encode(lists:reverse(TFs)),
+                'broker.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
+            }
+        end
+    );
 topic_attrs({unsubscribe, TopicFilters}) ->
-    {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
-    #{'broker.unsubscribe.topics' => json_encode(TFs)}.
+    ?wrap(
+        begin
+            {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
+            #{'broker.unsubscribe.topics' => json_encode(TFs)}
+        end
+    );
+topic_attrs(_) ->
+    ?fallback_attrs().
 
 do_topic_filters_attrs(subscribe, TopicFilters) ->
     {_TFs, _SubOpts} = lists:foldl(
@@ -244,32 +276,38 @@ authn_attrs({continue, _Properties, _Channel}) ->
     %% TODO
     #{};
 authn_attrs({ok, _Properties, Channel}) ->
-    #{
-        'client.connect.authn.result' => ok,
-        'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
-        'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
-    };
-authn_attrs({error, _Reason}) ->
-    #{
+    ?wrap(
+        #{
+            'client.connect.authn.result' => ok,
+            'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
+            'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
+        }
+    );
+authn_attrs({error, _Reason, _Channel}) ->
+    ?wrap(#{
         'client.connect.authn.result' => error,
         'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
-    }.
+    });
+authn_attrs(_) ->
+    ?fallback_attrs().
 
 sub_authz_attrs(CheckResult) ->
-    {TFs, AuthZRCs} = lists:foldl(
-        fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
-            {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
-        end,
-        {[], []},
-        CheckResult
-    ),
-    #{
-        'authz.subscribe.topics' => json_encode(lists:reverse(TFs)),
-        'authz.subscribe.reason_codes' => json_encode(lists:reverse(AuthZRCs))
-    }.
+    ?wrap(begin
+        {TFs, AuthZRCs} = lists:foldl(
+            fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
+                {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
+            end,
+            {[], []},
+            CheckResult
+        ),
+        #{
+            'authz.subscribe.topics' => json_encode(lists:reverse(TFs)),
+            'authz.subscribe.reason_codes' => json_encode(lists:reverse(AuthZRCs))
+        }
+    end).
 
 -define(ext_trace_disconnect_reason(Reason),
-    ?ext_trace_disconnect_reason(Reason, undefined)
+    ?wrap(?ext_trace_disconnect_reason(Reason, undefined))
 ).
 
 -define(ext_trace_disconnect_reason(Reason, Description), #{
@@ -291,12 +329,14 @@ disconnect_attrs(takeover, Channel) ->
 disconnect_attrs(takeover_kick, Channel) ->
     ?ext_trace_disconnect_reason(takenover_kick);
 disconnect_attrs(sock_closed, Channel) ->
-    ?ext_trace_disconnect_reason(sock_closed).
+    ?ext_trace_disconnect_reason(sock_closed);
+disconnect_attrs(_, _) ->
+    ?fallback_attrs().
 
 -define(MG(K, M), maps:get(K, M, undefined)).
 
 rule_attrs(#{rule := Rule} = RichedRule) ->
-    #{
+    ?wrap(#{
         'rule.id' => ?MG(id, Rule),
         'rule.name' => ?MG(name, Rule),
         'rule.created_at' => format_datetime(?MG(created_at, Rule)),
@@ -305,7 +345,9 @@ rule_attrs(#{rule := Rule} = RichedRule) ->
         'rule.trigger' => ?MG(trigger, RichedRule),
         'rule.matched' => ?MG(matched, RichedRule),
         'client.clientid' => ?EXT_TRACE__RULE_INTERNAL_CLIENTID
-    }.
+    });
+rule_attrs(_) ->
+    ?fallback_attrs().
 
 %% TODO: also rm `action.bridge_type' and `action.bridge_name' after bridge_v1 is deprecated
 action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
@@ -328,7 +370,14 @@ action_attrs(#{mod := Mod, func := Func}) ->
         'action.type' => <<"function">>,
         'action.function' => printable_function_name(Mod, Func),
         'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
-    }.
+    };
+action_attrs(_) ->
+    ?fallback_attrs().
+
+fallback_attrs(FunctionName) ->
+    Msg = "failed_to_generate_trace_attribute",
+    ?SLOG(debug, #{msg => Msg, func => FunctionName}),
+    #{'fallback_attr.msg' => Msg}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
