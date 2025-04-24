@@ -100,7 +100,8 @@
 
 %% API:
 -export([
-    init/1,
+    new/0,
+    on_replay/2,
     on_subscribe/4,
     on_unsubscribe/4,
     on_new_stream_event/3,
@@ -212,14 +213,18 @@
 %% API functions
 %%================================================================================
 
--spec init(emqx_persistent_session_ds_state:t()) -> {emqx_persistent_session_ds_state:t(), t()}.
-init(S0) ->
-    SchedS0 = #s{
+-spec new() -> t().
+new() ->
+    #s{
         bq1 = gb_trees:empty(),
         bq2 = gb_trees:empty()
-    },
+    }.
+
+-spec on_replay(emqx_persistent_session_ds_state:t(), t()) ->
+    {emqx_persistent_session_ds_state:t(), t()}.
+on_replay(S0, SchedS0) ->
     %% Initialize per-subscription records:
-    {S, SchedS1} = emqx_persistent_session_ds_subs:fold_private_subscriptions(
+    {S, SchedS1} = emqx_persistent_session_ds_subs:fold(
         fun(TopicFilterBin, Subscription, {AccS0, AccSchedS0}) ->
             {_NewSRSIds, AccS, AccSchedS} = init_for_subscription(
                 TopicFilterBin, Subscription, AccS0, AccSchedS0
@@ -227,7 +232,8 @@ init(S0) ->
             {AccS, AccSchedS}
         end,
         {S0, SchedS0},
-        S0
+        S0,
+        []
     ),
     %% Subscribe to new messages:
     ActiveStreams = find_active_streams(S),
@@ -554,21 +560,20 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}
 on_unsubscribe(
     Topic, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, sub_metadata = Subs}
 ) ->
-    SchedS1 =
-        case Topic of
-            TopicFilterBin when is_binary(TopicFilterBin) ->
-                #{TopicFilterBin := SubS} = Subs,
-                #sub_metadata{new_streams_watch = Ref} = SubS,
-                %% Unsubscribe from new stream notifications:
-                Watches = unwatch_streams(TopicFilterBin, Ref, Watches0),
-                SchedS0#s{
-                    new_stream_subs = Watches,
-                    sub_metadata = maps:remove(TopicFilterBin, Subs)
-                };
-            #share{} ->
-                %% Metadata for shared topics is managed elsewhere:
-                SchedS0
-        end,
+    case Subs of
+        #{Topic := SubS} when is_binary(Topic) ->
+            #sub_metadata{new_streams_watch = Ref} = SubS,
+            %% Unsubscribe from new stream notifications:
+            Watches = unwatch_streams(Topic, Ref, Watches0),
+            SchedS1 = SchedS0#s{
+                new_stream_subs = Watches,
+                sub_metadata = maps:remove(Topic, Subs)
+            };
+        #{} ->
+            %% Either no such subscription or shared subscription.
+            %% Metadata for shared topics is managed elsewhere:
+            SchedS1 = SchedS0
+    end,
     %% NOTE: this function only marks streams for deletion, but
     %% it doesn't outright delete them.
     %%
