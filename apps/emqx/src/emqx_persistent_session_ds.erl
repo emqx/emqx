@@ -406,29 +406,31 @@ subscribe(
 subscribe(
     TopicFilter,
     SubOpts,
-    Session0 = #{stream_scheduler_s := SchedS0}
+    Session0
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {Outcome, S1, Subscription = #{mode := durable}} ->
-            {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
-                TopicFilter, Subscription, S1, SchedS0
-            ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
+        {_Ok, S1, Subscription} ->
+            Session = subscribed(TopicFilter, Subscription, Session0#{s := S1}),
+            {ok, commit(Session)};
+        {recreated, S1, Subscription, Subscription0 = #{mode := Mode0}} ->
+            Session1 = Session0#{s := S1},
+            Session2 = unsubscribed(TopicFilter, Subscription0, Session1),
+            Session = subscribed(TopicFilter, Subscription, Session2),
             %% Upgraded from direct subscription, drain potential duplicates:
-            Outcome == mode_changed andalso drain_transient(TopicFilter),
+            Mode0 == direct andalso drain_transient(TopicFilter),
             {ok, commit(Session)};
-        {ok, S, #{mode := direct}} ->
-            Session = Session0#{s := S},
-            {ok, commit(Session)};
-        {mode_changed, S1, #{mode := direct, id := SubId}} ->
-            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                TopicFilter, SubId, S1, SchedS0
-            ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, commit(clear_buffer(SubId, Session))};
         Error = {error, _} ->
             Error
     end.
+
+subscribed(TopicFilter, #{mode := durable} = Subscription, Session0) ->
+    #{s := S0, stream_scheduler_s := SchedS0} = Session0,
+    {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
+        TopicFilter, Subscription, S0, SchedS0
+    ),
+    Session0#{s := S, stream_scheduler_s := SchedS};
+subscribed(_TopicFilter, #{mode := direct}, Session) ->
+    Session.
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
@@ -456,21 +458,25 @@ unsubscribe(
     end;
 unsubscribe(
     TopicFilter,
-    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
+    Session0 = #{id := SessionId, s := S0}
 ) ->
     case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{mode := durable, id := SubId, subopts := SubOpts}} ->
-            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                TopicFilter, SubId, S1, SchedS0
-            ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, commit(clear_buffer(SubId, Session)), SubOpts};
-        {ok, S, #{mode := direct, subopts := SubOpts}} ->
-            Session = Session0#{s := S},
+        {ok, S1, Subscription = #{subopts := SubOpts}} ->
+            Session = unsubscribed(TopicFilter, Subscription, Session0#{s := S1}),
             {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
     end.
+
+unsubscribed(TopicFilter, #{mode := durable, id := SubId}, Session0) ->
+    #{s := S0, stream_scheduler_s := SchedS0} = Session0,
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+        TopicFilter, SubId, S0, SchedS0
+    ),
+    Session = Session0#{s := S, stream_scheduler_s := SchedS},
+    clear_buffer(SubId, Session);
+unsubscribed(_TopicFilter, #{mode := direct}, Session) ->
+    Session.
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
