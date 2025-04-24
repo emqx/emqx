@@ -491,7 +491,7 @@ ser_srs(#srs{
     rank_x = Shard,
     rank_y = Generation,
     it_begin = ItBegin,
-    it_end = _ItEnd,
+    it_end = ItEnd,
     batch_size = BS,
     first_seqno_qos1 = FSN1,
     first_seqno_qos2 = FSN2,
@@ -501,12 +501,12 @@ ser_srs(#srs{
     sub_state_id = SSid
 }) ->
     {ok, ItBeginB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItBegin),
-    %% {ok, ItEndB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItEnd),
+    {ok, ItEndB} = emqx_ds:iterator_to_binary(?PERSISTENT_MESSAGE_DB, ItEnd),
     Rec = #'SRS'{
         shard = Shard,
         generation = Generation,
         itBegin = ItBeginB,
-        itEnd = asn1_NOVALUE,
+        itEnd = ItEndB,
         batchSize = BS,
         firstSeqNoQoS1 = FSN1,
         firstSeqNoQoS2 = FSN2,
