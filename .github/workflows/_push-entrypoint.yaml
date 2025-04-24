@@ -181,7 +181,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]} 
+          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]}
   update_emqx_i18n:
     if: needs.prepare.outputs.release == 'true'
     needs:
@@ -240,6 +240,7 @@ jobs:
     uses: ./.github/workflows/run_conf_tests.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
+    secrets: inherit
 
   static_checks:
     if: needs.prepare.outputs.release != 'true'
