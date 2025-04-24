@@ -329,10 +329,25 @@ handle_cast(_Msg, State) ->
 handle_info({timeout, _Ref, {reload, Name}}, State) ->
     {_, NState} = do_reload_server(Name, State),
     {noreply, NState};
-handle_info(refresh_tick, State) ->
+handle_info(refresh_tick, #{servers := Servers} = State) ->
     refresh_tick(),
     emqx_exhook_metrics:update(?REFRESH_INTERVAL),
-    {noreply, State};
+    NServers = maps:map(
+        fun(Name, Server) ->
+            case emqx_exhook_server:health_check(Server, server(Name)) of
+                true ->
+                    Server#{status := connected};
+                false ->
+                    ensure_reload_timer(Server);
+                disable ->
+                    Server#{status := disabled};
+                skip ->
+                    Server#{status := connecting}
+            end
+        end,
+        Servers
+    ),
+    {noreply, State#{servers => NServers}};
 handle_info(_Info, State) ->
     {noreply, State}.
 

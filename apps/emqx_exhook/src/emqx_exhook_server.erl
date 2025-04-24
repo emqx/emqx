@@ -15,7 +15,8 @@
 %% Load/Unload
 -export([
     load/2,
-    unload/1
+    unload/1,
+    health_check/2
 ]).
 
 %% APIs
@@ -164,26 +165,15 @@ channel_opts(Opts = #{url := URL, socket_options := SockOpts}) ->
             {error, {bad_server_url, URL, Error}}
     end.
 
+%% @private
 format_http_uri(Scheme, Host, Port) ->
     lists:flatten(io_lib:format("~ts://~ts:~w", [Scheme, Host, Port])).
 
+%% @private
 filter(Ls) ->
     [E || E <- Ls, E /= undefined].
 
--spec unload(server()) -> ok.
-unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
-    _ = may_unload_hooks(HookSpecs),
-    _ = do_deinit(Name, ReqOpts),
-    _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
-    ok.
-
-do_deinit(Name, ReqOpts) ->
-    %% Override the request timeout to deinit grpc server to
-    %% avoid emqx_exhook_mgr force killed by upper supervisor
-    NReqOpts = ReqOpts#{timeout => ?SERVER_FORCE_SHUTDOWN_TIMEOUT},
-    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, NReqOpts),
-    ok.
-
+%% @private
 do_init(ChannName, ReqOpts) ->
     %% BrokerInfo defined at: exhook.protos
     BrokerInfo = maps:with(
@@ -243,6 +233,7 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
         HookSpecs
     ).
 
+%% @private
 ensure_metrics(Prefix, HookSpecs) ->
     Keys = [
         list_to_atom(Prefix ++ atom_to_list(Hookpoint))
@@ -250,6 +241,7 @@ ensure_metrics(Prefix, HookSpecs) ->
     ],
     lists:foreach(fun emqx_metrics:ensure/1, Keys).
 
+%% @private
 ensure_hooks(HookSpecs) ->
     lists:foreach(
         fun(Hookpoint) ->
@@ -264,6 +256,14 @@ ensure_hooks(HookSpecs) ->
         maps:keys(HookSpecs)
     ).
 
+-spec unload(server()) -> ok.
+unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
+    _ = may_unload_hooks(HookSpecs),
+    _ = do_deinit(Name, ReqOpts),
+    _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
+    ok.
+
+%% @private
 may_unload_hooks(HookSpecs) ->
     lists:foreach(
         fun(Hookpoint) ->
@@ -283,10 +283,41 @@ may_unload_hooks(HookSpecs) ->
         maps:keys(HookSpecs)
     ).
 
-format(#{name := Name, hookspec := Hooks}) ->
-    lists:flatten(
-        io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])
-    ).
+%% @private
+do_deinit(Name, ReqOpts) ->
+    %% Override the request timeout to deinit grpc server to
+    %% avoid emqx_exhook_mgr force killed by upper supervisor
+    NReqOpts = ReqOpts#{timeout => ?SERVER_FORCE_SHUTDOWN_TIMEOUT},
+    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, NReqOpts),
+    ok.
+
+-spec health_check(map(), server() | undefined) -> boolean() | skip | disable.
+health_check(#{status := connecting}, _) ->
+    %% The channel is connecting, skip
+    skip;
+health_check(_, undefined) ->
+    skip;
+health_check(#{enable := false}, _) ->
+    disable;
+health_check(#{name := Name}, #{
+    name := ChannName,
+    options := ReqOpts
+}) ->
+    case grpc_client_sup:workers(Name) of
+        [] ->
+            false;
+        Workers ->
+            %% check all workers
+            lists:all(
+                fun({_, WorkerPid}) ->
+                    case grpc_client:health_check(WorkerPid, ReqOpts#{channel => ChannName}) of
+                        ok -> true;
+                        _ -> false
+                    end
+                end,
+                Workers
+            )
+    end.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -306,6 +337,11 @@ hooks(#{hookspec := Hooks}) ->
         ]
     end,
     maps:fold(FoldFun, [], Hooks).
+
+format(#{name := Name, hookspec := Hooks}) ->
+    lists:flatten(
+        io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])
+    ).
 
 -spec call(hookpoint(), map(), server()) ->
     ignore
@@ -363,6 +399,7 @@ match_topic_filter(TopicName, TopicFilter) ->
 ).
 -endif.
 
+%% @private
 -spec do_call(binary(), atom(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
     NReq = Req#{meta => emqx_exhook_handler:request_meta()},
