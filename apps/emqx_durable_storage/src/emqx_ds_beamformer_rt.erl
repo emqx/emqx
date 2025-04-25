@@ -149,7 +149,7 @@ handle_cast(_Cast, S) ->
     {noreply, S}.
 
 handle_info(E = #shard_event{}, S = #s{shard = Shard, active_streams = Q}) ->
-    ?tp(info, beamformer_rt_event, #{event => E, shard => Shard}),
+    ?tp(debug, beamformer_rt_event, #{event => E, shard => Shard}),
     active_streams_push(Q, E),
     {noreply, maybe_dispatch_event(S)};
 handle_info({Ref, Result}, S0 = #s{worker_ref = Ref}) ->
@@ -235,6 +235,30 @@ do_enqueue(
                         emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
                         ok;
                     {error, unrecoverable, has_data} ->
+                        %% TODO: This piece of code is very
+                        %% problematic, because it can cause an
+                        %% infinite back and forth loop.
+                        %%
+                        %% Alt. 1: Instead of kicking the subscription
+                        %% back we could attempt to simply read the
+                        %% data and deliver it to the client before
+                        %% adding it to the queue. This may, of
+                        %% course, introduce latency to the other
+                        %% clients in the RT queue. But the effect
+                        %% will be temporary, and only happen when a
+                        %% new subscription joins.
+                        %%
+                        %% Assuming that catchup worker has done all
+                        %% the heavy lifting, the impact on the
+                        %% latency should be small under normal
+                        %% circumstances.
+                        %%
+                        %% Alt. 2: Kill the subsription when this
+                        %% happens with a reason indicating overload
+                        %% and so the client re-subscribes.
+                        %%
+                        %% This should spread the load over time, but
+                        %% it's not the perfect solution.
                         ?tp(info, beamformer_push_rt_downgrade, #{
                             req_id => ReqId, stream => Stream, key => Key
                         }),
