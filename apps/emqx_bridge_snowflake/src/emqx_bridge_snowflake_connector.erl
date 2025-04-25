@@ -300,12 +300,8 @@ on_query(
 ) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    case InstalledActions of
-        %% #{ActionResId := #{mode := direct} = _ActionState} ->
-        %%     {ok, todo};
-        #{ActionResId := #{mode := aggregated} = ActionState} ->
-            run_aggregated_action([Data], ActionState)
-    end;
+    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
+    run_aggregated_action([Data], ActionState);
 on_query(
     _ConnResId,
     #insert_report{action_res_id = ActionResId, opts = Opts},
@@ -323,13 +319,9 @@ on_query(_ConnResId, Query, _ConnState) ->
 on_batch_query(_ConnResId, [{ActionResId, _} | _] = Batch0, #{installed_actions := InstalledActions}) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    case InstalledActions of
-        %% #{ActionResId := #{mode := direct} = _ActionState} ->
-        %%     {ok, todo};
-        #{ActionResId := #{mode := aggregated} = ActionState} ->
-            Batch = [Data || {_, Data} <- Batch0],
-            run_aggregated_action(Batch, ActionState)
-    end;
+    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
+    Batch = [Data || {_, Data} <- Batch0],
+    run_aggregated_action(Batch, ActionState);
 on_batch_query(_ConnResId, Batch, _ConnState) ->
     {error, {unrecoverable_error, {bad_batch, Batch}}}.
 
@@ -350,8 +342,12 @@ insert_report(ActionResId, Opts) ->
 
 connect(Opts) ->
     ConnectStr = conn_str(Opts),
+    %% Note: we don't use `emqx_secret:wrap/1` here because its return type is opaque, and
+    %% dialyzer then complains that it's being fed to a function that doesn't expect
+    %% something opaque...
+    ConnectStrWrapped = fun() -> ConnectStr end,
     DriverOpts = proplists:get_value(driver_options, Opts, []),
-    odbc:connect(ConnectStr, DriverOpts).
+    odbc:connect(ConnectStrWrapped, DriverOpts).
 
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).

@@ -1307,8 +1307,7 @@ case "${COMMAND}" in
                 --erl "$FOREGROUNDOPTIONS" \
                 --erl "-mode $CODE_LOADING_MODE" \
                 --erl "$EPMD_ARGS" \
-                $INIT_DEBUG_ARG \
-                --werl
+                $INIT_DEBUG_ARG
         fi
 
         # Log the startup
