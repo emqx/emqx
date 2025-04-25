@@ -24,10 +24,22 @@
     max_topic_levels => integer(),
     max_qos_allowed => emqx_types:qos(),
     retain_available => boolean(),
+    subscription_max_qos_rules => [topic_qos_rule()],
     wildcard_subscription => boolean(),
     shared_subscription => boolean(),
     exclusive_subscription => boolean()
 }.
+
+%% See "topic_qos_rule" struct in `emqx_schema`:
+-type topic_qos_rule() ::
+    #{is_match := topic_match_compiled(), qos := emqx_types:qos()}.
+
+%% Reflects `emqx_variform:compiled/0` structure:
+-type topic_match_compiled() :: #{form := topic_match_spec(), _ => _}.
+-type topic_match_spec() ::
+    {topic_equal, emqx_types:words()}
+    | {topic_intersects, emqx_types:words()}
+    | {topic_subset_of, emqx_types:words()}.
 
 -define(DEFAULT_CAPS_KEYS, [
     max_packet_size,
@@ -112,6 +124,19 @@ do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientI
         _ ->
             ok
     end;
+do_check_sub(
+    #{qos := QoS},
+    #{subscription_max_qos_rules := Rules = [_ | _], max_qos_allowed := FallbackMaxQoS},
+    _,
+    TopicIn
+) ->
+    Topic = emqx_topic:words(emqx_topic:get_shared_real_topic(TopicIn)),
+    MaxQoS = emqx_maybe:define(eval_max_qos_allowed(Rules, Topic), FallbackMaxQoS),
+    case QoS > MaxQoS of
+        %% Accepted, but with a lower QoS
+        true -> {ok, MaxQoS};
+        false -> ok
+    end;
 do_check_sub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}, _, _) when
     QoS > MaxQoS
 ->
@@ -120,6 +145,28 @@ do_check_sub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}, _, _) when
     {ok, MaxQoS};
 do_check_sub(_Flags, _Caps, _, _) ->
     ok.
+
+%% @doc Evaluates Topic->QoS rules on a "real" topic, stripped from `$share/...`
+%% components (if any).
+eval_max_qos_allowed([Rule | Rest], Topic) ->
+    case eval_topic_qos_rule(Rule, Topic) of
+        QoS when is_integer(QoS) ->
+            QoS;
+        false ->
+            eval_max_qos_allowed(Rest, Topic)
+    end;
+eval_max_qos_allowed([], _) ->
+    undefined.
+
+eval_topic_qos_rule(#{is_match := #{form := Match}, qos := QoS}, Topic) ->
+    eval_topic_match(Match, Topic) andalso QoS.
+
+eval_topic_match({topic_equal, To}, Topic) ->
+    emqx_topic:is_equal(Topic, To);
+eval_topic_match({topic_intersects, With}, Topic) ->
+    emqx_topic:intersection(Topic, With) =/= false;
+eval_topic_match({topic_subset_of, Of}, Topic) ->
+    emqx_topic:is_subset(Topic, Of).
 
 get_caps(Zone) ->
     get_caps(?DEFAULT_CAPS_KEYS, Zone).

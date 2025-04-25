@@ -395,6 +395,26 @@ fields("mqtt") ->
     mqtt_general() ++ mqtt_session() ++ mqtt_limiter();
 fields("zone") ->
     emqx_zone_schema:zones_without_default();
+fields("topic_qos_rule") ->
+    [
+        %% NOTE:
+        %% 1. Naming is chosen for consistency with `emqx_authn_cinfo`.
+        %% 2. Expression syntax is chosen to be compatible with some potential future
+        %%    superset / evolution of `emqx_variform`.
+        {is_match,
+            sc(typerefl:alias("string", any()), #{
+                required => true,
+                desc => ?DESC(topic_qos_rule_match),
+                converter => fun compile_topic_rule_match/2,
+                importance => ?IMPORTANCE_HIGH
+            })},
+        {qos,
+            sc(qos(), #{
+                required => true,
+                desc => ?DESC(mqtt_max_qos_allowed),
+                importance => ?IMPORTANCE_HIGH
+            })}
+    ];
 fields("flapping_detect") ->
     [
         {"enable",
@@ -1888,6 +1908,25 @@ compile_variform(Expression, _Opts) ->
             Compiled;
         {error, Reason} ->
             throw(#{expression => Expression, reason => Reason})
+    end.
+
+compile_topic_rule_match(Expression, Opts) ->
+    %% NOTE
+    %% Allow severely constrained variform expression as syntax for now, for
+    %% simplicity and predictability.
+    case compile_variform(Expression, Opts) of
+        Compiled = #{form := {call, TopicFn, [{var, "topic"}, {str, ArgStr}]}} when
+            TopicFn == "topic_equal";
+            TopicFn == "topic_intersects";
+            TopicFn == "topic_subset_of",
+            ArgStr =/= ""
+        ->
+            Arg = unicode:characters_to_binary(ArgStr),
+            Compiled#{form := {list_to_atom(TopicFn), emqx_topic:words(Arg)}};
+        _Compiled = #{} ->
+            throw(#{expression => Expression, reason => "Invalid topic match expression"});
+        Otherwise ->
+            Otherwise
     end.
 
 restricted_string(Str) ->
@@ -3966,6 +4005,15 @@ mqtt_session() ->
                     default => 2,
                     desc => ?DESC(mqtt_max_qos_allowed),
                     importance => ?IMPORTANCE_LOW
+                }
+            )},
+        {"subscription_max_qos_rules",
+            sc(
+                hoconsc:array(?R_REF("topic_qos_rule")),
+                #{
+                    required => false,
+                    desc => ?DESC(mqtt_subscription_max_qos_rules),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"mqueue_priorities",

@@ -124,6 +124,22 @@ mqtt_max_qos_allowed.desc:
 mqtt_max_qos_allowed.label:
 """Max QoS"""
 
+mqtt_subscription_max_qos_rules.desc:
+"""Maximum Subscription QoS allowance rules. Useful to limit QoS level requested by the client in a `SUBSCRIBE` packet. Take precedence over `max_qos_allowed` option, which then acts as the default when no rule applies."""
+
+mqtt_subscription_max_qos_rules.label:
+"""Max Subscription QoS Rules"""
+
+topic_qos_rule_match.desc:
+"""Expression evaluated over the given topic to decide if the rule applies.
+Follows `<topic-predicate>(topic, '<topic-argument>')` syntax where `<topic-argument>` is a string containing literal topic filter, and `<topic-predicate>` is one of:
+* `topic_equal`,
+* `topic_intersects`,
+* `topic_subset_of`."""
+
+topic_qos_rule_match.label:
+"""Topic Match"""
+
 fields_mqtt_quic_listener_max_binding_stateless_operations.desc:
 """The maximum number of stateless operations that may be queued on a binding at any one time. Default: 100"""
 
