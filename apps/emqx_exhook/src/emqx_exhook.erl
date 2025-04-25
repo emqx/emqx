@@ -30,7 +30,7 @@ cast(Hookpoint, Req, [ServerName | More]) ->
     _ = emqx_exhook_server:call(
         Hookpoint,
         Req,
-        emqx_exhook_mgr:server(ServerName)
+        emqx_exhook_mgr:service(ServerName)
     ),
     cast(Hookpoint, Req, More).
 
@@ -51,7 +51,7 @@ call_fold(true, _, _Req, _, []) ->
 call_fold(false, _, Req, _, []) ->
     {ok, Req};
 call_fold(IsIgnore, Hookpoint, Req, AccFun, [ServerName | More]) ->
-    Server = emqx_exhook_mgr:server(ServerName),
+    Server = emqx_exhook_mgr:service(ServerName),
     case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of

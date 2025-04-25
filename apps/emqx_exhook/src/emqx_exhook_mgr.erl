@@ -33,7 +33,7 @@
 %% Helper funcs
 -export([
     running/0,
-    server/1,
+    service/1,
     hooks/1,
     init_ref_counter_table/0
 ]).
@@ -73,6 +73,7 @@
 
 -type status() ::
     connected
+    %% only for trying reload
     | connecting
     | disconnected
     | disabled.
@@ -218,7 +219,7 @@ load_all_servers(ServerL) ->
     load_all_servers(ServerL, #{}).
 
 load_all_servers([#{name := Name} = Options | More], Servers) ->
-    {_, Server} = do_load_server(options_to_server(Options)),
+    {_, Server} = do_load_server(opts_to_state(Options)),
     load_all_servers(More, Servers#{Name => Server});
 load_all_servers([], Servers) ->
     Servers.
@@ -246,7 +247,7 @@ handle_call(
     #{servers := Servers} = State
 ) ->
     {_, #{name := Name} = Conf} = emqx_config:check_config(?MODULE, RawConf),
-    {Result, Server} = do_load_server(options_to_server(Conf)),
+    {Result, Server} = do_load_server(opts_to_state(Conf)),
     Servers2 = Servers#{Name => Server},
     Servers3 = reorder(NewConfL, Servers2),
     {reply, Result, State#{servers := Servers3}};
@@ -333,18 +334,7 @@ handle_info(refresh_tick, #{servers := Servers} = State) ->
     refresh_tick(),
     emqx_exhook_metrics:update(?REFRESH_INTERVAL),
     NServers = maps:map(
-        fun(Name, Server) ->
-            case emqx_exhook_server:health_check(Server, server(Name)) of
-                true ->
-                    Server#{status := connected};
-                false ->
-                    ensure_reload_timer(Server);
-                disable ->
-                    Server#{status := disabled};
-                skip ->
-                    Server#{status := connecting}
-            end
-        end,
+        fun(_Name, Server) -> do_health_check(Server) end,
         Servers
     ),
     {noreply, State#{servers => NServers}};
@@ -381,7 +371,7 @@ unload_exhooks() ->
 add_servers(Added, State) ->
     lists:foldl(
         fun(Conf = #{name := Name}, {ResAcc, StateAcc}) ->
-            case do_load_server(options_to_server(Conf)) of
+            case do_load_server(opts_to_state(Conf)) of
                 {ok, Server} ->
                     #{servers := Servers} = StateAcc,
                     Servers2 = Servers#{Name => Server},
@@ -394,10 +384,11 @@ add_servers(Added, State) ->
         Added
     ).
 
+-spec do_load_server(server()) -> {ok, server()} | {error, term()}.
 do_load_server(#{name := Name} = Server) ->
     case emqx_exhook_server:load(Name, Server) of
-        {ok, ServerState} ->
-            save(Name, ServerState),
+        {ok, ServiceState} ->
+            save(Name, ServiceState),
             {ok, Server#{status => connected}};
         disable ->
             {ok, set_disable(Server)};
@@ -445,7 +436,7 @@ do_unload_server(Name, #{servers := Servers} = State) ->
             State;
         Server ->
             clean_reload_timer(Server),
-            case server(Name) of
+            case service(Name) of
                 undefined ->
                     State;
                 Service ->
@@ -456,12 +447,30 @@ do_unload_server(Name, #{servers := Servers} = State) ->
             end
     end.
 
+-spec ensure_reload_timer(server()) -> server().
 ensure_reload_timer(#{name := Name, auto_reconnect := Intv} = Server) when is_integer(Intv) ->
-    clean_reload_timer(Server),
-    Ref = erlang:start_timer(Intv, self(), {reload, Name}),
-    Server#{status := connecting, timer := Ref};
+    maybe
+        true ?= expired_timer(Server),
+        %% otherwise, respect the running timer
+        Ref = erlang:start_timer(Intv, self(), {reload, Name}),
+        %% mark status as connecting, the refresh_tick will check real conn states
+        Server#{status => connecting, timer => Ref}
+    else
+        false -> Server
+    end;
 ensure_reload_timer(Server) ->
-    Server#{status := disconnected}.
+    Server#{status => disconnected}.
+
+expired_timer(#{timer := undefined}) ->
+    true;
+expired_timer(#{name := Name, timer := Timer}) ->
+    case erlang:read_timer(Timer) of
+        false ->
+            ?SLOG(debug, #{msg => "reload_timer_not_expired", name => Name}),
+            true;
+        _RemainingTime ->
+            false
+    end.
 
 -spec clean_reload_timer(server()) -> ok.
 clean_reload_timer(#{timer := undefined}) ->
@@ -469,6 +478,13 @@ clean_reload_timer(#{timer := undefined}) ->
 clean_reload_timer(#{timer := Timer}) ->
     _ = erlang:cancel_timer(Timer),
     ok.
+
+-spec cancel_reload_timer(server()) -> server().
+cancel_reload_timer(#{timer := undefined} = Server) ->
+    Server;
+cancel_reload_timer(#{timer := Timer} = Server) ->
+    _ = erlang:cancel_timer(Timer),
+    Server#{timer => undefined}.
 
 -spec do_move(binary(), position(), list(server_options())) -> list(server_options()).
 do_move(Name, Position, ConfL) ->
@@ -597,7 +613,8 @@ sort_name_by_order(Names, Orders) ->
 refresh_tick() ->
     erlang:send_after(?REFRESH_INTERVAL, self(), ?FUNCTION_NAME).
 
-options_to_server(Options) ->
+-spec opts_to_state(server_options()) -> server().
+opts_to_state(Options) ->
     maps:merge(Options, #{status => disconnected, timer => undefined, order => 0}).
 
 update_servers(Servers, State) ->
@@ -607,8 +624,29 @@ update_servers(Servers, State) ->
 set_disable(Server) ->
     Server#{status := disabled, timer := undefined}.
 
+do_health_check(Server) ->
+    handle_health_check_res(
+        Server,
+        emqx_exhook_server:health_check(Server)
+    ).
+
+handle_health_check_res(Server, disable) ->
+    Server#{status => disabled};
+handle_health_check_res(Server, true) ->
+    (cancel_reload_timer(Server))#{status := connected};
+handle_health_check_res(#{status := connecting} = Server, false) ->
+    %% reload timer mark status to `connecting` but health check still failed
+    %% make sure reload timer is working and the mark status is `disconnected`
+    (ensure_reload_timer(Server))#{status => disconnected};
+handle_health_check_res(Server, false) ->
+    ensure_reload_timer(Server);
+handle_health_check_res(Server, skip) ->
+    %% skip the health check due to unsaved/reconnecting service
+    Server.
+
 %%----------------------------------------------------------------------------------------
 %% Server state persistent
+-spec save(server_name(), emqx_exhook_server:service()) -> ok.
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
     persistent_term:put(?APP, lists:reverse([Name | Saved])),
@@ -632,7 +670,8 @@ unsave(Name) ->
 running() ->
     persistent_term:get(?APP, []).
 
-server(Name) ->
+-spec service(server_name()) -> emqx_exhook_server:service() | undefined.
+service(Name) ->
     case persistent_term:get({?APP, Name}, undefined) of
         undefined -> undefined;
         Service -> Service
@@ -653,7 +692,7 @@ update_order(Servers) ->
     persistent_term:put(?APP, Running2).
 
 hooks(Name) ->
-    case server(Name) of
+    case service(Name) of
         undefined ->
             [];
         Service ->

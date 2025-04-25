@@ -16,7 +16,7 @@
 -export([
     load/2,
     unload/1,
-    health_check/2
+    health_check/1
 ]).
 
 %% APIs
@@ -34,8 +34,8 @@
 -export([hk2func/1]).
 -endif.
 
-%% Server name (equal to grpc client channel name)
--type server() :: #{
+-type service() :: #{
+    %% Server name (equal to grpc client channel name)
     name := binary(),
     %% The function options
     options := map(),
@@ -68,7 +68,7 @@
     | 'message.acked'
     | 'message.dropped'.
 
--export_type([server/0, hookpoint/0]).
+-export_type([service/0, hookpoint/0]).
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
@@ -81,20 +81,17 @@
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(binary(), map()) -> {ok, server()} | {error, term()} | {load_error, term()} | disable.
+-spec load(binary(), map()) -> {ok, service()} | {error, term()} | {load_error, term()} | disable.
 load(_Name, #{enable := false}) ->
     disable;
+%% load(_Name, #{status := disconnected}) ->
+%%     %% for disconnected Service, skip load to follow auto_reconnect timer
+%%     {load_error, disconnected};
 load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) ->
     ReqOpts = #{timeout => Timeout, failed_action => FailedAction},
     case channel_opts(Opts) of
         {ok, {SvrAddr, ClientOpts}} ->
-            case
-                emqx_exhook_sup:start_grpc_client_channel(
-                    Name,
-                    SvrAddr,
-                    ClientOpts
-                )
-            of
+            case start_client_channel(Name, SvrAddr, ClientOpts) of
                 {ok, _ChannPoolPid} ->
                     case do_init(Name, ReqOpts) of
                         {ok, HookSpecs} ->
@@ -172,6 +169,18 @@ format_http_uri(Scheme, Host, Port) ->
 %% @private
 filter(Ls) ->
     [E || E <- Ls, E /= undefined].
+
+%% @private
+-spec start_client_channel(binary(), string(), map()) -> {ok, pid()} | {error, term()}.
+start_client_channel(Name, SvrAddr, ClientOpts) ->
+    case emqx_exhook_sup:start_grpc_client_channel(Name, SvrAddr, ClientOpts) of
+        {ok, ChannPoolPid} ->
+            {ok, ChannPoolPid};
+        {error, {already_started, ChannPoolPid}} ->
+            {ok, ChannPoolPid};
+        {error, _} = E ->
+            E
+    end.
 
 %% @private
 do_init(ChannName, ReqOpts) ->
@@ -256,7 +265,7 @@ ensure_hooks(HookSpecs) ->
         maps:keys(HookSpecs)
     ).
 
--spec unload(server()) -> ok.
+-spec unload(service()) -> ok.
 unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
     _ = may_unload_hooks(HookSpecs),
     _ = do_deinit(Name, ReqOpts),
@@ -291,26 +300,28 @@ do_deinit(Name, ReqOpts) ->
     _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, NReqOpts),
     ok.
 
--spec health_check(map(), server() | undefined) -> boolean() | skip | disable.
-health_check(#{status := connecting}, _) ->
-    %% The channel is connecting, skip
-    skip;
-health_check(_, undefined) ->
-    skip;
-health_check(#{enable := false}, _) ->
+-spec health_check(map() | undefined) -> boolean() | skip | disable.
+health_check(#{enable := false}) ->
     disable;
-health_check(#{name := Name}, #{
-    name := ChannName,
-    options := ReqOpts
-}) ->
+health_check(#{status := disconnected}) ->
+    %% for disconnected Service, skip health check to follow auto_reconnect timer
+    skip;
+health_check(#{name := Name, request_timeout := Timeout, failed_action := FailedAction} = _Opts) ->
+    %% check all workers
     case grpc_client_sup:workers(Name) of
         [] ->
             false;
         Workers ->
-            %% check all workers
             lists:all(
                 fun({_, WorkerPid}) ->
-                    case grpc_client:health_check(WorkerPid, ReqOpts#{channel => ChannName}) of
+                    case
+                        grpc_client:health_check(
+                            WorkerPid,
+                            _ReqOpts = #{
+                                timeout => Timeout, failed_action => FailedAction, channel => Name
+                            }
+                        )
+                    of
                         ok -> true;
                         _ -> false
                     end
@@ -326,6 +337,7 @@ health_check(#{name := Name}, #{
 name(#{name := Name}) ->
     Name.
 
+-spec hooks(service()) -> list().
 hooks(#{hookspec := Hooks}) ->
     FoldFun = fun(Hook, Params, Acc) ->
         [
@@ -338,21 +350,26 @@ hooks(#{hookspec := Hooks}) ->
     end,
     maps:fold(FoldFun, [], Hooks).
 
+-spec format(service()) -> list().
 format(#{name := Name, hookspec := Hooks}) ->
     lists:flatten(
         io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])
     ).
 
--spec call(hookpoint(), map(), server()) ->
+-spec call(hookpoint(), map(), service()) ->
     ignore
     | {ok, Resp :: term()}
     | {error, term()}.
-call(Hookpoint, Req, #{
-    name := ChannName,
-    options := ReqOpts,
-    hookspec := Hooks,
-    prefix := Prefix
-}) ->
+call(
+    Hookpoint,
+    Req,
+    #{
+        name := ChannName,
+        options := ReqOpts,
+        hookspec := Hooks,
+        prefix := Prefix
+    }
+) ->
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined ->
             ignore;
